@@ -59,16 +59,39 @@ describe("POST /api/providers/[provider]/test", () => {
     vi.mocked(resolveModelObject).mockReset();
   });
 
-  test("rejects unauthenticated callers with 401", async () => {
-    let res: Response | undefined;
-    try {
-      await POST(makeEvent({}));
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(401);
+  // F6: this used to assert the handler THREW a 401 — the `expect.fail("should
+  // have thrown")` shape that PINS the 500-instead-of-403 bug as the contract
+  // (SvelteKit renders a thrown Response from a +server.ts handler as a generic
+  // 500). The redundant `requireAuth` that produced the throw is gone;
+  // `requireAdmin` already refuses a caller with no `locals.user` and RETURNS
+  // its denial, so an anonymous caller now gets the same uniform 403 "Admin
+  // role required" as a non-admin — matching the sibling `POST /api/providers`.
+  // Nothing is loosened: hooks.server.ts answers unauthenticated `/api/*` with
+  // 401 long before this handler runs.
+  test("returns (never throws) a 403 for an unauthenticated caller", async () => {
+    const res = await POST(makeEvent({}));
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "Admin role required" });
+    expect(vi.mocked(getCredential)).not.toHaveBeenCalled();
+  });
+
+  // The F6 gap this route carried: its own comment claimed "admin-only, on
+  // BOTH axes" while calling only `requireAdmin`. An admin-role key minted
+  // `--scopes read` therefore reached a live completion paid for with the
+  // instance's BYOK credential.
+  test("rejects 403 for an admin-role key scoped ['read'] and never reads the credential", async () => {
+    const res = await POST(
+      makeEvent({
+        locals: {
+          user: { id: "u1", email: "a@x", name: "a", role: "admin" },
+          apiKeyScopes: ["read"],
+        },
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "Insufficient scope", required: "admin" });
+    expect(vi.mocked(getCredential)).not.toHaveBeenCalled();
   });
 
   test("rejects 403 for a non-admin MEMBER cookie session (FINDING A)", async () => {

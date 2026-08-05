@@ -49,9 +49,23 @@ vi.mock("$server/auth/middleware", () => ({
   }),
 }));
 
-vi.mock("$lib/server/security/api-keys", () => ({
-  requireScope: vi.fn(() => null),
-}));
+// `requireScope` was stubbed `() => null` — allow-all — which made the scope
+// axis of every test in this file vacuous: the F7 probe below (a `chat`-scoped
+// key must not land code on disk) passed 201 against the mock no matter what
+// the handler demanded. The stub now REPRODUCES the real gate by delegating to
+// the real, dependency-free `hasRequiredScope` (`src/auth/api-key.ts`, node
+// crypto only — no settings store, so it is safe to import here). The DB-backed
+// half of the module (`verifyApiKey`) is still not pulled in.
+vi.mock("$lib/server/security/api-keys", async () => {
+  const { hasRequiredScope } = await import("$server/auth/api-key");
+  return {
+    requireScope: vi.fn((locals: { apiKeyScopes?: string[] }, scope: string) =>
+      hasRequiredScope(locals.apiKeyScopes as never, scope as never)
+        ? null
+        : Response.json({ error: "Insufficient scope", required: scope }, { status: 403 }),
+    ),
+  };
+});
 
 vi.mock("$server/db/queries/ez-drafts", async () => {
   const { join } = await import("node:path");
@@ -181,7 +195,10 @@ let DRAFT_ROOT: string;
 let INSTALL_ROOT: string;
 const USER = { id: "user-x", email: "x@x", name: "X", role: "member" };
 
-function makeReq(body: unknown, locals: Partial<{ user: typeof USER }> = { user: USER }): never {
+function makeReq(
+  body: unknown,
+  locals: Partial<{ user: typeof USER; apiKeyScopes: string[] }> = { user: USER },
+): never {
   return {
     request: new Request("http://x", {
       method: "POST",
@@ -285,6 +302,57 @@ describe("POST /api/extensions/author/install — auth + param", () => {
     } as never;
     const resp = await POST(req);
     expect(resp.status).toBe(400);
+  });
+
+  // ── F7: `chat` must not be able to write code to disk ────────────────
+  //
+  // This handler copies the draft into `.ezcorp/extensions/<name>` and creates
+  // the row the host loads. It demanded only `requireScope(locals,"chat")`, so
+  // a key minted for conversations landed executable code in the extension
+  // inventory. Scopes are FLAT, so `chat` was the entire gate.
+  //
+  // Both directions are asserted: `chat` is refused AND nothing lands, and
+  // `extensions` still succeeds — a fix that simply denied every key would be
+  // caught by the second test.
+  test("F7: a `chat`-scoped key is refused 403 and NOTHING lands on disk", async () => {
+    seedDraft("d-chat-key", USER.id, "weather", {
+      "ezcorp.config.ts": validManifestSrc("weather"),
+      "index.ts": "// stub",
+    });
+    const resp = await POST(makeReq({ draftId: "d-chat-key" }, { user: USER, apiKeyScopes: ["chat"] }));
+    expect(resp.status).toBe(403);
+    expect(await resp.json()).toEqual({ error: "Insufficient scope", required: "extensions" });
+    // The whole point: the install pipeline never ran.
+    expect(mockInstallFromLocal).not.toHaveBeenCalled();
+    expect(mockReload).not.toHaveBeenCalled();
+    expect(existsSync(join(INSTALL_ROOT, "weather"))).toBe(false);
+    // …and the draft is still there, unconsumed, for a properly scoped retry.
+    expect(draftStore.get("d-chat-key")?.consumed).toBe(false);
+    expect(existsSync(join(DRAFT_ROOT, USER.id, "d-chat-key"))).toBe(true);
+  });
+
+  test("F7: an `extensions`-scoped key still installs (the fix is not deny-all)", async () => {
+    seedDraft("d-ext-key", USER.id, "weather", {
+      "ezcorp.config.ts": validManifestSrc("weather"),
+      "index.ts": "// stub",
+    });
+    const resp = await POST(
+      makeReq({ draftId: "d-ext-key" }, { user: USER, apiKeyScopes: ["extensions"] }),
+    );
+    expect(resp.status).toBe(201);
+    expect(mockInstallFromLocal).toHaveBeenCalledTimes(1);
+    expect(existsSync(join(INSTALL_ROOT, "weather", "ezcorp.config.ts"))).toBe(true);
+  });
+
+  test("F7: a cookie session (no apiKeyScopes) is unaffected", async () => {
+    // `requireScope` is allow-all when `locals.apiKeyScopes` is undefined, so
+    // the member-facing web form at /extensions/author keeps working. If this
+    // ever fails, the scope raise has become a product change.
+    seedDraft("d-cookie", USER.id, "weather", {
+      "ezcorp.config.ts": validManifestSrc("weather"),
+    });
+    const resp = await POST(makeReq({ draftId: "d-cookie" }, { user: USER }));
+    expect(resp.status).toBe(201);
   });
 });
 

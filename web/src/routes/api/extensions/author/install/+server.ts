@@ -36,7 +36,30 @@ export async function _verifyDraft(draftDir: string) {
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   try {
-    const scopeErr = requireScope(locals, "chat");
+    // F7: this route lands EXECUTABLE CODE on disk — `installAuthoredDraft`
+    // copies the draft into `.ezcorp/extensions/<name>` and creates the
+    // extension row the host will load. It used to demand only the `chat`
+    // scope, so a key minted for conversations could write code into the
+    // extension inventory. Scopes are FLAT (`hasRequiredScope` is a plain
+    // `includes`), so `chat` subsumes nothing and this was the whole gate.
+    //
+    // `extensions` is the scope that exists for exactly this — changing the
+    // extension inventory: `PATCH`/`DELETE /api/extensions/:id` (disable /
+    // uninstall), `POST /api/extensions/:id/secrets`, and above all
+    // `POST /api/import/commit`, the closest analogue (it also materializes a
+    // bundle onto disk). It is the TIGHTEST scope that removes code-on-disk
+    // from the chat surface without breaking the product: authoring is a
+    // member-facing flow, and the web form is a cookie session, for which
+    // `requireScope` is a no-op.
+    //
+    // Deliberately NOT `admin` (what `POST /api/extensions` uses via
+    // `checkRole`): that route installs from an arbitrary local path, GitHub
+    // release or git URL — someone else's code. This one installs the
+    // CALLER'S OWN draft, ownership-checked inside `installAuthoredDraft`
+    // (a draft owned by another user 404s), verify-gated, and landed
+    // `enabled: false` with no permissions. Requiring an admin ROLE would end
+    // member authoring, which is a product decision, not a scope fix.
+    const scopeErr = requireScope(locals, "extensions");
     if (scopeErr) return scopeErr;
     const user = requireAuth(locals);
 

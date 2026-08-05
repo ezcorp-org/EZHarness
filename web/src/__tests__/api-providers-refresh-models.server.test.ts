@@ -52,16 +52,35 @@ describe("POST /api/providers/[provider]/refresh-models", () => {
     vi.mocked(upsertSetting).mockResolvedValue(undefined as any);
   });
 
-  test("rejects unauthenticated callers with 401", async () => {
-    let res: Response | undefined;
-    try {
-      await POST(makeEvent({}));
-      expect.fail("should have thrown");
-    } catch (thrown) {
-      expect(thrown).toBeInstanceOf(Response);
-      res = thrown as Response;
-    }
-    expect(res!.status).toBe(401);
+  // F6: this used to assert the handler THREW a 401 — the `expect.fail("should
+  // have thrown")` shape that PINS the 500-instead-of-403 bug as the contract.
+  // The redundant `requireAuth` is gone; `requireAdmin` refuses a caller with
+  // no `locals.user` and RETURNS its denial. hooks.server.ts still answers
+  // unauthenticated `/api/*` with 401 before this handler is reached.
+  test("returns (never throws) a 403 for an unauthenticated caller", async () => {
+    const res = await POST(makeEvent({}));
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "Admin role required" });
+    expect(vi.mocked(fetchProviderModels)).not.toHaveBeenCalled();
+  });
+
+  // The F6 gap: the comment claimed "BOTH axes" while only `requireAdmin` ran,
+  // so an admin-role key minted `--scopes read` could overwrite
+  // `provider:discoveredModels:*` — the list every routing decision reads.
+  test("rejects 403 for an admin-role key scoped ['read'] and writes nothing", async () => {
+    const res = await POST(
+      makeEvent({
+        locals: {
+          user: { id: "u1", email: "a@x", name: "a", role: "admin" },
+          apiKeyScopes: ["read"],
+        },
+      }),
+    );
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({ error: "Insufficient scope", required: "admin" });
+    expect(vi.mocked(fetchProviderModels)).not.toHaveBeenCalled();
+    expect(vi.mocked(upsertSetting)).not.toHaveBeenCalled();
   });
 
   test("rejects 403 for a non-admin member even with an admin api-key scope", async () => {
@@ -77,6 +96,32 @@ describe("POST /api/providers/[provider]/refresh-models", () => {
       }),
     );
     expect(res.status).toBe(403);
+  });
+
+  // The POSITIVE half of the two-axis matrix. Both negatives above are also
+  // satisfied by a deny-all gate, so without this case a regression that
+  // refused every API-key principal would read green. `adminUser` on the
+  // happy paths below is a COOKIE session (no `apiKeyScopes`), which
+  // `hasRequiredScope` allow-alls — it never exercises the key path at all.
+  test("admin-role key holding the 'admin' scope passes BOTH axes and writes", async () => {
+    vi.mocked(getCredential).mockResolvedValue({ type: "apikey", token: "k" } as any);
+    vi.mocked(fetchProviderModels).mockResolvedValue([{ id: "gpt-4o" }] as any);
+
+    const res = await POST(
+      makeEvent({
+        locals: {
+          user: { id: "u1", email: "a@x", name: "a", role: "admin" },
+          apiKeyScopes: ["read", "admin"],
+        },
+        params: { provider: "openai" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ success: true, count: 1 });
+    expect(vi.mocked(upsertSetting)).toHaveBeenCalledWith(
+      "provider:discoveredModels:openai",
+      [{ id: "gpt-4o" }],
+    );
   });
 
   test("returns 400 for unknown provider", async () => {

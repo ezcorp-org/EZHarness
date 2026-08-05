@@ -5,8 +5,10 @@
  *     ungated test/determinism surface can ship).
  *  2. Every control-tier `/api/*` route on disk is registered in
  *     `src/api-registry.ts` (so it is documented + appears in the generated
- *     OpenAPI contract). A frozen BASELINE captures pre-existing gaps so the
- *     test is green today but fails when a NEW unregistered route lands.
+ *     OpenAPI contract) — and every registered route exists on disk. Both
+ *     directions are now absolute: the frozen BASELINE of 75 unregistered
+ *     routes and the KNOWN_STALE allowance of 4 phantom entries were paid off
+ *     in 2026-08, so neither carve-out remains for a new gap to hide in.
  *
  * See docs/harness-contract.md.
  */
@@ -441,127 +443,42 @@ describe("registry ⇄ filesystem parity", () => {
   const diskKeys = new Set(controlDisk.map((r) => `${r.method} ${r.path}`));
   const registeredKeys = apiRegistry.map((e) => `${e.method} ${e.path}`);
 
-  // Pre-existing registry inaccuracies (wrong method/path vs the handler on
-  // disk) — surfaced by this very test, but unrelated to the remote-control
-  // feature so left for a separate registry-reconciliation pass. Frozen so a
-  // NEW stale entry fails; shrink as these are corrected.
-  const KNOWN_STALE = new Set<string>([
-    "GET /api/auth/oauth/callback", // disk: POST + DELETE
-    "GET /api/users/:id",           // disk: PUT only
-    "PATCH /api/conversations/:id", // disk: PUT
-    "POST /api/quickstart",         // disk: GET
-  ]);
-
-  test("no NEW stale registry entry (registered routes exist on disk)", () => {
+  // KNOWN_STALE is GONE. It held four registry entries that described no
+  // handler on disk (`GET /api/auth/oauth/callback` — the file exports POST +
+  // DELETE; `GET /api/users/:id` — PUT only; `PATCH /api/conversations/:id` —
+  // PUT; `POST /api/quickstart` — GET). Each was checked against the file's
+  // exports and deleted from `src/api-registry.ts`, and the real verb
+  // registered in its place. The allowance is not needed, so it is not kept:
+  // a carve-out that no longer carves anything out is a standing licence for
+  // the next stale entry to hide behind.
+  test("no stale registry entry — every registered route exists on disk", () => {
     // Keeps the generated OpenAPI contract honest — a registry entry with no
-    // matching handler would advertise a route that 404s.
-    const stale = registeredKeys.filter((k) => !diskKeys.has(k) && !KNOWN_STALE.has(k)).sort();
+    // matching handler advertises a route that 404s.
+    const stale = registeredKeys.filter((k) => !diskKeys.has(k)).sort();
     expect(stale).toEqual([]);
   });
 
-  // The registry is a curated (currently partial) mirror of the HTTP surface.
-  // CLAUDE.md makes registration binding for EVERY `/api/*` route, so each
-  // entry below is a STANDING VIOLATION of that invariant — frozen so the debt
-  // is individually visible and strictly bounded, rather than aggregated into a
-  // number nobody can act on.
+  // CLAUDE.md makes registration binding for EVERY `/api/*` route. This guard
+  // used to carry that invariant as DEBT: a frozen `KNOWN_UNREGISTERED` set of
+  // 75 standing violations, plus the rule "this list may only SHRINK".
   //
-  // This was a COUNT ratchet (`BASELINE_UNREGISTERED`) and it failed twice in
-  // the way this guard keeps failing — something that looks like a check and
-  // isn't:
-  //   1. The baseline sat at 130 while the live count was 129, so the gate
-  //      carried a FREE SLOT: one new unregistered route could land silently
-  //      green.
-  //   2. When it did trip it could not name the offender — it dumped all ~130
-  //      unregistered routes sorted and asked the author to spot their own.
-  //   3. Earlier still, its "newly unregistered" filter was the tautology
+  // The debt is paid. All 75 are registered in `src/api-registry.ts`, so the
+  // frozen set is gone and the assertion is the invariant itself: NO control
+  // route on disk may be missing from the registry. That is a strengthening —
+  // there is no longer a list to add a line to.
+  //
+  // Two earlier shapes of this guard failed in ways worth not repeating:
+  //   1. A COUNT ratchet (`BASELINE_UNREGISTERED`) sat at 130 while the live
+  //      count was 129, so the gate carried a FREE SLOT — one new unregistered
+  //      route could land silently green — and when it did trip it could not
+  //      name the offender, dumping all ~130 routes and asking the author to
+  //      spot their own.
+  //   2. Earlier still, its "newly unregistered" filter was the tautology
   //      `!diskKeys.has(k) ? false : true` (every key is built FROM
-  //      `controlDisk`, so the guard was always true), which listed everything
-  //      under a misleading label.
-  // A frozen SET closes all three: a new offender is named exactly, and the set
-  // has no slack to absorb one.
-  //
-  // TO REGISTER A ROUTE: add it to `src/api-registry.ts` AND delete its line
-  // here. Deleting the line is not optional bookkeeping — the staleness test
-  // below FAILS if an entry no longer describes an unregistered route, so this
-  // list cannot rot into a second stale artifact (which is the exact failure
-  // mode it replaces).
-  //
-  // This list may only SHRINK. Sorted; keep it sorted.
-  const KNOWN_UNREGISTERED: ReadonlySet<string> = new Set([
-    "DELETE /api/agents/:id/share",
-    "DELETE /api/agents/:name/test-conversations",
-    "DELETE /api/conversations/:id/tasks/:taskId/assign",
-    "DELETE /api/extensions/author/draft/:id",
-    "DELETE /api/ez/conversation/messages",
-    "DELETE /api/lessons/:id",
-    "DELETE /api/modes/:id",
-    "DELETE /api/projects/:id/features/:featureId",
-    "DELETE /api/user-commands/:name",
-    "DELETE /api/workflows/:name",
-    "GET /api/agents/:id/share",
-    "GET /api/attachments/:id",
-    "GET /api/auth/invite/:token",
-    "GET /api/conversations/:id/active-run",
-    "GET /api/conversations/:id/extension-toolbar",
-    "GET /api/conversations/:id/sub-conversations",
-    "GET /api/conversations/:id/tasks",
-    "GET /api/conversations/:id/tasks/:taskId/messages",
-    "GET /api/conversations/:id/team/:agentConfigId/messages",
-    "GET /api/ext-files/:name/:path",
-    "GET /api/extensions/:name/data/:path",
-    "GET /api/ez/conversation",
-    "GET /api/ez/drafts/:id",
-    "GET /api/hub/pages",
-    "GET /api/hub/pages/:id",
-    "GET /api/lessons",
-    "GET /api/marketplace/categories",
-    "GET /api/modes",
-    "GET /api/modes/:id",
-    "GET /api/projects/:id/features",
-    "GET /api/projects/:id/features/:featureId",
-    "GET /api/projects/:id/tool-permission-mode",
-    "GET /api/user-commands",
-    "GET /api/user-commands/:name",
-    "GET /api/user/agent-picker",
-    "PATCH /api/conversations/:id/messages/:mid",
-    "PATCH /api/lessons/:id",
-    "PATCH /api/memories/:id",
-    "PATCH /api/projects/:id/features/:featureId",
-    "PATCH /api/user-commands/:name",
-    "POST /api/ask-user/answer",
-    "POST /api/conversations/:id/agent-chat",
-    "POST /api/conversations/:id/clone-turns",
-    "POST /api/conversations/:id/tasks/:taskId/assign",
-    "POST /api/conversations/:id/tasks/:taskId/assignments/:assignmentId/start",
-    "POST /api/conversations/:id/tasks/:taskId/assignments/:assignmentId/stop",
-    "POST /api/conversations/:id/tasks/:taskId/retry",
-    "POST /api/conversations/:id/tool-results",
-    "POST /api/extensions/:id/reapprove",
-    "POST /api/extensions/:id/reopen",
-    "POST /api/extensions/:name/events/:event",
-    "POST /api/extensions/:name/uploads",
-    "POST /api/extensions/author/draft/:id/validate",
-    "POST /api/extensions/author/install",
-    "POST /api/ez-actions/:name",
-    "POST /api/ez/conversation",
-    "POST /api/ez/drafts/:id",
-    "POST /api/ez/drafts/:id/consume",
-    "POST /api/import/commit",
-    "POST /api/import/preview",
-    "POST /api/modes",
-    "POST /api/onboarding/complete",
-    "POST /api/preview/:id/token",
-    "POST /api/preview/consent",
-    "POST /api/projects/:id/features",
-    "POST /api/projects/:id/features/scan",
-    "POST /api/user-commands",
-    "POST /api/workflows",
-    "PUT /api/conversations/:id",
-    "PUT /api/extensions/author/draft/:id",
-    "PUT /api/modes/:id",
-    "PUT /api/user/agent-picker",
-    "PUT /api/workflows/:name",
-  ]);
+  //      `controlDisk`, so the guard was always true), listing everything under
+  //      a misleading label.
+  // The exact-diff assertion below has neither problem: it names precisely the
+  // route(s) at fault, and it has no slack to absorb one.
 
   /** Every control route on disk that the registry does not describe. */
   function currentlyUnregistered(): Set<string> {
@@ -573,33 +490,18 @@ describe("registry ⇄ filesystem parity", () => {
     );
   }
 
-  test("no NEW unregistered control route (frozen set names the offender)", () => {
-    // Exact diff: the route(s) that are unregistered AND absent from the frozen
-    // debt list. The author sees their own route and nothing else — the whole
-    // point of moving off the count baseline.
-    const novel = [...currentlyUnregistered()]
-      .filter((k) => !KNOWN_UNREGISTERED.has(k))
-      .sort();
-    expect(novel).toEqual([]);
+  test("every control route on disk is registered (names the offender exactly)", () => {
+    expect([...currentlyUnregistered()].sort()).toEqual([]);
   });
 
-  test("the frozen set does not rot (every entry is STILL unregistered)", () => {
-    // Registering a route while leaving its line here would turn this list into
-    // stale documentation that silently re-permits the route if it is ever
-    // un-registered again. An entry that no longer describes an unregistered
-    // route — because it was registered, renamed, or deleted from disk — fails
-    // LOUDLY and must be removed.
-    const live = currentlyUnregistered();
-    const stale = [...KNOWN_UNREGISTERED].filter((k) => !live.has(k)).sort();
-    expect(stale).toEqual([]);
-  });
-
-  test("the frozen set is non-empty and sorted (guards a vacuous pass)", () => {
-    // An empty (or accidentally-cleared) set would make the offender test pass
-    // for every route; an unsorted one makes review diffs unreadable.
-    expect(KNOWN_UNREGISTERED.size).toBeGreaterThan(0);
-    const listed = [...KNOWN_UNREGISTERED];
-    expect(listed).toEqual([...listed].sort());
+  test("the scan actually sees the surface it is asserting over (vacuous-pass guard)", () => {
+    // With no frozen list left, an empty assertion is the failure mode: a
+    // broken glob or an empty registry would make the test above pass for
+    // every route. Both sides must be substantial, and the registry must
+    // actually cover the disk rather than merely not contradicting it.
+    expect(controlDisk.length).toBeGreaterThan(100);
+    expect(registeredKeys.length).toBeGreaterThan(100);
+    expect(registeredKeys.length).toBeGreaterThanOrEqual(new Set(controlDisk.map((r) => `${r.method} ${r.path}`)).size);
   });
 });
 

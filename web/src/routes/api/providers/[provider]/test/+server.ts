@@ -1,10 +1,9 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
-import { requireAuth } from "$server/auth/middleware";
 import { getCredential } from "$server/providers/credentials";
 import { findModelForProviderInTier, resolveModelObject } from "$server/providers/registry";
 import { complete } from "@earendil-works/pi-ai/compat";
-import { requireAdmin } from "$lib/server/security/api-keys";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 
 const VALID_PROVIDERS = new Set(["anthropic", "openai", "google", "openrouter"]);
@@ -14,9 +13,18 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	// BOTH axes. requireScope("admin") alone would allow any cookie session
 	// (allow-all for non-API-key principals); requireAdmin gates on role so
 	// non-admin members get 403. See FINDING A.
-	requireAuth(locals);
+	//
+	// F6: the "BOTH axes" above was, until now, only half true — the scope
+	// call was missing, so an admin-role key minted `--scopes read` could spend
+	// the instance's BYOK provider credential on a live completion. The
+	// `requireAdmin` + `requireScope("admin")` pairing matches the sibling
+	// `POST/DELETE /api/providers`. `requireAuth` is gone: it THREW its 401
+	// (SvelteKit renders a thrown Response as a 500) and `requireAdmin` already
+	// refuses a request with no `locals.user`, returning its denial.
 	const adminErr = requireAdmin(locals);
 	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
 
 	const { provider } = params;
 	if (!provider || !VALID_PROVIDERS.has(provider)) {

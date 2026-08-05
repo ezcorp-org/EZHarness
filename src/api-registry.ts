@@ -35,16 +35,19 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/auth/logout", description: "End current session", category: "auth" },
   { method: "GET", path: "/api/auth/me", description: "Get current authenticated user", category: "auth", responseDescription: "User object with id, name, email, role" },
   { method: "POST", path: "/api/auth/setup", description: "Initial admin setup (first-run only)", category: "auth", schemaKey: "setupSchema" },
-  { method: "POST", path: "/api/auth/invite", description: "Create user invitation link", category: "auth", schemaKey: "createInviteSchema" },
-  // Gate: `requireRole(locals,"admin")` only — no `requireScope`, so no scope
-  // is declared. The reachability caveat that used to be recorded here (the
-  // bare path sat in the hooks PUBLIC_PATHS allowlist, so `locals.user` was
-  // never populated and the role gate 401'd every caller) was FIXED by F5:
-  // `/api/auth/invite` moved to PUBLIC_SUBPATHS_ONLY, so only `/:token` is
-  // anonymous and both admin methods are reachable again.
-  { method: "GET", path: "/api/auth/invite", description: "List outstanding user invitations. Gate: requireAdmin(locals) only — no API-key scope gate", category: "auth", responseDescription: "{ invites }" },
+  // F5 moved the BARE `/api/auth/invite` path out of the hooks PUBLIC_PATHS
+  // allowlist into PUBLIC_SUBPATHS_ONLY (web/src/hooks.server.ts:397), so both
+  // methods are now genuinely reachable by an authenticated admin — before
+  // that, `locals.user` was never populated on a public path and the role gate
+  // denied every caller (a broken feature, failing closed).
+  // F6 then closed the KEY axis: both gate on `checkRole(locals,"admin")`,
+  // which demands the admin ROLE *and* — for a key principal — the `admin`
+  // SCOPE. Minting an invite carries a `role`, so a nominally read-only
+  // admin-role key could otherwise hand out an ADMIN invite.
+  { method: "POST", path: "/api/auth/invite", description: "Create user invitation link (admin role + admin scope)", category: "auth", scope: "admin", schemaKey: "createInviteSchema" },
+  { method: "GET", path: "/api/auth/invite", description: "List outstanding user invitations (admin role + admin scope)", category: "auth", scope: "admin", responseDescription: "{ invites }" },
   { method: "POST", path: "/api/auth/invite/:token", description: "Accept invitation and create account", category: "auth" },
-  // Had the SAME defect F5 fixed for invite, and is fixed here the same way:
+  // Had the SAME defect F5 fixed for invite, and is fixed the same way:
   // the bare path moved from PUBLIC_PATHS to PUBLIC_SUBPATHS_ONLY, so
   // `locals.user` is populated and `requireRole(locals,"admin")` can finally
   // pass. Before that this route — and the "Generate reset link" button in
@@ -59,15 +62,19 @@ export const apiRegistry: ApiRouteEntry[] = [
   // as the callback that completes it, so a member is refused HERE rather
   // than after being walked through a provider consent screen.
   { method: "GET", path: "/api/auth/oauth", description: "Begin the provider OAuth (PKCE) handshake for openai|google and stash the pending state. Gate: admin role + admin scope", category: "auth", scope: "admin" },
-  { method: "GET", path: "/api/auth/oauth/callback", description: "Handle OAuth provider callback", category: "auth" },
+  // `GET /api/auth/oauth/callback` used to be registered here and does not
+  // exist — the handler on disk exports POST and DELETE only. It was carried
+  // in route-contract.test.ts's now-retired KNOWN_STALE set for exactly that
+  // reason; with that set gone the phantom entry has to go too.
+  //
   // The OTHER door to the instance LLM credential. POST/DELETE here write and
   // remove `provider:oauth:<provider>`, which `src/providers/credentials.ts`
   // resolves for every user's turns — the same room `provider:apiKey:*` (and
   // therefore `POST`/`DELETE /api/providers`) lives in. Both were gated on
-  // `requireAuth` alone until this change, so any authenticated member could
-  // redirect or delete the organisation's provider credential. Now gated on
-  // BOTH axes, exactly as /api/providers is: `requireAdmin(locals)` for the
-  // role and `requireScope(locals,"admin")` for the API-key scope.
+  // `requireAuth` alone until sec-F2/#86, so any authenticated member could
+  // redirect or delete the organisation's provider credential. Both are now
+  // gated on BOTH axes, exactly as /api/providers is: `requireAdmin(locals)`
+  // for the role and `requireScope(locals,"admin")` for the API-key scope.
   { method: "POST", path: "/api/auth/oauth/callback", description: "Exchange an OAuth authorization code (PKCE) and store the INSTANCE provider credential at provider:oauth:<provider>, encrypted. Gate: admin role + admin scope", category: "auth", scope: "admin" },
   { method: "DELETE", path: "/api/auth/oauth/callback", description: "Disconnect a provider by deleting the instance credential at provider:oauth:<provider>. Gate: admin role + admin scope", category: "auth", scope: "admin" },
 
@@ -87,7 +94,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/conversations", description: "List conversations for active project", category: "conversations", responseDescription: "Array of conversation objects" },
   { method: "POST", path: "/api/conversations", description: "Create a new conversation", category: "conversations", scope: "chat", harness: { controllable: true }, schemaKey: "createConversationSchema" },
   { method: "GET", path: "/api/conversations/:id", description: "Get conversation by ID", category: "conversations", scope: "read" },
-  { method: "PATCH", path: "/api/conversations/:id", description: "Update conversation title, model, or system prompt", category: "conversations", schemaKey: "updateConversationSchema" },
+  // The update verb is PUT, registered in the backlog block below. The PATCH
+  // entry that used to sit here described no handler (KNOWN_STALE).
   { method: "DELETE", path: "/api/conversations/:id", description: "Delete a conversation", category: "conversations", scope: "chat" },
   { method: "GET", path: "/api/conversations/:id/messages", description: "List messages in a conversation", category: "conversations", scope: "read", responseDescription: "Array of message objects with tool calls" },
   { method: "POST", path: "/api/conversations/:id/messages", description: "Send a message and trigger AI response", category: "conversations", scope: "chat", harness: { controllable: true }, schemaKey: "createMessageSchema" },
@@ -138,7 +146,15 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/agents", description: "List available agents", category: "agents" },
   { method: "POST", path: "/api/agents/:name/run", description: "Execute an agent by name", category: "agents", schemaKey: "runAgentSchema" },
   { method: "GET", path: "/api/agents/:name/test-conversations", description: "List test conversations for agent", category: "agents" },
-  { method: "POST", path: "/api/agents/:id/share", description: "Share agent to marketplace", category: "agents" },
+  // `POST /api/agents/:id/share` used to sit here described as "Share agent to
+  // marketplace". It does not touch the marketplace (that is
+  // `POST /api/marketplace`) — the handler imports `shareAgent` /
+  // `shareAgentWithUser` from `db/queries/agent-shares` and grants team/user
+  // access. Re-registered accurately, with its GET and DELETE siblings, in the
+  // backlog block at the bottom of this file. The `no duplicate method+path`
+  // assertion in `src/__tests__/api-docs.test.ts` is what caught the double
+  // entry — the route-vs-disk parity scan could not, because the path WAS
+  // registered; only the description was wrong.
 
   // Extensions
   { method: "GET", path: "/api/extensions", description: "List installed extensions", category: "extensions", scope: "read", harness: { controllable: true } },
@@ -246,7 +262,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "PUT", path: "/api/projects/:id/tool-permission-mode", description: "Set tool permission mode for project", category: "projects" },
 
   // Settings
-  { method: "GET", path: "/api/settings", description: "Get application settings", category: "settings" },
+  { method: "GET", path: "/api/settings", description: "Get every non-deny-listed instance setting. Gate: requireAdmin(locals) for the ROLE plus requireScope(locals,\"admin\") for the KEY axis (F6) — until 2026-08 the scope half was missing, so an admin-role key minted `--scopes read` read the whole settings blob", category: "settings", scope: "admin" },
   { method: "GET", path: "/api/settings/:key", description: "Get single setting by key (requires an admin-role key)", category: "settings", scope: "admin", harness: { controllable: true } },
   { method: "PUT", path: "/api/settings/:key", description: "Update a setting value (requires an admin-role key)", category: "settings", scope: "admin", harness: { controllable: true } },
   { method: "DELETE", path: "/api/settings/:key", description: "Delete a setting value; internally-managed keys (the sensitive deny-list) are refused with 403 (requires an admin-role key)", category: "settings", scope: "admin", responseDescription: "{ ok: true }" },
@@ -265,46 +281,50 @@ export const apiRegistry: ApiRouteEntry[] = [
 
   // Providers & Models
   { method: "GET", path: "/api/providers", description: "List configured AI providers", category: "providers" },
-  { method: "POST", path: "/api/providers/:provider/test", description: "Test provider connection", category: "providers" },
-  { method: "POST", path: "/api/providers/:provider/refresh-models", description: "Fetch latest models from the provider (direct /v1/models, enriched/backed by the models.dev catalog)", category: "providers" },
+  // Both spend the instance's BYOK provider credential, so both gate on the
+  // ROLE (requireAdmin) *and* the KEY axis (requireScope "admin") — the F6
+  // pairing their own comments already claimed but did not perform.
+  { method: "POST", path: "/api/providers/:provider/test", description: "Test provider connection with a live 1-token completion using the instance BYOK credential (admin role + admin scope)", category: "providers", scope: "admin" },
+  { method: "POST", path: "/api/providers/:provider/refresh-models", description: "Fetch latest models from the provider (direct /v1/models, enriched/backed by the models.dev catalog) and overwrite provider:discoveredModels:* (admin role + admin scope)", category: "providers", scope: "admin" },
   { method: "GET", path: "/api/models", description: "List available AI models", category: "providers" },
   { method: "GET", path: "/api/models/default-selection", description: "Default model selection for a user with no saved pick — `provider:defaultSelection`, \"auto\" (route the first turn) or \"first\" (pin models[0]). Read-scoped, not admin-only, so an operator's revert reaches every user", category: "providers", scope: "read", responseDescription: '{ value: "auto" | "first" }' },
 
-  // ── Instance-state writes gated on ROLE ONLY ──────────────────────────
-  // Everything in this block calls `requireAdmin(locals)` and NOTHING else —
-  // no `requireScope`. That is deliberate history (sec-C5 / sec-H1 replaced a
-  // cookie-no-op `requireScope("admin")` with the role gate) but it leaves the
-  // KEY axis ungated: an admin-role key minted `--scopes read` satisfies
-  // these. No `scope` is declared because none is enforced; documenting one
-  // would describe a gate that does not exist. See the registry-reconciliation
-  // findings — changing the gate is a separate, reviewable security change,
-  // not part of a registration pass.
+  // ── Instance-state writes gated on BOTH axes ──────────────────────────
+  // Every entry in this block now pairs `requireAdmin(locals)` (the ROLE) with
+  // `requireScope(locals,"admin")` (the KEY axis), role first so a non-admin
+  // gets the uniform 403 "Admin role required" instead of learning that scope
+  // was also short. Both helpers RETURN their denial — `requireRole` used to
+  // THROW it and SvelteKit renders a thrown Response as a 500, so these routes
+  // once answered "Internal Error" instead of 403.
   //
-  // The gate was `requireRole(locals,"admin")` until the thrown-Response sweep:
-  // `requireRole` THROWS its denial and SvelteKit renders a thrown Response as
-  // a 500, so these routes answered "Internal Error" instead of 403.
-  // `requireAdmin` RETURNS the same denial and gates on the SAME single axis,
-  // so the "no API-key scope gate" contract above is unchanged.
-  { method: "POST", path: "/api/providers", description: "Store (encrypted) the instance's BYOK API key for anthropic|openai|google|openrouter, audited as provider:key_upsert. Gate: requireAdmin(locals) only — no API-key scope gate", category: "providers" },
-  { method: "DELETE", path: "/api/providers", description: "Delete the instance's stored BYOK API key for one provider, audited as provider:key_delete. Gate: requireAdmin(locals) only — no API-key scope gate", category: "providers" },
-  { method: "POST", path: "/api/providers/local/models", description: "List models offered by a caller-supplied local OpenAI-compatible baseUrl. Server-side fetch behind the sec-H1 SSRF guard: http(s) only, private/loopback rejected, and every resolved A/AAAA re-checked (DNS-rebinding pin). Gate: requireAdmin(locals) only — no API-key scope gate", category: "providers" },
-  { method: "POST", path: "/api/providers/local/test", description: "Probe one { baseUrl, modelId } on a local OpenAI-compatible server, behind the same sec-H1 SSRF guard as /local/models. Gate: requireAdmin(locals) only — no API-key scope gate", category: "providers" },
+  // This block's comment used to say "ROLE ONLY … no `requireScope` … no
+  // `scope` is declared because none is enforced". That stopped being true
+  // when F2 landed the scope half (pinned for all eleven handlers by
+  // `web/src/__tests__/api-admin-scope-gate.server.test.ts`, which probes an
+  // admin-role key scoped `["read"]` and asserts 403 + no write). The stale
+  // prose survived because nothing cross-checks a registry DESCRIPTION against
+  // the handler — only `scope` and the method/path are machine-checked.
+  { method: "POST", path: "/api/providers", description: "Store (encrypted) the instance's BYOK API key for anthropic|openai|google|openrouter, audited as provider:key_upsert (admin role + admin scope)", category: "providers", scope: "admin" },
+  { method: "DELETE", path: "/api/providers", description: "Delete the instance's stored BYOK API key for one provider, audited as provider:key_delete (admin role + admin scope)", category: "providers", scope: "admin" },
+  { method: "POST", path: "/api/providers/local/models", description: "List models offered by a caller-supplied local OpenAI-compatible baseUrl. Server-side fetch behind the sec-H1 SSRF guard: http(s) only, private/loopback rejected, and every resolved A/AAAA re-checked (DNS-rebinding pin) (admin role + admin scope)", category: "providers", scope: "admin" },
+  { method: "POST", path: "/api/providers/local/test", description: "Probe one { baseUrl, modelId } on a local OpenAI-compatible server, behind the same sec-H1 SSRF guard as /local/models (admin role + admin scope)", category: "providers", scope: "admin" },
 
-  // MCP server lifecycle. Same role-only shape as the block above; each of
+  // MCP server lifecycle. Same two-axis shape as the block above; each of
   // these opens an outbound connection to an operator-supplied MCP server.
-  { method: "POST", path: "/api/mcp-servers", description: "Install an MCP server as an extension — a throwaway client must connect and return tools/list before anything is persisted (502 on failure, no mutation). Gate: requireAdmin(locals) only — no API-key scope gate", category: "extensions", responseDescription: "the installed extension row (201)" },
-  { method: "PUT", path: "/api/mcp-servers/:id", description: "Edit an installed MCP server's config and re-snapshot its tools; a blank header value keeps the stored secret, and connectivity is verified before any write (502 leaves the config untouched). Gate: requireAdmin(locals) only — no API-key scope gate", category: "extensions" },
-  { method: "POST", path: "/api/mcp-servers/:id/refresh", description: "Re-pull an installed MCP server's tool list into the registry cache (502 when the server is unreachable). Gate: requireAdmin(locals) only — no API-key scope gate", category: "extensions", responseDescription: "{ id, tools }" },
+  { method: "POST", path: "/api/mcp-servers", description: "Install an MCP server as an extension — a throwaway client must connect and return tools/list before anything is persisted (502 on failure, no mutation) (admin role + admin scope)", category: "extensions", scope: "admin", responseDescription: "the installed extension row (201)" },
+  { method: "PUT", path: "/api/mcp-servers/:id", description: "Edit an installed MCP server's config and re-snapshot its tools; a blank header value keeps the stored secret, and connectivity is verified before any write (502 leaves the config untouched) (admin role + admin scope)", category: "extensions", scope: "admin" },
+  { method: "POST", path: "/api/mcp-servers/:id/refresh", description: "Re-pull an installed MCP server's tool list into the registry cache (502 when the server is unreachable) (admin role + admin scope)", category: "extensions", scope: "admin", responseDescription: "{ id, tools }" },
 
   // Search backend config — reuses the encrypted, deny-listed
   // `provider:apiKey:*` store, so keys are never readable back out.
-  { method: "GET", path: "/api/search/backend", description: "Presence-only search-backend status: hasKey per BYOK provider (tavily|brave|exa|serpapi|jina) plus the SearXNG base URL. Keys are never returned. Gate: requireAdmin(locals) only — no API-key scope gate", category: "settings", responseDescription: "{ providers: [{ provider, hasKey }], searxngUrl }" },
-  { method: "POST", path: "/api/search/backend", description: "Upsert either a BYOK search key (encrypted into provider:apiKey:*) or the SearXNG base URL (http(s) validated), audited as search:backend_upsert. Gate: requireAdmin(locals) only — no API-key scope gate", category: "settings" },
-  { method: "DELETE", path: "/api/search/backend", description: "Delete one BYOK search key, audited as search:backend_delete. Gate: requireAdmin(locals) only — no API-key scope gate", category: "settings" },
+  { method: "GET", path: "/api/search/backend", description: "Presence-only search-backend status: hasKey per BYOK provider (tavily|brave|exa|serpapi|jina) plus the SearXNG base URL. Keys are never returned (admin role + admin scope)", category: "settings", scope: "admin", responseDescription: "{ providers: [{ provider, hasKey }], searxngUrl }" },
+  { method: "POST", path: "/api/search/backend", description: "Upsert either a BYOK search key (encrypted into provider:apiKey:*) or the SearXNG base URL (http(s) validated), audited as search:backend_upsert (admin role + admin scope)", category: "settings", scope: "admin" },
+  { method: "DELETE", path: "/api/search/backend", description: "Delete one BYOK search key, audited as search:backend_delete (admin role + admin scope)", category: "settings", scope: "admin" },
 
   // Users & Teams
   { method: "GET", path: "/api/users", description: "List users (admin)", category: "users" },
-  { method: "GET", path: "/api/users/:id", description: "Get user by ID", category: "users" },
+  // `GET /api/users/:id` was registered and does not exist — the handler
+  // exports PUT only (registered directly below). KNOWN_STALE.
   { method: "PUT", path: "/api/users/:id", description: "Activate or deactivate a user ({ status: \"active\" | \"inactive\" }); deactivation atomically transfers the user's agents to the acting admin and refuses self-deactivation (requires an admin-role key)", category: "users", scope: "admin", responseDescription: "{ user } (password hash stripped)" },
   { method: "GET", path: "/api/users/search", description: "Search users by name or email", category: "users" },
   { method: "GET", path: "/api/teams", description: "List teams", category: "teams" },
@@ -404,12 +424,22 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/composer/suggest/feedback", description: "Record composer-suggestion telemetry (shown/accepted/dismissed; never draft text)", category: "composer", scope: "chat", schemaKey: "suggestFeedbackSchema", responseDescription: "{ ok: true } (201)" },
 
   // System
-  { method: "GET", path: "/api/health", description: "Health check endpoint", category: "system" },
+  // Liveness probe, genuinely anonymous (hooks PUBLIC_PATHS). `?detail=true`
+  // asks for an ADMIN principal — and cannot get one: a public path never
+  // populates `locals.user`, so the detailed probe answers 401 to every
+  // caller including admins. Same PUBLIC_PATHS defect F5 fixed for
+  // /api/auth/invite and sec-F2/#86 then fixed for POST
+  // /api/auth/reset-password — both moved to PUBLIC_SUBPATHS_ONLY. That
+  // remedy deliberately does NOT apply here: `/api/health` is a liveness
+  // probe whose BARE path must stay anonymous, so the detail branch needs a
+  // different fix and this is the last live instance.
+  // Until 2026-08 it answered 500 instead of 401 (a thrown `requireAuth`).
+  { method: "GET", path: "/api/health", description: "Liveness probe. `?detail=true` returns the component breakdown for an admin, but is UNREACHABLE: the path is in the hooks PUBLIC_PATHS allowlist so locals.user is never populated and the detail branch answers 401 to everyone", category: "system", scope: "public" },
   // Was registered as GET (and carried in route-contract.test.ts's KNOWN_STALE
   // for exactly that reason); the handler on disk only exports POST.
   { method: "POST", path: "/api/warmup", description: "Pre-warm the embedding model so the first memory/search turn doesn't pay the load cost — best-effort, always 200", category: "system", scope: "read", responseDescription: "{ ok: true }" },
   // Both of these are in the hooks PUBLIC_PATHS allowlist
-  // (web/src/hooks.server.ts:364) AND apply no gate of their own, so they are
+  // (web/src/hooks.server.ts:365) AND apply no gate of their own, so they are
   // genuinely reachable unauthenticated — hence scope "public".
   { method: "GET", path: "/api/ready", description: "Readiness probe — orthogonal to /api/health (liveness). 200 once migrate() has succeeded and the image is safe to route traffic to, 503 otherwise; orchestrators gate rollouts on this", category: "system", scope: "public" },
   { method: "GET", path: "/api/version", description: "Running version plus the cached upstream update check", category: "system", scope: "public" },
@@ -418,7 +448,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/models/capabilities", description: "Capability intersection for a ?provider/?model pick (or the auto-routing ladder), widened by the extensions wired to ?conversationId plus any ?extensions= drafted via !ext: mentions", category: "providers", scope: "read" },
   { method: "GET", path: "/api/active-agents", description: "In-flight agent runs, optionally filtered by ?projectId. Non-admins see only runs in conversations they own — the ownership filter is what stops a read-scoped key enumerating every tenant's runIds, agent names and conversation titles", category: "agents", scope: "read", responseDescription: "[{ runId, agentName, conversationId, parentConversationId, projectId, conversationTitle, startedAt }]" },
   { method: "GET", path: "/api/quickstart", description: "Get quickstart checklist status", category: "system" },
-  { method: "POST", path: "/api/quickstart", description: "Update quickstart step completion", category: "system" },
+  // `POST /api/quickstart` was registered and does not exist — the handler
+  // exports GET only. KNOWN_STALE.
   { method: "GET", path: "/api/favicon", description: "Get application favicon", category: "system" },
   { method: "GET", path: "/api/audit-log", description: "List audit log entries (admin)", category: "admin" },
   { method: "GET", path: "/api/admin/analytics/routing", description: "Routing + cost analytics: routed-vs-pinned share, tier mix, failover rate, mid-conversation model switches, A/B retry rate, and priced spend per provider+model (admin)", category: "admin", scope: "admin", responseDescription: "{ days, turns: { total, routed, pinned, legacy }, routedShare, tierMix, failover, switches, retries, spend: { segments, routedUsd, pinnedUsd, legacyUsd, totalUsd, unpricedTurns, unpricedTokens, conversations, usdPerConversation } }" },
@@ -467,4 +498,183 @@ export const apiRegistry: ApiRouteEntry[] = [
   // "read" is genuinely what the key axis demands, even though the call
   // MUTATES the filesystem. See the reconciliation findings.
   { method: "POST", path: "/api/fs/mkdir", description: "Create a directory (recursive) inside the project sandbox — admin ROLE required AND the `admin` scope (until 2026-08 the scope gate was only `read`, so a nominally read-only key reached it); the target's nearest existing ancestor is realpath-checked against EZCORP_PROJECT_ROOT to block symlink escapes", category: "system", scope: "admin", responseDescription: "{ path } (201)" },
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // REGISTRY BACKLOG CLOSURE (2026-08)
+  //
+  // The 75 control routes that were on disk and absent from this file,
+  // carried as the frozen `KNOWN_UNREGISTERED` debt set in
+  // `web/src/__tests__/route-contract.test.ts`. CLAUDE.md makes registration
+  // binding for EVERY `/api/*` route; each of these was a standing violation.
+  //
+  // THE RULE FOLLOWED HERE, and it is the only one that keeps this file
+  // useful: `scope` documents what the handler ENFORCES, never what it
+  // ought to. `src/openapi.ts:40` renders `scope` as
+  // `security: [{ bearerAuth: [scope] }]` — "call this with a key holding
+  // that scope" — so a scope declared but not enforced is a false statement
+  // about a security boundary in the published contract, and a scope
+  // enforced but not declared sends an operator to mint the wrong key.
+  // Where a route applies NO `requireScope` at all, no `scope` key appears
+  // and the description says so in words; the same convention the
+  // `/api/extensions/:id/settings` entries above already use.
+  //
+  // Registering a route is not the same as endorsing its gate. Scopes that
+  // look too loose for what the handler does are called out inline below and
+  // listed in the reconciliation report for review — one of them
+  // (`POST /api/extensions/author/install`, F7) was tight enough of a hole
+  // to fix rather than document, and was fixed in its own commit.
+  // ═══════════════════════════════════════════════════════════════════════
+
+  // ── Agents: sharing + test conversations ──────────────────────────────
+  // The `inline-admin` shape in the share handlers is the sec-H3 OWNERSHIP
+  // idiom (`row.userId !== user.id && user.role !== "admin"`), not a gate.
+  { method: "GET", path: "/api/agents/:id/share", description: "List an agent config's team and per-user shares, resolved to names — owner-or-admin, 404 otherwise", category: "agents", scope: "read", responseDescription: "{ teams, users }" },
+  { method: "POST", path: "/api/agents/:id/share", description: "Share an agent config with teams and/or users at permission read|edit ({ teamIds?, userIds?, permission })", category: "agents", scope: "chat" },
+  { method: "DELETE", path: "/api/agents/:id/share", description: "Revoke an agent config's team and/or user shares", category: "agents", scope: "chat" },
+  { method: "DELETE", path: "/api/agents/:name/test-conversations", description: "Delete every test conversation recorded for an agent by name", category: "agents", scope: "chat" },
+  { method: "GET", path: "/api/user/agent-picker", description: "The caller's agent-picker preferences — saved searches plus pinned agent ids, with pins that no longer resolve trimmed on read. Gate: requireAuth only — no API-key scope gate", category: "agents", responseDescription: "{ savedSearches, pinned }" },
+  { method: "PUT", path: "/api/user/agent-picker", description: "Replace the caller's agent-picker saved searches / pinned agents (settings KV, user:<id>:agentPicker:*). Gate: requireAuth only — no API-key scope gate", category: "agents" },
+
+  // ── OAuth provider connect ────────────────────────────────────────────
+  // `POST`/`DELETE /api/auth/oauth/callback` were part of this backlog and are
+  // registered up in the Auth block instead, next to the initiator they
+  // complete. This pass had recorded them as a FINDING — two doors to the
+  // instance LLM credential, one locked (`/api/providers`) and one on
+  // `requireAuth` alone — because that is what the tree said at the time.
+  // sec-F2/#86 then CLOSED it: all three now gate on `requireAdmin` +
+  // `requireScope(locals,"admin")`, so they carry `scope: "admin"` and there
+  // is no longer a finding to record here.
+
+  // ── Invites (anonymous redemption sub-path) ───────────────────────────
+  // Genuinely unauthenticated: `/api/auth/invite/:token` is the one entry in
+  // the hooks PUBLIC_SUBPATHS_ONLY list, so hooks lets it through with no
+  // principal. Rate-limited 10 attempts / 15 min per IP.
+  { method: "GET", path: "/api/auth/invite/:token", description: "Validate an invitation token before showing the signup form (does not consume it)", category: "auth", scope: "public", responseDescription: "{ invite: { email, role, expiresAt } }" },
+
+  // ── Conversations: reads ──────────────────────────────────────────────
+  // Every one is ownership-gated with the fail-closed sec-H3 idiom: a row
+  // with a NULL user_id is admin-only, and denial is 404 rather than 403 so
+  // the endpoint is not a conversation-id oracle.
+  { method: "GET", path: "/api/conversations/:id/active-run", description: "The conversation's in-flight run, if any, plus any pending ask-user prompt", category: "conversations", scope: "read" },
+  { method: "GET", path: "/api/conversations/:id/sub-conversations", description: "Enumerate a conversation's sub-conversations (sub-agent spawns)", category: "conversations", scope: "read" },
+  { method: "GET", path: "/api/conversations/:id/tasks", description: "Cold-start read of the task-tracking panel snapshot, straight from the task-tracking bundled extension's extension_storage row (409 when that extension is not installed)", category: "conversations", scope: "read" },
+  { method: "GET", path: "/api/conversations/:id/tasks/:taskId/messages", description: "Messages for every assignment on one task, grouped by assignment (each assignment's sub-conversation loaded from the DB)", category: "conversations", scope: "read" },
+  { method: "GET", path: "/api/conversations/:id/team/:agentConfigId/messages", description: "One team member's sub-conversation messages with their tool calls", category: "conversations", scope: "read" },
+  // A READ behind the `chat` scope: a read-scoped key is refused. Enforced
+  // as written; flagged as a scope-consistency question, not a hole.
+  { method: "GET", path: "/api/conversations/:id/extension-toolbar", description: "Union of the `messageToolbar[]` items declared by every ENABLED installed extension, for MessageToolbar.svelte. Scope is `chat`, not `read`, so a read-scoped key cannot fetch it", category: "conversations", scope: "chat" },
+
+  // ── Conversations: writes ─────────────────────────────────────────────
+  { method: "PUT", path: "/api/conversations/:id", description: "Update a conversation's title, model, system prompt or project (the registry previously advertised this as PATCH; the handler exports PUT)", category: "conversations", scope: "chat", schemaKey: "updateConversationSchema" },
+  { method: "PATCH", path: "/api/conversations/:id/messages/:mid", description: "Edit ONE message's content, or toggle its `excluded` flag — XOR, never both; refused while a run is active. Never touches parentMessageId (the session-tree invariant)", category: "conversations", scope: "chat" },
+  { method: "POST", path: "/api/conversations/:id/clone-turns", description: "Copy a span of turns into another conversation (fork/branch support)", category: "conversations", scope: "chat" },
+  { method: "POST", path: "/api/conversations/:id/agent-chat", description: "Send a message to a named agent config inside the conversation, spawning its sub-conversation run", category: "conversations", scope: "chat" },
+  { method: "POST", path: "/api/conversations/:id/tool-results", description: "Return a CLIENT-side EZ tool's result to the waiting host invocation (resolves the pending ez-client-tool registry entry)", category: "conversations", scope: "chat" },
+  { method: "POST", path: "/api/ask-user/answer", description: "Answer a host-minted `ask_user` prompt by toolCallId — the option label or free text the user submitted", category: "conversations", scope: "chat" },
+
+  // ── Task tracking (task-tracking bundled extension's HTTP surface) ────
+  { method: "POST", path: "/api/conversations/:id/tasks/:taskId/assign", description: "Attach an agent config to a task or subtask; snapshot write is serialized by the task-snapshot lock and broadcast", category: "conversations", scope: "chat" },
+  { method: "DELETE", path: "/api/conversations/:id/tasks/:taskId/assign", description: "Remove one assignment from a task by id", category: "conversations", scope: "chat" },
+  { method: "POST", path: "/api/conversations/:id/tasks/:taskId/assignments/:assignmentId/start", description: "Start an assignment — spawn its agent run and move the task into progress", category: "conversations", scope: "chat" },
+  { method: "POST", path: "/api/conversations/:id/tasks/:taskId/assignments/:assignmentId/stop", description: "Stop a running assignment and cancel its run", category: "conversations", scope: "chat" },
+  { method: "POST", path: "/api/conversations/:id/tasks/:taskId/retry", description: "Re-run a failed assignment on a task", category: "conversations", scope: "chat" },
+
+  // ── Attachments ───────────────────────────────────────────────────────
+  { method: "GET", path: "/api/attachments/:id", description: "Stream an attachment's bytes; caller must own the owning conversation (unowned rows are admin-only). Cache-Control immutable — storagePath is UUID-keyed and never rewritten. `?download=1` forces the download disposition", category: "conversations", scope: "read" },
+
+  // ── Modes ─────────────────────────────────────────────────────────────
+  { method: "GET", path: "/api/modes", description: "List the caller's modes (toolset presets)", category: "orchestration", scope: "read" },
+  { method: "POST", path: "/api/modes", description: "Create a mode", category: "orchestration", scope: "chat" },
+  { method: "GET", path: "/api/modes/:id", description: "Get one mode by id", category: "orchestration", scope: "read" },
+  { method: "PUT", path: "/api/modes/:id", description: "Update a mode — built-in modes are refused 403; unowned (NULL user_id) rows are admin-only (sec-H3 fail-closed)", category: "orchestration", scope: "chat" },
+  { method: "DELETE", path: "/api/modes/:id", description: "Delete a mode — built-ins refused, unowned rows admin-only", category: "orchestration", scope: "chat" },
+
+  // ── Workflows (definitions) ───────────────────────────────────────────
+  // `chat` is the DELIBERATE gate here: the per-resource ownership ladder in
+  // `src/runtime/workflow-scope.ts` sits on top of it, and the ladder
+  // compares `user.role === "admin"` directly rather than calling checkRole,
+  // which would also demand the admin API-key scope and so reject a
+  // cookie-authed admin on a chat-scoped route. See
+  // docs/features/platform/rbac-and-permission-modes.md.
+  { method: "POST", path: "/api/workflows", description: "Create a workflow definition (validated; a version row is stamped). Visibility assignment of `system` is admin-only", category: "workflows", scope: "chat" },
+  { method: "PUT", path: "/api/workflows/:name", description: "Update a workflow definition — owner or admin per the ownership ladder; 404 (not 403) when unauthorized so the endpoint is not an existence oracle", category: "workflows", scope: "chat" },
+  { method: "DELETE", path: "/api/workflows/:name", description: "Delete a workflow definition — same ownership ladder, same opaque 404", category: "workflows", scope: "chat" },
+
+  // ── Lessons ───────────────────────────────────────────────────────────
+  { method: "GET", path: "/api/lessons", description: "Lesson curation list for the /memories → Lessons tab (?projectId): the visibility-deduped set with full bodies, counters and an owner-of-mine flag", category: "memories", scope: "read" },
+  { method: "PATCH", path: "/api/lessons/:id", description: "Change a lesson's visibility — owner-gated, 404 when the row is missing OR not the caller's (the two are indistinguishable, to block id enumeration)", category: "memories", scope: "write" },
+  { method: "DELETE", path: "/api/lessons/:id", description: "Hard-delete a lesson — owner-gated, same opaque 404 (204 on success)", category: "memories", scope: "write" },
+  { method: "PATCH", path: "/api/memories/:id", description: "Flip a memory's injection eligibility / status — re-scoped `read` → `write` by the 2026-08 mutation audit", category: "memories", scope: "write" },
+
+  // ── User commands (slash-command definitions) ─────────────────────────
+  { method: "GET", path: "/api/user-commands", description: "List the caller's DB-resident slash commands", category: "composer", scope: "read" },
+  { method: "POST", path: "/api/user-commands", description: "Create a slash command (frontmatter filtered, body capped at COMMAND_BODY_MAX_BYTES); the command registry is refreshed", category: "composer", scope: "chat" },
+  { method: "GET", path: "/api/user-commands/:name", description: "Get one slash command by name", category: "composer", scope: "read" },
+  { method: "PATCH", path: "/api/user-commands/:name", description: "Update a slash command's body or metadata", category: "composer", scope: "chat" },
+  { method: "DELETE", path: "/api/user-commands/:name", description: "Delete a slash command", category: "composer", scope: "chat" },
+
+  // ── Feature index (`$[feature:…]` mentions) ───────────────────────────
+  { method: "GET", path: "/api/projects/:id/features", description: "List a project's features with file counts", category: "composer", scope: "read" },
+  { method: "POST", path: "/api/projects/:id/features", description: "Create a user-sourced feature", category: "composer", scope: "chat" },
+  { method: "POST", path: "/api/projects/:id/features/scan", description: "Synchronous project scan that (re)populates the scanned feature set", category: "composer", scope: "chat" },
+  { method: "GET", path: "/api/projects/:id/features/:featureId", description: "Read one feature with its full file list — the side-effect-free alternative to the old no-op-PATCH row-expand (audit defect D4)", category: "composer", scope: "read" },
+  { method: "PATCH", path: "/api/projects/:id/features/:featureId", description: "Update one feature; the source-flip predicate is defended at the endpoint so an empty patch cannot silently reclassify a scanned feature as user-sourced", category: "composer", scope: "chat" },
+  { method: "DELETE", path: "/api/projects/:id/features/:featureId", description: "Delete one feature", category: "composer", scope: "chat" },
+
+  // ── Permission mode (read half; the PUT is registered above) ──────────
+  { method: "GET", path: "/api/projects/:id/tool-permission-mode", description: "The project's stored built-in-tool permission mode (defaults to `yolo`)", category: "projects", scope: "read", responseDescription: '{ mode: "ask" | "auto-edit" | "yolo" }' },
+
+  // ── EZ concierge panel ────────────────────────────────────────────────
+  // `read` on the find-or-create pair is deliberate and was re-affirmed by
+  // the 2026-08 mutation audit: both verbs are the SAME idempotent
+  // find-or-create keyed by the caller's own id, with uniqueness enforced by
+  // the partial index `conversations_user_ez_unique`.
+  { method: "GET", path: "/api/ez/conversation", description: "Find-or-create the caller's single Ez conversation", category: "composer", scope: "read" },
+  { method: "POST", path: "/api/ez/conversation", description: "Idempotent alias of the GET — find-or-create the caller's single Ez conversation", category: "composer", scope: "read" },
+  { method: "DELETE", path: "/api/ez/conversation/messages", description: "\"Clear conversation\" for the Ez panel: wipe the message list but keep the conversation row so the open SSE subscription and locked mode survive", category: "composer", scope: "chat" },
+  { method: "GET", path: "/api/ez/drafts/:id", description: "Hydrate a destination form from an Ez draft — double-keyed, `getDraft(id, userId)` returns undefined for another user's, an expired, or a missing draft", category: "composer", scope: "read" },
+  { method: "POST", path: "/api/ez/drafts/:id", description: "Consume an Ez draft (body { action: \"consume\" }) — idempotent, a second consume returns the existing consumedAt", category: "composer", scope: "chat" },
+  { method: "POST", path: "/api/ez/drafts/:id/consume", description: "URL-shaped alias of the consume action above; identical semantics", category: "composer", scope: "chat" },
+  { method: "POST", path: "/api/ez-actions/:name", description: "Dispatch an EZ action (`![EZ:name]`): resolve it in the in-memory registry, verify conversation ownership, run it, persist the result as a `role: \"ez-action-result\"` message. Re-scoped `read` → `chat` in 2026-08 — it dispatches a bundled-extension tool and writes a row", category: "composer", scope: "chat" },
+
+  // ── Hub ───────────────────────────────────────────────────────────────
+  { method: "GET", path: "/api/hub/pages", description: "List the caller's Hub tabs — `core:<id>` providers plus `ext:<name>:<pageId>` pages from enabled extensions. v1 RBAC: every authenticated user sees every tab; per-user isolation happens inside each page's render(userId)", category: "hub", scope: "read" },
+  { method: "GET", path: "/api/hub/pages/:id", description: "Render one Hub page for the session user. Every tree — core or extension — passes validatePageTree before it is served; render failures are 200 + { error } (the client shows a retry card), unknown ids 404, rate-limit hits 429", category: "hub", scope: "read" },
+
+  // ── Extension runtime surfaces ────────────────────────────────────────
+  { method: "GET", path: "/api/ext-files/:name/:path", description: "Serve a file an extension wrote under <projectRoot>/.ezcorp/extension-data/<name>/ — the alternative to replaying base64 data: URIs into the next turn's context. Extension name must match a strict allowlist (404 otherwise) so the path is not a probe for arbitrary extension state", category: "extensions", scope: "read" },
+  { method: "GET", path: "/api/extensions/:name/data/:path", description: "Static-file read from <projectRoot>/.ezcorp/extension-data/<name>/, realpath-contained and rate-limited. Scope is `chat`, not `read`, so a read-scoped key cannot fetch it", category: "extensions", scope: "chat" },
+  { method: "POST", path: "/api/extensions/:name/events/:event", description: "Deliver a registered UI event (canvas card / message-toolbar click) to an extension, wiring it to the conversation if needed. Only events the extension actually registered are accepted", category: "extensions", scope: "chat" },
+  { method: "POST", path: "/api/extensions/:name/uploads", description: "Upload bytes on an extension's behalf and attach them to a message in a conversation the caller owns and the extension is wired to", category: "extensions", scope: "chat" },
+  { method: "POST", path: "/api/extensions/:id/reapprove", description: "Re-approve an extension's permissions from its current manifest, clamped to the bundled ceiling; clears the always-allow rows the change invalidates. Gates on requireAdmin (ROLE) plus requireScope(\"extensions\")", category: "extensions", scope: "extensions" },
+  // `chat` READS installed code into an editable draft. It cannot complete
+  // the loop any more: the install half now demands `extensions` (F7). Still
+  // flagged — the creator + `modifiable` + not-bundled check is the real
+  // authority, and it is the SAME path the in-chat `ezcorp/drafts.reopen`
+  // RPC takes. There is deliberately no admin-override edit path.
+  { method: "POST", path: "/api/extensions/:id/reopen", description: "Re-open an installed extension the caller CREATED (and an admin flagged `modifiable`) as an editable author draft, then redirect to /extensions/author?prefill=<draftId>", category: "extensions", scope: "chat", responseDescription: "{ draftId, redirectUrl }" },
+
+  // ── Extension authoring (draft staging) ───────────────────────────────
+  // These three write into the DRAFT staging dir, which the host never
+  // loads; the file keys are allowlisted to the scaffolder's known set.
+  // `chat` is the authoring surface. The INSTALL step — the one that lands
+  // executable code in the extension inventory — is `extensions` (F7).
+  { method: "PUT", path: "/api/extensions/author/draft/:id", description: "Save edits to an author draft — owner-scoped via getDraft(id, userId); any file key outside the scaffolder allowlist is a 400", category: "extensions", scope: "chat" },
+  { method: "DELETE", path: "/api/extensions/author/draft/:id", description: "Discard an author draft — removes the draft directory AND consumes the row", category: "extensions", scope: "chat" },
+  { method: "POST", path: "/api/extensions/author/draft/:id/validate", description: "Run the host's FULL acceptance gate (`runAuthorAcceptanceGate` — the same one install calls) against a draft, so the editor cannot report \"ready to install\" for something install will 422", category: "extensions", scope: "chat", responseDescription: "{ ok, pass, steps, errors }" },
+  { method: "POST", path: "/api/extensions/author/install", description: "Install an author draft as a real user-installed extension, `enabled: false` with no permissions. Lands EXECUTABLE CODE on disk, so the scope is `extensions` — it demanded only `chat` until 2026-08 (F7). Ownership, verify gate and env-key-leak gate all run inside the shared installAuthoredDraft pipeline", category: "extensions", scope: "extensions", responseDescription: "{ extensionId, redirectUrl } (201)" },
+
+  // ── Import (commands + skill bundles) ─────────────────────────────────
+  { method: "POST", path: "/api/import/preview", description: "Stage a directory upload or archive under <projectRoot>/.ezcorp/import-staging/<id> and return the command + skill checklist, scanned with the same scanners commit uses. Re-scoped `read` → `write` in 2026-08 (it writes staging dirs)", category: "extensions", scope: "write" },
+  { method: "POST", path: "/api/import/commit", description: "Import the selected items: commands via createUserCommand, skills synthesized into a tool extension and handed to installFromLocal INSTALLED DISABLED for the normal permission review. Staging is always removed in `finally`", category: "extensions", scope: "extensions" },
+
+  // ── Marketplace ───────────────────────────────────────────────────────
+  { method: "GET", path: "/api/marketplace/categories", description: "Marketplace tag taxonomy aggregated over ACTIVE listings, for the category filter chips. Same auth posture as GET /api/marketplace: any authenticated caller, no API-key scope gate (hooks still refuses anonymous /api/* callers, so this is not `public`)", category: "marketplace", responseDescription: "{ categories: [{ tag, count }] }" },
+
+  // ── Secure preview ────────────────────────────────────────────────────
+  { method: "POST", path: "/api/preview/:id/token", description: "Mint a ONE-TIME code from the authenticated app origin, redeemed by the browser at https://<id>.preview.<host>/__open?c=<code>. Ownership via getServablePreview (owned + active + unexpired + unrevoked); another user's preview is an opaque 404. Gate: requireAuth only — no API-key scope gate", category: "system", responseDescription: "{ code }" },
+  { method: "POST", path: "/api/preview/consent", description: "Answer the expose-consent card ([Expose] / [Ignore] / [Always expose in this conversation]). The acting user IS the requester by construction — a userId is never taken from the wire. Gate: requireAuth only — no API-key scope gate", category: "system" },
+
+  // ── Onboarding ────────────────────────────────────────────────────────
+  { method: "POST", path: "/api/onboarding/complete", description: "Mark the CALLING user onboarded (204). Gate: requireAuth only — no API-key scope gate; the row written is the caller's own", category: "system" },
 ];
