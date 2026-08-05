@@ -87,7 +87,12 @@ test.describe("ez-factory — a job fired from the console produces a correlated
       timeout: 30_000,
     });
 
+    // A CREATE renders exactly ONE form. The schedule form appears only
+    // once the job exists — a background trigger is inert until a human
+    // consents to a delegation for it, and there is nothing to consent
+    // against without a job id.
     const form = page.getByTestId("hub-inline-form");
+    await expect(form).toHaveCount(1);
     await expect(form).toBeVisible();
 
     const jobName = `e2e run correlation ${Date.now()}`;
@@ -130,9 +135,21 @@ test.describe("ez-factory — a job fired from the console produces a correlated
     await expect(page.getByTestId("hub-page-title")).toHaveText("ez-factory — job", {
       timeout: 30_000,
     });
-    await expect(page.getByTestId("hub-node-section")).toContainText(jobName, {
+    // `.first()` because an EXISTING job's editor renders TWO sections —
+    // the job and "When it fires". The job's own section is the first, and
+    // it is the one titled with the job name.
+    await expect(page.getByTestId("hub-node-section").first()).toContainText(jobName, {
       timeout: 30_000,
     });
+    // The schedule form is there and defaults to `manual`: the console
+    // creates an attended job and scheduling is a deliberate second act.
+    await expect(page.getByTestId("hub-inline-form")).toHaveCount(2);
+    await expect(page.getByTestId("hub-inline-field-trigger_kind")).toHaveValue("manual");
+    // Neither bound is rendered for a manual job, and a hidden field is
+    // OMITTED from the payload — which is what makes "only a background
+    // trigger carries bounds" true on the wire rather than merely intended.
+    await expect(page.getByTestId("hub-inline-field-trigger_runs_per_day")).toHaveCount(0);
+    await expect(page.getByTestId("hub-inline-field-trigger_tokens_per_run")).toHaveCount(0);
 
     // The job id is what the run must correlate to. Read it off the
     // editor's own stats block, so the assertion below compares the
