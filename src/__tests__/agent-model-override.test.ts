@@ -14,13 +14,20 @@ import type { AgentDefinition, AgentEvents, ModelOverride } from "../types";
 const adapterArgs: Array<ModelOverride | undefined> = [];
 /** What the next adapter reports as its resolved binding. */
 let nextResolved: { provider: string; model: string } | undefined;
+/** The effort-ignored sink `runAgent` handed the most recent adapter. */
+let effortSink: ((message: string) => void) | undefined;
+/** When set, the stub adapter fires the sink from inside `complete()` — the
+ *  point in the real adapter where a dropped effort is discovered. */
+let dropEffortMessage: string | undefined;
 
 mock.module("../runtime/executor-helpers", () => ({
-  createPiLlmAdapter: (overrides?: ModelOverride) => {
+  createPiLlmAdapter: (overrides?: ModelOverride, onEffortIgnored?: (m: string) => void) => {
     adapterArgs.push(overrides);
+    effortSink = onEffortIgnored;
     const adapter = {
       lastResolved: undefined as { provider: string; model: string } | undefined,
       async complete() {
+        if (dropEffortMessage !== undefined) onEffortIgnored?.(dropEffortMessage);
         adapter.lastResolved = nextResolved;
         return { text: "ok", usage: { inputTokens: 1, outputTokens: 1 } };
       },
@@ -74,6 +81,8 @@ function setup(agents: AgentDefinition[]) {
 
 beforeEach(() => {
   adapterArgs.length = 0;
+  effortSink = undefined;
+  dropEffortMessage = undefined;
   nextResolved = { provider: "anthropic", model: "resolved-model" };
 });
 
@@ -150,5 +159,42 @@ describe("runAgent — model binding", () => {
     const executor = setup([parent, llmAgent()]);
     await executor.runAgent("parent", {}, undefined, undefined, { model: "claude-opus-5" });
     expect(adapterArgs).toEqual([{ model: "claude-opus-5" }, undefined]);
+  });
+});
+
+/**
+ * The channel a DROPPED `effort` comes out of.
+ *
+ * `effort` on a local/custom model is the one binding field whose failure was
+ * pure silence — the model resolves with `reasoning: false`, pi-ai clamps the
+ * level to "off" and drops the field before serializing, and nothing in the
+ * request, the response or the run said so. `runAgent` gives the adapter the
+ * run's own log to say it into, so it lands on `/runs/[id]` beside the step
+ * that asked.
+ */
+describe("runAgent — a dropped effort reaches the run log", () => {
+  test("the adapter is handed a sink, not left to log into the void", async () => {
+    const executor = setup([llmAgent()]);
+    await executor.runAgent("a", {}, undefined, undefined, { effort: "high" });
+    expect(typeof effortSink).toBe("function");
+  });
+
+  test("what the adapter reports becomes a WARN entry on the run", async () => {
+    dropEffortMessage = 'Reasoning effort "high" was ignored: the bound model ollama/qwen3 …';
+    const executor = setup([llmAgent()]);
+    const run = await executor.runAgent("a", {}, undefined, undefined, { effort: "high" });
+
+    expect(run.status).toBe("success");
+    const warnings = run.logs.filter((l) => l.level === "warn");
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.message).toBe(dropEffortMessage);
+  });
+
+  test("an adapter that reports nothing leaves the run's logs untouched", async () => {
+    // The overwhelmingly common case — a model that honours the effort, or a
+    // step that asked for none. It must not cost a log line.
+    const executor = setup([llmAgent()]);
+    const run = await executor.runAgent("a", {}, undefined, undefined, { effort: "high" });
+    expect(run.logs.filter((l) => l.level === "warn")).toEqual([]);
   });
 });

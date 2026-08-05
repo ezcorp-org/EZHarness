@@ -662,6 +662,27 @@ steps:
   router's own pick all read the same way. NULL for a step that ran no LLM.
   `/workflows/[name]` renders the declared binding on the step card and
   the resolved one (`on anthropic/claude-opus-5`) in the run history.
+- **`effort` is a NO-OP on a local or custom model, and now says so.**
+  `resolveModelObject` synthesizes any provider/model pair pi-ai's catalog
+  does not know with `reasoning: false` — which is every Ollama /
+  llama.cpp / vLLM / LM Studio model and every id typed into the
+  custom-model form. pi-ai gates every reasoning wire format on that flag
+  (`getSupportedThinkingLevels` returns `["off"]`, `clampThinkingLevel`
+  clamps to it, and the api layer then drops the field), so the request is
+  discarded before it is serialized: no error, no degraded setting, no
+  reasoning parameter on the wire at all. There is currently **no way for
+  an operator to declare otherwise** — `provider:customModels` rows reach
+  `resolveModelObject` by `baseUrl` alone. What the runtime does instead is
+  refuse to be silent about it: `createPiLlmAdapter` compares the requested
+  effort against the **resolved** model and writes a `warn` line into the
+  run's own log (`/runs/[id]`), once per distinct model rather than per
+  call. The verdict is `modelHonoursEffort`
+  (`src/runtime/routing/effort-support.ts`), shared verbatim with the
+  delegation consent preview's `findEffortNoops` — which shows the same
+  fact *before* a delegation is granted — so the pre-flight warning and the
+  run-time one cannot disagree. The wire behaviour itself is pinned against
+  real pi-ai over a real socket in
+  `src/__tests__/effort-drop-on-custom-model.integration.test.ts`.
 
 **Definition-time validation is shape-only for `provider`/`model`** — see
 the long comment on `validateModelOverride`. In short: `validateWorkflow`
