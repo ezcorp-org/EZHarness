@@ -44,7 +44,7 @@ import {
   resolveWorkflowForCaller,
   type CachedWorkflow,
 } from "./workflow-scope";
-import type { WorkflowDefinition } from "../types";
+import type { NestedWorkflowResolver } from "./workflow-executor";
 
 /**
  * Build the resolver, given a LIVE reader of the merged workflow cache.
@@ -52,13 +52,22 @@ import type { WorkflowDefinition } from "../types";
  * A thunk, not an array: `reloadWorkflows()` REASSIGNS the cache binding on
  * every workflow CRUD write, so a resolver handed the array by value would
  * freeze a stale list for the lifetime of the process.
+ *
+ * The return type is the NAMED {@link NestedWorkflowResolver} — the same type
+ * `WorkflowExecutorOptions.workflowResolver` accepts — rather than the inlined
+ * function type spelled out here. Do not "simplify" it back: that form wrapped
+ * across four lines, and a bare `): (` continuation line is a shape
+ * `scripts/lcov-noise-filter.ts` does not recognise as non-executable. Bun
+ * span-fills an uncalled function's whole declaration range with phantom
+ * `DA:<line>,0` records, so a shard that merely IMPORTS this module emitted a
+ * zero-hit record for that line while the shard that EXERCISES the module
+ * emitted none — the merge kept the zero and the file gated at 95%. Naming the
+ * type collapses the signature to one line that both shard shapes agree on.
+ * (Same class of artefact as the one-line `VALUES` list in `src/db/migrate.ts`.)
  */
 export function makeNestedWorkflowResolver(
   getEntries: () => readonly CachedWorkflow[],
-): (
-  name: string,
-  ctx: { userId?: string; projectId?: string },
-) => Promise<WorkflowDefinition | undefined> {
+): NestedWorkflowResolver {
   return async (name, ctx) => {
     const userId = ctx.userId ?? null;
     const resolved = resolveWorkflowForCaller(
