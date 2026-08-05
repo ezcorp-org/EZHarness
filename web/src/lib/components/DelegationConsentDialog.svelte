@@ -270,7 +270,11 @@
 					<dd class="text-[var(--color-text-primary)]" data-testid="consent-subject-workflow">
 						{workflowName}
 					</dd>
-					<dt class="text-[var(--color-text-muted)]">Job</dt>
+					<!-- "Job reference", the SAME words the grant form's label and
+					     the prefill note use. A person checking the dialog against
+					     the form behind it should not have to work out that two
+					     names mean one field. -->
+					<dt class="whitespace-nowrap text-[var(--color-text-muted)]">Job reference</dt>
 					<dd
 						class="break-all font-mono text-[var(--color-text-primary)]"
 						data-testid="consent-subject-job-ref"

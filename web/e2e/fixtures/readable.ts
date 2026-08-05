@@ -44,6 +44,21 @@ export async function useLightTheme(page: Page): Promise<void> {
 	});
 }
 
+/**
+ * Force the DARK theme before the app boots.
+ *
+ * The pair to {@link useLightTheme}, and it earns its place for the same
+ * reason: a tint tuned on one surface is a regression waiting on the other.
+ * Light is where the washed-out-warning bug lives, but a panel whose prose
+ * colour is pinned to a light-theme token fails the other way round, and a
+ * spec that only ever ran on the default theme would never see it.
+ */
+export async function useDarkTheme(page: Page): Promise<void> {
+	await page.addInitScript(() => {
+		window.localStorage.setItem("ezcorp-theme", "dark");
+	});
+}
+
 interface Measured {
 	/** Contrast ratio of the composited text colour against the composited
 	 *  background behind it, 1..21. */

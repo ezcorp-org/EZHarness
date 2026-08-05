@@ -24,6 +24,12 @@
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeWorkflow } from "./fixtures/data.js";
+import {
+	expectReadable,
+	expectWarningTinted,
+	useDarkTheme,
+	useLightTheme,
+} from "./fixtures/readable.js";
 
 const proj = makeProject({ id: "proj-1" });
 
@@ -699,6 +705,28 @@ test.describe("Delegation consent dialog", () => {
 		await expect(page.getByTestId("delegation-consent")).toHaveCount(0);
 	});
 
+	test("names the SUBJECT, including the job reference nobody can check elsewhere", async ({
+		page,
+		mockApi,
+	}) => {
+		// The job reference is half of what a delegation is keyed on
+		// (`extension_id`, `job_ref`) and it is the only field with no list
+		// to check it against — it is an extension's own opaque handle. It
+		// used to live only in the form BEHIND this modal, which was fine
+		// while a human typed it. It is not fine now that a deep link can
+		// supply it: same extension, same workflow, same everything a reader
+		// can see, pointed at a different job.
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		await stubDelegationApi(page);
+		await openConsentDialog(page);
+
+		await expect(page.getByTestId("consent-subject-extension")).toHaveText("nightly");
+		await expect(page.getByTestId("consent-subject-workflow")).toHaveText("ship-it");
+		await expect(page.getByTestId("consent-subject-job-ref")).toHaveText("nightly-ship");
+		// The trigger is a LABEL, from the same list the form's select uses.
+		await expect(page.getByTestId("consent-subject-trigger")).toHaveText("On a schedule");
+	});
+
 	test("renders the consent dialog and captures evidence @evidence", async ({
 		page,
 		mockApi,
@@ -746,6 +774,277 @@ test.describe("Delegation consent dialog", () => {
 					testInfo.attachments.some(
 						(a) => a.name === label && a.contentType === "image/png",
 					),
+				).toBe(true);
+			}
+		} else {
+			expect(testInfo.attachments.some((a) => labels.includes(a.name))).toBe(false);
+		}
+	});
+});
+
+/**
+ * The job → consent handoff.
+ *
+ * A delegation binds `(extension_id, job_ref)`, and until this landed the
+ * only way to create one was to read a job's id off the console that owns
+ * it and retype it into a free-text box here. One wrong character produces
+ * `DELEGATION_NOT_FOUND` at the first cron tick — audited with no
+ * `delegation_id`, on the very page that says it cannot surface that
+ * denial — so the typo's whole feedback loop is an unattended job that
+ * silently never runs.
+ *
+ * The line these tests exist to hold: **prefilling is fine, submitting is
+ * not.** A URL sets form state and stops. The person still opens the
+ * review dialog, still types two spend bounds with no default and no
+ * unlimited value, and still presses Approve. C3 exists because an absent
+ * submitted grant was once read as approval; a URL that could mint one
+ * would be the same mistake in a new place.
+ */
+const DEEP_LINK =
+	"/workflows/delegations?extensionId=nightly&jobRef=nightly-ship" +
+	"&workflowName=ship-it&triggerKind=cron";
+
+test.describe("Delegations deep link", () => {
+	test("a job's link opens the grant form filled in, and says what filled it", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		await stubDelegationApi(page);
+
+		await page.goto(DEEP_LINK);
+		await expect(page.getByTestId("grant-form")).toBeVisible();
+
+		// Resolved by NAME to the install row id — a Hub page render is never
+		// told the row id, so a link that had to carry one would be a link no
+		// extension could build.
+		await expect(page.getByTestId("grant-extension")).toHaveValue("ext-nightly");
+		await expect(page.getByTestId("grant-workflow")).toHaveValue("ship-it");
+		await expect(page.getByTestId("grant-job-ref")).toHaveValue("nightly-ship");
+		await expect(page.getByTestId("grant-trigger")).toHaveValue("cron");
+
+		// Naming the fields is what makes a prefilled form safe to read: the
+		// values are on screen either way, but "these came from the URL, not
+		// from you" is the fact that makes someone check them.
+		await expect(page.getByTestId("grant-prefill-note")).toContainText(
+			"Extension, Workflow, Job reference, Trigger",
+		);
+		await expect(page.getByTestId("grant-prefill-note")).toContainText(
+			"nothing is granted until you approve it",
+		);
+		await expect(page.getByTestId("grant-prefill-rejected")).toHaveCount(0);
+	});
+
+	test("a URL alone grants NOTHING — no dialog, no request, no delegation", async ({
+		page,
+		mockApi,
+	}) => {
+		// The load-bearing test of this whole feature.
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		const { posted } = await stubDelegationApi(page);
+
+		await page.goto(DEEP_LINK);
+		await expect(page.getByTestId("grant-form")).toBeVisible();
+
+		// The consent dialog did not open itself: the person still has to ask
+		// to see what the job would be allowed to do.
+		await expect(page.getByTestId("delegation-consent")).toHaveCount(0);
+		// Nothing was written, and the list is still empty.
+		expect(posted()).toHaveLength(0);
+		await expect(page.getByTestId("delegations-empty")).toBeVisible();
+
+		// And even once the dialog IS open, approve is refused until both
+		// bounds are typed — the link supplied neither, and cannot.
+		await page.getByTestId("grant-review").click();
+		await expect(page.getByTestId("consent-approve")).toBeDisabled();
+		await expect(page.getByTestId("consent-blocked-reason")).toContainText("token limit");
+		expect(posted()).toHaveLength(0);
+	});
+
+	test("the dialog shows the JOB the link chose, not just the workflow", async ({
+		page,
+		mockApi,
+	}) => {
+		// The spoofing case the subject block exists for: a crafted link can
+		// name any `jobRef` it likes, because no list exists to check an
+		// extension's own opaque handle against. So it has to be readable at
+		// the moment of approval.
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		await stubDelegationApi(page);
+
+		await page.goto(
+			"/workflows/delegations?extensionId=nightly&jobRef=some-other-job" +
+				"&workflowName=ship-it&triggerKind=webhook",
+		);
+		await page.getByTestId("grant-review").click();
+		await expect(page.getByTestId("delegation-consent")).toBeVisible();
+		await expect(page.getByTestId("consent-subject-job-ref")).toHaveText("some-other-job");
+		await expect(page.getByTestId("consent-subject-trigger")).toHaveText("On a webhook");
+	});
+
+	test("a crafted link cannot select what the pickers do not offer", async ({
+		page,
+		mockApi,
+	}) => {
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		await stubDelegationApi(page);
+
+		// `plain` declined `allowDelegated`, and no workflow of that name
+		// exists for this session. Both are REFUSED rather than written in.
+		await page.goto(
+			"/workflows/delegations?extensionId=plain&jobRef=x" +
+				"&workflowName=admin:rotate-all-secrets&triggerKind=whenever",
+		);
+		await expect(page.getByTestId("grant-form")).toBeVisible();
+
+		await expect(page.getByTestId("grant-extension")).toHaveValue("");
+		await expect(page.getByTestId("grant-workflow")).toHaveValue("");
+		// The trigger keeps the page's own default rather than the made-up one.
+		await expect(page.getByTestId("grant-trigger")).toHaveValue("cron");
+
+		const refusals = page.getByTestId("grant-prefill-rejected-item");
+		await expect(refusals).toHaveCount(3);
+		await expect(refusals.nth(0)).toContainText("plain");
+		await expect(refusals.nth(1)).toContainText("admin:rotate-all-secrets");
+		await expect(refusals.nth(2)).toContainText("not a trigger");
+		// Only the one field it could legitimately fill is credited.
+		await expect(page.getByTestId("grant-prefill-note")).toHaveText(/Job reference/);
+
+		// Review stays unreachable: there is no extension and no workflow.
+		await expect(page.getByTestId("grant-review")).toBeDisabled();
+	});
+
+	test("“Grant this again” re-seeds the form from the row — the stale-consent remedy", async ({
+		page,
+		mockApi,
+	}) => {
+		// `consent_hash` is recomputed and compared on every fire and folds in
+		// the workflow definition. A bundled extension's workflows ship inside
+		// the app image, so a release that edits one parks the next run
+		// `consent-stale`. The page named that remedy in two places and
+		// offered it in none.
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		const { posted } = await stubDelegationApi(page, {
+			delegations: [
+				{ ...DELEGATION, enabled: false, disabledReason: "This job stopped: consent is stale." },
+			],
+		});
+
+		await page.goto("/workflows/delegations");
+		await expect(page.getByTestId("delegation-stopped-remedy")).toContainText(
+			"Grant this again",
+		);
+		await page.getByTestId("delegation-grant-again").click();
+
+		await expect(page.getByTestId("grant-form")).toBeVisible();
+		await expect(page.getByTestId("grant-extension")).toHaveValue("ext-nightly");
+		await expect(page.getByTestId("grant-workflow")).toHaveValue("ship-it");
+		await expect(page.getByTestId("grant-job-ref")).toHaveValue("nightly-ship");
+		// Re-granting is the SAME act as granting: nothing is written until the
+		// capability set has been re-read and Approve pressed.
+		expect(posted()).toHaveLength(0);
+		await expect(page.getByTestId("delegation-consent")).toHaveCount(0);
+	});
+
+	// ── Both panels are legible on BOTH themes ────────────────────────
+	//
+	// The prefill note and the refusals are new tinted panels, and a tinted
+	// panel is exactly the shape that has shipped unreadable here before:
+	// `bg-amber-500/10` + `text-amber-300` reads at ~1.4:1 on the LIGHT
+	// theme, which is `:root`. Both panels take their prose from
+	// `--color-text-primary` and carry the signal in the tint, so they hold
+	// on either surface by construction — but "by construction" is a claim,
+	// and this measures it. A screenshot alone would need a reviewer to
+	// notice, which is how the original bug survived review.
+	for (const theme of ["light", "dark"] as const) {
+		test(`the prefill note and its refusals stay legible on the ${theme} theme`, async ({
+			page,
+			mockApi,
+		}) => {
+			await (theme === "light" ? useLightTheme(page) : useDarkTheme(page));
+			await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+			await stubDelegationApi(page);
+
+			await page.goto(
+				"/workflows/delegations?extensionId=plain&jobRef=x" +
+					"&workflowName=admin:rotate-all-secrets&triggerKind=whenever",
+			);
+			const note = page.getByTestId("grant-prefill-note");
+			const refusal = page.getByTestId("grant-prefill-rejected-item").first();
+			await expect(refusal).toBeVisible();
+
+			const measured = await expectReadable(note, `prefill note (${theme})`);
+			// The fixture reports which theme it actually measured, so a
+			// localStorage key that stopped being honoured cannot make this
+			// pass twice on the same surface.
+			expect(measured.dark).toBe(theme === "dark");
+			await expectReadable(refusal, `prefill refusal (${theme})`);
+			// …and a refusal still LOOKS like a caution rather than body text.
+			await expectWarningTinted(refusal, `prefill refusal (${theme})`);
+		});
+
+		test(`the consent dialog's subject stays legible on the ${theme} theme`, async ({
+			page,
+			mockApi,
+		}) => {
+			await (theme === "light" ? useLightTheme(page) : useDarkTheme(page));
+			await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+			await stubDelegationApi(page);
+			await openConsentDialog(page);
+
+			// The job reference specifically: it is the field a crafted link
+			// controls outright, so a reader who cannot make it out is a
+			// reader who cannot check the one thing only they can check.
+			await expectReadable(
+				page.getByTestId("consent-subject-job-ref"),
+				`consent subject job reference (${theme})`,
+			);
+		});
+	}
+
+	test("captures the prefilled form and the consent subject @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		await stubDelegationApi(page, { delegations: [DELEGATION] });
+
+		await page.goto(DEEP_LINK);
+		await expect(page.getByTestId("grant-prefill-note")).toBeVisible();
+		await captureEvidence(page, testInfo, "delegation-deep-link-prefill", { fullPage: true });
+
+		await page.getByTestId("grant-review").click();
+		await expect(page.getByTestId("consent-subject")).toBeVisible();
+		await captureEvidence(page, testInfo, "delegation-consent-subject");
+
+		await page.goto(
+			"/workflows/delegations?extensionId=plain&jobRef=x" +
+				"&workflowName=admin:rotate-all-secrets&triggerKind=whenever",
+		);
+		await expect(page.getByTestId("grant-prefill-rejected")).toBeVisible();
+		await captureEvidence(page, testInfo, "delegation-deep-link-refused", { fullPage: true });
+
+		// The same two panels on the OTHER theme. `:root` is light, so every
+		// capture above is the light surface; a tint that only works on one
+		// of them is the defect this project has actually shipped, and a
+		// reviewer cannot see it in a light-only set of screenshots.
+		await useDarkTheme(page);
+		await page.goto(DEEP_LINK);
+		await expect(page.getByTestId("grant-prefill-note")).toBeVisible();
+		await captureEvidence(page, testInfo, "delegation-deep-link-prefill-dark", {
+			fullPage: true,
+		});
+
+		const labels = [
+			"delegation-deep-link-prefill",
+			"delegation-consent-subject",
+			"delegation-deep-link-refused",
+			"delegation-deep-link-prefill-dark",
+		];
+		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+			for (const label of labels) {
+				expect(
+					testInfo.attachments.some((a) => a.name === label && a.contentType === "image/png"),
 				).toBe(true);
 			}
 		} else {
