@@ -188,9 +188,35 @@ Every outcome is audited **including the refusals**, because a Hub page action h
 
 1. Open the **Factory** tab in the Hub (global) or on a project (`/project/<id>/hub/ext:ez-factory:factory`).
 2. Create a job in the **Job** editor: pick one of the three shipped workflows, fill the allowlisted inputs, Save. A create is always `manual` — there is nothing to schedule against until the job has an id.
-3. Optionally set a schedule in the editor's **When it fires** form: pick `cron` or `webhook`, and state both limits (there is no default). Saving it **arms nothing** — the job stays inert until a human authorizes a delegation for it in the workflow UI.
-4. Fire it from the console's Run button, or start the workflow directly from chat via `![workflow:ez-factory:<name>]` / the `run_workflow` tool (see [[workflows]]) — note that a chat-started run carries no `jobRef` and so does not appear under the job.
-5. Follow the run on core's trace at `/workflows/runs/<id>`; answer any parked gate at `/workflows/approvals`.
+3. Optionally set a schedule in the editor's **When it fires** form: pick `cron` or `webhook`, and state both limits (there is no default). The save **registers the host trigger row** (`ctx.triggers.register`) — but it **arms nothing**: a background fire runs as a *person*, so the job stays inert until a human authorizes a delegation for it in the workflow UI.
+4. Authorize it at `/workflows/delegations` with `jobRef` set to the **job's id** (the console uses the job id as its delegation handle, and as `run()`'s correlation handle, so a hand-fired and a scheduled run correlate to the same thing).
+5. Fire it from the console's Run button, or start the workflow directly from chat via `![workflow:ez-factory:<name>]` / the `run_workflow` tool (see [[workflows]]) — note that a chat-started run carries no `jobRef` and so does not appear under the job.
+6. Follow the run on core's trace at `/workflows/runs/<id>`; answer any parked gate at `/workflows/approvals`.
+
+### Unattended, once authorized
+
+A cron tick or an inbound webhook arrives on `ezcorp/trigger-fire`, which
+`installTriggerReceivers` mounts directly on the channel (`index.ts`). The
+handler resolves the job from the fire's `key` (`job:<jobId>`), re-asks four
+local questions — the job exists, is enabled, still has a background trigger
+**of the kind that fired**, and still passes `validateJobDraft` — then calls
+`ctx.workflows.runFor({jobRef: job.id, input})`.
+
+Two things it deliberately does **not** do:
+
+- **Register anything.** `ctx.triggers.register` resolves through
+  `resolveReverseRpcMeta`, which refuses an ownerless call `-32106` before the
+  handler's ladder starts. Registration lives on the save path, which has a
+  clicking user, and nowhere else.
+- **Forward a webhook's inbound body.** The delegation's `consent_hash` covers
+  the workflow and its capability closure, not the input, so forwarding would
+  let whoever holds the hook token steer `$input.*` on a run executing as the
+  human who consented. A webhook is a doorbell, not a parameter channel.
+
+Whatever the outcome, the job's `lastFire` records it — a typed reason, a
+classification, and an authored remedy — and the console's **State** column
+names it. That is what lets an operator tell "the authority went stale,
+re-consent it" from "this job is broken" from "a limit you chose paused it".
 
 The editor renders **two forms**, and that is a host bound rather than taste: `validateFormNode` caps a form at `MAX_FORM_FIELDS` = 10 and **drops the excess silently**, after which `pruneDanglingConditions` strips `visibleWhen` from any survivor whose target was dropped. The job half already declares 8 and an honest trigger needs 5, so one form would have deleted two input fields *and* then shown every remaining input on every workflow. Both forms POST the same granted `ez-factory:job-save` — a third page action would be a real grant widening across three files — and are told apart by `edit_scope` on the action payload.
 
@@ -211,7 +237,9 @@ Granted, and repeated byte-for-byte in **both** `src/extensions/bundled.ts` and 
 ## Key files
 
 - `extensions/ez-factory/ezcorp.config.ts` — the manifest: 2 pages, 3 tools, the `triggers`/`workflows`/`filesystem`/`storage` grants, 2 page-action events, 3 `rbacScopes`, and a header stating what is deliberately absent and why.
-- `extensions/ez-factory/index.ts` — wiring only: the host-fs adapter, the lazy store/audit/workflow singletons, `reconcileRuns`, the two page renderers, `handleJobSave` / `handleJobRun`, and `start()`.
+- `extensions/ez-factory/index.ts` — wiring only: the host-fs adapter, the lazy store/audit/workflow/trigger singletons, `reconcileRuns`, the two page renderers, `handleJobSave` / `handleJobRun`, `syncJobTrigger`, `handleTriggerFire`, `liveTriggerKeys`, `installTriggerReceivers`, and `start()`.
+- `extensions/ez-factory/lib/triggers.ts` — the unattended path's pure half: the mirrored host key charset, `triggerKeyForJob` / `jobIdFromTriggerKey`, `desiredRegistration` / `triggerPlan`, and the reason→remedy table that makes a stopped job legible.
+- `extensions/ez-factory/__tests__/unattended-fire-e2e.test.ts` — **the proof**: real PGlite, the real triggers + workflows handlers, the real `WorkflowExecutor`, and the real subprocess module, driving an ownerless `ezcorp/trigger-fire` to a `workflow_runs` row with `status='success'`.
 - `extensions/ez-factory/lib/jobs.ts` — `FactoryJob`/`JobDraft`/`JobTrigger`/`JobTriggerBounds`/`JobStore`, `validateJobDraft` (sole minter of `ValidatedJobDraft`), the bounds, invariant B's three doors, `rmw` as the only writer, and the background-trigger seams (`isBackgroundTrigger`, `triggerBounds`, `TRIGGER_ENVELOPE`).
 - `extensions/ez-factory/lib/page.ts` — pure tree builders, invariants J and K, page ids, hrefs, `parseFactoryView`/`parseJobView`, the two form-field sets (`jobFormFields` / `triggerFormFields`), and `candidateDraft`, which completes each half-submission from the stored job.
 - `extensions/ez-factory/lib/sanitize.ts` — the prompt-hygiene chokepoint: the three-stage pipeline, marker neutralization, and the BEGIN/END framing.
@@ -242,7 +270,7 @@ Granted, and repeated byte-for-byte in **both** `src/extensions/bundled.ts` and 
 - [[audit-and-observability]] — job edits and fires write to the extension's own bounded trail, distinct from the platform audit log.
 - [[agents]] — the three seeded `agent_configs` rows the templates dispatch to.
 - [[mention-grammar]] — a shipped template is reachable from chat via the `!` sigil's `workflow` kind.
-- [[scheduling-and-loops]] — `ctx.triggers` is where a saved cron/webhook job becomes a live row. The store models and validates such a job; registering the trigger and acting on the fire are the next step.
+- [[scheduling-and-loops]] — `ctx.triggers` is where a saved cron/webhook job becomes a live row, and `ScheduleDaemon` / `WebhookDeliveryDaemon` are what fire it. This extension registers on the save path and receives `ezcorp/trigger-fire` directly; it builds no scheduler of its own.
 
 ## Related docs
 
@@ -252,7 +280,10 @@ No standalone spec exists; this file is the primary reference. The manifest head
 
 - **The predecessor is gone.** `ez-code-factory`, a reference extension under `docs/extensions/examples/` that gated `git push`, was **retired 2026-08-03** (phase 9). It is unrelated to this extension beyond the name and a family of ported invariants; read it in git history. Its git-specific and shell-jail controls (trusted-branch config reads, patch-id force-push safety, HEAD continuity, the nested jail, fail-safe jail widening, hermetic subprocess env) are **deferred with the git template**, because `run_command` is cut from v1 and `ez-factory` requests no `shell` grant at all.
 - **A background fire still cannot use `run`.** `ctx.workflows.run()` answers `-32106` for an ownerless call and that refusal is deliberate, not a gap to close. `runFor` is the sanctioned path and `workflows.allowDelegated` is its opt-in. Anything that "fixes" the ownerless refusal is a regression.
-- **Saving a schedule arms nothing.** A cron job is inert until a human consents to a `workflow_delegations` row for it. The console says so on the editor, because the alternative failure mode is a job whose Trigger column reads `cron · 0 3 * * 1` and which never runs, with an empty Recent-runs tab as the only clue.
+- **Saving a schedule registers a row; it still arms nothing.** The save now really does call `ctx.triggers.register`, so the host holds a live cron/webhook row — and the job is *still* inert until a human consents to a `workflow_delegations` row for it, because a background fire runs as a person. The console says so on the editor, because the alternative failure mode is a job whose Trigger column reads `cron · 0 3 * * 1` and which never runs, with an empty Recent-runs tab as the only clue.
+- **Registration is on the SAVE path and can never move into the fire.** `ctx.triggers` goes through `resolveReverseRpcMeta`, which refuses an ownerless call `-32106` before the ladder starts (`sdk_capability_calls.on_behalf_of` is NOT NULL with an FK to `users`). The same rule rules out a boot-time reconcile: a subprocess starting up has no call token at all, so even `ctx.triggers.list()` fails there `-32602`, and there is no `lifecycle/extension:start` hook to hang one on. This is why the fire receiver is mounted with `getChannel().onRequest("ezcorp/trigger-fire", …)` rather than `Triggers.on(key, …)`: the SDK sugar needs every key wired *before* the first fire, and this console's keys live in storage, which is itself unreadable until a token-bearing frame arrives. A fire carries one; boot does not.
+- **The host's orphan sweep has no production caller.** `syncDynamicTriggers` (`src/extensions/triggers-sweep.ts`) is fully built, tested and wired to nothing — only `revokeDynamicTriggers` is called (`activate-extension.ts`). `ezcorp/triggers-sync` is answered here anyway, from the job store rather than from a handler registry, so the sweep is honest the day somebody wires it. Until then a job deleted out from under a live row is caught by the fire path's own rungs, not by the sweep.
+- **A run's `suspendedReason` must not reach the console tree.** It is the only free-text field on a `JobRunRecord`, and an awaiting-approval run writes prose there naming what is about to be done. Folding `suspended · consent-stale` into the Recent-runs Status cell was tried and `page.test.ts`'s invariant-K test refused it, correctly. The parked state is made legible on the **job** row instead, from a closed set of authored strings this extension owns — which is also strictly better, because `ctx.workflows.runs()` filters on `user_id` and a service-owned parked run is invisible to every viewer.
 - **The job form carries no trigger field, so a save must PRESERVE the stored schedule.** The two-form split made this a live trap: a draft folded straight from the job editor has no `trigger`, `validateJobDraft` applies its `undefined → manual` default, and **renaming a cron job would silently un-schedule it**. `candidateDraft` completes each submission from the stored row so what reaches the validator is always a whole job — which is also why this is not a patch path.
 - **`runAs` and `consentHash` are inert.** Both are written and never read, and stay that way now C3 has merged — the authoritative owner and consent hash live on the delegation row. Reading either here would let a job's stored bytes name who it runs as.
 - **The ceiling row must repeat `webhookPrefix` byte-for-byte.** `intersectPermissions` does not intersect or merge a namespace claim — when the two sides disagree it **drops the whole `triggers` grant, silently, at boot**. All four numeric fields are likewise required on the granted shape: a missing numeric makes `Math.min(NaN, …)` and kills the grant the same way. Manifest, install grant and ceiling row: all three, or the intersection drops what any two disagree on.
