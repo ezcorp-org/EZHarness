@@ -52,6 +52,7 @@ import {
 	type Delegation,
 	type DelegatedRun,
 	type EffortNoop,
+	type GrantPrefill,
 } from "../lib/workflow-delegations-logic";
 
 function material(over: Partial<ConsentHashMaterial> = {}): ConsentHashMaterial {
@@ -1102,25 +1103,40 @@ describe("grantParams — 'grant this again' goes through the SAME resolver", ()
 	});
 });
 
-describe("describeGrantPrefill — the note that says which fields a LINK chose", () => {
+describe("describeGrantPrefill — the note that says what filled the form in", () => {
+	const filled: GrantPrefill = {
+		draft: { extensionId: "e", workflowName: "w", jobRef: "j", triggerKind: "cron" },
+		applied: ["Extension", "Workflow"],
+		rejected: [],
+	};
+
 	test("names every field the prefill filled in", () => {
-		const note = describeGrantPrefill({
-			draft: { extensionId: "e", workflowName: "w", jobRef: "j", triggerKind: "cron" },
-			applied: ["Extension", "Workflow"],
-			rejected: [],
-		});
+		const note = describeGrantPrefill(filled, "link");
 		expect(note).toContain("Extension, Workflow");
 		// And it says the thing that makes the whole handoff safe to follow.
 		expect(note).toContain("nothing is granted until you approve it");
 	});
 
+	test("the two sources are named APART — provenance is the whole point", () => {
+		// Telling somebody re-granting their own delegation that the values
+		// came "from the link you followed" is a small lie about provenance
+		// on the one surface whose job is being exact about it.
+		expect(describeGrantPrefill(filled, "link")).toContain("link you followed");
+		const regrant = describeGrantPrefill(filled, "delegation");
+		expect(regrant).toContain("delegation you are granting again");
+		expect(regrant).not.toContain("link");
+	});
+
 	test("a prefill that filled in NOTHING gets no note — an empty banner is noise", () => {
 		expect(
-			describeGrantPrefill({
-				draft: { extensionId: "", workflowName: "", jobRef: "", triggerKind: "cron" },
-				applied: [],
-				rejected: ["nope"],
-			}),
+			describeGrantPrefill(
+				{
+					draft: { extensionId: "", workflowName: "", jobRef: "", triggerKind: "cron" },
+					applied: [],
+					rejected: ["nope"],
+				},
+				"link",
+			),
 		).toBeNull();
 	});
 });

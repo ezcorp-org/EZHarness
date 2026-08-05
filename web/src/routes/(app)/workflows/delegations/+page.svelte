@@ -36,6 +36,7 @@
 		type Delegation,
 		type DelegatedRun,
 		type GrantPrefill,
+		type GrantPrefillSource,
 		type ParamReader,
 		type ServiceAccountOption,
 	} from "$lib/workflow-delegations-logic";
@@ -105,12 +106,14 @@
 
 	/** What the last prefill filled in and what it refused, for the note. */
 	let prefill = $state<GrantPrefill | null>(null);
+	/** Which of the two sources produced it, so the note says the true one. */
+	let prefillSource = $state<GrantPrefillSource>("link");
 	/** The `?…` string already consumed, so a re-render cannot re-apply it
 	 *  over edits the person has since made to the form. */
 	let consumedSearch: string | null = null;
 	let grantFormEl = $state<HTMLDivElement | null>(null);
 
-	async function applyPrefill(params: ParamReader) {
+	async function applyPrefill(params: ParamReader, source: GrantPrefillSource) {
 		const resolved = resolveGrantPrefill(params, {
 			extensions,
 			// The workflow picker's own options — so a link can only name a
@@ -129,6 +132,7 @@
 		draftJobRef = resolved.draft.jobRef;
 		draftTriggerKind = resolved.draft.triggerKind;
 		prefill = resolved;
+		prefillSource = source;
 		granting = true;
 		// The form is above the list, so a "Grant this again" from a card
 		// further down would otherwise fill in a form nobody can see.
@@ -152,7 +156,7 @@
 	 * says so instead of seeding a form that cannot be submitted.
 	 */
 	function grantAgain(delegation: Delegation) {
-		void applyPrefill(grantParams(delegation));
+		void applyPrefill(grantParams(delegation), "delegation");
 	}
 
 	async function loadDelegatableExtensions() {
@@ -235,7 +239,7 @@
 		untrack(() => {
 			if (!ready || search === consumedSearch) return;
 			consumedSearch = search;
-			void applyPrefill(page.url.searchParams);
+			void applyPrefill(page.url.searchParams, "link");
 		});
 	});
 
@@ -356,7 +360,7 @@
 			     you" is the fact a person needs in order to look at them,
 			     and it is the one a prefilled form otherwise hides. -->
 			{#if prefill}
-				{@const note = describeGrantPrefill(prefill)}
+				{@const note = describeGrantPrefill(prefill, prefillSource)}
 				{#if note}
 					<p
 						class="mb-3 rounded-md border border-blue-500/40 bg-blue-500/10 p-2.5 text-xs text-[var(--color-text-primary)]"

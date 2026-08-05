@@ -464,18 +464,34 @@ export function resolveGrantPrefill(
 	return { draft, applied, rejected };
 }
 
+/** Where a prefill came from. Two sources, two sentences — see below. */
+export type GrantPrefillSource = "link" | "delegation";
+
 /**
- * The sentence naming what a link filled in, or `null` when it filled in
- * nothing.
+ * The sentence naming what a prefill filled in, or `null` when it filled
+ * in nothing.
  *
  * Rendered next to the prefilled form, and it is the counterpart to the
  * dialog's subject block: the dialog says *what* is being approved, this
- * says *which of it a link chose for you*. Both have to be true for a deep
- * link to be safe to follow.
+ * says *which of it something other than you chose*. Both have to be true
+ * for a deep link to be safe to follow.
+ *
+ * The source is a parameter and not a constant because the two paths are
+ * genuinely different facts about where the values came from. Telling
+ * somebody re-granting their own delegation that the fields came "from the
+ * link you followed" is a small lie about provenance on the one surface
+ * whose entire job is being exact about provenance.
  */
-export function describeGrantPrefill(prefill: GrantPrefill): string | null {
+export function describeGrantPrefill(
+	prefill: GrantPrefill,
+	source: GrantPrefillSource,
+): string | null {
 	if (prefill.applied.length === 0) return null;
-	return `Filled in from the link you followed: ${prefill.applied.join(", ")}. Check it below — nothing is granted until you approve it.`;
+	const from =
+		source === "link"
+			? "Filled in from the link you followed"
+			: "Filled in from the delegation you are granting again";
+	return `${from}: ${prefill.applied.join(", ")}. Check it below — nothing is granted until you approve it.`;
 }
 
 // ── the three TOKEN-BOUND EXCLUSIONS ──────────────────────────────────

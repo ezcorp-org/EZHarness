@@ -940,6 +940,13 @@ test.describe("Delegations deep link", () => {
 		await expect(page.getByTestId("grant-extension")).toHaveValue("ext-nightly");
 		await expect(page.getByTestId("grant-workflow")).toHaveValue("ship-it");
 		await expect(page.getByTestId("grant-job-ref")).toHaveValue("nightly-ship");
+		// The note names the RIGHT source. No link was followed here, and a
+		// page whose whole job is being exact about provenance must not say
+		// one was.
+		await expect(page.getByTestId("grant-prefill-note")).toContainText(
+			"delegation you are granting again",
+		);
+		await expect(page.getByTestId("grant-prefill-note")).not.toContainText("link you followed");
 		// Re-granting is the SAME act as granting: nothing is written until the
 		// capability set has been re-read and Approve pressed.
 		expect(posted()).toHaveLength(0);
