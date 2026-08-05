@@ -18,6 +18,7 @@
 
 import { test, expect, describe, beforeEach, afterEach, mock, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { useTempProjectRoot } from "./helpers/temp-project-root";
 import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -66,7 +67,15 @@ mock.module("../extensions/registry", () => ({
   },
 }));
 
-afterAll(() => restoreModuleMocks());
+// The install base is the RELATIVE `data/extensions`, resolved against
+// `process.cwd()` — the checkout, for a test. Run from a throwaway root so
+// no install lands in the working tree.
+const TMP_ROOT = useTempProjectRoot("installer-");
+
+afterAll(() => {
+  restoreModuleMocks();
+  TMP_ROOT.cleanup();
+});
 
 const { installFromLocal, installFromGitHub, installFromGit } = await import(
   "../extensions/installer"

@@ -363,10 +363,12 @@ describe("ExtensionProcess", () => {
   test("call timeout rejects and kills process after specified duration", async () => {
     // Use a script that reads stdin but never responds -- "bun -e" with an
     // infinite await. This ensures the call hangs until the timeout fires.
+    // The fixture is CHECKED IN — read it, never rewrite it. The previous
+    // `Bun.write` re-emitted the identical bytes into the source tree on
+    // every run: a write to the real checkout (and a failure on any tree
+    // where `src/` is read-only) that bought nothing.
     const hangScript = resolve(__dirname, "helpers/mock-extension/hang.ts");
-    // Write the hang script inline via Bun.write if not present
-    const hangContent = "await new Promise(() => {}); // hang forever";
-    await Bun.write(hangScript, hangContent);
+    expect(await Bun.file(hangScript).text()).toContain("hang forever");
 
     const ep = new ExtensionProcess(
       "timeout-test",

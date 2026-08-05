@@ -12,10 +12,11 @@ import {
   beforeAll,
   afterAll,
 } from "bun:test";
-import { mkdir, rm, chmod } from "node:fs/promises";
+import { mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { useTempProjectRoot, type TempProjectRoot } from "./helpers/temp-project-root";
 import {
   setupTestDb,
   closeTestDb,
@@ -44,6 +45,7 @@ const { scanSkillBundles, synthesizeSkillExtension } = await import(
 
 afterAll(() => restoreModuleMocks());
 
+let tmpRoot: TempProjectRoot;
 let projectRoot: string;
 let userId: string;
 
@@ -56,21 +58,19 @@ beforeAll(async () => {
   });
   userId = u.id;
   await createProject({ name: "Wired", path: "/tmp/wired" });
-  // Under the repo so the synthesized config's `@ezcorp/sdk` import
-  // resolves the same way a real <projectRoot>/.ezcorp install does.
-  // `.ezcorp/` is gitignored — no repo residue.
-  projectRoot = join(
-    process.cwd(),
-    ".ezcorp",
-    "wired-test",
-    crypto.randomUUID(),
-  );
+  // A throwaway root that LOOKS like the repo (it links `node_modules` /
+  // `packages` in), so the synthesized config's `@ezcorp/sdk` import
+  // resolves the same way a real `<projectRoot>/.ezcorp` install does.
+  // Previously this was `<repo>/.ezcorp/wired-test/<uuid>` — inside the
+  // checkout, and it left the empty parent dir behind every run.
+  tmpRoot = useTempProjectRoot("import-wired-");
+  projectRoot = join(tmpRoot.root, ".ezcorp", "wired-test", crypto.randomUUID());
   await mkdir(projectRoot, { recursive: true });
 });
 
 afterAll(async () => {
-  await rm(projectRoot, { recursive: true, force: true });
   await closeTestDb();
+  tmpRoot.cleanup();
 });
 
 function file(content: string, name: string): File {

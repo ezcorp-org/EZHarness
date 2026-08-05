@@ -33,6 +33,7 @@
  */
 import { test, expect, describe, beforeEach, afterEach, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
+import { useTempProjectRoot } from "./helpers/temp-project-root";
 import { eq, sql } from "drizzle-orm";
 
 mockDbConnection();
@@ -597,10 +598,13 @@ describe("backfill-embeddings main() — exit codes + branches", () => {
 
   test("worker-up path: with the kill-switch cleared and a live PID lockfile, main() does NOT warn", async () => {
     delete process.env.EZCORP_DISABLE_EMBED_WORKER;
+    // `DEFAULT_LOCKFILE_PATH` is the RELATIVE `.ezcorp/embed-worker.pid`, so
+    // it resolves against cwd — the checkout, for a test. Writing it there
+    // meant clobbering (and, when the host had none, LEAVING BEHIND) a real
+    // file in the tree. Run this test from a throwaway root instead: the
+    // lockfile is ours, and the save/restore dance disappears with it.
+    const tmpRoot = useTempProjectRoot("backfill-lockfile-");
     const lockPath = ".ezcorp/embed-worker.pid";
-    const lockFile = Bun.file(lockPath);
-    const hadLock = await lockFile.exists();
-    const savedLock = hadLock ? await lockFile.text() : null;
     // Point the lockfile at THIS live process so isWorkerDown() → false.
     await Bun.write(lockPath, String(process.pid));
     try {
@@ -611,8 +615,7 @@ describe("backfill-embeddings main() — exit codes + branches", () => {
       expect(stderr).not.toContain("WARNING: the EmbedWorker appears to be DOWN");
       expect(JSON.parse(stdout).enqueued).toBe(1);
     } finally {
-      // Restore the host's original lockfile byte-for-byte.
-      if (savedLock !== null) await Bun.write(lockPath, savedLock);
+      tmpRoot.cleanup();
     }
   });
 });
@@ -645,10 +648,9 @@ describe("isWorkerDown / isProcessAlive (worker-liveness probes)", () => {
 
   test("isWorkerDown: kill-switch=0 falls through to lockfile liveness", async () => {
     process.env.EZCORP_DISABLE_EMBED_WORKER = "0"; // not "1" → not forced down
+    // Same relative-path story as the worker-up test above — own the root.
+    const tmpRoot = useTempProjectRoot("backfill-lockfile-");
     const lockPath = ".ezcorp/embed-worker.pid";
-    const lockFile = Bun.file(lockPath);
-    const hadLock = await lockFile.exists();
-    const savedLock = hadLock ? await lockFile.text() : null;
     try {
       // (a) live PID → worker UP (not down).
       await Bun.write(lockPath, String(process.pid));
@@ -657,7 +659,7 @@ describe("isWorkerDown / isProcessAlive (worker-liveness probes)", () => {
       await Bun.write(lockPath, "999999999");
       expect(await isWorkerDown()).toBe(true);
     } finally {
-      if (savedLock !== null) await Bun.write(lockPath, savedLock);
+      tmpRoot.cleanup();
     }
   });
 });

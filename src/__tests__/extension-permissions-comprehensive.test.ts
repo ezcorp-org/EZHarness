@@ -1,5 +1,6 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection, restoreFetch } from "./helpers/test-pglite";
+import { useTempProjectRoot, type TempProjectRoot } from "./helpers/temp-project-root";
 import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -29,7 +30,13 @@ import { validateManifestV2 as validateManifest } from "../extensions/manifest";
 
 // ── Setup ───────────────────────────────────────────────────────────
 
+// `installFromLocal()`'s install base is the RELATIVE `data/extensions`,
+// resolved against `process.cwd()` — the checkout, for a test. Run from a
+// throwaway root so no install lands in the working tree.
+let tmpRoot: TempProjectRoot;
+
 beforeAll(async () => {
+  tmpRoot = useTempProjectRoot("ext-perms-comprehensive-");
   restoreFetch();
   mockDbConnection();
   await setupTestDb();
@@ -37,6 +44,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await closeTestDb();
+  tmpRoot.cleanup();
 });
 
 // ── Helpers ─────────────────────────────────────────────────────────

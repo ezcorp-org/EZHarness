@@ -14,6 +14,7 @@ import {
   handleRequest,
   commandFor,
 } from "../runtime/import/skill-runner.template";
+import { useTempProjectRoot } from "./helpers/temp-project-root";
 import { loadManifest } from "../extensions/loader";
 import { validateManifestV2 } from "../extensions/manifest";
 
@@ -216,12 +217,15 @@ describe("buildSkillManifestSource / synthesizeSkillExtension", () => {
     await writeFile(join(dir, "run.sh"), "#!/bin/bash\necho ok\n", "utf8");
     const [b] = await scanSkillBundles(root);
 
-    // destDir must sit under the repo so the synthesized config's
-    // `@ezcorp/sdk` import resolves the same way a real install
-    // (under <projectRoot>/.ezcorp/extensions/) does. `.ezcorp/` is
-    // gitignored, so this leaves no repo residue.
+    // destDir must sit under a root that LOOKS like the repo so the
+    // synthesized config's `@ezcorp/sdk` import resolves the same way a
+    // real install (under <projectRoot>/.ezcorp/extensions/) does. The temp
+    // root links `node_modules`/`packages` in, so resolution is identical
+    // without the previous `<repo>/.ezcorp/test-import/<uuid>` — which was
+    // inside the checkout and left its empty parent behind every run.
+    const tmpRoot = useTempProjectRoot("import-skill-bundle-");
     const destDir = join(
-      process.cwd(),
+      tmpRoot.root,
       ".ezcorp",
       "test-import",
       crypto.randomUUID(),
@@ -240,7 +244,7 @@ describe("buildSkillManifestSource / synthesizeSkillExtension", () => {
       const v = validateManifestV2({ ...manifest, schemaVersion: 2 });
       expect(v.valid).toBe(true);
     } finally {
-      await rm(destDir, { recursive: true, force: true });
+      tmpRoot.cleanup();
     }
   });
 

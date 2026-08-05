@@ -33,20 +33,24 @@ mock.module("../db/connection", () => ({
 }));
 
 import { setupTestDb, closeTestDb, getTestPglite } from "./helpers/test-pglite";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { useTempProjectRoot, type TempProjectRoot } from "./helpers/temp-project-root";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const OWNER = "user-reopen-owner";
 const STRANGER = "user-reopen-stranger";
 
-let tmpRoot = "";
-let prevCwd = "";
+// The materialized draft dir resolves through `getProjectRoot()`, which is
+// anchored on `bundled.ts`'s own module path — a `process.chdir(tmp)` (what
+// this block used to do) does NOT move it, so every reopen wrote into the
+// real checkout and EACCESed wherever `.ezcorp/extension-data` is owned by
+// another uid. Move the root itself instead.
+let tmpRoot: TempProjectRoot;
 
 async function seedInstalled(over: Record<string, unknown>) {
   const { createExtension } = await import("../db/queries/extensions");
   const name = over.name as string;
-  const installPath = join(tmpRoot, ".ezcorp/extensions", name);
+  const installPath = join(tmpRoot.root, ".ezcorp/extensions", name);
   mkdirSync(installPath, { recursive: true });
   writeFileSync(
     join(installPath, "ezcorp.config.ts"),
@@ -78,9 +82,7 @@ async function seedInstalled(over: Record<string, unknown>) {
 
 describe("reopenInstalledAsDraft", () => {
   beforeAll(async () => {
-    tmpRoot = mkdtempSync(join(tmpdir(), "reopen-ext-"));
-    prevCwd = process.cwd();
-    process.chdir(tmpRoot);
+    tmpRoot = useTempProjectRoot("reopen-ext-");
     await setupTestDb();
     const { getDb } = await import("../db/connection");
     const { users } = await import("../db/schema");
@@ -93,8 +95,7 @@ describe("reopenInstalledAsDraft", () => {
   });
   afterAll(async () => {
     await closeTestDb();
-    if (prevCwd) try { process.chdir(prevCwd); } catch { /* */ }
-    if (tmpRoot) try { rmSync(tmpRoot, { recursive: true, force: true }); } catch { /* */ }
+    tmpRoot.cleanup();
   });
   afterEach(async () => {
     const { getDb } = await import("../db/connection");
@@ -178,7 +179,7 @@ describe("reopenInstalledAsDraft", () => {
       modifiable: true,
     });
     // index.ts exists (seedInstalled wrote it) but cannot be read.
-    const installPath = join(tmpRoot, ".ezcorp/extensions", "rw-unreadable");
+    const installPath = join(tmpRoot.root, ".ezcorp/extensions", "rw-unreadable");
     const { chmodSync } = await import("node:fs");
     chmodSync(join(installPath, "index.ts"), 0o000);
     let unreadableIsEnforceable = true;
