@@ -45,6 +45,7 @@ interface DelegationWire {
   id: string;
   workflowName: string;
   ownerKind: string;
+  ownerId: string;
   enabled: boolean;
   disabledReason: string | null;
 }
@@ -96,6 +97,11 @@ test.describe("the delegated fire has no HTTP surface, and consent refuses what 
     expect(account.status(), await account.text()).toBe(201);
     const accountId = ((await account.json()) as { account: { id: string } }).account.id;
 
+    // The REQUEST names the column (`ownerServiceAccountId`); the
+    // RESPONSE flattens both owner columns into one `ownerId`
+    // (`toWorkflowDelegationView`, via the schema's keyed lookup). They
+    // are deliberately different names and are asserted as such below —
+    // sending the response's name on the request is a `.strict()` 400.
     const consentBody = (
       workflowName: string,
       ownerKind: "user" | "service",
@@ -105,7 +111,7 @@ test.describe("the delegated fire has no HTTP surface, and consent refuses what 
       jobRef,
       workflowName,
       ownerKind,
-      ...(ownerKind === "service" ? { ownerId: accountId } : {}),
+      ...(ownerKind === "service" ? { ownerServiceAccountId: accountId } : {}),
       triggerKind: "cron",
       triggerSpec: { expr: "0 3 * * *" },
       maxTokensPerRun: 5_000,
@@ -159,6 +165,12 @@ test.describe("the delegated fire has no HTTP surface, and consent refuses what 
     expect(mine!.disabledReason).toBeNull();
     expect(mine!.ownerKind).toBe("user");
     expect(rows.find((d) => d.id === svcId)?.ownerKind).toBe("service");
+    // The principal actually BOUND, read back off the wire. This is what
+    // makes the two controls above assertions about WHO rather than about
+    // a string the route echoed: the service row carries the account, and
+    // the user row carries the consenting human — never each other's.
+    expect(rows.find((d) => d.id === svcId)?.ownerId).toBe(accountId);
+    expect(mine!.ownerId).not.toBe(accountId);
 
     // ── claim 1 — a job ref buys nothing over HTTP ──────────────────────
     //
