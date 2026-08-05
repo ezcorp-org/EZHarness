@@ -1594,33 +1594,61 @@ describe("the shared rungs still bound the delegated op", () => {
     await delegate({ ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly" });
     // The hourly ceiling is raised out of the way so the refusal below can
     // only be the INSTANTANEOUS bucket — rung 11 has its own test. The
-    // bucket refills on wall-clock time (50/s), so the drain is a bounded
-    // loop rather than exactly 50 calls; the bound is what makes a broken
-    // limiter fail rather than hang.
+    // bound on the drain loop is what makes a broken limiter fail rather
+    // than hang.
+    //
+    // THE CLOCK IS FROZEN FOR THE WHOLE EXCHANGE, and that is load-bearing.
+    // `createRateLimiter` refills on WALL-CLOCK time (50 tokens/s = one
+    // token per 20ms) and a REFUSED consume deducts nothing — so the instant
+    // the loop sees its first `WORKFLOWS_RATE_LIMITED` the bucket already
+    // holds some fraction in [0,1) and is climbing back toward 1. Whether
+    // the `run` op below still finds it empty was therefore a race against
+    // however long that call takes to reach rung 9: locally it wins by ~1ms,
+    // but on a loaded runner a single scheduler preemption of ~13ms hands
+    // the `run` op a refilled token and the rung goes red for a reason that
+    // has nothing to do with the property it pins. (Observed: PR #88 CI,
+    // `shard 1/12`, where the isolated plain re-run failed too — the same
+    // suite is green on a quiet box, which is exactly the signature.)
+    //
+    // Freezing removes the refill term entirely: the drain becomes exactly
+    // MAX_OPS_PER_SECOND accepted calls then a refusal, and the bucket is
+    // PROVABLY at zero when the `run` op asks. Nothing is loosened — this is
+    // the strict form of the same claim, and it is the same technique the
+    // sibling burst test states in prose ("no wall-clock refill can smear
+    // the burst", `workflows-handler.test.ts`).
     const wide = ctx({ grantedPermissions: granted({ maxRunsPerHour: 5000 }) });
+    const runner = ctx({
+      userId: ownerUserId,
+      grantedPermissions: granted({ names: ["own"], maxRunsPerHour: 5000 }),
+      manifest: {
+        ...manifest(),
+        permissions: { workflows: { names: ["own"], maxRunsPerHour: 5000 } },
+      } as unknown as ExtensionManifestV2,
+    });
+
+    const clock = spyOn(Date, "now").mockReturnValue(Date.now());
     let drained = false;
-    for (let i = 0; i < 400 && !drained; i++) {
-      const r = await handleWorkflowsRpc(req(), wide);
-      drained = (r.error?.data as { reason?: string } | undefined)?.reason
-        === "WORKFLOWS_RATE_LIMITED";
+    let shared: Awaited<ReturnType<typeof handleWorkflowsRpc>>;
+    try {
+      for (let i = 0; i < 400 && !drained; i++) {
+        const r = await handleWorkflowsRpc(req(), wide);
+        drained = (r.error?.data as { reason?: string } | undefined)?.reason
+          === "WORKFLOWS_RATE_LIMITED";
+      }
+      // THE point of the test: a plain `run` on the SAME extension is now
+      // refused too. A delegated fire that carried its own bucket would
+      // double the extension's burst budget, and this is what would notice.
+      shared = await handleWorkflowsRpc(
+        { jsonrpc: "2.0", id: 9, method: "ezcorp/workflows", params: { v: 1, workflow: "own" } },
+        runner,
+      );
+    } finally {
+      // Restored before the assertions so a red rung can never leak a
+      // frozen clock into the rest of the file.
+      clock.mockRestore();
     }
+
     expect(drained).toBe(true);
-
-    // THE point of the test: a plain `run` on the SAME extension is now
-    // refused too. A delegated fire that carried its own bucket would
-    // double the extension's burst budget, and this is what would notice.
-    const shared = await handleWorkflowsRpc(
-      { jsonrpc: "2.0", id: 9, method: "ezcorp/workflows", params: { v: 1, workflow: "own" } },
-      ctx({
-        userId: ownerUserId,
-        grantedPermissions: granted({ names: ["own"], maxRunsPerHour: 5000 }),
-        manifest: {
-          ...manifest(),
-          permissions: { workflows: { names: ["own"], maxRunsPerHour: 5000 } },
-        } as unknown as ExtensionManifestV2,
-      }),
-    );
-
     expect(shared.error?.data).toEqual({ reason: "WORKFLOWS_RATE_LIMITED" });
   });
 
