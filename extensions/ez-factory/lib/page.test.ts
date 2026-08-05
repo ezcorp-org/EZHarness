@@ -1509,7 +1509,11 @@ describe("invariant J — job/run strings never reach the markdown ({@html}) sin
   test("the static help text is a constant, so no field can ride into it", () => {
     // The only markdown these pages emit. Interpolating ANY value here is
     // how the invariant gets broken, so pin them as literals.
-    for (const help of [CONSOLE_HELP, TEMPLATES_HELP, RUNS_HELP]) {
+    //
+    // TRIGGER_HELP belongs in this list for the same reason as the other
+    // three and was missing from it: it is the editor's markdown node, the
+    // one the sink test above relies on existing.
+    for (const help of [CONSOLE_HELP, TEMPLATES_HELP, RUNS_HELP, TRIGGER_HELP]) {
       expect(typeof help).toBe("string");
       expect(help).not.toContain(PROBE);
     }
@@ -1885,6 +1889,88 @@ describe("the job editor's delegation link", () => {
     });
     const tree = buildJobPage({ view: { kind: "edit", jobId: paused.id }, job: paused });
     expect(hrefs(tree)).toContain(hrefOf(paused));
+  });
+});
+
+// ── The schedule section's two authored strings ─────────────────────
+//
+// `TRIGGER_HELP` and `BACKGROUND_TRIGGER_NOTE` are rendered by
+// `buildJobPage` and by nothing else, and until these tests neither was
+// asserted anywhere — both constants were imported into this file and used
+// only by an explanatory comment.
+//
+// The e2e (`web/e2e/ez-factory-job-editor.spec.ts`) looks like it covers
+// the notice, and does not: it fulfils `/api/hub/pages` with a HAND-WRITTEN
+// tree that fabricates the empty-state node, so it proves the Hub RENDERER
+// draws one. It never loads this module at all, so no change to the builder
+// can move it in either direction.
+//
+// Mutation-checked before writing these: deleting `section.emptyState(
+// "Saved, not yet armed", BACKGROUND_TRIGGER_NOTE)` from `page.ts` left all
+// 139 tests here and all 99 in `jobs.test.ts` green, and swapping
+// `TRIGGER_HELP` for `CONSOLE_HELP` was equally invisible.
+//
+// What that would cost is the whole point of the notice: saving a schedule
+// mints no authority, so without it the console shows a job whose Trigger
+// column reads `cron · 0 3 * * *` and which never runs, and the operator's
+// only clue is its absence from Recent runs.
+
+describe("the job editor's schedule section", () => {
+  const emptyStates = (tree: HubPageTree): { title: string; detail?: string }[] =>
+    nodesOfType(tree, "empty-state") as unknown as { title: string; detail?: string }[];
+
+  const markdown = (tree: HubPageTree): string[] =>
+    nodesOfType(tree, "markdown").map((n) => String((n as { content: unknown }).content));
+
+  const armedNotice = (tree: HubPageTree): { title: string; detail?: string } | undefined =>
+    emptyStates(tree).find((n) => n.title === "Saved, not yet armed");
+
+  test("the editor's ONE markdown node is TRIGGER_HELP itself", () => {
+    // The invariant-J sink test asserts `markdownNodesExist: true` on this
+    // page and explains that verdict by naming TRIGGER_HELP. This is the
+    // assertion that makes the explanation true: any other constant, or a
+    // template literal, is a different string and fails here.
+    const tree = buildJobPage({ view: { kind: "edit", jobId: "j1" }, job: job() });
+    expect(markdown(tree)).toEqual([TRIGGER_HELP]);
+  });
+
+  test("a CRON job's editor says out loud that saving it armed NOTHING", () => {
+    const scheduled = job({ trigger: { ...CRON_TRIGGER } });
+    const tree = buildJobPage({ view: { kind: "edit", jobId: scheduled.id }, job: scheduled });
+    const notice = armedNotice(tree);
+    expect(notice).toBeDefined();
+    // The detail is the constant VERBATIM, not merely something similar —
+    // the sentence that says a background fire runs as a person is the
+    // whole content of the warning.
+    expect(notice!.detail).toBe(BACKGROUND_TRIGGER_NOTE);
+    expect(BACKGROUND_TRIGGER_NOTE).toContain("authorizes it in the workflow UI");
+  });
+
+  test("a WEBHOOK job's editor says the same — the notice tracks BACKGROUND-ness, not cron", () => {
+    const hooked = job({ trigger: { ...WEBHOOK_TRIGGER } });
+    const tree = buildJobPage({ view: { kind: "edit", jobId: hooked.id }, job: hooked });
+    expect(armedNotice(tree)?.detail).toBe(BACKGROUND_TRIGGER_NOTE);
+  });
+
+  test("a DISABLED background job still carries it — a pause is not an authorization", () => {
+    const paused = job({ enabled: false, trigger: { ...CRON_TRIGGER } });
+    const tree = buildJobPage({ view: { kind: "edit", jobId: paused.id }, job: paused });
+    expect(armedNotice(tree)?.detail).toBe(BACKGROUND_TRIGGER_NOTE);
+  });
+
+  test("a MANUAL job's editor carries NO notice — a notice on every job is noise", () => {
+    // The negative half, and it is load-bearing: noise is how the one
+    // warning that matters stops being read.
+    const tree = buildJobPage({ view: { kind: "edit", jobId: "j1" }, job: job() });
+    expect(emptyStates(tree)).toHaveLength(0);
+  });
+
+  test("a CREATE has no schedule section at all — no help, no notice", () => {
+    // There is nothing to consent against until the job has an id, so the
+    // whole section is withheld rather than shown empty.
+    const tree = buildJobPage({ view: { kind: "new" }, job: null });
+    expect(markdown(tree)).toEqual([]);
+    expect(emptyStates(tree)).toHaveLength(0);
   });
 });
 
