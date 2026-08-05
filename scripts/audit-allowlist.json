@@ -1,0 +1,21 @@
+{
+  "$comment": [
+    "Justified, DATED suppressions for scripts/audit-deps.ts (the `Dependency audit` job).",
+    "This file suppresses SECURITY findings, so every entry carries a written reason and a",
+    "hard expiry. The gate fails on an EXPIRED entry (forcing re-review) AND on a STALE entry",
+    "matching no live advisory (so the list cannot rot into a blanket ignore).",
+    "Entries match on `ghsa` + `package` across BOTH lockfiles; `path` and `severity` are",
+    "documentation for the reviewer. FIX BY UPGRADING FIRST — only add an entry when no",
+    "in-range upgrade exists. Default floor is `high`: moderate/low are printed, not blocking."
+  ],
+  "ignore": [
+    {
+      "ghsa": "GHSA-f88m-g3jw-g9cj",
+      "package": "sharp",
+      "path": "@huggingface/transformers › sharp (root) · kokoro-js › @huggingface/transformers › sharp (web/)",
+      "severity": "high",
+      "reason": "No in-range fix exists. sharp 0.35.0 carries the patched libvips (CVE-2026-33327 / 33328 / 35590 / 35591), but EVERY published @huggingface/transformers release — including the current latest, 4.2.0 — declares `sharp ^0.34.5`, so no upgrade of transformers (nor of kokoro-js, which pins transformers ^3.5.1) reaches it. The only route through is an `overrides` pin that deliberately violates a declared range on a native-binary dependency, which is not worth it for an image-decode DoS class. Exposure here is narrow: EZCorp never imports sharp itself (zero source hits), and transformers is used only for TEXT embeddings and chunking (src/memory/embeddings.ts, src/memory/message-chunker.ts), so its image-preprocessing path is never entered; in web/ it arrives via kokoro-js TTS. At expiry, re-check whether transformers has widened its sharp range.",
+      "expires": "2026-11-03"
+    }
+  ]
+}

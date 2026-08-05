@@ -48,6 +48,22 @@ import {
   E2E_RATCHET_CEILING,
   ratchetViolation,
 } from "../../scripts/typecheck-tests.ts";
+import {
+  type AllowlistEntry,
+  AuditUnavailableError,
+  daysUntilExpiry,
+  diffFindings,
+  EXPIRY_WARN_DAYS,
+  type Finding,
+  isExpired,
+  isFailing,
+  meetsFloor,
+  parseAllowlist,
+  parseArgs,
+  parseAuditJson,
+  severityRank,
+  utcToday,
+} from "../../scripts/audit-deps.ts";
 
 // ── coverage-config ─────────────────────────────────────────────────────────
 describe("coverage-config helpers", () => {
@@ -812,5 +828,384 @@ describe("check-patch-coverage: binaryDiffFiles", () => {
 
   test("empty diff yields nothing", () => {
     expect(binaryDiffFiles("")).toEqual([]);
+  });
+});
+
+// ── audit-deps: severity floor ──────────────────────────────────────────────
+describe("audit-deps: severity ordering", () => {
+  test("ranks ascending and rejects unknown severities", () => {
+    expect(severityRank("critical")).toBeGreaterThan(severityRank("high"));
+    expect(severityRank("high")).toBeGreaterThan(severityRank("moderate"));
+    expect(severityRank("moderate")).toBeGreaterThan(severityRank("low"));
+    expect(severityRank("banana")).toBe(-1);
+  });
+
+  test("meetsFloor is inclusive at the floor and never true for unknown", () => {
+    expect(meetsFloor("high", "high")).toBe(true);
+    expect(meetsFloor("critical", "high")).toBe(true);
+    expect(meetsFloor("moderate", "high")).toBe(false);
+    // An unranked severity must never block — a schema change at npm must not
+    // turn every advisory into a hard failure.
+    expect(meetsFloor("banana", "low")).toBe(false);
+  });
+});
+
+// ── audit-deps: parseAuditJson ──────────────────────────────────────────────
+describe("audit-deps: parseAuditJson", () => {
+  test("maps the flat {package: Advisory[]} payload into findings", () => {
+    const raw = JSON.stringify({
+      tar: [
+        {
+          id: 1,
+          url: "https://github.com/advisories/GHSA-23hp-3jrh-7fpw",
+          title: "node-tar DoS",
+          severity: "critical",
+          vulnerable_versions: "<=7.5.18",
+        },
+      ],
+    });
+    expect(parseAuditJson(raw, "web")).toEqual([
+      {
+        root: "web",
+        pkg: "tar",
+        ghsa: "GHSA-23hp-3jrh-7fpw",
+        severity: "critical",
+        title: "node-tar DoS",
+        vulnerableVersions: "<=7.5.18",
+      },
+    ]);
+  });
+
+  test("dedupes the SAME advisory repeated per major range, keeping the worst severity", () => {
+    // npm really does emit one row per vulnerable major (observed on
+    // brace-expansion: GHSA-mh99-v99m-4gvg twice, ids 1130588 + 1130589).
+    const raw = JSON.stringify({
+      "brace-expansion": [
+        { id: 1, url: ".../GHSA-mh99-v99m-4gvg", severity: "moderate", vulnerable_versions: "<1.1.17" },
+        { id: 2, url: ".../GHSA-mh99-v99m-4gvg", severity: "high", vulnerable_versions: ">=2.0.0 <2.1.3" },
+      ],
+    });
+    const findings = parseAuditJson(raw, ".");
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.severity).toBe("high");
+    expect(findings[0]?.vulnerableVersions).toBe(">=2.0.0 <2.1.3");
+  });
+
+  test("sorts worst-first so the log leads with the criticals", () => {
+    const raw = JSON.stringify({
+      aaa: [{ id: 1, url: ".../GHSA-aaaa-aaaa-aaaa", severity: "high" }],
+      zzz: [{ id: 2, url: ".../GHSA-zzzz-zzzz-zzzz", severity: "critical" }],
+    });
+    expect(parseAuditJson(raw, ".").map((f) => f.pkg)).toEqual(["zzz", "aaa"]);
+  });
+
+  test("falls back to the numeric npm id when the url carries no GHSA", () => {
+    const raw = JSON.stringify({ foo: [{ id: 42, url: "https://example.com/x", severity: "high" }] });
+    expect(parseAuditJson(raw, ".")[0]?.ghsa).toBe("npm-42");
+  });
+
+  test("skips junk rows without discarding the good ones", () => {
+    const raw = JSON.stringify({
+      good: [{ id: 1, url: ".../GHSA-good-good-good", severity: "high" }],
+      notAnArray: { nope: true },
+      hasNulls: [null, { url: ".../GHSA-ok11-ok11-ok11", severity: "low" }],
+      noId: [{ severity: "critical" }],
+    });
+    expect(parseAuditJson(raw, ".").map((f) => f.ghsa).sort()).toEqual([
+      "GHSA-good-good-good",
+      "GHSA-ok11-ok11-ok11",
+    ]);
+  });
+
+  test("empty stdout is UNAVAILABLE, not a clean audit", () => {
+    // The whole point: a registry blip must never read as zero advisories.
+    expect(() => parseAuditJson("", ".")).toThrow(AuditUnavailableError);
+    expect(() => parseAuditJson("   \n ", ".")).toThrow(AuditUnavailableError);
+  });
+
+  test("non-JSON and non-object payloads are UNAVAILABLE", () => {
+    expect(() => parseAuditJson("ConnectionRefused: audit request failed", ".")).toThrow(
+      AuditUnavailableError,
+    );
+    expect(() => parseAuditJson("[]", ".")).toThrow(AuditUnavailableError);
+    expect(() => parseAuditJson("null", ".")).toThrow(AuditUnavailableError);
+  });
+
+  test("a genuinely clean audit ({}) is zero findings, NOT unavailable", () => {
+    expect(parseAuditJson("{}", ".")).toEqual([]);
+  });
+});
+
+// ── audit-deps: allowlist parsing/validation ────────────────────────────────
+describe("audit-deps: parseAllowlist", () => {
+  const REASON = "A substantive justification that comfortably clears the minimum length bar.";
+  const OK = {
+    ghsa: "GHSA-f88m-g3jw-g9cj",
+    package: "sharp",
+    path: "a › b › sharp",
+    severity: "high",
+    reason: REASON,
+    expires: "2099-01-01",
+  };
+  const wrap = (entries: unknown[]) => JSON.stringify({ ignore: entries });
+
+  test("accepts a well-formed entry", () => {
+    const { entries, problems } = parseAllowlist(wrap([OK]));
+    expect(problems).toEqual([]);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.package).toBe("sharp");
+  });
+
+  test("rejects invalid JSON and a missing ignore array", () => {
+    expect(parseAllowlist("{not json").problems[0]).toContain("not valid JSON");
+    expect(parseAllowlist("{}").problems[0]).toContain('"ignore" array');
+    expect(parseAllowlist(JSON.stringify({ ignore: {} })).problems[0]).toContain('"ignore" array');
+  });
+
+  test("rejects missing or blank required fields", () => {
+    const { entries, problems } = parseAllowlist(wrap([{ ...OK, reason: "   ", path: undefined }]));
+    expect(entries).toEqual([]);
+    expect(problems[0]).toContain("missing/blank");
+    expect(problems[0]).toContain("path");
+    expect(problems[0]).toContain("reason");
+  });
+
+  test("rejects a non-object entry", () => {
+    expect(parseAllowlist(wrap(["GHSA-nope"])).problems[0]).toContain("not an object");
+  });
+
+  test("rejects an expiry that is not a real YYYY-MM-DD date", () => {
+    expect(parseAllowlist(wrap([{ ...OK, expires: "soon" }])).problems[0]).toContain("YYYY-MM-DD");
+    expect(parseAllowlist(wrap([{ ...OK, expires: "2026-13-45" }])).problems[0]).toContain(
+      "YYYY-MM-DD",
+    );
+  });
+
+  test("rejects a rubber-stamp reason — the file suppresses security findings", () => {
+    const { entries, problems } = parseAllowlist(wrap([{ ...OK, reason: "no fix" }]));
+    expect(entries).toEqual([]);
+    expect(problems[0]).toContain("real justification");
+  });
+
+  test("rejects a duplicate package+ghsa pair", () => {
+    const { entries, problems } = parseAllowlist(wrap([OK, { ...OK, expires: "2099-06-01" }]));
+    expect(entries).toHaveLength(1);
+    expect(problems[0]).toContain("duplicate entry");
+  });
+
+  test("the COMMITTED allowlist is well-formed", async () => {
+    const raw = await Bun.file(
+      join(import.meta.dir, "..", "..", "scripts/audit-allowlist.json"),
+    ).text();
+    const { entries, problems } = parseAllowlist(raw);
+    expect(problems).toEqual([]);
+    // Every committed suppression must still be in date — a landed-but-expired
+    // entry would red the gate on main.
+    for (const entry of entries) expect(isExpired(entry, utcToday())).toBe(false);
+  });
+});
+
+// ── audit-deps: expiry arithmetic ───────────────────────────────────────────
+describe("audit-deps: expiry", () => {
+  const entry = (expires: string): AllowlistEntry => ({
+    ghsa: "GHSA-x",
+    package: "p",
+    path: "p",
+    severity: "high",
+    reason: "r",
+    expires,
+  });
+
+  test("expiry is inclusive — the entry dies ON its expires date", () => {
+    expect(isExpired(entry("2026-08-05"), "2026-08-05")).toBe(true);
+    expect(isExpired(entry("2026-08-06"), "2026-08-05")).toBe(false);
+    expect(isExpired(entry("2026-08-04"), "2026-08-05")).toBe(true);
+  });
+
+  test("daysUntilExpiry counts forward and goes negative once past", () => {
+    expect(daysUntilExpiry(entry("2026-08-15"), "2026-08-05")).toBe(10);
+    expect(daysUntilExpiry(entry("2026-08-05"), "2026-08-05")).toBe(0);
+    expect(daysUntilExpiry(entry("2026-08-01"), "2026-08-05")).toBe(-4);
+  });
+
+  test("utcToday is a UTC YYYY-MM-DD, not a local one", () => {
+    // 23:30 UTC — a local-time formatter east of UTC would roll to the 6th.
+    expect(utcToday(new Date("2026-08-05T23:30:00Z"))).toBe("2026-08-05");
+    expect(utcToday()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+// ── audit-deps: findings × allowlist ────────────────────────────────────────
+describe("audit-deps: diffFindings", () => {
+  const TODAY = "2026-08-05";
+  const finding = (over: Partial<Finding> = {}): Finding => ({
+    root: ".",
+    pkg: "sharp",
+    ghsa: "GHSA-f88m-g3jw-g9cj",
+    severity: "high",
+    title: "libvips",
+    vulnerableVersions: "<0.35.0",
+    ...over,
+  });
+  const allow = (over: Partial<AllowlistEntry> = {}): AllowlistEntry => ({
+    ghsa: "GHSA-f88m-g3jw-g9cj",
+    package: "sharp",
+    path: "t › sharp",
+    severity: "high",
+    reason: "r",
+    expires: "2099-01-01",
+    ...over,
+  });
+
+  test("an unallowlisted finding at the floor BLOCKS", () => {
+    const r = diffFindings({ findings: [finding()], allowlist: [], floor: "high", today: TODAY });
+    expect(r.blocking).toHaveLength(1);
+    expect(isFailing(r)).toBe(true);
+  });
+
+  test("a live allowlist entry suppresses it", () => {
+    const r = diffFindings({
+      findings: [finding()],
+      allowlist: [allow()],
+      floor: "high",
+      today: TODAY,
+    });
+    expect(r.blocking).toEqual([]);
+    expect(r.suppressed).toHaveLength(1);
+    expect(r.stale).toEqual([]);
+    expect(isFailing(r)).toBe(false);
+  });
+
+  test("one entry covers the SAME advisory in both lockfiles", () => {
+    const r = diffFindings({
+      findings: [finding(), finding({ root: "web" })],
+      allowlist: [allow()],
+      floor: "high",
+      today: TODAY,
+    });
+    expect(r.suppressed).toHaveLength(2);
+    expect(isFailing(r)).toBe(false);
+  });
+
+  test("below-floor findings are reported but never block", () => {
+    const r = diffFindings({
+      findings: [finding({ severity: "moderate" })],
+      allowlist: [],
+      floor: "high",
+      today: TODAY,
+    });
+    expect(r.blocking).toEqual([]);
+    expect(r.belowFloor).toHaveLength(1);
+    expect(isFailing(r)).toBe(false);
+  });
+
+  test("lowering the floor promotes a below-floor finding to blocking", () => {
+    const r = diffFindings({
+      findings: [finding({ severity: "moderate" })],
+      allowlist: [],
+      floor: "moderate",
+      today: TODAY,
+    });
+    expect(r.blocking).toHaveLength(1);
+  });
+
+  test("an EXPIRED entry stops suppressing AND is itself a failure", () => {
+    const r = diffFindings({
+      findings: [finding()],
+      allowlist: [allow({ expires: "2026-01-01" })],
+      floor: "high",
+      today: TODAY,
+    });
+    expect(r.blocking).toHaveLength(1);
+    expect(r.suppressed).toEqual([]);
+    expect(r.expired).toHaveLength(1);
+    expect(r.stale).toEqual([]); // it matched a live advisory, it's just out of date
+    expect(isFailing(r)).toBe(true);
+  });
+
+  test("a STALE entry matching nothing fails even with zero findings", () => {
+    const r = diffFindings({ findings: [], allowlist: [allow()], floor: "high", today: TODAY });
+    expect(r.blocking).toEqual([]);
+    expect(r.expired).toEqual([]);
+    expect(r.stale).toHaveLength(1);
+    expect(isFailing(r)).toBe(true);
+  });
+
+  test("staleness is judged against ALL findings, not just those above the floor", () => {
+    // An advisory re-scored high → moderate is still live, so its entry is not
+    // yet rot; deleting it would just re-block the day npm re-scores it back.
+    const r = diffFindings({
+      findings: [finding({ severity: "moderate" })],
+      allowlist: [allow()],
+      floor: "high",
+      today: TODAY,
+    });
+    expect(r.stale).toEqual([]);
+    expect(isFailing(r)).toBe(false);
+  });
+
+  test("an entry for a different package with the same GHSA does not match", () => {
+    const r = diffFindings({
+      findings: [finding()],
+      allowlist: [allow({ package: "not-sharp" })],
+      floor: "high",
+      today: TODAY,
+    });
+    expect(r.blocking).toHaveLength(1);
+    expect(r.stale).toHaveLength(1);
+  });
+
+  test("an entry inside the warn window is flagged but stays green", () => {
+    const soon = new Date(Date.parse(`${TODAY}T00:00:00Z`) + (EXPIRY_WARN_DAYS - 1) * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const r = diffFindings({
+      findings: [finding()],
+      allowlist: [allow({ expires: soon })],
+      floor: "high",
+      today: TODAY,
+    });
+    expect(r.expiringSoon).toHaveLength(1);
+    expect(isFailing(r)).toBe(false);
+  });
+
+  test("a far-future entry is not flagged as expiring soon", () => {
+    const r = diffFindings({
+      findings: [finding()],
+      allowlist: [allow()],
+      floor: "high",
+      today: TODAY,
+    });
+    expect(r.expiringSoon).toEqual([]);
+  });
+
+  test("a clean tree with an empty allowlist passes", () => {
+    const r = diffFindings({ findings: [], allowlist: [], floor: "high", today: TODAY });
+    expect(isFailing(r)).toBe(false);
+  });
+});
+
+// ── audit-deps: argv ────────────────────────────────────────────────────────
+describe("audit-deps: parseArgs", () => {
+  const ROOT = "/repo";
+
+  test("defaults audit BOTH lockfiles at the high floor", () => {
+    const o = parseArgs([], ROOT);
+    expect(o.roots).toEqual([".", "web"]);
+    expect(o.floor).toBe("high");
+    expect(o.allowlistPath).toBe("/repo/scripts/audit-allowlist.json");
+  });
+
+  test("accepts space- and equals-separated flags", () => {
+    expect(parseArgs(["--severity", "moderate"], ROOT).floor).toBe("moderate");
+    expect(parseArgs(["--severity=critical"], ROOT).floor).toBe("critical");
+    expect(parseArgs(["--roots=.,web,other"], ROOT).roots).toEqual([".", "web", "other"]);
+    expect(parseArgs(["--allowlist", "tmp/a.json"], ROOT).allowlistPath).toBe("/repo/tmp/a.json");
+  });
+
+  test("a typo'd flag is a hard error, never a silently wider gate", () => {
+    expect(() => parseArgs(["--serverity", "high"], ROOT)).toThrow("unknown flag");
+    expect(() => parseArgs(["--severity"], ROOT)).toThrow("missing value");
+    expect(() => parseArgs(["--severity", "banana"], ROOT)).toThrow("--severity must be one of");
   });
 });
