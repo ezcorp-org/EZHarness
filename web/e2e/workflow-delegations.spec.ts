@@ -995,10 +995,13 @@ test.describe("Delegations deep link", () => {
 			// The job reference specifically: it is the field a crafted link
 			// controls outright, so a reader who cannot make it out is a
 			// reader who cannot check the one thing only they can check.
-			await expectReadable(
-				page.getByTestId("consent-subject-job-ref"),
+			const jobRef = page.getByTestId("consent-subject-job-ref");
+			await expect(jobRef).toHaveText("nightly-ship");
+			const measured = await expectReadable(
+				jobRef,
 				`consent subject job reference (${theme})`,
 			);
+			expect(measured.dark).toBe(theme === "dark");
 		});
 	}
 
