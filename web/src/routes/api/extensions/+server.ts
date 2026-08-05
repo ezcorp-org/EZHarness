@@ -12,6 +12,8 @@ import { ExtensionRegistry } from "$server/extensions/registry";
 import { requireAuth, checkRole } from "$server/auth/middleware";
 import { cacheableResponse } from "$server/lib/cache-utils";
 import { installExtensionSchema } from "./schema";
+import type { Extension } from "$server/db/schema";
+import type { InstalledExtension } from "$server/extensions/types";
 import { validationError } from "$lib/server/security/validation";
 import { requireScope } from "$lib/server/security/api-keys";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
@@ -62,7 +64,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   try {
     // Invariant: install never grants permissions. Enable + grant happens via POST /:id/activate.
     const emptyPerms = { grantedAt: {} } as any;
-    let ext;
+    let ext: InstalledExtension | Extension;
     if (source === "local") {
       ext = await installFromLocal(path!, emptyPerms, false);
     } else if (source === "github") {

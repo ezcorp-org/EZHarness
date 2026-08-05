@@ -811,7 +811,7 @@ const handleApp: Handle = async ({ event, resolve }) => {
     && !url.pathname.startsWith("/api/")
     && !url.pathname.startsWith("/_app/")
   ) {
-    let userRow;
+    let userRow: Awaited<ReturnType<typeof getUserById>>;
     try {
       userRow = await getUserById(event.locals.user.id);
     } catch {

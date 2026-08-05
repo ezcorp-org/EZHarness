@@ -23,7 +23,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 	const scopeErr = requireScope(locals, "chat");
 	if (scopeErr) return scopeErr;
 
-	let user;
+	let user: ReturnType<typeof requireAuth>;
 	try {
 		user = requireAuth(locals);
 	} catch (e) {

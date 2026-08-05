@@ -375,7 +375,7 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
         kind: "network",
         value: normalized,
       };
-      let decision;
+      let decision: Awaited<ReturnType<typeof config.engine.authorize>>;
       try {
         decision = await config.engine.authorize(
           {

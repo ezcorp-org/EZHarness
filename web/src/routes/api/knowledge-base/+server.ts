@@ -112,7 +112,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const text = await file.text();
 
   // Insert file record with "processing" status
-  let kbFile;
+  let kbFile: Awaited<ReturnType<typeof insertKBFile>>;
   try {
     kbFile = await insertKBFile({
       projectId,

@@ -36,7 +36,7 @@ import { acquireLockfile, releaseLockfile, isProcessAlive } from "../../startup/
 
 const log = logger.child("preview.port-watcher");
 
-import type { PreviewPortSource } from "./preview-port-source";
+import type { PreviewListener, PreviewPortSource } from "./preview-port-source";
 
 // ── Defaults / env-var contract ──────────────────────────────────────
 
@@ -258,7 +258,7 @@ export class PreviewPortWatcher {
     this._ticking = true;
     try {
       for (const [conversationId, state] of this.watched) {
-        let listeners;
+        let listeners: PreviewListener[];
         try {
           listeners = await this.source.listListeners(conversationId);
         } catch (err) {

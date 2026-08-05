@@ -242,8 +242,8 @@ export function buildEntityRegisteredTools(
   if (!entities || entities.length === 0) return [];
   const out: RegisteredTool[] = [];
   for (const decl of entities) {
-    let defs;
-    let names;
+    let defs: ReturnType<typeof buildEntityToolDefinitions>;
+    let names: ReturnType<typeof entityToolNames>;
     try {
       defs = buildEntityToolDefinitions(decl);
       names = entityToolNames(decl);

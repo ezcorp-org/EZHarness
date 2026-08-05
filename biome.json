@@ -51,7 +51,7 @@
 			"suspicious": {
 				"noExplicitAny": "off",
 				"noAssignInExpressions": "off",
-				"noImplicitAnyLet": "off",
+				"noImplicitAnyLet": "error",
 				"noThenProperty": "off"
 			},
 			"style": {

@@ -42,7 +42,7 @@ export const POST: RequestHandler = async ({ locals, params }) => {
     return errorJson(409, `Proposal is already ${proposal.status}`);
   }
 
-  let updated;
+  let updated: Awaited<ReturnType<typeof dismissProposal>>;
   try {
     updated = await dismissProposal(proposal.id, user.id);
   } catch (err) {

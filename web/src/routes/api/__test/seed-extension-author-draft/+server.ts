@@ -60,7 +60,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     // 1) Scaffold pure → file map. Fails fast on bad name BEFORE we
     //    mint a draft row, mirroring the bundled extension's order.
-    let scaffold;
+    let scaffold: ReturnType<typeof scaffoldExtension>;
     try {
       scaffold = scaffoldExtension({
         name: body.name,

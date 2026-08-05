@@ -182,7 +182,7 @@ export async function resolveStaticFile(
   }
   if (!realTarget.startsWith(realRoot + sep) && realTarget !== realRoot) return null;
 
-  let info;
+  let info: Awaited<ReturnType<typeof statFn>>;
   try {
     info = await statFn(realTarget);
   } catch {

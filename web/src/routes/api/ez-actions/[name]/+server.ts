@@ -131,7 +131,7 @@ async function forwardToBundled(
   // guarantees uniqueness without changing the call signature.
   const messageIdSentinel = `ez-action-${extensionName}-${toolName}-${crypto.randomUUID()}`;
 
-  let result;
+  let result: Awaited<ReturnType<typeof executor.executeToolCall>>;
   try {
     result = await executor.executeToolCall(
       namespacedTool,

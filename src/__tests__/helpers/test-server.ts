@@ -343,7 +343,7 @@ export async function startTestServer(
           if (!conv) return json({ error: "Not found" }, 404);
 
           const leafMessageId = url.searchParams.get("leafMessageId");
-          let msgs;
+          let msgs: unknown[];
           if (leafMessageId) {
             msgs = await getConvQueries().getConversationPath(leafMessageId, convId);
           } else {

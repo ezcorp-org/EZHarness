@@ -50,7 +50,7 @@ export const POST: RequestHandler = async ({ locals, params }) => {
     return errorJson(409, `Proposal is still ${proposal.status} — only a finished proposal can be re-run`);
   }
 
-  let fresh;
+  let fresh: Awaited<ReturnType<typeof rerunProposal>>;
   try {
     fresh = await rerunProposal(proposal.id, { kind: "user", userId: user.id });
   } catch (err) {

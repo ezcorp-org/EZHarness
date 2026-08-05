@@ -338,7 +338,7 @@ export function validateEntitiesArray(
       typeof decl.label === "string" &&
       typeof decl.pluralLabel === "string"
     ) {
-      let names;
+      let names: ReturnType<typeof entityToolNames>;
       try {
         // The SDK's entityToolNames only reads label, pluralLabel,
         // and computes pure strings — pass a minimal cast.

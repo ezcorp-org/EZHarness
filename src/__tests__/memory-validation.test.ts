@@ -64,7 +64,7 @@ function buildIndex(entries: { title: string; file: string; hook: string }[]): s
 function extractLinkedFiles(indexContent: string): string[] {
   const linkPattern = /\[.*?\]\((.*?\.md)\)/g;
   const files: string[] = [];
-  let m;
+  let m: RegExpExecArray | null;
   while ((m = linkPattern.exec(indexContent)) !== null) {
     files.push(m[1]!);
   }
