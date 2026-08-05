@@ -54,13 +54,23 @@ mock.module("@earendil-works/pi-ai/compat", () => ({
 /** Every provider/model pair `resolveModel` was asked for. */
 const resolveArgs: Array<[string | undefined, string | undefined]> = [];
 
+/**
+ * The `reasoning` flag the next `resolveModel` hands back on its `piModel`.
+ *
+ * `undefined` is the DEFAULT on purpose: it is the shape a synthesized
+ * custom/local model has as far as this adapter is concerned (a resolved
+ * model that will not apply an effort), so the effort-drop tests below get
+ * the real-world case without opting into it.
+ */
+let resolvedReasoning: boolean | undefined;
+
 mock.module("../providers/router", () => ({
   resolveModel: async (provider?: string, model?: string) => {
     resolveArgs.push([provider, model]);
     return {
       provider: provider ?? "router-provider",
       model: model ?? "router-model",
-      piModel: { id: model ?? "router-model" },
+      piModel: { id: model ?? "router-model", reasoning: resolvedReasoning },
     };
   },
   suggestFallback: async () => null,
@@ -78,6 +88,7 @@ const messages = [{ role: "user" as const, content: "hello" }];
 beforeEach(() => {
   calls.length = 0;
   resolveArgs.length = 0;
+  resolvedReasoning = undefined;
 });
 
 describe("createPiLlmAdapter — no override (compatibility)", () => {
@@ -291,6 +302,102 @@ describe("createPiLlmAdapter — the agent's own sampling knobs", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0]!.options.maxTokens).toBe(1234);
     expect(calls[0]!.options.temperature).toBe(0.42);
+  });
+});
+
+/**
+ * The effort no-op, made audible.
+ *
+ * A step's `model: { effort }` on a local/custom model was pure silence: the
+ * model resolves with `reasoning: false`, pi-ai clamps the level to "off" and
+ * drops the field before serializing, and NOTHING — not the request, not the
+ * response, not an error — said the step did not get what it asked for.
+ *
+ * These tests pin the two halves that make the notice trustworthy: it fires
+ * on the RESOLVED model (never on the binding, which cannot know), and it
+ * never fires when the effort actually lands.
+ */
+describe("createPiLlmAdapter — a dropped effort is reported", () => {
+  test("complete() reports an effort the resolved model will not apply", async () => {
+    const seen: string[] = [];
+    const adapter = createPiLlmAdapter({ effort: "high" }, (m) => seen.push(m));
+    await adapter.complete(messages, { provider: "ollama", model: "qwen3:1.7b" });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain('"high"');
+    expect(seen[0]).toContain("ollama/qwen3:1.7b");
+    // The call still HAPPENS, and still carries the effort pi-ai will drop —
+    // reporting the no-op must not change what is requested.
+    expect(calls[0]!.entry).toBe("completeSimple");
+    expect(calls[0]!.options.reasoning).toBe("high");
+  });
+
+  test("stream() reports it on the same terms", async () => {
+    const seen: string[] = [];
+    const adapter = createPiLlmAdapter({ effort: "max" }, (m) => seen.push(m));
+    for await (const _ of adapter.stream(messages, { provider: "ollama", model: "local" })) {
+      // drain
+    }
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toContain("ollama/local");
+    expect(calls[0]!.entry).toBe("streamSimple");
+  });
+
+  test("says NOTHING when the resolved model honours the effort", async () => {
+    resolvedReasoning = true;
+    const seen: string[] = [];
+    const adapter = createPiLlmAdapter({ effort: "high" }, (m) => seen.push(m));
+    await adapter.complete(messages, { provider: "anthropic", model: "claude-opus-5" });
+    expect(seen).toEqual([]);
+  });
+
+  test("says nothing when no effort was asked for", async () => {
+    // A non-reasoning model is the NORM. Warning about every call that did
+    // not request an effort would bury the one case that matters.
+    const seen: string[] = [];
+    const adapter = createPiLlmAdapter({ maxTokens: 10 }, (m) => seen.push(m));
+    await adapter.complete(messages, { provider: "ollama", model: "qwen3:1.7b" });
+    expect(seen).toEqual([]);
+  });
+
+  test("reports the RESOLVED model, not the one the caller asked for", async () => {
+    // The binding cannot answer this — only the object the call is about to
+    // ship can. A caller-side answer would be a second opinion that could
+    // disagree with the request actually made.
+    const seen: string[] = [];
+    const adapter = createPiLlmAdapter({ effort: "low", model: "override-model" }, (m) =>
+      seen.push(m),
+    );
+    await adapter.complete(messages, { provider: "ollama", model: "caller-model" });
+    expect(seen[0]).toContain("override-model");
+    expect(seen[0]).not.toContain("caller-model");
+  });
+
+  test("repeats once per DISTINCT model, not once per call", async () => {
+    // A code-based agent may call `complete` in a loop; the same sentence a
+    // hundred times is how a true warning becomes noise. But a caller that
+    // varies its model drops the effort separately each time, and each of
+    // those is its own fact.
+    const seen: string[] = [];
+    const adapter = createPiLlmAdapter({ effort: "high" }, (m) => seen.push(m));
+    await adapter.complete(messages, { provider: "ollama", model: "a" });
+    await adapter.complete(messages, { provider: "ollama", model: "a" });
+    for await (const _ of adapter.stream(messages, { provider: "ollama", model: "a" })) {
+      // drain — the stream path shares the dedup set with complete()
+    }
+    expect(seen).toHaveLength(1);
+
+    await adapter.complete(messages, { provider: "ollama", model: "b" });
+    expect(seen).toHaveLength(2);
+    expect(seen[1]).toContain("ollama/b");
+  });
+
+  test("with no sink supplied the call is byte-identical to before", async () => {
+    // Every existing caller passes one argument. The notice must be additive.
+    const adapter = createPiLlmAdapter({ effort: "high" });
+    await adapter.complete(messages, { provider: "ollama", model: "qwen3:1.7b" });
+    expect(calls[0]!.entry).toBe("completeSimple");
+    expect(calls[0]!.options).toEqual({ apiKey: "sk-test", reasoning: "high" });
   });
 });
 

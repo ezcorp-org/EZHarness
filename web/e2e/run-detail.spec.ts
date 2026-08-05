@@ -29,7 +29,11 @@ test.describe("Run Detail", () => {
 		});
 		await page.goto("/runs/run-1");
 
-		await expect(page.getByText("Started")).toBeVisible();
+		// `exact` — the substring form also matches the onboarding checklist's
+		// "Get Started" button in the shell, which is a strict-mode violation
+		// (2 elements) rather than a real absence. The timestamp label is its
+		// own standalone <span>, so the exact match is the STRONGER assertion.
+		await expect(page.getByText("Started", { exact: true })).toBeVisible();
 	});
 
 	test("shows finished timestamp and duration for completed runs", async ({ page, mockApi }) => {
@@ -66,6 +70,36 @@ test.describe("Run Detail", () => {
 		await expect(page.getByText("Logs")).toBeVisible();
 		await expect(page.getByText("Starting summarization")).toBeVisible();
 		await expect(page.getByText("Processing complete")).toBeVisible();
+	});
+
+	test("surfaces a dropped reasoning effort as a WARN line", async ({ page, mockApi }) => {
+		// This is the channel a workflow step's ignored `model: { effort }`
+		// comes out of. `createPiLlmAdapter` reports the drop, `runAgent` writes
+		// it into the run's own log at `warn`, and this page is where the person
+		// who set the effort finds out it did nothing. Before this it was
+		// silence — no error, no warning, no effect.
+		const message =
+			'Reasoning effort "high" was ignored: the bound model ollama/qwen3:1.7b ' +
+			"does not accept a reasoning setting. Local and custom models never do.";
+		await mockApi({
+			runs: [
+				makeRun({
+					id: "run-effort",
+					status: "success",
+					logs: [
+						{ timestamp: "2026-03-01T10:30:00.000Z", level: "info", message: "Starting step" },
+						{ timestamp: "2026-03-01T10:30:01.000Z", level: "warn", message },
+					],
+				}),
+			],
+		});
+		await page.goto("/runs/run-effort");
+
+		await expect(page.getByText(message)).toBeVisible();
+		// Rendered AS a warning, not as another info line — the level is the
+		// only thing distinguishing it from the run's ordinary chatter.
+		const row = page.locator("div.flex.gap-2", { hasText: "was ignored" });
+		await expect(row).toHaveClass(/text-yellow-400/);
 	});
 
 	test("shows result section for completed runs", async ({ page, mockApi }) => {

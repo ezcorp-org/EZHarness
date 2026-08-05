@@ -486,8 +486,17 @@ export class AgentExecutor {
       }
     };
 
-    // Build a pi-ai-backed LLM wrapper for code-based agents
-    const piLlm = createPiLlmAdapter(modelOverride);
+    // Build a pi-ai-backed LLM wrapper for code-based agents.
+    //
+    // The second argument is where a DROPPED `effort` becomes audible. A
+    // workflow step's `model: { effort }` is the one knob whose failure was
+    // pure silence: a local/custom model resolves to `reasoning: false`, pi-ai
+    // clamps the level to "off", and nothing about the request or the response
+    // says the step did not get what it asked for. Routing it into the run's
+    // own log (`warn`) puts it on `/runs/[id]` next to the step that asked —
+    // the same fact the delegation consent dialog already shows before a grant
+    // (`findEffortNoops`), now at the moment it actually bites.
+    const piLlm = createPiLlmAdapter(modelOverride, (message) => appendLog(message, "warn"));
 
     const ctx: AgentContext = {
       input: resolvedInput,

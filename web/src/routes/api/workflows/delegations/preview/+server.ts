@@ -51,6 +51,7 @@ import { serviceAccountReach } from "$server/db/queries/service-accounts";
 import { MAX_WORKFLOW_NESTING_DEPTH } from "$server/runtime/workflow-closure";
 import { MAX_TOOL_CALLS_PER_TURN } from "$server/extensions/tool-executor/limits";
 import { resolveModelObject } from "$server/providers/registry";
+import { modelHonoursEffort } from "$server/runtime/routing/effort-support";
 import type { ConsentHashMaterial } from "$server/runtime/workflow-capability-hash";
 import type { RequestHandler } from "./$types";
 
@@ -99,6 +100,12 @@ function decodeBinding(encoded: string): Record<string, unknown> | null {
  * exactly how a local or custom model arrives. So asking the resolver is
  * the same question the runtime will ask later, not a guess about it.
  *
+ * The VERDICT on that resolved model is {@link modelHonoursEffort}, shared
+ * verbatim with `createPiLlmAdapter` — which emits the same finding into the
+ * run log at the call that drops the effort. Two implementations of "is this
+ * a no-op?" could disagree, and a pre-flight warning that the run then
+ * contradicts is worse than either warning alone.
+ *
  * Reported ONLY when the binding names a concrete provider AND model. A
  * step that sets an effort without a provider falls back to the AGENT's
  * own binding, which is not knowable from the material — and a warning
@@ -129,7 +136,7 @@ function findEffortNoops(material: ConsentHashMaterial): EffortNoop[] {
 
       let reasoning = true;
       try {
-        reasoning = resolveModelObject(provider, model).reasoning === true;
+        reasoning = modelHonoursEffort(resolveModelObject(provider, model));
       } catch {
         // An unresolvable binding is not evidence of anything, and this
         // block only ever ADDS a caveat — so staying quiet is the honest

@@ -4,6 +4,7 @@ import type { ModelOverride } from "../types";
 import { resolveModel } from "../providers/router";
 import { tierForModel } from "../providers/registry";
 import { isRoutingTier } from "./tier-classifier";
+import { effortIgnoredNotice, modelHonoursEffort } from "./routing/effort-support";
 import { getCredential } from "../providers/credentials";
 import { getDb } from "../db/connection";
 import { toolCalls } from "../db/schema";
@@ -194,13 +195,51 @@ function resolveTuning(
  * a caller that asks for no sampling knobs still gets the historical
  * `complete(model, context, { apiKey })` / `stream(model, context, {
  * apiKey, signal })` call, with no stray `undefined` keys on the wire.
+ *
+ * `onEffortIgnored`, when supplied, is told once per distinct resolved
+ * model that the override's `effort` will NOT be applied — see
+ * {@link modelHonoursEffort} for why a local/custom model always drops it.
+ * The runtime cannot make the model reason, but it must not pretend it
+ * did: an unheard effort that says nothing is the failure mode this
+ * closes. Omitted ⇒ nothing is emitted and the call is byte-identical.
  */
-export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
+export function createPiLlmAdapter(
+  overrides?: ModelOverride,
+  onEffortIgnored?: (message: string) => void,
+): PiLlmAdapter {
   // Reasoning effort has no home on the raw `stream`/`complete` options —
   // each provider spells it differently. pi-ai's `*Simple` entrypoints are
   // the normalizer, so an effort-bearing call routes through those and
   // every other call keeps the raw path it has always used.
   const reasoning = overrides?.effort;
+
+  // Reported from the RESOLVED model, never from the binding: the same
+  // object the call is about to ship is the only thing that can answer
+  // whether the effort survives, and asking anything else would be a
+  // second opinion that could disagree with the request we actually make.
+  //
+  // Deduped per provider+model rather than per call — a code-based agent
+  // may call `complete` in a loop, and the same sentence a hundred times
+  // is how a true warning becomes noise. Per MODEL, not once outright,
+  // because a caller may vary `options.provider`/`options.model` between
+  // calls and each distinct drop is its own fact.
+  const noticed = new Set<string>();
+  const noteEffortIfIgnored = (
+    resolved: Awaited<ReturnType<typeof resolveModel>>,
+  ): void => {
+    if (reasoning === undefined || onEffortIgnored === undefined) return;
+    if (modelHonoursEffort(resolved.piModel)) return;
+    const key = `${resolved.provider}/${resolved.model}`;
+    if (noticed.has(key)) return;
+    noticed.add(key);
+    onEffortIgnored(
+      effortIgnoredNotice({
+        provider: resolved.provider,
+        model: resolved.model,
+        effort: reasoning,
+      }),
+    );
+  };
 
   const adapter: PiLlmAdapter = {
     async complete(messages, options) {
@@ -210,6 +249,7 @@ export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
       );
       const cred = await getCredential(resolved.provider);
       adapter.lastResolved = { provider: resolved.provider, model: resolved.model };
+      noteEffortIfIgnored(resolved);
       // Only `role: "user"` carries a plain string `content` in pi-ai's
       // UserMessage shape; assistant turns would need the full pi-ai
       // AssistantMessage (api/provider/model/usage/stopReason). Code-based
@@ -240,6 +280,7 @@ export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
       );
       const cred = await getCredential(resolved.provider);
       adapter.lastResolved = { provider: resolved.provider, model: resolved.model };
+      noteEffortIfIgnored(resolved);
       // Only `role: "user"` carries a plain string `content` in pi-ai's
       // UserMessage shape; assistant turns would need the full pi-ai
       // AssistantMessage (api/provider/model/usage/stopReason). Code-based
