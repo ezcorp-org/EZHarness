@@ -21,6 +21,7 @@ export function mockServerAlias() {
     "$server/db/queries/analytics": "../../db/queries/analytics",
     "$server/db/queries/agent-shares": "../../db/queries/agent-shares",
     "$server/db/queries/conversations": "../../db/queries/conversations",
+    "$server/db/queries/knowledge-base": "../../db/queries/knowledge-base",
     "$server/db/queries/marketplace": "../../db/queries/marketplace",
     "$server/db/queries/marketplace-versions": "../../db/queries/marketplace-versions",
     "$server/db/queries/marketplace-ratings": "../../db/queries/marketplace-ratings",

@@ -176,7 +176,7 @@ describe("KNOW-02: KB Chunking and Search", () => {
     expect(chunk.content).toBe("The quick brown fox jumps over the lazy dog");
 
     // Search with the same embedding should return a high-similarity match
-    const results = await searchKBChunks(testEmbedding, projectId, 5);
+    const results = await searchKBChunks(testEmbedding, projectId, null, 5);
     expect(results.length).toBeGreaterThanOrEqual(1);
     const found = results.find((r) => r.content === "The quick brown fox jumps over the lazy dog");
     expect(found).toBeDefined();
@@ -189,7 +189,7 @@ describe("KNOW-02: KB Chunking and Search", () => {
 describe("KNOW-03: KB in Conversations (retrieval)", () => {
   test("searchKBChunksForQuery delegates to searchKBChunks and returns results", async () => {
     // We already have a chunk from KNOW-02 tests — search for it via retrieval wrapper
-    const results = await searchKBChunksForQuery("fox jumping", testEmbedding, projectId, 5);
+    const results = await searchKBChunksForQuery("fox jumping", testEmbedding, projectId, null, 5);
     expect(results.length).toBeGreaterThanOrEqual(1);
     const found = results.find((r) => r.content.includes("quick brown fox"));
     expect(found).toBeDefined();

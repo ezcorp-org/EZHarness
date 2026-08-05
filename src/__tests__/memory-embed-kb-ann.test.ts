@@ -44,7 +44,7 @@ async function readyFileWithChunk(projectId: string, filename: string, content: 
 describe("searchKBChunks — single-table ANN scoped by file_id ARRAY InitPlan", () => {
   test("returns ready-file chunks of the project with filename + numeric similarity", async () => {
     await readyFileWithChunk(projectA, "guide.md", "TypeScript best practices");
-    const results = await searchKBChunks(mockEmbedding(), projectA, 5);
+    const results = await searchKBChunks(mockEmbedding(), projectA, null,5);
     expect(results.length).toBeGreaterThanOrEqual(1);
     const hit = results.find((r) => r.content === "TypeScript best practices");
     expect(hit).toBeDefined();
@@ -56,16 +56,16 @@ describe("searchKBChunks — single-table ANN scoped by file_id ARRAY InitPlan",
     const file = await insertKBFile({ projectId: projectA, filename: "pending.md", mimeType: "text/markdown", fileSize: 10 });
     // status stays 'processing' (default) — NOT ready.
     await insertKBChunk({ fileId: file.id, content: "not-ready-content", chunkIndex: 0, embedding: mockEmbedding() });
-    const results = await searchKBChunks(mockEmbedding(), projectA, 50);
+    const results = await searchKBChunks(mockEmbedding(), projectA, null,50);
     expect(results.find((r) => r.content === "not-ready-content")).toBeUndefined();
   });
 
   test("does NOT leak another project's chunks", async () => {
     await readyFileWithChunk(projectB, "b-only.md", "project-B-secret-chunk");
-    const results = await searchKBChunks(mockEmbedding(), projectA, 50);
+    const results = await searchKBChunks(mockEmbedding(), projectA, null,50);
     expect(results.find((r) => r.content === "project-B-secret-chunk")).toBeUndefined();
     // But project B's own search DOES see it.
-    const bResults = await searchKBChunks(mockEmbedding(), projectB, 50);
+    const bResults = await searchKBChunks(mockEmbedding(), projectB, null,50);
     expect(bResults.find((r) => r.content === "project-B-secret-chunk")).toBeDefined();
   });
 });
@@ -73,15 +73,15 @@ describe("searchKBChunks — single-table ANN scoped by file_id ARRAY InitPlan",
 describe("hasKBChunks — existence via the same file_id ARRAY scope", () => {
   test("true when the project has a ready chunk, false for an empty project", async () => {
     const emptyProject = (await createProject({ name: "kb-ann-empty", path: "/tmp/kb-ann-empty" })).id;
-    expect(await hasKBChunks(emptyProject)).toBe(false);
+    expect(await hasKBChunks(emptyProject, null)).toBe(false);
     await readyFileWithChunk(emptyProject, "now.md", "now-has-a-chunk");
-    expect(await hasKBChunks(emptyProject)).toBe(true);
+    expect(await hasKBChunks(emptyProject, null)).toBe(true);
   });
 
   test("false when the only chunks belong to a non-ready file", async () => {
     const p = (await createProject({ name: "kb-ann-processing", path: "/tmp/kb-ann-proc" })).id;
     const file = await insertKBFile({ projectId: p, filename: "p.md", mimeType: "text/markdown", fileSize: 10 });
     await insertKBChunk({ fileId: file.id, content: "processing-chunk", chunkIndex: 0, embedding: mockEmbedding() });
-    expect(await hasKBChunks(p)).toBe(false);
+    expect(await hasKBChunks(p, null)).toBe(false);
   });
 });
