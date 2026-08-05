@@ -147,6 +147,76 @@ export function runTraceHref(workflowRunId: string): string {
   return `/workflows/runs/${encodeURIComponent(workflowRunId)}`;
 }
 
+/** Core's delegation surface — the ONE place standing, unattended authority
+ *  is minted. A link, and it could not be anything else: this extension has
+ *  no way to write a delegation and must not have one. */
+export const DELEGATIONS_HREF = "/workflows/delegations";
+
+/**
+ * The trigger kinds a delegation can be granted for.
+ *
+ * `manual` is absent because a manual run is started by a human the host
+ * has already authorized — it spends no standing authority, so offering to
+ * delegate it would be offering a grant nothing will ever use. `workflow`
+ * (fire on another workflow's status) is absent because core's consent
+ * surface does not offer it; a link naming it would be refused there, and a
+ * link this builder KNOWS would be refused is a link it should not emit.
+ */
+export const DELEGATABLE_TRIGGER_KINDS: ReadonlySet<string> = new Set([
+  "cron",
+  "webhook",
+  "event",
+]);
+
+/**
+ * The deep link that hands ONE job to core's consent surface — or `null`
+ * when this job needs no delegation.
+ *
+ * ## Why this exists
+ *
+ * A delegation row binds `(extension_id, job_ref)`, and until this link
+ * existed the only way to create one was to read a job's id off this
+ * console and retype it into a free-text box on another page. A single
+ * mistyped character produces `DELEGATION_NOT_FOUND` at the first cron
+ * tick — audited without a `delegation_id`, and core's own delegations page
+ * states plainly that it cannot surface that denial. So the typo's entire
+ * feedback is an unattended job that silently never runs.
+ *
+ * ## What this link is, and what it is NOT
+ *
+ * It carries NO authority. It is four query parameters that core's page
+ * matches against lists it loaded itself: the extension must be one an
+ * administrator granted `allowDelegated`, and the workflow must be one the
+ * viewer can already see. Whatever survives that is shown to the person,
+ * who then opens a review dialog, types two spend bounds that have no
+ * default and no unlimited value, and presses Approve. A URL alone cannot
+ * make a delegation exist, and this link is deliberately not the shortest
+ * possible path to one.
+ *
+ * `extensionId` carries this extension's NAME. A Hub page render is not
+ * told the install row's id — pages are addressed `ext:<name>:<page>` —
+ * and core resolves the parameter by id OR name for exactly that reason.
+ *
+ * The workflow name is PREFIXED (`ez-factory:docs-factory`): a job stores a
+ * bare template name, and the host prefixes it before resolving, so the
+ * bare form names nothing core could match.
+ *
+ * Mirrors the query contract documented on `GRANT_PARAMS` in
+ * `web/src/lib/workflow-delegations-logic.ts`. The two ends are bound by
+ * `src/__tests__/delegation-consent-handoff.test.ts`, which feeds this
+ * builder's output into core's resolver.
+ */
+export function delegationConsentHref(job: FactoryJob): string | null {
+  if (!DELEGATABLE_TRIGGER_KINDS.has(job.trigger.kind)) return null;
+  const q = [
+    `extensionId=${encodeURIComponent(EXTENSION_NAME)}`,
+    `jobRef=${encodeURIComponent(job.id)}`,
+    `workflowName=${encodeURIComponent(`${EXTENSION_NAME}:${job.workflow}`)}`,
+    `triggerKind=${encodeURIComponent(job.trigger.kind)}`,
+  ].join("&");
+  return `${DELEGATIONS_HREF}?${q}`;
+}
+
 // ── `?view=` parsing ────────────────────────────────────────────────
 
 /** The `factory` page's parsed `?view=`. Absent → the jobs table. */
@@ -1182,6 +1252,21 @@ export function buildJobPage(input: JobPageInput): HubPageTree {
         "Runs of this job",
         hubHref(FACTORY_FULL_PAGE_ID, projectId, "runs"),
       );
+      // ── The job → consent handoff ─────────────────────────────────
+      //
+      // Only for a job that fires on its own. A manual job is started by
+      // a human the host already authorized, so a delegation for it
+      // would be standing authority nothing ever spends — and an
+      // affordance offering it would teach people to grant it anyway.
+      //
+      // A LINK, like the approvals inbox and for the same reason: minting
+      // authority is core's act, on core's page, in front of the person
+      // it belongs to. This extension carries the job's id there so
+      // nobody has to retype it; that is the whole of its contribution.
+      const consentHref = delegationConsentHref(editing);
+      if (consentHref !== null) {
+        section.link("Let this run unattended…", consentHref);
+      }
     }
     section.form(
       jobFormFields(editing),

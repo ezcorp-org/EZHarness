@@ -16,7 +16,10 @@ import { test, expect, describe, afterEach } from "vitest";
 // copy here would drift exactly the way the classifier drifted from the wire.
 import { WORKFLOW_SUSPEND_REASONS } from "$server/runtime/workflow-resume-reasons";
 import {
+	GRANT_PARAMS,
+	MAX_JOB_REF_CHARS,
 	OWNER_KIND_CHOICES,
+	TRIGGER_KIND_CHOICES,
 	buildConsentBody,
 	closureWarnings,
 	conditionalSteps,
@@ -24,6 +27,10 @@ import {
 	decodeCanonical,
 	describeDelegationState,
 	describeEffortNoopSteps,
+	describeGrantPrefill,
+	describeTriggerKind,
+	grantParams,
+	resolveGrantPrefill,
 	describeRunPrincipal,
 	describeRunStatus,
 	describeRunStopReason,
@@ -45,6 +52,7 @@ import {
 	type Delegation,
 	type DelegatedRun,
 	type EffortNoop,
+	type GrantPrefill,
 } from "../lib/workflow-delegations-logic";
 
 function material(over: Partial<ConsentHashMaterial> = {}): ConsentHashMaterial {
@@ -881,5 +889,254 @@ describe("describeDelegationState — Ruling 4 keeps `enabled` in the predicate"
 		expect(describeDelegationState({ ...live, enabled: false }).text).toContain(
 			"No reason was recorded",
 		);
+	});
+});
+
+// ── the job → consent handoff ─────────────────────────────────────────
+//
+// `resolveGrantPrefill` is where a deep link stops being a URL and starts
+// being form state, so it is the function a crafted link attacks. Every
+// test below is the same property from a different side: a parameter is a
+// SELECTOR over lists the page already loaded, never a value, and a
+// selector that selects nothing is refused OUT LOUD.
+
+describe("describeTriggerKind / TRIGGER_KIND_CHOICES", () => {
+	test("the three kinds a delegation can be granted for get a human label", () => {
+		expect(TRIGGER_KIND_CHOICES.map((c) => c.kind)).toEqual(["cron", "webhook", "event"]);
+		expect(describeTriggerKind("cron")).toBe("On a schedule");
+		expect(describeTriggerKind("webhook")).toBe("On a webhook");
+		expect(describeTriggerKind("event")).toBe("On an event");
+	});
+
+	test("`manual` is NOT offerable — a human-started run spends no standing authority", () => {
+		expect(TRIGGER_KIND_CHOICES.some((c) => c.kind === "manual")).toBe(false);
+	});
+
+	test("an unknown kind renders VERBATIM rather than as a blank", () => {
+		// A row written by a newer instance must still describe itself: a
+		// blank "Starts on" in the consent dialog is a field the reader
+		// cannot check.
+		expect(describeTriggerKind("quantum")).toBe("quantum");
+	});
+});
+
+describe("resolveGrantPrefill — every parameter is a SELECTOR, not a value", () => {
+	const sources = {
+		extensions: [
+			{ id: "ext-1", name: "ez-factory" },
+			{ id: "ext-2", name: "nightly" },
+		],
+		workflowNames: ["ez-factory:docs-factory", "ship-it"],
+		current: { extensionId: "", workflowName: "", jobRef: "", triggerKind: "cron" },
+	};
+
+	const link = (over: Record<string, string> = {}) =>
+		new URLSearchParams({
+			extensionId: "ez-factory",
+			jobRef: "job-abc",
+			workflowName: "ez-factory:docs-factory",
+			triggerKind: "cron",
+			...over,
+		});
+
+	test("a well-formed link fills in all four fields and refuses nothing", () => {
+		const out = resolveGrantPrefill(link(), sources);
+		expect(out).not.toBeNull();
+		expect(out?.draft).toEqual({
+			// Resolved to the INSTALL ROW ID, which is what the POST body
+			// carries — the link only ever knew the name.
+			extensionId: "ext-1",
+			workflowName: "ez-factory:docs-factory",
+			jobRef: "job-abc",
+			triggerKind: "cron",
+		});
+		expect(out?.rejected).toEqual([]);
+		expect(out?.applied).toEqual(["Extension", "Workflow", "Job reference", "Trigger"]);
+	});
+
+	test("an extension ID resolves too — the link is not forced to know a name", () => {
+		const out = resolveGrantPrefill(link({ extensionId: "ext-2" }), sources);
+		expect(out?.draft.extensionId).toBe("ext-2");
+		expect(out?.rejected).toEqual([]);
+	});
+
+	test("an extension NOT on the delegatable list is refused, not written in", () => {
+		// THE load-bearing one. The list is filtered to extensions an
+		// administrator granted `allowDelegated`; a link naming anything
+		// else must not be able to put it in the form, because the form is
+		// what the consent dialog then previews and the route then trusts.
+		const out = resolveGrantPrefill(link({ extensionId: "evil" }), sources);
+		expect(out?.draft.extensionId).toBe("");
+		expect(out?.applied).not.toContain("Extension");
+		expect(out?.rejected.join(" ")).toContain("evil");
+		expect(out?.rejected.join(" ")).toContain("allowed to run workflows on your behalf");
+	});
+
+	test("a workflow this session cannot see is refused, not written in", () => {
+		const out = resolveGrantPrefill(link({ workflowName: "someone-elses-secret" }), sources);
+		expect(out?.draft.workflowName).toBe("");
+		expect(out?.applied).not.toContain("Workflow");
+		expect(out?.rejected.join(" ")).toContain("someone-elses-secret");
+	});
+
+	test("a refused field keeps what the FORM already held — it is never blanked", () => {
+		// Silently clearing a field the person had chosen would be its own
+		// bug: they would press Review against a form that changed under
+		// them because of a link somebody sent.
+		const out = resolveGrantPrefill(link({ workflowName: "nope" }), {
+			...sources,
+			current: { ...sources.current, workflowName: "ship-it" },
+		});
+		expect(out?.draft.workflowName).toBe("ship-it");
+	});
+
+	test("a trigger kind outside the three is refused and the trigger is left alone", () => {
+		const out = resolveGrantPrefill(link({ triggerKind: "manual" }), sources);
+		expect(out?.draft.triggerKind).toBe("cron");
+		expect(out?.rejected.join(" ")).toContain("not a trigger a delegation can be granted for");
+	});
+
+	test("an over-long job reference is refused rather than filling the page with it", () => {
+		const huge = "x".repeat(MAX_JOB_REF_CHARS + 1);
+		const out = resolveGrantPrefill(link({ jobRef: huge }), sources);
+		expect(out?.draft.jobRef).toBe("");
+		expect(out?.rejected.join(" ")).toContain(String(MAX_JOB_REF_CHARS));
+		// The refusal does not echo the whole thing back at the reader.
+		expect(out?.rejected.join(" ").length).toBeLessThan(huge.length);
+	});
+
+	test("a job reference exactly AT the bound is accepted — the edge is inclusive", () => {
+		const atBound = "y".repeat(MAX_JOB_REF_CHARS);
+		expect(resolveGrantPrefill(link({ jobRef: atBound }), sources)?.draft.jobRef).toBe(atBound);
+	});
+
+	test("an echoed refusal clips a long value so the sentence stays readable", () => {
+		const out = resolveGrantPrefill(link({ extensionId: "z".repeat(300) }), sources);
+		expect(out?.rejected[0]).toContain("…");
+		expect(out?.rejected[0]?.length).toBeLessThan(200);
+	});
+
+	test("a job reference is trimmed — a link's stray whitespace is not part of the key", () => {
+		expect(resolveGrantPrefill(link({ jobRef: "  job-abc  " }), sources)?.draft.jobRef).toBe(
+			"job-abc",
+		);
+	});
+
+	test("blank parameters are treated as absent, not as empty selections", () => {
+		expect(resolveGrantPrefill(new URLSearchParams({ jobRef: "   " }), sources)).toBeNull();
+	});
+
+	test("no parameters at all returns null — an ordinary visit is untouched", () => {
+		expect(resolveGrantPrefill(new URLSearchParams(), sources)).toBeNull();
+		expect(resolveGrantPrefill(new URLSearchParams({ unrelated: "1" }), sources)).toBeNull();
+	});
+
+	test("a PARTIAL link fills in only what it named", () => {
+		const out = resolveGrantPrefill(new URLSearchParams({ jobRef: "solo" }), sources);
+		expect(out?.applied).toEqual(["Job reference"]);
+		expect(out?.draft).toEqual({ ...sources.current, jobRef: "solo" });
+	});
+
+	test("the parameter names match the POST body's field names", () => {
+		// One spelling for the link, the form and the wire. This is also
+		// the contract `extensions/ez-factory/lib/page.ts` mirrors.
+		expect(GRANT_PARAMS).toEqual({
+			extensionId: "extensionId",
+			workflowName: "workflowName",
+			jobRef: "jobRef",
+			triggerKind: "triggerKind",
+		});
+	});
+});
+
+describe("grantParams — 'grant this again' goes through the SAME resolver", () => {
+	const delegation: Delegation = {
+		id: "d1",
+		extensionId: "ext-1",
+		jobRef: "job-abc",
+		ownerKind: "user",
+		ownerId: "u1",
+		workflowName: "ez-factory:docs-factory",
+		definitionVersionId: null,
+		projectId: null,
+		triggerKind: "cron",
+		triggerSpec: null,
+		capabilitySet: [],
+		maxTokensPerRun: 1,
+		maxRunsPerDay: 1,
+		enabled: false,
+		disabledReason: "consent is stale",
+		consentedAt: "2026-08-03T00:00:00.000Z",
+		consentedByUserId: "u1",
+	};
+	const sources = {
+		extensions: [{ id: "ext-1", name: "ez-factory" }],
+		workflowNames: ["ez-factory:docs-factory"],
+		current: { extensionId: "", workflowName: "", jobRef: "", triggerKind: "cron" },
+	};
+
+	test("a stale delegation re-seeds the grant form from its own four fields", () => {
+		const out = resolveGrantPrefill(grantParams(delegation), sources);
+		expect(out?.draft).toEqual({
+			extensionId: "ext-1",
+			workflowName: "ez-factory:docs-factory",
+			jobRef: "job-abc",
+			triggerKind: "cron",
+		});
+		expect(out?.rejected).toEqual([]);
+	});
+
+	test("re-granting onto a workflow that has since vanished says so", () => {
+		// The reason this path shares the resolver at all. A bundled
+		// extension's workflows ship inside the app image, so "the workflow
+		// is not there any more" is a real post-upgrade state, and a form
+		// silently seeded with an unselectable workflow would strand the
+		// person on a disabled Review button with nothing explaining why.
+		const out = resolveGrantPrefill(grantParams(delegation), { ...sources, workflowNames: [] });
+		expect(out?.draft.workflowName).toBe("");
+		expect(out?.rejected.join(" ")).toContain("ez-factory:docs-factory");
+	});
+
+	test("a reader of an unnamed key answers null, matching URLSearchParams", () => {
+		expect(grantParams({ jobRef: "j" }).get("extensionId")).toBeNull();
+		expect(grantParams({ jobRef: "j" }).get("jobRef")).toBe("j");
+	});
+});
+
+describe("describeGrantPrefill — the note that says what filled the form in", () => {
+	const filled: GrantPrefill = {
+		draft: { extensionId: "e", workflowName: "w", jobRef: "j", triggerKind: "cron" },
+		applied: ["Extension", "Workflow"],
+		rejected: [],
+	};
+
+	test("names every field the prefill filled in", () => {
+		const note = describeGrantPrefill(filled, "link");
+		expect(note).toContain("Extension, Workflow");
+		// And it says the thing that makes the whole handoff safe to follow.
+		expect(note).toContain("nothing is granted until you approve it");
+	});
+
+	test("the two sources are named APART — provenance is the whole point", () => {
+		// Telling somebody re-granting their own delegation that the values
+		// came "from the link you followed" is a small lie about provenance
+		// on the one surface whose job is being exact about it.
+		expect(describeGrantPrefill(filled, "link")).toContain("link you followed");
+		const regrant = describeGrantPrefill(filled, "delegation");
+		expect(regrant).toContain("delegation you are granting again");
+		expect(regrant).not.toContain("link");
+	});
+
+	test("a prefill that filled in NOTHING gets no note — an empty banner is noise", () => {
+		expect(
+			describeGrantPrefill(
+				{
+					draft: { extensionId: "", workflowName: "", jobRef: "", triggerKind: "cron" },
+					applied: [],
+					rejected: ["nope"],
+				},
+				"link",
+			),
+		).toBeNull();
 	});
 });
