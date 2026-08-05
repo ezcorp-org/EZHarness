@@ -478,10 +478,11 @@ export class HostMaintenanceDaemon {
       // slots until it is retired, so the cost of waiting is proportional
       // to the delay.
       //
-      // `sweepAllDynamicTriggers` never throws by contract and is FAIL-OPEN
-      // per extension; the `catch` is the same belt-and-braces the siblings
-      // carry, because a sweep is housekeeping and must never take the
-      // daemon down.
+      // `sweepAllDynamicTriggers` is FAIL-OPEN per extension and absorbs
+      // per-extension failures itself. What it explicitly does NOT absorb
+      // is a registry whose iterator throws — that one is this `catch`'s,
+      // and it is the same belt-and-braces the siblings carry, because a
+      // sweep is housekeeping and must never take the daemon down.
       let triggerSweep = NO_TRIGGER_SWEEP;
       const triggerRegistry = this.opts.triggerRegistry;
       if (triggerRegistry !== undefined) {

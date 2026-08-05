@@ -234,9 +234,12 @@ export interface SweepAllResult {
  * of the capability is {@link revokeDynamicTriggers}'s job, on the
  * activate path; this is not a second copy of that policy.)
  *
- * Never throws. Per-extension failures are counted and the pass continues:
- * one extension's DB error must not stop the next extension's orphan from
- * being retired.
+ * Never throws FOR A PER-EXTENSION FAILURE — those are counted in
+ * `errored` and the pass continues, because one extension's DB error must
+ * not stop the next extension's orphan from being retired, and the
+ * iteration order is the registry's insertion order, which nobody chose.
+ * A registry whose ITERATOR throws is outside that guarantee and is the
+ * caller's to absorb (the daemon's `try` does).
  */
 export async function sweepAllDynamicTriggers(
   registry: SweepRegistry,

@@ -199,9 +199,11 @@ steps:
   # established. The rule is not "never pass an object": it is that the
   # RECEIVER's contract decides, and this receiver's role says verbatim
   # "If a fact you need is missing, note the gap in the draft rather than
-  # inventing it" — it needs `gaps` as much as `facts`. Byte-identical to
-  # `docs-factory`'s `facts: $steps.extract.output`, and pinned by the
-  # same guard in `workflow-templates.test.ts`.
+  # inventing it" — it needs `gaps` as much as `facts`. The same SHAPE as
+  # `docs-factory`'s `facts: $steps.extract.output` (writer, key `facts`,
+  # a bare whole-output ref off an extractor step — only the step NAME
+  # differs), cleared by the same guard in `workflow-templates.test.ts`
+  # for the same reason.
   #
   # A rung ABOVE `classify` on the effort ladder and still near the
   # bottom: describing data is cheaper than writing about it, and two
