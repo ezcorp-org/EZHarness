@@ -39,7 +39,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version-file: .bun-version # the single pin source; see ci.yml pin note
 
       - name: Setup Node.js (for npm publish + .npmrc)
         uses: actions/setup-node@v4

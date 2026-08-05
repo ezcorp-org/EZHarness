@@ -9,8 +9,11 @@ name: ci
 # The bun pin is SINGLE-SOURCED in the top-level `.bun-version` file: the
 # composite action .github/actions/setup and every direct setup-bun call
 # (gate-integrity + coverage below — dep-free jobs that skip the composite —
-# plus visual-evidence-publish.yml) read it via `bun-version-file`. Bump the
-# pin by editing `.bun-version` only (with the local re-verification above).
+# plus visual-evidence-publish.yml, release-sdk.yml and release-image.yml)
+# read it via `bun-version-file`. Bump the pin by editing `.bun-version` only
+# (with the local re-verification above). NO workflow may use `bun-version:
+# latest` — the two release workflows did, which meant the npm-publish and
+# GHCR-push artifacts were built by whatever bun shipped that morning.
 #
 # SPEED/COST SHAPE (see scripts/test-coverage.sh + scripts/lib/test-file-sets.sh):
 # the backend suite used to run TWICE — once plain for pass/fail (`Backend
