@@ -1257,11 +1257,11 @@ describe("delegationConsentHref", () => {
 
   test("every unattended trigger kind gets a link", () => {
     expect([...DELEGATABLE_TRIGGER_KINDS].sort()).toEqual(["cron", "event", "webhook"]);
-    expect(delegationConsentHref(job({ trigger: { kind: "webhook" } }))).toContain(
+    expect(delegationConsentHref(job({ trigger: { kind: "webhook" } })) ?? "").toContain(
       "triggerKind=webhook",
     );
     expect(
-      delegationConsentHref(job({ trigger: { kind: "event", event: "thing.happened" } })),
+      delegationConsentHref(job({ trigger: { kind: "event", event: "thing.happened" } })) ?? "",
     ).toContain("triggerKind=event");
   });
 
@@ -1297,12 +1297,21 @@ describe("the job editor's delegation link", () => {
   const hrefs = (tree: HubPageTree): string[] =>
     nodesOfType(tree, "link").map((n) => String((n as unknown as { href: string }).href));
 
+  /** The href for a job that HAS one — asserted non-null at the call site so
+   *  a builder that started returning `null` fails here loudly rather than
+   *  making every `toContain(null)` below vacuously true. */
+  const hrefOf = (j: FactoryJob): string => {
+    const href = delegationConsentHref(j);
+    expect(href).not.toBeNull();
+    return href as string;
+  };
+
   test("an unattended job's editor links out to core's consent surface", () => {
     const scheduled = job({ trigger: { kind: "cron", cron: "0 3 * * *", timezone: "UTC" } });
     const tree = buildJobPage({ view: { kind: "edit", jobId: scheduled.id }, job: scheduled });
-    expect(hrefs(tree)).toContain(delegationConsentHref(scheduled));
+    expect(hrefs(tree)).toContain(hrefOf(scheduled));
     const link = nodesOfType(tree, "link").find(
-      (n) => (n as unknown as { href: string }).href === delegationConsentHref(scheduled),
+      (n) => (n as unknown as { href: string }).href === hrefOf(scheduled),
     ) as unknown as { label: string };
     expect(link.label).toBe("Let this run unattended…");
   });
@@ -1328,7 +1337,7 @@ describe("the job editor's delegation link", () => {
       trigger: { kind: "cron", cron: "0 3 * * *", timezone: "UTC" },
     });
     const tree = buildJobPage({ view: { kind: "edit", jobId: paused.id }, job: paused });
-    expect(hrefs(tree)).toContain(delegationConsentHref(paused));
+    expect(hrefs(tree)).toContain(hrefOf(paused));
   });
 });
 

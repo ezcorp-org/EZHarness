@@ -16,6 +16,25 @@
  * builder's real output into the resolver's real implementation, so a
  * rename on either side fails here.
  *
+ * ## Why it lives on the VITEST side and not in `src/__tests__/`
+ *
+ * It was written there first, where importing across both trees is
+ * ordinary, and it turned `web/src/lib/workflow-delegations-logic.ts` from
+ * 100% to 79.6% on the coverage gate without a single line of that module
+ * becoming less tested. The cause is a merge artefact worth knowing about:
+ * bun's coverage emitter attributes zero-hit `DA` records to the
+ * DECLARATION lines of a multi-line function signature (`export function
+ * reachWarningFor(` and its `): string | null {`), which V8 — and so the
+ * vitest leg that owns this file — does not emit at all. `merge-lcov.ts`
+ * sums per `(SF, line)`, so those bun-only zero-hit lines survive into the
+ * merged record as genuine misses that no test can ever reach.
+ *
+ * The rule that falls out: **a `bun:test` under `src/` must not import a
+ * `web/src/lib/**` module that the vitest leg measures**, or it silently
+ * lowers that module's floor. Vitest resolves both trees, so this file
+ * asserts exactly the same thing from the side that already owns the
+ * measurement.
+ *
  * ## And the property that must hold across it
  *
  * The link carries NO authority. Everything it names is re-selected
@@ -25,18 +44,15 @@
  * ez-factory's own link resolves clean, and a link that merely LOOKS like
  * ez-factory's does not.
  */
-import { describe, expect, test } from "bun:test";
+import { describe, expect, test } from "vitest";
 
 import {
-  DELEGATIONS_HREF,
-  EXTENSION_NAME,
-  delegationConsentHref,
-} from "../../extensions/ez-factory/lib/page";
-import type { FactoryJob } from "../../extensions/ez-factory/lib/jobs";
-import {
-  GRANT_PARAMS,
-  resolveGrantPrefill,
-} from "../../web/src/lib/workflow-delegations-logic";
+	DELEGATIONS_HREF,
+	EXTENSION_NAME,
+	delegationConsentHref,
+} from "../../../extensions/ez-factory/lib/page";
+import type { FactoryJob } from "../../../extensions/ez-factory/lib/jobs";
+import { GRANT_PARAMS, resolveGrantPrefill } from "../lib/workflow-delegations-logic";
 
 const NOW = "2026-08-01T12:00:00.000Z";
 

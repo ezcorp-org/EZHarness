@@ -219,12 +219,19 @@
 	// awaits the workflow list too, so "not loading" means "both lists are
 	// as good as they are going to get".
 	//
-	// Only `page.url.search` and `loading` are tracked. Everything the body
-	// touches — including the four draft fields it WRITES — is untracked,
-	// or this effect would re-trigger itself forever.
+	// A FAILED load is not readiness, and this gate is not cosmetic: an
+	// error returns early without ever reading `/api/extensions`, so
+	// applying a prefill against the empty lists that leaves behind would
+	// tell someone their link names an extension that is not installed —
+	// a confident, false sentence about a completely different problem.
+	// A page that could not load cannot check a link, and says nothing.
+	//
+	// Only `page.url.search`, `loading` and `loadError` are tracked.
+	// Everything the body touches — including the four draft fields it
+	// WRITES — is untracked, or this effect would re-trigger itself.
 	$effect(() => {
 		const search = page.url.search;
-		const ready = !loading;
+		const ready = !loading && loadError === null;
 		untrack(() => {
 			if (!ready || search === consumedSearch) return;
 			consumedSearch = search;

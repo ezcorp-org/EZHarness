@@ -946,6 +946,29 @@ test.describe("Delegations deep link", () => {
 		await expect(page.getByTestId("delegation-consent")).toHaveCount(0);
 	});
 
+	test("a page that could not load says nothing about the link", async ({ page, mockApi }) => {
+		// Found by reading the code, not by a failing test: a failed
+		// delegations read returns from `load()` BEFORE `/api/extensions` is
+		// ever fetched, so applying a prefill against the empty list it left
+		// behind produced "No extension called “nightly” is installed and
+		// allowed to run workflows on your behalf" — a confident, false
+		// sentence about an entirely different problem, sitting above the
+		// real error. A surface that cannot check a link must not grade one.
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		await stubDelegationApi(page);
+		await page.route("**/api/workflows/delegations", (route) =>
+			route.fulfill({ status: 500, json: { error: "The delegation store is unreachable." } }),
+		);
+
+		await page.goto(DEEP_LINK);
+		await expect(page.getByTestId("delegations-error")).toHaveText(
+			"The delegation store is unreachable.",
+		);
+		await expect(page.getByTestId("grant-prefill-rejected")).toHaveCount(0);
+		await expect(page.getByTestId("grant-prefill-note")).toHaveCount(0);
+		await expect(page.getByTestId("grant-form")).toHaveCount(0);
+	});
+
 	// ── Both panels are legible on BOTH themes ────────────────────────
 	//
 	// The prefill note and the refusals are new tinted panels, and a tinted
