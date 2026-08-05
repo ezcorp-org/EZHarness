@@ -3,7 +3,7 @@ import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { encrypt } from "$server/providers/encryption";
 import { getSetting, upsertSetting, deleteSetting } from "$server/db/queries/settings";
-import { requireAuth } from "$server/auth/middleware";
+import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import type { OAuthCredentials } from "@earendil-works/pi-ai/oauth";
 import { OAUTH_CONFIG } from "$lib/server/oauth-config";
 
@@ -76,7 +76,37 @@ interface PendingOAuth {
 const OAUTH_PENDING_TTL_MS = 10 * 60 * 1000;
 
 export const POST: RequestHandler = async ({ request, locals }) => {
-	requireAuth(locals);
+	// This handler writes `provider:oauth:<provider>` — the INSTANCE LLM
+	// credential that `src/providers/credentials.ts:getOAuthCredential`
+	// resolves for every user's turns. That is the same room
+	// `provider:apiKey:<provider>` lives in, and the OTHER door to it
+	// (`POST`/`DELETE /api/providers`) has been gated on BOTH authorization
+	// axes since sec-C5/F2. This one was gated on `requireAuth` alone, so any
+	// authenticated MEMBER could redirect the organisation's provider
+	// credential to an account they control — billing, prompt content and all.
+	//
+	// Same pairing, same order, same reasons as /api/providers:
+	//   - `requireAdmin` is the ROLE axis. `requireScope(locals,"admin")` is a
+	//     no-op for a cookie session (no `apiKeyScopes`), so scope alone would
+	//     let every logged-in member straight through.
+	//   - `requireScope` is the SCOPE axis. Role alone proves the PRINCIPAL is
+	//     an admin and ignores what the key was scoped FOR, so a key minted
+	//     `--scopes read --role admin` would still reach this write.
+	//   - Both RETURN their denial (#84); a thrown Response is what SvelteKit
+	//     renders as a 500. Role is checked FIRST so an unauthenticated or
+	//     non-admin caller gets the uniform 403 "Admin role required" rather
+	//     than leaking that scope was also missing. (Unauthenticated callers
+	//     never actually reach here — hooks.server.ts answers every
+	//     unauthenticated `/api/*` request with 401 first.)
+	//
+	// Onboarding is unaffected: `/api/auth/setup` creates the FIRST user with
+	// `role: "admin"`, so genuine first-run provider connection is performed
+	// by an admin by construction. The principals this newly stops are
+	// later-invited members, which is the point.
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
 
 	const body = await request.json();
 	const { provider, code, state } = body as {
@@ -144,7 +174,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 };
 
 export const DELETE: RequestHandler = async ({ request, locals }) => {
-	requireAuth(locals);
+	// Deletes `provider:oauth:<provider>`. Pre-fix, any authenticated member
+	// could revoke the instance's provider credential — an LLM outage for
+	// every other user. Role AND admin scope, both returning their denial;
+	// see POST above for the full rationale.
+	const adminErr = requireAdmin(locals);
+	if (adminErr) return adminErr;
+	const scopeErr = requireScope(locals, "admin");
+	if (scopeErr) return scopeErr;
 
 	const body = await request.json();
 	const { provider } = body as { provider: string };

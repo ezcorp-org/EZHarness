@@ -37,20 +37,39 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/auth/setup", description: "Initial admin setup (first-run only)", category: "auth", schemaKey: "setupSchema" },
   { method: "POST", path: "/api/auth/invite", description: "Create user invitation link", category: "auth", schemaKey: "createInviteSchema" },
   // Gate: `requireRole(locals,"admin")` only — no `requireScope`, so no scope
-  // is declared. Reachability caveat for both methods on this exact path:
-  // `/api/auth/invite` is in the hooks PUBLIC_PATHS allowlist
-  // (web/src/hooks.server.ts:364), and `event.locals.user` is only ever
-  // assigned INSIDE the `if (!isPublic)` block (assignment at :622, block
-  // opens at :370). So neither a cookie session nor a Bearer key ever
-  // populates `locals.user` here and the role gate denies every caller. Only
-  // the `/:token` sub-path needs to be public. Reported as a finding; fixing
-  // the allowlist is a separate change.
+  // is declared. The reachability caveat that used to be recorded here (the
+  // bare path sat in the hooks PUBLIC_PATHS allowlist, so `locals.user` was
+  // never populated and the role gate 401'd every caller) was FIXED by F5:
+  // `/api/auth/invite` moved to PUBLIC_SUBPATHS_ONLY, so only `/:token` is
+  // anonymous and both admin methods are reachable again.
   { method: "GET", path: "/api/auth/invite", description: "List outstanding user invitations. Gate: requireAdmin(locals) only — no API-key scope gate", category: "auth", responseDescription: "{ invites }" },
   { method: "POST", path: "/api/auth/invite/:token", description: "Accept invitation and create account", category: "auth" },
-  { method: "POST", path: "/api/auth/reset-password", description: "Generate password reset token (admin)", category: "auth", schemaKey: "generateResetSchema" },
+  // Had the SAME defect F5 fixed for invite, and is fixed here the same way:
+  // the bare path moved from PUBLIC_PATHS to PUBLIC_SUBPATHS_ONLY, so
+  // `locals.user` is populated and `requireRole(locals,"admin")` can finally
+  // pass. Before that this route — and the "Generate reset link" button in
+  // UsersSection.svelte that calls it — 401'd every caller, admins included.
+  // Only `/:token` (the locked-out user redeeming an emailed token) is
+  // anonymous. Still no `requireScope`, hence no scope declared.
+  { method: "POST", path: "/api/auth/reset-password", description: "Generate password reset token (admin). Gate: requireRole(locals,\"admin\") only — no API-key scope gate", category: "auth", schemaKey: "generateResetSchema" },
   { method: "POST", path: "/api/auth/reset-password/:token", description: "Consume reset token and set new password", category: "auth", schemaKey: "consumeResetSchema" },
-  { method: "GET", path: "/api/auth/oauth", description: "Initiate OAuth login flow", category: "auth" },
+  // Not a user "login" flow despite the path: this begins the INSTANCE
+  // provider BYOK-over-OAuth handshake, writes the `oauth:pending:<state>`
+  // PKCE row and binds the loopback callback port. Gated on the same two axes
+  // as the callback that completes it, so a member is refused HERE rather
+  // than after being walked through a provider consent screen.
+  { method: "GET", path: "/api/auth/oauth", description: "Begin the provider OAuth (PKCE) handshake for openai|google and stash the pending state. Gate: admin role + admin scope", category: "auth", scope: "admin" },
   { method: "GET", path: "/api/auth/oauth/callback", description: "Handle OAuth provider callback", category: "auth" },
+  // The OTHER door to the instance LLM credential. POST/DELETE here write and
+  // remove `provider:oauth:<provider>`, which `src/providers/credentials.ts`
+  // resolves for every user's turns — the same room `provider:apiKey:*` (and
+  // therefore `POST`/`DELETE /api/providers`) lives in. Both were gated on
+  // `requireAuth` alone until this change, so any authenticated member could
+  // redirect or delete the organisation's provider credential. Now gated on
+  // BOTH axes, exactly as /api/providers is: `requireAdmin(locals)` for the
+  // role and `requireScope(locals,"admin")` for the API-key scope.
+  { method: "POST", path: "/api/auth/oauth/callback", description: "Exchange an OAuth authorization code (PKCE) and store the INSTANCE provider credential at provider:oauth:<provider>, encrypted. Gate: admin role + admin scope", category: "auth", scope: "admin" },
+  { method: "DELETE", path: "/api/auth/oauth/callback", description: "Disconnect a provider by deleting the instance credential at provider:oauth:<provider>. Gate: admin role + admin scope", category: "auth", scope: "admin" },
 
   // Account
   { method: "GET", path: "/api/account", description: "Get current user account details", category: "account" },
