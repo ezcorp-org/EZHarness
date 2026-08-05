@@ -1998,6 +1998,73 @@ export async function migrate(db: any): Promise<void> {
   `);
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_extension_rbac_grants_scope ON extension_rbac_grants (user_id, COALESCE(project_id,''), COALESCE(extension_id,''))`);
 
+  // ── Project membership (project ↔ user, with a role) ──────────────
+  //
+  // See `projectMembers` in src/db/schema.ts for the model and why the roles
+  // are what they are. Placed HERE, ~1900 lines below `projects`, for the
+  // reason stated in docs/features/platform/database-and-migrations.md: an
+  // FK cannot point at a table `migrate()` has not created yet, and `users`
+  // is created at ~line 494 while `projects` is created at ~line 57. Both FK
+  // targets exist by this point; neither does beside `projects`' own CREATE.
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS project_members (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'member',
+      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
+    )
+  `);
+  // One row per (project, user). Both columns are NOT NULL, so this is a
+  // plain UNIQUE — none of the COALESCE-collapse the nullable-scope tables
+  // (`extension_secrets`, `extension_rbac_grants`) need, and the query layer
+  // can therefore use a real `ON CONFLICT DO NOTHING`.
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_project_members_unique ON project_members(project_id, user_id)`);
+  // The hot read is "every project this user belongs to" — the workflow
+  // read/run ladder asks it per authorization, so it must not seq-scan.
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id)`);
+
+  // BACKFILL — what happens to projects that predate this table.
+  //
+  // Every project with NO members at all gets ONE `owner` row for the FIRST
+  // ADMIN, the same rule the ownerless `conversations` / `memories` /
+  // `agent_configs` / `knowledge_base_files` backfills already use (~line
+  // 592). Three properties make it the right answer here:
+  //
+  //  1. It GRANTS NOTHING NEW. Immediately before this migration, PUT and
+  //     DELETE on a project were admin-only (PR #82), so "an admin may
+  //     mutate every project" is exactly the reach that already existed.
+  //     Attributing to the first admin re-states the status quo in the new
+  //     model rather than moving anyone's authority.
+  //  2. NO PROJECT IS LEFT UNREACHABLE. That is the binding requirement: a
+  //     project with zero members would be mutable only through the admin
+  //     override, and an instance whose admins were all deleted would strand
+  //     it forever. One real owner row means the object always names someone.
+  //  3. It is IDEMPOTENT AND NEVER RE-ATTRIBUTES. The id is DERIVED from the
+  //     project id (`pm-backfill-<projectId>`) rather than random, so a
+  //     re-run collides with itself on the primary key instead of writing a
+  //     second row — and a backfilled membership stays greppable as such.
+  //     The guard is "this project
+  //     has no members", not "this user has no row" — so a project created
+  //     AFTER this ships (whose creator is already stamped `owner` by
+  //     `createProject`) is skipped, and a re-run of `migrate()` matches
+  //     nothing. Re-running can never hand an admin a project a member owns.
+  //
+  // If there is no admin yet (a genuinely fresh DB, before the first signup)
+  // this inserts nothing — there is nobody to attribute to, and inventing an
+  // owner would be worse than leaving the admin override to cover it. The
+  // next boot after the first admin exists picks the rows up, because the
+  // guard is still true for them. That self-healing re-run is why the
+  // seeded `global` project ends up admin-owned rather than ownerless.
+  await db.execute(sql`
+    INSERT INTO project_members (id, project_id, user_id, role)
+    SELECT 'pm-backfill-' || p.id, p.id, a.id, 'owner'
+    FROM projects p
+    CROSS JOIN (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1) a
+    WHERE NOT EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id)
+    ON CONFLICT DO NOTHING
+  `);
+
   // ── GitHub Projects integration (per-project board link + proposal queue) ──
   // See src/db/migrations/add-github-projects.ts for the rationale.
   // `github_projects_links` — an EZCorp project connects to MANY boards (one row

@@ -1,6 +1,8 @@
 import type { AuthUser } from "./types";
 import { type ApiKeyScope, hasRequiredScope } from "./api-key";
 import { getTeamMembership } from "../db/queries/teams";
+import { getProjectMembership } from "../db/queries/project-members";
+import type { ProjectMemberRole } from "../db/schema";
 
 /**
  * HOW a request authenticated — stamped POSITIVELY at each auth site, so a
@@ -208,6 +210,69 @@ export function requireAdminSession(locals: AuthLocals): AuthUser | Response {
   const session = requireSessionAuth(locals);
   if (session instanceof Response) return session;
   return checkRole(locals, "admin");
+}
+
+/**
+ * PROJECT membership ladder — `member` < `owner`.
+ *
+ * A third role taxonomy alongside `users.role` (`admin`/`member`) and
+ * `team_members.role` (`owner`/`editor`/`viewer`); see the "two role
+ * taxonomies, one column name" gotcha in
+ * docs/features/platform/rbac-and-permission-modes.md, which is now three.
+ * `member` and `owner` mean here exactly what `project_members` says they
+ * mean and nothing they mean on a team.
+ */
+const PROJECT_ROLE_LEVELS: Record<string, number> = { member: 0, owner: 1 };
+
+/**
+ * Gate a route on PROJECT MEMBERSHIP, returning the denial rather than
+ * throwing it.
+ *
+ * Deliberately shaped like {@link checkRole} and NOT like
+ * {@link requireTeamRole}: `requireTeamRole` throws a raw `Response`, which
+ * SvelteKit surfaces from a `+server.ts` handler as a 500 rather than the
+ * 401/403 it meant (see checkRole's note). Every consumer of this gate is a
+ * route handler, so the throwing shape would be wrong at every call site.
+ *
+ * **Instance admins bypass**, matching `requireTeamRole` — an `admin` is
+ * treated as holding `owner` on every project regardless of membership. That
+ * override is what keeps a project reachable if its members are all deleted,
+ * and it is why the migration's ownerless backfill is a re-statement of
+ * existing reach rather than a new grant.
+ *
+ * **403, not 404.** The sec-H3 routes collapse denial into "not found" to
+ * avoid an id-existence oracle. Projects have no existence to hide: `GET
+ * /api/projects/:id` and the list route are deliberately instance-global and
+ * unfiltered, so a 404 here would misreport a project the same caller can
+ * read in the very next request.
+ *
+ * The membership read is the ONLY thing consulted — never a `projectId` off
+ * the request body — because the row is keyed by the authenticated user id.
+ */
+export async function checkProjectRole(
+  locals: AuthLocals,
+  projectId: string,
+  minRole: ProjectMemberRole,
+): Promise<AuthUser | Response> {
+  const user = locals.user;
+  if (!user) {
+    return Response.json({ error: "Authentication required" }, { status: 401 });
+  }
+  if (user.role === "admin") return user;
+
+  const membership = await getProjectMembership(user.id, projectId);
+  if (!membership) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+  // `?? -1` is the fail-closed read of a role this build does not know —
+  // a row written by a newer version, or hand-edited in the DB, denies
+  // rather than sorting as the lowest known rung.
+  const held = PROJECT_ROLE_LEVELS[membership.role] ?? -1;
+  const needed = PROJECT_ROLE_LEVELS[minRole] ?? 0;
+  if (held < needed) {
+    return Response.json({ error: "Forbidden" }, { status: 403 });
+  }
+  return user;
 }
 
 const ROLE_LEVELS: Record<string, number> = { viewer: 0, editor: 1, owner: 2 };

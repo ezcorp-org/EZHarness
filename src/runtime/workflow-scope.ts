@@ -37,26 +37,46 @@
  * and its name asserted a membership check the platform cannot perform.
  * A module comment said so and it still nearly shipped a delegated
  * -execution feature resting on it, so the name is gone: read/run now
- * routes through {@link readRunAudience}, which returns one of three
+ * routes through {@link readRunAudience}, which returns one of four
  * {@link WorkflowAudience} values that each say who they admit.
- * `project` resolves to `"any-authenticated-principal"` — a string you
- * cannot read as "a member".
+ *
+ * ## The membership model landed
+ *
+ * `project_members` (`src/db/schema.ts`) now exists, so the split this
+ * header promised has happened: `project` no longer resolves to a single
+ * audience. A `project` row WITH a `project_id` resolves to
+ * `"project-members-and-admins"` and is checked against a membership set
+ * the SERVER resolved; a `project` row with a NULL `project_id` still
+ * resolves to `"any-authenticated-principal"`, because there is no
+ * project to be a member of and pretending otherwise would refuse
+ * everyone.
+ *
+ * The membership set travels on {@link WorkflowCaller} as
+ * `projectMemberships`, and it is a REQUIRED field for the same reason
+ * `isProjectMember` had to die: an optional one defaults, a default is
+ * invisible, and an invisible default is how a call site that never
+ * resolved memberships silently keeps working. Required means every
+ * construction site had to decide, and the ones that legitimately cannot
+ * resolve a set say so out loud with {@link NO_PROJECT_MEMBERSHIPS}.
  *
  * **What is reachable today** (pinned behaviourally, not asserted, in
- * `workflow-visibility-reach.test.ts`): all three tiers. `private` used
- * to have no writer, which made `"owner-and-admins"` — the only audience
- * narrower than "everyone with a login" — unreachable, and left the
- * ladder with no confidentiality boundary at all on the read/run axis.
- * `visibility` is now a key on the create/update body, so an author can
- * name it and that gap is closed.
+ * `workflow-visibility-reach.test.ts`): all four audiences. `private`
+ * used to have no writer, which made `"owner-and-admins"` — then the only
+ * audience narrower than "everyone with a login" — unreachable, and left
+ * the ladder with no confidentiality boundary at all on the read/run
+ * axis. `visibility` is now a key on the create/update body, so an author
+ * can name it and that gap is closed. `"project-members-and-admins"`
+ * needs BOTH writers to exist and both do: the fork route stamps
+ * `project` + a `projectId` (`POST /api/workflows/:name/fork`), and
+ * `POST /api/projects/:id/members` writes the memberships that satisfy
+ * it. A rung with no writer is a rung nobody can stand on.
  *
  * Two consequences worth stating together, because they pull opposite
  * ways. For C3 (delegated execution): a bound of "could the owner run
- * it?" now excludes something — a `private` row is refused to everyone
- * but its owner and the admins, so the bound is real rather than
- * decorative. But it is still weak for the other two tiers, which remain
- * runnable by every authenticated principal; `private` is opt-in, and
- * the default a create produces is `system`.
+ * it?" now excludes two things rather than one — a `private` row is
+ * refused to everyone but its owner and the admins, and a project-scoped
+ * row is refused to everyone outside that project. `system`, which is
+ * still the tier a create DEFAULTS to, remains open to anyone.
  */
 import type { WorkflowDefinition, WorkflowVisibility } from "../types";
 
@@ -122,18 +142,52 @@ export interface WorkflowCaller {
   userId: string | null;
   role: "admin" | "member";
   /**
-   * The project the caller is acting in, when they named one.
+   * The project the caller SAYS they are acting in.
    *
-   * **Read by nothing in this module.** It is carried for call sites and
-   * for the day a membership model lands; {@link authorizeWorkflow}
-   * never compares it to `entry.projectId`, and a test pins that both
-   * ids are decision-irrelevant. It could not be otherwise today: this
-   * value comes off the request (a query param or a body field), so a
-   * caller names their own project and comparing the two would be a
+   * **Still read by nothing in this module, and that has not changed now
+   * that a membership model exists.** {@link authorizeWorkflow} never
+   * compares it to `entry.projectId`, and a test pins that this id stays
+   * decision-irrelevant. The reason is unchanged and is the whole point:
+   * this value comes off the request (a query param or a body field), so
+   * the caller names their own project, and comparing the two would be a
    * boundary the caller controls — theatre that reads like a check.
+   *
+   * {@link projectMemberships} is the field that IS trusted, and the
+   * difference between the two is exactly "who wrote it".
    */
   projectId?: string | null;
+  /**
+   * The project ids this principal is a MEMBER of — resolved SERVER-SIDE
+   * against the authenticated user id, never taken off the request.
+   *
+   * Required, not optional. An optional field with an empty default would
+   * make "memberships were never resolved" and "this principal belongs to
+   * nothing" the same value, and the first of those is a bug that must
+   * not be able to hide inside the second. Every construction site is
+   * forced to produce one; a site that genuinely cannot resolve
+   * memberships uses {@link NO_PROJECT_MEMBERSHIPS} and says why.
+   */
+  projectMemberships: readonly string[];
 }
+
+/**
+ * The empty membership set, for callers that have none to resolve.
+ *
+ * A NAMED value rather than a bare `[]`, because the two situations it
+ * covers are worth being able to grep for:
+ *
+ *  - the principal has no user identity at all (the CLI, a service
+ *    account), so there is nothing to look up; and
+ *  - the question being asked never consults the audience — `edit` and
+ *    {@link denyVisibilityAssignment} both decide before the read/run
+ *    switch is reached, so resolving memberships for them would be a
+ *    query whose result is provably unused.
+ *
+ * It is the FAIL-CLOSED value: a caller carrying it satisfies no
+ * `"project-members-and-admins"` entry. Frozen so a consumer cannot push
+ * a membership into the shared instance.
+ */
+export const NO_PROJECT_MEMBERSHIPS: readonly string[] = Object.freeze([]);
 
 /** Why a workflow was refused. Callers branch on this, not on a message. */
 export type WorkflowDenialReason =
@@ -147,6 +201,22 @@ export type WorkflowDenialReason =
    * project. Status and message are unchanged.
    */
   | "not-authenticated"
+  /**
+   * The caller has a login, and is not a member of the project the
+   * workflow is scoped to.
+   *
+   * The name is BACK, and this time it describes a check that runs:
+   * `authorizeWorkflow` compares `entry.projectId` against the caller's
+   * server-resolved {@link WorkflowCaller.projectMemberships}. It was
+   * deleted precisely because the old bearer of the name refused only
+   * `userId === null` principals, and never because of a project.
+   *
+   * It deliberately does NOT reach {@link denialStatus} as a special
+   * case: read/run denials are already 404 for every reason, which is
+   * what keeps the endpoint from confirming that a workflow exists in a
+   * project the caller cannot see.
+   */
+  | "not-project-member"
   | "not-owner"
   | "not-editable-source"
   | "requires-admin";
@@ -186,21 +256,39 @@ export type WorkflowAudience =
   /** No identity required at all — includes the userless CLI principal. */
   | "anyone"
   /**
-   * Anyone holding a login. **Not a membership check, and not a
-   * confidentiality boundary** — the platform has no project-membership
-   * model: `projects` (`src/db/schema.ts`) has no owner column, there is
-   * no `project_members` table, and `GET /api/projects`
-   * (`web/src/routes/api/projects/+server.ts`) returns every project to
-   * every authenticated caller unfiltered. `teams` / `team_members`
-   * exist but are the AGENT-SHARING model and are not attached to
-   * projects. So this set is every user on the instance.
+   * Anyone holding a login. **Still not a membership check** — it is
+   * every user on the instance, and it is what a `project`-visibility
+   * row resolves to when it names NO project (`projectId === null`).
+   *
+   * That is not a gap left over from before the membership model; it is
+   * the honest answer for a row with nothing to be a member of. A row
+   * with a `project_id` gets {@link WorkflowAudience} the narrower value
+   * below. `teams` / `team_members` are still the AGENT-SHARING model
+   * and are still not attached to projects — `project_members` is the
+   * one that is.
    */
   | "any-authenticated-principal"
   /**
-   * The one audience narrower than "everyone with a login", and the
-   * platform's only workflow confidentiality boundary. Reachable: an
-   * author names `visibility: "private"` on create or update. See
-   * `workflow-visibility-reach.test.ts`.
+   * Members of the workflow's own project, plus instance admins.
+   *
+   * The audience the module header promised and could not previously
+   * express. Satisfied by comparing `entry.projectId` against the
+   * caller's {@link WorkflowCaller.projectMemberships} — a set resolved
+   * server-side from `project_members`, never a project id the caller
+   * named on the request.
+   *
+   * Reachable: `POST /api/workflows/:name/fork` stamps `project` with a
+   * `projectId`, and `POST /api/projects/:id/members` writes the
+   * memberships that satisfy it. Admins are in the set for the reason
+   * they are in every other one — the override is what keeps a
+   * project-scoped row reachable after its members are deleted.
+   */
+  | "project-members-and-admins"
+  /**
+   * The narrowest audience, and the platform's per-USER workflow
+   * confidentiality boundary (project-scoping is the per-PROJECT one).
+   * Reachable: an author names `visibility: "private"` on create or
+   * update. See `workflow-visibility-reach.test.ts`.
    */
   | "owner-and-admins";
 
@@ -208,39 +296,54 @@ export type WorkflowAudience =
  * The read/run audience for a visibility tier. The single place that
  * decision is made.
  *
- * Takes the visibility ALONE, deliberately: no caller, no project id.
- * The old predicate took a `projectId` it never read, which is how the
- * ladder looked project-scoped while being nothing of the sort. A
- * signature that cannot accept a project id cannot imply it consults
- * one.
+ * Takes the visibility and the ROW's project id — never a caller, and
+ * never a project id off the request. The old predicate took a
+ * `projectId` it never read, which is how the ladder looked
+ * project-scoped while being nothing of the sort; the argument is back
+ * because it is now READ, and it is the entry's own column rather than
+ * anything the caller supplies.
  *
- * The day a membership model lands, `"any-authenticated-principal"`
- * splits and this function grows the argument it needs — and every
- * exhaustive `switch` over {@link WorkflowAudience} fails to compile
- * until it is handled.
+ * This is the split the previous version of this comment promised for
+ * "the day a membership model lands". It landed, so
+ * `"any-authenticated-principal"` split in two on the one axis that
+ * distinguishes the rows: a `project` row that names a project is
+ * membership-gated, a `project` row that names none cannot be. Every
+ * exhaustive `switch` over {@link WorkflowAudience} failed to compile
+ * until the new value was handled, which is what the promise was for.
  */
-export function readRunAudience(visibility: WorkflowVisibility): WorkflowAudience {
+export function readRunAudience(
+  visibility: WorkflowVisibility,
+  projectId: string | null,
+): WorkflowAudience {
   if (visibility === "system") return "anyone";
   if (visibility === "private") return "owner-and-admins";
-  return "any-authenticated-principal";
+  return projectId === null ? "any-authenticated-principal" : "project-members-and-admins";
 }
 
 /**
  * The authorization ladder. Pure — no I/O, no DB, no clock — so the
  * matrix that covers it is cheap enough to be exhaustive.
  *
- * | visibility | read + run                  | edit                     | who may assign |
+ * | visibility            | read + run                  | edit                     | who may assign |
  * |---|---|---|---|
- * | `system`   | anyone (no login needed)    | **owner**, or admin      | **admin only** |
- * | `project`  | any authenticated principal | creator, or admin        | anyone         |
- * | `private`  | owner or admin              | owner or admin           | anyone         |
+ * | `system`              | anyone (no login needed)    | **owner**, or admin      | **admin only** |
+ * | `project`, no project | any authenticated principal | creator, or admin        | anyone         |
+ * | `project`, in project | project members, or admin   | creator, or admin        | anyone         |
+ * | `private`             | owner or admin              | owner or admin           | anyone         |
  *
- * All three are reachable. Read the read/run column as the audience it
- * is: `system` and `project` both admit every user on the instance,
- * differing only on whether a login is required. `project` is not
- * narrower than `system` for any principal that has logged in — it is
- * narrower only for the userless CLI. `private` is the only row of the
- * three that narrows read/run.
+ * All four read/run audiences are reachable. Read that column as the
+ * audience it is: `system` and a project-less `project` row both admit
+ * every user on the instance, differing only on whether a login is
+ * required — a project-less `project` row is narrower than `system` only
+ * for the userless CLI. The two rows that genuinely narrow read/run are
+ * a project-SCOPED `project` row (narrowed to that project's members)
+ * and `private` (narrowed to one user).
+ *
+ * The `project` tier splitting on its own `project_id` rather than on
+ * the tier name is deliberate: the column is what says whether there is
+ * a membership question to ask at all. A row scoped to no project cannot
+ * be membership-gated without refusing everyone, and refusing everyone
+ * is not a tighter reading of "project", it is a broken one.
  *
  * ## OWNERSHIP is asked before VISIBILITY, on the edit rung
  *
@@ -320,17 +423,38 @@ export function authorizeWorkflow(
   // Exhaustive on purpose: adding a `WorkflowAudience` without deciding
   // what it admits here is a type error, not a silent fallthrough to
   // whichever branch happened to be last.
-  switch (readRunAudience(entry.visibility)) {
+  switch (readRunAudience(entry.visibility, entry.projectId)) {
     case "anyone":
       return { ok: true, entry };
     case "owner-and-admins":
       if (isAdmin || isOwner) return { ok: true, entry };
       return deny("not-owner");
+    case "project-members-and-admins":
+      // The admin exemption is asked FIRST, and this is the branch the
+      // old `any-authenticated-principal` comment was written for: it
+      // said losing the redundant `isAdmin` there "is how an admin later
+      // gets locked out of a project they do not belong to". This is
+      // later. An admin is not in `projectMemberships` and never will be
+      // — `checkProjectRole` exempts them rather than writing them a row
+      // — so without this line the override would not exist.
+      if (isAdmin) return { ok: true, entry };
+      // A userless principal (the CLI, a service account) is refused for
+      // the reason that actually applies to it: it could not be a member
+      // of anything, because membership is keyed by user id.
+      if (caller.userId === null) return deny("not-authenticated");
+      // `entry.projectId` is non-null here by construction —
+      // `readRunAudience` returns this audience only for a non-null one —
+      // but the membership test is written against the value rather than
+      // against that invariant, so a future audience change cannot turn
+      // this into an `includes(null)` that matches nothing silently.
+      if (entry.projectId !== null && caller.projectMemberships.includes(entry.projectId)) {
+        return { ok: true, entry };
+      }
+      return deny("not-project-member");
     case "any-authenticated-principal":
       // `isAdmin` is redundant with the userId test for every principal
-      // that can reach a route — kept because the role is what a future
-      // membership model would exempt, and losing it here is how an
-      // admin later gets locked out of a project they do not belong to.
+      // that can reach a route. Kept for symmetry with the branch above,
+      // where it is load-bearing.
       if (isAdmin || caller.userId !== null) return { ok: true, entry };
       return deny("not-authenticated");
   }
@@ -489,11 +613,22 @@ export function denialMessage(
  */
 export function callerFromUser(
   user: { id: string; role?: string },
-  projectId?: string | null,
+  projectId: string | null | undefined,
+  /**
+   * The caller's server-resolved memberships. POSITIONAL AND REQUIRED —
+   * a defaulted parameter here would re-create exactly the hazard
+   * {@link WorkflowCaller.projectMemberships} is required to avoid, since
+   * every existing call site would keep compiling while quietly
+   * authorizing against an empty set. Pass
+   * {@link NO_PROJECT_MEMBERSHIPS} when the question being asked cannot
+   * reach the read/run switch.
+   */
+  projectMemberships: readonly string[],
 ): WorkflowCaller {
   return {
     userId: user.id,
     role: user.role === "admin" ? "admin" : "member",
     projectId: projectId ?? null,
+    projectMemberships,
   };
 }

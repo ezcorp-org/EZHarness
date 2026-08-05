@@ -203,5 +203,21 @@ describe("ensureInitialized — state-mediator lookup feeds pageIds from MANIFES
 
 		// Unknown extension → undefined (mediator rejects the push).
 		expect(lookup("ext-unknown")).toBeUndefined();
-	});
+	},
+	// FLAKE FIX (found while landing project membership; PRE-EXISTING —
+	// reproduced on `bc56cfc7` with this branch checked out elsewhere).
+	//
+	// This is the ONE test in the 481-file vitest suite that calls the real
+	// `ensureInitialized()`, i.e. boots the whole server context: DB open +
+	// migrate, the extension registry, the bundled-extension sweep. In
+	// isolation it finishes in ~2s; inside the full parallel run it
+	// regularly crosses vitest's 5000ms default and fails as
+	// "Test timed out in 5000ms" — a red suite that names a real test and
+	// has nothing to do with the code under it.
+	//
+	// A timeout is the right dial here rather than a smaller test: what is
+	// being asserted is precisely that BOOT wires the mediator, so there is
+	// no smaller unit to reach for. 30s matches the DB-backed convention on
+	// the bun side (`--timeout 30000`) and still fails a genuine hang.
+	30_000);
 });

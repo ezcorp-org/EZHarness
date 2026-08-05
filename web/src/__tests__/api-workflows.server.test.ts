@@ -27,9 +27,19 @@ const queries = vi.hoisted(() => ({
 const versions = vi.hoisted(() => ({
   ensureWorkflowVersion: vi.fn(async () => ({ version: { version: 1 }, minted: true })),
 }));
+// The caller's project memberships, which the read/run ladder authorizes a
+// project-SCOPED workflow against. Every entry in this file is `system` or
+// `private`, so the set is never consulted — but `callerFor` resolves it
+// once per request regardless, and an unmocked resolve reaches a real
+// `getDb()`. Kept as a spy so the "one query per REQUEST, not per row"
+// assertion below has something to count.
+const members = vi.hoisted(() => ({
+  listProjectIdsForUser: vi.fn(async () => [] as string[]),
+}));
 vi.mock("$lib/server/context", () => ctx);
 vi.mock("$server/db/queries/workflows", () => queries);
 vi.mock("$server/db/queries/workflow-versions", () => versions);
+vi.mock("$server/db/queries/project-members", () => members);
 
 import { GET, POST } from "../routes/api/workflows/+server";
 
@@ -57,6 +67,7 @@ beforeEach(() => {
   ctx.reloadWorkflows.mockReset().mockResolvedValue(undefined);
   queries.createWorkflow.mockReset().mockImplementation(async (def: unknown) => def);
   versions.ensureWorkflowVersion.mockReset().mockResolvedValue({ version: { version: 1 }, minted: true });
+  members.listProjectIdsForUser.mockReset().mockResolvedValue([]);
 });
 
 function makeEvent(opts: {
@@ -195,14 +206,33 @@ describe("GET /api/workflows", () => {
     expect(workflows.map((w) => w.canEdit)).toEqual([false, false]);
   });
 
-  test("resolves the flag with no DB query at all", async () => {
-    // The previous implementation needed one owner lookup per page. The
-    // ladder answers off the cache entry already in hand, so the list
-    // route is now query-free.
+  test("resolves the flag with ONE query per request, never one per row", async () => {
+    // This test used to assert "no DB query at all", and that stopped being
+    // true when `project_members` landed: `callerFor` resolves the caller's
+    // memberships once, because the ladder cannot answer a project-scoped
+    // row without them.
+    //
+    // What the original property was actually protecting is intact, and is
+    // what is asserted now — the N+1. The implementation before the ladder
+    // needed one OWNER lookup per row; the ladder answers ownership off the
+    // cache entry already in hand, so the count below must not move when
+    // the cache grows.
     ctx.getCachedWorkflows.mockReturnValue([systemEntry("a"), assetEntry("demo", "yaml")]);
     const res = await GET(makeEvent({ locals: authedUser }));
     expect(res.status).toBe(200);
     expect((await res.json()) as unknown[]).toHaveLength(2);
+    expect(members.listProjectIdsForUser).toHaveBeenCalledTimes(1);
+
+    members.listProjectIdsForUser.mockClear();
+    ctx.getCachedWorkflows.mockReturnValue([
+      systemEntry("a"),
+      systemEntry("b"),
+      systemEntry("c"),
+      assetEntry("demo", "yaml"),
+    ]);
+    const bigger = await GET(makeEvent({ locals: authedUser }));
+    expect((await bigger.json()) as unknown[]).toHaveLength(4);
+    expect(members.listProjectIdsForUser).toHaveBeenCalledTimes(1);
   });
 
   test("never reveals the owner of a workflow the caller may not see", async () => {

@@ -44,7 +44,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   if (!parsed.success) return errorJson(400, "Invalid request body");
   const { input = {}, projectId, definition: draft } = parsed.data;
 
-  const resolved = resolveWorkflowOr(user, params.name, "run", projectId ?? null);
+  const resolved = await resolveWorkflowOr(user, params.name, "run", projectId ?? null);
   if (resolved instanceof Response) return resolved;
 
   // A draft replaces the saved graph but NOT the authorization: the

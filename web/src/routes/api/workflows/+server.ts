@@ -34,7 +34,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
   // the ones it would only get a 403/404 for (YAML + extension assets, and
   // other users' rows). One pass, one rule — the flag is the ladder's
   // verdict, never a second predicate that could drift from it.
-  return json(listVisibleWorkflows(user, url.searchParams.get("projectId")));
+  return json(await listVisibleWorkflows(user, url.searchParams.get("projectId")));
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {

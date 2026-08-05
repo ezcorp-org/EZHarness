@@ -1,45 +1,56 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import * as projectQueries from "$server/db/queries/projects";
-import { requireAuth } from "$server/auth/middleware";
+import { requireAuth, checkProjectRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 /**
- * Authorization model for projects: ROLE-based, because nothing else is
- * expressible today.
+ * Authorization model for projects: PROJECT MEMBERSHIP, with an instance
+ * -admin override.
  *
- * `projects` (`src/db/schema.ts:24-32`) has no owner column — no `userId`,
- * no `createdBy` — and there is no `project_members` table. Nothing records
- * who created a project, so "let the owner mutate it" cannot be written.
- * `src/runtime/workflow-scope.ts:173-181` documents the same conclusion from
- * the other direction: the platform "has no project-membership model", and
- * `GET /api/projects` (`../+server.ts:25`) returns every project to every
- * authenticated caller unfiltered.
+ * This route used to gate PUT/DELETE on `user.role === "admin"`, and said so
+ * at length, because there was nothing else to gate on: `projects` had no
+ * owner column and no `project_members` table, so "let the person who made
+ * it rename it" was not expressible. PR #82 shipped that stop-gap knowing it
+ * broke a real case — the non-admin who created a project could not rename
+ * or delete it from `/project/[id]/settings`.
  *
- * Until a membership/ownership model lands this is a PRODUCT GAP, not a
- * design. PUT and DELETE previously ran with no authorization at all past
- * `requireAuth`, so any authenticated principal could destroy any project by
- * id — or silently repoint its `path`, which drives filesystem scoping. The
- * narrowest safe rule that is expressible now is: mutating an instance-global
- * object is an admin action.
+ * `project_members` (`src/db/schema.ts`) is now that model, so the rule is
+ * the one the product actually wanted:
  *
- * Consequence to weigh when the model lands: a non-admin can no longer rename
- * or delete a project from the project-settings page
- * (`web/src/routes/(app)/project/[id]/settings/+page.svelte`). That is a
- * deliberate narrowing, not an oversight — the alternative is leaving every
- * project destroyable by every account.
+ *   | caller                      | GET | PUT / DELETE |
+ *   |-----------------------------|-----|--------------|
+ *   | instance admin              | yes | yes          |
+ *   | project member (any role)   | yes | yes          |
+ *   | authenticated non-member    | yes | **no**       |
+ *
+ * `createProject` stamps its creator as an `owner`, so the case #82 broke —
+ * a member renaming the project they just made — is the FIRST case this
+ * covers rather than an afterthought.
+ *
+ * READS ARE DELIBERATELY NOT NARROWED, and the asymmetry in that table is
+ * the point rather than an oversight. `GET /api/projects` returns every
+ * project to every authenticated caller, so hiding a single project behind a
+ * 404 here would be theatre — the same caller finds it in the list one
+ * request later. Filtering the list is a separate, wider change: after the
+ * migration's ownerless backfill every pre-existing project is owned by the
+ * first admin, so a read filter would show a non-admin an EMPTY project list
+ * on any instance that predates this table. That is a data-migration
+ * question, not an authorization one, and it is tracked as the open gap it
+ * is (pinned by "reads stay instance-global" in
+ * `src/__tests__/security/cross-tenant-deletion-projects-kb-modes.test.ts`).
  *
  * 403, not the 404 used by the sec-H3 routes: those collapse denial into
  * "not found" to avoid an id-existence oracle. Projects have no existence to
- * hide — GET and the list route are deliberately unfiltered and unchanged
- * here — so a 404 would be theatre and would misreport a project that plainly
- * exists.
+ * hide — see above — so a 404 would misreport a project that plainly exists
+ * and that this same caller may read.
+ *
+ * The gate itself is `checkProjectRole` in `src/auth/middleware.ts`, next to
+ * `requireTeamRole`, so the membership read lives with the other membership
+ * read rather than in a route.
  */
-function requireAdmin(user: { role: string }): Response | null {
-  return user.role === "admin" ? null : errorJson(403, "Forbidden");
-}
 
 // Boundary validation for project update. The handler accepts a
 // partial of the same fields the POST handler uses. `.strict()`
@@ -63,9 +74,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 export const PUT: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
-  const user = requireAuth(locals);
-  const adminErr = requireAdmin(user);
-  if (adminErr) return adminErr;
+  const gate = await checkProjectRole(locals, params.id, "member");
+  if (gate instanceof Response) return gate;
   const parsed = updateProjectSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     return errorJson(400, "Invalid request body");
@@ -78,9 +88,8 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
 export const DELETE: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "write");
   if (scopeErr) return scopeErr;
-  const user = requireAuth(locals);
-  const adminErr = requireAdmin(user);
-  if (adminErr) return adminErr;
+  const gate = await checkProjectRole(locals, params.id, "member");
+  if (gate instanceof Response) return gate;
   const deleted = await projectQueries.deleteProject(params.id);
   if (!deleted) return errorJson(404, "Not found");
   return json({ ok: true });

@@ -5,6 +5,7 @@ import {
   denialMessage,
   denialStatus,
   denyVisibilityAssignment,
+  NO_PROJECT_MEMBERSHIPS,
   VISIBILITY_ASSIGNMENT_DENIAL,
   readRunAudience,
   resolveWorkflowForCaller,
@@ -39,13 +40,62 @@ function dbEntry(overrides: Partial<CachedWorkflow> = {}): CachedWorkflow {
   };
 }
 
-const owner: WorkflowCaller = { userId: OWNER, role: "member", projectId: PROJECT };
-const member: WorkflowCaller = { userId: "user-member", role: "member", projectId: PROJECT };
-const stranger: WorkflowCaller = { userId: "user-stranger", role: "member", projectId: "project-b" };
-const admin: WorkflowCaller = { userId: "user-admin", role: "admin", projectId: null };
-/** An API-key principal with no project context — `requireScope` admits it
- *  and it carries a user identity, but it named no project. */
-const keyNoProject: WorkflowCaller = { userId: "user-key", role: "member", projectId: null };
+/**
+ * The callers.
+ *
+ * `projectId` is what the caller SAID (a query param / body field);
+ * `projectMemberships` is what the SERVER resolved from `project_members`.
+ * The two are kept deliberately distinguishable in these fixtures —
+ * `stranger` names `project-b` AND belongs to it, so a test that passes
+ * because the ladder read the wrong one would have to be lucky twice. The
+ * "ids on the caller are decision-irrelevant" block below breaks the tie by
+ * moving `projectId` alone.
+ */
+const owner: WorkflowCaller = {
+  userId: OWNER,
+  role: "member",
+  projectId: PROJECT,
+  projectMemberships: [PROJECT],
+};
+const member: WorkflowCaller = {
+  userId: "user-member",
+  role: "member",
+  projectId: PROJECT,
+  projectMemberships: [PROJECT],
+};
+/** A member of a DIFFERENT project. Not "someone with no memberships" —
+ *  the distinction is what proves the check reads the entry's project id
+ *  rather than merely testing that the set is non-empty. */
+const stranger: WorkflowCaller = {
+  userId: "user-stranger",
+  role: "member",
+  projectId: "project-b",
+  projectMemberships: ["project-b"],
+};
+const admin: WorkflowCaller = {
+  userId: "user-admin",
+  role: "admin",
+  projectId: null,
+  // Empty ON PURPOSE. `checkProjectRole` exempts admins rather than writing
+  // them membership rows, so an admin is in no project's set — every admin
+  // allow below therefore comes from the role branch, never from membership.
+  projectMemberships: [],
+};
+/** An API-key principal — `requireScope` admits it and it carries a user
+ *  identity, but the key's owner belongs to no project. */
+const keyNoProject: WorkflowCaller = {
+  userId: "user-key",
+  role: "member",
+  projectId: null,
+  projectMemberships: [],
+};
+/** The userless CLI principal. Membership is keyed by user id, so it can
+ *  never be in a set — hence the frozen shared empty. */
+const cli: WorkflowCaller = {
+  userId: null,
+  role: "member",
+  projectMemberships: NO_PROJECT_MEMBERSHIPS,
+};
 
 /**
  * A `system` row WITH an owner — what `POST /api/workflows` produces,
@@ -59,6 +109,15 @@ const keyNoProject: WorkflowCaller = { userId: "user-key", role: "member", proje
  */
 const systemEntry = dbEntry({ visibility: "system", projectId: PROJECT, userId: OWNER });
 const projectEntry = dbEntry({ visibility: "project", projectId: PROJECT, userId: OWNER });
+/**
+ * A `project`-visibility row that names NO project.
+ *
+ * Representable — `workflow_definitions.project_id` is nullable and only the
+ * fork route ever stamps it — and it is the row the audience split turns on:
+ * it resolves to `any-authenticated-principal`, not to the membership-gated
+ * audience, because there is no project to be a member of.
+ */
+const projectlessEntry = dbEntry({ visibility: "project", projectId: null, userId: OWNER });
 const privateEntry = dbEntry({ visibility: "private", projectId: PROJECT, userId: OWNER });
 
 describe("the authorization matrix", () => {
@@ -99,22 +158,43 @@ describe("the authorization matrix", () => {
     { entry: systemEntry, caller: keyNoProject, who: "api key", action: "run", expected: true },
     { entry: systemEntry, caller: keyNoProject, who: "api key", action: "edit", expected: "requires-admin" },
 
-    // ── project: members read/run; only the creator (or admin) edits ──
+    // ── project (scoped to PROJECT): that project's MEMBERS read/run;
+    //    only the creator (or admin) edits ────────────────────────────
+    //
+    // The three `read`/`run` cells that moved when `project_members`
+    // landed are the stranger's and the API key's. They used to expect
+    // `true` — every authenticated principal could read and run any
+    // project workflow, because there was no membership model to ask.
+    // They now expect `not-project-member`, which is the whole point of
+    // the table: a workflow scoped to a project is confidential to it.
     { entry: projectEntry, caller: owner, who: "owner", action: "read", expected: true },
     { entry: projectEntry, caller: owner, who: "owner", action: "run", expected: true },
     { entry: projectEntry, caller: owner, who: "owner", action: "edit", expected: true },
     { entry: projectEntry, caller: member, who: "member", action: "read", expected: true },
     { entry: projectEntry, caller: member, who: "member", action: "run", expected: true },
     { entry: projectEntry, caller: member, who: "member", action: "edit", expected: "not-owner" },
-    { entry: projectEntry, caller: stranger, who: "stranger", action: "read", expected: true },
-    { entry: projectEntry, caller: stranger, who: "stranger", action: "run", expected: true },
+    { entry: projectEntry, caller: stranger, who: "stranger", action: "read", expected: "not-project-member" },
+    { entry: projectEntry, caller: stranger, who: "stranger", action: "run", expected: "not-project-member" },
     { entry: projectEntry, caller: stranger, who: "stranger", action: "edit", expected: "not-owner" },
     { entry: projectEntry, caller: admin, who: "admin", action: "read", expected: true },
     { entry: projectEntry, caller: admin, who: "admin", action: "run", expected: true },
     { entry: projectEntry, caller: admin, who: "admin", action: "edit", expected: true },
-    { entry: projectEntry, caller: keyNoProject, who: "api key", action: "read", expected: true },
-    { entry: projectEntry, caller: keyNoProject, who: "api key", action: "run", expected: true },
+    { entry: projectEntry, caller: keyNoProject, who: "api key", action: "read", expected: "not-project-member" },
+    { entry: projectEntry, caller: keyNoProject, who: "api key", action: "run", expected: "not-project-member" },
     { entry: projectEntry, caller: keyNoProject, who: "api key", action: "edit", expected: "not-owner" },
+
+    // ── project with NO project id: unchanged, and that is deliberate ──
+    //
+    // The same tier, the same callers, the OLD answers — because a row
+    // that names no project has no membership question to ask. Sitting
+    // beside the block above, it is what stops "project is now
+    // membership-gated" being read as a property of the tier NAME.
+    { entry: projectlessEntry, caller: member, who: "member", action: "read", expected: true },
+    { entry: projectlessEntry, caller: member, who: "member", action: "run", expected: true },
+    { entry: projectlessEntry, caller: stranger, who: "stranger", action: "read", expected: true },
+    { entry: projectlessEntry, caller: stranger, who: "stranger", action: "run", expected: true },
+    { entry: projectlessEntry, caller: keyNoProject, who: "api key", action: "read", expected: true },
+    { entry: projectlessEntry, caller: keyNoProject, who: "api key", action: "run", expected: true },
 
     // ── private: owner or admin only, for every action ────────────────
     { entry: privateEntry, caller: owner, who: "owner", action: "read", expected: true },
@@ -156,7 +236,10 @@ describe("the authorization matrix", () => {
   }
 
   test("the matrix covers every visibility × caller × action combination", () => {
-    expect(cases).toHaveLength(3 * 5 * 3);
+    // 3 tiers × 5 callers × 3 actions, plus the 6 read/run cells of the
+    // project-LESS `project` row (its `edit` rung is the same code path as
+    // the scoped row's and is already covered above).
+    expect(cases).toHaveLength(3 * 5 * 3 + 6);
   });
 });
 
@@ -195,7 +278,6 @@ describe("who may EDIT a `system` row — ownership is asked before the tier", (
     // with `==`, or the null guard dropped, the userless CLI principal
     // would match a legacy row and every pre-C6 workflow on the
     // instance would become world-editable in one step.
-    const cli: WorkflowCaller = { userId: null, role: "member" };
     for (const caller of [owner, member, stranger, keyNoProject, cli]) {
       expect(authorizeWorkflow(legacySystem, caller, "edit")).toEqual({
         ok: false,
@@ -226,7 +308,6 @@ describe("who may EDIT a `system` row — ownership is asked before the tier", (
   test("read and run on a system row are untouched — anyone, still", () => {
     // Only the `edit` rung moved. A regression here would mean the
     // reorder leaked into the audience switch.
-    const cli: WorkflowCaller = { userId: null, role: "member" };
     for (const caller of [owner, member, stranger, admin, keyNoProject, cli]) {
       expect(authorizeWorkflow(ownedSystem, caller, "read").ok).toBe(true);
       expect(authorizeWorkflow(ownedSystem, caller, "run").ok).toBe(true);
@@ -277,7 +358,6 @@ describe("who may EDIT a `system` row — ownership is asked before the tier", (
     // reorder rewrote the fallthrough these two share, and a reason
     // that silently swapped would still deny — the failure mode this
     // whole matrix asserts reasons rather than booleans to catch.
-    const cli: WorkflowCaller = { userId: null, role: "member" };
     expect(authorizeWorkflow(privateEntry, cli, "edit")).toEqual({
       ok: false,
       reason: "not-owner",
@@ -336,8 +416,13 @@ describe("read and run are separate questions", () => {
     // A caller who can read a project workflow cannot edit it; a caller
     // who can read a private one cannot even run it. Two different
     // separations, both driven by the `action` argument.
-    expect(authorizeWorkflow(projectEntry, stranger, "read").ok).toBe(true);
-    expect(authorizeWorkflow(projectEntry, stranger, "edit").ok).toBe(false);
+    //
+    // The reader here is `member`, not `stranger`: since the membership
+    // split a stranger cannot READ a project-scoped row either, so using
+    // them would make the first line vacuously false and stop testing the
+    // read/edit separation at all.
+    expect(authorizeWorkflow(projectEntry, member, "read").ok).toBe(true);
+    expect(authorizeWorkflow(projectEntry, member, "edit").ok).toBe(false);
     expect(authorizeWorkflow(privateEntry, stranger, "read").ok).toBe(false);
     expect(authorizeWorkflow(privateEntry, stranger, "run").ok).toBe(false);
   });
@@ -440,9 +525,17 @@ describe("list filtering agrees with the single-entry resolver", () => {
   });
 
   test("a non-admin sees a strict subset", () => {
-    const seen = visibleWorkflows(entries, stranger).map((e) => e.definition.name);
-    expect(seen).toEqual(["nightly", "shared"]);
-    expect(seen.length).toBeLessThan(entries.length);
+    // A member of the project sees the shared workflow but not the
+    // private one.
+    const seenByMember = visibleWorkflows(entries, member).map((e) => e.definition.name);
+    expect(seenByMember).toEqual(["nightly", "shared"]);
+    expect(seenByMember.length).toBeLessThan(entries.length);
+
+    // A member of a DIFFERENT project sees neither — the membership split
+    // narrowed the list, not just the single-entry resolver, because both
+    // are the same `authorizeWorkflow` call.
+    const seenByStranger = visibleWorkflows(entries, stranger).map((e) => e.definition.name);
+    expect(seenByStranger).toEqual(["nightly"]);
   });
 
   test("an admin sees everything", () => {
@@ -493,18 +586,38 @@ describe("denial status and message", () => {
   };
   const ACTIONS = Object.keys(EXPECTED) as WorkflowAction[];
   const TIERS = Object.keys(EXPECTED.read) as WorkflowVisibility[];
-  /** Every reason that names a row. `not-found` has none, and is swept apart. */
-  const REASONS: WorkflowDenialReason[] = [
-    "not-authenticated",
-    "not-owner",
-    "not-editable-source",
-    "requires-admin",
-  ];
+  /**
+   * Every reason that names a row. `not-found` has none, and is swept apart.
+   *
+   * A `Record` keyed by the union rather than a bare array, for the same
+   * reason {@link EXPECTED} is one: a bare `WorkflowDenialReason[]` accepts
+   * a SUBSET silently, so a reason added later is simply never swept and
+   * the omission cannot fail anything. `not-project-member` is exactly that
+   * case — it arrived with the project-membership split, after this table
+   * was written, and a plain array would have left the newest reason the
+   * only unswept one. Keyed this way, a fifth reason fails TYPECHECK here
+   * until someone decides what status it carries.
+   */
+  const ROW_NAMING_REASONS: Record<Exclude<WorkflowDenialReason, "not-found">, true> = {
+    "not-authenticated": true,
+    "not-owner": true,
+    "not-editable-source": true,
+    "requires-admin": true,
+    // Read/run only, and 404 on every tier like every other read/run
+    // denial — which is what keeps a project-scoped row's existence from
+    // being confirmed to a non-member. Asserted here rather than trusted.
+    "not-project-member": true,
+  };
+  const REASONS = Object.keys(ROW_NAMING_REASONS) as Exclude<
+    WorkflowDenialReason,
+    "not-found"
+  >[];
 
   test("the sweep below is not vacuous", () => {
     expect(ACTIONS).toEqual(["read", "run", "edit"]);
     expect(TIERS.sort()).toEqual(["private", "project", "system"]);
-    expect(REASONS).toHaveLength(4);
+    expect(REASONS).toHaveLength(5);
+    expect(REASONS).toContain("not-project-member");
   });
 
   for (const action of ACTIONS) {
@@ -611,23 +724,79 @@ describe("denial status and message", () => {
 describe("readRunAudience names the set each tier admits", () => {
   // The audience is the honest replacement for an `isProjectMember` that
   // returned `caller.userId !== null` and read, at every call site, as a
-  // membership check the platform cannot perform. Which tiers are
+  // membership check the platform could not perform. It can now, so the
+  // `project` tier splits on the ROW's project id. Which tiers are
   // REACHABLE, and what that leaves a delegated fire able to touch, is
   // pinned separately in `workflow-visibility-reach.test.ts`.
   test("each tier maps to its own audience", () => {
-    expect(readRunAudience("system")).toBe("anyone");
-    expect(readRunAudience("project")).toBe("any-authenticated-principal");
-    expect(readRunAudience("private")).toBe("owner-and-admins");
+    expect(readRunAudience("system", null)).toBe("anyone");
+    expect(readRunAudience("private", null)).toBe("owner-and-admins");
+    // The split. The tier NAME is identical on both lines; the row's own
+    // `project_id` is what moves the answer.
+    expect(readRunAudience("project", null)).toBe("any-authenticated-principal");
+    expect(readRunAudience("project", PROJECT)).toBe("project-members-and-admins");
   });
 
-  test("`project` admits every authenticated caller, member or not", () => {
-    // Same audience for the project's own "member", a total stranger and
-    // an API key that named no project: there is nothing to distinguish
-    // them by. Asserted through the ladder, not the predicate, so it is
-    // the real decision being pinned.
-    for (const caller of [member, stranger, keyNoProject]) {
-      expect(authorizeWorkflow(projectEntry, caller, "run").ok).toBe(true);
+  test("the project id does not disturb the other two tiers", () => {
+    // `system` and `private` answer the same question whatever the row is
+    // scoped to — otherwise "scoped to a project" would quietly become a
+    // second visibility axis.
+    expect(readRunAudience("system", PROJECT)).toBe("anyone");
+    expect(readRunAudience("private", PROJECT)).toBe("owner-and-admins");
+  });
+
+  test("a project-SCOPED workflow admits that project's members and refuses everyone else", () => {
+    // The behaviour the whole membership model exists for, asserted
+    // through the ladder rather than the predicate so it is the real
+    // decision being pinned.
+    expect(authorizeWorkflow(projectEntry, member, "run").ok).toBe(true);
+    for (const caller of [stranger, keyNoProject]) {
+      expect(authorizeWorkflow(projectEntry, caller, "run")).toEqual({
+        ok: false,
+        reason: "not-project-member",
+        visibility: "project",
+      });
     }
+    // The admin override is a ROLE exemption, not a membership: `admin`
+    // carries an empty set, so this allow can only come from the role.
+    expect(admin.projectMemberships).toHaveLength(0);
+    expect(authorizeWorkflow(projectEntry, admin, "run").ok).toBe(true);
+  });
+
+  test("a project-LESS workflow still admits every authenticated caller", () => {
+    // Same tier, no project id: there is nothing to be a member of, so
+    // gating it would refuse everyone rather than narrow anything.
+    for (const caller of [member, stranger, keyNoProject]) {
+      expect(authorizeWorkflow(projectlessEntry, caller, "run").ok).toBe(true);
+    }
+  });
+
+  test("the membership set is compared against the ROW's project, not the caller's claim", () => {
+    // The one assertion that separates a real check from theatre. The
+    // caller CLAIMS the workflow's project (`projectId: PROJECT`) while
+    // belonging to a different one — the shape an attacker produces by
+    // putting someone else's project id in a query param. If
+    // `caller.projectId` were consulted this would pass.
+    const liar: WorkflowCaller = {
+      userId: "user-liar",
+      role: "member",
+      projectId: PROJECT,
+      projectMemberships: ["project-b"],
+    };
+    expect(authorizeWorkflow(projectEntry, liar, "run")).toEqual({
+      ok: false,
+      reason: "not-project-member",
+      visibility: "project",
+    });
+    // …and the mirror image: a real member who claims NO project is still
+    // admitted, because the claim is irrelevant in both directions.
+    const quietMember: WorkflowCaller = {
+      userId: "user-quiet",
+      role: "member",
+      projectId: null,
+      projectMemberships: [PROJECT],
+    };
+    expect(authorizeWorkflow(projectEntry, quietMember, "run").ok).toBe(true);
   });
 
   test("`private` refuses that same stranger — the audiences discriminate", () => {
@@ -639,14 +808,21 @@ describe("readRunAudience names the set each tier admits", () => {
   });
 
   test("a userless principal is denied a project workflow but still gets system ones", () => {
-    // The whole read/run difference between `system` and `project`: a
-    // login, not an identity. `not-authenticated` says exactly that,
-    // where `not-project-member` named a check that never ran.
-    const cli: WorkflowCaller = { userId: null, role: "member" };
+    // A userless principal is refused for the reason that applies to IT —
+    // it has no identity to key a membership by — rather than for
+    // `not-project-member`, which would describe a lookup that could
+    // never have succeeded.
     expect(authorizeWorkflow(systemEntry, cli, "run").ok).toBe(true);
     expect(authorizeWorkflow(projectEntry, cli, "run")).toEqual({
       ok: false,
       reason: "not-authenticated",
+      visibility: "project",
+    });
+    expect(authorizeWorkflow(projectlessEntry, cli, "run")).toEqual({
+      ok: false,
+      reason: "not-authenticated",
+      // The TIER, not the project id — a project-less `project` row is
+      // still a `project` row, and the denial names what it was refused on.
       visibility: "project",
     });
     expect(authorizeWorkflow(projectEntry, cli, "edit")).toEqual({
@@ -659,26 +835,71 @@ describe("readRunAudience names the set each tier admits", () => {
 
 describe("callerFromUser", () => {
   test("maps an admin user to the admin role", () => {
-    expect(callerFromUser({ id: "u1", role: "admin" }, "p1")).toEqual({
+    expect(callerFromUser({ id: "u1", role: "admin" }, "p1", ["p1", "p2"])).toEqual({
       userId: "u1",
       role: "admin",
       projectId: "p1",
+      projectMemberships: ["p1", "p2"],
     });
   });
 
   test("anything that is not literally admin is a member — fail closed", () => {
-    expect(callerFromUser({ id: "u1", role: "superuser" }).role).toBe("member");
-    expect(callerFromUser({ id: "u1" }).role).toBe("member");
+    expect(callerFromUser({ id: "u1", role: "superuser" }, null, []).role).toBe("member");
+    expect(callerFromUser({ id: "u1" }, null, []).role).toBe("member");
   });
 
   test("an absent project becomes null, never undefined", () => {
-    expect(callerFromUser({ id: "u1" }).projectId).toBeNull();
+    expect(callerFromUser({ id: "u1" }, undefined, []).projectId).toBeNull();
+  });
+
+  test("the memberships are passed through verbatim — never defaulted", () => {
+    // A default here would be the hazard the required parameter exists to
+    // stop: every call site would keep compiling while authorizing
+    // against an empty set. There is nothing to assert about a default
+    // that does not exist, so what is asserted is the pass-through.
+    expect(callerFromUser({ id: "u1" }, null, NO_PROJECT_MEMBERSHIPS).projectMemberships).toBe(
+      NO_PROJECT_MEMBERSHIPS,
+    );
+    expect(callerFromUser({ id: "u1" }, null, ["p9"]).projectMemberships).toEqual(["p9"]);
+  });
+});
+
+describe("NO_PROJECT_MEMBERSHIPS", () => {
+  test("is empty and frozen, so a consumer cannot widen the shared instance", () => {
+    expect(NO_PROJECT_MEMBERSHIPS).toEqual([]);
+    expect(Object.isFrozen(NO_PROJECT_MEMBERSHIPS)).toBe(true);
+  });
+
+  test("satisfies no project-scoped entry — it is the fail-closed value", () => {
+    const withNone: WorkflowCaller = {
+      userId: "u1",
+      role: "member",
+      projectId: PROJECT,
+      projectMemberships: NO_PROJECT_MEMBERSHIPS,
+    };
+    expect(authorizeWorkflow(projectEntry, withNone, "run")).toEqual({
+      ok: false,
+      reason: "not-project-member",
+      visibility: "project",
+    });
   });
 });
 
 describe("denyVisibilityAssignment — who may STAMP a tier", () => {
-  const member: WorkflowCaller = { userId: "u1", role: "member", projectId: null };
-  const admin: WorkflowCaller = { userId: "a1", role: "admin", projectId: null };
+  // `NO_PROJECT_MEMBERSHIPS` on both, because assignment reads `role` and
+  // nothing else — the same reason `denyVisibilityOr` stays synchronous.
+  const member: WorkflowCaller = {
+    userId: "u1",
+    role: "member",
+    projectId: null,
+    projectMemberships: NO_PROJECT_MEMBERSHIPS,
+  };
+  const admin: WorkflowCaller = {
+    userId: "a1",
+    role: "admin",
+    projectId: null,
+    projectMemberships: NO_PROJECT_MEMBERSHIPS,
+  };
 
   /**
    * The reachable set, stated once.

@@ -27,9 +27,17 @@ const queries = vi.hoisted(() => ({
 const versions = vi.hoisted(() => ({
   ensureWorkflowVersion: vi.fn(async () => ({ version: { version: 1 }, minted: true })),
 }));
+// `callerFor` resolves the caller's project memberships once per request,
+// so the read/run ladder can answer a project-SCOPED row. The entries here
+// never reach that branch, but the resolve still happens and would
+// otherwise hit a real `getDb()`.
+const projectMembers = vi.hoisted(() => ({
+  listProjectIdsForUser: vi.fn(async () => [] as string[]),
+}));
 vi.mock("$lib/server/context", () => ctx);
 vi.mock("$server/db/queries/workflows", () => queries);
 vi.mock("$server/db/queries/workflow-versions", () => versions);
+vi.mock("$server/db/queries/project-members", () => projectMembers);
 
 import { POST } from "../routes/api/workflows/[name]/fork/+server";
 

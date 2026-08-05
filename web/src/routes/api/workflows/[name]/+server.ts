@@ -60,7 +60,7 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
-  const resolved = resolveWorkflowOr(user, params.name, "read", url.searchParams.get("projectId"));
+  const resolved = await resolveWorkflowOr(user, params.name, "read", url.searchParams.get("projectId"));
   if (resolved instanceof Response) return resolved;
   // `toWire` carries the ladder's own `canEdit`, so the detail route serves
   // exactly the shape the list does — a workflow must not gain or lose a
@@ -96,7 +96,7 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
     if (errors.length > 0) return errorJson(400, errors[0]!);
   }
 
-  const resolved = resolveWorkflowOr(user, params.name, "edit");
+  const resolved = await resolveWorkflowOr(user, params.name, "edit");
   if (resolved instanceof Response) return resolved;
   // Re-classification. Checked AFTER the `edit` gate on purpose: that gate
   // is what makes this safe to allow at all, because for `project` and
@@ -157,7 +157,7 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
-  const resolved = resolveWorkflowOr(user, params.name, "edit");
+  const resolved = await resolveWorkflowOr(user, params.name, "edit");
   if (resolved instanceof Response) return resolved;
   const dbWorkflow = await workflowQueries.getWorkflowByName(params.name);
   if (!dbWorkflow) return errorJson(404, "Not found (only DB workflows can be deleted)");

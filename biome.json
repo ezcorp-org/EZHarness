@@ -20,7 +20,6 @@
 			"!.claude",
 			"!worktrees",
 			"!**/TESTENV",
-			"!**/projects",
 			"!web/build",
 			"!web/.svelte-kit",
 			"!**/*.min.js",

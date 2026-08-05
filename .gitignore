@@ -82,7 +82,7 @@ web/e2e/.real-auth.json
 web/e2e/.validate-auth.json
 
 # User-created projects (host-accessible bind mount from docker-compose)
-projects/
+/projects/
 
 # Local git worktrees — checked-out branches under ./worktrees/ for parallel
 # work. Never commit; the actual branches live in the remote.

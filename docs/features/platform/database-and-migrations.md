@@ -24,9 +24,9 @@ Every persistent entity in EZCorp — users, conversations, messages, memories, 
 `migrate(db)` is a single ~1500-line async function. There is **no version ledger** — idempotency is the whole strategy:
 
 1. `CREATE EXTENSION IF NOT EXISTS vector` first (vector columns depend on it).
-2. ~53 `CREATE TABLE IF NOT EXISTS` blocks, interleaved with `ALTER TABLE … ADD COLUMN IF NOT EXISTS` / `ALTER COLUMN … TYPE` / `DROP NOT NULL` for tables that predate a column.
+2. ~75 `CREATE TABLE IF NOT EXISTS` blocks, interleaved with `ALTER TABLE … ADD COLUMN IF NOT EXISTS` / `ALTER COLUMN … TYPE` / `DROP NOT NULL` for tables that predate a column.
 3. `CREATE INDEX IF NOT EXISTS` (b-tree, GIN FTS via `to_tsvector`, HNSW over `vector(384)` for memories / KB chunks / message chunks, trigram GIN for marketplace).
-4. **CTE backfills** for new columns, all guarded to only touch still-`NULL` rows so re-runs never reattribute data: e.g. `messages.parent_message_id` chained by a `LAG()` window; ownerless `conversations`/`memories`/`agent_configs`/`knowledge_base_files` assigned to the first admin; `runs.user_id` backfilled from the **root** conversation's owner via a depth-capped (16) recursive CTE.
+4. **CTE backfills** for new columns, all guarded to only touch still-`NULL` rows so re-runs never reattribute data: e.g. `messages.parent_message_id` chained by a `LAG()` window; ownerless `conversations`/`memories`/`agent_configs`/`knowledge_base_files` assigned to the first admin, and every project with NO `project_members` row at all given one `owner` row for that same first admin (guarded on the PROJECT having no members, so a project whose creator `createProject` already stamped is never re-attributed); `runs.user_id` backfilled from the **root** conversation's owner via a depth-capped (16) recursive CTE.
 5. **Seeds** with `ON CONFLICT DO NOTHING`: the `global` project, the virtual `builtin` extension (native tool calls), and the built-in modes `plan` / `code-review` / `ez`.
 6. A handful of one-off data-shape repairs driven from JS rather than PL/pgSQL `DO` blocks (PGlite's anonymous-block parser is limited) — e.g. the `extension_storage` `UNIQUE NULLS NOT DISTINCT` constraint rename + dedupe, and the `user_commands(user_id, name)` duplicate-rename before the unique index.
 
@@ -82,7 +82,7 @@ Operators and code interact with the DB mostly indirectly; the surface area is:
   - `getDb()` — typed Drizzle handle; the ~45 query modules in `src/db/queries/*.ts` are the real call sites.
   - `rawQuery(sql, params)` — positional-param raw SQL across both drivers.
   - `getDbMaskDirs()` / `getDbPath()` / `getPglite()` — sandbox + introspection helpers.
-- **Schema source of truth**: `src/db/schema.ts` (Drizzle table definitions). Adding a table/column means editing both `schema.ts` (typed access) and `migrate.ts` (idempotent DDL) — they are kept in lockstep (53 tables each).
+- **Schema source of truth**: `src/db/schema.ts` (Drizzle table definitions). Adding a table/column means editing both `schema.ts` (typed access) and `migrate.ts` (idempotent DDL) — they are kept in lockstep (see the measured counts under Notes & gotchas).
 
 ## Key files
 
@@ -90,7 +90,7 @@ Operators and code interact with the DB mostly indirectly; the surface area is:
 - `src/db/sanitize-nul.ts` — the shared U+0000 scrubber: allocation-free scan for the clean case, cycle-safe rebuild when a NUL is present.
 - `src/db/nul-column-patch.ts` — installs that scrubber on drizzle's `PgText`/`PgJsonb`/`PgJson` `mapToDriverValue`, in the PGlite form or the bun-sql (identity-base) form.
 - `src/db/migrate.ts` — the single idempotent `migrate(db)`: all `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` DDL, indexes, CTE backfills, and seeds.
-- `src/db/schema.ts` — Drizzle table definitions (53 `pgTable`s) — the typed API the query layer consumes.
+- `src/db/schema.ts` — Drizzle table definitions (74 `pgTable`s) — the typed API the query layer consumes.
 - `src/db/backup.ts` — pre-boot snapshots, 30-min interval backups, pruning, and the `.migration-failed` / `.ezcorp-recovery-needed.json` markers.
 - `src/db/migrations/*.ts` — per-feature `up(db)` modules (rationale headers + focused-test targets); **not** boot-sequenced.
 - `src/db/queries/*.ts` — ~45 entity query modules built on `getDb()` (the actual read/write call sites).
@@ -123,7 +123,7 @@ Storage underpins nearly everything; the most direct relationships:
 ## Notes & gotchas
 
 - **No migration version table — idempotency is the contract.** Every statement is `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` / `ON CONFLICT DO NOTHING`, and every backfill only touches still-`NULL` rows. Adding schema means appending idempotent DDL to `migrate.ts`; never assume ordering relative to a "last applied version."
-- **`schema.ts` and `migrate.ts` must stay in lockstep.** `schema.ts` is the typed access layer; `migrate.ts` is the DDL that actually creates the structure. A column added to one but not the other is a silent runtime mismatch (both currently define 53 tables).
+- **`schema.ts` and `migrate.ts` must stay in lockstep.** `schema.ts` is the typed access layer; `migrate.ts` is the DDL that actually creates the structure. A column added to one but not the other is a silent runtime mismatch. Counts drift, so MEASURE rather than trusting a number in prose: `grep -c '^export const .* = pgTable' src/db/schema.ts` (74) vs `grep -c 'CREATE TABLE IF NOT EXISTS' src/db/migrate.ts` (75). They are not expected to match exactly — `migrate()` also creates tables `schema.ts` deliberately does not model — but a NEW table must appear in both.
 - **An `ADD COLUMN` carrying a foreign key must sit BELOW its target's `CREATE`.** `migrate()` is one long linear function, so a `REFERENCES users(id)` on a table created above the `users` block fails outright — the target doesn't exist yet. Several tables predate `users` by hundreds of lines (`workflow_definitions` is created at ~line 139, `users` at ~461), so their owner columns are added near the END of the function rather than beside their own `CREATE`. `runs.user_id` and `workflow_definitions.user_id` are both placed that way. If you add an owner column to an early table, put the `ALTER` down with the others and say why in a comment.
 - **`src/db/migrations/*.ts` are NOT run at boot — with two named exceptions.** They're rationale + focused-test modules; the authoritative boot migration is `migrate()` in `migrate.ts`. Don't add a table there expecting it to apply. The exceptions are `add-user-commands-unique-name.ts` and `normalize-extension-state-root.ts`, which `migrate()` explicitly imports and awaits (grep for `up as up*`); if you add a third, wire it the same way and say so here — an unwired module silently never runs.
 - **`normalize-extension-state-root` is the one migration that can no-op on purpose.** It takes the project root as an argument, and `migrate()` resolves that via a *dynamic* `import("../extensions/bundled")` — a static one would close the cycle `migrate.ts → bundled.ts → db/queries/extensions.ts → db/connection.ts → migrate.ts`. If that resolution throws, the rewrite is **skipped** with a `db-migrate` WARN rather than failing the boot: doing nothing is repairable on the next boot, a rewrite under a guessed root is not, and a throw would trip the rollback-and-exit circuit breaker over a cosmetic path repair. Grep the boot log for `Skipped extension-state-root normalization` when legacy `install_path` rows don't move.

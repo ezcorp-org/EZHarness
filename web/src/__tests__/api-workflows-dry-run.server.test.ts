@@ -25,8 +25,16 @@ const dry = vi.hoisted(() => ({
     }> => ({ status: "success", steps: [], stubbed: [], gatesOnStubs: [] }),
   ),
 }));
+// `callerFor` resolves the caller's project memberships once per request,
+// so the read/run ladder can answer a project-SCOPED row. The entries here
+// never reach that branch, but the resolve still happens and would
+// otherwise hit a real `getDb()`.
+const projectMembers = vi.hoisted(() => ({
+  listProjectIdsForUser: vi.fn(async () => [] as string[]),
+}));
 vi.mock("$lib/server/context", () => ctx);
 vi.mock("$server/runtime/workflow-dry-run", () => dry);
+vi.mock("$server/db/queries/project-members", () => projectMembers);
 
 import { POST } from "../routes/api/workflows/[name]/dry-run/+server";
 

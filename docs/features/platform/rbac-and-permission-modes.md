@@ -1,6 +1,6 @@
 # RBAC & Permission Modes
 
-> _The three independent authorization layers in EZCorp: instance roles (`admin`/`member`) that gate admin/extension-lifecycle APIs, team roles (`owner`/`editor`/`viewer`) for collaborative resources, and per-project tool **permission modes** (`ask`/`auto-edit`/`yolo`) that decide which built-in tool calls auto-run vs. pause for the user._
+> _The independent authorization layers in EZCorp: instance roles (`admin`/`member`) that gate admin/extension-lifecycle APIs, team roles (`owner`/`editor`/`viewer`) for collaborative resources, **project membership** (`owner`/`member`) that decides who may mutate a project and read/run its workflows, and per-project tool **permission modes** (`ask`/`auto-edit`/`yolo`) that decide which built-in tool calls auto-run vs. pause for the user._
 
 ## Intent
 
@@ -8,7 +8,7 @@ EZCorp has to answer two distinct questions on every privileged action: *"is thi
 
 ## How it works
 
-There are three authorization layers, each with its own enforcement point.
+There are five authorization layers, each with its own enforcement point.
 
 ### 1. Instance roles (`admin` / `member`) — `users.role`
 
@@ -29,6 +29,14 @@ There are three authorization layers, each with its own enforcement point.
 - `requireTeamRole(locals, teamId, minRole)` (`src/auth/middleware.ts`) resolves the caller's membership via `getTeamMembership(user.id, teamId)` and compares against a numeric ladder `ROLE_LEVELS = { viewer: 0, editor: 1, owner: 2 }`.
 - **Instance admins bypass the team check entirely** (`if (user.role === "admin") return user;`). Non-members get `403` "Not a member of this team"; insufficient level gets `403` "Insufficient team permissions".
 - Used by the teams API: `GET /api/teams/[id]` (viewer), `PUT /api/teams/[id]` + member add/remove (owner).
+
+### 3b. Project membership (`owner` / `member`) — `project_members.role`
+
+- `checkProjectRole(locals, projectId, minRole)` (`src/auth/middleware.ts`) resolves the caller's row via `getProjectMembership(user.id, projectId)` and compares against `PROJECT_ROLE_LEVELS = { member: 0, owner: 1 }`. **Instance admins bypass** (same as `requireTeamRole`). Unlike `requireTeamRole` it RETURNS `AuthUser | Response` rather than throwing — every consumer is a `+server.ts` handler, and a thrown `Response` there is a 500.
+- `member` may read, **rename and delete** the project; `owner` additionally manages membership. The asymmetry is deliberate: granting authority is the narrower right, not the more destructive one.
+- Both roles have a writer, so neither rung is unreachable: `createProject(data, ownerUserId)` stamps its creator `owner`, `POST /api/projects/:id/members` writes `member`. `migrate()` backfills every project with **no** members to the first admin (the `conversations`/`memories` ownerless-backfill rule), id `pm-backfill-<projectId>` so a re-run collides with itself.
+- Enforcement: `PUT`/`DELETE /api/projects/:id` (`member`), `GET /api/projects/:id/members` (`member`), `POST /api/projects/:id/members` + `DELETE /api/projects/:id/members/:userId` (`owner`). Removing the LAST member is refused **409** — a memberless project is reachable only through the admin override, which is the state the backfill exists to prevent. **Reads are deliberately NOT narrowed**: `GET /api/projects` stays instance-global, because after the backfill a membership filter would show every non-admin an empty project list on an upgraded instance (recorded in `web/src/routes/api/projects/+server.ts`, pinned in `src/__tests__/security/cross-tenant-deletion-projects-kb-modes.test.ts`).
+- The workflow read/run ladder consumes the same table — see the [[workflows]] entry below.
 
 ### 4. Permission modes (`ask` / `auto-edit` / `yolo`) — per-project built-in-tool gate
 
@@ -87,7 +95,9 @@ requireAuth(locals);                       // 401 if unauthenticated
 requireRole(locals, "admin");              // 403 unless instance admin (throws a Response)
 const err = requireScope(locals, "chat");  // 403 Response | null (no-op for cookie auth)
 const adminErr = requireAdmin(locals);     // 403 Response | null, role-based
-await requireTeamRole(locals, teamId, "editor"); // team ladder; admins bypass
+await requireTeamRole(locals, teamId, "editor"); // team ladder; admins bypass (THROWS)
+const gate = await checkProjectRole(locals, projectId, "member"); // AuthUser | Response
+if (gate instanceof Response) return gate;                        // admins bypass
 ```
 
 ### Permission-mode API & UI
@@ -109,7 +119,9 @@ await requireTeamRole(locals, teamId, "editor"); // team ladder; admins bypass
 
 ## Key files
 
-- `src/auth/middleware.ts` — `requireAuth`, `requireRole(admin)`, `requireTeamRole(viewer|editor|owner)` (admins bypass team checks).
+- `src/auth/middleware.ts` — `requireAuth`, `requireRole(admin)`, `requireTeamRole(viewer|editor|owner)` (admins bypass team checks), `checkProjectRole(member|owner)` (admins bypass; returns the denial instead of throwing).
+- `src/db/queries/project-members.ts` — `getProjectMembership`, `listProjectIdsForUser` (the set the workflow ladder authorizes against), `listProjectMembers`, `upsertProjectMember`, `removeProjectMember`, `countProjectMembers`.
+- `web/src/routes/api/projects/[id]/members/+server.ts` + `.../[userId]/+server.ts` — the membership API (GET `member`, POST/DELETE `owner`, last-member 409).
 - `src/auth/types.ts` — `AuthUser` / `JWTPayload`; the `role: "admin" | "member"` principal shape.
 - `src/auth/api-key.ts` — `ApiKeyScope` union + `API_KEY_SCOPES` (`read`/`write`/`chat`/`extensions`/`admin`).
 - `web/src/lib/server/security/api-keys.ts` — `requireScope` (no-op for cookie auth), `requireAdmin` (role-based), `verifyApiKey`.
@@ -126,7 +138,7 @@ await requireTeamRole(locals, teamId, "editor"); // team ladder; admins bypass
 - `web/src/lib/components/tool-cards/PermissionGate.svelte` — inline approve/deny card; `isAdmin`-gated "Allow forever".
 - `src/runtime/tools/validate.ts` — `validatePath`: **lexical** project-dir containment for built-in file tools (no realpath).
 - `src/runtime/fs/scan-fs.ts` — `realpathInsideRoot`: realpath-based containment for the `@`-mention FS scanner (the asymmetry — see gotchas).
-- `src/db/schema.ts` — `users.role` (`admin`/`member`), `team_members.role` (`owner`/`editor`/`viewer`).
+- `src/db/schema.ts` — `users.role` (`admin`/`member`), `team_members.role` (`owner`/`editor`/`viewer`), `project_members.role` (`owner`/`member`).
 
 ## Features it touches
 
@@ -143,7 +155,8 @@ await requireTeamRole(locals, teamId, "editor"); // team ladder; admins bypass
 - [[marketplace]] — flags/delete/install are admin-gated via `requireRole("admin")`.
 - [[sandbox-and-isolation]] — extension sensitive-cap prompts (`shell`/`fs.write`) complement OS-level jail isolation.
 - [[projects]] — permission mode is a per-project setting (`project:${id}:tool_permission_mode`).
-- [[workflows]] — read/run/update/delete apply the per-resource ownership ladder over `workflow_definitions.user_id` + `visibility` (`src/runtime/workflow-scope.ts`) on top of the `chat` scope check. `system` is readable and runnable by anyone and editable by its OWNER or an admin — the `edit` rung asks ownership before it asks the tier, which is what makes the create route's `system` default usable by the non-admin who just created the row; `private` is owner-or-admin throughout. A NULL owner matches nobody either way, so both an ORPHANED private row and a legacy ownerless `system` row (owner deleted, `user_id` `SET NULL`, or never stamped) are admin-only rather than public. Assigning `system` is a separate, admin-only question (`denyVisibilityAssignment`), so owner-edit is not a promotion path. The ladder compares `user.role === "admin"` directly rather than calling `checkRole`, which would also demand the `admin` API-key scope and so reject a cookie-authed admin on a `chat`-scoped route. A second owner column, `created_by`, briefly existed alongside it and is dropped — it read a NULL owner as "anyone may act", the exact inverse of the ladder.
+- [[projects]] — `project_members` is the membership model these gates read; `checkProjectRole` is where it is enforced on the projects API.
+- [[workflows]] — read/run/update/delete apply the per-resource ownership ladder over `workflow_definitions.user_id` + `visibility` (`src/runtime/workflow-scope.ts`) on top of the `chat` scope check. `system` is readable and runnable by anyone and editable by its OWNER or an admin — the `edit` rung asks ownership before it asks the tier, which is what makes the create route's `system` default usable by the non-admin who just created the row; `private` is owner-or-admin throughout. A NULL owner matches nobody either way, so both an ORPHANED private row and a legacy ownerless `system` row (owner deleted, `user_id` `SET NULL`, or never stamped) are admin-only rather than public. Since `project_members` landed, a `project` row that NAMES a project is read/run-restricted to that project's members plus admins (`readRunAudience(visibility, projectId)` → `project-members-and-admins`); one with a NULL `project_id` is unchanged and still admits every authenticated principal. Assigning `system` is a separate, admin-only question (`denyVisibilityAssignment`), so owner-edit is not a promotion path. The ladder compares `user.role === "admin"` directly rather than calling `checkRole`, which would also demand the `admin` API-key scope and so reject a cookie-authed admin on a `chat`-scoped route. A second owner column, `created_by`, briefly existed alongside it and is dropped — it read a NULL owner as "anyone may act", the exact inverse of the ladder.
 
 ## Related docs
 
@@ -162,4 +175,5 @@ await requireTeamRole(locals, teamId, "editor"); // team ladder; admins bypass
 - **Built-in gate ownership (sec-H2).** `POST /api/tool-calls/:id/permission` looks up the pending gate's owning conversation and refuses (`403`) unless the caller owns it or is an admin — fail-closed if the conversation can't load. The `forever` scope is *additionally* admin-gated server-side even though the button is client-side `isAdmin`-hidden.
 - **Lexical vs. realpath path containment asymmetry.** Built-in file tools use `validatePath` (`src/runtime/tools/validate.ts`), which is purely **lexical** (`resolve` + `relative` string checks, no `realpath`). The `@`-mention FS scanner uses `realpathInsideRoot` (`src/runtime/fs/scan-fs.ts`), which resolves symlinks. A symlink inside the project that points outside it is filtered by the scanner but is **not** caught by `validatePath` — the built-in file tools' containment is symlink-naive.
 - **Permission modes ≠ extension capabilities.** Permission modes only govern built-in `read`/`write`/`execute`/`ez` tools. Extension tools are gated solely by the PDP (`permission-engine.ts`); changing the project's permission mode has no effect on extension capability prompts.
-- **Two role taxonomies, one column name.** `users.role` is `admin|member`; `team_members.role` is `owner|editor|viewer`; `messages.role` is the chat role — all three are `text("role")` columns. Don't conflate them.
+- **FOUR role taxonomies, one column name.** `users.role` is `admin|member`; `team_members.role` is `owner|editor|viewer`; `project_members.role` is `owner|member`; `messages.role` is the chat role — all four are `text("role")` columns. Don't conflate them. `owner` means something different on a team than on a project, and `member` means something different on a project than on the instance. The API's role enum is generated from `PROJECT_MEMBER_ROLES` in `schema.ts` rather than hand-written for exactly this reason — posting `role: "viewer"` (a TEAM role) to the members route is a 400.
+- **A project-scoped workflow is now confidential to its project.** `readRunAudience(visibility, projectId)` splits the `project` tier on the ROW's `project_id`: with one it is `project-members-and-admins`, without one it stays `any-authenticated-principal` (there is nothing to be a member of). The membership set travels on `WorkflowCaller.projectMemberships` and is **required**, never defaulted — an optional field would let a call site that never resolved memberships keep compiling while authorizing against an empty set. `NO_PROJECT_MEMBERSHIPS` is the named fail-closed value for the paths that provably cannot reach the read/run switch (`edit`, `denyVisibilityAssignment`). `caller.projectId` is still read by nothing: it comes off the request, so comparing it would be a boundary the caller controls.

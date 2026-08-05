@@ -20,11 +20,19 @@ const ctx = vi.hoisted(() => {
 const authz = vi.hoisted(() => ({
   canRunWorkflow: vi.fn(async () => ({ allowed: true }) as { allowed: boolean; reason?: string }),
 }));
+// `callerFor` resolves the caller's project memberships once per request,
+// so the read/run ladder can answer a project-SCOPED row. Every entry here
+// is `system`, so the set is never consulted — but the resolve still
+// happens and would otherwise reach a real `getDb()`.
+const members = vi.hoisted(() => ({
+  listProjectIdsForUser: vi.fn(async () => [] as string[]),
+}));
 vi.mock("$lib/server/context", () => ({
   getCachedWorkflows: ctx.getCachedWorkflows,
   getWorkflowExecutor: ctx.getWorkflowExecutor,
 }));
 vi.mock("$server/runtime/workflow-authz", () => authz);
+vi.mock("$server/db/queries/project-members", () => members);
 
 import { POST } from "../routes/api/workflows/[name]/run/+server";
 

@@ -1,6 +1,7 @@
 import { eq, sql } from "drizzle-orm";
 import { getDb } from "../connection";
 import { projects } from "../schema";
+import { upsertProjectMember } from "./project-members";
 import { SELF_PROJECT_ID } from "../seed-self-project";
 
 export type Project = typeof projects.$inferSelect;
@@ -22,7 +23,32 @@ export async function getProject(id: string): Promise<Project | undefined> {
   return rows[0];
 }
 
-export async function createProject(data: NewProject): Promise<Project> {
+/**
+ * Create a project and, when a creator is known, make them its `owner`.
+ *
+ * The stamp is what makes the `owner` rung of `project_members` reachable at
+ * all, and it is what fixes the case PR #82's admin-only stop-gap broke: the
+ * non-admin who just created a project can rename and delete it.
+ *
+ * `ownerUserId` is OPTIONAL rather than required, deliberately. Several
+ * callers genuinely have no user — the `/api/__test/seed` fixture route and
+ * ~30 backend tests build projects with no principal at all — and forcing a
+ * placeholder id on them would either invent a member or need a sentinel
+ * user. Omitting it is SAFE rather than a hole: a project with no members is
+ * still mutable through the instance-admin override, and `migrate()`'s
+ * ownerless backfill attributes it to the first admin on the next boot. The
+ * one path that matters, `POST /api/projects`, always passes it.
+ *
+ * The membership insert is not wrapped in a transaction with the project
+ * insert, because the two drivers (PGlite / Bun.sql) expose different
+ * transaction handles and every other multi-write path in this layer is
+ * written the same way. The failure mode is a project with no members, which
+ * is precisely the state the backfill already repairs.
+ */
+export async function createProject(
+  data: NewProject,
+  ownerUserId?: string | null,
+): Promise<Project> {
   const now = new Date();
   const row = {
     id: crypto.randomUUID(),
@@ -34,6 +60,7 @@ export async function createProject(data: NewProject): Promise<Project> {
     updatedAt: now,
   };
   await getDb().insert(projects).values(row);
+  if (ownerUserId) await upsertProjectMember(row.id, ownerUserId, "owner");
   return row;
 }
 
