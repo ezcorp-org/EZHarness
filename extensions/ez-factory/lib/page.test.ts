@@ -22,6 +22,7 @@ import {
   TRIGGER_HELP,
   triggerFormFields,
   enabledCell,
+  jobStateCell,
   ENABLED_NO,
   ENABLED_YES,
   EXTENSION_NAME,
@@ -322,6 +323,106 @@ describe("enabledCell", () => {
   test("enabled is toned, disabled is a bare string", () => {
     expect(enabledCell(true)).toEqual({ text: "✓ enabled", tone: "success" });
     expect(enabledCell(false)).toBe("○ disabled");
+  });
+});
+
+describe("jobStateCell — why an unattended job stopped", () => {
+  test("a job that has never fired unattended reads exactly as before", () => {
+    expect(jobStateCell(job())).toEqual(enabledCell(true));
+    expect(jobStateCell(job({ enabled: false }))).toEqual(enabledCell(false));
+  });
+
+  test("a clean unattended fire adds nothing — silence means working", () => {
+    expect(jobStateCell(job({ lastFire: { at: NOW, ok: true } }))).toEqual(
+      enabledCell(true),
+    );
+  });
+
+  test("THE REQUIREMENT: a stale consent reads differently from a broken job", () => {
+    // These two are the pair an operator has to be able to tell apart. One
+    // has a one-click remedy the operator owns; the other does not.
+    const stale = jobStateCell(
+      job({
+        lastFire: {
+          at: NOW,
+          ok: false,
+          reason: "DELEGATION_CONSENT_STALE",
+          kind: "consent",
+          remedy: "…",
+        },
+      }),
+    );
+    const broken = jobStateCell(
+      job({
+        lastFire: {
+          at: NOW,
+          ok: false,
+          reason: "LOCAL_JOB_NO_LONGER_VALID",
+          kind: "job",
+          remedy: "…",
+        },
+      }),
+    );
+    expect(stale).toEqual({ text: "✓ enabled · consent stale — re-authorize", tone: "warning" });
+    expect(broken).toEqual({
+      text: "✓ enabled · refused by this console",
+      tone: "danger",
+    });
+    expect(stale).not.toEqual(broken);
+  });
+
+  test("a bound doing its job is NOT alarming — no tone at all", () => {
+    // A quota refusal means the console worked exactly as configured. A
+    // red cell would train operators to ignore red cells.
+    expect(
+      jobStateCell(
+        job({ lastFire: { at: NOW, ok: false, reason: "DELEGATION_QUOTA_EXCEEDED", kind: "quota" } }),
+      ),
+    ).toBe("✓ enabled · paused by a limit");
+    expect(
+      jobStateCell(
+        job({ lastFire: { at: NOW, ok: false, reason: "DELEGATION_DISABLED", kind: "platform" } }),
+      ),
+    ).toBe("✓ enabled · platform paused");
+  });
+
+  test("an unclassified refusal still says something, in danger tone", () => {
+    expect(
+      jobStateCell(job({ lastFire: { at: NOW, ok: false, reason: "SOMETHING_NEW" } })),
+    ).toEqual({ text: "✓ enabled · last fire refused", tone: "danger" });
+  });
+
+  test("INVARIANT J: every string it can produce is an authored constant", () => {
+    // The host's message and the job's own fields never reach this cell —
+    // only `fireStateLabel`'s closed set does. Proven by feeding it a
+    // refusal whose reason and remedy are hostile strings.
+    const cell = jobStateCell(
+      job({
+        name: "<script>alert(1)</script>",
+        lastFire: {
+          at: NOW,
+          ok: false,
+          reason: "<img src=x onerror=1>",
+          kind: "consent",
+          remedy: "<b>host prose</b>",
+        },
+      }),
+    );
+    const text = typeof cell === "string" ? cell : cell.text;
+    expect(text).toBe("✓ enabled · consent stale — re-authorize");
+  });
+
+  test("the jobs table uses it, so the console really shows this", () => {
+    const tree = buildFactoryPage({
+      view: { kind: "jobs" },
+      jobs: [
+        job({
+          lastFire: { at: NOW, ok: false, reason: "DELEGATION_CONSENT_STALE", kind: "consent" },
+        }),
+      ],
+      runs: [],
+    });
+    expect(treeContent(tree)).toContain("consent stale — re-authorize");
   });
 });
 

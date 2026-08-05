@@ -967,6 +967,42 @@ describe("createJobStore — jobs", () => {
     expect(await store.touchJob("missing", { lastRunAt: OPTS.now })).toBeNull();
   });
 
+  test("noteFire reaches ONE field, and a success replaces a previous refusal", async () => {
+    // The field an operator reads when an unattended job stops. It has to
+    // be as narrow as `touchJob` — a second wide write path around the
+    // validator is the exact defect `ValidatedJobDraft` exists to prevent.
+    stubStorage();
+    const store = createJobStore();
+    await store.createJob(draft({ name: "Docs" }), { id: "j1", ...OPTS });
+
+    const refused = await store.noteFire("j1", {
+      at: "2026-08-04T00:00:00.000Z",
+      ok: false,
+      reason: "DELEGATION_CONSENT_STALE",
+      kind: "consent",
+      remedy: "Consent again.",
+    });
+    expect(refused).toMatchObject({
+      lastFire: {
+        at: "2026-08-04T00:00:00.000Z",
+        ok: false,
+        reason: "DELEGATION_CONSENT_STALE",
+        kind: "consent",
+      },
+      // A fire is not an edit.
+      name: "Docs",
+      updatedBy: "user-1",
+      updatedAt: OPTS.now,
+    });
+
+    // The question this field answers is "is this job firing right now",
+    // not "has it ever failed" — the history belongs to the audit trail.
+    const recovered = await store.noteFire("j1", { at: "2026-08-05T00:00:00.000Z", ok: true });
+    expect(recovered?.lastFire).toEqual({ at: "2026-08-05T00:00:00.000Z", ok: true });
+
+    expect(await store.noteFire("missing", { at: OPTS.now, ok: true })).toBeNull();
+  });
+
   test("deleteJob removes the blob, the index entry and every run record", async () => {
     const { mem } = stubStorage();
     const store = createJobStore();

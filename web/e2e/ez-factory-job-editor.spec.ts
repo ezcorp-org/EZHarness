@@ -254,7 +254,7 @@ function editorTree(job: JobFixture | null) {
                         type: "empty-state",
                         title: "Saved, not yet armed",
                         detail:
-                          "A background trigger fires only after someone authorizes it in the workflow UI.",
+                          "The schedule is registered, but a background fire runs as a person, so it does nothing until someone authorizes it in the workflow UI.",
                       },
                     ]
                   : []),

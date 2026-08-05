@@ -90,6 +90,7 @@ import {
   type JobRunRecord,
   type JobTrigger,
 } from "./jobs";
+import { fireStateLabel } from "./triggers";
 
 export const EXTENSION_NAME = "ez-factory";
 
@@ -314,9 +315,71 @@ export function runStatusCell(status: string): PageCellInput {
   return tone === undefined ? status : { text: status, tone };
 }
 
+// NOT FOLDED IN HERE: `JobRunRecord.suspendedReason`.
+//
+// It is tempting — `suspended` alone reads as "something happened", while
+// `suspended · consent-stale` would read as "re-authorize it". It was
+// tried, and `page.test.ts`'s invariant-K test refused it, correctly:
+// `suspendedReason` is NOT a closed vocabulary. An awaiting-approval run
+// writes PROSE there naming what is about to be done ("publish
+// CONFIDENTIAL-Q3 to the customer wiki"), and this tree is cached and
+// served to every viewer.
+//
+// The parked state is made legible on the JOB row instead
+// ({@link jobStateCell}), from a closed set of authored strings this
+// extension owns. That is strictly better anyway: a run row only reaches
+// this table if `ctx.workflows.runs()` returns it, and that read filters
+// on `user_id`, so a service-owned parked run is invisible to everyone.
+
 /** Enabled/disabled cell with tone. */
 export function enabledCell(enabled: boolean): PageCellInput {
   return enabled ? { text: "✓ enabled", tone: "success" } : "○ disabled";
+}
+
+/**
+ * Tone per refusal kind. A `quota` or `platform` refusal is a bound doing
+ * its job or an operator switch being thrown — nothing is wrong with the
+ * job, so neither gets an alarming colour. `consent` needs a person and
+ * gets `warning`; the rest are `danger`.
+ */
+const FIRE_STATE_TONE: Record<string, "danger" | "warning"> = {
+  consent: "warning",
+  install: "danger",
+  job: "danger",
+  unknown: "danger",
+};
+
+/**
+ * The State cell for a job: whether it is enabled, and — for a background
+ * job whose last unattended fire was refused — WHY it stopped.
+ *
+ * ## This is the whole of "the parked state is legible"
+ *
+ * A stopped cron job used to look exactly like one whose next tick has not
+ * come round: an old Last-run timestamp and nothing else. Worse, the two
+ * failures that need completely different responses were indistinguishable
+ * — "the authority you granted went stale, re-consent" and "this job is
+ * broken" both rendered as silence.
+ *
+ * The Recent-runs tab cannot close that on its own, and it is worth being
+ * precise about why rather than assuming it could: `ctx.workflows.runs()`
+ * filters on `eq(workflow_runs.user_id, <asking user>)`, so a run owned by
+ * a service account (`user_id IS NULL`) is invisible to EVERY viewer, and
+ * most refusals never write a run row at all. Only the extension itself
+ * sees the refusal, as the rejection of its own `runFor` call — which is
+ * what `FactoryJob.lastFire` records and this cell renders.
+ *
+ * Invariant J holds: every string that can reach this cell is an authored
+ * constant from {@link fireStateLabel}'s closed set, never host prose and
+ * never job content.
+ */
+export function jobStateCell(job: FactoryJob): PageCellInput {
+  const state = fireStateLabel(job.lastFire);
+  if (state === null) return enabledCell(job.enabled);
+  const base = job.enabled ? "✓ enabled" : "○ disabled";
+  const tone = FIRE_STATE_TONE[job.lastFire?.kind ?? "unknown"];
+  const text = `${base} · ${state}`;
+  return tone === undefined ? text : { text, tone };
 }
 
 /** `2026-08-01 14:22` from an ISO instant; the raw string when it does not
@@ -375,7 +438,7 @@ function boundsLabel(bounds: { maxRunsPerDay: number; maxTokensPerRun: number })
  * of the sink (invariant J).
  */
 export const BACKGROUND_TRIGGER_NOTE =
-  "Saved, not yet armed — a background trigger fires only after someone authorizes it in the workflow UI. Until then this job runs when Run is pressed.";
+  "Saved, not yet armed — the schedule is registered, but a background fire runs as a person, so it does nothing until someone authorizes it in the workflow UI. Until then this job runs when Run is pressed.";
 
 /**
  * A job `input` value rendered for a table cell or a form prefill.
@@ -522,7 +585,7 @@ function appendJobsView(page: PageBuilder, input: FactoryPageInput): void {
           job.workflow,
           triggerLabel(job.trigger),
           inputSummary(job),
-          enabledCell(job.enabled),
+          jobStateCell(job),
           recent ? `${shortTime(recent.startedAt)} · ${recent.status}` : shortTime(job.lastRunAt),
         ],
         href: hubHref(JOB_FULL_PAGE_ID, projectId, jobViewValue(job.id)),
