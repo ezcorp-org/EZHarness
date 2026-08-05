@@ -9,6 +9,11 @@ import { drizzle } from "drizzle-orm/pglite";
 import * as schema from "../../db/schema";
 import { migrate } from "../../db/migrate";
 import { applyPgliteNulPatches } from "../../db/nul-column-patch";
+import {
+  readCachedSnapshot,
+  schemaFingerprint,
+  writeCachedSnapshot,
+} from "./pglite-snapshot-cache";
 
 // Use the pristine globals snapshot saved by preload.ts (captured before any test file loads).
 // Falls back to current globals at import time if preload didn't run.
@@ -66,6 +71,17 @@ function primeMigratedSnapshot(): Promise<Blob | File> {
 }
 
 async function buildMigratedSnapshot(): Promise<Blob | File> {
+  // Cross-process cache. The build below is identical in every one of the 399
+  // processes that import this helper, so the pool pays for it once per RUN
+  // instead of once per FILE. The key is a content hash of everything that can
+  // change the resulting datadir — see pglite-snapshot-cache.ts, which is where
+  // the real work of this optimization is, because a stale entry would be a
+  // silent false green on schema. A miss (or any read failure) falls through to
+  // the real migrate below, so the cache is never load-bearing for correctness.
+  const key = schemaFingerprint();
+  const cached = await readCachedSnapshot(key);
+  if (cached) return cached;
+
   const seed = new PGlite({ extensions: EXTENSIONS });
   await seed.waitReady;
   await migrate(drizzle(seed, { schema }));
@@ -75,6 +91,7 @@ async function buildMigratedSnapshot(): Promise<Blob | File> {
   // outweigh the one-time memory saving of gzip.
   const snapshot = await seed.dumpDataDir("none");
   await seed.close();
+  await writeCachedSnapshot(key, snapshot);
   return snapshot;
 }
 

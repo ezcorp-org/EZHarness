@@ -120,6 +120,24 @@ interleaved arms in the same process so load cancels in the ratio
 the *stronger* assertion — bounds become equalities. Raising a threshold,
 adding a retry, or tagging the test slow is weakening the gate.
 
+**The migrated PGlite datadir is cached ACROSS processes, and its key is a
+content hash — never a version number.** 399 backend files import
+`src/__tests__/helpers/test-pglite.ts`, and each one used to boot a blank
+PGlite and replay all of `migrate()`: measured 3.2–6.4s per process on a loaded
+box, against 0.7–0.9s to restore a prepared datadir. The helper now publishes
+that datadir to the gitignored `.cache/pglite-snapshots/`, so the pool pays for
+the migration once per RUN instead of once per FILE. The key
+(`src/__tests__/helpers/pglite-snapshot-cache.ts`) hashes everything that can
+change the result: the whole transitive import closure of `src/db/migrate.ts`
+(including the modules it reaches only by lazy `import()`), `src/db/schema.ts`,
+the helper itself, the installed PGlite version, `bun.lock`, and the two
+`EZCORP_SELF_PROJECT_*` vars `seedSelfProject` reads. **This repo has no
+migration version table, so there is nothing to key on but content — a stale
+entry would be a silent false green on schema, where every test passes against
+the old database.** Never narrow that input set; over-invalidation costs one
+rebuild per run, under-invalidation costs the gate. If you suspect the cache,
+`EZ_PGLITE_SNAPSHOT_CACHE=0` disables it and deleting `.cache/` is safe.
+
 **A bare `bun test <file>` gets bun's 5s hook budget; the pool gets 30s.**
 `scripts/test.sh` passes `--timeout 30000` because a DB suite's `beforeAll`
 restores a migrated PGlite datadir, and that is not a 5s operation on a shared
