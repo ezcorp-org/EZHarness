@@ -98,6 +98,32 @@ describe("POST /api/providers/[provider]/refresh-models", () => {
     expect(res.status).toBe(403);
   });
 
+  // The POSITIVE half of the two-axis matrix. Both negatives above are also
+  // satisfied by a deny-all gate, so without this case a regression that
+  // refused every API-key principal would read green. `adminUser` on the
+  // happy paths below is a COOKIE session (no `apiKeyScopes`), which
+  // `hasRequiredScope` allow-alls — it never exercises the key path at all.
+  test("admin-role key holding the 'admin' scope passes BOTH axes and writes", async () => {
+    vi.mocked(getCredential).mockResolvedValue({ type: "apikey", token: "k" } as any);
+    vi.mocked(fetchProviderModels).mockResolvedValue([{ id: "gpt-4o" }] as any);
+
+    const res = await POST(
+      makeEvent({
+        locals: {
+          user: { id: "u1", email: "a@x", name: "a", role: "admin" },
+          apiKeyScopes: ["read", "admin"],
+        },
+        params: { provider: "openai" },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ success: true, count: 1 });
+    expect(vi.mocked(upsertSetting)).toHaveBeenCalledWith(
+      "provider:discoveredModels:openai",
+      [{ id: "gpt-4o" }],
+    );
+  });
+
   test("returns 400 for unknown provider", async () => {
     const res = await POST(
       makeEvent({ locals: adminUser, params: { provider: "bogus" } }),

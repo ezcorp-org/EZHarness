@@ -20,11 +20,29 @@ function makeEvent(href: string, locals: Record<string, unknown> = {}) {
 }
 
 describe("GET /api/health", () => {
-  test("public path returns 200 Response with JSON body", async () => {
+  // The bare liveness path is on the hooks PUBLIC_PATHS allowlist and must
+  // stay reachable by an ANONYMOUS caller — `locals` carries no `user` at
+  // all here, which is exactly the shape a public path produces.
+  test("bare liveness path is anonymous: 200 Response with JSON body", async () => {
     const res = await GET(makeEvent("http://localhost/api/health"));
     expect(res).toBeInstanceOf(Response);
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");
+    const body = (await res.json()) as { status?: string; error?: string };
+    expect(typeof body.status).toBe("string");
+    expect(body.error).toBeUndefined();
+  });
+
+  // The admin gate is scoped to `?detail=true` and must not spread onto the
+  // liveness probe: a non-admin principal still gets its 200. Without this,
+  // widening the gate to the whole handler would pass every other case here.
+  test("bare liveness path stays 200 for a non-admin member", async () => {
+    const res = await GET(
+      makeEvent("http://localhost/api/health", {
+        user: { id: "m1", email: "m@x", name: "m", role: "member" },
+      }),
+    );
+    expect(res.status).toBe(200);
     const body = (await res.json()) as { status?: string };
     expect(typeof body.status).toBe("string");
   });

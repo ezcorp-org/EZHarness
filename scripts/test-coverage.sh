@@ -244,6 +244,20 @@ run_legs() {
   # leg MUST run under node (CI provisions node 22). --coverage.include is scoped
   # to JUST the target lib paths so the leg doesn't pull all of web/src/lib/**
   # into the gate. Subshell so `cd web` never leaks.
+  #
+  # DYNAMIC ROUTE SEGMENTS IN --coverage.include: a SvelteKit `[param]` segment
+  # is matched VERBATIM by vitest 4.1.6 — it is not a Bun-`Glob`-style character
+  # class, so the bare form (`.../[provider]/...`) is correct and the escaped
+  # `[[]id]` form below is belt-and-braces, not a requirement. MEASURED both
+  # ways rather than assumed: the bare form emits a real record
+  # (`SF:src/routes/api/providers/[provider]/refresh-models/+server.ts`,
+  # LF:21 LH:21), while deliberately-wrong `[xyz]` / `refresh-modelsX` variants
+  # emit ZERO records. Verify any NEW dynamic-segment include the same way —
+  # an include that silently matches nothing looks identical to success at this
+  # leg's exit code, and only reappears downstream as the patch-coverage gate's
+  # "changed source file has NO lcov data". That is exactly how
+  # api/health/+server.ts and the refresh-models handler reached CI tested but
+  # unmeasured (PR #97).
   VITEST_COV="${LEG_COV_DIR[web-vitest]}"
   (
   set +e
@@ -448,6 +462,8 @@ run_legs() {
       src/__tests__/api-service-accounts-id.server.test.ts \
       src/__tests__/api-service-accounts-daily-cap.server.test.ts \
       src/lib/components/DelegationConsentDialog.component.test.ts \
+      src/__tests__/api-health.server.test.ts \
+      src/__tests__/api-providers-refresh-models.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -645,7 +661,9 @@ run_legs() {
       --coverage.include='src/lib/components/review/DiffStatBar.svelte' \
       --coverage.include='src/lib/components/review/ReviewFileCard.svelte' \
       --coverage.include='src/lib/components/review/ReviewFileTree.svelte' \
-      --coverage.include='**/users/[[]id]/+server.ts' ) \
+      --coverage.include='**/users/[[]id]/+server.ts' \
+      --coverage.include='src/routes/api/health/+server.ts' \
+      --coverage.include='src/routes/api/providers/[provider]/refresh-models/+server.ts' ) \
     > "$legs/vitest.out" 2>&1
   echo "$?" > "$legs/vitest.code"
   ) &
