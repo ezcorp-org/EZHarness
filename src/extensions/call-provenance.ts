@@ -133,12 +133,26 @@ function sweep(now: number): void {
 /**
  * Snapshot `prov` and return the opaque `ezCallId` to stamp onto the
  * forward `_meta`. Caller MUST `releaseCallProvenance` in a `finally`.
+ *
+ * `opts.now` injects the instant recorded as `createdAt` (and used for
+ * the pre-insert sweep). Production never passes it — `Date.now()` is
+ * the default and the only real answer. It exists because the sweep
+ * predicate is `now > createdAt + TTL`, and a test that pins that
+ * boundary EXACTLY — "at TTL it is kept, at TTL+1 it is evicted" — needs
+ * `createdAt` to be a known value, not "whatever the clock said between
+ * two statements". Without it the two assertions have opposite
+ * requirements (`createdAt >= base` for one, `createdAt <= base` for the
+ * other), so no ordering of `Date.now()` and `registerCallProvenance` in
+ * the test satisfies both, and one of them silently becomes a coin flip
+ * on whether a millisecond elapsed. `__sweepForTests(now)` already takes
+ * the same injection for the same reason — this is the missing half of
+ * that pair.
  */
 export function registerCallProvenance(
   prov: CallProvenance,
-  opts?: { expiresAt?: number },
+  opts?: { expiresAt?: number; now?: number },
 ): string {
-  const now = Date.now();
+  const now = opts?.now ?? Date.now();
   sweep(now);
   if (registry.size >= maxEntries) {
     let oldestId: string | undefined;

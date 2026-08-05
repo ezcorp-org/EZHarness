@@ -60,6 +60,12 @@ export interface PiLlmOptions {
   provider?: string;
   model?: string;
   signal?: AbortSignal;
+  /** The AGENT's own sampling ask (`AgentConfig.temperature` /
+   *  `AgentConfig.maxTokens`, put here by `configToAgent`). Honoured only
+   *  when a caller-level {@link ModelOverride} is silent on the same knob —
+   *  see {@link resolveTuning}. */
+  temperature?: number;
+  maxTokens?: number;
 }
 
 /** Yielded by `stream` per-event. Token frames carry text deltas, `done`
@@ -127,6 +133,50 @@ function accumulateUsage(
 }
 
 /**
+ * First usable sampling value, in precedence order.
+ *
+ * The runtime check is NOT redundant with the types. The agent-side value
+ * originates in `*.agent.yaml`, which `yaml-loader.ts` `parse()`s and
+ * casts straight to `AgentConfig` with no validation — so `maxTokens: ~`
+ * (null), `maxTokens: "lots"` and `temperature: .nan` all reach here
+ * wearing a `number` type they do not have. Before sampling was
+ * forwarded at all those were harmless; now that the value goes on the
+ * wire, a non-number must be treated as "not set" rather than shipped to
+ * the provider. Anything that isn't a finite number is skipped, and the
+ * next candidate (or nothing) is used.
+ */
+function firstFiniteNumber(...candidates: unknown[]): number | undefined {
+  for (const c of candidates) {
+    if (typeof c === "number" && Number.isFinite(c)) return c;
+  }
+  return undefined;
+}
+
+/**
+ * Collapse the two sampling sources into the options pi-ai actually gets.
+ *
+ * Precedence is the SAME rule provider/model already used: a caller-level
+ * {@link ModelOverride} (a workflow step's `model:` binding) beats the
+ * agent's own per-call ask, and an override that is silent on a knob
+ * leaves the agent's ask standing.
+ *
+ * Keys are only ever created for usable values. Emitting
+ * `temperature: undefined` would be a wire change for every agent that
+ * sets nothing, so the absent case must produce a literally empty object.
+ */
+function resolveTuning(
+  overrides: ModelOverride | undefined,
+  options: PiLlmOptions | undefined,
+): { temperature?: number; maxTokens?: number } {
+  const tuning: { temperature?: number; maxTokens?: number } = {};
+  const temperature = firstFiniteNumber(overrides?.temperature, options?.temperature);
+  const maxTokens = firstFiniteNumber(overrides?.maxTokens, options?.maxTokens);
+  if (temperature !== undefined) tuning.temperature = temperature;
+  if (maxTokens !== undefined) tuning.maxTokens = maxTokens;
+  return tuning;
+}
+
+/**
  * Build the pi-ai-backed LLM wrapper used by **code-based agents** (the
  * `runAgent` path — distinct from `streamChat`, which constructs its
  * pi-agent-core `Agent` directly).
@@ -139,20 +189,13 @@ function accumulateUsage(
  * reaches the LLM through this parameter and nothing else. It is the one
  * chokepoint, so an override cannot be half-applied.
  *
- * **Omitting it is byte-identical to the previous behaviour**: every
- * branch below collapses to the exact same `resolveModel(...)` inputs and
- * the exact same `complete(model, context, { apiKey })` /
- * `stream(model, context, { apiKey, signal })` call. In particular the
- * agent's own `temperature` / `maxTokens` stay unforwarded (pi-ai never
- * received them on this path and still does not) — only an explicit
- * override sends them.
+ * **Omitting it leaves the caller in charge**: with no override, every
+ * branch below collapses to the exact same `resolveModel(...)` inputs, and
+ * a caller that asks for no sampling knobs still gets the historical
+ * `complete(model, context, { apiKey })` / `stream(model, context, {
+ * apiKey, signal })` call, with no stray `undefined` keys on the wire.
  */
 export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
-  // Sampling knobs are spread in, so with no override this is `{}` and the
-  // options object handed to pi-ai is unchanged.
-  const tuning: { temperature?: number; maxTokens?: number } = {};
-  if (overrides?.temperature !== undefined) tuning.temperature = overrides.temperature;
-  if (overrides?.maxTokens !== undefined) tuning.maxTokens = overrides.maxTokens;
   // Reasoning effort has no home on the raw `stream`/`complete` options —
   // each provider spells it differently. pi-ai's `*Simple` entrypoints are
   // the normalizer, so an effort-bearing call routes through those and
@@ -178,7 +221,7 @@ export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
           .filter((m): m is PiLlmMessage & { role: "user" } => m.role === "user")
           .map((m) => ({ role: "user" as const, content: m.content, timestamp: Date.now() })),
       };
-      const callOpts = { apiKey: cred.token, ...tuning };
+      const callOpts = { apiKey: cred.token, ...resolveTuning(overrides, options) };
       const result = reasoning
         ? await completeSimple(resolved.piModel, context, { ...callOpts, reasoning })
         : await complete(resolved.piModel, context, callOpts);
@@ -208,7 +251,11 @@ export function createPiLlmAdapter(overrides?: ModelOverride): PiLlmAdapter {
           .filter((m): m is PiLlmMessage & { role: "user" } => m.role === "user")
           .map((m) => ({ role: "user" as const, content: m.content, timestamp: Date.now() })),
       };
-      const callOpts = { apiKey: cred.token, signal: options?.signal, ...tuning };
+      const callOpts = {
+        apiKey: cred.token,
+        signal: options?.signal,
+        ...resolveTuning(overrides, options),
+      };
       const s = reasoning
         ? streamSimple(resolved.piModel, context, { ...callOpts, reasoning })
         : stream(resolved.piModel, context, callOpts);
