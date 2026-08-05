@@ -25,7 +25,8 @@
  *     `,`, `;`, `:`, `>`, `?` (closing braces, generic-terminator, etc.)
  *   - TypeScript type-field lines:  `foo: T;`  or  `bar?: T,`  or  `: U;`
  *     ending with `;` or `,` and containing no `=` outside `=>`.
- *   - Return-type continuation:  `): Promise<{` etc.
+ *   - Return-type continuation:  `): Promise<{`, and the anonymous forms
+ *     `): (` (function type) / `): {` (object type)
  *   - Standalone generic types:  `Array<{ id: string }>`, `Promise<X>`, …
  *   - String literals as standalone expression elements:  `"…",` or `"…"`
  *   - Backtick template literals on their own line, optionally trailed
@@ -62,8 +63,36 @@ const ENDS_WITH_TYPE_TERMINATOR = /[;,]\s*$/;
 const TS_MEMBER_DECL =
   /^\s*(?:(?:public|private|protected|readonly|static|declare|abstract|override)\s+)+\w+\??\s*:\s/;
 
-// `): Promise<{` and variants — return-type opener on its own line.
-const RETURN_TYPE_OPEN = /^\s*\)\s*:\s*[A-Z]\w*<?[{<\[]?\s*$/;
+// Return-type opener on its own line: the parameter-list close `)`, the
+// return-type colon, and AT MOST the first token of a return type whose
+// remainder wraps onto the following lines — `): Promise<{`, `): Array<{`,
+// `): Map<`, and the ANONYMOUS forms `): (` (function type) and `): {`
+// (object type). The whole line is TypeScript type syntax plus the signature's
+// closing paren; it compiles to no JS, yet bun span-fills an UNCALLED
+// function's entire declaration range with phantom `DA:<line>,0`, so a shard
+// that merely imports the module reports the line as missed while the shard
+// that exercises it never emits a DA for it at all. The merge keeps the zero.
+//
+// The type head is OPTIONAL. It used to be a mandatory `[A-Z]\w*`, which
+// silently required a NAMED type: `): Promise<{` matched, `): (` did not, and
+// `BRACE_PUNCT_ONLY` couldn't catch it either because its character class has
+// no space. That cost `src/runtime/nested-workflow-resolver.ts` a point (95 %
+// on a line no test could ever execute) until c5df10b7 renamed the return type
+// to dodge the hole. The pattern below is a strict SUPERSET of the old one —
+// it can only match more lines, never fewer.
+//
+// Over-match bound: the only non-declaration line this shape could describe is
+// a hand-wrapped ternary alternative (`) : (`). Biome never emits one — it puts
+// `?`/`:` at the START of the wrapped line (verified against this repo's
+// biome.json) — and a repo-wide scan of all 2233 lines matching `^\s*\)\s*:`
+// finds ZERO with a space before the colon. The zero-hit guard bounds any
+// residual case to a line bun never ran.
+//
+// The bracket set is grammar-complete for a wrapping TS type head: identifier
+// (optionally `<`), `{` object type, `(` function/parenthesised type, `[`
+// tuple. `(` and `{` are attested in-tree; `[` is included so the rule covers
+// the class instead of the instances and this tax stops recurring.
+const RETURN_TYPE_OPEN = /^\s*\)\s*:\s*(?:[A-Z]\w*<?)?[{<\[(]?\s*$/;
 
 // Standalone generic type continuation.
 const TYPE_GENERIC_LINE =
