@@ -4,9 +4,11 @@ import type { HostChannel } from "@ezcorp/sdk/runtime";
 import manifest from "../ezcorp.config";
 import { JOB_FORM_FIELDS, jobIdFromActionPayload } from "./page";
 import {
+  BACKGROUND_TRIGGER_KINDS,
   createJobStore,
   diffJob,
   FACTORY_WORKFLOWS,
+  isBackgroundTrigger,
   isFactoryWorkflow,
   isValidJobId,
   JOB_DRAFT_FIELDS,
@@ -15,18 +17,31 @@ import {
   JOB_STORAGE_SCOPE,
   JOB_STORE_VERSION,
   jobSettableInputKeys,
+  MAX_CRON_LEN,
   MAX_JOB_DESCRIPTION_LEN,
   MAX_JOB_INPUT_CHARS,
   MAX_JOB_INPUT_DEPTH,
   MAX_JOB_NAME_LEN,
+  MAX_JOB_RUNS_PER_DAY,
+  MAX_JOB_TOKENS_PER_RUN,
   MAX_RUNS_PER_JOB,
+  MAX_TIMEZONE_LEN,
   newJobId,
   RESERVED_CONTROL_FLOW_FIELDS,
+  TRIGGER_ENVELOPE,
+  triggerBounds,
   validateJobDraft,
   type FactoryJob,
   type JobRunRecord,
   type ValidatedJobDraft,
 } from "./jobs";
+
+/** The manifest's declared trigger envelope, for the mirror assertion. */
+const manifestTriggers = (
+  manifest.permissions as unknown as {
+    triggers: { maxCron: number; maxWebhooks: number; maxRunsPerDay: number };
+  }
+).triggers;
 
 // ── Fixtures ────────────────────────────────────────────────────────
 
@@ -381,20 +396,309 @@ describe("validateJobDraft — trigger", () => {
     );
   });
 
-  test("every background trigger kind is refused, citing -32106 rather than creating an inert job", () => {
-    // A cron/webhook fire is ownerless, and the workflows handler refuses a
-    // run with no acting user. A job that fires and silently starts nothing
-    // is worse than one that cannot be created.
-    for (const kind of ["cron", "webhook", "event", "workflow"]) {
+  test("the two UNDISPATCHED kinds are still refused, and say why", () => {
+    // `event` and `workflow` are modelled so a row written by a later
+    // version round-trips; nothing registers for either, so a job carrying
+    // one would save and never fire. Refusing them is the same rule that
+    // used to refuse cron and webhook — it is the DISPATCH that changed,
+    // not the principle.
+    for (const kind of ["event", "workflow"]) {
       const error = rejection({ name: "J", workflow: "docs-factory", trigger: { kind } });
-      expect(error).toContain(`trigger '${kind}' is not available yet`);
-      expect(error).toContain("-32106");
+      expect(error).toContain(`trigger '${kind}' is modelled but not dispatched`);
     }
   });
 
   test("an unrecognized trigger kind is refused", () => {
     expect(rejection({ name: "J", workflow: "docs-factory", trigger: { kind: "sunrise" } })).toBe(
-      "trigger.kind must be 'manual'",
+      "trigger.kind must be 'manual', 'cron' or 'webhook'",
+    );
+  });
+});
+
+describe("validateJobDraft — background triggers CANNOT exist without bounds", () => {
+  // The blast-radius rule, and the reason it is asserted from every angle:
+  // a cron job with no ceiling is a self-inflicted denial of service, and
+  // this program has already shipped one permanent-DoS shape by accident.
+  //
+  // The bounds are on the TRIGGER's own type, so "a background job without
+  // bounds" is unconstructible rather than merely rejected. These tests
+  // pin the runtime half of that — the wire is `unknown` and TypeScript
+  // defends nothing there.
+
+  const cron = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+    name: "J",
+    workflow: "docs-factory",
+    trigger: {
+      kind: "cron",
+      cron: "0 3 * * *",
+      timezone: "UTC",
+      maxRunsPerDay: 4,
+      maxTokensPerRun: 50_000,
+      ...over,
+    },
+  });
+
+  test("a fully-specified cron trigger is accepted and normalized", () => {
+    const result = validateJobDraft(cron());
+    expect(result.ok && result.value.trigger).toEqual({
+      kind: "cron",
+      cron: "0 3 * * *",
+      timezone: "UTC",
+      maxRunsPerDay: 4,
+      maxTokensPerRun: 50_000,
+    });
+  });
+
+  test("a fully-specified webhook trigger is accepted and carries NO cron fields", () => {
+    const result = validateJobDraft({
+      name: "J",
+      workflow: "docs-factory",
+      // A stray `cron` on a webhook is DROPPED rather than stored: the
+      // validator builds a fresh trigger from the fields that kind has,
+      // so an extra key cannot ride along into storage.
+      trigger: { kind: "webhook", cron: "0 3 * * *", maxRunsPerDay: 2, maxTokensPerRun: 100 },
+    });
+    expect(result.ok && result.value.trigger).toEqual({
+      kind: "webhook",
+      maxRunsPerDay: 2,
+      maxTokensPerRun: 100,
+    });
+  });
+
+  test("maxRunsPerDay is REQUIRED — omitting it does not default", () => {
+    // No default and no unlimited, the same line core's own consent route
+    // draws: a default is a number nobody chose, and an unlimited option
+    // is the number everybody chooses.
+    const error = rejection(cron({ maxRunsPerDay: undefined }));
+    expect(error).toContain("trigger.maxRunsPerDay is required");
+  });
+
+  test("maxTokensPerRun is REQUIRED — omitting it does not default", () => {
+    expect(rejection(cron({ maxTokensPerRun: undefined }))).toContain(
+      "trigger.maxTokensPerRun is required",
+    );
+  });
+
+  test("a webhook trigger needs both bounds too", () => {
+    expect(
+      rejection({ name: "J", workflow: "docs-factory", trigger: { kind: "webhook" } }),
+    ).toContain("trigger.maxRunsPerDay is required");
+  });
+
+  test("maxRunsPerDay above the host's own per-key cap is REJECTED, not clamped", () => {
+    // `MAX_JOB_RUNS_PER_DAY` is not a number invented here: it is
+    // `defaultPerKeyCap(500, 25)` = 20, which the host applies to every
+    // dynamic cron row regardless. A job saved with 21 would be throttled
+    // to 20 silently, so refusing it is the honest version of the bound.
+    expect(MAX_JOB_RUNS_PER_DAY).toBe(20);
+    expect(rejection(cron({ maxRunsPerDay: MAX_JOB_RUNS_PER_DAY + 1 }))).toContain(
+      `between 1 and ${MAX_JOB_RUNS_PER_DAY}`,
+    );
+    expect(validateJobDraft(cron({ maxRunsPerDay: MAX_JOB_RUNS_PER_DAY })).ok).toBe(true);
+  });
+
+  test("maxTokensPerRun above the console's cap is REJECTED, not clamped", () => {
+    expect(rejection(cron({ maxTokensPerRun: MAX_JOB_TOKENS_PER_RUN + 1 }))).toContain(
+      `between 1 and ${MAX_JOB_TOKENS_PER_RUN}`,
+    );
+    expect(validateJobDraft(cron({ maxTokensPerRun: MAX_JOB_TOKENS_PER_RUN })).ok).toBe(true);
+  });
+
+  test("zero and negative bounds are refused", () => {
+    // Zero is the shape that reads as "unlimited" to a careless reader and
+    // as "never" to the host. Neither is a number to store.
+    expect(rejection(cron({ maxRunsPerDay: 0 }))).toContain("between 1 and");
+    expect(rejection(cron({ maxRunsPerDay: -1 }))).toContain("between 1 and");
+    expect(rejection(cron({ maxTokensPerRun: 0 }))).toContain("between 1 and");
+  });
+
+  test("fractional and non-finite bounds are refused", () => {
+    expect(rejection(cron({ maxRunsPerDay: 2.5 }))).toContain("between 1 and");
+    expect(rejection(cron({ maxTokensPerRun: Number.POSITIVE_INFINITY }))).toContain(
+      "between 1 and",
+    );
+    expect(rejection(cron({ maxTokensPerRun: Number.NaN }))).toContain("between 1 and");
+  });
+
+  test("a NUMERIC STRING is accepted — the form wire carries only strings", () => {
+    // Every value the Hub's form node collects is a string, so this is the
+    // shape a real console submission has, not a convenience.
+    const result = validateJobDraft(cron({ maxRunsPerDay: "6", maxTokensPerRun: " 900 " }));
+    expect(result.ok && result.value.trigger).toMatchObject({
+      maxRunsPerDay: 6,
+      maxTokensPerRun: 900,
+    });
+  });
+
+  test("a string that is not ALL digits is refused rather than parsed loosely", () => {
+    // `parseInt` would read "20 runs" as 20 and `Number("")` is 0 —
+    // neither is a number the operator typed.
+    for (const bad of ["20 runs", "", " ", "1e3", "0x10", "-4", "2.5"]) {
+      expect(rejection(cron({ maxRunsPerDay: bad }))).toContain("trigger.maxRunsPerDay");
+    }
+  });
+
+  test("a boolean or object bound is refused", () => {
+    expect(rejection(cron({ maxRunsPerDay: true }))).toContain("trigger.maxRunsPerDay is required");
+    expect(rejection(cron({ maxTokensPerRun: {} }))).toContain(
+      "trigger.maxTokensPerRun is required",
+    );
+  });
+});
+
+describe("validateJobDraft — the cron expression and its zone", () => {
+  const withCron = (cron: unknown, timezone: unknown = "UTC"): Record<string, unknown> => ({
+    name: "J",
+    workflow: "docs-factory",
+    trigger: { kind: "cron", cron, timezone, maxRunsPerDay: 4, maxTokensPerRun: 1000 },
+  });
+
+  test("a 5-field expression is accepted and trimmed", () => {
+    const result = validateJobDraft(withCron("  0 3 * * 1  "));
+    expect(result.ok && result.value.trigger).toMatchObject({ cron: "0 3 * * 1" });
+  });
+
+  test("a wrong field COUNT is refused, naming the count", () => {
+    // 5 fields is the host's stated contract — its own validator's error
+    // reads "expected 5 fields, got 4" — so checking it here cannot drift.
+    expect(rejection(withCron("0 3 * *"))).toContain("must have 5 fields");
+    expect(rejection(withCron("0 3 * * * *"))).toContain("must have 5 fields");
+  });
+
+  test("@shorthand is refused with the 5-field alternative spelled out", () => {
+    expect(rejection(withCron("@daily"))).toContain("does not accept @shorthand");
+  });
+
+  test("a missing, blank or non-string expression is refused", () => {
+    expect(rejection(withCron(undefined))).toContain("trigger.cron is required");
+    expect(rejection(withCron("   "))).toContain("trigger.cron is required");
+    expect(rejection(withCron(42))).toContain("trigger.cron is required");
+  });
+
+  test("an over-long expression is refused, not truncated", () => {
+    expect(rejection(withCron(`0 3 * * ${"1,".repeat(MAX_CRON_LEN)}`))).toContain(
+      `${MAX_CRON_LEN} characters or fewer`,
+    );
+  });
+
+  test("SEMANTICS stay the host's — a sub-5-minute expression is NOT rejected here", () => {
+    // Deliberate, and worth pinning so nobody "fixes" it into a second
+    // opinion that can drift: `validateCron` (`src/extensions/cron.ts`)
+    // owns field ranges, steps and the minimum interval, and
+    // `ctx.triggers.register` reports its verdict verbatim on
+    // `data.cronReason`. What bounds the damage in the meantime is
+    // `maxRunsPerDay`, which is mandatory and capped — an every-minute
+    // expression still cannot fire more than that.
+    const result = validateJobDraft(withCron("* * * * *"));
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.value.trigger).toMatchObject({ maxRunsPerDay: 4 });
+  });
+
+  test("a real IANA zone is accepted; an invented one is refused", () => {
+    // The host does NOT check this: `triggers-handler.ts` only asserts
+    // `typeof timezone === "string"` before handing it to `parseCron`,
+    // which resolves it through `Intl` and THROWS on a bad zone. Asking
+    // the same question here turns that into a field error.
+    expect(validateJobDraft(withCron("0 3 * * *", "America/New_York")).ok).toBe(true);
+    expect(validateJobDraft(withCron("0 3 * * *", "UTC")).ok).toBe(true);
+    expect(rejection(withCron("0 3 * * *", "Mars/Olympus_Mons"))).toContain(
+      "is not a time zone this runtime knows",
+    );
+    expect(rejection(withCron("0 3 * * *", "EST5EDT+bogus"))).toContain(
+      "is not a time zone this runtime knows",
+    );
+  });
+
+  test("a missing, blank or non-string zone is refused — never defaulted to the host's", () => {
+    // The host WOULD default it, and that is exactly the problem: a
+    // schedule whose meaning depends on the server's zone is a schedule
+    // nobody chose.
+    //
+    // The ABSENT case is spelled out rather than routed through
+    // `withCron`, whose default parameter would substitute "UTC" for an
+    // explicit `undefined` and quietly test nothing.
+    expect(
+      rejection({
+        name: "J",
+        workflow: "docs-factory",
+        trigger: { kind: "cron", cron: "0 3 * * *", maxRunsPerDay: 4, maxTokensPerRun: 1000 },
+      }),
+    ).toContain("trigger.timezone is required");
+    expect(rejection(withCron("0 3 * * *", "  "))).toContain("trigger.timezone is required");
+    expect(rejection(withCron("0 3 * * *", 7))).toContain("trigger.timezone is required");
+  });
+
+  test("an over-long zone is refused, not truncated", () => {
+    expect(rejection(withCron("0 3 * * *", "A".repeat(MAX_TIMEZONE_LEN + 1)))).toContain(
+      `${MAX_TIMEZONE_LEN} characters or fewer`,
+    );
+  });
+});
+
+describe("the background-trigger seams the fire path reads", () => {
+  const cronTrigger = {
+    kind: "cron",
+    cron: "0 3 * * *",
+    timezone: "UTC",
+    maxRunsPerDay: 4,
+    maxTokensPerRun: 50_000,
+  } as const;
+
+  test("isBackgroundTrigger is true for exactly cron and webhook", () => {
+    // ONE predicate for "does this fire with nobody present". Three
+    // hand-rolled `kind === "cron" || kind === "webhook"` checks across the
+    // console, the fire path and the consent handoff is how one of them
+    // ends up disagreeing the day a third background kind lands.
+    expect(isBackgroundTrigger({ kind: "manual" })).toBe(false);
+    expect(isBackgroundTrigger(cronTrigger)).toBe(true);
+    expect(
+      isBackgroundTrigger({ kind: "webhook", maxRunsPerDay: 1, maxTokensPerRun: 1 }),
+    ).toBe(true);
+    expect(isBackgroundTrigger({ kind: "event", event: "run:complete" })).toBe(false);
+    expect(
+      isBackgroundTrigger({ kind: "workflow", onWorkflow: "x", onStatus: ["success"] }),
+    ).toBe(false);
+  });
+
+  test("BACKGROUND_TRIGGER_KINDS and isBackgroundTrigger agree", () => {
+    // The list drives the console's `visibleWhen`; the predicate drives
+    // the handlers. A disagreement would render bound fields for a kind
+    // that carries none, or hide them from one that needs them.
+    expect([...BACKGROUND_TRIGGER_KINDS]).toEqual(["cron", "webhook"]);
+  });
+
+  test("triggerBounds hands the delegation row its two NOT NULL columns", () => {
+    // What the consent handoff prefills and the fire path enforces:
+    // `workflow_delegations.max_runs_per_day` / `.max_tokens_per_run`.
+    expect(triggerBounds(cronTrigger)).toEqual({ maxRunsPerDay: 4, maxTokensPerRun: 50_000 });
+    expect(
+      triggerBounds({ kind: "webhook", maxRunsPerDay: 9, maxTokensPerRun: 3 }),
+    ).toEqual({ maxRunsPerDay: 9, maxTokensPerRun: 3 });
+  });
+
+  test("triggerBounds is null for every attended trigger", () => {
+    // Not zero, not a default pair — `null` means "there is no delegation
+    // here", which is a different statement from "the limits are 0".
+    expect(triggerBounds({ kind: "manual" })).toBeNull();
+    expect(triggerBounds({ kind: "event", event: "run:complete" })).toBeNull();
+    expect(triggerBounds({ kind: "workflow", onWorkflow: "x", onStatus: [] })).toBeNull();
+  });
+
+  test("TRIGGER_ENVELOPE mirrors the manifest's permissions.triggers", () => {
+    // Mirrored rather than imported (importing `../ezcorp.config` would
+    // drag a `src/extensions/**` host module into the sandboxed bundle),
+    // so this is the assertion that keeps the copy honest.
+    expect(manifestTriggers.maxCron).toBe(TRIGGER_ENVELOPE.maxCron);
+    expect(manifestTriggers.maxWebhooks).toBe(TRIGGER_ENVELOPE.maxWebhooks);
+    expect(manifestTriggers.maxRunsPerDay).toBe(TRIGGER_ENVELOPE.maxRunsPerDay);
+  });
+
+  test("MAX_JOB_RUNS_PER_DAY is the host's own per-key derivation", () => {
+    // `defaultPerKeyCap(envelope, maxCron)` = `max(1, floor(500 / 25))`.
+    // Recomputed here from the mirrored envelope so a future envelope
+    // change moves both together instead of stranding a literal.
+    expect(MAX_JOB_RUNS_PER_DAY).toBe(
+      Math.max(1, Math.floor(TRIGGER_ENVELOPE.maxRunsPerDay / TRIGGER_ENVELOPE.maxCron)),
     );
   });
 });

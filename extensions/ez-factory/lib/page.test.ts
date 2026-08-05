@@ -5,10 +5,19 @@ import manifest from "../ezcorp.config";
 import {
   ALL_INPUT_KEYS,
   APPROVALS_HREF,
+  BACKGROUND_TRIGGER_NOTE,
   buildFactoryPage,
   buildJobPage,
+  candidateDraft,
   CONSOLE_HELP,
   draftFromFormPayload,
+  editScopeFromActionPayload,
+  EDIT_SCOPE_FIELD,
+  EDIT_SCOPE_JOB,
+  EDIT_SCOPE_TRIGGER,
+  OFFERED_TRIGGER_KINDS,
+  TRIGGER_HELP,
+  triggerFormFields,
   enabledCell,
   ENABLED_NO,
   ENABLED_YES,
@@ -332,14 +341,29 @@ describe("shortTime", () => {
 describe("triggerLabel", () => {
   test("labels every trigger shape the store can round-trip", () => {
     expect(triggerLabel({ kind: "manual" })).toBe("manual");
-    expect(triggerLabel({ kind: "cron", cron: "0 2 * * *", timezone: "UTC" })).toBe(
-      "cron · 0 2 * * * · UTC",
-    );
-    expect(triggerLabel({ kind: "webhook" })).toBe("webhook");
     expect(triggerLabel({ kind: "event", event: "run:complete" })).toBe("event · run:complete");
     expect(
       triggerLabel({ kind: "workflow", onWorkflow: "other", onStatus: ["completed", "failed"] }),
     ).toBe("workflow · other · completed,failed");
+  });
+
+  test("a BACKGROUND trigger always renders its bounds", () => {
+    // The bounds are the only thing between a saved cron and unattended
+    // spend, so they belong on the row an operator scans rather than one
+    // click in. A label that dropped them would make an unbounded-looking
+    // job indistinguishable from a tightly-bounded one.
+    expect(
+      triggerLabel({
+        kind: "cron",
+        cron: "0 2 * * *",
+        timezone: "UTC",
+        maxRunsPerDay: 4,
+        maxTokensPerRun: 50_000,
+      }),
+    ).toBe("cron · 0 2 * * * · UTC · ≤4/day · ≤50000 tok/run");
+    expect(
+      triggerLabel({ kind: "webhook", maxRunsPerDay: 20, maxTokensPerRun: 1000 }),
+    ).toBe("webhook · ≤20/day · ≤1000 tok/run");
   });
 });
 
@@ -544,22 +568,71 @@ describe("buildJobPage", () => {
     expect(fields.find((f) => f.field === JOB_FORM_FIELDS.name)!.value).toBeUndefined();
   });
 
-  test("an edit renders ONE form, prefilled, carrying the job id on the ACTION payload", () => {
+  test("an edit renders TWO forms — the job and its schedule — on ONE granted event", () => {
+    // Two forms, not one, and the reason is a hard host bound rather than
+    // taste: `validateFormNode` caps a form at MAX_FORM_FIELDS = 10 and
+    // DROPS the excess silently, after which `pruneDanglingConditions`
+    // strips `visibleWhen` from the survivors that depended on a dropped
+    // field. The editor already declares 8 and an honest background
+    // trigger needs 5.
+    //
+    // Both dispatch the SAME granted event: a third page action would be
+    // a real grant widening across three files to buy a split the action
+    // payload can already express.
     const tree = buildJobPage({ view: { kind: "edit", jobId: "j1" }, job: job() });
-    const forms = nodesOfType(tree, "form");
-    // "one inline form, one Save" — a second form would mean two save paths.
-    expect(forms).toHaveLength(1);
-    const form = forms[0] as {
+    const forms = nodesOfType(tree, "form") as {
       submitLabel: string;
       action: { event: string; payload?: Record<string, string> };
       fields: { field: string; value?: string }[];
-    };
-    expect(form.submitLabel).toBe("Save job");
-    expect(form.action.event).toBe(JOB_SAVE_EVENT);
-    // The id rides on the payload, not a typeable field.
-    expect(form.action.payload).toEqual({ [JOB_FORM_FIELDS.jobId]: "j1" });
-    expect(form.fields.some((f) => f.field === JOB_FORM_FIELDS.jobId)).toBe(false);
-    expect(form.fields.find((f) => f.field === JOB_FORM_FIELDS.name)!.value).toBe("Nightly docs");
+    }[];
+    expect(forms).toHaveLength(2);
+    for (const form of forms) expect(form.action.event).toBe(JOB_SAVE_EVENT);
+
+    const [jobForm, triggerForm] = forms as [(typeof forms)[0], (typeof forms)[0]];
+    expect(jobForm.submitLabel).toBe("Save job");
+    expect(triggerForm.submitLabel).toBe("Save schedule");
+
+    // The id rides on the payload, not a typeable field — on BOTH forms,
+    // alongside the scope that tells the one handler which half arrived.
+    expect(jobForm.action.payload).toEqual({
+      [JOB_FORM_FIELDS.jobId]: "j1",
+      [EDIT_SCOPE_FIELD]: EDIT_SCOPE_JOB,
+    });
+    expect(triggerForm.action.payload).toEqual({
+      [JOB_FORM_FIELDS.jobId]: "j1",
+      [EDIT_SCOPE_FIELD]: EDIT_SCOPE_TRIGGER,
+    });
+    expect(jobForm.fields.some((f) => f.field === JOB_FORM_FIELDS.jobId)).toBe(false);
+    expect(jobForm.fields.find((f) => f.field === JOB_FORM_FIELDS.name)!.value).toBe(
+      "Nightly docs",
+    );
+  });
+
+  test("a CREATE renders only the job form — there is nothing to schedule yet", () => {
+    // A background trigger is inert until a human consents to a delegation
+    // for it, and there is nothing to consent against until the job has an
+    // id. So a create is attended by construction and the schedule form
+    // appears once the job exists.
+    const tree = buildJobPage({ view: { kind: "new" }, job: null });
+    const forms = nodesOfType(tree, "form") as { submitLabel: string }[];
+    expect(forms).toHaveLength(1);
+    expect(forms[0]!.submitLabel).toBe("Create job");
+  });
+
+  test("EVERY form on the page stays inside the host's 10-field cap", () => {
+    // Asserted over the rendered TREE, not just `jobFormFields`, because
+    // the overflow is silent: field 11 is dropped and the `visibleWhen` of
+    // whatever pointed at it is deleted too, so the page renders looking
+    // finished with inputs shown on the wrong workflow.
+    for (const view of [
+      { kind: "new" as const },
+      { kind: "edit" as const, jobId: "j1" },
+    ]) {
+      const tree = buildJobPage({ view, job: view.kind === "edit" ? job() : null });
+      for (const form of nodesOfType(tree, "form") as { fields: unknown[] }[]) {
+        expect(form.fields.length).toBeLessThanOrEqual(10);
+      }
+    }
   });
 
   test("an id that no longer resolves renders 'not found', not an empty editor", () => {
@@ -711,7 +784,7 @@ describe("inputFieldId / inputKeyOfField", () => {
 
 describe("draftFromFormPayload", () => {
   test("folds a full create submission into a draft the store accepts", () => {
-    const { jobId, draft } = draftFromFormPayload({
+    const { jobId, scope, draft } = draftFromFormPayload({
       [JOB_FORM_FIELDS.name]: "Docs",
       [JOB_FORM_FIELDS.description]: "d",
       [JOB_FORM_FIELDS.workflow]: "docs-factory",
@@ -719,16 +792,73 @@ describe("draftFromFormPayload", () => {
       [inputFieldId("globs")]: "src/**",
     });
     expect(jobId).toBeNull();
+    // An unmarked payload reads as the JOB scope — the one that carries
+    // every field, so it cannot be used to skip a check by omission.
+    expect(scope).toBe(EDIT_SCOPE_JOB);
+    // NO `trigger` key: the job form does not carry one, and inventing
+    // `{kind:"manual"}` here is exactly the hardcode that used to make a
+    // background trigger inexpressible from the console.
     expect(draft).toEqual({
       name: "Docs",
       description: "d",
       workflow: "docs-factory",
       input: { globs: "src/**" },
-      trigger: { kind: "manual" },
       enabled: true,
     });
-    // End to end: the store's ONE validator accepts what this produced.
-    expect(validateJobDraft(draft).ok).toBe(true);
+    // End to end: the store's ONE validator accepts what this produced,
+    // and applies its own documented `undefined → manual` default.
+    const validated = validateJobDraft(draft);
+    expect(validated.ok).toBe(true);
+    expect(validated.ok && validated.value.trigger).toEqual({ kind: "manual" });
+  });
+
+  test("a schedule submission carries the trigger fields VERBATIM, uncoerced", () => {
+    // Still not a validator: the bounds ride through as the strings the
+    // wire carries, because `validateJobDraft` already accepts a numeric
+    // string and two coercions of one rule is how the two drift.
+    const { scope, draft } = draftFromFormPayload({
+      [JOB_FORM_FIELDS.jobId]: "j1",
+      [EDIT_SCOPE_FIELD]: EDIT_SCOPE_TRIGGER,
+      [JOB_FORM_FIELDS.triggerKind]: "cron",
+      [JOB_FORM_FIELDS.triggerCron]: "0 3 * * *",
+      [JOB_FORM_FIELDS.triggerTimezone]: "America/New_York",
+      [JOB_FORM_FIELDS.triggerRunsPerDay]: "4",
+      [JOB_FORM_FIELDS.triggerTokensPerRun]: "50000",
+    });
+    expect(scope).toBe(EDIT_SCOPE_TRIGGER);
+    expect(draft.trigger).toEqual({
+      kind: "cron",
+      cron: "0 3 * * *",
+      timezone: "America/New_York",
+      maxRunsPerDay: "4",
+      maxTokensPerRun: "50000",
+    });
+  });
+
+  test("an unknown trigger kind rides through UNTOUCHED to the store's validator", () => {
+    // Same rule the `workflow` select follows: a select constrains the UI,
+    // never the wire, and letting the store reject it produces the real
+    // message instead of this function inventing one.
+    const { draft } = draftFromFormPayload({
+      [JOB_FORM_FIELDS.triggerKind]: "sunrise",
+    });
+    expect(draft.trigger).toEqual({ kind: "sunrise" });
+  });
+
+  test("a hidden trigger field never arrives, so a manual save carries no stale cron", () => {
+    // `visibleWhen` is load-bearing: the host OMITS a hidden field, so
+    // switching the select back to `manual` cannot resubmit the cron
+    // expression that was in the box a moment ago.
+    const { draft } = draftFromFormPayload({
+      [JOB_FORM_FIELDS.triggerKind]: "manual",
+    });
+    expect(draft.trigger).toEqual({ kind: "manual" });
+    const validated = validateJobDraft({
+      ...draft,
+      name: "J",
+      workflow: "docs-factory",
+    });
+    expect(validated.ok && validated.value.trigger).toEqual({ kind: "manual" });
   });
 
   test("an edit carries the job id from the action payload", () => {
@@ -821,10 +951,281 @@ describe("draftFromFormPayload", () => {
       "enabled",
       "input",
       "name",
-      "trigger",
       "workflow",
     ]);
     expect(validateJobDraft(draft).ok).toBe(true);
+  });
+});
+
+describe("editScopeFromActionPayload", () => {
+  test("reads the trigger scope only from the exact marker", () => {
+    expect(
+      editScopeFromActionPayload({ [EDIT_SCOPE_FIELD]: EDIT_SCOPE_TRIGGER }),
+    ).toBe(EDIT_SCOPE_TRIGGER);
+    expect(editScopeFromActionPayload({ [EDIT_SCOPE_FIELD]: EDIT_SCOPE_JOB })).toBe(
+      EDIT_SCOPE_JOB,
+    );
+  });
+
+  test("anything unrecognised reads as the JOB scope, which carries every field", () => {
+    // Fails toward the scope that submits the whole job, so a garbled
+    // marker cannot be used to skip a check by omission.
+    for (const bad of [{}, { [EDIT_SCOPE_FIELD]: "TRIGGER" }, { [EDIT_SCOPE_FIELD]: 1 }, null, [], "trigger", undefined]) {
+      expect(editScopeFromActionPayload(bad)).toBe(EDIT_SCOPE_JOB);
+    }
+  });
+});
+
+describe("triggerFormFields", () => {
+  const cronJob = (): FactoryJob =>
+    job({
+      trigger: {
+        kind: "cron",
+        cron: "0 3 * * 1",
+        timezone: "America/New_York",
+        maxRunsPerDay: 4,
+        maxTokensPerRun: 50_000,
+      },
+    });
+
+  test("declares exactly the five trigger fields, all host-accepted slugs", () => {
+    // A non-slug id is DROPPED host-side with nothing logged — the
+    // `input_outPath` failure, one surface over. `trigger_maxRunsPerDay`
+    // would simply not exist and the typed value would never arrive.
+    const slug = /^[a-z0-9][a-z0-9_]{0,31}$/;
+    const fields = triggerFormFields(job());
+    expect(fields.map((f) => f.field)).toEqual([
+      JOB_FORM_FIELDS.triggerKind,
+      JOB_FORM_FIELDS.triggerCron,
+      JOB_FORM_FIELDS.triggerTimezone,
+      JOB_FORM_FIELDS.triggerRunsPerDay,
+      JOB_FORM_FIELDS.triggerTokensPerRun,
+    ]);
+    for (const f of fields) expect(slug.test(f.field)).toBe(true);
+  });
+
+  test("offers only the kinds something actually dispatches", () => {
+    // `event` and `workflow` are modelled by the store and dispatched by
+    // nothing; offering them would build a job that saves and never fires.
+    const options = triggerFormFields(job()).find(
+      (f) => f.field === JOB_FORM_FIELDS.triggerKind,
+    )!.options!;
+    expect(options.map((o) => o.value)).toEqual([...OFFERED_TRIGGER_KINDS]);
+    expect(options.map((o) => o.value)).not.toContain("event");
+    expect(options.map((o) => o.value)).not.toContain("workflow");
+    // The host caps a select at 12 options.
+    expect(options.length).toBeLessThanOrEqual(12);
+  });
+
+  test("cron fields are gated on the cron kind; bounds on BOTH background kinds", () => {
+    // A hidden field is omitted from the payload, so this wiring is what
+    // makes "a manual job carries no bounds" true on the wire rather than
+    // merely intended.
+    const by = (id: string) => triggerFormFields(job()).find((f) => f.field === id)!;
+    expect(by(JOB_FORM_FIELDS.triggerCron).visibleWhen).toEqual({
+      field: JOB_FORM_FIELDS.triggerKind,
+      equals: ["cron"],
+    });
+    expect(by(JOB_FORM_FIELDS.triggerTimezone).visibleWhen).toEqual({
+      field: JOB_FORM_FIELDS.triggerKind,
+      equals: ["cron"],
+    });
+    for (const id of [JOB_FORM_FIELDS.triggerRunsPerDay, JOB_FORM_FIELDS.triggerTokensPerRun]) {
+      expect(by(id).visibleWhen).toEqual({
+        field: JOB_FORM_FIELDS.triggerKind,
+        equals: ["cron", "webhook"],
+      });
+    }
+  });
+
+  test("every visibleWhen names a field that is actually declared", () => {
+    // `pruneDanglingConditions` DELETES a condition whose target is not in
+    // the surviving field set, which would silently un-hide the field.
+    const fields = triggerFormFields(job());
+    const declared = new Set(fields.map((f) => f.field));
+    for (const f of fields) {
+      if (f.visibleWhen) expect(declared.has(f.visibleWhen.field)).toBe(true);
+    }
+  });
+
+  test("a manual job prefills the kind and NOTHING else — no invented bounds", () => {
+    // The two bounds are the blast-radius bound on unattended spend, and
+    // core's own consent route refuses to default them for the same
+    // reason: a default is a number nobody chose.
+    const fields = triggerFormFields(job());
+    const by = (id: string) => fields.find((f) => f.field === id)!;
+    expect(by(JOB_FORM_FIELDS.triggerKind).value).toBe("manual");
+    expect(by(JOB_FORM_FIELDS.triggerCron).value).toBeUndefined();
+    expect(by(JOB_FORM_FIELDS.triggerTimezone).value).toBeUndefined();
+    expect(by(JOB_FORM_FIELDS.triggerRunsPerDay).value).toBeUndefined();
+    expect(by(JOB_FORM_FIELDS.triggerTokensPerRun).value).toBeUndefined();
+    // …but the legal range IS stated, so the empty box is a question
+    // rather than a puzzle.
+    expect(by(JOB_FORM_FIELDS.triggerRunsPerDay).placeholder).toBe("1-20");
+    expect(by(JOB_FORM_FIELDS.triggerTokensPerRun).placeholder).toBe("1-250000");
+  });
+
+  test("a cron job prefills every field, bounds as strings", () => {
+    const by = (id: string) => triggerFormFields(cronJob()).find((f) => f.field === id)!;
+    expect(by(JOB_FORM_FIELDS.triggerKind).value).toBe("cron");
+    expect(by(JOB_FORM_FIELDS.triggerCron).value).toBe("0 3 * * 1");
+    expect(by(JOB_FORM_FIELDS.triggerTimezone).value).toBe("America/New_York");
+    expect(by(JOB_FORM_FIELDS.triggerRunsPerDay).value).toBe("4");
+    expect(by(JOB_FORM_FIELDS.triggerTokensPerRun).value).toBe("50000");
+  });
+
+  test("a webhook job prefills its bounds and no cron fields", () => {
+    const fields = triggerFormFields(
+      job({ trigger: { kind: "webhook", maxRunsPerDay: 9, maxTokensPerRun: 1234 } }),
+    );
+    const by = (id: string) => fields.find((f) => f.field === id)!;
+    expect(by(JOB_FORM_FIELDS.triggerKind).value).toBe("webhook");
+    expect(by(JOB_FORM_FIELDS.triggerCron).value).toBeUndefined();
+    expect(by(JOB_FORM_FIELDS.triggerTimezone).value).toBeUndefined();
+    expect(by(JOB_FORM_FIELDS.triggerRunsPerDay).value).toBe("9");
+    expect(by(JOB_FORM_FIELDS.triggerTokensPerRun).value).toBe("1234");
+  });
+
+  test("a kind the console does not offer falls back to manual rather than no match", () => {
+    // A row written by some later version as `event`. The select shows
+    // `manual`, which is the SAFE direction — saving it un-schedules.
+    const fields = triggerFormFields(job({ trigger: { kind: "event", event: "run:complete" } }));
+    expect(fields.find((f) => f.field === JOB_FORM_FIELDS.triggerKind)!.value).toBe("manual");
+  });
+
+  test("length hints stay inside the host's [1,500] clamp", () => {
+    for (const f of triggerFormFields(cronJob())) {
+      if (f.maxLength !== undefined) expect(f.maxLength).toBeLessThanOrEqual(500);
+    }
+  });
+});
+
+describe("candidateDraft — each form supplies half a job, the store supplies the rest", () => {
+  const stored = (): FactoryJob =>
+    job({
+      name: "Nightly docs",
+      description: "d",
+      workflow: "docs-factory",
+      input: { globs: "src/**" },
+      enabled: true,
+      trigger: {
+        kind: "cron",
+        cron: "0 3 * * 1",
+        timezone: "UTC",
+        maxRunsPerDay: 4,
+        maxTokensPerRun: 50_000,
+      },
+    });
+
+  test("THE SILENT UN-SCHEDULING: a job-form save PRESERVES the stored trigger", () => {
+    // The trap the two-form split created. The job editor submits no
+    // trigger field, so a draft folded straight from it carries no
+    // `trigger`, `validateJobDraft` applies its documented
+    // `undefined → manual` default, and renaming a cron job would
+    // un-schedule it — no error, no warning, just `manual` in the Trigger
+    // column the next time anyone looked.
+    const submission = draftFromFormPayload({
+      [JOB_FORM_FIELDS.jobId]: "j1",
+      [EDIT_SCOPE_FIELD]: EDIT_SCOPE_JOB,
+      [JOB_FORM_FIELDS.name]: "Renamed",
+      [JOB_FORM_FIELDS.workflow]: "docs-factory",
+      [JOB_FORM_FIELDS.enabled]: ENABLED_YES,
+      [inputFieldId("globs")]: "src/**",
+    });
+    const draft = candidateDraft(submission, stored());
+    expect(draft.name).toBe("Renamed");
+    expect(draft.trigger).toEqual(stored().trigger);
+
+    // …and the result is a WHOLE job the one validator accepts.
+    const validated = validateJobDraft(draft);
+    expect(validated.ok).toBe(true);
+    expect(validated.ok && validated.value.trigger).toEqual(stored().trigger);
+  });
+
+  test("a trigger-form save keeps every field the OTHER form owns", () => {
+    const submission = draftFromFormPayload({
+      [JOB_FORM_FIELDS.jobId]: "j1",
+      [EDIT_SCOPE_FIELD]: EDIT_SCOPE_TRIGGER,
+      [JOB_FORM_FIELDS.triggerKind]: "webhook",
+      [JOB_FORM_FIELDS.triggerRunsPerDay]: "2",
+      [JOB_FORM_FIELDS.triggerTokensPerRun]: "100",
+    });
+    const draft = candidateDraft(submission, stored());
+    // The schedule moved…
+    expect(draft.trigger).toEqual({
+      kind: "webhook",
+      maxRunsPerDay: "2",
+      maxTokensPerRun: "100",
+    });
+    // …and nothing else did. Without this the trigger form's empty name
+    // box would blank the job's name, or fail validation outright.
+    expect(draft.name).toBe("Nightly docs");
+    expect(draft.description).toBe("d");
+    expect(draft.workflow).toBe("docs-factory");
+    expect(draft.input).toEqual({ globs: "src/**" });
+    expect(draft.enabled).toBe(true);
+
+    const validated = validateJobDraft(draft);
+    expect(validated.ok).toBe(true);
+    expect(validated.ok && validated.value.trigger).toEqual({
+      kind: "webhook",
+      maxRunsPerDay: 2,
+      maxTokensPerRun: 100,
+    });
+  });
+
+  test("a trigger-form save that names no kind un-schedules rather than half-writing", () => {
+    // The safe direction: `undefined → manual` by the store's own default.
+    const submission = draftFromFormPayload({
+      [JOB_FORM_FIELDS.jobId]: "j1",
+      [EDIT_SCOPE_FIELD]: EDIT_SCOPE_TRIGGER,
+    });
+    const draft = candidateDraft(submission, stored());
+    expect(draft.trigger).toBeUndefined();
+    const validated = validateJobDraft(draft);
+    expect(validated.ok && validated.value.trigger).toEqual({ kind: "manual" });
+  });
+
+  test("a CREATE passes the submission through — there is no stored half to take", () => {
+    const submission = draftFromFormPayload({
+      [JOB_FORM_FIELDS.name]: "Fresh",
+      [JOB_FORM_FIELDS.workflow]: "docs-factory",
+    });
+    expect(candidateDraft(submission, null)).toBe(submission.draft);
+    const validated = validateJobDraft(candidateDraft(submission, null));
+    expect(validated.ok && validated.value.trigger).toEqual({ kind: "manual" });
+  });
+
+  test("a job-scope submission that DOES name a trigger still wins over the stored one", () => {
+    // The scope decides which half is authoritative, not the presence of a
+    // stored value — otherwise a forged scope marker could pin a trigger
+    // no form can change.
+    const submission = draftFromFormPayload({
+      [JOB_FORM_FIELDS.jobId]: "j1",
+      [JOB_FORM_FIELDS.name]: "N",
+      [JOB_FORM_FIELDS.workflow]: "docs-factory",
+      [JOB_FORM_FIELDS.triggerKind]: "manual",
+    });
+    expect(candidateDraft(submission, stored()).trigger).toEqual({ kind: "manual" });
+  });
+
+  test("the assembled draft carries EXACTLY the store's six fields", () => {
+    // The store's shape is CLOSED — an unknown key is a refusal, not a
+    // dropped value — so an assembler that copied a stored bookkeeping
+    // field (`lastRunAt`, `createdBy`) would fail every trigger save.
+    const submission = draftFromFormPayload({
+      [JOB_FORM_FIELDS.jobId]: "j1",
+      [EDIT_SCOPE_FIELD]: EDIT_SCOPE_TRIGGER,
+      [JOB_FORM_FIELDS.triggerKind]: "manual",
+    });
+    expect(Object.keys(candidateDraft(submission, stored())).sort()).toEqual([
+      "description",
+      "enabled",
+      "input",
+      "name",
+      "trigger",
+      "workflow",
+    ]);
   });
 });
 
@@ -932,19 +1333,51 @@ describe("invariant J — job/run strings never reach the markdown ({@html}) sin
     // The editor is the worst case: it renders every field VERBATIM as a
     // form prefill, which is exactly the content an attacker controls.
     const tree = buildJobPage({ view: { kind: "edit", jobId: probeJob.id }, job: probeJob });
-    // It emits NO markdown node, so `carriersInSink: 0` is true by
-    // construction here and `carriersNotEscaped` is what does the work:
-    // route `job.name` through `markdownBlock` and `"markdown"` lands in
-    // that list, because it is not one of the escaped types.
+    // The editor DOES emit a markdown node now — `TRIGGER_HELP`, on the
+    // schedule form — so `markdownCarryingProbe: 0` is doing real work
+    // here rather than being true because no sink exists. It was
+    // `markdownNodesExist: false` before phase 9 added that form; the help
+    // text is a module CONSTANT with no interpolation, which is the whole
+    // rule (turn it into a template literal and a field has entered the
+    // sink).
     expect(sinkVerdict(tree)).toEqual({
       probeIsCarried: true,
       carriersInSink: 0,
       carriersNotEscaped: [],
-      markdownNodesExist: false,
+      markdownNodesExist: true,
       markdownCarryingProbe: 0,
     });
     // The editor carries the payload in the form node specifically.
     expect(carriers(tree).some((n) => n.type === "form")).toBe(true);
+  });
+
+  test("a BACKGROUND job's cron expression and bounds also stay out of the sink", () => {
+    // The trigger label interpolates `job.trigger.cron` and
+    // `job.trigger.timezone` into the jobs table and the stat strip. Both
+    // were operator-typed, so a cron field carrying markdown is a real
+    // shape — bounded by the store's validator, but this is the assertion
+    // that says so rather than the assumption.
+    const cronProbe: FactoryJob = {
+      ...probeJob,
+      trigger: {
+        kind: "cron",
+        cron: "0 3 * * *",
+        timezone: PROBE,
+        maxRunsPerDay: 4,
+        maxTokensPerRun: 1000,
+      },
+    };
+    expect(
+      sinkVerdict(buildFactoryPage({ view: { kind: "jobs" }, jobs: [cronProbe], runs: [] })),
+    ).toMatchObject({ probeIsCarried: true, carriersInSink: 0, carriersNotEscaped: [] });
+    expect(
+      sinkVerdict(buildJobPage({ view: { kind: "edit", jobId: cronProbe.id }, job: cronProbe })),
+    ).toMatchObject({
+      probeIsCarried: true,
+      carriersInSink: 0,
+      carriersNotEscaped: [],
+      markdownCarryingProbe: 0,
+    });
   });
 
   test("PROOF THE PROBE IS DANGEROUS: it is markdown that DOMPurify keeps", () => {

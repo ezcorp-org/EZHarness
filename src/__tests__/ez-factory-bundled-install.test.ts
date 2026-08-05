@@ -147,11 +147,11 @@ const TRIGGERS = {
  *  `intersectPermissions` folds it with `&&`, so a side that omits it makes
  *  `undefined && true` falsy and the flag is dropped while every other
  *  field survives. */
-const WORKFLOWS = {
+const WORKFLOWS: NonNullable<ExtensionPermissions["workflows"]> = {
   names: ["docs-factory", "etl-factory", "draft-and-verify"],
   maxRunsPerHour: 60,
   allowDelegated: true,
-} as const;
+};
 
 const bundledEntry = () => resolveBundledExtensions({}).find((e) => e.name === "ez-factory")!;
 

@@ -74,10 +74,16 @@ import type {
 } from "@ezcorp/sdk/runtime";
 
 import {
+  BACKGROUND_TRIGGER_KINDS,
   FACTORY_WORKFLOWS,
   JOB_SETTABLE_INPUT_KEYS,
+  MAX_CRON_LEN,
   MAX_JOB_DESCRIPTION_LEN,
   MAX_JOB_NAME_LEN,
+  MAX_JOB_RUNS_PER_DAY,
+  MAX_JOB_TOKENS_PER_RUN,
+  MAX_TIMEZONE_LEN,
+  isBackgroundTrigger,
   isValidJobId,
   type FactoryJob,
   type FactoryWorkflow,
@@ -252,22 +258,54 @@ export function shortTime(iso: string | null | undefined): string {
   return new Date(ms).toISOString().slice(0, 16).replace("T", " ");
 }
 
-/** One-line label for a job trigger. v1 only ever creates `manual`; the other
- *  shapes are labelled so a job written by a later version still renders. */
+/**
+ * One-line label for a job trigger.
+ *
+ * The console creates `manual`, `cron` and `webhook`; `event` / `workflow`
+ * are labelled anyway so a job written by a later version still renders
+ * rather than showing a blank cell.
+ *
+ * A BACKGROUND trigger always renders its bounds. They are the only thing
+ * standing between a saved cron and unattended spend, so they belong on the
+ * row an operator scans — not one click in. Both are numbers this console
+ * validated into a small range, so neither is operator-authored free text
+ * in the XSS sense (invariant J), and both land in a table cell regardless.
+ */
 export function triggerLabel(trigger: JobTrigger): string {
   switch (trigger.kind) {
     case "manual":
       return "manual";
     case "cron":
-      return `cron · ${trigger.cron} · ${trigger.timezone}`;
+      return `cron · ${trigger.cron} · ${trigger.timezone} · ${boundsLabel(trigger)}`;
     case "webhook":
-      return "webhook";
+      return `webhook · ${boundsLabel(trigger)}`;
     case "event":
       return `event · ${trigger.event}`;
     case "workflow":
       return `workflow · ${trigger.onWorkflow} · ${trigger.onStatus.join(",")}`;
   }
 }
+
+/** The `≤N/day · ≤N tok/run` half of a background trigger's label. */
+function boundsLabel(bounds: { maxRunsPerDay: number; maxTokensPerRun: number }): string {
+  return `≤${bounds.maxRunsPerDay}/day · ≤${bounds.maxTokensPerRun} tok/run`;
+}
+
+/**
+ * The one-line reminder that a background job is SAVED but not ARMED.
+ *
+ * Saving a cron job mints no authority: firing needs a
+ * `workflow_delegations` row, which only a human can create through core's
+ * session-only consent route. Without this line the console would show a
+ * job whose Trigger column reads "cron · 0 3 * * *" and which never runs,
+ * and the operator's only clue would be its absence from Recent runs.
+ *
+ * A module CONSTANT, not a template literal — it renders through an
+ * escaped node, and interpolating a job field here would put one in reach
+ * of the sink (invariant J).
+ */
+export const BACKGROUND_TRIGGER_NOTE =
+  "Saved, not yet armed — a background trigger fires only after someone authorizes it in the workflow UI. Until then this job runs when Run is pressed.";
 
 /**
  * A job `input` value rendered for a table cell or a form prefill.
@@ -325,6 +363,11 @@ export const TEMPLATES_HELP =
 export const RUNS_HELP =
   "The most recent runs started from a job on this install, refreshed each time this view is opened. " +
   "Each row opens that run's full trace — step outputs and artifacts live there, never on this shared page.";
+
+export const TRIGGER_HELP =
+  "**Manual** jobs run when someone presses Run. **Cron** and **webhook** jobs run with nobody watching, " +
+  "so they need two limits you choose yourself — there is no default and no unlimited. " +
+  "Saving a schedule does not start anything: a background job stays inert until a person authorizes it in the workflow UI.";
 
 // ── Templates ───────────────────────────────────────────────────────
 
@@ -498,14 +541,51 @@ export function buildFactoryPage(input: FactoryPageInput): HubPageTree {
 // ── The `job` page ──────────────────────────────────────────────────
 
 /** Form field ids. Slugs (`/^[a-z0-9][a-z0-9_]{0,31}$/`) — a non-slug field is
- *  DROPPED host-side with no fall-back, so these are not free-form. */
+ *  DROPPED host-side with no fall-back, so these are not free-form.
+ *
+ *  The five `trigger*` ids are phase 9: until then the console could not
+ *  express a background trigger AT ALL — `draftFromFormPayload` hardcoded
+ *  `{kind: "manual"}` — so a cron job was unreachable from the UI even
+ *  after the store learned to accept one. All five are lowercase-only by
+ *  the same rule that forced `input_outpath`: `trigger_maxRunsPerDay`
+ *  would be dropped host-side with nothing logged, and the operator's
+ *  typed value would simply never arrive. */
 export const JOB_FORM_FIELDS = {
   jobId: "job_id",
   name: "name",
   description: "description",
   workflow: "workflow",
   enabled: "enabled",
+  triggerKind: "trigger_kind",
+  triggerCron: "trigger_cron",
+  triggerTimezone: "trigger_timezone",
+  triggerRunsPerDay: "trigger_runs_per_day",
+  triggerTokensPerRun: "trigger_tokens_per_run",
 } as const;
+
+/**
+ * The trigger kinds the console OFFERS.
+ *
+ * A strict subset of {@link JobTrigger}'s union: `event` and `workflow` are
+ * modelled by the store for round-tripping and dispatched by nothing, so
+ * offering them would build a job that saves and never fires. The validator
+ * refuses them independently — this list is the UI agreeing with it rather
+ * than a second rule.
+ */
+export const OFFERED_TRIGGER_KINDS = ["manual", "cron", "webhook"] as const;
+
+export type OfferedTriggerKind = (typeof OFFERED_TRIGGER_KINDS)[number];
+
+/** The two kinds whose bound fields are shown. Mirrors the store's
+ *  {@link BACKGROUND_TRIGGER_KINDS}; pinned equal by a test. */
+const BACKGROUND_KINDS: readonly string[] = [...BACKGROUND_TRIGGER_KINDS];
+
+/** Labels for the trigger select. Authored copy, never operator data. */
+const TRIGGER_KIND_LABELS: Record<OfferedTriggerKind, string> = {
+  manual: "Manual — someone presses Run",
+  cron: "Cron — on a schedule",
+  webhook: "Webhook — when something calls in",
+};
 
 /** The `enabled` select's two values. A select constrains the UI, never the
  *  wire — the handler still validates whatever arrives. */
@@ -666,6 +746,99 @@ export function jobFormFields(job: FactoryJob | null): PageFormFieldDescriptor[]
 }
 
 /**
+ * The TRIGGER editor's fields — a SECOND form, and the reason it is second
+ * is a hard host bound rather than taste.
+ *
+ * `validateFormNode` caps a form at `MAX_FORM_FIELDS` = 10
+ * (`src/extensions/page-schema.ts`) and DROPS the excess silently. Worse,
+ * `pruneDanglingConditions` then deletes `visibleWhen` from any survivor
+ * whose condition names a dropped field — so an 11-field form does not just
+ * lose its last field, it also un-hides the ones that depended on it. The
+ * job editor already declares 8 (name, description, workflow, enabled, and
+ * the four input keys), and an honest background trigger needs 5. Putting
+ * them on one form would have silently deleted two input fields and then
+ * shown every remaining input on every workflow.
+ *
+ * Both forms dispatch the SAME granted `ez-factory:job-save` event. That is
+ * deliberate: a third page action would be a real grant widening across
+ * three files (manifest, install grant, ceiling) to buy a split the payload
+ * can already express. The submissions are told apart by
+ * {@link EDIT_SCOPE_FIELD} on the ACTION payload — server-rendered, and NOT
+ * a trust boundary: the handler re-reads the job and re-runs the one
+ * validator over a COMPLETE draft either way, exactly as `handleJobRun`
+ * already does before it spends anything.
+ *
+ * Rendered only for a job that EXISTS. A job is created attended and
+ * scheduled afterwards, which matches what actually has to happen: a
+ * background trigger is inert until a human consents to a delegation for
+ * it, and there is nothing to consent to until the job has an id.
+ */
+export function triggerFormFields(job: FactoryJob): PageFormFieldDescriptor[] {
+  const trigger = job.trigger;
+  const bg = isBackgroundTrigger(trigger) ? trigger : null;
+  return [
+    {
+      field: JOB_FORM_FIELDS.triggerKind,
+      label: "Fires",
+      options: OFFERED_TRIGGER_KINDS.map((kind) => ({
+        value: kind,
+        label: TRIGGER_KIND_LABELS[kind],
+      })),
+      // A job written by some later version as `event` / `workflow` has no
+      // option to select, so the select shows `manual` rather than
+      // rendering with no match — and the stat strip above the form still
+      // reports the honest current trigger. Saving this form would move it
+      // to `manual`, which is the safe direction: it un-schedules.
+      value: (OFFERED_TRIGGER_KINDS as readonly string[]).includes(trigger.kind)
+        ? trigger.kind
+        : "manual",
+    },
+    {
+      field: JOB_FORM_FIELDS.triggerCron,
+      label: "Cron expression — 5 fields: min hour dom month dow",
+      maxLength: MAX_CRON_LEN,
+      placeholder: "0 3 * * *",
+      // `visibleWhen` is load-bearing, not cosmetic: a HIDDEN FIELD IS
+      // OMITTED FROM THE PAYLOAD, so switching back to `manual` cannot
+      // resubmit a stale cron, and the two bound fields cannot arrive on a
+      // manual job at all. The store's rule — a background trigger carries
+      // bounds, an attended one carries none — is expressed by the form
+      // rather than fought by it.
+      visibleWhen: { field: JOB_FORM_FIELDS.triggerKind, equals: ["cron"] },
+      ...(bg?.kind === "cron" ? { value: bg.cron } : {}),
+    },
+    {
+      field: JOB_FORM_FIELDS.triggerTimezone,
+      label: "Time zone — an IANA name",
+      maxLength: MAX_TIMEZONE_LEN,
+      placeholder: "America/New_York",
+      visibleWhen: { field: JOB_FORM_FIELDS.triggerKind, equals: ["cron"] },
+      ...(bg?.kind === "cron" ? { value: bg.timezone } : {}),
+    },
+    {
+      // NOT PREFILLED on a job that has no bounds yet, deliberately. These
+      // two are the blast-radius bound on unattended spend, and core's own
+      // consent route refuses to default them for the same reason: a
+      // default is a number nobody chose, and an "unlimited" option is the
+      // number everybody chooses. The placeholder states the legal range so
+      // an empty box is a question rather than a puzzle.
+      field: JOB_FORM_FIELDS.triggerRunsPerDay,
+      label: "Most runs per day",
+      placeholder: `1-${MAX_JOB_RUNS_PER_DAY}`,
+      visibleWhen: { field: JOB_FORM_FIELDS.triggerKind, equals: [...BACKGROUND_KINDS] },
+      ...(bg ? { value: String(bg.maxRunsPerDay) } : {}),
+    },
+    {
+      field: JOB_FORM_FIELDS.triggerTokensPerRun,
+      label: "Most tokens per run",
+      placeholder: `1-${MAX_JOB_TOKENS_PER_RUN}`,
+      visibleWhen: { field: JOB_FORM_FIELDS.triggerKind, equals: [...BACKGROUND_KINDS] },
+      ...(bg ? { value: String(bg.maxTokensPerRun) } : {}),
+    },
+  ];
+}
+
+/**
  * The inverse of {@link jobFormFields}: fold a submitted page-action payload
  * back into the shape {@link validateJobDraft} validates.
  *
@@ -695,9 +868,48 @@ export function jobFormFields(job: FactoryJob | null): PageFormFieldDescriptor[]
 export interface SubmittedJobForm {
   /** The job to write, from the action payload — `null` for a create. */
   jobId: string | null;
+  /** Which of the job page's two forms this came from. See
+   *  {@link EDIT_SCOPE_FIELD}. */
+  scope: JobEditScope;
   /** Candidate draft, for {@link validateJobDraft}. Deliberately `unknown`:
    *  nothing here has been validated yet. */
   draft: Record<string, unknown>;
+}
+
+/**
+ * Which of the job page's two forms a submission came from.
+ *
+ * `"job"` — the editor: name, description, workflow, enabled, inputs.
+ * `"trigger"` — the schedule: kind, cron, timezone, and the two bounds.
+ */
+export type JobEditScope = "job" | "trigger";
+
+/**
+ * The ACTION-payload key that says which form submitted.
+ *
+ * Deliberately NOT a form field id, and deliberately not a value an
+ * operator types — the same reasoning `job_id` rides the action payload
+ * under. It is also NOT a trust boundary: a forged value can only make a
+ * save be read as the other scope, and BOTH scopes re-read the stored job
+ * and re-run the one validator over a complete draft. Nothing is reachable
+ * that way that a person with Hub access cannot already do by opening the
+ * other form — jobs are install-wide and editable by every viewer, which
+ * the console says out loud.
+ */
+export const EDIT_SCOPE_FIELD = "edit_scope";
+export const EDIT_SCOPE_TRIGGER: JobEditScope = "trigger";
+export const EDIT_SCOPE_JOB: JobEditScope = "job";
+
+/** The scope a page-action payload declares. Anything unrecognised reads as
+ *  `"job"`, the scope that carries every field and therefore cannot be used
+ *  to skip a check by omission. */
+export function editScopeFromActionPayload(payload: unknown): JobEditScope {
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) {
+    return EDIT_SCOPE_JOB;
+  }
+  return (payload as Record<string, unknown>)[EDIT_SCOPE_FIELD] === EDIT_SCOPE_TRIGGER
+    ? EDIT_SCOPE_TRIGGER
+    : EDIT_SCOPE_JOB;
 }
 
 /**
@@ -749,16 +961,133 @@ export function draftFromFormPayload(payload: unknown): SubmittedJobForm {
     // Shared with the run action, so the two can never disagree about
     // where the id lives.
     jobId: jobIdFromActionPayload(payload),
+    scope: editScopeFromActionPayload(payload),
     draft: {
       name: str(JOB_FORM_FIELDS.name) ?? "",
       description: str(JOB_FORM_FIELDS.description) ?? "",
       // Unknown values ride through to the store's validator on purpose.
       workflow: raw[JOB_FORM_FIELDS.workflow],
       input,
-      trigger: { kind: "manual" },
+      ...triggerDraftFrom(raw),
       enabled: str(JOB_FORM_FIELDS.enabled) !== ENABLED_NO,
     },
   };
+}
+
+/**
+ * The COMPLETE candidate draft to validate, given a submission and the job
+ * it targets.
+ *
+ * ## Why this exists at all: the silent un-scheduling it prevents
+ *
+ * The trigger moved to its own form because of the host's 10-field cap (see
+ * {@link triggerFormFields}). That split created a trap: the job editor no
+ * longer submits any trigger field, so a draft folded from it carries no
+ * `trigger` key, `validateJobDraft` applies its documented `undefined →
+ * manual` default, and **editing a cron job's name would silently
+ * un-schedule it.** No error, no diff the operator reads as a warning —
+ * the Trigger column would just say `manual` the next time they looked.
+ *
+ * So each scope takes its half from the submission and the OTHER half from
+ * the stored job:
+ *
+ *   - `"job"`     — the submitted five fields, plus the STORED trigger.
+ *   - `"trigger"` — the submitted trigger, plus the STORED five fields.
+ *
+ * A create (`stored === null`) has no other half to take, so it passes the
+ * submission through unchanged and lands as `manual` by the store's own
+ * default — which is the right shape: there is nothing to schedule until
+ * the job has an id to consent against.
+ *
+ * ## This is NOT a patch path
+ *
+ * The result is a WHOLE draft that goes through `validateJobDraft`, the one
+ * door, and comes out branded. Nothing is merged into a stored row behind
+ * the validator's back — the deliberate divergence from `ez-code-factory`'s
+ * `updateJob(id, patch)` that this module's header calls out. `handleJobRun`
+ * already re-reads and re-validates the same six fields before it spends
+ * anything; this is that move, one surface over.
+ *
+ * Pure: no storage, no clock. The caller supplies `stored`.
+ */
+export function candidateDraft(
+  submission: SubmittedJobForm,
+  stored: FactoryJob | null,
+): Record<string, unknown> {
+  if (stored === null) return submission.draft;
+  if (submission.scope === EDIT_SCOPE_TRIGGER) {
+    return {
+      name: stored.name,
+      description: stored.description,
+      workflow: stored.workflow,
+      input: stored.input,
+      enabled: stored.enabled,
+      // The one field this scope is allowed to move. Absent from the
+      // payload (a submission carrying no kind at all) means the store's
+      // `undefined → manual` default applies, which un-schedules rather
+      // than leaving a half-written trigger — the safe direction.
+      ...(submission.draft.trigger === undefined
+        ? {}
+        : { trigger: submission.draft.trigger }),
+    };
+  }
+  return {
+    ...submission.draft,
+    // Preserve the schedule the other form owns. Only when the submission
+    // carried none, so a payload that DOES name a trigger still wins — the
+    // scope decides, not the presence of a stored value.
+    ...(submission.draft.trigger === undefined ? { trigger: stored.trigger } : {}),
+  };
+}
+
+/**
+ * The `trigger` half of {@link draftFromFormPayload}, or `{}` when the form
+ * carried no trigger at all.
+ *
+ * ## This function replaced a hardcoded `trigger: {kind: "manual"}`
+ *
+ * That literal is why the console could not express a background trigger
+ * even after the store learned to accept one: whatever the operator picked,
+ * the payload folded to `manual` and the job saved as attended. The
+ * symptom would have been a Trigger column that always read "manual" with
+ * no error anywhere.
+ *
+ * ## Still not a validator
+ *
+ * Same contract as the rest of this module: it reads the fields it knows
+ * and invents nothing. Specifically —
+ *
+ *   - The `kind` is passed through UNTOUCHED, even if it is a value no
+ *     select offers. The store owns "which kinds exist" and produces the
+ *     real message; a second opinion here is how the two drift.
+ *   - The two bounds are passed through as the STRINGS the wire carries.
+ *     Coercing them here would put the numeric rule in two places, and
+ *     `validateJobDraft` already accepts a numeric string for exactly this
+ *     reason. A blank box therefore arrives as `""`, which the store
+ *     rejects with "required" — the correct answer, not a silent 0.
+ *   - The whole `trigger` key is OMITTED when the kind field is absent, so
+ *     the store's own `undefined → manual` default applies rather than
+ *     being restated here. That is what makes a payload from an older
+ *     rendered form still save as a manual job instead of failing.
+ *   - Hidden fields never arrive (the host omits them), so a manual job
+ *     cannot carry a stale cron expression and a webhook job cannot carry
+ *     one at all.
+ */
+function triggerDraftFrom(
+  raw: Record<string, unknown>,
+): { trigger?: Record<string, unknown> } {
+  const kind = raw[JOB_FORM_FIELDS.triggerKind];
+  if (kind === undefined) return {};
+  const trigger: Record<string, unknown> = { kind };
+  for (const [field, key] of [
+    [JOB_FORM_FIELDS.triggerCron, "cron"],
+    [JOB_FORM_FIELDS.triggerTimezone, "timezone"],
+    [JOB_FORM_FIELDS.triggerRunsPerDay, "maxRunsPerDay"],
+    [JOB_FORM_FIELDS.triggerTokensPerRun, "maxTokensPerRun"],
+  ] as const) {
+    if (raw[field] !== undefined) trigger[key] = raw[field];
+  }
+  return { trigger };
 }
 
 /** Read-only facts about the job being edited. Ids and timestamps only —
@@ -861,11 +1190,48 @@ export function buildJobPage(input: JobPageInput): HubPageTree {
         // The job id rides on the ACTION payload rather than a form field:
         // payload keys the operator cannot retype are the ones that should
         // not be typeable. A create carries no id and the handler mints one.
-        ...(editing ? { payload: { [JOB_FORM_FIELDS.jobId]: editing.id } } : {}),
+        ...(editing
+          ? {
+              payload: {
+                [JOB_FORM_FIELDS.jobId]: editing.id,
+                [EDIT_SCOPE_FIELD]: EDIT_SCOPE_JOB,
+              },
+            }
+          : {}),
       },
       editing ? "Save job" : "Create job",
     );
   });
+
+  // The schedule, in its own section and its own form — the host caps a
+  // form at 10 fields and the editor above already declares 8 (see
+  // `triggerFormFields`). Only for a job that exists: a background trigger
+  // is inert until a human consents to a delegation for it, and there is
+  // nothing to consent against until the job has an id.
+  if (editing) {
+    page.section("When it fires", (section) => {
+      section.markdownBlock(TRIGGER_HELP);
+      section.form(
+        triggerFormFields(editing),
+        {
+          event: JOB_SAVE_EVENT,
+          payload: {
+            [JOB_FORM_FIELDS.jobId]: editing.id,
+            [EDIT_SCOPE_FIELD]: EDIT_SCOPE_TRIGGER,
+          },
+        },
+        "Save schedule",
+      );
+      if (isBackgroundTrigger(editing.trigger)) {
+        // Saving a schedule mints no authority — a delegation does, and
+        // only a human can create one through core's session-only consent
+        // route. Without this the console would show a job whose Trigger
+        // column reads `cron · 0 3 * * *` and which never runs, and the
+        // only clue would be its absence from Recent runs.
+        section.emptyState("Saved, not yet armed", BACKGROUND_TRIGGER_NOTE);
+      }
+    });
+  }
 
   return page.build();
 }
