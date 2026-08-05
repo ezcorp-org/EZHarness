@@ -243,34 +243,187 @@ export function newJobId(): string {
 
 // ── Model ───────────────────────────────────────────────────────────
 
+// ── Background-trigger bounds ───────────────────────────────────────
+
+/**
+ * `permissions.triggers` from `ezcorp.config.ts`, mirrored.
+ *
+ * Mirrored rather than imported for the same reason {@link FACTORY_WORKFLOWS}
+ * is: importing `../ezcorp.config` would drag `defineExtension` — and with it
+ * a `src/extensions/**` host module — into the sandboxed bundle. A test pins
+ * the two against each other, so drift is a named failure rather than a
+ * silent one.
+ */
+export const TRIGGER_ENVELOPE = {
+  maxCron: 25,
+  maxWebhooks: 25,
+  maxRunsPerDay: 500,
+} as const;
+
+/**
+ * The most fires a day ONE background job may claim.
+ *
+ * Not a number picked here: it is the host's own per-key derivation,
+ * `defaultPerKeyCap(envelope, maxCron)` = `max(1, floor(500 / 25))` = 20
+ * (`src/extensions/triggers-store.ts`). The host applies that cap to every
+ * dynamic cron row whatever the extension asks for, so a job saved with a
+ * larger number would be throttled to 20 anyway — silently, and only ever
+ * visible as "it ran fewer times than I told it to". Refusing it at save
+ * time is the honest version of the same bound.
+ */
+export const MAX_JOB_RUNS_PER_DAY = Math.max(
+  1,
+  Math.floor(TRIGGER_ENVELOPE.maxRunsPerDay / TRIGGER_ENVELOPE.maxCron),
+);
+
+/**
+ * The most tokens ONE unattended run may spend.
+ *
+ * This one IS a number chosen here, because the host has none to inherit:
+ * the consent route accepts any positive integer
+ * (`web/src/routes/api/workflows/delegations/+server.ts` —
+ * `z.number().int().positive()`), deliberately, so the person consenting
+ * chooses. This console's job is to keep the choice bounded before it gets
+ * there.
+ *
+ * The arithmetic a reviewer should check before moving it: worst case for a
+ * single job is `MAX_JOB_TOKENS_PER_RUN × MAX_JOB_RUNS_PER_DAY` =
+ * 250k × 20 = 5M tokens a day, and the extension may hold
+ * {@link TRIGGER_ENVELOPE}`.maxCron` = 25 such jobs. Raising either number
+ * multiplies the unattended spend of every job on the install.
+ *
+ * The FLOOR is deliberately the host's own — a positive integer, nothing
+ * invented. A job whose ceiling is too low to finish a step wastes its own
+ * quota and no one else's, which is a bad job rather than an unsafe one.
+ */
+export const MAX_JOB_TOKENS_PER_RUN = 250_000;
+
+/** Longest cron expression this console will store. A 5-field expression
+ *  with fully-enumerated lists is far shorter; the bound just keeps an
+ *  unbounded string out of a field the host re-parses. */
+export const MAX_CRON_LEN = 120;
+/** Longest IANA zone name this console will store (`America/Argentina/
+ *  ComodRivadavia` is 32). */
+export const MAX_TIMEZONE_LEN = 64;
+
+/**
+ * The bounds every BACKGROUND trigger carries, and the reason they are on
+ * the trigger rather than beside it.
+ *
+ * A `workflow_delegations` row has `max_tokens_per_run` and
+ * `max_runs_per_day` as NOT NULL columns (`src/db/schema.ts`), and a
+ * delegated fire is the only way a background trigger ever reaches a run.
+ * Putting them in the trigger's own type makes "a background job without
+ * bounds" UNCONSTRUCTIBLE rather than merely rejected — a `manual` job has
+ * no delegation and therefore carries none, and the union is what says so.
+ *
+ * A cron job with no ceiling is a self-inflicted denial of service, and
+ * this program has already shipped one permanent-DoS shape by accident. A
+ * bound that lives in the validator only is a bound the next author can
+ * route around by adding a second write path; a bound that lives in the
+ * type cannot be.
+ */
+export interface JobTriggerBounds {
+  /** Fires a day, 1..{@link MAX_JOB_RUNS_PER_DAY}. Becomes the delegation
+   *  row's `max_runs_per_day`. */
+  maxRunsPerDay: number;
+  /** Tokens per run, 1..{@link MAX_JOB_TOKENS_PER_RUN}. Becomes the
+   *  delegation row's `max_tokens_per_run`. TOKENS, never cents — an
+   *  unpriced (OAuth-subscription) model reports a null price and would
+   *  spend without bound under a cost cap. */
+  maxTokensPerRun: number;
+}
+
 /**
  * How a job fires.
  *
- * **v1 accepts `manual` only** — see {@link validateJobDraft}. The other
- * shapes are modelled so a stored job written by a later version round-trips
- * through this store unmangled, not because anything here can create one.
+ * **`manual`, `cron` and `webhook` are creatable** (phase 9); `event` and
+ * `workflow` are modelled only so a stored job written by a later version
+ * round-trips through this store unmangled — see {@link validateJobDraft}.
  *
- * Background fires are refused rather than broken: a cron / webhook fire is
- * ownerless, and `ctx.workflows.run()` fails `-32106` without an acting user
- * (`src/extensions/workflows-handler.ts:325-345`). A job that fires and
- * silently starts nothing is worse than a job that cannot be created.
+ * ## What changed, and what did NOT
+ *
+ * Until phase 9 a background trigger was refused at creation, and the
+ * reason given was sound: a cron / webhook fire is ownerless, and
+ * `ctx.workflows.run()` fails `-32106` (`WORKFLOWS_NO_OWNER`) without an
+ * acting user. That refusal in the host is UNCHANGED and must stay — it
+ * exists because `WorkflowExecutor.runWorkflow` scopes `workflow:*` SSE on
+ * `userId` and is fail-closed without one.
+ *
+ * What changed is that `run` is no longer the only verb.
+ * `ctx.workflows.runFor(jobRef)` fires as the human who consented to a
+ * `workflow_delegations` row, which is exactly what an unattended fire
+ * needs, and the manifest now declares `workflows.allowDelegated` to opt
+ * in. So a background job is no longer "created and inert": it is created
+ * with the bounds a delegation requires, and stays unarmed until a human
+ * consents to it.
+ *
+ * **A saved background trigger is NOT itself authority.** Nothing in this
+ * store mints a delegation, and a job whose trigger is `cron` fires nothing
+ * until a human has consented through core's session-only consent route.
+ * That handoff is a separate surface; this type is the shape it reads.
  */
 export type JobTrigger =
   | { kind: "manual" }
-  | { kind: "cron"; cron: string; timezone: string }
-  | { kind: "webhook" }
+  | ({ kind: "cron"; cron: string; timezone: string } & JobTriggerBounds)
+  | ({ kind: "webhook" } & JobTriggerBounds)
   | { kind: "event"; event: string }
   | { kind: "workflow"; onWorkflow: string; onStatus: string[] };
+
+/** The trigger kinds that fire without a human present — the ones that
+ *  carry {@link JobTriggerBounds} and need a delegation to act. */
+export const BACKGROUND_TRIGGER_KINDS = ["cron", "webhook"] as const;
+
+export type BackgroundTriggerKind = (typeof BACKGROUND_TRIGGER_KINDS)[number];
+
+/** A trigger that fires unattended, narrowed so callers get the bounds. */
+export type BackgroundJobTrigger = Extract<
+  JobTrigger,
+  { kind: BackgroundTriggerKind }
+>;
+
+/**
+ * True when `trigger` fires without a human present.
+ *
+ * The one predicate for that question. The fire path, the console, and the
+ * consent handoff all need it, and three hand-rolled `kind === "cron" ||
+ * kind === "webhook"` checks is how one of them ends up disagreeing the day
+ * a third background kind lands.
+ */
+export function isBackgroundTrigger(
+  trigger: JobTrigger,
+): trigger is BackgroundJobTrigger {
+  return trigger.kind === "cron" || trigger.kind === "webhook";
+}
+
+/**
+ * The bounds a background trigger carries, or `null` for an attended one.
+ *
+ * The seam the delegation-consent handoff and the fire path read: both need
+ * `{maxRunsPerDay, maxTokensPerRun}` and neither should re-derive them from
+ * the trigger's shape.
+ */
+export function triggerBounds(trigger: JobTrigger): JobTriggerBounds | null {
+  return isBackgroundTrigger(trigger)
+    ? { maxRunsPerDay: trigger.maxRunsPerDay, maxTokensPerRun: trigger.maxTokensPerRun }
+    : null;
+}
 
 /**
  * Who a run is attributed to.
  *
- * **Written, never acted on.** v1 always writes `{kind: "user", id:
- * <creator>}` because that is the only attribution the host will accept, and
- * it accepts it from the calling identity, not from this field. Delegated
- * execution (`service`) is C3, which is unbuilt and blocked. The field exists
- * so a C3-era row has somewhere to land; reading it to make a decision today
- * would be inventing a capability.
+ * **Written, never acted on.** The store always writes `{kind: "user", id:
+ * <creator>}` because that is the only attribution the host will accept on
+ * a MANUAL fire, and it accepts it from the calling identity, not from this
+ * field.
+ *
+ * C3 has since merged, so `service` is no longer hypothetical — but it is
+ * still not this field's to decide. A delegated fire runs as the owner
+ * recorded on the `workflow_delegations` row (`owner_kind` / `owner_id`),
+ * which a human set when they consented; reading THIS field to choose an
+ * owner would let a job's stored bytes name who it runs as, which is the
+ * confused deputy that table is shaped to prevent. It stays an attribution
+ * record.
  */
 export interface JobRunAs {
   kind: "user" | "service";
@@ -291,10 +444,12 @@ export interface FactoryJob {
   enabled: boolean;
   /** Forward-compat, never read. See {@link JobRunAs}. */
   runAs: JobRunAs;
-  /** Forward-compat, always `null` in v1. C3 hashes the transitive closure of
-   *  a graph at consent time; nothing computes or checks a hash today, so
-   *  writing anything but `null` here would claim a verification that does
-   *  not happen. */
+  /** Always `null`, and it stays that way even now C3 has merged. The
+   *  consent hash is computed HOST-side over the transitive closure of the
+   *  graph (`computeDelegationConsentRecord`) and re-derived at fire time to
+   *  compare; a copy stored here would be a second answer this extension
+   *  cannot recompute, which is worse than no answer. The authoritative
+   *  value lives on the `workflow_delegations` row. */
   consentHash: string | null;
   createdBy: string;
   createdAt: string;
@@ -559,28 +714,202 @@ function validateInput(
 }
 
 /**
- * v1 accepts `manual` only. See {@link JobTrigger} for why a background
- * trigger is refused at creation rather than created and left inert.
+ * A bounded positive integer, accepting a NUMERIC STRING as well as a
+ * number.
+ *
+ * The string form is not a convenience: every value the Hub's form node
+ * collects is a string, so `maxRunsPerDay` arrives as `"20"`. The same
+ * coercion the three tools' numeric args already document ("Number or
+ * numeric string"). Over-cap input is REJECTED, never clamped — a coercion
+ * that accepts `"20"` must not become one that accepts anything.
+ */
+function boundedCount(
+  raw: unknown,
+  field: string,
+  max: number,
+): JobResult<number> {
+  let value: number;
+  if (typeof raw === "number") {
+    value = raw;
+  } else if (typeof raw === "string" && /^[0-9]+$/.test(raw.trim())) {
+    // Digits only: `parseInt` would happily read "20 runs" as 20, and
+    // `Number("")` is 0. Neither is a number the operator typed.
+    value = Number(raw.trim());
+  } else {
+    return {
+      ok: false,
+      error: `${field} is required and must be a whole number (1-${max})`,
+    };
+  }
+  if (!Number.isInteger(value) || value < 1 || value > max) {
+    return {
+      ok: false,
+      error: `${field} must be a whole number between 1 and ${max} (got ${value})`,
+    };
+  }
+  return { ok: true, value };
+}
+
+/**
+ * Structural check on a cron expression.
+ *
+ * **Shape only, and the host stays the authority.** `validateCron`
+ * (`src/extensions/cron.ts`) owns the semantics — field ranges, steps,
+ * lists, and the minimum 5-minute interval — and `ctx.triggers.register`
+ * returns `TRIGGER_CRON_INVALID` with the validator's own message verbatim
+ * on `data.cronReason`, which is what belongs next to the field the
+ * operator typed into. Re-implementing those rules here would give the
+ * console a second opinion that can drift from the one that decides.
+ *
+ * What IS checked here is the part that cannot drift: a 5-field expression
+ * is the host's stated contract (its own error reads "expected 5 fields,
+ * got 4") and `@`-shorthand is refused outright. Catching those two in the
+ * console turns the most common typo into an immediate message instead of
+ * a job that saves and never arms.
+ *
+ * Note what bounds the DAMAGE either way: it is not the interval, it is
+ * {@link JobTriggerBounds.maxRunsPerDay}, which is mandatory and capped at
+ * {@link MAX_JOB_RUNS_PER_DAY}. Even an accepted every-five-minutes
+ * expression (288 potential fires a day) cannot exceed it.
+ */
+function validateCronExpr(raw: unknown): JobResult<string> {
+  if (typeof raw !== "string") {
+    return { ok: false, error: "trigger.cron is required and must be a string" };
+  }
+  const cron = raw.trim();
+  if (cron === "") return { ok: false, error: "trigger.cron is required" };
+  if (cron.length > MAX_CRON_LEN) {
+    return {
+      ok: false,
+      error: `trigger.cron must be ${MAX_CRON_LEN} characters or fewer (got ${cron.length})`,
+    };
+  }
+  if (cron.startsWith("@")) {
+    return {
+      ok: false,
+      error: "trigger.cron does not accept @shorthand — write a 5-field expression (min hour dom month dow)",
+    };
+  }
+  const fields = cron.split(/\s+/);
+  if (fields.length !== 5) {
+    return {
+      ok: false,
+      error: `trigger.cron must have 5 fields (min hour dom month dow); got ${fields.length}`,
+    };
+  }
+  return { ok: true, value: cron };
+}
+
+/**
+ * An IANA time zone the runtime can actually resolve.
+ *
+ * Checked HERE rather than deferred, unlike the cron expression, because
+ * the host does not check it: `triggers-handler.ts` only asserts
+ * `typeof timezone === "string"` and hands it straight to
+ * `parseCron(expr, timezone)`, which resolves it through
+ * `Intl.DateTimeFormat`. A bogus zone therefore surfaces as a thrown
+ * `RangeError` from inside the register call rather than as a field error.
+ *
+ * `Intl` is untouched by the sandbox preload (it poisons `node:fs`,
+ * `Bun.file`, `Bun.write` and `Bun.glob`), and `src/extensions/cron.ts`
+ * resolves zones the same way — so this asks the same question the host
+ * will ask, with the same implementation, one step earlier.
+ */
+function validateTimezone(raw: unknown): JobResult<string> {
+  if (typeof raw !== "string") {
+    return {
+      ok: false,
+      error: "trigger.timezone is required and must be an IANA zone (e.g. America/New_York)",
+    };
+  }
+  const timezone = raw.trim();
+  if (timezone === "") return { ok: false, error: "trigger.timezone is required" };
+  if (timezone.length > MAX_TIMEZONE_LEN) {
+    return {
+      ok: false,
+      error: `trigger.timezone must be ${MAX_TIMEZONE_LEN} characters or fewer (got ${timezone.length})`,
+    };
+  }
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+  } catch {
+    // The only thing this throws for is an unresolvable zone, and the
+    // operator-facing message is the same either way. Re-reporting the
+    // RangeError's text would leak an implementation detail into a form.
+    return {
+      ok: false,
+      error: `trigger.timezone '${timezone}' is not a time zone this runtime knows (use an IANA name like America/New_York or UTC)`,
+    };
+  }
+  return { ok: true, value: timezone };
+}
+
+/**
+ * Validate a trigger.
+ *
+ * `manual`, `cron` and `webhook` are accepted; `event` and `workflow` are
+ * still refused, because nothing dispatches them — modelling a shape is not
+ * the same as having a path that fires it, and a job that saves and can
+ * never run is the failure this whole function exists to prevent.
+ *
+ * **A background trigger cannot be built without its bounds.** Both are
+ * REQUIRED, neither defaults, and there is no "unlimited". A default would
+ * be a number nobody chose and an unlimited option would be the number
+ * everybody chooses — the same reasoning core's own consent route gives
+ * for refusing to default them. They are what a `workflow_delegations` row
+ * needs as NOT NULL columns, so a job without them could never become an
+ * armed delegation anyway; requiring them here is what stops a
+ * half-configured job existing in the first place.
  */
 function validateTrigger(raw: unknown): JobResult<JobTrigger> {
   if (raw === undefined) return { ok: true, value: { kind: "manual" } };
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
     return { ok: false, error: "trigger must be an object" };
   }
-  const kind = (raw as { kind?: unknown }).kind;
+  const trigger = raw as Record<string, unknown>;
+  const kind = trigger.kind;
   if (kind === "manual") return { ok: true, value: { kind: "manual" } };
-  if (
-    kind === "cron" ||
-    kind === "webhook" ||
-    kind === "event" ||
-    kind === "workflow"
-  ) {
+
+  if (kind === "cron" || kind === "webhook") {
+    // Bounds first: they are the blast-radius bound, and reporting them
+    // before a cron typo means an operator who omitted them is told so
+    // rather than being sent round the loop twice.
+    const maxRunsPerDay = boundedCount(
+      trigger.maxRunsPerDay,
+      "trigger.maxRunsPerDay",
+      MAX_JOB_RUNS_PER_DAY,
+    );
+    if (!maxRunsPerDay.ok) return maxRunsPerDay;
+    const maxTokensPerRun = boundedCount(
+      trigger.maxTokensPerRun,
+      "trigger.maxTokensPerRun",
+      MAX_JOB_TOKENS_PER_RUN,
+    );
+    if (!maxTokensPerRun.ok) return maxTokensPerRun;
+    const bounds: JobTriggerBounds = {
+      maxRunsPerDay: maxRunsPerDay.value,
+      maxTokensPerRun: maxTokensPerRun.value,
+    };
+
+    if (kind === "webhook") return { ok: true, value: { kind: "webhook", ...bounds } };
+
+    const cron = validateCronExpr(trigger.cron);
+    if (!cron.ok) return cron;
+    const timezone = validateTimezone(trigger.timezone);
+    if (!timezone.ok) return timezone;
     return {
-      ok: false,
-      error: `trigger '${kind}' is not available yet: a background fire has no acting user, and starting a workflow without one is refused -32106 (delegated execution is C3, unbuilt). Only 'manual' can actually run.`,
+      ok: true,
+      value: { kind: "cron", cron: cron.value, timezone: timezone.value, ...bounds },
     };
   }
-  return { ok: false, error: "trigger.kind must be 'manual'" };
+
+  if (kind === "event" || kind === "workflow") {
+    return {
+      ok: false,
+      error: `trigger '${kind}' is modelled but not dispatched: nothing in this extension registers for it, so the job would save and never fire. Use 'manual', 'cron' or 'webhook'.`,
+    };
+  }
+  return { ok: false, error: "trigger.kind must be 'manual', 'cron' or 'webhook'" };
 }
 
 /** Required, trimmed, bounded string field. Over-length is REJECTED, never
@@ -610,7 +939,8 @@ function boundedText(
  * The one door into a writable job — see {@link ValidatedJobDraft}. Rejects,
  * in order: unknown or step-shaping fields, a blank / over-long name, an
  * over-long description, a workflow outside {@link FACTORY_WORKFLOWS}, a
- * non-manual trigger, and any input key outside the workflow's allowlist.
+ * trigger that is undispatchable or (for a background kind) unbounded, and
+ * any input key outside the workflow's allowlist.
  */
 export function validateJobDraft(draft: unknown): JobResult<ValidatedJobDraft> {
   if (typeof draft !== "object" || draft === null || Array.isArray(draft)) {

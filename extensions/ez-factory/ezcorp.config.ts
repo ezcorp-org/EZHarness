@@ -65,14 +65,9 @@
 //     claim rather than earn it. The real spend bound on the path that
 //     exists is `workflows.maxRunsPerHour`.
 //
-//   • `workflows.allowDelegated` — EXISTS since C3 phase 5, and this
-//     extension deliberately does not declare it. The flag opts an
-//     extension into `ctx.workflows.runFor`: firing a workflow it does
-//     NOT ship, as a human who created a delegation for it. ez-factory
-//     ships all three of its workflows and fires nothing else, so the
-//     per-name grant below is a strictly tighter bound than a delegation
-//     would be. Declaring the flag would widen the extension's reach to
-//     "any workflow some user delegates" in exchange for nothing it uses.
+//     (`workflows.allowDelegated` used to be on this list. It is NOT any
+//     more — see the `workflows` block below for why that entry's
+//     reasoning was wrong.)
 //
 //   • `eventSubscriptions` FOR PLATFORM EVENTS — specifically the
 //     `workflow:*` family. Such an event can never reach an extension:
@@ -192,9 +187,66 @@ export default defineExtension({
     //
     // `maxRunsPerHour` is the extension's only real spend bound (see the
     // `llm` note in the header) and is REQUIRED on the granted shape.
+    //
+    // ── `allowDelegated` — THE ONLY ROUTE TO AN UNATTENDED FIRE ──────
+    //
+    // Until phase 9 this extension declined the flag, and the written
+    // rationale was: it "would widen the extension's reach to 'any
+    // workflow some user delegates' in exchange for nothing it uses."
+    // BOTH halves of that are false, and the second one is what kept
+    // `triggers` above wired to a dead end for a whole phase.
+    //
+    //   1. "In exchange for nothing it uses." The extension declares
+    //      `triggers` — dynamic cron and webhook — and a trigger FIRE is
+    //      ownerless by construction: no conversation, no acting user.
+    //      `ctx.workflows.run()` is refused for an ownerless call at rung
+    //      7 (`WORKFLOWS_NO_OWNER`, `-32106`) because
+    //      `WorkflowExecutor.runWorkflow` scopes `workflow:*` SSE on
+    //      `userId` and is fail-closed without one. That refusal is
+    //      correct and must not be weakened. Which leaves exactly one
+    //      sanctioned path from a cron tick to a run — `ctx.workflows
+    //      .runFor(jobRef)`, gated on this flag. Declining it does not
+    //      make the extension narrower; it makes `permissions.triggers`
+    //      unactionable.
+    //
+    //   2. "Widen its reach to any workflow some user delegates." A
+    //      delegation is narrower than the per-name grant on every axis
+    //      that matters, not wider: ONE workflow rather than a list, a
+    //      named human who consented in a session-only route, a
+    //      capability-set hash re-derived and compared at fire time, a
+    //      per-row `max_runs_per_day` + `max_tokens_per_run`, and a
+    //      revocable row. The flag itself authorizes NO job — it only
+    //      makes the extension eligible to be delegated TO
+    //      (`capability-types.ts`: the boolean mints
+    //      `{kind:"ezcorp:workflows:run-delegated"}` and nothing else).
+    //
+    //      And the reach is fail-closed by ANOTHER control this does not
+    //      touch: `delegationPrincipal` carries `NO_PROJECT_MEMBERSHIPS`
+    //      (`src/runtime/workflow-scope.ts`), so a delegated fire only
+    //      ever resolves a `system`-visibility workflow. The three
+    //      templates below are system-visible because an extension asset
+    //      enters the cache as `systemCachedWorkflow(w, "extension")`; a
+    //      FORK of one is `project`-visibility and is therefore
+    //      unreachable to a delegation. Proven end to end by
+    //      `src/extensions/__tests__/workflows-delegated-self-shipped.test.ts`,
+    //      which fires this exact shape (self-shipped name, cron trigger,
+    //      ownerless caller) with `names: []` — so the accept is a
+    //      property of the delegated ladder, not of the grant.
+    //
+    // THREE-WAY BYTE MATCH, and this field's failure is the SILENT
+    // direction: `intersectPermissions` folds `allowDelegated` with `&&`,
+    // not `Math.min`, so a ceiling row that OMITS it yields
+    // `undefined && true` → falsy → delegation quietly denied while every
+    // other field sails through. TypeScript cannot catch it (the field is
+    // optional on the granted type). It must be stated in all three of
+    // this manifest, the install grant in `src/extensions/bundled.ts`,
+    // and the `src/extensions/bundled-ceiling.ts` row —
+    // `src/__tests__/ez-factory-bundled-install.test.ts` asserts the
+    // three-way match AND that the flag survives to the persisted grant.
     workflows: {
       names: ["docs-factory", "etl-factory", "draft-and-verify"],
       maxRunsPerHour: 60,
+      allowDelegated: true,
     },
 
     // Read sources and write artifacts inside the active project. `$CWD`

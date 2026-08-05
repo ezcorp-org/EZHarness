@@ -57,7 +57,10 @@
  *     what omitting a numeric does. The cost is that omission is SILENT:
  *     a row that should permit delegation must say `allowDelegated: true`
  *     explicitly, and TypeScript will not remind you. Same class of trap
- *     as `webhookPrefix` below. No bundled row declares it today.
+ *     as `webhookPrefix` below. `ez-factory` is the FIRST and only
+ *     bundled row to declare it — see that row for the security argument,
+ *     and `src/__tests__/ez-factory-bundled-install.test.ts` for the
+ *     negative control that proves an omitting ceiling denies.
  *   • `triggers` (C2) — `{maxCron, maxWebhooks, webhookPrefix,
  *     maxRunsPerDay}`. All four are REQUIRED on
  *     `ExtensionPermissions["triggers"]` for exactly this reason. Note the
@@ -550,6 +553,53 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
   // `runAgent` → `createPiLlmAdapter` and never consult the grant), which
   // is why there is no `llm` row here and none in the manifest.
   //
+  // ── RAISING THE CEILING: `workflows.allowDelegated` (phase 9) ───────
+  //
+  // FIRST BUNDLED ROW TO PERMIT DELEGATION, and it is a deliberate raise
+  // of this extension's bound, not bookkeeping. What it admits is
+  // `ctx.workflows.runFor(jobRef)` — firing on behalf of a human who
+  // minted a `workflow_delegations` row.
+  //
+  // Why this is the NARROW option rather than the wide one. The
+  // extension declares `triggers` (dynamic cron + webhook) two fields up.
+  // A trigger fire is ownerless by construction, and `ctx.workflows
+  // .run()` is refused for an ownerless call at rung 7
+  // (`WORKFLOWS_NO_OWNER`, -32106) because `WorkflowExecutor.runWorkflow`
+  // scopes `workflow:*` SSE on `userId` and is fail-closed without one.
+  // That refusal stands and must not be weakened. So the ceiling's real
+  // choice was never "delegation or nothing"; it was "delegation, or a
+  // `triggers` grant that can never act". A permitted-but-unactionable
+  // capability is the worse bound: it looks enforced and is untested.
+  //
+  // What the raise actually buys an attacker who compromises the
+  // manifest — the threat this whole file is shaped against — is
+  // NOTHING on its own:
+  //
+  //   · The boolean mints exactly one capability,
+  //     `{kind:"ezcorp:workflows:run-delegated"}` (`capability-types.ts`),
+  //     and authorizes no job. Firing still needs a `workflow_delegations`
+  //     row, which only a SESSION-authenticated human can mint
+  //     (`web/src/routes/api/workflows/delegations/+server.ts` —
+  //     `requireSessionAuth`, no API key), which is per-workflow, pinned
+  //     to a re-derived capability-set hash, revocable, and carries its
+  //     own `max_tokens_per_run` + `max_runs_per_day`.
+  //   · Reach is fail-closed independently of this row:
+  //     `delegationPrincipal` carries `NO_PROJECT_MEMBERSHIPS`
+  //     (`src/runtime/workflow-scope.ts`), so a delegated fire resolves
+  //     `system`-visibility workflows ONLY. A fork of a shipped template
+  //     is `project`-visibility and stays unreachable.
+  //   · The extension's own `workflows.names` list is UNCHANGED, and the
+  //     hourly bound is UNCHANGED at 60.
+  //
+  // THE TRAP, and it is the silent-denial direction rather than the
+  // silent-widening one: `intersectPermissions` folds this field with
+  // `&&`, not `Math.min`. Deleting it HERE while the manifest and install
+  // grant keep it yields `undefined && true` → falsy → the flag is
+  // dropped, `runFor` refuses, and every unattended job stops firing with
+  // no error anywhere. TypeScript will not catch it (optional field).
+  // `src/__tests__/ez-factory-bundled-install.test.ts` does, with a
+  // negative control that deletes it from a copy of this row.
+  //
   // NO `shell` / `network` / `env` / `llm`. The filesystem grant is `$CWD`
   // only — never `$USER`, which collapses to a NUL-bearing sentinel
   // matching nothing when there is no acting user to partition by, and
@@ -586,6 +636,7 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
     workflows: {
       names: ["docs-factory", "etl-factory", "draft-and-verify"],
       maxRunsPerHour: 60,
+      allowDelegated: true,
     },
     filesystem: ["$CWD"],
     eventSubscriptions: ["ez-factory:job-save", "ez-factory:job-run"],

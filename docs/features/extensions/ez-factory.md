@@ -41,9 +41,33 @@ A `FactoryJob` is `{ id, name, description, workflow, input, trigger, enabled, r
 - Bounds: `MAX_JOB_NAME_LEN` 80, `MAX_JOB_DESCRIPTION_LEN` 500, `MAX_JOB_INPUT_CHARS` 16 384 (measured the host's way — `JSON.stringify(...).length`, UTF-16 code units, so the two checks agree exactly on non-ASCII), `MAX_JOB_INPUT_DEPTH` 8, `MAX_RUNS_PER_JOB` 50, `JOB_ID_RE` = `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` — constrained *because* ids are spliced into storage keys (`job:<id>`, `run:<jobId>:<runId>`), so an id carrying `:` could forge another job's key (`:208-237`).
 - `validateJobDraft` is the **only** minter of a `ValidatedJobDraft`, a type-only branded `JobDraft`; `createJob`/`saveJob` accept nothing else, so there is no patch path around the allowlist.
 - **Every mutation runs inside `withLock`, structurally.** `rmw` is the only function in the module that touches `storage.set`/`storage.delete` and its whole body is a `withLock`, so a read-modify-write cannot be written any other way without adding a second call site — which `lib/jobs.test.ts` asserts does not exist. This is the binding rule in `src/extensions/CLAUDE.md`, and three earlier extensions shipped the bug it prevents.
-- `runAs` and `consentHash` are **written and never read** (`:877-881`) — forward-compat landing spots for delegated execution and consent hashing. v1 always writes `{kind:"user", id:<creator>}` and `null`.
+- `runAs` and `consentHash` are **written and never read**. `runAs` always holds `{kind:"user", id:<creator>}` — an attribution record, not a decision: a delegated fire runs as the owner on the `workflow_delegations` row, which a human set when they consented, and letting a job's stored bytes name who it runs as is the confused deputy that table is shaped to prevent. `consentHash` stays `null` because the authoritative value is computed host-side over the transitive closure of the graph and re-derived at fire time; a copy here would be a second answer this extension cannot recompute.
 
-**v1 accepts `trigger: manual` only** (`validateTrigger`, `:565-584`). `cron` / `webhook` / `event` / `workflow` are modelled so a row written by a later version round-trips unmangled, and are **refused at creation** with a named reason: a background fire has no acting user, and `ctx.workflows.run()` answers `-32106` without one. A job that fires and silently starts nothing is worse than a job that cannot be created. Nothing in the extension calls `ctx.triggers` today — the `triggers` grant in the manifest is the declared envelope for when C3 lands, not a live code path.
+**Creatable triggers: `manual`, `cron`, `webhook`** (`validateTrigger`). `event` / `workflow` are modelled so a row written by a later version round-trips unmangled, and are **refused at creation** — nothing in the extension registers for either, so such a job would save and never fire.
+
+Background kinds were refused too until phase 9, on sound reasoning that has since been overtaken: a cron/webhook fire is ownerless and `ctx.workflows.run()` answers `-32106` (`WORKFLOWS_NO_OWNER`) without an acting user. **That host refusal is unchanged and deliberate** — `WorkflowExecutor.runWorkflow` scopes `workflow:*` SSE on `userId` and is fail-closed without one. What changed is that `run` is no longer the only verb: `ctx.workflows.runFor(jobRef)` fires as the human who consented to a `workflow_delegations` row, and the manifest now declares `workflows.allowDelegated` to opt in.
+
+**A background trigger cannot exist without its bounds, and that is a type-level property.** The two delegation columns live on the trigger's own union arm:
+
+```ts
+| ({ kind: "cron"; cron: string; timezone: string } & JobTriggerBounds)
+| ({ kind: "webhook" } & JobTriggerBounds)
+```
+
+so "a background job without bounds" is unconstructible, not merely rejected — a `manual` job has no delegation and carries none. A bound that lives only in a validator is one the next author routes around by adding a second write path.
+
+| Bound | Range | Where the number comes from |
+|---|---|---|
+| `maxRunsPerDay` | 1–20 | **The host's own** `defaultPerKeyCap(500, 25)` (`triggers-store.ts`), applied to every dynamic cron row regardless. A larger value would be throttled silently, so refusing it is the honest version of the same bound. |
+| `maxTokensPerRun` | 1–250 000 | **Chosen here.** The consent route deliberately accepts any positive integer — the consenting human decides — so this is the console's own bound. Worst case per job is 250k × 20 = 5M tokens/day, and the envelope allows 25 such jobs. |
+
+Neither defaults and neither has an "unlimited": the same line core's consent route draws — a default is a number nobody chose, an unlimited option is the number everybody chooses. Over-cap is **rejected, never clamped**. Numeric *strings* are accepted (every Hub form value is a string) but only all-digit ones — `parseInt` would read `"20 runs"` as 20 and `Number("")` is 0.
+
+Cron **semantics stay the host's**: `validateCron` (`src/extensions/cron.ts`) owns field ranges, steps and the minimum 5-minute interval, and `register` returns its verdict verbatim on `data.cronReason`. Only what cannot drift is checked locally — 5 fields (the host's own error reads "expected 5 fields") and no `@shorthand`. A sub-5-minute expression is deliberately **not** rejected here; what bounds the damage is `maxRunsPerDay`, which is mandatory and capped. The **timezone** *is* checked here, because the host does not: `triggers-handler.ts` only asserts `typeof === "string"` before handing it to `parseCron`, which resolves it through `Intl` and throws on a bad zone. It is required and never left to the host's default — a schedule whose meaning depends on the server's zone is a schedule nobody chose.
+
+**Saving a background trigger arms nothing.** No delegation is minted here; the job stays inert until a human consents through core's session-only route. The editor says so in as many words.
+
+Seams for the fire path: `isBackgroundTrigger()`, `triggerBounds()` (the delegation row's two NOT NULL columns, or `null` for an attended trigger), `BACKGROUND_TRIGGER_KINDS`, `TRIGGER_ENVELOPE`, `MAX_JOB_RUNS_PER_DAY`, `MAX_JOB_TOKENS_PER_RUN`.
 
 #### Invariant B — a job cannot configure away a protected step
 
@@ -163,9 +187,12 @@ Every outcome is audited **including the refusals**, because a Hub page action h
 ### As a user
 
 1. Open the **Factory** tab in the Hub (global) or on a project (`/project/<id>/hub/ext:ez-factory:factory`).
-2. Create a job in the **Job** editor: pick one of the three shipped workflows, fill the allowlisted inputs, Save. The trigger is `manual` — that is the only kind v1 accepts.
-3. Fire it from the console's Run button, or start the workflow directly from chat via `![workflow:ez-factory:<name>]` / the `run_workflow` tool (see [[workflows]]) — note that a chat-started run carries no `jobRef` and so does not appear under the job.
-4. Follow the run on core's trace at `/workflows/runs/<id>`; answer any parked gate at `/workflows/approvals`.
+2. Create a job in the **Job** editor: pick one of the three shipped workflows, fill the allowlisted inputs, Save. A create is always `manual` — there is nothing to schedule against until the job has an id.
+3. Optionally set a schedule in the editor's **When it fires** form: pick `cron` or `webhook`, and state both limits (there is no default). Saving it **arms nothing** — the job stays inert until a human authorizes a delegation for it in the workflow UI.
+4. Fire it from the console's Run button, or start the workflow directly from chat via `![workflow:ez-factory:<name>]` / the `run_workflow` tool (see [[workflows]]) — note that a chat-started run carries no `jobRef` and so does not appear under the job.
+5. Follow the run on core's trace at `/workflows/runs/<id>`; answer any parked gate at `/workflows/approvals`.
+
+The editor renders **two forms**, and that is a host bound rather than taste: `validateFormNode` caps a form at `MAX_FORM_FIELDS` = 10 and **drops the excess silently**, after which `pruneDanglingConditions` strips `visibleWhen` from any survivor whose target was dropped. The job half already declares 8 and an honest trigger needs 5, so one form would have deleted two input fields *and* then shown every remaining input on every workflow. Both forms POST the same granted `ez-factory:job-save` — a third page action would be a real grant widening across three files — and are told apart by `edit_scope` on the action payload.
 
 ### REST API
 
@@ -173,7 +200,9 @@ None of its own. Every HTTP surface it uses is core's — `GET/POST /api/hub/pag
 
 ### Permissions & RBAC scopes
 
-Granted, and repeated byte-for-byte in **both** `src/extensions/bundled.ts` and `BUNDLED_CEILING`: `storage`, `filesystem: ["$CWD"]`, `triggers` (25 cron / 25 webhook, prefix `factory-`, 500 runs/day), `workflows` (`["docs-factory","etl-factory","draft-and-verify"]`, 60 runs/hour), and **two** event subscriptions — `ez-factory:job-save` and `ez-factory:job-run`.
+Granted, and repeated byte-for-byte in **both** `src/extensions/bundled.ts` and `BUNDLED_CEILING`: `storage`, `filesystem: ["$CWD"]`, `triggers` (25 cron / 25 webhook, prefix `factory-`, 500 runs/day), `workflows` (`["docs-factory","etl-factory","draft-and-verify"]`, 60 runs/hour, **`allowDelegated: true`**), and **two** event subscriptions — `ez-factory:job-save` and `ez-factory:job-run`.
+
+`workflows.allowDelegated` (phase 9) is what makes the `triggers` grant actionable, and it is the **first** bundled row to permit delegation. It authorizes no job by itself: the boolean mints exactly one capability, `{kind:"ezcorp:workflows:run-delegated"}`, and firing still needs a `workflow_delegations` row only a **session-authenticated human** can mint (`requireSessionAuth` — an API key cannot), which is per-workflow, pinned to a re-derived capability-set hash, revocable, and carries its own `max_tokens_per_run` / `max_runs_per_day`. Reach is fail-closed by a separate control: `delegationPrincipal` carries `NO_PROJECT_MEMBERSHIPS`, so a delegated fire resolves **`system`-visibility workflows only** — ez-factory's three shipped assets qualify (`systemCachedWorkflow(w, "extension")`); a *fork* of one is `project`-visibility and stays unreachable. `workflows.names` and `maxRunsPerHour` are unchanged: the raise is one boolean.
 
 `$CWD` and never `$USER`: an unresolved `$USER` segment collapses to `UNRESOLVED_USER_PREFIX`, a NUL-bearing sentinel matching no path, and a workflow tool step has no acting user to partition by — so a `$USER` grant would deny every write.
 
@@ -183,8 +212,8 @@ Granted, and repeated byte-for-byte in **both** `src/extensions/bundled.ts` and 
 
 - `extensions/ez-factory/ezcorp.config.ts` — the manifest: 2 pages, 3 tools, the `triggers`/`workflows`/`filesystem`/`storage` grants, 2 page-action events, 3 `rbacScopes`, and a header stating what is deliberately absent and why.
 - `extensions/ez-factory/index.ts` — wiring only: the host-fs adapter, the lazy store/audit/workflow singletons, `reconcileRuns`, the two page renderers, `handleJobSave` / `handleJobRun`, and `start()`.
-- `extensions/ez-factory/lib/jobs.ts` — `FactoryJob`/`JobDraft`/`JobTrigger`/`JobStore`, `validateJobDraft` (sole minter of `ValidatedJobDraft`), the bounds, invariant B's three doors, and `rmw` as the only writer.
-- `extensions/ez-factory/lib/page.ts` — pure tree builders, invariants J and K, page ids, hrefs, `parseFactoryView`/`parseJobView`.
+- `extensions/ez-factory/lib/jobs.ts` — `FactoryJob`/`JobDraft`/`JobTrigger`/`JobTriggerBounds`/`JobStore`, `validateJobDraft` (sole minter of `ValidatedJobDraft`), the bounds, invariant B's three doors, `rmw` as the only writer, and the background-trigger seams (`isBackgroundTrigger`, `triggerBounds`, `TRIGGER_ENVELOPE`).
+- `extensions/ez-factory/lib/page.ts` — pure tree builders, invariants J and K, page ids, hrefs, `parseFactoryView`/`parseJobView`, the two form-field sets (`jobFormFields` / `triggerFormFields`), and `candidateDraft`, which completes each half-submission from the stored job.
 - `extensions/ez-factory/lib/sanitize.ts` — the prompt-hygiene chokepoint: the three-stage pipeline, marker neutralization, and the BEGIN/END framing.
 - `extensions/ez-factory/lib/audit.ts` — bounded, day-bucketed, id-only trail with truncation markers and retention pruning.
 - `extensions/ez-factory/lib/tools/` — `read-files.ts`, `write-file.ts`, `emit-artifact.ts`, `shared.ts` (bounds + invariant E), and the `index.ts` handler map.
@@ -194,10 +223,10 @@ Granted, and repeated byte-for-byte in **both** `src/extensions/bundled.ts` and 
 - `src/extensions/ez-factory-agents.ts` — the three host-seeded agent rows and the prompt text carrying invariants 14 and 15.
 - `src/__tests__/ez-factory-agents.test.ts` — asserts every directive verbatim and both prompt geometries.
 - `src/extensions/bundled.ts` — the `ez-factory` boot entry and install grant (no `bootSpawn`: the console is user-driven).
-- `src/extensions/bundled-ceiling.ts` — the ceiling row; the first bundled row to carry `triggers`.
-- `src/extensions/workflows-handler.ts` — `jobRef` validation and the run ladder `ctx.workflows.run()` goes through.
+- `src/extensions/bundled-ceiling.ts` — the ceiling row; the first bundled row to carry `triggers` AND the first to permit `workflows.allowDelegated`.
+- `src/extensions/workflows-handler.ts` — `jobRef` validation, the run ladder `ctx.workflows.run()` goes through, and the delegated `runFor` ladder `allowDelegated` opts into.
 - `src/runtime/workflow-extension-loader.ts` — namespaces each shipped YAML to `ez-factory:<name>`.
-- `src/__tests__/ez-factory-bundled-install.test.ts` — exercises the `triggers` install path, previously unexercised by any bundled extension.
+- `src/__tests__/ez-factory-bundled-install.test.ts` — exercises the `triggers` install path (previously unexercised by any bundled extension) and the `allowDelegated` three-way match, with negative controls on both sides of the `&&` fold.
 - `manifest.lock.json` (repo root) — the shared bundled-extension tamper lockfile; carries the `ez-factory` `version`/`entrypoint`/`toolsHash` row.
 - `web/e2e/ez-factory-console.spec.ts`, `web/e2e/ez-factory-job-editor.spec.ts` — the two mock-gate e2e specs; `web/e2e/real-auth/ez-factory-job-run.spec.ts` covers the fire path on the real-auth lane.
 
@@ -213,7 +242,7 @@ Granted, and repeated byte-for-byte in **both** `src/extensions/bundled.ts` and 
 - [[audit-and-observability]] — job edits and fires write to the extension's own bounded trail, distinct from the platform audit log.
 - [[agents]] — the three seeded `agent_configs` rows the templates dispatch to.
 - [[mention-grammar]] — a shipped template is reachable from chat via the `!` sigil's `workflow` kind.
-- [[scheduling-and-loops]] — where cron/webhook job triggers will land; the `triggers` grant is declared, and v1 registers none.
+- [[scheduling-and-loops]] — `ctx.triggers` is where a saved cron/webhook job becomes a live row. The store models and validates such a job; registering the trigger and acting on the fire are the next step.
 
 ## Related docs
 
@@ -222,10 +251,13 @@ No standalone spec exists; this file is the primary reference. The manifest head
 ## Notes & gotchas
 
 - **The predecessor is gone.** `ez-code-factory`, a reference extension under `docs/extensions/examples/` that gated `git push`, was **retired 2026-08-03** (phase 9). It is unrelated to this extension beyond the name and a family of ported invariants; read it in git history. Its git-specific and shell-jail controls (trusted-branch config reads, patch-id force-push safety, HEAD continuity, the nested jail, fail-safe jail widening, hermetic subprocess env) are **deferred with the git template**, because `run_command` is cut from v1 and `ez-factory` requests no `shell` grant at all.
-- **Background fires are refused, not broken.** Only `trigger: manual` is creatable. A cron or webhook fire is ownerless and `ctx.workflows.run()` answers `-32106` without an acting user, so a background trigger is rejected at creation with that reason rather than saved and left silently inert.
-- **`runAs` and `consentHash` are inert.** Both are written and never read. Reading either to make a decision today would be inventing a capability that does not exist.
+- **A background fire still cannot use `run`.** `ctx.workflows.run()` answers `-32106` for an ownerless call and that refusal is deliberate, not a gap to close. `runFor` is the sanctioned path and `workflows.allowDelegated` is its opt-in. Anything that "fixes" the ownerless refusal is a regression.
+- **Saving a schedule arms nothing.** A cron job is inert until a human consents to a `workflow_delegations` row for it. The console says so on the editor, because the alternative failure mode is a job whose Trigger column reads `cron · 0 3 * * 1` and which never runs, with an empty Recent-runs tab as the only clue.
+- **The job form carries no trigger field, so a save must PRESERVE the stored schedule.** The two-form split made this a live trap: a draft folded straight from the job editor has no `trigger`, `validateJobDraft` applies its `undefined → manual` default, and **renaming a cron job would silently un-schedule it**. `candidateDraft` completes each submission from the stored row so what reaches the validator is always a whole job — which is also why this is not a patch path.
+- **`runAs` and `consentHash` are inert.** Both are written and never read, and stay that way now C3 has merged — the authoritative owner and consent hash live on the delegation row. Reading either here would let a job's stored bytes name who it runs as.
 - **The ceiling row must repeat `webhookPrefix` byte-for-byte.** `intersectPermissions` does not intersect or merge a namespace claim — when the two sides disagree it **drops the whole `triggers` grant, silently, at boot**. All four numeric fields are likewise required on the granted shape: a missing numeric makes `Math.min(NaN, …)` and kills the grant the same way. Manifest, install grant and ceiling row: all three, or the intersection drops what any two disagree on.
-- **Editing `tools` OR `permissions` requires regenerating the repo-root `manifest.lock.json` in the same commit** (`bun run scripts/regenerate-manifest-lock.ts`). The permissions half is not obvious: the lock hashes `manifest.tools`, and a tool that declares no `capabilities` of its own **inherits** one derived from the permissions block — so adding `eventSubscriptions` rewrote every tool's canonical form and moved `toolsHash` without a character of the `tools` array changing. The host then logs `reason: "tool-list drift"`, which points at the one thing that did not drift. A stale lock does not fail on first install; it fails on the **next** boot, fail-closed with `enabled: false`, so the extension looks perfect and then silently disables itself.
+- **`allowDelegated` is the same trap with no type-system help.** `intersectPermissions` folds it with `&&`, not `Math.min`, and it is *optional* on the granted type — so a side that omits it yields `undefined && true` → falsy, the flag is dropped, and every other field sails through untouched. `runFor` then refuses, and because a cron fire has no session there is nowhere for the refusal to surface. `src/__tests__/ez-factory-bundled-install.test.ts` runs the real intersection *and* the real capability translation, with negative controls on both sides.
+- **Editing `tools` OR `permissions` requires regenerating the repo-root `manifest.lock.json` in the same commit** (`bun run scripts/regenerate-manifest-lock.ts`). The permissions half is not obvious: the lock hashes `manifest.tools`, and a tool that declares no `capabilities` of its own **inherits** one derived from the permissions block — so adding `eventSubscriptions` rewrote every tool's canonical form and moved `toolsHash` without a character of the `tools` array changing. The host then logs `reason: "tool-list drift"`, which points at the one thing that did not drift. A stale lock does not fail on first install; it fails on the **next** boot, fail-closed with `enabled: false`, so the extension looks perfect and then silently disables itself. Note the derivation is *selective*: `deriveCapsFromExtensionPerms` reads network / filesystem / shell / env / storage / appendMessages / agentConfig / spawnAgents / taskEvents / loopEvents / eventSubscriptions / webhooks and **never `workflows` or `triggers`** — so the phase-9 `allowDelegated` edit legitimately left `toolsHash` unmoved. Regenerate anyway; the check is cheap and the failure is silent.
 - **A dropped page action fails silently, not loudly.** `validatePageTree` checks every action against `allowedEvents` derived from the runtime grant's `eventSubscriptions` (empty ⇒ `[]`), and a `form`/`button`/table row whose action fails the check is **dropped from the tree** — not disabled, not an error. The page renders, looks complete, and has no Save. The POST route independently 404s via `isRegisteredExtensionEvent`. This is why `job-run` being missing from the grant made the console read-only while looking finished.
 - **Jobs are install-wide and unowned.** Anyone who can reach the Hub page can edit or fire anyone's job. The page says so; the store has no owner check to lean on.
 - **`ez-factory` is a console over workflows, not a scheduler.** Retire a job with `enabled: false` — there is no delete action, deliberately.

@@ -56,6 +56,7 @@ import {
 import {
   buildFactoryPage,
   buildJobPage,
+  candidateDraft,
   draftFromFormPayload,
   FACTORY_PAGE_ID,
   jobIdFromActionPayload,
@@ -323,15 +324,28 @@ export async function renderJobPage(ctx?: PageRenderContext): Promise<HubPageTre
 }
 
 /**
- * The one page action: create or replace a job.
+ * The save action: create or replace a job, from EITHER of the job page's
+ * two forms.
  *
  * Order matters and is the whole security story of this handler:
  *
  *   1. Fold the wire payload into a candidate draft (pure, no rules).
- *   2. Run it through `validateJobDraft` — the ONE door to a writable job.
- *      A create and an edit take the same door; there is no patch path.
- *   3. Write through the store, which locks the key.
- *   4. Audit with the CHANGED FIELD NAMES only (invariant I) — never the
+ *   2. **Complete it against the stored job** — `candidateDraft`. The job
+ *      editor and the schedule editor are two forms because the host caps
+ *      a form at 10 fields, so each submits half a job. Whichever half
+ *      arrived, the other half is taken from the row on disk, and what
+ *      goes into the validator is always a WHOLE job.
+ *
+ *      This step is why editing a cron job's name does not silently
+ *      un-schedule it: without it the editor's draft would carry no
+ *      `trigger`, `validateJobDraft` would apply its `undefined → manual`
+ *      default, and the schedule would vanish with nothing failing.
+ *   3. Run it through `validateJobDraft` — the ONE door to a writable job.
+ *      A create, a job edit and a schedule edit take the same door; there
+ *      is still no patch path, because what passes through is a complete
+ *      draft and what comes out is branded.
+ *   4. Write through the store, which locks the key.
+ *   5. Audit with the CHANGED FIELD NAMES only (invariant I) — never the
  *      values, because a job input can be a whole document.
  *
  * A rejected draft is audited too, by reason, and then dropped. The Hub gives
@@ -341,7 +355,14 @@ export async function renderJobPage(ctx?: PageRenderContext): Promise<HubPageTre
 export async function handleJobSave(event: PageActionEvent): Promise<void> {
   const actor = event.userId;
   const now = new Date().toISOString();
-  const { jobId, draft } = draftFromFormPayload(event.payload);
+  const submission = draftFromFormPayload(event.payload);
+  const { jobId } = submission;
+
+  // One read, reused for the completion above and the audit diff below. On
+  // a create there is nothing to read and `candidateDraft` passes the
+  // submission through unchanged.
+  const before = jobId === null ? null : await jobStore().getJob(jobId);
+  const draft = candidateDraft(submission, before);
 
   const validated = validateJobDraft(draft);
   if (!validated.ok) {
@@ -367,7 +388,6 @@ export async function handleJobSave(event: PageActionEvent): Promise<void> {
       ...(created.ok ? {} : { detail: { reason: created.error } }),
     });
   } else {
-    const before = await jobStore().getJob(jobId);
     const after = await jobStore().saveJob(jobId, validated.value, { actor, now });
     await auditLog().append({
       at: now,

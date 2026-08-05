@@ -33,6 +33,23 @@
  * ever declared `triggers` before this one; this file is that path's only
  * exercise.
  *
+ * ── 3. `allowDelegated` dies the same way, with no type-system help ───
+ *
+ * Phase 9 turned `permissions.workflows.allowDelegated` ON — the ONLY
+ * route this extension has from an (ownerless) trigger fire to a run,
+ * because `ctx.workflows.run()` is refused for an ownerless call at rung 7
+ * (`WORKFLOWS_NO_OWNER`, -32106) and that refusal is deliberate.
+ *
+ * The field is folded with `&&`, not `Math.min`, and it is OPTIONAL on the
+ * granted type. So a side that omits it yields `undefined && true` →
+ * falsy → the flag is dropped, `runFor` refuses, and because a cron fire
+ * has no session there is nowhere for the refusal to surface. TypeScript
+ * catches none of it. `describe("allowDelegated — the phase-9 three-way
+ * match")` therefore runs the real intersection AND the real capability
+ * translation, with four negative controls (ceiling-side drop,
+ * manifest-side drop, no-flag ⇒ no cap, and a check that the raise did not
+ * also move the trigger envelope).
+ *
  * Mock shape copied from `ez-code-bundled-install.test.ts`.
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -108,7 +125,9 @@ afterAll(() => restoreModuleMocks());
 const { ensureBundledExtensions, resolveBundledExtensions, isBundledExtensionName } =
   await import("../extensions/bundled");
 const { clampToBundledCeiling, getCeiling } = await import("../extensions/bundled-ceiling");
-const { intersectPermissions } = await import("../extensions/capability-types");
+const { intersectPermissions, grantsToCapabilitySet } = await import(
+  "../extensions/capability-types"
+);
 const manifest = (await import("../../extensions/ez-factory/ezcorp.config")).default;
 
 /** The expected envelope, written once. Every assertion below compares
@@ -122,6 +141,17 @@ const TRIGGERS = {
   webhookPrefix: "factory-",
   maxRunsPerDay: 500,
 } as const;
+
+/** The `workflows` envelope, likewise written once. `allowDelegated` is the
+ *  phase-9 addition and the one field on this shape that dies SILENTLY:
+ *  `intersectPermissions` folds it with `&&`, so a side that omits it makes
+ *  `undefined && true` falsy and the flag is dropped while every other
+ *  field survives. */
+const WORKFLOWS: NonNullable<ExtensionPermissions["workflows"]> = {
+  names: ["docs-factory", "etl-factory", "draft-and-verify"],
+  maxRunsPerHour: 60,
+  allowDelegated: true,
+};
 
 const bundledEntry = () => resolveBundledExtensions({}).find((e) => e.name === "ez-factory")!;
 
@@ -144,10 +174,7 @@ describe("bundled registry — ez-factory entry", () => {
     const p = bundledEntry().permissions;
     expect(p.storage).toBe(true);
     expect(p.triggers).toEqual(TRIGGERS);
-    expect(p.workflows).toEqual({
-      names: ["docs-factory", "etl-factory", "draft-and-verify"],
-      maxRunsPerHour: 60,
-    });
+    expect(p.workflows).toEqual(WORKFLOWS);
     expect(p.filesystem).toEqual(["$CWD"]);
     for (const key of ["storage", "triggers", "workflows", "filesystem"]) {
       expect(p.grantedAt[key]).toBeGreaterThan(0);
@@ -221,6 +248,122 @@ describe("webhookPrefix — the three-way byte match", () => {
   });
 });
 
+describe("allowDelegated — the phase-9 three-way match", () => {
+  // The SAME class of trap as `webhookPrefix`, in the opposite direction
+  // and with no type-system help. `intersectPermissions` folds this field
+  // with `&&`, not `Math.min`, so a side that omits it yields
+  // `undefined && true` — falsy — and the flag is dropped while `names`,
+  // `maxRunsPerHour`, `storage`, `filesystem` and the whole `triggers`
+  // envelope all sail through untouched. It is optional on the granted
+  // type, so TypeScript refuses nothing.
+  //
+  // The consequence is the reason this extension exists in phase 9: with
+  // the flag dropped, `runFor` refuses, and because a cron fire is
+  // ownerless there is no session anywhere to surface the refusal to. The
+  // observable symptom is "the nightly job just never ran" — weeks later.
+
+  test("manifest, install grant, and ceiling row all say allowDelegated: true", () => {
+    const manifestFlag = (
+      manifest.permissions as unknown as { workflows: { allowDelegated?: boolean } }
+    ).workflows.allowDelegated;
+    const grantFlag = bundledEntry().permissions.workflows!.allowDelegated;
+    const ceilingFlag = getCeiling("ez-factory")!.workflows!.allowDelegated;
+
+    // `toBe(true)`, never `toBeTruthy()`: `intersectPermissions` tests
+    // `=== true` on both sides, so a stringy `"true"` would read as
+    // truthy here and STILL be dropped by the intersection.
+    expect(manifestFlag).toBe(true);
+    expect(grantFlag).toBe(true);
+    expect(ceilingFlag).toBe(true);
+  });
+
+  test("the ceiling's workflows row matches the install grant field for field", () => {
+    // Including `names` and `maxRunsPerHour`: the raise is `allowDelegated`
+    // and NOTHING ELSE. A ceiling that quietly grew a fourth workflow name
+    // alongside the flag would pass the flag assertion above.
+    expect(getCeiling("ez-factory")!.workflows).toEqual(WORKFLOWS);
+    expect(bundledEntry().permissions.workflows).toEqual(WORKFLOWS);
+  });
+
+  test("THE ASSERTION: allowDelegated SURVIVES the real intersection", () => {
+    const { effective, clamped } = clampToBundledCeiling(
+      "ez-factory",
+      bundledEntry().permissions,
+    );
+    expect(clamped).toBe(false);
+    expect(effective.workflows).toEqual(WORKFLOWS);
+    expect(effective.workflows!.allowDelegated).toBe(true);
+  });
+
+  test("NEGATIVE CONTROL: a ceiling that OMITS the flag silently denies delegation", () => {
+    // Proves the assertion above is load-bearing. Note precisely what
+    // this does NOT do: it does not throw, it does not clamp `names`, it
+    // does not touch `triggers`. The grant comes out looking almost
+    // identical and cannot fire a delegation.
+    const ceiling = getCeiling("ez-factory")!;
+    const silentCeiling: ExtensionPermissions = {
+      ...ceiling,
+      workflows: { names: [...WORKFLOWS.names], maxRunsPerHour: 60 },
+    };
+    const effective = intersectPermissions(bundledEntry().permissions, silentCeiling);
+
+    expect(effective.workflows!.allowDelegated).toBeUndefined();
+    // Everything else is intact — which is exactly why nothing flags it.
+    expect(effective.workflows!.names).toEqual([...WORKFLOWS.names]);
+    expect(effective.workflows!.maxRunsPerHour).toBe(60);
+    expect(effective.triggers).toEqual(TRIGGERS);
+    expect(effective.storage).toBe(true);
+  });
+
+  test("NEGATIVE CONTROL: a MANIFEST-side drop denies it too — both sides must say it", () => {
+    // The `&&` fold is symmetric, so the trap is not "remember the
+    // ceiling"; it is "remember all three". Here the ceiling is correct
+    // and the requested grant is the one missing the flag.
+    const requested: ExtensionPermissions = {
+      ...bundledEntry().permissions,
+      workflows: { names: [...WORKFLOWS.names], maxRunsPerHour: 60 },
+    };
+    const effective = intersectPermissions(requested, getCeiling("ez-factory")!);
+    expect(effective.workflows!.allowDelegated).toBeUndefined();
+  });
+
+  test("the delegated capability is actually MINTED from the effective grant", () => {
+    // One rung past the intersection, and the rung that matters: the PDP
+    // does not read the boolean, it reads the capability set derived from
+    // it. `grantsToCapabilitySet` emits
+    // `{kind:"ezcorp:workflows:run-delegated"}` on an explicit `=== true`
+    // and nothing otherwise, so this is the assertion that the flag is
+    // live rather than merely stored.
+    const { effective } = clampToBundledCeiling("ez-factory", bundledEntry().permissions);
+    const caps = grantsToCapabilitySet(effective);
+    expect(caps.some((c) => c.kind === "ezcorp:workflows:run-delegated")).toBe(true);
+  });
+
+  test("NEGATIVE CONTROL: no flag ⇒ no run-delegated capability", () => {
+    const stripped: ExtensionPermissions = {
+      ...bundledEntry().permissions,
+      workflows: { names: [...WORKFLOWS.names], maxRunsPerHour: 60 },
+    };
+    const caps = grantsToCapabilitySet(stripped);
+    expect(caps.some((c) => c.kind === "ezcorp:workflows:run-delegated")).toBe(false);
+  });
+
+  test("the raise did NOT come with a trigger-register capability widening", () => {
+    // The two grants are wired together by intent (a trigger fire is what
+    // calls `runFor`), so a reviewer should be able to see that enabling
+    // delegation did not also move the trigger envelope. Both kinds, both
+    // still bounded by the same 25/25 as before.
+    const { effective } = clampToBundledCeiling("ez-factory", bundledEntry().permissions);
+    const caps = grantsToCapabilitySet(effective);
+    const registerKinds = caps
+      .filter((c) => c.kind === "ezcorp:triggers:register")
+      .map((c) => c.value)
+      .sort();
+    expect(registerKinds).toEqual(["cron", "webhook"]);
+    expect(effective.triggers).toEqual(TRIGGERS);
+  });
+});
+
 describe("bundled ceiling — the ez-factory intersection is lossless", () => {
   test("ez-factory has a ceiling row", () => {
     expect(getCeiling("ez-factory")).not.toBeNull();
@@ -235,10 +378,7 @@ describe("bundled ceiling — the ez-factory intersection is lossless", () => {
 
     expect(effective.storage).toBe(true);
     expect(effective.filesystem).toEqual(["$CWD"]);
-    expect(effective.workflows).toEqual({
-      names: ["docs-factory", "etl-factory", "draft-and-verify"],
-      maxRunsPerHour: 60,
-    });
+    expect(effective.workflows).toEqual(WORKFLOWS);
 
     // THE ASSERTION THIS FILE EXISTS FOR: the triggers envelope survives
     // whole, with no NaN on any numeric.
@@ -318,6 +458,41 @@ describe("ensureBundledExtensions — ez-factory first-boot install", () => {
     ]);
     expect(granted.workflows?.maxRunsPerHour).toBe(60);
     expect(Number.isNaN(granted.workflows?.maxRunsPerHour ?? NaN)).toBe(false);
+  });
+
+  test("BOOT PROOF: the persisted grant still carries allowDelegated", async () => {
+    // The same failure mode the trigger envelope has, one field over.
+    // Everything upstream — manifest, install grant, ceiling row — can be
+    // right and the DB row the runtime actually reads can still have
+    // `allowDelegated` missing, at which point `runFor` refuses and no
+    // unattended job ever fires. This is the row `workflows-handler.ts`
+    // reads at rung D-something; nothing else is authoritative.
+    await ensureBundledExtensions();
+    const granted = store.get("ez-factory")!.grantedPermissions;
+    expect(granted.workflows).toEqual(WORKFLOWS);
+    expect(granted.workflows!.allowDelegated).toBe(true);
+  });
+
+  test("BOOT PROOF: the persisted grant mints the run-delegated capability", async () => {
+    // What the PDP will be handed. The boolean is only ever read through
+    // this translation, so a grant that stores it and does not derive the
+    // cap would still refuse every `runFor`.
+    await ensureBundledExtensions();
+    const caps = grantsToCapabilitySet(store.get("ez-factory")!.grantedPermissions);
+    expect(caps.some((c) => c.kind === "ezcorp:workflows:run-delegated")).toBe(true);
+    // …alongside the three per-name run caps, which the delegated opt-in
+    // does not replace or widen.
+    expect(
+      caps.filter((c) => c.kind === "ezcorp:workflows:run").map((c) => c.value),
+    ).toEqual(["docs-factory", "etl-factory", "draft-and-verify"]);
+  });
+
+  test("second boot does not lose allowDelegated either", async () => {
+    // The refresh path is separate from first install, and an `&&` fold
+    // applied twice is where a half-written ceiling bites on boot 2.
+    await ensureBundledExtensions();
+    await ensureBundledExtensions();
+    expect(store.get("ez-factory")!.grantedPermissions.workflows).toEqual(WORKFLOWS);
   });
 
   test("the persisted grant gains nothing the manifest did not ask for", async () => {
