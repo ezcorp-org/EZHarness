@@ -42,7 +42,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, relative } from "node:path";
+import { dirname, isAbsolute, join, relative } from "node:path";
 import { migrate } from "../db/migrate";
 import * as schema from "../db/schema";
 import {
@@ -452,6 +452,28 @@ describe("cache storage", () => {
 
     await writeCachedSnapshot("k1", new Blob(["x"]), { dir, env: NO_ENV });
     expect(await readCachedSnapshot("k1", { dir, env: off })).toBeUndefined();
+  });
+
+  test("the cache is cwd-independent — a process.chdir() must not move it", () => {
+    // Suites that use `useTempProjectRoot()` process.chdir() into a throwaway
+    // root and `rm -rf` it on cleanup, and several of them call setupTestDb().
+    // A cwd-relative cache dir would write entries INTO that root and have
+    // them deleted — a silent 100% miss rate, not an error. Everything here is
+    // anchored on `import.meta.dir` for exactly that reason; this pins it.
+    const dirBefore = snapshotCacheDir(NO_ENV);
+    const keyBefore = schemaFingerprint();
+    expect(isAbsolute(dirBefore)).toBe(true);
+    expect(SCHEMA_INPUT_ROOTS.every(isAbsolute)).toBe(true);
+
+    const cwd = process.cwd();
+    try {
+      process.chdir(tmp("chdir"));
+      expect(snapshotCacheDir(NO_ENV)).toBe(dirBefore);
+      expect(SCHEMA_INPUT_ROOTS.every((r) => existsSync(r))).toBe(true);
+      expect(schemaFingerprint()).toBe(keyBefore);
+    } finally {
+      process.chdir(cwd);
+    }
   });
 
   test("the default cache dir is repo-local scratch, and is overridable", () => {

@@ -84,7 +84,16 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
-/** Repo root: this file lives at `<root>/src/__tests__/helpers/`. */
+/**
+ * Repo root: this file lives at `<root>/src/__tests__/helpers/`.
+ *
+ * Anchored on `import.meta.dir`, never on `process.cwd()` and never on
+ * `getProjectRoot()`. Suites using `useTempProjectRoot()` chdir into a
+ * throwaway root, override the project root, and `rm -rf` it on cleanup — and
+ * several of them call `setupTestDb()`. A cwd- or project-root-relative cache
+ * would write entries into that root and have them deleted: a silent 100% miss
+ * rate rather than an error. Pinned by a chdir test in the suite.
+ */
 export const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
 
 /**
