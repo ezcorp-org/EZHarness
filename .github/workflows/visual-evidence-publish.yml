@@ -56,7 +56,7 @@ jobs:
       # (github.event.repository.default_branch), never the PR head — so this
       # brings in the trusted publish.ts / build-manifest.ts WITHOUT ever pulling
       # PR code. The PR's screenshots arrive only as validated artifact bytes.
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
       # Reads the default branch's .bun-version (this workflow checks out the
@@ -72,7 +72,7 @@ jobs:
       - name: Download evidence artifact
         id: dl
         continue-on-error: true
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: visual-evidence
           run-id: ${{ github.event.workflow_run.id }}
