@@ -14,22 +14,29 @@
 	exactly why the human's view needs its own read.
 -->
 <script lang="ts">
-	import { onMount } from "svelte";
-	import { store } from "$lib/stores.svelte.js";
+	import { onMount, tick, untrack } from "svelte";
+	import { page } from "$app/state";
+	import { store, refreshWorkflows } from "$lib/stores.svelte.js";
 	import DelegationConsentDialog from "$lib/components/DelegationConsentDialog.svelte";
 	import {
+		TRIGGER_KIND_CHOICES,
 		describeDelegationState,
+		describeGrantPrefill,
 		describeRunPrincipal,
 		describeRunStopReason,
 		describeRunTime,
 		describeRunStatus,
+		grantParams,
 		loadDelegatedRuns,
 		loadDelegations,
 		loadServiceAccounts,
 		patchDelegationBounds,
+		resolveGrantPrefill,
 		revokeDelegation,
 		type Delegation,
 		type DelegatedRun,
+		type GrantPrefill,
+		type ParamReader,
 		type ServiceAccountOption,
 	} from "$lib/workflow-delegations-logic";
 
@@ -80,6 +87,74 @@
 		draftExtension !== null && draftWorkflowName !== "" && draftJobRef.trim() !== "",
 	);
 
+	// ── The job → consent handoff ─────────────────────────────────────
+	//
+	// Two things fill this form in for you: a deep link from the console
+	// that owns the job (`?extensionId=&jobRef=&workflowName=&triggerKind=`),
+	// and the "Grant this again" button on a delegation that has gone
+	// stale. BOTH go through `resolveGrantPrefill`, which matches every
+	// field against the lists this page already loaded and refuses — out
+	// loud — anything they do not contain.
+	//
+	// What a prefill deliberately does NOT do is submit. It opens the
+	// form with values on screen; the person still opens the review
+	// dialog, still types both spend bounds, and still presses Approve.
+	// C3 exists because an absent grant was once read as approval, so a
+	// URL that could mint one would be the same mistake wearing a
+	// different hat.
+
+	/** What the last prefill filled in and what it refused, for the note. */
+	let prefill = $state<GrantPrefill | null>(null);
+	/** The `?…` string already consumed, so a re-render cannot re-apply it
+	 *  over edits the person has since made to the form. */
+	let consumedSearch: string | null = null;
+	let grantFormEl = $state<HTMLDivElement | null>(null);
+
+	async function applyPrefill(params: ParamReader) {
+		const resolved = resolveGrantPrefill(params, {
+			extensions,
+			// The workflow picker's own options — so a link can only name a
+			// workflow this session can already see and select by hand.
+			workflowNames: store.workflows.map((w) => w.name),
+			current: {
+				extensionId: draftExtensionId,
+				workflowName: draftWorkflowName,
+				jobRef: draftJobRef,
+				triggerKind: draftTriggerKind,
+			},
+		});
+		if (resolved === null) return;
+		draftExtensionId = resolved.draft.extensionId;
+		draftWorkflowName = resolved.draft.workflowName;
+		draftJobRef = resolved.draft.jobRef;
+		draftTriggerKind = resolved.draft.triggerKind;
+		prefill = resolved;
+		granting = true;
+		// The form is above the list, so a "Grant this again" from a card
+		// further down would otherwise fill in a form nobody can see.
+		await tick();
+		grantFormEl?.scrollIntoView({ block: "nearest" });
+	}
+
+	/**
+	 * Re-grant an existing delegation.
+	 *
+	 * The remedy the page already names in two places — "Grant it again to
+	 * restore it" on a stopped row, and "Approve it again to release it"
+	 * on a `consent-stale` run — and until now it named it without
+	 * offering it. A bundled extension's workflows ship inside the app
+	 * image, so any release that edits one of its `*.workflow.yaml` files
+	 * invalidates the consent hash and parks the next fire; this is the
+	 * button that ends that outage.
+	 *
+	 * Routed through the same resolver as a link, using the delegation's
+	 * OWN four fields, so a re-grant whose workflow has since disappeared
+	 * says so instead of seeding a form that cannot be submitted.
+	 */
+	function grantAgain(delegation: Delegation) {
+		void applyPrefill(grantParams(delegation));
+	}
+
 	async function loadDelegatableExtensions() {
 		try {
 			const res = await fetch("/api/extensions");
@@ -106,7 +181,16 @@
 		loading = true;
 		loadError = null;
 
-		const [listed, ran] = await Promise.all([loadDelegations(), loadDelegatedRuns()]);
+		// Awaited, not fired and forgotten: `store.workflows` is what a
+		// prefill's workflow name is CHECKED against, so applying a deep
+		// link before the list arrives would refuse every workflow on the
+		// instance and tell the user their link was bad. The refresh always
+		// resolves and leaves the previous list in place on failure.
+		const [listed, ran] = await Promise.all([
+			loadDelegations(),
+			loadDelegatedRuns(),
+			refreshWorkflows(),
+		]);
 		if (!listed.ok) {
 			loadError = listed.message;
 			loading = false;
@@ -129,6 +213,24 @@
 	}
 
 	onMount(load);
+
+	// Apply the URL's prefill once both pickers have something to check it
+	// against — `loading` is the page's own readiness flag and `load()` now
+	// awaits the workflow list too, so "not loading" means "both lists are
+	// as good as they are going to get".
+	//
+	// Only `page.url.search` and `loading` are tracked. Everything the body
+	// touches — including the four draft fields it WRITES — is untracked,
+	// or this effect would re-trigger itself forever.
+	$effect(() => {
+		const search = page.url.search;
+		const ready = !loading;
+		untrack(() => {
+			if (!ready || search === consumedSearch) return;
+			consumedSearch = search;
+			void applyPrefill(page.url.searchParams);
+		});
+	});
 
 	async function revoke(delegation: Delegation) {
 		busy = { ...busy, [delegation.id]: true };
@@ -235,7 +337,44 @@
 		<div
 			class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4"
 			data-testid="grant-form"
+			bind:this={grantFormEl}
 		>
+			<!-- ── What a link chose for you ─────────────────────────────
+			     Outside the extension-list branch on purpose: a link that
+			     named an extension this instance cannot delegate to has to
+			     be able to say so even when the picker itself is empty.
+
+			     Naming the fields is the point. The values are visible in
+			     the form below, but "these four came from the URL, not from
+			     you" is the fact a person needs in order to look at them,
+			     and it is the one a prefilled form otherwise hides. -->
+			{#if prefill}
+				{@const note = describeGrantPrefill(prefill)}
+				{#if note}
+					<p
+						class="mb-3 rounded-md border border-blue-500/40 bg-blue-500/10 p-2.5 text-xs text-[var(--color-text-primary)]"
+						data-testid="grant-prefill-note"
+					>
+						{note}
+					</p>
+				{/if}
+				{#if prefill.rejected.length > 0}
+					<!-- REFUSED, not silently ignored. A link naming a workflow
+					     you cannot see must not quietly leave the previous
+					     workflow selected — that is how someone approves one
+					     thing while reading about another. -->
+					<ul class="mb-3 space-y-1.5" data-testid="grant-prefill-rejected">
+						{#each prefill.rejected as reason (reason)}
+							<li
+								class="rounded-md border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-[var(--color-text-primary)]"
+								data-testid="grant-prefill-rejected-item"
+							>
+								{reason}
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			{/if}
 			{#if extensions.length === 0}
 				<p class="text-sm text-[var(--color-text-secondary)]" data-testid="no-delegatable-extensions">
 					No installed extension is allowed to run workflows on your behalf. An extension has to
@@ -299,9 +438,12 @@
 							class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"
 							data-testid="grant-trigger"
 						>
-							<option value="cron">On a schedule</option>
-							<option value="webhook">On a webhook</option>
-							<option value="event">On an event</option>
+							<!-- The one list, shared with the consent dialog's subject
+							     block. Two copies is how the dialog ends up naming a
+							     trigger the form cannot select. -->
+							{#each TRIGGER_KIND_CHOICES as choice (choice.kind)}
+								<option value={choice.kind}>{choice.label}</option>
+							{/each}
 						</select>
 					</div>
 				</div>
@@ -377,7 +519,8 @@
 									class="mt-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-xs text-[var(--color-text-secondary)]"
 									data-testid="delegation-stopped-remedy"
 								>
-									Changing the limit will not restart this job. Grant it again to restore it.
+									Changing the limit will not restart this job. Use “Grant this again” below to
+									restore it — you will be shown what it can do before anything is granted.
 								</p>
 							{/if}
 
@@ -438,11 +581,36 @@
 									class="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-text-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:opacity-40"
 									data-testid="delegation-save-tokens">Save limits</button
 								>
+								<!-- ── The re-consent path, finally offered ──────────
+								     `consent_hash` is recomputed and compared on every
+								     fire, and it folds in the workflow definition plus
+								     the extension's flattened grants. ez-factory is
+								     BUNDLED, so its workflows ship inside the app
+								     image: any release that edits one of its
+								     `*.workflow.yaml` files, changes its permissions
+								     block, or changes a referenced agent's
+								     capabilities invalidates every delegation on it
+								     and parks the next fire `consent-stale`.
+
+								     Two places on this page already tell people to
+								     "grant it again" and neither offered a way to.
+								     This one fills the grant form from the row's own
+								     four fields and stops — the dialog still has to
+								     be opened, the bounds still have to be typed, and
+								     Approve still has to be pressed, because the
+								     capability set may be exactly what changed. -->
+								<button
+									type="button"
+									onclick={() => grantAgain(delegation)}
+									disabled={busy[delegation.id] === true}
+									class="ml-auto rounded-md border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:border-[var(--color-text-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 disabled:opacity-40"
+									data-testid="delegation-grant-again">Grant this again</button
+								>
 								<button
 									type="button"
 									onclick={() => revoke(delegation)}
 									disabled={busy[delegation.id] === true}
-									class="ml-auto rounded-md border border-red-500/40 px-3 py-1.5 text-xs text-[var(--color-text-primary)] transition-colors hover:bg-red-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500 disabled:opacity-40"
+									class="rounded-md border border-red-500/40 px-3 py-1.5 text-xs text-[var(--color-text-primary)] transition-colors hover:bg-red-500/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500 disabled:opacity-40"
 									data-testid="delegation-revoke">Revoke</button
 								>
 							</div>
@@ -579,6 +747,9 @@
 			reviewing = false;
 			granting = false;
 			draftJobRef = "";
+			// The note described a form that no longer exists; leaving it up
+			// would credit the link for a grant that has already happened.
+			prefill = null;
 			// Prepended rather than refetched: the row the server just
 			// returned IS the authoritative one, and a refetch here would
 			// race the write it is confirming.

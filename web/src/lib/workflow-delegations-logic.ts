@@ -208,6 +208,276 @@ export function reachWarningFor(
 	return reach?.message ?? null;
 }
 
+// ── the trigger a delegation may be granted for ───────────────────────
+
+/**
+ * The trigger kinds this surface can grant, with the label a person reads.
+ *
+ * ONE list, used by the grant form's select AND by the consent dialog's
+ * subject block. It used to be inline markup in the select only, which is
+ * why the dialog could not name the trigger it was about to authorize
+ * without inventing a second vocabulary for it.
+ *
+ * `manual` is deliberately absent and always will be: a manual run is
+ * started by a human who is already authorized: it is the *unattended*
+ * fire that needs standing authority, so offering "manual" here would mint
+ * authority nothing will ever spend.
+ */
+export interface TriggerKindChoice {
+	kind: string;
+	label: string;
+}
+
+export const TRIGGER_KIND_CHOICES: readonly TriggerKindChoice[] = [
+	{ kind: "cron", label: "On a schedule" },
+	{ kind: "webhook", label: "On a webhook" },
+	{ kind: "event", label: "On an event" },
+];
+
+/**
+ * The label for a trigger kind, or the raw kind when it is not one this
+ * surface grants.
+ *
+ * Falls back rather than blanking, for the same reason the run-status
+ * classifier does: a delegation row written by a newer instance must still
+ * render honestly rather than describe itself as nothing.
+ */
+export function describeTriggerKind(kind: string): string {
+	return TRIGGER_KIND_CHOICES.find((c) => c.kind === kind)?.label ?? kind;
+}
+
+// ── the grant PREFILL (the job → consent handoff) ─────────────────────
+
+/**
+ * The "what to delegate" step's four fields.
+ *
+ * Held as one object because both prefill sources fill all four at once,
+ * and a partially-applied prefill — some fields from a link, some left
+ * over from a previous attempt — is exactly the state in which a person
+ * approves something other than what they were shown.
+ */
+export interface GrantDraft {
+	extensionId: string;
+	workflowName: string;
+	jobRef: string;
+	triggerKind: string;
+}
+
+/** An extension the picker may offer: granted `allowDelegated`, enabled. */
+export interface DelegatableExtensionOption {
+	id: string;
+	name: string;
+}
+
+/**
+ * The query-string contract for `/workflows/delegations`.
+ *
+ * **Mirrored, by necessity, in `extensions/ez-factory/lib/page.ts`
+ * (`delegationConsentHref`)** — an extension cannot import from `web/`.
+ * The two ends are bound by a test rather than by hope:
+ * `src/__tests__/delegation-consent-handoff.test.ts` feeds the href that
+ * builder emits straight into {@link resolveGrantPrefill} and asserts it
+ * resolves clean, so renaming a key on either side fails a check.
+ *
+ * The names deliberately match the POST body's fields
+ * (`/api/workflows/delegations`), so the link, the form and the wire all
+ * spell the same four things the same way.
+ */
+export const GRANT_PARAMS = {
+	extensionId: "extensionId",
+	workflowName: "workflowName",
+	jobRef: "jobRef",
+	triggerKind: "triggerKind",
+} as const;
+
+/**
+ * The longest job reference a link may fill in.
+ *
+ * `workflow_delegations.job_ref` is unbounded `text` and the route asks
+ * only for `min(1)`, so this is a UI bound, not a schema one: a job
+ * reference is an extension's own handle for a job and a four-figure one
+ * is a link trying to push the rest of the subject off screen rather than
+ * a job anybody named. Refusing it is safe — the field stays typeable.
+ */
+export const MAX_JOB_REF_CHARS = 200;
+
+/** Values echoed back inside a refusal are clipped: they are attacker-
+ *  supplied and the sentence has to stay readable. */
+const ECHO_CHARS = 80;
+
+function echo(value: string): string {
+	return value.length <= ECHO_CHARS ? value : `${value.slice(0, ECHO_CHARS)}…`;
+}
+
+/**
+ * The outcome of applying a prefill.
+ *
+ * `applied` is not decoration. It names, in the UI, which of the four
+ * fields were filled in by something other than the person sitting there
+ * — which is the whole defence against a crafted link: the values are on
+ * screen, and so is the fact that the link chose them.
+ */
+export interface GrantPrefill {
+	draft: GrantDraft;
+	/** Human field names the prefill actually filled in, in field order. */
+	applied: string[];
+	/** One sentence per field a prefill named but this instance cannot offer. */
+	rejected: string[];
+}
+
+/** A `URLSearchParams`-shaped reader. Narrowed to the one method used so a
+ *  plain object can stand in for a URL. */
+export interface ParamReader {
+	get(name: string): string | null;
+}
+
+/** Read a param as a present, non-blank string — or `null`. */
+function param(params: ParamReader, name: string): string | null {
+	const raw = params.get(name);
+	if (typeof raw !== "string") return null;
+	const trimmed = raw.trim();
+	return trimmed === "" ? null : trimmed;
+}
+
+/**
+ * Turn a set of already-known field values into a {@link ParamReader}.
+ *
+ * This is what makes "grant this again" go through the SAME resolver as a
+ * deep link instead of setting the four fields directly. A re-consent
+ * whose workflow has since been deleted, or whose extension has had
+ * `allowDelegated` withdrawn, then produces the same honest refusal
+ * sentence a stale link does — rather than silently seeding a form with a
+ * workflow the picker cannot select.
+ */
+export function grantParams(fields: Partial<GrantDraft>): ParamReader {
+	return {
+		get(name: string): string | null {
+			return (fields as Record<string, string | undefined>)[name] ?? null;
+		},
+	};
+}
+
+/** Everything {@link resolveGrantPrefill} checks a prefill against. */
+export interface GrantPrefillSources {
+	/** The delegatable-extension picker's options, as loaded. */
+	extensions: readonly DelegatableExtensionOption[];
+	/** Every workflow name the workflow picker offers. */
+	workflowNames: readonly string[];
+	/** What the form holds now; an unresolved field keeps its current value. */
+	current: GrantDraft;
+}
+
+/**
+ * Resolve a prefill — from a URL, or from a delegation being re-granted.
+ *
+ * ## This function is the security boundary of the handoff
+ *
+ * **Every field is a SELECTOR, not a value.** `extensionId` and
+ * `workflowName` are matched against the lists the page already loaded
+ * from the server — the `allowDelegated`-granted extensions and the
+ * workflows this session can see — and a name that matches nothing is
+ * REFUSED, with a sentence, rather than written into the form. So a
+ * crafted link cannot name an extension the admin never approved for
+ * delegation, or a workflow this user cannot reach; the worst it can do is
+ * select something already on offer.
+ *
+ * `jobRef` is the exception and cannot be anything else: it is an
+ * extension's own opaque handle for a job, so no list exists to check it
+ * against. That is precisely why the consent dialog renders it — see
+ * `DelegationConsentDialog.svelte`'s subject block. An unreadable
+ * `jobRef` on screen is what a URL-supplied one must never be.
+ *
+ * **Nothing here submits anything.** The result is form state. The person
+ * still opens the review dialog, still types both spend bounds, and still
+ * presses Approve. A URL alone cannot make a delegation exist.
+ *
+ * Returns `null` when no field was named at all, so an ordinary visit to
+ * the page is untouched.
+ */
+export function resolveGrantPrefill(
+	params: ParamReader,
+	sources: GrantPrefillSources,
+): GrantPrefill | null {
+	const rawExtension = param(params, GRANT_PARAMS.extensionId);
+	const rawWorkflow = param(params, GRANT_PARAMS.workflowName);
+	const rawJobRef = param(params, GRANT_PARAMS.jobRef);
+	const rawTrigger = param(params, GRANT_PARAMS.triggerKind);
+	if (rawExtension === null && rawWorkflow === null && rawJobRef === null && rawTrigger === null) {
+		return null;
+	}
+
+	const draft: GrantDraft = { ...sources.current };
+	const applied: string[] = [];
+	const rejected: string[] = [];
+
+	if (rawExtension !== null) {
+		// By id OR by name. A bundled extension building a link knows its own
+		// NAME (that is how its Hub pages are addressed) and has no way to
+		// learn the install row's id, so demanding the id would make the
+		// handoff unbuildable by the extension it exists for.
+		const match = sources.extensions.find(
+			(e) => e.id === rawExtension || e.name === rawExtension,
+		);
+		if (match === undefined) {
+			rejected.push(
+				`No extension called “${echo(rawExtension)}” is installed and allowed to run workflows on your behalf, so the extension was not filled in.`,
+			);
+		} else {
+			draft.extensionId = match.id;
+			applied.push("Extension");
+		}
+	}
+
+	if (rawWorkflow !== null) {
+		if (!sources.workflowNames.includes(rawWorkflow)) {
+			rejected.push(
+				`You cannot see a workflow called “${echo(rawWorkflow)}”, so the workflow was not filled in.`,
+			);
+		} else {
+			draft.workflowName = rawWorkflow;
+			applied.push("Workflow");
+		}
+	}
+
+	if (rawJobRef !== null) {
+		if (rawJobRef.length > MAX_JOB_REF_CHARS) {
+			rejected.push(
+				`The job reference in that link is longer than ${MAX_JOB_REF_CHARS} characters, so it was not filled in.`,
+			);
+		} else {
+			draft.jobRef = rawJobRef;
+			applied.push("Job reference");
+		}
+	}
+
+	if (rawTrigger !== null) {
+		if (!TRIGGER_KIND_CHOICES.some((c) => c.kind === rawTrigger)) {
+			rejected.push(
+				`“${echo(rawTrigger)}” is not a trigger a delegation can be granted for, so the trigger was left as it was.`,
+			);
+		} else {
+			draft.triggerKind = rawTrigger;
+			applied.push("Trigger");
+		}
+	}
+
+	return { draft, applied, rejected };
+}
+
+/**
+ * The sentence naming what a link filled in, or `null` when it filled in
+ * nothing.
+ *
+ * Rendered next to the prefilled form, and it is the counterpart to the
+ * dialog's subject block: the dialog says *what* is being approved, this
+ * says *which of it a link chose for you*. Both have to be true for a deep
+ * link to be safe to follow.
+ */
+export function describeGrantPrefill(prefill: GrantPrefill): string | null {
+	if (prefill.applied.length === 0) return null;
+	return `Filled in from the link you followed: ${prefill.applied.join(", ")}. Check it below — nothing is granted until you approve it.`;
+}
+
 // ── the three TOKEN-BOUND EXCLUSIONS ──────────────────────────────────
 
 /**

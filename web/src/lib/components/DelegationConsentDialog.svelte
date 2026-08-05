@@ -24,6 +24,7 @@
 		closureWarnings,
 		conditionalSteps,
 		consentBlockedReason,
+		describeTriggerKind,
 		diffCapabilities,
 		previewConsent,
 		reachWarningFor,
@@ -240,6 +241,49 @@
 		</div>
 
 		<div class="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+			<!-- ── THE SUBJECT: what, exactly, is being approved ─────────
+			     Every field the delegation row is KEYED on, spelled out,
+			     because none of them need be something this person typed.
+
+			     The job reference is the reason this block exists. A
+			     delegation binds `(extension_id, job_ref)` and the ref is
+			     the half that decides WHICH job gets to spend the
+			     authority — and it is the one field with no list to check
+			     it against, because it is an extension's own opaque handle.
+			     While it was only ever typed into the form behind this
+			     dialog, leaving it off screen cost nothing. Now that a deep
+			     link can supply it, an invisible `jobRef` would be exactly
+			     the gap a crafted link needs: same extension, same
+			     workflow, same everything a reader can see, pointed at a
+			     different job. So it is rendered, verbatim, as text — never
+			     as a link, and never truncated into ambiguity. -->
+			<section data-testid="consent-subject">
+				<h4 class="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">
+					What you are approving
+				</h4>
+				<dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-xs">
+					<dt class="text-[var(--color-text-muted)]">Extension</dt>
+					<dd class="text-[var(--color-text-primary)]" data-testid="consent-subject-extension">
+						{extensionName}
+					</dd>
+					<dt class="text-[var(--color-text-muted)]">Workflow</dt>
+					<dd class="text-[var(--color-text-primary)]" data-testid="consent-subject-workflow">
+						{workflowName}
+					</dd>
+					<dt class="text-[var(--color-text-muted)]">Job</dt>
+					<dd
+						class="break-all font-mono text-[var(--color-text-primary)]"
+						data-testid="consent-subject-job-ref"
+					>
+						{jobRef}
+					</dd>
+					<dt class="text-[var(--color-text-muted)]">Starts on</dt>
+					<dd class="text-[var(--color-text-primary)]" data-testid="consent-subject-trigger">
+						{describeTriggerKind(triggerKind)}
+					</dd>
+				</dl>
+			</section>
+
 			<!-- ── Owner kind (Ruling 1) ────────────────────────────────── -->
 			<fieldset data-testid="owner-kind-picker">
 				<legend class="text-xs font-semibold uppercase tracking-wide text-[var(--color-text-secondary)]">
