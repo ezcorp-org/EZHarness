@@ -64,10 +64,34 @@ describe("isNoiseLine — positive matches (noise)", () => {
     expect(isNoiseLine("  readonly map = new Map<string, Entry>();")).toBe(false);
   });
 
-  test("return-type opener lines", () => {
+  test("return-type opener lines (named type head)", () => {
     expect(isNoiseLine("): Promise<{")).toBe(true);
     expect(isNoiseLine("  ): Array<{")).toBe(true);
     expect(isNoiseLine("): Map<")).toBe(true);
+  });
+
+  test("return-type opener lines (ANONYMOUS type head — no name after the colon)", () => {
+    // Regression corpus for the mandatory-`[A-Z]\w*` head bug: the old
+    // RETURN_TYPE_OPEN required a NAMED type, so a wrapped anonymous return
+    // type fell through every rule (BRACE_PUNCT_ONLY can't catch it either —
+    // its character class has no space, and these lines have one). Each shape
+    // below is pure TS type syntax that compiles to no JS.
+    //
+    // `): (` — the exact line that cost src/runtime/nested-workflow-resolver.ts
+    // a coverage point (see c5df10b7) before its return type was renamed:
+    //   export function makeNestedWorkflowResolver(
+    //     getEntries: () => readonly CachedWorkflow[],
+    //   ): (
+    //     name: string,
+    //   ) => Promise<WorkflowDefinition | undefined> {
+    expect(isNoiseLine("): (")).toBe(true);
+    // `): {` — live in-tree at docs/extensions/examples/auto-note/lib/vault.ts
+    // :462 and :601, and docs/extensions/examples/cash-recovery-agent
+    // /index.ts:168 (all gated source files).
+    expect(isNoiseLine("): {")).toBe(true);
+    expect(isNoiseLine("  ): {")).toBe(true);
+    // Tuple head — same grammar class as the two above.
+    expect(isNoiseLine("): [")).toBe(true);
   });
 
   test("standalone generic type continuation", () => {
@@ -228,6 +252,33 @@ describe("isNoiseLine — negative matches (real executable code)", () => {
   test("type-field with value assignment is NOT noise", () => {
     // A `=` outside `=>` means it's an initializer, which IS executable.
     expect(isNoiseLine("  foo: string = 'default';")).toBe(false);
+  });
+
+  test("RETURN_TYPE_OPEN soundness: a signature line carrying the BODY brace survives", () => {
+    // The rule only ever matches an OPENER alone on its line (`$` right after
+    // the head token). A one-line return type followed by the function's `{`
+    // is a line bun genuinely instruments and credits, so it must keep its DA
+    // record. Every sample is a verbatim in-tree line as of this commit.
+    // src/runtime/tier-classifier.ts:423
+    expect(isNoiseLine("): { toolCount: number; hasComplexTools: boolean } {")).toBe(false);
+    // src/runtime/stream-chat/context-compaction.ts:657 — anonymous fn type,
+    // fully spelled on one line, body brace included.
+    expect(isNoiseLine(
+      "): (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]> {",
+    )).toBe(false);
+    // src/dev-git-info.ts:75
+    expect(isNoiseLine("): (({ html }: { html: string }) => string) | undefined {")).toBe(false);
+    // src/runtime/events.ts:11
+    expect(isNoiseLine("  ): () => void {")).toBe(false);
+    // src/extensions/workflows-handler.ts:427
+    expect(isNoiseLine(
+      "): { ok: true; input: Record<string, unknown> } | { ok: false; message: string } {",
+    )).toBe(false);
+    // The widening must not degrade into "any line starting with `)`:" — a
+    // head token followed by more type text still carries the body brace and
+    // stays executable.
+    expect(isNoiseLine("): (a: string) => void {")).toBe(false);
+    expect(isNoiseLine("): [string, number] {")).toBe(false);
   });
 
   test("interface declarations + method signatures are noise (erased at compile time)", () => {
