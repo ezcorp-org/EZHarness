@@ -1,11 +1,11 @@
-# etl-factory — ingest, assert, classify, ask a human ONLY when the ingest
-# was incomplete, then write.
+# etl-factory — ingest, assert, classify, compose, ask a human ONLY when the
+# ingest was incomplete, then write.
 #
 # Namespaced to `ez-factory:etl-factory` by the extension workflow loader;
 # the bare name must match `permissions.workflows.names` in
 # `ezcorp.config.ts` byte for byte.
 #
-#   ingest → schema-ok → classify → report → [anomaly-gate → consent] → write → artifact
+#   ingest → schema-ok → classify → compose → report → [anomaly-gate → consent] → write → artifact
 #
 # This is the DETERMINISTIC template. `docs-factory` proves nesting, loops
 # and a human-in-the-loop revision cycle; this one proves the other half of
@@ -56,22 +56,54 @@
 # clean ones. `skippedCount` is set from `skipped.length` inside the tool,
 # so the two cannot disagree.
 #
-# Deliberately NOT derived from the classifier: an agent step's output is
-# raw LLM text, so `$steps.classify.output.anomalyCount` would resolve to
-# `undefined` and the gate would never fire — a branch that silently
-# cannot happen is worse than no branch.
+# Deliberately NOT derived from the classifier. Its contract is
+# `{facts, gaps}` and nothing else, so `$steps.classify.output.anomalyCount`
+# would resolve to `undefined` and the gate would never fire — a branch
+# that silently cannot happen is worse than no branch. (The reason used to
+# be stated as "an agent step's output is raw LLM text". That stopped being
+# true when the seeded agents became `outputFormat: "json"`; the conclusion
+# did not change, but the premise had drifted — the same falsified-by-
+# another-file drift that produced the envelope bugs.)
 #
 # `schema-ok` asserts `skippedCount` is present before anything reads it,
 # so a tool that stopped returning it fails the run by name rather than
 # leaving a guard that quietly stops guarding (`gt` on a non-number is
 # false, which would look exactly like a clean ingest).
+#
+# ── Why there are TWO agent steps, not one ───────────────────────────
+#
+# `classify` is the seeded EXTRACTOR, whose contract is
+# `{facts: [{claim, source}], gaps: [string]}` and whose role says in so
+# many words "Return facts, not prose. Do not summarize, editorialize, or
+# recommend." (`src/extensions/ez-factory-agents.ts`). That envelope is
+# not a document, and nothing in the ref language can render an array of
+# objects: `interpolateTemplate` `JSON.stringify`s any non-string, so
+# `{{$steps.classify.output}}` put one line of
+# `{"facts":[…],"gaps":[…]}` at the top of the operator's `.md`.
+#
+# The fix is NOT a sub-path — the extractor has no prose field to address,
+# and giving it one would contradict its own role AND leak a key
+# `docs-factory`'s writer never asked for (`facts: $steps.extract.output`
+# is a whole-envelope hop that is correct only because the writer's prompt
+# asks for both keys). So the report is composed by the step whose entire
+# job is "turn extracted facts into a draft artifact" — the seeded WRITER,
+# whose contract's `"draft"` IS the prose field, "a string holding the
+# complete artifact". Same shape `docs-factory` already uses one step
+# after its own extractor, and the same `.draft` sub-path the three
+# sibling envelope fixes publish (#93, #94, #95).
+#
+# The determinism claim in the header survives: nothing branches on
+# `compose`, and the ingest provenance line stays in the `report`
+# TRANSFORM, outside the model's reach, so the caveat cannot be
+# paraphrased away by an LLM that decided it read better without one.
 
 name: etl-factory
 description: >-
   Ingest the data files you point it at, assert the ingest is well formed,
-  classify it with the cheap tier, and write a report — pausing for a human only
-  when some of the input could not be read. Proves the deterministic half of the
-  engine: tool, strict transform, gate, per-step model tier, conditional approval.
+  extract structured facts with the cheapest tier, compose them into a readable
+  report, and write it — pausing for a human only when some of the input could
+  not be read. Proves the deterministic half of the engine: tool, strict
+  transform, gate, per-step model tier, conditional approval.
 
 inputSchema:
   globs:
@@ -153,7 +185,45 @@ steps:
       files: $steps.ingest.output.files
       skipped: $steps.ingest.output.skipped
 
-  # ── 4. The report ────────────────────────────────────────────────────
+  # ── 4. Turn the facts into a document ────────────────────────────────
+  #
+  # The seeded WRITER — the only role in this extension whose contract
+  # carries a prose field (`"draft": a string holding the complete
+  # artifact. The whole draft goes in this one string value, newlines and
+  # all.`). Its output's `.draft` is what `report` publishes and `write`
+  # puts on disk, which is the same `.draft` the three sibling envelope
+  # fixes settled on (#93, #94, #95).
+  #
+  # `facts` is handed the extractor's WHOLE `{facts, gaps}` envelope, and
+  # that is deliberate rather than an oversight of the rule those fixes
+  # established. The rule is not "never pass an object": it is that the
+  # RECEIVER's contract decides, and this receiver's role says verbatim
+  # "If a fact you need is missing, note the gap in the draft rather than
+  # inventing it" — it needs `gaps` as much as `facts`. The same SHAPE as
+  # `docs-factory`'s `facts: $steps.extract.output` (writer, key `facts`,
+  # a bare whole-output ref off an extractor step — only the step NAME
+  # differs), cleared by the same guard in `workflow-templates.test.ts`
+  # for the same reason.
+  #
+  # A rung ABOVE `classify` on the effort ladder and still near the
+  # bottom: describing data is cheaper than writing about it, and two
+  # different tiers in one graph is the per-step tiering this template
+  # exists to demonstrate. `maxTokens` bounds the STORED output for the
+  # same reason it does on `classify` — this graph parks on a human, so
+  # it does resume, and a step over `MAX_STEP_OUTPUT_BYTES` refuses the
+  # resume terminally.
+  - name: compose
+    kind: agent
+    agent: ez-factory writer
+    dependsOn:
+      - classify
+    model:
+      effort: low
+      maxTokens: 8000
+    input:
+      facts: $steps.classify.output
+
+  # ── 5. The report ────────────────────────────────────────────────────
   #
   # The document is composed HERE rather than in `write`, because `{{…}}`
   # interpolation runs only in a transform's `output` mapping — a tool
@@ -175,14 +245,28 @@ steps:
   # gain. A later step can address the original by its own ref.
   #
   # Transform refs are STRICT, so this re-asserts what `schema-ok` gated —
-  # a field that vanished between the two fails the run by name.
+  # a field that vanished between the two fails the run by name. That is
+  # the second thing `.draft` buys over the bare envelope ref it replaced:
+  # a writer that stopped returning `draft` fails this step BY NAME, while
+  # the bare form could never fail — it would keep publishing whatever
+  # shape it got.
+  #
+  # `{{$steps.ingest.output.skipped}}` renders the tool's `{path, reason}`
+  # records as JSON, and stays that way ON PURPOSE. It is the run's own
+  # record of what was missed, it is short, and there is no deterministic
+  # way to render an array in this language — the alternatives are dropping
+  # the detail (the operator loses the WHY) or handing it to the model
+  # (the caveat stops being deterministic, which is the whole point of
+  # keeping it here). A small structured appendix is the least-bad of the
+  # three. It is also NOT the envelope class this step's neighbour was:
+  # a TOOL's sub-path, never a whole agent output.
   - name: report
     kind: transform
     dependsOn:
-      - classify
+      - compose
     output:
       document: >-
-        {{$steps.classify.output}}
+        {{$steps.compose.output.draft}}
 
 
         ---
@@ -192,7 +276,7 @@ steps:
         {{$steps.ingest.output.skippedCount}} skipped.
         {{$steps.ingest.output.skipped}}
 
-  # ── 5. Ask, but only about an incomplete ingest ──────────────────────
+  # ── 6. Ask, but only about an incomplete ingest ──────────────────────
   #
   # NO `rbacScope`. Declaring one REPLACES the owner check
   # (`workflow-answer-approval.ts`), so the person who fired this job could
@@ -224,7 +308,7 @@ steps:
     timeoutMs: 86400000
     onTimeout: abort
 
-  # ── 6. Convert an abort into a failed run ────────────────────────────
+  # ── 7. Convert an abort into a failed run ────────────────────────────
   #
   # Carries the SAME `when` as the gate above so it is skipped on exactly
   # the runs where the gate was never asked — see the header. It is the
@@ -248,7 +332,7 @@ steps:
       op: neq
       value: abort
 
-  # ── 7. Write ─────────────────────────────────────────────────────────
+  # ── 8. Write ─────────────────────────────────────────────────────────
   #
   # References only `$input` and `report`, neither of which can be skipped,
   # so this resolves on the clean path and the reviewed path alike.
@@ -268,7 +352,7 @@ steps:
       path: $input.outPath
       content: $steps.report.output.document
 
-  # ── 8. The run artifact ──────────────────────────────────────────────
+  # ── 9. The run artifact ──────────────────────────────────────────────
   #
   # `$steps.write.output` is `{path, bytes, sha256}` — small, deterministic,
   # and the thing an operator diffs between runs. `etl-run.json` is a

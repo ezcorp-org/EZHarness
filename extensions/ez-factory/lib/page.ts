@@ -520,7 +520,7 @@ export const TEMPLATE_BLURBS: readonly TemplateBlurb[] = [
   {
     workflow: "etl-factory",
     summary:
-      "Read a set of files, extract and normalise them into one structured artifact, gated on the extraction being clean.",
+      "Read a set of files, extract structured facts and compose them into one readable report, gated on the ingest being clean.",
   },
   {
     workflow: "draft-and-verify",

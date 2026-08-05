@@ -64,6 +64,11 @@ import {
   sweepExpiredWorkflowApprovals,
   type ApprovalTimeoutSweepResult,
 } from "../runtime/workflow-approval-timeout-sweep";
+import {
+  sweepAllDynamicTriggers,
+  type SweepAllResult,
+  type SweepRegistry,
+} from "./triggers-sweep";
 
 /**
  * Sub-tick cadence — every 6th `tickOnce()` fires
@@ -164,6 +169,15 @@ export interface HostMaintenanceDaemonOptions {
    *  `EZCORP_PERM_FOREVER_TTL_DAYS` applies without restart). */
   ttlConfig?: Readonly<Record<CapabilityExpiryKind, number | "never">>;
   foreverTtlMs?: number;
+  /**
+   * Extension registry for the dynamic-trigger orphan sweep. Injected
+   * (the singleton is wired in `startup/background-timers.ts`) rather than
+   * imported, so a test drives the sweep with two stub objects and this
+   * module keeps no dependency on the registry's spawn/sandbox import
+   * graph. Omitted → the sweep sub-tick is a no-op, which is the correct
+   * behaviour for every caller that constructs a bare daemon.
+   */
+  triggerRegistry?: SweepRegistry;
 }
 
 /** Outcome of one tick — exposed for tests that want to drive the
@@ -180,6 +194,9 @@ export interface TickOutcome {
   errors: ApplyError[];
   /** What the approval-timeout sub-tick did this pass. */
   approvalTimeouts: ApprovalTimeoutSweepResult;
+  /** What the dynamic-trigger orphan sub-tick did this pass. All zeroes
+   *  when no registry was injected. */
+  triggerSweep: SweepAllResult;
 }
 
 /** Zeroed sub-tick result — the shape a tick that swept nothing reports. */
@@ -191,6 +208,14 @@ const NO_APPROVAL_TIMEOUTS: ApprovalTimeoutSweepResult = {
   raced: 0,
 };
 
+/** Zeroed trigger-sweep result — a tick with no registry wired. */
+const NO_TRIGGER_SWEEP: SweepAllResult = {
+  scanned: 0,
+  disabled: 0,
+  skipped: 0,
+  errored: 0,
+};
+
 export class HostMaintenanceDaemon {
   private readonly opts: {
     wakeIntervalMs: number;
@@ -199,6 +224,7 @@ export class HostMaintenanceDaemon {
     lockfilePath: string;
     ttlConfig?: Readonly<Record<CapabilityExpiryKind, number | "never">>;
     foreverTtlMs?: number;
+    triggerRegistry?: SweepRegistry;
   };
   private timer?: ReturnType<typeof setInterval>;
   private lockfileOwned = false;
@@ -225,6 +251,9 @@ export class HostMaintenanceDaemon {
       lockfilePath: options?.lockfilePath ?? DEFAULT_LOCKFILE_PATH,
       ...(options?.ttlConfig !== undefined ? { ttlConfig: options.ttlConfig } : {}),
       ...(options?.foreverTtlMs !== undefined ? { foreverTtlMs: options.foreverTtlMs } : {}),
+      ...(options?.triggerRegistry !== undefined
+        ? { triggerRegistry: options.triggerRegistry }
+        : {}),
     };
   }
 
@@ -305,6 +334,7 @@ export class HostMaintenanceDaemon {
       audits: 0,
       errors: [],
       approvalTimeouts: NO_APPROVAL_TIMEOUTS,
+      triggerSweep: NO_TRIGGER_SWEEP,
     };
     try {
       const db = getDb();
@@ -345,6 +375,7 @@ export class HostMaintenanceDaemon {
           audits: applied.audits,
           errors: applied.errors,
           approvalTimeouts: NO_APPROVAL_TIMEOUTS,
+          triggerSweep: NO_TRIGGER_SWEEP,
         };
       }
 
@@ -439,7 +470,33 @@ export class HostMaintenanceDaemon {
         });
       }
 
-      return { ...outcome, approvalTimeouts };
+      // Sub-tick: retire dynamic trigger rows whose extension no longer
+      // claims them — the ORPHANED TRIGGER THAT STILL FIRES
+      // (`./triggers-sweep.ts`). No modulo, like the approval sweep above
+      // and unlike the two housekeeping ones: an orphan wakes a
+      // subprocess (or records an `undispatched` fire) on every one of its
+      // slots until it is retired, so the cost of waiting is proportional
+      // to the delay.
+      //
+      // `sweepAllDynamicTriggers` is FAIL-OPEN per extension and absorbs
+      // per-extension failures itself. What it explicitly does NOT absorb
+      // is a registry whose iterator throws — that one is this `catch`'s,
+      // and it is the same belt-and-braces the siblings carry, because a
+      // sweep is housekeeping and must never take the daemon down.
+      let triggerSweep = NO_TRIGGER_SWEEP;
+      const triggerRegistry = this.opts.triggerRegistry;
+      if (triggerRegistry !== undefined) {
+        try {
+          triggerSweep = await sweepAllDynamicTriggers(triggerRegistry, new Date(now));
+        } catch (err) {
+          log.warn("tick: dynamic-trigger sweep skipped", {
+            error: String((err as Error)?.message ?? err),
+            tickCount: this.tickCount,
+          });
+        }
+      }
+
+      return { ...outcome, approvalTimeouts, triggerSweep };
     } catch (err) {
       log.warn("tick: sweep crashed — daemon continues", {
         error: String((err as Error)?.message ?? err),

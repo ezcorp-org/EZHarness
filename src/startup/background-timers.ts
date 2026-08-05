@@ -337,8 +337,16 @@ export async function startBackgroundTimers(): Promise<void> {
   // exception), log + drop the handle; do NOT block the rest of boot.
   // The per-tick sweep is itself crash-safe (see
   // `host-maintenance-daemon.ts:tickOnce`).
+  //
+  // `triggerRegistry` is what gives `syncDynamicTriggers` its production
+  // caller (C2's orphan sweep — see `extensions/triggers-sweep.ts`). The
+  // singleton, like `WebhookDeliveryDaemon` above, because the sweep has to
+  // ask the SAME live subprocesses the fire paths dispatch to; a second
+  // registry would hold different processes and answer about nothing.
   try {
-    permSweepDaemon = new HostMaintenanceDaemon();
+    permSweepDaemon = new HostMaintenanceDaemon({
+      triggerRegistry: ExtensionRegistry.getInstance(),
+    });
     const ok = await permSweepDaemon.start();
     if (ok) {
       log.info("HostMaintenanceDaemon started");
