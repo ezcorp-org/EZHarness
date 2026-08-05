@@ -20,7 +20,7 @@ import {
   resolveDelegationVersionPin,
 } from "../runtime/workflow-delegation-consent";
 import { workflowDefinitionHash } from "../runtime/workflow-definition-hash";
-import type { CachedWorkflow } from "../runtime/workflow-scope";
+import { NO_PROJECT_MEMBERSHIPS, type CachedWorkflow } from "../runtime/workflow-scope";
 import type { WorkflowDefinition, WorkflowVisibility } from "../types";
 
 const OWNER = "user-owner";
@@ -58,13 +58,22 @@ function entry(
 
 describe("delegationPrincipal", () => {
   test("a user delegation carries the owner's user id", () => {
-    expect(delegationPrincipal("user", OWNER)).toEqual({ userId: OWNER, role: "member" });
+    expect(delegationPrincipal("user", OWNER)).toEqual({
+      userId: OWNER,
+      role: "member",
+      projectMemberships: NO_PROJECT_MEMBERSHIPS,
+    });
   });
 
   test("a service delegation carries NO user id, discarding the account id", () => {
     // The account id is a real id — it just is not a USER identity, and
-    // the ladder's `project` rung tests exactly `caller.userId !== null`.
-    expect(delegationPrincipal("service", "svc-1")).toEqual({ userId: null, role: "member" });
+    // the ladder's project-less `project` rung tests exactly
+    // `caller.userId !== null`.
+    expect(delegationPrincipal("service", "svc-1")).toEqual({
+      userId: null,
+      role: "member",
+      projectMemberships: NO_PROJECT_MEMBERSHIPS,
+    });
   });
 
   test("neither arm carries admin, whoever the owner is", () => {
@@ -72,6 +81,17 @@ describe("delegationPrincipal", () => {
     // an admin consented to it.
     expect(delegationPrincipal("user", OWNER).role).toBe("member");
     expect(delegationPrincipal("service", "svc-1").role).toBe("member");
+  });
+
+  test("neither arm carries PROJECT MEMBERSHIPS, whoever the owner is", () => {
+    // The same ruling as the role clamp above, on the axis
+    // `project_members` added: a delegation is consented to once, so a
+    // principal carrying LIVE memberships would widen that consent every
+    // time the owner joined a project. Empty is the fail-closed set, and
+    // it is what stops an unattended tick reaching a project-scoped row.
+    for (const kind of ["user", "service"] as const) {
+      expect(delegationPrincipal(kind, OWNER).projectMemberships).toEqual([]);
+    }
   });
 });
 

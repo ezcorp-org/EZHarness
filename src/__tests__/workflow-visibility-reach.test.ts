@@ -309,10 +309,12 @@ describe("what a read/run grant is actually worth today", () => {
       expect(authorizeWorkflow(e, STRANGER, "run")).toEqual({
         ok: false,
         reason: "not-project-member",
+        visibility: e.visibility,
       });
       expect(authorizeWorkflow(e, STRANGER, "read")).toEqual({
         ok: false,
         reason: "not-project-member",
+        visibility: e.visibility,
       });
     }
   });
@@ -407,6 +409,7 @@ describe("`project` visibility is scoped by the ROW's project id — never the c
       expect(authorizeWorkflow(projectEntry, caller, "run")).toEqual({
         ok: false,
         reason: "not-project-member",
+        visibility: "project",
       });
     }
   });
@@ -454,6 +457,9 @@ describe("`project` visibility is scoped by the ROW's project id — never the c
     expect(authorizeWorkflow({ ...projectEntry, projectId: null }, cli, "run")).toEqual({
       ok: false,
       reason: "not-authenticated",
+      // Dropping the project id changes the AUDIENCE, not the tier — the
+      // denial still names `project`, which is the row it was refused on.
+      visibility: "project",
     });
     expect(authorizeWorkflow(systemCachedWorkflow(DEFINITION, "yaml"), cli, "run").ok).toBe(true);
   });

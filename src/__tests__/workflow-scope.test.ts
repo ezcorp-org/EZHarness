@@ -586,18 +586,38 @@ describe("denial status and message", () => {
   };
   const ACTIONS = Object.keys(EXPECTED) as WorkflowAction[];
   const TIERS = Object.keys(EXPECTED.read) as WorkflowVisibility[];
-  /** Every reason that names a row. `not-found` has none, and is swept apart. */
-  const REASONS: WorkflowDenialReason[] = [
-    "not-authenticated",
-    "not-owner",
-    "not-editable-source",
-    "requires-admin",
-  ];
+  /**
+   * Every reason that names a row. `not-found` has none, and is swept apart.
+   *
+   * A `Record` keyed by the union rather than a bare array, for the same
+   * reason {@link EXPECTED} is one: a bare `WorkflowDenialReason[]` accepts
+   * a SUBSET silently, so a reason added later is simply never swept and
+   * the omission cannot fail anything. `not-project-member` is exactly that
+   * case — it arrived with the project-membership split, after this table
+   * was written, and a plain array would have left the newest reason the
+   * only unswept one. Keyed this way, a fifth reason fails TYPECHECK here
+   * until someone decides what status it carries.
+   */
+  const ROW_NAMING_REASONS: Record<Exclude<WorkflowDenialReason, "not-found">, true> = {
+    "not-authenticated": true,
+    "not-owner": true,
+    "not-editable-source": true,
+    "requires-admin": true,
+    // Read/run only, and 404 on every tier like every other read/run
+    // denial — which is what keeps a project-scoped row's existence from
+    // being confirmed to a non-member. Asserted here rather than trusted.
+    "not-project-member": true,
+  };
+  const REASONS = Object.keys(ROW_NAMING_REASONS) as Exclude<
+    WorkflowDenialReason,
+    "not-found"
+  >[];
 
   test("the sweep below is not vacuous", () => {
     expect(ACTIONS).toEqual(["read", "run", "edit"]);
     expect(TIERS.sort()).toEqual(["private", "project", "system"]);
-    expect(REASONS).toHaveLength(4);
+    expect(REASONS).toHaveLength(5);
+    expect(REASONS).toContain("not-project-member");
   });
 
   for (const action of ACTIONS) {
@@ -734,6 +754,7 @@ describe("readRunAudience names the set each tier admits", () => {
       expect(authorizeWorkflow(projectEntry, caller, "run")).toEqual({
         ok: false,
         reason: "not-project-member",
+        visibility: "project",
       });
     }
     // The admin override is a ROLE exemption, not a membership: `admin`
@@ -765,6 +786,7 @@ describe("readRunAudience names the set each tier admits", () => {
     expect(authorizeWorkflow(projectEntry, liar, "run")).toEqual({
       ok: false,
       reason: "not-project-member",
+      visibility: "project",
     });
     // …and the mirror image: a real member who claims NO project is still
     // admitted, because the claim is irrelevant in both directions.
@@ -799,6 +821,9 @@ describe("readRunAudience names the set each tier admits", () => {
     expect(authorizeWorkflow(projectlessEntry, cli, "run")).toEqual({
       ok: false,
       reason: "not-authenticated",
+      // The TIER, not the project id — a project-less `project` row is
+      // still a `project` row, and the denial names what it was refused on.
+      visibility: "project",
     });
     expect(authorizeWorkflow(projectEntry, cli, "edit")).toEqual({
       ok: false,
@@ -855,6 +880,7 @@ describe("NO_PROJECT_MEMBERSHIPS", () => {
     expect(authorizeWorkflow(projectEntry, withNone, "run")).toEqual({
       ok: false,
       reason: "not-project-member",
+      visibility: "project",
     });
   });
 });

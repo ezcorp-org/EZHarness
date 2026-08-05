@@ -137,6 +137,10 @@ describe("service-accounts query layer", () => {
       expect(DELEGATION_OWNER_CALLER.user("u-member")).toEqual({
         userId: "u-member",
         role: "member",
+        // Empty by construction — see `delegationPrincipal`. An
+        // unattended run carries no membership the consenting human is
+        // not present to supervise.
+        projectMemberships: [],
       });
       // The `service` arm IGNORES the id — there is no `users` row to name.
       expect(DELEGATION_OWNER_CALLER.service("sa-1")).toEqual(SERVICE_ACCOUNT_CALLER);

@@ -45,6 +45,7 @@ import type {
 import type { WorkflowResolver } from "./workflow-closure";
 import { workflowDefinitionHash } from "./workflow-definition-hash";
 import {
+  NO_PROJECT_MEMBERSHIPS,
   resolveWorkflowForCaller,
   type CachedWorkflow,
   type WorkflowCaller,
@@ -136,10 +137,40 @@ export type DelegationConsentDenialCode =
  * the ladder to admit; `authorizeWorkflow` grants it `system` and
  * nothing else (`workflow-scope.ts:302-313`, `:312` is the test it
  * fails).
+ *
+ * ## Neither arm carries PROJECT MEMBERSHIPS
+ *
+ * Both arms take {@link NO_PROJECT_MEMBERSHIPS}, which is the same ruling
+ * as `role: "member"` below applied to the axis `project_members` added,
+ * and it is made for the same reason: an unattended tick must not reach
+ * further than the human who consented is present to supervise. A
+ * delegation is consented to ONCE, against a graph the human saw at that
+ * moment; a principal carrying LIVE memberships would silently widen that
+ * consent every time the owner joined another project, which is precisely
+ * the "the world moved" drift {@link DELEGATION_CONSENT_DENIALS.OWNER_LOST_ACCESS}
+ * exists to surface rather than absorb.
+ *
+ * The consequence, stated plainly: a delegation cannot fire a
+ * project-SCOPED `project` workflow (one the fork route stamped with a
+ * `project_id`) even when its owner is a member of that project. That is
+ * a REFUSAL, never a grant — it can only narrow what an unattended run
+ * reaches — and it keeps this lookup pure, which is what lets both the
+ * consent-time and the fire-time ladder ask the identical question
+ * without a DB round-trip that could answer differently on each side.
+ * A project-LESS `project` row is unaffected: it resolves to
+ * `any-authenticated-principal`, so the `user` arm still reaches it.
  */
 const DELEGATION_PRINCIPAL = {
-  user: (ownerId: string | null): WorkflowCaller => ({ userId: ownerId, role: "member" }),
-  service: (): WorkflowCaller => ({ userId: null, role: "member" }),
+  user: (ownerId: string | null): WorkflowCaller => ({
+    userId: ownerId,
+    role: "member",
+    projectMemberships: NO_PROJECT_MEMBERSHIPS,
+  }),
+  service: (): WorkflowCaller => ({
+    userId: null,
+    role: "member",
+    projectMemberships: NO_PROJECT_MEMBERSHIPS,
+  }),
 } as const satisfies Record<DelegationOwnerKind, (ownerId: string | null) => WorkflowCaller>;
 
 /**
