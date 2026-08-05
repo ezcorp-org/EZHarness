@@ -2,11 +2,19 @@
  * The ez-factory manifest's DECLARED SURFACE, asserted exactly.
  *
  * Every permission below was argued for or against by reading the host
- * code, and three of them were removed after that reading showed they buy
- * nothing (`llm`), do not exist (`workflows.allowDelegated`), or have no
- * consumer (`shell`, `network`, `settings`, `secrets`). Absence is the
- * design, and absence is invisible in a diff — a future author "restoring"
- * one would widen the grant with nothing failing.
+ * code, and two of them were removed after that reading showed they buy
+ * nothing (`llm`) or have no consumer (`shell`, `network`, `settings`,
+ * `secrets`). Absence is the design, and absence is invisible in a diff —
+ * a future author "restoring" one would widen the grant with nothing
+ * failing.
+ *
+ * `workflows.allowDelegated` was a THIRD removal and is back at phase 9,
+ * because the reasoning that removed it was wrong in a way only a real
+ * background fire exposes: `ctx.workflows.run()` refuses an ownerless
+ * call at rung 7, so the flag is not a widening this extension does not
+ * use — it is the ONLY route it has to act on the `triggers` grant it
+ * already holds. Same shape of mistake as the 8.1 `eventSubscriptions`
+ * drop below: a capability declined on a reading that never ran the path.
  *
  * `eventSubscriptions` was a FOURTH removal at 8.1 and is back at 8.6,
  * narrowed to what it is actually for. The 8.1 reasoning — a `workflow:*`
@@ -126,19 +134,30 @@ describe("ez-factory manifest — the exact permission key set", () => {
     expect(perms.workflows).toEqual({
       names: ["docs-factory", "etl-factory", "draft-and-verify"],
       maxRunsPerHour: 60,
+      allowDelegated: true,
     });
   });
 
-  test("workflows does NOT carry allowDelegated — this extension ships what it fires", () => {
-    // The field EXISTS since C3 phase 5; this row declines it on purpose.
-    // `allowDelegated` opts an extension into firing workflows it does not
-    // ship. ez-factory ships all three of the workflows it fires, so the
-    // per-name list below is a strictly tighter bound. Declaring the flag
-    // would widen its reach to "any workflow some user delegates" and buy
-    // nothing this extension uses.
+  test("workflows DOES carry allowDelegated — it is the only route to a background fire", () => {
+    // Phase 9 flipped this from absent to `true`, and the flip is the
+    // whole point of the phase. The old rationale said the flag bought
+    // "nothing it uses"; that was false. This extension declares
+    // `triggers` (cron + webhook), a trigger fire is ownerless, and
+    // `ctx.workflows.run()` is refused for an ownerless call at rung 7
+    // (`WORKFLOWS_NO_OWNER`, -32106) — deliberately. `runFor`, gated on
+    // this boolean, is the one sanctioned path from a cron tick to a run,
+    // so declining the flag did not narrow the extension: it left
+    // `permissions.triggers` unactionable.
+    //
+    // Asserted as an EXACT key set, so a future author who deletes the
+    // flag fails a named test rather than silently un-firing every
+    // unattended job (the failure direction is silent: a dropped
+    // `allowDelegated` refuses `runFor` and logs nothing on the job).
     const workflows = perms.workflows as Record<string, unknown>;
-    expect(workflows.allowDelegated).toBeUndefined();
-    expect(Object.keys(workflows).sort()).toEqual(["maxRunsPerHour", "names"]);
+    expect(workflows.allowDelegated).toBe(true);
+    expect(Object.keys(workflows).sort()).toEqual(
+      ["allowDelegated", "maxRunsPerHour", "names"],
+    );
   });
 
   test("filesystem is $CWD only — never $USER", () => {

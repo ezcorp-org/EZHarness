@@ -962,6 +962,22 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     // TRIGGERABLE; `maxRunsPerHour` is required on the granted shape and
     // is this extension's only real spend bound.
     //
+    // `workflows.allowDelegated` (phase 9) is what makes the `triggers`
+    // grant above ACTIONABLE. A cron/webhook fire is ownerless, and
+    // `ctx.workflows.run()` refuses an ownerless call at rung 7
+    // (`WORKFLOWS_NO_OWNER`, -32106) — deliberately, because
+    // `runWorkflow` scopes `workflow:*` SSE on `userId`. `runFor` is the
+    // sanctioned route and this boolean is its opt-in; it authorizes no
+    // job by itself (a `workflow_delegations` row a named human consented
+    // to in a session-only route does that, and carries its own
+    // `max_runs_per_day` / `max_tokens_per_run`).
+    //
+    // It fails in the SILENT direction if any of the three sides forgets
+    // it: `intersectPermissions` folds it with `&&`, so an omitting
+    // ceiling row makes `undefined && true` falsy and delegation is
+    // quietly denied. Manifest, this grant, and the `bundled-ceiling.ts`
+    // row must all say `allowDelegated: true`.
+    //
     // No `bootSpawn`: the entrypoint arrives in 8.6, and even then the
     // console is user-driven (page render + page actions), not
     // event-subscription-only — the case `bootSpawn` exists for.
@@ -978,6 +994,7 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
       workflows: {
         names: ["docs-factory", "etl-factory", "draft-and-verify"],
         maxRunsPerHour: 60,
+        allowDelegated: true,
       },
       filesystem: ["$CWD"],
       // The console's TWO Hub page actions — `job-save` (write a job) and
