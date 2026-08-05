@@ -1,0 +1,114 @@
+# Dependabot — the other half of SHA-pinning.
+#
+# Every third-party `uses:` in this repo is pinned to an immutable 40-char
+# commit SHA. That closes the mutable-tag hole (whoever can move `@v4` can run
+# code in a job holding `packages: write` / `id-token: write`), but it trades
+# it for a NEW failure mode: a pin never moves on its own. A runner-image
+# regression that an action maintainer patches in a `v4.x` release no longer
+# reaches us; it just sits there. `.github/actions/setup/action.yml` already
+# carries a documented apt-lib drift hazard of exactly that shape, and pinning
+# `actions/cache` added another surface that no longer self-heals.
+#
+# So the pins are only safe BECAUSE this file exists. Don't delete one without
+# the other.
+#
+# The `# vX.Y.Z` trailer on each pinned ref is load-bearing: that is the format
+# Dependabot parses to know which version a SHA represents, and rewrites when
+# it bumps one. `pinact` emits it. Tools that write a different trailer shape
+# (e.g. ratchet's `# ratchet:`) would strand this config.
+
+version: 2
+
+updates:
+  # ── GitHub Actions: the workflows ────────────────────────────────────────
+  # `directory: "/"` is the documented value for the github-actions ecosystem:
+  # Dependabot searches `/.github/workflows` plus a ROOT-level action.yml. It
+  # does NOT walk `.github/actions/**`, which is why the composite gets its own
+  # entry below.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    # A compromised release is normally yanked within hours, so simply not
+    # adopting a new SHA on day 0 is real protection at near-zero cost.
+    # SECURITY updates are exempt from cooldown, so this only delays routine
+    # version bumps. github-actions supports `default-days` only (the
+    # semver-*-days knobs are not supported for this ecosystem).
+    cooldown:
+      default-days: 7
+    # Without grouping, 11 distinct actions means up to 11 PRs a week, each
+    # dragging the full CI suite behind it. Three buckets instead. A dependency
+    # lands in the FIRST group it matches, so `other-actions` is a catch-all
+    # that also absorbs any action added later — the PR count stays bounded
+    # without anyone remembering to edit this file.
+    groups:
+      actions:
+        patterns:
+          - "actions/*"
+      docker-actions:
+        patterns:
+          - "docker/*"
+      other-actions:
+        patterns:
+          - "*"
+
+  # ── GitHub Actions: the composite ────────────────────────────────────────
+  # `.github/actions/setup` is fronted by 15 job invocations and holds 3 pinned
+  # refs (oven-sh/setup-bun + two actions/cache), so it is the highest-leverage
+  # thing in the repo to leave stale. Nested composite-action discovery is NOT
+  # clearly documented, hence the explicit second entry. VERIFY IT: Insights →
+  # Dependency graph → Dependabot should list a job for this directory.
+  - package-ecosystem: "github-actions"
+    directory: "/.github/actions/setup"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    cooldown:
+      default-days: 7
+    groups:
+      setup-composite:
+        patterns:
+          - "*"
+
+  # ── Bun dependencies ─────────────────────────────────────────────────────
+  # `bun`, NOT `npm`: this repo's lockfiles are `bun.lock` (root, covering the
+  # `packages/@ezcorp/*` workspaces) and `web/bun.lock`. Dependabot's `npm`
+  # ecosystem handles npm/pnpm/yarn lockfiles; `bun` is its own ecosystem
+  # (bun >= 1.1.39 — this repo pins 1.3.14 in `.bun-version`).
+  #
+  # Included on purpose: bumping a vulnerable dependency is what actually
+  # RESOLVES an advisory. An audit gate with no upgrade path just accumulates
+  # allowlist entries, and an ignore list is a record of debt, not a fix.
+  #
+  # `worker/` and `extensions/*` have package.json files but no lockfile and
+  # nothing in CI installs them, so they are deliberately not listed — an
+  # unverifiable bump PR is worse than none.
+  - package-ecosystem: "bun"
+    directories:
+      - "/"
+      - "/web"
+    schedule:
+      interval: "weekly"
+    # Lower than the actions limit: each of these drags the full backend +
+    # coverage + e2e suite behind it, which is the expensive tier of CI.
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore"
+      include: "scope"
+    cooldown:
+      default-days: 7
+      semver-major-days: 14
+    # Minor/patch batch into one reviewable PR; MAJORS stay individual, because
+    # a major is exactly the bump that deserves its own diff and its own CI run.
+    groups:
+      bun-minor-and-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
