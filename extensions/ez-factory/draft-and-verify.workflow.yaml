@@ -212,12 +212,38 @@ steps:
   #
   # Transform refs are STRICT, so this also re-asserts: a field that
   # vanished upstream fails the pass by name rather than emitting a hole.
+  #
+  # ── `content` addresses `.draft`, and that sub-path is load-bearing ──
+  #
+  # `$steps.revise.output` is NOT the document. All three seeded agents are
+  # `outputFormat: "json"` (`src/extensions/ez-factory-agents.ts`), so
+  # `configToAgent` puts `JSON.parse` between the model and the step, and
+  # an agent step's `output` is an OBJECT — for the writer, the
+  # `{draft, gaps}` envelope its contract declares.
+  #
+  # That matters because this key is what `docs-factory` PUBLISHES:
+  # `review-loop.output.content` → the `content` argument of
+  # `ez-factory__write_file`. And `requireContent` (`lib/tools/shared.ts`)
+  # accepts an object and `JSON.stringify`s it rather than refusing it — so
+  # handing it the envelope does not fail, it writes
+  # `{"gaps":[…],"draft":"…"}` into the file the operator named `.md`, with
+  # the document escaped inside a string field. Observed on a real run
+  # (`519e3bc4`, 666 bytes of JSON) before this ref was corrected.
+  #
+  # The bare form was right when it was written — an agent step's output
+  # WAS the raw LLM text — and stopped being right when the agents were
+  # seeded `outputFormat: "json"`, an edit in another file. Same drift as
+  # the corrected note in this file's header.
   - name: verdict
     kind: transform
     dependsOn:
       - review
     output:
-      content: $steps.revise.output
+      content: $steps.revise.output.draft
+      # Stays whole, deliberately: the validator's contract is
+      # `{valid, errors}` with no single prose field, and this value is
+      # only read back as `priorVerdict` on the next pass (an agent input,
+      # which `configToAgent` serializes) — never written to a file.
       verdict: $steps.verify.output
       choice: $steps.review.output.choice
       answeredBy: $steps.review.output.answeredBy

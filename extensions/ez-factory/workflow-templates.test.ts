@@ -761,6 +761,197 @@ describe("ez-factory templates — tool steps", () => {
   });
 });
 
+// ── What gets WRITTEN to the operator's file ────────────────────────
+//
+// `ez-factory__write_file` puts its `content` argument on disk under a
+// path the operator chose, usually with a `.md` on the end. So `content`
+// has to resolve to the DOCUMENT — a string.
+//
+// An agent step does not produce one. All three seeded agents are
+// `outputFormat: "json"` (`src/extensions/ez-factory-agents.ts`), so
+// `configToAgent` puts `JSON.parse` between the model and the step and
+// `$steps.<agentStep>.output` is an OBJECT — for the writer, the
+// `{draft, gaps}` envelope its contract declares.
+//
+// Nothing downstream refuses the wrong type. `requireContent`
+// (`lib/tools/shared.ts`) accepts an object and `JSON.stringify(raw, null, 2)`s
+// it, so the run finishes `success` having written
+// `{"gaps":[…],"draft":"…"}` — the document escaped inside a string field —
+// into a file named `.md`. That is not a hypothetical: `docs-factory`
+// shipped exactly this ref and produced exactly that file on its first
+// real run (`519e3bc4`, 666 bytes of JSON) before it was corrected here.
+//
+// The ref was CORRECT when it was written — an agent step's output was the
+// raw LLM text then — and was falsified by seeding the agents
+// `outputFormat: "json"`, an edit in a different file that no test tied
+// back to these templates. This block is that tie.
+describe("ez-factory templates — write_file publishes a document, not an envelope", () => {
+  /** `$steps.<step>.output.<a>.<b>` → `{ step, fields: ["a","b"] }`.
+   *  `null` for anything that is not a `$steps` ref (a literal, `$input`,
+   *  `$loop`, `$result`). */
+  function parseStepsRef(ref: string): { step: string; fields: string[] } | null {
+    if (!ref.startsWith("$steps.")) return null;
+    const parts = ref.slice("$steps.".length).split(".");
+    const step = parts[0];
+    if (step === undefined || parts[1] !== "output") return null;
+    return { step, fields: parts.slice(2) };
+  }
+
+  /**
+   * Follow a ref back to the step that actually PRODUCES its value,
+   * hopping the two indirections the templates use: a `transform`'s
+   * `output` mapping, and a `workflow` step (whose result is the nested
+   * graph's last step — the same thing the executor serves for
+   * `$result.output.…`).
+   *
+   * Returns the producing step, the definition it lives in, and the field
+   * path still outstanding at that point. An empty `fields` at an `agent`
+   * producer is the bug: it means the WHOLE parsed object was taken.
+   */
+  //
+  // `lookup` is the set being CHECKED, never the module-level shipped map:
+  // a nested hop that resolved against the shipped assets would ignore a
+  // mutation applied to the callee and report clean, which is precisely
+  // how a discrimination case passes without discriminating. (It did, on
+  // the first draft of this resolver.)
+  function resolveProducer(
+    lookup: ReadonlyMap<string, WorkflowDefinition>,
+    def: WorkflowDefinition,
+    ref: string,
+    hops = 0,
+  ): { def: WorkflowDefinition; step: WorkflowStep; fields: string[] } | null {
+    if (hops > 8) return null; // cycle guard; these graphs nest one level
+    const parsed = parseStepsRef(ref);
+    if (parsed === null) return null;
+    const step = def.steps.find((s) => s.name === parsed.step);
+    if (step === undefined) return null;
+    const kind = stepKindOf(step);
+
+    if (kind === "transform") {
+      const next = step.output?.[parsed.fields[0] ?? ""];
+      if (typeof next !== "string") return { def, step, fields: parsed.fields };
+      return resolveProducer(lookup, def, next, hops + 1) ?? { def, step, fields: parsed.fields };
+    }
+
+    if (kind === "workflow") {
+      // The nested name is namespaced by the template; the assets are
+      // indexed by their BARE declared name.
+      const bare = (step.workflow ?? "").split(":").pop() ?? "";
+      const nested = lookup.get(bare);
+      const last = nested?.steps.at(-1);
+      if (nested === undefined || last === undefined) return { def, step, fields: parsed.fields };
+      const next = last.output?.[parsed.fields[0] ?? ""];
+      if (typeof next !== "string") return { def: nested, step: last, fields: parsed.fields };
+      return (
+        resolveProducer(lookup, nested, next, hops + 1) ?? {
+          def: nested,
+          step: last,
+          fields: parsed.fields,
+        }
+      );
+    }
+
+    return { def, step, fields: parsed.fields };
+  }
+
+  const lookupOf = (defs: WorkflowDefinition[]): ReadonlyMap<string, WorkflowDefinition> =>
+    new Map(defs.map((d) => [d.name, d]));
+
+  /**
+   * Every `write_file` `content` ref that bottoms out in a WHOLE agent
+   * step output, reported as `"<def>.<step>.content -> <def>.<step>"`.
+   *
+   * Returns a verdict rather than asserting, so the same predicate can be
+   * pointed at a deliberately-broken copy below and shown to answer
+   * differently.
+   */
+  const publishedContentTakingAWholeAgentOutput = (defs: WorkflowDefinition[]): string[] => {
+    const offenders: string[] = [];
+    const lookup = lookupOf(defs);
+    for (const def of defs) {
+      for (const step of def.steps) {
+        if (stepKindOf(step) !== "tool") continue;
+        if (step.tool !== `${EZ_FACTORY_EXTENSION_NAME}__write_file`) continue;
+        const ref = step.input?.content;
+        if (typeof ref !== "string" || !ref.startsWith("$steps.")) continue;
+        const producer = resolveProducer(lookup, def, ref);
+        if (producer === null) continue;
+        if (stepKindOf(producer.step) === "agent" && producer.fields.length === 0) {
+          offenders.push(
+            `${def.name}.${step.name}.content -> ${producer.def.name}.${producer.step.name}`,
+          );
+        }
+      }
+    }
+    return offenders;
+  };
+
+  test("no shipped template writes a whole agent output to a file", () => {
+    expect(publishedContentTakingAWholeAgentOutput(templates)).toEqual([]);
+  });
+
+  test("the check discriminates — the pre-fix ref is reported by name", () => {
+    // Exactly what `draft-and-verify` shipped before the first real run
+    // exposed it: the final transform handing on the writer's whole
+    // `{draft, gaps}` object as `content`.
+    const mutant = mutantOf("draft-and-verify");
+    const verdict = stepNamed(mutant, "verdict");
+    verdict.output = { ...verdict.output, content: "$steps.revise.output" };
+    const defs = templates.map((d) => (d.name === "draft-and-verify" ? mutant : d));
+    expect(publishedContentTakingAWholeAgentOutput(defs)).toEqual([
+      "docs-factory.write.content -> draft-and-verify.revise",
+    ]);
+  });
+
+  test("docs-factory's published content resolves across the nested graph to a FIELD of the writer's output", () => {
+    // Pins the whole chain, not just the endpoint: docs-factory's `write`
+    // reads the loop's `content`, the loop is `draft-and-verify`, and that
+    // graph's last step maps `content` onto a sub-path of the `revise`
+    // agent's parsed object.
+    const docs = byBareName.get("docs-factory")!;
+    const ref = stepNamed(docs, "write").input?.content;
+    expect(ref).toBe("$steps.review-loop.output.content");
+    const producer = resolveProducer(lookupOf(templates), docs, ref as string);
+    expect(producer).not.toBeNull();
+    expect(producer!.def.name).toBe("draft-and-verify");
+    expect(producer!.step.name).toBe("revise");
+    expect(stepKindOf(producer!.step)).toBe("agent");
+    expect(producer!.fields).toEqual(["draft"]);
+  });
+
+  test("the check discriminates through a TRANSFORM too — etl-factory's composer", () => {
+    // The nested-workflow hop reads the callee's last-step mapping inline,
+    // so `docs-factory`'s chain alone never exercises the standalone
+    // `transform` branch — disabling that branch left every other case in
+    // this block green (measured, not assumed). `etl-factory` is the arm
+    // that needs it: its `write` reads `$steps.report.output.document` and
+    // `report` is a transform. Point that transform at a bare agent output
+    // and the guard has to say so.
+    const mutant = mutantOf("etl-factory");
+    const report = stepNamed(mutant, "report");
+    report.output = { ...report.output, document: "$steps.classify.output" };
+    const defs = templates.map((d) => (d.name === "etl-factory" ? mutant : d));
+    expect(publishedContentTakingAWholeAgentOutput(defs)).toEqual([
+      "etl-factory.write.content -> etl-factory.classify",
+    ]);
+  });
+
+  test("the resolver really hops both indirections — it is not matching a literal", () => {
+    // Without the `workflow` hop the chain stops at `review-loop`; without
+    // the `transform` hop it stops at `verdict`. Neither is an agent step,
+    // so a resolver that did not hop would report nothing and the guard
+    // above would be vacuously green. Prove each hop is taken.
+    const docs = byBareName.get("docs-factory")!;
+    expect(stepKindOf(stepNamed(docs, "review-loop"))).toBe("workflow");
+    const dav = byBareName.get("draft-and-verify")!;
+    expect(stepKindOf(dav.steps.at(-1)!)).toBe("transform");
+    // A ref resolved one hop at a time lands somewhere different each time.
+    const oneHop = resolveProducer(lookupOf(templates), docs, "$steps.draft.output.draft");
+    expect(oneHop!.step.name).toBe("draft");
+    expect(oneHop!.fields).toEqual(["draft"]);
+  });
+});
+
 describe("ez-factory templates — dry run (the graph actually executes)", () => {
   /**
    * The strongest check in this file, and the only one that RUNS anything.
