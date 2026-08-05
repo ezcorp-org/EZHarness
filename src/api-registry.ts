@@ -424,17 +424,18 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/composer/suggest/feedback", description: "Record composer-suggestion telemetry (shown/accepted/dismissed; never draft text)", category: "composer", scope: "chat", schemaKey: "suggestFeedbackSchema", responseDescription: "{ ok: true } (201)" },
 
   // System
-  // Liveness probe, genuinely anonymous (hooks PUBLIC_PATHS). `?detail=true`
-  // asks for an ADMIN principal — and cannot get one: a public path never
-  // populates `locals.user`, so the detailed probe answers 401 to every
-  // caller including admins. Same PUBLIC_PATHS defect F5 fixed for
-  // /api/auth/invite and sec-F2/#86 then fixed for POST
-  // /api/auth/reset-password — both moved to PUBLIC_SUBPATHS_ONLY. That
-  // remedy deliberately does NOT apply here: `/api/health` is a liveness
-  // probe whose BARE path must stay anonymous, so the detail branch needs a
-  // different fix and this is the last live instance.
-  // Until 2026-08 it answered 500 instead of 401 (a thrown `requireAuth`).
-  { method: "GET", path: "/api/health", description: "Liveness probe. `?detail=true` returns the component breakdown for an admin, but is UNREACHABLE: the path is in the hooks PUBLIC_PATHS allowlist so locals.user is never populated and the detail branch answers 401 to everyone", category: "system", scope: "public" },
+  // Liveness probe, genuinely anonymous on its bare path (hooks
+  // PUBLIC_PATHS) — and it has to stay that way, which is why the F5 /
+  // sec-F2 remedy for /api/auth/invite and POST /api/auth/reset-password
+  // (move the bare path into PUBLIC_SUBPATHS_ONLY) could not be applied here.
+  // `?detail=true` was the last live instance of that defect: a public path
+  // never populated `locals.user`, so the admin gate answered 401 to admins
+  // too. hooks.server.ts now resolves a presented session cookie
+  // OPPORTUNISTICALLY on public `/api/*` paths, so identification no longer
+  // depends on enforcement; a cookieless probe is unchanged and still does
+  // zero DB work. Until 2026-08 the detail branch also answered 500 instead
+  // of 401 (a thrown `requireAuth`).
+  { method: "GET", path: "/api/health", description: "Liveness probe — anonymous and DB-free on the bare path. `?detail=true` returns the component breakdown (db/embeddings/providers/localModels) to an admin session; 401 for anyone else", category: "system", scope: "public" },
   // Was registered as GET (and carried in route-contract.test.ts's KNOWN_STALE
   // for exactly that reason); the handler on disk only exports POST.
   { method: "POST", path: "/api/warmup", description: "Pre-warm the embedding model so the first memory/search turn doesn't pay the load cost — best-effort, always 200", category: "system", scope: "read", responseDescription: "{ ok: true }" },

@@ -302,6 +302,112 @@ export const CSP_HEADER_VALUE = [
   `form-action 'self'`,
 ].join("; ");
 
+// ── Session-cookie verification ───────────────────────────────────────
+//
+// ONE definition of "what is this session cookie worth", shared by the two
+// callers in `handleApp` below. Deliberately POLICY-FREE: it returns a verdict
+// and decides nothing about the request — it never writes a cookie, never
+// answers 401, never redirects. Each caller applies its own policy:
+//
+//   - the ENFORCING branch (`!isPublic`) turns a bad verdict into a cleared
+//     cookie plus a 401/redirect, then runs the sliding refresh;
+//   - the OPPORTUNISTIC branch (a public `/api/*` path) turns a bad verdict
+//     into "stay anonymous" and never fails the request.
+//
+// Sharing one implementation is the whole point. Two hand-rolled copies of
+// "verify the JWT, then check the row that makes revocation stick" is exactly
+// how one copy silently loses a check.
+type SessionPayload = NonNullable<Awaited<ReturnType<typeof verifyJWT>>>;
+
+type SessionVerdict =
+  // Not usable as a principal. `no-secret` means "could not judge" (the JWT
+  // secret itself was unreachable), NOT "invalid". One member per reason so
+  // `reason` is a real discriminant — a single member typed with the union of
+  // all three would not narrow by elimination.
+  | { reason: "no-secret" }
+  | { reason: "invalid-jwt" }
+  | { reason: "revoked" }
+  // Verified. `reason: null` is the discriminant callers narrow on.
+  | {
+      reason: null;
+      payload: SessionPayload;
+      secret: string;
+      sessionId: string | null;
+      viaPrevious: boolean;
+      inboundTokenHash: string | null;
+      dbAvailable: boolean;
+    };
+
+async function verifySessionCookie(token: string): Promise<SessionVerdict> {
+  let secret: string;
+  try {
+    secret = await getJwtSecret();
+  } catch {
+    return { reason: "no-secret" };
+  }
+
+  const payload = await verifyJWT(token, secret);
+  if (!payload) return { reason: "invalid-jwt" };
+
+  // Session-backed validation: a missing session row means REVOKED (logout or
+  // admin force-logout) and is never auto-recreated — see sec-C2. The lookup
+  // also matches the row's previous_token_hash within its grace window; that
+  // path is taken by concurrent in-flight requests still carrying the
+  // pre-rotation cookie, and `viaPrevious` tells the refresh block to skip a
+  // redundant rotation.
+  let sessionId: string | null = null;
+  let viaPrevious = false;
+  let inboundTokenHash: string | null = null;
+  let dbAvailable = true;
+  let sessionMissing = false;
+  try {
+    inboundTokenHash = await hashToken(token);
+    const lookup = await lookupSessionByTokenHash(inboundTokenHash);
+    if (!lookup) {
+      sessionMissing = true;
+    } else {
+      sessionId = lookup.session.id;
+      viaPrevious = lookup.viaPrevious;
+      // Throttled touch to track last activity
+      touchSession(lookup.session.id).catch(() => {});
+    }
+  } catch {
+    // DB unavailable -- allow JWT-only auth as fallback
+    dbAvailable = false;
+  }
+  if (sessionMissing && dbAvailable) return { reason: "revoked" };
+
+  return {
+    reason: null,
+    payload,
+    secret,
+    sessionId,
+    viaPrevious,
+    inboundTokenHash,
+    dbAvailable,
+  };
+}
+
+// The ONE place `session` is stamped. A verified session-cookie JWT is the
+// only thing in the whole request pipeline that authenticates a human at a
+// browser, and `requireSessionAuth` allowlists exactly this value — so consent
+// gates are reachable from here and from nowhere else. Any other auth site
+// must stamp its OWN method; leaving it unstamped fails closed, not open.
+//
+// Both callers reach a principal through the SAME `verifySessionCookie`
+// verdict, so the two stamps mean the same thing: same signature check, same
+// revoked-row check. That is what makes stamping from the public branch honest
+// rather than a widening.
+function stampSessionPrincipal(locals: App.Locals, payload: SessionPayload): void {
+  locals.user = {
+    id: payload.id,
+    email: payload.email,
+    name: payload.name,
+    role: payload.role,
+  };
+  locals.authMethod = "session";
+}
+
 const handleApp: Handle = async ({ event, resolve }) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -362,6 +468,11 @@ const handleApp: Handle = async ({ event, resolve }) => {
 
   // ── Auth enforcement ──────────────────────────────────────────────
   // Public on the exact path AND on every sub-path (`p + "/"`).
+  //
+  // "Public" means the path does not REQUIRE a session — not that it cannot
+  // know who is calling. A public `/api/*` path still resolves a presented
+  // session cookie opportunistically; see the `else if` at the bottom of this
+  // block for why that distinction exists and what it must never cost.
   const PUBLIC_PATHS = ["/login", "/setup", "/signup", "/reset-password", "/api/auth/login", "/api/auth/setup", "/api/health", "/api/ready", "/api/version"];
   // Public on SUB-PATHS ONLY — the bare path stays authenticated.
   //
@@ -556,13 +667,16 @@ const handleApp: Handle = async ({ event, resolve }) => {
         throw redirect(302, buildLoginUrl());
       }
     } else {
-      let secret: string;
-      try { secret = await getJwtSecret(); } catch {
+      const verdict = await verifySessionCookie(sessionToken);
+
+      // The JWT secret is unreachable (DB down before it was ever cached).
+      // We cannot judge the cookie either way, so serve the request rather
+      // than bounce a legitimate user on an infrastructure blip.
+      if (verdict.reason === "no-secret") {
         return resolve(event);
       }
-      const payload = await verifyJWT(sessionToken, secret);
 
-      if (!payload) {
+      if (verdict.reason === "invalid-jwt") {
         clearSessionCookie(event.cookies);
         if (url.pathname.startsWith("/api/")) {
           return new Response(JSON.stringify({ error: "Session expired" }), {
@@ -573,34 +687,9 @@ const handleApp: Handle = async ({ event, resolve }) => {
         throw redirect(302, buildLoginUrl("session_expired"));
       }
 
-      // Session-backed validation: check session record exists.
-      // Missing session row = revoked; clear cookies and reject (do not auto-recreate).
-      // The lookup also matches the row's previous_token_hash within its grace
-      // window — that path is taken by concurrent in-flight requests still
-      // carrying the pre-rotation cookie, and `viaPrevious` tells the
-      // refresh block below to skip a redundant rotation.
-      let sessionMissing = false;
-      let dbAvailable = true;
-      let sessionId: string | null = null;
-      let viaPrevious = false;
-      let inboundTokenHash: string | null = null;
-      try {
-        inboundTokenHash = await hashToken(sessionToken);
-        const lookup = await lookupSessionByTokenHash(inboundTokenHash);
-        if (!lookup) {
-          sessionMissing = true;
-        } else {
-          sessionId = lookup.session.id;
-          viaPrevious = lookup.viaPrevious;
-          // Throttled touch to track last activity
-          touchSession(lookup.session.id).catch(() => {});
-        }
-      } catch {
-        // DB unavailable -- allow JWT-only auth as fallback
-        dbAvailable = false;
-      }
-
-      if (sessionMissing && dbAvailable) {
+      // Missing session row = revoked; clear cookies and reject (do not
+      // auto-recreate). See sec-C2.
+      if (verdict.reason === "revoked") {
         clearSessionCookie(event.cookies);
         event.cookies.delete("pi_session", { path: "/" });
         if (url.pathname.startsWith("/api/")) {
@@ -611,6 +700,8 @@ const handleApp: Handle = async ({ event, resolve }) => {
         }
         throw redirect(302, buildLoginUrl("session_revoked"));
       }
+
+      const { payload, secret, sessionId, viaPrevious, inboundTokenHash, dbAvailable } = verdict;
 
       // ── Sliding refresh ────────────────────────────────────────────────
       // Once the JWT crosses refreshAfterSeconds of age, re-issue it with
@@ -653,19 +744,59 @@ const handleApp: Handle = async ({ event, resolve }) => {
         }
       }
 
-      event.locals.user = {
-        id: payload.id,
-        email: payload.email,
-        name: payload.name,
-        role: payload.role,
-      };
-      // The ONE place `session` is stamped. This is the only branch in the
-      // whole request pipeline that authenticates a human at a browser (a
-      // verified session-cookie JWT), and `requireSessionAuth` allowlists
-      // exactly this value — so consent gates are reachable from here and
-      // from nowhere else. Any other auth site must stamp its OWN method;
-      // leaving it unstamped fails closed, not open.
-      event.locals.authMethod = "session";
+      stampSessionPrincipal(event.locals, payload);
+    }
+  } else if (url.pathname.startsWith("/api/")) {
+    // ── Opportunistic identification on a public API path ──────────────
+    //
+    // PUBLIC_PATHS decides whether a path REQUIRES authentication. It must not
+    // also decide whether the path may KNOW who is calling — but until this
+    // block existed it did, because `event.locals.user` was assigned ONLY
+    // inside the `if (!isPublic)` branch above. Any public route that then
+    // gated on a role answered 401 to everyone, admins included: a dead
+    // feature, failing closed.
+    //
+    // F5 fixed that for `/api/auth/invite`, and sec-F2 for
+    // `POST /api/auth/reset-password`, by moving the bare path into
+    // PUBLIC_SUBPATHS_ONLY. That remedy CANNOT apply to `/api/health`: it is a
+    // liveness probe, so its bare path has to answer an anonymous caller
+    // forever. `GET /api/health?detail=true` gates on `role === "admin"` and
+    // so was unreachable — the Settings → System Health card
+    // (`SystemHealth.svelte`, which polls exactly that URL) could only ever
+    // render "Unable to load health status."
+    //
+    // Identification is therefore separated from enforcement: when a session
+    // cookie is presented, verify it and stamp the principal; otherwise carry
+    // on anonymously. Three properties this MUST keep:
+    //
+    //  1. NO COST FOR THE PROBE. Orchestrators (the Docker HEALTHCHECK,
+    //     Watchtower, k8s) poll this constantly and never send cookies.
+    //     `cookies.get()` is a header parse, so a cookieless request still
+    //     does zero I/O — no `getJwtSecret()`, no session lookup, no DB round
+    //     trip. Pinned by a test asserting those are never called.
+    //  2. NEVER FAILS THE REQUEST. A liveness probe matters most when the DB
+    //     is down, which is exactly when session resolution cannot work.
+    //     `verifySessionCookie` swallows its own failures, and every bad
+    //     verdict lands in "stay anonymous" — no 401, no redirect, no cleared
+    //     cookie, nothing that can surface as a 500.
+    //  3. THE PRINCIPAL IS NOT WEAKER. Same signature check and same
+    //     revoked-row check as the enforcing branch, so a logged-out or
+    //     force-logged-out cookie identifies nobody.
+    //
+    // No sliding refresh here: a path that does not require a session has no
+    // business re-issuing one.
+    //
+    // Scoped to `/api/*` deliberately. The public PAGE routes (`/login`,
+    // `/setup`, `/signup`, `/reset-password`) are the pre-auth funnel; handing
+    // them a principal would pull them under the onboarding-redirect gate
+    // below and change navigation for a half-onboarded user. Nothing about
+    // this defect needs that.
+    const publicSessionToken = event.cookies.get(getSessionCookieName());
+    if (publicSessionToken) {
+      const verdict = await verifySessionCookie(publicSessionToken);
+      if (verdict.reason === null) {
+        stampSessionPrincipal(event.locals, verdict.payload);
+      }
     }
   }
 
