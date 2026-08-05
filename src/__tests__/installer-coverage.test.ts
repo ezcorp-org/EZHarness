@@ -13,6 +13,7 @@
 
 import { test, expect, describe, beforeEach, afterEach, mock, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { useTempProjectRoot } from "./helpers/temp-project-root";
 import { mkdtemp, rm, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -60,7 +61,17 @@ mock.module("../extensions/registry", () => ({
   },
 }));
 
-afterAll(() => restoreModuleMocks());
+// `installFromGitHub()` resolves its install base as the RELATIVE path
+// `data/extensions` — i.e. against `process.cwd()`, which for a test IS the
+// checkout. Every install below therefore left a real directory behind in
+// the working tree (`data/extensions/gh-tagged/…`). Run the file from a
+// throwaway root instead; `cleanup()` takes the installs with it.
+const TMP_ROOT = useTempProjectRoot("installer-cov-");
+
+afterAll(() => {
+  restoreModuleMocks();
+  TMP_ROOT.cleanup();
+});
 
 // Import after mocks
 const {

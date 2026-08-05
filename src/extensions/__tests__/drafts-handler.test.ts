@@ -76,9 +76,12 @@ const { getDb } = await import("../../db/connection");
 const { ezDrafts, users } = await import("../../db/schema");
 const { eq } = await import("drizzle-orm");
 
-import { mkdtempSync, rmSync, existsSync, readFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import {
+  useTempProjectRoot,
+  type TempProjectRoot,
+} from "../../__tests__/helpers/temp-project-root";
 
 import type { JsonRpcRequest, ExtensionPermissions } from "../types";
 import type { DraftsContext } from "../drafts-handler";
@@ -114,16 +117,17 @@ function rpc(params: Record<string, unknown>, id: number | string = 1): JsonRpcR
   return { jsonrpc: "2.0", id, method: "ezcorp/drafts", params };
 }
 
-// Host-owned create now writes files via findProjectRoot(cwd). chdir
-// to a .git-free temp dir so materialization lands in an isolated
-// tree, never the real repo's gitignored .ezcorp/.
-let _prevCwd = "";
-let _tmpRoot = "";
+// Host-owned create materializes files under
+// `getProjectRoot()/.ezcorp/extension-data/…`. That resolver is anchored
+// on `bundled.ts`'s OWN module path, so the `process.chdir(tmp)` this
+// block used to do was a no-op and every create wrote into the real
+// checkout — an EACCES on any tree whose `.ezcorp/extension-data` is
+// owned by another uid. `useTempProjectRoot()` moves the root itself;
+// the path-shape assertions below then pin against `tmpRoot.root`.
+let tmpRoot: TempProjectRoot;
 
 beforeAll(async () => {
-  _tmpRoot = mkdtempSync(join(tmpdir(), "drafts-handler-"));
-  _prevCwd = process.cwd();
-  process.chdir(_tmpRoot);
+  tmpRoot = useTempProjectRoot("drafts-handler-");
   await setupTestDb();
   await getDb().insert(users).values({
     id: USER,
@@ -143,8 +147,7 @@ afterAll(async () => {
   await closeTestDb();
   mock.module("../author-install", () => REAL_AUTHOR_INSTALL);
   restoreModuleMocks();
-  if (_prevCwd) try { process.chdir(_prevCwd); } catch { /* */ }
-  if (_tmpRoot) try { rmSync(_tmpRoot, { recursive: true, force: true }); } catch { /* */ }
+  tmpRoot.cleanup();
 });
 
 // ── Bundled-allowlist gate ─────────────────────────────────────────
@@ -326,8 +329,17 @@ describe("ezcorp/drafts — create happy path", () => {
     // The host stamped the REAL materialized dir into the payload …
     const draftDir = payload.draftDir as string;
     expect(typeof draftDir).toBe("string");
-    expect(draftDir).toContain(
-      `/.ezcorp/extension-data/extension-author/drafts/${USER}/${result.draftId}`,
+    // The `.ezcorp/extension-data/<name>/…` shape is binding
+    // (src/extensions/CLAUDE.md). Pinning it to the temp root turns the
+    // old `toContain` into an EQUALITY and additionally proves the write
+    // never reached the real checkout.
+    expect(draftDir).toBe(
+      join(
+        tmpRoot.root,
+        ".ezcorp/extension-data/extension-author/drafts",
+        USER,
+        result.draftId,
+      ),
     );
     // … and actually wrote the files there (the deterministic path —
     // the sandboxed subprocess did zero fs).
@@ -534,7 +546,9 @@ describe("ezcorp/drafts — resolveDir", () => {
     );
     expect(resp.error).toBeUndefined();
     const result = resp.result as { draftDir: string };
-    expect(result.draftDir).toContain(`/.ezcorp/extension-data/extension-author/drafts/${USER}/${draftId}`);
+    expect(result.draftDir).toBe(
+      join(tmpRoot.root, ".ezcorp/extension-data/extension-author/drafts", USER, draftId),
+    );
   });
 
   test("non-owner: -32603 (opacity — same as missing)", async () => {

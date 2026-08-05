@@ -19,7 +19,12 @@ import {
   getTestPglite,
 } from "../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  useTempProjectRoot,
+  type TempProjectRoot,
+} from "../../__tests__/helpers/temp-project-root";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 mock.module("../../db/connection", () => ({
   getDb: () => {
@@ -60,7 +65,15 @@ function rpc(params: Record<string, unknown>, id: string = "v"): JsonRpcRequest 
   return { jsonrpc: "2.0", id, method: "ezcorp/drafts", params };
 }
 
-const createdDirs: string[] = [];
+// Every draft here is materialized on disk under
+// `getProjectRoot()/.ezcorp/extension-data/…`, and `verifyExtension()`
+// spawns a real sandboxed subprocess out of that directory. The root is
+// anchored on `bundled.ts`'s own module path, so without this override
+// the scaffolds land in the real checkout — EACCES wherever
+// `.ezcorp/extension-data` belongs to another uid. `useTempProjectRoot()`
+// relocates the root AND links `node_modules`/`packages` in, so the
+// subprocess still resolves `@ezcorp/sdk`.
+let tmpRoot: TempProjectRoot;
 
 async function makeAuthorDraft(): Promise<string> {
   const create = await handleDraftsRpc(
@@ -87,8 +100,13 @@ function writeScaffold(
   mutate?: (files: Record<string, string>) => void,
 ): void {
   const dir = getExtensionAuthorDraftDir(draftId, USER);
+  // The `.ezcorp/extension-data/<name>/…` layout is binding
+  // (src/extensions/CLAUDE.md); asserting it against the temp root keeps
+  // the shape pinned AND proves nothing lands in the real checkout.
+  expect(dir).toBe(
+    join(tmpRoot.root, ".ezcorp/extension-data/extension-author/drafts", USER, draftId),
+  );
   mkdirSync(dir, { recursive: true });
-  createdDirs.push(dir);
   const { files } = scaffoldExtension({
     name: `verify-rpc-${type}`,
     type,
@@ -101,6 +119,7 @@ function writeScaffold(
 }
 
 beforeAll(async () => {
+  tmpRoot = useTempProjectRoot("drafts-verify-");
   await setupTestDb();
   for (const id of [USER, OTHER_USER]) {
     await getDb()
@@ -116,15 +135,10 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  for (const d of createdDirs) {
-    try {
-      rmSync(d, { recursive: true, force: true });
-    } catch {
-      /* swallow */
-    }
-  }
   await closeTestDb();
   restoreModuleMocks();
+  // Removes every scaffolded draft dir with the root itself.
+  tmpRoot.cleanup();
 });
 
 describe("ezcorp/drafts.verify — param + ownership", () => {

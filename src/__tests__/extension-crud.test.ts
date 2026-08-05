@@ -1,5 +1,6 @@
 import { test, expect, describe, beforeEach, mock, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { useTempProjectRoot } from "./helpers/temp-project-root";
 import type { ExtensionPermissions, ExtensionManifestV2 } from "../extensions/types";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -22,7 +23,15 @@ mock.module("../db/queries/extensions", () => ({
   listExtensions: async () => Array.from(mockExtensions.values()),
 }));
 
-afterAll(() => restoreModuleMocks());
+// The install base is the RELATIVE `data/extensions`, resolved against
+// `process.cwd()` — the checkout, for a test. Run from a throwaway root so
+// no install lands in the working tree.
+const TMP_ROOT = useTempProjectRoot("extension-crud-");
+
+afterAll(() => {
+  restoreModuleMocks();
+  TMP_ROOT.cleanup();
+});
 
 // Import AFTER mock.module so the mock is in place when modules load
 const { computeChecksum, verifyChecksum } = await import("../extensions/checksum");
