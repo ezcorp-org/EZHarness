@@ -25,7 +25,50 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   }
 
   const files = await listKBFiles(projectId);
-  // Filter to user's files (KB files with userId set must match)
+  // ── KB-SHARED-NULL-OWNER — canonical rationale; do NOT "fail closed" here ──
+  //
+  // `userId IS NULL` means SHARED, not orphaned. An ownerless KB file is
+  // readable by every authenticated caller **on purpose**, and that is the
+  // platform's only sharing mechanism for the knowledge base.
+  //
+  // This predicate is one half of a TWO-SIDED contract. The other half is the
+  // identical check in `[id]/+server.ts` (GET). They are ONE invariant and must
+  // move together or not at all:
+  //   - tightening detail alone → a row the user sees in the list and cannot
+  //     open (list-but-404);
+  //   - tightening list alone → a row that is fetchable by id but invisible.
+  // `src/__tests__/security/kb-ownerless-rows-are-shared.test.ts` asserts
+  // list-visibility and detail-reachability agree row-for-row, for every
+  // caller, so the two sides cannot drift apart.
+  //
+  // Why NULL is read as "shared" rather than "orphaned":
+  //   1. It cannot arise by accident, and it does not linger by accident either.
+  //      `POST` (below) always stamps `userId: user.id`, so no upload can mint
+  //      an ownerless row — and `src/db/migrate.ts` actively RECLAIMS them:
+  //      every boot runs `UPDATE knowledge_base_files SET user_id = (first
+  //      admin) WHERE user_id IS NULL`. A row that is ownerless at read time is
+  //      therefore something an operator put there deliberately since the last
+  //      boot (or an instance with no admin user at all) — never drift.
+  //   2. There is nothing else to say it with. The platform has no
+  //      project-membership model, so per-file `userId` is the ONLY access axis
+  //      KB reads have; a null owner IS "shared with the project".
+  //   3. Retrieval already reads it that way. `searchKBChunks`
+  //      (`src/db/queries/knowledge-base.ts`) filters only on `project_id` +
+  //      `status = 'ready'` — never on `user_id` — so an ownerless file's chunks
+  //      are already injected into every project member's chat turn. Hiding the
+  //      row from the API would not hide the content; it would only make the UI
+  //      disagree with the prompt the model actually sees.
+  //
+  // KNOWN LIMIT (not a licence to tighten this predicate): because of the
+  // reclaim in (1), sharing does NOT survive a restart — the next boot adopts
+  // the row to the first admin and it silently stops being shared. The read
+  // rule below is correct; making shared files durable is a separate decision
+  // about that migration, and needs a human. Documented in
+  // docs/features/chat/knowledge-base.md.
+  //
+  // Sharing is READ-ONLY. Writes stay fail-closed on the same rows: `DELETE`
+  // of a null-owner file is admin-only (sec-H3, `[id]/+server.ts`). "Everyone
+  // may read it" must never be widened into "anyone may destroy it".
   const userFiles = files.filter(f => !f.userId || f.userId === user.id);
   return json(userFiles);
 };

@@ -61,10 +61,13 @@
 //   - GET /api/agent-configs/[id]:52 — the same shape, but lines 29-33 of
 //     that file document null-userId rows as SYSTEM-owned and intentionally
 //     world-READABLE; its PUT/DELETE already fail closed correctly.
-//   - GET /api/knowledge-base/[id]:14 — read side. The list route
-//     (web/src/routes/api/knowledge-base/+server.ts:29) deliberately shows
+//   - GET /api/knowledge-base/[id] — read side. The list route
+//     (web/src/routes/api/knowledge-base/+server.ts) deliberately shows
 //     null-userId files to every user, so tightening GET alone would make a
-//     file visible in the list but 404 on fetch. Reported, not changed.
+//     file visible in the list but 404 on fetch. Reported, not changed — and
+//     since RULED deliberate: null-owner KB rows are SHARED on both read
+//     surfaces, pinned as one invariant by
+//     src/__tests__/security/kb-ownerless-rows-are-shared.test.ts.
 //   - /api/runs/[id]:30 `if (userId && userId === user.id) return true` — a
 //     positive-ALLOW shape, already fail-closed (null grants nothing) and
 //     documented at lines 11-35.
@@ -290,18 +293,27 @@ describe("source: fail-closed ownership on the swept routes", () => {
 describe("source: knowledge-base GET carve-out is deliberate, not missed", () => {
   const REL = "web/src/routes/api/knowledge-base/[id]/+server.ts";
 
-  test("GET still carries the old shape — and this is a KNOWN open gap", () => {
+  test("GET keeps the permissive shape — RULED deliberate, no longer an open gap", () => {
     // Recording the decision rather than hiding it. GET was NOT tightened
     // because the list route deliberately shows null-userId files to every
-    // user (web/src/routes/api/knowledge-base/+server.ts:29,
+    // user (web/src/routes/api/knowledge-base/+server.ts,
     // `files.filter(f => !f.userId || f.userId === user.id)`). Tightening the
     // single-file GET alone would make a file appear in the list but 404 on
-    // fetch. The read side needs list + detail changed together, which is a
+    // fetch. The read side needs list + detail changed together, which was a
     // wider decision than this deletion fix.
     //
-    // If this assertion ever fails, someone fixed the read side: delete this
-    // test and move GET into the CASES table above. It is written to fail
-    // LOUDLY on that change rather than to bless the current shape forever.
+    // That wider decision has since been MADE, and the outcome is "keep it":
+    // `user_id IS NULL` is the knowledge base's deliberate sharing mechanism,
+    // not an orphan marker, on BOTH read surfaces. The rationale now lives at
+    // the predicates themselves (anchor `KB-SHARED-NULL-OWNER`) and the two
+    // sides are pinned as ONE invariant by
+    // `src/__tests__/security/kb-ownerless-rows-are-shared.test.ts`.
+    //
+    // So this assertion is no longer a placeholder for an unresolved gap — it
+    // is the deletion-suite's local witness that the READ carve-out survived
+    // the write-side fix. If it fails, do NOT move GET into the CASES table
+    // above; go read the invariant suite first, because tightening GET alone
+    // is the list-but-404 defect that ruling exists to prevent.
     const src = read(REL);
     const getSlice = src.slice(
       src.indexOf("export const GET"),

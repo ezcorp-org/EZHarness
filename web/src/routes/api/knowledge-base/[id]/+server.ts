@@ -11,6 +11,17 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   const user = requireAuth(locals);
   const file = await getKBFile(params.id);
   if (!file) return errorJson(404, "Knowledge base file not found");
+  // ── KB-SHARED-NULL-OWNER — the detail half of a two-sided read contract ──
+  // Deliberately permissive on `userId IS NULL`: ownerless rows are SHARED, and
+  // this check must stay semantically identical to the list filter in
+  // `../+server.ts` (GET), which is where the full rationale lives. Tightening
+  // only this side produces a list-but-404 — a file the user can see and cannot
+  // open. Both sides are pinned as ONE invariant by
+  // `src/__tests__/security/kb-ownerless-rows-are-shared.test.ts`; that suite
+  // fails if either side moves without the other.
+  //
+  // Note the asymmetry with DELETE below and treat it as intentional: sharing
+  // is read-only. A null owner grants READ to everyone, never destruction.
   if (file.userId && file.userId !== user.id) return errorJson(404, "Knowledge base file not found");
   return json(file);
 };
