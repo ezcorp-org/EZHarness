@@ -64,6 +64,15 @@ import type { NestedWorkflowResolver } from "./workflow-executor";
  * emitted none — the merge kept the zero and the file gated at 95%. Naming the
  * type collapses the signature to one line that both shard shapes agree on.
  * (Same class of artefact as the one-line `VALUES` list in `src/db/migrate.ts`.)
+ *
+ * That named type is deliberately WIDER than what this factory returns: the
+ * executor's union also admits a synchronous `WorkflowDefinition | undefined`,
+ * so sync test resolvers stay assignable, while the resolver built here always
+ * returns a promise. Narrowing the signature back to the precise type is the
+ * "simplify" above under a different name — the narrow form has no name to
+ * refer to, so it can only be spelled inline, which re-wraps and brings the
+ * phantom back. The width costs nothing: the sole production caller
+ * (`context.ts`) wants exactly this type, and `await` collapses the union.
  */
 export function makeNestedWorkflowResolver(
   getEntries: () => readonly CachedWorkflow[],
