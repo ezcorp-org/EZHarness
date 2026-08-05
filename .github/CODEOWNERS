@@ -54,10 +54,24 @@
 # Shared CI setup/cache machinery (referenced by every job in workflows/).
 /.github/actions/                   @EZArchy
 
+# Dependency-audit gate. `/.github/` has no catch-all rule, so these are listed
+# ahead of the PR that creates them rather than landing unowned. The allowlist
+# is the one that matters: an entry SUPPRESSES a security finding, making it an
+# un-gating surface structurally identical to `EXCLUDES` in coverage-config.ts.
+/.github/dependabot.yml             @EZArchy
+/scripts/audit-deps.ts              @EZArchy
+/scripts/audit-allowlist.json       @EZArchy
+
 # Test-runner + lint config that decides what runs and how strictly.
 /biome.json                         @EZArchy
 /bunfig.toml                        @EZArchy
 /tsconfig.typecheck.json            @EZArchy
+# The BASE tsconfigs. `tsconfig.typecheck.json` and `tsconfig.tests.json` both
+# `extends` the root one, and that is where `strict` + `noUncheckedIndexedAccess`
+# are actually declared (web's declares `strict` for the web leg) — so owning
+# only the leaf configs left the real strictness dial unowned.
+/tsconfig.json                      @EZArchy
+/web/tsconfig.json                  @EZArchy
 /web/playwright.config.ts           @EZArchy
 /web/playwright.real.config.ts      @EZArchy
 /web/playwright.validate.config.ts  @EZArchy
