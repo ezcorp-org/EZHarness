@@ -4,10 +4,7 @@ import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { listModels } from "$server/providers/local-model-check";
-import {
-	isPrivateOrLoopback,
-	resolveAndValidateHostname,
-} from "$lib/server/security/url-validation";
+import { checkLocalProviderTarget } from "$lib/server/security/url-validation";
 
 // Boundary validation. POST drives a server-side fetch() to a
 // caller-supplied origin; the SSRF guards downstream still run on
@@ -50,29 +47,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		return errorJson(400, "baseUrl must start with http:// or https://");
 	}
 
-	// sec-H1: reject loopback/private/link-local targets to block SSRF
-	// against cloud metadata, local Redis/Postgres, internal k8s services, etc.
-	let parsed: URL;
-	try {
-		parsed = new URL(baseUrl);
-	} catch {
-		return errorJson(400, "Invalid baseUrl");
-	}
-	if (isPrivateOrLoopback(parsed.hostname)) {
-		return errorJson(400, "baseUrl targets a private or loopback address");
-	}
-
-	// sec-H1 DNS pinning: resolve the hostname and re-check every A/AAAA
-	// address. Blocks the rebinding case where "evil.example" → 127.0.0.1
-	// via attacker-controlled DNS. `lookup` throws for NXDOMAIN; treat any
-	// resolution failure as a block rather than leaking the error.
-	try {
-		const dnsCheck = await resolveAndValidateHostname(parsed.hostname);
-		if (!dnsCheck.ok) {
-			return errorJson(400, dnsCheck.reason ?? "baseUrl targets a private or loopback address");
-		}
-	} catch {
-		return errorJson(400, "hostname could not be resolved");
+	// sec-H1 (+ the documented loopback carve-out) — one shared decision so
+	// this route and its /test sibling can never drift apart. Literal loopback
+	// is allowed so the UI's own auto-filled Ollama URL works; every private,
+	// link-local and DNS-rebound target is still refused. See
+	// checkLocalProviderTarget's doc block.
+	const target = await checkLocalProviderTarget(baseUrl);
+	if (!target.ok) {
+		return errorJson(400, target.error);
 	}
 
 	try {

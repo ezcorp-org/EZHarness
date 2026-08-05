@@ -78,10 +78,15 @@ vi.mock("$server/providers/local-model-check", () => ({
   checkLocalModel: h.checkLocalModel,
 }));
 // The SSRF guards are not what this suite is about — let them pass so an
-// ungated call visibly reaches the privileged body.
+// ungated call visibly reaches the privileged body. `checkLocalProviderTarget`
+// is the local-provider routes' single entry point into that guard (it wraps
+// the two helpers below plus the loopback carve-out), so it is stubbed here
+// too — otherwise every "…still succeeds" case fails on the missing export
+// rather than on the scope decision this suite exists to test.
 vi.mock("$lib/server/security/url-validation", () => ({
   isPrivateOrLoopback: () => false,
   resolveAndValidateHostname: async () => ({ ok: true }),
+  checkLocalProviderTarget: async () => ({ ok: true }),
 }));
 
 const providers = await import("../routes/api/providers/+server.ts");

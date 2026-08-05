@@ -21,6 +21,11 @@ import {
   TIER_LADDER_SETTING_KEY,
   type TierLadder,
 } from "../runtime/routing/tier-ladder";
+import {
+  parseCustomModelEntries,
+  providersWithCustomModels,
+  type CustomModelEntry,
+} from "../runtime/routing/custom-models";
 // `src/types.ts` has no imports of its own, so this cannot cycle.
 import { CURRENT_MODEL_SENTINEL } from "../types";
 
@@ -81,6 +86,16 @@ export async function getConfiguredTierLadder(): Promise<TierLadder | undefined>
 }
 
 /**
+ * The operator's custom/local models (`provider:customModels`), normalized.
+ * Loaded once per routing decision and threaded into the registry's tier
+ * lookup — see `findModelForProviderInTier`'s precedence note for why they
+ * are consulted only after the pi-ai catalog.
+ */
+export async function getCustomModelEntries(): Promise<CustomModelEntry[]> {
+  return parseCustomModelEntries(await getSetting("provider:customModels"));
+}
+
+/**
  * Merge a stored preference order with the known defaults: preserve the
  * stored order, then append any DEFAULT_PREFERENCE_ORDER providers missing
  * from it. This self-heals orders saved before a provider (e.g. openrouter)
@@ -97,12 +112,20 @@ export function mergePreferenceOrder(
   return [...stored, ...defaults.filter((p) => !stored.includes(p))];
 }
 
-async function getPreferenceOrder(): Promise<string[]> {
+async function getPreferenceOrder(customModels: readonly CustomModelEntry[]): Promise<string[]> {
   const order = await getSetting("provider:preferenceOrder");
-  if (Array.isArray(order) && order.length > 0) {
-    return mergePreferenceOrder(order as string[]);
-  }
-  return DEFAULT_PREFERENCE_ORDER;
+  const base =
+    Array.isArray(order) && order.length > 0
+      ? mergePreferenceOrder(order as string[])
+      : DEFAULT_PREFERENCE_ORDER;
+  // A local provider (`ollama`, or whatever the operator named their custom
+  // endpoint) is in NEITHER the stored order nor DEFAULT_PREFERENCE_ORDER, so
+  // Level 3 below never even asked it for a model — a local-only deployment
+  // fell straight through to "No available providers with credentials". They
+  // go at the very END: a provider reached here is one every cloud provider
+  // ahead of it was already skipped for, so this can only ADD an answer where
+  // there was none, never re-route a deployment that has cloud credentials.
+  return mergePreferenceOrder([...base], providersWithCustomModels(customModels));
 }
 
 // ── Model Resolution ─────────────────────────────────────────────────
@@ -181,15 +204,25 @@ export async function resolveModel(
   }
 
   // Past the pinned-passthrough level, every remaining branch picks a model
-  // for a tier — so the ladder is loaded once, here, and never on the pinned
-  // hot path above.
+  // for a tier — so the ladder and the custom-model list are loaded once,
+  // here, and never on the pinned hot path above.
   const ladder = await getConfiguredTierLadder();
+  const customModels = await getCustomModelEntries();
 
   // Level 2: Provider only -- find best model in default tier
   if (provider) {
-    const entry = findModelForProviderInTier(provider, tier, ladder);
+    const entry = findModelForProviderInTier(provider, tier, ladder, customModels);
     if (entry) {
-      return { provider, model: entry.id, piModel: resolveModelObject(provider, entry.id) };
+      // `entry.baseUrl` is set ONLY for a custom/local model; a catalog entry
+      // leaves it undefined, which is the exact argument this call passed
+      // before. Forwarding it is what makes a tier-ROUTED local model dial
+      // its own endpoint instead of api.openai.com — the pinned Level-1 path
+      // above already did this lookup, and the two now agree.
+      return {
+        provider,
+        model: entry.id,
+        piModel: resolveModelObject(provider, entry.id, entry.baseUrl),
+      };
     }
     // Fallback to the first model for this provider
     return { provider, model: provider, piModel: resolveModelObject(provider, provider) };
@@ -213,7 +246,7 @@ export async function resolveModel(
   // Cost is bounded: at most one probe per provider, short-circuited at
   // the first usable one, and the probe for the WINNER is the same lookup
   // the caller performs moments later.
-  const order = await getPreferenceOrder();
+  const order = await getPreferenceOrder(customModels);
   let skippedForCredentials: string | null = null;
   for (const p of order) {
     const cb = getCircuitBreaker(p, credentialScope);
@@ -228,10 +261,12 @@ export async function resolveModel(
     // The credential's TYPE narrows the catalog: an OAuth token can only
     // serve subscription-eligible models. Picking from the api-key catalog
     // here is how a ChatGPT-plan deployment ended up pinned to `gpt-4`.
-    const entry = findRunnableModelForProviderInTier(p, tier, cred.type, ladder);
+    const entry = findRunnableModelForProviderInTier(p, tier, cred.type, ladder, customModels);
     if (!entry) continue;
 
-    return { provider: p, model: entry.id, piModel: resolveModelObject(p, entry.id) };
+    // See Level 2: baseUrl is undefined for every catalog entry, set only
+    // for a custom/local one.
+    return { provider: p, model: entry.id, piModel: resolveModelObject(p, entry.id, entry.baseUrl) };
   }
 
   // Name the real constraint. "No available providers" sent people looking
@@ -253,8 +288,9 @@ export async function suggestFallback(
   // resolveModel. Default keeps context-free callers behavior-identical.
   credentialScope = "shared",
 ): Promise<FallbackSuggestion | null> {
-  const order = await getPreferenceOrder();
   const ladder = await getConfiguredTierLadder();
+  const customModels = await getCustomModelEntries();
+  const order = await getPreferenceOrder(customModels);
 
   for (const provider of order) {
     if (provider === failedProvider) continue;
@@ -269,7 +305,13 @@ export async function suggestFallback(
     const cred = await tryGetCredential(provider);
     if (!cred) continue;
 
-    const entry = findRunnableModelForProviderInTier(provider, tier as TierName, cred.type, ladder);
+    const entry = findRunnableModelForProviderInTier(
+      provider,
+      tier as TierName,
+      cred.type,
+      ladder,
+      customModels,
+    );
     if (!entry) continue;
 
     return { provider, model: entry.id, tier };
