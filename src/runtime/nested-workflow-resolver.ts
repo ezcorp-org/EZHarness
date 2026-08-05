@@ -53,26 +53,39 @@ import type { NestedWorkflowResolver } from "./workflow-executor";
  * every workflow CRUD write, so a resolver handed the array by value would
  * freeze a stale list for the lifetime of the process.
  *
- * The return type is the NAMED {@link NestedWorkflowResolver} — the same type
- * `WorkflowExecutorOptions.workflowResolver` accepts — rather than the inlined
- * function type spelled out here. Do not "simplify" it back: that form wrapped
- * across four lines, and a bare `): (` continuation line is a shape
- * `scripts/lcov-noise-filter.ts` does not recognise as non-executable. Bun
- * span-fills an uncalled function's whole declaration range with phantom
- * `DA:<line>,0` records, so a shard that merely IMPORTS this module emitted a
- * zero-hit record for that line while the shard that EXERCISES the module
- * emitted none — the merge kept the zero and the file gated at 95%. Naming the
- * type collapses the signature to one line that both shard shapes agree on.
- * (Same class of artefact as the one-line `VALUES` list in `src/db/migrate.ts`.)
+ * The return type is the NAMED {@link NestedWorkflowResolver} — the exact type
+ * `WorkflowExecutorOptions.workflowResolver` accepts — rather than an inlined
+ * function type re-spelled here.
  *
- * That named type is deliberately WIDER than what this factory returns: the
- * executor's union also admits a synchronous `WorkflowDefinition | undefined`,
- * so sync test resolvers stay assignable, while the resolver built here always
- * returns a promise. Narrowing the signature back to the precise type is the
- * "simplify" above under a different name — the narrow form has no name to
- * refer to, so it can only be spelled inline, which re-wraps and brings the
- * phantom back. The width costs nothing: the sole production caller
- * (`context.ts`) wants exactly this type, and `await` collapses the union.
+ * It was first written that way to dodge a coverage-filter hole, and that
+ * reason is GONE. The inlined form wraps across four lines, and its bare `): (`
+ * continuation used to fall through every rule in `scripts/lcov-noise-filter.ts`
+ * (`RETURN_TYPE_OPEN` demanded a NAMED type head; `BRACE_PUNCT_ONLY`'s character
+ * class has no space), which cost this file a point — 95% on a line no test can
+ * execute (c5df10b7). #103 made that head optional and put `(` in the bracket
+ * set, so `): (` is now recognised as the non-executable type syntax it always
+ * was; `src/__tests__/lcov-noise-filter.test.ts` pins the shape by name. Nothing
+ * here is load-bearing for coverage any more.
+ *
+ * The artefact behind it is still real, and still the thing to recognise if a
+ * signature ever costs a file points again: bun span-fills an UNCALLED
+ * function's whole declaration range with phantom `DA:<line>,0` records that V8
+ * never emits, so a shard that merely IMPORTS this module reports a zero on a
+ * signature line the shard that EXERCISES it never mentions at all, and
+ * `merge-lcov.ts` sums per `(SF, line)` — the zero survives the merge. The
+ * filter is what absorbs that now. (Same class of artefact as the one-line
+ * `VALUES` list in `src/db/migrate.ts`.)
+ *
+ * The name stays on its own merits: it is the ONE declaration of this contract.
+ * Inlining would re-spell `ctx`'s shape in a second place where it can drift
+ * from the executor's silently — a field ADDED to the executor's `ctx` keeps the
+ * narrower literal assignable, so the drift is invisible to tsc rather than a
+ * compile error. The named type is also deliberately WIDER than what this
+ * factory returns: the executor's union admits a synchronous
+ * `WorkflowDefinition | undefined` so sync test resolvers stay assignable, while
+ * the resolver built here always returns a promise. That width costs nothing —
+ * the sole production caller (`context.ts`) wants exactly this type, and every
+ * other caller awaits, which collapses the union.
  */
 export function makeNestedWorkflowResolver(
   getEntries: () => readonly CachedWorkflow[],
