@@ -208,6 +208,7 @@ describe("the daemon's sub-tick supplies live delegations' pinned versions", () 
       triggerKind: "cron",
       triggerSpec: null,
       consentHash: "hash",
+      definitionHash: "def-hash",
       capabilitySet: [],
       maxTokensPerRun: 1000,
       maxRunsPerDay: 1,

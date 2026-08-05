@@ -252,9 +252,14 @@ function handlerCtx() {
   } as never;
 }
 
-/** Write a live delegation whose `consent_hash` is what THIS build
+/** Write a live delegation whose consent RECORD is what THIS build
  *  recomputes, so the ladder's D6 rung passes on its own terms rather
- *  than on a fixture's guess. */
+ *  than on a fixture's guess.
+ *
+ *  All three consent columns, not just the hash: D6 is a WIDENING test
+ *  now, and a row that stored the empty `capability_set` default over a
+ *  graph that reaches agents would read as "this release added every
+ *  capability it has" and park every fire below. */
 async function makeDelegation(
   jobRef: string,
   maxTokensPerRun: number,
@@ -287,7 +292,8 @@ async function makeDelegation(
     INSERT INTO workflow_delegations (
       id, extension_id, job_ref, owner_kind, owner_user_id,
       owner_service_account_id, workflow_name,
-      trigger_kind, trigger_spec, consent_hash, max_tokens_per_run,
+      trigger_kind, trigger_spec, consent_hash, definition_hash,
+      capability_set, max_tokens_per_run,
       max_runs_per_day, consented_by_user_id
     ) VALUES (
       ${id}, ${EXT_ID}, ${jobRef}, ${ownerKind},
@@ -295,7 +301,9 @@ async function makeDelegation(
       ${ownerKind === "service" ? ownerId : null},
       ${definition.name},
       'cron', ${JSON.stringify({ expr: "0 3 * * *" })}::jsonb,
-      ${record.consentHash}, ${maxTokensPerRun}, 100, ${OWNER}
+      ${record.consentHash}, ${record.definitionHash},
+      ${JSON.stringify(record.capabilitySet)}::jsonb,
+      ${maxTokensPerRun}, 100, ${OWNER}
     )
   `);
   return id;

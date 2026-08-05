@@ -247,6 +247,20 @@ describe("C3 schema — shape after migrate()", () => {
     expect(cols.get("owner_service_account_id")).toBe("YES");
   });
 
+  test("definition_hash is NULLABLE with no default — the split is not backfilled", async () => {
+    // `consent_hash` is the SEMANTIC surface; the graph fingerprint moved
+    // here so a release that edits a bundled extension's shipped workflow
+    // stops parking every delegation on it. NULL is the honest value for
+    // a row written before the split — its graph cannot be reconstructed
+    // — and it reads as "the definition changed", which routes that row
+    // through the fire-time widening test and heals it there.
+    const cols = new Map((await columns(db, "workflow_delegations")).map((c) => [c.column_name, c]));
+    expect(cols.get("definition_hash")?.is_nullable).toBe("YES");
+    expect(cols.get("definition_hash")?.column_default).toBeNull();
+    // …while `consent_hash` stays NOT NULL. The two are not interchangeable.
+    expect(cols.get("consent_hash")?.is_nullable).toBe("NO");
+  });
+
   test("the three workflow_runs columns exist and are all nullable", async () => {
     // Nullable with no default and no backfill: every pre-C3 run executed
     // as its initiating `user_id`, so NULL is the honest value.
@@ -717,6 +731,36 @@ describe("C3 migration — worst realistic pre-state", () => {
       await db.execute(sql`DELETE FROM workflow_delegations WHERE id = 'd-pre'`);
       const healed = (await db.execute(sql`SELECT delegation_id, run_as FROM workflow_runs WHERE id = 'old-ok'`)) as { rows: Array<Record<string, unknown>> };
       expect(healed.rows).toEqual([{ delegation_id: null, run_as: "sa-pre" }]);
+    } finally {
+      await pg.close();
+    }
+  });
+
+  test("a PRE-SPLIT delegation survives the definition_hash upgrade, reading NULL", async () => {
+    // The database this change actually lands on: `workflow_delegations`
+    // already exists, carrying live consents written under the combined
+    // digest. Adding the column must not touch a single one of them.
+    const { pg, db } = await freshMigrated();
+    try {
+      const f = await seedFixtures(db, "split");
+      await db.execute(sql`ALTER TABLE workflow_delegations DROP COLUMN IF EXISTS definition_hash`);
+      await insertDelegation(db, {
+        id: "d-presplit", extension: f.extension, jobRef: "j-presplit",
+        kind: "user", ownerUser: f.owner, consentedBy: f.consent,
+      });
+
+      await migrate(db);
+      await migrate(db); // an upgrade path is re-run on every boot
+
+      const rows = (await db.execute(sql`
+        SELECT consent_hash, definition_hash, capability_set
+        FROM workflow_delegations WHERE id = 'd-presplit'
+      `)) as { rows: Array<Record<string, unknown>> };
+      // The consented facts are untouched and the new column is NULL —
+      // NOT a backfilled guess about a graph nobody recorded.
+      expect(rows.rows).toEqual([
+        { consent_hash: "hash-1", definition_hash: null, capability_set: [] },
+      ]);
     } finally {
       await pg.close();
     }

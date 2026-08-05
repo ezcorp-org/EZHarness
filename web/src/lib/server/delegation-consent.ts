@@ -48,7 +48,12 @@ export interface DelegationConsentRequest {
 
 export interface DelegationConsentRecord {
   definitionVersionId: string | null;
+  /** The SEMANTIC digest — `workflow_delegations.consent_hash`. */
   consentHash: string;
+  /** The ADVISORY graph digest — `workflow_delegations.definition_hash`.
+   *  Written at consent time so the first delegated fire has something to
+   *  compare against; a change to it alone never parks a run. */
+  definitionHash: string;
   capabilitySet: Array<{ kind: string; value: string | null }>;
   material: ConsentHashMaterial;
 }
@@ -81,6 +86,7 @@ export async function buildDelegationConsent(
   return {
     definitionVersionId: record.pin.definitionVersionId,
     consentHash: record.consentHash,
+    definitionHash: record.definitionHash,
     capabilitySet: record.capabilitySet,
     material: record.material,
   };

@@ -261,6 +261,44 @@ describe("computeDelegationConsentRecord", () => {
 
     expect(reachable.capabilitySet).toContainEqual({ kind: "shell", value: null });
     expect(reachable.consentHash).not.toBe(withTool.consentHash);
+    // …and the GRAPH did not move an inch, which is the whole of the
+    // split: a widened extension grant is a semantic change and not a
+    // release, so the advisory digest has nothing to say about it.
+    expect(reachable.definitionHash).toBe(withTool.definitionHash);
+  });
+
+  test("the two digests are DISJOINT: a definition edit moves only the advisory one", async () => {
+    // THE defect, at the level the hash owns it. `ez-factory` is bundled,
+    // so a release edits its shipped workflow under every live
+    // delegation. Under one combined digest that parked every fire; the
+    // capability closure has not moved, so `consent_hash` must not either.
+    const before = await computeDelegationConsentRecord(request());
+    const guarded = entry(
+      {
+        ...AGENT_ROOT,
+        steps: (AGENT_ROOT.steps ?? []).map((s, i) =>
+          i === 0 ? { ...s, when: { ref: "$input.go", op: "truthy" as const } } : s,
+        ),
+      },
+      "system",
+    );
+
+    const after = await computeDelegationConsentRecord(
+      request({ entry: guarded, entries: [guarded] }),
+    );
+
+    expect(after.definitionHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(after.definitionHash).not.toBe(before.definitionHash);
+    expect(after.consentHash).toBe(before.consentHash);
+    expect(after.capabilitySet).toEqual(before.capabilitySet);
+  });
+
+  test("…and the two are never the same value for the same record", async () => {
+    // Belt for the projections being genuinely different objects rather
+    // than one serialized twice — a digest pair that always agreed would
+    // pass every test above and reconstruct the bug exactly.
+    const record = await computeDelegationConsentRecord(request());
+    expect(record.definitionHash).not.toBe(record.consentHash);
   });
 
   test("the closure is the PRINCIPAL's: a service delegation hashes a smaller graph", async () => {

@@ -699,11 +699,30 @@ export const workflowDelegations = pgTable("workflow_delegations", {
   // this and the canonical `trigger_spec` feed the hash.
   triggerKind: text("trigger_kind").notNull(),
   triggerSpec: jsonb("trigger_spec").$type<Record<string, unknown>>(),
-  // What the human actually saw, hashed. Recomputed from live state on
-  // EVERY fire and compared — never read back and compared to itself.
+  // What the human actually saw, hashed — the SEMANTIC surface only:
+  // the delegation facts, the flat capability closure, and the walk's
+  // bounds. Recomputed from live state on EVERY fire and compared — never
+  // read back and compared to itself.
   consentHash: text("consent_hash").notNull(),
+  // The graph as WRITTEN, hashed — names, version identities, default
+  // model bindings and step lists. ADVISORY: it is recorded and compared,
+  // and a change to it ALONE never parks a run. It used to be folded into
+  // `consent_hash`, which made every release of a BUNDLED extension (whose
+  // workflows ship inside the app image) park every delegation on it.
+  // What re-asks now is a genuine WIDENING of `capability_set`
+  // (`runtime/workflow-consent-reconcile.ts`).
+  //
+  // NULLABLE with no backfill, deliberately: a row written before the
+  // split has no honest value here — we cannot reconstruct the graph it
+  // was consented against — and NULL reads as "the definition changed",
+  // which routes that row through the widening test on its first fire and
+  // heals it there.
+  definitionHash: text("definition_hash"),
   // The capability set as consented, kept alongside the hash so the
-  // re-consent dialog can render a DIFF rather than "something changed".
+  // re-consent dialog can render a DIFF rather than "something changed" —
+  // and so the fire-time widening test has something to compare against.
+  // A carry-forward REWRITES it: leaving a narrowed set stale would let
+  // the release that put the capability back re-grant it with no human.
   capabilitySet: jsonb("capability_set").notNull().$type<Array<{ kind: string; value: string | null }>>().default([]),
   // TOKENS, not cents — see `serviceAccounts.maxTokensPerDay`. This is the
   // ENFORCED bound, checked at dispatch and again at every step boundary.

@@ -71,10 +71,15 @@ const EXT_NAME = "park-fail-ext";
 let ownerUserId: string;
 let extensionId: string;
 
+/** Reaches a TOOL, deliberately. D6's gate is the WIDENING test, so a
+ *  graph whose capability closure is empty cannot be made stale at all —
+ *  a delegation consented to nothing and reaching nothing has not widened,
+ *  whatever its stored digest says. This one reaches a capability that
+ *  {@link staleDelegation} then withholds. */
 const WF: WorkflowDefinition = {
   name: "nightly",
   description: "",
-  steps: [{ name: "t", kind: "transform", output: { a: "b" } }],
+  steps: [{ name: "call", kind: "tool", tool: "ext__do_thing", input: {} }],
 };
 
 let entry: CachedWorkflow;
@@ -175,8 +180,10 @@ afterAll(async () => {
   await closeTestDb();
 });
 
-/** A live delegation whose stored hash is deliberately NOT what this
- *  build recomputes, so every call lands on D6. */
+/** A live delegation consented to an EMPTY capability set over a graph
+ *  that reaches a tool — a genuine widening, which is what D6 parks on
+ *  now. (A merely-different digest carries consent forward instead, so a
+ *  fixture that only broke the hash would never reach the park at all.) */
 async function staleDelegation(): Promise<string> {
   const created = await createWorkflowDelegation({
     extensionId,
@@ -189,6 +196,7 @@ async function staleDelegation(): Promise<string> {
     triggerKind: "cron",
     triggerSpec: null,
     consentHash: "a-hash-from-a-graph-that-no-longer-exists",
+    definitionHash: "a-graph-that-no-longer-exists",
     capabilitySet: [],
     maxTokensPerRun: 10_000,
     maxRunsPerDay: 10,

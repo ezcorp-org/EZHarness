@@ -2508,6 +2508,31 @@ export async function migrate(db: any): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
+  // ── The consent-hash semantic split ──────────────────────────────
+  //
+  // `consent_hash` used to be ONE digest over the delegation facts AND the
+  // workflow definition AND the capability closure, and rung D6 parked the
+  // run on any difference. A BUNDLED extension ships its workflows inside
+  // the app image, so every release that edited one — or its permissions
+  // block, or a referenced agent's capabilities — parked every delegation
+  // `consent-stale` and stopped unattended execution until a human
+  // re-approved a capability set that had not moved.
+  //
+  // `consent_hash` is now the SEMANTIC surface only and this column takes
+  // the graph fingerprint, ADVISORY: a change to it alone never parks a
+  // run. What re-asks is a genuine widening of `capability_set`
+  // (`runtime/workflow-consent-reconcile.ts`).
+  //
+  // NULLABLE and deliberately NOT backfilled. A pre-split row has no
+  // honest value here — reconstructing the graph it was consented against
+  // is not possible from the row — and inventing one would be a claim
+  // nobody verified in a consent record. NULL reads as "the definition
+  // changed", which sends the row through the widening test on its first
+  // fire and heals it there, carrying consent forward unless its reach
+  // actually grew. Self-contained: one ADD COLUMN IF NOT EXISTS, no data
+  // movement, trivially re-orderable against any concurrent migration.
+  await db.execute(sql`ALTER TABLE workflow_delegations ADD COLUMN IF NOT EXISTS definition_hash TEXT`);
+
   // PARTIAL unique — one LIVE delegation per (extension, job). Revoked
   // rows are tombstones kept as history and must be free to accumulate, so
   // a total unique index would make re-consenting a revoked job impossible.

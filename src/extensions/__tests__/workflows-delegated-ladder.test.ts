@@ -135,6 +135,30 @@ const PROJECT_WF: WorkflowDefinition = {
   description: "",
   steps: [{ name: "t", kind: "transform", output: { a: "b" } }],
 };
+/**
+ * The one workflow here that REACHES something.
+ *
+ * Every other definition in this population is a lone `transform`, which
+ * contributes no capability at all — so the whole closure hashes to an
+ * EMPTY capability set and neither a widening nor a narrowing is
+ * expressible against it. D6's gate is now the widening test, so it needs
+ * a graph that can actually widen. The tool is not registered, which is
+ * deliberate and is itself a capability fact: an unreachable tool hashes
+ * as `tool::<name>` PLUS `tool:unreachable::<name>`, both stable.
+ */
+const TOOLED_WF: WorkflowDefinition = {
+  name: "org-tooled",
+  description: "",
+  steps: [{ name: "call", kind: "tool", tool: "ext__do_thing", input: {} }],
+};
+/** `team-fork`, but reaching a tool — for the closure-difference tests,
+ *  where the child has to contribute a capability for the parent's set to
+ *  change when the child drops in or out of the principal's view. */
+const PROJECT_TOOLED_WF: WorkflowDefinition = {
+  name: "team-fork",
+  description: "",
+  steps: [{ name: "call", kind: "tool", tool: "ext__child_thing", input: {} }],
+};
 const PRIVATE_WF: WorkflowDefinition = {
   name: "someones-private",
   description: "",
@@ -284,32 +308,38 @@ interface DelegationSpec {
   maxTokensPerRun?: number;
   maxRunsPerDay?: number;
   projectId?: string | null;
-  /** Overrides the correctly-computed hash, to drive D6. */
+  /** Overrides the correctly-computed SEMANTIC hash, to drive D6. */
   consentHash?: string;
+  /** Overrides the correctly-computed ADVISORY hash. */
+  definitionHash?: string;
+  /** Overrides the consented capability set — the one input the WIDENING
+   *  test actually judges. A set narrower than what the graph reaches is
+   *  what makes D6 park; a broken hash alone no longer does. */
+  capabilitySet?: Array<{ kind: string; value: string | null }>;
   consentedByUserId?: string;
 }
 
-/** Write a delegation whose `consent_hash` is the value THIS build would
- *  recompute at fire time, so D6 passes unless a test deliberately breaks
- *  it. Computed through the same shared assembly the handler uses — a
- *  fixture that hard-coded a digest would pass while the two drifted. */
+/** Compute the consent record THIS build would take for a spec, through
+ *  the same shared assembly the handler uses — a fixture that hard-coded
+ *  a digest would pass while the two drifted. */
+async function consentRecordFor(spec: DelegationSpec) {
+  return computeDelegationConsentRecord({
+    entry: cachedEntries.find((e) => e.definition.name === spec.workflowName)!,
+    extensionName: EXT_NAME,
+    workflowName: spec.workflowName,
+    projectId: spec.projectId ?? null,
+    runAs: { kind: spec.ownerKind, id: spec.ownerId },
+    trigger: { kind: "cron", spec: { expr: "0 3 * * *" } },
+    principal: delegationPrincipal(spec.ownerKind, spec.ownerId),
+    entries: cachedEntries,
+    agents,
+  });
+}
+
+/** Write a delegation whose consent record is what THIS build recomputes
+ *  at fire time, so D6 passes unless a test deliberately breaks it. */
 async function delegate(spec: DelegationSpec): Promise<string> {
-  const entry = cachedEntries.find((e) => e.definition.name === spec.workflowName);
-  let consentHash = spec.consentHash;
-  if (consentHash === undefined) {
-    const record = await computeDelegationConsentRecord({
-      entry: entry!,
-      extensionName: EXT_NAME,
-      workflowName: spec.workflowName,
-      projectId: spec.projectId ?? null,
-      runAs: { kind: spec.ownerKind, id: spec.ownerId },
-      trigger: { kind: "cron", spec: { expr: "0 3 * * *" } },
-      principal: delegationPrincipal(spec.ownerKind, spec.ownerId),
-      entries: cachedEntries,
-      agents,
-    });
-    consentHash = record.consentHash;
-  }
+  const record = await consentRecordFor(spec);
   const created = await createWorkflowDelegation({
     extensionId,
     jobRef: spec.jobRef ?? "job-1",
@@ -320,14 +350,33 @@ async function delegate(spec: DelegationSpec): Promise<string> {
     projectId: spec.projectId ?? null,
     triggerKind: "cron",
     triggerSpec: { expr: "0 3 * * *" },
-    consentHash,
-    capabilitySet: [],
+    consentHash: spec.consentHash ?? record.consentHash,
+    definitionHash: spec.definitionHash ?? record.definitionHash,
+    capabilitySet: spec.capabilitySet ?? record.capabilitySet,
     maxTokensPerRun: spec.maxTokensPerRun ?? 10_000,
     maxRunsPerDay: spec.maxRunsPerDay ?? 10,
     consentedByUserId: spec.consentedByUserId ?? ownerUserId,
   });
   if (!created.ok) throw new Error(`fixture could not consent: ${created.message}`);
   return created.delegation.id;
+}
+
+/** The three consent columns off a live row — what a carry-forward moves
+ *  and what a park must leave alone. */
+async function consentColumnsOf(id: string): Promise<{
+  consentHash: string;
+  definitionHash: string | null;
+  capabilitySet: Array<{ kind: string; value: string | null }>;
+}> {
+  const [row] = await getTestDb()
+    .select({
+      consentHash: workflowDelegations.consentHash,
+      definitionHash: workflowDelegations.definitionHash,
+      capabilitySet: workflowDelegations.capabilitySet,
+    })
+    .from(workflowDelegations)
+    .where(eq(workflowDelegations.id, id));
+  return row!;
 }
 
 beforeAll(async () => {
@@ -387,6 +436,7 @@ beforeEach(async () => {
     dbEntry(PROJECT_WF, "project", ownerUserId),
     dbEntry(PRIVATE_WF, "private", adminUserId),
     dbEntry(DEAD_EXT_WF, "system", null),
+    dbEntry(TOOLED_WF, "system", ownerUserId),
   ];
   agents = [];
   cacheReader = () => cachedEntries;
@@ -983,10 +1033,32 @@ describe("rung D7 — DELEGATION_OWNER_LOST_WORKFLOW_ACCESS drives disabled_reas
   });
 });
 
-describe("rung D6 — DELEGATION_CONSENT_STALE PARKS the run", () => {
-  test("a stale hash writes a suspended run instead of executing", async () => {
+/**
+ * ## D6 is a WIDENING test now, not an equality test
+ *
+ * It used to park on ANY difference between the stored digest and the
+ * recomputed one, over a single hash that folded the workflow definition
+ * in with the capability closure. `ez-factory` is BUNDLED — its workflows
+ * ship inside the app image — so every release that edited one of its
+ * `*.workflow.yaml` files, its permissions block, or a referenced agent's
+ * capabilities parked EVERY delegation and stopped unattended execution
+ * until a human re-approved a capability set that had not moved.
+ *
+ * `consent_hash` is now the SEMANTIC surface (the delegation facts, the
+ * flat capability closure, the walk's bounds), `definition_hash` is the
+ * ADVISORY graph fingerprint, and the gate is: **did the closure GROW?**
+ * Every test below is paired accordingly — one that grows and parks, one
+ * that does not and carries — because "it parks" is satisfied by a rung
+ * that parks unconditionally and "it runs" by one that never checks.
+ */
+describe("rung D6 — a WIDENED closure PARKS the run", () => {
+  test("a closure that GREW writes a suspended run instead of executing", async () => {
+    // The delegation was consented against a set that reaches NOTHING;
+    // the live graph reaches a tool. That is a capability the human never
+    // approved, so nothing may execute under it.
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+      capabilitySet: [],
       consentHash: "a-hash-from-a-graph-that-no-longer-exists",
     });
 
@@ -1009,11 +1081,39 @@ describe("rung D6 — DELEGATION_CONSENT_STALE PARKS the run", () => {
     expect(runs[0]?.cursor).toEqual({ batchIndex: 0, completedSteps: [], prevStepName: null });
     // The response names the parked run so a console can link to it.
     expect((resp.error?.data as { workflowRunId: string }).workflowRunId).toBe(runs[0]!.id);
+    // A park CHANGES NOTHING on the row. The whole point is that a human
+    // has to look; a rung that healed the record it just refused would be
+    // granting the consent it is asking for.
+    const after = await consentColumnsOf(id);
+    expect(after.consentHash).toBe("a-hash-from-a-graph-that-no-longer-exists");
+    expect(after.capabilitySet).toEqual([]);
+  });
+
+  test("the audit row NAMES the keys that widened, so a reviewer need not re-derive them", async () => {
+    // Without this the operator is told "something changed" and has to
+    // walk the closure by hand to find out what.
+    await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+      consentHash: "stale",
+      capabilitySet: [{ kind: "tool", value: "ext__do_thing" }],
+    });
+
+    await handleWorkflowsRpc(req(), ctx());
+
+    const { sdk } = await auditDestinations();
+    expect(sdk).toHaveLength(1);
+    const after = (
+      await getTestDb().select({ after: sdkCapabilityCalls.after }).from(sdkCapabilityCalls)
+    )[0]?.after as { parked: boolean; added: string[] };
+    expect(after.parked).toBe(true);
+    // Only the key that was NOT consented. `tool::ext__do_thing` was.
+    expect(after.added).toEqual(["tool:unreachable::ext__do_thing"]);
   });
 
   test("no `workflow_approvals` row is written — answering one would not resume it", async () => {
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+      capabilitySet: [],
       consentHash: "stale",
     });
 
@@ -1026,7 +1126,8 @@ describe("rung D6 — DELEGATION_CONSENT_STALE PARKS the run", () => {
 
   test("a SERVICE park routes its audit row to audit_log and owns no user", async () => {
     await delegate({
-      ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-nightly",
+      ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-tooled",
+      capabilitySet: [],
       consentHash: "stale",
     });
 
@@ -1040,49 +1141,12 @@ describe("rung D6 — DELEGATION_CONSENT_STALE PARKS the run", () => {
     expect(log[0]?.action).toBe("ext:workflow-delegation-service");
   });
 
-  test("editing the workflow AFTER consent stales it — the hash is over live state", async () => {
-    // Consent against the current graph…
-    await delegate({ ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly" });
-    // …then change a step's `when` guard, which changes REACHABILITY and
-    // no capability declaration at all.
-    cachedEntries = [
-      dbEntry(
-        {
-          ...SYSTEM_WF,
-          steps: [
-            {
-              name: "t",
-              kind: "transform",
-              output: { a: "b" },
-              when: { ref: "$input.go", op: "truthy" },
-            },
-          ],
-        },
-        "system",
-        ownerUserId,
-      ),
-      ...cachedEntries.slice(1),
-    ];
-
-    const resp = await handleWorkflowsRpc(req(), ctx());
-
-    expect(resp.error?.data).toMatchObject({ reason: "DELEGATION_CONSENT_STALE" });
-  });
-
-  test("…and an UNCHANGED graph passes D6 and runs", async () => {
-    await delegate({ ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly" });
-
-    const resp = await handleWorkflowsRpc(req(), ctx());
-
-    expect(resp.error).toBeUndefined();
-    expect(await getTestDb().select().from(workflowRuns)).toHaveLength(0);
-  });
-
-  test("the hash is the OWNER KIND's: the same graph consented as a user is stale for a service", async () => {
-    // Two delegations over the same nested graph. The `service` principal
-    // cannot resolve the project-visible child, so it walks a smaller
-    // graph and MUST hash differently — hashing the flat cache would
-    // certify a step the run would refuse.
+  test("the closure is still the OWNER KIND's: a delegation that GAINS a child parks", async () => {
+    // The direction that matters. A `service` principal cannot resolve
+    // the project-visible child, so it consents to a strictly smaller
+    // graph. Storing THAT record on a `user` delegation — which does
+    // resolve the child — means the fire reaches the child's tool, a
+    // capability nobody approved.
     const parent: WorkflowDefinition = {
       name: "org-nightly",
       description: "",
@@ -1090,31 +1154,187 @@ describe("rung D6 — DELEGATION_CONSENT_STALE PARKS the run", () => {
     };
     cachedEntries = [
       dbEntry(parent, "system", ownerUserId),
-      dbEntry(PROJECT_WF, "project", ownerUserId),
+      dbEntry(PROJECT_TOOLED_WF, "project", ownerUserId),
     ];
-    // Consent as a USER (sees the child) …
-    const userHash = (
-      await computeDelegationConsentRecord({
-        entry: cachedEntries[0]!,
-        extensionName: EXT_NAME,
-        workflowName: "org-nightly",
-        projectId: null,
-        runAs: { kind: "user", id: ownerUserId },
-        trigger: { kind: "cron", spec: { expr: "0 3 * * *" } },
-        principal: delegationPrincipal("user", ownerUserId),
-        entries: cachedEntries,
-        agents,
-      })
-    ).consentHash;
-    // … and store it on a SERVICE delegation, which does not.
-    await delegate({
+    const asService = await consentRecordFor({
       ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-nightly",
-      consentHash: userHash,
+    });
+    expect(asService.capabilitySet, "the service principal cannot see the child").toEqual([]);
+    await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      consentHash: asService.consentHash,
+      definitionHash: asService.definitionHash,
+      capabilitySet: asService.capabilitySet,
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
 
     expect(resp.error?.data).toMatchObject({ reason: "DELEGATION_CONSENT_STALE" });
+    expect(started).toHaveLength(0);
+  });
+});
+
+describe("rung D6 — an unchanged or NARROWED closure carries consent forward", () => {
+  /** Every `ext:workflow-delegation-reauthorized` row, with its metadata. */
+  async function carryRows(): Promise<Array<{ userId: string | null; metadata: unknown }>> {
+    const { log } = await auditDestinations();
+    return log
+      .filter((r) => r.action === "ext:workflow-delegation-reauthorized")
+      .map((r) => ({ userId: r.userId, metadata: r.metadata }));
+  }
+
+  test("an UNCHANGED graph passes D6, runs, and re-stamps nothing", async () => {
+    const id = await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+    });
+    const before = await consentColumnsOf(id);
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error).toBeUndefined();
+    expect(await getTestDb().select().from(workflowRuns)).toHaveLength(0);
+    // `fresh` writes NOTHING — not the row, and not an audit row claiming
+    // a release re-authorized something that never moved.
+    expect(await consentColumnsOf(id)).toEqual(before);
+    expect(await carryRows()).toHaveLength(0);
+  });
+
+  test("a DEFINITION-only edit runs and audits 're-authorized by release'", async () => {
+    // THE defect. Consent against the current graph…
+    const id = await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+    });
+    const before = await consentColumnsOf(id);
+    // …then do what a release does to a bundled extension's shipped
+    // workflow: change a step's `when` guard. No capability declaration
+    // moves, so the job reaches exactly what was approved. This used to
+    // park every delegation on the extension.
+    cachedEntries = [
+      ...cachedEntries.slice(0, 4),
+      dbEntry(
+        {
+          ...TOOLED_WF,
+          steps: [
+            {
+              name: "call",
+              kind: "tool",
+              tool: "ext__do_thing",
+              input: {},
+              when: { ref: "$input.go", op: "truthy" },
+            },
+          ],
+        },
+        "system",
+        ownerUserId,
+      ),
+    ];
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error).toBeUndefined();
+    expect(started).toHaveLength(1);
+    expect(await getTestDb().select().from(workflowRuns)).toHaveLength(0);
+    // The ADVISORY digest moved and the SEMANTIC one did not.
+    const after = await consentColumnsOf(id);
+    expect(after.definitionHash).not.toBe(before.definitionHash);
+    expect(after.consentHash).toBe(before.consentHash);
+    expect(after.capabilitySet).toEqual(before.capabilitySet);
+    // And it is on the record, attributed to the human answerable for the
+    // consent — a re-authorization with no trace is the one shape a
+    // consent control must never have.
+    const rows = await carryRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.userId).toBe(ownerUserId);
+    expect(rows[0]?.metadata).toMatchObject({
+      reason: "re-authorized by release",
+      delegationId: id,
+      definitionChanged: true,
+      semanticChanged: false,
+      removed: [],
+      stamped: true,
+    });
+  });
+
+  test("a NARROWED closure carries forward AND rewrites capability_set", async () => {
+    // The re-widening hole. If the row kept the wider set, the release
+    // that puts the tool back would compare against it, find nothing
+    // added, and re-grant with no human in the loop.
+    const id = await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+    });
+    expect((await consentColumnsOf(id)).capabilitySet.length).toBeGreaterThan(0);
+    const narrowed = { ...TOOLED_WF, steps: [{ name: "call", kind: "transform" as const, output: {} }] };
+    cachedEntries = [...cachedEntries.slice(0, 4), dbEntry(narrowed, "system", ownerUserId)];
+
+    const first = await handleWorkflowsRpc(req(), ctx());
+
+    expect(first.error).toBeUndefined();
+    expect(await consentColumnsOf(id)).toMatchObject({ capabilitySet: [] });
+    const rows = await carryRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.metadata).toMatchObject({
+      semanticChanged: true,
+      removed: ["tool::ext__do_thing", "tool:unreachable::ext__do_thing"],
+    });
+
+    // …and putting it back is a WIDENING against the narrowed set.
+    cachedEntries = [...cachedEntries.slice(0, 4), dbEntry(TOOLED_WF, "system", ownerUserId)];
+    _resetWorkflowRateLimitForTests(extensionId);
+    const second = await handleWorkflowsRpc(req(), ctx());
+
+    expect(second.error?.data).toMatchObject({ reason: "DELEGATION_CONSENT_STALE" });
+  });
+
+  test("a PRE-SPLIT row (definition_hash NULL) heals on its first fire", async () => {
+    // The migration, executed. There is deliberately no backfill: a row
+    // written before the split has no honest value for the new column, so
+    // NULL reads as "the definition changed" and the widening test decides.
+    const id = await delegate({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+    });
+    await getTestDb()
+      .update(workflowDelegations)
+      .set({ definitionHash: null, consentHash: "a-v1-combined-digest" })
+      .where(eq(workflowDelegations.id, id));
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error).toBeUndefined();
+    const after = await consentColumnsOf(id);
+    expect(after.definitionHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(after.consentHash).not.toBe("a-v1-combined-digest");
+    expect((await carryRows())[0]?.metadata).toMatchObject({ definitionChanged: true });
+  });
+
+  test("a NARROWED closure carried forward is still the OWNER KIND's", async () => {
+    // The mirror of the widening test above: a record consented as a USER
+    // (which resolves the project child) stored on a SERVICE delegation
+    // reaches strictly LESS at fire time, so it carries rather than parks.
+    const parent: WorkflowDefinition = {
+      name: "org-nightly",
+      description: "",
+      steps: [{ name: "n", kind: "workflow", workflow: "team-fork", input: {} }],
+    };
+    cachedEntries = [
+      dbEntry(parent, "system", ownerUserId),
+      dbEntry(PROJECT_TOOLED_WF, "project", ownerUserId),
+    ];
+    const asUser = await consentRecordFor({
+      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+    });
+    expect(asUser.capabilitySet.length, "the user principal DOES see the child").toBeGreaterThan(0);
+    const id = await delegate({
+      ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-nightly",
+      consentHash: asUser.consentHash,
+      definitionHash: asUser.definitionHash,
+      capabilitySet: asUser.capabilitySet,
+    });
+
+    const resp = await handleWorkflowsRpc(req(), ctx());
+
+    expect(resp.error).toBeUndefined();
+    expect(started).toHaveLength(1);
+    expect((await consentColumnsOf(id)).capabilitySet).toEqual([]);
   });
 });
 

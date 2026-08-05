@@ -112,6 +112,7 @@
   "src/runtime/workflow-capability-hash.ts": 100,
   "src/runtime/workflow-delegation-consent.ts": 100,
   "src/runtime/workflow-delegation-record.ts": 100,
+  "src/runtime/workflow-consent-reconcile.ts": 100,
   "src/runtime/workflow-validator.ts": 100,
   "src/runtime/workflow-loader.ts": 100,
   "src/runtime/workflow-model.ts": 100,

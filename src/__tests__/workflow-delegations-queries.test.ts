@@ -19,6 +19,7 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 mockDbConnection();
 
 const {
+  carryDelegationConsentForward,
   createWorkflowDelegation,
   delegationOwnerId,
   disableWorkflowDelegation,
@@ -87,6 +88,7 @@ function consentInput(overrides: Record<string, unknown> = {}) {
     triggerKind: "cron",
     triggerSpec: { expr: "0 * * * *" },
     consentHash: "hash-1",
+    definitionHash: "def-1",
     capabilitySet: [{ kind: "agent", value: "writer" }],
     maxTokensPerRun: 5000,
     maxRunsPerDay: 24,
@@ -554,12 +556,85 @@ describe("toWorkflowDelegationView — one shape, three routes", () => {
       unknown
     >;
     expect(Object.hasOwn(view, "consentHash")).toBe(false);
+    // Same argument, same reason: the advisory graph digest is a value a
+    // client could use to assert its own freshness.
+    expect(Object.hasOwn(view, "definitionHash")).toBe(false);
     expect(Object.hasOwn(view, "consecutiveFailures")).toBe(false);
     // …and the fields the UI genuinely needs ARE there, so the assertion
     // above is not satisfied by an empty object.
     expect(view["maxTokensPerRun"]).toBe(5000);
     expect(view["workflowName"]).toBe("w");
     expect(view["enabled"]).toBe(true);
+  });
+});
+
+describe("carryDelegationConsentForward — re-stamp a live consent, nothing else", () => {
+  beforeEach(async () => await freshDb());
+  afterAll(async () => await closeTestDb());
+
+  const CARRIED = {
+    consentHash: "semantic-2",
+    definitionHash: "graph-2",
+    capabilitySet: [{ kind: "agent", value: null }],
+  };
+
+  test("all three consent columns move, and NOTHING else does", async () => {
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+    const before = created.delegation;
+
+    expect(await carryDelegationConsentForward(before.id, before.consentHash, CARRIED)).toBe(true);
+
+    const after = await getWorkflowDelegation(before.id);
+    expect(after?.consentHash).toBe("semantic-2");
+    expect(after?.definitionHash).toBe("graph-2");
+    // The narrowed set REPLACES the consented one. Leaving the wider set
+    // behind would let the release that puts the capability back compare
+    // against it, find nothing added, and re-grant with no human.
+    expect(after?.capabilitySet).toEqual(CARRIED.capabilitySet);
+    // `consented_at` is NOT re-stamped: `RESUME_RULES["consent-stale"]`
+    // lets a parked run continue only once it is later than the run's
+    // `started_at`, i.e. only once a HUMAN looked. A carry-forward is the
+    // platform observing that nothing widened, so moving it would resume
+    // runs nobody answered.
+    expect(after?.consentedAt).toEqual(before.consentedAt);
+    expect(after?.maxTokensPerRun).toBe(before.maxTokensPerRun);
+    expect(after?.maxRunsPerDay).toBe(before.maxRunsPerDay);
+    expect(after?.enabled).toBe(before.enabled);
+    expect(after?.workflowName).toBe(before.workflowName);
+  });
+
+  test("the CAS is on the OLD hash — a concurrent re-consent is never clobbered", async () => {
+    const created = await createWorkflowDelegation(consentInput());
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    // A verdict taken against a row that has since been superseded.
+    expect(
+      await carryDelegationConsentForward(created.delegation.id, "some-older-hash", CARRIED),
+    ).toBe(false);
+    expect((await getWorkflowDelegation(created.delegation.id))?.consentHash).toBe("hash-1");
+  });
+
+  test("a REVOKED or DISABLED row is not re-stamped", async () => {
+    // A tombstone holds no authority to refresh, and a row the platform
+    // switched off is not healed by a release.
+    const revoked = await createWorkflowDelegation(consentInput());
+    const disabled = await createWorkflowDelegation(consentInput({ jobRef: "job-off" }));
+    expect(revoked.ok && disabled.ok).toBe(true);
+    if (!revoked.ok || !disabled.ok) return;
+    await revokeWorkflowDelegation(revoked.delegation.id);
+    await disableWorkflowDelegation(disabled.delegation.id, "stopped");
+
+    expect(await carryDelegationConsentForward(revoked.delegation.id, "hash-1", CARRIED)).toBe(false);
+    expect(await carryDelegationConsentForward(disabled.delegation.id, "hash-1", CARRIED)).toBe(false);
+    expect((await getWorkflowDelegation(revoked.delegation.id))?.consentHash).toBe("hash-1");
+    expect((await getWorkflowDelegation(disabled.delegation.id))?.definitionHash).toBe("def-1");
+  });
+
+  test("an unknown id is false, not a throw", async () => {
+    expect(await carryDelegationConsentForward(crypto.randomUUID(), "hash-1", CARRIED)).toBe(false);
   });
 });
 
