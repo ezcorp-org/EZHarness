@@ -34,10 +34,9 @@ const forkBodySchema = z
  * The tier a copy lands on when the author names none.
  *
  * It was `project`, unconditionally and invisibly, and that was the
- * problem: `project` resolves to `"any-authenticated-principal"` on the
- * read/run ladder — **every user on the instance**, because the platform
- * has no project-membership model (`readRunAudience` in
- * `src/runtime/workflow-scope.ts` says so in as many words). So copying a
+ * problem: on the read/run ladder `project` admits **every user on the
+ * instance**, because the platform has no project-membership model —
+ * `src/runtime/workflow-scope.ts` says so in as many words. So copying a
  * workflow to tinker with published it to everyone with a login, before
  * the author had decided anything at all.
  *
@@ -46,8 +45,8 @@ const forkBodySchema = z
  * offers the widening in the same breath as the copy. INHERITING the
  * source's tier was the other candidate and is worse — the commonest
  * source is a `system` YAML/extension demo, so inheritance would stamp
- * `system` on a member's private tinkering, which `denyVisibilityAssignment`
- * refuses outright for a non-admin and which means "ships with the
+ * `system` on a member's private tinkering, which the shared assignment
+ * rule refuses outright for a non-admin and which means "ships with the
  * install" for everyone who reads it.
  *
  * **What this deliberately does NOT fix:** a service account carries
