@@ -23,7 +23,10 @@
     "real-auth": [
       "web/e2e/real-auth/admin-invite-reachable.spec.ts",
       "web/e2e/real-auth/approval-consent-boundary.spec.ts",
+      "web/e2e/real-auth/approvals-inbox-scoping.spec.ts",
       "web/e2e/real-auth/auth-fixture.spec.ts",
+      "web/e2e/real-auth/delegated-fire-boundary.spec.ts",
+      "web/e2e/real-auth/delegation-consent-boundary.spec.ts",
       "web/e2e/real-auth/extension-author-flow.spec.ts",
       "web/e2e/real-auth/extension-control-flow.spec.ts",
       "web/e2e/real-auth/extension-release-gate.spec.ts",
@@ -31,6 +34,7 @@
       "web/e2e/real-auth/harness-client-flow.spec.ts",
       "web/e2e/real-auth/project-mutation-authz-flow.spec.ts",
       "web/e2e/real-auth/role-carrying-key-flow.spec.ts",
+      "web/e2e/real-auth/service-account-admin-boundary.spec.ts",
       "web/e2e/real-auth/task-panel-durability.spec.ts",
       "web/e2e/real-auth/tier-routing-flow.spec.ts",
       "web/e2e/real-auth/web-search-flow.spec.ts"
@@ -84,6 +88,7 @@
       "web/e2e/user-commands.spec.ts",
       "web/e2e/visual-evidence.spec.ts",
       "web/e2e/workflow-approval-tray.spec.ts",
+      "web/e2e/workflow-delegations.spec.ts",
       "web/e2e/workflow-mention.spec.ts",
       "web/e2e/workflows-action-bar.spec.ts",
       "web/e2e/workflows-approvals.spec.ts",

@@ -346,6 +346,34 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/workflows/:name/versions", description: "Version history for a workflow", category: "workflows" },
   { method: "POST", path: "/api/workflows/:name/claim", description: "Assign an owner to a system-owned workflow (admin)", category: "workflows", scope: "admin" },
 
+  // C3 delegated execution — the consent surface.
+  //
+  // NO `scope` on any of the three, for the same reason
+  // POST /api/workflows/approvals/:id declares none: `scope` renders as
+  // `security: [{ bearerAuth: [scope] }]` (src/openapi.ts:40), i.e. "call
+  // this with a key holding that scope". All three are session-only
+  // (`requireSessionAuth`), so NO key of any scope reaches them and
+  // declaring one would publish a lie about a security boundary.
+  //
+  // Consent is a strictly stronger boundary than answering one approval:
+  // an approval spends authority once, a delegation mints STANDING,
+  // unattended authority over a workflow. The read and the revoke sit
+  // behind the same gate deliberately — a revoke gated more strictly than
+  // its consent would leave authority its owner cannot take back.
+  { method: "GET", path: "/api/workflows/delegations", description: "List the live delegations this human consented to. SESSION-ONLY: refuses every API key (403)", category: "workflows", responseDescription: "{ delegations: WorkflowDelegation[] }" },
+  { method: "POST", path: "/api/workflows/delegations", description: "Consent to a delegation: mint standing authority for an extension job to run one workflow as a chosen principal. SESSION-ONLY (403 for every API key). Authorizes AS THE PRINCIPAL THE DELEGATION WILL CARRY, so a service-account delegation for a non-system-visible workflow is refused here with the reason named, not silently at the first fire. Re-consenting supersedes your own live delegation for the same (extension, job); another user's is 409. Body { extensionId, jobRef, workflowName, ownerKind, ownerServiceAccountId?, projectId?, triggerKind, triggerSpec?, maxTokensPerRun, maxRunsPerDay }", category: "workflows", responseDescription: "{ delegation, supersededId, material } (201)" },
+  { method: "DELETE", path: "/api/workflows/delegations/:id", description: "Revoke a delegation — a tombstone, not a delete, so the history survives and the (extension, job) can be consented to again. SESSION-ONLY (403 for every API key); the consenting human or an admin, 404 otherwise", category: "workflows", responseDescription: "{ revoked: boolean }" },
+  // The FOURTH verb, and the one that makes a parked run resumable.
+  // `RESUME_RULES["budget-exceeded"]` says "only raising that cap lets it
+  // continue"; before this there was no way to raise it, because the only
+  // writer of `max_tokens_per_run` was the consent route and a supersede
+  // tombstones the row the parked run's own predicate re-reads. Same
+  // no-`scope` rule as its three siblings above — session-only, so any
+  // declared scope would publish a boundary no key can actually reach.
+  { method: "PATCH", path: "/api/workflows/delegations/:id", description: "Adjust a LIVE delegation's SPEND BOUNDS in place — no new row, no new consent hash, no `consented_at` write, so a run parked at `budget-exceeded` becomes resumable and a daily throttle becomes tunable without re-approving the capability set. SESSION-ONLY (403 for every API key); the consenting human or an admin, 404 otherwise. Body { maxTokensPerRun?, maxRunsPerDay? }, positive integers, AT LEAST ONE, and NOTHING else — the schema is strict, so naming the workflow, the owner kind, the consent hash or the enabled flag is a 400 rather than a silent no-op (those require re-consent, Ruling 2), and an empty body is a 400 rather than a 200 that changed nothing. Refuses a revoked or a platform-DISABLED delegation with 409 + the disabled reason: re-consent is the only re-enable path, because it re-asks the question that disabled the row", category: "workflows", responseDescription: "{ delegation: WorkflowDelegation }" },
+  { method: "POST", path: "/api/workflows/delegations/preview", description: "What consenting WOULD authorize, computed without writing a row — the capability closure the consent dialog shows before asking. Runs the same two calls the POST does, in the same order, so the preview cannot disagree with the grant; the consent-time refusal (a service-account delegation for a non-system-visible workflow) is previewed too, with its reason and remedy. SESSION-ONLY (403 for every API key). Body { extensionId, workflowName, ownerKind, ownerServiceAccountId?, projectId?, triggerKind }", category: "workflows", responseDescription: "{ material, capabilitySet, consentHash, definitionVersionId, effortNoops, maxToolCallsPerRun, maxNestingDepth, reach }" },
+  { method: "GET", path: "/api/workflows/delegated-runs", description: "Jobs running as me: the runs an extension started unattended under a delegation this human consented to. Scoped by `consented_by_user_id` (not by `run_as`), so a service-account job appears for the human answerable for it; revoked delegations are included, because 'what did it do as me?' is the question asked right after revoking. SESSION-ONLY (403 for every API key)", category: "workflows", responseDescription: "{ runs: DelegatedRun[] }" },
+
   // Tools
   { method: "GET", path: "/api/tools", description: "List available tools", category: "tools" },
   { method: "POST", path: "/api/tool-invoke", description: "Invoke a tool directly", category: "tools", scope: "extensions", harness: { controllable: true } },
@@ -406,6 +434,28 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/admin/embed-progress", description: "Read-only message-embedding backfill progress — the same source the backfill CLI's --status flag reads", category: "admin", scope: "admin" },
   { method: "GET", path: "/api/audit", description: "Global cross-extension audit feed (sdk_capability_calls + governance rows), cursor-paginated; filters ?extensionId ?capability ?action ?onBehalfOf ?denialOnly ?search ?limit (clamped 1–200)", category: "admin", scope: "admin", responseDescription: "{ entries, nextCursor }" },
   { method: "GET", path: "/api/audit/stats", description: "Headline audit aggregates for ?range=24h|7d|30d (unknown values fall back to 24h): denial count, total calls, total cost, top-3 chattiest extensions, top-3 LLM spenders", category: "admin", scope: "admin" },
+
+  // ── C3 service accounts ───────────────────────────────────────────────
+  // NO `scope`, deliberately, on all five — the same reasoning as
+  // `POST /api/workflows/approvals/:id` above. `scope` renders as
+  // `security: [{ bearerAuth: [scope] }]` (src/openapi.ts:39-41), i.e. "call
+  // this with a key holding that scope". These routes gate on
+  // `requireSessionAuth` FIRST, so NO key of any scope can reach them at all
+  // and `scope: "admin"` would publish a lie about a security boundary. The
+  // second gate is `checkRole(locals,"admin")`, which returns its denial
+  // rather than throwing it (a thrown Response is a 500, not a 403) — the two
+  // together are `requireAdminSession` (src/auth/middleware.ts).
+  //
+  // GET is the one exception on the ROLE axis, and it is still session-only:
+  // it answers every authenticated session, with a two-field
+  // `{id,name}` projection for a non-admin. Ruling 1 makes both owner kinds
+  // selectable PER DELEGATION, and a consenter who cannot read the list cannot
+  // name a service account to consent to.
+  { method: "GET", path: "/api/service-accounts", description: "List service accounts (optionally ?projectId), plus the machine-readable reach warning. SESSION-ONLY: refuses every API key (403). An ADMIN gets the full ServiceAccountView per row; any other authenticated session gets `{ id, name }` ONLY, filtered to enabled accounts — scopes, createdBy, maxTokensPerDay, projectId and disabledReason are withheld. The narrow read exists so a non-admin consenting to a delegation can populate the owner-kind picker (Ruling 1). A service account is a non-human `run_as` principal with no users row — it cannot authenticate", category: "admin", responseDescription: "{ accounts: ServiceAccountView[] | { id, name }[], reach: { code, runnableVisibilities, message } }" },
+  { method: "POST", path: "/api/service-accounts", description: "Mint a service account. SESSION-ONLY + admin. Scopes are CLAMPED to the creating admin's effective set and what was dropped is reported; `maxTokensPerDay` is mandatory (tokens are the enforced bound — a cents cap is refused, since an unpriced model would spend without bound under one). The response carries the reach warning: a service account has no user identity, so it can only be delegated system-visible workflows", category: "admin", responseDescription: "{ account, droppedScopes: string[], reach: { code, runnableVisibilities, message } } (201)" },
+  { method: "PATCH", path: "/api/service-accounts/:id", description: "Enable or disable a service account, recording `disabledReason` when disabling. SESSION-ONLY + admin. The body is strict and takes `enabled` only — the daily token cap has its own route, so an enable/disable can never be mistaken for a budget change in the audit log", category: "admin", responseDescription: "{ account }" },
+  { method: "PATCH", path: "/api/service-accounts/:id/daily-cap", description: "Set a service account's `max_tokens_per_day` — the remedy rung D10 names when a delegated fire is refused because the owning account spent its day, and which nothing exposed until now. SESSION-ONLY + admin. Body { maxTokensPerDay } (positive integer) and NOTHING else: strict, so a cents cap is a 400 rather than a silent no-op (Ruling 3 — tokens enforced, cost advisory). Lowers as readily as it raises. Does NOT re-enable a disabled account or clear its disabledReason; audited as `service-account:daily-cap-changed`", category: "admin", responseDescription: "{ account }" },
+  { method: "DELETE", path: "/api/service-accounts/:id", description: "Delete a service account. SESSION-ONLY + admin. REFUSED with 409 + { delegationCount } while live delegations name it — the owner FK is ON DELETE CASCADE, so the delete would otherwise destroy those authorities silently", category: "admin", responseDescription: "204 No Content" },
 
   { method: "GET", path: "/api/fs/list", description: "List files in a directory", category: "system" },
   // Gate is `requireScope(locals,"read")` + an INLINE `user.role !== "admin"`

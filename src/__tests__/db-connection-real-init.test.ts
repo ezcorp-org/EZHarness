@@ -16,7 +16,6 @@
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
-import { dirname } from "node:path";
 import { holderPidPath, readHolderPid } from "../db/live-holder-guard";
 
 let conn: typeof import("../db/connection");
@@ -29,10 +28,22 @@ describe("connection.ts — real PGlite init path", () => {
 
   afterAll(async () => {
     await conn.closeDb();
-    // preload created the throwaway data dir; remove the whole temp tree.
-    const p = conn.getDbPath();
-    if (p && p !== ":memory:" && p !== "external") {
-      rmSync(dirname(p), { recursive: true, force: true });
+    // Remove ONLY the temp tree preload says preload minted.
+    //
+    // This used to be `rmSync(dirname(conn.getDbPath()), {recursive: true,
+    // force: true})`, which is a recursive delete of a directory this suite
+    // does not necessarily own. `preload.ts` yields to an explicit
+    // `EZCORP_DB_PATH` on purpose, so anyone who pins that variable becomes
+    // the owner of the path — and `dirname` of it is then THEIR directory.
+    // `EZCORP_DB_PATH=<worktree>/db` made this line delete the worktree; that
+    // is how an agent's checkout was erased mid-run.
+    //
+    // `EZCORP_TEST_DB_TEMP_ROOT` is set by preload if and ONLY if preload
+    // called `mkdtempSync` itself, so an externally pinned path leaves it
+    // undefined and nothing is deleted. Ownership is read, never inferred.
+    const owned = process.env.EZCORP_TEST_DB_TEMP_ROOT;
+    if (owned) {
+      rmSync(owned, { recursive: true, force: true });
     }
   });
 

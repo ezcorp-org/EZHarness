@@ -33,9 +33,12 @@
  *      system actor — see {@link SYSTEM_ACTOR}, which is a security
  *      statement and is commented as one.
  *   2. **`rbacScope`.** A scope says "answering this needs a permission".
- *      The clock holds none, and handing it a `checkScope` that returned
- *      true would be the clock granting itself every permission in the
- *      system. It is not passed one, so a scoped approval refuses.
+ *      The clock holds none, and a `checkScope` that returned true would
+ *      be the clock granting itself every permission in the system.
+ *      `answerApproval` refuses a `system-timeout` actor on the scoped
+ *      branch by KIND, before any `checkScope` is consulted — so this
+ *      holds because of what the actor IS, not because this file
+ *      remembers not to pass a resolver.
  *   3. **Item consent.** A gate with outstanding items requires the
  *      answer to NAME them. The sweep will not send `consentAll` and will
  *      not echo back the offered list — those are the two shapes of
@@ -65,23 +68,39 @@ const log = logger.child("workflow.approval-timeout");
 /**
  * Who the sweep answers as.
  *
- * `isAdmin: true` with a null `userId` is deliberate and is the security
- * statement of this module: **the timeout sweep bypasses the owner
- * check.** It has to. `answerApproval` requires the run's owner (or an
- * admin) when no `rbacScope` is declared, which is the default, and a run
- * with a NULL `user_id` is admin-only — so a sweep answering as nobody is
- * refused on every approval it will ever see, silently, with the row left
- * pending and every test that only asserted "the sweep ran" still green.
+ * **The timeout sweep bypasses the owner check.** It has to:
+ * `answerApproval` requires the run's owner when no `rbacScope` is
+ * declared — the default — and a run with a NULL `user_id` is admin-only,
+ * so a sweep answering as nobody would be refused on every approval it
+ * will ever see, silently, with the row left pending and every test that
+ * only asserted "the sweep ran" still green.
  *
- * What this actor does NOT get is a `checkScope`. Bypassing "who owns
- * this run" is a housekeeping decision the author already made by writing
+ * ## Why this is now one word instead of a paragraph
+ *
+ * This used to be `{ userId: null, isAdmin: true }`, and the paragraph
+ * that followed it explained at length that the clock must never satisfy
+ * a declared `rbacScope` — a rule enforced *only* by this module
+ * declining to pass a `checkScope`. At `answerApproval`'s decision point
+ * the clock and a real admin were the same value, so the guarantee lived
+ * in prose and in an omission, and anyone who later handed this call a
+ * `checkScope` would have given the clock every permission in the system
+ * without a single test failing.
+ *
+ * `kind: "system-timeout"` moves that guarantee into the type.
+ * `answerApproval` refuses this kind on the scoped branch *before*
+ * consulting `checkScope` at all, so the refusal no longer depends on
+ * what this file remembers not to pass. `answered_by` is likewise derived
+ * from the kind, so an answer nobody made cannot be attributed to
+ * somebody.
+ *
+ * The distinction the prose was carrying: bypassing "who owns this run"
+ * is a housekeeping decision the author already made by writing
  * `onTimeout:`; satisfying a declared `rbacScope` would be the clock
  * awarding itself a permission a human was required to hold. The first is
- * the deadline the author asked for; the second is a privilege
- * escalation. `answeredBy` stays NULL on the row, so an answer nobody
- * made is never attributed to somebody.
+ * a deadline, the second is a privilege escalation — and now only the
+ * first is expressible.
  */
-const SYSTEM_ACTOR = { userId: null, isAdmin: true } as const;
+const SYSTEM_ACTOR = { kind: "system-timeout" } as const;
 
 /** `suspended_reason` left on an aborted run, per C4 §4.4 — the trace has
  *  to say the CLOCK ended this run, not a person. */
@@ -256,8 +275,11 @@ async function answerOnTimeout(
     approval.id,
     { choice: policy },
     SYSTEM_ACTOR,
-    // No `checkScope` — see the module doc. A scoped approval refuses
-    // here and falls through to `abort` below, which is the point.
+    // No `checkScope`, and it no longer MATTERS that there is none: a
+    // `system-timeout` actor is refused on the scoped branch by kind. A
+    // scoped approval therefore refuses here and falls through to
+    // `abort` below, which is the point — and it would still refuse if
+    // someone added a resolver to this call.
     { runtime: runtime ?? null },
   );
   if (res.ok) {

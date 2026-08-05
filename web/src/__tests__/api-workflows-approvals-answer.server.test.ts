@@ -38,6 +38,16 @@ vi.mock("$server/auth/extension-rbac", () => ({
   hasExtensionScope: rbac.hasExtensionScope,
 }));
 
+// The capacity resolver is mocked for the same reason the chokepoint is:
+// it reads three tables, and what this file is about is what the ROUTE does
+// with its answer. Its own rule — who gets a `delegation` actor and who does
+// not — is proved against real rows in
+// `src/__tests__/workflow-approvals-delegated-inbox.test.ts`.
+const capacity = vi.hoisted(() => ({ resolveApprovalActor: vi.fn() }));
+vi.mock("$server/runtime/workflow-approval-actor", () => ({
+  resolveApprovalActor: capacity.resolveApprovalActor,
+}));
+
 const { POST } = await import("../routes/api/workflows/approvals/[id]/+server");
 
 const OK_RUN = { id: "run-1", workflowName: "ship-it", status: "success", steps: [] };
@@ -47,6 +57,15 @@ beforeEach(() => {
     .mockReset()
     .mockResolvedValue({ ok: true, run: OK_RUN, consentAllUsed: false });
   rbac.hasExtensionScope.mockReset().mockResolvedValue(true);
+  // Default: the caller holds no delegated capacity, so they answer as
+  // themselves — which is every answer that existed before C3.
+  capacity.resolveApprovalActor
+    .mockReset()
+    .mockImplementation(async (_id: string, s: { userId: string; isAdmin: boolean }) => ({
+      kind: "user",
+      userId: s.userId,
+      isAdmin: s.isAdmin,
+    }));
 });
 
 // `authMethod: "session"` is what `hooks.server.ts` stamps on a verified
@@ -201,18 +220,62 @@ describe("POST /api/workflows/approvals/:id — the actor the chokepoint is hand
     // `isAdmin: true` here would let any authenticated caller answer an
     // approval on a run they do not own — the exact bypass the chokepoint's
     // ownership branch exists to close.
-    expect(actor).toEqual({ userId: "u1", isAdmin: false });
+    //
+    // `kind: "user"` is asserted too: this is the ONE surface that mints a
+    // human actor, and it is also the only one supplying `checkScope` —
+    // which the kind is now what makes reachable at all.
+    expect(actor).toEqual({ kind: "user", userId: "u1", isAdmin: false });
   });
 
   test("an admin is answered as admin", async () => {
     await POST(makeEvent(admin));
     const [, , actor] = chokepoint.answerApproval.mock.calls[0]!;
-    expect(actor).toEqual({ userId: "a1", isAdmin: true });
+    expect(actor).toEqual({ kind: "user", userId: "a1", isAdmin: true });
   });
 
   test("the id comes from the PATH, never from the body", async () => {
     await POST(makeEvent(member, { choice: "approve", id: "ap-someone-elses" }, "ap-mine"));
     expect(chokepoint.answerApproval.mock.calls[0]![0]).toBe("ap-mine");
+  });
+
+  test("the capacity is resolved for the SESSION's identity, against the PATH's approval", async () => {
+    // C3 (R2-c). The route asks "what capacity does this session hold over
+    // this approval" and forwards the answer; it re-derives nothing. Both
+    // arguments come from the server's own view — an approval id or a role
+    // taken off the body would let a caller pick their own capacity.
+    await POST(makeEvent(member, { choice: "approve", isAdmin: true }, "ap-77"));
+    expect(capacity.resolveApprovalActor).toHaveBeenCalledTimes(1);
+    expect(capacity.resolveApprovalActor).toHaveBeenCalledWith("ap-77", {
+      userId: "u1",
+      isAdmin: false,
+    });
+  });
+
+  test("a DELEGATION capacity is forwarded verbatim — the route neither invents nor edits it", async () => {
+    // The R-2 case: a service-account run has no `user_id`, so the human
+    // who consented to the delegation is the only person who can answer
+    // for it. Everything in this actor is re-proved behind the chokepoint,
+    // so what matters here is that the route passes it through unchanged
+    // rather than falling back to a `user` actor that would be refused.
+    const delegated = {
+      kind: "delegation",
+      delegationId: "dg-1",
+      runId: "run-9",
+      answeringUserId: "u1",
+    };
+    capacity.resolveApprovalActor.mockResolvedValue(delegated);
+    await POST(makeEvent(member));
+    expect(chokepoint.answerApproval.mock.calls[0]![2]).toEqual(delegated);
+  });
+
+  test("a capacity lookup that THROWS refuses the answer — it never falls back to answering as yourself", async () => {
+    // Fail-closed: a silent fallback would be a downgrade the caller
+    // cannot see, and on a service-account run it would turn a legitimate
+    // answer into a 403 with no explanation. Refusing loudly is the honest
+    // outcome, and NOTHING is answered on the way past.
+    capacity.resolveApprovalActor.mockRejectedValue(new Error("db unreachable"));
+    await expect(POST(makeEvent(member))).rejects.toThrow("db unreachable");
+    expect(chokepoint.answerApproval).not.toHaveBeenCalled();
   });
 });
 
@@ -239,7 +302,10 @@ describe("POST /api/workflows/approvals/:id — the rbacScope check the route wi
 
   test("an admin session resolves as role 'admin'; every other role as 'member'", async () => {
     await POST(makeEvent(admin));
-    await lastDeps().checkScope!("deploy:prod", null);
+    // A userId the route must IGNORE — it resolves the principal from the
+    // session, never from this argument. (The parameter is `string` now:
+    // only a `kind: "user"` actor can reach this callback at all.)
+    await lastDeps().checkScope!("deploy:prod", "not-the-session-user");
     expect(rbac.hasExtensionScope.mock.calls[0]![0]).toEqual({ id: "a1", role: "admin" });
   });
 

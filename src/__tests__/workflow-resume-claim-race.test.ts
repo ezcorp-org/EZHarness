@@ -163,7 +163,7 @@ describe("answerApproval takes authority before it resumes", () => {
     const answered = await answerApproval(
       approval!.id,
       { choice: "approve" },
-      { userId: "user-1" },
+      { kind: "user", userId: "user-1", isAdmin: false },
       { runtime },
     );
 
@@ -196,7 +196,7 @@ describe("answerApproval takes authority before it resumes", () => {
     const answered = await answerApproval(
       approval!.id,
       { choice: "approve" },
-      { userId: "user-1" },
+      { kind: "user", userId: "user-1", isAdmin: false },
       { runtime: { getWorkflows: () => [approvalWorkflow], workflowExecutor: wf } },
     );
 
@@ -302,7 +302,7 @@ describe("losing the claim INSIDE the window is reported honestly", () => {
     const answered = await answerApproval(
       approval!.id,
       { choice: "approve" },
-      { userId: "user-1" },
+      { kind: "user", userId: "user-1", isAdmin: false },
       { runtime: rivalClaimsDuringLookup(wf, [approvalWorkflow]) },
     );
 

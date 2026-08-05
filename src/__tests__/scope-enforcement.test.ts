@@ -115,6 +115,34 @@ describe("scope enforcement coverage", () => {
         // routes (settings/[key], extensions activate) read as ungated.
         !content.includes("checkRole") &&
         !content.includes("requireAuth") &&
+        // `requireSessionAuth(locals)` (`src/auth/middleware.ts:169`) is the
+        // STRONGEST gate in the tree and it was missing from this list. It is
+        // strictly stronger than `requireAuth`: 401 when there is no principal
+        // at all, and 403 for any principal that is not a cookie session —
+        // matched against a positively-stamped allowlist, so a future auth
+        // method is refused until someone deliberately admits it. A route
+        // behind it is unreachable by EVERY API key of EVERY scope, which is
+        // why the consent surfaces use it and why no `requireScope` call
+        // remains for this scan to find.
+        //
+        // Worth stating plainly, because it is how the omission survived: the
+        // one route already behind this gate — `POST
+        // /api/workflows/approvals/:id` — passed the scan by ACCIDENT. Its
+        // docblock explains what it replaced and the word `requireScope`
+        // appears in that PROSE, which a textual scan cannot tell from a call.
+        // Deleting a comment would have made a correctly-gated route read as
+        // ungated. Naming the gate fixes both directions.
+        !content.includes("requireSessionAuth") &&
+        // `requireAdminSession(locals)` (`src/auth/middleware.ts`) is
+        // `requireSessionAuth` THEN `checkRole(locals,"admin")`, in that
+        // order, as one call — so it is strictly stronger than either of the
+        // two names above and accepting it cannot widen what this scan
+        // tolerates. It exists because the two calls were being copy-pasted
+        // per route file, and this scan is exactly the reason that mattered:
+        // a textual scan cannot tell a route that kept both halves from one
+        // that kept only `checkRole`, and the second is a route every
+        // admin-scoped API key reaches. One name, one meaning.
+        !content.includes("requireAdminSession") &&
         // `authGithubRoute` (web/.../github-projects/_shared.ts) is the
         // github-projects routes' gate: it calls `requireScope(locals,
         // "extensions")` + resolves the session/key user before any handler

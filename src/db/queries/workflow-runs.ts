@@ -15,7 +15,13 @@
  */
 import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql, type SQL } from "drizzle-orm";
 import { getDb } from "../connection";
-import { workflowRuns, workflowStepRuns, type TruncatedStepOutput } from "../schema";
+import {
+  workflowDelegations,
+  workflowRuns,
+  workflowStepRuns,
+  type DelegationOwnerKind,
+  type TruncatedStepOutput,
+} from "../schema";
 import type { AgentResult, WorkflowCursor, WorkflowRunStatus } from "../../types";
 import {
   isTruncatedStepOutput,
@@ -97,6 +103,49 @@ export interface NewWorkflowRunInput {
    * never be able to reopen that question.
    */
   jobRef?: string | null;
+  /**
+   * The `workflow_delegations` row this run executes under — C3, and the
+   * ONE scope gate for the step-boundary token check.
+   *
+   * NULL for every run that is not delegated, which is every run on the
+   * tree today. That is not a placeholder: the executor's boundary hook
+   * fires only when this is non-null, so a normal run takes ZERO extra
+   * queries per boundary.
+   *
+   * Unlike {@link NewWorkflowRunInput.jobRef} this is NOT inert — it is
+   * read back (by id) at every boundary of the run it starts, and at
+   * resume time by the `budget-exceeded` / `consent-stale` rows of
+   * `runtime/workflow-resume-reasons.ts`. It is still not a claim of
+   * authority: the delegation was resolved host-side before the run
+   * started, and pointing at one cannot grant what the ladder that
+   * started the run did not.
+   *
+   * `run_as_kind` / `run_as` below are the audit SNAPSHOT of the same
+   * decision, and nothing in the executor reads either of them.
+   */
+  delegationId?: string | null;
+  /**
+   * WHICH PRINCIPAL this run executed as — the audit snapshot C3's
+   * delegated handler resolves before it dispatches.
+   *
+   * Written here rather than by a follow-up UPDATE because the alternative
+   * leaves a window in which a `running` row names a delegation and no
+   * principal, and a crash inside that window makes the window permanent.
+   * Written but never READ, exactly like {@link NewWorkflowRunInput.jobRef}
+   * — the executor forwards these two from its options bag and branches on
+   * neither. Authority was decided by the ladder that started the run; a
+   * column cannot reopen it.
+   *
+   * Plain text with NO foreign key, deliberately (`db/schema.ts:850-863`):
+   * the pair must survive both revocation of the delegation and deletion
+   * of the owner, which is exactly when someone asks who a run belonged
+   * to. `delegation_id` carries the live FK and goes NULL; these do not.
+   *
+   * NULL on every non-delegated run, and NULL is the honest value rather
+   * than a gap — such a run executed as its initiating `user_id`.
+   */
+  runAsKind?: DelegationOwnerKind | null;
+  runAs?: string | null;
 }
 
 /**
@@ -121,6 +170,9 @@ export async function insertWorkflowRun(row: NewWorkflowRunInput): Promise<void>
     parentRunId: row.parentRunId ?? null,
     idempotencyKey: row.idempotencyKey ?? null,
     jobRef: row.jobRef ?? null,
+    delegationId: row.delegationId ?? null,
+    runAsKind: row.runAsKind ?? null,
+    runAs: row.runAs ?? null,
   });
 }
 
@@ -188,6 +240,222 @@ export async function workflowRunNestingDepth(
     cursor = rows[0]?.parentRunId ?? null;
   }
   return depth;
+}
+
+/**
+ * The ONE token-sum expression, shared by every spend bound in this file.
+ *
+ * Written once because the alternative is two aggregates that disagree
+ * about the same rows — the hazard {@link sumWorkflowRunTokens}'s docblock
+ * names for the trace, and it applies just as hard between two ceilings.
+ * `COALESCE` per column so a step that reported only input tokens still
+ * contributes them, and `COALESCE` around the `SUM` so an empty set is 0
+ * rather than NULL.
+ *
+ * `workflow_step_iterations` is deliberately absent — see the double-count
+ * paragraph on {@link sumWorkflowRunTokens}; it applies identically to
+ * every consumer of this expression.
+ */
+const STEP_TOKEN_SUM = sql<string | number | null>`COALESCE(SUM(COALESCE(${workflowStepRuns.inputTokens}, 0) + COALESCE(${workflowStepRuns.outputTokens}, 0)), 0)`;
+
+/**
+ * `SUM()` over `integer` is `bigint` in Postgres, which both drivers hand
+ * back as a STRING to avoid a lossy 53-bit cast. `Number(null)` is 0 and
+ * `Number("")` is 0, so the `?? 0` is for a zero-row read (impossible for
+ * an aggregate without GROUP BY, but these are CEILINGS and must not
+ * return NaN if that ever changes).
+ */
+function tokenTotal(raw: string | number | null | undefined): number {
+  const total = Number(raw ?? 0);
+  return Number.isFinite(total) ? total : 0;
+}
+
+/**
+ * Total LLM tokens (input + output) recorded against one run's step rows.
+ *
+ * ## Why this exists at all, when the trace already computes a total
+ *
+ * `runtime/workflow-run-trace.ts` already sums these columns per run
+ * (`totals.inputTokens` / `totals.outputTokens`, via its `sumOrNull`), and
+ * NOT storing that rollup is a deliberate decision recorded there: *"a
+ * stored rollup drifts the moment a step row is corrected"*. Nothing here
+ * revisits that — there is still no stored total and no generated column,
+ * and this function computes the same thing from the same rows.
+ *
+ * It is a separate function on **performance grounds only**. The trace's
+ * path is `listWorkflowStepRunRows`, a bare `SELECT *` that ships every
+ * column of every step row — including `output` and `resolved_input`,
+ * which are capped at 128 KiB apiece — and the C3 budget check fires at
+ * EVERY step boundary of a delegated run rather than once per page view.
+ * Reading a whole run's outputs back over the wire to add two integers,
+ * once per batch, is the regression this avoids. If that argument ever
+ * stops holding, delete this and call the trace's path: what must NOT
+ * happen is a second aggregation that disagrees with the trace about the
+ * same run's totals.
+ *
+ * ## `workflow_step_iterations` is deliberately NOT summed
+ *
+ * `runLoop` accumulates each iteration's usage ONTO the parent step row
+ * (`runtime/workflow-executor.ts`, `stepRun.inputTokens = (stepRun.inputTokens ?? 0) + …`),
+ * and then ALSO writes the per-iteration child row. The two tables are a
+ * rollup and its detail, not two disjoint sets — so summing both
+ * double-counts every looped agent step. Pinned by a looped-workflow test.
+ *
+ * ## Returns 0, where the trace returns null
+ *
+ * The trace preserves "nothing reported" as `null` so it can render "not
+ * reported" instead of claiming a run was free. A CEILING has no use for
+ * that distinction — "no tokens reported" and "zero tokens" are the same
+ * answer to "is this run over its budget?" — and a nullable return would
+ * push a `?? 0` onto every caller, which is where a fail-OPEN would
+ * eventually be written by accident. The SQL `COALESCE`s per column so a
+ * step that reported only input tokens still contributes them.
+ *
+ * Served by `uniq_workflow_step_run` on `(workflow_run_id, step_name)`,
+ * whose leading column is this WHERE — no second index is needed.
+ */
+export async function sumWorkflowRunTokens(workflowRunId: string): Promise<number> {
+  const rows = await getDb()
+    .select({ total: STEP_TOKEN_SUM })
+    .from(workflowStepRuns)
+    .where(eq(workflowStepRuns.workflowRunId, workflowRunId));
+  return tokenTotal(rows[0]?.total);
+}
+
+/**
+ * Every token a SERVICE ACCOUNT's runs have reported since `since` —
+ * `service_accounts.max_tokens_per_day`'s numerator.
+ *
+ * ## A THIRD bound, and the distinction is the whole reason it exists
+ *
+ * Three separate numbers gate a delegated fire and none is a substitute
+ * for another:
+ *
+ *  - `workflow_delegations.max_tokens_per_run` — ONE run's LLM spend,
+ *    enforced at every step boundary ({@link sumWorkflowRunTokens} →
+ *    `enforceDelegatedTokenBudget`). Per run, per delegation.
+ *  - `workflow_delegations.max_runs_per_day` — how many times ONE job may
+ *    fire today (`countDelegationRunsSince`, in the delegation query
+ *    layer). Counts RUNS, not tokens, and is scoped to a single
+ *    delegation.
+ *  - `service_accounts.max_tokens_per_day` — THIS. Every token every
+ *    delegation owned by one account has spent today, summed across all
+ *    of them. It is the only bound that sees an account whose ten jobs
+ *    are each individually well-behaved.
+ *
+ * ## Keyed on the `run_as` SNAPSHOT, never on `delegation_id`
+ *
+ * `workflow_runs.run_as_kind` / `run_as` are plain text with no FK,
+ * deliberately, precisely so they survive revocation of the delegation
+ * and deletion of the owner (`db/schema.ts` — the C3 column block).
+ * `delegation_id` is `ON DELETE SET NULL` and a supersede tombstones the
+ * row, so joining through it would REFUND a day's spend the moment a
+ * human re-consented or an admin deleted a delegation — a spend bound
+ * that a revoke resets is not a spend bound. Both columns are filtered:
+ * `run_as` alone is a bare text id that a `user`-kind run could in
+ * principle collide with, and `run_as_kind` is the discriminator that
+ * says which namespace it is in.
+ *
+ * Served by `idx_workflow_runs_run_as` on
+ * `(run_as_kind, run_as, started_at)` (`db/schema.ts`), whose three
+ * columns are exactly this WHERE.
+ *
+ * CALENDAR day, supplied by the caller as `since`, for the same two
+ * reasons `countDelegationRunsSince` states: a query layer that reads the
+ * clock cannot be tested at a boundary, and "per day" has to mean the
+ * same thing in every subsystem that says it.
+ */
+export async function sumServiceAccountTokensSince(
+  serviceAccountId: string,
+  since: Date,
+): Promise<number> {
+  const rows = await getDb()
+    .select({ total: STEP_TOKEN_SUM })
+    .from(workflowStepRuns)
+    // INNER join: a step row whose run has been deleted contributes
+    // nothing, and there is no such row anyway (`ON DELETE CASCADE`).
+    .innerJoin(workflowRuns, eq(workflowStepRuns.workflowRunId, workflowRuns.id))
+    .where(
+      and(
+        eq(workflowRuns.runAsKind, "service"),
+        eq(workflowRuns.runAs, serviceAccountId),
+        gte(workflowRuns.startedAt, since),
+      ),
+    );
+  return tokenTotal(rows[0]?.total);
+}
+
+/**
+ * The delegation a run executes under, as the two facts a run-scoped
+ * ceiling needs: what it may spend, and whether the authority still
+ * stands.
+ *
+ * Returns `null` when the run has no delegation (every run today), when
+ * the run does not exist, and when the delegation it pointed at has been
+ * deleted — `workflow_runs.delegation_id` is `ON DELETE SET NULL`, so
+ * "deleted" and "never had one" are the same read, and both mean "this
+ * table can say nothing about that run's budget".
+ *
+ * ## Read at the decision point, never carried
+ *
+ * This is the nesting-depth precedent ({@link workflowRunNestingDepth}),
+ * not the tool-call one. The tool-call ceiling
+ * (`extensions/tool-executor/limits.ts`) counts in an in-memory Map, so a
+ * suspend/resume refunds it — which is fine for "stop a runaway loop" and
+ * useless as a SPEND bound: a cron job that parks and resumes every cycle
+ * would get its budget back every cycle. Both values here come out of the
+ * database every time they are consulted, so a resume cannot reset them
+ * and raising the cap takes effect on the next boundary.
+ */
+export interface WorkflowRunDelegationBudget {
+  delegationId: string;
+  /**
+   * `workflow_delegations.max_tokens_per_run` — TOKENS, never cents. Cost
+   * is derived, displayed and advisory; an unpriced (OAuth-subscription)
+   * model reports a null price and would spend without bound under a cost
+   * cap. `NOT NULL` in the schema: there is deliberately no "unlimited".
+   */
+  maxTokensPerRun: number;
+  /** `enabled AND revoked_at IS NULL` — the same liveness every other
+   *  delegation lookup filters on, surfaced rather than filtered so a
+   *  caller can tell "revoked" from "never had one". */
+  live: boolean;
+  /** When the human last consented. Compared against {@link runStartedAt}
+   *  by the `consent-stale` resume rule. */
+  consentedAt: Date;
+  /** The run's own `started_at`, read in the same round trip because the
+   *  `consent-stale` predicate needs both and its context carries only a
+   *  run id. */
+  runStartedAt: Date;
+}
+
+export async function readWorkflowRunDelegationBudget(
+  workflowRunId: string,
+): Promise<WorkflowRunDelegationBudget | null> {
+  const rows = await getDb()
+    .select({
+      delegationId: workflowDelegations.id,
+      maxTokensPerRun: workflowDelegations.maxTokensPerRun,
+      enabled: workflowDelegations.enabled,
+      revokedAt: workflowDelegations.revokedAt,
+      consentedAt: workflowDelegations.consentedAt,
+      runStartedAt: workflowRuns.startedAt,
+    })
+    .from(workflowRuns)
+    // INNER join, deliberately: a run whose `delegation_id` is NULL must
+    // produce no row at all rather than a row full of nulls that a caller
+    // could mistake for "delegated, no cap".
+    .innerJoin(workflowDelegations, eq(workflowRuns.delegationId, workflowDelegations.id))
+    .where(eq(workflowRuns.id, workflowRunId));
+  const row = rows[0];
+  if (row === undefined) return null;
+  return {
+    delegationId: row.delegationId,
+    maxTokensPerRun: row.maxTokensPerRun,
+    live: row.enabled && row.revokedAt === null,
+    consentedAt: row.consentedAt,
+    runStartedAt: row.runStartedAt,
+  };
 }
 
 /**
@@ -317,7 +585,7 @@ export async function upsertWorkflowStepRun(
   // prices as NULL while its real-world cost is simply unmeasured; an
   // unpriced (OAuth-subscription) model prices as NULL too. Tokens reach
   // this function only from an `agentRun`
-  // (`runtime/workflow-executor.ts:1747-1764`), so `SUM(cost_usd)`
+  // (`runtime/workflow-executor.ts:2158-2165`), so `SUM(cost_usd)`
   // describes LLM spend and nothing else — least of all `tool` steps, the
   // one kind that reaches an external side effect with a real bill. See
   // {@link stepCostUsd}, which owns that distinction.
@@ -697,6 +965,94 @@ export interface WorkflowRunPage {
 }
 
 /**
+ * The keyset boundary, as ONE expression shared by every pager over this
+ * table.
+ *
+ * Extracted rather than repeated because the two halves are only correct
+ * together: "strictly older, OR the same instant with a smaller id". A
+ * copy that lost the `id` tiebreak would duplicate or drop a row whenever
+ * two runs started in the same millisecond, and it would do so rarely
+ * enough to reach production.
+ */
+function runKeysetBefore(cursor: { startedAt: Date; id: string }): SQL | undefined {
+  return or(
+    lt(workflowRuns.startedAt, cursor.startedAt),
+    and(eq(workflowRuns.startedAt, cursor.startedAt), lt(workflowRuns.id, cursor.id)),
+  );
+}
+
+/** Slice the over-fetched row off and turn it into a cursor. Shared so a
+ *  second pager cannot disagree about what "has more" means. */
+function toRunPage(
+  rows: Array<typeof workflowRuns.$inferSelect>,
+  limit: number,
+): WorkflowRunPage {
+  const page = rows.slice(0, limit);
+  const last = page[page.length - 1];
+  const hasMore = rows.length > limit;
+  return {
+    runs: page,
+    ...(hasMore && last !== undefined
+      ? { nextCursor: { startedAt: last.startedAt.toISOString(), id: last.id } }
+      : {}),
+  };
+}
+
+/**
+ * Runs fired by a delegation THIS HUMAN consented to — the "jobs running
+ * as me" page.
+ *
+ * ## Keyed on `consented_by_user_id`, not on `run_as`
+ *
+ * `run_as` names the PRINCIPAL a run executed as, and for a `service`-kind
+ * delegation that is a service account, not a person. Keying the page on
+ * it would show a user their own user-kind jobs and hide every
+ * service-account job they authorized — the ones with no session anywhere
+ * that can account for them. Ruling 1's split is that the ACCOUNT owns the
+ * run and the HUMAN WHO CONSENTED answers for it, so this is the same key
+ * {@link mayManageDelegation} and `listWorkflowDelegationsConsentedBy` use.
+ * One notion of "my jobs" across the list, the page, and the revoke.
+ *
+ * ## Revoked delegations are INCLUDED, deliberately
+ *
+ * There is no `revoked_at IS NULL` term. "What did that extension do as
+ * me?" is the question you ask immediately AFTER revoking, and a history
+ * that vanishes at revocation cannot answer it. The delegation row is a
+ * tombstone rather than a delete for exactly this reason
+ * (`workflow-delegations.ts`), and this read is the consumer that makes
+ * that choice pay.
+ *
+ * Served by `idx_workflow_runs_delegation` for the join
+ * (`db/schema.ts:901`) and `idx_workflow_delegations_consented_by` for the
+ * filter.
+ */
+export async function listDelegatedRunsForConsenter(
+  consentedByUserId: string,
+  q: { cursor?: { startedAt: Date; id: string }; limit: number },
+): Promise<WorkflowRunPage> {
+  const filters = [
+    eq(workflowDelegations.consentedByUserId, consentedByUserId),
+    q.cursor !== undefined ? runKeysetBefore(q.cursor) : undefined,
+  ].filter((f) => f !== undefined);
+
+  const rows = await getDb()
+    .select({ run: workflowRuns })
+    .from(workflowRuns)
+    // INNER join: a run with no `delegation_id` is not a delegated run, and
+    // a run whose delegation row was hard-deleted has no consenter to
+    // attribute it to. Both are correctly invisible here.
+    .innerJoin(workflowDelegations, eq(workflowRuns.delegationId, workflowDelegations.id))
+    .where(and(...filters))
+    .orderBy(desc(workflowRuns.startedAt), desc(workflowRuns.id))
+    .limit(q.limit + 1);
+
+  return toRunPage(
+    rows.map((r: { run: typeof workflowRuns.$inferSelect }) => r.run),
+    q.limit,
+  );
+}
+
+/**
  * List runs newest-first, with keyset pagination.
  *
  * **Keyset, not OFFSET, and that is the point.** This list is ordered by
@@ -725,14 +1081,7 @@ export async function listWorkflowRunsPage(
     q.since !== undefined ? gte(workflowRuns.startedAt, q.since) : undefined,
     q.until !== undefined ? lte(workflowRuns.startedAt, q.until) : undefined,
     q.userId !== undefined ? eq(workflowRuns.userId, q.userId) : undefined,
-    // The keyset predicate, as one expression so it cannot be split by a
-    // later edit: strictly older, OR the same instant with a smaller id.
-    q.cursor !== undefined
-      ? or(
-          lt(workflowRuns.startedAt, q.cursor.startedAt),
-          and(eq(workflowRuns.startedAt, q.cursor.startedAt), lt(workflowRuns.id, q.cursor.id)),
-        )
-      : undefined,
+    q.cursor !== undefined ? runKeysetBefore(q.cursor) : undefined,
   ].filter((f) => f !== undefined);
 
   // One extra row, discarded, purely to learn whether a next page exists
@@ -744,15 +1093,7 @@ export async function listWorkflowRunsPage(
     .orderBy(desc(workflowRuns.startedAt), desc(workflowRuns.id))
     .limit(q.limit + 1);
 
-  const page = rows.slice(0, q.limit);
-  const last = page[page.length - 1];
-  const hasMore = rows.length > q.limit;
-  return {
-    runs: page,
-    ...(hasMore && last !== undefined
-      ? { nextCursor: { startedAt: last.startedAt.toISOString(), id: last.id } }
-      : {}),
-  };
+  return toRunPage(rows, q.limit);
 }
 
 /** Read a run's step rows. Order is unspecified — callers that care sort

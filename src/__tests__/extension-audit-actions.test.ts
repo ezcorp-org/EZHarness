@@ -53,6 +53,14 @@ describe("extension audit action constants", () => {
       // table's `on_behalf_of` is NOT NULL + FK; `audit_log.user_id` is
       // nullable, so it is the only table that can hold this row.
       "WORKFLOW_TRIGGER_NO_OWNER",
+      // C3 phase 6 — the two `audit_log` destinations the delegated
+      // ladder needs. They are SEPARATE from the trigger action above
+      // because the three facts differ and so do their remedies: "a
+      // background fire has no owner at all", "this delegation's owner no
+      // longer resolves", and "this outcome belongs to a service account,
+      // which has no `users` row to attribute it to".
+      "WORKFLOW_DELEGATION_NO_OWNER",
+      "WORKFLOW_DELEGATION_SERVICE",
       // Loops Phase 2 — host emit-loop-event reverse RPC (approval nudges
       // on the bus): the accepted emit + the policy/quota rejection.
       "LOOP_EVENT_EMITTED",

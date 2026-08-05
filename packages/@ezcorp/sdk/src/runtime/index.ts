@@ -201,7 +201,10 @@ export type { WebhookHandler, WebhookFireContext } from "./webhook";
 
 export { Workflows } from "./workflows";
 export type {
+  DelegatedRunAs,
+  DelegatedWorkflowRunAccepted,
   WorkflowRunAccepted,
+  WorkflowRunForParams,
   WorkflowRunList,
   WorkflowRunOptions,
   WorkflowRunSummary,

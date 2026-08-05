@@ -264,11 +264,23 @@ describe("TTL boundary: entry exactly at TTL is kept, at TTL+1 is evicted", () =
 
 describe("D2 hardening: kind-aware TTL — tool tokens outlive fire tokens", () => {
   test("a fire token is swept at FIRE_TOKEN_TTL_MS while a same-age tool token survives", () => {
-    const base = Date.now();
     const toolId = registerCallProvenance(sample({ kind: "tool" }));
     const fireId = registerCallProvenance(
       sample({ kind: "schedule", onBehalfOf: null, ownerless: true }),
     );
+    // AFTER both registrations, and that ordering is the whole point.
+    //
+    // `registerCallProvenance` stamps `createdAt = Date.now()` internally
+    // (`call-provenance.ts:141`, `:167`) with no now-injection, and the
+    // sweep predicate is `now - createdAt > TTL` (`:114`). Reading `base`
+    // BEFORE the calls — which is what this line used to do — makes
+    // `createdAt >= base`, so the "just past the TTL" sweep below is only
+    // `TTL + 1 - (createdAt - base)` old: whenever the clock ticked
+    // between the two statements, the fire token is NOT evicted and this
+    // test fails. Observed as a one-in-a-full-suite-run flake, never on
+    // an isolated run. Taking `base` afterwards makes every age here a
+    // LOWER bound, so both eviction assertions are deterministic.
+    const base = Date.now();
     expect(FIRE_TOKEN_TTL_MS).toBeLessThan(CALL_PROVENANCE_TTL_MS);
 
     // Just past the FIRE TTL: the fire token is reaped, the tool token

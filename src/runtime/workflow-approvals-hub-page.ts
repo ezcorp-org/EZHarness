@@ -36,6 +36,7 @@ import {
 import type { HubPageTree, PageNode } from "../extensions/page-schema";
 import { listPendingWorkflowApprovalsForUser } from "../db/queries/workflow-approvals";
 import { answerApproval } from "./workflow-answer-approval";
+import { resolveApprovalActor } from "./workflow-approval-actor";
 import { workflowRefusalStatus } from "./workflow-refusal-status";
 
 export const WORKFLOW_APPROVALS_HUB_PAGE_ID = "workflow-approvals";
@@ -131,9 +132,25 @@ export function createWorkflowApprovalsHubPageProvider(): HubPageProvider {
         // would be asserting consent nobody gave. An item-consent approval
         // targeted through this action therefore reaches the guard with no
         // selection and is refused, which is the fail-closed outcome.
-        const result = await answerApproval(approvalId, { choice }, { userId: ctx.userId });
-        // No `isAdmin` — `HubPageContext` carries a userId and nothing
-        // else, so this surface answers strictly as the run's owner.
+        // `isAdmin: false`, STATED rather than omitted. `HubPageContext`
+        // carries a userId and nothing else, so this surface genuinely
+        // cannot know a role and answers strictly as the run's owner —
+        // which is a decision, and now reads as one. Under the old
+        // optional flag the same intent was expressed by leaving a field
+        // out, where "deliberately not an admin" and "nobody filled this
+        // in" were the same absent value.
+        //
+        // The kind is resolved through the same rule the REST route uses,
+        // because `renderApprovalsPage` above now LISTS a delegated run's
+        // parked decision (the inbox disjunct) and a tab that shows a row
+        // its own button cannot answer is worse than one that hides it.
+        // The resolver authorizes nothing: `answerApproval` re-proves
+        // every fact it returns.
+        const result = await answerApproval(
+          approvalId,
+          { choice },
+          await resolveApprovalActor(approvalId, { userId: ctx.userId, isAdmin: false }),
+        );
         if (!result.ok) {
           throw new HubPageActionError(workflowRefusalStatus(result.code), result.message);
         }

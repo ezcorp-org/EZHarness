@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Workflows.runFor(params)`** (`@ezcorp/sdk/runtime`) — fire a workflow
+  your extension does NOT ship, as the principal a human already consented
+  to (C3 delegated execution). Sent on the `ezcorp/workflows-delegated`
+  reverse RPC, and opted into by `permissions.workflows.allowDelegated`
+  rather than by `permissions.workflows.names`. New exported types:
+  `WorkflowRunForParams`, `DelegatedWorkflowRunAccepted`, `DelegatedRunAs`.
+
+  `WorkflowRunForParams` is `{jobRef, input?}` and carries **no owner field
+  and no workflow name**: both come off the host's delegation record, keyed
+  on the registry-resolved extension id, so "run this as somebody else" has
+  no representation on the wire rather than being denied at one. The
+  `jobRef` therefore means the OPPOSITE of what `WorkflowRunOptions.jobRef`
+  means on `run()` — there it is an inert correlation handle, here it
+  selects which authority is exercised. Both statements are quoted verbatim
+  from the host and pinned against it by test.
+
 ## [0.1.0] — 2026-04-17
 
 Initial public release. Extracts the authoring surface used by in-repo

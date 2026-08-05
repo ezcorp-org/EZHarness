@@ -21,7 +21,7 @@
  *
  * `definition_version_id` is written onto a run only when the graph the run
  * was HANDED matches that version's `steps_hash`
- * (`workflow-executor.ts:629`, written `:642`). So a delegation can pin a
+ * (`workflow-executor.ts:803`, written `:816`). So a delegation can pin a
  * version that the run it authorizes then declines to record, and the
  * consent record and the audit trail can disagree about which version
  * actually executed. This hash does not fix that and does not pretend to:
@@ -63,7 +63,7 @@ export interface ConsentCapability {
  *
  * `unversioned` is NOT an error path. A YAML or extension-shipped workflow
  * has no `workflow_definitions` row to version at all
- * (`workflow-executor.ts:602-608`), and `systemCachedWorkflow` sets
+ * (`workflow-executor.ts:776-779`), and `systemCachedWorkflow` sets
  * `id: null` for exactly those (`workflow-scope.ts:93`, `:100`) — so the
  * fallback is the common case for the very entries most able to shadow a
  * nested name.
@@ -285,7 +285,7 @@ function stepMaterial(step: WorkflowStep): ConsentStepMaterial {
  *
  * The merged cache is extension → YAML → DB and the lookup is
  * FIRST-MATCH-WINS (`workflow-scope.ts:364-366`, lookup `:377`; build
- * order `web/src/lib/server/context.ts:537-541`, rule `:520-521`). So a
+ * order `web/src/lib/server/context.ts:537-541`, rule `:544-545`). So a
  * name can be RE-POINTED at a different graph, at every depth, without
  * editing a single definition the human read. Hashing the name would see
  * nothing. Two vectors exist, and it is worth being precise about which,
@@ -293,10 +293,10 @@ function stepMaterial(step: WorkflowStep): ConsentStepMaterial {
  *
  *   1. A YAML asset dropped into the agents dir shadows a DB row of the
  *      same bare name — YAML is concatenated ahead of DB
- *      (`context.ts:538-540`). The executor names exactly this case
- *      (`workflow-executor.ts:615-618`).
+ *      (`context.ts:557-559`). The executor names exactly this case
+ *      (`workflow-executor.ts:789-792`).
  *   2. An extension asset shadows a DB row whose name was deliberately
- *      written `<ext>:<name>` (`context.ts:522-524`).
+ *      written `<ext>:<name>` (`context.ts:540-541`).
  *
  * An extension CANNOT shadow a bare host name: every extension workflow
  * is renamed `<extensionName>:<declaredName>` before it enters the cache

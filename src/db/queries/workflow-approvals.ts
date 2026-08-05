@@ -5,9 +5,15 @@
  * the arbiter, so a step that parks, resumes and parks again UPDATES in
  * place rather than stacking rows the inbox would render twice.
  */
-import { and, eq, lte, sql } from "drizzle-orm";
+import { and, eq, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { getDb } from "../connection";
-import { workflowApprovals, workflowRuns, type WorkflowApprovalRow } from "../schema";
+import { delegationHoldsAuthority } from "./workflow-delegations";
+import {
+  workflowApprovals,
+  workflowDelegations,
+  workflowRuns,
+  type WorkflowApprovalRow,
+} from "../schema";
 
 export interface ParkApprovalInput {
   workflowRunId: string;
@@ -194,6 +200,28 @@ export interface PendingApprovalForUser {
  * the same reason it is in `workflow-run-control.ts`: "unowned" must not
  * read as "anyone's".
  *
+ * ## …except the ONE unowned run that has a named human — C3 (R2-c)
+ *
+ * A run started by a `owner_kind='service'` delegation has no `user_id`
+ * at all: a service account has no `users` row (`db/schema.ts:538`). Under
+ * the owner-only rule above such a run was admin-only AND invisible, so
+ * `answerApproval` gaining the `delegation` actor kind would have produced
+ * an authority that could never be exercised — which amended spec §6.3
+ * calls out as worse than admin-only, "because it looks fixed".
+ *
+ * So the scoping is a DISJUNCTION, and the second arm is not "unowned is
+ * anyone's" after all: it is `workflow_delegations.consented_by_user_id`,
+ * the ONE named human on a run the account owns. The account owns the run;
+ * the human who consented answers for it. Same axis as
+ * `mayManageDelegation`'s revoke rule, same column, and the same
+ * reason it is that column rather than the owner arms — a service account
+ * has no session to answer from.
+ *
+ * {@link delegationHoldsAuthority} is imported rather than restated: this
+ * query decides what a human can SEE and `answerApproval` decides what they
+ * can DO, and a row shown here that the chokepoint then refuses is exactly
+ * the failure the disjunct exists to prevent.
+ *
  * Admins see everything, which is what makes the sweep's view and the
  * admin view the same set.
  */
@@ -206,7 +234,9 @@ export async function listPendingWorkflowApprovalsForUser(
   // and an inferred `any` here would silently drop the compile-time link
   // between this projection and the schema.
   const pending = eq(workflowApprovals.status, "pending");
-  const scoped = isAdmin ? pending : and(pending, eq(workflowRuns.userId, userId));
+  const scoped = isAdmin
+    ? pending
+    : and(pending, or(eq(workflowRuns.userId, userId), consentedByCaller(userId)));
   // Cast because drizzle does not infer a partial select through the join
   // in this version — the same shape `workflow-versions.ts` uses for its
   // joined reads. The alias is named so a schema change still has ONE place
@@ -215,6 +245,11 @@ export async function listPendingWorkflowApprovalsForUser(
     .select({ approval: workflowApprovals, workflowName: workflowRuns.workflowName })
     .from(workflowApprovals)
     .innerJoin(workflowRuns, eq(workflowApprovals.workflowRunId, workflowRuns.id))
+    // LEFT, not inner: the delegated arm is an ADDITIONAL way to reach a
+    // row, never a filter on the ordinary one. Exactly one delegation can
+    // match (`delegation_id` is a single FK to a primary key), so this
+    // cannot fan a run's approvals out into duplicate inbox entries.
+    .leftJoin(workflowDelegations, eq(workflowRuns.delegationId, workflowDelegations.id))
     .where(scoped)
     .orderBy(sql`${workflowApprovals.createdAt} DESC`)) as Array<{
     approval: WorkflowApprovalRow;
@@ -225,6 +260,64 @@ export async function listPendingWorkflowApprovalsForUser(
     workflowName: r.workflowName,
     workflowRunId: r.approval.workflowRunId,
   }));
+}
+
+/** "This run's delegation names ME as the human who consented to it." */
+function consentedByCaller(userId: string) {
+  return and(
+    eq(workflowDelegations.consentedByUserId, userId),
+    delegationHoldsAuthority(),
+  );
+}
+
+/**
+ * The delegated ANSWERING CAPACITY this caller holds over one approval, if
+ * any — the fact a surface needs to mint a `delegation`
+ * `ApprovalActor` instead of a `user` one.
+ *
+ * ## It grants nothing
+ *
+ * Every leg of what it returns is re-proved inside `answerApproval`
+ * against the same rows, following PR #58's `holdsClaim`
+ * (`runtime/workflow-executor.ts:811-815`): *naming an identity that does
+ * not hold the lease proves nothing.* A surface that skipped this call,
+ * called it with the wrong id, or fabricated its result changes no
+ * decision — it only picks which question the chokepoint is asked.
+ *
+ * ## Why the run's own owner is excluded
+ *
+ * The delegated capacity WIDENS reach; it must never narrow it. A caller
+ * the run itself names is already answering as themselves, and the
+ * `delegation` kind can satisfy no `rbacScope` (only a person can hold a
+ * grant), so minting it for the run's owner would take away an answer they
+ * could otherwise give. Admins are excluded by the caller for the same
+ * reason and are never asked here at all.
+ *
+ * This is deliberately NARROWER than the inbox disjunct above, and the
+ * gap is closed rather than open: every extra row the inbox shows a run's
+ * OWNER is answerable by their own `user` actor.
+ */
+export async function findDelegatedAnswerAuthority(
+  approvalId: string,
+  userId: string,
+): Promise<{ delegationId: string; runId: string } | undefined> {
+  const rows = (await getDb()
+    .select({ delegationId: workflowDelegations.id, runId: workflowRuns.id })
+    .from(workflowApprovals)
+    .innerJoin(workflowRuns, eq(workflowApprovals.workflowRunId, workflowRuns.id))
+    .innerJoin(workflowDelegations, eq(workflowRuns.delegationId, workflowDelegations.id))
+    .where(
+      and(
+        eq(workflowApprovals.id, approvalId),
+        consentedByCaller(userId),
+        // `IS DISTINCT FROM`, spelled in two terms: a NULL owner — the
+        // service-account case this whole path exists for — is not `<>`
+        // anybody in SQL, so `ne` alone would drop exactly the rows that
+        // matter.
+        or(isNull(workflowRuns.userId), ne(workflowRuns.userId, userId)),
+      ),
+    )) as Array<{ delegationId: string; runId: string }>;
+  return rows[0];
 }
 
 /**

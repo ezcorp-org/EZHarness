@@ -28,6 +28,7 @@ mock.module("../db/connection", () => ({
 }));
 
 const { answerApproval } = await import("../runtime/workflow-answer-approval");
+import type { ApprovalActor } from "../runtime/workflow-answer-approval";
 const { parkWorkflowApproval, getWorkflowApprovalById } = await import(
   "../db/queries/workflow-approvals"
 );
@@ -125,7 +126,7 @@ describe("answerApproval — the happy path", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve", form: { note: "ok" } },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
 
@@ -149,7 +150,7 @@ describe("answerApproval — the happy path", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve", consentAll: true },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
 
@@ -176,7 +177,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       crypto.randomUUID(),
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
     expect(res.ok).toBe(false);
@@ -188,12 +189,12 @@ describe("answerApproval — refusals never mutate", () => {
   test("an already-answered approval is not-pending, reported distinctly", async () => {
     const { approvalId } = await seed();
     const { runtime } = stubRuntime();
-    await answerApproval(approvalId, { choice: "approve" }, { userId: "answerer" }, { runtime });
+    await answerApproval(approvalId, { choice: "approve" }, { kind: "user", userId: "answerer", isAdmin: false }, { runtime });
 
     const second = await answerApproval(
       approvalId,
       { choice: "reject" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
     expect(second.ok).toBe(false);
@@ -212,7 +213,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime, checkScope: async () => false },
     );
 
@@ -232,7 +233,13 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: null },
+      // A `user` actor, deliberately, and NOT one of the non-human kinds:
+      // those are refused on the scoped branch BY KIND, before
+      // `checkScope` is reached. Handing this case a `system-timeout`
+      // actor would still produce `ok: false` while never invoking the
+      // resolver — the test would pass without exercising the
+      // throw-is-a-deny path it exists for.
+      { kind: "user", userId: "answerer", isAdmin: false },
       {
         runtime,
         checkScope: async () => {
@@ -255,7 +262,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
     expect(res.ok).toBe(false);
@@ -270,7 +277,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime, checkScope: async () => true },
     );
     expect(res.ok).toBe(true);
@@ -283,7 +290,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
 
@@ -301,7 +308,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "maybe" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
     expect(res.ok).toBe(false);
@@ -320,7 +327,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
 
@@ -335,7 +342,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime: null },
     );
     expect(res.ok).toBe(false);
@@ -353,7 +360,7 @@ describe("answerApproval — refusals never mutate", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
     expect(res.ok).toBe(false);
@@ -370,8 +377,8 @@ describe("answerApproval — concurrency", () => {
     const { runtime, resumed } = stubRuntime();
 
     const [a, b] = await Promise.all([
-      answerApproval(approvalId, { choice: "approve" }, { userId: "answerer" }, { runtime }),
-      answerApproval(approvalId, { choice: "reject" }, { userId: "answerer" }, { runtime }),
+      answerApproval(approvalId, { choice: "approve" }, { kind: "user", userId: "answerer", isAdmin: false }, { runtime }),
+      answerApproval(approvalId, { choice: "reject" }, { kind: "user", userId: "answerer", isAdmin: false }, { runtime }),
     ]);
 
     const winners = [a, b].filter((r) => r.ok);
@@ -390,9 +397,12 @@ describe("answerApproval — concurrency", () => {
 describe("the chokepoint is structurally single", () => {
   test("the module exports exactly one callable — nothing to bypass it with", async () => {
     // The structural half of ported invariant 7. The behavioural half —
-    // asserting each of the three surfaces routes through this function
-    // by CALL-COUNT on a spy — lands with the surfaces themselves; there
-    // are no answer paths to count yet.
+    // asserting each surface routes through this function by CALL-COUNT
+    // on a spy — now lives in `workflow-approval-chokepoint.test.ts`,
+    // which drives the real REST handler and counts
+    // `requireItemConsent` invocations. (This comment used to say there
+    // were "no answer paths to count yet"; there are, and they are
+    // counted there.)
     //
     // What this pins today is that a future surface cannot reassemble
     // the sequence out of exported parts: authorization, the consent
@@ -420,7 +430,7 @@ describe("answerApproval — never reports success for a dead run", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime },
     );
 
@@ -465,7 +475,7 @@ describe("answerApproval — never reports success for a dead run", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime: failing },
     );
 
@@ -492,7 +502,7 @@ describe("authorization — who may answer", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "someone-else" },
+      { kind: "user", userId: "someone-else", isAdmin: false },
       { runtime: stubRuntime().runtime },
     );
 
@@ -509,7 +519,7 @@ describe("authorization — who may answer", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime: stubRuntime().runtime },
     );
     expect(res.ok).toBe(true);
@@ -518,7 +528,7 @@ describe("authorization — who may answer", () => {
   test("an UNOWNED run (CLI, extension trigger) is admin-only", async () => {
     const a = await seed({ ownerUserId: null });
     expect(
-      await answerApproval(a.approvalId, { choice: "approve" }, { userId: "answerer" }, { runtime: stubRuntime().runtime }),
+      await answerApproval(a.approvalId, { choice: "approve" }, { kind: "user", userId: "answerer", isAdmin: false }, { runtime: stubRuntime().runtime }),
     ).toMatchObject({ ok: false, code: "forbidden" });
 
     const b = await seed({ ownerUserId: null });
@@ -526,7 +536,7 @@ describe("authorization — who may answer", () => {
       await answerApproval(
         b.approvalId,
         { choice: "approve" },
-        { userId: "answerer", isAdmin: true },
+        { kind: "user", userId: "answerer", isAdmin: true },
         { runtime: stubRuntime().runtime },
       ),
     ).toMatchObject({ ok: true });
@@ -541,7 +551,7 @@ describe("authorization — who may answer", () => {
     const res = await answerApproval(
       approvalId,
       { choice: "approve" },
-      { userId: "a-reviewer" },
+      { kind: "user", userId: "a-reviewer", isAdmin: false },
       { runtime: stubRuntime().runtime, checkScope: async () => true },
     );
 
@@ -555,9 +565,390 @@ describe("authorization — who may answer", () => {
       { choice: "approve" },
       // Even the OWNER is refused when the scope is declared and unmet —
       // a declared scope raises the bar, it does not lower it.
-      { userId: "answerer" },
+      { kind: "user", userId: "answerer", isAdmin: false },
       { runtime: stubRuntime().runtime, checkScope: async () => false },
     );
     expect(res).toMatchObject({ ok: false, code: "forbidden" });
+  });
+});
+
+/**
+ * The per-kind chokepoint matrix — what each {@link ApprovalActor} kind may
+ * and may not do.
+ *
+ * The two `user` rows live in the block above ("a STRANGER cannot answer…"
+ * = DENY, "the OWNER may answer their own" = ALLOW) and are unchanged
+ * rules; the five below are the ones the discriminant made statable.
+ *
+ * The defect being closed: the timeout sweep answered as
+ * `{ userId: null, isAdmin: true }`, so at the no-scope decision point the
+ * CLOCK and a real ADMIN were the same value. `answeredBy` being NULL told
+ * them apart only afterwards, on the row — evidence recovered after the
+ * decision rather than an input to it.
+ */
+describe("the actor discriminant — per-kind authority", () => {
+  /**
+   * A `workflow_delegations` row plus, optionally, a run it owns.
+   *
+   * Raw SQL on purpose: these rows exist to make the CONDITIONS real — a
+   * genuinely revoked row, a genuinely disabled one, a genuinely
+   * mismatched run — rather than to exercise the writer in
+   * `db/queries/workflow-delegations.ts`, which has its own tests and
+   * would refuse most of these states by design.
+   */
+  async function seedDelegation(
+    opts: {
+      revoked?: boolean;
+      enabled?: boolean;
+      ownsRunId?: string;
+      /** The human who may answer for it. Defaults to the run's owner. */
+      consentedBy?: string;
+    } = {},
+  ): Promise<string> {
+    const extensionId = crypto.randomUUID();
+    await db.execute(sql`
+      INSERT INTO extensions (id, name, version, manifest, source)
+      VALUES (${extensionId}, ${`ext-${extensionId.slice(0, 8)}`}, '1.0.0', '{}'::jsonb, 'test')
+    `);
+    const delegationId = crypto.randomUUID();
+    await db.execute(sql`
+      INSERT INTO workflow_delegations (
+        id, extension_id, job_ref, owner_kind, owner_user_id, workflow_name,
+        trigger_kind, consent_hash, max_tokens_per_run, max_runs_per_day,
+        consented_by_user_id, enabled, revoked_at
+      ) VALUES (
+        ${delegationId}, ${extensionId}, ${`job-${delegationId.slice(0, 8)}`},
+        'user', 'answerer', ${DEF.name}, 'cron', 'hash-v1', 100000, 10,
+        ${opts.consentedBy ?? "answerer"}, ${opts.enabled ?? true},
+        ${opts.revoked === true ? new Date() : null}
+      )
+    `);
+    if (opts.ownsRunId !== undefined) {
+      await db.execute(
+        sql`UPDATE workflow_runs SET delegation_id = ${delegationId} WHERE id = ${opts.ownsRunId}`,
+      );
+    }
+    return delegationId;
+  }
+
+  test("the old collapsed shape no longer type-checks", () => {
+    // The whole defect in one line. `{ userId: null, isAdmin: true }` is
+    // how the sweep spelled itself, and it is what made the clock
+    // indistinguishable from an admin at the decision point.
+    //
+    // If this ever becomes assignable again, TypeScript reports the
+    // directive as UNUSED and `bun run typecheck` fails — so the alarm
+    // fires at compile time, not on whoever happens to read this file.
+    // @ts-expect-error — the collapsed shape must not satisfy ApprovalActor.
+    const collapsed: ApprovalActor = { userId: null, isAdmin: true };
+    expect(collapsed).toBeDefined();
+  });
+
+  // ── kind: "system-timeout" ────────────────────────────────────────
+  test("the CLOCK cannot satisfy a declared rbacScope — even handed a checkScope that grants everything", async () => {
+    // THE regression test for the defect. Before the discriminant this
+    // actor was `{ userId: null, isAdmin: true }` and the ONLY thing
+    // stopping it satisfying a scope was the sweep declining to pass a
+    // `checkScope` — a guarantee living in an omission and a comment.
+    // Supplying one here is precisely the reasonable-looking change that
+    // used to hand the clock every permission in the system.
+    const { approvalId } = await seed({ ownerUserId: "answerer", rbacScope: "workflows:approve" });
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { kind: "system-timeout" },
+      { runtime: stubRuntime().runtime, checkScope: async () => true },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    // Asserted on the ROW too: a refusal that still spent the answer
+    // would be worse than no check at all.
+    const row = await getWorkflowApprovalById(approvalId);
+    expect(row?.status).toBe("pending");
+  });
+
+  test("the CLOCK may answer an unscoped approval on a run it does not own — the sweep's whole purpose", async () => {
+    // The other half, and it is load-bearing: without it a fix that
+    // denied every non-`user` kind would pass the test above while
+    // silently breaking every `onTimeout:` policy in the system.
+    const { approvalId } = await seed({ ownerUserId: "answerer" });
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { kind: "system-timeout" },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res.ok).toBe(true);
+    const row = await getWorkflowApprovalById(approvalId);
+    // `answered_by` is derived from the DISCRIMINANT now, so an answer no
+    // human made is structurally unattributable rather than merely
+    // un-attributed because the caller happened to pass null.
+    expect(row?.answeredBy).toBeNull();
+    expect(row?.status).toBe("answered");
+  });
+
+  test("a USER answer is attributed to that user — the other side of the answeredBy derivation", async () => {
+    // Pairs with the assertion above: a change that hard-coded
+    // `answeredBy: null` would satisfy it and destroy the audit trail.
+    const { approvalId } = await seed({ ownerUserId: "answerer" });
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { kind: "user", userId: "answerer", isAdmin: false },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res.ok).toBe(true);
+    expect((await getWorkflowApprovalById(approvalId))?.answeredBy).toBe("answerer");
+  });
+
+  // ── kind: "delegation" ────────────────────────────────────────────
+  //
+  // Phase A put `delegation` in the union and made it POWERLESS; phase R2
+  // grants it authority, and that authority is PROVED at answer time
+  // rather than carried — PR #58's `holdsClaim` with a different lease.
+  //
+  // Every refusal below therefore has to fail for the reason its NAME
+  // gives, not because the kind is blanket-denied. Under Phase A all four
+  // shared one cause; the pair of ALLOW tests at the end are what makes
+  // that distinction observable — a blanket refusal satisfies every DENY
+  // here and breaks both of those.
+  test("a DELEGATION actor whose row is REVOKED is refused", async () => {
+    const { runId, approvalId } = await seed({ ownerUserId: "answerer" });
+    // Everything else about this actor is genuine: the run really is
+    // owned by this delegation and the answering human really is its
+    // consenter. Only the tombstone stands between them and the answer.
+    const delegationId = await seedDelegation({ revoked: true, ownsRunId: runId });
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { kind: "delegation", delegationId, runId, answeringUserId: "answerer" },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
+  });
+
+  test("a DELEGATION actor whose row is DISABLED is refused", async () => {
+    // The other half of the liveness predicate, and the one a `revoked`
+    // test alone would miss. A delegation is disabled precisely when the
+    // platform has decided its authority is broken — five consecutive
+    // failures, a re-tiered workflow — so its consenting human must not
+    // keep clearing gates on its behalf. Admins and `onTimeout:` still
+    // reach the run, so nothing is stranded.
+    const { runId, approvalId } = await seed({ ownerUserId: "answerer" });
+    const delegationId = await seedDelegation({ enabled: false, ownsRunId: runId });
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { kind: "delegation", delegationId, runId, answeringUserId: "answerer" },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
+  });
+
+  test("a DELEGATION actor naming a live row that owns a DIFFERENT run is refused", async () => {
+    // The confused-deputy shape: a delegation the caller really does hold,
+    // presented against an approval belonging to some other run. The
+    // authority is real; the BINDING to this run is what is missing.
+    const { approvalId } = await seed({ ownerUserId: "answerer" });
+    const other = await seed({ ownerUserId: "answerer" });
+    const delegationId = await seedDelegation({ ownsRunId: other.runId });
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      // Names the run it genuinely owns — which is NOT this approval's run.
+      { kind: "delegation", delegationId, runId: other.runId, answeringUserId: "answerer" },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
+  });
+
+  test("a DELEGATION actor whose delegation is right but whose runId names ANOTHER run is refused", async () => {
+    // A claim the row could ALMOST satisfy: the delegation really did
+    // start this approval's run and the answering human really is its
+    // consenter, so the substance of the authority is there — but the
+    // actor names a different run than the one it is being spent on.
+    //
+    // Refused, and deliberately so. `holdsClaim`'s principle is that a
+    // claim is checked, not repaired: an actor whose own fields disagree
+    // with the row has not proved anything about the run it is actually
+    // touching, and quietly answering the run it MEANT is how a caller
+    // ends up spending a consent gate it never named.
+    const target = await seed({ ownerUserId: null });
+    const decoy = await seed({ ownerUserId: null });
+    const delegationId = await seedDelegation({ ownsRunId: target.runId });
+
+    const res = await answerApproval(
+      target.approvalId,
+      { choice: "approve" },
+      // Right delegation, right human, WRONG run.
+      { kind: "delegation", delegationId, runId: decoy.runId, answeringUserId: "answerer" },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    expect((await getWorkflowApprovalById(target.approvalId))?.status).toBe("pending");
+  });
+
+  test("a DELEGATION actor naming THIS run but SOMEBODY ELSE'S delegation is refused", async () => {
+    // The sharper half of the binding, and the one the "different run"
+    // test above cannot reach: here the actor names the approval's OWN
+    // run correctly, so the run-identity leg passes, and only
+    // `workflow_runs.delegation_id` stands between a second delegation
+    // this caller genuinely holds and a run it did not start.
+    //
+    // Everything else lines up on purpose — both delegations are live and
+    // both name the same consenting human — so the ONLY thing that can
+    // refuse this is reading the delegation off the RUN rather than
+    // trusting the one the caller named. Deleting that comparison makes
+    // this test, and only this test, fail.
+    const target = await seed({ ownerUserId: null });
+    const elsewhere = await seed({ ownerUserId: null });
+    await seedDelegation({ ownsRunId: target.runId });
+    const otherDelegation = await seedDelegation({ ownsRunId: elsewhere.runId });
+
+    const res = await answerApproval(
+      target.approvalId,
+      { choice: "approve" },
+      {
+        kind: "delegation",
+        delegationId: otherDelegation,
+        runId: target.runId,
+        answeringUserId: "answerer",
+      },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    expect((await getWorkflowApprovalById(target.approvalId))?.status).toBe("pending");
+  });
+
+  test("a DELEGATION actor answered by someone the row does not name is refused", async () => {
+    // The impersonation shape, and the reason the actor carries an
+    // answering human at all. The delegation is live and really does own
+    // this run — but `consented_by_user_id` names somebody else, and T8
+    // ("only the consenting human answers for it") is exactly what would
+    // be lost if the row's word were taken for the caller's.
+    const { runId, approvalId } = await seed({ ownerUserId: null });
+    const delegationId = await seedDelegation({
+      ownsRunId: runId,
+      consentedBy: "a-reviewer",
+    });
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { kind: "delegation", delegationId, runId, answeringUserId: "answerer" },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
+  });
+
+  test("a DELEGATION actor cannot satisfy a declared rbacScope", async () => {
+    // A delegated capacity never satisfies a human's grant — and, as with
+    // the clock, this holds even when a `checkScope` that grants
+    // everything is supplied, because the scoped branch refuses by KIND
+    // before the resolver is consulted. The actor here is otherwise
+    // PERFECT: live row, owns this run, named consenter answering. Only
+    // the declared scope refuses it, which is what makes this independent
+    // of every condition above.
+    const { runId, approvalId } = await seed({
+      ownerUserId: "answerer",
+      rbacScope: "workflows:approve",
+    });
+    const delegationId = await seedDelegation({ ownsRunId: runId });
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { kind: "delegation", delegationId, runId, answeringUserId: "answerer" },
+      { runtime: stubRuntime().runtime, checkScope: async () => true },
+    );
+
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+    expect((await getWorkflowApprovalById(approvalId))?.status).toBe("pending");
+  });
+
+  test("R-2, closed: a DELEGATION actor answers a run with NO human owner, and the CONSENTER is recorded", async () => {
+    // The whole point of the kind, and the case the four refusals above
+    // would each pass under a blanket denial.
+    //
+    // `ownerUserId: null` is a service-account run: no `users` row, so
+    // `workflow_runs.user_id` is NULL (`db/schema.ts:538`) and every
+    // ownership test collapses to admin-only. The delegation's
+    // `consented_by_user_id` is the one named human, and this proves both
+    // halves — the answer LANDS, and `answered_by` records that person
+    // rather than NULL.
+    const { runId, approvalId } = await seed({ ownerUserId: null });
+    const delegationId = await seedDelegation({ ownsRunId: runId });
+    const { runtime, resumed } = stubRuntime();
+
+    const res = await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { kind: "delegation", delegationId, runId, answeringUserId: "answerer" },
+      { runtime },
+    );
+
+    expect(res.ok).toBe(true);
+    const row = await getWorkflowApprovalById(approvalId);
+    expect(row?.status).toBe("answered");
+    // NOT null. `answered_by` is FK `users.id`, and the account cannot
+    // fill it — the human who consented can, which is the whole of R2-c.
+    expect(row?.answeredBy).toBe("answerer");
+    // …and the run actually continued. An authorization that recorded the
+    // answer and left the run parked would satisfy every assertion above.
+    expect(resumed).toEqual([runId]);
+  });
+
+  test("the SAME actor is refused the moment its delegation is revoked", async () => {
+    // Differential proof that the liveness predicate is what decides,
+    // rather than some other property of these fixtures: one actor, one
+    // approval shape, two runs, and the ONLY difference is the tombstone.
+    const live = await seed({ ownerUserId: null });
+    const dead = await seed({ ownerUserId: null });
+    const liveDelegation = await seedDelegation({ ownsRunId: live.runId });
+    const deadDelegation = await seedDelegation({ revoked: true, ownsRunId: dead.runId });
+
+    const allowed = await answerApproval(
+      live.approvalId,
+      { choice: "approve" },
+      {
+        kind: "delegation",
+        delegationId: liveDelegation,
+        runId: live.runId,
+        answeringUserId: "answerer",
+      },
+      { runtime: stubRuntime().runtime },
+    );
+    const refused = await answerApproval(
+      dead.approvalId,
+      { choice: "approve" },
+      {
+        kind: "delegation",
+        delegationId: deadDelegation,
+        runId: dead.runId,
+        answeringUserId: "answerer",
+      },
+      { runtime: stubRuntime().runtime },
+    );
+
+    expect(allowed.ok).toBe(true);
+    expect(refused).toMatchObject({ ok: false, code: "forbidden" });
   });
 });
