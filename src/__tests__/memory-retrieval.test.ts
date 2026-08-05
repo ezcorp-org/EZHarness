@@ -264,7 +264,7 @@ describe("searchKBChunksForQuery", () => {
       VALUES ('kbc-2', 'kbf-1', 'Advanced configuration options', 1, '${vstr}');
     `);
 
-    const results = await searchKBChunksForQuery("API guide", vec, "proj-kb");
+    const results = await searchKBChunksForQuery("API guide", vec, "proj-kb", null);
 
     expect(results.length).toBeGreaterThanOrEqual(1);
     const first = results[0]!;
@@ -290,7 +290,7 @@ describe("searchKBChunksForQuery", () => {
       VALUES ('kbc-p1', 'kbf-processing', 'This should not appear', 0, '${vstr}');
     `);
 
-    const results = await searchKBChunksForQuery("should not appear", vec, "proj-kb");
+    const results = await searchKBChunksForQuery("should not appear", vec, "proj-kb", null);
     expect(results.length).toBe(0);
   });
 
@@ -306,7 +306,7 @@ describe("searchKBChunksForQuery", () => {
       VALUES ('kbc-o1', 'kbf-other', 'Content from other project', 0, '${vstr}');
     `);
 
-    const results = await searchKBChunksForQuery("other project", vec, "proj-kb");
+    const results = await searchKBChunksForQuery("other project", vec, "proj-kb", null);
     expect(results.length).toBe(0);
   });
 });

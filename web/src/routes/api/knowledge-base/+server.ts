@@ -42,28 +42,28 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   // caller, so the two sides cannot drift apart.
   //
   // Why NULL is read as "shared" rather than "orphaned":
-  //   1. It cannot arise by accident, and it does not linger by accident either.
-  //      `POST` (below) always stamps `userId: user.id`, so no upload can mint
-  //      an ownerless row — and `src/db/migrate.ts` actively RECLAIMS them:
-  //      every boot runs `UPDATE knowledge_base_files SET user_id = (first
-  //      admin) WHERE user_id IS NULL`. A row that is ownerless at read time is
-  //      therefore something an operator put there deliberately since the last
-  //      boot (or an instance with no admin user at all) — never drift.
-  //   2. There is nothing else to say it with. The platform has no
-  //      project-membership model, so per-file `userId` is the ONLY access axis
-  //      KB reads have; a null owner IS "shared with the project".
-  //   3. Retrieval already reads it that way. `searchKBChunks`
-  //      (`src/db/queries/knowledge-base.ts`) filters only on `project_id` +
-  //      `status = 'ready'` — never on `user_id` — so an ownerless file's chunks
-  //      are already injected into every project member's chat turn. Hiding the
-  //      row from the API would not hide the content; it would only make the UI
-  //      disagree with the prompt the model actually sees.
+  //   1. It cannot arise by accident. `POST` (below) always stamps
+  //      `userId: user.id`, so no upload can mint an ownerless row. A row that
+  //      is ownerless at read time is something an operator put there
+  //      deliberately (or an instance that has never had an admin user) —
+  //      never drift.
+  //   2. There is nothing else to say it with. KB reads gate on per-file
+  //      `userId` alone — neither read handler consults project membership —
+  //      so a null owner IS "shared with the project".
+  //   3. Retrieval reads it the SAME way. `searchKBChunks`
+  //      (`src/db/queries/knowledge-base.ts`, anchor KB-RETRIEVAL-FOLLOWS-API)
+  //      scopes to `user_id IS NULL OR user_id = <caller>` — this exact
+  //      predicate — so an ownerless file's chunks reach every member's chat
+  //      turn and an OWNED file's chunks reach only its owner. What the model
+  //      is fed and what this API will open are one set, asserted by execution
+  //      in `src/__tests__/security/kb-retrieval-is-user-scoped.test.ts`.
   //
-  // KNOWN LIMIT (not a licence to tighten this predicate): because of the
-  // reclaim in (1), sharing does NOT survive a restart — the next boot adopts
-  // the row to the first admin and it silently stops being shared. The read
-  // rule below is correct; making shared files durable is a separate decision
-  // about that migration, and needs a human. Documented in
+  // Sharing is DURABLE. It used to not be: `src/db/migrate.ts` re-ran
+  // `UPDATE knowledge_base_files SET user_id = (first admin) WHERE user_id IS
+  // NULL` on every database open, so a shared file was silently adopted by the
+  // first admin at the next restart. That adoption is now one-shot
+  // (`src/db/migrations/claim-ownerless-kb-files-once.ts`), so a row an
+  // operator makes ownerless stays ownerless. Documented in
   // docs/features/chat/knowledge-base.md.
   //
   // Sharing is READ-ONLY. Writes stay fail-closed on the same rows: `DELETE`

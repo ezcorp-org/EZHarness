@@ -4,7 +4,7 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 mockDbConnection();
 
 const { listProjects, getProject, createProject, updateProject, deleteProject, getProjectByName } = await import("../db/queries/projects");
-const { getAllSettings, getSetting, upsertSetting, deleteSetting } = await import("../db/queries/settings");
+const { getAllSettings, getSetting, upsertSetting, deleteSetting, isInternalSettingKey, INTERNAL_SETTING_PREFIXES } = await import("../db/queries/settings");
 const { insertRun, updateRun, insertLog, listRuns, getRunWithLogs, toAgentRun } = await import("../db/queries/runs");
 
 describe("projects queries", () => {
@@ -112,6 +112,38 @@ describe("settings queries", () => {
     await upsertSetting("c", { nested: true });
     const all = await getAllSettings();
     expect(all).toEqual({ a: 1, b: "two", c: { nested: true } });
+  });
+
+  test("getAllSettings hides engine bookkeeping rows", async () => {
+    // `settings` doubles as the store for boot machinery: one-shot migration
+    // markers (`migration:kb-ownerless-claim-v1`) and engine stamps
+    // (`db:jsonb-repair:done`). Those must not surface as user settings — they
+    // would render in the admin settings page and land in a run's account
+    // defaults (`executor.ts`) for no reason.
+    await upsertSetting("migration:kb-ownerless-claim-v1", "2026-01-01T00:00:00Z");
+    await upsertSetting("db:jsonb-repair:done", "2026-01-01T00:00:00Z");
+    await upsertSetting("provider:default", "anthropic");
+
+    expect(await getAllSettings()).toEqual({ "provider:default": "anthropic" });
+  });
+
+  test("…but they stay readable by exact key — hidden, not unreachable", async () => {
+    // Their owners read them with getSetting/raw SQL; filtering getAllSettings
+    // must not break that.
+    await upsertSetting("migration:kb-ownerless-claim-v1", "stamp");
+    expect(await getSetting("migration:kb-ownerless-claim-v1")).toBe("stamp");
+  });
+
+  test("isInternalSettingKey matches the reserved prefixes and nothing else", async () => {
+    for (const prefix of INTERNAL_SETTING_PREFIXES) {
+      expect(isInternalSettingKey(`${prefix}anything`)).toBe(true);
+    }
+    // Near-misses must NOT be swallowed: a real setting whose name merely
+    // contains a reserved word is still a user setting.
+    expect(isInternalSettingKey("provider:apiKey:anthropic")).toBe(false);
+    expect(isInternalSettingKey("limits:maxKnowledgeBase")).toBe(false);
+    expect(isInternalSettingKey("my-migration:thing")).toBe(false);
+    expect(isInternalSettingKey("adb:stamp")).toBe(false);
   });
 
   test("deleteSetting removes a setting", async () => {

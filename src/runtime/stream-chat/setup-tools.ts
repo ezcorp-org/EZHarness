@@ -915,7 +915,9 @@ export async function setupTools(
           ]);
           [hasMem, hasKB] = await Promise.all([
             hasMemories(options.projectId!),
-            hasKBChunks(options.projectId!),
+            // Same acting user the KB search below is scoped to, so the
+            // fast-path skip agrees with what that search would return.
+            hasKBChunks(options.projectId!, convRecord?.userId ?? null),
           ]);
         } catch { /* check failed — proceed with full pipeline */ }
         if (!hasMem && !hasKB) return; // No data to search — skip embedding entirely
@@ -930,7 +932,12 @@ export async function setupTools(
             if (!hasKB) return undefined;
             try {
               const { searchKBChunksForQuery } = await import("../../memory/retrieval");
-              return await searchKBChunksForQuery(userMessage, queryEmbedding, options.projectId!, 5);
+              // Per-user KB scope, mirroring the memory scope threaded a few
+              // lines below: only files this conversation's owner could open
+              // through `GET /api/knowledge-base` are eligible for injection.
+              // A null owner (legacy/agent/CLI run) still gets ownerless
+              // (deliberately shared) files, and nobody else's uploads.
+              return await searchKBChunksForQuery(userMessage, queryEmbedding, options.projectId!, convRecord?.userId ?? null, 5);
             } catch { return undefined; }
           })(),
         ]);

@@ -76,7 +76,7 @@ describe("Knowledge Base", () => {
 
     // Verify chunks are gone — the file is deleted so its chunks
     // won't appear in search results (join on file fails)
-    const results = await searchKBChunks(embedding, projectId, 100);
+    const results = await searchKBChunks(embedding, projectId, null, 100);
     const orphaned = results.find((r: any) => r.fileId === file.id);
     expect(orphaned).toBeUndefined();
   });
@@ -98,7 +98,7 @@ describe("Knowledge Base", () => {
       embedding,
     });
 
-    const results = await searchKBChunks(embedding, projectId, 5);
+    const results = await searchKBChunks(embedding, projectId, null, 5);
     expect(results.length).toBeGreaterThanOrEqual(1);
 
     const match = results.find((r: any) => r.fileId === file.id);

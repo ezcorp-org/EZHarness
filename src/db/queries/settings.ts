@@ -4,9 +4,39 @@ import { settings } from "../schema";
 
 export type Setting = typeof settings.$inferSelect;
 
+/**
+ * Reserved key namespaces holding ENGINE BOOKKEEPING rather than user or
+ * account settings. The `settings` table is the codebase's only general-purpose
+ * key-value store, so boot-time machinery parks its state here too:
+ *   - `migration:*` — one-shot migration markers, e.g.
+ *     `migration:kb-ownerless-claim-v1`
+ *     (`src/db/migrations/claim-ownerless-kb-files-once.ts`);
+ *   - `db:*` — engine stamps, e.g. `db:jsonb-repair:done`
+ *     (`src/db/connection.ts`).
+ *
+ * None of these are settings a human set or should see. Every `getAllSettings`
+ * consumer wants the user-facing map — `GET /api/settings` renders it in the
+ * admin UI, `executor.ts` folds it into a run's account defaults, `health.ts`
+ * probes it for provider config — so bookkeeping rows are filtered out HERE
+ * rather than at each of them, which is also what stops the next one-shot
+ * marker from quietly showing up in the settings page.
+ *
+ * Not a secrecy mechanism (that is `isSensitiveSettingKey` on the API), and not
+ * a lock: `getSetting(key)` still reads these rows by exact key, which is how
+ * their owners access them.
+ */
+export const INTERNAL_SETTING_PREFIXES = ["migration:", "db:"] as const;
+
+/** True iff `key` is engine bookkeeping — see {@link INTERNAL_SETTING_PREFIXES}. */
+export function isInternalSettingKey(key: string): boolean {
+  return INTERNAL_SETTING_PREFIXES.some((prefix) => key.startsWith(prefix));
+}
+
 export async function getAllSettings(): Promise<Record<string, unknown>> {
   const rows = await getDb().select().from(settings);
-  return Object.fromEntries(rows.map((r: Setting) => [r.key, r.value]));
+  return Object.fromEntries(
+    rows.filter((r: Setting) => !isInternalSettingKey(r.key)).map((r: Setting) => [r.key, r.value]),
+  );
 }
 
 export async function getSetting(key: string): Promise<unknown | undefined> {

@@ -26,20 +26,26 @@
 // `user_id IS NULL` is the knowledge base's sharing mechanism, not an orphan
 // marker. Three independent reasons, all checkable in-tree:
 //
-//   1. A null owner cannot arise by accident, and cannot linger by accident.
-//      `POST /api/knowledge-base` always stamps `userId: user.id` (pinned
-//      below), and `src/db/migrate.ts` actively RECLAIMS null-owner rows to the
-//      first admin on every boot (also pinned below). So a row that is
-//      ownerless when read is a deliberate operator act, never drift.
-//      Consequence, documented not fixed: sharing does not survive a restart.
-//   2. There is no other way to express "shared". The platform has no
-//      project-membership model, so per-file `userId` is the only access axis
-//      KB reads have.
-//   3. Retrieval already treats the KB as project-wide. `searchKBChunks`
-//      filters on `project_id` + `status='ready'` and NEVER on `user_id`, so
-//      these chunks already reach every project member's chat turn. Hiding the
-//      row from the API would not hide the content — it would only make the UI
-//      disagree with the prompt the model actually sees.
+//   1. A null owner cannot arise by accident. `POST /api/knowledge-base` always
+//      stamps `userId: user.id` (pinned below), so no upload can mint an
+//      ownerless row; one exists only because an operator put it there.
+//      (This reason USED to lean on a second clause — that `migrate.ts`
+//      reclaimed null-owner rows to the first admin on every boot, so they
+//      could not linger. That reclaim was the bug, not the argument: it meant
+//      a shared file silently un-shared itself at the next restart. It is now
+//      one-shot, so sharing is durable. Pinned below.)
+//   2. There is no other way to express "shared" on THIS surface. KB reads gate
+//      on per-file `userId` alone — there is no project-membership check in
+//      either read handler — so a null owner is the only "shared with the
+//      project" the knowledge base can say.
+//   3. Retrieval honours the SAME rule. `searchKBChunks` scopes to
+//      `user_id IS NULL OR user_id = <caller>` — your own rows plus the shared
+//      ones — so what the model is fed matches what the API will let the user
+//      open, row for row. (It used to filter on `project_id` + `status` alone,
+//      which injected every member's uploads into every other member's turn
+//      while the API 404'd them. That confidentiality defect is closed and
+//      pinned by `kb-retrieval-is-user-scoped.test.ts`, which asserts the
+//      equivalence by execution.)
 //
 // ── What this suite guarantees ───────────────────────────────────────────────
 //
@@ -418,18 +424,31 @@ describe("source: both read predicates carry the KB-SHARED-NULL-OWNER anchor", (
     expect(read(DETAIL)).toContain(suite);
   });
 
-  test("migrate.ts still RECLAIMS ownerless KB rows — the documented durability caveat", () => {
-    // Not a blessing of the reclaim, a tripwire on it. `migrate()` runs on
-    // every boot (src/db/connection.ts) and adopts null-owner KB rows to the
-    // first admin, so a shared file silently stops being shared after a
-    // restart. That limit is documented in
-    // docs/features/chat/knowledge-base.md; if this assertion fails the reclaim
-    // moved and the caveat must be re-checked (in either direction — removing
-    // it makes sharing durable, which is the open decision, not a bug fix).
-    const src = read("src/db/migrate.ts");
-    expect(src).toMatch(
+  test("the ownerless reclaim is ONE-SHOT — sharing now survives a restart", () => {
+    // This was the durability caveat, and it has been resolved in the
+    // sharing-is-real direction. `migrate()` still runs on every boot
+    // (src/db/connection.ts), but the KB adoption no longer runs with it: it
+    // moved out of migrate.ts into a marker-guarded module that fires once,
+    // ever. So a file an operator makes ownerless stays ownerless — i.e. stays
+    // shared — across restarts, which is what makes reason (1) above a real
+    // mechanism rather than a race against the next redeploy.
+    //
+    // Two-sided pin, so neither half can regress quietly:
+    //   - the raw statement must NOT be back inline in migrate.ts (that is the
+    //     every-boot behaviour returning);
+    //   - the guarded module must still be the thing migrate.ts calls.
+    // Behaviour itself is proven by execution in
+    // src/__tests__/db-migration-claim-ownerless-kb-once.test.ts.
+    const migrateSrc = read("src/db/migrate.ts");
+    expect(migrateSrc).not.toMatch(
       /UPDATE knowledge_base_files SET user_id = \(SELECT id FROM users WHERE role = 'admin'[^)]*\)\s*WHERE user_id IS NULL/,
     );
+    expect(migrateSrc).toContain("upClaimOwnerlessKbFilesOnce(db)");
+
+    const moduleSrc = read("src/db/migrations/claim-ownerless-kb-files-once.ts");
+    // The guard is what makes it one-shot: the adoption is conditioned on the
+    // marker row's absence, in the UPDATE's own WHERE.
+    expect(moduleSrc).toMatch(/NOT EXISTS \(SELECT 1 FROM settings WHERE key = /);
   });
 
   test("the DELETE handler is NOT annotated as shared — writes stay fail-closed", () => {

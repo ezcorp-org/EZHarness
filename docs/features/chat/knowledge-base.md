@@ -39,7 +39,7 @@ KB retrieval is wired **inside** the chat stream's parallel setup phase, not as 
 
 1. `src/runtime/stream-chat/setup-tools.ts` runs a fast-path gate `hasKBChunks(projectId)` (alongside `hasMemories`) — if the project has **no** memories and **no** ready KB chunks, it skips embedding the query entirely.
 2. The user message is embedded once (`generateEmbedding`), then reused for both the memory hybrid search and KB search.
-3. `searchKBChunksForQuery` (`src/memory/retrieval.ts`) wraps `searchKBChunks(embedding, projectId, 5)` — top-5 by cosine distance (`embedding <=> $vec`), filtered to `f.status = 'ready'` and the active `project_id`, joined back to `knowledge_base_files` for the `filename`.
+3. `searchKBChunksForQuery` (`src/memory/retrieval.ts`) wraps `searchKBChunks(embedding, projectId, userId, 5)` — top-5 by cosine distance (`embedding <=> $vec`), filtered to `f.status = 'ready'`, the active `project_id`, and the files that `userId` may read (own + ownerless; see [Retrieval is user-scoped](#retrieval-is-user-scoped-and-follows-the-api)), joined back to `knowledge_base_files` for the `filename`.
 4. `buildSystemPromptWithMemories` (`src/memory/injection.ts`) builds a `## Knowledge Base` block, prefixed with an instruction to cite sources as `[1]`, `[2]`. Each chunk renders as `[Source N: <filename>] <content>`. Memories and KB chunks **share one 2000-token budget** (`DEFAULT_TOKEN_BUDGET`); memories are greedily filled first, then KB chunks until the budget runs out. The raw block is returned as `injectionBlock`.
 
 The injected block is **not** merged into `ctx.system` — `setup-tools.ts` stashes it on `ctx.systemMemoryTail`, and at payload time (`build-pi-agent.ts`) Anthropic requests carry it as a separate **trailing system block with no `cache_control`** (`src/runtime/stream-chat/system-cache-split.ts`), so the query-dependent recall varies per turn without busting the cached region-1 prefix (system + tools); other providers get it merged into the plain `systemPrompt` string. See [[context-compaction]] / [[streaming-runtime]] for how the prompt feeds the model.
@@ -70,25 +70,21 @@ they cannot drift apart.
 
 Why `NULL` is read as *shared* and not *orphaned*:
 
-1. **It can't happen by accident, and it can't linger by accident.**
-   `POST /api/knowledge-base` always stamps `userId: user.id`, so no upload can
-   mint an ownerless row; and `src/db/migrate.ts` actively *reclaims* them (see
-   the caveat below). A row that is ownerless when it is read is therefore a
-   deliberate operator act, not drift.
-2. **There is nothing else to say it with.** The platform has no
-   project-membership model, so per-file `userId` is the only access axis KB
-   reads have. A null owner *is* the sharing mechanism.
-3. **Retrieval already reads it that way.** `searchKBChunks` filters on
-   `project_id` + `status = 'ready'` and **never** on `user_id`, so those chunks
-   already reach every project member's chat turn. Hiding the row from the API
-   would not hide the content — it would only make the UI disagree with the
-   prompt the model actually sees.
+1. **It can't happen by accident.** `POST /api/knowledge-base` always stamps
+   `userId: user.id`, so no upload can mint an ownerless row. A row that is
+   ownerless when it is read is a deliberate operator act, not drift.
+2. **There is nothing else to say it with.** KB reads gate on per-file `userId`
+   alone — neither read handler consults project membership — so a null owner
+   *is* the sharing mechanism.
+3. **Retrieval reads it the same way.** `searchKBChunks` scopes to
+   `user_id IS NULL OR user_id = <caller>`, i.e. this exact predicate, so an
+   ownerless file's chunks reach every member's chat turn and an owned file's
+   chunks reach only its owner. See
+   [Retrieval is user-scoped](#retrieval-is-user-scoped-and-follows-the-api).
 
-**Caveat — sharing is not durable across restarts (open, needs a human).** There
-is no UI or API to *create* a shared file: sharing is an operator act (write a
-row with a `NULL` owner), not a product feature. And `src/db/migrate.ts` runs on
+**Sharing is durable.** It did not used to be. `src/db/migrate.ts` runs on
 **every boot** (unversioned, idempotent-by-construction — `src/db/connection.ts`
-calls `migrate()` on each open) and includes
+calls `migrate()` on each open) and it used to re-run
 
 ```sql
 UPDATE knowledge_base_files
@@ -96,16 +92,65 @@ UPDATE knowledge_base_files
  WHERE user_id IS NULL;
 ```
 
-so a shared file is **adopted by the first admin at the next restart** and
-silently stops being shared. (It survives only on an instance that has no
-`admin`-role user, where the subquery yields `NULL` and the update is a no-op.)
+with it, so a shared file was **adopted by the first admin at the next restart**
+and silently stopped being shared. That adoption now lives in
+`src/db/migrations/claim-ownerless-kb-files-once.ts` and fires **once, ever**,
+guarded by a marker row in `settings` (`migration:kb-ownerless-claim-v1`). The
+guard is a `NOT EXISTS` inside the `UPDATE`'s own `WHERE` — one statement, no
+result-row inspection, so it behaves the same on PGlite and `Bun.sql`. The marker
+is written only *after* the adoption succeeds, which is what makes it compose
+with the migration circuit breaker in `src/db/connection.ts`: a boot that skips
+`migrate()` (or a run that throws) leaves the work **pending**, never falsely
+done. `src/__tests__/db-migration-claim-ownerless-kb-once.test.ts` replays real
+boots against real PGlite to pin all of that.
 
-The read rule above is still the correct one — this caveat is about *durability*,
-not about who may read a row that is ownerless right now. Making shared files
-persist means changing that migration (e.g. excluding `knowledge_base_files` from
-the reclaim, or introducing an explicit `shared` flag), which is a data-migration
-decision, not a read-path one. Do **not** "fix" it by tightening the read
-predicates — that produces the *list-but-404* this section exists to prevent.
+The sibling backfills in `migrate.ts` (`conversations`, `memories`,
+`agent_configs`) are deliberately left running every boot: none of them uses a
+null owner to mean "shared", so their repetition costs nothing.
+
+Note there is still no UI or API to *create* a shared file — sharing is an
+operator act (write a row with a `NULL` owner), not a product feature. What
+changed is that the act now sticks.
+
+### Retrieval is user-scoped, and follows the API
+
+`searchKBChunks` / `hasKBChunks` (`src/db/queries/knowledge-base.ts`, anchor
+`KB-RETRIEVAL-FOLLOWS-API`) narrow the project's `ready` files with
+
+```sql
+AND (f.user_id IS NULL OR f.user_id = <caller>)
+```
+
+— **your own rows plus ownerless (shared) rows, and nobody else's** — which is
+character-for-character the rule the two read surfaces apply. `userId` is a
+**required** positional argument on both functions and on the
+`searchKBChunksForQuery` wrapper (`src/memory/retrieval.ts`), so a call site
+cannot forget it the way an omitted optional could. The single production caller,
+`src/runtime/stream-chat/setup-tools.ts`, passes the conversation owner
+(`convRecord?.userId ?? null`) to both the fast-path existence check and the
+search — the same value it already threads into the memory scope beside it.
+
+A **null** actor (agent/CLI run, or a conversation with no owner) binds
+`f.user_id = NULL`, which SQL never satisfies, so it degrades to the ownerless
+subset: the rows any caller may read, never a superset.
+
+This was a live confidentiality defect until it was fixed. Retrieval used to
+filter on `project_id` + `status = 'ready'` **only**, so one member's uploaded
+document was injected verbatim into *every* project member's chat turns while
+those same members got a 404 from `GET /api/knowledge-base/[id]` for it — the API
+asserted an ownership boundary the prompt ignored.
+`src/__tests__/security/kb-retrieval-is-user-scoped.test.ts` now walks every
+(caller × file) pair and asserts *injected-into-the-prompt === readable-through-
+the-API*, with both sides executed against the same real database. Combined with
+the `list === detail` equivalence in
+`kb-ownerless-rows-are-shared.test.ts`, retrieval, list and detail are one closed
+chain.
+
+**Consequence, and it is intended:** a file owned by one member is no longer
+retrieved for anybody else, even in a project they share. Teams who relied on
+the old project-wide behaviour must share deliberately — an ownerless row — which
+now survives restarts. Do **not** "restore" the old behaviour by widening this
+predicate; widen the API's instead, and move all three together.
 
 ### Lifecycle UI feedback
 
@@ -142,8 +187,10 @@ predicates — that produces the *list-but-404* this section exists to prevent.
 - `web/src/routes/api/knowledge-base/+server.ts` — list (GET) + upload (POST): validation, quota, eager `file.text()`, fire-and-forget chunk+embed pipeline. Hosts the canonical `KB-SHARED-NULL-OWNER` rationale at the list filter.
 - `web/src/routes/api/knowledge-base/[id]/+server.ts` — GET/DELETE one file. GET mirrors the list's shared-null-owner rule (404 only on someone else's file); DELETE is fail-closed with an admin-only escape hatch for ownerless rows.
 - `src/__tests__/security/kb-ownerless-rows-are-shared.test.ts` — pins list-visibility and detail-reachability as ONE invariant (per caller, per row) plus the read/write asymmetry; fails if either read side drifts.
+- `src/__tests__/security/kb-retrieval-is-user-scoped.test.ts` — pins *injected-into-the-prompt === readable-through-the-API* for every (caller × file) pair, both sides executed against one real database; fails if retrieval is widened back to project-wide.
+- `src/db/migrations/claim-ownerless-kb-files-once.ts` — the marker-guarded, one-shot adoption of ownerless KB rows to the first admin (replaces the every-boot reclaim that used to un-share files at restart). Replayed by `src/__tests__/db-migration-claim-ownerless-kb-once.test.ts`.
 - `web/src/routes/api/knowledge-base/schema.ts` — `uploadKBFileSchema` (projectId UUID; file handled via formData).
-- `src/db/queries/knowledge-base.ts` — `insertKBFile` / `updateKBFile` / `listKBFiles` / `getKBFile` / `deleteKBFile` / `insertKBChunk` (raw-SQL vector insert) / `searchKBChunks` (top-K cosine) / `hasKBChunks` (fast existence gate).
+- `src/db/queries/knowledge-base.ts` — `insertKBFile` / `updateKBFile` / `listKBFiles` / `getKBFile` / `deleteKBFile` / `insertKBChunk` (raw-SQL vector insert) / `searchKBChunks` (top-K cosine) / `hasKBChunks` (fast existence gate). Both readers share `visibleReadyFileIds`, which hosts the canonical `KB-RETRIEVAL-FOLLOWS-API` rationale.
 - `src/memory/chunking.ts` — `chunkText` (512/50, newline-aware) + `isAllowedFile` / `ALLOWED_EXTENSIONS`.
 - `src/memory/embeddings.ts` — local `Xenova/all-MiniLM-L6-v2` 384-dim embedder; `generateEmbedding`, `EMBEDDING_MODEL_ID`, token-cap enforcement.
 - `src/memory/retrieval.ts` — `searchKBChunksForQuery` wrapper (also hosts memory `hybridSearch`).
@@ -151,7 +198,7 @@ predicates — that produces the *list-but-404* this section exists to prevent.
 - `src/memory/types.ts` — `KBChunkResult` (`id`, `content`, `chunkIndex`, `filename`, `fileId`, `similarity`); `EMBEDDING_DIMENSIONS = 384`.
 - `src/runtime/stream-chat/setup-tools.ts` — wires the `hasKBChunks` gate → query embed → `searchKBChunksForQuery` → injection into the per-turn parallel setup.
 - `src/db/schema.ts` — `knowledgeBaseFiles` / `knowledgeBaseChunks` tables + `KBFile`/`KBChunk` types.
-- `src/db/migrate.ts` — `CREATE EXTENSION vector`, KB table DDL, HNSW cosine index, `user_id` backfill migration.
+- `src/db/migrate.ts` — `CREATE EXTENSION vector`, KB table DDL, HNSW cosine index, `user_id` column; calls the one-shot ownerless-row adoption (it does **not** inline the `UPDATE` any more).
 - `web/src/lib/components/KnowledgeBaseTab.svelte` — file table + processing-status polling.
 - `web/src/lib/components/FileUpload.svelte` — drag-drop / click upload, client-side extension + size pre-check.
 - `web/src/lib/server/security/resource-quotas.ts` — `checkStorageQuota` + `maxKnowledgeBase` default.
@@ -165,7 +212,7 @@ predicates — that produces the *list-but-404* this section exists to prevent.
 - [[attachments]] — also user-uploaded files, but per-message and capability-gated for the model, **not** chunked/embedded into a project-wide vector index.
 - [[projects]] — KB files are project-scoped; `projectId` is required to list and upload.
 - [[database-and-migrations]] — relies on the pgvector extension + HNSW index created in `migrate.ts`.
-- [[api-security]] — every route is gated by `requireScope` (`read` for the two GETs, `write` for `POST`/`DELETE`) + `requireAuth`, then a per-file owner check in which `user_id IS NULL` reads as shared.
+- [[api-security]] — every route is gated by `requireScope` (`read` for the two GETs, `write` for `POST`/`DELETE`) + `requireAuth`, then a per-file owner check in which `user_id IS NULL` reads as shared. Retrieval applies the same owner check, so the API boundary is not something the prompt can route around.
 
 ## Related docs
 
@@ -174,10 +221,10 @@ None yet — this is the primary reference. (See [conversations](conversations.m
 ## Notes & gotchas
 
 - **`kbSourcesUsed` is computed but never surfaced.** `buildSystemPromptWithMemories` returns a `kbSourcesUsed` array, and `ChatMessage.svelte` has a "sources used" popover that renders it (`{filename} [chunk N]`). But `setup-tools.ts` only assigns `injection.memoriesUsed` to `run.memoriesUsed` — `kbSourcesUsed` is **never** written to the run result, persisted, or streamed. The KB-source attribution UI is therefore effectively dead: the prop always arrives empty even when KB chunks were injected. (Memory attribution does flow, via `runs.result.output.memoriesUsed`.)
-- **`org_scoped` is display-only.** The `knowledge_base_files.org_scoped` column and its purple "Org" badge in `KnowledgeBaseTab` exist, but the upload route never sets it `true`, and `searchKBChunks` filters **only** by `project_id` (+ `status='ready'`). There is no org-scoped ingestion or cross-project/org retrieval path today.
+- **`org_scoped` is display-only.** The `knowledge_base_files.org_scoped` column and its purple "Org" badge in `KnowledgeBaseTab` exist, but the upload route never sets it `true`, and `searchKBChunks` never reads it (its scope is `project_id` + `status='ready'` + the per-user file predicate). There is no org-scoped ingestion or cross-project/org retrieval path today.
 - **Ownerless rows are SHARED, deliberately — and list + detail are one contract.** `user_id IS NULL` is the knowledge base's only sharing mechanism, not an orphan marker; both read surfaces honour it and neither may be tightened alone (a *list-but-404* is the defect that creates). Full reasoning and the enforcing test are in [Sharing](#sharing-user_id-is-null-means-shared-with-the-project); the predicates carry the `KB-SHARED-NULL-OWNER` anchor in-source.
 - **Ownership is per-file, not project-RBAC.** Access is checked as `!file.userId || file.userId === user.id` on reads. There is no project-membership gate and **no admin read override** — a project collaborator who is not the uploader cannot see another user's KB files in the API, and neither can an admin. (Only `DELETE` has an admin escape hatch, for ownerless rows.)
-- **Retrieval is NOT user-scoped — owned files still reach other members' prompts.** The API access rules above govern the *UI/API* only. `searchKBChunks` filters solely on `project_id` + `status='ready'`, and `setup-tools.ts` passes no `userId` into `searchKBChunksForQuery`. So one member's uploaded document is injected verbatim into **every** project member's chat turns, even though that member gets a 404 from `GET /api/knowledge-base/[id]`. This is the opposite of the memory path, whose `hybridSearch` is strictly per-user. It makes the *shared* reading of null owners consistent (see above), but it also means per-file KB ownership is not a confidentiality boundary — treat any KB upload as visible to the whole project.
+- **Retrieval is user-scoped, and it follows the API exactly.** `searchKBChunks` / `hasKBChunks` narrow to `user_id IS NULL OR user_id = <caller>` — own rows plus ownerless (shared) rows — the same predicate the two read surfaces apply, so what the model is fed matches what the caller could open. `userId` is a required argument at every level (`searchKBChunks`, `hasKBChunks`, `searchKBChunksForQuery`) and `setup-tools.ts` passes `convRecord?.userId ?? null`. This mirrors the memory path's `hybridSearch`. **It was not always so:** retrieval used to filter on `project_id` + `status='ready'` alone, injecting one member's upload into every member's chat turn while the API 404'd it — a live confidentiality defect, closed and pinned by `src/__tests__/security/kb-retrieval-is-user-scoped.test.ts`. The intended consequence: another member's owned file is no longer retrieved for you; share deliberately (ownerless row) instead.
 - **Processing is fire-and-forget — restarts orphan in-flight files.** Chunk+embed runs in an un-awaited IIFE after the `201` returns. If the process restarts (or the first embedding-model download is slow) mid-processing, the row is stranded at `status='processing'` with no retry/resume; it never reaches `ready` or `error`, and the UI polls forever. There is no re-index or re-process endpoint.
 - **Binary/unsupported content is whitelist-gated, not sniffed.** Eligibility is purely by file **extension** (`ALLOWED_EXTENSIONS`); content isn't inspected. A binary file renamed to `.txt` would be `file.text()`-decoded and embedded as garbage.
 - **No de-dup / size budget on chunks.** Re-uploading the same file creates a second file row + a duplicate set of chunks (counted against the 100-file quota, not a chunk/byte quota). Retrieval can then return near-identical chunks from duplicate files.

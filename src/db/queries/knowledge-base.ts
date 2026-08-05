@@ -64,9 +64,43 @@ export async function insertKBChunk(data: NewKBChunk): Promise<KBChunk> {
   return rows[0]!;
 }
 
+/**
+ * The ready-file ids whose chunks `userId` is allowed to see, as a scalar
+ * subquery for `file_id = ANY (...)`.
+ *
+ * ── KB-RETRIEVAL-FOLLOWS-API ─────────────────────────────────────────────
+ * This predicate is deliberately the SAME one the read API applies, so what
+ * the model is fed matches what the user can open:
+ *   list   `web/src/routes/api/knowledge-base/+server.ts`
+ *          `files.filter(f => !f.userId || f.userId === user.id)`
+ *   detail `web/src/routes/api/knowledge-base/[id]/+server.ts` (GET)
+ *          `if (file.userId && file.userId !== user.id) → 404`
+ * i.e. **your own rows, plus ownerless (shared) rows** — and nobody else's.
+ * Retrieval used to filter on `project_id` + `status` ALONE, so one member's
+ * upload was injected verbatim into every other member's chat turn while
+ * those same members got a 404 from the API. Do not relax this back to
+ * project-wide without moving the two API predicates with it; the three are
+ * one contract, pinned by
+ * `src/__tests__/security/kb-retrieval-is-user-scoped.test.ts`.
+ *
+ * `userId` is REQUIRED (not optional) at every call site on purpose: an
+ * argument you must supply cannot be forgotten the way an omitted optional
+ * one can. A `null` actor (agent/CLI run, ownerless conversation) binds
+ * `f.user_id = NULL`, which SQL never satisfies, so it degrades to the
+ * ownerless-only subset — the same rows any caller may read, never more.
+ */
+function visibleReadyFileIds(projectId: string, userId: string | null) {
+  return sql`ARRAY(
+    SELECT f.id FROM knowledge_base_files f
+    WHERE f.project_id = ${projectId} AND f.status = 'ready'
+      AND (f.user_id IS NULL OR f.user_id = ${userId})
+  )`;
+}
+
 export async function searchKBChunks(
   embedding: number[],
   projectId: string,
+  userId: string | null,
   limit: number = 5,
 ): Promise<KBChunkResult[]> {
   const db = getDb();
@@ -89,10 +123,7 @@ export async function searchKBChunks(
              (c.embedding <=> ${sql.raw(vectorLiteral)}) as distance
       FROM knowledge_base_chunks c
       WHERE c.embedding IS NOT NULL
-        AND c.file_id = ANY (ARRAY(
-          SELECT f.id FROM knowledge_base_files f
-          WHERE f.project_id = ${projectId} AND f.status = 'ready'
-        ))
+        AND c.file_id = ANY (${visibleReadyFileIds(projectId, userId)})
       ORDER BY c.embedding <=> ${sql.raw(vectorLiteral)}
       LIMIT ${limit}
     )
@@ -105,18 +136,20 @@ export async function searchKBChunks(
   return (results.rows ?? []) as unknown as KBChunkResult[];
 }
 
-/** Fast check: does this project have any indexed KB chunks?
- *  Imported dynamically by src/runtime/stream-chat/setup-tools.ts. */
+/** Fast check: does this project have any indexed KB chunks THIS user may see?
+ *  Imported dynamically by src/runtime/stream-chat/setup-tools.ts, where a
+ *  `false` skips the embedding call entirely. Scoped by the same
+ *  KB-RETRIEVAL-FOLLOWS-API predicate as `searchKBChunks` so the fast path
+ *  cannot answer `true` for a caller the search would then return nothing to —
+ *  that mismatch would buy an embedding round-trip for a guaranteed-empty
+ *  result. */
 // fallow-ignore-next-line unused-export
-export async function hasKBChunks(projectId: string): Promise<boolean> {
+export async function hasKBChunks(projectId: string, userId: string | null): Promise<boolean> {
   const db = getDb();
   const rows = await db.execute(
     sql`SELECT EXISTS(
       SELECT 1 FROM knowledge_base_chunks c
-      WHERE c.file_id = ANY (ARRAY(
-        SELECT f.id FROM knowledge_base_files f
-        WHERE f.project_id = ${projectId} AND f.status = 'ready'
-      ))
+      WHERE c.file_id = ANY (${visibleReadyFileIds(projectId, userId)})
     ) AS has_data`,
   );
   return (rows.rows[0] as { has_data?: boolean } | undefined)?.has_data === true;

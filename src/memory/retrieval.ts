@@ -166,12 +166,21 @@ export async function hybridSearch(
 
 /**
  * Search KB chunks for a query. Wrapper around searchKBChunks for consistent interface.
+ *
+ * `userId` is the acting user, and it is REQUIRED — same rule, and the same
+ * reasoning, as the `userId` on `hybridSearch` above: KB rows are per-file
+ * private, so the injection entry point must always state whose turn this is.
+ * The scoping predicate itself (own rows + ownerless/shared rows, matching the
+ * read API exactly) lives at `visibleReadyFileIds` in
+ * `src/db/queries/knowledge-base.ts` under the KB-RETRIEVAL-FOLLOWS-API anchor.
+ * A `null` actor sees only the shared rows.
  */
 export async function searchKBChunksForQuery(
   _query: string,
   embedding: number[],
   projectId: string,
+  userId: string | null,
   limit?: number,
 ): Promise<KBChunkResult[]> {
-  return searchKBChunks(embedding, projectId, limit);
+  return searchKBChunks(embedding, projectId, userId, limit);
 }

@@ -3,6 +3,7 @@ import { backfillGithubProjectsApiTokens } from "../extensions/secrets-store";
 import { seedSelfProject } from "./seed-self-project";
 import { up as upUserCommandsUnique } from "./migrations/add-user-commands-unique-name";
 import { up as upApiKeyWriteScope } from "./migrations/backfill-api-key-write-scope";
+import { up as upClaimOwnerlessKbFilesOnce } from "./migrations/claim-ownerless-kb-files-once";
 // Value import is safe: this module imports only `drizzle-orm`. Its
 // project-root ARGUMENT comes from a dynamic import at the call site —
 // see the comment there for why that one cannot be static.
@@ -599,9 +600,11 @@ export async function migrate(db: any): Promise<void> {
   try {
     await db.execute(sql`UPDATE agent_configs SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1) WHERE user_id IS NULL`);
   } catch { /* no-op if no admin user exists yet */ }
-  try {
-    await db.execute(sql`UPDATE knowledge_base_files SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1) WHERE user_id IS NULL`);
-  } catch { /* no-op if no admin user exists yet */ }
+  // KB is the ONE exception to the every-boot reclaim above: `user_id IS NULL`
+  // is the knowledge base's only sharing mechanism (KB-SHARED-NULL-OWNER), so
+  // re-claiming it on every open un-shares files behind the operator's back.
+  // Guarded to run exactly once — rationale in the module.
+  await upClaimOwnerlessKbFilesOnce(db);
 
   // ── Run ownership: authoritative initiating user (closes cross-tenant IDOR) ──
   // The `conversation_id` column alone left agent/CLI runs (no conversation)
