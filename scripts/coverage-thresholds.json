@@ -41,6 +41,8 @@
   "web/src/routes/api/rbac/extension-grants/[id]/+server.ts": 100,
   "web/src/routes/api/service-accounts/+server.ts": 100,
   "web/src/routes/api/service-accounts/[id]/+server.ts": 100,
+  "web/src/routes/api/health/+server.ts": 100,
+  "web/src/routes/api/providers/[provider]/refresh-models/+server.ts": 100,
   "web/src/lib/rbac-grants-logic.ts": 100,
   "web/src/lib/workflow-builder-logic.ts": 100,
   "web/src/lib/workflow-run-display.ts": 100,
