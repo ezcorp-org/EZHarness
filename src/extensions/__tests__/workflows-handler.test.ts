@@ -7,7 +7,7 @@
  * `reason`, and every path asserts an audit row was written — accepts AND
  * rejects.
  */
-import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeAll, beforeEach, afterAll, mock, spyOn } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
   setupTestDb, closeTestDb, mockDbConnection, getTestDb,
@@ -210,6 +210,64 @@ afterAll(async () => {
   await closeTestDb();
 });
 
+/** The bucket width `workflows-handler.ts` builds its limiter with
+ *  (`MAX_OPS_PER_SECOND`, :157). Not exported — a change there must make the
+ *  rung-9 tests below fail loudly rather than silently re-tune them. */
+const BUCKET_TOKENS = 50;
+
+/**
+ * Run `fn` with `Date.now()` PINNED, then restore it — even on a throw, so a
+ * red rung can never leak a frozen clock into the rest of the file.
+ *
+ * Every rung-9 test in this file talks to a token bucket that refills on
+ * WALL-CLOCK time (`createRateLimiter`, `src/extensions/rate-limit.ts:38-42`:
+ * 50 tokens/s, one per 20ms) and deducts NOTHING on a refusal. That makes any
+ * "drain it and watch it refuse" assertion a race between the drain and the
+ * refill — and the drain's speed is a property of the HOST, not of the code
+ * under test. Measured on a saturated box (16 concurrent copies of this file):
+ * 12/16 runs red at `is rate limited — a read is cheap, not free`, and 3 more
+ * never got past `beforeAll` — 15/16 red in total, 1 clean. Each awaited read
+ * cost >20ms, so the bucket refilled a token per call and a 200-iteration
+ * loop never reached a refusal at all. After this change: 16/16 green under
+ * the identical run.
+ *
+ * Freezing deletes the refill term. The drain becomes exactly BUCKET_TOKENS
+ * accepted calls followed by a refusal, so every assertion below turns from a
+ * bound into an equality. Nothing is loosened: this is the strict form of the
+ * same claim. Same defect and same fix as the delegated ladder's rung 9
+ * (PR #88, `workflows-delegated-ladder.test.ts`).
+ */
+async function withFrozenClock<T>(fn: () => Promise<T>): Promise<T> {
+  const clock = spyOn(Date, "now").mockReturnValue(Date.now());
+  try {
+    return await fn();
+  } finally {
+    clock.mockRestore();
+  }
+}
+
+/**
+ * Drain one extension's instantaneous bucket by repeating `call` under a
+ * frozen clock until it is refused, and report how many calls that took.
+ *
+ * The `limit` is a bound, not an expectation — it is what makes a BROKEN
+ * limiter (one that never refuses) fail rather than hang. With the clock
+ * frozen the honest answer is always `BUCKET_TOKENS + 1`, which is what the
+ * callers assert.
+ */
+async function drainBucket(
+  call: () => Promise<{ error?: { data?: unknown } }>,
+  limit = 200,
+): Promise<{ calls: number; refusal: unknown }> {
+  return withFrozenClock(async () => {
+    for (let i = 1; i <= limit; i++) {
+      const resp = await call();
+      if (resp.error) return { calls: i, refusal: resp.error.data };
+    }
+    return { calls: limit, refusal: undefined };
+  });
+}
+
 describe("accept path", () => {
   test("starts the NAMESPACED workflow and reports it back", async () => {
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -267,6 +325,7 @@ describe("accept path", () => {
 
   test("does NOT block on the run (returns before the graph finishes)", async () => {
     let release: (() => void) | undefined;
+    let graphFinished = false;
     const blocked = new Promise<void>((r) => { release = r; });
     registerWorkflowRuntime({
       workflowExecutor: {
@@ -278,6 +337,7 @@ describe("accept path", () => {
         },
         async runWorkflow(workflow) {
           await blocked;
+          graphFinished = true;
           return {
             id: "r", workflowName: workflow.name, status: "success",
             startedAt: 0, steps: [],
@@ -287,13 +347,19 @@ describe("accept path", () => {
       getWorkflows: () => [SHIPPED],
     });
 
-    // Would hang forever if the handler awaited the run.
-    const resp = await Promise.race([
-      handleWorkflowsRpc(req(), ctx()),
-      new Promise((_r, rej) => setTimeout(() => rej(new Error("handler blocked")), 2000)),
-    ]);
+    // "Did not block" is asserted STRUCTURALLY, not with a stopwatch. This
+    // used to race a 2000ms `setTimeout` rejection, which made a loaded box
+    // (PGlite plus every sibling process in the pool) able to red the test
+    // for a reason that has nothing to do with the handler — and which
+    // proved only "came back inside two seconds", not "came back while the
+    // run was still in flight". The executor below is parked on `blocked`
+    // and nothing has released it, so a handler that awaited the run could
+    // not possibly reach these lines; if one ever does await it, this call
+    // simply never resolves and bun's per-test timeout fails it loudly.
+    const resp = await handleWorkflowsRpc(req(), ctx());
 
-    expect((resp as { result?: unknown }).result).toMatchObject({ started: true });
+    expect(graphFinished).toBe(false);
+    expect(resp.result).toMatchObject({ started: true });
     release?.();
   });
 });
@@ -597,25 +663,36 @@ describe("enforcement ladder — rejections", () => {
 
   test("9. the instantaneous token bucket sheds a burst", async () => {
     // `conversationId: null` removes the only `await` ahead of the bucket, so
-    // every call in this `.map()` reaches `consumeTokens` inside one
-    // synchronous tick — no wall-clock refill can smear the burst.
+    // every call in this `Array.from()` reaches `consumeTokens` inside one
+    // synchronous tick. That used to be the whole argument for why no refill
+    // could smear the burst, and it is not enough: a tick is not an instant.
+    // The OS can deschedule this process MID-tick, `Date.now()` advances
+    // while the burst is in flight, and at 50 tokens/s just 200ms of that
+    // hands the burst ten extra tokens — enough for all 60 calls to be
+    // accepted and the rung to go red for a reason that has nothing to do
+    // with the property it pins.
+    //
+    // Frozen (see `withFrozenClock`), the arithmetic is exact instead of
+    // bounded: a full bucket is BUCKET_TOKENS, the rung charges one token per
+    // call, so exactly 50 start and exactly 10 are shed. Strictly stronger —
+    // the old `toBeGreaterThan(0)` / `toBeLessThan(60)` bounds were also
+    // satisfied by a limiter that shed just one call in sixty.
     const c = ctx({
       conversationId: null,
       grantedPermissions: granted({ maxRunsPerHour: 500 }),
     });
 
-    const responses = await Promise.all(
-      Array.from({ length: 60 }, () => handleWorkflowsRpc(req(), c)),
+    const responses = await withFrozenClock(() =>
+      Promise.all(Array.from({ length: 60 }, () => handleWorkflowsRpc(req(), c))),
     );
 
     const shed = responses.filter(
       (r) => (r.error?.data as { reason?: string } | undefined)?.reason === "WORKFLOWS_RATE_LIMITED",
     );
-    expect(shed.length).toBeGreaterThan(0);
+    expect(shed).toHaveLength(60 - BUCKET_TOKENS);
     expect(shed[0]?.error?.code).toBe(-32029);
-    // The bucket holds 50 tokens, so the accepted set is bounded — a burst
-    // cannot start 60 workflow runs.
-    expect(started.length).toBeLessThan(60);
+    // A burst cannot start more workflow runs than the bucket holds tokens.
+    expect(started).toHaveLength(BUCKET_TOKENS);
   });
 
   test("11. the hourly quota is enforced and reports its numbers", async () => {
@@ -912,12 +989,16 @@ describe("op: approvals — the LLM-facing read", () => {
   });
 
   test("is rate limited — a read is cheap, not free", async () => {
-    let refused: unknown;
-    for (let i = 0; i < 200; i++) {
-      const resp = await handleWorkflowsRpc(readReq(), ctx());
-      if (resp.error) { refused = resp.error.data; break; }
-    }
-    expect(refused).toMatchObject({ reason: "WORKFLOWS_RATE_LIMITED" });
+    // Frozen clock — see `withFrozenClock`. Unfrozen, this loop raced the
+    // bucket's 50/s refill and lost on any box where a read costs >20ms.
+    const { calls, refusal } = await drainBucket(() =>
+      handleWorkflowsRpc(readReq(), ctx()),
+    );
+
+    expect(refusal).toMatchObject({ reason: "WORKFLOWS_RATE_LIMITED" });
+    // Exactly a full bucket of accepted reads, then the refusal — the rung
+    // charges ONE token per read, no more and no fewer.
+    expect(calls).toBe(BUCKET_TOKENS + 1);
   });
 });
 
@@ -1245,12 +1326,14 @@ describe("op: runs — the ONLY correlation path from a trigger to its run", () 
   });
 
   test("is rate limited — a read is cheap, not free", async () => {
-    let refused: unknown;
-    for (let i = 0; i < 200; i++) {
-      const resp = await handleWorkflowsRpc(runsReq(), ctx());
-      if (resp.error) { refused = resp.error.data; break; }
-    }
-    expect(refused).toMatchObject({ reason: "WORKFLOWS_RATE_LIMITED" });
+    // Frozen clock — see `withFrozenClock`. Same defect as the `approvals`
+    // twin above: this loop used to race the bucket's wall-clock refill.
+    const { calls, refusal } = await drainBucket(() =>
+      handleWorkflowsRpc(runsReq(), ctx()),
+    );
+
+    expect(refusal).toMatchObject({ reason: "WORKFLOWS_RATE_LIMITED" });
+    expect(calls).toBe(BUCKET_TOKENS + 1);
   });
 
   test("audits the read, like every other outcome", async () => {

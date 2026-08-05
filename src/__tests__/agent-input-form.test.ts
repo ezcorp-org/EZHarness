@@ -216,33 +216,25 @@ describe("styles", () => {
 	});
 });
 
-describe("web build", () => {
-	// In CI / Docker the SvelteKit build is already run during image creation
-	// (Dockerfile.test line: `bun run build`). Re-running it here competes for
-	// CPU/memory with parallel test processes and causes flaky timeouts.
-	const skip = !!process.env.CI;
-
-	(skip ? test.skip : test)(
-		"svelte app builds successfully",
-		async () => {
-			const { join } = require("node:path");
-			const webDir = join(import.meta.dir, "../../web");
-			const proc = Bun.spawn([process.execPath, "run", "build"], {
-				cwd: webDir,
-				stdout: "pipe",
-				stderr: "pipe",
-			});
-			const exitCode = await proc.exited;
-			if (exitCode !== 0) {
-				const stderr = await new Response(proc.stderr).text();
-				console.error("Build stderr:", stderr);
-			}
-			expect(exitCode).toBe(0);
-		},
-		// A full SvelteKit build racing the parallel test pool for CPU can blow a
-		// 60s budget on a loaded dev box (the CI copy is skipped — it's already
-		// built in the image). Give it generous headroom so wall-clock jitter on a
-		// shared runner never flakes this into a false red.
-		{ timeout: 180_000 },
-	);
-});
+// A `web build > svelte app builds successfully` case used to live here: it
+// spawned a full `bun run build` in `web/` and asserted exit code 0, under a
+// 180s timeout, skipped whenever `process.env.CI` was set. It is GONE, and
+// nothing it asserted went with it.
+//
+//   - It never gated anything. `test.skip` on CI meant it ran in exactly the
+//     one place where a red is advisory (a dev box) and never in the one place
+//     where a red blocks a merge.
+//   - The property IS gated, by a required check that runs the REAL build:
+//     `web/playwright.config.ts:66` boots the mock-tier e2e lane with
+//     `PI_SKIP_INIT=1 bun run build && … bun run preview`, so a build that
+//     fails takes the whole e2e job down. `release-image.yml` builds it again
+//     in the image. Both are stricter than an exit-code assertion.
+//   - It cost 40.1s of a 325s backend pool on an idle box — 12% of the whole
+//     `bun run test` wall clock — for zero gate value, and the timeout comment
+//     conceded it was already flaking under pool contention.
+//   - It was a FALSE RED in the mandated agent workflow. `web/` is not a bun
+//     workspace, so a fresh `git worktree add` + `bun install` leaves
+//     `web/node_modules` absent and this file exits 1 in 0.9s on a tree with
+//     nothing wrong with it. Measured, in this worktree, before installing.
+//
+// Everything above this line is pure form logic and needs none of that.

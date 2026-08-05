@@ -36,6 +36,35 @@ let db: ReturnType<typeof drizzle<typeof schema>>;
 // mutates then asserts, e.g. queries-lessons, would fail if it did.)
 let migratedSnapshot: Blob | File | undefined;
 
+/**
+ * In-flight handle for the ONE-TIME snapshot build, so it can be started at
+ * module scope and merely AWAITED from a hook.
+ *
+ * WHY: the build is a process-global cost (267 DDL statements, measured at
+ * 3340ms on an idle box against 426ms for a warm restore) and it used to be
+ * triggered lazily by whichever `beforeAll`/`beforeEach` called setupTestDb()
+ * first. That charged 3.3s of a one-time migration to a per-TEST budget it has
+ * nothing to do with — bun's default is 5s, so the first test in every
+ * DB-touching file started 67% of the way through its own timeout, and under
+ * load it is always the first test that dies. The reported symptom is useless
+ * too: bun names the victim ("a workflow created with no ownership is …" or
+ * just "(unnamed)"), never the migration.
+ *
+ * `primeMigratedSnapshot()` is called from `mockDbConnection()`, which every
+ * DB-using suite already calls at MODULE level, before any hook exists. The
+ * build then overlaps the rest of module load instead of starting inside a
+ * hook, and `setupTestDb()` awaits whatever is left.
+ *
+ * NOT a timeout change. The budget is untouched; the work simply stops being
+ * charged to a test that never asked for it.
+ */
+let snapshotBuild: Promise<Blob | File> | undefined;
+
+function primeMigratedSnapshot(): Promise<Blob | File> {
+  snapshotBuild ??= buildMigratedSnapshot();
+  return snapshotBuild;
+}
+
 async function buildMigratedSnapshot(): Promise<Blob | File> {
   const seed = new PGlite({ extensions: EXTENSIONS });
   await seed.waitReady;
@@ -58,7 +87,9 @@ export async function setupTestDb() {
   await applyPgliteNulPatches();
 
   if (pglite) await pglite.close().catch(() => {});
-  if (!migratedSnapshot) migratedSnapshot = await buildMigratedSnapshot();
+  // Awaits the build primed at module scope by mockDbConnection(); starts it
+  // here if this caller never mocked the connection.
+  migratedSnapshot ??= await primeMigratedSnapshot();
   pglite = new PGlite({ loadDataDir: migratedSnapshot, extensions: EXTENSIONS });
   await pglite.waitReady;
   db = drizzle(pglite, { schema });
@@ -80,6 +111,12 @@ export async function closeTestDb() {
 
 // Must be called at module level BEFORE importing any modules that use db/connection
 export function mockDbConnection() {
+  // This call is the suite DECLARING it needs the test DB, and it happens at
+  // module scope — so start the one-time migration now rather than letting the
+  // first hook trigger and pay for it. See `primeMigratedSnapshot`. The stored
+  // promise keeps its rejection for setupTestDb() to surface; this detached
+  // handler only stops an early failure from being an unhandled rejection.
+  primeMigratedSnapshot().catch(() => undefined);
   mock.module("../../db/connection", () => ({
     getDb: () => {
       if (!db) throw new Error("Test DB not initialized — call setupTestDb() first");
