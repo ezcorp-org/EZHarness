@@ -1,4 +1,4 @@
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, and, desc, isNull, sql } from "drizzle-orm";
 import { getDb } from "../connection";
 import { knowledgeBaseFiles, knowledgeBaseChunks } from "../schema";
 import type { KBFile, NewKBFile, KBChunk, NewKBChunk } from "../schema";
@@ -39,6 +39,66 @@ export async function deleteKBFile(id: string): Promise<boolean> {
   const db = getDb();
   const rows = await db.delete(knowledgeBaseFiles).where(eq(knowledgeBaseFiles.id, id)).returning();
   return rows.length > 0;
+}
+
+/**
+ * Share a file with its project: null the owner, recording who it came from.
+ *
+ * `user_id = NULL` IS the sharing mechanism (anchor `KB-SHARED-NULL-OWNER`),
+ * so this one UPDATE is the whole state change — retrieval and both read
+ * surfaces pick it up with no further edits. `shared_by` is provenance for the
+ * inverse operation and is never read by a visibility predicate.
+ *
+ * The ownership test lives in the WHERE clause, not in the caller, and that is
+ * load-bearing rather than stylistic: the route reads the row, decides, and
+ * then writes, so a concurrent share/delete could land in between. Conditioning
+ * the UPDATE on `user_id = ownerId` makes the decision and the write one
+ * statement — a lost race writes nothing and returns `undefined` instead of
+ * publishing a row whose owner changed underneath the check.
+ *
+ * @returns the updated row, or `undefined` if `ownerId` no longer owns it.
+ */
+export async function shareKBFile(id: string, ownerId: string): Promise<KBFile | undefined> {
+  const db = getDb();
+  const rows = await db
+    .update(knowledgeBaseFiles)
+    .set({ userId: null, sharedBy: ownerId })
+    .where(and(eq(knowledgeBaseFiles.id, id), eq(knowledgeBaseFiles.userId, ownerId)))
+    .returning();
+  return rows[0];
+}
+
+/**
+ * Take a shared file back out of the project, returning it to `restoreTo`.
+ *
+ * `restoreTo` is the row's own `shared_by` — the ORIGINAL owner — never the
+ * caller. An instance admin may invoke this (un-sharing only narrows exposure)
+ * and still cannot end up owning the file, so the escape hatch is not a way to
+ * take one.
+ *
+ * Guarded in SQL for the same reason as {@link shareKBFile}, and with the
+ * `shared_by = restoreTo` term doing real work: it pins the row to the exact
+ * provenance the route authorized against, so a re-share by someone else
+ * between the read and the write cannot be silently redirected to the wrong
+ * owner. `user_id IS NULL` is re-checked here too, so an already-un-shared row
+ * cannot have its owner overwritten.
+ *
+ * @returns the updated row, or `undefined` if the row moved under the check.
+ */
+export async function unshareKBFile(id: string, restoreTo: string): Promise<KBFile | undefined> {
+  const db = getDb();
+  const rows = await db
+    .update(knowledgeBaseFiles)
+    .set({ userId: restoreTo, sharedBy: null })
+    .where(
+      and(
+        eq(knowledgeBaseFiles.id, id),
+        isNull(knowledgeBaseFiles.userId),
+        eq(knowledgeBaseFiles.sharedBy, restoreTo),
+      ),
+    )
+    .returning();
+  return rows[0];
 }
 
 export async function insertKBChunk(data: NewKBChunk): Promise<KBChunk> {

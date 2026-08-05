@@ -1327,6 +1327,24 @@ export const knowledgeBaseFiles = pgTable("knowledge_base_files", {
   chunkCount: integer("chunk_count").notNull().default(0),
   status: text("status").notNull().default("processing").$type<"processing" | "ready" | "error">(),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  /**
+   * Who shared this file — PROVENANCE ONLY, never an access predicate.
+   *
+   * `user_id IS NULL` remains the knowledge base's ONE signal for "shared"
+   * (anchor `KB-SHARED-NULL-OWNER`); nothing reads this column to decide who
+   * may see a row, and `searchKBChunks` / `hasKBChunks` do not mention it. It
+   * exists because nulling `user_id` destroys the only record of whom the file
+   * came from, and *un*-sharing has to hand it back to someone. Without it the
+   * only implementable un-share is "give it to whoever clicked", which lets any
+   * member take exclusive ownership of a file someone else shared.
+   *
+   * Set when `POST /api/knowledge-base/[id]/share` nulls the owner; cleared
+   * when `DELETE` on the same path restores them. `ON DELETE SET NULL` matches
+   * `user_id`: if the sharer's account is deleted the file stays shared and
+   * simply becomes un-shareable by anyone but an operator — the same
+   * fail-closed shape a legacy ownerless row has.
+   */
+  sharedBy: text("shared_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

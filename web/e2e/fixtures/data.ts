@@ -242,6 +242,15 @@ export interface KBFileData {
 	chunkCount: number;
 	status: "processing" | "ready" | "error";
 	createdAt: string;
+	/**
+	 * Sharing state, as `GET /api/knowledge-base` derives it server-side from
+	 * `src/memory/kb-sharing.ts`. Mirrored here so a spec can set up "a file I
+	 * may share" / "a file someone else shared" without inventing the rule.
+	 */
+	shared?: boolean;
+	sharedByYou?: boolean;
+	canShare?: boolean;
+	canUnshare?: boolean;
 }
 
 export function makeMemory(overrides: Partial<MemoryData> = {}): MemoryData {
@@ -279,6 +288,11 @@ export function makeKBFile(overrides: Partial<KBFileData> = {}): KBFileData {
 		chunkCount: 3,
 		status: "ready",
 		createdAt: "2026-01-01T00:00:00.000Z",
+		// Default: your own un-shared upload — the state the Share button is for.
+		shared: false,
+		sharedByYou: false,
+		canShare: true,
+		canUnshare: false,
 		...overrides,
 	};
 }

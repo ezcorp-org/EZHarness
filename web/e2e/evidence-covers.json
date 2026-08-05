@@ -126,6 +126,9 @@
     "web/src/lib/components/hub/**/*.svelte",
     "web/src/routes/(app)/+layout.svelte"
   ],
+  "web/e2e/knowledge-base.spec.ts": [
+    "web/src/lib/components/KnowledgeBaseTab.svelte"
+  ],
   "web/e2e/loops-kill-switch.spec.ts": [
     "web/src/routes/(app)/settings/admin/+page.svelte"
   ],

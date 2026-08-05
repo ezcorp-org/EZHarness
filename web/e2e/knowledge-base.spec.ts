@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeKBFile } from "./fixtures/data.js";
 
 test.describe("Knowledge Base Tab", () => {
@@ -30,6 +30,14 @@ test.describe("Knowledge Base Tab", () => {
 	test("knowledge base tab shows empty state without project", async ({ page, mockApi }) => {
 		await mockApi({ projects: [proj] });
 		await page.goto("/memories");
+		// `store.activeProjectId` falls back to the "global" literal when the key
+		// is ABSENT (`localStorage.getItem(...) ?? "global"`), which is truthy and
+		// renders the tab normally. An empty string is the one value that reaches
+		// the no-project branch — so it has to be written explicitly. Without
+		// this the test asserted a message the page could never show and had been
+		// failing red; `?? ` does not coalesce `""`.
+		await page.evaluate(() => localStorage.setItem("activeProjectId", ""));
+		await page.reload();
 
 		await page.getByText("Knowledge Base").click();
 
@@ -119,6 +127,148 @@ test.describe("Knowledge Base Tab", () => {
 
 		await expect(page.getByText("broken.md")).toBeVisible();
 		await expect(page.getByText("Error")).toBeVisible();
+	});
+
+	// ── Sharing a file with the project ──────────────────────────────────
+	//
+	// `user_id IS NULL` has always been the knowledge base's one sharing
+	// mechanism; until now nothing in the product could produce such a row, so
+	// a member's upload reached nobody else. These cover the verb that closes
+	// that gap, and — just as importantly — that the buttons are drawn from the
+	// SERVER's `canShare` / `canUnshare` rather than guessed at client-side.
+
+	test("share button posts and the row flips to Shared", async ({ page, mockApi }) => {
+		const file = makeKBFile({ filename: "handbook.md", canShare: true });
+		await mockApi({ projects: [proj], kbFiles: [file] });
+		await goToMemoriesWithProject(page);
+		await page.getByText("Knowledge Base").click();
+
+		await expect(page.getByText("handbook.md")).toBeVisible();
+		await expect(page.getByRole("button", { name: "Share", exact: true })).toBeVisible();
+		// Not shared yet, so no badge.
+		await expect(page.getByText("Shared by you")).toHaveCount(0);
+
+		const shareRequest = page.waitForRequest(
+			(r) => r.url().includes("/share") && r.method() === "POST",
+		);
+		await page.getByRole("button", { name: "Share", exact: true }).click();
+		await shareRequest;
+
+		// The badge and the inverse action both appear off the re-fetch.
+		await expect(page.getByText("Shared by you")).toBeVisible();
+		await expect(page.getByRole("button", { name: "Unshare" })).toBeVisible();
+	});
+
+	test("unshare takes the file back out of the project", async ({ page, mockApi }) => {
+		const file = makeKBFile({
+			filename: "handbook.md",
+			shared: true,
+			sharedByYou: true,
+			canShare: false,
+			canUnshare: true,
+		});
+		await mockApi({ projects: [proj], kbFiles: [file] });
+		await goToMemoriesWithProject(page);
+		await page.getByText("Knowledge Base").click();
+
+		await expect(page.getByText("Shared by you")).toBeVisible();
+
+		const unshareRequest = page.waitForRequest(
+			(r) => r.url().includes("/share") && r.method() === "DELETE",
+		);
+		await page.getByRole("button", { name: "Unshare" }).click();
+		await unshareRequest;
+
+		await expect(page.getByText("Shared by you")).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "Share", exact: true })).toBeVisible();
+	});
+
+	test("a file shared by someone else shows the badge but offers no button", async ({
+		page,
+		mockApi,
+	}) => {
+		// The authorization rule, as the UI must render it: sharing is the
+		// owner's call and un-sharing is the sharer's, so a bystander gets the
+		// information without the verb. A visible-but-403 button would be the
+		// bug here.
+		const file = makeKBFile({
+			filename: "team-handbook.md",
+			shared: true,
+			sharedByYou: false,
+			canShare: false,
+			canUnshare: false,
+		});
+		await mockApi({ projects: [proj], kbFiles: [file] });
+		await goToMemoriesWithProject(page);
+		await page.getByText("Knowledge Base").click();
+
+		await expect(page.getByText("team-handbook.md")).toBeVisible();
+		await expect(page.getByText("Shared", { exact: true })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Share", exact: true })).toHaveCount(0);
+		await expect(page.getByRole("button", { name: "Unshare" })).toHaveCount(0);
+		// Delete is untouched by sharing and stays where it was.
+		await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
+	});
+
+	test("a refused share surfaces the server's reason instead of failing silently", async ({
+		page,
+		mockApi,
+	}) => {
+		const file = makeKBFile({ filename: "handbook.md", canShare: true });
+		await mockApi({ projects: [proj], kbFiles: [file] });
+		await goToMemoriesWithProject(page);
+		await page.getByText("Knowledge Base").click();
+		await expect(page.getByText("handbook.md")).toBeVisible();
+
+		await page.route("**/api/knowledge-base/*/share", (route) =>
+			route.fulfill({ status: 403, json: { error: "Forbidden" } }),
+		);
+		await page.getByRole("button", { name: "Share", exact: true }).click();
+
+		await expect(page.getByTestId("kb-share-error")).toHaveText("Forbidden");
+		// …and the row did NOT optimistically claim to be shared.
+		await expect(page.getByText("Shared by you")).toHaveCount(0);
+	});
+
+	test("@evidence knowledge base sharing controls", async ({ page, mockApi }, testInfo) => {
+		// One frame covering all three states the sharing UI can be in, so a
+		// reviewer can see the badge/button pairing without running the app.
+		await mockApi({
+			projects: [proj],
+			kbFiles: [
+				makeKBFile({ id: "kb-mine", filename: "my-notes.md", fileSize: 2048, chunkCount: 3 }),
+				makeKBFile({
+					id: "kb-shared-by-me",
+					filename: "handbook.md",
+					fileSize: 8192,
+					chunkCount: 12,
+					shared: true,
+					sharedByYou: true,
+					canShare: false,
+					canUnshare: true,
+				}),
+				makeKBFile({
+					id: "kb-shared-by-them",
+					filename: "team-standards.md",
+					fileSize: 4096,
+					chunkCount: 7,
+					shared: true,
+					sharedByYou: false,
+					canShare: false,
+					canUnshare: false,
+				}),
+			],
+		});
+		await goToMemoriesWithProject(page);
+		await page.getByText("Knowledge Base").click();
+
+		await expect(page.getByText("my-notes.md")).toBeVisible();
+		await expect(page.getByText("Shared by you")).toBeVisible();
+		await expect(page.getByText("Shared", { exact: true })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Share", exact: true })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Unshare" })).toBeVisible();
+
+		await captureEvidence(page, testInfo, "kb-sharing-controls");
 	});
 
 	test("rejected file type shows error message", async ({ page, mockApi }) => {

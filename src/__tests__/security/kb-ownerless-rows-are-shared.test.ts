@@ -91,6 +91,13 @@ const authMiddlewareMock = () => ({
     if (!locals?.user) throw new Response("Unauthorized", { status: 401 });
     return locals.user;
   },
+  // The list route consults project membership to decide whether to OFFER the
+  // Share button (`canShare`); it never gates visibility on it. This suite runs
+  // against an in-memory KB store with no database at all, and membership is a
+  // separate axis with its own suite (`kb-file-sharing-api.test.ts`), so it is
+  // neutralised here — exactly like `requireScope` above — and cannot
+  // masquerade as an ownership result.
+  checkProjectRole: async (locals: any) => locals?.user,
 });
 mock.module("$server/auth/middleware", authMiddlewareMock);
 mock.module("../../auth/middleware", authMiddlewareMock);

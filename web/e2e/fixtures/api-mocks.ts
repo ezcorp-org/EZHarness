@@ -1278,6 +1278,26 @@ export async function setupApiMocks(page: Page, overrides: MockOverrides = {}) {
 		if (path.match(/^\/api\/knowledge-base\/[^/]+$/) && method === "DELETE") {
 			return route.fulfill({ status: 204, body: "" });
 		}
+		// Share / un-share. Mutates the fixture in place so the component's
+		// re-fetch sees the new state, and flips the derived booleans the same
+		// way `describeKBFileSharing` does server-side — a mock that only
+		// returned 200 would let a spec "pass" while the UI never updated.
+		{
+			const shareMatch = path.match(/^\/api\/knowledge-base\/([^/]+)\/share$/);
+			if (shareMatch && (method === "POST" || method === "DELETE")) {
+				const target = kbFiles.find((f) => f.id === shareMatch[1]);
+				if (!target) return route.fulfill({ status: 404, json: { error: "Knowledge base file not found" } });
+				const sharing = method === "POST";
+				if (sharing ? !target.canShare : !target.canUnshare) {
+					return route.fulfill({ status: 403, json: { error: "Not allowed to change sharing for this file" } });
+				}
+				target.shared = sharing;
+				target.sharedByYou = sharing;
+				target.canShare = !sharing;
+				target.canUnshare = sharing;
+				return route.fulfill({ json: { ...target } });
+			}
+		}
 		if (path === "/api/knowledge-base" && method === "POST") {
 			return route.fulfill({ status: 201, json: { id: "kb-new", status: "processing" } });
 		}

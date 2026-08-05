@@ -589,6 +589,15 @@ export async function migrate(db: any): Promise<void> {
   await db.execute(sql`ALTER TABLE memories ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
   await db.execute(sql`ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
   await db.execute(sql`ALTER TABLE knowledge_base_files ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
+  // Sharing provenance. NOT an access predicate — `user_id IS NULL` is still the
+  // only "shared" signal (see `knowledgeBaseFiles.sharedBy` in schema.ts). It
+  // records whom `POST /api/knowledge-base/[id]/share` took the file from, so
+  // un-sharing can give it back to them instead of to whoever clicked.
+  // Deliberately NOT backfilled: rows that were already ownerless when this
+  // shipped have no recoverable owner, and inventing one would hand a stranger's
+  // document to the first admin — exactly the un-sharing-by-restart bug that
+  // `claim-ownerless-kb-files-once.ts` exists to stop. They stay un-shareable.
+  await db.execute(sql`ALTER TABLE knowledge_base_files ADD COLUMN IF NOT EXISTS shared_by TEXT REFERENCES users(id) ON DELETE SET NULL`);
 
   // Phase 8 Plan 03: Backfill ownerless data to first admin user (idempotent)
   try {

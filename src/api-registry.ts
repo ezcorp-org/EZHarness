@@ -242,6 +242,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/knowledge-base", description: "Upload file to knowledge base (multipart)", category: "knowledge-base", scope: "write" },
   { method: "GET", path: "/api/knowledge-base/:id", description: "Get knowledge base file details", category: "knowledge-base", scope: "read" },
   { method: "DELETE", path: "/api/knowledge-base/:id", description: "Delete knowledge base file", category: "knowledge-base", scope: "write" },
+  { method: "POST", path: "/api/knowledge-base/:id/share", description: "Share a knowledge base file with its project (owner + project member only)", category: "knowledge-base", scope: "write" },
+  { method: "DELETE", path: "/api/knowledge-base/:id/share", description: "Un-share a knowledge base file, returning it to its original owner", category: "knowledge-base", scope: "write" },
 
   // Memories
   { method: "GET", path: "/api/memories", description: "Search and list memories", category: "memories", scope: "read" },

@@ -52,6 +52,10 @@ mockEmbeddingsModule();
 mockServerAlias();
 
 mock.module("../../../web/src/routes/api/knowledge-base/[id]/$types", () => ({}));
+mock.module("../../../web/src/routes/api/knowledge-base/[id]/share/$types", () => ({}));
+mock.module("$lib/server/http-errors", () =>
+  require("../../../web/src/lib/server/http-errors"),
+);
 
 // The scope axis (`requireScope`) has its own suites; neutralised so a scope
 // failure can never masquerade as an ownership result.
@@ -59,7 +63,13 @@ const apiKeysMock = () => ({ requireScope: () => null });
 mock.module("$lib/server/security/api-keys", apiKeysMock);
 mock.module("../../../web/src/lib/server/security/api-keys", apiKeysMock);
 
+// Only `requireAuth` is stubbed (these events carry a plain user object, not a
+// real session). `checkProjectRole` — the membership gate the share route
+// applies — is the REAL one, running against the same PGlite, so nothing about
+// who may share is faked here.
+const realAuthMiddleware = await import("../../auth/middleware");
 const authMiddlewareMock = () => ({
+  ...realAuthMiddleware,
   requireAuth: (locals: any) => {
     if (!locals?.user) throw new Response("Unauthorized", { status: 401 });
     return locals.user;
@@ -73,7 +83,11 @@ const { insertKBFile, updateKBFile, insertKBChunk, hasKBChunks } =
 const { searchKBChunksForQuery } = await import("../../memory/retrieval");
 const { createProject } = await import("../../db/queries/projects");
 const { createUser } = await import("../../db/queries/users");
+const { upsertProjectMember } = await import("../../db/queries/project-members");
 const { GET: kbDetail } = await import("../../../web/src/routes/api/knowledge-base/[id]/+server");
+const { POST: kbShare, DELETE: kbUnshare } = await import(
+  "../../../web/src/routes/api/knowledge-base/[id]/share/+server"
+);
 
 const SHARED_TEXT = "shared-handbook-chunk";
 const PRIVATE_TEXT = "uploader-private-chunk";
@@ -121,6 +135,9 @@ beforeAll(async () => {
 
   sharedFileId = await readyFileWithChunk(projectId, "team-handbook.md", SHARED_TEXT, null);
   ownedFileId = await readyFileWithChunk(projectId, "uploader-private.md", PRIVATE_TEXT, uploader.id);
+
+  // The share route gates on real project membership (PR #89).
+  for (const u of [uploader, other]) await upsertProjectMember(projectId, u.id, "member");
 });
 
 afterAll(async () => {
@@ -231,6 +248,93 @@ describe("BEHAVIOUR: the project boundary still holds on top of the user boundar
   test("the owner's own file does not leak into a different project's retrieval", async () => {
     const texts = await retrievedBy(uploader.id, otherProjectId);
     expect(texts.size).toBe(0);
+  });
+});
+
+// ── (B2) The invariant survives the SHARE verb ────────────────────
+//
+// Everything above proves the rule against rows a fixture wrote. Users can now
+// produce ownerless rows themselves, through
+// `POST /api/knowledge-base/[id]/share`. These tests re-run the equivalence on
+// state the PRODUCT created, and — the part a fixture can never show — across
+// the transition in both directions. Sharing is the one operation that MOVES a
+// file between the two sides of this boundary, so if the mechanism and the
+// predicate were ever to come apart, this is where it would show.
+
+/** Drive the real share/un-share handler for `user` on `id`. */
+async function callShare(handler: unknown, id: string, user: unknown): Promise<Response> {
+  try {
+    return (await (handler as any)(
+      createMockEvent({
+        url: `http://localhost/api/knowledge-base/${id}/share`,
+        params: { id },
+        user: user as any,
+      }),
+    )) as Response;
+  } catch (e) {
+    if (e instanceof Response) return e;
+    throw e;
+  }
+}
+
+describe("BEHAVIOUR: sharing a file through the API moves it across the SAME boundary retrieval reads", () => {
+  const NEW_TEXT = "newly-shared-chunk";
+  let newFileId: string;
+
+  test("before sharing: the uploader's file reaches only the uploader, on both surfaces", async () => {
+    newFileId = await readyFileWithChunk(projectId, "to-share.md", NEW_TEXT, uploader.id);
+
+    expect((await retrievedBy(uploader.id)).has(NEW_TEXT)).toBe(true);
+    expect((await retrievedBy(other.id)).has(NEW_TEXT)).toBe(false);
+    expect(await detailReadableFor(other, newFileId)).toBe(false);
+  });
+
+  test("POST /share: retrieval AND the API open to everyone, in the same step", async () => {
+    // No second signal is written — the route nulls `user_id`, which is the
+    // predicate both surfaces and `visibleReadyFileIds` already read. That is
+    // exactly why sharing needed no change to any of them.
+    expect((await callShare(kbShare, newFileId, uploader)).status).toBe(200);
+
+    for (const caller of [uploader, other, admin]) {
+      const injected = (await retrievedBy(caller.id)).has(NEW_TEXT);
+      const readable = await detailReadableFor(caller, newFileId);
+      expect({ caller: caller.name, injected, readable }).toEqual({
+        caller: caller.name, injected: true, readable: true,
+      });
+    }
+    // And a null actor (agent/CLI run) too — an ownerless row is ownerless for
+    // everybody, with no special case for "no user".
+    expect((await retrievedBy(null)).has(NEW_TEXT)).toBe(true);
+  });
+
+  test("DELETE /share: both surfaces close again, in the same step", async () => {
+    expect((await callShare(kbUnshare, newFileId, uploader)).status).toBe(200);
+
+    for (const caller of [other, admin]) {
+      const injected = (await retrievedBy(caller.id)).has(NEW_TEXT);
+      const readable = await detailReadableFor(caller, newFileId);
+      expect({ caller: caller.name, injected, readable }).toEqual({
+        caller: caller.name, injected: false, readable: false,
+      });
+    }
+    // The file went back to its ORIGINAL owner — un-sharing is not a transfer.
+    expect((await retrievedBy(uploader.id)).has(NEW_TEXT)).toBe(true);
+    expect(await detailReadableFor(uploader, newFileId)).toBe(true);
+    expect((await retrievedBy(null)).has(NEW_TEXT)).toBe(false);
+  });
+
+  test("a member cannot use the share verb to publish someone ELSE's file", async () => {
+    // The confidentiality fix, re-asserted at the new write surface: if this
+    // ever returns 2xx, `other` has just injected the uploader's private
+    // document into every member's prompt — the precise defect (A) closed.
+    const before = await retrievedBy(other.id);
+    expect((await callShare(kbShare, ownedFileId, other)).status).toBe(404);
+    expect((await callShare(kbShare, ownedFileId, admin)).status).toBe(404);
+
+    const after = await retrievedBy(other.id);
+    expect([...after].sort()).toEqual([...before].sort());
+    expect(after.has(PRIVATE_TEXT)).toBe(false);
+    expect(await detailReadableFor(other, ownedFileId)).toBe(false);
   });
 });
 
