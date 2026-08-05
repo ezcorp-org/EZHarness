@@ -438,7 +438,7 @@ function boundsLabel(bounds: { maxRunsPerDay: number; maxTokensPerRun: number })
  * of the sink (invariant J).
  */
 export const BACKGROUND_TRIGGER_NOTE =
-  "Saved, not yet armed — a background trigger fires only after someone authorizes it in the workflow UI. Until then this job runs when Run is pressed.";
+  "Saved, not yet armed — the schedule is registered, but a background fire runs as a person, so it does nothing until someone authorizes it in the workflow UI. Until then this job runs when Run is pressed.";
 
 /**
  * A job `input` value rendered for a table cell or a form prefill.

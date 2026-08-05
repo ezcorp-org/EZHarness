@@ -99,6 +99,35 @@ function jobsTree(opts: { jobs?: boolean } = {}) {
                       cells: ["ETL nightly", "etl-factory", "manual", "—", "○ disabled", "—"],
                       href: `/hub/${encodeURIComponent(JOB)}?view=job%3Aj2`,
                     },
+                    // A CRON job whose last unattended fire was refused
+                    // because the authority behind it went stale. The cell
+                    // is what `jobStateCell` emits for
+                    // `lastFire.kind === "consent"`.
+                    {
+                      cells: [
+                        "Weekly ETL",
+                        "etl-factory",
+                        "cron · 0 3 * * * · UTC · ≤5/day · ≤100000 tok/run",
+                        "globs=src/**/*.ts",
+                        { text: "✓ enabled · consent stale — re-authorize", tone: "warning" },
+                        "2026-08-01 12:00 · success",
+                      ],
+                      href: `/hub/${encodeURIComponent(JOB)}?view=job%3Aj3`,
+                    },
+                    // …and one stopped by a BOUND rather than by anything
+                    // being wrong. Deliberately untoned: a red cell here
+                    // would train operators to ignore red cells.
+                    {
+                      cells: [
+                        "Chatty ETL",
+                        "etl-factory",
+                        "cron · 0 * * * * · UTC · ≤5/day · ≤100000 tok/run",
+                        "globs=src/**/*.ts",
+                        "✓ enabled · paused by a limit",
+                        "2026-08-01 12:00 · success",
+                      ],
+                      href: `/hub/${encodeURIComponent(JOB)}?view=job%3Aj4`,
+                    },
                   ],
                 },
               ]
@@ -246,10 +275,52 @@ test.describe("ez-factory console", () => {
     await expect(page.getByTestId("hub-node-stats")).toContainText("Jobs");
     // Jobs are global-scope with no per-job owner check; the page has to say so.
     await expect(page.getByTestId("hub-node-markdown")).toContainText("install-wide");
-    await expect(page.getByTestId("hub-table-row")).toHaveCount(2);
+    await expect(page.getByTestId("hub-table-row")).toHaveCount(4);
     await expect(page.getByTestId("hub-node-table")).toContainText("Nightly docs");
     await expect(page.getByTestId("hub-node-table")).toContainText("✓ enabled");
     await expect(page.getByTestId("hub-node-table")).toContainText("○ disabled");
+  });
+
+  test("a job stopped by a STALE CONSENT says so, and differently from one a limit paused", async ({
+    page,
+    mockApi,
+  }) => {
+    // The operator-facing half of the unattended fire path. A cron job that
+    // stops firing used to render exactly like one whose next tick had not
+    // come round — and the two reasons that matter most had the SAME
+    // appearance: "the authority you granted went stale, re-consent it" and
+    // "a bound you chose paused it, nothing is wrong".
+    //
+    // The strings are produced by `jobStateCell`
+    // (`extensions/ez-factory/lib/page.ts`) from a closed set this
+    // extension authors; this asserts they survive the real Hub shell,
+    // including the TONE, which is the part a builder unit test cannot see.
+    await mockApi({ projects: [proj] });
+    await routeConsole(page);
+    await page.goto(`/hub/${encodeURIComponent(FACTORY)}`);
+
+    const table = page.getByTestId("hub-node-table");
+    await expect(table).toContainText("consent stale — re-authorize");
+    await expect(table).toContainText("paused by a limit");
+
+    // TONED differently, not merely worded differently — the shell puts the
+    // cell's tone on `data-tone`, so this is the colour an operator sees.
+    // The one that needs a human draws the eye; the one that is a bound
+    // working as configured does not.
+    const staleRow = page.getByTestId("hub-table-row").filter({ hasText: "Weekly ETL" });
+    const quotaRow = page.getByTestId("hub-table-row").filter({ hasText: "Chatty ETL" });
+    await expect(
+      staleRow.getByTestId("hub-table-cell").filter({ hasText: "consent stale" }),
+    ).toHaveAttribute("data-tone", "warning");
+    await expect(
+      quotaRow.getByTestId("hub-table-cell").filter({ hasText: "paused by a limit" }),
+    ).toHaveAttribute("data-tone", "neutral");
+
+    // And a healthy job carries no fire state at all — silence means
+    // working, so the notice only ever appears when something needs saying.
+    const healthy = page.getByTestId("hub-table-row").filter({ hasText: "Nightly docs" });
+    await expect(healthy).not.toContainText("consent stale");
+    await expect(healthy).not.toContainText("paused by a limit");
   });
 
   test("an empty install renders the empty state and NO table", async ({ page, mockApi }) => {
