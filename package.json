@@ -31,7 +31,7 @@
     "lint:fix": "bun run lint --write"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.13",
+    "@biomejs/biome": "2.5.6",
     "@types/bun": "latest",
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.6.0",
@@ -41,14 +41,14 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "^0.80.6",
-    "@earendil-works/pi-ai": "^0.80.6",
-    "@electric-sql/pglite": "^0.3.15",
+    "@earendil-works/pi-agent-core": "^0.82.1",
+    "@earendil-works/pi-ai": "^0.82.1",
+    "@electric-sql/pglite": "^0.5.4",
     "@ezcorp/ai-kit": "workspace:*",
     "@ezcorp/harness-client": "workspace:*",
     "@ezcorp/sdk": "workspace:*",
     "@huggingface/transformers": "^3.8.1",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "@zxing/library": "^0.23.0",
     "drizzle-orm": "^0.45.2",
     "exceljs": "^4.4.0",
@@ -56,6 +56,6 @@
     "file-type": "^22.0.1",
     "jpeg-js": "^0.4.4",
     "pdf-parse": "^2.4.5",
-    "yaml": "^2.8.2"
+    "yaml": "^2.9.0"
   }
 }
