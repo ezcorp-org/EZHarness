@@ -90,10 +90,32 @@ Three runners; use the wrapper scripts, not raw `bun test` at the root.
   tier `web/playwright.real.config.ts` + `PI_E2E_REAL=1`.
 - **Coverage** — `bun run test:coverage` → sharded bun coverage + package legs
   + a Node-run Vitest leg, merged into `coverage/lcov.info` and gated against
-  `coverage-thresholds.json`.
+  `coverage-thresholds.json`. **It reports two verdicts and three exit codes:**
+  `0` = coverage passed and no test failed; `1` = the COVERAGE verdict failed
+  (thresholds, a gating leg, a dead producer); `2` = coverage passed but TESTS
+  FAILED. Read the code, not just "non-zero" — and never read `0` off a run
+  whose banner says `N fail`. It used to exit 0 in exactly that case.
 
 Write backend/unit tests with `bun:test`. Lint and typecheck are separate:
 `bun run lint` (biome) and `bun run typecheck`.
+
+**A fresh worktree needs TWO installs, and skipping the second looks like a
+code failure.** `web` is NOT a bun workspace (`workspaces` is only
+`packages/@ezcorp/*`), so a root `bun install` leaves `web/node_modules` empty
+and `web/.svelte-kit` ungenerated. Run both:
+
+```sh
+bun install --frozen-lockfile && bun install --cwd web --frozen-lockfile
+```
+
+Measured, because the symptoms do not name their cause: without the `web`
+install, `bun run test:coverage` on a clean `main` reported **157 failing
+files** and killed two coverage legs with
+`could not determine executable to run for package svelte-kit`; the same
+commit after both installs is `22967 pass | 0 fail`. `bun run typecheck` fails
+the same way, as implicit-`any` errors plus a missing `.svelte-kit/tsconfig.json`.
+Two agents lost time to this in one day. If a fresh worktree reds broadly,
+check `ls web/node_modules` before you debug a single test.
 
 **What the gate costs — measured, so don't estimate it.** On a 32-core / 30 GB
 box with six other agents running (1273 backend files): `bun run test` is

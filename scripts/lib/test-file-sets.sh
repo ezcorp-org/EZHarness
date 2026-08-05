@@ -8,7 +8,10 @@
 # drift between the per-file isolation runners: default_parallel is used by
 # all four (test.sh, test-web.sh, test-coverage.sh, security-coverage.sh);
 # summary_count by the three that parse bun summaries; collect_pool_results
-# by test.sh + test-web.sh (test-coverage.sh has its own P-gate collection).
+# by test.sh + test-web.sh (test-coverage.sh has its own P-gate collection);
+# and gate_host_failures by BOTH of test-coverage.sh's host-pool modes — it
+# is the one definition of whether a host-pool failure reds the run, and it
+# is a question about P-membership, so it belongs beside passfail_files.
 #
 # Two sets are defined:
 #   P (passfail_files)      — the per-file mock.module-isolated backend pool
@@ -481,6 +484,84 @@ check_leg_lcov() {
     echo "::error::$leg coverage leg produced no lcov output (infrastructure failure) — expected ${LEG_COV_DIR[$leg]}/lcov.info"
   done
   return 1
+}
+
+# ── host-pool pass/fail gate ────────────────────────────────────────────────
+# ONE definition of "does a host-pool failure red this run", shared by BOTH
+# modes of scripts/test-coverage.sh that run the host pool: host-shard (CI)
+# and full (local). It lives here, beside passfail_files, because the whole
+# rule is a question about set membership in P.
+#
+# WHY IT IS SHARED: the rule was written inline in the shard branch and full
+# mode had NO equivalent at all — full mode printed its failing files under
+# the label "visibility only" and then exited on the COVERAGE verdict alone.
+# That is how `bun run test:coverage` came to print "22953 pass | 14 fail",
+# "Coverage gate PASSED", and exit 0 on the same run: the authoritative gate
+# reported a clean suite with fourteen red tests on screen. One definition
+# also means a full local run and a CI shard can never disagree about whether
+# a given file is red.
+#
+# THE RULE (unchanged from the host-shard design it was lifted from):
+#   - failures OUTSIDE P are TOLERATED and merely listed — the Per-file
+#     coverage gate's thresholds remain their only gate. C\P is the scoped web
+#     bun:test files, whose pass/fail home is `web-bun-tests` / vitest.
+#   - a failing P member is re-run ONCE — serially, isolated, PLAIN (no
+#     --coverage, no parallel siblings). Real breakage fails both runs; an
+#     instrumentation/contention flake (several backend suites are timing- and
+#     rate-limit-sensitive under --coverage) passes the clean re-run and is
+#     tolerated.
+#   - whatever still fails lands in STILL_FAILED, which each caller turns into
+#     its own mode's exit code (shard: 1; full: 2, "coverage passed, tests
+#     failed").
+#
+# Reads HOST_FAILED_FILES; sets STILL_FAILED; prints its own report.
+# Behaviour-tested in src/__tests__/coverage-leg-lcov-guard.test.ts against
+# this real function (stub `passfail_files` + a stub `bun` on PATH), never a
+# re-implementation.
+STILL_FAILED=()
+gate_host_failures() {
+  declare -A IN_P=()
+  while IFS= read -r pf; do IN_P["$pf"]=1; done < <(passfail_files)
+  local P_FAILED=() NONP_FAILED=() f RETRY_OUT RETRY_CODE
+  for f in "${HOST_FAILED_FILES[@]}"; do
+    if [ -n "${IN_P[$f]:-}" ]; then P_FAILED+=("$f"); else NONP_FAILED+=("$f"); fi
+  done
+
+  if [ "${#NONP_FAILED[@]}" -gt 0 ]; then
+    echo ""
+    echo "Failing non-gating files (TOLERATED — not in the pass/fail set P; thresholds are their gate):"
+    for f in "${NONP_FAILED[@]}"; do echo "  - $f"; done
+  fi
+
+  STILL_FAILED=()
+  if [ "${#P_FAILED[@]}" -gt 0 ]; then
+    echo ""
+    echo "Retry sweep: ${#P_FAILED[@]} failed pass/fail-set (P) file(s) — re-running each once, serial + isolated + PLAIN (no --coverage):"
+    for f in "${P_FAILED[@]}"; do
+      set +e
+      # Wall-clock watchdog: bun's per-test timeout can't catch a module-LOAD
+      # hang, so cap the whole re-run at 5 min — it reds fast instead of
+      # stalling to the job timeout (timeout(1) exits 124 → still-failing;
+      # -k 30 sends SIGKILL 30s after SIGTERM for a SIGTERM-immune hang,
+      # exit 137 → still-failing). If the timeout binary is missing, fall
+      # back to the plain run: the exit code still gates identically,
+      # nothing soft-passes.
+      if command -v timeout >/dev/null 2>&1; then
+        RETRY_OUT=$(timeout -k 30 300 bun test --timeout 30000 "./$f" 2>&1)
+      else
+        RETRY_OUT=$(bun test --timeout 30000 "./$f" 2>&1)
+      fi
+      RETRY_CODE=$?
+      set -e
+      if [ "$RETRY_CODE" = "0" ]; then
+        echo "  - $f: passed the isolated plain re-run (instrumentation/contention flake — tolerated)"
+      else
+        echo "  - $f: STILL FAILING after isolated re-run (exit $RETRY_CODE)"
+        echo "$RETRY_OUT" | tail -20 | sed 's/^/      /'
+        STILL_FAILED+=("$f")
+      fi
+    done
+  fi
 }
 
 # Extract the last "N pass" / "N fail" count from a bun test summary.
