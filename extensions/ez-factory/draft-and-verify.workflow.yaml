@@ -151,6 +151,49 @@ steps:
   # Higher `effort` than the writer on purpose: checking a draft against
   # its sources is the step whose mistakes are silent, and per-step effort
   # is exactly what lets one graph spend unevenly across its steps.
+  #
+  # ── `draft` addresses `.draft`, and that sub-path is the CHECK ───────
+  #
+  # Same drift as the `verdict` step below, one step earlier and with worse
+  # consequences. `$steps.revise.output` is the writer's `{draft, gaps}`
+  # ENVELOPE, not the document — all three seeded agents are
+  # `outputFormat: "json"` (`src/extensions/ez-factory-agents.ts`), so
+  # `configToAgent` parses and an agent step's output is an OBJECT. The
+  # bare form was right when an agent step's output was the raw LLM text
+  # and was falsified by an edit in another file.
+  #
+  # Passing the whole object is house style in two nearby places, so this
+  # is NOT "never hand an agent an object" — it is that the RECEIVER's
+  # contract decides. Here the receiver is the validator, and its seeded
+  # prompt is unambiguous: "check a draft against its sources", "verify
+  # every claim in the draft", and an `errors[]` of
+  # `{passage, problem}` where `passage` is "the draft passage at fault".
+  # A passage is a quotation FROM a document. Nothing in that contract
+  # mentions `gaps` or any wrapper. (Contrast `facts: $steps.extract.output`
+  # in `docs-factory`, kept whole because the WRITER's prompt does say
+  # "note the gap in the draft rather than inventing it"; and `verdict:`
+  # below, kept whole because `{valid, errors}` has no prose sub-path.)
+  #
+  # Handing over the envelope does not fail — it fails SILENTLY, which is
+  # the whole reason it is worse than the two sibling refs:
+  #   • `configToAgent` `JSON.stringify`s a non-string, so the model reads
+  #     one line of `draft: {"gaps":[…],"draft":"…"}` with the document
+  #     escaped inside it, and any `passage` it quotes back carries the
+  #     escapes and matches nothing in the real draft.
+  #   • `gaps` are the writer's SELF-REPORTED missing facts — by
+  #     construction things the sources do not support — fed to an agent
+  #     told "a claim the sources do not support is an error".
+  #   • the verdict is what `review` shows the human and what comes back as
+  #     `priorVerdict` on the next pass, and `docs-factory`'s loop branches
+  #     on the answer. A verdict about the wrong object is not a bad file,
+  #     it is a quiet false pass.
+  # Observed on a real run (`49051ac8`): `verify.resolvedInput.draft` was
+  # `{gaps: […], draft: "…"}` and the validator answered `valid: true`.
+  #
+  # The sub-path also buys strictness. `$steps.<step>.output.<field>` is a
+  # STRICT step-input ref (`workflow-refs.ts`), so a writer that stopped
+  # returning `draft` fails this step BY NAME. The bare form can never
+  # throw — it would just keep shipping whatever shape it got.
   - name: verify
     kind: agent
     agent: ez-factory validator
@@ -160,7 +203,10 @@ steps:
       effort: high
       maxTokens: 8000
     input:
-      draft: $steps.revise.output
+      draft: $steps.revise.output.draft
+      # `$input.sources`, deliberately NOT `$steps.…`: the validator checks
+      # the draft against the ORIGINAL sources, never against anything a
+      # previous step in this graph produced from them.
       sources: $input.sources
 
   # ── 4. The human decides ─────────────────────────────────────────────

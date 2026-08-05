@@ -36,11 +36,14 @@ import { describe, expect, test } from "bun:test";
 import { parse } from "yaml";
 
 import type {
+  AgentConfig,
+  AgentContext,
   AgentResult,
   WorkflowCondition,
   WorkflowDefinition,
   WorkflowStep,
 } from "../../src/types";
+import { configToAgent } from "../../src/runtime/config-to-agent";
 import { validateWorkflow } from "../../src/runtime/workflow-validator";
 import { loadExtensionWorkflows } from "../../src/runtime/workflow-extension-loader";
 import { namespacedWorkflowName } from "../../src/runtime/workflow-name";
@@ -50,7 +53,7 @@ import {
 } from "../../src/runtime/workflow-closure";
 import { MAX_STEP_OUTPUT_BYTES } from "../../src/runtime/workflow-step-output";
 import { VALID_MODEL_EFFORTS } from "../../src/runtime/workflow-model";
-import { hasTemplate, templateRefs } from "../../src/runtime/workflow-refs";
+import { hasTemplate, resolveMapping, templateRefs } from "../../src/runtime/workflow-refs";
 import { conditionRefs, evaluateCondition } from "../../src/runtime/workflow-condition";
 import type { RefContext } from "../../src/runtime/workflow-refs";
 import {
@@ -1672,5 +1675,399 @@ describe("ez-factory templates — the decision vocabulary fails closed", () => 
     const weak: WorkflowCondition = { ref: "$steps.review-loop.output.choice", op: "exists" };
     expect(evaluateCondition(weak, afterLoop("abort")).passed).toBe(true);
     expect(evaluateCondition(acceptedGate, afterLoop("abort")).passed).toBe(false);
+  });
+});
+
+// ── What one agent step HANDS the next ──────────────────────────────
+//
+// The third and last member of the envelope family, and the one that fails
+// SILENTLY rather than loudly.
+//
+// Two guards already cover the other two members, and this block is
+// deliberately disjoint from both rather than a third copy of the same
+// walk:
+//   * "write_file publishes a document, not an envelope" — what reaches a
+//     TOOL step's `content`, i.e. the operator's file.
+//   * "the nested-workflow boundary" — what a `kind: "workflow"` step
+//     hands a CALLEE whose own `inputSchema` says `type: text`.
+//   * this one — what an `agent` step hands ANOTHER agent step, where
+//     there is no file and no child schema to disagree with. The only
+//     contract in the room is the receiving agent's own seeded prompt.
+//
+// THE INVARIANT, and the reason it is not "never hand an agent an object":
+// passing a whole parsed envelope on is CORRECT in this extension when the
+// receiver actually needs the extra keys, and the templates do it on
+// purpose in two places with written rationales. What decides it is the
+// RECEIVER's contract:
+//
+//   * `docs-factory`'s `facts: $steps.extract.output` stays whole. The
+//     extractor returns `{facts, gaps}`, and the WRITER's seeded role says
+//     verbatim "If a fact you need is missing, note the gap in the draft
+//     rather than inventing it" — it needs both keys.
+//   * `draft-and-verify`'s `verify` was handed the writer's whole
+//     `{draft, gaps}`, and the VALIDATOR's seeded role names no use for
+//     `gaps` at all: it "checks a draft against its sources" and returns
+//     `errors[] = {passage, problem}` where `passage` is "the draft
+//     passage at fault" — a quotation FROM a document.
+//
+// So the predicate is: a bare `$steps.<agentStep>.output` handed to
+// another agent step is an offender exactly when the producer's declared
+// contract carries a key the receiver's own prompt never asks for. Both
+// halves are read out of `EZ_FACTORY_AGENTS` in
+// `src/extensions/ez-factory-agents.ts`, so this is a CROSS-FILE tie:
+// that file is where the falsifying edit happened last time (seeding all
+// three agents `outputFormat: "json"`, which turned every agent step's
+// output from raw LLM text into an object) and nothing connected it back
+// to these templates.
+//
+// SCOPE, stated because it is a real boundary and not a convenience:
+// only DIRECT agent -> agent hops with a BARE ref. A value routed through
+// a `transform` is excluded because the transform's mapping is an
+// arbitrary reshape — its `verdict: $steps.verify.output` key IS the
+// author declaring "this whole object is the verdict", and the producer's
+// contract is no longer what governs downstream. The `verdict` transform
+// and `revise`'s `priorVerdict` are pinned by shape below so that
+// boundary is visible rather than implied.
+describe("ez-factory templates — an agent step is handed what its RECEIVER's contract asks for", () => {
+  /** One seeded row, reduced to the two fields this block reads. Kept as a
+   *  local shape so a mutated copy can be passed to the predicate — the
+   *  same "the set under test is the set being checked" discipline the
+   *  nested-workflow guard uses for its definition lookup. */
+  interface SeededPrompt {
+    name: string;
+    prompt: string;
+  }
+
+  const shippedAgents: SeededPrompt[] = EZ_FACTORY_AGENTS.map((a) => ({
+    name: a.name,
+    prompt: a.prompt,
+  }));
+
+  /**
+   * The top-level keys a seeded prompt declares as the object its agent
+   * must return.
+   *
+   * Read out of the prompt TEXT — the exact string the model is given —
+   * rather than from a second hand-maintained table, so it cannot drift
+   * from the contract the agent is actually under. The contract lines are
+   * the only ones in these prompts shaped `- "<key>":`; the steering and
+   * output-format bullets are prose after their dash.
+   */
+  const contractKeysOf = (prompt: string): string[] =>
+    [...prompt.matchAll(/^- "([A-Za-z0-9_]+)":/gm)].map((m) => m[1] as string);
+
+  /**
+   * Does `prompt` ask for `key`?
+   *
+   * Matched on the key's singular stem with an optional plural `s`,
+   * because these prompts are PROSE and the roles say things like "note
+   * the gap in the draft" (singular) for a contract key spelled `gaps`.
+   * Word-boundary anchored so `valid` does not match inside "invalidate".
+   */
+  const promptAsksFor = (prompt: string, key: string): boolean => {
+    const stem = key.endsWith("s") ? key.slice(0, -1) : key;
+    return new RegExp(`\\b${stem}s?\\b`, "i").test(prompt);
+  };
+
+  const seeded = (agents: SeededPrompt[], name: string): SeededPrompt | undefined =>
+    agents.find((a) => a.name === name);
+
+  /** A BARE `$steps.<step>.output` — no sub-path. `null` for anything else,
+   *  including the corrected `$steps.revise.output.draft`. */
+  const bareStepOutput = (ref: string): string | null =>
+    /^\$steps\.([^.]+)\.output$/.exec(ref)?.[1] ?? null;
+
+  /**
+   * Every direct agent -> agent whole-envelope hop whose receiver's own
+   * contract asks for none of it, reported as
+   * `"<def>.<step>.<key> -> <producerStep> (unclaimed: …)"`.
+   *
+   * Takes the agent set so a discrimination case can hand it a MUTATED
+   * `ez-factory-agents.ts` and be shown to answer differently — a
+   * predicate that read the shipped rows internally could not be shown to
+   * consult them at all.
+   */
+  const envelopeHopsTheReceiverDoesNotAskFor = (
+    defs: WorkflowDefinition[],
+    agents: SeededPrompt[],
+  ): string[] => {
+    const offenders: string[] = [];
+    for (const def of defs) {
+      for (const step of def.steps) {
+        if (stepKindOf(step) !== "agent") continue;
+        const receiver = seeded(agents, step.agent ?? "");
+        if (receiver === undefined) continue;
+        for (const [key, ref] of Object.entries(step.input ?? {})) {
+          if (typeof ref !== "string") continue;
+          const producerName = bareStepOutput(ref);
+          if (producerName === null) continue;
+          const producerStep = def.steps.find((s) => s.name === producerName);
+          if (producerStep === undefined || stepKindOf(producerStep) !== "agent") continue;
+          const producer = seeded(agents, producerStep.agent ?? "");
+          if (producer === undefined) continue;
+          const unclaimed = contractKeysOf(producer.prompt).filter(
+            (k) => !promptAsksFor(receiver.prompt, k),
+          );
+          if (unclaimed.length > 0) {
+            offenders.push(
+              `${def.name}.${step.name}.${key} -> ${producerStep.name} (unclaimed: ${unclaimed.join(",")})`,
+            );
+          }
+        }
+      }
+    }
+    return offenders;
+  };
+
+  /** The shipped rows with one agent's prompt rewritten. */
+  const agentsWith = (name: string, rewrite: (p: string) => string): SeededPrompt[] =>
+    shippedAgents.map((a) => (a.name === name ? { ...a, prompt: rewrite(a.prompt) } : a));
+
+  const WRITER = `${EZ_FACTORY_AGENT_PREFIX}writer`;
+  const VALIDATOR = `${EZ_FACTORY_AGENT_PREFIX}validator`;
+  const EXTRACTOR = `${EZ_FACTORY_AGENT_PREFIX}extractor`;
+
+  test("the contract reader really reads the three shipped contracts", () => {
+    // Anti-vacuity for everything below: a reader that returned `[]` for
+    // every prompt would make the whole block silently green.
+    expect(contractKeysOf(seeded(shippedAgents, EXTRACTOR)!.prompt)).toEqual(["facts", "gaps"]);
+    expect(contractKeysOf(seeded(shippedAgents, WRITER)!.prompt)).toEqual(["draft", "gaps"]);
+    expect(contractKeysOf(seeded(shippedAgents, VALIDATOR)!.prompt)).toEqual(["valid", "errors"]);
+  });
+
+  test("the two prompt facts this whole block turns on", () => {
+    // Stated as their own assertion rather than buried in the predicate,
+    // because they are the ENTIRE reason one whole-envelope hop is correct
+    // and its neighbour is a bug. If either flips, the verdicts below flip
+    // with it and should — but a reader deserves to see which sentence in
+    // `ez-factory-agents.ts` is load-bearing.
+    const writer = seeded(shippedAgents, WRITER)!.prompt;
+    const validator = seeded(shippedAgents, VALIDATOR)!.prompt;
+    expect(writer).toContain("note the gap in the draft rather than inventing it");
+    expect(promptAsksFor(writer, "gaps")).toBe(true);
+    expect(promptAsksFor(writer, "facts")).toBe(true);
+    // The validator's contract is about a document and its passages, and
+    // says nothing whatever about the writer's gaps.
+    expect(validator).toContain("the draft passage at fault");
+    expect(promptAsksFor(validator, "draft")).toBe(true);
+    expect(promptAsksFor(validator, "gaps")).toBe(false);
+  });
+
+  test("no shipped agent step is handed an envelope its receiver does not ask for", () => {
+    expect(envelopeHopsTheReceiverDoesNotAskFor(templates, shippedAgents)).toEqual([]);
+  });
+
+  test("the check discriminates — the pre-fix ref is reported by name, with the unclaimed key", () => {
+    // Exactly what `draft-and-verify` shipped before this fix: the CHECK
+    // handed the writer's whole `{draft, gaps}` object. Observed on run
+    // 49051ac8, where `verify.resolvedInput.draft` was
+    // `{gaps:[…], draft:"…"}` and the validator still answered
+    // `valid: true` — the silent wrong answer this guard exists for.
+    const mutant = mutantOf("draft-and-verify");
+    stepNamed(mutant, "verify").input!.draft = "$steps.revise.output";
+    const defs = templates.map((d) => (d.name === "draft-and-verify" ? mutant : d));
+    expect(envelopeHopsTheReceiverDoesNotAskFor(defs, shippedAgents)).toEqual([
+      "draft-and-verify.verify.draft -> revise (unclaimed: gaps)",
+    ]);
+  });
+
+  test("NON-VACUITY — the predicate does examine `facts: $steps.extract.output`, and clears it", () => {
+    // The clean verdict above is not "nothing ever matches". `docs-factory`
+    // really does hand a whole agent envelope to another agent step, the
+    // predicate really does reach it, and it passes only because the
+    // WRITER's prompt asks for both of the extractor's keys. Point the same
+    // ref at a receiver whose prompt asks for neither and it is reported.
+    const shipped = stepNamed(byBareName.get("docs-factory")!, "draft");
+    expect(shipped.input!.facts).toBe("$steps.extract.output");
+    expect(bareStepOutput(shipped.input!.facts)).toBe("extract");
+
+    const mutant = mutantOf("docs-factory");
+    stepNamed(mutant, "draft").agent = VALIDATOR;
+    const defs = templates.map((d) => (d.name === "docs-factory" ? mutant : d));
+    expect(envelopeHopsTheReceiverDoesNotAskFor(defs, shippedAgents)).toEqual([
+      "docs-factory.draft.facts -> extract (unclaimed: facts,gaps)",
+    ]);
+  });
+
+  test("THE RECEIVER IS REALLY CONSULTED — teach the validator about gaps and the report empties", () => {
+    // With the broken ref in place, the ONLY thing that makes it an
+    // offender is the validator's prompt not asking for `gaps`. Without
+    // this case a predicate that ignored the receiver entirely would pass
+    // every other test in this block identically.
+    const mutant = mutantOf("draft-and-verify");
+    stepNamed(mutant, "verify").input!.draft = "$steps.revise.output";
+    const defs = templates.map((d) => (d.name === "draft-and-verify" ? mutant : d));
+    const taught = agentsWith(
+      VALIDATOR,
+      (p) => `${p}\n- Read the writer's gaps and account for each one in your verdict.`,
+    );
+    expect(envelopeHopsTheReceiverDoesNotAskFor(defs, taught)).toEqual([]);
+    // …and it is still reported against the SHIPPED rows, so the empty
+    // verdict above is the patch's doing and not the mutation wearing off.
+    expect(envelopeHopsTheReceiverDoesNotAskFor(defs, shippedAgents)).toHaveLength(1);
+  });
+
+  test("THE PRODUCER IS REALLY CONSULTED — drop `gaps` from the writer's contract and the report empties", () => {
+    // The other half of the cross-file tie. The offending key is read from
+    // the PRODUCER's declared contract, never hardcoded here: with `gaps`
+    // gone from `ez-factory-agents.ts` the writer's envelope is just
+    // `{draft}`, the validator does ask for a draft, and the same broken
+    // ref stops being an offender.
+    const mutant = mutantOf("draft-and-verify");
+    stepNamed(mutant, "verify").input!.draft = "$steps.revise.output";
+    const defs = templates.map((d) => (d.name === "draft-and-verify" ? mutant : d));
+    const narrowed = agentsWith(WRITER, (p) =>
+      p
+        .split("\n")
+        .filter((line) => !line.startsWith('- "gaps":'))
+        .join("\n"),
+    );
+    expect(contractKeysOf(seeded(narrowed, WRITER)!.prompt)).toEqual(["draft"]);
+    expect(envelopeHopsTheReceiverDoesNotAskFor(defs, narrowed)).toEqual([]);
+  });
+
+  test("CROSS-FILE TIE — the shipped ref addresses a key the writer's stored contract declares", () => {
+    // The failure that was missed last time, in the other direction:
+    // renaming the writer's `"draft"` contract key in
+    // `src/extensions/ez-factory-agents.ts` would leave this YAML
+    // addressing a field that no longer exists, and every static check in
+    // this file would still be green. This is the one that goes red.
+    const ref = stepNamed(byBareName.get("draft-and-verify")!, "verify").input!.draft;
+    expect(ref).toBe("$steps.revise.output.draft");
+    const producer = stepNamed(byBareName.get("draft-and-verify")!, "revise");
+    expect(producer.agent).toBe(WRITER);
+    expect(contractKeysOf(seeded(shippedAgents, WRITER)!.prompt)).toContain("draft");
+  });
+
+  test("SCOPE — the two deliberate whole-object decisions lie outside this predicate BY SHAPE", () => {
+    // Not "the predicate happens not to flag them": the shapes that
+    // exclude them are asserted, so a future edit that moves one of them
+    // into this predicate's scope shows up here rather than as a surprise
+    // failure above.
+    const dav = byBareName.get("draft-and-verify")!;
+
+    // 1. `verdict: $steps.verify.output` is a bare whole-object ref, but on
+    //    a TRANSFORM. A transform's mapping is an arbitrary reshape and its
+    //    key name IS the author declaring what the whole object is called.
+    const verdict = dav.steps.at(-1) as WorkflowStep;
+    expect(verdict.name).toBe("verdict");
+    expect(stepKindOf(verdict)).toBe("transform");
+    expect(verdict.output!.verdict).toBe("$steps.verify.output");
+
+    // 2. `revise.priorVerdict` is how that object reaches an agent, and it
+    //    is excluded twice over — a SUB-PATH, off a TRANSFORM.
+    const priorVerdict = stepNamed(dav, "revise").input!.priorVerdict;
+    expect(bareStepOutput(priorVerdict)).toBeNull();
+    expect(stepKindOf(stepNamed(dav, "prior"))).toBe("transform");
+
+    // 3. `docs-factory.review-loop` is the nested-workflow boundary, which
+    //    the sibling guard above owns. Not an agent step, so this predicate
+    //    never reaches it and the two do not duplicate each other.
+    expect(stepKindOf(stepNamed(byBareName.get("docs-factory")!, "review-loop"))).toBe("workflow");
+  });
+
+  // ── The same question, put to the PRODUCTION resolver ──────────────
+  //
+  // Everything above reads the YAML as data. These run the real
+  // `resolveMapping` and the real `configToAgent` over the shipped mapping
+  // and a realistic writer result, so the claim is about what the executor
+  // does rather than about what the ref looks like.
+
+  /** `revise` has produced `output`, and `$input.sources` is set — the
+   *  context `verify`'s input mapping is resolved against. */
+  const afterRevise = (output: unknown): RefContext => ({
+    input: { sources: "timetable.md: departs every 40 minutes from Pier 2." },
+    stepResults: new Map([["revise", { success: true, output } as AgentResult]]),
+  });
+
+  const WRITER_OUTPUT = {
+    draft: "# Bellhaven Ferry\n\nDeparts Pier 2 every 40 minutes.",
+    gaps: ["crossing_duration"],
+  };
+
+  test("the shipped mapping resolves `draft` to the DOCUMENT — a string", () => {
+    const mapping = stepNamed(byBareName.get("draft-and-verify")!, "verify").input!;
+    const resolved = resolveMapping(mapping, afterRevise(WRITER_OUTPUT));
+    expect(typeof resolved.draft).toBe("string");
+    expect(resolved.draft).toBe(WRITER_OUTPUT.draft);
+    // `sources` is the ORIGINAL input, never anything a previous step made
+    // of it — the validator checks the draft against the sources, not
+    // against a restatement of them.
+    expect(resolved.sources).toBe("timetable.md: departs every 40 minutes from Pier 2.");
+  });
+
+  test("the pre-fix mapping resolves `draft` to the ENVELOPE — same resolver, same context", () => {
+    // The paired negative, so the positive above is a separation rather
+    // than a resolver that returns a string no matter what.
+    const mutant = mutantOf("draft-and-verify");
+    stepNamed(mutant, "verify").input!.draft = "$steps.revise.output";
+    const resolved = resolveMapping(stepNamed(mutant, "verify").input!, afterRevise(WRITER_OUTPUT));
+    expect(resolved.draft).toEqual(WRITER_OUTPUT);
+  });
+
+  test("the sub-path is STRICT — a writer that stops returning `draft` fails BY NAME", () => {
+    // The second thing the fix buys, and it only shows up on the failure
+    // path: the corrected ref throws naming the missing field, while the
+    // bare form cannot fail at all — it would keep handing the validator
+    // whatever shape it got.
+    const noDraft = afterRevise({ gaps: ["everything"] });
+    const shipped = stepNamed(byBareName.get("draft-and-verify")!, "verify").input!;
+    expect(() => resolveMapping(shipped, noDraft)).toThrow(
+      /field "output\.draft" is missing on step "revise"'s result/,
+    );
+
+    const mutant = mutantOf("draft-and-verify");
+    stepNamed(mutant, "verify").input!.draft = "$steps.revise.output";
+    expect(resolveMapping(stepNamed(mutant, "verify").input!, noDraft).draft).toEqual({
+      gaps: ["everything"],
+    });
+  });
+
+  test("END TO END — what the validator's model actually reads, through the real configToAgent", () => {
+    // `configToAgent` renders a step's resolved input as bare `key: value`
+    // lines and `JSON.stringify`s any non-string. That is the mechanism
+    // that turns the envelope into something a validator cannot quote a
+    // passage out of, and it is production code, so this asserts against
+    // it rather than describing it.
+    const validator = seeded(shippedAgents, VALIDATOR)!;
+    const sent: string[] = [];
+    const config: AgentConfig = {
+      name: validator.name,
+      description: "seeded validator",
+      capabilities: ["llm"],
+      prompt: validator.prompt,
+      outputFormat: "json",
+    };
+    const ctxFor = (input: Record<string, unknown>): AgentContext =>
+      ({
+        input,
+        llm: {
+          complete: async (messages: { content: string }[]) => {
+            sent.push(messages[0]!.content);
+            return { text: '{"valid":true,"errors":[]}' };
+          },
+        },
+      }) as unknown as AgentContext;
+
+    const shipped = stepNamed(byBareName.get("draft-and-verify")!, "verify").input!;
+    const mutant = mutantOf("draft-and-verify");
+    stepNamed(mutant, "verify").input!.draft = "$steps.revise.output";
+
+    const agent = configToAgent(config);
+    return Promise.all([
+      agent.execute(ctxFor(resolveMapping(shipped, afterRevise(WRITER_OUTPUT)))),
+      agent.execute(ctxFor(resolveMapping(stepNamed(mutant, "verify").input!, afterRevise(WRITER_OUTPUT)))),
+    ]).then(() => {
+      const [fixed, broken] = sent as [string, string];
+      // Fixed: the document arrives as itself, real newlines and all, so a
+      // quoted `passage` can match it.
+      expect(fixed).toContain("draft: # Bellhaven Ferry\n\nDeparts Pier 2 every 40 minutes.");
+      expect(fixed).not.toContain("gaps");
+      // Broken: one line of JSON with the document escaped inside a string
+      // field, and the writer's self-reported gaps riding along under the
+      // key the validator was told is the draft.
+      expect(broken).toContain('draft: {"draft":"# Bellhaven Ferry\\n\\nDeparts Pier 2');
+      expect(broken).toContain("crossing_duration");
+    });
   });
 });
