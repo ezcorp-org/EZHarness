@@ -11,9 +11,17 @@
 #       Run the ENTIRE host set + all legs + the web-security leg, merge every
 #       per-shard lcov into coverage/lcov.info, and enforce
 #       scripts/coverage-thresholds.json.
-#       Coverage-only: pass/fail is NOT a hard failure here (the CI shards and
-#       the `Web tests` job own pass/fail). This preserves the historical local
-#       `test:coverage` behaviour.
+#       TWO INDEPENDENT VERDICTS, TWO NON-ZERO EXIT CODES (see EXIT CODES).
+#       The original design's premise is kept — coverage CAN be measured from
+#       a run that had failures, and the CI shards / `Web tests` job own the
+#       authoritative pass/fail — but the run no longer *claims success* when
+#       tests failed. It used to: the failing-file list printed
+#       "visibility only" and the script exited 0 on the coverage verdict
+#       alone, so `bun run test:coverage; echo $?` reported a clean suite with
+#       14 red tests on screen. Pass/fail is now gated on the SAME
+#       P-MEMBERSHIP + isolated-retry rule host-shard mode uses
+#       (gate_host_failures), so a full local run and a CI shard can never
+#       disagree about whether a given file is red.
 #       The web-security leg (run_security_leg) exists ONLY in this mode: on CI
 #       that producer is its own job (`web-security-coverage`), so full local
 #       mode is the only place that would otherwise be missing it. See
@@ -54,9 +62,32 @@
 # the only symptom was a blizzard of downstream "no lcov data" violations
 # against files the change never touched.
 #
+# EXIT CODES (full mode; the two CI modes are unchanged at 0/1):
+#
+#   0  coverage gate passed AND no pass/fail-gated test failed.
+#   1  the COVERAGE verdict failed — check-coverage.ts, a gating leg's exit
+#      code (harness-client / ai-kit / node-vitest / web-security), or a
+#      producer-integrity guard (dead leg, empty host pool). Unchanged, so
+#      every existing `if ! bash scripts/test-coverage.sh` consumer keeps its
+#      meaning.
+#   2  coverage PASSED but TESTS FAILED — one or more pass/fail-set (P) host
+#      files failed the pooled run and the isolated plain re-run.
+#
+# Why a distinct code rather than collapsing the two: the verdicts have
+# genuinely different remedies (a red 2 is a broken test, a red 1 is an
+# uncovered line or a dead producer) and the header's original reasoning —
+# that coverage is still worth reporting from a run with failures — stays
+# true. Both are non-zero, so nothing that merely checks `$?` can be told the
+# suite is fine when it is not. Callers that want the distinction read the
+# code; callers that just want "did it work" get the right answer either way.
+#
 # $COV_OUT — directory the CI modes copy per-shard lcov into (uploaded as an
 # artifact). Unused in full mode.
 set -e
+
+# Full-mode exit code for "coverage passed, tests failed". Named so the
+# meaning survives a grep and the meta-test can pin it.
+EXIT_TESTS_FAILED=2
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/test-file-sets.sh
@@ -67,17 +98,47 @@ PARALLEL=${PARALLEL:-$(default_parallel)}
 COV_OUT=${COV_OUT:-}
 TOTAL_PASS=0
 TOTAL_FAIL=0
+# Everything that failed, host files AND named legs — the visibility list.
 FAILED_FILES=()
+# Host POOL failures only (repo-relative test paths). Kept separate from
+# FAILED_FILES because the pass/fail gate classifies by P-MEMBERSHIP, and the
+# leg entries FAILED_FILES also carries ("harness-client coverage leg", …) are
+# not paths: they would classify as "not in P" and be printed as TOLERATED
+# when they are in fact gated by their own exit codes. Only full mode appends
+# legs, so this is the same list as FAILED_FILES in the two CI modes.
+HOST_FAILED_FILES=()
 
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
 [ -n "$COV_OUT" ] && mkdir -p "$COV_OUT"
 
-# Per-file --coverage timeout — ONE value for every file, matching
+# Per-test timeout — ONE value for every producer this script runs, matching
 # scripts/test.sh:109 exactly. DB-heavy suites need the 30s headroom so
 # setupTestDb() in a beforeAll doesn't crash the shard as "(unnamed)" under
 # instrumentation; a genuine hang still fails at 30s.
+#
+# "EVERY PRODUCER" IS NEW, AND IT WAS A REAL HOLE. The host pool took this
+# value; the four bun package/suggest legs and the node/vitest leg took
+# NOTHING, so they ran on their runners' DEFAULT 5s per-test budget
+# (`bun test --help`: "default is 5000"; vitest's `testTimeout` default is
+# likewise 5000 and web/vitest.config.ts sets no override). scripts/test.sh
+# and the security leg (security-coverage.sh:71) were both already on 30s, so
+# the same test file got 30s in one runner and 5s in another — and the legs
+# are the WORST place for the short budget, because each one bundles its whole
+# file set into a single process and five of them run concurrently ON TOP of
+# the 1289-file host pool. Measured instance:
+# `packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts`'s "idempotent —
+# second install" failed at 5014.97ms — a 0.3% overshoot of exactly that 5s
+# budget — while the same file re-run alone is 26 pass / 0 fail in ~5.1-5.5s
+# total across its 26 tests (measured three times on a loaded box). That is
+# the host, not the code. And it was not harmless: the ai-kit, harness-client
+# and vitest legs GATE (AIKIT_EXIT / HC_EXIT / VITEST_EXIT), so a contention
+# flake there reds CI on someone else's load.
+#
+# Raising a ceiling a healthy run never reaches is not weakening a gate — the
+# wall-clock ASSERTION rule in CLAUDE.md is about tests that measure the host;
+# this is the pool budget that stops the host measuring the tests.
 #
 # docs/extensions/examples/** USED to be carved out to bun's 5s fast-fail, on
 # the theory that "their real-subprocess cases genuinely time out without
@@ -93,7 +154,11 @@ trap 'rm -rf "$TMPDIR"' EXIT
 # per-file ratio is p90 4.6x — 1278ms x 4.6 ~= 5.9s, i.e. OVER bun's 5s
 # default. The 30s ceiling is never reached by a healthy run (0 timeouts
 # across all 178 under --coverage), so nothing balloons.
-TEST_TIMEOUT_FLAG="--timeout 30000"
+# ONE number, two spellings — bun wants `--timeout N`, vitest wants
+# `--testTimeout=N`. Deriving both from TEST_TIMEOUT_MS is what stops the two
+# runners drifting apart again.
+TEST_TIMEOUT_MS=30000
+TEST_TIMEOUT_FLAG="--timeout $TEST_TIMEOUT_MS"
 
 # ── host pool ───────────────────────────────────────────────────────────────
 run_host_pool() {
@@ -175,7 +240,7 @@ run_legs() {
   # mirrors exactly these dirs for the drift meta-test's crediting.
   (
     set +e
-    bun test --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[sdk]}" \
+    bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[sdk]}" \
       ./packages/@ezcorp/sdk/test/ ./packages/@ezcorp/sdk/src/entities/__tests__/ \
       > "$legs/sdk.out" 2>&1
     echo "$?" > "$legs/sdk.code"
@@ -189,7 +254,7 @@ run_legs() {
   # harness_client_leg_files() for the drift meta-test.
   (
     set +e
-    bun test --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[harness-client]}" \
+    bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[harness-client]}" \
       ./packages/@ezcorp/harness-client/ \
       > "$legs/hc.out" 2>&1
     echo "$?" > "$legs/hc.code"
@@ -211,7 +276,7 @@ run_legs() {
       echo 1 > "$legs/suggest.code"
       exit 1
     fi
-    bun test --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[suggest]}" \
+    bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[suggest]}" \
       "${LEG_FILES[@]/#/./}" \
       > "$legs/suggest.out" 2>&1
     echo "$?" > "$legs/suggest.code"
@@ -233,7 +298,7 @@ run_legs() {
       echo 1 > "$legs/aikit.code"
       exit 1
     fi
-    bun test --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[ai-kit]}" \
+    bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="${LEG_COV_DIR[ai-kit]}" \
       "${LEG_FILES[@]/#/./}" \
       > "$legs/aikit.out" 2>&1
     echo "$?" > "$legs/aikit.code"
@@ -244,6 +309,26 @@ run_legs() {
   # leg MUST run under node (CI provisions node 22). --coverage.include is scoped
   # to JUST the target lib paths so the leg doesn't pull all of web/src/lib/**
   # into the gate. Subshell so `cd web` never leaks.
+  #
+  # THIS LEG IS TWO HAND-MAINTAINED ALLOWLISTS AND THEY MUST AGREE. The test
+  # files below say WHAT RUNS; the --coverage.include patterns further down say
+  # WHAT IS MEASURED. A module is only covered in this leg when it is on BOTH,
+  # and neither list is derived from the other, so a suite can be thoroughly
+  # green and still report as untested — the "tested but unmeasured" trap this
+  # file already documents from PR #97, reached the other way round.
+  #
+  # Measured instance (2026-08-05): `src/hooks.server.ts` was on NEITHER list,
+  # so all nine `src/__tests__/hooks-server-*.server.test.ts` suites were
+  # unmeasured. A change to hooks.server.ts read as uncovered against the
+  # `web/src/**` catch-all no matter how many tests covered it, and the last
+  # author to hit this worked around the gate by porting a green vitest suite
+  # into the bun pool. Both lists now carry it.
+  #
+  # ANTI-ROT: src/__tests__/coverage-leg-lcov-guard.test.ts parses this
+  # command and fails if any listed test file is missing from disk, or if any
+  # --coverage.include pattern matches NOTHING under web/ — the silent
+  # no-match that looks identical to success at this leg's exit code. Adding
+  # to either list is cheap; adding to only one is the bug.
   #
   # DYNAMIC ROUTE SEGMENTS IN --coverage.include: a SvelteKit `[param]` segment
   # is matched VERBATIM by vitest 4.1.6 — it is not a Bun-`Glob`-style character
@@ -261,7 +346,7 @@ run_legs() {
   VITEST_COV="${LEG_COV_DIR[web-vitest]}"
   (
   set +e
-  ( cd web && npx vitest run \
+  ( cd web && npx vitest run --testTimeout="$TEST_TIMEOUT_MS" \
       src/__tests__/api-workflows.server.test.ts \
       src/__tests__/api-workflows-name.server.test.ts \
       src/__tests__/api-workflows-name-run.server.test.ts \
@@ -293,6 +378,15 @@ run_legs() {
       src/__tests__/relative-time.test.ts \
       src/__tests__/http-errors.unit.test.ts \
       src/__tests__/session-cookie.server.test.ts \
+      src/__tests__/hooks-server-dev-indicator.server.test.ts \
+      src/__tests__/hooks-server-failed-bearer-ratelimit.server.test.ts \
+      src/__tests__/hooks-server-get-client-ip.server.test.ts \
+      src/__tests__/hooks-server-invite-public-path.server.test.ts \
+      src/__tests__/hooks-server-onboarding-redirect.server.test.ts \
+      src/__tests__/hooks-server-return-to.server.test.ts \
+      src/__tests__/hooks-server-session-refresh.server.test.ts \
+      src/__tests__/hooks-server-session-refresh-e2e.server.test.ts \
+      src/__tests__/hooks-server-setup-redirect.server.test.ts \
       src/__tests__/shutdown.server.test.ts \
       src/__tests__/extension-helpers-clamp.server.test.ts \
       src/__tests__/conversation-ownership.server.test.ts \
@@ -475,10 +569,10 @@ run_legs() {
       --coverage.include='src/lib/utils/relative-time.ts' \
       --coverage.include='src/lib/server/http-errors.ts' \
       --coverage.include='src/lib/server/auth/session-cookie.ts' \
+      --coverage.include='src/hooks.server.ts' \
       --coverage.include='src/lib/server/shutdown.ts' \
       --coverage.include='src/lib/server/extension-helpers.ts' \
       --coverage.include='src/lib/server/conversation-ownership.ts' \
-      --coverage.include='src/lib/server/workflow-can-manage.ts' \
       --coverage.include='src/lib/mention-logic.ts' \
       --coverage.include='src/lib/markdown.ts' \
       --coverage.include='src/lib/safe-redirect.ts' \
@@ -786,6 +880,10 @@ emit_lcov() {
   echo "emitted $n lcov shard(s) → $COV_OUT"
 }
 
+# The host-pool pass/fail gate (gate_host_failures) lives in
+# lib/test-file-sets.sh next to the set definitions it classifies against —
+# see the header there. Both modes that run the host pool call it.
+
 # ── mode dispatch ───────────────────────────────────────────────────────────
 
 if [ -n "$COVERAGE_LEGS_ONLY" ]; then
@@ -861,6 +959,7 @@ for ((i = 0; i < HOST_COUNT; i++)); do
   FILE_FAIL=$(summary_count "$OUTPUT" fail)
   if [ "$CODE" != "0" ] || [ "${FILE_FAIL:-0}" != "0" ]; then
     FAILED_FILES+=("${FILES[$i]}")
+    HOST_FAILED_FILES+=("${FILES[$i]}")
   fi
 done
 
@@ -919,49 +1018,9 @@ if [ -n "$SHARD_TOTAL" ]; then
   echo ""
   echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | ${#FILES[@]} files (shard ${SHARD_INDEX}/${SHARD_TOTAL})"
 
-  declare -A IN_P=()
-  while IFS= read -r pf; do IN_P["$pf"]=1; done < <(passfail_files)
-  P_FAILED=()
-  NONP_FAILED=()
-  for f in "${FAILED_FILES[@]}"; do
-    if [ -n "${IN_P[$f]:-}" ]; then P_FAILED+=("$f"); else NONP_FAILED+=("$f"); fi
-  done
-
-  if [ "${#NONP_FAILED[@]}" -gt 0 ]; then
-    echo ""
-    echo "Failing non-gating files (TOLERATED — not in the pass/fail set P; thresholds are their gate):"
-    for f in "${NONP_FAILED[@]}"; do echo "  - $f"; done
-  fi
-
-  STILL_FAILED=()
-  if [ "${#P_FAILED[@]}" -gt 0 ]; then
-    echo ""
-    echo "Retry sweep: ${#P_FAILED[@]} failed pass/fail-set (P) file(s) — re-running each once, serial + isolated + PLAIN (no --coverage):"
-    for f in "${P_FAILED[@]}"; do
-      set +e
-      # Wall-clock watchdog: bun's per-test timeout can't catch a module-LOAD
-      # hang, so cap the whole re-run at 5 min — it reds fast instead of
-      # stalling to the job timeout (timeout(1) exits 124 → still-failing;
-      # -k 30 sends SIGKILL 30s after SIGTERM for a SIGTERM-immune hang,
-      # exit 137 → still-failing). If the timeout binary is missing, fall
-      # back to the plain run: the exit code still gates identically,
-      # nothing soft-passes.
-      if command -v timeout >/dev/null 2>&1; then
-        RETRY_OUT=$(timeout -k 30 300 bun test --timeout 30000 "./$f" 2>&1)
-      else
-        RETRY_OUT=$(bun test --timeout 30000 "./$f" 2>&1)
-      fi
-      RETRY_CODE=$?
-      set -e
-      if [ "$RETRY_CODE" = "0" ]; then
-        echo "  - $f: passed the isolated plain re-run (instrumentation/contention flake — tolerated)"
-      else
-        echo "  - $f: STILL FAILING after isolated re-run (exit $RETRY_CODE)"
-        echo "$RETRY_OUT" | tail -20 | sed 's/^/      /'
-        STILL_FAILED+=("$f")
-      fi
-    done
-  fi
+  # Classification + isolated retry sweep — shared with full mode so the two
+  # can't drift (gate_host_failures above).
+  gate_host_failures
 
   if [ "${#STILL_FAILED[@]}" -gt 0 ]; then
     echo ""
@@ -984,9 +1043,21 @@ echo "  ${TOTAL_PASS} pass | ${TOTAL_FAIL} fail | $((${#FILES[@]} + 1)) shards"
 echo "================================"
 if [ "${#FAILED_FILES[@]}" -gt 0 ]; then
   echo ""
-  echo "Failed files (visibility only — coverage gate below is authoritative):"
+  # NOT "visibility only" any more. This list used to carry that label while
+  # the script exited 0 on the coverage verdict alone — the exact sentence
+  # that told a reader with 14 red tests on screen that the suite was fine.
+  # Everything here now lands in one of three places: the P-gate below (host
+  # files in P), the tolerated list it prints (host files outside P), or a
+  # gating leg's own exit code (the named leg entries).
+  echo "Failed files:"
   for f in "${FAILED_FILES[@]}"; do echo "  - $f"; done
 fi
+
+# Pass/fail verdict for the host pool — the SAME P-membership rule + isolated
+# plain retry sweep the CI shards use (gate_host_failures). Runs before the
+# producer-integrity guard so its report is not buried under a dead leg's
+# fallout, and so a run that dies on a producer still tells you what failed.
+gate_host_failures
 
 # PRODUCER INTEGRITY — checked BEFORE the merge, so a dead producer is the
 # LAST thing printed instead of being buried under the gate's fallout.
@@ -1021,14 +1092,46 @@ bun scripts/merge-lcov.ts "$TMPDIR/cov_*/lcov.info" coverage/lcov.info
 CHECK_EXIT=0
 bun scripts/check-coverage.ts || CHECK_EXIT=$?
 
-# Full local mode gates COVERAGE + the vitest leg's integrity + the
-# harness-client, ai-kit and web-security legs' pass/fail. It does NOT gate the
-# host pool's pass/fail — the CI shards own that. check-coverage catches any
-# flaky-shard coverage drop. SECURITY_EXIT gates for the same reason the CI
-# `coverage` job requires `web-security-coverage` to have succeeded: a producer
-# that didn't run means incomplete coverage data, which must never read green.
+# ── the two verdicts ────────────────────────────────────────────────────────
+# COVERAGE verdict (exit 1): check-coverage.ts + the vitest leg's integrity +
+# the harness-client, ai-kit and web-security legs' pass/fail. SECURITY_EXIT
+# gates for the same reason the CI `coverage` job requires
+# `web-security-coverage` to have succeeded: a producer that didn't run means
+# incomplete coverage data, which must never read green.
+#
+# TESTS verdict (exit $EXIT_TESTS_FAILED): the host pool's pass/fail, gated on
+# P-membership after the isolated plain re-run. It used to be gated NOWHERE
+# here, which is what let this command exit 0 with failing tests.
+#
+# Coverage wins the exit code when both fail: it is the stricter, more
+# specific signal (a coverage drop is never "just" a flake) and keeping it at
+# 1 means no existing consumer's meaning changes. Both verdicts are always
+# PRINTED, whichever code is returned.
+COVERAGE_FAILED=0
 if [ "$CHECK_EXIT" != "0" ] || [ "$VITEST_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
    [ "$AIKIT_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
-  exit 1
+  COVERAGE_FAILED=1
+fi
+
+echo ""
+echo "================================"
+if [ "${#STILL_FAILED[@]}" -gt 0 ]; then
+  echo "  TESTS:    FAILED — ${#STILL_FAILED[@]} pass/fail-set (P) file(s) failed the pooled run AND the isolated plain re-run:"
+  for f in "${STILL_FAILED[@]}"; do echo "              - $f"; done
+else
+  echo "  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)"
+fi
+if [ "$COVERAGE_FAILED" != "0" ]; then
+  echo "  COVERAGE: FAILED (check=$CHECK_EXIT vitest=$VITEST_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT security=$SECURITY_EXIT)"
+else
+  echo "  COVERAGE: passed"
+fi
+echo "  tolerated (not gated here): sdk=$SDK_LEG_EXIT suggest=$SUGGEST_LEG_EXIT leg exit codes; host files outside P"
+echo "================================"
+
+if [ "$COVERAGE_FAILED" != "0" ]; then exit 1; fi
+if [ "${#STILL_FAILED[@]}" -gt 0 ]; then
+  echo "exit $EXIT_TESTS_FAILED — coverage gate passed, but TESTS FAILED. Do not read this run as a green suite."
+  exit "$EXIT_TESTS_FAILED"
 fi
 exit 0

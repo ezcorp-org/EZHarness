@@ -95,6 +95,22 @@ This feature is experienced through Git/GitHub and CI, not an app UI.
   ```sh
   bun run typecheck && bun run lint && bun run test && bun run test:coverage
   ```
+- **`test:coverage` reports two verdicts and three exit codes.** It prints a
+  `TESTS:` line and a `COVERAGE:` line, then exits:
+
+  | code | meaning |
+  |---|---|
+  | `0` | coverage gate passed **and** no pass/fail-gated test failed |
+  | `1` | the **coverage** verdict failed — a threshold, a gating leg (`harness-client` / `ai-kit` / `web-vitest` / `web-security`), or a dead producer |
+  | `2` | coverage passed but **tests failed** — a pass/fail-set (P) file failed the pooled run *and* an isolated plain re-run |
+
+  Tests are gated on the same P-membership + isolated-retry rule the CI cov
+  shards use (`gate_host_failures` in `scripts/lib/test-file-sets.sh`), so a
+  full local run and a CI shard cannot disagree about whether a file is red.
+  Host files outside P and the `sdk` / `suggest` legs stay explicitly tolerated
+  — the banner names them. Until 2026-08, exit code `0` meant only "coverage
+  passed": a run printing `22953 pass | 14 fail` still exited 0 and told
+  readers the suite was clean.
 - **Individual scripts:** `bun scripts/check-coverage.ts`, `bun scripts/check-new-file-coverage.ts`, `bun scripts/check-patch-coverage.ts`, `bun scripts/gate-integrity.ts`. The three diff-scoped scripts honor `BASE_REF` (default `origin/main`).
 - **Add/raise a threshold:** edit `scripts/coverage-thresholds.json` (a key → percentage; default new-file floor is 100). Ratchet allows **increases and new keys only**; a removal or decrease fails Gate integrity.
 - **Un-gate a file legitimately:** add it to `EXCLUDES` in `scripts/coverage-config.ts` **with a justification comment** — this requires the `gate-change-approved` label to pass Gate integrity, plus CODEOWNERS approval.
