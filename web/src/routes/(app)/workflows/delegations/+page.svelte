@@ -593,15 +593,16 @@
 									data-testid="delegation-save-tokens">Save limits</button
 								>
 								<!-- ── The re-consent path, finally offered ──────────
-								     `consent_hash` is recomputed and compared on every
-								     fire, and it folds in the workflow definition plus
-								     the extension's flattened grants. ez-factory is
-								     BUNDLED, so its workflows ship inside the app
-								     image: any release that edits one of its
-								     `*.workflow.yaml` files, changes its permissions
-								     block, or changes a referenced agent's
-								     capabilities invalidates every delegation on it
-								     and parks the next fire `consent-stale`.
+								     `consent_hash` is recomputed and reconciled on
+								     every fire. It covers the SEMANTIC surface only —
+								     the delegation facts and the flat capability
+								     closure — while the workflow definition is
+								     fingerprinted separately and advisorily, so a
+								     release that edits a bundled extension's shipped
+								     `*.workflow.yaml` carries consent forward instead
+								     of parking the job. What parks a fire is a
+								     WIDENING: the graph now reaches a capability the
+								     human never approved.
 
 								     Two places on this page already tell people to
 								     "grant it again" and neither offered a way to.
@@ -609,7 +610,7 @@
 								     four fields and stops — the dialog still has to
 								     be opened, the bounds still have to be typed, and
 								     Approve still has to be pressed, because the
-								     capability set may be exactly what changed. -->
+								     capability set is exactly what changed. -->
 								<button
 									type="button"
 									onclick={() => grantAgain(delegation)}

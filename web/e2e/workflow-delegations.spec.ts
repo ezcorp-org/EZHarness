@@ -558,6 +558,43 @@ test.describe("Delegation consent dialog", () => {
 		});
 	});
 
+	test("Approve sends NEITHER digest — the client is told its freshness, it never asserts it", async ({
+		page,
+		mockApi,
+	}) => {
+		// There are two digests now: `consent_hash` (the semantic surface —
+		// the delegation facts and the flat capability closure) and the
+		// advisory `definition_hash` (the graph as written). Both are computed
+		// server-side at consent and BOTH are recomputed at every fire; a body
+		// that echoed either would let a caller nominate the value its own
+		// freshness is judged against. The consent schema is `.strict()`, so
+		// echoing one is a 400 rather than a silent grant — but the failure
+		// would surface only in production, since nothing else asserts the
+		// request shape. The preview response carries `consentHash` for the
+		// dialog to display; that is a read, and it must not become a write.
+		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
+		const { posted } = await stubDelegationApi(page);
+		await openConsentDialog(page);
+		await page.getByTestId("max-tokens-per-run").fill("200000");
+		await page.getByTestId("max-runs-per-day").fill("24");
+		await page.getByTestId("consent-approve").click();
+
+		await expect.poll(() => posted().length).toBe(1);
+		const body = posted()[0] as Record<string, unknown>;
+		expect(body).not.toHaveProperty("consentHash");
+		expect(body).not.toHaveProperty("definitionHash");
+		expect(body).not.toHaveProperty("capabilitySet");
+		// …and the fields it DOES carry are there, so the three absences are
+		// not satisfied by an empty body.
+		expect(body).toMatchObject({
+			extensionId: "ext-nightly",
+			workflowName: "ship-it",
+			jobRef: "nightly-ship",
+			maxTokensPerRun: 200000,
+			maxRunsPerDay: 24,
+		});
+	});
+
 	test("an instance with NO service account says so rather than showing an empty select", async ({
 		page,
 		mockApi,
@@ -918,11 +955,12 @@ test.describe("Delegations deep link", () => {
 		page,
 		mockApi,
 	}) => {
-		// `consent_hash` is recomputed and compared on every fire and folds in
-		// the workflow definition. A bundled extension's workflows ship inside
-		// the app image, so a release that edits one parks the next run
-		// `consent-stale`. The page named that remedy in two places and
-		// offered it in none.
+		// `consent_hash` is recomputed and reconciled on every fire, and a
+		// closure that reaches a capability the human never approved parks the
+		// next run `consent-stale`. (A release that only edits the workflow
+		// definition no longer does — that fingerprint is advisory now.) The
+		// page named the remedy for a real park in two places and offered it
+		// in none.
 		await mockApi({ projects: [proj], workflows: [makeWorkflow({ name: "ship-it" })] });
 		const { posted } = await stubDelegationApi(page, {
 			delegations: [

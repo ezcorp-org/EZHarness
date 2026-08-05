@@ -150,6 +150,32 @@ export const EXT_AUDIT_ACTIONS = {
    * actor: "system", reason: <deny code, or "accepted">}`.
    */
   WORKFLOW_DELEGATION_SERVICE: "ext:workflow-delegation-service",
+  /**
+   * C3 rung D6 — a delegation's consent record was CARRIED FORWARD across
+   * a change that did not widen what the job may reach.
+   *
+   * `consent_hash` covers the semantic surface (the delegation facts, the
+   * flat capability closure, the walk's bounds) and `definition_hash`
+   * covers the graph as written. A release that edits a BUNDLED
+   * extension's workflow moves the second and not the first, and rung D6
+   * re-stamps the row and keeps running rather than parking every job on
+   * every deploy. A release that ADDS a capability key still parks and
+   * still re-asks — see `runtime/workflow-consent-reconcile.ts`.
+   *
+   * Its own action, and it is the row that makes the whole mechanism
+   * auditable: without it, "the platform re-authorized this delegation
+   * for you" would be an event with no trace, which is exactly the shape
+   * a consent control must not have. `audit_log` for BOTH owner kinds,
+   * attributed to `consented_by_user_id` — the human answerable for the
+   * consent, and a column that is NOT NULL with an FK to `users`, so the
+   * row can never be swallowed.
+   *
+   * Metadata: `{permission: "workflows", newValue: <workflow name>,
+   * actor: "system", reason: "re-authorized by release", delegationId,
+   * jobRef, removed: <capability keys the job no longer reaches>,
+   * definitionChanged, semanticChanged}`.
+   */
+  WORKFLOW_DELEGATION_REAUTHORIZED: "ext:workflow-delegation-reauthorized",
   /** `ezcorp/emit-loop-event` successfully emitted a content-free loop
    *  approval nudge onto the host bus. This is the tamper-evident MIRROR
    *  of the LOCKED per-loop approval-label store (loop-types.ts): every

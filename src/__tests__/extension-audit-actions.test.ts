@@ -61,6 +61,9 @@ describe("extension audit action constants", () => {
       // which has no `users` row to attribute it to".
       "WORKFLOW_DELEGATION_NO_OWNER",
       "WORKFLOW_DELEGATION_SERVICE",
+      // C3 rung D6 — the platform carried a delegation's consent forward
+      // across a release that did not widen its capability closure.
+      "WORKFLOW_DELEGATION_REAUTHORIZED",
       // Loops Phase 2 — host emit-loop-event reverse RPC (approval nudges
       // on the bus): the accepted emit + the policy/quota rejection.
       "LOOP_EVENT_EMITTED",

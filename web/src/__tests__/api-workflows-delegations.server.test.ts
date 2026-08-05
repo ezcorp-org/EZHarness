@@ -111,8 +111,9 @@ const ENTRY = { entry: { definition: { name: "ship-it", description: "", steps: 
 const RECORD = {
   definitionVersionId: "v1",
   consentHash: "hash-1",
+  definitionHash: "graph-1",
   capabilitySet: [{ kind: "agent", value: "writer" }],
-  material: { v: 1 },
+  material: { v: 2 },
 };
 
 beforeEach(() => {
@@ -337,12 +338,17 @@ describe("extension resolution", () => {
 // ── Ruling 2 — the pinned-version divergence ────────────────────────
 
 describe("the consent record", () => {
-  test("the pinned version and hash the builder returned are what is stored", async () => {
+  test("the pinned version and BOTH hashes the builder returned are what is stored", async () => {
+    // Two digests, not one. `consent_hash` is the semantic surface and
+    // `definition_hash` is the advisory graph fingerprint; a row that
+    // stored only the first would read as "the definition changed" on its
+    // very first fire and write a re-authorization nobody triggered.
     await POST(postEvent());
     expect(db.createWorkflowDelegation).toHaveBeenCalledWith(
       expect.objectContaining({
         definitionVersionId: "v1",
         consentHash: "hash-1",
+        definitionHash: "graph-1",
         capabilitySet: [{ kind: "agent", value: "writer" }],
       }),
     );
@@ -359,7 +365,7 @@ describe("the consent record", () => {
 
   test("the material is returned so the dialog reads the hashed object", async () => {
     const res = (await POST(postEvent())) as Response;
-    expect((await res.json()).material).toEqual({ v: 1 });
+    expect((await res.json()).material).toEqual({ v: 2 });
   });
 
   test("another user's live consent surfaces as 409", async () => {

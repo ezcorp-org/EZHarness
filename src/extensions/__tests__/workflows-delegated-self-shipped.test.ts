@@ -229,6 +229,7 @@ async function delegate(spec: {
     triggerKind: "cron",
     triggerSpec: { expr: "0 3 * * *" },
     consentHash: record.consentHash,
+    definitionHash: record.definitionHash,
     capabilitySet: record.capabilitySet,
     maxTokensPerRun: 10_000,
     maxRunsPerDay: 10,

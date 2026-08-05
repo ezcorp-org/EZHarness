@@ -213,7 +213,18 @@ export interface CreateWorkflowDelegationInput {
   projectId: string | null;
   triggerKind: string;
   triggerSpec: Record<string, unknown> | null;
+  /** The SEMANTIC digest. */
   consentHash: string;
+  /**
+   * The ADVISORY graph digest.
+   *
+   * REQUIRED rather than optional, even though the column is nullable.
+   * NULL is reserved for rows written before the split, which is a fact
+   * about history; a fresh consent always knows its graph, and letting a
+   * caller omit it would mint a new row that immediately reads as "the
+   * definition changed" on its first fire.
+   */
+  definitionHash: string;
   capabilitySet: Array<{ kind: string; value: string | null }>;
   maxTokensPerRun: number;
   maxRunsPerDay: number;
@@ -298,6 +309,7 @@ export async function createWorkflowDelegation(
         triggerKind: input.triggerKind,
         triggerSpec: input.triggerSpec,
         consentHash: input.consentHash,
+        definitionHash: input.definitionHash,
         capabilitySet: input.capabilitySet,
         maxTokensPerRun: input.maxTokensPerRun,
         maxRunsPerDay: input.maxRunsPerDay,
@@ -360,6 +372,76 @@ export async function createWorkflowDelegation(
     }
     return { ok: true, delegation: inserted!, supersededId: existing?.id ?? null };
   });
+}
+
+/** The triple a carry-forward re-stamps onto a live delegation. */
+export interface CarriedDelegationConsent {
+  consentHash: string;
+  definitionHash: string;
+  capabilitySet: Array<{ kind: string; value: string | null }>;
+}
+
+/**
+ * Re-stamp a live delegation's consent record when a release changed the
+ * job WITHOUT widening what it may reach.
+ *
+ * The write half of `runtime/workflow-consent-reconcile.ts`'s `carry`
+ * verdict, and it is not optional bookkeeping — two properties depend on
+ * it:
+ *
+ *  1. **`capability_set` must follow a NARROWING.** If a release cuts the
+ *     set from `{A,B}` to `{A}` and the row keeps `{A,B}`, the release
+ *     that puts `B` back compares against the stale wider set, finds
+ *     nothing added, and re-grants `B` with no human in the loop. Writing
+ *     the narrowed set closes that.
+ *  2. **The digests must follow, or every subsequent fire re-does the
+ *     work.** Not merely wasteful: each one would write another
+ *     "re-authorized by release" audit row for a release that happened
+ *     once.
+ *
+ * ## What it deliberately does NOT touch
+ *
+ * `consented_at` — for the same reason {@link setDelegationRunBounds}
+ * leaves it alone, and here it is load-bearing rather than tidy.
+ * `RESUME_RULES["consent-stale"]` lets a parked run continue only once
+ * `consented_at` is strictly after the run's `started_at`, i.e. only once
+ * a HUMAN has looked at the diff. A carry-forward is the platform
+ * observing that nothing widened; moving the stamp would resume runs a
+ * human parked and never answered. Nor `enabled` / `disabled_reason`: a
+ * delegation the platform switched off is not healed by a release.
+ *
+ * ## CAS on the OLD hash, not just on the id
+ *
+ * `consent_hash = fromConsentHash` in the predicate, so a re-consent that
+ * lands between the fire's recompute and this write is never clobbered by
+ * a verdict taken against the row it superseded. Returns false when the
+ * CAS found nothing — an unknown id, a revoked or disabled row, or
+ * exactly that race. The caller carries on either way: the verdict was
+ * "nothing widened", and failing to record it is a bookkeeping loss, not
+ * an authority one.
+ */
+export async function carryDelegationConsentForward(
+  id: string,
+  fromConsentHash: string,
+  carried: CarriedDelegationConsent,
+): Promise<boolean> {
+  const rows = await getDb()
+    .update(workflowDelegations)
+    .set({
+      consentHash: carried.consentHash,
+      definitionHash: carried.definitionHash,
+      capabilitySet: carried.capabilitySet,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(workflowDelegations.id, id),
+        eq(workflowDelegations.consentHash, fromConsentHash),
+        delegationHoldsAuthority(),
+      ),
+    )
+    .returning({ id: workflowDelegations.id });
+  return rows.length > 0;
 }
 
 /** One delegation by id, revoked or not — history is readable. */

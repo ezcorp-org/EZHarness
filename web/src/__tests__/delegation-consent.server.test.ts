@@ -159,6 +159,12 @@ describe("buildDelegationConsent — the version pin", () => {
     if (result instanceof Response) return;
     expect(result.definitionVersionId).toBeNull();
     expect(result.consentHash).toMatch(/^[0-9a-f]{64}$/);
+    // BOTH digests reach the route. The advisory one is what lets a fire
+    // tell "a release edited this workflow" from "the grant moved", and a
+    // consent that omitted it would leave the first fire re-authorizing a
+    // release that never happened.
+    expect(result.definitionHash).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.definitionHash).not.toBe(result.consentHash);
   });
 
   test("a row with no version row pins NULL too", async () => {
@@ -226,6 +232,10 @@ describe("buildDelegationConsent — the closure", () => {
     expect(asService.material.unresolved).toEqual(["child"]);
     expect(asService.material.graph.map((g) => g.name)).toEqual(["root"]);
     expect(asService.consentHash).not.toBe(asUser.consentHash);
+    // The GRAPH differs too — a definition the principal cannot resolve
+    // is not in the walk at all — so both digests move. The split scopes
+    // what a difference MEANS at fire time; it does not narrow the walk.
+    expect(asService.definitionHash).not.toBe(asUser.definitionHash);
   });
 
   test("a child whose version DIVERGED falls back to a content fingerprint, not a refusal", async () => {

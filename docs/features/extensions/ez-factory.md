@@ -209,9 +209,20 @@ Two things it deliberately does **not** do:
   handler's ladder starts. Registration lives on the save path, which has a
   clicking user, and nowhere else.
 - **Forward a webhook's inbound body.** The delegation's `consent_hash` covers
-  the workflow and its capability closure, not the input, so forwarding would
-  let whoever holds the hook token steer `$input.*` on a run executing as the
-  human who consented. A webhook is a doorbell, not a parameter channel.
+  the capability closure, not the input, so forwarding would let whoever holds
+  the hook token steer `$input.*` on a run executing as the human who
+  consented. A webhook is a doorbell, not a parameter channel.
+
+**A release does not stop these jobs.** `ez-factory` is bundled, so its
+`*.workflow.yaml` files ship inside the app image and change under every live
+delegation. `consent_hash` used to fold the workflow definition in with the
+capability closure, so every deploy parked every job `consent-stale` until a
+human re-approved a set that had not moved. The definition fingerprint now
+lives in an advisory `workflow_delegations.definition_hash`, and what parks a
+fire is a **widening** of the capability closure — a key the human never
+approved. A definition-only release carries consent forward and writes one
+`audit_log` row reading **`re-authorized by release`**. See
+[../orchestration/workflows.md](../orchestration/workflows.md) (rung D6).
 
 Whatever the outcome, the job's `lastFire` records it — a typed reason, a
 classification, and an authored remedy — and the console's **State** column

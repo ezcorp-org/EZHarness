@@ -130,6 +130,7 @@ import { extensionLogger } from "../logger";
 // ── C3 · delegated execution ──────────────────────────────────────────
 import type { DelegationOwnerKind, WorkflowDelegationRow } from "../db/schema";
 import {
+  carryDelegationConsentForward,
   countDelegationRunsSince,
   delegationOwnerId,
   disableWorkflowDelegation,
@@ -149,6 +150,10 @@ import {
   DELEGATION_CONSENT_DENIALS,
 } from "../runtime/workflow-delegation-consent";
 import { computeDelegationConsentRecord } from "../runtime/workflow-delegation-record";
+import {
+  reconcileDelegationConsent,
+  CONSENT_CARRIED_FORWARD_REASON,
+} from "../runtime/workflow-consent-reconcile";
 import { workflowDefinitionHash } from "../runtime/workflow-definition-hash";
 import { startOfUtcDay } from "./webhook-store";
 
@@ -1493,13 +1498,32 @@ async function runForDelegation(
   }
   const definition = authz.entry.definition;
 
-  // D6. The consent hash, recomputed from LIVE state and compared. The
-  //     stored value is never compared against itself.
+  // D6. The consent record, recomputed from LIVE state and reconciled.
+  //     The stored value is never compared against itself.
   //
   //     Same assembly as the consent route, imported rather than
   //     reimplemented, and handed the OWNER'S-AND-KIND'S resolver: a
   //     `service` delegation walks a strictly smaller graph than a `user`
   //     one and must hash to a different value.
+  //
+  //     ## Reconciled, not compared — and that is the whole rung now
+  //
+  //     This used to be `record.consentHash !== row.consentHash` over ONE
+  //     digest that folded the workflow definition in with the semantic
+  //     surface. A BUNDLED extension ships its workflows inside the app
+  //     image, so any release that edited an `ez-factory`
+  //     `*.workflow.yaml`, its permissions block, or a referenced agent's
+  //     capabilities moved that digest and parked EVERY delegation. The
+  //     job stopped after every deploy and the only remedy was a human
+  //     re-approving a capability set that had not changed — which is how
+  //     a consent dialog stops being read.
+  //
+  //     `workflow-consent-reconcile.ts` owns the verdict, and the gate it
+  //     applies is WIDENING: a recomputed capability closure that adds a
+  //     key nobody approved parks exactly as before, while one that is
+  //     unchanged or NARROWER carries consent forward. Nothing that adds
+  //     reach is admitted without a human, which is the property the
+  //     combined digest was bought for.
   const record = await computeDelegationConsentRecord({
     entry: authz.entry,
     extensionName: ctx.extensionName,
@@ -1511,8 +1535,21 @@ async function runForDelegation(
     entries,
     agents,
   });
-  if (record.consentHash !== row.consentHash) {
-    return parkConsentStaleRun(req, ctx, startedAt, deps, proven, definition, input, denyAs);
+  const verdict = reconcileDelegationConsent(
+    {
+      consentHash: row.consentHash,
+      definitionHash: row.definitionHash,
+      capabilitySet: row.capabilitySet,
+    },
+    record,
+  );
+  if (verdict.kind === "park") {
+    return parkConsentStaleRun(
+      req, ctx, startedAt, deps, proven, definition, input, denyAs, verdict.added,
+    );
+  }
+  if (verdict.kind === "carry") {
+    await carryConsentForward(ctx, proven, record, verdict);
   }
 
   // D8. The per-job daily quota. DURABLE and a CALENDAR day, unlike the
@@ -1691,6 +1728,77 @@ async function lostAccess(
 }
 
 /**
+ * D6's OTHER outcome: re-stamp the delegation and keep going.
+ *
+ * Reached when a release changed the job without widening what it may
+ * reach — the case that used to park every delegation on a bundled
+ * extension after every deploy. Two writes, in this order and for
+ * different reasons:
+ *
+ *  1. **The row.** `carryDelegationConsentForward` re-stamps both digests
+ *     AND the capability set. The set is the load-bearing one: leaving a
+ *     narrowed set stale would let the release that puts the capability
+ *     back re-grant it against a wider comparison with no human in the
+ *     loop. It CASes on the old hash, so a re-consent that lands in the
+ *     gap is never clobbered.
+ *  2. **The audit row.** Without it, "the platform re-authorized this
+ *     delegation for you" would be an event with no trace, which is the
+ *     one shape a consent control must never have. `audit_log` for BOTH
+ *     owner kinds, attributed to `consented_by_user_id` — the human
+ *     answerable for the consent (`db/schema.ts`), and a NOT NULL column
+ *     with an FK to `users`, so unlike `sdk_capability_calls.on_behalf_of`
+ *     it can hold a `service` delegation's row rather than swallowing it.
+ *
+ * Neither failure stops the fire. The verdict was "nothing widened", so
+ * the run is authorized whether or not the bookkeeping landed; refusing
+ * here would turn a write hiccup into the same deploy-time outage this
+ * change exists to remove. A failed re-stamp costs one more reconcile on
+ * the next fire, and `insertAuditEntry` never throws by contract.
+ */
+async function carryConsentForward(
+  ctx: WorkflowsHandlerContext,
+  proven: ProvenDelegation,
+  record: {
+    consentHash: string;
+    definitionHash: string;
+    capabilitySet: Array<{ kind: string; value: string | null }>;
+  },
+  verdict: { removed: string[]; semanticChanged: boolean; definitionChanged: boolean },
+): Promise<void> {
+  const stamped = await carryDelegationConsentForward(proven.row.id, proven.row.consentHash, {
+    consentHash: record.consentHash,
+    definitionHash: record.definitionHash,
+    capabilitySet: record.capabilitySet,
+  });
+  log.info("delegated consent carried forward — nothing widened", {
+    extension: ctx.extensionName,
+    delegationId: proven.row.id,
+    workflow: proven.row.workflowName,
+    stamped,
+    removed: verdict.removed,
+    definitionChanged: verdict.definitionChanged,
+    semanticChanged: verdict.semanticChanged,
+  });
+  await insertAuditEntry(
+    proven.row.consentedByUserId,
+    EXT_AUDIT_ACTIONS.WORKFLOW_DELEGATION_REAUTHORIZED,
+    ctx.extensionId,
+    {
+      permission: "workflows",
+      newValue: proven.row.workflowName,
+      actor: "system",
+      reason: CONSENT_CARRIED_FORWARD_REASON,
+      delegationId: proven.row.id,
+      jobRef: proven.row.jobRef,
+      removed: verdict.removed,
+      definitionChanged: verdict.definitionChanged,
+      semanticChanged: verdict.semanticChanged,
+      stamped,
+    },
+  );
+}
+
+/**
  * D6's refusal: PARK the run, do not fail it.
  *
  * A hard failure trains authors to disable the check; a suspension with a
@@ -1734,11 +1842,18 @@ async function parkConsentStaleRun(
   definition: WorkflowDefinition,
   input: Record<string, unknown>,
   denyAs: DelegatedDenyFn,
+  added: string[],
 ): Promise<JsonRpcResponse> {
   const workflowRunId = crypto.randomUUID();
+  // The message names the COUNT, never the keys. A capability key can
+  // carry a path, a host or a tool name, and this string lands in an RPC
+  // error the calling extension reads — an extension that may not itself
+  // hold any of those grants. The keys go to `audit_log` and the process
+  // log, where the reader is the platform rather than the caller.
   const message =
-    `What you consented to for "${proven.row.workflowName}" has changed, ` +
-    `so this run is parked instead of executing. Review the changes and consent again.`;
+    `What you consented to for "${proven.row.workflowName}" has changed: it now reaches ` +
+    `${added.length} capability(s) you did not approve, so this run is parked instead of ` +
+    `executing. Review the changes and consent again.`;
   try {
     await insertWorkflowRun({
       id: workflowRunId,
@@ -1775,6 +1890,7 @@ async function parkConsentStaleRun(
     log.error("consent-stale park failed; refusing the fire regardless", {
       extension: ctx.extensionName,
       delegationId: proven.row.id,
+      added,
       error: String(err),
     });
     return denyAs("DELEGATION_CONSENT_STALE", message, -32001, { parked: false });
@@ -1789,6 +1905,9 @@ async function parkConsentStaleRun(
       delegationId: proven.row.id,
       workflowRunId,
       parked: true,
+      // WHICH keys widened. The one place a reviewer can answer "what did
+      // the release add" without re-deriving the closure by hand.
+      added,
     },
   });
   return rpcError(req.id, -32001, message, {

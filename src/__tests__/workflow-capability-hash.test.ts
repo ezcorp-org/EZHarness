@@ -1,17 +1,34 @@
 /**
- * C3's consent hash.
+ * C3's consent hash — now TWO digests over two disjoint projections.
  *
- * The module is pure, so the matrix is exhaustive in BOTH directions and
- * that is the point:
+ * The module is pure, so the matrix is exhaustive in every direction and
+ * that is the point. What changed is that "the digest moves" became
+ * "WHICH digest moves":
  *
- *   • every input individually INVALIDATES — mutate exactly one thing and
- *     the digest must move. For a consent control the mutation that
- *     matters is "drop an input and watch something that should re-ask the
- *     human stop re-asking".
- *   • every exclusion individually does NOT invalidate — the inverse
- *     direction. Without it the hash could be over-broad (re-asking on a
- *     prose edit) and nothing would notice, which is the consent-fatigue
- *     failure mode the exclusion list exists to prevent.
+ *   • **SEMANTIC** (`hash`, stored as `consent_hash`) — the delegation
+ *     facts, the FLAT capability closure, and the walk's bounds. This is
+ *     what the job may reach, and a difference here is judged by the
+ *     widening test at fire time.
+ *   • **ADVISORY** (`definitionHash`, stored as `definition_hash`) — the
+ *     graph as written: names, resolved version identities, default model
+ *     bindings, step lists. A difference here NEVER parks a run on its
+ *     own; it carries consent forward and leaves an audit row.
+ *
+ * The split exists because one combined digest made every release a
+ * consent event: a **bundled** extension ships its workflows inside the
+ * app image, so any edit to one parked every delegation on it. So the
+ * matrix below is three-way rather than two-way:
+ *
+ *   • {@link SEMANTIC_INVALIDATING} — moves the semantic digest. Dropping
+ *     any one of these inputs is how a job comes to reach something the
+ *     human never approved.
+ *   • {@link DEFINITION_INVALIDATING} — moves the ADVISORY digest and
+ *     provably NOT the semantic one. Each row is asserted both ways,
+ *     because "it moved something" would be satisfied by folding the
+ *     graph back into the consent digest and re-creating the bug.
+ *   • {@link NOT_INVALIDATING} — moves neither. The consent-fatigue
+ *     direction: a hash that re-asked on a prose edit would train people
+ *     to click through, and then the dialog that matters is not read.
  *
  * Every test differs from `fixture()` by exactly one defect.
  */
@@ -118,11 +135,18 @@ function rootOf(w: World): WorkflowDefinition {
   return root;
 }
 
-/** Hash the fixture after applying exactly one mutation. */
+/** The SEMANTIC digest of the fixture after exactly one mutation. */
 function hashWith(mutate?: (w: World) => void): string {
   const w = fixture();
   mutate?.(w);
   return computeWorkflowConsentHash(rootOf(w), w.delegation, sourcesOf(w)).hash;
+}
+
+/** The ADVISORY graph digest, same fixture, same one mutation. */
+function defHashWith(mutate?: (w: World) => void): string {
+  const w = fixture();
+  mutate?.(w);
+  return computeWorkflowConsentHash(rootOf(w), w.delegation, sourcesOf(w)).definitionHash;
 }
 
 function materialWith(mutate?: (w: World) => void) {
@@ -132,6 +156,7 @@ function materialWith(mutate?: (w: World) => void) {
 }
 
 const BASELINE = hashWith();
+const DEF_BASELINE = defHashWith();
 
 /** Every step of a definition in the fixture, by name. */
 function stepOf(w: World, defName: string, stepName: string) {
@@ -194,37 +219,22 @@ describe("determinism", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Every input, individually invalidating. One defect per test.
+// Every SEMANTIC input, individually invalidating. One defect per test.
 // ─────────────────────────────────────────────────────────────────────
 
-/** [what it proves, the single mutation]. Each row must produce a hash
- *  different from `BASELINE` AND from every other row. */
-const INVALIDATING: Array<[string, (w: World) => void]> = [
+/** [what it proves, the single mutation]. Each row must produce a
+ *  SEMANTIC digest different from `BASELINE` AND from every other row. */
+const SEMANTIC_INVALIDATING: Array<[string, (w: World) => void]> = [
   // #1 extension name — a delegation presented by another extension.
   ["1. extensionName", (w) => { w.delegation.extensionName = "other-bot"; }],
 
   // #2 fully-qualified workflow name.
   ["2. workflowName", (w) => { w.delegation.workflowName = "ext:root"; }],
 
-  // #3 the version id, and the version number, of the ROOT.
-  [
-    "3a. root version id",
-    (w) => { w.identities.set("root", { kind: "version", versionId: "ver-root-2", version: 1 }); },
-  ],
-  [
-    "3b. root version number",
-    (w) => { w.identities.set("root", { kind: "version", versionId: "ver-root", version: 2 }); },
-  ],
-  // #3, nested arm: a child edit the parent's own version id cannot see.
-  [
-    "3c. nested version id",
-    (w) => { w.identities.set("child", { kind: "version", versionId: "ver-child-2", version: 1 }); },
-  ],
-
   // #4 the capability set.
   [
-    "4a. a tool gains a capability",
-    (w) => { w.toolCaps.set("ext__notify", [{ kind: "network", value: "hooks.example.com" }, { kind: "shell" }]); },
+    "4a. a tool gains a capability the closure did not already reach",
+    (w) => { w.toolCaps.set("ext__notify", [{ kind: "network", value: "hooks.example.com" }, { kind: "env", value: "DEPLOY_TOKEN" }]); },
   ],
   [
     "4b. a tool loses a capability (the set SHRINKS — still stale)",
@@ -315,14 +325,42 @@ const INVALIDATING: Array<[string, (w: World) => void]> = [
 
   // #8 the model-override set.
   [
-    "8a. a per-step model override appears",
+    // The PROVIDER moved, so the `llm::` capability key moved with it —
+    // which is a reach fact, not a spelling one.
+    "8a. a per-step model override appears, naming a NEW provider",
     (w) => { stepOf(w, "root", "s-agent").model = { provider: "openai", model: "o3" }; },
   ],
+];
+
+// ─────────────────────────────────────────────────────────────────────
+// Every ADVISORY input: it moves the GRAPH digest and provably NOT the
+// consent digest. These are the ones a release moves, and the whole
+// point of the split is that they no longer re-ask.
+// ─────────────────────────────────────────────────────────────────────
+
+const DEFINITION_INVALIDATING: Array<[string, (w: World) => void]> = [
+  // #3 the version id, and the version number, of the ROOT.
+  [
+    "3a. root version id",
+    (w) => { w.identities.set("root", { kind: "version", versionId: "ver-root-2", version: 1 }); },
+  ],
+  [
+    "3b. root version number",
+    (w) => { w.identities.set("root", { kind: "version", versionId: "ver-root", version: 2 }); },
+  ],
+  // #3, nested arm: a child edit the parent's own version id cannot see.
+  [
+    "3c. nested version id",
+    (w) => { w.identities.set("child", { kind: "version", versionId: "ver-child-2", version: 1 }); },
+  ],
+
+  // #8 the model-override set, WITHIN one provider.
   [
     // Isolates #8 from #4: the PROVIDER is unchanged, so the `llm::`
     // capability is identical and only the binding itself moved. A silent
     // re-point from Sonnet to Opus is a 30× spend change on the owner's
-    // credits and a capability-set-only hash cannot see it.
+    // credits — which is why it must still be fingerprinted, and why the
+    // ADVISORY digest is recorded rather than merely omitted.
     "8c. a per-step model is re-pointed WITHIN the same provider",
     (w) => { stepOf(w, "root", "s-agent").model = { provider: "anthropic", model: "opus" }; },
   ],
@@ -355,17 +393,88 @@ const INVALIDATING: Array<[string, (w: World) => void]> = [
   ["12. a step kind changes", (w) => { stepOf(w, "root", "s-gate").kind = "transform"; }],
 ];
 
-describe("every input individually invalidates consent", () => {
-  for (const [label, mutate] of INVALIDATING) {
+describe("every SEMANTIC input individually invalidates consent", () => {
+  for (const [label, mutate] of SEMANTIC_INVALIDATING) {
     test(label, () => {
       expect(hashWith(mutate)).not.toBe(BASELINE);
     });
   }
+});
 
-  test("no two of them collide — the hash discriminates all of them", () => {
-    const hashes = new Set(INVALIDATING.map(([, mutate]) => hashWith(mutate)));
-    expect(hashes.size).toBe(INVALIDATING.length);
-    expect(hashes.has(BASELINE)).toBe(false);
+describe("every DEFINITION input moves the ADVISORY digest and NOT the consent one", () => {
+  for (const [label, mutate] of DEFINITION_INVALIDATING) {
+    test(label, () => {
+      // Both halves, every row. "It moved something" would be satisfied by
+      // folding the graph back into the consent digest — which is exactly
+      // the defect: a bundled extension's release parking every job.
+      expect(defHashWith(mutate)).not.toBe(DEF_BASELINE);
+      expect(hashWith(mutate)).toBe(BASELINE);
+    });
+  }
+});
+
+describe("the two digests together discriminate every input", () => {
+  const ALL = [...SEMANTIC_INVALIDATING, ...DEFINITION_INVALIDATING];
+
+  test("no two of them collide on the PAIR", () => {
+    // Over the pair rather than over either digest alone: a semantic
+    // change and a definition change can legitimately agree on the half
+    // they do not touch, and the property that matters is that the record
+    // as a whole still tells them apart.
+    //
+    // Grouped by pair rather than counted, so a failure NAMES the two
+    // mutations that became indistinguishable instead of reporting
+    // `34 !== 35` and leaving the reader to find them.
+    const byPair = new Map<string, string[]>();
+    for (const [label, m] of ALL) {
+      const key = `${hashWith(m)}|${defHashWith(m)}`;
+      byPair.set(key, [...(byPair.get(key) ?? []), label]);
+    }
+    expect([...byPair.values()].filter((labels) => labels.length > 1)).toEqual([]);
+    expect(byPair.size).toBe(ALL.length);
+    expect(byPair.has(`${BASELINE}|${DEF_BASELINE}`)).toBe(false);
+  });
+
+  test("the two digests of one record are never the same value", () => {
+    expect(DEF_BASELINE).toMatch(/^[0-9a-f]{64}$/);
+    expect(DEF_BASELINE).not.toBe(BASELINE);
+  });
+});
+
+describe("the capability closure is FLAT — attribution is the dialog's, not the digest's", () => {
+  test("a capability the closure ALREADY reaches, added to a second tool, moves neither digest", () => {
+    // Deliberate, and the one place the split trades resolution away.
+    // `ext__deploy` in the child already declares `shell`, so the job could
+    // already shell; `ext__notify` gaining it adds no REACH, and reach is
+    // what a consent control refuses. The graph did not move either, so
+    // this is a genuine no-op rather than a carry-forward.
+    const alsoShell = (w: World) => {
+      w.toolCaps.set("ext__notify", [
+        { kind: "network", value: "hooks.example.com" },
+        { kind: "shell" },
+      ]);
+    };
+    expect(hashWith(alsoShell)).toBe(BASELINE);
+    expect(defHashWith(alsoShell)).toBe(DEF_BASELINE);
+    // …and the PER-DEFINITION attribution the consent dialog renders does
+    // move, so a human re-reading the material still sees where it came
+    // from. Only the digest flattens.
+    expect(
+      materialWith(alsoShell).graph.find((g) => g.name === "root")?.capabilities,
+    ).toContain("shell::");
+  });
+
+  test("…but the same capability arriving where the closure reached NOTHING like it does move it", () => {
+    // The pair. Without it "flat" would be indistinguishable from "not
+    // hashed at all".
+    expect(
+      hashWith((w) => {
+        w.toolCaps.set("ext__notify", [
+          { kind: "network", value: "hooks.example.com" },
+          { kind: "env", value: "DEPLOY_TOKEN" },
+        ]);
+      }),
+    ).not.toBe(BASELINE);
   });
 });
 
@@ -396,21 +505,28 @@ const NOT_INVALIDATING: Array<[string, (w: World) => void]> = [
 describe("every exclusion individually does NOT invalidate consent", () => {
   for (const [label, mutate] of NOT_INVALIDATING) {
     test(label, () => {
+      // NEITHER digest. An exclusion that moved the advisory one would
+      // write an "re-authorized by release" audit row on every fire for a
+      // release that never happened.
       expect(hashWith(mutate)).toBe(BASELINE);
+      expect(defHashWith(mutate)).toBe(DEF_BASELINE);
     });
   }
 
-  test("an inputSchema-only edit that MINTS A VERSION does re-ask", () => {
-    // The ruling, stated as a test: `versionMaterialKey` folds in
+  test("an inputSchema-only edit that MINTS A VERSION moves the ADVISORY digest only", () => {
+    // The ruling, restated for the split: `versionMaterialKey` folds in
     // `inputSchema` while `versionStepsHash` does not, so a schema-only
-    // edit mints a new version id under an identical steps hash. We hash
-    // the version id, so consent goes stale — the accepted cost.
-    expect(
-      hashWith((w) => {
-        rootOf(w).inputSchema = { branch: { type: "select", label: "Branch" } };
-        w.identities.set("root", { kind: "version", versionId: "ver-root-2", version: 2 });
-      }),
-    ).not.toBe(BASELINE);
+    // edit mints a new version id under an identical steps hash. We still
+    // fingerprint the version id — it is the coarser, dumber, safer key —
+    // but it lands in the ADVISORY digest, so the edit carries consent
+    // forward instead of re-asking. That was the accepted cost; it is no
+    // longer a cost.
+    const schemaEdit = (w: World) => {
+      rootOf(w).inputSchema = { branch: { type: "select", label: "Branch" } };
+      w.identities.set("root", { kind: "version", versionId: "ver-root-2", version: 2 });
+    };
+    expect(defHashWith(schemaEdit)).not.toBe(DEF_BASELINE);
+    expect(hashWith(schemaEdit)).toBe(BASELINE);
   });
 });
 
@@ -531,13 +647,18 @@ describe("rule 2 — unresolved, cycles and tooDeep are hashed", () => {
 });
 
 describe("rule 3 — a child is hashed by RESOLVED IDENTITY, never by name", () => {
-  test("an asset shadowing a nested name invalidates the root hash", () => {
+  test("an asset shadowing a nested name moves the ADVISORY digest", () => {
     // The merged cache is extension → YAML → DB, first-match-wins, so an
     // asset taking the nested name re-points the edge without editing a
     // single definition the human read. The shadowing entry has NO
     // version row (`systemCachedWorkflow` sets `id: null`), which is why
     // `definition_version_id` alone cannot catch this.
-    const shadowed = hashWith((w) => {
+    //
+    // Identity lives in the ADVISORY projection, so a shadow whose STEPS
+    // are a verbatim copy reaches exactly what the human approved and is
+    // carried forward. A shadow that reaches anything MORE moves the
+    // capability closure and parks — which is the next test.
+    const shadow = (w: World) => {
       const child = w.defs.find((d) => d.name === "child");
       if (!child) throw new Error("fixture lost its child");
       w.defs = [
@@ -545,11 +666,32 @@ describe("rule 3 — a child is hashed by RESOLVED IDENTITY, never by name", () 
         ...w.defs.filter((d) => d.name !== "child"),
       ];
       w.identities.set("child", { kind: "unversioned" });
-    });
-    expect(shadowed).not.toBe(BASELINE);
+    };
+    expect(defHashWith(shadow)).not.toBe(DEF_BASELINE);
+    expect(hashWith(shadow)).toBe(BASELINE);
   });
 
-  test("BYTE-IDENTICAL steps still change the hash when the identity kind differs", () => {
+  test("a shadow that REACHES MORE moves the consent digest too", () => {
+    // The pair, and the load-bearing half: the vector rule 3 exists for
+    // is a name re-pointed at a graph the human never read. Fingerprinting
+    // the identity is what makes the swap visible at all; the closure is
+    // what decides whether it may run unattended.
+    const hostileShadow = (w: World) => {
+      w.defs = [
+        {
+          name: "child",
+          description: "a shadowing YAML asset",
+          steps: [{ name: "c-tool", kind: "tool", tool: "ext__rm" }],
+        },
+        ...w.defs.filter((d) => d.name !== "child"),
+      ];
+      w.identities.set("child", { kind: "unversioned" });
+    };
+    expect(hashWith(hostileShadow)).not.toBe(BASELINE);
+    expect(defHashWith(hostileShadow)).not.toBe(DEF_BASELINE);
+  });
+
+  test("BYTE-IDENTICAL steps still change the ADVISORY digest when the identity kind differs", () => {
     // The sharpest form: the shadowing asset is a verbatim copy, so every
     // content-derived fingerprint of it agrees with the DB row's. Only the
     // versioned/unversioned discriminant separates them.
@@ -561,8 +703,8 @@ describe("rule 3 — a child is hashed by RESOLVED IDENTITY, never by name", () 
     expect(versionedChild?.capabilities).toEqual(shadowedChild?.capabilities ?? []);
     expect(versionedChild?.identity).toBe("version:ver-child@1");
     expect(shadowedChild?.identity).toMatch(/^unversioned:[0-9a-f]{64}$/);
-    expect(hashWith((w) => { w.identities.set("child", { kind: "unversioned" }); })).not.toBe(
-      BASELINE,
+    expect(defHashWith((w) => { w.identities.set("child", { kind: "unversioned" }); })).not.toBe(
+      DEF_BASELINE,
     );
   });
 });
@@ -581,7 +723,10 @@ describe("a workflow with no version row", () => {
     for (const entry of material.graph) {
       expect(entry.identity).toMatch(/^unversioned:[0-9a-f]{64}$/);
     }
-    expect(hashWith(yamlWorld)).not.toBe(BASELINE);
+    // Identity is ADVISORY, so losing every version row re-fingerprints
+    // the graph and leaves the reach — which did not change — alone.
+    expect(defHashWith(yamlWorld)).not.toBe(DEF_BASELINE);
+    expect(hashWith(yamlWorld)).toBe(BASELINE);
   });
 
   test("a step-body edit still invalidates it", () => {
@@ -593,13 +738,13 @@ describe("a workflow with no version row", () => {
     expect(edited).not.toBe(base);
   });
 
-  test("skipDependents alone still invalidates it — this is the case with no version to mint", () => {
-    const base = hashWith(yamlWorld);
+  test("skipDependents alone still moves the ADVISORY digest — the case with no version to mint", () => {
+    const base = defHashWith(yamlWorld);
     const flip = (w: World) => {
       yamlWorld(w);
       stepOf(w, "root", "s-tool").skipDependents = false;
     };
-    expect(hashWith(flip)).not.toBe(base);
+    expect(defHashWith(flip)).not.toBe(base);
     // Asserted on the material too: the fallback identity hashes `steps`,
     // so the digest would move here even if reachability were dropped as
     // an input. The material is where the property is actually stated.

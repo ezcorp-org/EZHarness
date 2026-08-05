@@ -311,6 +311,24 @@ const GRAPH: WorkflowDefinition = {
 
 const ENTRY = systemCachedWorkflow(GRAPH, "extension");
 
+/**
+ * The graph the app image currently SHIPS.
+ *
+ * Mutable, because that is the whole shape of the defect this file has to
+ * cover: `ez-factory` is BUNDLED, so its `*.workflow.yaml` files ship
+ * inside the release and change under a live delegation without anybody
+ * touching the delegation. {@link releaseShips} is a deploy.
+ */
+let shipped: WorkflowDefinition = GRAPH;
+let shippedEntry: ReturnType<typeof systemCachedWorkflow> = ENTRY;
+
+/** A release: the app image now carries a different graph under the same
+ *  name. Nothing about the delegation row moves. */
+function releaseShips(definition: WorkflowDefinition): void {
+  shipped = definition;
+  shippedEntry = systemCachedWorkflow(definition, "extension");
+}
+
 let agentInvocations = 0;
 
 function registerRuntime(): void {
@@ -342,8 +360,8 @@ function registerRuntime(): void {
   } as unknown as AgentExecutor;
   registerWorkflowRuntime({
     workflowExecutor: new WorkflowExecutor(agentExec, bus, { persist: true }),
-    getWorkflows: () => [GRAPH],
-    getCachedWorkflows: () => [ENTRY],
+    getWorkflows: () => [shipped],
+    getCachedWorkflows: () => [shippedEntry],
     listAgents: () => [],
   });
 }
@@ -412,14 +430,17 @@ async function saveCronJob(name: string): Promise<string> {
  *  the hash THIS build recomputes at fire time. */
 async function consent(jobRef: string): Promise<string> {
   const record = await computeDelegationConsentRecord({
-    entry: ENTRY,
+    // The graph the app image ships RIGHT NOW — a human consents to what
+    // is in front of them, and a release afterwards is exactly the drift
+    // this file is here to characterize.
+    entry: shippedEntry,
     extensionName: EXT_NAME,
     workflowName: GRAPH.name,
     projectId: PROJECT_ID,
     runAs: { kind: "user", id: OWNER },
     trigger: { kind: "cron", spec: { expr: "0 3 * * *" } },
     principal: delegationPrincipal("user", OWNER),
-    entries: [ENTRY],
+    entries: [shippedEntry],
     agents: [],
   });
   const created = await createWorkflowDelegation({
@@ -433,6 +454,7 @@ async function consent(jobRef: string): Promise<string> {
     triggerKind: "cron",
     triggerSpec: { expr: "0 3 * * *" },
     consentHash: record.consentHash,
+    definitionHash: record.definitionHash,
     capabilitySet: record.capabilitySet,
     maxTokensPerRun: 100_000,
     maxRunsPerDay: 5,
@@ -542,6 +564,7 @@ beforeEach(async () => {
   receivers.clear();
   callerOwner = OWNER;
   agentInvocations = 0;
+  releaseShips(GRAPH);
   delete process.env.EZCORP_DISABLE_CAPABILITY_TOOLS;
   delete process.env.EZCORP_DISABLE_DELEGATED_WORKFLOWS;
   delete process.env.EZCORP_DISABLE_DYNAMIC_TRIGGERS;
@@ -718,18 +741,103 @@ describe("a WEBHOOK fire", () => {
   });
 });
 
-describe("the parked state is LEGIBLE", () => {
-  test("a stale consent PARKS the run and the job says so in the operator's words", async () => {
+describe("a RELEASE moves the shipped workflow under a live delegation", () => {
+  /** The consent columns off the row, so a test can say which of the two
+   *  digests a release moved. */
+  async function consentColumns(id: string): Promise<{
+    consent_hash: string;
+    definition_hash: string | null;
+    capability_set: Array<{ kind: string; value: string | null }>;
+  }> {
+    const res = (await db.execute(sql`
+      SELECT consent_hash, definition_hash, capability_set
+      FROM workflow_delegations WHERE id = ${id}
+    `)) as unknown as {
+      rows: Array<{
+        consent_hash: string;
+        definition_hash: string | null;
+        capability_set: Array<{ kind: string; value: string | null }>;
+      }>;
+    };
+    return res.rows[0]!;
+  }
+
+  test("a DEFINITION-only release keeps the job running and records why", async () => {
+    // THE DEFECT, end to end. `ez-factory` is bundled, so a release that
+    // edits one of its shipped `*.workflow.yaml` files changes the graph
+    // under every live delegation. That used to park EVERY fire
+    // `consent-stale` and stop unattended execution until a human
+    // re-approved a capability set that had not moved.
     const jobId = await saveCronJob("nightly etl");
     const delegationId = await consent(jobId);
-    // What a release does: the workflow definition (or the extension's
-    // grants, or a referenced agent) moves, and the recomputed hash no
-    // longer matches what the human approved.
-    await db.execute(sql`
-      UPDATE workflow_delegations SET consent_hash = 'stale-after-a-deploy' WHERE id = ${delegationId}
-    `);
+    const before = await consentColumns(delegationId);
+    // Deploy: same two agents, same reach, one edited step guard.
+    releaseShips({
+      ...GRAPH,
+      steps: [
+        { name: "ingest", agent: "stub" },
+        {
+          name: "report",
+          agent: "stub",
+          dependsOn: ["ingest"],
+          when: { ref: "$steps.ingest.success", op: "truthy" },
+        },
+      ],
+    });
 
     await fire(triggerKeyForJob(jobId)!);
+    await drain();
+
+    // It RAN. Nothing is parked and the console reports a good fire.
+    const runs = await runsFor(jobId);
+    expect(runs).toHaveLength(1);
+    expect(runs[0]?.status).toBe("success");
+    expect(runs[0]?.suspended_reason).toBeNull();
+    expect(agentInvocations).toBeGreaterThan(0);
+    const job = await jobStore().getJob(jobId);
+    expect(job?.lastFire?.ok).toBe(true);
+
+    // The ADVISORY digest followed the release; the SEMANTIC one did not,
+    // and the approved capability set is untouched.
+    const after = await consentColumns(delegationId);
+    expect(after.definition_hash).not.toBe(before.definition_hash);
+    expect(after.consent_hash).toBe(before.consent_hash);
+    expect(after.capability_set).toEqual(before.capability_set);
+
+    // And the re-authorization is ON THE RECORD, attributed to the human
+    // who consented. A platform that re-authorizes silently is worse than
+    // one that parks.
+    const audit = (await db.execute(sql`
+      SELECT user_id, metadata FROM audit_log
+      WHERE action = 'ext:workflow-delegation-reauthorized'
+    `)) as unknown as {
+      rows: Array<{ user_id: string | null; metadata: { reason?: string } }>;
+    };
+    expect(audit.rows).toHaveLength(1);
+    expect(audit.rows[0]?.user_id).toBe(OWNER);
+    expect(audit.rows[0]?.metadata?.reason).toBe("re-authorized by release");
+  });
+
+  test("a release that WIDENS the closure still parks, and says so in the operator's words", async () => {
+    // The control that makes the test above about NON-widening rather
+    // than about "D6 stopped checking". Same deploy shape, but the new
+    // step reaches an agent nobody approved.
+    const jobId = await saveCronJob("nightly etl");
+    const delegationId = await consent(jobId);
+    const before = await consentColumns(delegationId);
+    releaseShips({
+      ...GRAPH,
+      steps: [
+        { name: "ingest", agent: "stub" },
+        { name: "report", agent: "stub", dependsOn: ["ingest"] },
+        { name: "publish", agent: "deployer", dependsOn: ["report"] },
+      ],
+    });
+
+    await fire(triggerKeyForJob(jobId)!);
+
+    // The record the human approved is NOT re-stamped — a human has to look.
+    expect(await consentColumns(delegationId)).toEqual(before);
 
     // The run row exists and is PARKED, not failed — it is what a
     // re-consent resumes.

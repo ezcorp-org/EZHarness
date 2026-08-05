@@ -160,6 +160,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     triggerKind: body.triggerKind,
     triggerSpec: body.triggerSpec ?? null,
     consentHash: consent.consentHash,
+    definitionHash: consent.definitionHash,
     capabilitySet: consent.capabilitySet,
     maxTokensPerRun: body.maxTokensPerRun,
     maxRunsPerDay: body.maxRunsPerDay,

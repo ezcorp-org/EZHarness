@@ -47,6 +47,7 @@ import {
 } from "./workflow-delegation-consent";
 import {
   computeWorkflowConsentHash,
+  consentCapabilityClosure,
   type ConsentCapability,
   type ConsentHashMaterial,
   type WorkflowVersionIdentity,
@@ -146,7 +147,12 @@ export interface DelegationConsentRecord {
   /** `ok: false` only when the root's saved snapshot and the definition
    *  that would run have diverged — see `resolveDelegationVersionPin`. */
   pin: DelegationVersionPin;
+  /** The SEMANTIC digest — `workflow_delegations.consent_hash`. */
   consentHash: string;
+  /** The ADVISORY digest — `workflow_delegations.definition_hash`. Moves
+   *  on any release that edits the graph; a move on its own never parks a
+   *  run (`workflow-consent-reconcile.ts`). */
+  definitionHash: string;
   capabilitySet: Array<{ kind: string; value: string | null }>;
   material: ConsentHashMaterial;
 }
@@ -249,12 +255,14 @@ export async function computeDelegationConsentRecord(
   return {
     pin,
     consentHash: result.hash,
-    // De-duplicated as KEYS before splitting: two definitions in the
-    // closure declaring the same capability authorize one thing, and the
-    // dialog must not list it twice.
-    capabilitySet: [...new Set(result.material.graph.flatMap((g) => g.capabilities))]
-      .sort()
-      .map(splitCapabilityKey),
+    definitionHash: result.definitionHash,
+    // The SAME flattener the semantic digest takes, imported rather than
+    // written again: the widening test compares this stored set against a
+    // recomputed one, so a second derivation here would eventually judge a
+    // set nobody hashed. De-duplicated as KEYS before splitting — two
+    // definitions in the closure declaring the same capability authorize
+    // one thing, and the dialog must not list it twice.
+    capabilitySet: consentCapabilityClosure(result.material).map(splitCapabilityKey),
     material: result.material,
   };
 }

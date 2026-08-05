@@ -3,10 +3,44 @@
  * extension may run on their behalf.
  *
  * A delegation records this value at consent time. Every delegated fire
- * recomputes it from live state and compares; a mismatch suspends the run
- * with `suspended_reason='consent-stale'` and re-asks. The row stores what
- * the human agreed to; the handler computes what the world says now — the
+ * recomputes it from live state and compares. The row stores what the
+ * human agreed to; the handler computes what the world says now — the
  * stored value is never compared against itself.
+ *
+ * ## TWO digests, and the split is the whole point
+ *
+ * This module returns `hash` (the **semantic** surface) and
+ * `definitionHash` (the **advisory** one), taken over two DISJOINT
+ * projections of one material object.
+ *
+ *  - **`hash` — the semantic surface.** The delegation-level facts
+ *    (extension, workflow name, project, principal, trigger), the FLAT
+ *    capability closure over every definition the walk reached, and the
+ *    walk's own bounds (`unresolved`, `cycles`, `tooDeep`). This is
+ *    *what the job may reach*.
+ *  - **`definitionHash` — the graph as written.** Each definition's name,
+ *    resolved version identity, default model binding and step list. This
+ *    is *how the job is spelled*, and it is ADVISORY: a change to it alone
+ *    never parks a run.
+ *
+ * The split exists because the combined digest made every release a
+ * consent event. `ez-factory` is a BUNDLED extension — its workflows ship
+ * inside the app image — so any release that edited one of its
+ * `*.workflow.yaml` files, or its permissions block, or a referenced
+ * agent's capabilities, changed the digest and parked EVERY delegation
+ * `consent-stale`. Unattended execution stopped after each deploy, and
+ * the only remedy was a human clicking through a dialog whose capability
+ * set had not moved. A consent control that fires on every deploy stops
+ * being read, which is the same failure the exclusion list at §3.2 exists
+ * to prevent — one rung up.
+ *
+ * What replaces "any change re-asks" is a **widening** test, not a looser
+ * digest: `workflow-consent-reconcile.ts` compares the CONSENTED capability
+ * set against the recomputed one and parks only when the recomputed set
+ * ADDS something. A definition edit whose closure is unchanged or narrower
+ * carries consent forward and leaves an audit row. Nothing that adds reach
+ * is admitted without a human, which is the property the combined digest
+ * was bought for in the first place.
  *
  * ## Pure on purpose
  *
@@ -39,12 +73,21 @@ import { stableStringify, workflowDefinitionHash } from "./workflow-definition-h
 /**
  * Bumped when the MATERIAL below changes shape.
  *
- * Folded into the digest so a shape change cannot silently produce a hash
- * that collides with an old one: every stored consent goes stale on the
- * upgrade and is re-asked, which is the only safe direction for a control
- * whose whole job is "the human saw this exact thing".
+ * Folded into BOTH digests so a shape change cannot silently produce a
+ * hash that collides with an old one.
+ *
+ * `2` is the semantic/definition split. Every row written under `1`
+ * carries a combined digest that neither of the two projections can
+ * reproduce, so every stored consent reads as changed on the first fire
+ * after the upgrade — which is safe rather than disruptive precisely
+ * because of the widening test: `workflow-consent-reconcile.ts` compares
+ * the row's own `capability_set` (still exactly what the human approved,
+ * and untouched by this change) against the recomputed closure, so an
+ * upgraded row carries forward unless its reach actually grew. No
+ * backfill is needed and none is performed: the first fire re-derives
+ * both digests and writes them.
  */
-export const CONSENT_HASH_MATERIAL_VERSION = 1;
+export const CONSENT_HASH_MATERIAL_VERSION = 2;
 
 /**
  * One capability as the consent dialog will show it. Deliberately a loose
@@ -198,9 +241,111 @@ export interface ConsentHashMaterial {
   tooDeep: string[];
 }
 
+/**
+ * The SEMANTIC projection — what the job may reach, and on whose behalf.
+ *
+ * `capabilities` is the closure FLATTENED: the union of every definition's
+ * capability keys, sorted and de-duplicated. Per-definition attribution is
+ * deliberately dropped here and kept in the definition projection instead,
+ * because reach is reach — a capability that MOVES from one definition in
+ * the closure to another authorizes exactly the same thing, and re-asking
+ * a human about it is the consent fatigue this split exists to end.
+ *
+ * The walk's bounds ride along for the reason `computeWorkflowConsentHash`
+ * already records: an edge pointing nowhere at consent time can resolve
+ * later, and the graph silently gains a live step. They are also the one
+ * part of this projection that is *belt* to the capability set's *braces* —
+ * a newly-resolved child normally shows up as new capability keys anyway.
+ */
+export interface ConsentSemanticMaterial {
+  v: number;
+  extensionName: string;
+  workflowName: string;
+  projectId: string | null;
+  runAs: { kind: string; id: string | null };
+  trigger: { kind: string; spec: unknown };
+  /** Sorted, de-duplicated `kind::value` across the WHOLE closure. */
+  capabilities: string[];
+  unresolved: string[];
+  cycles: string[];
+  tooDeep: string[];
+}
+
+/**
+ * The ADVISORY projection — the graph as written.
+ *
+ * Disjoint from {@link ConsentSemanticMaterial} on purpose: each digest
+ * answers exactly one question, so a fire that finds them different can
+ * say WHICH changed rather than "something did". That is what lets the
+ * carry-forward audit row be specific about a release having edited a
+ * workflow without claiming the human's grant moved.
+ *
+ * Per-definition `capabilities` are NOT here — they belong to the semantic
+ * half, and duplicating them would make a narrowing show up as a
+ * "definition change" too.
+ */
+export interface ConsentDefinitionMaterial {
+  v: number;
+  graph: Array<Omit<ConsentGraphMaterial, "capabilities">>;
+}
+
 export interface ConsentHashResult {
+  /** The SEMANTIC digest — the value `workflow_delegations.consent_hash`
+   *  stores and the widening test judges. */
   hash: string;
+  /** The ADVISORY digest — `workflow_delegations.definition_hash`. A
+   *  change to this alone never parks a run. */
+  definitionHash: string;
   material: ConsentHashMaterial;
+}
+
+/**
+ * The flat capability closure: every definition's keys, de-duplicated and
+ * sorted.
+ *
+ * Exported because THREE readers need the identical set — the semantic
+ * digest here, the `capability_set` the delegation row stores
+ * (`workflow-delegation-record.ts`), and the widening test that compares
+ * the two (`workflow-consent-reconcile.ts`). Deriving it three times is
+ * how the stored set and the hashed set would eventually disagree, at
+ * which point the widening test would be judging a set nobody hashed.
+ */
+export function consentCapabilityClosure(material: ConsentHashMaterial): string[] {
+  return [...new Set(material.graph.flatMap((g) => g.capabilities))].sort();
+}
+
+/** {@link ConsentSemanticMaterial} for a material. Pure projection — it
+ *  reads, it never recomputes. */
+export function consentSemanticMaterial(
+  material: ConsentHashMaterial,
+): ConsentSemanticMaterial {
+  return {
+    v: material.v,
+    extensionName: material.extensionName,
+    workflowName: material.workflowName,
+    projectId: material.projectId,
+    runAs: material.runAs,
+    trigger: material.trigger,
+    capabilities: consentCapabilityClosure(material),
+    unresolved: material.unresolved,
+    cycles: material.cycles,
+    tooDeep: material.tooDeep,
+  };
+}
+
+/** {@link ConsentDefinitionMaterial} for a material. */
+export function consentDefinitionMaterial(
+  material: ConsentHashMaterial,
+): ConsentDefinitionMaterial {
+  return {
+    v: material.v,
+    graph: material.graph.map((g) => ({
+      name: g.name,
+      identity: g.identity,
+      defaultModel: g.defaultModel,
+      steps: g.steps,
+    })),
+  };
 }
 
 /** The `llm` capability value when neither the step nor the definition
@@ -318,33 +463,31 @@ function identityKey(def: WorkflowDefinition, identify: WorkflowIdentityResolver
 }
 
 /**
- * ## Ruling: hash the VERSION ID. Re-ask on ANY edit.
+ * ## Ruling: hash the VERSION ID — into the ADVISORY digest.
  *
- * *Deliberate.* We hash the version id, not the steps hash. Any edit that
- * mints a version — including an `inputSchema`-only edit that changes no
- * step body — invalidates consent and re-asks. `versionMaterialKey` folds
- * in `inputSchema` (`db/queries/workflow-versions.ts:117-119`) while
- * `versionStepsHash` does not (`:98-105`), so such an edit mints a new
- * version id under an IDENTICAL steps hash, and only the version id
- * notices.
+ * *Deliberate, and now scoped.* We still fingerprint by version id rather
+ * than by steps hash: any edit that mints a version — including an
+ * `inputSchema`-only edit that changes no step body — moves the value.
+ * `versionMaterialKey` folds in `inputSchema`
+ * (`db/queries/workflow-versions.ts:117-119`) while `versionStepsHash`
+ * does not (`:98-105`), so such an edit mints a new version id under an
+ * IDENTICAL steps hash, and only the version id notices. The steps hash
+ * is a *predicate about what we think matters*, and a control whose scope
+ * is decided by a predicate fails in the direction of missing something.
+ * The version id is the coarser, dumber, safer key.
  *
- * The reason is that the steps hash is a *predicate about what we think
- * matters*, and a consent control whose scope is decided by a predicate
- * fails in the direction of granting authority the human never saw. The
- * version id is the coarser, dumber, safer key.
- *
- * **The counter-argument, recorded honestly because it is real:** consent
- * fatigue is itself a failure mode. The exclusion list exists because a
- * consent dialog that fires on every typo fix stops being read, and then
- * the one that matters is not read either. We are trading a known,
- * bounded annoyance (schema edits re-ask) against an unknown, unbounded
- * one (a predicate that under-reports). If telemetry later shows
- * re-consent prompts are being click-through-accepted at a high rate,
- * that is evidence to revisit — **revisit with data, not by reasoning
- * that the steps hash is "obviously" sufficient.** `VersionMaterial`
- * (`workflow-versions.ts:70-84`) already excludes `name`/`description`
- * for exactly this reason, which is what keeps the re-ask rate bounded: a
- * typo fix in prose mints no version at all.
+ * **What changed is what that fingerprint DRIVES.** It lands in
+ * `definitionHash`, not in the consent digest, so an edit no longer
+ * re-asks by itself — it carries consent forward and leaves an audit row.
+ * The counter-argument this ruling used to record as a risk stopped being
+ * hypothetical: consent fatigue *is* itself a failure mode, and a bundled
+ * extension shipping its workflows in the app image turned "any edit
+ * re-asks" into "every deploy parks every job". Re-asking now keys on the
+ * one predicate that cannot under-report a grant — *did the capability
+ * closure GROW* — and every other edit is recorded rather than gated.
+ * `VersionMaterial` (`workflow-versions.ts:70-84`) still excludes
+ * `name`/`description`, so a typo fix in prose mints no version and moves
+ * neither digest.
  *
  * ## Why `unresolved`, `cycles` and `tooDeep` are hashed
  *
@@ -401,10 +544,19 @@ export function computeWorkflowConsentHash(
   };
 
   return {
-    // Key-order-insensitive at every depth: a jsonb round-trip and a YAML
-    // loader do not agree on insertion order, and a digest that did would
-    // re-ask for consent on a save that changed nothing.
-    hash: createHash("sha256").update(stableStringify(material)).digest("hex"),
+    hash: digest(consentSemanticMaterial(material)),
+    definitionHash: digest(consentDefinitionMaterial(material)),
     material,
   };
+}
+
+/**
+ * SHA-256 over a canonical serialization.
+ *
+ * Key-order-insensitive at every depth: a jsonb round-trip and a YAML
+ * loader do not agree on insertion order, and a digest that did would
+ * re-ask for consent on a save that changed nothing.
+ */
+function digest(projection: ConsentSemanticMaterial | ConsentDefinitionMaterial): string {
+  return createHash("sha256").update(stableStringify(projection)).digest("hex");
 }
