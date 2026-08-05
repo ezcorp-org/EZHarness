@@ -88,6 +88,34 @@ describe("biome config vs agent worktrees", () => {
     expect(includes).not.toContain("!**/.claude");
   });
 
+  // The `lint` script passes EXPLICIT paths rather than `.`, which is what
+  // makes it immune to the bug above (an ignore glob that matches the
+  // worktree's own absolute path prunes `.` to nothing, but cannot prune a
+  // path biome was handed directly). The cost of that immunity is a
+  // hand-maintained path list, whose failure mode is the mirror image: a new
+  // top-level directory is simply never linted, silently, forever. This pins
+  // the list against `.` so adding one without extending the script is loud.
+  test("the lint script's explicit paths reach every file `biome check .` would", async () => {
+    const checked = (out: string): number | null => {
+      const m = out.match(/Checked (\d+) files?/);
+      return m?.[1] ? Number(m[1]) : null;
+    };
+    const run = (argv: string[]) => {
+      const p = Bun.spawnSync(argv, { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
+      return checked(p.stdout.toString() + p.stderr.toString());
+    };
+
+    const viaLintScript = run(["bun", "run", "lint"]);
+    const viaWholeTree = run([join(REPO_ROOT, "node_modules", ".bin", "biome"), "check", "."]);
+
+    expect(viaLintScript).not.toBeNull();
+    expect(viaWholeTree).not.toBeNull();
+    // Not a vacuous pass — the whole point of the explicit-path form.
+    expect(viaLintScript).toBeGreaterThan(0);
+    // And it must not be a SMALLER surface than linting the tree wholesale.
+    expect(viaLintScript!).toBeGreaterThanOrEqual(viaWholeTree!);
+  }, 120_000);
+
   test("no ignore glob can match a path component of an agent worktree", async () => {
     // `<repo>/.claude/worktrees/agent-<id>/` — any `**/<segment>` ignore
     // whose segment appears here re-introduces the bug for that segment.

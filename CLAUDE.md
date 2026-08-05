@@ -188,7 +188,9 @@ examples: `web/src/__tests__/delegation-consent-handoff.unit.test.ts`,
 Full rules live in the linked docs and nested CLAUDE.md files; these are the
 ones that break things silently if missed:
 
-- **Session tree** — never mutate `parentMessageId`
+- **Session tree** — `parentMessageId` is append-only. The one sanctioned
+  mutation is `reparentMessage()` (steered-row reconciliation), called only
+  from `subscribe-bridge.ts`; rewind/retry never reparent
   ([chat/rewind-branching-sessions.md](docs/features/chat/rewind-branching-sessions.md)).
 - **Context compaction is input-only** — never mutate `model.maxTokens` or
   clone the model to "save context"; trim input only, `responseReserve` is

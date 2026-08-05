@@ -18,14 +18,15 @@ ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
 cd "$ROOT" || exit 0
 . "$ROOT/scripts/lib/hook-lib.sh"
 
-# Full biome lint with the shared worktree vacuous-pass guard. Policy here (vs
-# ci-local's FAIL) is WARN+skip: a worktree push shouldn't be blocked just
-# because biome can't resolve files there — CI still lints the pushed tree.
+# Full biome lint with the shared vacuous-pass guard. `bun run lint` passes
+# explicit paths, so the old worktree zero-file case can no longer happen;
+# policy here (vs ci-local's FAIL) stays WARN+skip so a push is never blocked
+# by the guard itself — CI still lints the pushed tree.
 lint_prepush() {
   run_biome_full
   local rc=$?
   if [ "$rc" = "2" ]; then
-    echo "⚠ biome resolved 0 files (git worktree) — skipping full lint here; lint explicit paths or push from a primary checkout. CI still enforces lint."
+    echo "⚠ biome resolved 0 files — skipping full lint here; check package.json's \"lint\" paths. CI still enforces lint."
     return 0
   fi
   return "$rc"
