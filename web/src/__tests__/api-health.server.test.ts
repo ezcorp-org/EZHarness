@@ -15,8 +15,8 @@
  * long time nothing populated `locals.user` on such a path, so every
  * assertion below passed while the feature was dead over HTTP. Reachability
  * is proven where it actually lives:
- *   - `web/src/__tests__/hooks-server-public-path-identity.server.test.ts`
- *     (the hook resolves a presented cookie on public `/api/*` paths), and
+ *   - `src/__tests__/hooks-public-path-identity.test.ts` (the hook resolves a
+ *     presented cookie on public `/api/*` paths), and
  *   - `web/e2e/real-auth/health-detail-reachable.spec.ts` (real HTTP).
  */
 
