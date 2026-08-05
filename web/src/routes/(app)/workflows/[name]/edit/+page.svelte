@@ -199,7 +199,12 @@
 						<span data-testid="workflow-version">v{versions[versions.length - 1].version}</span>
 					{/if}
 					{#if workflow.forkedFrom}
-						<span data-testid="workflow-forked-from">forked from {workflow.forkedFrom}</span>
+						<!-- "copied from", not "forked from": the platform has ONE copy
+						     verb and it is called Duplicate. The COLUMN is still
+						     `forked_from` — renaming a stored snapshot to match a
+						     label is churn with a migration attached — so the wording
+						     is the only thing that moved. -->
+						<span data-testid="workflow-forked-from">copied from {workflow.forkedFrom}</span>
 					{/if}
 				</div>
 			</div>
@@ -218,8 +223,8 @@
 				data-testid="editor-readonly"
 			>
 				You can view this workflow but not change it. It is
-				<strong>{workflow.visibility ?? "system"}</strong>-owned — fork it to get an editable copy
-				of your own.
+				<strong>{workflow.visibility ?? "system"}</strong>-owned — duplicate it to get an editable
+				copy of your own.
 			</p>
 		{/if}
 

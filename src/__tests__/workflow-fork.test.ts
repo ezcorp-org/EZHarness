@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bareWorkflowName, pickForkName } from "../runtime/workflow-fork";
+import { bareWorkflowName, isForkNameRequestable, pickForkName } from "../runtime/workflow-fork";
 import { isValidWorkflowName } from "../runtime/workflow-name";
 
 const free = () => false;
@@ -65,5 +65,41 @@ describe("pickForkName", () => {
       expect(isValidWorkflowName(name)).toBe(true);
       taken.add(name);
     }
+  });
+
+  test("an AUTHOR-supplied name is honoured verbatim when it is free", () => {
+    // The single copy verb lets the user name the copy before it exists,
+    // so the route hands `pickForkName` a name it did not derive.
+    expect(pickForkName("docs-factory-copy", free)).toBe("docs-factory-copy");
+  });
+});
+
+describe("isForkNameRequestable", () => {
+  test("accepts a name the grammar accepts", () => {
+    expect(isForkNameRequestable("docs-factory-copy")).toBe(true);
+  });
+
+  test("accepts a namespaced request — only the bare half is ever used", () => {
+    expect(isForkNameRequestable("ez-factory:docs-factory")).toBe(true);
+  });
+
+  test("accepts an over-long name, because pickForkName truncates it", () => {
+    // The two must agree: rejecting here what `pickForkName` would happily
+    // truncate would 400 a request the naming rule can satisfy.
+    const long = "a".repeat(200);
+    expect(isForkNameRequestable(long)).toBe(true);
+    expect(isValidWorkflowName(pickForkName(long, free))).toBe(true);
+  });
+
+  test("rejects a name no suffix could ever rescue", () => {
+    // Precisely the case that used to reach a 409: `pickForkName` bares,
+    // truncates, then consults the grammar — so a bad charset is rejected
+    // 1000 times over and reported as "could not find a free name".
+    expect(isForkNameRequestable("Bad Name!")).toBe(false);
+    expect(() => pickForkName("Bad Name!", free)).toThrow(/Could not find a free name/);
+  });
+
+  test("rejects a request whose bare half is empty", () => {
+    expect(isForkNameRequestable("ez-factory:")).toBe(false);
   });
 });

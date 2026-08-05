@@ -30,6 +30,27 @@ export function bareWorkflowName(fullName: string): string {
  */
 const MAX_BASE_LENGTH = 60;
 
+/** Bare, then truncate — the order the suffix rule depends on. */
+function forkBase(name: string): string {
+  return bareWorkflowName(name).slice(0, MAX_BASE_LENGTH);
+}
+
+/**
+ * May `requested` be used as the base for a fork's name?
+ *
+ * The single copy verb lets the author NAME the copy before the row
+ * exists, so {@link pickForkName} is now handed a name it did not
+ * derive. The question is asked HERE, in the module that owns the naming
+ * rule, and not at the route: `pickForkName` bares and truncates and only
+ * *then* consults the grammar, so a second copy of that order would drift
+ * — and without the check the route answers a bad name with a **409**
+ * ("could not find a free name") after 1000 identical rejections, when
+ * the honest answer is a 400 the author can act on.
+ */
+export function isForkNameRequestable(requested: string): boolean {
+  return isValidWorkflowName(forkBase(requested));
+}
+
 /**
  * Pick the fork's name: the bare source name, or the first free
  * `-2`, `-3`, … variant.
@@ -46,7 +67,7 @@ const MAX_BASE_LENGTH = 60;
  * Depth is unbounded and uninteresting; each fork is an independent row.
  */
 export function pickForkName(sourceName: string, isTaken: (name: string) => boolean): string {
-  const bare = bareWorkflowName(sourceName).slice(0, MAX_BASE_LENGTH);
+  const bare = forkBase(sourceName);
   if (!isTaken(bare) && isValidWorkflowName(bare)) return bare;
   // Bounded: 999 same-named forks is already pathological, and an
   // unbounded loop here would be a trivially reachable hang.

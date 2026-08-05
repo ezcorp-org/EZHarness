@@ -114,6 +114,33 @@ const CREATE_ROUTE_PATH = "web/src/routes/api/workflows/+server.ts";
 const FORWARDS_CHOICE = "visibility: body.visibility";
 
 /**
+ * The copy route (the single Duplicate verb), whose DEFAULT tier is a
+ * third kind of producer.
+ *
+ * It used to be an ordinary `visibility: "project"` assignment and the
+ * literal sweep saw it. Now the tier is either the caller's (already
+ * counted through the schema) or a named default, and a sweep that read
+ * only assignments would report the copy route as producing NOTHING —
+ * silently losing the one producer whose value was the point of the
+ * change. Same failure mode the schema reader was added for, one rung
+ * along: a default is as much a writer as an assignment is.
+ */
+const COPY_ROUTE_PATH = "web/src/routes/api/workflows/[name]/fork/+server.ts";
+const COPY_DEFAULT = /DEFAULT_COPY_VISIBILITY\s*=\s*"(system|project|private)"/;
+/** The fallback that makes the constant above an actual producer. */
+const APPLIES_DEFAULT = "?? DEFAULT_COPY_VISIBILITY";
+
+/** The tier the copy route stamps when the caller names none. */
+function copyRouteDefault(): WorkflowVisibility | null {
+  const src = readFileSync(join(REPO_ROOT, COPY_ROUTE_PATH), "utf8");
+  const found = COPY_DEFAULT.exec(src)?.[1];
+  if (found === undefined) return null;
+  // Inert unless something falls back to it — the same discrimination the
+  // schema producer gets from `FORWARDS_CHOICE`.
+  return src.includes(APPLIES_DEFAULT) ? (found as WorkflowVisibility) : null;
+}
+
+/**
  * The tiers a CALLER may name, read off the request schema's enum.
  *
  * The producer a literal sweep cannot see. `.strict()` on the body schema
@@ -143,6 +170,8 @@ function producedVisibilities(): Map<WorkflowVisibility, string[]> {
     }
   }
   for (const tier of schemaAdmitted()) record(tier, SCHEMA_PATH);
+  const copyDefault = copyRouteDefault();
+  if (copyDefault !== null) record(copyDefault, COPY_ROUTE_PATH);
   return found;
 }
 
@@ -194,17 +223,31 @@ describe("which visibilities any code path can actually produce", () => {
     expect(PRODUCED.get("system")?.length).toBeGreaterThan(0);
   });
 
-  test("`project` is produced — fork, and the admin claim", () => {
+  test("`project` is produced — the admin claim, and a caller who names it", () => {
     const at = PRODUCED.get("project") ?? [];
-    expect(at).toContain("web/src/routes/api/workflows/[name]/fork/+server.ts");
     expect(at).toContain("src/db/queries/workflows.ts");
+    expect(at).toContain(SCHEMA_PATH);
   });
 
-  test("`private` IS produced — the author names it on the request", () => {
-    // The confidential tier is reachable, and this is the ONLY route to
-    // it: no source line assigns the literal, so the schema is load-
-    // bearing rather than a second way of saying the same thing.
-    expect(PRODUCED.get("private")).toEqual([SCHEMA_PATH]);
+  test("the COPY verb no longer produces `project` by default", () => {
+    // The change worth pinning. `POST …/fork` stamped `project`
+    // unconditionally, and `project` is "any-authenticated-principal" —
+    // every account on the instance. So making a copy published it, with
+    // nothing in the request saying so. Nothing about the copy path
+    // reaches `project` on its own any more; a caller has to ask.
+    expect(PRODUCED.get("project") ?? []).not.toContain(COPY_ROUTE_PATH);
+    expect(copyRouteDefault()).toBe("private");
+  });
+
+  test("`private` IS produced — the author names it, AND a copy defaults to it", () => {
+    // The confidential tier is reachable two ways, and both are
+    // structural rather than incidental: the request schema admits it,
+    // and the copy route falls back to it. Sorted so the assertion is
+    // about the SET of producers, not the order the sweep happened to
+    // record them in.
+    expect([...(PRODUCED.get("private") ?? [])].sort()).toEqual(
+      [SCHEMA_PATH, COPY_ROUTE_PATH].sort(),
+    );
   });
 
   test("the schema is not inert — the create route forwards what it admits", () => {
@@ -212,6 +255,13 @@ describe("which visibilities any code path can actually produce", () => {
     // but no writer reads would produce nothing, and counting it would
     // report a reach that does not exist.
     expect(readFileSync(join(REPO_ROOT, CREATE_ROUTE_PATH), "utf8")).toContain(FORWARDS_CHOICE);
+  });
+
+  test("the copy default is not inert — the route actually falls back to it", () => {
+    // Same discrimination, for the third producer kind. A named constant
+    // nothing reads writes no rows, and counting it would report a reach
+    // that does not exist.
+    expect(readFileSync(join(REPO_ROOT, COPY_ROUTE_PATH), "utf8")).toContain(APPLIES_DEFAULT);
   });
 
   test("the schema sweep reads the real enum, not any `visibility:` line", () => {

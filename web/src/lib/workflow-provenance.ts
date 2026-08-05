@@ -92,7 +92,7 @@ export function workflowProvenanceBadge(
 		return {
 			label: "built-in",
 			title:
-				"Ships with EZCorp or with an installed extension. It is a file on disk, so it cannot be edited here — fork it to get a copy of your own.",
+				"Ships with EZCorp or with an installed extension. It is a file on disk, so it cannot be edited here — duplicate it to get a copy of your own.",
 			className: "bg-teal-500/15 text-teal-300",
 		};
 	}

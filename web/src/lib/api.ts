@@ -1144,17 +1144,37 @@ export async function updateWorkflow(
 	return res.json();
 }
 
-/** Clone a workflow into an editable copy the caller owns. Returns the
- *  FINAL name — the route auto-suffixes on collision with the global
- *  unique index, and the UI shows the result. */
+/** What the caller asks a copy to be. Every field optional: the route
+ *  falls back to the source's bare name and its own default tier, so a
+ *  bodyless copy is still a valid one. */
+export interface CopyWorkflowOptions {
+	projectId?: string;
+	/** The copy's name. Suffixed server-side if it is taken. */
+	name?: string;
+	/** The copy's audience. Omitted means the route's default (`private`). */
+	visibility?: "system" | "project" | "private";
+}
+
+/** Clone a workflow into an editable copy the caller owns. Returns what
+ *  actually LANDED — the route auto-suffixes the name on collision with
+ *  the global unique index, and reports the tier it stamped — so the UI
+ *  shows the result rather than the request. */
 export async function forkWorkflow(
 	name: string,
-	projectId?: string,
-): Promise<{ name: string; id: string; forkedFrom: string }> {
+	options: CopyWorkflowOptions = {},
+): Promise<{ name: string; id: string; forkedFrom: string; visibility: string }> {
+	// Built key-by-key from the TRUTHY values only: the route's body schema
+	// is `.strict()` with `z.string()` fields, so forwarding a `null`
+	// activeProjectId or an empty name field verbatim would 400 the copy on
+	// the commonest path there is (no project selected).
+	const body: Record<string, unknown> = {};
+	if (options.projectId) body.projectId = options.projectId;
+	if (options.name) body.name = options.name;
+	if (options.visibility) body.visibility = options.visibility;
 	const res = await fetch(`${BASE}/api/workflows/${encodeURIComponent(name)}/fork`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify(projectId ? { projectId } : {}),
+		body: JSON.stringify(body),
 	});
 	await checkResponse(res);
 	return res.json();

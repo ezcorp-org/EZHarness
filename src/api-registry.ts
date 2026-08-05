@@ -342,7 +342,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/workflows/runs/:id/resume", description: "Continue a suspended workflow run", category: "workflows", scope: "chat", responseDescription: "{ run: WorkflowRun }" },
   { method: "POST", path: "/api/workflows/runs/:id/cancel", description: "Cancel a running or suspended workflow run", category: "workflows", scope: "chat", responseDescription: "{ cancelled: true }" },
   { method: "POST", path: "/api/workflows/:name/dry-run", description: "Simulate a workflow — transform/gate steps evaluated, everything else stubbed; zero LLM, zero side effects, no run row", category: "workflows" },
-  { method: "POST", path: "/api/workflows/:name/fork", description: "Clone a workflow into an editable project-scoped copy owned by the caller", category: "workflows" },
+  { method: "POST", path: "/api/workflows/:name/fork", description: "Clone a workflow the caller can READ into an editable copy they own — the single Duplicate verb behind the UI. Body { projectId?, name?, visibility? }: `name` is suffixed on collision with the global unique index, and `visibility` DEFAULTS TO `private` (it used to be an unconditional, invisible `project`, which the read/run ladder admits every account on the instance to). Naming `system` is admin-only, through the same shared rule as create", category: "workflows", responseDescription: "{ name, id, forkedFrom, visibility } — what LANDED, not what was asked for" },
   { method: "GET", path: "/api/workflows/:name/versions", description: "Version history for a workflow", category: "workflows" },
   { method: "POST", path: "/api/workflows/:name/claim", description: "Assign an owner to a system-owned workflow (admin)", category: "workflows", scope: "admin" },
 

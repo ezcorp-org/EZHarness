@@ -2,12 +2,13 @@ import { test, expect } from "./fixtures/test-base.js";
 import { makeWorkflow } from "./fixtures/data.js";
 import { captureEvidence } from "./fixtures/evidence.js";
 
-// The workflow detail page carries FIVE affordances in one row — Edit steps,
-// Full editor, Fork, Duplicate, Delete — after two independently-designed
-// action bars were merged. Existing specs prove each button EXISTS; this one
-// pins how the row reads: the two editors are distinguishable, the two copy
-// affordances are distinguishable, and the destructive control is separated
-// from the benign ones instead of sitting flush against Duplicate.
+// The workflow detail page carries FOUR affordances in one row — Edit steps,
+// Full editor, Duplicate, Delete. It was FIVE: Fork and Duplicate were two
+// copy affordances differing only in where the copy was made, and the product
+// owner ruled one verb. Existing specs prove each button EXISTS; this one pins
+// how the row reads: the two editors are distinguishable, there is exactly one
+// copy affordance, and the destructive control is separated from the benign
+// ones instead of sitting flush against Duplicate.
 test.describe("Workflows — detail action bar @evidence", () => {
 	test("an editable workflow shows a grouped, self-describing action row", async ({
 		page,
@@ -35,10 +36,13 @@ test.describe("Workflows — detail action bar @evidence", () => {
 		await expect(inlineEdit).toHaveAttribute("title", /inline/i);
 		await expect(page.getByTestId("edit-workflow")).toHaveAttribute("title", /standalone/i);
 
-		// Fork and Duplicate remain two buttons (collapsing them is a product
-		// decision) but each says what it does.
-		await expect(page.getByTestId("fork-workflow")).toHaveAttribute("title", /server/i);
-		await expect(page.getByTestId("workflow-duplicate")).toHaveAttribute("title", /prefilled/i);
+		// ONE copy affordance, and its title says what the click does — which
+		// is to ask, not to write. The retired Fork is gone from the row.
+		await expect(page.getByTestId("fork-workflow")).toHaveCount(0);
+		await expect(page.getByTestId("workflow-duplicate")).toHaveAttribute(
+			"title",
+			/before it is created/i,
+		);
 
 		// Delete is fenced off behind a divider rather than flush against the
 		// benign pill next to it.
@@ -59,7 +63,7 @@ test.describe("Workflows — detail action bar @evidence", () => {
 		await captureEvidence(page, testInfo, "workflow-action-bar-editable");
 	});
 
-	test("a read-only workflow shows only the copy affordances", async ({
+	test("a read-only workflow shows only the copy affordance", async ({
 		page,
 		mockApi,
 	}, testInfo) => {
@@ -86,8 +90,12 @@ test.describe("Workflows — detail action bar @evidence", () => {
 		await expect(page.getByTestId("workflow-delete")).toHaveCount(0);
 		await expect(page.getByTestId("workflow-actions-divider")).toHaveCount(0);
 
-		await expect(page.getByTestId("fork-workflow")).toBeVisible();
+		// Duplicate survives the gate on purpose: copying something you can
+		// read is exactly what it is for, and on a file-on-disk demo it is
+		// the ONLY action that does anything. Removing it would dead-end the
+		// page — that property is load-bearing, not incidental.
 		await expect(page.getByTestId("workflow-duplicate")).toBeVisible();
+		await expect(page.getByTestId("fork-workflow")).toHaveCount(0);
 
 		await captureEvidence(page, testInfo, "workflow-action-bar-read-only");
 	});
