@@ -36,7 +36,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/auth/me", description: "Get current authenticated user", category: "auth", responseDescription: "User object with id, name, email, role" },
   { method: "POST", path: "/api/auth/setup", description: "Initial admin setup (first-run only)", category: "auth", schemaKey: "setupSchema" },
   // F5 moved the BARE `/api/auth/invite` path out of the hooks PUBLIC_PATHS
-  // allowlist into PUBLIC_SUBPATHS_ONLY (web/src/hooks.server.ts:383), so both
+  // allowlist into PUBLIC_SUBPATHS_ONLY (web/src/hooks.server.ts:397), so both
   // methods are now genuinely reachable by an authenticated admin — before
   // that, `locals.user` was never populated on a public path and the role gate
   // denied every caller (a broken feature, failing closed).
@@ -66,6 +66,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   // exist — the handler on disk exports POST and DELETE only. It was carried
   // in route-contract.test.ts's now-retired KNOWN_STALE set for exactly that
   // reason; with that set gone the phantom entry has to go too.
+  //
   // The OTHER door to the instance LLM credential. POST/DELETE here write and
   // remove `provider:oauth:<provider>`, which `src/providers/credentials.ts`
   // resolves for every user's turns — the same room `provider:apiKey:*` (and
@@ -424,14 +425,18 @@ export const apiRegistry: ApiRouteEntry[] = [
   // asks for an ADMIN principal — and cannot get one: a public path never
   // populates `locals.user`, so the detailed probe answers 401 to every
   // caller including admins. Same PUBLIC_PATHS defect F5 fixed for
-  // /api/auth/invite, still live here and on POST /api/auth/reset-password.
+  // /api/auth/invite and sec-F2/#86 then fixed for POST
+  // /api/auth/reset-password — both moved to PUBLIC_SUBPATHS_ONLY. That
+  // remedy deliberately does NOT apply here: `/api/health` is a liveness
+  // probe whose BARE path must stay anonymous, so the detail branch needs a
+  // different fix and this is the last live instance.
   // Until 2026-08 it answered 500 instead of 401 (a thrown `requireAuth`).
   { method: "GET", path: "/api/health", description: "Liveness probe. `?detail=true` returns the component breakdown for an admin, but is UNREACHABLE: the path is in the hooks PUBLIC_PATHS allowlist so locals.user is never populated and the detail branch answers 401 to everyone", category: "system", scope: "public" },
   // Was registered as GET (and carried in route-contract.test.ts's KNOWN_STALE
   // for exactly that reason); the handler on disk only exports POST.
   { method: "POST", path: "/api/warmup", description: "Pre-warm the embedding model so the first memory/search turn doesn't pay the load cost — best-effort, always 200", category: "system", scope: "read", responseDescription: "{ ok: true }" },
   // Both of these are in the hooks PUBLIC_PATHS allowlist
-  // (web/src/hooks.server.ts:364) AND apply no gate of their own, so they are
+  // (web/src/hooks.server.ts:365) AND apply no gate of their own, so they are
   // genuinely reachable unauthenticated — hence scope "public".
   { method: "GET", path: "/api/ready", description: "Readiness probe — orthogonal to /api/health (liveness). 200 once migrate() has succeeded and the image is safe to route traffic to, 503 otherwise; orchestrators gate rollouts on this", category: "system", scope: "public" },
   { method: "GET", path: "/api/version", description: "Running version plus the cached upstream update check", category: "system", scope: "public" },
