@@ -240,13 +240,23 @@ function editorTree(job: JobFixture | null) {
       // Only for a job that EXISTS: a background trigger is inert until a
       // human consents to a delegation for it, and there is nothing to
       // consent against until the job has an id.
+      //
+      // THIS TREE IS HAND-WRITTEN, so every node below proves what the Hub
+      // RENDERER does with a shape — never that `buildJobPage` emits it.
+      // The builder side is pinned in `extensions/ez-factory/lib/
+      // page.test.ts` ("the job editor's schedule section"); deleting the
+      // empty state from the builder leaves this spec green.
       ...(job
         ? [
             {
               type: "section",
               title: "When it fires",
               nodes: [
-                { type: "markdown", markdown: "**Manual** jobs run when someone presses Run." },
+                // `content`, not `markdown` — `PageBuilder.markdownBlock`
+                // and `validateMarkdown` both key on `content`, and the
+                // renderer reads `node.content`. Under the old key this
+                // node rendered blank.
+                { type: "markdown", content: "**Manual** jobs run when someone presses Run." },
                 triggerFormNode(job),
                 ...(job.triggerKind === "cron" || job.triggerKind === "webhook"
                   ? [
