@@ -451,6 +451,7 @@ run_legs() {
       src/lib/admin-guard.unit.test.ts \
       src/lib/scroll-to-hash.unit.test.ts \
       src/lib/chat-prompt-nav.unit.test.ts \
+      src/lib/chat-turn-collapse.unit.test.ts \
       src/lib/extensions/extension-sort.unit.test.ts \
       src/lib/__tests__/rbac-grants-logic.unit.test.ts \
       src/__tests__/resume-path.unit.test.ts \
@@ -652,6 +653,7 @@ run_legs() {
       --coverage.include='src/lib/admin-guard.ts' \
       --coverage.include='src/lib/scroll-to-hash.ts' \
       --coverage.include='src/lib/chat-prompt-nav.ts' \
+      --coverage.include='src/lib/chat-turn-collapse.ts' \
       --coverage.include='src/lib/extensions/extension-sort.ts' \
       --coverage.include='src/lib/rbac-grants-logic.ts' \
       --coverage.include='src/lib/resume-path.ts' \
