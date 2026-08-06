@@ -30,7 +30,7 @@ runs:
     # This skips the package DOWNLOAD/extract on every job; `bun install` still
     # links node_modules but that is far cheaper than a cold fetch.
     - name: Cache bun global install cache
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.bun/install/cache
         key: bun-${{ runner.os }}-${{ hashFiles('.bun-version') }}-${{ hashFiles('bun.lock', 'web/bun.lock') }}
@@ -55,7 +55,7 @@ runs:
     - name: Cache Playwright browsers
       if: inputs.playwright == 'true'
       id: pw-cache
-      uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.cache/ms-playwright
         key: playwright-${{ runner.os }}-${{ hashFiles('web/bun.lock') }}
