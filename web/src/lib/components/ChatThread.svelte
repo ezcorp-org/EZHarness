@@ -106,7 +106,9 @@
 		isTextEntryTarget,
 		isNavBlockedByOverlay,
 		applyPromptNav,
+		parkPrompt,
 		type PromptNavPointer,
+		type PromptNavDirection,
 	} from "$lib/chat-prompt-nav.js";
 	import { resolveDeepLink } from "$lib/search/deep-link-resolve.js";
 	import {
@@ -587,12 +589,13 @@
 		messages.length > 0 &&
 			messages[messages.length - 1]?.role === "user",
 	);
-	// Ids of the user prompts currently rendered — the set arrow-key
-	// navigation steps through (assistant turns / tool cards are skipped).
-	let userPromptIdSet = $derived(
-		new Set(
-			renderableMessages.filter((m) => m.role === "user").map((m) => m.id),
-		),
+	// Ids of every user prompt in the conversation, oldest → newest — the list
+	// arrow-key navigation steps through (assistant turns / tool cards are
+	// skipped). Derived from ALL renderable messages, not the rendered window:
+	// an agentic run can push every prompt above the window, and the nav has to
+	// be able to step back to one it cannot currently see.
+	let userPromptIds = $derived(
+		renderableMessages.filter((m) => m.role === "user").map((m) => m.id),
 	);
 
 	// ── Chrome-relevant derivations (surfaced to the page shell) ──────
@@ -1873,28 +1876,73 @@
 		// owns the arrows — the thread must not scroll behind it.
 		if (isNavBlockedByOverlay(document)) return;
 		if (!container) return;
-		const { acted, pointer } = applyPromptNav({
+		// A prompt scroll breaks stick-to-bottom (mirrors the deep-link path);
+		// the fall-through-to-bottom re-engages it (like jump-to-bottom).
+		const onPromptScroll = () => {
+			stuck = false;
+			userScrolledUp = true;
+		};
+		const onBottomScroll = () => {
+			stuck = true;
+			userScrolledUp = false;
+		};
+		const { acted, pointer, pending } = applyPromptNav({
 			container,
 			direction,
 			pointer: promptNav,
-			isUserPrompt: (id) => userPromptIdSet.has(id),
+			promptIds: userPromptIds,
 			anchorAttr: MESSAGE_ANCHOR_ATTR,
 			offset: PROMPT_NAV_OFFSET,
 			band: PROMPT_NAV_BAND,
 			scrollTopForAnchor,
-			// A prompt scroll breaks stick-to-bottom (mirrors the deep-link path);
-			// the fall-through-to-bottom re-engages it (like jump-to-bottom).
-			onPromptScroll: () => {
-				stuck = false;
-				userScrolledUp = true;
-			},
-			onBottomScroll: () => {
-				stuck = true;
-				userScrolledUp = false;
-			},
+			onPromptScroll,
+			onBottomScroll,
 		});
 		if (acted) e.preventDefault();
 		promptNav = pointer;
+		if (pending) {
+			void revealAndParkPrompt(pending.id, direction, {
+				onPromptScroll,
+				onBottomScroll,
+			});
+		}
+	}
+
+	/**
+	 * Finish a nav step onto a prompt the render window has not reached yet:
+	 * widen the window until the prompt is in the DOM, then park it at the fold.
+	 *
+	 * The window grows by a whole `MESSAGE_LOAD_STEP` past the target rather
+	 * than stopping exactly at it, so the target does not land against the
+	 * load-older sentinel and immediately trigger another prepend + anchor
+	 * correction under the user.
+	 */
+	async function revealAndParkPrompt(
+		id: string,
+		direction: PromptNavDirection,
+		hooks: { onPromptScroll: () => void; onBottomScroll: () => void },
+	): Promise<void> {
+		const index = renderableMessages.findIndex((m) => m.id === id);
+		if (index < 0) return;
+		// The window is a tail slice, so reaching `index` means rendering every
+		// message from there to the end.
+		const needed = renderableMessages.length - index;
+		if (needed > visibleMessageCount) {
+			visibleMessageCount = nextWindowSize(needed, renderableMessages.length);
+			updateCachedScrollState(conversationId, {
+				windowSize: visibleMessageCount,
+			});
+			await tick();
+		}
+		if (!container) return;
+		promptNav = parkPrompt({
+			container,
+			direction,
+			id,
+			offset: PROMPT_NAV_OFFSET,
+			scrollTopForAnchor,
+			...hooks,
+		});
 	}
 
 	async function loadOlderMessages(): Promise<void> {

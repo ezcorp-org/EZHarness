@@ -27,6 +27,7 @@
 
 import { render } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach } from "vitest";
+import { tick } from "svelte";
 import type { Message } from "$lib/api.js";
 
 // ── Module stubs (load-time imports of the SUT graph) ────────────────
@@ -539,5 +540,188 @@ describe("ChatThread: arrow-key prompt navigation (real handler)", () => {
 		press("ArrowDown");
 		press("ArrowUp");
 		expect(layout.getScrollTop()).toBe(parked);
+	});
+});
+
+/**
+ * The AGENTIC shape: a couple of prompts and a long run of assistant turns, so
+ * the thread's tail render window (`INITIAL_MESSAGE_WINDOW = 15`) holds NO
+ * prompt at all. The nav has to widen the window to reach one.
+ *
+ * Regression: the nav measured the rendered rows only, so here it saw zero
+ * prompts and both arrows were dead keys. Every other fixture in this file
+ * alternates user/assistant, which is why none of them caught it.
+ */
+describe("ChatThread: arrow-key nav reaches prompts above the render window", () => {
+	const CHAIN = 25;
+	const PROMPT_AT = new Set([0, 4]);
+
+	/** 25 messages; only #1 and #5 are prompts. */
+	function agenticTree(): Message[] {
+		const ids = Array.from({ length: CHAIN }, (_, i) =>
+			PROMPT_AT.has(i) ? `u${i + 1}` : `a${i + 1}`,
+		);
+		return chainOf(ids);
+	}
+
+	/**
+	 * Layout for a thread whose row set CHANGES mid-test. `installLayout` binds
+	 * each row's rect at install time, which cannot see rows that mount when the
+	 * window widens — and the widen + park happen inside one async continuation,
+	 * so the test never gets a turn to re-bind. Resolve the index lazily instead:
+	 * a row's top is its position in the CURRENT DOM order, `scrollHeight` grows
+	 * with the row count, and the patch is scoped to rows inside this container.
+	 */
+	function installLiveLayout(container: HTMLElement): {
+		getScrollTop: () => number;
+		restore: () => void;
+	} {
+		const rowsNow = () =>
+			Array.from(container.querySelectorAll<HTMLElement>("[data-message-id]"));
+		let scrollTop = 0;
+		const scrollHeight = () => rowsNow().length * ROW_GAP;
+		Object.defineProperty(container, "scrollTop", {
+			configurable: true,
+			get: () => scrollTop,
+			set: (v: number) => {
+				scrollTop = Math.max(0, Math.min(v, Math.max(0, scrollHeight() - VIEWPORT)));
+			},
+		});
+		Object.defineProperty(container, "scrollHeight", {
+			configurable: true,
+			get: scrollHeight,
+		});
+		Object.defineProperty(container, "clientHeight", {
+			configurable: true,
+			get: () => VIEWPORT,
+		});
+		container.getBoundingClientRect = () => fullRect(0);
+
+		const original = HTMLElement.prototype.getBoundingClientRect;
+		HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+			if (this !== container && this.hasAttribute?.("data-message-id")) {
+				const index = rowsNow().indexOf(this);
+				if (index >= 0) return fullRect(index * ROW_GAP - scrollTop);
+			}
+			return original.call(this);
+		};
+
+		return {
+			getScrollTop: () => scrollTop,
+			restore: () => {
+				HTMLElement.prototype.getBoundingClientRect = original;
+			},
+		};
+	}
+
+	function mountAgentic() {
+		const tree = agenticTree();
+		render(ChatThread, {
+			conversationId: "conv-1",
+			projectId: "proj-1",
+			variant: "page" as const,
+			seedMessages: tree,
+			seedLeafId: tree[tree.length - 1]!.id,
+			convListRefresh: () => {},
+		});
+		const container = document.querySelector<HTMLElement>(
+			'[data-testid="chat-messages-container"]',
+		)!;
+		const layout = installLiveLayout(container);
+		(document.activeElement as HTMLElement | null)?.blur?.();
+		document.body.focus();
+		return { container, layout };
+	}
+
+	const renderedIds = (container: HTMLElement) =>
+		Array.from(container.querySelectorAll("[data-message-id]")).map((n) =>
+			n.getAttribute("data-message-id"),
+		);
+
+	test("the opening window holds no prompt at all (fixture precondition)", () => {
+		const { container, layout } = mountAgentic();
+		try {
+			const ids = renderedIds(container);
+			expect(ids).toHaveLength(15); // INITIAL_MESSAGE_WINDOW
+			expect(ids).not.toContain("u1");
+			expect(ids).not.toContain("u5");
+		} finally {
+			layout.restore();
+		}
+	});
+
+	test("ArrowLeft widens the window to the nearest prompt above it and parks it at the fold", async () => {
+		const { container, layout } = mountAgentic();
+		try {
+			press("ArrowLeft");
+			// The widen awaits a tick before parking; two flushes cover the
+			// `await tick()` and the render it schedules.
+			await tick();
+			await tick();
+
+			expect(
+				renderedIds(container),
+				"the prompt's row was rendered on demand",
+			).toContain("u5");
+			// u5 is message #5 of the chain, now at rendered index 4 → its top is
+			// 4 * ROW_GAP, parked at the 80px fold.
+			expect(layout.getScrollTop()).toBe(4 * ROW_GAP - 80);
+		} finally {
+			layout.restore();
+		}
+	});
+
+	test("a second ArrowLeft steps to the FIRST prompt instead of paging to the top", async () => {
+		// With one prompt in the window the old code took the one-turn paging
+		// branch and slammed scrollTop to 0 — indistinguishable from "the arrows
+		// broke" once you are deep in a run.
+		const { layout } = mountAgentic();
+		try {
+			press("ArrowLeft");
+			await tick();
+			await tick();
+			press("ArrowLeft");
+			await tick();
+			await tick();
+
+			// u1 is the chain's first message → rendered index 0 → its fold park
+			// clamps at 0… so assert the prompt, not just the number: stepping
+			// there via `prev` from u5 is what distinguishes it from paging.
+			expect(layout.getScrollTop()).toBe(0);
+
+			// A third press has nowhere to go: stop, never wrap to the bottom.
+			press("ArrowLeft");
+			await tick();
+			expect(layout.getScrollTop()).toBe(0);
+		} finally {
+			layout.restore();
+		}
+	});
+
+	test("ArrowRight walks back down the prompts, then falls through to the bottom", async () => {
+		const { container, layout } = mountAgentic();
+		try {
+			press("ArrowLeft");
+			await tick();
+			await tick();
+			press("ArrowLeft");
+			await tick();
+			await tick();
+			expect(layout.getScrollTop()).toBe(0); // on u1
+
+			press("ArrowRight");
+			await tick();
+			expect(layout.getScrollTop(), "steps down to u5").toBe(4 * ROW_GAP - 80);
+
+			press("ArrowRight");
+			await tick();
+			const rows = renderedIds(container).length;
+			expect(
+				layout.getScrollTop(),
+				"past the last prompt → the bottom of the thread",
+			).toBe(rows * ROW_GAP - VIEWPORT);
+		} finally {
+			layout.restore();
+		}
 	});
 });

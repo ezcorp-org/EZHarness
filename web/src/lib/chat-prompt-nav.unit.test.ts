@@ -13,6 +13,7 @@ import {
 	isNavBlockedByOverlay,
 	resolvePromptNav,
 	applyPromptNav,
+	parkPrompt,
 	type PromptNavState,
 } from "./chat-prompt-nav";
 
@@ -104,8 +105,9 @@ describe("isTextEntryTarget", () => {
 
 describe("resolvePromptNav", () => {
 	const ANCHOR = 80;
-	// Helper: parallel ids/positions in top→bottom render order.
-	const layout = (positions: number[]): PromptNavState => ({
+	// Helper: parallel ids/positions, oldest → newest. A `null` position is a
+	// prompt the render window has not reached yet (always above the window).
+	const layout = (positions: (number | null)[]): PromptNavState => ({
 		ids: positions.map((_, i) => `p${i}`),
 		positions,
 	});
@@ -118,10 +120,72 @@ describe("resolvePromptNav", () => {
 	const view = (scrollTop = AT, scrollHeight = HEIGHT) => ({ scrollTop, scrollHeight });
 	const at = (id: string) => ({ id, scrollTop: AT, scrollHeight: HEIGHT });
 
-	test("no prompts → null", () => {
-		expect(
-			resolvePromptNav({ ids: [], positions: [] }, "next", null, view(0), ANCHOR),
-		).toBeNull();
+	test("no prompts at all → page the thread (never a dead key)", () => {
+		// A thread an agent opened has no user prompt to step to. Both arrows
+		// used to return null, so neither key did anything at all.
+		const empty: PromptNavState = { ids: [], positions: [] };
+		expect(resolvePromptNav(empty, "next", null, view(0), ANCHOR)).toEqual({
+			kind: "bottom",
+		});
+		expect(resolvePromptNav(empty, "prev", null, view(0), ANCHOR)).toEqual({
+			kind: "top",
+		});
+	});
+
+	test("prompts above the render window (null positions) are still stepped through", () => {
+		// The agentic case: p0/p1 are scrolled out above the window and only p2
+		// is rendered. An unrendered prompt is above the fold by definition, so
+		// the current prompt re-derives to p1 — NOT to "nothing here, give up".
+		const state = layout([null, null, 300]);
+		expect(resolvePromptNav(state, "prev", null, view(0), ANCHOR)).toEqual({
+			kind: "prompt",
+			index: 0,
+			id: "p0",
+		});
+		expect(resolvePromptNav(state, "next", null, view(0), ANCHOR)).toEqual({
+			kind: "prompt",
+			index: 2,
+			id: "p2",
+		});
+	});
+
+	test("with NO prompt rendered, prev targets the LAST prompt (the nearest one above)", () => {
+		// Deep in an agentic run: every prompt is above the window, so the reader
+		// is below all of them. Treating the last one as "where we are standing"
+		// would step straight past it to p1 — the nearest prompt above the
+		// viewport is exactly the one ArrowLeft should land on.
+		const state = layout([null, null, null]);
+		expect(resolvePromptNav(state, "prev", null, view(0), ANCHOR)).toEqual({
+			kind: "prompt",
+			index: 2,
+			id: "p2",
+		});
+		// Nothing is below us, so ArrowRight is the fall-through to the bottom.
+		expect(resolvePromptNav(state, "next", null, view(0), ANCHOR)).toEqual({
+			kind: "bottom",
+		});
+	});
+
+	test("a live pointer still wins when nothing is rendered", () => {
+		// The press after the one above: we parked p2, the window has not caught
+		// up, and the step must continue from the pointer rather than re-deriving
+		// "below everything" and handing back p2 again.
+		const state = layout([null, null, null]);
+		expect(resolvePromptNav(state, "prev", at("p2"), view(), ANCHOR)).toEqual({
+			kind: "prompt",
+			index: 1,
+			id: "p1",
+		});
+	});
+
+	test("a single prompt still pages, even when it is not rendered yet", () => {
+		const state = layout([null]);
+		expect(resolvePromptNav(state, "prev", null, view(0), ANCHOR)).toEqual({
+			kind: "top",
+		});
+		expect(resolvePromptNav(state, "next", null, view(0), ANCHOR)).toEqual({
+			kind: "bottom",
+		});
 	});
 
 	test("next from a fresh (no pointer) state picks the first prompt below the fold", () => {
@@ -370,8 +434,9 @@ describe("applyPromptNav (DOM glue)", () => {
 		});
 	}
 
-	// Only "u*" ids are user prompts.
-	const isUserPrompt = (id: string) => id.startsWith("u");
+	// The conversation's prompt list: only "u*" ids are user prompts. Rows the
+	// container renders that are not in this list are never nav targets.
+	const PROMPTS = ["u0", "u1"];
 
 	test("prompt step → onPromptScroll fires, scrollTop = max(0, stub), pointer records where we landed", () => {
 		// u0 below fold (200), u1 (400). Fresh pointer → next picks u0.
@@ -388,7 +453,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container,
 			direction: "next",
 			pointer: null,
-			isUserPrompt,
+			promptIds: PROMPTS,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor,
@@ -418,7 +483,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container,
 			direction: "next",
 			pointer: null,
-			isUserPrompt,
+			promptIds: PROMPTS,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor,
@@ -441,7 +506,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container,
 			direction: "next",
 			pointer: null,
-			isUserPrompt,
+			promptIds: PROMPTS,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor,
@@ -470,7 +535,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container,
 			direction: "prev",
 			pointer: { id: "u1", scrollTop: 800, scrollHeight: 2000 },
-			isUserPrompt,
+			promptIds: PROMPTS,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor,
@@ -501,7 +566,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container,
 			direction: "next",
 			pointer: null,
-			isUserPrompt,
+			promptIds: PROMPTS,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor,
@@ -528,7 +593,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container,
 			direction: "next",
 			pointer: null,
-			isUserPrompt,
+			promptIds: PROMPTS,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor,
@@ -558,7 +623,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container,
 			direction: "prev",
 			pointer: { id: "u1", scrollTop: 800, scrollHeight: 2000 },
-			isUserPrompt,
+			promptIds: PROMPTS,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor,
@@ -587,7 +652,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container,
 			direction: "next",
 			pointer: null,
-			isUserPrompt,
+			promptIds: PROMPTS,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor,
@@ -615,7 +680,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container,
 			direction: "prev",
 			pointer: { id: "u0", scrollTop: 900, scrollHeight: 5000 },
-			isUserPrompt,
+			promptIds: ["u0"], // the conversation holds this ONE prompt
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor,
@@ -640,7 +705,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container,
 			direction: "next",
 			pointer: null,
-			isUserPrompt,
+			promptIds: ["u0"], // the conversation holds this ONE prompt
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor: () => 0,
@@ -668,7 +733,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container,
 			direction: "prev",
 			pointer: { id: "u0", scrollTop: 123, scrollHeight: 5000 },
-			isUserPrompt,
+			promptIds: PROMPTS,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor,
@@ -686,10 +751,10 @@ describe("applyPromptNav (DOM glue)", () => {
 		expect(scrollTopForAnchor).not.toHaveBeenCalled();
 	});
 
-	test("non-user-prompt rows and attribute-less rows are skipped during measurement", () => {
-		// Row order: assistant (a0, skipped by isUserPrompt), no-attr (null,
-		// skipped by !id), then the user prompts u0/u1. Only u0/u1 are measured,
-		// so a fresh `next` resolves to u0 (proving the others were filtered out).
+	test("rows outside the prompt list (and attribute-less rows) are never nav targets", () => {
+		// Row order: assistant (a0, not in PROMPTS), no-attr (null, skipped by
+		// !id), then the user prompts u0/u1. Only u0/u1 are measured, so a fresh
+		// `next` resolves to u0 (proving the others were filtered out).
 		const container = buildContainer([
 			["a0", 100],
 			[null, 150],
@@ -703,7 +768,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container,
 			direction: "next",
 			pointer: null,
-			isUserPrompt,
+			promptIds: PROMPTS,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			band: 24,
@@ -725,7 +790,7 @@ describe("applyPromptNav (DOM glue)", () => {
 			container: promptContainer,
 			direction: "next",
 			pointer: null,
-			isUserPrompt,
+			promptIds: PROMPTS,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor: () => 10,
@@ -746,12 +811,183 @@ describe("applyPromptNav (DOM glue)", () => {
 			container: bottomContainer,
 			direction: "next",
 			pointer: null,
-			isUserPrompt,
+			promptIds: PROMPTS,
 			anchorAttr: ATTR,
 			offset: OFFSET,
 			scrollTopForAnchor: () => 0,
 		});
 		expect(bottomResult).toEqual({ acted: true, pointer: null });
 		expect(bottomContainer.scrollTop).toBe(7777);
+	});
+
+	describe("a prompt the render window has not reached yet", () => {
+		// The agentic conversation: u0 is a real prompt in the conversation but
+		// its row is not in the DOM, so it has no geometry to scroll to. The nav
+		// hands it back as `pending` and the caller widens the window first.
+
+		test("prev onto an unrendered prompt → pending, and NOTHING has moved yet", () => {
+			// Only u1 is rendered (parked at the fold); u0 is above the window.
+			const container = buildContainer([["u1", OFFSET]]);
+			setScroll(container, 5000);
+			container.scrollTop = 640;
+			const onPromptScroll = vi.fn();
+			const onBottomScroll = vi.fn();
+			const scrollTopForAnchor = vi.fn(() => 0);
+			const pointer = { id: "u1", scrollTop: 640, scrollHeight: 5000 };
+
+			const result = applyPromptNav({
+				container,
+				direction: "prev",
+				pointer,
+				promptIds: PROMPTS,
+				anchorAttr: ATTR,
+				offset: OFFSET,
+				scrollTopForAnchor,
+				onPromptScroll,
+				onBottomScroll,
+			});
+
+			// `acted` is true — the press is consumed (the caller preventDefaults)
+			// — but the scroll itself waits for the row to exist.
+			expect(result).toEqual({
+				acted: true,
+				pointer,
+				pending: { id: "u0", index: 0 },
+			});
+			expect(container.scrollTop).toBe(640);
+			expect(scrollTopForAnchor).not.toHaveBeenCalled();
+			expect(onPromptScroll).not.toHaveBeenCalled();
+			expect(onBottomScroll).not.toHaveBeenCalled();
+		});
+
+		test("with NO prompt rendered at all, the arrows still resolve a step", () => {
+			// The exact shape that made both keys dead: an assistant-only window.
+			// The reader is below both prompts, so `prev` targets the nearest one
+			// above (u1) instead of the resolver bailing out.
+			const container = buildContainer([
+				["a0", 100],
+				["a1", 400],
+			]);
+			setScroll(container, 5000);
+
+			const result = applyPromptNav({
+				container,
+				direction: "prev",
+				pointer: null,
+				promptIds: PROMPTS,
+				anchorAttr: ATTR,
+				offset: OFFSET,
+				scrollTopForAnchor: () => 0,
+			});
+
+			expect(result).toEqual({
+				acted: true,
+				pointer: null,
+				pending: { id: "u1", index: 1 },
+			});
+		});
+	});
+});
+
+describe("parkPrompt", () => {
+	// The scroll half of a nav step, shared by applyPromptNav and by the
+	// caller's deferred path (a prompt that had to be rendered first).
+	const OFFSET = 80;
+
+	function makeContainer(scrollHeight: number, clientHeight: number): HTMLElement {
+		const el = document.createElement("div");
+		Object.defineProperty(el, "scrollHeight", { configurable: true, value: scrollHeight });
+		Object.defineProperty(el, "clientHeight", { configurable: true, value: clientHeight });
+		let scrollTop = 0;
+		Object.defineProperty(el, "scrollTop", {
+			configurable: true,
+			get: () => scrollTop,
+			set: (v: number) => {
+				scrollTop = Math.max(0, Math.min(v, scrollHeight - clientHeight));
+			},
+		});
+		return el;
+	}
+
+	test("parks the prompt at the fold and returns the resting pointer", () => {
+		const container = makeContainer(5000, 800);
+		const onPromptScroll = vi.fn();
+
+		const pointer = parkPrompt({
+			container,
+			direction: "prev",
+			id: "u0",
+			offset: OFFSET,
+			scrollTopForAnchor: () => 1200,
+			onPromptScroll,
+		});
+
+		expect(container.scrollTop).toBe(1200);
+		expect(onPromptScroll).toHaveBeenCalledTimes(1);
+		expect(pointer).toEqual({ id: "u0", scrollTop: 1200, scrollHeight: 5000 });
+	});
+
+	test("a negative anchor clamps to 0; a null anchor leaves the scroll alone", () => {
+		const negative = makeContainer(5000, 800);
+		expect(
+			parkPrompt({
+				container: negative,
+				direction: "prev",
+				id: "u0",
+				offset: OFFSET,
+				scrollTopForAnchor: () => -40,
+			}),
+		).toEqual({ id: "u0", scrollTop: 0, scrollHeight: 5000 });
+
+		const missing = makeContainer(5000, 800);
+		missing.scrollTop = 300;
+		expect(
+			parkPrompt({
+				container: missing,
+				direction: "prev",
+				id: "u0",
+				offset: OFFSET,
+				scrollTopForAnchor: () => null,
+			}),
+		).toEqual({ id: "u0", scrollTop: 300, scrollHeight: 5000 });
+		expect(missing.scrollTop).toBe(300);
+	});
+
+	test("a `next` step that cannot be parked falls through to the bottom (pointer null)", () => {
+		const container = makeContainer(5000, 800); // max scroll 4200
+		const onBottomScroll = vi.fn();
+		const onPromptScroll = vi.fn();
+
+		const pointer = parkPrompt({
+			container,
+			direction: "next",
+			id: "u1",
+			offset: OFFSET,
+			scrollTopForAnchor: () => 4300,
+			onPromptScroll,
+			onBottomScroll,
+		});
+
+		expect(pointer).toBeNull();
+		expect(container.scrollTop).toBe(4200); // clamped end of the range
+		expect(onBottomScroll).toHaveBeenCalledTimes(1);
+		expect(onPromptScroll).not.toHaveBeenCalled();
+	});
+
+	test("the same unparkable target going UP scrolls as far as it can, never to the bottom", () => {
+		const container = makeContainer(5000, 800);
+		const onBottomScroll = vi.fn();
+
+		const pointer = parkPrompt({
+			container,
+			direction: "prev",
+			id: "u0",
+			offset: OFFSET,
+			scrollTopForAnchor: () => 4300,
+			onBottomScroll,
+		});
+
+		expect(onBottomScroll).not.toHaveBeenCalled();
+		expect(pointer).toEqual({ id: "u0", scrollTop: 4200, scrollHeight: 5000 });
 	});
 });
