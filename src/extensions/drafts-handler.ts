@@ -311,7 +311,7 @@ async function handleCreate(
   // reads it back via `resolveDir({ draftId })` — it must NEVER
   // compute the path itself from the draftId, because doing so would
   // expose a guess-and-read attack across users (reviewer C1).
-  let row;
+  let row: Awaited<ReturnType<typeof createDraft>>;
   try {
     row = await createDraft({
       userId: ctx.userId,

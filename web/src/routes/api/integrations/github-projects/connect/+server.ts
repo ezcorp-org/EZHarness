@@ -33,6 +33,8 @@ import { createGithubClient } from "$server/integrations/github-projects/client"
 import type {
   GithubAuth,
   GithubAuthMode,
+  GithubAuthValidation,
+  GithubBoardRef,
 } from "$server/integrations/github-projects/types";
 import { setSecret, getSecret, deleteSecret } from "$server/extensions/secrets-store";
 import { upsertLink, listLinksByProjectId, deleteLink } from "$server/db/queries/github-projects";
@@ -121,7 +123,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const credential: GithubAuth = { mode: authMode, token };
 
   // 1. Resolve the board from the URL (a 404/invalid board never persists).
-  let board;
+  let board: GithubBoardRef;
   try {
     board = await client.resolveBoardFromUrl(boardUrl, credential);
   } catch (err) {
@@ -132,7 +134,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // 2. Validate the auth against the resolved board. This is the ONLY egress
   //    that must succeed before we persist; on missing scopes we store nothing
   //    and name what's missing so the UI can guide the fix.
-  let validation;
+  let validation: GithubAuthValidation;
   try {
     validation = await client.validateAuth(credential, board.boardNodeId);
   } catch (err) {

@@ -264,7 +264,7 @@ export function detectMentionTrigger(
 export function parseMentions(text: string): MentionToken[] {
 	const mentions: MentionToken[] = [];
 	const regex = new RegExp(MENTION_REGEX.source, "g");
-	let match;
+	let match: RegExpExecArray | null;
 	while ((match = regex.exec(text)) !== null) {
 		// Alternative 1 matched (! sigil, agent/ext/team/EZ/workflow)
 		if (match[1] !== undefined) {
@@ -518,7 +518,7 @@ function parseStructuredSegments(text: string): Segment[] {
 	const segments: Segment[] = [];
 	const regex = new RegExp(MENTION_REGEX.source, "g");
 	let lastIndex = 0;
-	let match;
+	let match: RegExpExecArray | null;
 
 	while ((match = regex.exec(text)) !== null) {
 		if (match.index > lastIndex) {

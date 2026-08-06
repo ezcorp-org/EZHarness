@@ -43,7 +43,7 @@
  * fallback returns the same rows); the restructure is what makes the EXPLAIN
  * plan honest at scale. See 65-01-SUMMARY.md "Deviations".
  */
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { getDb } from "../connection";
 import { toVectorLiteral } from "../../memory/vector-utils";
 
@@ -284,7 +284,7 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
     }
   }
 
-  let fused;
+  let fused: SQL;
   if (mode === "keyword") {
     // Single lexical CTE; display join attaches conversation + role + createdAt.
     fused = sql`

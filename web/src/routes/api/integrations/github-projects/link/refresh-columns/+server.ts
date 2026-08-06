@@ -34,6 +34,7 @@ import {
   boardTokenName,
 } from "$server/integrations/github-projects/auth";
 import { updateLink } from "$server/db/queries/github-projects";
+import type { GithubBoardRef } from "$server/integrations/github-projects/types";
 import { hasSecret } from "$server/extensions/secrets-store";
 import { extensionLogger } from "$server/logger";
 
@@ -66,7 +67,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 
   // Resolve the host-only credential (per-board override / shared PAT / `gh`).
   // A missing/empty credential is a 401 — the board can't be re-read.
-  let credential;
+  let credential: Awaited<ReturnType<typeof resolveLinkAuth>>;
   try {
     credential = await resolveLinkAuth(link);
   } catch (err) {
@@ -81,7 +82,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // Re-resolve the board to get its CURRENT Status field + options. A GitHub
   // failure (auth/rate-limit/not-found/transport) maps to 502 — the link is
   // left untouched so a transient failure never wipes the saved columns.
-  let board;
+  let board: GithubBoardRef;
   try {
     board = await createGithubClient().resolveBoardFromUrl(link.boardUrl, credential);
   } catch (err) {

@@ -239,7 +239,7 @@ export function createGetTaskSnapshotsTool(ctx: BriefingToolContext): BuiltinToo
         for (const id of ids) {
           const conv = await getConversation(id);
           if (!conv || conv.userId !== ctx.userId) continue; // silent skip — no oracle
-          let snap;
+          let snap: Awaited<ReturnType<typeof getSnapshot>>;
           try {
             snap = await getSnapshot(id);
           } catch (e) {

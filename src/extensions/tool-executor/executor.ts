@@ -735,7 +735,7 @@ export class ToolExecutor {
         return entityResult;
       }
 
-      let result;
+      let result: ToolCallResult;
       if (isMcp) {
         const client = await this.registry.getMcpClient(extensionId);
         result = await client.callTool(originalName, resolvedInput);

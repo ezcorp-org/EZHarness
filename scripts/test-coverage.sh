@@ -558,6 +558,9 @@ run_legs() {
       src/lib/components/DelegationConsentDialog.component.test.ts \
       src/__tests__/api-health.server.test.ts \
       src/__tests__/api-providers-refresh-models.server.test.ts \
+      src/__tests__/api-conversations-id-export.server.test.ts \
+      src/__tests__/api-extensions-id-reopen.server.test.ts \
+      src/__tests__/test-only-endpoints.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -757,7 +760,10 @@ run_legs() {
       --coverage.include='src/lib/components/review/ReviewFileTree.svelte' \
       --coverage.include='**/users/[[]id]/+server.ts' \
       --coverage.include='src/routes/api/health/+server.ts' \
-      --coverage.include='src/routes/api/providers/[provider]/refresh-models/+server.ts' ) \
+      --coverage.include='src/routes/api/providers/[provider]/refresh-models/+server.ts' \
+      --coverage.include='src/routes/api/conversations/[id]/export/+server.ts' \
+      --coverage.include='src/routes/api/extensions/[id]/reopen/+server.ts' \
+      --coverage.include='src/routes/api/__test/seed-extension-author-draft/+server.ts' ) \
     > "$legs/vitest.out" 2>&1
   echo "$?" > "$legs/vitest.code"
   ) &

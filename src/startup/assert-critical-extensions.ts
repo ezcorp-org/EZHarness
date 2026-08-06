@@ -80,7 +80,7 @@ export async function assertCriticalExtensions(): Promise<CriticalAssertionResul
   };
 
   for (const entry of critical) {
-    let row;
+    let row: Awaited<ReturnType<typeof getExtensionByName>>;
     try {
       row = await getExtensionByName(entry.name);
     } catch (e) {

@@ -69,7 +69,7 @@ export async function assertBundledNotStranded(): Promise<StrandedBundledResult>
   };
 
   for (const entry of entries) {
-    let row;
+    let row: Awaited<ReturnType<typeof getExtensionByName>>;
     try {
       row = await getExtensionByName(entry.name);
     } catch (e) {

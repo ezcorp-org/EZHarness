@@ -80,7 +80,7 @@ function spawnExtension(): TestProc {
         const { done, value } = await reader.read();
         if (done) return;
         buffer += decoder.decode(value, { stream: true });
-        let idx;
+        let idx: number;
         while ((idx = buffer.indexOf("\n")) !== -1) {
           const line = buffer.slice(0, idx).trim();
           buffer = buffer.slice(idx + 1);

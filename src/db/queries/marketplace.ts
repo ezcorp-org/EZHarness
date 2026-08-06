@@ -1,4 +1,4 @@
-import { eq, desc, sql, and } from "drizzle-orm";
+import { eq, desc, sql, and, type SQL } from "drizzle-orm";
 import { getDb } from "../connection";
 import { marketplaceListings } from "../schema";
 import type { MarketplaceListing } from "../schema";
@@ -115,7 +115,7 @@ export async function browseMarketplace(opts: BrowseOptions): Promise<Marketplac
     conditions.push(sql`${marketplaceListings.tags} @> ${JSON.stringify([opts.tag])}::jsonb`);
   }
 
-  let orderBy;
+  let orderBy: SQL;
   if (trigram) {
     const q = opts.query!;
     orderBy = sql`

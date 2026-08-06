@@ -43,7 +43,7 @@ function extractInternalLinks(
 ): Array<{ text: string; href: string }> {
   const links: Array<{ text: string; href: string }> = [];
   const regex = /\[([^\]]*)\]\(([^)]+)\)/g;
-  let match;
+  let match: RegExpExecArray | null;
   while ((match = regex.exec(content)) !== null) {
     const href = match[2]!;
     // Skip absolute URLs and anchors
@@ -59,7 +59,7 @@ function extractCodeBlocks(
 ): Array<{ lang: string; code: string }> {
   const blocks: Array<{ lang: string; code: string }> = [];
   const regex = /```(\w*)\n([\s\S]*?)```/g;
-  let match;
+  let match: RegExpExecArray | null;
   while ((match = regex.exec(content)) !== null) {
     blocks.push({ lang: match[1]!, code: match[2]! });
   }

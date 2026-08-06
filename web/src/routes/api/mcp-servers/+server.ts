@@ -28,7 +28,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // Open a throwaway client to verify connectivity + pull the live tool list
   // before persisting. Failures surface as 502 so the UI can explain.
   const client = new McpClient(server);
-  let cachedTools;
+  let cachedTools: Awaited<ReturnType<typeof client.listTools>>;
   try {
     await client.connect();
     cachedTools = await client.listTools();

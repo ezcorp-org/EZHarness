@@ -59,7 +59,7 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
   // Verify connectivity + pull the live tool list with a throwaway client
   // BEFORE persisting. Failure surfaces as 502 with no mutation.
   const client = new McpClient(server);
-  let cachedTools;
+  let cachedTools: Awaited<ReturnType<typeof client.listTools>>;
   try {
     await client.connect();
     cachedTools = await client.listTools();

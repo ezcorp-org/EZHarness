@@ -406,7 +406,15 @@ export type SummarizeFn = (
 ) => Promise<string | null>;
 
 export interface CompactionContext {
-  model: Model;
+  /**
+   * Compaction is input-only: a strategy reads the model to size its budget
+   * and never writes to it. `Readonly` makes that a compile error rather than
+   * a convention — it is shallow on purpose, so every read stays legal while
+   * `model.maxTokens = …` stops type-checking.
+   *
+   * @see docs/context-compaction.md ("Input-only invariant")
+   */
+  model: Readonly<Model>;
   budget: number;
   cfg: CompactionConfig;
   estimateTokens: (m: AgentMessage[]) => number;
@@ -649,9 +657,15 @@ export interface CompactionDeps {
  * always-on {@link capStaleToolResults} cost control, then returns messages
  * untouched while under budget; otherwise runs the configured strategy.
  * Resolved once per turn in `build-pi-agent.ts`.
+ *
+ * `model` is `Readonly` because compaction trims input only and never writes
+ * back to the model (notably not `maxTokens`) — the shallow `Readonly` turns
+ * that invariant into a compile error while leaving every read legal.
+ *
+ * @see docs/context-compaction.md ("Input-only invariant")
  */
 export function makeCompactionTransform(
-  model: Model,
+  model: Readonly<Model>,
   override?: Partial<CompactionConfig>,
   deps?: CompactionDeps,
 ): (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]> {

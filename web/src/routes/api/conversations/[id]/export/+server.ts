@@ -23,7 +23,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
   if (conv.userId !== user.id && user.role !== "admin") return errorJson(404, "Not found");
 
   // Load branch-aware messages
-  let msgs;
+  let msgs: Awaited<ReturnType<typeof convQueries.getConversationPath>>;
   if (leafMessageId) {
     msgs = await convQueries.getConversationPath(leafMessageId, conversationId);
   } else {

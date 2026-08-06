@@ -54,6 +54,7 @@ import {
   type GithubBoardItem,
   type GithubClient,
   type GithubColumnAction,
+  type GithubFetchPage,
 } from "./types";
 import type { GithubProjectsLink, GithubProjectsProposal } from "../../db/schema";
 
@@ -253,7 +254,7 @@ export class GithubProjectsDaemon {
       return { due: true, fetched: 0, triggers: 0, newProposals: 0, autoSpawned: 0, degraded: true };
     }
 
-    let page;
+    let page: GithubFetchPage;
     try {
       page = await this.getClient().fetchBoardItems(
         link.boardNodeId,
