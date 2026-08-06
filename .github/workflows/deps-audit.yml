@@ -1,0 +1,53 @@
+name: deps-audit
+
+# Dependency vulnerability gate — `bun audit` over BOTH lockfiles (root
+# `bun.lock` and `web/bun.lock`; `web/` is deliberately not a root workspace),
+# wrapped by scripts/audit-deps.ts so suppressions carry a reason and an expiry.
+# See that script's header for why the wrapper exists.
+#
+# WHY ITS OWN WORKFLOW, NOT A JOB IN ci.yml. Advisories appear with no code
+# change at all, so this has to run on a `schedule:` — and a schedule on ci.yml
+# would drag all ~27 of its jobs along once a week for nothing.
+#
+# NOT REQUIRED (yet). Deliberately left OFF branch protection at introduction:
+# it is network-dependent (npm's bulk-advisory endpoint) and brand new. Let it
+# run advisory for ~2 weeks, confirm it doesn't flap, THEN add
+# `Dependency audit` to the required checks.
+#
+# NO `./.github/actions/setup`. `bun audit` is lockfile-only — verified against
+# an empty node_modules — so this job needs neither an install nor the shared
+# bun cache, the same shortcut `gate-integrity` takes in ci.yml.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  # Mondays 06:17 UTC. Off-the-hour to dodge the top-of-hour scheduling queue.
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deps-audit-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  audit:
+    name: Dependency audit
+    # Don't burn scheduled runs on forks — only the upstream repo has advisories
+    # anyone here can act on.
+    if: github.event_name != 'schedule' || github.repository == 'ezcorp-org/EZHarness'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version # single pin source; see note in ci.yml
+      # Exit codes: 0 clean · 1 gate failure (unallowlisted / expired / stale
+      # entry) · 2 the audit could not run (registry unreachable after a retry),
+      # which is reported as an INFRASTRUCTURE failure, never as a finding.
+      - run: bun scripts/audit-deps.ts

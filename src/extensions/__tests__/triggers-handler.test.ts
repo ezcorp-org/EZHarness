@@ -14,7 +14,7 @@
  * takes a nullable user and is the only place the ownerless sweeps can be
  * recorded.
  */
-import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeAll, beforeEach, afterAll, mock, spyOn } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
   setupTestDb, closeTestDb, mockDbConnection, getTestDb,
@@ -124,6 +124,11 @@ function errOf(res: JsonRpcResponse): { code: number; reason: string; data: Reco
     reason: (e!.data?.reason as string) ?? "",
     data: e!.data ?? {},
   };
+}
+
+/** The typed deny `reason` of a response, or `undefined` when it succeeded. */
+function reasonOf(res: JsonRpcResponse): string | undefined {
+  return (res as { error?: { data?: { reason?: string } } }).error?.data?.reason;
 }
 
 async function auditRows(action: string) {
@@ -430,28 +435,66 @@ describe("rung 7 — per-kind caps", () => {
 
 // ── Rung 8: rate limit ────────────────────────────────────────────────
 
+/** The handler's instantaneous bucket size (`MAX_OPS_PER_SECOND`). */
+const BUCKET_TOKENS = 50;
+
+/**
+ * Run `fn` with `Date.now()` frozen.
+ *
+ * The limiter refills by WALL-CLOCK elapsed time (`src/extensions/rate-limit.ts`
+ * computes `tokens + elapsed * maxOpsPerSecond`), which makes any "drain it and
+ * watch it refuse" assertion a race between the drain and the refill — and the
+ * drain's speed is a property of the HOST, not of the code under test. This
+ * test lost that race for real: under a coverage-instrumented shard on a CI
+ * runner each awaited `register` cost >20ms, so the 50 ops/s bucket refilled a
+ * token per call and the 60-iteration loop never reached a refusal (CI run
+ * 31046221239 — the shard tolerated it as a contention flake on the isolated
+ * re-run, but the FAILING run's lcov is the one that ships, so the coverage
+ * gate saw `triggers-handler.ts:262` as dead).
+ *
+ * Freezing deletes the refill term, so the drain is exactly BUCKET_TOKENS
+ * accepted calls followed by a refusal and every assertion below is an
+ * equality rather than "at least one of sixty". Nothing is loosened — this is
+ * the strict form of the same claim. Same defect and same fix as
+ * `workflows-handler.test.ts`'s `withFrozenClock`.
+ */
+async function withFrozenClock<T>(fn: () => Promise<T>): Promise<T> {
+  const clock = spyOn(Date, "now").mockReturnValue(Date.now());
+  try {
+    return await fn();
+  } finally {
+    clock.mockRestore();
+  }
+}
+
 describe("rung 8 — instantaneous rate limit", () => {
   test("exhausting the bucket yields TRIGGERS_RATE_LIMITED (-32029)", async () => {
-    // 50 ops/s bucket; the registrations themselves fail on quota, which
-    // is fine — the bucket is consumed before the cap check.
-    let limited: JsonRpcResponse | undefined;
-    for (let i = 0; i < 60; i++) {
-      const res = await call({ action: "list" , key: `job:${i}` });
-      const e = (res as { error?: { data?: { reason?: string } } }).error;
-      if (e?.data?.reason === "TRIGGERS_RATE_LIMITED") { limited = res; break; }
-    }
-    // `list` short-circuits before the limiter, so drive `register` instead.
-    if (!limited) {
+    // `list` short-circuits BEFORE the limiter, so it must never be charged —
+    // and `register` must be. Both halves are asserted.
+    const reads = await withFrozenClock(async () => {
+      const out: JsonRpcResponse[] = [];
+      for (let i = 0; i < 60; i++) out.push(await call({ action: "list", key: `job:${i}` }));
+      return out;
+    });
+    expect(reads.filter((r) => reasonOf(r) === "TRIGGERS_RATE_LIMITED")).toEqual([]);
+
+    // The registrations themselves fail on quota, which is fine — the bucket
+    // is consumed before the cap check, so every one of them charges a token.
+    const writes = await withFrozenClock(async () => {
+      const out: JsonRpcResponse[] = [];
       for (let i = 0; i < 60; i++) {
-        const res = await call({
-          action: "register", kind: "cron", key: `job:${i}`, cron: "0 9 * * 1",
-        });
-        const e = (res as { error?: { data?: { reason?: string } } }).error;
-        if (e?.data?.reason === "TRIGGERS_RATE_LIMITED") { limited = res; break; }
+        out.push(await call({ action: "register", kind: "cron", key: `job:${i}`, cron: "0 9 * * 1" }));
       }
-    }
-    expect(limited).toBeDefined();
-    expect(errOf(limited!).code).toBe(-32029);
+      return out;
+    });
+    const shed = writes.filter((r) => reasonOf(r) === "TRIGGERS_RATE_LIMITED");
+
+    // Exactly one token per write: 50 pass the rung, the remaining 10 are shed.
+    expect(shed).toHaveLength(60 - BUCKET_TOKENS);
+    expect(writes.slice(0, BUCKET_TOKENS).some((r) => reasonOf(r) === "TRIGGERS_RATE_LIMITED")).toBe(
+      false,
+    );
+    expect(errOf(shed[0] as JsonRpcResponse).code).toBe(-32029);
   });
 });
 

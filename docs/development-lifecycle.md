@@ -129,6 +129,25 @@ protection so renaming/deleting a job in a PR doesn't dodge the requirement.
 | **Gate integrity** | the PR doesn't weaken the gate or fake tests green | gate tampering / vacuous tests |
 | **Visual evidence** | a frontend-visual change ships a changed `@evidence` Playwright spec — and, when the changed file has a covering entry in `web/e2e/evidence-covers.json`, that specific covering spec must be the one touched (deterministic, browser-free, fails closed, fails open to the coarse rule on a bad map; bypass via maintainer-only `evidence-exempt` label) | frontend shipped with no visual spec/screenshot, or evidenced by an unrelated spec |
 
+### Dependency audit (running, NOT yet required)
+`.github/workflows/deps-audit.yml` runs `scripts/audit-deps.ts` on every PR,
+on pushes to `main`, and weekly on a cron (advisories appear with no code
+change, which is why it needs a schedule and therefore its own workflow rather
+than a job in `ci.yml`). It wraps `bun audit` over **both** lockfiles — root
+`bun.lock` and `web/bun.lock` — and fails on any advisory at or above the
+severity floor (default `high`) that isn't in `scripts/audit-allowlist.json`.
+
+Suppressions are `cargo-deny`-shaped, not `--ignore=<GHSA>`-shaped: every entry
+carries a written reason and a hard expiry, and the gate **also** fails on an
+**expired** entry (forcing periodic re-review) and on a **stale** entry matching
+no live advisory (so the list can't rot into a blanket ignore). A run that can't
+reach npm's advisory endpoint is retried once and then reported as an
+infrastructure failure (exit 2), never as a finding.
+
+It is deliberately **not** in branch protection yet — a new, network-dependent
+check earns that after it has run clean for a couple of weeks. Fix advisories by
+upgrading first; allowlist only when no in-range upgrade exists.
+
 ### Per-file coverage gate
 `scripts/check-coverage.ts` enforces `scripts/coverage-thresholds.json` against
 `coverage/lcov.info`. Two diff-scoped gates run in the same job (reusing the
