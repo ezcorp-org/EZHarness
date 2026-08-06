@@ -1,25 +1,26 @@
-import { test, expect, describe, beforeAll, beforeEach, afterAll } from "bun:test";
+import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { readdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 // ── Shared types & utilities ──────────────────────────────────────────
-
-// Claude Code keys each project's memory dir on the absolute checkout path
-// with `/` → `-`. Derive it from THIS repo's location instead of hardcoding
-// a path that goes stale on every repo move/migration (the previous literal
-// pointed at a pre-migration checkout, so the live section validated fossil
-// data). On machines/checkouts without a memory dir (CI, worktrees) the
-// live section below already no-ops via `dirExists`.
-const REPO_ROOT = join(import.meta.dir, "..", "..");
-const MEMORY_DIR = join(
-  process.env.HOME || "/home/dev",
-  ".claude/projects",
-  REPO_ROOT.replaceAll("/", "-"),
-  "memory"
-);
+//
+// THIS SUITE ASSERTS ONLY ON DATA IT CREATES. It used to end with a "live
+// memory" section that read `$HOME/.claude/projects/<checkout>/memory` — the
+// developer's own agent-memory directory — and asserted that every file there
+// carried one of four `type` values, a <150-char description, a snake_case
+// filename, and so on. That directory is external to the repo, user-managed,
+// and read by nothing in `src/`: the product's persistent memory is the
+// `memories` table (docs/features/chat/persistent-memory.md), not those files.
+// So the section could only ever fail on one person's laptop because of one
+// person's notes, and in CI (and any fresh worktree) the directory is absent,
+// which made every case vacuous. The conventions it meant to police are now
+// asserted against fixtures below, where they can fail for a real reason.
 
 const VALID_TYPES = new Set(["user", "feedback", "project", "reference"]);
+const MAX_DESCRIPTION_LENGTH = 150;
+const SNAKE_CASE_FILE = /^[a-z][a-z0-9_]*\.md$/;
+const INDEX_ENTRY = /^- \[.+\]\(.+\.md\) — .+$/;
 
 interface Frontmatter {
   name: string;
@@ -69,6 +70,60 @@ function extractLinkedFiles(indexContent: string): string[] {
     files.push(m[1]!);
   }
   return files;
+}
+
+/**
+ * Every convention a single memory file must satisfy, stated ONCE. Returns one
+ * problem code per violation; an empty array means the file conforms.
+ */
+function validateMemoryFile(file: string, content: string): string[] {
+  const problems: string[] = [];
+  if (!SNAKE_CASE_FILE.test(file)) problems.push("filename-not-snake-case");
+
+  const { frontmatter, body } = parseFrontmatter(content);
+  if (!frontmatter) {
+    problems.push("missing-frontmatter");
+    return problems;
+  }
+
+  if (!frontmatter.name) problems.push("missing-name");
+  else if (frontmatter.name !== file.replace(/\.md$/, "")) problems.push("name-filename-mismatch");
+
+  if (!frontmatter.description) problems.push("missing-description");
+  else if (frontmatter.description.length > MAX_DESCRIPTION_LENGTH)
+    problems.push("description-too-long");
+
+  if (!frontmatter.type) problems.push("missing-type");
+  else if (!VALID_TYPES.has(frontmatter.type)) problems.push("invalid-type");
+
+  if (body.trim().length === 0) problems.push("empty-body");
+  return problems;
+}
+
+/**
+ * Every convention a MEMORY.md index must satisfy against the files sitting
+ * beside it. The index is a CURATED SUBSET — compaction merges/drops index
+ * lines while the underlying files persist for graph-link reachability — so it
+ * may link FEWER files than exist, never more, never the same file twice, and
+ * never a file that isn't there.
+ */
+function validateIndex(indexContent: string, memoryFiles: string[]): string[] {
+  const problems: string[] = [];
+  if (indexContent.startsWith("---")) problems.push("index-has-frontmatter");
+  else if (!indexContent.startsWith("#")) problems.push("index-missing-heading");
+
+  for (const line of indexContent.split("\n").filter(l => l.startsWith("- ["))) {
+    if (!INDEX_ENTRY.test(line)) problems.push("malformed-entry");
+    if (line.length > MAX_DESCRIPTION_LENGTH) problems.push("entry-too-long");
+  }
+
+  const linked = extractLinkedFiles(indexContent);
+  if (new Set(linked).size !== linked.length) problems.push("duplicate-link");
+  if (linked.length > memoryFiles.length) problems.push("index-links-more-than-exist");
+  for (const f of linked) {
+    if (!memoryFiles.includes(f)) problems.push("broken-link");
+  }
+  return problems;
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -374,189 +429,163 @@ describe("memory CRUD lifecycle — integration", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════
-// LIVE VALIDATION — actual memory directory structure
+// CONVENTION VALIDATION — the memory-file rules, on repo-owned fixtures
 // ══════════════════════════════════════════════════════════════════════
+//
+// These replace the deleted "live memory" section (see the header note). Same
+// rules, applied to files this suite writes, so a violation is a real finding
+// instead of a report on whoever ran the suite. Three of them
+// (description length, index line length, name-matches-filename) were dead
+// `test.skip`s there precisely because external data drifts; against fixtures
+// they are ordinary assertions again.
 
-let memoryFiles: string[] = [];
-let indexContent = "";
-let dirExists = false;
-
-beforeAll(async () => {
-  try {
-    const entries = await readdir(MEMORY_DIR);
-    memoryFiles = entries.filter(f => f.endsWith(".md") && f !== "MEMORY.md");
-    indexContent = await Bun.file(join(MEMORY_DIR, "MEMORY.md")).text();
-    dirExists = true;
-  } catch {
-    dirExists = false;
-  }
-});
-
-describe("live memory — file structure", () => {
-  test.skipIf(!dirExists)("memory directory exists with files", () => {
-    expect(memoryFiles.length).toBeGreaterThan(0);
-  });
-
-  test("each memory file has valid frontmatter with required fields", async () => {
-    if (!dirExists) return;
-
-    for (const file of memoryFiles) {
-      const content = await Bun.file(join(MEMORY_DIR, file)).text();
-      const { frontmatter } = parseFrontmatter(content);
-
-      expect(frontmatter).not.toBeNull();
-      expect(frontmatter!.name).toBeTruthy();
-      expect(frontmatter!.description).toBeTruthy();
-      expect(frontmatter!.type).toBeTruthy();
+describe("memory file conventions — validateMemoryFile", () => {
+  test("accepts a conforming file of every valid type", () => {
+    for (const type of VALID_TYPES) {
+      const file = `${type}_notes.md`;
+      const content = buildMemoryFile(
+        { name: `${type}_notes`, description: `A ${type} memory`, type },
+        "\n- Body content\n"
+      );
+      expect(validateMemoryFile(file, content)).toEqual([]);
     }
   });
 
-  test("all types are valid", async () => {
-    if (!dirExists) return;
+  test("flags a filename that is not snake_case", () => {
+    const content = buildMemoryFile({ name: "MyNotes", description: "d", type: "user" }, "\nBody\n");
+    expect(validateMemoryFile("MyNotes.md", content)).toContain("filename-not-snake-case");
+  });
 
-    for (const file of memoryFiles) {
-      const content = await Bun.file(join(MEMORY_DIR, file)).text();
-      const { frontmatter } = parseFrontmatter(content);
-      expect(VALID_TYPES.has(frontmatter!.type)).toBe(true);
+  test("flags content with no frontmatter, and reports nothing further", () => {
+    const problems = validateMemoryFile("notes.md", "Just a body, no frontmatter\n");
+    expect(problems).toEqual(["missing-frontmatter"]);
+  });
+
+  test("flags a name that does not match the filename", () => {
+    const content = buildMemoryFile({ name: "other", description: "d", type: "user" }, "\nBody\n");
+    expect(validateMemoryFile("notes.md", content)).toEqual(["name-filename-mismatch"]);
+  });
+
+  test("flags each missing required field", () => {
+    const content = buildMemoryFile({ name: "notes" }, "\nBody\n");
+    const problems = validateMemoryFile("notes.md", content);
+    expect(problems).toContain("missing-description");
+    expect(problems).toContain("missing-type");
+    expect(problems).not.toContain("missing-name");
+  });
+
+  test("flags a description over the cap but accepts one exactly at it", () => {
+    const atCap = "x".repeat(MAX_DESCRIPTION_LENGTH);
+    const overCap = "x".repeat(MAX_DESCRIPTION_LENGTH + 1);
+    const ok = buildMemoryFile({ name: "notes", description: atCap, type: "user" }, "\nBody\n");
+    const bad = buildMemoryFile({ name: "notes", description: overCap, type: "user" }, "\nBody\n");
+    expect(validateMemoryFile("notes.md", ok)).toEqual([]);
+    expect(validateMemoryFile("notes.md", bad)).toEqual(["description-too-long"]);
+  });
+
+  test("flags a type outside the allowed set", () => {
+    const content = buildMemoryFile(
+      { name: "notes", description: "d", type: "insight" },
+      "\nBody\n"
+    );
+    expect(validateMemoryFile("notes.md", content)).toEqual(["invalid-type"]);
+  });
+
+  test("flags a file whose body is empty or whitespace only", () => {
+    const content = buildMemoryFile({ name: "notes", description: "d", type: "user" }, "\n   \n");
+    expect(validateMemoryFile("notes.md", content)).toEqual(["empty-body"]);
+  });
+
+  test("reports every violation in one pass", () => {
+    const content = buildMemoryFile(
+      { name: "wrong", description: "x".repeat(MAX_DESCRIPTION_LENGTH + 1), type: "bogus" },
+      "\n\n"
+    );
+    expect(validateMemoryFile("BadName.md", content).sort()).toEqual([
+      "description-too-long",
+      "empty-body",
+      "filename-not-snake-case",
+      "invalid-type",
+      "name-filename-mismatch",
+    ]);
+  });
+
+  test("validates files round-tripped through disk", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "memory-conv-"));
+    await writeFile(
+      join(dir, "good.md"),
+      buildMemoryFile({ name: "good", description: "Fine", type: "project" }, "\nBody\n")
+    );
+    await writeFile(
+      join(dir, "bad.md"),
+      buildMemoryFile({ name: "bad", description: "Nope", type: "nonsense" }, "\nBody\n")
+    );
+
+    const entries = (await readdir(dir)).filter(f => f.endsWith(".md")).sort();
+    const problems = new Map<string, string[]>();
+    for (const file of entries) {
+      problems.set(file, validateMemoryFile(file, await Bun.file(join(dir, file)).text()));
     }
-  });
 
-  // Skipped: asserts against user-managed external data (~/.claude/projects/.../memory/).
-  // Description-length drift is a natural side-effect of normal memory editing; this is
-  // not a SUT regression signal. Re-enable if memory frontmatter conventions are
-  // re-enforced at runtime. See .planning/v1.4-backend-test-triage.md (Phase 59-04).
-  test.skip("descriptions are under 150 characters", async () => {
-    if (!dirExists) return;
-
-    for (const file of memoryFiles) {
-      const content = await Bun.file(join(MEMORY_DIR, file)).text();
-      const { frontmatter } = parseFrontmatter(content);
-      expect(frontmatter!.description.length).toBeLessThanOrEqual(150);
-    }
-  });
-
-  test("no duplicate memory names", async () => {
-    if (!dirExists) return;
-
-    const names: string[] = [];
-    for (const file of memoryFiles) {
-      const content = await Bun.file(join(MEMORY_DIR, file)).text();
-      const { frontmatter } = parseFrontmatter(content);
-      names.push(frontmatter!.name);
-    }
-    expect(new Set(names).size).toBe(names.length);
-  });
-
-  test("file names use snake_case convention", async () => {
-    if (!dirExists) return;
-
-    for (const file of memoryFiles) {
-      expect(file).toMatch(/^[a-z][a-z0-9_]*\.md$/);
-    }
-  });
-});
-
-describe("live memory — MEMORY.md index", () => {
-  test("MEMORY.md has no frontmatter", () => {
-    if (!dirExists) return;
-    expect(indexContent.startsWith("---")).toBe(false);
-  });
-
-  test("MEMORY.md starts with a heading", () => {
-    if (!dirExists) return;
-    expect(indexContent.startsWith("#")).toBe(true);
-  });
-
-  // Skipped: asserts against user-managed external data (MEMORY.md index lines).
-  // Line-length drift is a natural side-effect of normal index editing. Not a SUT
-  // regression signal. See .planning/v1.4-backend-test-triage.md (Phase 59-04).
-  test.skip("all index entries are under 150 characters", () => {
-    if (!dirExists) return;
-
-    const lines = indexContent.split("\n").filter(l => l.startsWith("- ["));
-    for (const line of lines) {
-      expect(line.length).toBeLessThanOrEqual(150);
-    }
-  });
-
-  test("all linked files exist in memory directory", () => {
-    if (!dirExists) return;
-
-    const linkedFiles = extractLinkedFiles(indexContent);
-    for (const linked of linkedFiles) {
-      expect(memoryFiles).toContain(linked);
-    }
-  });
-
-  // The index is a CURATED SUBSET of the memory files: the memory harness
-  // periodically compacts MEMORY.md (merging/dropping index lines while the
-  // underlying files persist for graph-link reachability), so "every file is
-  // indexed" is no longer an invariant. What must still hold: no index line
-  // points at the same file twice.
-  test("index has no duplicate file links", () => {
-    if (!dirExists) return;
-
-    const linkedFiles = extractLinkedFiles(indexContent);
-    expect(new Set(linkedFiles).size).toBe(linkedFiles.length);
-  });
-
-  test("index entries use markdown link format", () => {
-    if (!dirExists) return;
-
-    const entryLines = indexContent.split("\n").filter(l => l.startsWith("- ["));
-    for (const line of entryLines) {
-      expect(line).toMatch(/^- \[.+\]\(.+\.md\) — .+$/);
-    }
+    expect(problems.get("good.md")).toEqual([]);
+    expect(problems.get("bad.md")).toEqual(["invalid-type"]);
+    await rm(dir, { recursive: true });
   });
 });
 
-describe("live memory — cross-reference integrity", () => {
-  // Subset semantics (see the index-compaction note above): the index can
-  // legitimately link FEWER files than exist, never more — every link must
-  // resolve (asserted separately) and nothing can be linked twice.
-  test("index links no more files than exist", () => {
-    if (!dirExists) return;
+describe("MEMORY.md index conventions — validateIndex", () => {
+  const conformingIndex = buildIndex([
+    { title: "Alpha", file: "alpha.md", hook: "About alpha" },
+    { title: "Beta", file: "beta.md", hook: "About beta" },
+  ]);
 
-    const linkedFiles = extractLinkedFiles(indexContent);
-    expect(linkedFiles.length).toBeLessThanOrEqual(memoryFiles.length);
+  test("accepts a conforming index", () => {
+    expect(validateIndex(conformingIndex, ["alpha.md", "beta.md"])).toEqual([]);
   });
 
-  test("all memory files have non-empty body content", async () => {
-    if (!dirExists) return;
-
-    for (const file of memoryFiles) {
-      const content = await Bun.file(join(MEMORY_DIR, file)).text();
-      const { body } = parseFrontmatter(content);
-      expect(body.trim().length).toBeGreaterThan(0);
-    }
+  test("accepts an index that links a subset of the files present", () => {
+    expect(validateIndex(conformingIndex, ["alpha.md", "beta.md", "gamma.md"])).toEqual([]);
   });
 
-  test("frontmatter fields are strings", async () => {
-    if (!dirExists) return;
-
-    for (const file of memoryFiles) {
-      const content = await Bun.file(join(MEMORY_DIR, file)).text();
-      const { frontmatter } = parseFrontmatter(content);
-
-      expect(typeof frontmatter!.name).toBe("string");
-      expect(typeof frontmatter!.description).toBe("string");
-      expect(typeof frontmatter!.type).toBe("string");
-      expect(frontmatter!.name.length).toBeGreaterThan(0);
-    }
+  test("flags an index that opens with frontmatter", () => {
+    expect(validateIndex(`---\ntype: index\n---\n${conformingIndex}`, ["alpha.md", "beta.md"])).toEqual([
+      "index-has-frontmatter",
+    ]);
   });
 
-  // Skipped: asserts against user-managed external data (memory frontmatter `name`
-  // vs filename). Editorial decisions can decouple these without breaking the runtime
-  // memory loader (which is keyed on filename, not the `name` field). Not a SUT
-  // regression signal. See .planning/v1.4-backend-test-triage.md (Phase 59-04).
-  test.skip("memory names match their filenames (without extension)", async () => {
-    if (!dirExists) return;
+  test("flags an index that does not start with a heading", () => {
+    const noHeading = conformingIndex.replace("# Project Memory", "Project Memory");
+    expect(validateIndex(noHeading, ["alpha.md", "beta.md"])).toEqual(["index-missing-heading"]);
+  });
 
-    for (const file of memoryFiles) {
-      const content = await Bun.file(join(MEMORY_DIR, file)).text();
-      const { frontmatter } = parseFrontmatter(content);
-      const expectedName = file.replace(/\.md$/, "");
-      expect(frontmatter!.name).toBe(expectedName);
-    }
+  test("flags an entry line that is not a markdown link with a hook", () => {
+    const malformed = "# Project Memory\n\n- [Alpha](alpha.md)\n";
+    expect(validateIndex(malformed, ["alpha.md"])).toEqual(["malformed-entry"]);
+  });
+
+  test("flags an entry line over the length cap", () => {
+    const long = buildIndex([
+      { title: "Alpha", file: "alpha.md", hook: "y".repeat(MAX_DESCRIPTION_LENGTH) },
+    ]);
+    expect(validateIndex(long, ["alpha.md"])).toEqual(["entry-too-long"]);
+  });
+
+  test("flags the same file linked twice", () => {
+    const dupe = buildIndex([
+      { title: "Alpha", file: "alpha.md", hook: "About alpha" },
+      { title: "Alpha again", file: "alpha.md", hook: "Also about alpha" },
+    ]);
+    expect(validateIndex(dupe, ["alpha.md", "beta.md"])).toEqual(["duplicate-link"]);
+  });
+
+  test("flags a link with no file behind it", () => {
+    expect(validateIndex(conformingIndex, ["alpha.md", "other.md"])).toEqual(["broken-link"]);
+  });
+
+  test("flags an index linking more files than exist", () => {
+    expect(validateIndex(conformingIndex, ["alpha.md"]).sort()).toEqual([
+      "broken-link",
+      "index-links-more-than-exist",
+    ]);
   });
 });
