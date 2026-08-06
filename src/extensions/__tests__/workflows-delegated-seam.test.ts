@@ -351,7 +351,7 @@ describe("ezcorp/workflows-delegated", () => {
 
     // Same refusal code as rung 0 — but arrived at from INSIDE the ladder.
     expect(resp.error?.code).toBe(-32106);
-    expect((resp.error?.data as { reason: string }).reason).toBe("WORKFLOWS_NO_OWNER");
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NO_OWNER" });
 
     // The discriminator. Rung 0 writes nothing; rung 7 writes exactly this.
     const rows = await noOwnerAuditRows();
@@ -404,7 +404,7 @@ describe("ezcorp/workflows-delegated", () => {
       req("ezcorp/workflows-delegated", id),
     );
 
-    expect((resp.error?.data as { reason: string }).reason).toBe("WORKFLOWS_NOT_GRANTED");
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NOT_GRANTED" });
     expect(await getTestDb().select().from(sdkCapabilityCalls)).toHaveLength(0);
     const rows = await noOwnerAuditRows();
     expect(rows).toHaveLength(1);

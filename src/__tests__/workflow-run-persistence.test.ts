@@ -1700,7 +1700,8 @@ describe("suspend and resume", () => {
     expect(resumed.status).toBe("error");
     expect(resumed.result?.error).toMatchObject({ code: "definition-changed" });
     // The refusal must be actionable, not a bare "changed".
-    expect(String((resumed.result?.error as { message: string }).message)).toContain("drifts");
+    const refusal = resumed.result?.error as { message?: unknown } | undefined;
+    expect(String(refusal?.message)).toContain("drifts");
     // And it is RECORDED — a fail-closed decision left only in memory
     // would leave the row `suspended` and the daemon retrying forever.
     const after = await getWorkflowRunRow(first.id);

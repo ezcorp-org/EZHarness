@@ -224,25 +224,20 @@ describe("buildEntityToolDefinitions", () => {
       properties: {},
       additionalProperties: false,
     });
-    expect((defs[4]?.inputSchema as { required: string[] }).required).toEqual([
-      "slug",
-    ]);
+    const delSchema = defs[4]?.inputSchema as { required?: string[] } | undefined;
+    expect(delSchema?.required).toEqual(["slug"]);
   });
 
   test("create requires slug + data", () => {
     const defs = buildEntityToolDefinitions(POST_TYPE_DECL);
-    expect((defs[2]?.inputSchema as { required: string[] }).required).toEqual([
-      "slug",
-      "data",
-    ]);
+    const createSchema = defs[2]?.inputSchema as { required?: string[] } | undefined;
+    expect(createSchema?.required).toEqual(["slug", "data"]);
   });
 
   test("update requires slug + patch", () => {
     const defs = buildEntityToolDefinitions(POST_TYPE_DECL);
-    expect((defs[3]?.inputSchema as { required: string[] }).required).toEqual([
-      "slug",
-      "patch",
-    ]);
+    const updateSchema = defs[3]?.inputSchema as { required?: string[] } | undefined;
+    expect(updateSchema?.required).toEqual(["slug", "patch"]);
   });
 });
 

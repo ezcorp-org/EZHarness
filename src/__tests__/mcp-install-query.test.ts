@@ -114,7 +114,8 @@ describe("updateMcpExtension", () => {
     expect(updated!.description).toBe("v2 desc");
     expect(updated!.manifest.description).toBe("v2 desc");
     expect(updated!.manifest.tools).toEqual([{ name: "new-tool" }, { name: "second" }]);
-    expect((updated!.manifest.mcpServers?.[0] as any).args).toEqual(["v2.js"]);
+    const server0 = updated!.manifest.mcpServers?.[0] as { args?: string[] } | undefined;
+    expect(server0?.args).toEqual(["v2.js"]);
     // Identity preserved.
     expect(updated!.name).toBe("upd-mcp-1");
     expect(updated!.manifest.version).toBe(originalVersion);

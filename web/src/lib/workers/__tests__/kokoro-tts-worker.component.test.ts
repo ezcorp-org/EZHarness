@@ -387,9 +387,7 @@ describe("kokoro-tts-worker", () => {
 		expect(splitter.pushed).toBe("hi");
 		// close() is load-bearing: without it the stream never ends.
 		expect(splitter.closed).toBe(true);
-		expect((streamSpy.mock.calls[0]?.[1] as { voice: string }).voice).toBe(
-			"af_sarah",
-		);
+		expect(streamSpy.mock.calls[0]?.[1]).toMatchObject({ voice: "af_sarah" });
 	});
 
 	test("voice defaults to 'af_bella' when omitted", async () => {
@@ -398,9 +396,7 @@ describe("kokoro-tts-worker", () => {
 		await waitForPost(
 			(m) => (m.message as { type: string }).type === "audio",
 		);
-		expect((streamSpy.mock.calls[0]?.[1] as { voice: string }).voice).toBe(
-			"af_bella",
-		);
+		expect(streamSpy.mock.calls[0]?.[1]).toMatchObject({ voice: "af_bella" });
 	});
 
 	test("model is loaded ONCE across multiple synthesize calls (warm cache)", async () => {
