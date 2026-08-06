@@ -163,6 +163,7 @@
   "src/lib/pi-complete.ts": 100,
   "src/runtime/sentinels.ts": 100,
   "src/runtime/tier-classifier.ts": 100,
+  "src/runtime/routing/dropped-models.ts": 100,
   "src/runtime/routing/tier-ladder.ts": 100,
   "src/runtime/routing/custom-models.ts": 100,
   "src/runtime/routing/effort-support.ts": 100,

@@ -403,6 +403,24 @@ export async function resolveDiscoveredModel(provider: string, modelId: string):
   return stored.find((m) => m.id === modelId) ?? null;
 }
 
+/**
+ * Is this id actually IN the installed catalog for this provider?
+ *
+ * The honest question behind "did pi-ai retire my pinned model". Consults the
+ * static catalog plus the OAuth-only overrides, and NEVER throws — a
+ * malformed provider id is simply "not known". Deliberately does not consult
+ * discovered models (those are a per-deployment settings overlay, and a pin
+ * that only refresh-models knows about is still a catalog gap).
+ */
+export function isKnownCatalogModel(provider: string, modelId: string): boolean {
+  try {
+    if (getModel(provider as BuiltinProvider, modelId as never)) return true;
+  } catch {
+    // Unknown/malformed provider id — fall through.
+  }
+  return resolveOAuthModel(provider, modelId) !== null;
+}
+
 export function resolveModelObject(provider: string, modelId: string, baseUrl?: string): Model<any> {
   try {
     const found = getModel(provider as BuiltinProvider, modelId as never);
@@ -439,6 +457,17 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
   // (custom models + the ezcorp-mock test provider) and unknown providers keep
   // the legacy behavior.
   if (baseUrl === undefined) {
+    // NOTE: everything below this point INVENTS a model — the window becomes
+    // a 128k guess and the rate table becomes all-zero, which silently
+    // shrinks the compaction budget and silently unprices the conversation
+    // (measurements in src/runtime/routing/dropped-models.ts). We do NOT
+    // report it from here: `resolveModelObject` is also the pricing lookup,
+    // the capability check and the export tooling's resolver, and an
+    // operator warning on that path lands on the stderr of scripts whose
+    // stderr is machine-readable. The report is emitted ONCE per turn from
+    // the pinned-model branch of `router.ts` instead — the only caller where
+    // the degradation actually reaches a user.
+    //
     // getModels is wrapped: a malformed provider id can throw, and a throw
     // here must degrade to the legacy fallback below, not escape.
     let sibling: Model<any> | undefined;

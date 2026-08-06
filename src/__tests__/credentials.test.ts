@@ -30,14 +30,48 @@ function makeTokenData(overrides: Partial<{
 let settingsStore: Record<string, unknown> = {};
 let decryptReturn: string = makeTokenData();
 
-// Mock getOAuthApiKey from pi-ai/oauth
-const mockGetOAuthApiKey = mock<(providerId: string, credMap: any) => Promise<unknown>>(
-  async (_providerId, credMap) => {
-    const creds = credMap[_providerId];
-    return {
-      newCredentials: { ...creds, access: "new-access" },
-      apiKey: creds.access, // return the access token as apiKey for non-expired
-    };
+/**
+ * The pi seam. pi-ai 0.83.0 removed `getOAuthApiKey`; refresh + key
+ * derivation now run through `Models.getAuth()`, so THAT is what this suite
+ * stubs — one function, at the network boundary. Everything on EZCorp's side
+ * (the resolution ladder, the expiry predicate, and the real
+ * `SettingsCredentialStore` including its per-provider lock) stays live.
+ *
+ * The default implementation MIRRORS pi's own `resolveRefreshCredential`
+ * (models.js:119-133) so the store's serialization is exercised the way pi
+ * actually drives it: read the stored credential, and when it is inside the
+ * validity window run the exchange INSIDE `credentials.modify()`, re-checking
+ * expiry there so a caller that queued behind another turn's refresh returns
+ * `undefined` (leave unchanged) instead of exchanging again.
+ *
+ * The token exchange itself — the only thing that would touch the network —
+ * is {@link mockRefreshExchange}. For `openai-codex` the derived apiKey IS
+ * the access token, so one string models both.
+ */
+const mockRefreshExchange = mock<() => Promise<string>>(async () => FAKE_REFRESHED_API_KEY);
+
+/** Which pi provider ids the fake catalog knows. `google-gemini-cli` is
+ *  absent on purpose — pi-ai has never registered it. */
+const KNOWN_PI_PROVIDERS = new Set(["openai-codex", "anthropic"]);
+
+const mockGetAuth = mock<(providerId: string, overrides?: any) => Promise<unknown>>(
+  async (providerId, overrides) => {
+    if (!KNOWN_PI_PROVIDERS.has(providerId)) return undefined;
+    const store = getCredentialStore();
+    const current: any = await store.read(providerId);
+    if (!current) return undefined;
+    const minValidity = overrides?.minOAuthValidityMs ?? 300_000;
+    if (Date.now() < current.expires - minValidity) {
+      return { auth: { apiKey: current.access }, source: "OAuth" };
+    }
+    const post: any = await store.modify(providerId, async (inner: any) => {
+      // pi's re-check INSIDE the lock: a queued caller sees the refreshed
+      // credential and declines to exchange again.
+      if (inner?.type !== "oauth" || Date.now() < inner.expires - minValidity) return undefined;
+      const access = await mockRefreshExchange();
+      return { ...inner, type: "oauth", access, expires: Date.now() + 3600_000 };
+    });
+    return post ? { auth: { apiKey: post.access }, source: "OAuth" } : undefined;
   },
 );
 
@@ -64,14 +98,22 @@ mock.module("../db/queries/settings", () => ({
   isListingInstalled: mock(async () => false),
 }));
 
+// `encrypt`/`decrypt` ROUND-TRIP for anything written during a test, while
+// the pre-seeded FAKE_ENCRYPTED sentinel still decrypts to `decryptReturn`.
+// That matters now that refresh persists through the real credential store:
+// with a decrypt that ignored its input, a re-read after a refresh would
+// still yield the stale pre-refresh credential and the "second caller sees
+// the fresh token" property would be untestable.
 mock.module("../providers/encryption", () => ({
   encrypt: mock((plaintext: string) => `enc:${plaintext}`),
-  decrypt: mock((_ciphertext: string) => decryptReturn),
+  decrypt: mock((ciphertext: string) =>
+    typeof ciphertext === "string" && ciphertext.startsWith("enc:") ? ciphertext.slice(4) : decryptReturn,
+  ),
   _resetKeyCache: () => {},
 }));
 
-mock.module("@earendil-works/pi-ai/oauth", () => ({
-  getOAuthApiKey: mockGetOAuthApiKey,
+mock.module("@earendil-works/pi-ai/providers/all", () => ({
+  builtinModels: () => ({ getAuth: mockGetAuth }),
 }));
 
 mock.module("@earendil-works/pi-ai/compat", () => ({
@@ -84,6 +126,7 @@ mock.module("@earendil-works/pi-ai/compat", () => ({
 afterAll(() => restoreModuleMocks());
 
 // Import after mocks are set up
+const { getCredentialStore } = await import("../providers/credential-store");
 const {
   getCredential,
   getApiKey,
@@ -96,14 +139,9 @@ const _originalEnv = { ...process.env };
 beforeEach(() => {
   settingsStore = {};
   decryptReturn = makeTokenData();
-  mockGetOAuthApiKey.mockClear();
-  mockGetOAuthApiKey.mockImplementation(async (_providerId: string, credMap: any) => {
-    const creds = credMap[_providerId];
-    return {
-      newCredentials: { ...creds, access: "new-access" },
-      apiKey: creds.access,
-    };
-  });
+  mockGetAuth.mockClear();
+  mockRefreshExchange.mockClear();
+  mockRefreshExchange.mockImplementation(async () => FAKE_REFRESHED_API_KEY);
   mockGetEnvApiKey.mockClear();
   mockGetEnvApiKey.mockImplementation((provider: string) => {
     const envMap: Record<string, string> = {
@@ -144,13 +182,24 @@ test("getCredential('openai') returns refreshed: undefined when token is not exp
 
 // ── Google OAuth Tests ──────────────────────────────────────────────
 
-test("getCredential('google') returns oauth credential when valid OAuth token exists", async () => {
+test("getCredential('google') falls through to BYOK — pi has no google OAuth provider", async () => {
+  // BEHAVIOUR CORRECTION, not a regression. This test used to assert an
+  // `oauth` credential, and passed only because the old suite stubbed
+  // `getOAuthApiKey` to succeed for ANY provider id. `OAUTH_PROVIDER_IDS.google`
+  // is `google-gemini-cli`, which pi-ai has NEVER registered — not in 0.80.6,
+  // not in 0.83.0 (verified: `builtinModels().getProvider("google-gemini-cli")`
+  // is undefined; `google` itself is apiKey-only). In production the old code
+  // threw `Unknown OAuth provider`, getCredential swallowed it, and Google
+  // resolved to BYOK exactly as it does here. The mock was the only place
+  // Google OAuth ever worked.
   settingsStore["provider:oauth:google"] = FAKE_ENCRYPTED;
 
   const cred = await getCredential("google");
 
-  expect(cred.type).toBe("oauth");
-  expect(cred.token).toBeTruthy();
+  expect(cred.type).toBe("apikey");
+  expect(cred.token).toBe(FAKE_API_KEY);
+  // Consulted, but yields nothing — so no token is derived and no exchange runs.
+  expect(mockRefreshExchange).not.toHaveBeenCalled();
 });
 
 // ── Anthropic Always BYOK Tests ─────────────────────────────────────
@@ -171,16 +220,17 @@ test("getCredential('anthropic') always returns apikey credential (never OAuth)"
 // straight to a stored key / env var.
 
 test("getCredential('openrouter') returns apikey from stored provider:apiKey:openrouter", async () => {
-  settingsStore["provider:apiKey:openrouter"] = "enc:sk-or-stored";
-  // decrypt is mocked to return `decryptReturn`; point it at the plaintext key.
-  decryptReturn = "sk-or-stored-key";
+  // `decrypt` round-trips an "enc:" value, so the stored ciphertext and the
+  // expected plaintext must now agree (they used to be allowed to differ,
+  // because decrypt ignored its argument entirely).
+  settingsStore["provider:apiKey:openrouter"] = "enc:sk-or-stored-key";
 
   const cred = await getCredential("openrouter");
 
   expect(cred.type).toBe("apikey");
   expect(cred.token).toBe("sk-or-stored-key");
-  // BYOK-only: OAuth resolver never consulted.
-  expect(mockGetOAuthApiKey).not.toHaveBeenCalled();
+  // BYOK-only: the OAuth arm is skipped entirely, so no exchange happens.
+  expect(mockRefreshExchange).not.toHaveBeenCalled();
 });
 
 test("getCredential('openrouter') falls back to OPENROUTER_API_KEY env var when no stored key", async () => {
@@ -189,7 +239,7 @@ test("getCredential('openrouter') falls back to OPENROUTER_API_KEY env var when 
 
   expect(cred.type).toBe("apikey");
   expect(cred.token).toBe(FAKE_API_KEY);
-  expect(mockGetOAuthApiKey).not.toHaveBeenCalled();
+  expect(mockRefreshExchange).not.toHaveBeenCalled();
 });
 
 test("getCredential('openrouter') is BYOK-only — never uses OAuth even if an OAuth token exists", async () => {
@@ -200,7 +250,7 @@ test("getCredential('openrouter') is BYOK-only — never uses OAuth even if an O
 
   expect(cred.type).toBe("apikey");
   expect(cred.token).toBe(FAKE_API_KEY); // env-var BYOK, not the OAuth token
-  expect(mockGetOAuthApiKey).not.toHaveBeenCalled();
+  expect(mockRefreshExchange).not.toHaveBeenCalled();
 });
 
 // ── Token Refresh Tests ─────────────────────────────────────────────
@@ -209,32 +259,22 @@ test("getCredential('openai') auto-refreshes expired token and returns refreshed
   decryptReturn = makeTokenData({ expires: Date.now() - 1000 }); // expired
   settingsStore["provider:oauth:openai"] = FAKE_ENCRYPTED;
 
-  mockGetOAuthApiKey.mockImplementationOnce(async (_pid, _creds) => ({
-    newCredentials: { access: "new-access", refresh: FAKE_REFRESH_TOKEN, expires: Date.now() + 3600_000 },
-    apiKey: FAKE_REFRESHED_API_KEY,
-  }));
-
   const cred = await getCredential("openai");
 
   expect(cred.type).toBe("oauth");
   expect(cred.token).toBe(FAKE_REFRESHED_API_KEY);
   expect(cred.refreshed).toBe(true);
-  expect(mockGetOAuthApiKey).toHaveBeenCalledTimes(1);
+  expect(mockRefreshExchange).toHaveBeenCalledTimes(1);
 });
 
 test("getCredential('openai') refreshes token expiring within 60s buffer", async () => {
   decryptReturn = makeTokenData({ expires: Date.now() + 30_000 }); // 30s left (within 60s buffer)
   settingsStore["provider:oauth:openai"] = FAKE_ENCRYPTED;
 
-  mockGetOAuthApiKey.mockImplementationOnce(async (_pid, _creds) => ({
-    newCredentials: { access: "new-access", refresh: FAKE_REFRESH_TOKEN, expires: Date.now() + 3600_000 },
-    apiKey: FAKE_REFRESHED_API_KEY,
-  }));
-
   const cred = await getCredential("openai");
 
   expect(cred.refreshed).toBe(true);
-  expect(mockGetOAuthApiKey).toHaveBeenCalledTimes(1);
+  expect(mockRefreshExchange).toHaveBeenCalledTimes(1);
 });
 
 test("getCredential('openai') throws when expired with no refresh token and preference is oauth", async () => {
@@ -265,8 +305,10 @@ test("getCredential('openai') falls back to BYOK when refresh fails and BYOK key
   decryptReturn = makeTokenData({ expires: Date.now() - 1000 });
   settingsStore["provider:oauth:openai"] = FAKE_ENCRYPTED;
 
-  // Make getOAuthApiKey return null (refresh failed)
-  mockGetOAuthApiKey.mockImplementationOnce(async () => null);
+  // A genuine refresh failure: pi surfaces `ModelsError` with code "oauth".
+  mockRefreshExchange.mockImplementationOnce(async () => {
+    throw Object.assign(new Error("invalid_grant"), { code: "oauth" });
+  });
 
   const cred = await getCredential("openai");
 
@@ -274,13 +316,36 @@ test("getCredential('openai') falls back to BYOK when refresh fails and BYOK key
   expect(cred.token).toBe(FAKE_API_KEY);
 });
 
-test("getCredential('openai') throws when refresh fails and no BYOK key", async () => {
+test("a BROKEN OAuth connection reports the refresh failure, not 'no credentials'", async () => {
+  // The two failures the ladder must not flatten into each other:
+  //   - nothing connected            -> "No credentials available for X"
+  //   - connected but un-refreshable -> name the refresh failure + re-login
+  // Flattening the second into the first is what sends someone to re-enter
+  // an API key they never had, when the actual fix is signing in again.
   decryptReturn = makeTokenData({ expires: Date.now() - 1000 });
   settingsStore["provider:oauth:openai"] = FAKE_ENCRYPTED;
 
-  // Make getOAuthApiKey return null (refresh failed)
-  mockGetOAuthApiKey.mockImplementationOnce(async () => null);
-  // Remove env var so BYOK also fails
+  // A genuine refresh failure: pi surfaces `ModelsError` with code "oauth".
+  const cause = Object.assign(new Error("invalid_grant"), { code: "oauth" });
+  mockRefreshExchange.mockImplementationOnce(async () => {
+    throw cause;
+  });
+  // Remove env var so BYOK also fails and the ladder runs out of options.
+  delete process.env.OPENAI_API_KEY;
+
+  const err = await getCredential("openai").then(
+    () => { throw new Error("expected getCredential to reject"); },
+    (e: unknown) => e as Error,
+  );
+  expect(err.message).toContain("could not be refreshed");
+  expect(err.message).toContain("invalid_grant");
+  expect(err.message).not.toContain("No credentials available");
+  // The underlying error survives as `cause`, so callers/logs can inspect it.
+  expect((err as { cause?: unknown }).cause).toBe(cause);
+});
+
+test("a provider with NOTHING connected still reports the generic message", async () => {
+  // The contrast case for the test above: no stored OAuth, no BYOK, no env.
   delete process.env.OPENAI_API_KEY;
 
   await expect(getCredential("openai")).rejects.toThrow(
@@ -294,11 +359,6 @@ test("concurrent getCredential calls with expired token share a single refresh r
   decryptReturn = makeTokenData({ expires: Date.now() - 1000 });
   settingsStore["provider:oauth:openai"] = FAKE_ENCRYPTED;
 
-  mockGetOAuthApiKey.mockImplementation(async (_pid, _creds) => ({
-    newCredentials: { access: "new-access", refresh: FAKE_REFRESH_TOKEN, expires: Date.now() + 3600_000 },
-    apiKey: FAKE_REFRESHED_API_KEY,
-  }));
-
   // Launch two concurrent calls
   const [cred1, cred2] = await Promise.all([
     getCredential("openai"),
@@ -308,8 +368,11 @@ test("concurrent getCredential calls with expired token share a single refresh r
   // Both should succeed with the same refreshed token
   expect(cred1.token).toBe(FAKE_REFRESHED_API_KEY);
   expect(cred2.token).toBe(FAKE_REFRESHED_API_KEY);
-  // Only ONE getOAuthApiKey call for refresh
-  expect(mockGetOAuthApiKey).toHaveBeenCalledTimes(1);
+  // Exactly ONE token exchange. This is the property the CredentialStore
+  // buys over the old refreshLocks Map: the second caller queues on
+  // `modify`, re-checks expiry INSIDE the lock, sees the already-refreshed
+  // credential and declines to exchange again.
+  expect(mockRefreshExchange).toHaveBeenCalledTimes(1);
 });
 
 // ── Conversation Override Tests ─────────────────────────────────────
@@ -389,15 +452,10 @@ test("getCredential('openai') refreshes token expiring at 59999ms (just under 60
   decryptReturn = makeTokenData({ expires: Date.now() + 59_999 });
   settingsStore["provider:oauth:openai"] = FAKE_ENCRYPTED;
 
-  mockGetOAuthApiKey.mockImplementationOnce(async (_pid, _creds) => ({
-    newCredentials: { access: "new-access", refresh: FAKE_REFRESH_TOKEN, expires: Date.now() + 3600_000 },
-    apiKey: FAKE_REFRESHED_API_KEY,
-  }));
-
   const cred = await getCredential("openai");
 
   expect(cred.refreshed).toBe(true);
-  expect(mockGetOAuthApiKey).toHaveBeenCalledTimes(1);
+  expect(mockRefreshExchange).toHaveBeenCalledTimes(1);
 });
 
 // ── getSetting throws in getApiKey ──────────────────────────────────
@@ -443,21 +501,22 @@ test("concurrent refresh lock is cleaned up after refresh failure", async () => 
   decryptReturn = makeTokenData({ expires: Date.now() - 1000 });
   settingsStore["provider:oauth:openai"] = FAKE_ENCRYPTED;
 
-  // First call: make getOAuthApiKey return null (refresh fails)
-  mockGetOAuthApiKey.mockImplementationOnce(async () => null);
+  // First call: the token exchange fails.
+  mockRefreshExchange.mockImplementationOnce(async () => {
+    throw Object.assign(new Error("invalid_grant"), { code: "oauth" });
+  });
 
   // This should fail (oauth fails, then BYOK fallback succeeds in default resolution)
   const cred1 = await getCredential("openai");
   expect(cred1.type).toBe("apikey"); // fell back to BYOK
 
-  // Now set up a successful refresh for the second call
+  // Now set up a successful refresh for the second call. The stored
+  // credential is still the expired one — pi preserves it for retry when a
+  // refresh throws, which is what makes the second attempt meaningful.
   decryptReturn = makeTokenData({ expires: Date.now() - 1000 });
-  mockGetOAuthApiKey.mockImplementationOnce(async (_pid, _creds) => ({
-    newCredentials: { access: "new-access", refresh: FAKE_REFRESH_TOKEN, expires: Date.now() + 3600_000 },
-    apiKey: FAKE_REFRESHED_API_KEY,
-  }));
 
-  // Second call should work -- lock was cleaned up by `finally`
+  // Second call should work -- the serialization chain released after the
+  // failure rather than wedging every later caller behind a rejected promise.
   settingsStore["provider:accessMode:openai"] = "oauth";
   const cred2 = await getCredential("openai");
   expect(cred2.type).toBe("oauth");
