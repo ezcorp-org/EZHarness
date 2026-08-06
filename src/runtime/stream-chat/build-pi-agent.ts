@@ -1,4 +1,10 @@
 import { Agent } from "@earendil-works/pi-agent-core";
+// The api-dispatch stream function. Up to pi-agent-core 0.80.6 the Agent
+// imported this ITSELF and used it as the default `streamFn`; 0.83.0 made
+// `streamFn` a REQUIRED option whose runtime fallback (`getDefaultStreamFn()`)
+// throws "No default stream function configured". Passing it here restores the
+// exact pre-0.83 behavior — see the `streamFn:` note below.
+import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Message } from "../../types";
 import { resolveModelForCredential } from "../../providers/registry";
 import { getCredential } from "../../providers/credentials";
@@ -103,6 +109,18 @@ export function buildPiAgent(
       messages: history,
       thinkingLevel: options.thinkingLevel ?? (model.reasoning ? "medium" : "off"),
     },
+    // The transport. NOT optional and NOT cosmetic: pi-agent-core 0.83.0
+    // replaced the old `options.streamFn ?? streamSimple` default with
+    // `runtimeOptions.streamFn ?? getDefaultStreamFn()`, and
+    // `getDefaultStreamFn()` THROWS unless a host called `setDefaultStreamFn`.
+    // Omitting this does not fail to compile in every shape and does not fail a
+    // single unit test that stubs `Agent` — it throws inside this constructor,
+    // i.e. on every chat turn, at runtime. `streamSimple` is byte-for-byte the
+    // function 0.80.6's Agent defaulted to (it imported it from
+    // "@earendil-works/pi-ai/compat" itself), so this is a no-op restore, not a
+    // transport change. Guarded by build-pi-agent-stream-fn.test.ts, which
+    // constructs a REAL Agent through this path.
+    streamFn: streamSimple,
     // Pin pi's default retry-delay cap (60s) explicitly — a purely
     // DEFENSIVE pin, not a behavior change. What this knob actually does
     // (verified against pi-ai source): only the openai-codex provider

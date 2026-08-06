@@ -4,7 +4,17 @@
  */
 
 import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
-import type { Model, KnownProvider } from "@earendil-works/pi-ai";
+// `BuiltinProvider` (pi-ai 0.83.0) is the provider key those three catalog
+// reads actually accept: `keyof typeof MODELS`. It is NOT `KnownProvider` —
+// `radius` is a `KnownProvider` with no MODELS entry, so `BuiltinProvider` is
+// `KnownProvider` minus `radius` and a `KnownProvider`-typed argument no
+// longer type-checks. Upstream defect (still present in 0.84.0), but the
+// narrower type is the correct one here: everything below is a catalog read.
+// Every value we cast is a runtime-supplied provider STRING, so the cast was
+// already the unchecked step — `getModel`/`getModels` are wrapped in try/catch
+// or tolerate an unknown id by returning `[]`.
+import type { BuiltinProvider } from "@earendil-works/pi-ai/compat";
+import type { Model } from "@earendil-works/pi-ai";
 import { getSetting } from "../db/queries/settings";
 // Tier vocabulary single source of truth (type-only — erased at build).
 import type { RoutingTier } from "../runtime/tier-classifier";
@@ -51,7 +61,7 @@ async function loadDiscoveredModels(): Promise<Model<any>[]> {
   for (const provider of ["openai", "anthropic", "google", "openrouter"]) {
     const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as Model<any>[] | undefined;
     if (!Array.isArray(stored)) continue;
-    const piIds = new Set(getModels(provider as KnownProvider).map((m) => m.id));
+    const piIds = new Set(getModels(provider as BuiltinProvider).map((m) => m.id));
     for (const m of stored) {
       if (!piIds.has(m.id)) out.push(m);
     }
@@ -227,7 +237,7 @@ export function findModelForProviderInTier(
   ladder?: TierLadder,
   customModels?: readonly CustomModelEntry[],
 ): ModelEntry | null {
-  const models = getModels(provider as KnownProvider);
+  const models = getModels(provider as BuiltinProvider);
   const laddered =
     resolveLadderEntry(ladder, tier, provider, models) ??
     (isBuiltinRouterProvider(provider)
@@ -277,7 +287,7 @@ export function findRunnableModelForProviderInTier(
   }
 
   const candidates: ModelEntry[] = [];
-  for (const model of getModels(provider as KnownProvider)) {
+  for (const model of getModels(provider as BuiltinProvider)) {
     if (resolveOAuthModel(provider, model.id)) candidates.push(piModelToEntry(model));
   }
   // OAuth-only ids (e.g. gpt-5.5) live in LOCAL_OAUTH_OVERRIDES and never
@@ -309,9 +319,9 @@ export function findRunnableModelForProviderInTier(
  * - google → google-gemini-cli (Cloud Code Assist API, Bearer token auth)
  * - openai → openai-codex (ChatGPT Codex API, different endpoint + scopes)
  */
-const OAUTH_PROVIDER_MAP: Record<string, KnownProvider> = {
-  google: "google-gemini-cli" as KnownProvider,
-  openai: "openai-codex" as KnownProvider,
+const OAUTH_PROVIDER_MAP: Record<string, BuiltinProvider> = {
+  google: "google-gemini-cli" as BuiltinProvider,
+  openai: "openai-codex" as BuiltinProvider,
 };
 
 /**
@@ -395,7 +405,7 @@ export async function resolveDiscoveredModel(provider: string, modelId: string):
 
 export function resolveModelObject(provider: string, modelId: string, baseUrl?: string): Model<any> {
   try {
-    const found = getModel(provider as KnownProvider, modelId as never);
+    const found = getModel(provider as BuiltinProvider, modelId as never);
     if (found) return found;
   } catch {
     // fall through
@@ -433,7 +443,7 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
     // here must degrade to the legacy fallback below, not escape.
     let sibling: Model<any> | undefined;
     try {
-      sibling = getModels(provider as KnownProvider)[0];
+      sibling = getModels(provider as BuiltinProvider)[0];
     } catch {
       // Unknown/malformed provider → no sibling; fall through to fallback.
     }
