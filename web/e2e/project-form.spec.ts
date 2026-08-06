@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { dismissPickerSheet, openFilePickerInput } from "./fixtures/picker-helpers.js";
 
 test.describe("Project Form", () => {
 	test("new project form has correct heading and fields", async ({ page, mockApi }) => {
@@ -19,51 +20,44 @@ test.describe("Project Form", () => {
 		await expect(nameInput).toHaveValue("my-new-project");
 	});
 
+	// `exact` is load-bearing: Playwright's `name` is a SUBSTRING match by
+	// default, and the form also renders a "Create Folder" button, so the
+	// bare name matched two elements and every use of it died on a strict-mode
+	// violation rather than on the thing it meant to assert.
 	test("submit button says 'Create' for new projects", async ({ page, mockApi }) => {
 		await mockApi();
 		await page.goto("/new-project");
 
-		await expect(page.getByRole("button", { name: "Create" })).toBeVisible();
+		await expect(page.getByRole("button", { name: "Create", exact: true })).toBeVisible();
 	});
 
-	test("variables section: add row, fill key/value, remove row", async ({ page, mockApi }) => {
+	test("icon preview falls back to the first letter of the name", async ({ page, mockApi }) => {
 		await mockApi();
 		await page.goto("/new-project");
 
-		// Count existing key inputs before adding
-		const initialCount = await page.getByPlaceholder("key").count();
+		// With no name and no uploaded icon the placeholder letter is "P".
+		const preview = page.locator("form span.text-2xl");
+		await expect(preview).toHaveText("P");
 
-		// Click "Add" to add a variable row
-		const addBtn = page.getByText("+ Add");
-		await addBtn.click();
-
-		// Should have one more key/value pair
-		await expect(page.getByPlaceholder("key")).toHaveCount(initialCount + 1);
-
-		// Fill in the last key/value pair
-		const keyInput = page.getByPlaceholder("key").last();
-		const valueInput = page.getByPlaceholder("value").last();
-		await keyInput.fill("API_KEY");
-		await valueInput.fill("secret123");
-		await expect(keyInput).toHaveValue("API_KEY");
-		await expect(valueInput).toHaveValue("secret123");
-
-		// Remove the last variable row
-		const removeBtn = page.getByText("×").last();
-		await removeBtn.click();
-		await expect(page.getByPlaceholder("key")).toHaveCount(initialCount);
+		await page.locator("#proj-name").fill("herdr-overlay");
+		await expect(preview).toHaveText("H");
 	});
 
-	test("can add multiple variable rows", async ({ page, mockApi }) => {
+	test("Create Folder is disabled only when the path is blank", async ({ page, mockApi }) => {
 		await mockApi();
 		await page.goto("/new-project");
 
-		const initialCount = await page.getByPlaceholder("key").count();
-		const addBtn = page.getByText("+ Add");
-		await addBtn.click();
-		await addBtn.click();
+		const createFolder = page.getByRole("button", { name: "Create Folder" });
+		// The form ships a non-empty default path, so the button starts live.
+		await expect(createFolder).toBeEnabled();
 
-		await expect(page.getByPlaceholder("key")).toHaveCount(initialCount + 2);
+		// Below lg the real input lives in a BottomSheet; dismiss it after
+		// typing so the button underneath is hittable again.
+		const pathInput = await openFilePickerInput(page, "/app/web/.ezcorp/projects/my-project");
+		await pathInput.fill("   ");
+		await dismissPickerSheet(page);
+
+		await expect(createFolder).toBeDisabled();
 	});
 
 	test("submitting the form with name and path", async ({ page, mockApi }) => {
@@ -73,7 +67,7 @@ test.describe("Project Form", () => {
 		await page.locator("#proj-name").fill("my-project");
 
 		// Try to submit - the form should accept it
-		const createBtn = page.getByRole("button", { name: "Create" });
+		const createBtn = page.getByRole("button", { name: "Create", exact: true });
 		await expect(createBtn).toBeEnabled();
 	});
 });

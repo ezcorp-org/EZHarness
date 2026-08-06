@@ -14,6 +14,7 @@
  */
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeMessage } from "./fixtures/data.js";
+import { filePickerValue } from "./fixtures/picker-helpers.js";
 
 test.describe("Ez — create project flow", () => {
 	const proj = makeProject({ id: "proj-1", name: "Existing" });
@@ -77,6 +78,8 @@ test.describe("Ez — create project flow", () => {
 
 		// Prefill hydrated the form fields.
 		await expect(page.getByLabel("Name")).toHaveValue("Demo App");
-		await expect(page.getByPlaceholder("/app/projects/my-project")).toHaveValue("/srv/demo");
+		// Read through the helper: below lg the FilePicker collapses to a
+		// trigger button and there is no inline input to query by placeholder.
+		expect(await filePickerValue(page)).toBe("/srv/demo");
 	});
 });

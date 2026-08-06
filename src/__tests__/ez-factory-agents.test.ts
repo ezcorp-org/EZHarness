@@ -364,12 +364,26 @@ describe("prompt invariant 15 — writes are steered into the workspace", () => 
     }
   });
 
-  test("EVERY prompt forbids touching `.ezcorp` and destructive cleanup", () => {
-    // `.ezcorp` holds the PGlite DB and the JWT secret; an agent that
-    // "tidies up" there takes the install down with it.
+  test("EVERY prompt forbids touching platform/extension state and destructive cleanup", () => {
+    // `.ezcorp/data` holds the PGlite DB and the JWT secret; an agent that
+    // "tidies up" there takes the install down with it. The rule names the
+    // protected subtrees individually rather than blanket-banning `.ezcorp`,
+    // because `.ezcorp/projects/` is now where project workspaces live — a
+    // blanket ban told every agent to refuse work in its own workspace.
     for (const p of prompts()) {
-      expect(p).toContain("Never create, modify, or delete anything under a `.ezcorp` directory");
-      expect(p).toContain("never run destructive cleanup commands");
+      for (const guarded of [".ezcorp/data", ".ezcorp/extensions", ".ezcorp/extension-data"]) {
+        expect(p).toContain(guarded);
+      }
+      expect(p).toContain("Never create, modify, or delete anything under");
+      expect(p).toContain("Never run destructive cleanup commands");
+    }
+  });
+
+  test("EVERY prompt carves `.ezcorp/projects/` OUT of the ban", () => {
+    // The carve-out is the whole point of naming subtrees; without it the
+    // steering contradicts the workspace the agent was handed.
+    for (const p of prompts()) {
+      expect(p).toContain("`.ezcorp/projects/` is the one exception");
     }
   });
 

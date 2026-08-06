@@ -156,7 +156,7 @@ const WORKSPACE_STEERING = [
   "Workspace boundary (important):",
   "- Confine every file you create, modify, move, or delete to the current working directory, which is the active project's workspace. Do not intentionally write outside it.",
   "- Write generated artifacts only under the run's artifact directory inside the workspace. Do not scatter output across the project.",
-  "- Never create, modify, or delete anything under a `.ezcorp` directory (platform + extension data), and never run destructive cleanup commands (`rm -rf`, `git clean`, `git stash`, `git checkout .`).",
+  "- Never create, modify, or delete anything under `.ezcorp/data`, `.ezcorp/extensions`, or `.ezcorp/extension-data` (platform + extension state). `.ezcorp/projects/` is the one exception — it holds project workspaces and is ordinary working space. Never run destructive cleanup commands (`rm -rf`, `git clean`, `git stash`, `git checkout .`).",
   "- Do not modify system state outside the workspace: no installing or upgrading system packages, no changes to global or user-level tool configuration.",
   "- You may read files and run read-only commands outside the workspace, but every intentional write must stay inside it.",
   "- This is prompt steering, not true enforcement: treat the workspace boundary as a soft boundary you must follow.",
