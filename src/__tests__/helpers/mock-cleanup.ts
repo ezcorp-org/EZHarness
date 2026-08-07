@@ -98,10 +98,28 @@ const MODULE_PATHS = [
   "../../extensions/author-gate",
   "../../extensions/manifest",
   "../../extensions/checksum",
-  // "../../extensions/bundled" was TRIMMED (wave 3): zero mock.module
-  // targets across src/web/docs/packages tests + helpers resolve to it
-  // (only bundled-ceiling / bundled-lock below are mocked), and its eager
-  // preload import pulled in the whole bundled-extension graph per spawn.
+  // "../../extensions/bundled" stays TRIMMED (wave 3): its eager preload
+  // import pulled in the whole bundled-extension graph per spawn. The one
+  // suite that still stubs it (assert-bundled-not-stranded.test.ts) mocks it
+  // at module top level and never imports the real one, so the residual leak
+  // is inert under scripts/test.sh's one-process-per-file pool.
+  //
+  // NOTE — the QUOTES on that path above are load-bearing, which is a bug in
+  // the meta-test, not a design: mock-cleanup-coverage.ts's loadModulePaths()
+  // scrapes every quoted string out of this array INCLUDING comments, so the
+  // mention alone is what lets assert-bundled-not-stranded.test.ts pass. If
+  // you normalise these quotes to backticks that suite reds for no visible
+  // reason. Tracked with the fix (strip `//` lines the way extractMockPaths()
+  // already does, plus an EXEMPT_PATTERNS entry) in issue #138.
+  //
+  // `project-root` IS snapshotted, and cheaply: the resolver was split out
+  // of bundled.ts and imports only `../../logger` + node builtins, so the
+  // preload import costs nothing like the bundled graph did. It's the seam
+  // migrate-extension-state-root-resolve-failure.test.ts stubs to make
+  // getProjectRoot() throw, and getProjectRoot() is process-cached — a
+  // throwing stub leaking into a later file would fail it far from the
+  // cause.
+  "../../extensions/project-root",
   "../../extensions/bundled-ceiling",
   "../../extensions/bundled-lock",
   "../../extensions/loader",
