@@ -9,6 +9,10 @@
  *     directions are now absolute: the frozen BASELINE of 75 unregistered
  *     routes and the KNOWN_STALE allowance of 4 phantom entries were paid off
  *     in 2026-08, so neither carve-out remains for a new gap to hide in.
+ *  3. Every registry entry declares the `scope` it enforces. Enforced as a
+ *     ratchet against a frozen set (`KNOWN_SCOPELESS`), because `scope` is
+ *     still optional on `ApiRouteEntry` and 93 entries predate the rule — see
+ *     the block at the end of "registry ⇄ filesystem parity".
  *
  * See docs/harness-contract.md.
  */
@@ -502,6 +506,212 @@ describe("registry ⇄ filesystem parity", () => {
     expect(controlDisk.length).toBeGreaterThan(100);
     expect(registeredKeys.length).toBeGreaterThan(100);
     expect(registeredKeys.length).toBeGreaterThanOrEqual(new Set(controlDisk.map((r) => `${r.method} ${r.path}`)).size);
+  });
+
+  // ── THE SECOND HALF OF THE INVARIANT: registered WITH A SCOPE ────────────
+  //
+  // CLAUDE.md says "every new `/api/*` route registers in `src/api-registry.ts`
+  // with a scope". Only the first half was ever enforced — the tests above.
+  // `scope?: ApiRouteScope` is still OPTIONAL (`src/api-registry.ts:22`) and
+  // its own docblock has promised since it was written that "the route-contract
+  // meta-test will tighten the requirement over time". Nothing tightened. 93 of
+  // 300 entries declare no scope, so the sentence in CLAUDE.md describes a rule
+  // that a new route can ignore for free.
+  //
+  // WHY IT MATTERS: `src/openapi.ts` emits `security: [{ bearerAuth: [scope] }]`
+  // only `if (e.scope && e.scope !== "public")`, so an entry with NO scope
+  // describes a route that needs no auth. Under-declaring is not the neutral
+  // direction, and these are not ungated routes — `GET /api/users`,
+  // `GET /api/teams` and `GET /api/audit-log` each call
+  // `requireScope(locals,"admin")` on disk and are registered bare.
+  //
+  // SIZED HONESTLY, THOUGH: that lie is LATENT, not live. `buildOpenApiSpec()`
+  // has exactly one caller — `src/__tests__/openapi.test.ts`. Nothing serves it,
+  // no build emits it, and `@ezcorp/harness-client`'s route table is hand-written
+  // and parity-tested rather than generated. `GET /api/docs` does serve the
+  // registry but drops `scope` from its projection entirely. So no shipped
+  // artifact currently advertises an admin route as open; the defect is a
+  // wrong answer waiting in a builder the moment anyone publishes it. Worth
+  // fixing before that, which is the point of freezing it now.
+  //
+  // FROZEN, NOT FIXED, and the backfill is deliberately NOT mechanical. #97
+  // established the rule that `scope` records what the handler ENFORCES, never
+  // what it ought to — a scope declared but not enforced is a false statement
+  // about a security boundary in the published contract. So the 93 are a MIXED
+  // population and each needs a read of its handler: some enforce a scope the
+  // entry simply omits (copy it across), some enforce none at all
+  // (`POST /api/auth/logout`) and have nothing truthful to declare until the
+  // handler is gated or `ApiRouteScope` grows an explicit "no key-scope gate"
+  // value. That is a reviewed security change, not a registry edit, which is
+  // why this commit ratchets instead of backfilling.
+  //
+  // INTENDED END STATE: every entry backfilled, `scope` made REQUIRED on
+  // `ApiRouteEntry` so the COMPILER refuses an entry without one, and then this
+  // whole block DELETED as redundant. A type is a better gate than a test.
+  //
+  // SHAPE — a frozen SET, not a bare count, for the reasons the
+  // `BASELINE_UNREGISTERED` post-mortem ~60 lines above already sets out. Not
+  // restated here; that block is the argument.
+  //
+  // TO FIX A ROUTE: declare its enforced `scope` in `src/api-registry.ts`,
+  // delete its line here, and lower `BASELINE_SCOPELESS` by the same number.
+  // All three, together — the rot test below fails if a line no longer
+  // describes a scope-less entry (so the list cannot become stale fiction) and
+  // the count test fails if the baseline no longer matches the list (so the
+  // ratchet cannot be loosened by deleting lines). Both failures name what to
+  // do. This list may only SHRINK. Sorted; keep it sorted.
+  const BASELINE_SCOPELESS = 93;
+  const KNOWN_SCOPELESS: ReadonlySet<string> = new Set([
+    "DELETE /api/agent-configs/:id",
+    "DELETE /api/extensions/:id/settings/user",
+    "DELETE /api/marketplace/:id/delete",
+    "DELETE /api/service-accounts/:id",
+    "DELETE /api/teams/:id",
+    "DELETE /api/workflows/delegations/:id",
+    "GET /api/account",
+    "GET /api/agent-configs",
+    "GET /api/agent-configs/:id",
+    "GET /api/agents",
+    "GET /api/agents/:name/test-conversations",
+    "GET /api/audit-log",
+    "GET /api/auth/me",
+    "GET /api/auth/ping",
+    "GET /api/briefing/config",
+    "GET /api/conversations",
+    "GET /api/conversations/:id/export",
+    "GET /api/extensions/:id",
+    "GET /api/extensions/:id/permissions",
+    "GET /api/extensions/:id/settings",
+    "GET /api/favicon",
+    "GET /api/fs/list",
+    "GET /api/marketplace",
+    "GET /api/marketplace/:id",
+    "GET /api/marketplace/:id/flags",
+    "GET /api/marketplace/:id/versions",
+    "GET /api/marketplace/categories",
+    "GET /api/marketplace/export/:id",
+    "GET /api/marketplace/flags",
+    "GET /api/marketplace/updates",
+    "GET /api/mentions/search",
+    "GET /api/models",
+    "GET /api/observability",
+    "GET /api/observability/:conversationId",
+    "GET /api/providers",
+    "GET /api/quickstart",
+    "GET /api/search/messages",
+    "GET /api/service-accounts",
+    "GET /api/settings/developer",
+    "GET /api/teams",
+    "GET /api/teams/:id",
+    "GET /api/teams/:id/members",
+    "GET /api/tool-calls/:id/output",
+    "GET /api/tools",
+    "GET /api/user/agent-picker",
+    "GET /api/users",
+    "GET /api/users/search",
+    "GET /api/workflows",
+    "GET /api/workflows/:name",
+    "GET /api/workflows/:name/versions",
+    "GET /api/workflows/delegated-runs",
+    "GET /api/workflows/delegations",
+    "PATCH /api/service-accounts/:id",
+    "PATCH /api/service-accounts/:id/daily-cap",
+    "PATCH /api/workflows/delegations/:id",
+    "POST /api/agent-configs",
+    "POST /api/agent-configs/generate",
+    "POST /api/agents/:name/run",
+    "POST /api/auth/invite/:token",
+    "POST /api/auth/logout",
+    "POST /api/auth/reset-password",
+    "POST /api/auth/reset-password/:token",
+    "POST /api/auth/setup",
+    "POST /api/briefing/run-now",
+    "POST /api/conversations/:id/active-run",
+    "POST /api/extensions/:id/confirm",
+    "POST /api/extensions/:id/modifiable",
+    "POST /api/marketplace",
+    "POST /api/marketplace/:id/flag",
+    "POST /api/marketplace/:id/install",
+    "POST /api/marketplace/:id/rate",
+    "POST /api/marketplace/import",
+    "POST /api/onboarding/complete",
+    "POST /api/preview/:id/token",
+    "POST /api/preview/consent",
+    "POST /api/service-accounts",
+    "POST /api/settings/developer/api-keys",
+    "POST /api/teams",
+    "POST /api/teams/:id/members",
+    "POST /api/workflows/:name/dry-run",
+    "POST /api/workflows/:name/fork",
+    "POST /api/workflows/:name/run",
+    "POST /api/workflows/approvals/:id",
+    "POST /api/workflows/delegations",
+    "POST /api/workflows/delegations/preview",
+    "PUT /api/account",
+    "PUT /api/account/password",
+    "PUT /api/agent-configs/:id",
+    "PUT /api/briefing/config",
+    "PUT /api/extensions/:id/settings/user",
+    "PUT /api/projects/:id/tool-permission-mode",
+    "PUT /api/teams/:id",
+    "PUT /api/user/agent-picker",
+  ]);
+
+  /** Every registry entry that declares no `scope`. */
+  function currentlyScopeless(): Set<string> {
+    return new Set(
+      apiRegistry.filter((e) => e.scope === undefined).map((e) => `${e.method} ${e.path}`),
+    );
+  }
+
+  test("no NEW scope-less registry entry (names the offender exactly)", () => {
+    // Exact diff: the entry (entries) declaring no scope AND absent from the
+    // frozen list. The author sees their own route and nothing else — the
+    // failure mode that sank the count ratchet this replaces.
+    const novel = [...currentlyScopeless()].filter((k) => !KNOWN_SCOPELESS.has(k)).sort();
+    expect(novel).toEqual([]);
+  });
+
+  test("the frozen set does not rot (every entry is STILL scope-less)", () => {
+    // Backfilling a scope while leaving its line here would turn this list into
+    // stale documentation that silently re-permits the entry if the scope is
+    // ever dropped again. An entry that no longer describes a scope-less route
+    // fails LOUDLY and must be removed — which is also how the list SHRINKS.
+    const live = currentlyScopeless();
+    const stale = [...KNOWN_SCOPELESS].filter((k) => !live.has(k)).sort();
+    expect(stale).toEqual([]);
+  });
+
+  test("the scope-less count is EXACTLY the baseline (visibility, not a gate)", () => {
+    // BE PRECISE ABOUT WHAT THIS BUYS, because the honest answer is "less than
+    // it looks like" and this file has retired two guards for looking like a
+    // check without being one.
+    //
+    // It does NOT close the free slot. An UNPAIRED deletion from the frozen
+    // list is already caught by the first test, which names the route — this
+    // adds nothing there. And the defeat that matters goes green anyway:
+    // backfill one route's scope, land one NEW scope-less route, swap the two
+    // lines here, leave the baseline at 93. Measured — 25 pass / 0 fail. No
+    // assertion in this block catches that, and a count never could, because
+    // the population size is exactly what the swap preserves.
+    //
+    // What it DOES buy is cheap and worth one line: the number is stated in the
+    // source, so shrinking the debt shows up as a conspicuous `-93 +94` in the
+    // diff rather than as one line lost in a 93-line list, and a defeat has to
+    // touch three places instead of one. Review bait, not a gate. The gate is
+    // the exact diff above; the real fix is making `scope` required so the
+    // compiler decides.
+    expect(KNOWN_SCOPELESS.size).toBe(BASELINE_SCOPELESS);
+    expect(currentlyScopeless().size).toBe(BASELINE_SCOPELESS);
+  });
+
+  test("the frozen list is sorted (a new line cannot hide mid-list)", () => {
+    // The retired `KNOWN_UNREGISTERED` carried this same assertion. Sortedness
+    // is hygiene, not a defense — an author who inserts at the correct position
+    // passes it — but it makes an appended or randomly-placed line obvious in
+    // review, and it keeps the list diffable as it shrinks.
+    const listed = [...KNOWN_SCOPELESS];
+    expect(listed).toEqual([...listed].sort());
   });
 });
 
