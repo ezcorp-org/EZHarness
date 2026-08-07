@@ -226,7 +226,7 @@ export function resolveProjectRoot(overrides: ProjectRootOverrides = {}): {
   const metaDir = hasMetaOverride
     ? (overrides.importMetaDir ?? "")
     : (typeof import.meta.dir === "string" ? import.meta.dir : "");
-  if (metaDir && metaDir.includes(join("src", "extensions"))) {
+  if (metaDir?.includes(join("src", "extensions"))) {
     return { root: join(metaDir, "..", ".."), source: "import-meta" };
   }
   if (!hasMetaOverride) {

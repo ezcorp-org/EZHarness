@@ -28,15 +28,7 @@
 			"!**/*.svelte",
 			"!**/*.css",
 			"!**/*.svg",
-			"!docs/extensions/examples",
-			"!src/api-registry.ts",
-			"!src/extensions/bundled.ts",
-			"!src/providers/registry.ts",
-			"!src/providers/router.ts",
-			"!src/providers/model-discovery.ts",
-			"!web/src/lib/api.ts",
-			"!web/src/routes/api/models",
-			"!web/src/routes/api/providers/\\[provider\\]/refresh-models"
+			"!docs/extensions/examples"
 		]
 	},
 	"formatter": {
