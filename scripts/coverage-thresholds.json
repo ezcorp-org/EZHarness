@@ -338,6 +338,7 @@
   "web/src/lib/chat/page-handlers/task-hydrate.svelte.ts": 100,
   "web/src/lib/chat-prompt-nav.ts": 100,
   "web/src/lib/chat-turn-collapse.ts": 100,
+  "web/src/lib/components/TurnCollapsedSummary.svelte": 100,
   "web/src/lib/extensions/extension-sort.ts": 100,
   "web/src/routes/api/preview/[id]/token/+server.ts": 100,
   "web/src/routes/api/preview/consent/+server.ts": 100,
