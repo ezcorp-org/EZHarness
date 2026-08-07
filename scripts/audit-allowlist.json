@@ -16,6 +16,14 @@
       "severity": "high",
       "reason": "No in-range fix exists. sharp 0.35.0 carries the patched libvips (CVE-2026-33327 / 33328 / 35590 / 35591), but EVERY published @huggingface/transformers release — including the current latest, 4.2.0 — declares `sharp ^0.34.5`, so no upgrade of transformers (nor of kokoro-js, which pins transformers ^3.5.1) reaches it. The only route through is an `overrides` pin that deliberately violates a declared range on a native-binary dependency, which is not worth it for an image-decode DoS class. Exposure here is narrow: EZCorp never imports sharp itself (zero source hits), and transformers is used only for TEXT embeddings and chunking (src/memory/embeddings.ts, src/memory/message-chunker.ts), so its image-preprocessing path is never entered; in web/ it arrives via kokoro-js TTS. At expiry, re-check whether transformers has widened its sharp range.",
       "expires": "2026-11-03"
+    },
+    {
+      "ghsa": "GHSA-xcpc-8h2w-3j85",
+      "package": "adm-zip",
+      "path": "@huggingface/transformers › onnxruntime-node › adm-zip (root only — web/ is on transformers 3.8.1, whose onnxruntime-node 1.21.0 uses tar instead and is unaffected)",
+      "severity": "high",
+      "reason": "No in-range fix exists. The advisory is fixed in adm-zip 0.6.0, but onnxruntime-node declares `adm-zip ^0.5.16` (resolved: 0.5.18) and has NOT widened it — checked 1.24.3 and the newest stable 1.27.0, both still `^0.5.16`. @huggingface/transformers 4.2.0 (the current latest) pins `onnxruntime-node 1.24.3` EXACTLY, so no upgrade at any level reaches the fix; the only route through is an `overrides` pin that deliberately violates a declared range. Exposure is install-time only and not attacker-reachable: adm-zip appears in exactly one file, onnxruntime-node/script/install-utils.js, which the `postinstall` script uses to unpack the prebuilt native binary it just fetched over HTTPS from the ONNX Runtime CDN. EZCorp never imports adm-zip (zero source hits) and no runtime path hands it a ZIP, so the crafted-archive memory-exhaustion class needs a compromised upstream artifact to trigger at all — at which point the ZIP is the least of it. At expiry, re-check whether onnxruntime-node has widened its adm-zip range and whether transformers has moved off the 1.24.3 pin.",
+      "expires": "2026-11-04"
     }
   ]
 }

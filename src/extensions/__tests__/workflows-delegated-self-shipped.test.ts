@@ -357,7 +357,7 @@ describe("THE QUESTION — runFor against a workflow the caller itself ships", (
     );
 
     expect(viaRun.error?.code).toBe(-32001);
-    expect((viaRun.error?.data as { reason: string }).reason).toBe("WORKFLOW_NOT_DECLARED");
+    expect(viaRun.error?.data).toMatchObject({ reason: "WORKFLOW_NOT_DECLARED" });
     expect(started).toHaveLength(0);
   });
 
@@ -392,9 +392,9 @@ describe("THE QUESTION — runFor against a workflow the caller itself ships", (
 
     const resp = await handleWorkflowsRpc(req(), ctx());
 
-    expect((resp.error?.data as { reason: string }).reason).toBe(
-      "DELEGATION_OWNER_LOST_WORKFLOW_ACCESS",
-    );
+    expect(resp.error?.data).toMatchObject({
+      reason: "DELEGATION_OWNER_LOST_WORKFLOW_ACCESS",
+    });
     expect(started).toHaveLength(0);
     const [row] = await getTestDb()
       .select({ enabled: workflowDelegations.enabled })

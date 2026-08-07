@@ -152,7 +152,8 @@ describe.skipIf(SKIP_REASON !== null)(
       );
       expect(row).toBeDefined();
       expect(row?.metadata?.count).toBe(1);
-      expect((row?.metadata?.names as string[])[0]).toBe("mcp-deadbeef");
+      const sweptNames = row?.metadata?.names as string[] | undefined;
+      expect(sweptNames?.[0]).toBe("mcp-deadbeef");
     }, 30_000);
 
     test("zero orphans → row STILL fires with count=0 (operator-visibility contract)", async () => {

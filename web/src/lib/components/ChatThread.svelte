@@ -110,6 +110,19 @@
 		type PromptNavPointer,
 		type PromptNavDirection,
 	} from "$lib/chat-prompt-nav.js";
+	import {
+		buildTurnIndex,
+		isRowHidden,
+		summarizeTurn,
+		pushCollapse,
+		popExpand,
+		expandTurn,
+		streamingTurnId,
+		turnLeftBehind,
+		EMPTY_COLLAPSE_STATE,
+		type TurnCollapseState,
+	} from "$lib/chat-turn-collapse.js";
+	import TurnCollapsedSummary from "$lib/components/TurnCollapsedSummary.svelte";
 	import { resolveDeepLink } from "$lib/search/deep-link-resolve.js";
 	import {
 		shouldStickToBottom,
@@ -597,6 +610,26 @@
 	let userPromptIds = $derived(
 		renderableMessages.filter((m) => m.role === "user").map((m) => m.id),
 	);
+
+	// ── Turn collapsing ───────────────────────────────────────────────
+	// Walking back with ArrowLeft folds the turn it leaves; ArrowRight pops the
+	// most recent one open again. Ephemeral on purpose — like the thinking and
+	// tool cards, a reload starts you fully expanded.
+	let turnCollapse = $state<TurnCollapseState>(EMPTY_COLLAPSE_STATE);
+	let turnIndex = $derived(buildTurnIndex(renderableMessages));
+	// The turn still being written is never folded (see `pushCollapse`).
+	let liveTurnId = $derived(streamingTurnId(turnIndex, isStreaming));
+	// Rows a folded turn is hiding never reach the render loop at all; the
+	// prompt that opens the turn always survives the filter.
+	let displayedMessages = $derived(
+		visibleMessages.filter(
+			(m) => !isRowHidden(m.id, turnIndex, turnCollapse.collapsed),
+		),
+	);
+
+	function expandTurnById(turnId: string): void {
+		turnCollapse = expandTurn(turnCollapse, turnId);
+	}
 
 	// ── Chrome-relevant derivations (surfaced to the page shell) ──────
 	// Context usage — verbatim from +page.svelte.
@@ -1886,6 +1919,24 @@
 			stuck = true;
 			userScrolledUp = false;
 		};
+		// ArrowRight first pops the collapse stack: the turn ArrowLeft folded on
+		// the way back is unfolded and stepped into, which is the exact inverse
+		// of the press that folded it. With an empty stack this is a no-op and
+		// the plain prompt-to-prompt step below takes over.
+		if (direction === "next" && turnCollapse.stack.length > 0) {
+			const popped = popExpand(turnCollapse);
+			if (popped.turnId !== null) {
+				e.preventDefault();
+				turnCollapse = popped.state;
+				void revealAndParkPrompt(popped.turnId, direction, {
+					onPromptScroll,
+					onBottomScroll,
+				});
+				return;
+			}
+			turnCollapse = popped.state; // stack held only stale entries
+		}
+
 		const { acted, pointer, pending } = applyPromptNav({
 			container,
 			direction,
@@ -1905,7 +1956,46 @@
 				onPromptScroll,
 				onBottomScroll,
 			});
+			return;
 		}
+		// ArrowLeft folds the turn it just stepped away from. The fold happens
+		// AFTER the step so the landed-on prompt is already parked; re-parking
+		// then absorbs the scroll clamp when the thread shrinks under us.
+		if (direction === "prev" && pointer) {
+			void collapseTurnBehind(pointer.id, onPromptScroll, onBottomScroll);
+		}
+	}
+
+	/**
+	 * Fold the turn ArrowLeft left behind, then re-park the prompt we landed on.
+	 *
+	 * Folding removes content BELOW the parked prompt, which does not move it —
+	 * except at the end of the scroll range, where a shorter thread makes the
+	 * browser clamp `scrollTop` and the prompt slides down the screen. Parking
+	 * again after the DOM settles pins it back on the fold.
+	 */
+	async function collapseTurnBehind(
+		landedOn: string,
+		onPromptScroll: () => void,
+		onBottomScroll: () => void,
+	): Promise<void> {
+		const behind = turnLeftBehind(userPromptIds, landedOn);
+		const next = pushCollapse(turnCollapse, behind, {
+			streamingTurnId: liveTurnId,
+		});
+		if (next === turnCollapse) return; // nothing folded — nothing to re-park
+		turnCollapse = next;
+		await tick();
+		if (!container) return;
+		promptNav = parkPrompt({
+			container,
+			direction: "prev",
+			id: landedOn,
+			offset: PROMPT_NAV_OFFSET,
+			scrollTopForAnchor,
+			onPromptScroll,
+			onBottomScroll,
+		});
 	}
 
 	/**
@@ -1932,8 +2022,11 @@
 			updateCachedScrollState(conversationId, {
 				windowSize: visibleMessageCount,
 			});
-			await tick();
 		}
+		// Settle unconditionally, not just after widening: ArrowRight also gets
+		// here having just UNFOLDED a turn, and measuring the prompt before
+		// those rows are back in the DOM parks it against stale geometry.
+		await tick();
 		if (!container) return;
 		promptNav = parkPrompt({
 			container,
@@ -2268,7 +2361,7 @@
 				</div>
 			{/if}
 
-			{#each visibleMessages as msg (msg.id)}
+			{#each displayedMessages as msg (msg.id)}
 				{@const isStreamingMsg =
 					msg.id.startsWith("streaming-") && isStreaming}
 				{@const streamingTools =
@@ -2494,6 +2587,23 @@
 							}}
 						/>
 					</div>
+				{/if}
+
+				<!-- A folded turn: everything answering this prompt is filtered out
+				     of the loop above, and this one row stands in for it. -->
+				{#if turnCollapse.collapsed.has(msg.id)}
+					{@const turn = turnIndex.turns[turnIndex.indexOfTurn.get(msg.id) ?? -1]}
+					{#if turn}
+						{@const summary = summarizeTurn(
+							turn,
+							(id) => getHistoricalToolCalls(id).length,
+						)}
+						<TurnCollapsedSummary
+							replies={summary.replies}
+							tools={summary.tools}
+							onexpand={() => expandTurnById(msg.id)}
+						/>
+					{/if}
 				{/if}
 			{/each}
 

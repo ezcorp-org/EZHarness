@@ -673,7 +673,8 @@ describe("BriefingSettings — watchlist delta-merge on save (chat-added topics 
 		await waitFor(() => expect(container.querySelector('[data-testid="briefing-save-success"]')).not.toBeNull());
 
 		const put = fetchCalls.find((c) => c.method === "PUT");
-		expect((put?.body.watchlist as Array<{ topic: string }>).map((w) => w.topic)).toEqual([
+		expect(put).toBeDefined();
+		expect((put!.body.watchlist as Array<{ topic: string }>).map((w) => w.topic)).toEqual([
 			"Bun 2.0 release",
 			"PGlite roadmap",
 			"Zig 1.0",
@@ -693,7 +694,8 @@ describe("BriefingSettings — watchlist delta-merge on save (chat-added topics 
 		await waitFor(() => expect(fetchCalls.some((c) => c.method === "PUT")).toBe(true));
 
 		const put = fetchCalls.find((c) => c.method === "PUT");
-		expect((put?.body.watchlist as Array<{ topic: string }>).map((w) => w.topic)).toEqual([
+		expect(put).toBeDefined();
+		expect((put!.body.watchlist as Array<{ topic: string }>).map((w) => w.topic)).toEqual([
 			"PGlite roadmap",
 			"Zig 1.0",
 		]);
@@ -713,7 +715,8 @@ describe("BriefingSettings — watchlist delta-merge on save (chat-added topics 
 		await waitFor(() => expect(fetchCalls.some((c) => c.method === "PUT")).toBe(true));
 
 		const put = fetchCalls.find((c) => c.method === "PUT");
-		expect((put?.body.watchlist as Array<{ topic: string }>).map((w) => w.topic)).toEqual([
+		expect(put).toBeDefined();
+		expect((put!.body.watchlist as Array<{ topic: string }>).map((w) => w.topic)).toEqual([
 			"Bun 2.0 release",
 			"PGlite roadmap",
 			"Zig 1.0", // server casing wins; no duplicate "zig 1.0"
