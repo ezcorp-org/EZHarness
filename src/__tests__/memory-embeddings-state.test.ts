@@ -20,9 +20,11 @@ mock.module("@huggingface/transformers", () => ({
       return { data };
     };
     // The real FeatureExtractionPipeline carries a tokenizer; getExtractor()
-    // sets tokenizer.model_max_length to cap input at CHUNK_TOKENS (IDX-06),
-    // so the stub must expose one or that assignment NPEs.
-    (extractor as unknown as { tokenizer: { model_max_length?: number } }).tokenizer = {};
+    // writes tokenizer.config.model_max_length to cap input at CHUNK_TOKENS
+    // (IDX-06), so the stub must expose a `config` or that write NPEs. This
+    // suite only exercises the init state machine — the cap itself is pinned
+    // against the real tokenizer in memory-embeddings-token-cap.test.ts.
+    (extractor as unknown as { tokenizer: { config: { model_max_length?: number } } }).tokenizer = { config: {} };
     return extractor;
   },
   env: { backends: { onnx: {} } },
