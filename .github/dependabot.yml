@@ -94,9 +94,12 @@ updates:
       - "/web"
     schedule:
       interval: "weekly"
-    # Lower than the actions limit: each of these drags the full backend +
-    # coverage + e2e suite behind it, which is the expensive tier of CI.
-    open-pull-requests-limit: 3
+    # Each of these drags the full backend + coverage + e2e suite behind it,
+    # which is the expensive tier of CI — hence a limit at all. Raised 3 → 5
+    # because the three `exclude-patterns` below now each get their OWN PR: at
+    # 3, the batch plus two exclusions fills the quota and the third is simply
+    # never opened, which looks exactly like Dependabot having nothing to say.
+    open-pull-requests-limit: 5
     commit-message:
       prefix: "chore"
       include: "scope"
@@ -105,10 +108,39 @@ updates:
       semver-major-days: 14
     # Minor/patch batch into one reviewable PR; MAJORS stay individual, because
     # a major is exactly the bump that deserves its own diff and its own CI run.
+    #
+    # `exclude-patterns` carves three packages back out of that batch. They are
+    # semver-MINOR but sit at 0.x, where minor is the breaking slot — so the
+    # group's own reasoning about majors already applies to them. Grouped, they
+    # hold the safe members hostage: #128 cannot land its `@biomejs/biome` and
+    # `@types/node` bumps because the other three in the same PR are red. That
+    # has now happened three times (#121 → #127 → #128, identical blockers).
+    # Excluded, the batch lands and each of the three still gets its own PR and
+    # its own CI run.
+    #
+    # Deliberately NOT a top-level `ignore`: an `ignore` would also suppress
+    # SECURITY updates for these packages. The point is to stop proposing a
+    # routine bump we know is a migration — not to go blind on advisories.
+    #
+    # Delete an entry once that package's migration lands:
+    #   - `@electric-sql/pglite` — 0.5.x bumps bundled Postgres 17.5 → 18.3, and
+    #     a datadir built on 0.3.x then refuses to open ("database files are
+    #     incompatible with server"). `src/db/connection.ts` takes that as a
+    #     failed open, so every self-hosted install fails to boot on upgrade.
+    #     PGlite has no `pg_upgrade`; the path is dump/restore tooling plus
+    #     on-disk version detection at boot. That is a data-migration FEATURE,
+    #     not a dependency bump.
+    #   - `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core` — must move
+    #     as a pair, and 0.83.0 removes `getOAuthApiKey`, requires `streamFn`,
+    #     and grows the `SessionStorage` interface. A code migration.
     groups:
       bun-minor-and-patch:
         patterns:
           - "*"
+        exclude-patterns:
+          - "@electric-sql/pglite"
+          - "@earendil-works/pi-ai"
+          - "@earendil-works/pi-agent-core"
         update-types:
           - "minor"
           - "patch"
