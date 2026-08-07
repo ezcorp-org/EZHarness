@@ -2,6 +2,10 @@
   "web/e2e/admin-routing-cost.spec.ts": [
     "web/src/routes/(app)/admin/dashboard/+page.svelte"
   ],
+  "web/e2e/agent-panel-parity.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/lib/components/AgentDetailPanel.svelte"
+  ],
   "web/e2e/api-key-scopes-evidence.spec.ts": [
     "web/src/lib/components/settings/ApiKeyManager.svelte"
   ],
@@ -134,6 +138,9 @@
   ],
   "web/e2e/loops-kill-switch.spec.ts": [
     "web/src/routes/(app)/settings/admin/+page.svelte"
+  ],
+  "web/e2e/main-chat-parity.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte"
   ],
   "web/e2e/mode-preferred-tier.spec.ts": [
     "web/src/lib/components/ModeFormModal.svelte",

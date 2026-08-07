@@ -13,19 +13,40 @@
  * send → optimistic render, select-mode entry, URL leaf survival on
  * reload. Mocked API + WS via the shared e2e fixtures — same harness the
  * rest of `web/e2e/chat-*.spec.ts` uses.
+ *
+ * `@evidence`: this is the ONLY spec that renders the whole thread —
+ * populated history, branch resolution, and the live streaming state. The
+ * other specs mapped to `ChatThread.svelte` in `web/e2e/evidence-covers.json`
+ * are narrow feature pins (A/B retry, model selection, arrow-key nav) that
+ * never photograph the message list itself, so a thread-render regression
+ * could previously satisfy the visual gate through an unrelated spec.
  */
 
-import { test, expect } from "./fixtures/test-base.js";
+import type { Page } from "@playwright/test";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Parity Project" });
 const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
 
+/**
+ * The rendered thread. SCOPE text assertions about a just-SENT turn to this
+ * container: sending the first message re-titles the conversation, and the
+ * sidebar's conversation-list button then carries the same text ("Pinned hello
+ * 218d ago"). A page-wide `getByText` races that refresh and dies on a strict-
+ * mode violation (measured ~14% of runs before this scoping). The thread is
+ * also what these cases are actually pinning — the sidebar title is a
+ * different surface with its own spec.
+ */
+function thread(page: Page) {
+	return page.getByTestId("chat-messages-container");
+}
+
 test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
-	test("branched tree renders the latest sibling branch by default", async ({
+	test("branched tree renders the latest sibling branch by default @evidence", async ({
 		page,
 		mockApi,
-	}) => {
+	}, testInfo) => {
 		// u1 has two assistant children; the newer (a1b) branch is default.
 		const u1 = makeMessage({
 			id: "u1",
@@ -63,6 +84,10 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 		await expect(page.getByText("Newer answer B")).toBeVisible();
 		await expect(page.getByText("Older answer A")).not.toBeVisible();
 		await expect(page.getByText("Question one")).toBeVisible();
+
+		// The whole thread, rendered: user + assistant bubbles, the branch
+		// switcher, and the composer beneath them.
+		await captureEvidence(page, testInfo, "chat-thread-branched-render");
 	});
 
 	test("send message renders the user turn (optimistic → server)", async ({
@@ -83,16 +108,16 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 		await textarea.fill("Pinned hello");
 		await page.getByRole("button", { name: "Send message" }).click();
 
-		await expect(page.getByText("Pinned hello")).toBeVisible({
+		await expect(thread(page).getByText("Pinned hello")).toBeVisible({
 			timeout: 5000,
 		});
 	});
 
-	test("active WS run binds the streaming UI (stop control appears)", async ({
+	test("active WS run binds the streaming UI (stop control appears) @evidence", async ({
 		page,
 		mockApi,
 		emitWs,
-	}) => {
+	}, testInfo) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -109,7 +134,7 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 		// Wait for the user turn so the POST has resolved and the page has
 		// called startStreaming("run-stream", convId) for the assistant
 		// placeholder it just appended.
-		await expect(page.getByText("Stream please")).toBeVisible({
+		await expect(thread(page).getByText("Stream please")).toBeVisible({
 			timeout: 5000,
 		});
 
@@ -129,6 +154,10 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 		await expect(
 			page.getByRole("button", { name: /stop/i }),
 		).toBeVisible({ timeout: 8000 });
+
+		// The thread mid-stream: the in-flight assistant turn and the Stop
+		// control the streaming binding drives.
+		await captureEvidence(page, testInfo, "chat-thread-streaming");
 	});
 
 	test("assistant turn exposes regenerate; user turn exposes edit", async ({

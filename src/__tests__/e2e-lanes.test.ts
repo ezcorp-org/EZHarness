@@ -35,7 +35,31 @@ const LANE_NAMES = ["mock-gate", "real-auth", "evidence-soft", "docker", "unwire
 // 241 → 240: knowledge-base.spec.ts was WIRED (moved to `evidence-soft`) when
 // the KB sharing UI landed and the spec gained an @evidence test, so the
 // backlog shrinks by exactly the one spec that left it.
-const UNWIRED_CEILING = 240;
+// 240 → 235: the core chat surface starts joining the blocking gate —
+// main-chat-parity (the only spec that renders the whole thread) and
+// agent-panel-parity (the only spec that renders `<ChatThread
+// variant="panel">`) moved to `mock-gate`, both also @evidence-tagged and
+// mapped in evidence-covers.json. The ceiling is re-pinned to the EXACT backlog
+// size (the previous 240 had drifted 3 above the real 237, which silently
+// bought room to re-ADD specs to the backlog), so it now ratchets on every
+// wiring.
+//
+// Three sibling chat specs were MEASURED and deliberately left unwired — a
+// blocking lane runs at `retries: 0`, so a flaky member is worse than an
+// unwired one (rates from repeated local runs against the mock preview):
+//   - chat-message-pagination  ~4% isolated / ~12% under lane load. Its
+//     explicit "Load older messages" clicks race the top-sentinel
+//     IntersectionObserver, which independently grows the window: the second
+//     click's button detaches mid-retry (30s timeout) and the exact
+//     `count === 35` assertion sees 50. Fixable only by changing what the
+//     test asserts.
+//   - chat-stick-to-bottom     ~4% (2/45). "streaming growth while at bottom
+//     must stay pinned" already polls for 5s and still misses.
+//   - chat-scroll-restore      ~2% (2/90), same assertion class
+//     ("streamed-turn growth while following must keep the view pinned").
+// The last two look like a genuine ResizeObserver-vs-streamed-growth race in
+// ChatThread.svelte, so wiring them needs a product fix, not a test edit.
+const UNWIRED_CEILING = 235;
 
 function bashLines(cmd: string): string[] {
   const proc = Bun.spawnSync(["bash", "-c", cmd], { cwd: REPO_ROOT });
