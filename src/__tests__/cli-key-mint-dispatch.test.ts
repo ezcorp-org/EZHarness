@@ -156,14 +156,14 @@ describe("cli key:mint dispatch", () => {
     await cli(["key", "mint", "--user", "admin@x.test"]);
     expect(logs.join("\n")).toContain("role:   member");
     const row = settings.find(([k]) => k.startsWith("apikey:u-admin:"));
-    expect((row?.[1] as { role?: string }).role).toBe("member");
+    expect(row?.[1]).toMatchObject({ role: "member" });
   });
 
   test("--role admin persists an admin-role key for an admin owner and prints it", async () => {
     await cli(["key", "mint", "--user", "admin@x.test", "--role", "admin"]);
     expect(logs.join("\n")).toContain("role:   admin");
     const row = settings.find(([k]) => k.startsWith("apikey:u-admin:"));
-    expect((row?.[1] as { role?: string }).role).toBe("admin");
+    expect(row?.[1]).toMatchObject({ role: "admin" });
   });
 
   // Role ceiling: an admin-role key for a NON-admin owner is refused up front

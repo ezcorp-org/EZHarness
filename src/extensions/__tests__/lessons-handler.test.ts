@@ -115,7 +115,7 @@ describe("lessons: write", () => {
       rpcMeta(),
     );
     expect(resp.error?.code).toBe(-32001);
-    expect((resp.error?.data as { reason: string }).reason).toBe("invalid-slug");
+    expect(resp.error?.data).toMatchObject({ reason: "invalid-slug" });
   });
 
   test("requested visibility=global clamped down to maxVisibility", async () => {
@@ -191,7 +191,7 @@ describe("lessons: write", () => {
       rpcMeta(),
     );
     expect(denied.error?.code).toBe(-32001);
-    expect((denied.error?.data as { reason: string }).reason).toBe("not-author");
+    expect(denied.error?.data).toMatchObject({ reason: "not-author" });
   });
 
   test("lessons_audit_log row captures body diff on update", async () => {

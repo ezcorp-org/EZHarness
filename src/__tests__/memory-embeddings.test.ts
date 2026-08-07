@@ -9,9 +9,24 @@ import type { MemoryProvenance } from "../memory/types";
 const extractorCalls: Array<{ text: string; opts: unknown }> = [];
 // A stable fake tokenizer object hung off the pipeline so getTokenizer()
 // can assert it reuses the already-loaded pipeline's tokenizer (no 2nd load).
-// `model_max_length` starts unset so the test can prove getExtractor() caps it
-// to 256 (the real IDX-06 input-truncation mechanism).
-const fakeTokenizer: { __fake: string; model_max_length?: number } = { __fake: "tokenizer" };
+// Shaped like the real v4 PreTrainedTokenizer: `model_max_length` is a GETTER
+// over the public `config` object and has NO setter, so a revert to the pre-v4
+// bare-property write throws here instead of silently passing (a plain writable
+// stand-in is what let that regression through review). `config` starts empty so
+// the test can prove getExtractor() caps it to 256. The EFFECTIVE cap — observed
+// truncation, not the property value — is pinned in
+// memory-embeddings-token-cap.test.ts.
+const fakeTokenizer: {
+  __fake: string;
+  config: { model_max_length?: number };
+  readonly model_max_length?: number;
+} = {
+  __fake: "tokenizer",
+  config: {},
+  get model_max_length() {
+    return this.config.model_max_length;
+  },
+};
 
 // Mock db/connection and @huggingface/transformers (native libs unavailable on NixOS)
 mockDbConnection();
@@ -203,17 +218,18 @@ describe("embeddings", () => {
     expect(norm).toBeCloseTo(1.0, 1); // within 0.05
   }, 30_000);
 
-  test("IDX-06: input is capped at 256 tokens via tokenizer.model_max_length, not call opts", async () => {
+  test("IDX-06: input is capped at 256 tokens via tokenizer.config, not call opts", async () => {
     extractorCalls.length = 0;
     await generateEmbedding("opts capture");
     expect(extractorCalls.length).toBeGreaterThanOrEqual(1);
     // The FeatureExtractionPipeline accepts ONLY pooling/normalize/quantize/
     // precision on the call — max_length/truncation are NOT valid here. The
-    // 256-token input cap (IDX-06) is enforced by getExtractor() setting
-    // model_max_length on the loaded tokenizer; the extractor's internal
-    // tokenize call honors it.
+    // 256-token input cap (IDX-06) is enforced by getExtractor() writing
+    // config.model_max_length on the loaded tokenizer; the extractor's internal
+    // tokenize call reads it back through the model_max_length getter.
     const lastOpts = extractorCalls[extractorCalls.length - 1]!.opts as Record<string, unknown>;
     expect(lastOpts).toEqual({ pooling: "mean", normalize: true });
+    expect(fakeTokenizer.config.model_max_length).toBe(256);
     expect(fakeTokenizer.model_max_length).toBe(256);
   }, 30_000);
 

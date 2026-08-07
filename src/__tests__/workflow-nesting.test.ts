@@ -180,7 +180,7 @@ describe("a nested run is a first-class run", () => {
     expect(run.status).toBe("success");
     // The nested graph's final output is addressable through the UNCHANGED
     // ref grammar — that is what makes composition usable at all.
-    expect((run.result?.output as { got: string }).got).toBe("S");
+    expect(run.result?.output).toMatchObject({ got: "S" });
 
     const children = await childrenOf(run.id);
     expect(children).toHaveLength(1);
@@ -262,7 +262,7 @@ describe("the nesting depth cap", () => {
     const run = await wfx.runWorkflow(defs[0]!, {});
 
     expect(run.status).toBe("success");
-    expect((run.result?.output as { v: string }).v).toBe("deep");
+    expect(run.result?.output).toMatchObject({ v: "deep" });
   });
 
   test("depth is DERIVED from the parent chain, so parking cannot reset it", async () => {
@@ -423,7 +423,7 @@ describe("a nested run parks independently, and the parent parks with it", () =>
     const resumedParent = await wfx.resumeWorkflow(mum, resumeArgsFromRow(parentRow!));
 
     expect(resumedParent.status).toBe("success");
-    expect((resumedParent.result?.output as { got: string }).got).toBe("yes");
+    expect(resumedParent.result?.output).toMatchObject({ got: "yes" });
     // THE property: still ONE child. A parent that re-dispatched would have
     // duplicated every side effect the first child applied — the failure the
     // durable cursor exists to prevent, reintroduced one level down.
