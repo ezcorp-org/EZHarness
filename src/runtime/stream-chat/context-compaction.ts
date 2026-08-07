@@ -30,18 +30,20 @@
 
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type {
-  Model as PiModel,
   Message,
   UserMessage,
   ToolResultMessage,
   TextContent,
   ImageContent,
 } from "../../types";
+import type { AnyModel } from "../../providers/model-types";
 import { logger } from "../../logger";
 import { CHARS_PER_TOKEN_ESTIMATE, DEFAULT_TOOL_RESULT_CAP } from "./tool-result-cap";
 
-/** pi-ai's `Model` is generic over its API; we only read metadata. */
-type Model = PiModel<any>;
+/** pi-ai's `Model` is generic over its API; we only read metadata off it.
+ *  `AnyModel` is the shared alias that carries the reason that parameter
+ *  can't be narrowed (src/providers/model-types.ts). */
+type Model = AnyModel;
 
 // ── Config ───────────────────────────────────────────────────────────
 

@@ -1,5 +1,6 @@
 import { and, eq, or, sql, inArray } from "drizzle-orm";
 import { getDb, getPglite } from "../connection";
+import type { Database } from "../connection";
 import { extensions, type Extension, type NewExtension } from "../schema";
 import type { McpServerDefinition, ExtensionManifestV2, ToolDefinition } from "../../extensions/types";
 import { getSecret, setSecret } from "../../extensions/secrets-store";
@@ -193,9 +194,9 @@ function hasPlaintextMcpSecret(server: McpServerDefinition): boolean {
  * boot). Mirrors `backfillGithubProjectsApiTokens`.
  */
 export async function backfillMcpManifestSecrets(
-  // Accepts the migrate `db` handle OR getDb(); both are drizzle instances.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  executor: any = getDb(),
+  // Accepts the migrate `db` handle OR getDb(); both are drizzle instances,
+  // and `Database` is the shared alias for exactly that (../connection.ts).
+  executor: Database = getDb(),
 ): Promise<{ migrated: number; scanned: number }> {
   const rows = (await executor
     .select({ id: extensions.id, name: extensions.name, manifest: extensions.manifest })

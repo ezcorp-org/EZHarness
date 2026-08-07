@@ -33,6 +33,7 @@
  */
 import { and, count, desc, eq, gte, isNull, isNotNull, sql, type SQL } from "drizzle-orm";
 import { getDb } from "../connection";
+import type { DbTransaction } from "../connection";
 import {
   DELEGATION_OWNER_COLUMN,
   workflowDelegations,
@@ -269,7 +270,7 @@ export async function createWorkflowDelegation(
   input: CreateWorkflowDelegationInput,
 ): Promise<CreateWorkflowDelegationResult> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return getDb().transaction(async (tx: any): Promise<CreateWorkflowDelegationResult> => {
+  return getDb().transaction(async (tx: DbTransaction): Promise<CreateWorkflowDelegationResult> => {
     const live: WorkflowDelegationRow[] = await tx
       .select()
       .from(workflowDelegations)

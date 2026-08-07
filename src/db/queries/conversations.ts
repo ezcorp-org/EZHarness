@@ -1,5 +1,6 @@
 import { eq, ne, desc, asc, sql, and, or, isNull, inArray, notInArray } from "drizzle-orm";
 import { getDb } from "../connection";
+import type { DbTransaction } from "../connection";
 import { conversations, messages, toolCalls, runs, conversationExtensions } from "../schema";
 import { listAttachmentsForMessages } from "./attachments";
 import { getSetting, upsertSetting } from "./settings";
@@ -586,7 +587,7 @@ export async function createMessage(
   // here; that is the Phase 64 worker's job, off the SSE finalize hot path.
   // (`tx` is `any` by the deliberate repo-wide `Database = any` design in
   // connection.ts; enqueueEmbedJob's EmbedJobTx documents the handle shape.)
-  return getDb().transaction(async (tx: any) => {
+  return getDb().transaction(async (tx: DbTransaction) => {
     const rows = await tx
       .insert(messages)
       .values({
@@ -657,7 +658,7 @@ export async function deleteAllMessagesForConversation(conversationId: string): 
   // non-self-healing partial state (the surviving messages lose their tool
   // calls permanently). Order preserved: extensions/tool_calls first, messages
   // last (so the message-cascade for attachments still fires correctly).
-  return getDb().transaction(async (tx: any) => {
+  return getDb().transaction(async (tx: DbTransaction) => {
     await tx.delete(conversationExtensions).where(eq(conversationExtensions.conversationId, conversationId));
     await tx.delete(toolCalls).where(eq(toolCalls.conversationId, conversationId));
     const rows = await tx
@@ -823,7 +824,7 @@ export async function cloneTurnsIntoNewConversation(
   // the enqueue mirrors createMessage's IDX-04 guard so cloned eligible
   // messages are indexed for semantic search (an unenqueued fork copy would be
   // invisible to message search forever if the source were later deleted).
-  return getDb().transaction(async (tx: any) => {
+  return getDb().transaction(async (tx: DbTransaction) => {
     const messageIdMap = new Map<string, string>();
     let prevNewId: string | null = null;
 
@@ -905,7 +906,7 @@ export async function updateMessageContent(
   // outbox re-enqueue commit together. The outbox PK upsert means a re-edit
   // before the worker drains just refreshes the pending job (no duplicate
   // row). Everything runs on `tx` (research Pitfall 1).
-  return getDb().transaction(async (tx: any) => {
+  return getDb().transaction(async (tx: DbTransaction) => {
     const rows = await tx
       .update(messages)
       .set({ content })

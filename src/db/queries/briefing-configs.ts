@@ -23,6 +23,7 @@
  */
 import { and, asc, eq, lte, sql } from "drizzle-orm";
 import { getDb } from "../connection";
+import type { DbTransaction } from "../connection";
 import { briefingConfigs, type BriefingConfig } from "../schema";
 import { parseCron } from "../../extensions/cron";
 import { logger } from "../../logger";
@@ -153,7 +154,7 @@ export interface ClaimedBriefing {
 export async function claimDueBriefingConfigs(now: Date, limit: number): Promise<ClaimedBriefing[]> {
   if (limit <= 0) return [];
   const db = getDb();
-  return db.transaction(async (tx: any) => {
+  return db.transaction(async (tx: DbTransaction) => {
     const due: BriefingConfig[] = await tx
       .select()
       .from(briefingConfigs)

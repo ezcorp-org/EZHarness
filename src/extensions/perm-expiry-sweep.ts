@@ -65,6 +65,7 @@ import {
   type AlwaysAllowScope,
 } from "./permissions";
 import type { ExtensionPermissions } from "./types";
+import type { Database } from "../db/connection";
 
 // ── Types ────────────────────────────────────────────────────────────
 
@@ -179,12 +180,11 @@ export interface ApplyOutcome {
 
 /** Inputs to {@link runSweep}. */
 export interface SweepInputs {
-  /** Drizzle DB handle. The function uses only `select()` against it
-   *  — no writes, no transactions. Typed as `any`: drizzle's HKT
-   *  signature differs between the PGlite and bun-sql adapters, so
-   *  the existing connection layer (`connection.ts:31`) collapses
-   *  the union to `any`; mirroring that here. */
-  db: any;
+  /** Drizzle DB handle. The function uses only `select()` against it —
+   *  no writes, no transactions. `Database` is the shared alias for the
+   *  driver handle; the reason it cannot be narrowed lives on its
+   *  declaration in db/connection.ts. */
+  db: Database;
   /** Current epoch ms — injected so tests can run with a frozen clock
    *  without monkey-patching `Date.now`. */
   now: number;
@@ -612,7 +612,7 @@ export async function runSweep(inputs: SweepInputs): Promise<SweepResult> {
  * DB side effects, no eventbus coupling).
  */
 export async function applySweepResult(
-  db: any,
+  db: Database,
   result: SweepResult,
   now: number = Date.now(),
 ): Promise<ApplyOutcome> {
@@ -745,7 +745,7 @@ export async function applySweepResult(
  * Returns `{applied, skipped}` per-revocation counts.
  */
 async function applyExtensionGrants(
-  db: any,
+  db: Database,
   extensionId: string,
   revs: Array<Extract<Revocation, { kind: "extension-grant" }>>,
   now: number,
@@ -791,11 +791,16 @@ async function applyExtensionGrants(
   // whose grantedAt has been rewritten with a value no longer aged
   // past TTL. Track applied vs. skipped counts.
   const nextGrantedAt = { ...(current.grantedAt ?? {}) };
-  // Dynamic field deletes on the typed `ExtensionPermissions` shape:
-  // not all keys are present on every row, and the type-system can't
-  // narrow on string-typed `grantKey` here. Repo-wide
-  // `noExplicitAny` is off (mirrors `connection.ts:31`).
-  const nextWorking: any = { ...current, grantedAt: nextGrantedAt };
+  // Grants are deleted by a STRING key computed at runtime, and
+  // `ExtensionPermissions` is a closed shape TypeScript will not let a
+  // string index into. Intersecting an index signature onto it (rather
+  // than widening the whole thing to `any`) buys exactly the dynamic
+  // `delete` below while keeping every declared field typed — so the
+  // value is still an `ExtensionPermissions` when it is persisted.
+  const nextWorking: ExtensionPermissions & Record<string, unknown> = {
+    ...current,
+    grantedAt: nextGrantedAt,
+  };
   const appliedRevs: Array<Extract<Revocation, { kind: "extension-grant" }>> =
     [];
   let skippedKeys = 0;
@@ -827,8 +832,9 @@ async function applyExtensionGrants(
     return { applied: 0, skipped: skippedKeys, appliedRevs: [] };
   }
 
-  // Persist as a typed `ExtensionPermissions` value.
-  const next = nextWorking as ExtensionPermissions;
+  // Persist as a typed `ExtensionPermissions` value — no cast needed now
+  // that the working copy only ADDS an index signature to that type.
+  const next: ExtensionPermissions = nextWorking;
 
   // CHECK clause UPDATE — only commit if granted_permissions still
   // matches what we just re-read under FOR UPDATE. Catches the
@@ -874,7 +880,7 @@ async function applyExtensionGrants(
  * mutated".
  */
 async function applyAlwaysAllowRevocation(
-  db: any,
+  db: Database,
   rev: Extract<Revocation, { kind: "always-allow" }>,
   now: number,
 ): Promise<"applied" | "skipped" | "missing"> {
