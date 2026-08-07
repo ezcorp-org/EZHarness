@@ -16,8 +16,9 @@
  * `../logger`, so both are now plain static imports.
  *
  * `./bundled.ts` re-exports `getProjectRoot`, `resolveProjectRoot` and
- * `__resetProjectRootCacheForTests` so existing importers keep working;
- * new code should import from here.
+ * `__resetProjectRootCacheForTests`, so every existing importer keeps
+ * working with no edit; new code should import from here. (To count them:
+ * `grep -rln 'getProjectRoot\|resolveProjectRoot' --include='*.ts' src web`.)
  *
  * RESOLUTION ORDER (first match wins) — works in both direct Bun
  * execution and SvelteKit bundled-server contexts (vite preview):
@@ -38,16 +39,31 @@
  *      `web/build/server/`. Result must also contain
  *      `docs/extensions/examples/` to be accepted — bare `.git` in a
  *      vendor dir isn't enough.
- *   4. Fallback to `process.cwd()` with a WARN log so telemetry catches
- *      the "shouldn't happen in production" case.
+ *   4. Fallback to `process.cwd()`.
+ *
+ * STEP 4 IS THE PRODUCTION PATH — it is not an error branch. In the
+ * shipped container every earlier step misses, verifiably:
+ * `EZCORP_PROJECT_ROOT` is never set (the Dockerfile sets no such `ENV`;
+ * the only writer in the repo is `web/playwright.real.config.ts`), the
+ * entrypoint is `CMD ["bun","run","web/build/index.js"]` so vite has
+ * rewritten `import.meta` into `web/build/server/` and step 2 misses, and
+ * `.dockerignore:4` excludes `.git` so the step-3 walk-up finds nothing.
+ * `WORKDIR /app` then makes `process.cwd()` the correct answer — which is
+ * why nobody has ever noticed. Consequence: the WARN below fires on every
+ * production boot, and this is the HOT path, not dead code. Treat a change
+ * to steps 1–3 as a change to a fallback nobody reaches in prod, and a
+ * change to step 4 as a change to what production actually does.
  *
  * Cached after the first call (process-lifetime). Tests can reset via
  * the `__resetProjectRootCacheForTests` seam below.
  *
- * `resolveProjectRoot` is exported (not just used by `getProjectRoot`)
- * so the test-only `__test/cleanup-extension` route in `web/` and the
- * lockfile-path resolver can reuse the canonical implementation rather
- * than re-deriving project root with a separate `.git`-walk helper.
+ * `resolveProjectRoot` is exported alongside `getProjectRoot` so a caller
+ * that needs the uncached resolution (or the `source` that produced it)
+ * doesn't re-derive project root with a separate `.git`-walk helper. Its
+ * only callers today are `getProjectRoot` and four test files — every
+ * production consumer (`bundled-lock.ts`, `permissions.ts`, `registry.ts`,
+ * the `__test/cleanup-extension` route, …) wants the cached
+ * `getProjectRoot`.
  */
 
 import { existsSync } from "node:fs";
@@ -65,6 +81,15 @@ export interface ProjectRootResolution {
   source: ProjectRootSource;
 }
 
+/**
+ * TEST-ONLY — no production caller passes any of these. Every consumer in
+ * `src/`, `web/` and `extensions/` calls the zero-argument
+ * `getProjectRoot()`; the overrides exist so the resolution order can be
+ * driven branch-by-branch without mkdtemp'ing a repo per assertion.
+ * Same convention as `__resetProjectRootCacheForTests` below. If you find
+ * yourself wanting one of these at a call site, you want an
+ * `EZCORP_PROJECT_ROOT` env var instead.
+ */
 export interface ProjectRootOverrides {
   /** Override for the `EZCORP_PROJECT_ROOT` env var. */
   env?: NodeJS.ProcessEnv;
@@ -72,11 +97,12 @@ export interface ProjectRootOverrides {
   importMetaDir?: string;
   /**
    * Override for `import.meta.url` (step 2's secondary signal). Pass an
-   * empty string to simulate "missing", a non-URL string to exercise the
-   * `fileURLToPath` failure path. Present so that branch is reachable at
-   * all: under Bun this module's own `import.meta.dir` always satisfies
-   * the primary substring match, so the URL fallback only ever runs
-   * under a bundler that rewrote it.
+   * empty string to simulate "missing", a non-`file:` URL to exercise the
+   * `fileURLToPath` failure path.
+   *
+   * Needed because the branch it drives is unreachable under Bun: this
+   * module's own `import.meta.dir` always satisfies the primary match
+   * first. See the comment on that branch for when it IS live.
    */
   importMetaUrl?: string;
   /** Override for the starting cwd in the `.git` walk-up. */
@@ -154,19 +180,33 @@ export function resolveProjectRoot(
   // "simulate missing import.meta.dir" without falling back to the real
   // one.
   const hasMetaDirOverride = "importMetaDir" in overrides;
+  // `import.meta.dir` is a BUN EXTENSION, not standard `import.meta`.
+  // Measured: `node --input-type=module -e 'console.log(typeof
+  // import.meta.dir, typeof import.meta.url)'` prints `undefined string`;
+  // the same line under `bun -e` prints `string string`. Hence the
+  // typeof guard — and hence the `import.meta.url` branch below.
   const realMetaDir = typeof import.meta.dir === "string" ? import.meta.dir : "";
   const metaDir = hasMetaDirOverride ? (overrides.importMetaDir ?? "") : realMetaDir;
   // `metaDir` is always a string, so the empty case needs no separate
-  // guard — `"".includes(…)` is already false. (The old `metaDir && …`
-  // spelling tripped biome's useOptionalChain.)
+  // guard — `"".includes(…)` is already false.
   if (metaDir.includes(join("src", "extensions"))) {
     return { root: join(metaDir, "..", ".."), source: "import-meta" };
   }
-  // `import.meta.url` as a secondary signal — same substring match,
-  // different spelling of the same fact, for bundlers that rewrite one
-  // but not the other. Skipped when the `importMetaDir` test override is
-  // in play and no URL override accompanies it (the test wants to drive
-  // resolution without bleed-through from this file's actual path).
+  // `import.meta.url` — the STANDARD spelling of the same fact, and the
+  // only one available on a runtime that resolves this module but does
+  // not implement Bun's `import.meta.dir`. That is the vite/vitest Node
+  // leg of `bun run test:coverage`, where `realMetaDir` above is `""` and
+  // this branch is what still returns the right root. It is the matched
+  // pair of the typeof guard: delete this and that guard silently becomes
+  // a no-op that falls through to the `.git` walk-up.
+  //
+  // It is NOT the vite-preview / production-bundle case — vite rewrites
+  // `.url` into `web/build/server/` too, so both spellings miss there and
+  // step 3/4 do that work (see the module header).
+  //
+  // Skipped when the `importMetaDir` test override is in play and no URL
+  // override accompanies it (the test wants to drive resolution without
+  // bleed-through from this file's actual path).
   const metaUrl = "importMetaUrl" in overrides
     ? (overrides.importMetaUrl ?? "")
     : (hasMetaDirOverride ? "" : import.meta.url);
@@ -198,19 +238,34 @@ export function resolveProjectRoot(
 }
 
 /**
- * Emit the step-4 WARN for a resolution that fell through to
- * `process.cwd()`. Split out of `getProjectRoot()` rather than inlined
- * because `getProjectRoot()` takes no overrides: in-process this
- * module's own `import.meta.dir` always satisfies step 2, so the branch
- * is unreachable — and untestable — from that entry point. Keeping it a
- * named function makes the "shouldn't happen in production" path
- * directly assertable.
+ * Emit the step-4 notice for a resolution that fell through to
+ * `process.cwd()`.
+ *
+ * Split out of `getProjectRoot()` rather than inlined for testability:
+ * `getProjectRoot()` takes no overrides, and under Bun this module's own
+ * `import.meta.dir` always satisfies step 2, so the branch is unreachable
+ * from that entry point in any bun:test process. As a named function the
+ * branch that production actually takes is directly assertable.
+ *
+ * On the wording: this is NOT an error report. Step 4 is the path the
+ * shipped container takes on every boot (see the module header — no env
+ * var, vite-rewritten `import.meta`, no `.git` in the image), and `cwd` is
+ * the right answer there because `WORKDIR /app`. The line exists so that
+ * when the root IS wrong, the log already says which rule picked it. Kept
+ * at `warn` rather than demoted to `info` deliberately: `info` is the
+ * default level, so a demotion would not reduce the noise, and dropping it
+ * entirely would remove the only breadcrumb for the case it was added for.
+ * Making it genuinely quiet means setting `EZCORP_PROJECT_ROOT=/app` in the
+ * Dockerfile so step 1 wins — a deploy change, tracked separately.
  */
 export function warnIfCwdFallback(resolution: ProjectRootResolution): void {
   if (resolution.source !== "cwd-fallback") return;
   log.warn(
-    "getProjectRoot() fell through to process.cwd() — bundled-extension lookups may fail. " +
-      "Set EZCORP_PROJECT_ROOT, run from the repo root, or ensure docs/extensions/examples/ is present.",
+    "getProjectRoot() resolved via the process.cwd() fallback — expected in the " +
+      "container (no EZCORP_PROJECT_ROOT, no .git in the image), and correct there " +
+      "because WORKDIR is the install root. If bundled-extension lookups are failing, " +
+      "this is the first thing to check: set EZCORP_PROJECT_ROOT, run from the repo " +
+      "root, or ensure docs/extensions/examples/ is present.",
     { cwd: resolution.root },
   );
 }

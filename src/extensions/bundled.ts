@@ -24,8 +24,8 @@ const log = logger.child("extensions");
  * to do with bundled extensions, and living here forced `src/db/migrate.ts`
  * and `src/startup/background-timers.ts` to reach it by dynamic `import()`
  * to dodge the cycle `migrate.ts → bundled.ts → db/queries/extensions.ts →
- * db/connection.ts → migrate.ts`. Re-exported so the ~40 existing
- * `from ".../extensions/bundled"` importers keep working unchanged; new
+ * db/connection.ts → migrate.ts`. Re-exported so every existing
+ * `from ".../extensions/bundled"` importer kept working with no edit; new
  * code should import from `./project-root` directly.
  */
 export {
