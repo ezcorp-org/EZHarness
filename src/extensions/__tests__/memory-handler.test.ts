@@ -143,7 +143,7 @@ describe("memory: write", () => {
       rpcMeta(),
     );
     expect(resp.error?.code).toBe(-32001);
-    expect((resp.error?.data as { reason: string }).reason).toBe("category-not-allowed");
+    expect(resp.error?.data).toMatchObject({ reason: "category-not-allowed" });
   });
 
   test("daily quota exceeded → -32103 with retryAfterMs", async () => {
@@ -154,7 +154,7 @@ describe("memory: write", () => {
     await handlePiMemory({ jsonrpc: "2.0", id: 11, method: "ezcorp/memory", params }, ctx, rpcMeta());
     const denied = await handlePiMemory({ jsonrpc: "2.0", id: 12, method: "ezcorp/memory", params }, ctx, rpcMeta());
     expect(denied.error?.code).toBe(-32103);
-    expect((denied.error?.data as { reason: string }).reason).toBe("writes-per-day");
+    expect(denied.error?.data).toMatchObject({ reason: "writes-per-day" });
   });
 
   test("embedder called once host-side; memory_audit_log row written", async () => {
@@ -227,7 +227,7 @@ describe("memory: read access guard + selfOnly", () => {
       rpcMeta(),
     );
     expect(denied.error?.code).toBe(-32001);
-    expect((denied.error?.data as { reason: string }).reason).toBe("not-author");
+    expect(denied.error?.data).toMatchObject({ reason: "not-author" });
   });
 });
 
@@ -275,7 +275,7 @@ describe("memory: cross-user isolation (shared extension identity)", () => {
       rpcMetaUser2(),
     );
     expect(resp.error?.code).toBe(-32001);
-    expect((resp.error?.data as { reason: string }).reason).toBe("not-found");
+    expect(resp.error?.data).toMatchObject({ reason: "not-found" });
   });
 
   test("update of another user's memory → not-found, content unchanged", async () => {
@@ -287,7 +287,7 @@ describe("memory: cross-user isolation (shared extension identity)", () => {
       rpcMetaUser2(),
     );
     expect(resp.error?.code).toBe(-32001);
-    expect((resp.error?.data as { reason: string }).reason).toBe("not-found");
+    expect(resp.error?.data).toMatchObject({ reason: "not-found" });
     const rows = await getTestDb().select().from(memories).where(eq(memories.id, memId));
     expect(rows[0]!.content).toBe("user1-private");
   });
@@ -300,7 +300,7 @@ describe("memory: cross-user isolation (shared extension identity)", () => {
       rpcMetaUser2(),
     );
     expect(resp.error?.code).toBe(-32001);
-    expect((resp.error?.data as { reason: string }).reason).toBe("not-found");
+    expect(resp.error?.data).toMatchObject({ reason: "not-found" });
     const rows = await getTestDb().select().from(memories).where(eq(memories.id, memId));
     expect(rows[0]!.status).not.toBe("archived");
   });

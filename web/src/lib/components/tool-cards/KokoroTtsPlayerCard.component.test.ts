@@ -220,7 +220,7 @@ describe("KokoroTtsPlayerCard — running state", () => {
       String(c[0]).includes("/events/save"),
     );
     expect(saveCall).toBeTruthy();
-    const body = JSON.parse((saveCall?.[1] as { body: string }).body) as {
+    const body = JSON.parse((saveCall![1] as { body: string }).body) as {
       conversationId: string;
       toolCallId: string;
       attachmentId: string;

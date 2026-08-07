@@ -1080,7 +1080,7 @@ describe("rung D6 — a WIDENED closure PARKS the run", () => {
     expect(runs[0]?.finishedAt).toBeNull();
     expect(runs[0]?.cursor).toEqual({ batchIndex: 0, completedSteps: [], prevStepName: null });
     // The response names the parked run so a console can link to it.
-    expect((resp.error?.data as { workflowRunId: string }).workflowRunId).toBe(runs[0]!.id);
+    expect(resp.error?.data).toMatchObject({ workflowRunId: runs[0]!.id });
     // A park CHANGES NOTHING on the row. The whole point is that a human
     // has to look; a rung that healed the record it just refused would be
     // granting the consent it is asking for.

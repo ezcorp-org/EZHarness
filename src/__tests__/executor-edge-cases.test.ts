@@ -108,7 +108,7 @@ describe("AgentExecutor edge cases", () => {
 
     const run = await exec.runAgent("parent", {});
     expect(run.status).toBe("success");
-    expect((run.result?.output as any).childError).toBe("child boom");
+    expect(run.result?.output).toMatchObject({ childError: "child boom" });
   });
 
   test("parallel runs emit events scoped to their own run id", async () => {

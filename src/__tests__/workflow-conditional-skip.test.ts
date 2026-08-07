@@ -232,7 +232,7 @@ describe("`$prev` across a skipped batch", () => {
     expect(run.status).toBe("success");
     // Not "B" (the skipped step's would-be value) and not a throw: `$prev`
     // is untouched by a batch that executed nothing.
-    expect((run.result?.output as { got: string }).got).toBe("A");
+    expect(run.result?.output).toMatchObject({ got: "A" });
   });
 
   test("a skipped sibling never becomes `$prev` for the next batch", async () => {
@@ -268,7 +268,7 @@ describe("`$prev` across a skipped batch", () => {
     );
 
     expect(run.status).toBe("success");
-    expect((run.result?.output as { got: string }).got).toBe("AYE");
+    expect(run.result?.output).toMatchObject({ got: "AYE" });
   });
 });
 

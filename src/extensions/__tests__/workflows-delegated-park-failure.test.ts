@@ -232,7 +232,7 @@ describe("D6 — when the park itself cannot be written", () => {
 
     expect(resp.error?.data).toMatchObject({ reason: "DELEGATION_CONSENT_STALE" });
     expect(
-      (resp.error?.data as { workflowRunId?: string }).workflowRunId,
+      (resp.error?.data as { workflowRunId?: string } | undefined)?.workflowRunId,
       "a successful park names its run so a console can link to it",
     ).toBeTruthy();
     expect(started).toBe(0);

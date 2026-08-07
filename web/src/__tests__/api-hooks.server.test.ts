@@ -130,7 +130,7 @@ describe("accept path", () => {
     }));
     expect(res.status).toBe(202);
     const accepted = insertAuditEntry.mock.calls.find((c) => c[1] === EXT_AUDIT_ACTIONS.SDK_WEBHOOK_ACCEPTED);
-    expect((accepted?.[3] as { auth: string }).auth).toBe("hmac");
+    expect(accepted?.[3]).toMatchObject({ auth: "hmac" });
   });
 
   test("malformed JSON is accepted verbatim (raw body persisted, route never parses)", async () => {

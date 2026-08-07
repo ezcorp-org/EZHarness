@@ -110,8 +110,11 @@ describe("quota enforcement (DB-backed per-extension/day counter)", () => {
     // Third call exceeds.
     const over = await handlePiSearch(req({ action: "web", query: "bun" }), { granted: granted("inherit"), registeredTool: { extensionId }, search: okSearch(), resolvePolicy: policy }, rpcMeta());
     expect(over.error?.code).toBe(-32103);
-    expect((over.error?.data as { reason?: string }).reason).toBe("quota-per-day");
-    expect((over.error?.data as { retryAfterMs?: number }).retryAfterMs).toBeGreaterThan(0);
+    const denial = over.error?.data as
+      | { reason?: string; retryAfterMs?: number }
+      | undefined;
+    expect(denial?.reason).toBe("quota-per-day");
+    expect(denial?.retryAfterMs).toBeGreaterThan(0);
 
     await new Promise((r) => setTimeout(r, 20));
     const audit = await getTestDb().select().from(auditLog).where(eq(auditLog.action, EXT_AUDIT_ACTIONS.SDK_SEARCH_QUOTA_EXCEEDED));

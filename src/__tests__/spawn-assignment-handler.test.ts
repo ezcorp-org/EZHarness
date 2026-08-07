@@ -424,7 +424,7 @@ describe("spawn-assignment — quota", () => {
     }
     const over = await handleSpawnAssignmentRpc(ext, rpc(validParams, "hq-over"), ctx);
     expect(over.error?.code).toBe(-32000);
-    expect((over.error?.data as { reason: string }).reason).toBe("hourly-exceeded");
+    expect(over.error?.data).toMatchObject({ reason: "hourly-exceeded" });
   });
 
   test("maxConcurrent exceeded → -32000 with data.reason=concurrent-exceeded", async () => {
@@ -439,7 +439,7 @@ describe("spawn-assignment — quota", () => {
     expect(b.error).toBeUndefined();
     const c = await handleSpawnAssignmentRpc(ext, rpc(validParams, "cc-3"), ctx);
     expect(c.error?.code).toBe(-32000);
-    expect((c.error?.data as { reason: string }).reason).toBe("concurrent-exceeded");
+    expect(c.error?.data).toMatchObject({ reason: "concurrent-exceeded" });
   });
 
   test("concurrent slot freed on bus run:complete → subsequent spawn succeeds", async () => {
