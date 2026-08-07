@@ -1,7 +1,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { mkdirSync } from "node:fs";
-import { validateTimeout } from "./validate";
-import type { BuiltinToolDef } from "./types";
+import { validateTimeout, type ToolParams } from "./validate";
+import type { BuiltinToolDef  } from "./types";
 import type { AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { buildStreamTruncationMarker, getToolOutputLimit } from "./output-limits";
 import { logger } from "../../logger";
@@ -157,8 +157,7 @@ export function createShellTool(
       },
       required: ["command"],
     }),
-    // biome-ignore lint/suspicious/noExplicitAny: FOLLOW-UP (highest-value remaining `any` in the tree): `params` is LLM-supplied JSON. The tool's own `parameters` JSON Schema above IS the contract, but nothing derives a TypeScript type from it, so `unknown` here would only relocate the same casts into the body. Typing these against their schemas is its own change.
-    execute: async (_toolCallId, params: any, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback) => {
+    execute: async (_toolCallId, params: ToolParams, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback) => {
       log.debug("shell-audit", { command: params.command, cwd: projectPath, timestamp: new Date().toISOString() });
 
       const blocked = DANGEROUS_COMMAND_PATTERNS.find((p) => p.test(params.command));

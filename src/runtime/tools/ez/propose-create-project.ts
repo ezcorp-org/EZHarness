@@ -14,8 +14,9 @@
  * `src/db/queries/ez-drafts.ts#sweepExpired`).
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef } from "../types";
+import type { BuiltinToolDef  } from "../types";
 import { createDraft } from "../../../db/queries/ez-drafts";
+import type { ToolParams } from "../validate";
 
 export interface EzToolContext {
   /** Acting user — required so the draft is owned by the right account
@@ -43,8 +44,7 @@ export function createProposeCreateProjectTool(ctx: EzToolContext): BuiltinToolD
       },
       required: ["name", "path"],
     }),
-    // biome-ignore lint/suspicious/noExplicitAny: FOLLOW-UP (highest-value remaining `any` in the tree): `params` is LLM-supplied JSON. The tool's own `parameters` JSON Schema above IS the contract, but nothing derives a TypeScript type from it, so `unknown` here would only relocate the same casts into the body. Typing these against their schemas is its own change.
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const name = typeof params?.name === "string" ? params.name.trim() : "";
         const path = typeof params?.path === "string" ? params.path.trim() : "";

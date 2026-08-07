@@ -31,8 +31,9 @@
  * `message-search.ts` until `defaultSearch` is invoked.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef } from "../types";
+import type { BuiltinToolDef  } from "../types";
 import type { MessageSearchHit } from "../../../db/queries/message-search";
+import type { ToolParams } from "../validate";
 
 /** Default number of hits returned when the LLM doesn't specify a limit. */
 const DEFAULT_LIMIT = 10;
@@ -101,8 +102,7 @@ export function createSearchConversationTool(ctx: SearchConversationContext): Bu
       },
       required: ["query"],
     }),
-    // biome-ignore lint/suspicious/noExplicitAny: FOLLOW-UP (highest-value remaining `any` in the tree): `params` is LLM-supplied JSON. The tool's own `parameters` JSON Schema above IS the contract, but nothing derives a TypeScript type from it, so `unknown` here would only relocate the same casts into the body. Typing these against their schemas is its own change.
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const query = typeof params?.query === "string" ? params.query.trim() : "";
         if (!query) {

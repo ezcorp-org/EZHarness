@@ -1,26 +1,29 @@
-import type { Model } from "@earendil-works/pi-ai";
+import type { Api, Model } from "@earendil-works/pi-ai";
 
 /**
  * A pi-ai model whose wire API isn't known statically.
  *
- * pi-ai parameterises `Model<TApi extends Api>` and then keys its `compat`
- * field off `TApi` with a conditional type — `TApi extends "openai-completions"
- * ? OpenAICompletionsCompat : TApi extends "openai-responses" ? … : never`.
- * That is a genuine higher-kinded shape, and it is exactly what this codebase
- * cannot supply: the registry loads models from the operator's settings, from
- * live `/v1/models` discovery, and from the models.dev catalog, so a model's
- * API is a runtime string spanning every provider pi-ai supports.
+ * pi-ai parameterises `Model<TApi extends Api>`, and this codebase cannot
+ * supply a concrete `TApi`: a model's API is a runtime string arriving from
+ * the operator's settings, from live `/v1/models` discovery, or from the
+ * models.dev catalog, spanning every provider pi-ai supports.
  *
- * `Model<Api>` is not the answer and this is the trap worth writing down:
- * `Api` includes `(string & {})`, so the conditional falls all the way to the
- * `never` branch and `compat` becomes unusable for EVERY model — the union
- * type silently narrows a field to nothing. `any` distributes across all the
- * branches instead, which is the behaviour these call sites need.
+ * `Api` is the correct argument for that. 14 call sites across
+ * registry/router/model-discovery wrote `Model<any>` instead, and it is worth
+ * recording why that looked necessary and isn't: pi-ai keys the `compat` field
+ * off a conditional on `TApi` (`TApi extends "openai-completions" ? … :
+ * never`), so passing the `Api` UNION reads like it should fall through to
+ * that `never`. It doesn't. `TApi` is a NAKED type parameter, which makes the
+ * conditional DISTRIBUTIVE: it evaluates per union member and the `never`
+ * results are absorbed by the union, leaving `compat` as the real union of the
+ * three compat types.
  *
- * So this alias exists to make the concession explicit and to have it in ONE
- * place: 14 call sites across registry/router/model-discovery each wrote
- * `Model<any>` inline. If pi-ai ever exposes a `compat`-erased base model
- * type, changing this line changes all of them.
+ * Checked, not assumed — under this repo's tsconfig,
+ * `[NonNullable<Model<Api>["compat"]>] extends [never]` is false.
+ *
+ * So this alias is a strict tightening, not a rename: `Model<any>` switched
+ * off checking for every field of every model object it touched, `Model<Api>`
+ * checks all of them. It stays a named alias so the "why can't this be
+ * concrete" answer lives in exactly one place.
  */
-// biome-ignore lint/suspicious/noExplicitAny: pi-ai keys Model on the wire-API type parameter, which this codebase only knows at runtime; `Model<Api>` collapses the `compat` conditional to `never`, so `any` is the only parameter that leaves the type usable (full reasoning in the doc comment above).
-export type AnyModel = Model<any>;
+export type AnyModel = Model<Api>;

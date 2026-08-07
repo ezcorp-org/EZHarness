@@ -14,10 +14,11 @@
  * `searchQuery` (free-text browse). At least one is required.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef } from "../types";
+import type { BuiltinToolDef  } from "../types";
 import { createDraft } from "../../../db/queries/ez-drafts";
 import { browseMarketplace, getListingBySlug } from "../../../db/queries/marketplace";
 import type { EzToolContext } from "./propose-create-project";
+import type { ToolParams } from "../validate";
 
 const MAX_RESULTS = 5;
 
@@ -38,8 +39,7 @@ export function createProposeInstallExtensionTool(ctx: EzToolContext): BuiltinTo
         searchQuery: { type: "string", description: "Free-text search query for browsing the marketplace." },
       },
     }),
-    // biome-ignore lint/suspicious/noExplicitAny: FOLLOW-UP (highest-value remaining `any` in the tree): `params` is LLM-supplied JSON. The tool's own `parameters` JSON Schema above IS the contract, but nothing derives a TypeScript type from it, so `unknown` here would only relocate the same casts into the body. Typing these against their schemas is its own change.
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const extensionName = typeof params?.extensionName === "string" ? params.extensionName.trim() : "";
         const searchQuery = typeof params?.searchQuery === "string" ? params.searchQuery.trim() : "";

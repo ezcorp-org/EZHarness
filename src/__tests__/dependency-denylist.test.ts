@@ -328,14 +328,24 @@ describe("biome lint policy", () => {
 
   test("noNonNullAssertion stays off, on purpose", async () => {
     const cfg = await readBiomeConfig();
-    // DECISION (recorded here because biome.json is strict JSON and cannot
-    // carry a comment): this rule stays off permanently. It reports ~520 sites,
+    // DECISION (recorded here because biome.json cannot carry it — see the
+    // note below): this rule stays off permanently. It reports ~520 sites,
     // and 288 of them exist BECAUSE `noUncheckedIndexedAccess: true` is set in
     // tsconfig.json — every `arr[i]` widens to `T | undefined`, and `!` is the
     // idiomatic narrowing after a bounds check the compiler can't follow.
     // Turning it on would penalise the codebase for being STRICTER than the
     // default, and the mechanical fix (non-null assertion -> `?? throw`) adds
     // unreachable branches that then cost coverage. Not a ratchet target.
+    //
+    // Why the decision lives in a test and not in biome.json: two tests
+    // (biome-ignores-worktrees.test.ts, and readBiomeConfig above) parse the
+    // file with `Bun.file().json()`, which is strict JSON.parse and throws on
+    // a `//` comment. That alone settles it. Note for anyone re-testing this:
+    // a comment does NOT make biome itself fail loudly — inside an agent
+    // worktree `bun run lint` reports `Checked 0 files` and exits 0, because
+    // biome discards the unparseable local config and walks up to the parent
+    // checkout's biome.json, whose `"!worktrees"` then excludes everything.
+    // Silent, green, and linting nothing (root-caused in PR #134).
     expect(cfg.linter?.rules?.style?.noNonNullAssertion).toBe("off");
   });
 });

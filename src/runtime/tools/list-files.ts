@@ -1,7 +1,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import { readdir } from "node:fs/promises";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef } from "./types";
+import type { BuiltinToolDef  } from "./types";
+import type { ToolParams } from "./validate";
 
 export function createListFilesTool(projectPath: string): BuiltinToolDef {
   return {
@@ -17,8 +18,7 @@ export function createListFilesTool(projectPath: string): BuiltinToolDef {
         pattern: { type: "string", description: "Optional glob pattern to filter results (e.g. '*.ts')" },
       },
     }),
-    // biome-ignore lint/suspicious/noExplicitAny: FOLLOW-UP (highest-value remaining `any` in the tree): `params` is LLM-supplied JSON. The tool's own `parameters` JSON Schema above IS the contract, but nothing derives a TypeScript type from it, so `unknown` here would only relocate the same casts into the body. Typing these against their schemas is its own change.
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const dir = validatePath(projectPath, params.path || ".");
         const entries = await readdir(dir, { withFileTypes: true });

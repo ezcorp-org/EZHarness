@@ -2,7 +2,8 @@ import { Type } from "@earendil-works/pi-ai";
 import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef } from "./types";
+import type { BuiltinToolDef  } from "./types";
+import type { ToolParams } from "./validate";
 
 export function createReadDirectoryTool(projectPath: string): BuiltinToolDef {
   return {
@@ -18,8 +19,7 @@ export function createReadDirectoryTool(projectPath: string): BuiltinToolDef {
         depth: { type: "number", description: "Max depth (1-3, default 2)", default: 2 },
       },
     }),
-    // biome-ignore lint/suspicious/noExplicitAny: FOLLOW-UP (highest-value remaining `any` in the tree): `params` is LLM-supplied JSON. The tool's own `parameters` JSON Schema above IS the contract, but nothing derives a TypeScript type from it, so `unknown` here would only relocate the same casts into the body. Typing these against their schemas is its own change.
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const dir = validatePath(projectPath, params.path || ".");
         const maxDepth = Math.min(Math.max(params.depth || 2, 1), 3);

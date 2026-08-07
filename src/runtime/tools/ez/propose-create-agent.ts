@@ -14,9 +14,10 @@
  * Same goes for capabilities[] (free-form strings).
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef } from "../types";
+import type { BuiltinToolDef  } from "../types";
 import { createDraft } from "../../../db/queries/ez-drafts";
 import type { EzToolContext } from "./propose-create-project";
+import type { ToolParams } from "../validate";
 
 export function createProposeCreateAgentTool(ctx: EzToolContext): BuiltinToolDef {
   return {
@@ -38,8 +39,7 @@ export function createProposeCreateAgentTool(ctx: EzToolContext): BuiltinToolDef
       },
       required: ["name", "prompt"],
     }),
-    // biome-ignore lint/suspicious/noExplicitAny: FOLLOW-UP (highest-value remaining `any` in the tree): `params` is LLM-supplied JSON. The tool's own `parameters` JSON Schema above IS the contract, but nothing derives a TypeScript type from it, so `unknown` here would only relocate the same casts into the body. Typing these against their schemas is its own change.
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const name = typeof params?.name === "string" ? params.name.trim() : "";
         const prompt = typeof params?.prompt === "string" ? params.prompt : "";

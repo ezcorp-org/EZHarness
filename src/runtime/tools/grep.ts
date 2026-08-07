@@ -1,7 +1,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef } from "./types";
+import type { BuiltinToolDef  } from "./types";
 import { getToolOutputLimit, truncateText } from "./output-limits";
+import type { ToolParams } from "./validate";
 
 /**
  * Directories GNU grep must not descend into. ripgrep gets this for free by
@@ -173,8 +174,7 @@ export function createGrepTool(projectPath: string): BuiltinToolDef {
       },
       required: ["pattern"],
     }),
-    // biome-ignore lint/suspicious/noExplicitAny: FOLLOW-UP (highest-value remaining `any` in the tree): `params` is LLM-supplied JSON. The tool's own `parameters` JSON Schema above IS the contract, but nothing derives a TypeScript type from it, so `unknown` here would only relocate the same casts into the body. Typing these against their schemas is its own change.
-    execute: async (_toolCallId, params: any, signal?: AbortSignal) => {
+    execute: async (_toolCallId, params: ToolParams, signal?: AbortSignal) => {
       try {
         const searchPath = validatePath(projectPath, params.path || ".");
         const backend = resolveBackend(RG_PATH, process.env.EZCORP_GREP_BACKEND);

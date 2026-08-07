@@ -1,16 +1,24 @@
 /**
  * `extractToolOutput` — the unwrapper every tool card's output goes through.
  *
- * It had no test. Three files under `web/src/__tests__/`
- * (stores-tool-event-routing, streaming-tool-calls-status,
- * price-chart-stream-bridge) each carry a hand-copied re-implementation of it
- * and assert against the COPY, because the real one wasn't exported — so the
+ * It had no test. FOUR files carried a hand-copied re-implementation of it and
+ * asserted against the COPY, because the real one wasn't exported — so the
  * shipped function's `content: [{type:"text"}]` branch was never executed by
- * anything while its clones were thoroughly covered.
+ * anything while its clones were thoroughly covered:
+ *   web/src/__tests__/stores-tool-event-routing.test.ts
+ *   web/src/__tests__/streaming-tool-calls-status.test.ts
+ *   web/src/__tests__/price-chart-stream-bridge.test.ts
+ *   src/__tests__/tool-output-extraction.test.ts  ← a whole file named after it
+ * A FIFTH copy is in product code: `stringifyError` in
+ * web/src/lib/inline-tool-store.svelte.ts. Collapsing all six onto this
+ * function is follow-up work — inline-tool-store is one of the modules the
+ * vitest coverage leg cannot measure yet.
  *
  * Vitest rather than bun:test because the module is a Svelte 5 rune file
  * (`.svelte.ts`) and needs the rune transform at import time — the one
- * sanctioned Vitest surface (web/CLAUDE.md).
+ * sanctioned Vitest surface (web/CLAUDE.md). It is on BOTH of the coverage
+ * leg's hand-maintained allowlists in scripts/test-coverage.sh (the run list
+ * and `--coverage.include`), which is what makes it actually measure.
  */
 import { test, expect, describe } from 'vitest';
 import { extractToolOutput } from '$lib/stores.svelte';

@@ -19,8 +19,9 @@
  * via {@link runEzClientTool}.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef } from "../types";
+import type { BuiltinToolDef  } from "../types";
 import { runEzClientTool, type ClientToolContext } from "./client-tool";
+import type { ToolParams } from "../validate";
 
 export function createReadPageTool(ctx: ClientToolContext): BuiltinToolDef {
   return {
@@ -42,8 +43,7 @@ export function createReadPageTool(ctx: ClientToolContext): BuiltinToolDef {
       },
       required: [],
     }),
-    // biome-ignore lint/suspicious/noExplicitAny: FOLLOW-UP (highest-value remaining `any` in the tree): `params` is LLM-supplied JSON. The tool's own `parameters` JSON Schema above IS the contract, but nothing derives a TypeScript type from it, so `unknown` here would only relocate the same casts into the body. Typing these against their schemas is its own change.
-    execute: async (toolCallId, params: any, signal) => {
+    execute: async (toolCallId, params: ToolParams, signal) => {
       // Lenient: anything other than the explicit "full" opt-in falls back
       // to the privacy-preserving summary level.
       const detail: "summary" | "full" = params?.detail === "full" ? "full" : "summary";

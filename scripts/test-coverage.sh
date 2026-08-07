@@ -561,6 +561,7 @@ run_legs() {
       src/__tests__/api-conversations-id-export.server.test.ts \
       src/__tests__/api-extensions-id-reopen.server.test.ts \
       src/__tests__/test-only-endpoints.server.test.ts \
+      src/lib/__tests__/extract-tool-output.unit.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
