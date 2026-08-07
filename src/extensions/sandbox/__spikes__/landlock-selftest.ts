@@ -114,9 +114,9 @@ function main(): number {
   try {
     readFileSync(secretFile, "utf8");
     result.detail = "SECRET WAS READABLE AFTER JAIL — containment FAILED";
-  } catch (e) {
+  } catch (e: any) {
     result.deniedReadBlocked = true;
-    result.deniedErrno = e instanceof Error && "code" in e ? String(e.code) : String(e);
+    result.deniedErrno = e?.code ?? String(e);
   }
 
   // (d) denied WRITE under the secret dir must fail with EACCES

@@ -65,6 +65,7 @@ export async function createMode(data: {
     preferredModel: data.preferredModel ?? null,
     preferredProvider: data.preferredProvider ?? null,
     preferredTier: data.preferredTier ?? null,
+    // biome-ignore lint/suspicious/noExplicitAny: the column is typed to pi-ai's ModelThinkingLevel union while the caller's DTO carries a plain string; an unknown level is rejected downstream by the thinking-level resolver, not here.
     preferredThinkingLevel: (data.preferredThinkingLevel ?? null) as any,
     temperature: data.temperature ?? null,
     toolRestriction: (data.toolRestriction ?? "all") as "all" | "read-only" | "none" | "allowlist",

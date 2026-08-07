@@ -67,6 +67,7 @@ export function createFindAgentsTool(ctx: EzToolContext): BuiltinToolDef {
       },
       required: ["query"],
     }),
+    // biome-ignore lint/suspicious/noExplicitAny: FOLLOW-UP (highest-value remaining `any` in the tree): `params` is LLM-supplied JSON. The tool's own `parameters` JSON Schema above IS the contract, but nothing derives a TypeScript type from it, so `unknown` here would only relocate the same casts into the body. Typing these against their schemas is its own change.
     execute: async (_toolCallId, params: any) => {
       try {
         const query = typeof params?.query === "string" ? params.query.trim() : "";

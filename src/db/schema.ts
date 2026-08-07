@@ -146,8 +146,10 @@ export const conversations = pgTable("conversations", {
   systemPrompt: text("system_prompt"),
   agentConfigId: text("agent_config_id").references(() => agentConfigs.id, { onDelete: "set null" }),
   modeId: text("mode_id").references(() => modes.id, { onDelete: "set null" }),
+  // biome-ignore lint/suspicious/noExplicitAny: drizzle's documented self-referencing-FK workaround — the callback's return type refers to the table being declared, so annotating it any other way is a circular type reference the compiler rejects.
   parentConversationId: text("parent_conversation_id").references((): any => conversations.id, { onDelete: "cascade" }),
   parentMessageId: text("parent_message_id"),
+  // biome-ignore lint/suspicious/noExplicitAny: same drizzle self-referencing-FK workaround as parentConversationId above.
   forkedFromConversationId: text("forked_from_conversation_id").references((): any => conversations.id, { onDelete: "set null" }),
   forkedFromMessageId: text("forked_from_message_id"),
   test: boolean("test").default(false),
@@ -1373,6 +1375,7 @@ export const extensions = pgTable("extensions", {
   source: text("source").notNull(),
   installPath: text("install_path"),
   enabled: boolean("enabled").notNull().default(true),
+  // biome-ignore lint/suspicious/noExplicitAny: the column default is the EMPTY permission set, but `ExtensionPermissions` requires `grantedAt`, so `{}` cannot be spelled as that type; it is the correct at-rest default and every reader treats a missing key as ungranted.
   grantedPermissions: jsonb("granted_permissions").notNull().$type<import("../extensions/types").ExtensionPermissions>().default({} as any),
   /**
    * v1.3 release-readiness security review HIGH 2 — install-time NARROWED choice.

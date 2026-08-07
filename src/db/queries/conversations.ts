@@ -681,6 +681,7 @@ function rowToMessage(row: Record<string, unknown>): Message {
     thinkingContent: (row.thinking_content as string) ?? null,
     model: (row.model as string) ?? null,
     provider: (row.provider as string) ?? null,
+    // biome-ignore lint/suspicious/noExplicitAny: a jsonb token-usage blob whose shape is the provider's, written by whichever adapter served the turn; the readers all treat it as opaque telemetry.
     usage: row.usage as any,
     runId: (row.run_id as string) ?? null,
     parentMessageId: (row.parent_message_id as string) ?? null,
@@ -1113,7 +1114,7 @@ export async function searchConversations(
     ORDER BY rank DESC
   `);
 
-  return (results.rows as any[]).map((row) => ({
+  return (results.rows as Array<Record<string, unknown>>).map((row) => ({
     id: row.id as string,
     title: row.title as string,
     updatedAt: new Date(row.updated_at as string),
@@ -1168,9 +1169,9 @@ export function extractOutputText(output: unknown): string | null {
     const obj = output as Record<string, unknown>;
     // Handle ToolCallResult shape: { content: [{ type: "text", text: "..." }] }
     if (Array.isArray(obj.content)) {
-      const texts = (obj.content as any[])
-        .filter((c: any) => c.type === "text" && typeof c.text === "string")
-        .map((c: any) => c.text);
+      const texts = (obj.content as ReadonlyArray<{ type?: unknown; text?: unknown }>)
+        .filter((c): c is { type: "text"; text: string } => c?.type === "text" && typeof c?.text === "string")
+        .map((c) => c.text);
       return texts.length > 0 ? texts.join("\n") : JSON.stringify(output);
     }
     const candidate = obj.text ?? obj.content ?? obj.result;
@@ -1326,7 +1327,16 @@ export async function getMessagesWithToolCalls(conversationId: string): Promise<
     ORDER BY c.created_at ASC
   `);
 
-  const subConversations: SubConversationSummary[] = (subConvoRows.rows as any[]).map((r) => ({
+  // Raw `db.execute(sql`…`)` output — the SELECT list above is the contract.
+  type SubConvoRow = {
+    id: string;
+    agent_name?: string | null;
+    agent_config_id?: string | null;
+    message_count: number | string;
+    last_message_preview?: string | null;
+    parent_message_id?: string | null;
+  };
+  const subConversations: SubConversationSummary[] = (subConvoRows.rows as SubConvoRow[]).map((r) => ({
     id: r.id,
     agentName: r.agent_name ?? null,
     agentConfigId: r.agent_config_id ?? null,

@@ -500,6 +500,7 @@ export class AgentExecutor {
 
     const ctx: AgentContext = {
       input: resolvedInput,
+      // biome-ignore lint/suspicious/noExplicitAny: `AgentContext.llm` is deliberately open (see src/types.ts) because code-based agents receive whatever LLM wrapper the runtime built; this is the one site that installs the pi-ai adapter into it.
       llm: piLlm as any,
       shell: this.shell,
       file: this.file,

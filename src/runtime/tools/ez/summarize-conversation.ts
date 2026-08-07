@@ -92,21 +92,27 @@ async function defaultSummarize(
     {
       systemPrompt,
       messages: [{ role: "user", content: transcript }],
+    // biome-ignore lint/suspicious/noExplicitAny: the pi-ai `completeLLM` request literal — its options type is keyed on the model's wire API (see AnyModel), which this summarizer resolves at runtime.
     } as any,
     { conversationId },
   );
   // pi-ai reports provider failures as result fields, not throws.
+  // biome-ignore lint/suspicious/noExplicitAny: pi-ai's completeLLM result is likewise keyed on the model's wire API; the four reads below (`stopReason`, `errorMessage`, `content`) are the API-independent fields.
   if ((result as any).stopReason === "error") {
+    // biome-ignore lint/suspicious/noExplicitAny: see the stopReason read above — same provider-generic pi-ai result.
     throw new Error((result as any).errorMessage || "model call failed with no error message");
   }
   // pi-ai AssistantMessage has a `content` array. Join text parts.
+  // biome-ignore lint/suspicious/noExplicitAny: see the stopReason read above — same provider-generic pi-ai result.
   const content = (result as any).content;
   const text =
     typeof content === "string"
       ? content
       : Array.isArray(content)
         ? content
+            // biome-ignore lint/suspicious/noExplicitAny: an element of that provider-generic content array; every field is guarded before it is read.
             .filter((p: any) => p?.type === "text" && typeof p.text === "string")
+            // biome-ignore lint/suspicious/noExplicitAny: element of the same provider-generic content array, already narrowed to a text part by the filter above.
             .map((p: any) => p.text)
             .join("")
         : String(content ?? "");
@@ -114,6 +120,7 @@ async function defaultSummarize(
   // of returning a blank the panel renders as a silent no-op.
   if (!text.trim()) {
     throw new Error(
+      // biome-ignore lint/suspicious/noExplicitAny: see the stopReason read above — same provider-generic pi-ai result.
       `model returned no text (stopReason: ${String((result as any).stopReason ?? "unknown")})`,
     );
   }
@@ -158,6 +165,7 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
       },
       required: ["conversationId"],
     }),
+    // biome-ignore lint/suspicious/noExplicitAny: FOLLOW-UP (highest-value remaining `any` in the tree): `params` is LLM-supplied JSON. The tool's own `parameters` JSON Schema above IS the contract, but nothing derives a TypeScript type from it, so `unknown` here would only relocate the same casts into the body. Typing these against their schemas is its own change.
     execute: async (_toolCallId, params: any) => {
       try {
         const explicit = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";

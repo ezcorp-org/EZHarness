@@ -35,6 +35,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     projectId,
     scope: scope ?? undefined,
     search,
+    // biome-ignore lint/suspicious/noExplicitAny: `status` is a raw query-string value; the memory query narrows it and an unrecognised status simply matches no rows.
     status: status as any,
     category,
     limit: limit ? parseInt(limit, 10) : undefined,

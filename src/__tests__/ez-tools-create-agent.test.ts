@@ -103,4 +103,17 @@ describe("propose_create_agent", () => {
     expect(openUrl).toMatch(/^\/agents\/new\?prefill=[a-f0-9-]+$/);
     expect(openUrl).toBe(`/agents/new?prefill=${draftId}`);
   });
+
+  // The catch arm: everything above it returns a *validated* error, so the
+  // only way into it is a genuine failure below the validation gate. A userId
+  // with no `users` row makes createDraft violate the ez_drafts FK, which is
+  // the realistic shape of the failure (a draft written for a user deleted
+  // mid-conversation) and the reason the handler must not leak a raw throw
+  // into the model's tool result.
+  test("a failure below validation is reported as an error result, not a throw", async () => {
+    const tool = createProposeCreateAgentTool({ userId: "user-that-does-not-exist" });
+    const result = await tool.execute("a-7", { name: "Orphan", prompt: "x" });
+    expect(expectDetails<ToolErrorDetails>(result).isError).toBe(true);
+    expectText(result, "Error:");
+  });
 });

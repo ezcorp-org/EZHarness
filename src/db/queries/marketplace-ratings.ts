@@ -206,6 +206,7 @@ export async function listFlags(opts?: {
   const conditions = [];
 
   if (opts?.status) {
+    // biome-ignore lint/suspicious/noExplicitAny: `opts.status` arrives as a free-form string from the query string; drizzle wants the column's literal union and there is no exported guard for it yet, so an invalid value simply matches no rows.
     conditions.push(eq(marketplaceFlags.status, opts.status as any));
   }
   if (opts?.listingId) {

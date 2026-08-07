@@ -83,7 +83,12 @@ type BiomeConfig = {
   };
   overrides?: Array<{
     includes?: string[];
-    linter?: { rules?: { style?: { noRestrictedImports?: unknown } } };
+    linter?: {
+      rules?: {
+        style?: { noRestrictedImports?: unknown };
+        suspicious?: { noExplicitAny?: unknown };
+      };
+    };
   }>;
 };
 
@@ -167,7 +172,9 @@ describe("dependency denylist", () => {
   test("the web/** override drops only vitest and restates everything else", async () => {
     const cfg = await readBiomeConfig();
     const base = cfg.linter?.rules?.style?.noRestrictedImports as RestrictedImports | undefined;
-    const override = cfg.overrides?.find((o) => o.includes?.includes("web/**"));
+    const override = cfg.overrides?.find((o) =>
+      (o.includes ?? []).some((g) => g === "web/**"),
+    );
     expect(override).toBeDefined();
 
     const overrideRule = override?.linter?.rules?.style?.noRestrictedImports as
@@ -230,6 +237,95 @@ describe("dependency denylist", () => {
 });
 
 describe("biome lint policy", () => {
+  test("noExplicitAny is an error", async () => {
+    const cfg = await readBiomeConfig();
+    // Every remaining `any` in non-test product code carries an inline
+    // `// biome-ignore lint/suspicious/noExplicitAny: <reason>` — the reason
+    // lands in the diff where a reviewer reads it. Downgrading the rule to
+    // `warn` would make all of those decorative at once, because ci.yml keeps
+    // biome warnings non-blocking.
+    expect(cfg.linter?.rules?.suspicious?.noExplicitAny).toBe("error");
+  });
+
+  test("only test files and the listed unmeasurable files opt out of noExplicitAny", async () => {
+    const cfg = await readBiomeConfig();
+    const optOuts = (cfg.overrides ?? []).filter(
+      (o) => o.linter?.rules?.suspicious?.noExplicitAny === "off",
+    );
+
+    const globs = optOuts.flatMap((o) => o.includes ?? []);
+    // (1) Test code. `any` in a spec cannot reach production, and the mocking
+    // this suite does (partial fakes, deliberately-wrong inputs, mock.module
+    // stand-ins) is the legitimate home for it — 4,400+ sites, none of which a
+    // reviewer would learn anything from annotating.
+    expect(globs).toContain("**/__tests__/**");
+    expect(globs).toContain("**/*.test.ts");
+    expect(globs).toContain("**/*.spec.ts");
+    expect(globs).toContain("web/e2e/**");
+
+    // (2) Product files an inline suppression CANNOT be added to. The
+    // patch-coverage gate fails any changed source file with no lcov data
+    // (scripts/check-patch-coverage.ts, `shouldFailOnLcovAbsence`), and it
+    // counts ADDED LINES — so a `// biome-ignore` comment is itself a failing
+    // edit for a file no test loads. These are the files in that state; the
+    // fix for each is a test that exercises it, at which point its entry here
+    // should be deleted and the `any` annotated or removed like everywhere
+    // else. This list must only ever shrink.
+    const unmeasurable = globs.filter(
+      (g) => !g.startsWith("**/") && !g.startsWith("web/e2e"),
+    );
+    expect(unmeasurable.sort()).toEqual([
+      "src/db/seed-marketplace.ts",
+      "src/extensions/sandbox/__spikes__/**",
+      "web/src/lib/components/ui/format-map.ts",
+      "web/src/lib/inline-tool-store.svelte.ts",
+      "web/src/routes/api/agent-configs/\\[id\\]/+server.ts",
+      "web/src/routes/api/agent-configs/generate/+server.ts",
+      "web/src/routes/api/projects/\\[id\\]/tool-permission-mode/+server.ts",
+    ]);
+  });
+
+  test("every noExplicitAny suppression states a reason", async () => {
+    // A bare `// biome-ignore lint/suspicious/noExplicitAny` (no reason) is
+    // rejected by biome itself, but a reason that merely restates the rule
+    // ("any is needed here") teaches a reviewer nothing. Pin a floor: the
+    // reason must be a sentence, not a shrug.
+    const proc = Bun.spawnSync(
+      [
+        "git",
+        "grep",
+        "-n",
+        "biome-ignore lint/suspicious/noExplicitAny",
+        "--",
+        "src",
+        "web/src",
+        "packages",
+        "scripts",
+        "extensions",
+        // This file DISCUSSES the marker, so grepping it would match prose.
+        ":!*__tests__*",
+        ":!*.test.ts",
+      ],
+      { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
+    );
+    // Only real suppression comments: the marker must OPEN the comment.
+    const SUPPRESSION = /\/\/ biome-ignore lint\/suspicious\/noExplicitAny:(.*)$/;
+    const hits: Array<{ where: string; reason: string }> = [];
+    for (const raw of proc.stdout.toString().split("\n")) {
+      const m = raw.match(SUPPRESSION);
+      if (!m) continue;
+      // A `git grep -n` line is `path:lineno:content`; keep the location for
+      // a failure message that points somewhere.
+      const where = raw.split(":").slice(0, 2).join(":");
+      hits.push({ where, reason: (m[1] ?? "").trim() });
+    }
+    // Not vacuous: this convention is in active use.
+    expect(hits.length).toBeGreaterThan(30);
+
+    const tooShort = hits.filter((h) => h.reason.length < 40).map((h) => h.where);
+    expect(tooShort).toEqual([]);
+  });
+
   test("noNonNullAssertion stays off, on purpose", async () => {
     const cfg = await readBiomeConfig();
     // DECISION (recorded here because biome.json is strict JSON and cannot
