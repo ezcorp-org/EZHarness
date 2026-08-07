@@ -50,7 +50,7 @@ Separately and confusingly named, `getProjectRoot()` in `src/extensions/project-
 **Frontend**
 
 - `web/src/lib/api.ts` — `fetchProjects` / `createProject` / `updateProject` / `deleteProject` client helpers.
-- `web/src/lib/components/ProjectForm.svelte` — create/edit form (default new-project path `/app/projects/`, the docker-compose host bind mount).
+- `web/src/lib/components/ProjectForm.svelte` — create/edit form. The default new-project path is `/app/web/.ezcorp/projects/`, bound to the host at `./.ezcorp/projects` (`docker-compose.yml`). That container path is not a free choice: it must sit inside the fs-API sandbox root (`EZCORP_PROJECT_ROOT ?? process.cwd()` = `/app/web`, or "Create Folder" 403s) **and** under a `.ezcorp` segment (Vite's watcher ignores `**/.ezcorp/**`, so project build output doesn't churn HMR). `src/__tests__/compose-projects-root.test.ts` holds the bind, the form default and both constraints together. The pre-`.ezcorp` default `/app/projects/` satisfied neither, which is why folder creation failed there and hand-typed `~/projects/…` paths silently landed on the container's throwaway overlay.
 - `web/src/lib/components/ProjectPicker.svelte`, `ProjectRail.svelte` — workspace selection UI.
 - `web/src/lib/components/PermissionModeIndicator.svelte` — surfaces / toggles the per-project mode.
 - `web/src/lib/stores.svelte.ts` — `activeProjectId` state, persisted to `localStorage` (key `activeProjectId`), defaulting to the `"global"` sentinel (a non-project scope used by cross-project surfaces like memories/search, **not** a real project id). Written only through `setActiveProjectId`.

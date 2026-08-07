@@ -21,6 +21,7 @@
       "web/e2e/file-organizer-real.spec.ts",
       "web/e2e/hub.spec.ts",
       "web/e2e/main-chat-parity.spec.ts",
+      "web/e2e/project-form.spec.ts",
       "web/e2e/stuck-skeleton-self-heal.spec.ts",
       "web/e2e/task-panel-cold-start.spec.ts"
     ],
@@ -81,6 +82,7 @@
       "web/e2e/preprocess-grade-delta.spec.ts",
       "web/e2e/project-active-context-logo.spec.ts",
       "web/e2e/project-context-non-project-routes.spec.ts",
+      "web/e2e/project-form-default-path.spec.ts",
       "web/e2e/project-hub.spec.ts",
       "web/e2e/rbac-permissions.spec.ts",
       "web/e2e/resume-last-path.spec.ts",
@@ -290,7 +292,6 @@
       "web/e2e/password-reset.spec.ts",
       "web/e2e/permission-mode.spec.ts",
       "web/e2e/picker-pills.spec.ts",
-      "web/e2e/project-form.spec.ts",
       "web/e2e/project-rail-unread-badge.spec.ts",
       "web/e2e/project.spec.ts",
       "web/e2e/provider-settings.spec.ts",

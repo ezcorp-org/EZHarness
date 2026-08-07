@@ -179,6 +179,11 @@
     "web/src/routes/(app)/+layout.svelte",
     "web/src/routes/(app)/extensions/[id]/+page.svelte"
   ],
+  "web/e2e/project-form-default-path.spec.ts": [
+    "web/src/lib/components/ProjectForm.svelte",
+    "web/src/lib/components/FilePicker.svelte",
+    "web/src/lib/components/ui/SharedFilePicker.svelte"
+  ],
   "web/e2e/project-hub.spec.ts": [
     "web/src/routes/(app)/project/[id]/hub/[pageId]/+page.svelte",
     "web/src/lib/components/hub/**/*.svelte",

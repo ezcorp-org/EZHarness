@@ -266,6 +266,35 @@ services:
       # way src/db/queries/ez-drafts.ts now does — then /app/.ezcorp is
       # the single root again.
       - ./.ezcorp/extension-data:/app/web/.ezcorp/extension-data
+      # User-created project workspaces, host-visible at ./.ezcorp/projects/.
+      #
+      # The container side is NOT a free choice — it is pinned by two
+      # independent constraints that only this path satisfies:
+      #
+      #   1. It must be under the dev server's cwd (/app/web). `POST
+      #      /api/fs/mkdir` and `GET /api/fs/list` sandbox on
+      #      `EZCORP_PROJECT_ROOT ?? process.cwd()`, and that env var is
+      #      unset here, so anything outside /app/web is a hard 403. The
+      #      form's old `/app/projects/` default could not even be created
+      #      by its own "Create folder" button.
+      #   2. It must be under a `.ezcorp` path segment. Vite's dev watcher
+      #      ignores `**/.ezcorp/**` (web/vite.config.ts) — without that a
+      #      project's build output (a Rust `target/`, node_modules) is
+      #      watched, and HMR churns on every rebuild.
+      #
+      # Why this matters: a path that satisfies neither silently lands in
+      # the container's throwaway overlay, invisible on the host and gone
+      # on the next recreate. That is not hypothetical — a project cloned
+      # to the literal path `~/projects/<name>` (nothing expands `~`, so
+      # `resolve()` rooted it at cwd) put 270 MB and two unpushed commits
+      # in /app/web/~/projects/. src/__tests__/compose-projects-root.test.ts
+      # holds this bind against BOTH constraints and against the form's
+      # default value.
+      #
+      # Sibling of `.ezcorp/data`, never an ancestor — the sandbox jail's
+      # forbidden-path rules are unaffected (see the landlock note in
+      # src/extensions/sandbox/landlock.ts).
+      - ./.ezcorp/projects:/app/web/.ezcorp/projects
       # NOTE: a `./.env.seed:/app/.env.seed:ro` bind mount used to live
       # here so re-seeds could restore OAuth tokens. It's gitignored,
       # so on fresh clones Docker created an empty directory at the
