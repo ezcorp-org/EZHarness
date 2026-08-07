@@ -293,8 +293,11 @@ describe("handlePiLlmComplete — soft-fail ladder", () => {
       ctx, makeRpcMeta(),
     );
     expect(resp.error?.code).toBe(-32103);
-    expect((resp.error?.data as { reason: string }).reason).toBe("calls-per-hour");
-    expect((resp.error?.data as { retryAfterMs: number }).retryAfterMs).toBeGreaterThanOrEqual(0);
+    const denial = resp.error?.data as
+      | { reason?: string; retryAfterMs?: number }
+      | undefined;
+    expect(denial?.reason).toBe("calls-per-hour");
+    expect(denial?.retryAfterMs).toBeGreaterThanOrEqual(0);
   });
 
   test("credential missing → -32104", async () => {

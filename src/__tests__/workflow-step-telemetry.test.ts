@@ -18,6 +18,7 @@ import { sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
 import { EventBus } from "../runtime/events";
+import { UNPRICED_MODEL } from "./helpers/unpriced-model";
 import type { AgentEvents, AgentRun, WorkflowDefinition } from "../types";
 import type { AgentExecutor } from "../runtime/executor";
 import type { ToolCallResult } from "../extensions/types";
@@ -365,13 +366,10 @@ describe("cost_usd is written, and NULL still means unmeasurable", () => {
     // model is rate-limited rather than billed per token, so it arrives
     // with an all-zero rate table and there is no cost to record. A "0"
     // here would report the step as measured-and-free; NULL reports it as
-    // never priceable. `claude-opus-5` is genuinely unpriced in the
-    // catalog this repo resolves against (`modelPrices("anthropic",
-    // "claude-opus-5")` is all zeros) — if pi-ai ever prices it, THIS
-    // assertion is the one that goes red, and the fix is a different
-    // unpriced id, not a weakened assertion.
+    // never priceable. See {@link UNPRICED_MODEL} for why the fixture is a
+    // catalog-absent id rather than a real one.
     const { wf } = scriptedExecutor([
-      { inputTokens: 1_000_000, outputTokens: 500_000, provider: "anthropic", model: "claude-opus-5" },
+      { inputTokens: 1_000_000, outputTokens: 500_000, provider: "anthropic", model: UNPRICED_MODEL },
     ]);
     const run = await wf.runWorkflow(agentStep("draft"), {});
     const row = await stepRow(run.id, "draft");
@@ -718,7 +716,7 @@ describe("per-iteration child rows", () => {
     // would erase the first iteration's real cost.
     const { wf } = scriptedExecutor([
       { model: "claude-sonnet-4-5", provider: "anthropic", inputTokens: 1_000_000, outputTokens: 0 },
-      { model: "claude-opus-5", provider: "anthropic", inputTokens: 1_000_000, outputTokens: 0 },
+      { model: UNPRICED_MODEL, provider: "anthropic", inputTokens: 1_000_000, outputTokens: 0 },
     ]);
     const def: WorkflowDefinition = {
       name: `wf-itercost-${crypto.randomUUID().slice(0, 8)}`,
@@ -729,7 +727,7 @@ describe("per-iteration child rows", () => {
     await settle();
 
     const iters = await listWorkflowStepIterations(run.id);
-    expect(iters.map((r) => r.model)).toEqual(["claude-sonnet-4-5", "claude-opus-5"]);
+    expect(iters.map((r) => r.model)).toEqual(["claude-sonnet-4-5", UNPRICED_MODEL]);
     // Priced model → a real cost. Unpriced model → NULL, not 0.
     expect(Number(iters[0]!.costUsd)).toBeGreaterThan(0);
     expect(iters[1]!.costUsd).toBeNull();

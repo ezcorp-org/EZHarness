@@ -64,10 +64,20 @@ export function getDbMaskDirs(): string[] {
  * here; callers consume it through typed helpers (`getDb()`) whose drizzle
  * DSL methods return concrete types via the drizzle schema.
  */
-// biome rule `suspicious/noExplicitAny` is off repo-wide; `any` kept by design
-// per the comment above, not an oversight.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Database = any;
+// biome-ignore lint/suspicious/noExplicitAny: the handle is a PgliteDatabase OR a BunSQLDatabase and the two report incompatible HKT result types for execute(), so any common supertype rejects the concrete subclass assignment — see the doc comment above. Callers get real types back from the drizzle DSL.
+export type Database = any;
+
+/**
+ * What drizzle hands the callback of `db.transaction(...)`.
+ *
+ * Same story as `Database`, one level down: the transaction handle's type is
+ * the active driver's, and the two drivers disagree. Because `Database` is
+ * `any`, `db.transaction(async (tx) => …)` infers `tx` as an IMPLICIT any,
+ * which `noImplicitAny` rejects — so all 11 call sites had to write `tx: any`
+ * by hand. Naming it here means the concession is declared once, next to the
+ * reason, instead of re-spelled per call site.
+ */
+export type DbTransaction = Database;
 
 let _db: Database = null;
 let _pglite: import("@electric-sql/pglite").PGlite | null = null;
@@ -483,10 +493,10 @@ const MIGRATE_ADVISORY_LOCK_KEY = 40_172_026;
  * `__test` for the ordering regression test.
  */
 async function withPostgresMigrateLock<T>(fn: () => Promise<T>): Promise<T> {
-  // Database is `any`; `$client` is the Bun.sql instance — a callable tagged
-  // template that also exposes reserve().
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const client = getDb().$client as any;
+  // `Database` is `any`, so `$client` — the Bun.sql instance, a callable
+  // tagged template that also exposes reserve() — arrives untyped already and
+  // the cast that used to be here was a no-op.
+  const client = getDb().$client;
   const reserved = typeof client?.reserve === "function" ? await client.reserve() : null;
   const conn = reserved ?? client;
   await conn`SELECT pg_advisory_lock(${MIGRATE_ADVISORY_LOCK_KEY})`;
@@ -589,10 +599,7 @@ async function initPostgres(): Promise<void> {
   // bun-sql returns arrays directly, but PGlite returns { rows: [...] }.
   // All query code expects the { rows } shape.
   const origExecute = db.execute.bind(db) as (...a: unknown[]) => Promise<unknown>;
-  // `any` cast is deliberate: we replace `execute` in-place on the drizzle
-  // instance, and its overloaded signature can't be expressed here without
-  // rebuilding the full generic surface.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: replacing `execute` in place on a concrete drizzle instance — its overloaded signature can't be restated here without rebuilding the whole generic surface, and a narrower cast would have to name that surface.
   (db as any).execute = async (...args: unknown[]) => {
     const result = await origExecute(...args);
     if (Array.isArray(result)) return { rows: result };

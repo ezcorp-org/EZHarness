@@ -17,6 +17,7 @@ import { sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
 import { EventBus } from "../runtime/events";
+import { UNPRICED_MODEL } from "./helpers/unpriced-model";
 import type { AgentEvents, AgentRun, WorkflowDefinition, WorkflowStep } from "../types";
 import type { AgentExecutor } from "../runtime/executor";
 
@@ -149,7 +150,9 @@ describe("trace payload shape", () => {
       runId: "",
       status: "success",
       provider: "anthropic",
-      model: "claude-opus-5",
+      // Unpriced by construction — this step's assertion below is that a
+      // model with no per-token rate records NULL, not 0.
+      model: UNPRICED_MODEL,
       attempt: 2,
       inputTokens: 1000,
       outputTokens: 250,
@@ -183,16 +186,16 @@ describe("trace payload shape", () => {
     const trace = (await getWorkflowRunTrace("run-shape", OWNER))!;
     const draft = trace.steps.find((s) => s.stepName === "draft")!;
     expect(draft.provider).toBe("anthropic");
-    expect(draft.model).toBe("claude-opus-5");
+    expect(draft.model).toBe(UNPRICED_MODEL);
     expect(draft.attempt).toBe(2);
     expect(draft.inputTokens).toBe(1000);
     expect(draft.outputTokens).toBe(250);
     expect(draft.durationMs).toBe(4200);
     expect(draft.resolvedInput).toEqual({ topic: "release notes" });
     expect(draft.output).toEqual({ success: true, output: "done" });
-    // `claude-opus-5` is an unpriced (subscription) model in the catalog
-    // this resolves against, so there is no per-token cost to record.
-    // NULL is "not measurable", rendered as "—" — never "free".
+    // No per-token rate resolves for this model, so there is no cost to
+    // record. NULL is "not measurable", rendered as "—" — never "free".
+    // See {@link UNPRICED_MODEL} for why the fixture is a synthetic id.
     expect(draft.costUsd).toBeNull();
   });
 

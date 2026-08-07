@@ -30,8 +30,9 @@
  * add-ez-mode-and-kind.ts.
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
-export async function up(db: any): Promise<void> {
+export async function up(db: MigrationDb): Promise<void> {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS features (
       id TEXT PRIMARY KEY,

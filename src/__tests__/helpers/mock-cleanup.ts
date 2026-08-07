@@ -98,10 +98,28 @@ const MODULE_PATHS = [
   "../../extensions/author-gate",
   "../../extensions/manifest",
   "../../extensions/checksum",
-  // "../../extensions/bundled" was TRIMMED (wave 3): zero mock.module
-  // targets across src/web/docs/packages tests + helpers resolve to it
-  // (only bundled-ceiling / bundled-lock below are mocked), and its eager
-  // preload import pulled in the whole bundled-extension graph per spawn.
+  // "../../extensions/bundled" stays TRIMMED (wave 3): its eager preload
+  // import pulled in the whole bundled-extension graph per spawn. The one
+  // suite that still stubs it (assert-bundled-not-stranded.test.ts) mocks it
+  // at module top level and never imports the real one, so the residual leak
+  // is inert under scripts/test.sh's one-process-per-file pool.
+  //
+  // NOTE — the QUOTES on that path above are load-bearing, which is a bug in
+  // the meta-test, not a design: mock-cleanup-coverage.ts's loadModulePaths()
+  // scrapes every quoted string out of this array INCLUDING comments, so the
+  // mention alone is what lets assert-bundled-not-stranded.test.ts pass. If
+  // you normalise these quotes to backticks that suite reds for no visible
+  // reason. Tracked with the fix (strip `//` lines the way extractMockPaths()
+  // already does, plus an EXEMPT_PATTERNS entry) in issue #138.
+  //
+  // `project-root` IS snapshotted, and cheaply: the resolver was split out
+  // of bundled.ts and imports only `../../logger` + node builtins, so the
+  // preload import costs nothing like the bundled graph did. It's the seam
+  // migrate-extension-state-root-resolve-failure.test.ts stubs to make
+  // getProjectRoot() throw, and getProjectRoot() is process-cached — a
+  // throwing stub leaking into a later file would fail it far from the
+  // cause.
+  "../../extensions/project-root",
   "../../extensions/bundled-ceiling",
   "../../extensions/bundled-lock",
   "../../extensions/loader",
@@ -121,6 +139,10 @@ const MODULE_PATHS = [
   "../../providers/router",
   "../../providers/registry",
   "../../providers/credentials",
+  // The CredentialStore + getAuth wrapper (pi-ai 0.83.0's replacement for
+  // the removed getOAuthApiKey). openai-extension-creds.test.ts stubs
+  // `resolveOAuthAuth` here; snapshot so the stub never leaks.
+  "../../providers/credential-store",
   "../../providers/encryption",
   "../../providers/shell",
   "../../providers/file",
@@ -270,9 +292,14 @@ const MODULE_PATHS = [
   "../../../web/src/lib/stores/connection",
   "../../../web/src/lib/api",
   // Bare "@earendil-works/pi-ai" trimmed (wave 3): every pi-ai mock in the
-  // population targets /compat or /oauth — the bare specifier had zero.
+  // population targets /compat, /oauth or /providers/all — the bare
+  // specifier had zero.
   "@earendil-works/pi-ai/compat",
   "@earendil-works/pi-ai/oauth",
+  // credentials.test.ts stubs `builtinModels` here — the network boundary for
+  // OAuth refresh since pi-ai 0.83.0 removed `getOAuthApiKey`. Snapshot so the
+  // stub never leaks into a later file and silently answers a real getAuth.
+  "@earendil-works/pi-ai/providers/all",
   "@earendil-works/pi-agent-core",
   // Extension SDK exports. Bundled-extension test files in
   // `docs/extensions/examples/*/` `mock.module("@ezcorp/sdk/runtime",
@@ -290,6 +317,19 @@ const snapshots = new Map<string, Record<string, unknown>>();
 /**
  * Snapshot all commonly-mocked modules BEFORE any test file runs.
  * Must be called from preload.ts at module level (with await).
+ *
+ * TRAP — a module that FAILS TO LOAD here becomes unmockable for the whole
+ * run. The `catch` below swallows the error, but bun has already cached the
+ * failed module record, and a later `mock.module("<same path>", …)` does NOT
+ * displace it: every test file whose import graph reaches that module dies on
+ * the original load error, and no amount of mocking around it helps. Measured
+ * during the pi-ai 0.83.0 upgrade — `providers/credentials` imported a
+ * `@earendil-works/pi-ai/oauth` export the new version had removed, and 114
+ * test files went red with `SyntaxError: Export named 'getOAuthApiKey' not
+ * found`, including files that explicitly mocked `providers/credentials`.
+ * If a broad, unexplained sweep of failures all names one missing export,
+ * fix the import — do not try to mock past it. (`EZCORP_FAST_TEST=1` skips
+ * these eager imports, which is a useful way to confirm that diagnosis.)
  * Uses spread to capture real exports as plain values (not live bindings).
  * Uses dynamic import() so ESM-only packages (e.g. @earendil-works/pi-ai) are captured.
  *

@@ -32,6 +32,7 @@ async function listRegisteredTools(): Promise<string[]> {
   for (const mod of toolModuleNames) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // biome-ignore lint/suspicious/noExplicitAny: a dynamic `import()` of a module chosen by name at runtime — the doctor walks whatever each tools module happens to export, so there is no shared export shape to name.
       const m = (await import(`../mcp/tools/${mod}.ts`)) as Record<string, any>;
       // Each tools module exports an array of MCP tool definitions or named exports
       for (const key of Object.keys(m)) {

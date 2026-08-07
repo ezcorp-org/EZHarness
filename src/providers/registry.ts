@@ -4,7 +4,17 @@
  */
 
 import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
-import type { Model, KnownProvider } from "@earendil-works/pi-ai";
+// `BuiltinProvider` (pi-ai 0.83.0) is the provider key those three catalog
+// reads actually accept: `keyof typeof MODELS`. It is NOT `KnownProvider` —
+// `radius` is a `KnownProvider` with no MODELS entry, so `BuiltinProvider` is
+// `KnownProvider` minus `radius` and a `KnownProvider`-typed argument no
+// longer type-checks. Upstream defect (still present in 0.84.0), but the
+// narrower type is the correct one here: everything below is a catalog read.
+// Every value we cast is a runtime-supplied provider STRING, so the cast was
+// already the unchecked step — `getModel`/`getModels` are wrapped in try/catch
+// or tolerate an unknown id by returning `[]`.
+import type { BuiltinProvider } from "@earendil-works/pi-ai/compat";
+import type { AnyModel } from "./model-types";
 import { getSetting } from "../db/queries/settings";
 // Tier vocabulary single source of truth (type-only — erased at build).
 import type { RoutingTier } from "../runtime/tier-classifier";
@@ -29,12 +39,12 @@ import type { ModelPrices } from "../runtime/usage/cache-stats";
 // Fallback entries for OAuth-only users (ChatGPT Codex login).
 // The OAuth token can't call api.openai.com/v1/models, so discovery can't
 // reach these — we hardcode them until pi-ai's openai-codex list catches up.
-const LOCAL_OAUTH_OVERRIDES: Model<any>[] = [
+const LOCAL_OAUTH_OVERRIDES: AnyModel[] = [
   {
     id: "gpt-5.5",
     name: "GPT-5.5",
-    api: "openai-codex-responses" as any,
-    provider: "openai-codex" as any,
+    api: "openai-codex-responses",
+    provider: "openai-codex",
     baseUrl: "https://chatgpt.com/backend-api",
     reasoning: true,
     input: ["text", "image"],
@@ -46,12 +56,12 @@ const LOCAL_OAUTH_OVERRIDES: Model<any>[] = [
 
 // Load discovered models from settings (populated by /api/providers/:provider/refresh-models).
 // Returns a flat list across all providers, with pi-ai-registered IDs filtered out to avoid duplicates.
-async function loadDiscoveredModels(): Promise<Model<any>[]> {
-  const out: Model<any>[] = [];
+async function loadDiscoveredModels(): Promise<AnyModel[]> {
+  const out: AnyModel[] = [];
   for (const provider of ["openai", "anthropic", "google", "openrouter"]) {
-    const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as Model<any>[] | undefined;
+    const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as AnyModel[] | undefined;
     if (!Array.isArray(stored)) continue;
-    const piIds = new Set(getModels(provider as KnownProvider).map((m) => m.id));
+    const piIds = new Set(getModels(provider as BuiltinProvider).map((m) => m.id));
     for (const m of stored) {
       if (!piIds.has(m.id)) out.push(m);
     }
@@ -82,7 +92,7 @@ export interface ModelEntry {
 //   medium ≤ $30   (sonnet / gpt-5 / gemini-pro class)
 //   high   > $30   (opus / gpt-5-pro / reasoning tiers)
 
-function inferTier(model: Model<any>): { tier: ModelEntry["tier"]; costTier: ModelEntry["costTier"] } {
+function inferTier(model: AnyModel): { tier: ModelEntry["tier"]; costTier: ModelEntry["costTier"] } {
   const lower = model.id.toLowerCase();
   const blended = (model.cost?.input ?? 0) + (model.cost?.output ?? 0);
 
@@ -124,13 +134,13 @@ function inferTier(model: Model<any>): { tier: ModelEntry["tier"]; costTier: Mod
  * tier PEER (a pinned Opus falls back to another powerful-tier model)
  * instead of silently dropping to the "balanced" default.
  */
-export function tierForModel(model: Model<any>): RoutingTier {
+export function tierForModel(model: AnyModel): RoutingTier {
   return inferTier(model).tier;
 }
 
 // ── Convert pi-ai Model to local ModelEntry ──────────────────────────
 
-function piModelToEntry(model: Model<any>): ModelEntry {
+function piModelToEntry(model: AnyModel): ModelEntry {
   const { tier, costTier } = inferTier(model);
   return {
     id: model.id,
@@ -227,7 +237,7 @@ export function findModelForProviderInTier(
   ladder?: TierLadder,
   customModels?: readonly CustomModelEntry[],
 ): ModelEntry | null {
-  const models = getModels(provider as KnownProvider);
+  const models = getModels(provider as BuiltinProvider);
   const laddered =
     resolveLadderEntry(ladder, tier, provider, models) ??
     (isBuiltinRouterProvider(provider)
@@ -277,7 +287,7 @@ export function findRunnableModelForProviderInTier(
   }
 
   const candidates: ModelEntry[] = [];
-  for (const model of getModels(provider as KnownProvider)) {
+  for (const model of getModels(provider as BuiltinProvider)) {
     if (resolveOAuthModel(provider, model.id)) candidates.push(piModelToEntry(model));
   }
   // OAuth-only ids (e.g. gpt-5.5) live in LOCAL_OAUTH_OVERRIDES and never
@@ -309,9 +319,9 @@ export function findRunnableModelForProviderInTier(
  * - google → google-gemini-cli (Cloud Code Assist API, Bearer token auth)
  * - openai → openai-codex (ChatGPT Codex API, different endpoint + scopes)
  */
-const OAUTH_PROVIDER_MAP: Record<string, KnownProvider> = {
-  google: "google-gemini-cli" as KnownProvider,
-  openai: "openai-codex" as KnownProvider,
+const OAUTH_PROVIDER_MAP: Record<string, BuiltinProvider> = {
+  google: "google-gemini-cli" as BuiltinProvider,
+  openai: "openai-codex" as BuiltinProvider,
 };
 
 /**
@@ -333,7 +343,7 @@ export function getOAuthModelIds(provider: string): Set<string> | null {
  * Resolve the OAuth-compatible Model object for a given provider + model ID.
  * Returns null if the model isn't available in the OAuth provider variant.
  */
-export function resolveOAuthModel(provider: string, modelId: string): Model<any> | null {
+export function resolveOAuthModel(provider: string, modelId: string): AnyModel | null {
   const oauthProvider = OAUTH_PROVIDER_MAP[provider];
   if (!oauthProvider) return null;
   try {
@@ -367,10 +377,10 @@ export function resolveOAuthModel(provider: string, modelId: string): Model<any>
  * paths can never diverge on OAuth handling again.
  */
 export function resolveModelForCredential(
-  model: Model<any>,
+  model: AnyModel,
   provider: string,
   credType: "oauth" | "apikey",
-): Model<any> {
+): AnyModel {
   if (credType !== "oauth") return model;
   const oauthModel = resolveOAuthModel(provider, model.id);
   if (oauthModel) return { ...oauthModel, provider };
@@ -387,15 +397,33 @@ export function resolveModelForCredential(
  * Resolve a pi-ai Model object from provider + modelId.
  * Falls back to creating a custom model if not found in registry.
  */
-export async function resolveDiscoveredModel(provider: string, modelId: string): Promise<Model<any> | null> {
-  const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as Model<any>[] | undefined;
+export async function resolveDiscoveredModel(provider: string, modelId: string): Promise<AnyModel | null> {
+  const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as AnyModel[] | undefined;
   if (!Array.isArray(stored)) return null;
   return stored.find((m) => m.id === modelId) ?? null;
 }
 
-export function resolveModelObject(provider: string, modelId: string, baseUrl?: string): Model<any> {
+/**
+ * Is this id actually IN the installed catalog for this provider?
+ *
+ * The honest question behind "did pi-ai retire my pinned model". Consults the
+ * static catalog plus the OAuth-only overrides, and NEVER throws — a
+ * malformed provider id is simply "not known". Deliberately does not consult
+ * discovered models (those are a per-deployment settings overlay, and a pin
+ * that only refresh-models knows about is still a catalog gap).
+ */
+export function isKnownCatalogModel(provider: string, modelId: string): boolean {
   try {
-    const found = getModel(provider as KnownProvider, modelId as never);
+    if (getModel(provider as BuiltinProvider, modelId as never)) return true;
+  } catch {
+    // Unknown/malformed provider id — fall through.
+  }
+  return resolveOAuthModel(provider, modelId) !== null;
+}
+
+export function resolveModelObject(provider: string, modelId: string, baseUrl?: string): AnyModel {
+  try {
+    const found = getModel(provider as BuiltinProvider, modelId as never);
     if (found) return found;
   } catch {
     // fall through
@@ -429,11 +457,22 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
   // (custom models + the ezcorp-mock test provider) and unknown providers keep
   // the legacy behavior.
   if (baseUrl === undefined) {
+    // NOTE: everything below this point INVENTS a model — the window becomes
+    // a 128k guess and the rate table becomes all-zero, which silently
+    // shrinks the compaction budget and silently unprices the conversation
+    // (measurements in src/runtime/routing/dropped-models.ts). We do NOT
+    // report it from here: `resolveModelObject` is also the pricing lookup,
+    // the capability check and the export tooling's resolver, and an
+    // operator warning on that path lands on the stderr of scripts whose
+    // stderr is machine-readable. The report is emitted ONCE per turn from
+    // the pinned-model branch of `router.ts` instead — the only caller where
+    // the degradation actually reaches a user.
+    //
     // getModels is wrapped: a malformed provider id can throw, and a throw
     // here must degrade to the legacy fallback below, not escape.
-    let sibling: Model<any> | undefined;
+    let sibling: AnyModel | undefined;
     try {
-      sibling = getModels(provider as KnownProvider)[0];
+      sibling = getModels(provider as BuiltinProvider)[0];
     } catch {
       // Unknown/malformed provider → no sibling; fall through to fallback.
     }
@@ -445,12 +484,12 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
     // still-templated URL verbatim would synthesize a model that dials a broken
     // endpoint, so skip the borrow and fall through to the legacy fallback (a
     // non-templated default) instead.
-    if (sibling && sibling.baseUrl && !sibling.baseUrl.includes("{")) {
+    if (sibling?.baseUrl && !sibling.baseUrl.includes("{")) {
       return {
         id: modelId,
         name: modelId,
         api: sibling.api,
-        provider: provider as any,
+        provider,
         baseUrl: sibling.baseUrl,
         reasoning: false,
         input: ["text"] as ("text" | "image")[],
@@ -471,8 +510,8 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
   return {
     id: modelId,
     name: modelId,
-    api: "openai-completions" as any,
-    provider: provider as any,
+    api: "openai-completions",
+    provider,
     baseUrl: resolvedUrl,
     // A user-supplied baseUrl is a BYOK/local OpenAI-compatible server, and
     // pi-ai's `detectCompat` (api/openai-completions) sends the output cap as

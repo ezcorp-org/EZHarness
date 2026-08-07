@@ -89,6 +89,7 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
   if (confidence !== undefined) updates.confidence = confidence;
 
   if (Object.keys(updates).length > 0) {
+    // biome-ignore lint/suspicious/noExplicitAny: `updates` is the request body's already-allowlisted field subset; the writer's parameter type is the full row shape, which a partial update cannot satisfy.
     await updateMemory(params.id, updates as any);
   }
 

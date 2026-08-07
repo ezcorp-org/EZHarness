@@ -183,7 +183,7 @@ describe("syncSessionForConversation — catch-up from the messages table", () =
     const { storage } = await syncSessionForConversation(c);
     const s1entry = (await storage.getEntries()).find((e) => e.id === "s1");
     expect(s1entry?.parentId).toBe("a1"); // reconciled
-    // getPathToRoot now threads s1 under a1.
+    // getPathToRootOrCompaction now threads s1 under a1.
     const branch = await computeSessionBranch(c, "s1");
     expect(branch.map((r) => r.id)).toEqual(["u1", "a1", "s1"]);
   });

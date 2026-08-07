@@ -1,4 +1,5 @@
 /** Standard debounce: delays invocation until `ms` milliseconds of inactivity. */
+// biome-ignore lint/suspicious/noExplicitAny: the standard generic-function constraint: `unknown[]` would reject every concrete callback because parameters are contravariant, so this is the one spelling that lets `debounce` preserve its argument's exact signature.
 export function debounce<T extends (...args: any[]) => any>(
 	fn: T,
 	ms: number,

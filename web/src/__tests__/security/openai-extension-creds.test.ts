@@ -9,7 +9,9 @@ let envApiKey: string | undefined ;
 let decryptImpl: (s: string) => string = (s) => s;
 let encryptImpl: (s: string) => string = (s) => s;
 let upsertCalls: Array<{ key: string; value: unknown }> = [];
-let getOAuthApiKeyImpl: (providerId: string, creds: any) => any = async () => null;
+// pi-ai 0.83.0 removed `getOAuthApiKey`; refresh + key derivation now run
+// through the shared credential store, so THAT is the seam this suite stubs.
+let resolveOAuthAuthImpl: (providerId: string) => any = async () => undefined;
 // Simulates the settings store being unreachable (DB down / not yet booted).
 // Both resolvers must fail CLOSED when this happens rather than surfacing a
 // stale or partial credential.
@@ -33,8 +35,8 @@ mock.module("$server/providers/encryption", () => ({
 mock.module("@earendil-works/pi-ai/compat", () => ({
   getEnvApiKey: (_p: string) => envApiKey,
 }));
-mock.module("@earendil-works/pi-ai/oauth", () => ({
-  getOAuthApiKey: (providerId: string, creds: any) => getOAuthApiKeyImpl(providerId, creds),
+mock.module("$server/providers/credential-store", () => ({
+  resolveOAuthAuth: (providerId: string) => resolveOAuthAuthImpl(providerId),
 }));
 
 import {
@@ -62,7 +64,7 @@ beforeEach(() => {
   decryptImpl = (s) => s;
   encryptImpl = (s) => s;
   upsertCalls = [];
-  getOAuthApiKeyImpl = async () => null;
+  resolveOAuthAuthImpl = async () => undefined;
   getSettingThrows = false;
 });
 
@@ -143,21 +145,17 @@ describe("resolveOpenAIAccessToken", () => {
     expect(await resolveOpenAIAccessToken()).toBe("still-fresh");
   });
 
-  test("refreshes via pi-ai/oauth when the token is within 60s of expiry", async () => {
+  test("refreshes through the credential store when the token is within 60s of expiry", async () => {
     storedOAuth = "enc";
     decryptImpl = () => makeCreds({ access: "almost-gone", expires: Date.now() + 5_000 });
-    getOAuthApiKeyImpl = async () => ({
-      apiKey: "refreshed-access",
-      newCredentials: {
-        access: "refreshed-access",
-        refresh: "next-refresh",
-        expires: Date.now() + 60 * 60 * 1000,
-      },
-    });
+    resolveOAuthAuthImpl = async () => ({ apiKey: "refreshed-access" });
     const tok = await resolveOpenAIAccessToken();
     expect(tok).toBe("refreshed-access");
-    expect(upsertCalls.length).toBe(1);
-    expect(upsertCalls[0]!.key).toBe("provider:oauth:openai");
+    // This module no longer PERSISTS the refreshed credential: the store
+    // does that inside `modify()`. Writing here as well raced the chat
+    // path's refresh for the same `provider:oauth:openai` row, and dropping
+    // it is the point of routing through one serialized write path.
+    expect(upsertCalls.length).toBe(0);
   });
 
   test("returns null when decrypt throws (corrupted ciphertext)", async () => {
@@ -171,7 +169,7 @@ describe("resolveOpenAIAccessToken", () => {
   test("returns null when refresh flow fails", async () => {
     storedOAuth = "enc";
     decryptImpl = () => makeCreds({ expires: Date.now() + 5_000 });
-    getOAuthApiKeyImpl = async () => {
+    resolveOAuthAuthImpl = async () => {
       throw new Error("refresh failed");
     };
     expect(await resolveOpenAIAccessToken()).toBeNull();
@@ -184,18 +182,17 @@ describe("resolveOpenAIAccessToken", () => {
     expect(await resolveOpenAIAccessToken()).toBeNull();
   });
 
-  test("falls back to newCredentials.access when getOAuthApiKey returns no apiKey", async () => {
+  test("returns null when the refresh yields no apiKey", async () => {
+    // There is no longer a "fall back to newCredentials.access" arm: the
+    // store owns the credential and `resolveOAuthAuth` returns only the
+    // derived request auth. No apiKey means no token to inject, and the
+    // extension emits its own missing-credential error.
     storedOAuth = "enc";
     decryptImpl = () => makeCreds({ expires: Date.now() + 5_000 });
-    getOAuthApiKeyImpl = async () => ({
-      apiKey: undefined,
-      newCredentials: {
-        access: "from-new-creds",
-        refresh: "r",
-        expires: Date.now() + 60 * 60 * 1000,
-      },
-    });
-    expect(await resolveOpenAIAccessToken()).toBe("from-new-creds");
+    resolveOAuthAuthImpl = async () => ({ apiKey: undefined });
+    expect(await resolveOpenAIAccessToken()).toBeNull();
+    resolveOAuthAuthImpl = async () => undefined;
+    expect(await resolveOpenAIAccessToken()).toBeNull();
   });
 
   test("fails CLOSED when the settings store is unreachable (no token, no throw)", async () => {

@@ -319,7 +319,7 @@ describe("handleNetworkInternalRpc — happy path", () => {
     );
     expect(captured?.url).toBe("http://localhost/api");
     expect(captured?.init?.method).toBe("POST");
-    expect((captured?.init?.headers as Record<string, string>)["x-foo"]).toBe("bar");
+    expect(captured?.init?.headers).toMatchObject({ "x-foo": "bar" });
     expect(captured?.init?.body).toBe('{"k":"v"}');
   });
 

@@ -813,7 +813,7 @@ describe("ezcorp/drafts \u2014 install", () => {
     expect(resp.error?.message).toBe(
       'NAME_COLLISION: Extension "weather" is already installed',
     );
-    expect((resp.error?.data as { code?: string }).code).toBe("NAME_COLLISION");
+    expect(resp.error?.data).toMatchObject({ code: "NAME_COLLISION" });
   });
 
   test("AuthorInstallError.details is passed through under data.details", async () => {

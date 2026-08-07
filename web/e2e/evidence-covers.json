@@ -2,6 +2,10 @@
   "web/e2e/admin-routing-cost.spec.ts": [
     "web/src/routes/(app)/admin/dashboard/+page.svelte"
   ],
+  "web/e2e/agent-panel-parity.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/lib/components/AgentDetailPanel.svelte"
+  ],
   "web/e2e/api-key-scopes-evidence.spec.ts": [
     "web/src/lib/components/settings/ApiKeyManager.svelte"
   ],
@@ -19,6 +23,10 @@
   ],
   "web/e2e/chat-prompt-arrow-nav-agentic.spec.ts": [
     "web/src/lib/components/ChatThread.svelte"
+  ],
+  "web/e2e/chat-turn-collapse.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/lib/components/TurnCollapsedSummary.svelte"
   ],
   "web/e2e/chat-graph-evidence.spec.ts": [
     "web/src/lib/components/chat/ChatGraphPanel.svelte",
@@ -135,6 +143,9 @@
   "web/e2e/loops-kill-switch.spec.ts": [
     "web/src/routes/(app)/settings/admin/+page.svelte"
   ],
+  "web/e2e/main-chat-parity.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte"
+  ],
   "web/e2e/mode-preferred-tier.spec.ts": [
     "web/src/lib/components/ModeFormModal.svelte",
     "web/src/lib/components/settings/ModesSection.svelte"
@@ -167,6 +178,11 @@
   "web/e2e/project-context-non-project-routes.spec.ts": [
     "web/src/routes/(app)/+layout.svelte",
     "web/src/routes/(app)/extensions/[id]/+page.svelte"
+  ],
+  "web/e2e/project-form-default-path.spec.ts": [
+    "web/src/lib/components/ProjectForm.svelte",
+    "web/src/lib/components/FilePicker.svelte",
+    "web/src/lib/components/ui/SharedFilePicker.svelte"
   ],
   "web/e2e/project-hub.spec.ts": [
     "web/src/routes/(app)/project/[id]/hub/[pageId]/+page.svelte",

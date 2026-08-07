@@ -40,14 +40,24 @@ import {
 let _wsManualRetry: (() => void) | null = null;
 export function wsManualRetry() { _wsManualRetry?.(); }
 
-/** Extract text from a ToolCallResult-shaped object, or return the value as-is if not recognized. */
-function extractToolOutput(value: unknown): unknown {
+/**
+ * Extract text from a ToolCallResult-shaped object, or return the value as-is
+ * if not recognized.
+ *
+ * Exported for its unit test. FOUR test files carried a hand-copied
+ * re-implementation of this function because it wasn't reachable — which is
+ * exactly how the real one ended up with zero coverage while its copies were
+ * exhaustively asserted. `inline-tool-store.svelte.ts` carries a fifth copy in
+ * PRODUCT code (`stringifyError`); de-duplicating that one is follow-up work,
+ * because it is one of the modules the coverage leg cannot currently measure.
+ */
+export function extractToolOutput(value: unknown): unknown {
 	if (value == null || typeof value !== 'object') return value;
 	const obj = value as Record<string, unknown>;
 	if (Array.isArray(obj.content)) {
-		const texts = (obj.content as any[])
-			.filter((c: any) => c.type === 'text' && typeof c.text === 'string')
-			.map((c: any) => c.text);
+		const texts = (obj.content as ReadonlyArray<{ type?: unknown; text?: unknown }>)
+			.filter((c): c is { type: 'text'; text: string } => c?.type === 'text' && typeof c?.text === 'string')
+			.map((c) => c.text);
 		if (texts.length > 0) return texts.join('\n');
 	}
 	return value;
@@ -1026,6 +1036,7 @@ export function initStores() {
 				} else if (event.type === "run:error") {
 					addToast({
 						type: "error",
+						// biome-ignore lint/suspicious/noExplicitAny: the run-update payload arrives over the websocket and only SOME run states carry `error`; the union has no discriminant for it here.
 						message: `Run failed: ${(updated as any).error || "Unknown error"}`,
 						action: { label: "View", onclick: () => { window.location.href = `/runs/${updated.id}`; } },
 					});

@@ -310,9 +310,20 @@ describe("resolveModel", () => {
     test("under an OAuth credential, picks a subscription-eligible model — never a bare api-key catalog id", async () => {
       // The stored value is ciphertext; this file's `decrypt` mock strips
       // the "encrypted:" prefix, so build the token the same way.
+      //
+      // FIELD NAMES MATTER. This fixture used to say
+      // `{accessToken, refreshToken, expiresAt}` — a shape EZCorp has never
+      // persisted. The real stored blob is pi-ai's `OAuthCredentials`
+      // (`access` / `refresh` / `expires`), which is what
+      // `credentials.ts` has always parsed and what
+      // `openai-extension-creds.ts` reads. The wrong names went unnoticed
+      // because nothing validated them: `expires` came back `undefined`,
+      // every comparison against it was false, and the expiry branch was
+      // simply skipped. pi-ai 0.83.0 resolves the credential for real, so an
+      // invented shape now reads as an expired token and triggers a refresh.
       const oauthBlob =
         "encrypted:" +
-        JSON.stringify({ accessToken: "tok", refreshToken: "r", expiresAt: Date.now() + 3_600_000 });
+        JSON.stringify({ access: "tok", refresh: "r", expires: Date.now() + 3_600_000 });
       mockGetSetting.mockImplementation(((key: string) =>
         Promise.resolve(
           key === "provider:accessMode:openai"

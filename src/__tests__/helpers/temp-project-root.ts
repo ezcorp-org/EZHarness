@@ -4,14 +4,14 @@
  * WHY THIS EXISTS
  * ───────────────
  * Anything that persists extension state resolves its base directory
- * through `getProjectRoot()` (`src/extensions/bundled.ts`) and lands under
+ * through `getProjectRoot()` (`src/extensions/project-root.ts`) and lands under
  * `<projectRoot>/.ezcorp/extension-data/…` — the binding layout in
  * `src/extensions/CLAUDE.md`. A test that exercises that write path
  * therefore writes into the REAL checkout unless it moves the root.
  *
  * `process.chdir(tmp)` does NOT move it. `getProjectRoot()` resolves in the
  * order env → `import.meta.dir` → `.git` walk-up → cwd, and step 2 always
- * hits: `bundled.ts` literally lives in `src/extensions/`, so its own
+ * hits: `project-root.ts` literally lives in `src/extensions/`, so its own
  * module path pins the answer to the real repo before cwd is ever
  * consulted (that anchoring is deliberate — see
  * `src/__tests__/ez-drafts-project-root-anchor.test.ts`). A chdir-based

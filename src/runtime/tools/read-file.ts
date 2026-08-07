@@ -1,7 +1,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef } from "./types";
+import type { BuiltinToolDef  } from "./types";
 import { getToolOutputLimit, truncateText } from "./output-limits";
+import type { ToolParams } from "./validate";
 
 export function createReadFileTool(projectPath: string): BuiltinToolDef {
   return {
@@ -17,7 +18,7 @@ export function createReadFileTool(projectPath: string): BuiltinToolDef {
       },
       required: ["path"],
     }),
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const resolved = validatePath(projectPath, params.path);
         const raw = await Bun.file(resolved).text();
@@ -26,8 +27,8 @@ export function createReadFileTool(projectPath: string): BuiltinToolDef {
           content: [{ type: "text" as const, text }],
           details: truncated ? { truncated: true, originalBytes } : {},
         };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], details: { isError: true } };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
       }
     },
   };

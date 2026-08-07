@@ -49,6 +49,7 @@ export interface ContextsCompletionDeps {
   // (they carry no runtime code), dropping this file below its 100% line
   // threshold on the merged host-pool run.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // biome-ignore lint/suspicious/noExplicitAny: a test seam for pi-ai's `completeLLM`, whose model/context/result types are the provider-generic pi-ai ones (see AnyModel). Must stay ONE line — a multi-line arrow type makes Bun's coverage instrumenter attribute the wrapping lines as uncovered statements and drops this file below its 100% threshold.
   completeFn?: (piModel: any, context: any, opts?: { conversationId?: string }) => Promise<any>;
 }
 
@@ -119,6 +120,7 @@ async function runSidecar(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: an assistant message's `content`, which pi-ai types per provider API; this reads only the text parts and guards every access, so narrowing it would require naming every provider's content union.
 function extractText(content: any): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {

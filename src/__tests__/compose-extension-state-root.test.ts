@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { dirname, join } from "node:path";
 import { resolveProjectRoot } from "../extensions/bundled";
+import { appVolumes, targetOf, targets, targetsOf } from "./helpers/compose-volumes";
 
 /**
  * Locks the compose bind targets for extension state to the root that
@@ -43,49 +44,6 @@ import { resolveProjectRoot } from "../extensions/bundled";
  * deliberate — this test pins which subtree belongs to which root rather
  * than collapsing them.
  */
-
-const ROOT = join(import.meta.dir, "..", "..");
-
-interface ComposeService {
-  volumes?: string[];
-}
-
-async function appVolumes(relPath: string): Promise<string[]> {
-  const text = await Bun.file(join(ROOT, relPath)).text();
-  const compose = Bun.YAML.parse(text) as {
-    services?: Record<string, ComposeService>;
-  };
-  const vols = compose.services?.app?.volumes;
-  expect(vols).toBeDefined();
-  return vols!;
-}
-
-/**
- * Target (container) side of the bind whose source is `source`. Compose
- * short syntax is `<source>:<target>[:<mode>]`.
- */
-function targetOf(volumes: readonly string[], source: string): string | undefined {
-  for (const v of volumes) {
-    const [src, target] = v.split(":");
-    if (src === source) return target;
-  }
-  return undefined;
-}
-
-/** Every container-side path in the list (for "nothing targets X" checks). */
-function targets(volumes: readonly string[]): string[] {
-  return volumes.map((v) => v.split(":")[1] ?? "");
-}
-
-/** ALL targets for `source` — extension-data is deliberately bound twice. */
-function targetsOf(volumes: readonly string[], source: string): string[] {
-  const out: string[] = [];
-  for (const v of volumes) {
-    const [src, target] = v.split(":");
-    if (src === source && target) out.push(target);
-  }
-  return out;
-}
 
 /**
  * The project root the SHIPPED resolver derives from the container layout

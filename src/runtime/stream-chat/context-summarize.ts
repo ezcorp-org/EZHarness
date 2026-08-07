@@ -39,7 +39,7 @@ import type {
   Context,
   SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import type { Model as PiModel } from "../../types";
+import type { AnyModel } from "../../providers/model-types";
 import { logger } from "../../logger";
 import {
   estimateMessageTokens,
@@ -53,8 +53,10 @@ import {
   type SummarizeFn,
 } from "./context-compaction";
 
-/** pi-ai's `Model` is generic over its API; we only read metadata. */
-type Model = PiModel<any>;
+/** pi-ai's `Model` is generic over its API; we only read metadata off it.
+ *  `AnyModel` is the shared alias that carries the reason that parameter
+ *  can't be narrowed (src/providers/model-types.ts). */
+type Model = AnyModel;
 const log = logger.child("compaction.summarize");
 
 /** Token pad reserved for the summary marker's prefix text (on top of the

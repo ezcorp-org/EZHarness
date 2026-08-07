@@ -38,8 +38,9 @@
  * exists for documentation and parallels add-github-projects.ts.
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
-export async function up(db: any): Promise<void> {
+export async function up(db: MigrationDb): Promise<void> {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS extension_secrets (
       id TEXT PRIMARY KEY,

@@ -92,11 +92,12 @@ The catalog is a host concern, not a user-facing API surface — there is no "in
 - **Manual local install** (for examples / dev): `ezcorp ext install ./docs/extensions/examples/<name>`.
 - **Bundled credential injection:** `bootstrapBundledCredentials` (host-internal creds) and `wireOpenAIExtensionCredentials` (BYOK OpenAI) populate the subprocess env for the `envEscapeHatch` extensions.
 
-Exported helpers from `src/extensions/bundled.ts`: `isBundledExtensionName(name)` (registry skips the integrity check for bundled names), `getCriticalBundledExtensions()`, `getBundledExtensionPath(name)`, `resolveBundledExtensions(env)`, `getProjectRoot()`.
+Exported helpers from `src/extensions/bundled.ts`: `isBundledExtensionName(name)` (registry skips the integrity check for bundled names), `getCriticalBundledExtensions()`, `getBundledExtensionPath(name)`, `resolveBundledExtensions(env)`. `getProjectRoot()` is also re-exported from here for back-compat, but it **lives in `src/extensions/project-root.ts`** — import it from there in new code.
 
 ## Key files
 
-- `src/extensions/bundled.ts` — `BUNDLED_EXTENSIONS` array, `ensureBundledExtensions()`, drift/version/tamper/heal pipeline, `bootSpawnFlaggedBundledExtensions()`, `DISABLE_FLAGS`, `getProjectRoot()`.
+- `src/extensions/bundled.ts` — `BUNDLED_EXTENSIONS` array, `ensureBundledExtensions()`, drift/version/tamper/heal pipeline, `bootSpawnFlaggedBundledExtensions()`, `DISABLE_FLAGS`.
+- `src/extensions/project-root.ts` — `getProjectRoot()` / `resolveProjectRoot()` (re-exported from `bundled.ts`); see [[projects]].
 - `src/extensions/bundled-ceiling.ts` — `BUNDLED_CEILING` table, `clampToBundledCeiling()`, `getCeiling()`, permission canonicalization.
 - `src/extensions/bundled-lock.ts` — `manifest.lock.json` verification (`verifyManifestAgainstLock`, `canonicalizeAndHash`) **plus** the separate S9 re-approval signature (`canonicalizeAndHashForReapproval`, `NON_SEMANTIC_TOOL_FIELDS`).
 - `src/extensions/clamp-permissions.ts` — `checkEnvKeyLeakInstallGate` (`*_API_KEY` install gate; honors `envEscapeHatch` for bundled).

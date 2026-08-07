@@ -60,11 +60,13 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     name,
     description: manifest.description,
     prompt: manifest.agent.prompt,
+    // biome-ignore lint/suspicious/noExplicitAny: a marketplace manifest is untrusted third-party JSON; the field is re-validated by the agent-config writer, so the cast is the boundary, not a claim about the value.
     capabilities: manifest.agent.capabilities as any,
     category: manifest.agent.category,
     temperature: manifest.agent.temperature,
     maxTokens: manifest.agent.maxTokens,
     outputFormat: manifest.agent.outputFormat,
+    // biome-ignore lint/suspicious/noExplicitAny: untrusted marketplace manifest JSON — same boundary as `capabilities` above.
     inputSchema: manifest.agent.inputSchema as any,
     userId: user.id,
   });

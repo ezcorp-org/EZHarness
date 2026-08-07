@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { getDb } from "../connection";
+import type { DbTransaction } from "../connection";
 import { agentConfigs, users } from "../schema";
 import { insertAuditEntry } from "./audit-log";
 
@@ -41,7 +42,7 @@ export async function deactivateUserAndTransferAgents(
 ): Promise<boolean> {
   // `tx` is `any` by the deliberate repo-wide `Database = any` design in
   // connection.ts (see the same annotation in conversations.ts).
-  const existed: boolean = await getDb().transaction(async (tx: any) => {
+  const existed: boolean = await getDb().transaction(async (tx: DbTransaction) => {
     await tx
       .update(agentConfigs)
       .set({ userId: adminId, updatedAt: new Date() })

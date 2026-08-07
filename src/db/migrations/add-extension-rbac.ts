@@ -42,8 +42,9 @@
  * exists for documentation and parallels add-extension-secrets.ts.
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
-export async function up(db: any): Promise<void> {
+export async function up(db: MigrationDb): Promise<void> {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS extension_rbac_grants (
       id TEXT PRIMARY KEY,

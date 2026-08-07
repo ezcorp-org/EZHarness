@@ -164,7 +164,8 @@ export async function getSystemHealth() {
   let dbSizeBytes = 0;
   try {
     const sizeResult = await db.execute(sql`SELECT pg_database_size(current_database()) AS size`);
-    dbSizeBytes = Number((sizeResult as any).rows?.[0]?.size ?? 0);
+    const sized = sizeResult as { rows?: Array<{ size?: number | string }> };
+    dbSizeBytes = Number(sized.rows?.[0]?.size ?? 0);
   } catch {
     dbSizeBytes = 0;
   }

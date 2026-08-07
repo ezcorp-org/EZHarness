@@ -13,6 +13,7 @@ import {
   touchLastUsed,
 } from "../db/queries/extension-secrets";
 import type { SecretMeta, SecretScope } from "../db/queries/extension-secrets";
+import type { MigrationDb } from "../db/migrations/types";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { extensionLogger } from "../logger";
@@ -218,11 +219,9 @@ function parseGhProjectId(key: string): string {
  * goes through the passed executor.
  */
 export async function backfillGithubProjectsApiTokens(
-  // Accepts the migrate `db` handle OR getDb(); both expose `.execute(sql\`…\`)`.
-  // Typed `any` to match migrate.ts's own `db: any` handle (the github-projects
-  // backfill / queries do the same) rather than fight drizzle's generic shape.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  executor: any = getDb(),
+  // Accepts the migrate `db` handle OR getDb(); both expose `.execute(sql\`…\`)`,
+  // which is the whole of `MigrationDb` and the whole of what this needs.
+  executor: MigrationDb = getDb(),
 ): Promise<{ migrated: number; cleared: number }> {
   const selected = (await executor.execute(SELECT_GH_PAT_KEYS)) as { rows?: Array<{ key: string; value: unknown }> };
   const rows = selected.rows ?? [];

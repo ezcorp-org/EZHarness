@@ -383,10 +383,8 @@ describe("sweepOrphanVeths", () => {
       (c) => c.action === EXT_AUDIT_ACTIONS.MCP_VETH_ORPHAN_SWEPT,
     );
     expect(row?.metadata?.count).toBe(2);
-    expect((row?.metadata?.names as string[]).sort()).toEqual([
-      "mcp-cafef00d",
-      "mcp-deadbeef",
-    ]);
+    const sweptNames = row?.metadata?.names as string[] | undefined;
+    expect(sweptNames?.sort()).toEqual(["mcp-cafef00d", "mcp-deadbeef"]);
   });
 
   test("interleaved non-matching names (mcp-deadbeefXX is 14 chars → NOT swept)", async () => {
