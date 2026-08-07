@@ -24,6 +24,7 @@
 
 import type { Page } from "@playwright/test";
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Parity Project" });
@@ -100,13 +101,13 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 			messages: [],
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		// NB: the empty-state text is in the SSR payload, so it is NOT a
+		// readiness signal — sendComposerMessage owns the real wait.
 		await expect(
 			page.getByText("Send a message to start the conversation"),
 		).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Pinned hello");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Pinned hello");
 
 		await expect(thread(page).getByText("Pinned hello")).toBeVisible({
 			timeout: 5000,
@@ -128,8 +129,7 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 			page.getByText("Send a message to start the conversation"),
 		).toBeVisible();
 
-		await page.locator("textarea").fill("Stream please");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Stream please");
 
 		// Wait for the user turn so the POST has resolved and the page has
 		// called startStreaming("run-stream", convId) for the assistant

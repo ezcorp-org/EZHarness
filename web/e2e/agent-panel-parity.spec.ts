@@ -19,6 +19,7 @@
  */
 
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Agent Parity Project" });
@@ -212,12 +213,8 @@ test.describe("Agent sub-chat panel parity (Phase 5)", () => {
 		// openPanel already asserts the panel opened (no silent skip).
 		await expect(panel).toBeVisible();
 
-		const textarea = panel.locator("textarea");
-		await expect(textarea).toBeVisible({ timeout: 5000 });
-		await textarea.fill("follow-up");
-		await panel
-			.getByRole("button", { name: "Send message" })
-			.click();
+		await expect(panel.locator("textarea")).toBeVisible({ timeout: 5000 });
+		await sendComposerMessage(panel, "follow-up");
 		await expect(panel.getByText("follow-up")).toBeVisible({
 			timeout: 5000,
 		});
