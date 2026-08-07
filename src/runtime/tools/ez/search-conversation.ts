@@ -133,8 +133,8 @@ export function createSearchConversationTool(ctx: SearchConversationContext): Bu
           content: [{ type: "text" as const, text: formatHits(query, hits) }],
           details: { query, conversationId: conversationId || undefined, count: hits.length },
         };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], details: { isError: true } };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
       }
     },
   };

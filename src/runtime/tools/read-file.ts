@@ -26,8 +26,8 @@ export function createReadFileTool(projectPath: string): BuiltinToolDef {
           content: [{ type: "text" as const, text }],
           details: truncated ? { truncated: true, originalBytes } : {},
         };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], details: { isError: true } };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
       }
     },
   };

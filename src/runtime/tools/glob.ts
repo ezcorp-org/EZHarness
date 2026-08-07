@@ -52,9 +52,9 @@ export function createGlobTool(projectPath: string): BuiltinToolDef {
           content: [{ type: "text" as const, text }],
           details: { fileCount: files.length, truncated },
         };
-      } catch (e: any) {
+      } catch (e) {
         return {
-          content: [{ type: "text" as const, text: `Error: ${e.message}` }],
+          content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }],
           details: { isError: true, fileCount: 0, truncated: false },
         };
       }

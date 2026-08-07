@@ -220,8 +220,8 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
           content: [{ type: "text" as const, text: summary }],
           details,
         };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], details: { isError: true } };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
       }
     },
   };

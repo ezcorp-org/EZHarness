@@ -27,8 +27,8 @@ export function createListFilesTool(projectPath: string): BuiltinToolDef {
           items = items.filter(name => glob.match(name.replace(/\/$/, "")));
         }
         return { content: [{ type: "text" as const, text: items.join("\n") || "(empty directory)" }], details: {} };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], details: { isError: true } };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
       }
     },
   };

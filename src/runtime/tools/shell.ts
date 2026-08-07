@@ -292,10 +292,11 @@ export function createShellTool(
           content: [{ type: "text" as const, text: fullOutput || "(no output)" }],
           details: { exitCode: result.exitCode, stdout: output, stderr, streaming: false, truncated },
         };
-      } catch (e: any) {
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
         return {
-          content: [{ type: "text" as const, text: `Error: ${e.message}` }],
-          details: { exitCode: -1, stdout: "", stderr: e.message, streaming: false, isError: true },
+          content: [{ type: "text" as const, text: `Error: ${message}` }],
+          details: { exitCode: -1, stdout: "", stderr: message, streaming: false, isError: true },
         };
       }
     },

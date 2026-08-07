@@ -44,8 +44,8 @@ export function createReadDirectoryTool(projectPath: string): BuiltinToolDef {
 
         await walk(dir, "", 1);
         return { content: [{ type: "text" as const, text: lines.join("\n") || "(empty directory)" }], details: {} };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], details: { isError: true } };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
       }
     },
   };
