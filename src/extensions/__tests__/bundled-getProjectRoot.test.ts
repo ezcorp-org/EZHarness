@@ -1,6 +1,13 @@
 /**
- * Unit tests for `getProjectRoot()` / `resolveProjectRoot()` in
- * `src/extensions/bundled.ts`.
+ * Unit tests for `getProjectRoot()` / `resolveProjectRoot()`.
+ *
+ * The implementation lives in `src/extensions/project-root.ts`; this suite
+ * deliberately imports it through `../bundled` (which re-exports it), so it
+ * doubles as the regression pin on that shim — the ~40 existing
+ * `from ".../extensions/bundled"` importers must keep resolving. The seams
+ * this file structurally can't reach (the cwd-fallback WARN, the
+ * `import.meta.url` secondary signal, the walk-up iteration cap) are covered
+ * by `./project-root.test.ts`.
  *
  * The function is the choke-point for every bundled-extension on-disk
  * lookup. Under SvelteKit's vite-bundled server (vite preview), the

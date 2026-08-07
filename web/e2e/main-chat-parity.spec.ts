@@ -13,19 +13,42 @@
  * send → optimistic render, select-mode entry, URL leaf survival on
  * reload. Mocked API + WS via the shared e2e fixtures — same harness the
  * rest of `web/e2e/chat-*.spec.ts` uses.
+ *
+ * `@evidence`: this is the ONLY spec that renders the whole thread —
+ * populated history, branch resolution, and the live streaming state. The
+ * other specs mapped to `ChatThread.svelte` in `web/e2e/evidence-covers.json`
+ * are narrow feature pins (A/B retry, model selection, arrow-key nav) that
+ * never photograph the message list itself, so a thread-render regression
+ * could previously satisfy the visual gate through an unrelated spec.
  */
 
-import { test, expect } from "./fixtures/test-base.js";
+import type { Page } from "@playwright/test";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
+import { longPressTouch } from "./fixtures/gestures.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Parity Project" });
 const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
 
+/**
+ * The rendered thread. SCOPE text assertions about a just-SENT turn to this
+ * container: sending the first message re-titles the conversation, and the
+ * sidebar's conversation-list button then carries the same text ("Pinned hello
+ * 218d ago"). A page-wide `getByText` races that refresh and dies on a strict-
+ * mode violation (measured ~14% of runs before this scoping). The thread is
+ * also what these cases are actually pinning — the sidebar title is a
+ * different surface with its own spec.
+ */
+function thread(page: Page) {
+	return page.getByTestId("chat-messages-container");
+}
+
 test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
-	test("branched tree renders the latest sibling branch by default", async ({
+	test("branched tree renders the latest sibling branch by default @evidence", async ({
 		page,
 		mockApi,
-	}) => {
+	}, testInfo) => {
 		// u1 has two assistant children; the newer (a1b) branch is default.
 		const u1 = makeMessage({
 			id: "u1",
@@ -63,6 +86,10 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 		await expect(page.getByText("Newer answer B")).toBeVisible();
 		await expect(page.getByText("Older answer A")).not.toBeVisible();
 		await expect(page.getByText("Question one")).toBeVisible();
+
+		// The whole thread, rendered: user + assistant bubbles, the branch
+		// switcher, and the composer beneath them.
+		await captureEvidence(page, testInfo, "chat-thread-branched-render");
 	});
 
 	test("send message renders the user turn (optimistic → server)", async ({
@@ -75,24 +102,24 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 			messages: [],
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+		// NB: the empty-state text is in the SSR payload, so it is NOT a
+		// readiness signal — sendComposerMessage owns the real wait.
 		await expect(
 			page.getByText("Send a message to start the conversation"),
 		).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Pinned hello");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Pinned hello");
 
-		await expect(page.getByText("Pinned hello")).toBeVisible({
+		await expect(thread(page).getByText("Pinned hello")).toBeVisible({
 			timeout: 5000,
 		});
 	});
 
-	test("active WS run binds the streaming UI (stop control appears)", async ({
+	test("active WS run binds the streaming UI (stop control appears) @evidence", async ({
 		page,
 		mockApi,
 		emitWs,
-	}) => {
+	}, testInfo) => {
 		await mockApi({
 			projects: [proj],
 			conversations: [conv],
@@ -103,13 +130,12 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 			page.getByText("Send a message to start the conversation"),
 		).toBeVisible();
 
-		await page.locator("textarea").fill("Stream please");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Stream please");
 
 		// Wait for the user turn so the POST has resolved and the page has
 		// called startStreaming("run-stream", convId) for the assistant
 		// placeholder it just appended.
-		await expect(page.getByText("Stream please")).toBeVisible({
+		await expect(thread(page).getByText("Stream please")).toBeVisible({
 			timeout: 5000,
 		});
 
@@ -129,6 +155,12 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 		await expect(
 			page.getByRole("button", { name: /stop/i }),
 		).toBeVisible({ timeout: 8000 });
+
+		// The thread's streaming state: the pending-turn skeleton +
+		// "Thinking…" placeholder and the Stop control the streaming
+		// binding drives. (Rendered token text is a separate surface —
+		// this shot is the pre-first-token state.)
+		await captureEvidence(page, testInfo, "chat-thread-streaming");
 	});
 
 	test("assistant turn exposes regenerate; user turn exposes edit", async ({
@@ -282,25 +314,28 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Selectable one")).toBeVisible();
 
-		// Long-press a message to enter select-mode (the page's
-		// long-press → useSelectMode.toggleSelectMode trigger). Use a
-		// slow pointer press to synthesise the long-press.
-		const bubble = page.getByText("Selectable one");
-		const box = await bubble.boundingBox();
-		if (box) {
-			await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-			await page.mouse.down();
-			await page.waitForTimeout(800);
-			await page.mouse.up();
-		}
+		// NEGATIVE CONTROL first: without it the positive assertion below
+		// cannot distinguish "select-mode engaged" from "the bar was
+		// always there".
+		await expect(page.getByTestId("select-action-bar")).toHaveCount(0);
 
-		// Select-mode is active → the bulk-action affordance appears
-		// (a "Cancel"/"selected" control from SelectModeActionBar). We
-		// assert resiliently: either the action bar or a selection
-		// count becomes visible.
-		const selectionUi = page
-			.getByText(/selected|Cancel|Select/i)
-			.first();
-		await expect(selectionUi).toBeVisible({ timeout: 5000 });
+		// Long-press the message ROW to enter select-mode (the page's
+		// long-press → useSelectMode.toggleSelectMode trigger). It has to
+		// be a TOUCH-typed pointer: `use:longPress` excludes mouse by
+		// default, so the old `page.mouse.down()` hold never armed the
+		// action's timer and this case entered select-mode zero times.
+		await longPressTouch(page.locator('[data-message-id="m1"]'));
+
+		// Select-mode is active → SelectModeActionBar replaces the
+		// composer, reporting exactly the one pressed turn. Pinned by
+		// testid: the previous `getByText(/selected|Cancel|Select/i)`
+		// matched the FIXTURE's own "Selectable one" bubble (unanchored
+		// `/Select/i`), which the assertion four lines up had already
+		// proven visible — so it passed with select-mode deleted.
+		await expect(page.getByTestId("select-action-bar")).toBeVisible({
+			timeout: 5000,
+		});
+		await expect(page.getByTestId("selected-count")).toHaveText("1");
+		await expect(page.getByTestId("select-checkbox-m1")).toBeVisible();
 	});
 });
