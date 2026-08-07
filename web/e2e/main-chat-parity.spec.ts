@@ -25,6 +25,7 @@
 import type { Page } from "@playwright/test";
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { sendComposerMessage } from "./fixtures/composer.js";
+import { longPressTouch } from "./fixtures/gestures.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Parity Project" });
@@ -313,25 +314,28 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Selectable one")).toBeVisible();
 
-		// Long-press a message to enter select-mode (the page's
-		// long-press → useSelectMode.toggleSelectMode trigger). Use a
-		// slow pointer press to synthesise the long-press.
-		const bubble = page.getByText("Selectable one");
-		const box = await bubble.boundingBox();
-		if (box) {
-			await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-			await page.mouse.down();
-			await page.waitForTimeout(800);
-			await page.mouse.up();
-		}
+		// NEGATIVE CONTROL first: without it the positive assertion below
+		// cannot distinguish "select-mode engaged" from "the bar was
+		// always there".
+		await expect(page.getByTestId("select-action-bar")).toHaveCount(0);
 
-		// Select-mode is active → the bulk-action affordance appears
-		// (a "Cancel"/"selected" control from SelectModeActionBar). We
-		// assert resiliently: either the action bar or a selection
-		// count becomes visible.
-		const selectionUi = page
-			.getByText(/selected|Cancel|Select/i)
-			.first();
-		await expect(selectionUi).toBeVisible({ timeout: 5000 });
+		// Long-press the message ROW to enter select-mode (the page's
+		// long-press → useSelectMode.toggleSelectMode trigger). It has to
+		// be a TOUCH-typed pointer: `use:longPress` excludes mouse by
+		// default, so the old `page.mouse.down()` hold never armed the
+		// action's timer and this case entered select-mode zero times.
+		await longPressTouch(page.locator('[data-message-id="m1"]'));
+
+		// Select-mode is active → SelectModeActionBar replaces the
+		// composer, reporting exactly the one pressed turn. Pinned by
+		// testid: the previous `getByText(/selected|Cancel|Select/i)`
+		// matched the FIXTURE's own "Selectable one" bubble (unanchored
+		// `/Select/i`), which the assertion four lines up had already
+		// proven visible — so it passed with select-mode deleted.
+		await expect(page.getByTestId("select-action-bar")).toBeVisible({
+			timeout: 5000,
+		});
+		await expect(page.getByTestId("selected-count")).toHaveText("1");
+		await expect(page.getByTestId("select-checkbox-m1")).toBeVisible();
 	});
 });
