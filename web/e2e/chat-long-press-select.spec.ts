@@ -21,6 +21,7 @@
 
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { longPressTouch } from "./fixtures/gestures.js";
 
 test.describe("Chat row long-press → select mode (mobile)", () => {
 	test.use({ viewport: { width: 375, height: 812 }, hasTouch: true });
@@ -65,26 +66,6 @@ test.describe("Chat row long-press → select mode (mobile)", () => {
 				createdAt: "2026-04-01T00:03:00.000Z",
 			}),
 		];
-	}
-
-	/**
-	 * Synthesize a touch hold by dispatching a `pointerdown` (pointerType:
-	 * touch), waiting past the longPress delay (500ms default + safety
-	 * buffer), then `pointerup`. The action's setTimeout is real, so we
-	 * have to actually wait — vitest fake timers aren't available in e2e.
-	 */
-	async function longPressTouch(locator: ReturnType<typeof Object>): Promise<void> {
-		// `locator` is a Playwright Locator — typed loosely to keep the
-		// helper concise. dispatchEvent throws if the element isn't in the
-		// DOM, so callers should ensure the row is rendered first.
-		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const loc = locator as any;
-		await loc.dispatchEvent("pointerdown", { pointerType: "touch", clientX: 10, clientY: 10 });
-		// 500ms default delay + 200ms buffer. Action's timer fires inside
-		// this window; subsequent pointerup is a no-op for the gesture but
-		// keeps the DOM state clean.
-		await loc.page().waitForTimeout(700);
-		await loc.dispatchEvent("pointerup", { pointerType: "touch", clientX: 10, clientY: 10 });
 	}
 
 	test("long-press on a turn auto-enters select mode and selects that turn", async ({ page, mockApi }) => {

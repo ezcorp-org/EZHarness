@@ -21,7 +21,24 @@ The authoring surface is `@ezcorp/sdk` (`defineExtension` + runtime helpers,
   `page-schema.ts` / `panel-validator.ts` / `page-cache.ts`,
   `web/src/lib/server/hub-extension-pages.ts`).
 - **Install/registry/manifest** — `installer.ts`, `registry.ts`, `manifest.ts`,
-  `bundled.ts`, `dependency-resolver.ts`.
+  `bundled.ts` (the `BUNDLED_EXTENSIONS` registry + `ensureBundledExtensions()`
+  reconcile engine), `dependency-resolver.ts`.
+- **Project-root resolution** — `project-root.ts` owns `getProjectRoot()` /
+  `resolveProjectRoot()` (env → `import.meta` → `.git` walk-up → cwd, cached
+  per process). `bundled.ts` re-exports them so pre-existing importers needed
+  no edit, but **new code imports `./project-root` directly**. Keep that
+  module's dependencies to `../logger` + node builtins — pinned by the
+  "static import closure" test in `__tests__/project-root.test.ts`. It sat
+  inside `bundled.ts` until 2026-08, and because `bundled.ts` reaches
+  `db/queries/extensions.ts → db/connection.ts → migrate.ts`, both
+  `src/db/migrate.ts` and `src/startup/background-timers.ts` had to fetch
+  `getProjectRoot` by dynamic `import()` to keep that cycle open. Adding a
+  DB/registry import here brings the workaround back.
+  Note for anyone reading the resolution order: **step 4 (the `process.cwd()`
+  fallback) is the path the shipped container takes on every boot**, so its
+  WARN is expected output, not an incident. Steps 1–3 are dev/test/vitest
+  paths. Details + the image-level evidence:
+  [platform/projects.md](../../docs/features/platform/projects.md).
 
 ## Extension data (binding)
 

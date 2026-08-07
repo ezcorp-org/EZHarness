@@ -22,6 +22,15 @@ import { onPreviewDetected } from "../runtime/preview/preview-detection-bridge";
 import { getRegisteredPreviewBus } from "../runtime/preview/preview-bus-registry";
 import { resolvePreviewAppHost } from "../runtime/preview/preview-proxy";
 import type { PreviewPortSource } from "../runtime/preview/preview-port-source";
+// Static import: `project-root.ts` depends only on `../logger` and node
+// builtins. This was a dynamic `import("../extensions/bundled")` inside
+// the file-organizer bootstrap for as long as the resolver lived in
+// bundled.ts — that module drags the whole DB/extension graph in behind
+// it (db/queries/extensions → db/connection → migrate), which is why
+// fetching a filesystem path from it was worth deferring here, and why
+// src/db/migrate.ts had to defer it to avoid an outright cycle. Neither
+// reason survives the split.
+import { getProjectRoot } from "../extensions/project-root";
 import { logger } from "../logger";
 
 const log = logger.child("startup.timers");
@@ -391,7 +400,6 @@ export async function startBackgroundTimers(): Promise<void> {
     if (ext?.enabled) {
       const settings = await resolveFileOrganizerSettings(ext.id);
       if (settings.daemonEnabled) {
-        const { getProjectRoot } = await import("../extensions/bundled");
         const { join } = await import("node:path");
         const { getPermissionEngine } = await import("../extensions/permission-engine");
         const { getPageCache } = await import("../extensions/page-cache");

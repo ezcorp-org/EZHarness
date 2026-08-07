@@ -3,7 +3,12 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, rm, rmdir, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join } from "node:path";
 import { getDb } from "../connection";
-import { getProjectRoot } from "../../extensions/bundled";
+// From `extensions/project-root` (the resolver's own module), NOT from
+// `extensions/bundled` which merely re-exports it: bundled.ts reaches
+// `db/queries/extensions.ts → db/connection.ts → migrate.ts`, so importing
+// it from a `db/queries/*` file drags the whole extension graph into the DB
+// layer for what is only a filesystem path.
+import { getProjectRoot } from "../../extensions/project-root";
 import { ezDrafts } from "../schema";
 import { logger } from "../../logger";
 

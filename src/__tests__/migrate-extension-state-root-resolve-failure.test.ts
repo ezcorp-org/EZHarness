@@ -10,9 +10,12 @@ import * as schema from "../db/schema";
  * The fail-safe half of the extension-state-root normalization.
  *
  * migrate() needs the project root to scope the rewrite, and reaches
- * `getProjectRoot()` by dynamic import (a static one would close the cycle
- * migrate.ts → bundled.ts → db/queries/extensions.ts → db/connection.ts →
- * migrate.ts). If that resolution ever throws, the choice is:
+ * `getProjectRoot()` by a STATIC import of `../extensions/project-root`
+ * (that module depends only on `../logger`; the resolver used to live in
+ * `../extensions/bundled`, where a static import would have closed the
+ * cycle migrate.ts → bundled.ts → db/queries/extensions.ts →
+ * db/connection.ts → migrate.ts). If that resolution ever throws, the
+ * choice is:
  *
  *   - fail the boot — but a migrate() throw trips the rollback-and-exit
  *     circuit breaker in db/connection.ts, taking the whole deployment
@@ -34,13 +37,13 @@ import * as schema from "../db/schema";
 
 const RESOLVE_ERROR = "simulated getProjectRoot() failure";
 
-mock.module("../extensions/bundled", () => ({
+mock.module("../extensions/project-root", () => ({
   getProjectRoot: () => {
     throw new Error(RESOLVE_ERROR);
   },
 }));
 
-// Imported AFTER the mock is registered so migrate()'s dynamic import
+// Imported AFTER the mock is registered so migrate()'s static import
 // resolves to it.
 const { migrate } = await import("../db/migrate");
 
