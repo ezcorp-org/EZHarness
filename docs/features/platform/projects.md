@@ -6,7 +6,7 @@
 
 A **project** is the workspace a conversation runs against. Each project row carries a name, a filesystem `path`, an icon, and a free-form `variables` bag. The `path` is the single source of truth for *where on disk* an agent's file tools may read and write — every built-in file tool and the `@`-mention file scanner are parameterized by the active conversation's project path. Per-project tool-permission modes let an operator dial the approval friction (`ask` / `auto-edit` / `yolo`) independently per workspace.
 
-Separately and confusingly named, `getProjectRoot()` in `src/extensions/bundled.ts` resolves the **EZCorp install root** — the directory containing `docs/extensions/examples/`. This is host infrastructure (bundled-extension lookup, `$CWD` grant base), **not** a user project path. The two never coincide except by accident.
+Separately and confusingly named, `getProjectRoot()` in `src/extensions/project-root.ts` (re-exported from `src/extensions/bundled.ts`, where it used to live) resolves the **EZCorp install root** — the directory containing `docs/extensions/examples/`. This is host infrastructure (bundled-extension lookup, `$CWD` grant base), **not** a user project path. The two never coincide except by accident.
 
 ## How it works
 
@@ -26,12 +26,12 @@ Separately and confusingly named, `getProjectRoot()` in `src/extensions/bundled.
 
 ### The install-root resolver (host-internal, unrelated)
 
-9. `getProjectRoot()` / `resolveProjectRoot()` (`src/extensions/bundled.ts`) resolve the EZCorp checkout root, first-match-wins:
+9. `getProjectRoot()` / `resolveProjectRoot()` (`src/extensions/project-root.ts`, re-exported from `src/extensions/bundled.ts` so pre-existing importers needed no edit) resolve the EZCorp checkout root, first-match-wins:
    1. `EZCORP_PROJECT_ROOT` env var — accepted only if it exists **and** contains `docs/extensions/examples/` (a stale/typo'd value falls through rather than failing closed).
    2. substring match on `import.meta.dir` / `import.meta.url` containing `src/extensions` (direct `bun src/...` runs).
    3. `.git` walk-up from the meta dir then `process.cwd()`, accepted only if the result contains `docs/extensions/examples/` (needed under `vite preview`, where the bundler rewrites `import.meta.url`).
    4. `process.cwd()` fallback with a WARN log.
-   The result is cached process-lifetime (`__resetProjectRootCacheForTests` resets it for tests).
+   The result is cached process-lifetime (`__resetProjectRootCacheForTests` resets it for tests). **Step 4 is what the shipped container actually takes** — see the gotcha below; steps 1–3 are dev/test paths.
 10. **Consumers**: `ensureBundledExtensions()` joins `getProjectRoot()` with each bundled entry's `path` to load its on-disk manifest; the `$CWD` extension-grant token expands to `getProjectRoot()` via `grantCwdBase()` in `src/extensions/permissions.ts` (`expandGrantPrefix`); the registry injects `EZCORP_EXTENSION_DATA_ROOT = getProjectRoot()` into extension subprocess env. In production the host cwd already **is** the install root (`/app`), so `$CWD` → project-root is a no-op there; it only matters under the vite-SSR dev server where host cwd is `/app/web`.
 
 ## Usage
@@ -77,7 +77,8 @@ Separately and confusingly named, `getProjectRoot()` in `src/extensions/bundled.
 - `web/src/routes/api/conversations/[id]/messages/+server.ts` — loads `getProject(conv.projectId)`, passes `project.path` as `projectRoot` to the runtime.
 - `src/runtime/tools/validate.ts` — `validatePath` lexical containment against `projectRoot`.
 - `src/runtime/fs/scan-fs.ts` — `realpathInsideRoot` (realpath-based scanner containment).
-- `src/extensions/bundled.ts` — `getProjectRoot` / `resolveProjectRoot` install-root resolver + `BUNDLED_EXTENSIONS`.
+- `src/extensions/project-root.ts` — `getProjectRoot` / `resolveProjectRoot` install-root resolver (only dependency: `src/logger.ts`).
+- `src/extensions/bundled.ts` — `BUNDLED_EXTENSIONS`; re-exports the resolver above so existing `from ".../extensions/bundled"` importers keep working.
 - `src/extensions/permissions.ts` — `grantCwdBase` / `expandGrantPrefix` ($CWD → install root).
 - `web/src/lib/components/ProjectForm.svelte`, `ProjectPicker.svelte`, `ProjectRail.svelte`, `PermissionModeIndicator.svelte` — UI.
 - `web/src/lib/api.ts`, `web/src/lib/stores.svelte.ts` — client helpers + `activeProjectId` store.
@@ -112,4 +113,7 @@ Separately and confusingly named, `getProjectRoot()` in `src/extensions/bundled.
 - **`activeProjectId === "global"`** is a sentinel for cross-project surfaces (memories, Cmd+K search), not a real project id — guard for it before treating it as a uuid.
 - **`[id]` is not a project id.** `/extensions/[id]`, `/extensions/[id]/audit`, `/marketplace/[id]` and `/runs/[id]` all declare the same route param name as `/project/[id]`. The `(app)` layout's URL sync therefore parses the **pathname** (`projectIdFromPath`, which returns null for every non-project route) — reading `page.params.id` there wrote an extension / listing / run id into `activeProjectId` and kicked the user out of their project (fixed; regression-pinned by `web/src/routes/(app)/__tests__/layout-active-project-sync.component.test.ts` and `web/e2e/project-context-non-project-routes.spec.ts`). Any *new* consumer that derives a project id from the URL must do the same. `page.params.id` is only safe **inside** a `/project/[id]/…` route (e.g. `AgentDetailPanel`, mounted solely from the chat page).
 - **`$CWD` is a dev-only widening.** In production host cwd already equals the install root, so `$CWD → getProjectRoot()` is a no-op; it only differs under the vite-SSR dev server (`/app/web` → `/app`), which can only *permit* more, never less. `getProjectRoot` is imported **statically** in `permissions.ts` because a lazy `require` silently fails under the vite-SSR transform.
+- **The resolver's own module has to stay dependency-light.** It lives in `src/extensions/project-root.ts` with exactly one non-builtin import (`src/logger.ts`), pinned by `src/extensions/__tests__/project-root.test.ts` ("static import closure"). It used to sit at the top of `bundled.ts`, which reaches `db/queries/extensions.ts → db/connection.ts → migrate.ts` — so `src/db/migrate.ts` and `src/startup/background-timers.ts` both had to reach `getProjectRoot()` by dynamic `import()` to keep that cycle open. Both are plain static imports now. Adding a DB/registry import to `project-root.ts` would re-create the cycle and quietly force the workaround back.
+- **In production, resolution reaches step 4 and logs the WARN on every boot — and that is correct, not a fault.** Verifiable from the image definition: the Dockerfile sets no `EZCORP_PROJECT_ROOT` (the only writer in the repo is `web/playwright.real.config.ts`), so step 1 misses; the entrypoint is `CMD ["bun","run","web/build/index.js"]`, so vite has rewritten `import.meta` into `web/build/server/` and step 2 misses; `.dockerignore` excludes `.git`, so the step-3 walk-up finds nothing. `WORKDIR /app` makes `process.cwd()` the right answer, which is why this has never surfaced as a bug. Two consequences: (a) `getProjectRoot() === process.cwd()` in prod is a *coincidence of `WORKDIR`*, not a designed invariant — a Dockerfile that changed `WORKDIR` would silently relocate every bundled-extension lookup and every `$CWD` grant; (b) the boot log carries a `warn` every start. Setting `ENV EZCORP_PROJECT_ROOT=/app` would make step 1 win and fix both, but it is a deploy change, tracked separately — do not "fix" it by deleting the log line.
+- **Steps 1–3 are exercised only by dev, tests and the vitest/Node leg.** `import.meta.dir` is a Bun extension (`undefined` under Node); the `import.meta.url` half of step 2 exists solely for a runtime that resolves this module without it, which is the vitest leg — pinned by `web/src/__tests__/project-root-node-leg.server.test.ts`. Don't delete it as dead code on the strength of a backend-suite reading; the backend suite runs under Bun, where it is unreachable by construction.
 - **Project deletion cascades.** Because `conversations.projectId` is `onDelete: "cascade"`, `DELETE /api/projects/:id` silently removes every conversation in that project (and, transitively, their messages/runs). The route does no confirmation or soft-delete.
