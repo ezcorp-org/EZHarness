@@ -261,9 +261,14 @@ A CI meta-test ([`web/src/__tests__/route-contract.test.ts`](../web/src/__tests_
 enforces these. When you add to the app:
 
 1. **New `/api/*` route** → add it to [`src/api-registry.ts`](../src/api-registry.ts)
-   with a `scope` (`read` / `write` / `chat` / `extensions` / `admin` / `public`). The
-   meta-test ratchets the count of unregistered routes — a new one fails until
-   registered. Registering it documents it and puts it in the OpenAPI spec.
+   with a `scope` (`read` / `write` / `chat` / `extensions` / `admin` / `public`),
+   set to what the handler actually ENFORCES — never what it ought to. The
+   meta-test enforces both halves, but not equally: registration is **absolute**
+   (an unregistered route fails, no allowance), while the `scope` half is a
+   **ratchet** against a frozen list of the 93 pre-existing entries that declare
+   none, because `scope` is still optional on `ApiRouteEntry`. A new entry
+   without one fails by name. Registering documents the route and puts it in the
+   OpenAPI spec.
 2. **New `/api/__test/**` route** → gate it with `isTestSurfaceEnabled()` from
    `$lib/server/test-surface`. The meta-test fails any ungated test route.
 3. **New runtime event** that clients should see → add it to the single
@@ -273,6 +278,13 @@ enforces these. When you add to the app:
 4. **Route an external harness should drive** → mark it `harness: { controllable: true }`
    in the registry and expose a method for it on `HarnessClient`.
 
-Pre-existing registry gaps (the registry is a partial mirror) and a handful of
-stale entries are captured as frozen baselines in the meta-test — shrink them
-as they're reconciled, never grow them.
+The registry is no longer a partial mirror. The frozen baselines that used to
+carry the gap — 75 unregistered routes and 4 stale entries — were paid off in
+2026-08 and **deleted**, so both parity directions are now absolute: every
+control route on disk is registered, and every registered entry exists on disk.
+Neither carve-out remains for a new gap to hide in.
+
+One frozen baseline does remain, and only one: `KNOWN_SCOPELESS`, the 93 entries
+that predate the `scope` requirement. It may only SHRINK. Retiring it means
+backfilling those entries, making `scope` **required** on `ApiRouteEntry` so the
+compiler enforces it, and deleting the ratchet as redundant.
