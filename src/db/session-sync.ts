@@ -19,8 +19,9 @@ import { backfillSessionForConversation, isLlmTurn, rowToEntry, rowToPiMessage }
  *     TOPOLOGY authority (which rows are on the active branch, in what
  *     order); the `messages` table is the SUBSTANCE authority (role,
  *     content, and — crucially — the LIVE `excluded` flag). The branch is
- *     the ordered entry ids from `getPathToRoot`, JOINED back to live
- *     `messages` rows by id (the mirror invariant makes entry.id == row id).
+ *     the ordered entry ids from `getPathToRootOrCompaction`, JOINED back to
+ *     live `messages` rows by id (the mirror invariant makes entry.id == row
+ *     id).
  *     `load-history.ts` then runs its EXISTING filter/rehydration/mapping
  *     over those live rows, so the history is byte-identical to the legacy
  *     CTE path. Design §5's "swap the branch source, run the existing
@@ -221,11 +222,11 @@ export async function syncSessionForConversation(conversationId: string): Promis
   // timestamp (message inserts are not under withConvSessionLock); a backward
   // clock step causes the same inversion. Gating on `ms < cursor` ALONE would
   // then skip that row forever — a permanently missing tree node whose children
-  // orphan the whole subtree (getPathToRoot throws → every read falls back to
-  // the legacy CTE). So the cursor only elides the check for rows already
-  // present; any row ABSENT from `existing` is appended regardless of the
-  // cursor. Track the newest createdAt so the cursor advances past every row
-  // reconciled this pass.
+  // orphan the whole subtree (getPathToRootOrCompaction throws → every read
+  // falls back to the legacy CTE). So the cursor only elides the check for
+  // rows already present; any row ABSENT from `existing` is appended
+  // regardless of the cursor. Track the newest createdAt so the cursor
+  // advances past every row reconciled this pass.
   let maxCreatedMs = cursor;
   for (const row of rows) {
     const ms = row.createdAt.getTime();
@@ -283,7 +284,7 @@ export async function computeSessionBranch(
   return withConvSessionLock(conversationId, async () => {
     const { storage, rowsById } = await syncSessionForConversation(conversationId);
     const leafId = parentMessageId ?? (await getLatestLeaf(conversationId))?.id ?? null;
-    const branch = await storage.getPathToRoot(leafId);
+    const branch = await storage.getPathToRootOrCompaction(leafId);
     const rows: HistoryUserRow[] = [];
     for (const entry of branch) {
       const row = rowsById.get(entry.id);

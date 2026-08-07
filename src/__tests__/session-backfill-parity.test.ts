@@ -246,8 +246,9 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
     //
     // Both sides now truncate at the conversation boundary and AGREE:
     //  - backfill: getMessages loads only this conversation, so the parent is
-    //    absent from knownIds and re-roots to null → getPathToRoot degrades
-    //    gracefully (no invalid_session throw).
+    //    absent from knownIds and re-roots to null →
+    //    getPathToRootOrCompaction degrades gracefully (no invalid_session
+    //    throw).
     //  - loadHistory: getConversationPath's recursive CTE is conversation-
     //    scoped (Wave5 0.7), so it stops at the boundary instead of pulling the
     //    other conversation's row into context. The pre-Wave5 divergence (the

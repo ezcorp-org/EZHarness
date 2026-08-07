@@ -30,7 +30,9 @@ mock.module("../db/queries/settings", () => ({
 afterAll(() => restoreModuleMocks());
 
 import { getModels, getProviders } from "@earendil-works/pi-ai/compat";
-import type { KnownProvider } from "@earendil-works/pi-ai";
+// Mirrors the production cast in src/providers/registry.ts — `getModels` takes
+// `BuiltinProvider` (keyof MODELS), not `KnownProvider`, as of pi-ai 0.83.0.
+import type { BuiltinProvider } from "@earendil-works/pi-ai/compat";
 import {
   BUILTIN_ROUTER_PROVIDERS,
   DEFAULT_TIER_LADDER,
@@ -333,7 +335,7 @@ describe("T2 — the two deleted maps are now projections of the ladder", () => 
  * entry — `openrouter → openrouter/auto` — inlined here.
  */
 function legacyFindModelForProviderInTier(provider: string, tier: RoutingTier): string | null {
-  const models = getModels(provider as KnownProvider);
+  const models = getModels(provider as BuiltinProvider);
   const preferredId = provider === "openrouter" ? "openrouter/auto" : undefined;
   if (preferredId) {
     const preferred = models.find((m) => m.id === preferredId);
