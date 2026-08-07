@@ -14,11 +14,30 @@ import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "./audit-actions"
 import { clampToBundledCeiling, getCeiling } from "./bundled-ceiling";
 import { canonicalizeAndHashForReapproval, verifyManifestAgainstLock } from "./bundled-lock";
 import { computeManifestChecksums, type ManifestChecksumFields } from "./checksum";
-import { join, dirname } from "node:path";
-import { existsSync } from "node:fs";
+import { getProjectRoot } from "./project-root";
+import { join } from "node:path";
 import { logger } from "../logger";
 const log = logger.child("extensions");
-import { fileURLToPath } from "node:url";
+
+/**
+ * Project-root resolution moved to `./project-root.ts` — it has nothing
+ * to do with bundled extensions, and living here forced `src/db/migrate.ts`
+ * and `src/startup/background-timers.ts` to reach it by dynamic `import()`
+ * to dodge the cycle `migrate.ts → bundled.ts → db/queries/extensions.ts →
+ * db/connection.ts → migrate.ts`. Re-exported so the ~40 existing
+ * `from ".../extensions/bundled"` importers keep working unchanged; new
+ * code should import from `./project-root` directly.
+ */
+export {
+  __resetProjectRootCacheForTests,
+  getProjectRoot,
+  resolveProjectRoot,
+} from "./project-root";
+export type {
+  ProjectRootOverrides,
+  ProjectRootResolution,
+  ProjectRootSource,
+} from "./project-root";
 
 interface BundledExtension {
   name: string;
@@ -108,169 +127,6 @@ interface BundledExtension {
    * extension is important" flag.
    */
   critical?: boolean;
-}
-
-/**
- * Resolve project root — works in both direct Bun execution and
- * SvelteKit bundled-server contexts (vite preview).
- *
- * Resolution order (first match wins):
- *
- *   1. `EZCORP_PROJECT_ROOT` env var — explicit override. Validated: the
- *      path must exist AND contain `docs/extensions/examples/`. An env
- *      var pointing at a non-existent dir or one missing the bundled
- *      tree is ignored (not fail-closed, just falls through) so a stale
- *      shell env doesn't brick startup.
- *   2. Substring match on `import.meta.dir` / `import.meta.url` — works
- *      under direct `bun src/...` execution where this file's path
- *      contains `src/extensions/`. Cheapest path; preserves existing
- *      behavior for unit tests and host scripts.
- *   3. Walk up from `import.meta.dir` (or `process.cwd()` if the meta
- *      lookup failed) looking for a `.git` directory. Required for
- *      Vite-bundled `vite preview` where step 2 fails because the
- *      bundler rewrites `import.meta.url` to point inside
- *      `web/build/server/`. Result must also contain
- *      `docs/extensions/examples/` to be accepted — bare `.git` in a
- *      vendor dir isn't enough.
- *   4. Fallback to `process.cwd()` with a WARN log so telemetry catches
- *      the "shouldn't happen in production" case.
- *
- * Cached after the first call (process-lifetime). Tests can reset via
- * the `__resetProjectRootCacheForTests` seam below.
- *
- * Exported so the test-only `__test/cleanup-extension` route in `web/`
- * can reuse the canonical implementation rather than re-deriving
- * project root with a separate `.git`-walk helper.
- */
-
-interface ProjectRootOverrides {
-  /** Override for the `EZCORP_PROJECT_ROOT` env var. */
-  env?: NodeJS.ProcessEnv;
-  /** Override for `import.meta.dir`. Pass an empty string to simulate "missing". */
-  importMetaDir?: string;
-  /** Override for the starting cwd in the `.git` walk-up. */
-  cwd?: string;
-  /** Override for the existsSync probe (used to fake bundled tree presence). */
-  existsSync?: (p: string) => boolean;
-}
-
-let cachedProjectRoot: string | undefined;
-
-/**
- * Test-only: drop the cached resolution so the next `getProjectRoot()`
- * call re-runs the full resolution order. Do NOT call from production
- * code — the cache is intentional (the answer is stable per process).
- */
-export function __resetProjectRootCacheForTests(): void {
-  cachedProjectRoot = undefined;
-}
-
-/**
- * Walk up from `from` looking for a directory containing `.git`.
- * Returns the first match, or `undefined` if the root is reached
- * without finding one. `.git` may be a directory (normal repo) or a
- * file (git worktree / submodule), so we accept either.
- */
-function walkUpForGit(
-  from: string,
-  exists: (p: string) => boolean,
-): string | undefined {
-  let dir = from;
-  // Hard cap on iterations as a belt-and-braces guard against a
-  // pathological filesystem where `dirname()` doesn't fixed-point.
-  for (let i = 0; i < 64; i++) {
-    if (exists(join(dir, ".git"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return undefined;
-    dir = parent;
-  }
-  return undefined;
-}
-
-function isProjectRootCandidate(
-  root: string,
-  exists: (p: string) => boolean,
-): boolean {
-  return exists(join(root, "docs", "extensions", "examples"));
-}
-
-/**
- * Internal resolver used by both `getProjectRoot()` (the cached entry
- * point) and tests (via the overrides parameter). Pure — no
- * side-effects beyond the optional WARN log emitted by the caller when
- * step 4 (cwd fallback) fires.
- */
-export function resolveProjectRoot(overrides: ProjectRootOverrides = {}): {
-  root: string;
-  source: "env" | "import-meta" | "git-walk" | "cwd-fallback";
-} {
-  const env = overrides.env ?? process.env;
-  const exists = overrides.existsSync ?? existsSync;
-
-  // 1) Env override.
-  const envRoot = env.EZCORP_PROJECT_ROOT;
-  if (typeof envRoot === "string" && envRoot.length > 0) {
-    if (exists(envRoot) && isProjectRootCandidate(envRoot, exists)) {
-      return { root: envRoot, source: "env" };
-    }
-    // Stale env var — log and fall through. Don't fail-closed: a real
-    // operator with a typo in their shell rc should still get a server.
-  }
-
-  // 2) Substring match on import.meta.dir / import.meta.url.
-  // `overrides.importMetaDir` distinguishes "test passed a value" from
-  // "test didn't override" — `in` check so an empty string means
-  // "simulate missing import.meta.dir" without falling back to the real
-  // one.
-  const hasMetaOverride = "importMetaDir" in overrides;
-  const metaDir = hasMetaOverride
-    ? (overrides.importMetaDir ?? "")
-    : (typeof import.meta.dir === "string" ? import.meta.dir : "");
-  if (metaDir && metaDir.includes(join("src", "extensions"))) {
-    return { root: join(metaDir, "..", ".."), source: "import-meta" };
-  }
-  if (!hasMetaOverride) {
-    // Try import.meta.url as a secondary signal — same substring match,
-    // different source. Skipped when the test override is in play (the
-    // test wants to drive resolution without bleed-through from this
-    // file's actual path).
-    try {
-      const thisFile = fileURLToPath(import.meta.url);
-      const thisDir = dirname(thisFile);
-      if (thisDir.includes(join("src", "extensions"))) {
-        return { root: join(thisDir, "..", ".."), source: "import-meta" };
-      }
-    } catch { /* not a file URL */ }
-  }
-
-  // 3) `.git` walk-up starting from metaDir (if present) then cwd.
-  const cwd = overrides.cwd ?? process.cwd();
-  const starts: string[] = [];
-  if (metaDir) starts.push(metaDir);
-  starts.push(cwd);
-  for (const start of starts) {
-    const gitRoot = walkUpForGit(start, exists);
-    if (gitRoot && isProjectRootCandidate(gitRoot, exists)) {
-      return { root: gitRoot, source: "git-walk" };
-    }
-  }
-
-  // 4) Final fallback.
-  return { root: cwd, source: "cwd-fallback" };
-}
-
-export function getProjectRoot(): string {
-  if (cachedProjectRoot !== undefined) return cachedProjectRoot;
-  const { root, source } = resolveProjectRoot();
-  if (source === "cwd-fallback") {
-    log.warn(
-      "getProjectRoot() fell through to process.cwd() — bundled-extension lookups may fail. " +
-        "Set EZCORP_PROJECT_ROOT, run from the repo root, or ensure docs/extensions/examples/ is present.",
-      { cwd: root },
-    );
-  }
-  cachedProjectRoot = root;
-  return root;
 }
 
 

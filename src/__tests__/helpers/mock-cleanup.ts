@@ -98,10 +98,21 @@ const MODULE_PATHS = [
   "../../extensions/author-gate",
   "../../extensions/manifest",
   "../../extensions/checksum",
-  // "../../extensions/bundled" was TRIMMED (wave 3): zero mock.module
-  // targets across src/web/docs/packages tests + helpers resolve to it
-  // (only bundled-ceiling / bundled-lock below are mocked), and its eager
-  // preload import pulled in the whole bundled-extension graph per spawn.
+  // "../../extensions/bundled" stays TRIMMED (wave 3): its eager preload
+  // import pulled in the whole bundled-extension graph per spawn. The two
+  // suites that DO stub it (assert-bundled-not-stranded.test.ts,
+  // migrate-extension-state-root-resolve-failure.test.ts) mock it at module
+  // top level and never import the real one, so the residual leak is inert
+  // under scripts/test.sh's one-process-per-file pool.
+  //
+  // `project-root` IS snapshotted, and cheaply: the resolver was split out
+  // of bundled.ts and imports only `../../logger` + node builtins, so the
+  // preload import costs nothing like the bundled graph did. It's the seam
+  // migrate-extension-state-root-resolve-failure.test.ts stubs to make
+  // getProjectRoot() throw, and getProjectRoot() is process-cached — a
+  // throwing stub leaking into a later file would fail it far from the
+  // cause.
+  "../../extensions/project-root",
   "../../extensions/bundled-ceiling",
   "../../extensions/bundled-lock",
   "../../extensions/loader",

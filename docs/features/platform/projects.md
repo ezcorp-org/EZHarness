@@ -26,7 +26,7 @@ Separately and confusingly named, `getProjectRoot()` in `src/extensions/bundled.
 
 ### The install-root resolver (host-internal, unrelated)
 
-9. `getProjectRoot()` / `resolveProjectRoot()` (`src/extensions/bundled.ts`) resolve the EZCorp checkout root, first-match-wins:
+9. `getProjectRoot()` / `resolveProjectRoot()` (`src/extensions/project-root.ts`, re-exported from `src/extensions/bundled.ts` for the ~40 pre-existing importers) resolve the EZCorp checkout root, first-match-wins:
    1. `EZCORP_PROJECT_ROOT` env var — accepted only if it exists **and** contains `docs/extensions/examples/` (a stale/typo'd value falls through rather than failing closed).
    2. substring match on `import.meta.dir` / `import.meta.url` containing `src/extensions` (direct `bun src/...` runs).
    3. `.git` walk-up from the meta dir then `process.cwd()`, accepted only if the result contains `docs/extensions/examples/` (needed under `vite preview`, where the bundler rewrites `import.meta.url`).
@@ -77,7 +77,8 @@ Separately and confusingly named, `getProjectRoot()` in `src/extensions/bundled.
 - `web/src/routes/api/conversations/[id]/messages/+server.ts` — loads `getProject(conv.projectId)`, passes `project.path` as `projectRoot` to the runtime.
 - `src/runtime/tools/validate.ts` — `validatePath` lexical containment against `projectRoot`.
 - `src/runtime/fs/scan-fs.ts` — `realpathInsideRoot` (realpath-based scanner containment).
-- `src/extensions/bundled.ts` — `getProjectRoot` / `resolveProjectRoot` install-root resolver + `BUNDLED_EXTENSIONS`.
+- `src/extensions/project-root.ts` — `getProjectRoot` / `resolveProjectRoot` install-root resolver (only dependency: `src/logger.ts`).
+- `src/extensions/bundled.ts` — `BUNDLED_EXTENSIONS`; re-exports the resolver above so existing `from ".../extensions/bundled"` importers keep working.
 - `src/extensions/permissions.ts` — `grantCwdBase` / `expandGrantPrefix` ($CWD → install root).
 - `web/src/lib/components/ProjectForm.svelte`, `ProjectPicker.svelte`, `ProjectRail.svelte`, `PermissionModeIndicator.svelte` — UI.
 - `web/src/lib/api.ts`, `web/src/lib/stores.svelte.ts` — client helpers + `activeProjectId` store.
@@ -112,4 +113,5 @@ Separately and confusingly named, `getProjectRoot()` in `src/extensions/bundled.
 - **`activeProjectId === "global"`** is a sentinel for cross-project surfaces (memories, Cmd+K search), not a real project id — guard for it before treating it as a uuid.
 - **`[id]` is not a project id.** `/extensions/[id]`, `/extensions/[id]/audit`, `/marketplace/[id]` and `/runs/[id]` all declare the same route param name as `/project/[id]`. The `(app)` layout's URL sync therefore parses the **pathname** (`projectIdFromPath`, which returns null for every non-project route) — reading `page.params.id` there wrote an extension / listing / run id into `activeProjectId` and kicked the user out of their project (fixed; regression-pinned by `web/src/routes/(app)/__tests__/layout-active-project-sync.component.test.ts` and `web/e2e/project-context-non-project-routes.spec.ts`). Any *new* consumer that derives a project id from the URL must do the same. `page.params.id` is only safe **inside** a `/project/[id]/…` route (e.g. `AgentDetailPanel`, mounted solely from the chat page).
 - **`$CWD` is a dev-only widening.** In production host cwd already equals the install root, so `$CWD → getProjectRoot()` is a no-op; it only differs under the vite-SSR dev server (`/app/web` → `/app`), which can only *permit* more, never less. `getProjectRoot` is imported **statically** in `permissions.ts` because a lazy `require` silently fails under the vite-SSR transform.
+- **The resolver's own module has to stay dependency-light.** It lives in `src/extensions/project-root.ts` with exactly one non-builtin import (`src/logger.ts`). It used to sit at the top of `bundled.ts`, which reaches `db/queries/extensions.ts → db/connection.ts → migrate.ts` — so `src/db/migrate.ts` and `src/startup/background-timers.ts` both had to reach `getProjectRoot()` by dynamic `import()` to keep that cycle open. Both are plain static imports now. Adding a DB/registry import to `project-root.ts` would re-create the cycle and quietly force the workaround back.
 - **Project deletion cascades.** Because `conversations.projectId` is `onDelete: "cascade"`, `DELETE /api/projects/:id` silently removes every conversation in that project (and, transitively, their messages/runs). The route does no confirmation or soft-delete.
