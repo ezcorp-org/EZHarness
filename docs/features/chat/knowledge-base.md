@@ -25,7 +25,7 @@ The Knowledge Base lets a user attach reference documents to a project and have 
 
 ### Embedding (`src/memory/embeddings.ts`)
 
-`generateEmbedding` runs a **local** Transformers.js feature-extraction pipeline — `Xenova/all-MiniLM-L6-v2` (`EMBEDDING_MODEL_ID = "Xenova/all-MiniLM-L6-v2@384"`), **384-dim** (`EMBEDDING_DIMENSIONS`), mean-pooled + L2-normalized. Input is truncated to `CHUNK_TOKENS` (256) tokens via `tokenizer.model_max_length` (the same budget as memory chunking — input-only, never touching output caps). No external embedding API is called.
+`generateEmbedding` runs a **local** Transformers.js feature-extraction pipeline — `Xenova/all-MiniLM-L6-v2` (`EMBEDDING_MODEL_ID = "Xenova/all-MiniLM-L6-v2@384"`), **384-dim** (`EMBEDDING_DIMENSIONS`), mean-pooled + L2-normalized. Input is truncated to `CHUNK_TOKENS` (256) tokens via `tokenizer.config.model_max_length` (the same budget as memory chunking — input-only, never touching output caps). No external embedding API is called.
 
 ### Storage (`src/db/queries/knowledge-base.ts`, pgvector)
 
