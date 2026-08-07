@@ -200,7 +200,7 @@ describe("createCanvas — inbound event handlers", () => {
     });
 
     expect(seen).toHaveLength(1);
-    expect((seen[0]?.payload as { messageId: string }).messageId).toBe("m-1");
+    expect(seen[0]?.payload).toMatchObject({ messageId: "m-1" });
     expect((seen[0]?.context as { toolCallId: string; conversationId: string }))
       .toEqual({ toolCallId: "", conversationId: "c-1" });
   });

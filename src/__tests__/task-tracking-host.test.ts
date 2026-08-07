@@ -279,7 +279,7 @@ describe("writeTaskSnapshotForConversation", () => {
     const extId = await getTaskTrackingExtensionId();
     const { getStorageValue } = await import("../db/queries/extension-storage");
     const raw = await getStorageValue(extId, "conversation", "conv-rt", "tasks");
-    expect((raw?.value as { schemaVersion: number }).schemaVersion).toBe(1);
+    expect(raw?.value).toMatchObject({ schemaVersion: 1 });
   });
 
   test("writing twice overwrites (upsert semantics)", async () => {

@@ -24,6 +24,10 @@
   "web/e2e/chat-prompt-arrow-nav-agentic.spec.ts": [
     "web/src/lib/components/ChatThread.svelte"
   ],
+  "web/e2e/chat-turn-collapse.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/lib/components/TurnCollapsedSummary.svelte"
+  ],
   "web/e2e/chat-graph-evidence.spec.ts": [
     "web/src/lib/components/chat/ChatGraphPanel.svelte",
     "web/src/lib/components/chat/GraphCanvas.svelte",

@@ -1724,7 +1724,7 @@ describe("the job editor's Run button", () => {
     const found = buttons(tree);
     expect(found).toHaveLength(1);
     expect(found[0]?.label).toBe("Run now");
-    expect((found[0]?.action as { event: string }).event).toBe(JOB_RUN_EVENT);
+    expect(found[0]?.action).toMatchObject({ event: JOB_RUN_EVENT });
   });
 
   test("a DISABLED job gets NO button — `enabled:false` is this console's retire", () => {

@@ -105,8 +105,9 @@ describe("CustomModelsSection add/remove", () => {
 			expect(getAllByText("my-model")).toHaveLength(1);
 		});
 		const put = fetchCalls.find((c) => c.method === "PUT");
-		expect(put?.url).toContain("/api/settings/");
-		expect((put?.body as { value: CustomModelEntry[] }).value).toEqual([
+		expect(put).toBeDefined();
+		expect(put!.url).toContain("/api/settings/");
+		expect((put!.body as { value: CustomModelEntry[] }).value).toEqual([
 			{ modelId: "my-model", provider: "anthropic", tier: "balanced" },
 		]);
 	});
@@ -136,7 +137,8 @@ describe("CustomModelsSection add/remove", () => {
 			expect(queryByText("bye-model")).not.toBeInTheDocument();
 		});
 		const put = fetchCalls.find((c) => c.method === "PUT");
-		expect((put?.body as { value: CustomModelEntry[] }).value).toEqual([]);
+		expect(put).toBeDefined();
+		expect((put!.body as { value: CustomModelEntry[] }).value).toEqual([]);
 	});
 });
 
@@ -173,7 +175,8 @@ describe("CustomModelsSection local-endpoint discovery", () => {
 			),
 		);
 		const put = fetchCalls.find((c) => c.method === "PUT");
-		expect((put?.body as { value: CustomModelEntry[] }).value).toEqual([
+		expect(put).toBeDefined();
+		expect((put!.body as { value: CustomModelEntry[] }).value).toEqual([
 			{ modelId: "qwen3", provider: "ollama", tier: "balanced", baseUrl: "http://localhost:11434" },
 		]);
 	});

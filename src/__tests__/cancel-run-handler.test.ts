@@ -427,7 +427,7 @@ describe("cancel-run — slot release under concurrent cap (§5.3)", () => {
       spawnCtx,
     );
     expect(s3Blocked.error?.code).toBe(-32000);
-    expect((s3Blocked.error?.data as { reason: string }).reason).toBe("concurrent-exceeded");
+    expect(s3Blocked.error?.data).toMatchObject({ reason: "concurrent-exceeded" });
 
     // Cancel the first. Grab its real agentRunId from the response.
     const firstRunId = (s1.result as { agentRunId: string }).agentRunId;
