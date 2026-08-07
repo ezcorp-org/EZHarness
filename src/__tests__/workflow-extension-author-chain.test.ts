@@ -177,7 +177,8 @@ describe("extension-author chain — the happy path parks", () => {
     });
     // The `nextStep` line is interpolated (`{{ … }}` templates), so it names
     // the ACTUAL draft and the owner-scoped endpoint a human must use.
-    const nextStep = String((run.result?.output as { nextStep: string }).nextStep);
+    const output = run.result?.output as { nextStep?: string } | undefined;
+    const nextStep = String(output?.nextStep);
     expect(nextStep).toContain("Draft draft-abc");
     expect(nextStep).toContain("POST /api/extensions/author/install");
     expect(nextStep).toContain("/extensions/author?prefill=draft-abc");

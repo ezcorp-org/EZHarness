@@ -284,7 +284,7 @@ describe("emit-task-event — snapshot emit", () => {
       makeCtx(bus, { conversationId: CONV_WIRED }),
     );
     expect(calls).toHaveLength(1);
-    expect((calls[0]?.payload as { conversationId: string }).conversationId).toBe(CONV_WIRED);
+    expect(calls[0]?.payload).toMatchObject({ conversationId: CONV_WIRED });
   });
 });
 

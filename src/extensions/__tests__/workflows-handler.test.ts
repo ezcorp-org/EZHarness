@@ -380,7 +380,7 @@ describe("namespacing — an extension cannot reach the host's workflow", () => 
     );
 
     expect(resp.error?.code).toBe(-32602);
-    expect((resp.error?.data as { reason: string }).reason).toBe("WORKFLOW_NAME_INVALID");
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOW_NAME_INVALID" });
     expect(started).toHaveLength(0);
   });
 
@@ -390,7 +390,7 @@ describe("namespacing — an extension cannot reach the host's workflow", () => 
     const resp = await handleWorkflowsRpc(req(), ctx());
 
     expect(resp.error?.code).toBe(-32602);
-    expect((resp.error?.data as { reason: string }).reason).toBe("WORKFLOW_NOT_FOUND");
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOW_NOT_FOUND" });
     expect(started).toHaveLength(0);
   });
 
@@ -413,7 +413,7 @@ describe("namespacing — an extension cannot reach the host's workflow", () => 
     });
 
     const before = await handleWorkflowsRpc(req(), ctx());
-    expect((before.error?.data as { reason: string }).reason).toBe("WORKFLOW_NOT_FOUND");
+    expect(before.error?.data).toMatchObject({ reason: "WORKFLOW_NOT_FOUND" });
 
     cache = [SHIPPED];
     const after = await handleWorkflowsRpc(req(), ctx());
@@ -581,14 +581,14 @@ describe("enforcement ladder — rejections", () => {
     const resp = await handleWorkflowsRpc(req(), ctx({ userId: "unknown" }));
 
     expect(resp.error?.code).toBe(-32106);
-    expect((resp.error?.data as { reason: string }).reason).toBe("WORKFLOWS_NO_OWNER");
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NO_OWNER" });
     expect(started).toHaveLength(0);
   });
 
   test("7. an empty userId is refused the same way", async () => {
     const resp = await handleWorkflowsRpc(req(), ctx({ userId: "" }));
 
-    expect((resp.error?.data as { reason: string }).reason).toBe("WORKFLOWS_NO_OWNER");
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_NO_OWNER" });
     expect(started).toHaveLength(0);
   });
 
@@ -656,7 +656,7 @@ describe("enforcement ladder — rejections", () => {
 
     const resp = await handleWorkflowsRpc(req({ input: big }), ctx());
 
-    expect((resp.error?.data as { reason: string }).reason).toBe("WORKFLOWS_BAD_PAYLOAD");
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_BAD_PAYLOAD" });
     expect(resp.error?.message).toContain("too large");
     expect(started).toHaveLength(0);
   });
@@ -703,7 +703,7 @@ describe("enforcement ladder — rejections", () => {
     const third = await handleWorkflowsRpc(req(), c);
 
     expect(third.error?.code).toBe(-32103);
-    expect((third.error?.data as { reason: string }).reason).toBe("WORKFLOWS_QUOTA_EXCEEDED");
+    expect(third.error?.data).toMatchObject({ reason: "WORKFLOWS_QUOTA_EXCEEDED" });
     expect(started).toHaveLength(2);
   });
 
@@ -769,7 +769,7 @@ describe("enforcement ladder — rejections", () => {
     const resp = await handleWorkflowsRpc(req(), ctx());
 
     expect(resp.error?.code).toBe(-32603);
-    expect((resp.error?.data as { reason: string }).reason).toBe("WORKFLOWS_DISPATCH_FAILED");
+    expect(resp.error?.data).toMatchObject({ reason: "WORKFLOWS_DISPATCH_FAILED" });
     expect(resp.error?.message).toContain("executor exploded");
   });
 });

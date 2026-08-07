@@ -52,6 +52,18 @@ function happy() {
   });
 }
 
+/**
+ * Params of the `index`-th dispatched request, keyed for per-field assertions.
+ *
+ * The length check is the point: without it a test whose dispatch never
+ * happened dies on `Cannot read properties of undefined` — which names the
+ * property, not the missing call. Fail on the real cause instead.
+ */
+function paramsAt(calls: RequestCall[], index = 0): Record<string, unknown> {
+  expect(calls.length).toBeGreaterThan(index);
+  return calls[index]!.params as Record<string, unknown>;
+}
+
 // ── method + param-shape ────────────────────────────────────────────
 
 describe("spawnAssignment — JSON-RPC frame shape", () => {
@@ -84,13 +96,13 @@ describe("spawnAssignment — JSON-RPC frame shape", () => {
       task: "hello",
       agentName: "Alice",
     });
-    expect((calls[0]?.params as Record<string, unknown>).agentConfigId).toBeUndefined();
+    expect(paramsAt(calls).agentConfigId).toBeUndefined();
   });
 
   test("omits title when not provided (no key, not {title: undefined})", async () => {
     const { calls } = happy();
     await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
-    const params = calls[0]?.params as Record<string, unknown>;
+    const params = paramsAt(calls);
     expect(params).not.toHaveProperty("title");
   });
 
@@ -101,7 +113,7 @@ describe("spawnAssignment — JSON-RPC frame shape", () => {
       task: "t",
       title: "Custom Title",
     });
-    expect((calls[0]?.params as Record<string, unknown>).title).toBe("Custom Title");
+    expect(paramsAt(calls).title).toBe("Custom Title");
   });
 
   test("workingDir: echoed verbatim when provided (the containment cwd pin)", async () => {
@@ -111,13 +123,13 @@ describe("spawnAssignment — JSON-RPC frame shape", () => {
       task: "t",
       workingDir: "/tmp/wt/run_abc",
     });
-    expect((calls[0]?.params as Record<string, unknown>).workingDir).toBe("/tmp/wt/run_abc");
+    expect(paramsAt(calls).workingDir).toBe("/tmp/wt/run_abc");
   });
 
   test("workingDir omitted → no key on params (host applies the project-path default)", async () => {
     const { calls } = happy();
     await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
-    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("workingDir");
+    expect(paramsAt(calls)).not.toHaveProperty("workingDir");
   });
 
   test("if BOTH agentConfigId and agentName are supplied, both are sent (host decides precedence)", async () => {
@@ -146,7 +158,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
   test("no Phase 4 fields in params when none supplied (absence test)", async () => {
     const { calls } = happy();
     await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
-    const params = calls[0]?.params as Record<string, unknown>;
+    const params = paramsAt(calls);
     expect(params).not.toHaveProperty("reuseSubConversationFor");
     expect(params).not.toHaveProperty("parentMessageId");
     expect(params).not.toHaveProperty("overrides");
@@ -163,7 +175,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       task: "t",
       reuseSubConversationFor: "cfg-target",
     });
-    expect((calls[0]?.params as Record<string, unknown>).reuseSubConversationFor).toBe(
+    expect(paramsAt(calls).reuseSubConversationFor).toBe(
       "cfg-target",
     );
   });
@@ -175,7 +187,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       task: "t",
       parentMessageId: "msg-anchor-123",
     });
-    expect((calls[0]?.params as Record<string, unknown>).parentMessageId).toBe(
+    expect(paramsAt(calls).parentMessageId).toBe(
       "msg-anchor-123",
     );
   });
@@ -197,7 +209,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       task: "t",
       overrides,
     });
-    expect((calls[0]?.params as Record<string, unknown>).overrides).toEqual(overrides);
+    expect(paramsAt(calls).overrides).toEqual(overrides);
   });
 
   test("teamToolScope: both lists echoed verbatim", async () => {
@@ -208,7 +220,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       task: "t",
       teamToolScope,
     });
-    expect((calls[0]?.params as Record<string, unknown>).teamToolScope).toEqual(teamToolScope);
+    expect(paramsAt(calls).teamToolScope).toEqual(teamToolScope);
   });
 
   test("orchestrationDepth: numeric value echoed verbatim", async () => {
@@ -218,7 +230,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       task: "t",
       orchestrationDepth: 3,
     });
-    expect((calls[0]?.params as Record<string, unknown>).orchestrationDepth).toBe(3);
+    expect(paramsAt(calls).orchestrationDepth).toBe(3);
   });
 
   test("orchestrationDepth: zero is a valid value (not filtered as falsy)", async () => {
@@ -229,7 +241,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       orchestrationDepth: 0,
     });
     // The `typeof === "number"` gate must admit 0; proves we don't truthy-filter it.
-    expect((calls[0]?.params as Record<string, unknown>).orchestrationDepth).toBe(0);
+    expect(paramsAt(calls).orchestrationDepth).toBe(0);
   });
 
   test("orchestrationDepth: non-numeric is dropped (typeof gate)", async () => {
@@ -240,9 +252,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       // Force an invalid type past TS.
       orchestrationDepth: "3" as unknown as number,
     });
-    expect((calls[0]?.params as Record<string, unknown>)).not.toHaveProperty(
-      "orchestrationDepth",
-    );
+    expect(paramsAt(calls)).not.toHaveProperty("orchestrationDepth");
   });
 
   test("parentRunId: echoed verbatim when provided", async () => {
@@ -252,13 +262,13 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       task: "t",
       parentRunId: "orch-run-9",
     });
-    expect((calls[0]?.params as Record<string, unknown>).parentRunId).toBe("orch-run-9");
+    expect(paramsAt(calls).parentRunId).toBe("orch-run-9");
   });
 
   test("parentRunId: omitted when absent (no key on the wire)", async () => {
     const { calls } = happy();
     await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
-    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("parentRunId");
+    expect(paramsAt(calls)).not.toHaveProperty("parentRunId");
   });
 
   test("autonomousContinuation: { maxCycles } echoed verbatim", async () => {
@@ -269,7 +279,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       autonomousContinuation: { maxCycles: 5 },
     });
     expect(
-      (calls[0]?.params as Record<string, unknown>).autonomousContinuation,
+      paramsAt(calls).autonomousContinuation,
     ).toEqual({ maxCycles: 5 });
   });
 
@@ -281,7 +291,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       autonomousContinuation: {},
     });
     expect(
-      (calls[0]?.params as Record<string, unknown>).autonomousContinuation,
+      paramsAt(calls).autonomousContinuation,
     ).toEqual({});
   });
 
@@ -297,13 +307,13 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       task: "t",
       outputSchema,
     });
-    expect((calls[0]?.params as Record<string, unknown>).outputSchema).toEqual(outputSchema);
+    expect(paramsAt(calls).outputSchema).toEqual(outputSchema);
   });
 
   test("outputSchema: omitted when absent (no key on the wire)", async () => {
     const { calls } = happy();
     await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
-    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("outputSchema");
+    expect(paramsAt(calls)).not.toHaveProperty("outputSchema");
   });
 
   test("notifyParentOnTerminal: sent as true when set (background spawn)", async () => {
@@ -313,29 +323,29 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       task: "t",
       notifyParentOnTerminal: true,
     });
-    expect((calls[0]?.params as Record<string, unknown>).notifyParentOnTerminal).toBe(true);
+    expect(paramsAt(calls).notifyParentOnTerminal).toBe(true);
   });
 
   test("notifyParentOnTerminal: omitted when absent or false (no key on the wire)", async () => {
     const { calls } = happy();
     await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
-    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("notifyParentOnTerminal");
+    expect(paramsAt(calls)).not.toHaveProperty("notifyParentOnTerminal");
     await spawnAssignment({ agentConfigId: "cfg-1", task: "t", notifyParentOnTerminal: false });
-    expect(calls[1]?.params as Record<string, unknown>).not.toHaveProperty("notifyParentOnTerminal");
+    expect(paramsAt(calls, 1)).not.toHaveProperty("notifyParentOnTerminal");
   });
 
   test("detached: sent as true when set (background child outlives parent)", async () => {
     const { calls } = happy();
     await spawnAssignment({ agentConfigId: "cfg-1", task: "t", detached: true });
-    expect((calls[0]?.params as Record<string, unknown>).detached).toBe(true);
+    expect(paramsAt(calls).detached).toBe(true);
   });
 
   test("detached: omitted when absent or false (no key on the wire)", async () => {
     const { calls } = happy();
     await spawnAssignment({ agentConfigId: "cfg-1", task: "t" });
-    expect(calls[0]?.params as Record<string, unknown>).not.toHaveProperty("detached");
+    expect(paramsAt(calls)).not.toHaveProperty("detached");
     await spawnAssignment({ agentConfigId: "cfg-1", task: "t", detached: false });
-    expect(calls[1]?.params as Record<string, unknown>).not.toHaveProperty("detached");
+    expect(paramsAt(calls, 1)).not.toHaveProperty("detached");
   });
 
   test("all 5 Phase 4 fields together — each sits at its own key", async () => {

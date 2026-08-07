@@ -251,6 +251,6 @@ describe("AgentExecutor", () => {
     const run = await exec.runAgent("parent", {});
 
     expect(run.status).toBe("success");
-    expect((run.result?.output as any).childOutput).toBe("received: 42");
+    expect(run.result?.output).toMatchObject({ childOutput: "received: 42" });
   });
 });

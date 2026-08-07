@@ -57,7 +57,7 @@ describe("fetchPermitted (thin shim of globalThis.fetch)", () => {
     const call = fetchSpy.mock.calls[0] ?? [];
     const init = call[1] as RequestInit | undefined;
     expect(init?.method).toBe("POST");
-    expect((init?.headers as Record<string, string>)["x-foo"]).toBe("bar");
+    expect(init?.headers).toMatchObject({ "x-foo": "bar" });
     expect(init?.body).toBe('{"k":"v"}');
   });
 
