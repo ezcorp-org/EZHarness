@@ -4,7 +4,16 @@
  */
 
 import { getModel, getModels, getProviders } from "@earendil-works/pi-ai/compat";
-import type { KnownProvider } from "@earendil-works/pi-ai";
+// `BuiltinProvider` (pi-ai 0.83.0) is the provider key those three catalog
+// reads actually accept: `keyof typeof MODELS`. It is NOT `KnownProvider` —
+// `radius` is a `KnownProvider` with no MODELS entry, so `BuiltinProvider` is
+// `KnownProvider` minus `radius` and a `KnownProvider`-typed argument no
+// longer type-checks. Upstream defect (still present in 0.84.0), but the
+// narrower type is the correct one here: everything below is a catalog read.
+// Every value we cast is a runtime-supplied provider STRING, so the cast was
+// already the unchecked step — `getModel`/`getModels` are wrapped in try/catch
+// or tolerate an unknown id by returning `[]`.
+import type { BuiltinProvider } from "@earendil-works/pi-ai/compat";
 import type { AnyModel } from "./model-types";
 import { getSetting } from "../db/queries/settings";
 // Tier vocabulary single source of truth (type-only — erased at build).
@@ -52,7 +61,7 @@ async function loadDiscoveredModels(): Promise<AnyModel[]> {
   for (const provider of ["openai", "anthropic", "google", "openrouter"]) {
     const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as AnyModel[] | undefined;
     if (!Array.isArray(stored)) continue;
-    const piIds = new Set(getModels(provider as KnownProvider).map((m) => m.id));
+    const piIds = new Set(getModels(provider as BuiltinProvider).map((m) => m.id));
     for (const m of stored) {
       if (!piIds.has(m.id)) out.push(m);
     }
@@ -228,7 +237,7 @@ export function findModelForProviderInTier(
   ladder?: TierLadder,
   customModels?: readonly CustomModelEntry[],
 ): ModelEntry | null {
-  const models = getModels(provider as KnownProvider);
+  const models = getModels(provider as BuiltinProvider);
   const laddered =
     resolveLadderEntry(ladder, tier, provider, models) ??
     (isBuiltinRouterProvider(provider)
@@ -278,7 +287,7 @@ export function findRunnableModelForProviderInTier(
   }
 
   const candidates: ModelEntry[] = [];
-  for (const model of getModels(provider as KnownProvider)) {
+  for (const model of getModels(provider as BuiltinProvider)) {
     if (resolveOAuthModel(provider, model.id)) candidates.push(piModelToEntry(model));
   }
   // OAuth-only ids (e.g. gpt-5.5) live in LOCAL_OAUTH_OVERRIDES and never
@@ -310,9 +319,9 @@ export function findRunnableModelForProviderInTier(
  * - google → google-gemini-cli (Cloud Code Assist API, Bearer token auth)
  * - openai → openai-codex (ChatGPT Codex API, different endpoint + scopes)
  */
-const OAUTH_PROVIDER_MAP: Record<string, KnownProvider> = {
-  google: "google-gemini-cli" as KnownProvider,
-  openai: "openai-codex" as KnownProvider,
+const OAUTH_PROVIDER_MAP: Record<string, BuiltinProvider> = {
+  google: "google-gemini-cli" as BuiltinProvider,
+  openai: "openai-codex" as BuiltinProvider,
 };
 
 /**
@@ -394,9 +403,27 @@ export async function resolveDiscoveredModel(provider: string, modelId: string):
   return stored.find((m) => m.id === modelId) ?? null;
 }
 
+/**
+ * Is this id actually IN the installed catalog for this provider?
+ *
+ * The honest question behind "did pi-ai retire my pinned model". Consults the
+ * static catalog plus the OAuth-only overrides, and NEVER throws — a
+ * malformed provider id is simply "not known". Deliberately does not consult
+ * discovered models (those are a per-deployment settings overlay, and a pin
+ * that only refresh-models knows about is still a catalog gap).
+ */
+export function isKnownCatalogModel(provider: string, modelId: string): boolean {
+  try {
+    if (getModel(provider as BuiltinProvider, modelId as never)) return true;
+  } catch {
+    // Unknown/malformed provider id — fall through.
+  }
+  return resolveOAuthModel(provider, modelId) !== null;
+}
+
 export function resolveModelObject(provider: string, modelId: string, baseUrl?: string): AnyModel {
   try {
-    const found = getModel(provider as KnownProvider, modelId as never);
+    const found = getModel(provider as BuiltinProvider, modelId as never);
     if (found) return found;
   } catch {
     // fall through
@@ -430,11 +457,22 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
   // (custom models + the ezcorp-mock test provider) and unknown providers keep
   // the legacy behavior.
   if (baseUrl === undefined) {
+    // NOTE: everything below this point INVENTS a model — the window becomes
+    // a 128k guess and the rate table becomes all-zero, which silently
+    // shrinks the compaction budget and silently unprices the conversation
+    // (measurements in src/runtime/routing/dropped-models.ts). We do NOT
+    // report it from here: `resolveModelObject` is also the pricing lookup,
+    // the capability check and the export tooling's resolver, and an
+    // operator warning on that path lands on the stderr of scripts whose
+    // stderr is machine-readable. The report is emitted ONCE per turn from
+    // the pinned-model branch of `router.ts` instead — the only caller where
+    // the degradation actually reaches a user.
+    //
     // getModels is wrapped: a malformed provider id can throw, and a throw
     // here must degrade to the legacy fallback below, not escape.
     let sibling: AnyModel | undefined;
     try {
-      sibling = getModels(provider as KnownProvider)[0];
+      sibling = getModels(provider as BuiltinProvider)[0];
     } catch {
       // Unknown/malformed provider → no sibling; fall through to fallback.
     }

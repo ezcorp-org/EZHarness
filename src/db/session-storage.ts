@@ -1,6 +1,13 @@
 import { and, eq } from "drizzle-orm";
 import { SessionError, uuidv7 } from "@earendil-works/pi-agent-core";
-import type { SessionMetadata, SessionStorage, SessionTreeEntry } from "@earendil-works/pi-agent-core";
+import type {
+  SessionEntryCursorOptions,
+  SessionMetadata,
+  SessionStats,
+  SessionStorage,
+  SessionTreeEntry,
+} from "@earendil-works/pi-agent-core";
+import type { Usage } from "@earendil-works/pi-ai";
 import { getDb } from "./connection";
 import {
   agentSessionEntries,
@@ -159,6 +166,36 @@ export function asJsonbObject(value: unknown): Record<string, unknown> | null {
   return null;
 }
 
+// ── Ports of pi's private getSessionStats accumulator ───────────────
+// Split out of the loop (and exported) so each guard is unit-testable and
+// so no single expression spans lines a short-circuit can leave un-hit.
+
+/** The four token counters `getSessionStats` sums. Named once — the guard
+ *  below and the arithmetic must never disagree about the field set. */
+const USAGE_TOKEN_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
+
+/**
+ * Port of memory-storage.js's inline `usage` guard: a usage blob counts only
+ * when all four token fields AND `cost.total` are numbers. Same accept/reject
+ * set as pi's, just hoisted. This is NOT belt-and-braces — the payload is
+ * jsonb written by whatever produced the entry, so a partial usage object is
+ * representable and would otherwise poison the totals with NaN.
+ */
+export function completeUsage(usage: Usage | undefined): Usage | undefined {
+  if (!usage) return undefined;
+  if (USAGE_TOKEN_FIELDS.some((field) => typeof usage[field] !== "number")) return undefined;
+  return typeof usage.cost?.total === "number" ? usage : undefined;
+}
+
+/** Port of memory-storage.js's inline usage selector: assistant messages
+ *  carry usage directly; compaction / branch_summary carry it on the entry;
+ *  everything else (user turns, leaf pointers, labels, …) has none. */
+export function entryUsage(entry: SessionTreeEntry): Usage | undefined {
+  if (entry.type === "compaction" || entry.type === "branch_summary") return entry.usage;
+  if (entry.type !== "message") return undefined;
+  return entry.message.role === "assistant" ? entry.message.usage : undefined;
+}
+
 export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
   private constructor(
     private readonly db: Db,
@@ -266,7 +303,7 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
    * Reconcile an existing entry's `parentId` to mirror an out-of-band
    * `messages` row reparent (P3 topology sync — e.g. a steer row reparented
    * at delivery). Updates the DB row + the in-memory entry object (shared by
-   * `byId` and `entries`), so a subsequent {@link getPathToRoot} walks the new
+   * `byId` and `entries`), so a subsequent {@link getPathToRootOrCompaction} walks the new
    * parent. A no-op when unchanged. This is the ONLY tree-structure mutation of
    * an existing message entry; P4's rewind moves the leaf via `leaf` pointer
    * entries, never by rewriting a message entry's parent, so `messages` stays
@@ -298,13 +335,68 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
     return this.labelsById.get(id);
   }
 
-  async getPathToRoot(leafId: string | null): Promise<SessionTreeEntry[]> {
+  /** Port of memory-storage.js `getSessionName`: the LAST `session_info`
+   *  entry's trimmed name, or undefined when unset/blank. Nothing in EZCorp
+   *  writes `session_info` today (only `session-sync.ts` appends, and only
+   *  `message`/`custom`/`branch_summary`), so this is undefined in practice —
+   *  but pi's `Session.appendSessionName()` writes one, and the interface
+   *  requires it. */
+  async getSessionName(): Promise<string | undefined> {
+    const infos = await this.findEntries("session_info");
+    return infos[infos.length - 1]?.name?.trim() || undefined;
+  }
+
+  /** Port of memory-storage.js `getSessionStats`: token/cost totals summed
+   *  over the INSERTION axis (every entry, not just the active branch — pi
+   *  counts what the session cost, including abandoned tails). */
+  async getSessionStats(): Promise<SessionStats> {
+    const stats: SessionStats = { messageCount: 0, cachedTokens: 0, uncachedTokens: 0, totalTokens: 0, costTotal: 0 };
+    for (const entry of this.entries) {
+      if (entry.type === "message") stats.messageCount += 1;
+      const usage = completeUsage(entryUsage(entry));
+      if (!usage) continue;
+      stats.cachedTokens += usage.cacheRead;
+      stats.uncachedTokens += usage.input + usage.cacheWrite;
+      stats.totalTokens += usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
+      stats.costTotal += usage.cost.total;
+    }
+    return stats;
+  }
+
+  /**
+   * Port of memory-storage.js `getPathToRootOrCompaction` (pi-agent-core
+   * 0.83.0 renamed `getPathToRoot` to this and gave it the compaction stop).
+   *
+   * Walks leaf → root and STOPS EARLY at a compaction boundary: a compaction
+   * with a `retainedTail` ends the walk at itself, otherwise the walk
+   * continues only as far back as its `firstKeptEntryId`. Everything older
+   * was summarized into the compaction entry, so re-walking it would hand
+   * `buildContextEntries` a prefix it drops anyway.
+   *
+   * NOT a behaviour change for EZCorp's own reads: `session-sync.ts` is the
+   * only producer and appends `message` / `custom` / `branch_summary` only —
+   * never `compaction` — so no stored EZCorp tree can take the early exit and
+   * `computeSessionBranch` walks exactly the entries it walked before. The
+   * compaction arm is live only for trees driven through pi's `Session`
+   * (`appendCompaction`), which is what `Session.getBranch()` now calls this
+   * for.
+   *
+   * `parentMessageId` is NOT touched here — this is a pure read. The one
+   * sanctioned tree mutation stays {@link reparentEntry}.
+   */
+  async getPathToRootOrCompaction(leafId: string | null): Promise<SessionTreeEntry[]> {
     if (leafId === null) return [];
     const path: SessionTreeEntry[] = [];
+    let stopAtEntryId: string | null = null;
     let current = this.byId.get(leafId);
     if (!current) throw new SessionError("not_found", `Entry ${leafId} not found`);
     while (current) {
       path.unshift(current);
+      if (stopAtEntryId !== null && current.id === stopAtEntryId) break;
+      if (current.type === "compaction") {
+        if (current.retainedTail) break;
+        stopAtEntryId = current.firstKeptEntryId ?? null;
+      }
       if (!current.parentId) break;
       const parent = this.byId.get(current.parentId);
       if (!parent) throw new SessionError("invalid_session", `Entry ${current.parentId} not found`);
@@ -313,8 +405,21 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
     return path;
   }
 
-  async getEntries(): Promise<SessionTreeEntry[]> {
-    return [...this.entries];
+  /**
+   * Port of memory-storage.js `getEntries`: the insertion (`seq`) axis, with
+   * pi's optional cursor window applied as `slice(start, start + limit)`.
+   *
+   * `afterEntrySeq` is a POSITION in this session's entry list, exactly as in
+   * pi's own two implementations — it is NOT this table's `seq` column.
+   * `agent_session_entries.seq` is a `bigserial` shared across every session,
+   * so it is gappy per session and would make a cursor meaningless as an
+   * index. The in-memory `entries` array is already ordered by that column, so
+   * position N here is the Nth entry of THIS session, which is what pi means.
+   */
+  async getEntries(options?: SessionEntryCursorOptions): Promise<SessionTreeEntry[]> {
+    const start = options?.afterEntrySeq ?? 0;
+    const end = options?.limit === undefined ? undefined : start + options.limit;
+    return this.entries.slice(start, end);
   }
 
   /** INSERT the entry (PK enforces intra-session id uniqueness — a

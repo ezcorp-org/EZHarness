@@ -22,8 +22,8 @@ import { isUniqueViolation } from "./unique-violation";
  * Fidelity contract (design §2, mirrors src/runtime/stream-chat/
  * load-history.ts — the parity suite FAILS if the two drift):
  *  - FULL-tree walk (§6): every `messages` row becomes an entry so branch
- *    reconstruction (getPathToRoot) matches getConversationPath — a
- *    getConversationPath-only walk would lose sibling branches.
+ *    reconstruction (getPathToRootOrCompaction) matches getConversationPath
+ *    — a getConversationPath-only walk would lose sibling branches.
  *  - Only REAL user/assistant turns become LLM-visible `message` entries.
  *    `excluded` rows and the UI-only synthetic roles (ez-action-result,
  *    preprocess-result, capability-event) are preserved in the tree as
@@ -91,7 +91,7 @@ export function rowToPiMessage(row: ConversationMessage): AssistantMessage | Use
  *  a same-conversation dangling pointer is unreachable (the self-FK
  *  messages.parent_message_id → messages(id) is ON DELETE SET NULL) — but a
  *  cross-conversation pointer (the FK is not conversation-scoped) or
- *  inconsistent data would otherwise make getPathToRoot throw
+ *  inconsistent data would otherwise make getPathToRootOrCompaction throw
  *  invalid_session on a missing byId entry. Degrade gracefully instead.
  *
  *  This truncation now MATCHES getConversationPath: as of Wave5 0.7 its
@@ -134,8 +134,8 @@ export async function backfillSessionForConversation(conversationId: string): Pr
 
   // FULL-tree walk: getMessages returns EVERY row (all branches), ordered
   // by createdAt. parent_id has no FK, so appending a child before its
-  // parent is fine — getPathToRoot resolves the chain from the in-memory
-  // map, not insertion order.
+  // parent is fine — getPathToRootOrCompaction resolves the chain from the
+  // in-memory map, not insertion order.
   const rows = await getMessages(conversationId);
   const knownIds = new Set(rows.map((r) => r.id));
   for (const row of rows) {

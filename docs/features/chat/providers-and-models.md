@@ -21,7 +21,11 @@ EZCorp talks to OpenAI, Anthropic, Google, and arbitrary OpenAI-compatible / Oll
 OAuth tokens are stored encrypted under `provider:oauth:<provider>` in the pi-ai `OAuthCredentials` shape (`{ access, refresh, expires, … }`). `getOAuthCredential` decrypts, and:
 
 - For **Google**, if `projectId` is missing it is discovered via the Cloud Code Assist API (`cloudcode-pa.googleapis.com`) and persisted back.
-- **Auto-refresh** — if `expires < now + 60s`, it refreshes via pi-ai's `getOAuthApiKey(oauthProviderId, …)`, guarded by an in-memory `refreshLocks` `Map` keyed by provider so concurrent runs don't double-refresh. Refreshed credentials are re-encrypted and upserted. Provider→OAuth-id mapping: `openai → openai-codex`, `google → google-gemini-cli`, `anthropic → anthropic` (`OAUTH_PROVIDER_IDS`).
+- **Auto-refresh** — if `expires < now + 60s`, refresh + key derivation run through `Models.getAuth(oauthProviderId, { minOAuthValidityMs: 60_000 })` over `SettingsCredentialStore` (`src/providers/credential-store.ts`), a pi-ai `CredentialStore` backed by the same encrypted `settings` rows. pi performs the token exchange **inside** `store.modify()`, so read → check-expiry → refresh → write is one serialized critical section per provider: a caller that queued behind another turn's refresh re-checks expiry under the lock and declines to exchange a second time. Provider→OAuth-id mapping: `openai → openai-codex`, `google → google-gemini-cli`, `anthropic → anthropic` (`OAUTH_PROVIDER_IDS`).
+- **Every write on the refresh path goes through that store**, including the Google `projectId` backfill, so a refresh cannot interleave with another write to the same row. (Initial connect still writes the row directly from the OAuth callback route.) The lock is **in-process only** — the same constraint `withConvSessionLock` documents in `src/db/session-sync.ts`.
+- **`google-gemini-cli` is not a provider pi-ai registers** (it never has been), so `getAuth` returns `undefined` for Google and `getOAuthCredential` throws, falling through to BYOK → env exactly as it always did.
+- **"Connected but broken" is no longer flattened into "not configured."** A genuine refresh failure surfaces as pi's `ModelsError { code: "oauth" }`; `isBrokenOAuth` (shape-checked, never message-matched) separates it from "never connected", and if the whole ladder then fails, the thrown error names the cause and tells the user to sign in again rather than to add an API key.
+- **BYOK-only providers** (`anthropic`, `openrouter`) skip the DB-OAuth step in the default chain. Both carry `auth.oauth` in pi-ai's catalog as of 0.83.0, but nothing in EZCorp ever *writes* `provider:oauth:anthropic` (the OAuth callback route accepts `openai` and `google` only), so the stored-credential precondition still stops it. Anthropic subscription auth is a feature, not a side effect of the catalog gaining the field.
 
 `getApiKey(provider)` (the BYOK path, marked `@deprecated` in favor of `getCredential`) reads `provider:apiKey:<provider>` and decrypts, then falls back to pi-ai's `getEnvApiKey` (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`).
 
@@ -122,7 +126,9 @@ Routing provenance is recorded per turn on the message `usage` blob (`routedTier
 
 ## Key files
 
-- `src/providers/credentials.ts` — `getCredential` precedence chain, OAuth auto-refresh + refresh-lock, Google project discovery, BYOK/env fallback.
+- `src/providers/credentials.ts` — `getCredential` precedence chain, OAuth auto-refresh, Google project discovery, BYOK/env fallback, `OAuthUnusableError` vs "not configured".
+- `src/providers/credential-store.ts` — `SettingsCredentialStore` (pi-ai `CredentialStore` over the encrypted `settings` table), `resolveOAuthAuth` (the `Models.getAuth` wrapper that replaced pi-ai's removed `getOAuthApiKey`), `isBrokenOAuth`, `MIN_OAUTH_VALIDITY_MS`. Per-provider serialization lives in `modify()`.
+- `src/runtime/routing/dropped-models.ts` — pure catalog-gap decision (`isCatalogGap`, `findCatalogGaps`, `reportCatalogGapOnce`): names a pinned model id the installed pi-ai catalog no longer lists, before it silently degrades into a synthesized 128k/unpriced stand-in. `scripts/scan-catalog-gaps.ts` runs the same decision over the stored pins.
 - `src/providers/encryption.ts` — AES-256-GCM `encrypt`/`decrypt`; v1 (12-byte IV) + legacy (16-byte IV) formats; secret/salt sourcing.
 - `src/providers/registry.ts` — `getModelRegistry`, `resolveModelObject`, `resolveOAuthModel`, `inferTier`, custom + discovered + OAuth-override merge.
 - `src/providers/model-discovery.ts` — `fetchProviderModels` (direct `/v1/models` + models.dev catalog enrichment/fallback).

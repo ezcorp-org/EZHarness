@@ -39,7 +39,7 @@
  *   - seq BIGSERIAL is the INSERTION-order axis. pi entry ids are 8-char
  *     uuidv7 slices (NOT monotonic), so getEntries / findEntries /
  *     leaf-recovery order by seq, never by id. Tree order (parent_id
- *     chain) is a SEPARATE axis surfaced by getPathToRoot.
+ *     chain) is a SEPARATE axis surfaced by getPathToRootOrCompaction.
  *   - timestamp is TEXT (not timestamptz): pi's ISO string round-trips
  *     VERBATIM so entry payloads stay byte-faithful.
  *   - payload JSONB is written ONLY via column-mapped drizzle inserts

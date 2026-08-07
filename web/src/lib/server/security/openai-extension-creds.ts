@@ -20,10 +20,11 @@
  */
 
 import { ExtensionRegistry } from "$server/extensions/registry";
-import { getSetting, upsertSetting } from "$server/db/queries/settings";
-import { decrypt, encrypt } from "$server/providers/encryption";
+import { getSetting } from "$server/db/queries/settings";
+import { decrypt } from "$server/providers/encryption";
 import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
-import { getOAuthApiKey, type OAuthCredentials } from "@earendil-works/pi-ai/oauth";
+import type { OAuthCredentials } from "@earendil-works/pi-ai";
+import { resolveOAuthAuth } from "$server/providers/credential-store";
 
 export const OPENAI_IMAGE_GEN_EXT_NAME = "openai-image-gen-2";
 const OAUTH_PROVIDER_ID = "openai-codex";
@@ -99,30 +100,27 @@ export async function resolveOpenAIAccessToken(): Promise<string | null> {
   if (!creds.access || typeof creds.access !== "string") return null;
 
   // Refresh when inside the 60s pre-expiry window; leaves a buffer for
-  // the subsequent POST to the Codex endpoint.
+  // the subsequent POST to the Codex endpoint. `resolveOAuthAuth` applies
+  // the same 60s buffer internally (MIN_OAUTH_VALIDITY_MS), so this early
+  // return is a fast path over identical arithmetic, not a second policy.
   if (creds.expires > Date.now() + 60_000) return creds.access;
   if (!creds.refresh) return null;
 
   try {
-    const result = await getOAuthApiKey(OAUTH_PROVIDER_ID, { [OAUTH_PROVIDER_ID]: creds });
-    if (!result) return null;
-    const newCreds = result.newCredentials ?? creds;
-    if (newCreds !== creds) {
-      try {
-        await upsertSetting(`provider:oauth:openai`, encrypt(JSON.stringify(newCreds)));
-      } catch {
-        // Persisting the refreshed creds is best-effort; if it fails we
-        // still return the freshly minted access token so the current
-        // spawn succeeds. The next spawn will re-refresh.
-      }
-    }
-    // `getOAuthApiKey` returns the provider's API key string, which for
-    // `openai-codex` is the raw OAuth access token (a JWT). Fall back to
-    // newCreds.access if the result shape is unexpected.
-    return typeof result.apiKey === "string" && result.apiKey.length > 0
-      ? result.apiKey
-      : (newCreds.access ?? null);
+    // pi-ai 0.83.0 removed `getOAuthApiKey`; refresh + key derivation now run
+    // inside the shared credential store's `modify()` lock. That also removes
+    // the write this function used to do itself — persisting the refreshed
+    // credential is the store's job, and doing it here as well raced the
+    // chat path's refresh for the same `provider:oauth:openai` row.
+    //
+    // For `openai-codex` the derived apiKey IS the raw OAuth access token
+    // (a JWT), which is what the extension's Codex Responses path needs.
+    const auth = await resolveOAuthAuth(OAUTH_PROVIDER_ID);
+    return typeof auth?.apiKey === "string" && auth.apiKey.length > 0 ? auth.apiKey : null;
   } catch {
+    // Unchanged contract: this resolver is best-effort. A failed refresh
+    // yields no token and the extension emits its own "set OPENAI_API_KEY or
+    // OPENAI_ACCESS_TOKEN" error, rather than failing the spawn.
     return null;
   }
 }
