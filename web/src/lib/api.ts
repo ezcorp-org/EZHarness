@@ -12,7 +12,7 @@ async function checkResponse(res: Response): Promise<void> {
 		import("$lib/toast.svelte").then(({ addToast }) => {
 			const retryAfter = res.headers.get("Retry-After");
 			const seconds = retryAfter ? parseInt(retryAfter, 10) : undefined;
-			const message = seconds && !isNaN(seconds)
+			const message = seconds && !Number.isNaN(seconds)
 				? `Rate limit exceeded. Try again in ${seconds} seconds.`
 				: "Rate limit exceeded. Please wait before trying again.";
 			addToast({ type: "warning", message }, (seconds ?? 10) * 1000);

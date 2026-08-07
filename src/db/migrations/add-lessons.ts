@@ -41,8 +41,9 @@
  * file exists for documentation and parallels add-feature-index.ts.
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
-export async function up(db: any): Promise<void> {
+export async function up(db: MigrationDb): Promise<void> {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS lessons (
       id TEXT PRIMARY KEY,

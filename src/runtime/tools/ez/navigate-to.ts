@@ -17,8 +17,9 @@
  * The suspend/abort/emit machinery is shared via {@link runEzClientTool}.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef } from "../types";
+import type { BuiltinToolDef  } from "../types";
 import { runEzClientTool, type ClientToolContext } from "./client-tool";
+import type { ToolParams } from "../validate";
 
 export function isValidInAppPath(path: unknown): path is string {
   if (typeof path !== "string" || path.length === 0) return false;
@@ -50,7 +51,7 @@ export function createNavigateToTool(ctx: ClientToolContext): BuiltinToolDef {
       },
       required: ["path"],
     }),
-    execute: async (toolCallId, params: any, signal) => {
+    execute: async (toolCallId, params: ToolParams, signal) => {
       const path = params?.path;
       if (!isValidInAppPath(path)) {
         return {

@@ -17,11 +17,11 @@
  * alone.
  */
 
-import type { Model } from "@earendil-works/pi-ai";
 import { listModels } from "./local-model-check";
 import type { ProviderCredential } from "./credentials";
+import type { AnyModel } from "./model-types";
 
-export interface DiscoveredModel extends Model<any> {}
+export interface DiscoveredModel extends AnyModel {}
 
 const CATALOG_URL = "https://models.dev/api.json";
 
@@ -145,7 +145,7 @@ function isChatCapable(m: CatalogModel): boolean {
   return !isExcludedById(m.id);
 }
 
-// ── Catalog entry → pi-ai Model<any> ─────────────────────────────────
+// ── Catalog entry → pi-ai AnyModel ─────────────────────────────────
 
 function toModel(providerSlug: string, m: CatalogModel): DiscoveredModel {
   const defaults = PROVIDER_DEFAULTS[providerSlug];
@@ -159,8 +159,8 @@ function toModel(providerSlug: string, m: CatalogModel): DiscoveredModel {
   return {
     id: m.id,
     name: m.name ?? m.id,
-    api: defaults.api as any,
-    provider: providerSlug as any,
+    api: defaults.api,
+    provider: providerSlug,
     baseUrl: defaults.baseUrl,
     reasoning: m.reasoning ?? false,
     input,

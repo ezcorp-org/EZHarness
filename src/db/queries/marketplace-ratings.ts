@@ -1,5 +1,6 @@
 import { eq, and, sql, desc } from "drizzle-orm";
 import { getDb } from "../connection";
+import type { DbTransaction } from "../connection";
 import { marketplaceRatings, marketplaceFlags, marketplaceListings } from "../schema";
 import type { MarketplaceRating, MarketplaceFlag } from "../schema";
 
@@ -17,7 +18,7 @@ export async function upsertRating(
   // violation → 500), and the recompute+write-back was non-atomic so an
   // interleave could persist a stale count. The insert now upserts against
   // the real conflict target, and the recount runs on the same tx snapshot.
-  await getDb().transaction(async (tx: any) => {
+  await getDb().transaction(async (tx: DbTransaction) => {
     await tx
       .insert(marketplaceRatings)
       .values({ listingId, userId, thumbsUp })
@@ -71,7 +72,7 @@ export async function createFlag(
   // recompute commit together — otherwise an interleave with a concurrent
   // flag/resolve could persist a stale count (same non-atomic recompute hazard
   // fixed in upsertRating).
-  return getDb().transaction(async (tx: any) => {
+  return getDb().transaction(async (tx: DbTransaction) => {
     const [flag] = await tx
       .insert(marketplaceFlags)
       .values({ listingId, userId, reason, category })
@@ -134,7 +135,7 @@ export async function resolveFlag(
   // or concurrent resolve can't leave the denormalized count / status stale
   // relative to the flags (same non-atomic recompute hazard fixed in
   // upsertRating / createFlag).
-  await getDb().transaction(async (tx: any) => {
+  await getDb().transaction(async (tx: DbTransaction) => {
     const [flag] = await tx
       .select()
       .from(marketplaceFlags)
@@ -205,6 +206,7 @@ export async function listFlags(opts?: {
   const conditions = [];
 
   if (opts?.status) {
+    // biome-ignore lint/suspicious/noExplicitAny: `opts.status` arrives as a free-form string from the query string; drizzle wants the column's literal union and there is no exported guard for it yet, so an invalid value simply matches no rows.
     conditions.push(eq(marketplaceFlags.status, opts.status as any));
   }
   if (opts?.listingId) {

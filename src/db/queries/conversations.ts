@@ -1,5 +1,6 @@
 import { eq, ne, desc, asc, sql, and, or, isNull, inArray, notInArray } from "drizzle-orm";
 import { getDb } from "../connection";
+import type { DbTransaction } from "../connection";
 import { conversations, messages, toolCalls, runs, conversationExtensions } from "../schema";
 import { listAttachmentsForMessages } from "./attachments";
 import { getSetting, upsertSetting } from "./settings";
@@ -586,7 +587,7 @@ export async function createMessage(
   // here; that is the Phase 64 worker's job, off the SSE finalize hot path.
   // (`tx` is `any` by the deliberate repo-wide `Database = any` design in
   // connection.ts; enqueueEmbedJob's EmbedJobTx documents the handle shape.)
-  return getDb().transaction(async (tx: any) => {
+  return getDb().transaction(async (tx: DbTransaction) => {
     const rows = await tx
       .insert(messages)
       .values({
@@ -657,7 +658,7 @@ export async function deleteAllMessagesForConversation(conversationId: string): 
   // non-self-healing partial state (the surviving messages lose their tool
   // calls permanently). Order preserved: extensions/tool_calls first, messages
   // last (so the message-cascade for attachments still fires correctly).
-  return getDb().transaction(async (tx: any) => {
+  return getDb().transaction(async (tx: DbTransaction) => {
     await tx.delete(conversationExtensions).where(eq(conversationExtensions.conversationId, conversationId));
     await tx.delete(toolCalls).where(eq(toolCalls.conversationId, conversationId));
     const rows = await tx
@@ -680,6 +681,7 @@ function rowToMessage(row: Record<string, unknown>): Message {
     thinkingContent: (row.thinking_content as string) ?? null,
     model: (row.model as string) ?? null,
     provider: (row.provider as string) ?? null,
+    // biome-ignore lint/suspicious/noExplicitAny: a jsonb token-usage blob whose shape is the provider's, written by whichever adapter served the turn; the readers all treat it as opaque telemetry.
     usage: row.usage as any,
     runId: (row.run_id as string) ?? null,
     parentMessageId: (row.parent_message_id as string) ?? null,
@@ -823,7 +825,7 @@ export async function cloneTurnsIntoNewConversation(
   // the enqueue mirrors createMessage's IDX-04 guard so cloned eligible
   // messages are indexed for semantic search (an unenqueued fork copy would be
   // invisible to message search forever if the source were later deleted).
-  return getDb().transaction(async (tx: any) => {
+  return getDb().transaction(async (tx: DbTransaction) => {
     const messageIdMap = new Map<string, string>();
     let prevNewId: string | null = null;
 
@@ -905,7 +907,7 @@ export async function updateMessageContent(
   // outbox re-enqueue commit together. The outbox PK upsert means a re-edit
   // before the worker drains just refreshes the pending job (no duplicate
   // row). Everything runs on `tx` (research Pitfall 1).
-  return getDb().transaction(async (tx: any) => {
+  return getDb().transaction(async (tx: DbTransaction) => {
     const rows = await tx
       .update(messages)
       .set({ content })
@@ -1112,7 +1114,7 @@ export async function searchConversations(
     ORDER BY rank DESC
   `);
 
-  return (results.rows as any[]).map((row) => ({
+  return (results.rows as Array<Record<string, unknown>>).map((row) => ({
     id: row.id as string,
     title: row.title as string,
     updatedAt: new Date(row.updated_at as string),
@@ -1167,9 +1169,9 @@ export function extractOutputText(output: unknown): string | null {
     const obj = output as Record<string, unknown>;
     // Handle ToolCallResult shape: { content: [{ type: "text", text: "..." }] }
     if (Array.isArray(obj.content)) {
-      const texts = (obj.content as any[])
-        .filter((c: any) => c.type === "text" && typeof c.text === "string")
-        .map((c: any) => c.text);
+      const texts = (obj.content as ReadonlyArray<{ type?: unknown; text?: unknown }>)
+        .filter((c): c is { type: "text"; text: string } => c?.type === "text" && typeof c?.text === "string")
+        .map((c) => c.text);
       return texts.length > 0 ? texts.join("\n") : JSON.stringify(output);
     }
     const candidate = obj.text ?? obj.content ?? obj.result;
@@ -1325,7 +1327,16 @@ export async function getMessagesWithToolCalls(conversationId: string): Promise<
     ORDER BY c.created_at ASC
   `);
 
-  const subConversations: SubConversationSummary[] = (subConvoRows.rows as any[]).map((r) => ({
+  // Raw `db.execute(sql`…`)` output — the SELECT list above is the contract.
+  type SubConvoRow = {
+    id: string;
+    agent_name?: string | null;
+    agent_config_id?: string | null;
+    message_count: number | string;
+    last_message_preview?: string | null;
+    parent_message_id?: string | null;
+  };
+  const subConversations: SubConversationSummary[] = (subConvoRows.rows as SubConvoRow[]).map((r) => ({
     id: r.id,
     agentName: r.agent_name ?? null,
     agentConfigId: r.agent_config_id ?? null,

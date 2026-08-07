@@ -2,7 +2,8 @@ import { Type } from "@earendil-works/pi-ai";
 import { readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef } from "./types";
+import type { BuiltinToolDef  } from "./types";
+import type { ToolParams } from "./validate";
 
 export function createReadDirectoryTool(projectPath: string): BuiltinToolDef {
   return {
@@ -18,7 +19,7 @@ export function createReadDirectoryTool(projectPath: string): BuiltinToolDef {
         depth: { type: "number", description: "Max depth (1-3, default 2)", default: 2 },
       },
     }),
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const dir = validatePath(projectPath, params.path || ".");
         const maxDepth = Math.min(Math.max(params.depth || 2, 1), 3);
@@ -44,8 +45,8 @@ export function createReadDirectoryTool(projectPath: string): BuiltinToolDef {
 
         await walk(dir, "", 1);
         return { content: [{ type: "text" as const, text: lines.join("\n") || "(empty directory)" }], details: {} };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], details: { isError: true } };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
       }
     },
   };

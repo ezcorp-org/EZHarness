@@ -57,8 +57,9 @@
  * add-briefing-configs.ts.
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
-export async function up(db: any): Promise<void> {
+export async function up(db: MigrationDb): Promise<void> {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS github_projects_links (
       id TEXT PRIMARY KEY,

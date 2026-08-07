@@ -143,13 +143,26 @@ export async function hybridSearch(
 
   const result = await rawQuery(sql, params);
 
-  const results = (result.rows as any[]).map((row) => ({
+  // Raw `db.execute(sql`…`)` output: the SELECT list is the contract, so it
+  // is named here rather than left untyped.
+  type RrfRow = {
+    id: string;
+    content: string;
+    category: string;
+    project_id?: string | null;
+    confidence: string;
+    provenance?: string | null;
+    rrf_score: number | string;
+  };
+  // `category` / `provenance` come back as plain text and are re-narrowed to
+  // their union types below — the SELECT cannot prove the enum for them.
+  const results = (result.rows as RrfRow[]).map((row) => ({
     id: row.id,
     content: row.content,
     category: row.category as MemoryCategory,
     projectId: row.project_id ?? null,
     confidence: row.confidence,
-    provenance: row.provenance ?? null,
+    provenance: (row.provenance ?? null) as MemoryProvenance | null,
     rrfScore: Number(row.rrf_score),
   }));
 

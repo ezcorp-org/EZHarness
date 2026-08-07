@@ -31,8 +31,9 @@
  * `message-search.ts` until `defaultSearch` is invoked.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef } from "../types";
+import type { BuiltinToolDef  } from "../types";
 import type { MessageSearchHit } from "../../../db/queries/message-search";
+import type { ToolParams } from "../validate";
 
 /** Default number of hits returned when the LLM doesn't specify a limit. */
 const DEFAULT_LIMIT = 10;
@@ -101,7 +102,7 @@ export function createSearchConversationTool(ctx: SearchConversationContext): Bu
       },
       required: ["query"],
     }),
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const query = typeof params?.query === "string" ? params.query.trim() : "";
         if (!query) {
@@ -133,8 +134,8 @@ export function createSearchConversationTool(ctx: SearchConversationContext): Bu
           content: [{ type: "text" as const, text: formatHits(query, hits) }],
           details: { query, conversationId: conversationId || undefined, count: hits.length },
         };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], details: { isError: true } };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
       }
     },
   };

@@ -1,7 +1,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { mkdirSync } from "node:fs";
-import { validateTimeout } from "./validate";
-import type { BuiltinToolDef } from "./types";
+import { validateTimeout, type ToolParams } from "./validate";
+import type { BuiltinToolDef  } from "./types";
 import type { AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { buildStreamTruncationMarker, getToolOutputLimit } from "./output-limits";
 import { logger } from "../../logger";
@@ -157,7 +157,7 @@ export function createShellTool(
       },
       required: ["command"],
     }),
-    execute: async (_toolCallId, params: any, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback) => {
+    execute: async (_toolCallId, params: ToolParams, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback) => {
       log.debug("shell-audit", { command: params.command, cwd: projectPath, timestamp: new Date().toISOString() });
 
       const blocked = DANGEROUS_COMMAND_PATTERNS.find((p) => p.test(params.command));
@@ -292,10 +292,11 @@ export function createShellTool(
           content: [{ type: "text" as const, text: fullOutput || "(no output)" }],
           details: { exitCode: result.exitCode, stdout: output, stderr, streaming: false, truncated },
         };
-      } catch (e: any) {
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
         return {
-          content: [{ type: "text" as const, text: `Error: ${e.message}` }],
-          details: { exitCode: -1, stdout: "", stderr: e.message, streaming: false, isError: true },
+          content: [{ type: "text" as const, text: `Error: ${message}` }],
+          details: { exitCode: -1, stdout: "", stderr: message, streaming: false, isError: true },
         };
       }
     },

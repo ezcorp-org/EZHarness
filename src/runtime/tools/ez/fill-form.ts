@@ -13,8 +13,9 @@
  * via {@link runEzClientTool} — see `client-tool.ts`.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef } from "../types";
+import type { BuiltinToolDef  } from "../types";
 import { runEzClientTool, type ClientToolContext } from "./client-tool";
+import type { ToolParams } from "../validate";
 
 // Re-exported for back-compat with older import sites; the canonical
 // definitions now live in `client-tool.ts`.
@@ -38,7 +39,7 @@ export function createFillFormTool(ctx: ClientToolContext): BuiltinToolDef {
       },
       required: ["formId", "values"],
     }),
-    execute: async (toolCallId, params: any, signal) => {
+    execute: async (toolCallId, params: ToolParams, signal) => {
       const formId = typeof params?.formId === "string" ? params.formId : "";
       const values = params?.values && typeof params.values === "object" ? params.values : {};
       if (!formId) {

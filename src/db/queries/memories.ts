@@ -1,5 +1,6 @@
 import { eq, desc, sql, and, ne, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
+import type { DbTransaction } from "../connection";
 import { memories, memoryAuditLog, memoryProjects } from "../schema";
 import type { Memory, NewMemory } from "../schema";
 import type { MemoryConfidence, MemoryProvenance, MemoryStatus } from "../../memory/types";
@@ -37,7 +38,7 @@ export async function removeMemoryFromProjects(memoryId: string, projectIds: str
  */
 export async function setMemoryProjects(memoryId: string, projectIds: string[]): Promise<void> {
   const db = getDb();
-  await db.transaction(async (tx: any) => {
+  await db.transaction(async (tx: DbTransaction) => {
     await tx.delete(memoryProjects).where(eq(memoryProjects.memoryId, memoryId));
     if (projectIds.length > 0) {
       await tx.insert(memoryProjects)
@@ -90,7 +91,7 @@ export async function insertMemory(data: NewMemory & { projectIds?: string[] }):
   // insert and the junction insert would otherwise leave a project-scoped
   // memory with ZERO junction rows — which the scope queries treat as GLOBAL,
   // silently widening it into every project.
-  return db.transaction(async (tx: any) => {
+  return db.transaction(async (tx: DbTransaction) => {
     const rows = await tx.insert(memories).values(memoryData).returning();
     const memory = rows[0]!;
 
@@ -137,7 +138,7 @@ export async function updateMemory(
   // Embedding update, column update, and audit row are ONE atomic unit — a
   // failure mid-sequence would otherwise leave an updated embedding paired with
   // stale content (or an audit row for an update that never committed).
-  await db.transaction(async (tx: any) => {
+  await db.transaction(async (tx: DbTransaction) => {
     // For embedding, use raw SQL since Drizzle doesn't handle vector assignment directly
     if (updates.embedding !== undefined) {
       await tx.execute(
@@ -346,7 +347,7 @@ export async function deleteMemory(id: string): Promise<void> {
   // (backwards forensic evidence). The audit row is written BEFORE the delete
   // because memory_audit_log.memory_id FK-references memories with ON DELETE
   // CASCADE — inserting it after the delete would violate the FK.
-  await db.transaction(async (tx: any) => {
+  await db.transaction(async (tx: DbTransaction) => {
     await tx.insert(memoryAuditLog).values({
       memoryId: id,
       action: "deleted",

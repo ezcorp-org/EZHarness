@@ -90,6 +90,7 @@
  * add-user-commands-unique-name.ts.
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
 /** The cwd hop the dev server added between the project root and `.ezcorp`. */
 const STALE_INFIX = "/web/.ezcorp/extensions/";
@@ -128,10 +129,7 @@ function rewritePrefix(
  * @param projectRoot Absolute path `getProjectRoot()` resolved to. Rows
  * are only rewritten when their stale path sits under exactly this root.
  */
-export async function up(
-  db: { execute: (q: ReturnType<typeof sql>) => Promise<unknown> },
-  projectRoot: string,
-): Promise<void> {
+export async function up(db: MigrationDb, projectRoot: string): Promise<void> {
   // Tolerate a trailing slash on the root so `/app` and `/app/` build the
   // same prefix instead of a `//web/...` that matches nothing.
   const root = projectRoot.replace(/\/+$/, "");

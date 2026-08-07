@@ -115,7 +115,7 @@ function validateList(raw: Record<string, unknown>): PanelList | null {
 function validateKV(raw: Record<string, unknown>): PanelKV | null {
   if (!Array.isArray(raw.pairs)) return null;
   const pairs = raw.pairs.slice(0, MAX_KV_PAIRS)
-    .filter((p): p is Record<string, unknown> => p != null && typeof p === "object" && typeof (p as any).key === "string" && typeof (p as any).value === "string")
+    .filter((p): p is Record<string, unknown> => p != null && typeof p === "object" && typeof (p as Record<string, unknown>).key === "string" && typeof (p as Record<string, unknown>).value === "string")
     .map((p) => ({
       key: truncate(p.key, 50),
       value: truncate(p.value, 200),

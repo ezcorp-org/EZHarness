@@ -66,6 +66,7 @@ export async function resolveOpenAIApiKey(): Promise<string | null> {
   } catch {
     // Settings DB unavailable — fall through to env.
   }
+  // biome-ignore lint/suspicious/noExplicitAny: `getEnvApiKey` is keyed on the provider-id union built from the settings schema, which this module cannot import without pulling the whole settings surface into a security helper.
   const envKey = getEnvApiKey("openai" as any);
   if (envKey) return envKey;
   return null;

@@ -63,6 +63,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   try {
     // Invariant: install never grants permissions. Enable + grant happens via POST /:id/activate.
+    // biome-ignore lint/suspicious/noExplicitAny: the empty permission set at install time; `ExtensionPermissions` requires more than `grantedAt`, and the narrowing happens when the manifest's requested grants are clamped in.
     const emptyPerms = { grantedAt: {} } as any;
     let ext: InstalledExtension | Extension;
     if (source === "local") {

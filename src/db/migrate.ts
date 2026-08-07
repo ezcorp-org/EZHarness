@@ -7,6 +7,7 @@ import { up as upClaimOwnerlessKbFilesOnce } from "./migrations/claim-ownerless-
 // Value import is safe: this module imports only `drizzle-orm`. Its
 // project-root ARGUMENT comes from `getProjectRoot()` below.
 import { up as upNormalizeExtensionStateRoot } from "./migrations/normalize-extension-state-root";
+import type { MigrateDb } from "./migrations/types";
 // Value import is safe: `project-root.ts` depends only on `../logger` and
 // node builtins. It used to live in `../extensions/bundled.ts`, which
 // reaches `db/queries/extensions.ts → db/connection.ts → migrate.ts` —
@@ -54,7 +55,7 @@ const EZ_SEED_ALLOWED_TOOLS = [
   "read_page",
 ];
 
-export async function migrate(db: any): Promise<void> {
+export async function migrate(db: MigrateDb): Promise<void> {
   // Enable pgvector extension (must be before any vector column usage)
   await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
 

@@ -57,6 +57,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	if (!stat.isFile()) return notFound();
 
 	const stream = createReadStream(resolved.absPath) as unknown as ReadableStream;
+	// biome-ignore lint/suspicious/noExplicitAny: a Bun ReadableStream handed to the platform Response — DOM lib's BodyInit and Bun's stream type do not line up in this build's lib set.
 	return new Response(stream as any, {
 		status: 200,
 		headers: {

@@ -111,4 +111,16 @@ describe("propose_install_extension", () => {
     const parsed = expectJson<ExtensionDraftJson>(result);
     expect(parsed.openUrl).toBe(`/marketplace?q=${encodeURIComponent("spaces & symbols")}`);
   });
+
+  // The catch arm. Everything before it either returns a validated error or
+  // succeeds, so the only route in is a genuine failure at the createDraft
+  // write — reproduced here with a userId that has no `users` row, which
+  // trips the ez_drafts FK. What matters is that the model gets a tool error
+  // result back instead of the turn dying on an unhandled throw.
+  test("a write failure is reported as an error result, not a throw", async () => {
+    const tool = createProposeInstallExtensionTool({ userId: "user-that-does-not-exist" });
+    const result = await tool.execute("e-6", { searchQuery: "crawl" });
+    expect(expectDetails<ToolErrorDetails>(result).isError).toBe(true);
+    expectText(result, "Error:");
+  });
 });

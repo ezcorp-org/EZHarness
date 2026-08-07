@@ -97,7 +97,7 @@ try {
   );
   const preRollback = (await conn.getDb().execute(
     sql`SELECT key FROM settings ORDER BY key`,
-  )).rows.map((r: any) => r.key);
+  )).rows.map((r: { key: string }) => r.key);
   assert(
     preRollback.length === 2 && preRollback.includes("will-be-lost"),
     `Pre-rollback DB has 2 rows: [${preRollback.join(", ")}]`,
@@ -137,7 +137,7 @@ try {
   );
   const restoredRows = (await conn.getDb().execute(
     sql`SELECT key FROM settings ORDER BY key`,
-  )).rows.map((r: any) => r.key);
+  )).rows.map((r: { key: string }) => r.key);
   assert(
     restoredRows.length === 1 && restoredRows[0] === "verify-key",
     `Restored DB has ONLY pre-snapshot data: [${restoredRows.join(", ")}] — "will-be-lost" correctly gone`,
@@ -158,7 +158,7 @@ try {
   );
   const finalRows = (await conn.getDb().execute(
     sql`SELECT key FROM settings ORDER BY key`,
-  )).rows.map((r: any) => r.key);
+  )).rows.map((r: { key: string }) => r.key);
   assert(finalRows.length === 1 && finalRows[0] === "verify-key", "Data still intact after recovery");
   await conn.closeDb();
 

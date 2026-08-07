@@ -2,7 +2,7 @@
  * Provider routing with fallback suggestions.
  */
 
-import { type Model } from "@earendil-works/pi-ai";
+import type { AnyModel } from "./model-types";
 import {
   resolveModelObject,
   findModelForProviderInTier,
@@ -151,7 +151,7 @@ export async function resolveModel(
   // the process-wide "shared" breaker so context-free callers are
   // behavior-identical to the old provider-only keying.
   credentialScope = "shared",
-): Promise<{ provider: string; model: string; piModel: Model<any> }> {
+): Promise<{ provider: string; model: string; piModel: AnyModel }> {
   // ── `__current__` IS AN INHERIT SENTINEL, NOT A PROVIDER ID ────────
   //
   // `CURRENT_MODEL_SENTINEL` means "use whatever model is in force", and
@@ -211,8 +211,16 @@ export async function resolveModel(
       return { provider, model: modelId, piModel: discovered };
     }
     // Look up custom model's baseUrl so resolveModelObject can set the correct endpoint
-    const customModels = (await getSetting("provider:customModels")) as any[] | undefined;
-    const custom = customModels?.find((m: any) => (m.id ?? m.modelId) === modelId && m.provider === provider);
+    // Raw stored rows, not `CustomModelEntry`: this reads the setting straight
+    // rather than through `parseCustomModelEntries`, so it must tolerate both
+    // the `id` and the legacy `modelId` spelling — which is the only reason
+    // the shape is stated here instead of imported.
+    const customModels = (await getSetting("provider:customModels")) as
+      | Array<{ id?: string; modelId?: string; provider?: string; baseUrl?: string }>
+      | undefined;
+    const custom = customModels?.find(
+      (m) => (m.id ?? m.modelId) === modelId && m.provider === provider,
+    );
     // NAME A RETIRED PIN. This is the branch that honours an explicit
     // provider+model pin, so it is the one place where a user's saved model
     // choice meets the installed catalog. A pi-ai upgrade can retire an id
