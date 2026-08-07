@@ -1526,6 +1526,22 @@
 			// measured synchronously before the IntersectionObserver's
 			// async callback can stale-flip `userScrolledUp` from the same
 			// growth, so a genuine "scrolled up to read" still wins.
+			//
+			// KNOWN BUG — issue #140. This observer is correct; the latch
+			// below it is not. The re-pin is deferred to a rAF, and `stuck`
+			// is recomputed ONLY in the scroll handler (see the
+			// `stuck = bottomSlack(el) < STICK_TO_BOTTOM_THRESHOLD_PX` line
+			// further down). A scroll event dispatched inside that rAF
+			// window — Chrome's default `overflow-anchor: auto` fires one
+			// when content above the anchor grows — makes `onScroll` read
+			// post-growth/pre-repin slack and latch `stuck = false` with
+			// nothing to reset it. One large streamed chunk (a code block
+			// or table) then stops the thread following, permanently.
+			// `web/e2e/chat-stick-to-bottom.spec.ts` and
+			// `chat-scroll-restore.spec.ts` both catch it and are held out
+			// of the blocking lane because of it. Fix direction: ignore
+			// scroll events whose `scrollTop` is unchanged (growth-driven,
+			// not user-driven).
 			if (typeof ResizeObserver !== "undefined") {
 				const el = container;
 				let rafPending = false;

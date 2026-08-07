@@ -155,8 +155,10 @@ test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
 			page.getByRole("button", { name: /stop/i }),
 		).toBeVisible({ timeout: 8000 });
 
-		// The thread mid-stream: the in-flight assistant turn and the Stop
-		// control the streaming binding drives.
+		// The thread's streaming state: the pending-turn skeleton +
+		// "Thinking…" placeholder and the Stop control the streaming
+		// binding drives. (Rendered token text is a separate surface —
+		// this shot is the pre-first-token state.)
 		await captureEvidence(page, testInfo, "chat-thread-streaming");
 	});
 

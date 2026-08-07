@@ -106,7 +106,11 @@ async function openPanel(
 	// inside it then dies on "Element is outside of the viewport" (measured
 	// ~1-in-8 on the 390px case). Wait for the slide to park the panel fully
 	// inside the viewport so every case below acts on a settled drawer.
-	await expect(panel).toBeInViewport({ ratio: 1, timeout: 10000 });
+	// `ratio: 0.99`, not 1: this runs in a `retries: 0` blocking lane, and an
+	// exact-geometry assertion would turn a future panel one pixel wider than
+	// the viewport into a hard red. 0.99 still fails the mid-slide state
+	// (the drawer is ~100% OUT, not 1% out) without pinning exact layout.
+	await expect(panel).toBeInViewport({ ratio: 0.99, timeout: 10000 });
 	return panel;
 }
 

@@ -13,8 +13,9 @@
  *     playwright args via scripts/e2e-lane-args.ts (anchored regexes) —
  *     asserted both at the generator level and as an invocation anchor in
  *     ci.yml itself.
- *   - `unwired` is an honest, SHRINK-ONLY backlog (241 at landing): wiring
- *     a spec means moving it to a real lane, never deleting the entry.
+ *   - `unwired` is an honest, SHRINK-ONLY backlog, pinned to its EXACT
+ *     current size: wiring a spec means moving it to a real lane and
+ *     lowering the ceiling, never deleting the entry.
  *
  * Runs in the P∩C sweep (src/__tests__ → the CI cov-shards gate it).
  */
@@ -47,18 +48,28 @@ const LANE_NAMES = ["mock-gate", "real-auth", "evidence-soft", "docker", "unwire
 // Three sibling chat specs were MEASURED and deliberately left unwired — a
 // blocking lane runs at `retries: 0`, so a flaky member is worse than an
 // unwired one (rates from repeated local runs against the mock preview):
-//   - chat-message-pagination  ~4% isolated / ~12% under lane load. Its
+//   - chat-message-pagination  ~4% isolated / 12-25% under lane load — the
+//     highest-flake spec in the repo, and it currently protects nothing. Its
 //     explicit "Load older messages" clicks race the top-sentinel
 //     IntersectionObserver, which independently grows the window: the second
 //     click's button detaches mid-retry (30s timeout) and the exact
-//     `count === 35` assertion sees 50. Fixable only by changing what the
-//     test asserts.
+//     `count === 35` assertion sees 50. FIXABLE without weakening it — give
+//     the click a stable target, or suppress the top sentinel for the
+//     duration of an explicit click. Worth doing; it just isn't this PR.
 //   - chat-stick-to-bottom     ~4% (2/45). "streaming growth while at bottom
 //     must stay pinned" already polls for 5s and still misses.
 //   - chat-scroll-restore      ~2% (2/90), same assertion class
 //     ("streamed-turn growth while following must keep the view pinned").
-// The last two look like a genuine ResizeObserver-vs-streamed-growth race in
-// ChatThread.svelte, so wiring them needs a product fix, not a test edit.
+// The last two are a REAL product bug in ChatThread.svelte, not a settle
+// flake — `expect.poll` burns its full 5s and never recovers, so the thread
+// is in a terminal not-following state. `stuck` is recomputed ONLY in the
+// scroll handler (`stuck = bottomSlack(el) < 80`); `stickObserver` defers its
+// re-pin to a rAF, and a scroll event dispatched inside that window (Chrome's
+// default `overflow-anchor: auto` fires one when content above the anchor
+// grows) makes `onScroll` read post-growth/pre-repin slack and latch
+// `stuck = false` with nothing to reset it. Tracked in issue #140 (with a
+// pointer comment at the observer itself); wiring these two needs the
+// product fix, not a test edit.
 const UNWIRED_CEILING = 235;
 
 function bashLines(cmd: string): string[] {
@@ -126,7 +137,7 @@ describe("e2e lane manifest", () => {
     expect(unmarked, `docker-lane entries without DOCKER_TEST gating:\n  ${unmarked.join("\n  ")}`).toEqual([]);
   });
 
-  test("unwired backlog only shrinks (241 at landing)", () => {
+  test("unwired backlog only shrinks (ceiling is the exact current size)", () => {
     expect(lanes.unwired!.length).toBeLessThanOrEqual(UNWIRED_CEILING);
   });
 
