@@ -8,6 +8,7 @@ import { up as upClaimOwnerlessKbFilesOnce } from "./migrations/claim-ownerless-
 // project-root ARGUMENT comes from a dynamic import at the call site —
 // see the comment there for why that one cannot be static.
 import { up as upNormalizeExtensionStateRoot } from "./migrations/normalize-extension-state-root";
+import type { MigrateDb } from "./migrations/types";
 import { logger } from "../logger";
 
 const log = logger.child("db-migrate");
@@ -50,7 +51,7 @@ const EZ_SEED_ALLOWED_TOOLS = [
   "read_page",
 ];
 
-export async function migrate(db: any): Promise<void> {
+export async function migrate(db: MigrateDb): Promise<void> {
   // Enable pgvector extension (must be before any vector column usage)
   await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
 

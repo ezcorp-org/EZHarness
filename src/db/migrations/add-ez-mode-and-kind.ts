@@ -32,6 +32,7 @@
  * add-sub-convo-and-references.ts.
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
 const EZ_PERSONA = `You are EZ, the in-app concierge for EZCorp — the assistant for the entire harness. You help users operate everything in their EZCorp setup: creating projects, building agents and teams, installing and configuring extensions, summarizing and searching conversations, and getting around the app.
 
@@ -61,7 +62,7 @@ const EZ_ALLOWED_TOOLS = [
   "read_page",
 ];
 
-export async function up(db: any): Promise<void> {
+export async function up(db: MigrationDb): Promise<void> {
   // ── Schema deltas ────────────────────────────────────────────────
   await db.execute(sql`ALTER TABLE modes ADD COLUMN IF NOT EXISTS allowed_tools TEXT[]`);
   await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'regular'`);

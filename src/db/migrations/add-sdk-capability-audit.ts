@@ -38,8 +38,9 @@
  * `add-lessons.ts`).
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
-export async function up(db: any): Promise<void> {
+export async function up(db: MigrationDb): Promise<void> {
   // sdk_capability_calls
   //
   // FK note: `on_behalf_of` is NOT NULL with ON DELETE RESTRICT.

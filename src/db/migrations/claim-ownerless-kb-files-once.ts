@@ -66,6 +66,7 @@
  * the SQL — mirroring `backfill-api-key-write-scope.ts`.
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
 /**
  * Settings key recording that the one-shot adoption has been performed.
@@ -74,12 +75,7 @@ import { sql } from "drizzle-orm";
  */
 export const KB_OWNERLESS_CLAIM_MARKER_KEY = "migration:kb-ownerless-claim-v1";
 
-/** Minimal executor shape — `migrate()` passes its drizzle handle straight in. */
-export interface OneShotExecutor {
-  execute: (query: ReturnType<typeof sql>) => Promise<unknown>;
-}
-
-export async function up(db: OneShotExecutor): Promise<void> {
+export async function up(db: MigrationDb): Promise<void> {
   try {
     await db.execute(sql`
       UPDATE knowledge_base_files

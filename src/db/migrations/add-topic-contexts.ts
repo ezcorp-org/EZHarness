@@ -41,6 +41,7 @@
  * exists for documentation and parallels add-lessons.ts.
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
 /** The 10 canonical classification types. Kept here (single source of
  *  truth) so both the migrate.ts inline seed and this doc-parallel `up()`
@@ -63,7 +64,7 @@ export const CONTEXT_TYPE_SEED: ReadonlyArray<{
   { id: "plan", label: "Plan", description: "A sequence of steps or a strategy toward a goal.", sortOrder: 10 },
 ];
 
-export async function up(db: any): Promise<void> {
+export async function up(db: MigrationDb): Promise<void> {
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS context_types (
       id TEXT PRIMARY KEY,
