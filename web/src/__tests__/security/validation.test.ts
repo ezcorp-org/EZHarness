@@ -55,8 +55,14 @@ describe("projectPathSchema", () => {
     return parsed.error.issues[0]?.message ?? "Invalid project path";
   }
 
-  function accept(path: string): void {
-    expect(projectPathSchema.safeParse(path).success).toBe(true);
+  /**
+   * Returns the verdict rather than asserting it, so every `expect` stays in
+   * the test body — `scripts/gate-integrity.ts` reads an assertion hidden in
+   * a helper as a vacuous test, and it is right to: a helper that stopped
+   * asserting would silently green every caller.
+   */
+  function accepted(path: string): boolean {
+    return projectPathSchema.safeParse(path).success;
   }
 
   test("a relative path is rejected as not absolute", () => {
@@ -86,23 +92,23 @@ describe("projectPathSchema", () => {
   });
 
   test("the projects bind and a project under it are accepted", () => {
-    accept("/app/web/.ezcorp/projects");
-    accept("/app/web/.ezcorp/projects/ezmind");
+    expect(accepted("/app/web/.ezcorp/projects")).toBe(true);
+    expect(accepted("/app/web/.ezcorp/projects/ezmind")).toBe(true);
   });
 
   test("the seeded roots outside the bind keep working", () => {
     // `global` is `/` and `self` is `/repo`. The rule is SHAPE, not location:
     // requiring paths under the bind would break both.
-    accept("/");
-    accept("/repo");
-    accept("/app");
+    expect(accepted("/")).toBe(true);
+    expect(accepted("/repo")).toBe(true);
+    expect(accepted("/app")).toBe(true);
   });
 
   test("a tilde or dots INSIDE a segment are legal directory names", () => {
     // Rejecting every string containing "~" or ".." would be stricter than
     // the failures justify, which is why both guards split on "/" first.
-    accept("/app/web/.ezcorp/projects/my~project");
-    accept("/app/web/.ezcorp/projects/v1..2");
+    expect(accepted("/app/web/.ezcorp/projects/my~project")).toBe(true);
+    expect(accepted("/app/web/.ezcorp/projects/v1..2")).toBe(true);
   });
 
   test("only the FIRST issue is surfaced, and it is the specific one", () => {
