@@ -268,7 +268,15 @@ services:
       - ./.ezcorp/extension-data:/app/web/.ezcorp/extension-data
       # User-created project workspaces, host-visible at ./.ezcorp/projects/.
       #
-      # The container side is NOT a free choice — it is pinned by two
+      # THE SAME container path is used by compose.prod.yml, deliberately.
+      # `projects.path` stores an ABSOLUTE container path, so a database
+      # copied between stacks only resolves if both agree on it. That is
+      # not theoretical: compose.prod.localtest.yml existed purely to
+      # re-mount `/app/projects` because a dev-DB copy's rows pointed
+      # there, and a missing cwd surfaces as `posix_spawn '/bin/sh' —
+      # ENOENT`, which reads like a broken image. One path, every stack.
+      #
+      # The container side is NOT a free choice — it is pinned by three
       # independent constraints that only this path satisfies:
       #
       #   1. It must be under the dev server's cwd (/app/web). `POST
@@ -277,7 +285,15 @@ services:
       #      unset here, so anything outside /app/web is a hard 403. The
       #      form's old `/app/projects/` default could not even be created
       #      by its own "Create folder" button.
-      #   2. It must be under a `.ezcorp` path segment. Vite's dev watcher
+      #   2. It must ALSO be under the prod cwd (/app — Dockerfile WORKDIR,
+      #      `CMD ["bun","run","web/build/index.js"]`), for the same fs-API
+      #      reason on the prod stack. /app/web/... satisfies both because
+      #      /app/web is strictly inside /app. Note the tempting shortcut —
+      #      setting EZCORP_PROJECT_ROOT=/app here so both cwds agree — is
+      #      a SECURITY REGRESSION: it widens the dev fs jail from /app/web
+      #      to /app, exposing /app/.ezcorp/data (the live DB) to
+      #      /api/fs/list. Don't.
+      #   3. It must be under a `.ezcorp` path segment. Vite's dev watcher
       #      ignores `**/.ezcorp/**` (web/vite.config.ts) — without that a
       #      project's build output (a Rust `target/`, node_modules) is
       #      watched, and HMR churns on every rebuild.
@@ -344,8 +360,12 @@ services:
       # importing an SDK export newer than the image (auto-disabled
       # after 3 crashes → its hub page 404s).
       - ./packages/@ezcorp/sdk/src:/app/packages/@ezcorp/sdk/src
-      # User-created projects — accessible on host at ./projects/
-      - ./projects:/app/projects
+      # NOTE: `./projects:/app/projects` used to live here. It is GONE, and
+      # re-adding it is a regression: /app/projects sits outside the fs-API
+      # sandbox root (/app/web), so the form's own "Create Folder" button
+      # answered 403 on it, and it is outside `**/.ezcorp/**` so project
+      # build output churned Vite's watcher. Project workspaces now live on
+      # the ./.ezcorp/projects bind above, which every stack shares.
       # ── Self-modification project (EZCORP_SELF_PROJECT_PATH) ─────────
       # Whole checkout rw, including everything the scoped mounts above
       # don't cover. Shares inodes with ./src and ./web/src, so agent edits

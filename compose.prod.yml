@@ -164,6 +164,38 @@ services:
       # subtrees to the `bun` uid, or (c) give prod its own host dir.
       - ./.ezcorp/extensions:/app/.ezcorp/extensions
       - ./.ezcorp/extension-data:/app/.ezcorp/extension-data
+      # User-created project workspaces, host-visible at ./.ezcorp/projects/.
+      #
+      # IDENTICAL container path to docker-compose.yml, on purpose.
+      # `projects.path` stores an absolute CONTAINER path, so a database
+      # moved between the dev and prod stacks only resolves if both agree.
+      # Before this bind existed, a prod stack pointed at a dev DB copy
+      # found nothing at those paths, and the failure was badly misleading:
+      # the `shell` tool spawns with cwd=<project path>, so a missing dir
+      # surfaces as `posix_spawn '/bin/sh' — ENOENT` (reads like a broken
+      # image), and the file tools reject it as "Path traversal detected".
+      #
+      # Why /app/web/... and not /app/.ezcorp/... — which would read more
+      # naturally as a sibling of the two binds above: `/api/fs/list` and
+      # `/api/fs/mkdir` jail on `EZCORP_PROJECT_ROOT ?? process.cwd()`.
+      # Prod's cwd is /app (Dockerfile WORKDIR) but the DEV stack's is
+      # /app/web, and only a path under /app/web is legal in BOTH. Picking
+      # the prettier path here would mean prod and dev disagree again,
+      # which is the whole bug. It also stays under a `.ezcorp` segment so
+      # Vite's `**/.ezcorp/**` ignore covers it in the dev stack.
+      #
+      # NOT layered on the ext-data volume (that is mounted at /app/.ezcorp,
+      # a different subtree) — this is a plain bind onto /app/web, and
+      # nothing else in this file mounts over /app/web.
+      #
+      # OWNERSHIP: this image runs unprivileged as uid 1000 (`bun`), and
+      # Docker auto-creates a missing bind source as root — which the
+      # runtime then cannot write, so agents silently fail to build. Grant
+      # shared-group write ONCE before the first `up`:
+      #   sudo chgrp -R 1000 .ezcorp/projects
+      #   sudo chmod -R g+rwX .ezcorp/projects
+      #   sudo find .ezcorp/projects -type d -exec chmod g+s {} +
+      - ./.ezcorp/projects:/app/web/.ezcorp/projects
     healthcheck:
       # Liveness probe. Readiness is served separately at /api/ready — hook
       # that into your orchestrator if you have one.

@@ -14,7 +14,8 @@ const ROOT = join(import.meta.dir, "..", "..", "..");
 
 interface ComposeService {
   volumes?: string[];
-  environment?: string[];
+  /** Compose accepts both `- KEY=value` (sequence) and `KEY: value` (mapping). */
+  environment?: string[] | Record<string, string | null>;
 }
 
 async function appService(relPath: string): Promise<ComposeService> {
@@ -35,16 +36,47 @@ export async function appVolumes(relPath: string): Promise<string[]> {
 }
 
 /**
- * The `app` service's environment as a map. Compose list syntax
- * (`- KEY=value`); a bare `- KEY` (pass-through from the host) maps to
- * `undefined`, which is distinct from a key that is absent entirely.
+ * Like `appVolumes`, but `[]` when the service declares none.
+ *
+ * An OVERLAY compose file legitimately contributes no volumes —
+ * `compose.prod.localtest.yml` stopped needing a projects mount once the
+ * base prod file carried one. A "nothing targets X" sweep has to be able to
+ * read such a file without treating the absence as an error, which is
+ * exactly the case where the strict reader would throw.
+ */
+export async function appVolumesOrEmpty(relPath: string): Promise<string[]> {
+  return (await appService(relPath)).volumes ?? [];
+}
+
+/**
+ * The `app` service's environment as a map.
+ *
+ * Compose accepts BOTH shapes and this repo uses both — `docker-compose.yml`
+ * writes the sequence form (`- KEY=value`), `compose.prod.yml` writes the
+ * mapping form (`KEY: value`). Reading only the sequence form threw
+ * `TypeError: {} is not iterable` on the prod file, so a caller asking prod
+ * for `EZCORP_PROJECT_ROOT` could not get an answer at all.
+ *
+ * In the sequence form a bare `- KEY` (pass-through from the host) maps to
+ * `undefined`, which is distinct from a key that is absent entirely; the
+ * mapping form spells the same thing `KEY:` (null value).
  */
 export async function appEnv(relPath: string): Promise<Map<string, string | undefined>> {
   const out = new Map<string, string | undefined>();
-  for (const entry of (await appService(relPath)).environment ?? []) {
-    const eq = entry.indexOf("=");
-    if (eq === -1) out.set(entry, undefined);
-    else out.set(entry.slice(0, eq), entry.slice(eq + 1));
+  const env = (await appService(relPath)).environment;
+  if (!env) return out;
+
+  if (Array.isArray(env)) {
+    for (const entry of env) {
+      const eq = entry.indexOf("=");
+      if (eq === -1) out.set(entry, undefined);
+      else out.set(entry.slice(0, eq), entry.slice(eq + 1));
+    }
+    return out;
+  }
+
+  for (const [key, value] of Object.entries(env)) {
+    out.set(key, value == null ? undefined : String(value));
   }
   return out;
 }

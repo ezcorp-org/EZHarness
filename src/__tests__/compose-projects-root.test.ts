@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { dirname, join } from "node:path";
-import { appEnv, appVolumes, targetOf, targetsOf } from "./helpers/compose-volumes";
+import {
+  appEnv,
+  appVolumes,
+  appVolumesOrEmpty,
+  targetOf,
+  targetsOf,
+} from "./helpers/compose-volumes";
 
 /**
  * Locks where user-created project workspaces live.
@@ -151,5 +157,124 @@ describe("docker-compose.yml — project workspaces are host-visible and sandbox
       (t) => t !== "" && (target === t || target.startsWith(t + "/")),
     );
     expect(covered).toBe(true);
+  });
+});
+
+/**
+ * Every stack that can serve a given database must agree on ONE container
+ * path for project workspaces.
+ *
+ * `projects.path` stores an ABSOLUTE CONTAINER path. So the moment the dev
+ * and prod stacks disagree, a database that moves between them points at
+ * directories that do not exist on the other side — and the symptom names
+ * nothing: the `shell` tool spawns with `cwd=<project path>`, so a missing
+ * cwd surfaces as `posix_spawn '/bin/sh' — ENOENT` (reads like a broken
+ * image), and the file tools reject it as "Path traversal detected".
+ *
+ * That disagreement is exactly what `compose.prod.localtest.yml` used to
+ * paper over: it re-mounted a host tree at `/app/projects` for no reason
+ * other than that dev-DB rows pointed there. Holding one path across the
+ * stacks removes the need for that overlay mount entirely.
+ */
+describe("the projects bind is identical across every stack", () => {
+  /** Compose files that define an `app` service (docker-compose.test.yml does not). */
+  const APP_STACKS = [
+    "docker-compose.yml",
+    "compose.prod.yml",
+    "compose.prod.devdb.yml",
+    "compose.prod.localtest.yml",
+    "compose.podman.yml",
+    "compose.secrets-test.yml",
+  ] as const;
+
+  /**
+   * The WORKDIR in effect for the image's FINAL stage — prod's cwd, and so
+   * prod's fs-API sandbox root. Derived, never hardcoded: `FROM` resets
+   * WORKDIR, so a new build stage appended to the Dockerfile moves this
+   * expectation instead of silently invalidating it.
+   */
+  async function finalStageWorkdir(): Promise<string> {
+    const df = await Bun.file(join(ROOT, "Dockerfile")).text();
+    let workdir: string | undefined;
+    for (const line of df.split("\n")) {
+      if (/^FROM\s/.test(line)) workdir = undefined;
+      const m = line.match(/^WORKDIR\s+(\S+)\s*$/);
+      if (m) workdir = m[1];
+    }
+    expect(workdir).toBeDefined();
+    return workdir!;
+  }
+
+  test("prod binds the same host source to the same container target as dev", async () => {
+    const devTarget = projectsTarget(await appVolumes("docker-compose.yml"));
+    const prodTarget = projectsTarget(await appVolumes("compose.prod.yml"));
+
+    // The whole point: one path, so `projects.path` rows are portable.
+    expect(prodTarget).toBe(devTarget);
+  });
+
+  test("the prod target is inside prod's fs-API sandbox root", async () => {
+    const prodVols = await appVolumes("compose.prod.yml");
+    const target = projectsTarget(prodVols);
+    const env = await appEnv("compose.prod.yml");
+
+    // Same fallback order the routes use. Prod sets no EZCORP_PROJECT_ROOT,
+    // so the effective root is the image's final-stage WORKDIR.
+    const sandboxRoot = env.get("EZCORP_PROJECT_ROOT") ?? (await finalStageWorkdir());
+    expect(target.startsWith(sandboxRoot + "/")).toBe(true);
+  });
+
+  test("prod's cwd really is the jail: the entrypoint is a RELATIVE path", async () => {
+    // If CMD were absolute, cwd would not be pinned by WORKDIR and the test
+    // above would be asserting a root the process does not actually run in.
+    const df = await Bun.file(join(ROOT, "Dockerfile")).text();
+    const cmd = df.match(/^CMD\s+\[(.+)\]\s*$/m);
+    expect(cmd).not.toBeNull();
+    const argv = [...cmd![1]!.matchAll(/"([^"]+)"/g)].map((m) => m[1]!);
+    const script = argv[argv.length - 1]!;
+    expect(script.startsWith("/")).toBe(false);
+  });
+
+  test("no stack mounts anything at the abandoned /app/projects", async () => {
+    // The pre-`.ezcorp` location. It sits outside the dev fs-API sandbox
+    // root (/app/web) and outside Vite's `**/.ezcorp/**` ignore, so a
+    // re-added bind here is a regression on both constraints at once.
+    for (const file of APP_STACKS) {
+      const vols = await appVolumesOrEmpty(file);
+      const targets = vols.map((v) => v.split(":")[1] ?? "");
+      expect({ file, targets: targets.filter((t) => t === "/app/projects") }).toEqual({
+        file,
+        targets: [],
+      });
+    }
+  });
+
+  /**
+   * The shared reader has to survive all three shapes compose allows,
+   * because this repo uses all three. `appEnv` previously assumed the
+   * sequence form and threw `TypeError: {} is not iterable` on the prod
+   * file — so the "is the prod target inside prod's jail" test above could
+   * not even ask its question until the reader was fixed.
+   */
+  test("appEnv reads sequence, mapping, and absent environments", async () => {
+    // Sequence form (`- KEY=value`).
+    expect((await appEnv("docker-compose.yml")).size).toBeGreaterThan(0);
+
+    // Mapping form (`KEY: value`) — the shape that used to throw.
+    const prod = await appEnv("compose.prod.yml");
+    expect(prod.get("EZCORP_PORT")).toBe("3000");
+
+    // Absent entirely: an empty map, NOT a throw and not a missing key that
+    // a caller would misread as "the var is unset here".
+    expect((await appEnv("compose.podman.yml")).size).toBe(0);
+  });
+
+  test("the localtest overlay carries no projects mount of its own", async () => {
+    // It inherits compose.prod.yml's. A second, DIFFERENT source pointed at
+    // the same target would silently shadow the base bind depending on -f
+    // ordering, which is how the two stacks drifted apart originally.
+    const vols = await appVolumesOrEmpty("compose.prod.localtest.yml");
+    const devTarget = projectsTarget(await appVolumes("docker-compose.yml"));
+    expect(vols.filter((v) => v.includes(devTarget))).toEqual([]);
   });
 });
