@@ -267,17 +267,19 @@ describe("the projects bind is identical across every stack", () => {
    * returns the source's tail as the target, and the assertion written
    * against it passes while testing nothing.
    */
-  test("splitMount ignores colons inside ${…} interpolation", () => {
+  test("splitMount ignores colons inside a compose interpolation", () => {
+    // Assembled rather than written literally: the content is COMPOSE
+    // interpolation syntax, and a literal "${…}" inside a plain JS string
+    // trips biome's noTemplateCurlyInString on every occurrence.
+    const source = `$\{EZCORP_TEST_PROJECTS_DIR:-./projects}`;
+    const mount = `${source}:/app/projects`;
+
     // The exact line this repo used to carry.
-    expect(splitMount("${EZCORP_TEST_PROJECTS_DIR:-./projects}:/app/projects")).toEqual([
-      "${EZCORP_TEST_PROJECTS_DIR:-./projects}",
-      "/app/projects",
-    ]);
+    expect(splitMount(mount)).toEqual([source, "/app/projects"]);
 
     // What the naive version produced, kept as the anti-regression witness.
-    expect("${EZCORP_TEST_PROJECTS_DIR:-./projects}:/app/projects".split(":")).not.toEqual(
-      splitMount("${EZCORP_TEST_PROJECTS_DIR:-./projects}:/app/projects"),
-    );
+    expect(mount.split(":")).not.toEqual(splitMount(mount));
+    expect(mount.split(":")[1]).toBe("-./projects}");
 
     // Ordinary mounts are unaffected, including the :ro mode field.
     expect(splitMount("./src:/app/src")).toEqual(["./src", "/app/src"]);
