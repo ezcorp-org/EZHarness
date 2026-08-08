@@ -19,7 +19,7 @@
  */
 import { test, expect, describe, beforeAll, afterAll, beforeEach } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
-import { vector } from "@electric-sql/pglite/vector";
+import { vector } from "@electric-sql/pglite-pgvector";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
@@ -109,6 +109,27 @@ async function errCode(fn: () => Promise<unknown>): Promise<string | null> {
     }
     return `NO-CODE:${(e as Error).message}`;
   }
+}
+
+/**
+ * SQLSTATE a RESTRICT foreign key raises on the CONNECTED server.
+ *
+ * PostgreSQL 18 reports the specific `restrict_violation` (23001) where 17 and
+ * earlier reported the generic `foreign_key_violation` (23503); `NO ACTION`
+ * still raises 23503 on both. This repo runs PG 18 on embedded PGlite 0.5.x
+ * and PG 15 on the external-Postgres CI leg, so the code is a property of the
+ * SERVER, not of the schema.
+ *
+ * Derived rather than accepted as a set: `expect(code).toBe(expectedRestrictCode)`
+ * stays an equality, so a delete that starts SUCCEEDING — or that fails for
+ * some unrelated reason — still reddens the test on every server.
+ */
+async function restrictViolationCode(db: Db): Promise<string> {
+  const res = (await db.execute(sql`SHOW server_version_num`)) as {
+    rows: Array<{ server_version_num: string }>;
+  };
+  const num = Number(res.rows[0]?.server_version_num ?? 0);
+  return num >= 180000 ? "23001" : "23503";
 }
 
 async function freshMigrated(): Promise<{ pg: PGlite; db: Db }> {
@@ -421,7 +442,7 @@ describe("C3 schema — FK delete behaviour, executed", () => {
     // exist to provide.
     await insertServiceAccount(db, `sa2-${f.extension}`, `sa2-${f.extension}`, f.other);
     await insertDelegation(db, { id: `d-r-${f.extension}`, extension: f.extension, jobRef: "j4", kind: "service", ownerService: `sa2-${f.extension}`, consentedBy: f.consent });
-    expect(await errCode(() => db.execute(sql`DELETE FROM users WHERE id = ${f.consent}`))).toBe("23503");
+    expect(await errCode(() => db.execute(sql`DELETE FROM users WHERE id = ${f.consent}`))).toBe(await restrictViolationCode(db));
     expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-r-${f.extension}`}`)).toBe(1);
   });
 
@@ -439,7 +460,7 @@ describe("C3 schema — FK delete behaviour, executed", () => {
     // The consent hash names this exact snapshot; reaping it would leave
     // the record referencing something that no longer exists.
     await insertDelegation(db, { id: `d-v-${f.version}`, extension: f.extension, jobRef: "j6", kind: "user", ownerUser: f.owner, consentedBy: f.owner, version: f.version });
-    expect(await errCode(() => db.execute(sql`DELETE FROM workflow_definition_versions WHERE id = ${f.version}`))).toBe("23503");
+    expect(await errCode(() => db.execute(sql`DELETE FROM workflow_definition_versions WHERE id = ${f.version}`))).toBe(await restrictViolationCode(db));
     expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-v-${f.version}`}`)).toBe(1);
   });
 
@@ -451,7 +472,7 @@ describe("C3 schema — FK delete behaviour, executed", () => {
 
   test("deleting the admin who created a service account is REFUSED (RESTRICT)", async () => {
     await insertServiceAccount(db, `sa3-${f.extension}`, `sa3-${f.extension}`, f.consent);
-    expect(await errCode(() => db.execute(sql`DELETE FROM users WHERE id = ${f.consent}`))).toBe("23503");
+    expect(await errCode(() => db.execute(sql`DELETE FROM users WHERE id = ${f.consent}`))).toBe(await restrictViolationCode(db));
     expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM service_accounts WHERE id = ${`sa3-${f.extension}`}`)).toBe(1);
   });
 

@@ -24,7 +24,7 @@ import { up } from "../db/migrations/add-user-commands-unique-name";
  * agent_configs / extensions / ...).
  */
 
-const { vector } = await import("@electric-sql/pglite/vector");
+const { vector } = await import("@electric-sql/pglite-pgvector");
 
 let pglite: PGlite | null = null;
 

@@ -1,6 +1,6 @@
 import { mock } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
-import { vector } from "@electric-sql/pglite/vector";
+import { vector } from "@electric-sql/pglite-pgvector";
 // Mirror production connection.ts — pg_trgm must register at construction.
 // UX-02 (Phase 57-04 Task 1): SQL `CREATE EXTENSION pg_trgm` is no-op
 // without this contrib import, so `similarity(...)` would 42883.

@@ -32,7 +32,7 @@ import { up } from "../db/migrations/normalize-extension-state-root";
  * for migrate.ts's full graph.
  */
 
-const { vector } = await import("@electric-sql/pglite/vector");
+const { vector } = await import("@electric-sql/pglite-pgvector");
 
 let pglite: PGlite | null = null;
 
