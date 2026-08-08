@@ -47,9 +47,18 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
 		const models = await fetchProviderModels(provider, credential);
 		await upsertSetting(`provider:discoveredModels:${provider}`, models);
+		// How many of these the deployment can call with NO key. Only a
+		// keyless-free provider (Kilo) marks models `free`, so this is 0
+		// everywhere else and the UI shows it only where it means something.
+		// Without it a keyless refresh reports "Loaded 347 models" while the
+		// picker shows 12 — technically true, actively misleading.
+		const freeCount = models.filter(
+			(m) => (m as { free?: boolean }).free === true,
+		).length;
 		return json({
 			success: true,
 			count: models.length,
+			freeCount,
 			ids: models.map((m) => m.id),
 			fetchedAt: new Date().toISOString(),
 		});

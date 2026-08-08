@@ -68,6 +68,33 @@ test.describe("Kilo provider card", () => {
 		}
 	});
 
+	test("an UNCONFIGURED Kilo card still offers Test + Refresh models", async ({ page, mockApi }) => {
+		// The gap this pins: the Test/Refresh block was gated on
+		// `hasKey || oauthConnected`, which hid both controls on exactly the
+		// deployment Kilo's free tier exists for. A free-tier user could neither
+		// verify the provider worked nor pull newly-added free models — while the
+		// backend routes supported both keylessly the whole time.
+		await mockApi({ providers: providersWithKilo() });
+
+		await page.goto("/settings/models");
+
+		const card = providerCard(page, "Kilo (Gateway)");
+		await expect(card.getByRole("button", { name: "Refresh models" })).toBeVisible();
+		await expect(card.getByRole("button", { name: "Test" })).toBeVisible();
+	});
+
+	test("every other provider keeps the has-key gate on those controls", async ({ page, mockApi }) => {
+		// The gate is widened for keyless-free providers only — an unconfigured
+		// Anthropic card must not start offering a test it cannot run.
+		await mockApi({ providers: providersWithKilo() });
+
+		await page.goto("/settings/models");
+
+		const anthropic = providerCard(page, "Anthropic (Claude)");
+		await expect(anthropic.getByRole("button", { name: "Refresh models" })).toHaveCount(0);
+		await expect(anthropic.getByRole("button", { name: "Test" })).toHaveCount(0);
+	});
+
 	test("a configured Kilo card drops the free-tier copy", async ({ page, mockApi }) => {
 		// With a key saved the deployment is on FULL access, so the free-tier
 		// framing (and its logging caveat, which does not apply to paid models)

@@ -20,7 +20,10 @@
 	// Per-provider test result or "testing" while in flight
 	let testResults = $state<Record<string, { success: boolean; error?: string } | "testing">>({});
 	// Per-provider model-refresh result or "refreshing" while in flight
-	let refreshResults = $state<Record<string, { success: boolean; count?: number; error?: string } | "refreshing">>({});
+	// `freeCount` mirrors the refresh route's field — how many of the fetched
+	// models this deployment can call with no key. Declared here as well as in
+	// api.ts because this inline state type is what the template reads through.
+	let refreshResults = $state<Record<string, { success: boolean; count?: number; freeCount?: number; error?: string } | "refreshing">>({});
 
 	// OAuth code-paste flow state
 	let oauthPending = $state<OAuthPending | null>(null);
@@ -343,8 +346,15 @@
 						</span>
 					{/if}
 
-					<!-- Test button + result -->
-					{#if p.hasKey || p.oauthConnected}
+					<!-- Test button + result.
+					     `keylessFreeTier` is in the condition because Kilo is USABLE
+					     with no key, and gating on `hasKey` hid both buttons on exactly
+					     the deployment the free tier exists for: no way to verify the
+					     free tier works, and no way to pull newly-added free models.
+					     Both routes work keylessly — the catalog endpoint needs no
+					     credential, and the connection test resolves through the
+					     routing overlay. -->
+					{#if p.hasKey || p.oauthConnected || info.keylessFreeTier}
 						{@const refreshResult = refreshResults[p.provider]}
 						<div class="mt-1.5 flex flex-wrap items-center gap-2">
 							<button
@@ -381,7 +391,15 @@
 							</button>
 							{#if refreshResult && refreshResult !== "refreshing"}
 								{#if refreshResult.success}
-									<span class="text-xs text-green-400">Loaded {refreshResult.count} models</span>
+									<span class="text-xs text-green-400" data-testid="provider-refresh-result-{p.provider}">
+										{#if info.keylessFreeTier && !p.hasKey && refreshResult.freeCount !== undefined}
+											<!-- Report what this deployment can actually CALL. "Loaded 347
+											     models" next to a picker showing 12 reads as a bug. -->
+											Loaded {refreshResult.count} models — {refreshResult.freeCount} free, usable without a key
+										{:else}
+											Loaded {refreshResult.count} models
+										{/if}
+									</span>
 								{:else}
 									<span class="text-xs text-red-400" title={refreshResult.error}>Refresh failed</span>
 								{/if}
