@@ -1,7 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { dirname, join } from "node:path";
 import { resolveProjectRoot } from "../extensions/bundled";
-import { appVolumes, targetOf, targets, targetsOf } from "./helpers/compose-volumes";
+import {
+  appVolumes,
+  splitMount,
+  targetOf,
+  targets,
+  targetsOf,
+} from "./helpers/compose-volumes";
 
 /**
  * Locks the compose bind targets for extension state to the root that
@@ -124,8 +130,8 @@ describe("docker-compose.yml — extension state is anchored to getProjectRoot()
     // Every bind landing on either target must come from one host source.
     for (const target of [join(projectRoot, ".ezcorp/extension-data"), cwdTarget]) {
       const sources = vols
-        .filter((v) => v.split(":")[1] === target)
-        .map((v) => v.split(":")[0]);
+        .filter((v) => splitMount(v)[1] === target)
+        .map((v) => splitMount(v)[0]);
       expect(sources).toEqual(["./.ezcorp/extension-data"]);
     }
     // And the cwd-side one is present at all — dropping it strands every

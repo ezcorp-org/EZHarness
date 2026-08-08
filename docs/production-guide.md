@@ -137,6 +137,32 @@ The host login user is typically a different uid, so reading the tree
 afterwards (snapshots, forensic copies) needs `sudo`. A custom host path
 works the same way — point the mount at it and `chown 1000:1000` it.
 
+#### `.ezcorp/projects` needs a GROUP grant, not a plain chown
+
+Project workspaces bind `./.ezcorp/projects` → `/app/web/.ezcorp/projects`.
+Unlike `.ezcorp/data`, this dir is **shared with the dev stack**, which runs
+as root (`docker-compose.yml` sets no `USER`) against the same host tree. A
+plain `chown -R 1000:1000` hands it to prod and then dev's root-created files
+are owned by root again — the two stacks keep taking it from each other. Grant
+shared-group write with setgid inheritance instead, once, before the first
+`up`:
+
+```bash
+mkdir -p .ezcorp/projects
+sudo chgrp -R 1000 .ezcorp/projects
+sudo chmod -R g+rwX .ezcorp/projects
+sudo find .ezcorp/projects -type d -exec chmod g+s {} +   # inherit group
+```
+
+Skip it and Docker creates the source as root:root; project creation then
+fails at the write with `EACCES: permission denied, mkdir
+'/app/web/.ezcorp/projects/<name>'` (surfaced verbatim by `POST /api/fs/mkdir`),
+and an agent's first `git clone` fails with no pointer to the cause. Recovery
+is the same one-time chown shown for `ext-data` below.
+
+Under **rootless Podman** this is unnecessary — uid 0 in the container maps to
+the invoking user, so both stacks already write as you.
+
 #### Fixing a pre-existing `ext-data` volume
 
 Docker initializes a named volume from the image only on **first** creation.

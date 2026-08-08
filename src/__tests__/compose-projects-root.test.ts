@@ -4,6 +4,7 @@ import {
   appEnv,
   appVolumes,
   appVolumesOrEmpty,
+  splitMount,
   targetOf,
   targetsOf,
 } from "./helpers/compose-volumes";
@@ -152,7 +153,7 @@ describe("docker-compose.yml — project workspaces are host-visible and sandbox
     // The failure mode in the docblock: a container path with no host
     // source behind it. Every ancestor-or-self of the target must be
     // covered by some bind/volume, or writes land on the overlay.
-    const allTargets = new Set(vols.map((v) => v.split(":")[1] ?? ""));
+    const allTargets = new Set(vols.map((v) => splitMount(v)[1] ?? ""));
     const covered = [...allTargets].some(
       (t) => t !== "" && (target === t || target.startsWith(t + "/")),
     );
@@ -241,7 +242,7 @@ describe("the projects bind is identical across every stack", () => {
     // re-added bind here is a regression on both constraints at once.
     for (const file of APP_STACKS) {
       const vols = await appVolumesOrEmpty(file);
-      const targets = vols.map((v) => v.split(":")[1] ?? "");
+      const targets = vols.map((v) => splitMount(v)[1] ?? "");
       expect({ file, targets: targets.filter((t) => t === "/app/projects") }).toEqual({
         file,
         targets: [],
@@ -256,6 +257,38 @@ describe("the projects bind is identical across every stack", () => {
    * file — so the "is the prod target inside prod's jail" test above could
    * not even ask its question until the reader was fixed.
    */
+  /**
+   * The mount reader has to survive an interpolated source. No compose file
+   * in the repo has one today — the last was
+   * `${EZCORP_TEST_PROJECTS_DIR:-./projects}:/app/projects`, which went away
+   * with the `/app/projects` bind — and that is precisely the risk: a naive
+   * `split(":")` is CORRECT for every current line, so the bug reappears
+   * silently the next time someone adds a default. It does not throw; it
+   * returns the source's tail as the target, and the assertion written
+   * against it passes while testing nothing.
+   */
+  test("splitMount ignores colons inside ${…} interpolation", () => {
+    // The exact line this repo used to carry.
+    expect(splitMount("${EZCORP_TEST_PROJECTS_DIR:-./projects}:/app/projects")).toEqual([
+      "${EZCORP_TEST_PROJECTS_DIR:-./projects}",
+      "/app/projects",
+    ]);
+
+    // What the naive version produced, kept as the anti-regression witness.
+    expect("${EZCORP_TEST_PROJECTS_DIR:-./projects}:/app/projects".split(":")).not.toEqual(
+      splitMount("${EZCORP_TEST_PROJECTS_DIR:-./projects}:/app/projects"),
+    );
+
+    // Ordinary mounts are unaffected, including the :ro mode field.
+    expect(splitMount("./src:/app/src")).toEqual(["./src", "/app/src"]);
+    expect(splitMount("./bun.lock:/app/bun.lock:ro")).toEqual([
+      "./bun.lock",
+      "/app/bun.lock",
+      "ro",
+    ]);
+    expect(splitMount("ext-data:/app/.ezcorp")).toEqual(["ext-data", "/app/.ezcorp"]);
+  });
+
   test("appEnv reads sequence, mapping, and absent environments", async () => {
     // Sequence form (`- KEY=value`).
     expect((await appEnv("docker-compose.yml")).size).toBeGreaterThan(0);

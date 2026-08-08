@@ -33,6 +33,10 @@ ez-corp-db
 # (each holds its own node_modules); sending it stalls or EACCES-breaks
 # `docker compose up --build`.
 worktrees
+# Project workspaces live at `.ezcorp/projects` now (covered by `**/.ezcorp`
+# above, recursively). `projects` stays for checkouts that still carry the
+# pre-#153 dir — it can hold node_modules and build output, and shipping it
+# into the build context is what this section exists to prevent.
 projects
 tasks
 coverage
