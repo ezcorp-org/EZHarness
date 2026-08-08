@@ -7,9 +7,21 @@ import { requireAuth } from "$server/auth/middleware";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
+import {
+	isKnownLlmProvider,
+	LLM_PROVIDER_IDS,
+	OAUTH_SUPPORTED_PROVIDERS,
+	PROVIDER_ENV_KEYS,
+	providerListMessage,
+} from "$server/runtime/routing/llm-providers";
 
-const PROVIDERS = ["anthropic", "openai", "google", "openrouter"] as const;
-type Provider = (typeof PROVIDERS)[number];
+// The one provider table (`src/runtime/routing/llm-providers.ts`). Before it,
+// this route, the two per-provider routes, provider-availability and the
+// backend router each carried their own copy of the same list — and a provider
+// added to some but not all of them is a provider you can save a key for but
+// cannot route to.
+const PROVIDERS = LLM_PROVIDER_IDS;
+type Provider = string;
 
 // Boundary validation. POST upserts an encrypted API key; DELETE removes
 // it. Both bodies share the `provider` discriminant — POST also requires
@@ -24,23 +36,21 @@ const deleteBodySchema = z.object({
   provider: z.string().optional(),
 }).strict();
 
-const ENV_KEYS: Record<Provider, string> = {
-	anthropic: "ANTHROPIC_API_KEY",
-	openai: "OPENAI_API_KEY",
-	google: "GOOGLE_API_KEY",
-	openrouter: "OPENROUTER_API_KEY",
-};
+const ENV_KEYS: Record<Provider, string> = { ...PROVIDER_ENV_KEYS };
 
-// OAuth is supported for openai and google only (anthropic is BYOK-only)
-const OAUTH_SUPPORTED = new Set<string>(["openai", "google"]);
+// OAuth is supported for openai and google only (anthropic, openrouter and
+// kilo are BYOK-only) — derived, not restated.
+const OAUTH_SUPPORTED = new Set<string>(OAUTH_SUPPORTED_PROVIDERS);
 
 function settingKey(provider: Provider): string {
 	return `provider:apiKey:${provider}`;
 }
 
 function isValidProvider(p: string): p is Provider {
-	return PROVIDERS.includes(p as Provider);
+	return isKnownLlmProvider(p);
 }
+
+const INVALID_PROVIDER_MESSAGE = `Invalid provider. Must be one of: ${providerListMessage()}`;
 
 export const GET: RequestHandler = async ({ locals }) => {
 	const scopeErr = requireScope(locals, "read");
@@ -118,12 +128,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const admin = locals.user!;
 	const parsed = postBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
-		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
+		return errorJson(400, INVALID_PROVIDER_MESSAGE);
 	}
 	const { provider, apiKey } = parsed.data;
 
 	if (!provider || !isValidProvider(provider)) {
-		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
+		return errorJson(400, INVALID_PROVIDER_MESSAGE);
 	}
 	if (!apiKey || typeof apiKey !== "string" || apiKey.trim().length === 0) {
 		return errorJson(400, "API key is required");
@@ -151,12 +161,12 @@ export const DELETE: RequestHandler = async ({ request, locals }) => {
 	const admin = locals.user!;
 	const parsed = deleteBodySchema.safeParse(await request.json().catch(() => ({})));
 	if (!parsed.success) {
-		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
+		return errorJson(400, INVALID_PROVIDER_MESSAGE);
 	}
 	const { provider } = parsed.data;
 
 	if (!provider || !isValidProvider(provider)) {
-		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
+		return errorJson(400, INVALID_PROVIDER_MESSAGE);
 	}
 
 	await deleteSetting(settingKey(provider));

@@ -51,8 +51,17 @@ export function hasModelId(models: CustomModelEntry[], modelId: string): boolean
  * (e.g. openrouter) still surfaces in the UI and in backend routing. Mirrors
  * the backend router's getPreferenceOrder merge (separate build, so the pure
  * logic is duplicated with tests on both sides).
+ *
+ * Kept byte-identical to `LLM_PROVIDER_IDS` in
+ * `src/runtime/routing/llm-providers.ts` — the backend's single provider
+ * table — and pinned to it by `settings-models.unit.test.ts`, which parses
+ * that file rather than importing it (importing a `src/**` module from the
+ * vitest leg is the coverage trap documented in the root CLAUDE.md).
+ *
+ * `kilo` is LAST deliberately: it is the keyless free-tier provider, so it can
+ * only ever add an answer where a deployment had none.
  */
-export const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google", "openrouter"];
+export const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google", "openrouter", "kilo"];
 
 /**
  * Merge a stored preference order with the known defaults: keep the stored

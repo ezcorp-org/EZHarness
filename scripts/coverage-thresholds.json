@@ -167,6 +167,8 @@
   "src/runtime/routing/dropped-models.ts": 100,
   "src/runtime/routing/tier-ladder.ts": 100,
   "src/runtime/routing/custom-models.ts": 100,
+  "src/runtime/routing/kilo-catalog.ts": 100,
+  "src/runtime/routing/llm-providers.ts": 100,
   "src/runtime/routing/effort-support.ts": 100,
   "src/runtime/routing/auto-capabilities.ts": 100,
   "src/runtime/routing/labels.ts": 100,

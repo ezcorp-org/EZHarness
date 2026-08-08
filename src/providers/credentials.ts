@@ -22,6 +22,11 @@ import {
   resolveOAuthAuth,
   tagOAuthCredential,
 } from "./credential-store";
+import {
+  BYOK_ONLY_PROVIDERS,
+  hasKeylessFreeTier,
+  PROVIDER_ENV_KEYS,
+} from "../runtime/routing/llm-providers";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
@@ -41,7 +46,11 @@ export { OAUTH_PROVIDER_IDS };
 
 // Providers that are BYOK-only (no pi-managed OAuth flow). The default
 // credential chain skips the DB-OAuth attempt for these and goes straight
-// to BYOK -> env var. anthropic and openrouter are both API-key-only.
+// to BYOK -> env var. anthropic, openrouter and kilo are all API-key-only.
+//
+// Derived from the one provider table (`runtime/routing/llm-providers.ts`)
+// rather than restated, so a provider cannot be BYOK-only here and OAuth-
+// capable in the settings UI.
 //
 // NOTE (pi-ai 0.83.0): `anthropic` and `openrouter` DO now carry
 // `auth.oauth` in pi's catalog, so pi could in principle refresh a stored
@@ -51,7 +60,7 @@ export { OAUTH_PROVIDER_IDS };
 // "no stored credential" check below, exactly as it did before the bump.
 // Turning Anthropic subscription auth on is a feature (login flow, callback
 // route, settings UI), not a side effect of a dependency upgrade.
-const BYOK_ONLY_PROVIDERS = new Set(["anthropic", "openrouter"]);
+const BYOK_ONLY_PROVIDER_SET = new Set<string>(BYOK_ONLY_PROVIDERS);
 
 // ── Refresh serialization ─────────────────────────────────────────────
 // Refresh is now serialized inside `SettingsCredentialStore.modify()` (pi
@@ -194,6 +203,15 @@ export async function getApiKey(provider: string): Promise<string> {
   const envKey = getEnvApiKey(provider);
   if (envKey) return envKey;
 
+  // pi-ai only resolves env vars for providers IT knows. Kilo is not a pi-ai
+  // provider, so `getEnvApiKey("kilo")` is always empty and `KILO_API_KEY` was
+  // silently ignored — which, combined with the keyless fallback in
+  // `getCredential`, meant a deployment that HAD configured a key still ran as
+  // free-only. Consult this repo's own provider table for anything pi does not
+  // cover.
+  const ownEnvKey = PROVIDER_ENV_KEYS[provider];
+  if (ownEnvKey && process.env[ownEnvKey]) return process.env[ownEnvKey];
+
   throw new Error(`Missing API key for ${provider}`);
 }
 
@@ -275,7 +293,7 @@ export async function getCredential(
   // someone to re-enter an API key they never configured. Keep the cause and
   // report it if the whole ladder fails.
   let oauthFailure: unknown;
-  if (!BYOK_ONLY_PROVIDERS.has(provider)) {
+  if (!BYOK_ONLY_PROVIDER_SET.has(provider)) {
     try {
       return await getOAuthCredential(provider);
     } catch (err) {
@@ -287,6 +305,22 @@ export async function getCredential(
   try {
     return await getApiKeyCredential(provider);
   } catch {
+    // Keyless free tier: the provider serves SOME models to anonymous
+    // callers, so "no key" is a usable state rather than a failure. Kilo is
+    // the only such provider today — measured, its gateway answers a free
+    // model with no credential at all (HTTP 200) and 401s a paid one with
+    // PAID_MODEL_AUTH_REQUIRED.
+    //
+    // Handing back the same `no-key-needed` sentinel the local-provider
+    // branch below uses is deliberate: pi-ai's createClient rejects an empty
+    // key, and the gateway ignores an unusable bearer on free models
+    // (measured: HTTP 200 with this exact token). It is NOT what restricts
+    // this deployment to free models — `kilo-catalog.ts` does that by
+    // filtering the catalog before routing ever sees a paid id.
+    if (hasKeylessFreeTier(provider)) {
+      return { type: "apikey", token: "no-key-needed" };
+    }
+
     // Last resort: local providers with baseUrl don't need credentials
     try {
       const customModels = await getSetting("provider:customModels");

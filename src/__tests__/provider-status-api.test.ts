@@ -230,8 +230,8 @@ describe("GET /api/providers - mixed states in single response", () => {
     const res = await GET(event as any);
     const data = await jsonFromResponse(res);
 
-    // Verify all providers are present (anthropic, openai, google, openrouter)
-    expect(data).toHaveLength(4);
+    // Verify all providers are present (anthropic, openai, google, openrouter, kilo)
+    expect(data).toHaveLength(5);
 
     const anthropic = data.find((p: any) => p.provider === "anthropic");
     expect(anthropic.source).toBe("byok");

@@ -47,6 +47,32 @@ explicit provider+model → passthrough (pins are never re-routed); provider
 only → best model in the tier; neither → walk `provider:preferenceOrder`,
 skipping providers whose circuit breaker is open.
 
+### The keyless floor — Kilo
+
+`provider:preferenceOrder` ends with **kilo**, and it is there so the walk can
+never run out. The Kilo AI Gateway serves its free models to anonymous callers
+(measured: `200` with no auth header; a paid model is `401
+PAID_MODEL_AUTH_REQUIRED`), so a deployment with **nothing configured** now
+resolves a free model instead of throwing "No available providers with
+credentials".
+
+Three properties keep that from being a surprise:
+
+- **Free-only until a key is saved.** The Kilo catalog is filtered by access
+  level before routing or the picker ever sees it, so there is no paid Kilo
+  model to route to on a keyless deployment.
+- **Last, behind local models too.** `getPreferenceOrder` demotes a
+  keyless-free provider past the custom/local providers that are themselves
+  appended last — otherwise a local-only install would silently prefer a
+  third-party gateway over the operator's own endpoint. An **explicit** entry in
+  `provider:preferenceOrder` overrides the demotion; the self-healed one does
+  not.
+- **Every tier answerable.** `kilo-auto/free` is repeated into any tier the
+  free pool does not otherwise cover, for routing only. Without it a keyless
+  install fails on the first tool-using turn, which classifies as `powerful`.
+
+Full mechanics: [providers-and-models.md](features/chat/providers-and-models.md#the-kilo-ai-gateway-srcproviderskilots-srcruntimeroutingkilo-catalogts).
+
 ### The mode task binding — "this KIND of task wants that model"
 
 A **mode** is EZCorp's task-type concept, and it can bind its kind of task to a

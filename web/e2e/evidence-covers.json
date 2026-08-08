@@ -21,13 +21,6 @@
   "web/e2e/chat-durable-leaf-capability-event.spec.ts": [
     "web/src/lib/components/ChatThread.svelte"
   ],
-  "web/e2e/chat-prompt-arrow-nav-agentic.spec.ts": [
-    "web/src/lib/components/ChatThread.svelte"
-  ],
-  "web/e2e/chat-turn-collapse.spec.ts": [
-    "web/src/lib/components/ChatThread.svelte",
-    "web/src/lib/components/TurnCollapsedSummary.svelte"
-  ],
   "web/e2e/chat-graph-evidence.spec.ts": [
     "web/src/lib/components/chat/ChatGraphPanel.svelte",
     "web/src/lib/components/chat/GraphCanvas.svelte",
@@ -35,8 +28,15 @@
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte",
     "web/src/lib/components/WaterfallTimeline.svelte"
   ],
+  "web/e2e/chat-prompt-arrow-nav-agentic.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte"
+  ],
   "web/e2e/chat-prompt-arrow-nav-cards.spec.ts": [
     "web/src/lib/components/ChatThread.svelte"
+  ],
+  "web/e2e/chat-turn-collapse.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/lib/components/TurnCollapsedSummary.svelte"
   ],
   "web/e2e/city-conditions-card.spec.ts": [
     "web/src/lib/components/tool-cards/CityConditionsCard.svelte",
@@ -136,6 +136,12 @@
   "web/e2e/hub-side-nav.spec.ts": [
     "web/src/lib/components/hub/**/*.svelte",
     "web/src/routes/(app)/+layout.svelte"
+  ],
+  "web/e2e/kilo-provider.spec.ts": [
+    "web/src/lib/components/ProviderSettings.svelte",
+    "web/src/lib/components/ProviderIcon.svelte",
+    "web/src/lib/components/settings/PreferenceOrderSection.svelte",
+    "web/src/routes/(app)/settings/models/+page.svelte"
   ],
   "web/e2e/knowledge-base.spec.ts": [
     "web/src/lib/components/KnowledgeBaseTab.svelte"

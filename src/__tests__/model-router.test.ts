@@ -93,7 +93,7 @@ describe("mergePreferenceOrder", () => {
 
   test("defaults to DEFAULT_PREFERENCE_ORDER when no defaults arg is passed", () => {
     // Exercises the default-parameter branch; a stored subset gains the rest.
-    expect(mergePreferenceOrder(["openai"])).toEqual(["openai", "anthropic", "google", "openrouter"]);
+    expect(mergePreferenceOrder(["openai"])).toEqual(["openai", "anthropic", "google", "openrouter", "kilo"]);
   });
 });
 
@@ -109,6 +109,34 @@ describe("mergePreferenceOrder", () => {
  * credential grant. Tests that care about the credential rule state it
  * explicitly instead of relying on this default.
  */
+/** Provider env vars that would satisfy getApiKey's fallback and mask a
+ *  "nothing configured" test. KILO_API_KEY included: with it set, Kilo runs at
+ *  FULL access and the free-only assertions below stop meaning anything. */
+const PROVIDER_ENV_VARS = [
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "GEMINI_API_KEY",
+  "GOOGLE_API_KEY",
+  "OPENROUTER_API_KEY",
+  "KILO_API_KEY",
+];
+
+function clearProviderEnv(): Record<string, string | undefined> {
+  const saved: Record<string, string | undefined> = {};
+  for (const v of PROVIDER_ENV_VARS) {
+    saved[v] = process.env[v];
+    delete process.env[v];
+  }
+  return saved;
+}
+
+function restoreProviderEnv(saved: Record<string, string | undefined>): void {
+  for (const [v, val] of Object.entries(saved)) {
+    if (val === undefined) delete process.env[v];
+    else process.env[v] = val;
+  }
+}
+
 const credentialedSettings =
   (extra: (key: string) => unknown = () => undefined) =>
   ((key: string) => {
@@ -150,8 +178,9 @@ describe("resolveModel", () => {
 
   test("no provider with all circuit breakers open throws", async () => {
     // openrouter is now part of DEFAULT_PREFERENCE_ORDER, so it must also be
-    // opened for the "no available providers" path to trigger.
-    for (const p of ["anthropic", "openai", "google", "openrouter"]) {
+    // opened for the "no available providers" path to trigger — and so is
+    // kilo, which needs no credential at all and would otherwise always answer.
+    for (const p of ["anthropic", "openai", "google", "openrouter", "kilo"]) {
       const cb = getCircuitBreaker(p);
       for (let i = 0; i < 3; i++) cb.recordFailure();
     }
@@ -341,18 +370,29 @@ describe("resolveModel", () => {
       expect(() => resolveModelForCredential(result.piModel, "openai", "oauth")).not.toThrow();
     });
 
-    test("with NO provider credentialed, the throw names the real constraint", async () => {
+    test("with NO provider credentialed, the keyless free tier answers instead of throwing", async () => {
       mockGetSetting.mockImplementation((() => Promise.resolve(undefined)) as any);
-      // Env keys would satisfy getApiKey's fallback and mask the case.
-      const saved: Record<string, string | undefined> = {};
-      for (const v of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY"]) {
-        saved[v] = process.env[v];
-        delete process.env[v];
+      const saved = clearProviderEnv();
+      try {
+        // Was a throw. Kilo needs no credential, so "nothing configured" is now
+        // a routable state — which is the entire point of shipping it.
+        const result = await resolveModel();
+        expect(result.provider).toBe("kilo");
+      } finally {
+        restoreProviderEnv(saved);
       }
+    });
+
+    test("with the keyless provider ALSO unavailable, the throw names the real constraint", async () => {
+      mockGetSetting.mockImplementation((() => Promise.resolve(undefined)) as any);
+      const saved = clearProviderEnv();
+      const breaker = getCircuitBreaker("kilo");
+      for (let i = 0; i < 3; i++) breaker.recordFailure();
       try {
         await expect(resolveModel()).rejects.toThrow(/No available providers with credentials/);
       } finally {
-        for (const [v, val] of Object.entries(saved)) if (val !== undefined) process.env[v] = val;
+        breaker.recordSuccess();
+        restoreProviderEnv(saved);
       }
     });
   });
@@ -523,8 +563,10 @@ describe("suggestFallback", () => {
   });
 
   test("returns null when no alternatives available", async () => {
-    // Open all other providers (openrouter now included in default order)
-    for (const p of ["openai", "google", "openrouter"]) {
+    // Open all other providers (openrouter and kilo now in the default order;
+    // kilo authenticates keylessly, so an open breaker is what makes it
+    // genuinely unavailable).
+    for (const p of ["openai", "google", "openrouter", "kilo"]) {
       const cb = getCircuitBreaker(p);
       for (let i = 0; i < 3; i++) cb.recordFailure();
     }

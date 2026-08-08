@@ -60,6 +60,7 @@ import {
   getModelRegistry,
 } from "../providers/registry";
 import { resolveModel } from "../providers/router";
+import { getCircuitBreaker } from "../providers/circuit-breaker";
 import { getModels } from "@earendil-works/pi-ai/compat";
 import { emptyTierLadder } from "../runtime/routing/tier-ladder";
 
@@ -380,11 +381,38 @@ describe("resolveModel() on a local-only install", () => {
     expect(result.piModel.baseUrl).toBe("http://localhost:11434/v1");
   });
 
-  test("with NO custom models the local-only install still names the real constraint", async () => {
+  test("with NO custom models the install falls back to Kilo's keyless free tier", async () => {
+    // Was: this threw "No available providers with credentials". Kilo
+    // authenticates with nothing configured, so an install with neither a
+    // cloud key nor a local model now has an answer instead of an error.
     settings({ "provider:defaultTier": "balanced" });
-    await withoutCloudKeys(async () => {
-      await expect(resolveModel()).rejects.toThrow(/No available providers with credentials/);
-    });
+    const result = await withoutCloudKeys(() => resolveModel());
+    expect(result.provider).toBe("kilo");
+    expect(result.model).toBe("kilo-auto/free");
+  });
+
+  test("…and still names the real constraint when even Kilo cannot answer", async () => {
+    // The original assertion, with its premise restored: the message must
+    // survive for the case where genuinely nothing is reachable.
+    settings({ "provider:defaultTier": "balanced" });
+    const breaker = getCircuitBreaker("kilo");
+    for (let i = 0; i < 3; i++) breaker.recordFailure();
+    try {
+      await withoutCloudKeys(async () => {
+        await expect(resolveModel()).rejects.toThrow(/No available providers with credentials/);
+      });
+    } finally {
+      breaker.recordSuccess();
+    }
+  });
+
+  test("the LOCAL model still beats Kilo — a keyless gateway must not silently displace it", async () => {
+    // Kilo is keyless, so without an explicit demotion it would outrank the
+    // operator's own endpoint on every local-only install and quietly ship
+    // prompts to a third party that may train on them.
+    settings(LOCAL_ONLY);
+    const result = await withoutCloudKeys(() => resolveModel());
+    expect(result.provider).toBe("ollama");
   });
 
   test("a local provider is appended LAST — a cloud key still wins the same turn", async () => {

@@ -1,5 +1,5 @@
 {
-  "//": "e2e lane manifest (wave 3, CI audit 3.4). EVERY web/e2e/**/*.spec.ts has exactly ONE lane. mock-gate = the blocking 'E2E (mock, no Docker)' set — ci.yml derives its playwright args FROM this file via scripts/e2e-lane-args.ts (one home; a spec joins the gate by being set to mock-gate HERE). real-auth = the blocking real-auth tier (playwright.real.config.ts, testDir e2e/real-auth). evidence-soft = @evidence-tagged capture lane (diff-credited specs hard-fail the visual-evidence job; full-suite fallback stays soft). docker = DOCKER_TEST-gated (run via scripts/docker-test-all.sh, not in PR CI). unwired = the HONEST backlog: runs in NO CI job today. src/__tests__/e2e-lanes.test.ts enforces exhaustiveness/uniqueness/marker consistency and ratchets unwired shrink-only.",
+  "//": "e2e lane manifest (wave 3, CI audit 3.4). EVERY web/e2e/**/*.spec.ts has exactly ONE lane. mock-gate = the blocking 'E2E (mock, no Docker)' set \u2014 ci.yml derives its playwright args FROM this file via scripts/e2e-lane-args.ts (one home; a spec joins the gate by being set to mock-gate HERE). real-auth = the blocking real-auth tier (playwright.real.config.ts, testDir e2e/real-auth). evidence-soft = @evidence-tagged capture lane (diff-credited specs hard-fail the visual-evidence job; full-suite fallback stays soft). docker = DOCKER_TEST-gated (run via scripts/docker-test-all.sh, not in PR CI). unwired = the HONEST backlog: runs in NO CI job today. src/__tests__/e2e-lanes.test.ts enforces exhaustiveness/uniqueness/marker consistency and ratchets unwired shrink-only.",
   "lanes": {
     "mock-gate": [
       "web/e2e/agent-panel-parity.spec.ts",
@@ -73,6 +73,7 @@
       "web/e2e/github-projects-hub.spec.ts",
       "web/e2e/graded-card-scanner.spec.ts",
       "web/e2e/hub-side-nav.spec.ts",
+      "web/e2e/kilo-provider.spec.ts",
       "web/e2e/knowledge-base.spec.ts",
       "web/e2e/loops-kill-switch.spec.ts",
       "web/e2e/mode-preferred-tier.spec.ts",

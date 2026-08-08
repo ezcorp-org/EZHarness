@@ -256,7 +256,10 @@ describe("POST /api/providers/:provider/test - mock argument verification", () =
     await POST(event as any);
 
     expect(mockResolveModel).toHaveBeenCalledTimes(1);
-    expect(mockResolveModel).toHaveBeenCalledWith("openai", "gpt-4o-mini");
+    // The 3rd arg is the entry's baseUrl — undefined for a catalog model,
+    // set for an overlay one (kilo/ollama), which is what makes a routed
+    // non-pi-ai provider dial its own endpoint from this route too.
+    expect(mockResolveModel).toHaveBeenCalledWith("openai", "gpt-4o-mini", undefined);
   });
 
   test("complete() receives correct options (apiKey, maxTokens)", async () => {

@@ -33,6 +33,7 @@
 		openai: { url: "https://platform.openai.com/api-keys", text: "Get your OpenAI API key" },
 		google: { url: "https://aistudio.google.com/apikey", text: "Get your Google API key" },
 		openrouter: { url: "https://openrouter.ai/keys", text: "Get your OpenRouter API key" },
+		kilo: { url: "https://app.kilo.ai", text: "Get a Kilo API key (only needed for paid models)" },
 	};
 
 	function autofocus(node: HTMLElement) { node.focus(); }
@@ -283,7 +284,14 @@
 					<div class="flex items-center gap-2">
 						<span class="text-sm font-medium text-[var(--color-text-primary)]">{info.name}</span>
 						<!-- Status dot + text -->
-						{#if !p.hasKey && !p.oauthConnected}
+						{#if !p.hasKey && !p.oauthConnected && info.keylessFreeTier}
+							<!-- "Not configured" would be false here: this provider already
+							     answers, on its free models, with nothing set up. -->
+							<span class="inline-flex items-center gap-1 text-xs">
+								<span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+								<span class="text-emerald-400">Free tier active</span>
+							</span>
+						{:else if !p.hasKey && !p.oauthConnected}
 							<span class="inline-flex items-center gap-1 text-xs">
 								<span class="h-2 w-2 rounded-full bg-gray-500"></span>
 								<span class="text-[var(--color-text-muted)]">Not configured</span>
@@ -300,6 +308,12 @@
 							</span>
 						{/if}
 					</div>
+
+					{#if info.freeTierNote && !p.hasKey && !p.oauthConnected}
+						<p class="mt-1 text-xs text-[var(--color-text-secondary)]" data-testid="provider-free-tier-note-{p.provider}">
+							{info.freeTierNote}
+						</p>
+					{/if}
 
 					<!-- Access mode badges -->
 					<div class="mt-1 flex items-center gap-2">

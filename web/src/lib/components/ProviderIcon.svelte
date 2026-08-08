@@ -35,6 +35,7 @@
 		openai: "#000000",
 		google: "#131314",
 		openrouter: "#6566F1",
+		kilo: "#7C3AED",
 		ollama: "#1A1A2E",
 	};
 
@@ -82,6 +83,16 @@
 				<circle cx="5" cy="12" r="2.3" fill="white"/>
 				<circle cx="18" cy="6.5" r="2.3" fill="white"/>
 				<circle cx="18" cy="17.5" r="2.3" fill="white"/>
+			</svg>
+		{:else if resolved === "kilo"}
+			<!-- Kilo gateway mark: a "K" whose arms are the gateway fanning one
+			     request out to many models. Drawn here rather than vendored, same
+			     as the OpenRouter mark above. -->
+			<svg class={svgClass} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+				<path d="M7 4v16" stroke="white" stroke-width="2.2" stroke-linecap="round"/>
+				<path d="M17.5 4.5 7.5 12l10 7.5" stroke="white" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+				<circle cx="18.2" cy="4.6" r="2" fill="white"/>
+				<circle cx="18.2" cy="19.4" r="2" fill="white"/>
 			</svg>
 		{:else if resolved === "ollama"}
 			<!-- Ollama llama — source: simple-icons/ollama -->
