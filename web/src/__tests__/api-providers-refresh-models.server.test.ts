@@ -124,6 +124,31 @@ describe("POST /api/providers/[provider]/refresh-models", () => {
     );
   });
 
+  test("reports how many fetched models are FREE (keyless-usable)", async () => {
+    // A keyless Kilo refresh that reports "Loaded 347 models" beside a picker
+    // showing 12 reads as a bug. Only a keyless-free provider marks models
+    // `free`, so this is 0 elsewhere and the UI shows it only where it means
+    // something.
+    vi.mocked(getCredential).mockResolvedValue({ type: "apikey", token: "no-key-needed" } as any);
+    vi.mocked(fetchProviderModels).mockResolvedValue([
+      { id: "kilo-auto/free", free: true },
+      { id: "openrouter/free", free: true },
+      { id: "anthropic/claude-sonnet-5", free: false },
+    ] as any);
+
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "kilo" } }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ success: true, count: 3, freeCount: 2 });
+  });
+
+  test("freeCount is 0 for a provider that does not mark free models", async () => {
+    vi.mocked(getCredential).mockResolvedValue({ type: "apikey", token: "k" } as any);
+    vi.mocked(fetchProviderModels).mockResolvedValue([{ id: "gpt-4o" }, { id: "gpt-5.2" }] as any);
+
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "openai" } }));
+    expect(await res.json()).toMatchObject({ count: 2, freeCount: 0 });
+  });
+
   test("returns 400 for unknown provider", async () => {
     const res = await POST(
       makeEvent({ locals: adminUser, params: { provider: "bogus" } }),

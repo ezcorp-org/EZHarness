@@ -21,18 +21,38 @@
  * free pool, and `kilo-auto/free` follows it without a release here.
  *
  * ── Wire compatibility ──
- * Measured against the live gateway, NOT assumed: it accepts `store`, the
- * `developer` role, strict-mode tool definitions, `reasoning_effort`, SSE
- * streaming with `stream_options.include_usage`, and BOTH `max_tokens` and
- * `max_completion_tokens`. That is everything pi-ai's `detectCompat` sends for
- * an unrecognised OpenAI-compatible baseUrl, so no `compat` override is set
- * here. (Contrast the custom-model path in `registry.ts`, which must force
- * `max_tokens` because Ollama/vLLM ignore the other spelling.)
+ * Measured against the live gateway: it accepts `store`, the `developer` role,
+ * strict-mode tool definitions, SSE streaming with
+ * `stream_options.include_usage`, and BOTH `max_tokens` and
+ * `max_completion_tokens`.
+ *
+ * REASONING IS THE EXCEPTION, and it needs an override. Kilo is an
+ * **OpenRouter-compatible** gateway — its catalog advertises `reasoning` /
+ * `include_reasoning` in `supported_parameters` and never `reasoning_effort`
+ * — but pi-ai's `detectCompat` only recognises OpenRouter by
+ * `provider === "openrouter"` or `baseUrl.includes("openrouter.ai")`, neither
+ * of which matches Kilo. It therefore fell through to the OpenAI branch and
+ * sent `reasoning_effort`, which Kilo normalises into its own
+ * `reasoning.effort` for the upstream and then rejects as a conflict:
+ *
+ *     400 "reasoning_effort" and "reasoning.effort" are both provided
+ *         with conflicting values
+ *
+ * Measured across the 12 free models: `reasoning_effort` + `reasoning.effort`
+ * together is a **400 on 10 of 12**; the OpenRouter form (`reasoning: {effort}`,
+ * including `effort: "none"` for off) is **200 on all 12**. Declaring
+ * `thinkingFormat: "openrouter"` makes pi-ai emit only the nested form — the
+ * branches in `buildParams` are mutually exclusive, so the conflicting pair
+ * becomes structurally impossible from our side rather than merely unlikely.
+ *
+ * Nothing else is overridden. The `developer` role in particular was probed
+ * across all 12 and accepted, so it is left on pi-ai's detection rather than
+ * defensively disabled.
  */
 
 import type { AnyModel } from "./model-types";
 import type { ModelEntry } from "./registry";
-import { getSetting } from "../db/queries/settings";
+import { getSetting, upsertSetting } from "../db/queries/settings";
 import {
   KILO_BASE_URL,
   KILO_FREE_AUTO_MODEL,
@@ -160,6 +180,13 @@ function kiloRoutingTier(model: KiloModel): RoutingTier {
   return "balanced";
 }
 
+/**
+ * The one wire override Kilo needs — see the header. `openrouter` makes pi-ai
+ * emit `reasoning: { effort }` and never the `reasoning_effort` that the
+ * gateway rejects as a conflict.
+ */
+export const KILO_COMPAT = { thinkingFormat: "openrouter" } as const;
+
 /** Picker/router row for a Kilo model. */
 export function kiloModelToEntry(model: KiloModel): ModelEntry {
   return {
@@ -178,14 +205,25 @@ export function kiloModelToEntry(model: KiloModel): ModelEntry {
   };
 }
 
-/** pi-ai wire model for a Kilo model. */
-export function kiloModelToAnyModel(model: KiloModel): AnyModel {
+/**
+ * pi-ai wire model for a Kilo model, PLUS the `free` flag.
+ *
+ * `free` is not a pi-ai field, and carrying it here is deliberate: this is the
+ * shape `POST /api/providers/kilo/refresh-models` persists to
+ * `provider:discoveredModels:kilo`, and `parseKiloCatalog` reads that row back.
+ * Without the flag the reader falls to the id-shape heuristic, which marks
+ * `openrouter/free` PAID and hides it from every keyless deployment. The extra
+ * property is inert to pi-ai (it reads the fields it knows).
+ */
+export function kiloModelToAnyModel(model: KiloModel): AnyModel & { free: boolean } {
   return {
+    free: model.free,
     id: model.id,
     name: model.name,
     api: "openai-completions",
     provider: KILO_PROVIDER,
     baseUrl: KILO_BASE_URL,
+    compat: KILO_COMPAT,
     reasoning: model.reasoning,
     input: model.vision ? (["text", "image"] as ("text" | "image")[]) : (["text"] as ("text" | "image")[]),
     cost: model.cost,
@@ -289,6 +327,7 @@ export function resolveKiloModel(modelId: string): AnyModel {
     api: "openai-completions",
     provider: KILO_PROVIDER,
     baseUrl: KILO_BASE_URL,
+    compat: KILO_COMPAT,
     reasoning: false,
     input: ["text"] as ("text" | "image")[],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -310,6 +349,58 @@ export function resolveKiloModel(modelId: string): AnyModel {
  * or HTTP failure so that route can report it, exactly as the other providers'
  * discovery does.
  */
+/**
+ * How long a warmed catalog is considered current. A restart inside this window
+ * skips the fetch, so a crash-looping or frequently-redeployed instance cannot
+ * hammer the endpoint.
+ */
+export const KILO_CATALOG_TTL_MS = 6 * 60 * 60 * 1000;
+
+/** Timestamp row for {@link warmKiloCatalog}'s staleness check. */
+export const KILO_DISCOVERED_AT_SETTING = `provider:discoveredModelsAt:${KILO_PROVIDER}`;
+
+/**
+ * Populate the Kilo catalog at boot, so the picker lists **every** free model
+ * rather than just the seed's `kilo-auto/free`.
+ *
+ * Without this, the full free pool (12 models today) appeared only after an
+ * admin pressed "Refresh models" — an admin action standing in front of the one
+ * provider that is supposed to need no setup, and one a non-admin user cannot
+ * take. The endpoint needs no credential, which is what makes warming it at
+ * boot possible at all.
+ *
+ * Deliberately fire-and-forget and OFF the request path: `getModelRegistry()`
+ * runs on every `/api/models` call and must not make a network round trip.
+ * Writes the same settings row the admin button writes, so the two paths agree
+ * and the manual refresh still works as an override.
+ *
+ * Never throws — a gateway outage at boot must cost the extra models, not the
+ * boot.
+ */
+export async function warmKiloCatalog(): Promise<"fresh" | "skipped" | "failed"> {
+  try {
+    const at = await getSetting(KILO_DISCOVERED_AT_SETTING);
+    const existing = await getSetting(KILO_DISCOVERED_SETTING);
+    // Only skip when a PREVIOUS warm actually left models behind — a stale
+    // timestamp with an empty row would otherwise pin the deployment to the
+    // seed for six hours.
+    if (
+      typeof at === "number" &&
+      Date.now() - at < KILO_CATALOG_TTL_MS &&
+      Array.isArray(existing) &&
+      existing.length > 0
+    ) {
+      return "skipped";
+    }
+    const models = (await fetchKiloCatalog()).map(kiloModelToAnyModel);
+    await upsertSetting(KILO_DISCOVERED_SETTING, models);
+    await upsertSetting(KILO_DISCOVERED_AT_SETTING, Date.now());
+    return "fresh";
+  } catch {
+    return "failed";
+  }
+}
+
 export async function fetchKiloCatalog(apiKey?: string): Promise<KiloModel[]> {
   const res = await fetch(KILO_MODELS_URL, {
     headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},

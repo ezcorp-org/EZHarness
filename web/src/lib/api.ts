@@ -246,7 +246,7 @@ export async function testProviderConnection(provider: string): Promise<{ succes
 
 export async function refreshProviderModels(
 	provider: string,
-): Promise<{ success: boolean; count?: number; ids?: string[]; fetchedAt?: string; error?: string }> {
+): Promise<{ success: boolean; count?: number; freeCount?: number; ids?: string[]; fetchedAt?: string; error?: string }> {
 	const res = await fetch(`${BASE}/api/providers/${provider}/refresh-models`, { method: "POST" });
 	return res.json();
 }
