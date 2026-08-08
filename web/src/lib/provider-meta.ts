@@ -50,8 +50,3 @@ const PROVIDER_ALIASES: Record<string, string> = {
 export function canonicalProvider(provider: string): string {
 	return PROVIDER_ALIASES[provider] ?? provider;
 }
-
-function providerDisplayName(provider: string): string {
-	const key = canonicalProvider(provider);
-	return PROVIDER_META[key]?.name ?? provider;
-}
