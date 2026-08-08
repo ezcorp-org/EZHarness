@@ -8,16 +8,20 @@
  *       model at EVERY tier — the property the free tier exists to deliver
  *   T5  routing precedence: Kilo never displaces a configured provider
  *   T6  discovery parses the gateway's own catalog shape
+ *   T7  the reasoning wire form — regression for the 400 the gateway returns
+ *       when `reasoning_effort` and `reasoning.effort` both arrive
+ *   T8  the boot warm that makes EVERY free model list with zero config
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 const mockGetSetting = mock((_key?: string) => Promise.resolve<unknown>(undefined));
+const mockUpsertSetting = mock((_key?: string, _value?: unknown) => Promise.resolve());
 mock.module("../db/queries/settings", () => ({
   getSetting: mockGetSetting,
   getAllSettings: mock(() => Promise.resolve({})),
-  upsertSetting: mock(() => Promise.resolve()),
+  upsertSetting: mockUpsertSetting,
   deleteSetting: mock(() => Promise.resolve(false)),
   isListingInstalled: mock(() => Promise.resolve(false)),
 }));
@@ -30,10 +34,14 @@ import { resolveModel } from "../providers/router";
 import { fetchProviderModels } from "../providers/model-discovery";
 import {
   KILO_BASE_URL,
+  KILO_DISCOVERED_AT_SETTING,
+  KILO_DISCOVERED_SETTING,
   KILO_FREE_AUTO_MODEL,
   KILO_SEED_MODELS,
+  kiloModelToAnyModel,
   kiloPickerEntries,
   kiloRoutingEntries,
+  warmKiloCatalog,
 } from "../providers/kilo";
 import { KILO_PROVIDER } from "../runtime/routing/llm-providers";
 
@@ -66,6 +74,8 @@ beforeEach(() => {
     delete process.env[k];
   }
   mockGetSetting.mockReset();
+  mockUpsertSetting.mockReset();
+  mockUpsertSetting.mockImplementation((() => Promise.resolve()) as never);
   nothingConfigured();
 });
 
@@ -320,5 +330,147 @@ describe("T6 discovery", () => {
     const ids = (await kiloPickerEntries()).map((e) => e.id);
     expect(ids).toContain("vendor/model:free");
     expect(ids).not.toContain("vendor/paid");
+  });
+});
+
+/**
+ * `Model["compat"]` is a UNION across the four api shapes and only the
+ * openai-completions member declares `thinkingFormat`, so the union has no such
+ * property to read. Narrow through an index type rather than `any`
+ * (`noExplicitAny` is an error here) — the assertion is on the runtime value,
+ * which is the thing that decides what goes on the wire.
+ */
+function thinkingFormatOf(model: { compat?: unknown }): unknown {
+  return (model.compat as Record<string, unknown> | undefined)?.thinkingFormat;
+}
+
+describe("T7 the reasoning wire form (regression: 400 conflicting values)", () => {
+  // Kilo is OpenRouter-compatible but pi-ai's detectCompat cannot know it, so
+  // it sent `reasoning_effort`; Kilo normalises that into its own
+  // `reasoning.effort` and then 400s the pair. Measured across the 12 free
+  // models: both-keys is a 400 on 10 of 12, the nested form is 200 on all 12.
+  test("every Kilo model declares the OpenRouter thinking format", () => {
+    for (const seed of KILO_SEED_MODELS) {
+      expect(thinkingFormatOf(kiloModelToAnyModel(seed))).toBe("openrouter");
+    }
+  });
+
+  test("a resolved (seeded AND unseeded) Kilo model carries it too", () => {
+    // Both constructors must agree — a synthesized stand-in that dropped the
+    // override would 400 exactly like the original bug.
+    expect(thinkingFormatOf(resolveModelObject(KILO_PROVIDER, KILO_FREE_AUTO_MODEL))).toBe(
+      "openrouter",
+    );
+    expect(thinkingFormatOf(resolveModelObject(KILO_PROVIDER, "vendor/unseen"))).toBe(
+      "openrouter",
+    );
+  });
+
+  test("the persisted shape carries `free` — without it openrouter/free reads as PAID", () => {
+    const free = KILO_SEED_MODELS.find((m) => m.id === KILO_FREE_AUTO_MODEL)!;
+    expect(kiloModelToAnyModel(free).free).toBe(true);
+    expect(kiloModelToAnyModel(KILO_SEED_MODELS[0]).free).toBe(false);
+  });
+});
+
+describe("T8 the boot warm", () => {
+  const payload = {
+    data: [
+      {
+        id: "vendor/warm:free",
+        name: "Warmed (free)",
+        architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+        top_provider: { context_length: 32000, max_completion_tokens: 4096 },
+        pricing: { prompt: "0", completion: "0" },
+        context_length: 32000,
+        supported_parameters: ["max_tokens"],
+        isFree: true,
+      },
+    ],
+  };
+
+  function withFetch(res: () => Response, fn: () => Promise<void>) {
+    const original = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return res();
+    }) as unknown as typeof fetch;
+    return fn().finally(() => {
+      globalThis.fetch = original;
+    }).then(() => calls);
+  }
+
+  test("a cold deployment fetches and persists the catalog", async () => {
+    const written: Record<string, unknown> = {};
+    mockUpsertSetting.mockImplementation(((k: string, v: unknown) => {
+      written[k] = v;
+      return Promise.resolve();
+    }) as never);
+
+    let result: string | undefined;
+    await withFetch(
+      () => new Response(JSON.stringify(payload), { status: 200 }),
+      async () => {
+        result = await warmKiloCatalog();
+      },
+    );
+
+    expect(result).toBe("fresh");
+    expect(Array.isArray(written[KILO_DISCOVERED_SETTING])).toBe(true);
+    expect(typeof written[KILO_DISCOVERED_AT_SETTING]).toBe("number");
+    // Persisted in the shape the reader round-trips (carries `free`).
+    expect((written[KILO_DISCOVERED_SETTING] as Array<{ free: boolean }>)[0].free).toBe(true);
+  });
+
+  test("a recent warm with models already cached is skipped — no request", async () => {
+    mockGetSetting.mockImplementation(((key: string) =>
+      Promise.resolve(
+        key === KILO_DISCOVERED_AT_SETTING
+          ? Date.now()
+          : key === KILO_DISCOVERED_SETTING
+            ? [kiloModelToAnyModel(KILO_SEED_MODELS[4])]
+            : undefined,
+      )) as never);
+
+    let result: string | undefined;
+    const calls = await withFetch(
+      () => new Response(JSON.stringify(payload), { status: 200 }),
+      async () => {
+        result = await warmKiloCatalog();
+      },
+    );
+    expect(result).toBe("skipped");
+    expect(calls).toBe(0);
+  });
+
+  test("a fresh timestamp with an EMPTY row still refetches", async () => {
+    // Otherwise a failed warm pins the deployment to the seed for six hours.
+    mockGetSetting.mockImplementation(((key: string) =>
+      Promise.resolve(key === KILO_DISCOVERED_AT_SETTING ? Date.now() : undefined)) as never);
+    mockUpsertSetting.mockImplementation((() => Promise.resolve()) as never);
+
+    let result: string | undefined;
+    const calls = await withFetch(
+      () => new Response(JSON.stringify(payload), { status: 200 }),
+      async () => {
+        result = await warmKiloCatalog();
+      },
+    );
+    expect(result).toBe("fresh");
+    expect(calls).toBe(1);
+  });
+
+  test("a gateway outage costs the extra models, never the boot", async () => {
+    let result: string | undefined;
+    await withFetch(
+      () => new Response("down", { status: 503 }),
+      async () => {
+        result = await warmKiloCatalog();
+      },
+    );
+    expect(result).toBe("failed");
+    // …and the seed still answers, so the deployment is not left with nothing.
+    expect((await kiloPickerEntries()).map((e) => e.id)).toEqual([KILO_FREE_AUTO_MODEL]);
   });
 });
