@@ -81,7 +81,10 @@ web/e2e/.docker-auth.json
 web/e2e/.real-auth.json
 web/e2e/.validate-auth.json
 
-# User-created projects (host-accessible bind mount from docker-compose)
+# User-created projects. The live location is `.ezcorp/projects` (already
+# covered by the `.ezcorp/` rule above) — every stack binds it there since
+# PR #153. `/projects/` is kept because existing checkouts still have the
+# old dir on disk and it must not become committable when they empty it.
 /projects/
 
 # Local git worktrees — checked-out branches under ./worktrees/ for parallel

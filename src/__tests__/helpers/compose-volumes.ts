@@ -82,12 +82,47 @@ export async function appEnv(relPath: string): Promise<Map<string, string | unde
 }
 
 /**
+ * Split one compose short-syntax mount into its colon-separated fields,
+ * IGNORING colons inside a `${…}` interpolation.
+ *
+ * A naive `split(":")` is wrong the moment a mount uses a default:
+ *
+ *   "${EZCORP_TEST_PROJECTS_DIR:-./projects}:/app/projects".split(":")
+ *     → ["${EZCORP_TEST_PROJECTS_DIR", "-./projects}", "/app/projects"]
+ *
+ * so the source is truncated, the TARGET comes back as the source's tail,
+ * and any assertion written against it passes while testing nothing. No
+ * compose file in the repo interpolates a mount today (the last one went
+ * away with the `/app/projects` bind in PR #153), which is exactly why this
+ * needs to be handled here rather than discovered by the next person who
+ * adds one.
+ */
+export function splitMount(entry: string): string[] {
+  const fields: string[] = [];
+  let current = "";
+  let depth = 0;
+  for (let i = 0; i < entry.length; i++) {
+    const ch = entry[i]!;
+    if (ch === "$" && entry[i + 1] === "{") depth++;
+    else if (ch === "}" && depth > 0) depth--;
+    if (ch === ":" && depth === 0) {
+      fields.push(current);
+      current = "";
+      continue;
+    }
+    current += ch;
+  }
+  fields.push(current);
+  return fields;
+}
+
+/**
  * Target (container) side of the bind whose source is `source`. Compose
  * short syntax is `<source>:<target>[:<mode>]`.
  */
 export function targetOf(volumes: readonly string[], source: string): string | undefined {
   for (const v of volumes) {
-    const [src, target] = v.split(":");
+    const [src, target] = splitMount(v);
     if (src === source) return target;
   }
   return undefined;
@@ -97,7 +132,7 @@ export function targetOf(volumes: readonly string[], source: string): string | u
 export function targetsOf(volumes: readonly string[], source: string): string[] {
   const out: string[] = [];
   for (const v of volumes) {
-    const [src, target] = v.split(":");
+    const [src, target] = splitMount(v);
     if (src === source && target) out.push(target);
   }
   return out;
@@ -105,5 +140,5 @@ export function targetsOf(volumes: readonly string[], source: string): string[] 
 
 /** Every container-side path in the list (for "nothing targets X" checks). */
 export function targets(volumes: readonly string[]): string[] {
-  return volumes.map((v) => v.split(":")[1] ?? "");
+  return volumes.map((v) => splitMount(v)[1] ?? "");
 }
