@@ -20,7 +20,7 @@ describe("agent input schemas", () => {
       expect(schema.provider).toMatchObject({
         type: "select",
         label: "Provider",
-        options: ["anthropic", "google", "openai", "openrouter"],
+        options: ["anthropic", "google", "openai", "openrouter", "kilo"],
         default: "anthropic",
       });
 

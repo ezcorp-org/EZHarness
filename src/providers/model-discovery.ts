@@ -20,6 +20,8 @@
 import { listModels } from "./local-model-check";
 import type { ProviderCredential } from "./credentials";
 import type { AnyModel } from "./model-types";
+import { fetchKiloCatalog, kiloModelToAnyModel } from "./kilo";
+import { KILO_PROVIDER } from "../runtime/routing/llm-providers";
 
 export interface DiscoveredModel extends AnyModel {}
 
@@ -233,6 +235,20 @@ export async function fetchProviderModels(
   provider: string,
   credential?: ProviderCredential,
 ): Promise<DiscoveredModel[]> {
+  // Kilo has its own catalog endpoint and its own shape, so it does not go
+  // through the models.dev + /v1/models machinery below:
+  //   - the path is `/api/gateway/models`, not `/v1/models`;
+  //   - the response is OpenRouter-shaped (pricing, context, modalities inline)
+  //     rather than the bare `{id}` list `listModels` returns, so routing it
+  //     through the generic path would DISCARD every field — including the
+  //     `isFree` flag the free/paid split depends on;
+  //   - models.dev has no `kilo` entry to enrich from.
+  // It also needs no credential: the endpoint is unauthenticated, which is what
+  // lets a keyless deployment discover the free models it may call.
+  if (provider === KILO_PROVIDER) {
+    return (await fetchKiloCatalog(credential?.token)).map(kiloModelToAnyModel);
+  }
+
   if (!PROVIDER_DEFAULTS[provider]) {
     throw new Error(`Model discovery not supported for provider: ${provider}`);
   }

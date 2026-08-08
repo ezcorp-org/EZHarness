@@ -39,6 +39,8 @@ import {
   providersWithCustomModels,
   type CustomModelEntry,
 } from "../runtime/routing/custom-models";
+import { hasKeylessFreeTier, LLM_PROVIDER_IDS } from "../runtime/routing/llm-providers";
+import { kiloRoutingEntries } from "./kilo";
 // `src/types.ts` has no imports of its own, so this cannot cycle.
 import { CURRENT_MODEL_SENTINEL } from "../types";
 
@@ -66,7 +68,7 @@ export class ProviderUnavailableError extends Error {
 
 type TierName = RoutingTier;
 
-const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google", "openrouter"];
+const DEFAULT_PREFERENCE_ORDER = LLM_PROVIDER_IDS;
 const DEFAULT_TIER: TierName = "balanced";
 
 /** The onboarding wizard historically stored `provider:defaultTier` as
@@ -109,6 +111,31 @@ export async function getCustomModelEntries(): Promise<CustomModelEntry[]> {
 }
 
 /**
+ * Every routable model pi-ai's static catalog does NOT list: the operator's
+ * custom/local rows, plus Kilo's.
+ *
+ * They share one channel because they are the same problem. `getModels(p)` is
+ * `[]` for both `ollama` and `kilo`, so tier routing can only reach either by
+ * being handed the models explicitly — which is precisely what
+ * `custom-models.ts` was built for and what `findModelForProviderInTier`'s
+ * `customModels` parameter already accepts. Threading Kilo through a second,
+ * parallel parameter would duplicate that plumbing (and its precedence rules)
+ * for no gain.
+ *
+ * Order matters and is deliberate: custom models FIRST. Both lists are
+ * consulted only after the pi-ai catalog is exhausted, so neither can shadow a
+ * built-in model — but an operator's own registered model should outrank a
+ * third-party gateway's.
+ *
+ * Kilo's rows arrive access-filtered (free-only until a key is saved) and may
+ * repeat `kilo-auto/free` across tiers; see `kiloRoutingEntries`.
+ */
+export async function getRoutableOverlayModels(): Promise<CustomModelEntry[]> {
+  const [custom, kilo] = await Promise.all([getCustomModelEntries(), kiloRoutingEntries()]);
+  return [...custom, ...kilo];
+}
+
+/**
  * Merge a stored preference order with the known defaults: preserve the
  * stored order, then append any DEFAULT_PREFERENCE_ORDER providers missing
  * from it. This self-heals orders saved before a provider (e.g. openrouter)
@@ -127,10 +154,8 @@ export function mergePreferenceOrder(
 
 async function getPreferenceOrder(customModels: readonly CustomModelEntry[]): Promise<string[]> {
   const order = await getSetting("provider:preferenceOrder");
-  const base =
-    Array.isArray(order) && order.length > 0
-      ? mergePreferenceOrder(order as string[])
-      : DEFAULT_PREFERENCE_ORDER;
+  const stored = Array.isArray(order) && order.length > 0 ? (order as string[]) : null;
+  const base = stored ? mergePreferenceOrder(stored) : DEFAULT_PREFERENCE_ORDER;
   // A local provider (`ollama`, or whatever the operator named their custom
   // endpoint) is in NEITHER the stored order nor DEFAULT_PREFERENCE_ORDER, so
   // Level 3 below never even asked it for a model — a local-only deployment
@@ -138,7 +163,25 @@ async function getPreferenceOrder(customModels: readonly CustomModelEntry[]): Pr
   // go at the very END: a provider reached here is one every cloud provider
   // ahead of it was already skipped for, so this can only ADD an answer where
   // there was none, never re-route a deployment that has cloud credentials.
-  return mergePreferenceOrder([...base], providersWithCustomModels(customModels));
+  const withCustom = mergePreferenceOrder([...base], providersWithCustomModels(customModels));
+
+  // …except a KEYLESS-FREE provider, which goes after even those.
+  //
+  // Kilo authenticates with nothing configured, so on any deployment it would
+  // otherwise outrank the operator's own local endpoint — a local-only install
+  // that added an Ollama model would silently start sending prompts to a
+  // third-party gateway. That is not merely surprising: Kilo marks its free
+  // pool `mayTrainOnYourPrompts`, so it is a privacy regression, and it is
+  // invisible because both paths "work".
+  //
+  // Demoted ONLY when the operator did not order it themselves. An admin who
+  // explicitly puts `kilo` in `provider:preferenceOrder` has made a choice, and
+  // this must not quietly override it — the demotion exists for the APPENDED
+  // case (self-healed default), which is the only way kilo can arrive here
+  // without anyone asking for it.
+  const explicitlyOrdered = new Set(stored ?? []);
+  const demoted = (p: string) => hasKeylessFreeTier(p) && !explicitlyOrdered.has(p);
+  return [...withCustom.filter((p) => !demoted(p)), ...withCustom.filter(demoted)];
 }
 
 // ── Model Resolution ─────────────────────────────────────────────────
@@ -249,7 +292,7 @@ export async function resolveModel(
   // for a tier — so the ladder and the custom-model list are loaded once,
   // here, and never on the pinned hot path above.
   const ladder = await getConfiguredTierLadder();
-  const customModels = await getCustomModelEntries();
+  const customModels = await getRoutableOverlayModels();
 
   // Level 2: Provider only -- find best model in default tier
   if (provider) {
@@ -331,7 +374,7 @@ export async function suggestFallback(
   credentialScope = "shared",
 ): Promise<FallbackSuggestion | null> {
   const ladder = await getConfiguredTierLadder();
-  const customModels = await getCustomModelEntries();
+  const customModels = await getRoutableOverlayModels();
   const order = await getPreferenceOrder(customModels);
 
   for (const provider of order) {

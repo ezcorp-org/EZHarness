@@ -16,14 +16,12 @@
  */
 import { getCredential } from "$server/providers/credentials";
 import { getSetting } from "$server/db/queries/settings";
+import { hasKeylessFreeTier, PROVIDER_ENV_KEYS } from "$server/runtime/routing/llm-providers";
 
-/** Env var that supplies each provider's key, when it isn't stored in settings. */
-export const ENV_KEYS: Record<string, string> = {
-  anthropic: "ANTHROPIC_API_KEY",
-  openai: "OPENAI_API_KEY",
-  google: "GOOGLE_API_KEY",
-  openrouter: "OPENROUTER_API_KEY",
-};
+/** Env var that supplies each provider's key, when it isn't stored in settings.
+ *  Re-exported from the one provider table so this and the provider CRUD route
+ *  cannot disagree about which env var backs which provider. */
+export const ENV_KEYS: Record<string, string> = { ...PROVIDER_ENV_KEYS };
 
 /** Credential kind per available provider (`"oauth"`, `"api-key"`, …), used by
  *  `/api/models` to narrow OAuth providers to their supported model variants. */
@@ -51,7 +49,13 @@ export async function resolveProviderAvailability(
     const hasEnv = !!(envKey && process.env[envKey]);
     const hasByok = !!(await getSetting(`provider:apiKey:${provider}`));
     const hasOauth = !!(await getSetting(`provider:oauth:${provider}`));
-    if (!(hasEnv || hasByok || hasOauth)) continue;
+    // A keyless-free-tier provider (Kilo) is available with NOTHING configured
+    // — its gateway answers free models anonymously, measured. Skipping it here
+    // would grey out every free model in the picker on exactly the deployment
+    // that most needs them: one with no provider set up at all. What it may
+    // CALL is still restricted to the free pool, by the catalog filter in
+    // `kilo-catalog.ts`, not by this presence check.
+    if (!(hasEnv || hasByok || hasOauth || hasKeylessFreeTier(provider))) continue;
 
     try {
       const cred = await getCredential(provider);

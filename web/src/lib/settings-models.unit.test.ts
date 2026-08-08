@@ -82,18 +82,19 @@ describe("hasModelId", () => {
 
 describe("mergePreferenceOrder", () => {
 	test("appends known defaults missing from a stored order (self-heal)", () => {
-		// An admin who reordered providers before openrouter existed still gets
-		// it appended, so the settings UI can show and route to it.
+		// An admin who reordered providers before openrouter (or kilo) existed
+		// still gets them appended, so the settings UI can show and route to them.
 		expect(mergePreferenceOrder(["anthropic", "openai", "google"])).toEqual([
 			"anthropic",
 			"openai",
 			"google",
 			"openrouter",
+			"kilo",
 		]);
 	});
 
 	test("preserves a full stored order unchanged (no duplicates)", () => {
-		const full = ["google", "anthropic", "openai", "openrouter"];
+		const full = ["google", "anthropic", "openai", "openrouter", "kilo"];
 		expect(mergePreferenceOrder(full)).toEqual(full);
 	});
 
@@ -108,6 +109,7 @@ describe("mergePreferenceOrder", () => {
 			"openai",
 			"google",
 			"openrouter",
+			"kilo",
 		]);
 	});
 
@@ -117,7 +119,13 @@ describe("mergePreferenceOrder", () => {
 });
 
 describe("DEFAULT_PREFERENCE_ORDER", () => {
-	test("lists the four known providers with openrouter last", () => {
-		expect(DEFAULT_PREFERENCE_ORDER).toEqual(["anthropic", "openai", "google", "openrouter"]);
+	test("lists the five known providers with the keyless free tier last", () => {
+		expect(DEFAULT_PREFERENCE_ORDER).toEqual([
+			"anthropic",
+			"openai",
+			"google",
+			"openrouter",
+			"kilo",
+		]);
 	});
 });

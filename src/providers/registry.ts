@@ -35,6 +35,14 @@ import {
 } from "../runtime/routing/custom-models";
 // Price-rate shape single source of truth (type-only — erased at build).
 import type { ModelPrices } from "../runtime/usage/cache-stats";
+// The one provider table. `KILO_PROVIDER` is imported (not spelled) so the
+// carve-outs below cannot drift from the table that declares it keyless.
+import { KILO_PROVIDER, LLM_PROVIDER_IDS } from "../runtime/routing/llm-providers";
+import { kiloPickerEntries, resolveKiloModel } from "./kilo";
+
+/** Providers whose discovered-model rows the generic loader below reads.
+ *  Every known provider EXCEPT Kilo — see `loadDiscoveredModels`. */
+const DISCOVERY_SCAN_PROVIDERS = LLM_PROVIDER_IDS.filter((p) => p !== KILO_PROVIDER);
 
 // Fallback entries for OAuth-only users (ChatGPT Codex login).
 // The OAuth token can't call api.openai.com/v1/models, so discovery can't
@@ -56,9 +64,16 @@ const LOCAL_OAUTH_OVERRIDES: AnyModel[] = [
 
 // Load discovered models from settings (populated by /api/providers/:provider/refresh-models).
 // Returns a flat list across all providers, with pi-ai-registered IDs filtered out to avoid duplicates.
+//
+// Kilo is deliberately EXCLUDED from this scan even though it writes the same
+// `provider:discoveredModels:*` row. Its rows carry a free/paid distinction
+// this generic loader has no way to honour, so the whole Kilo catalog — seed
+// plus discovered, access-filtered — enters through `kiloPickerEntries()` in
+// `getModelRegistry` instead. Loading it twice would show paid models to a
+// keyless deployment, which is exactly the bug the filtering exists to prevent.
 async function loadDiscoveredModels(): Promise<AnyModel[]> {
   const out: AnyModel[] = [];
-  for (const provider of ["openai", "anthropic", "google", "openrouter"]) {
+  for (const provider of DISCOVERY_SCAN_PROVIDERS) {
     const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as AnyModel[] | undefined;
     if (!Array.isArray(stored)) continue;
     const piIds = new Set(getModels(provider as BuiltinProvider).map((m) => m.id));
@@ -168,6 +183,12 @@ export async function getModelRegistry(): Promise<ModelEntry[]> {
   for (const model of await loadDiscoveredModels()) {
     entries.push(piModelToEntry(model));
   }
+
+  // Kilo: seed ∪ discovered, already filtered to what this deployment's
+  // credential state permits (free-only until a key is saved). One row per
+  // model — the routing projection's tier-fill duplicates are deliberately not
+  // here, because the picker must never list one id three times.
+  entries.push(...(await kiloPickerEntries()));
 
   // Append user-defined custom models from settings. Normalization is shared
   // with tier ROUTING (`parseCustomModelEntries`) rather than re-inlined here:
@@ -422,6 +443,15 @@ export function isKnownCatalogModel(provider: string, modelId: string): boolean 
 }
 
 export function resolveModelObject(provider: string, modelId: string, baseUrl?: string): AnyModel {
+  // Kilo FIRST: it is not a pi-ai provider, so `getModels("kilo")` is empty and
+  // every branch below would fall through to the generic OpenAI-completions
+  // stand-in — pointing a Kilo pin at `https://api.openai.com/v1` with Kilo
+  // credentials, which fails as a confusing wrong-provider auth error instead
+  // of resolving. Handled here rather than via the `baseUrl` argument because
+  // the generic branch appends `/v1` to any baseUrl it is handed, and the
+  // gateway root (`…/api/gateway`) must be passed through verbatim.
+  if (provider === KILO_PROVIDER) return resolveKiloModel(modelId);
+
   try {
     const found = getModel(provider as BuiltinProvider, modelId as never);
     if (found) return found;

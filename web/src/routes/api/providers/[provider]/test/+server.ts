@@ -2,11 +2,14 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { getCredential } from "$server/providers/credentials";
 import { findModelForProviderInTier, resolveModelObject } from "$server/providers/registry";
+import { getConfiguredTierLadder, getRoutableOverlayModels } from "$server/providers/router";
 import { complete } from "@earendil-works/pi-ai/compat";
 import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
+import { LLM_PROVIDER_IDS, providerListMessage } from "$server/runtime/routing/llm-providers";
 
-const VALID_PROVIDERS = new Set(["anthropic", "openai", "google", "openrouter"]);
+// Derived from the one provider table — see web/src/routes/api/providers/+server.ts.
+const VALID_PROVIDERS = new Set<string>(LLM_PROVIDER_IDS);
 
 export const POST: RequestHandler = async ({ params, locals }) => {
 	// Live provider-credential test hits instance secrets — admin-only, on
@@ -28,18 +31,28 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
 	const { provider } = params;
 	if (!provider || !VALID_PROVIDERS.has(provider)) {
-		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
+		return errorJson(400, `Invalid provider. Must be one of: ${providerListMessage()}`);
 	}
 
 	try {
 		const cred = await getCredential(provider);
 
-		const model = findModelForProviderInTier(provider, "fast");
+		// Resolve the probe model exactly the way ROUTING would, ladder and
+		// overlay included. Asking the bare pi-ai catalog reported "No models
+		// available for kilo" for a provider that has ~350 of them — Kilo is not
+		// a pi-ai provider, so its models (like Ollama's) reach routing only
+		// through the overlay. A connection test that consults a narrower list
+		// than the router does can fail a provider that works.
+		const [ladder, overlay] = await Promise.all([
+			getConfiguredTierLadder(),
+			getRoutableOverlayModels(),
+		]);
+		const model = findModelForProviderInTier(provider, "fast", ladder, overlay);
 		if (!model) {
 			return json({ success: false, error: `No models available for ${provider}` });
 		}
 
-		const piModel = resolveModelObject(provider, model.id);
+		const piModel = resolveModelObject(provider, model.id, model.baseUrl);
 
 		await complete(piModel, {
 			messages: [{ role: "user", content: "Say ok", timestamp: Date.now() }],

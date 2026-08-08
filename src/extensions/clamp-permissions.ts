@@ -37,6 +37,7 @@ export const KNOWN_LLM_PROVIDERS = [
   "google",
   "mistral",
   "openrouter",
+  "kilo",
 ] as const;
 
 const KNOWN_PROVIDER_SET = new Set<string>(KNOWN_LLM_PROVIDERS);

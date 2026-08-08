@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { getDb, getPglite } from "./db/connection";
 import { isEmbeddingReady } from "./memory/embeddings";
 import { checkEndpointReachability } from "./providers/local-model-check";
+import { LLM_PROVIDER_IDS } from "./runtime/routing/llm-providers";
 
 export interface HealthResponse {
   status: "healthy" | "degraded";
@@ -46,7 +47,7 @@ export async function buildHealthResponse(detail: boolean): Promise<HealthRespon
   try {
     const { getAllSettings } = await import("./db/queries/settings");
     settings = await getAllSettings();
-    const providerNames = ["anthropic", "openai", "google", "openrouter"];
+    const providerNames = LLM_PROVIDER_IDS;
     for (const name of providerNames) {
       const apiKey = settings[`provider:apiKey:${name}`];
       const oauthToken = settings[`provider:oauth:${name}`];

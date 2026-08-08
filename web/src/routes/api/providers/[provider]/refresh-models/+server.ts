@@ -2,6 +2,7 @@ import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
+import { LLM_PROVIDER_IDS, providerListMessage } from "$server/runtime/routing/llm-providers";
 import { fetchProviderModels } from "$server/providers/model-discovery";
 import { getCredential, type ProviderCredential } from "$server/providers/credentials";
 import { upsertSetting } from "$server/db/queries/settings";
@@ -9,7 +10,8 @@ import { logger } from "$server/logger";
 
 const log = logger.child("api.refresh-models");
 
-const VALID_PROVIDERS = new Set(["anthropic", "openai", "google", "openrouter"]);
+// Derived from the one provider table — see web/src/routes/api/providers/+server.ts.
+const VALID_PROVIDERS = new Set<string>(LLM_PROVIDER_IDS);
 
 export const POST: RequestHandler = async ({ params, locals }) => {
 	// Refreshing models USES instance provider credentials and overwrites the
@@ -30,7 +32,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
 
 	const { provider } = params;
 	if (!provider || !VALID_PROVIDERS.has(provider)) {
-		return errorJson(400, "Invalid provider. Must be one of: anthropic, openai, google, openrouter");
+		return errorJson(400, `Invalid provider. Must be one of: ${providerListMessage()}`);
 	}
 
 	try {

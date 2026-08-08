@@ -4,7 +4,7 @@
 
 ## Intent
 
-EZCorp talks to OpenAI, Anthropic, Google, and arbitrary OpenAI-compatible / Ollama endpoints through one normalization layer so the rest of the app never touches raw provider SDKs. This feature owns: **how a credential is found and decrypted** (`src/providers/credentials.ts`), **what models exist and what they can do** (`src/providers/registry.ts`, `model-discovery.ts`, `model-capabilities.ts`), **which provider+model a run actually resolves to** (`src/providers/router.ts`), and **how provider failures are surfaced** (`src/providers/provider-error.ts`, `circuit-breaker.ts`). It exists to keep credentials encrypted-at-rest, to let OAuth-login users chat without an API key, and to give users a single picker over a heterogeneous model fleet.
+EZCorp talks to OpenAI, Anthropic, Google, OpenRouter, the Kilo AI Gateway, and arbitrary OpenAI-compatible / Ollama endpoints through one normalization layer so the rest of the app never touches raw provider SDKs. This feature owns: **how a credential is found and decrypted** (`src/providers/credentials.ts`), **what models exist and what they can do** (`src/providers/registry.ts`, `model-discovery.ts`, `model-capabilities.ts`), **which provider+model a run actually resolves to** (`src/providers/router.ts`), and **how provider failures are surfaced** (`src/providers/provider-error.ts`, `circuit-breaker.ts`). It exists to keep credentials encrypted-at-rest, to let OAuth-login users chat without an API key, and to give users a single picker over a heterogeneous model fleet.
 
 ## How it works
 
@@ -16,7 +16,8 @@ EZCorp talks to OpenAI, Anthropic, Google, and arbitrary OpenAI-compatible / Oll
 2. **Per-conversation override** — `getSetting('conversation:<id>:accessMode:<provider>')` of `"apikey"` / `"oauth"` forces that path.
 3. **User-level preference** — `getSetting('provider:accessMode:<provider>')`, same two values.
 4. **Default chain** — try DB OAuth → BYOK → env var. (Anthropic skips the DB-OAuth step: it is BYOK-only — there is no pi-managed Anthropic OAuth flow here.)
-5. **Local fallback** — if no credential resolves but a `provider:customModels` entry has a `baseUrl` for this provider, return `no-key-needed` (local endpoints need no key).
+5. **Keyless free tier** — if no credential resolves and the provider declares `keylessFreeTier` (Kilo alone today), return `no-key-needed`. Measured: Kilo's gateway answers a free model with no credential at all (HTTP 200, `cost: "0"`) and refuses a paid one with `401 PAID_MODEL_AUTH_REQUIRED`. The sentinel is **not** what restricts the deployment to free models — the catalog filter below is.
+6. **Local fallback** — if no credential resolves but a `provider:customModels` entry has a `baseUrl` for this provider, return `no-key-needed` (local endpoints need no key).
 
 OAuth tokens are stored encrypted under `provider:oauth:<provider>` in the pi-ai `OAuthCredentials` shape (`{ access, refresh, expires, … }`). `getOAuthCredential` decrypts, and:
 
@@ -25,9 +26,9 @@ OAuth tokens are stored encrypted under `provider:oauth:<provider>` in the pi-ai
 - **Every write on the refresh path goes through that store**, including the Google `projectId` backfill, so a refresh cannot interleave with another write to the same row. (Initial connect still writes the row directly from the OAuth callback route.) The lock is **in-process only** — the same constraint `withConvSessionLock` documents in `src/db/session-sync.ts`.
 - **`google-gemini-cli` is not a provider pi-ai registers** (it never has been), so `getAuth` returns `undefined` for Google and `getOAuthCredential` throws, falling through to BYOK → env exactly as it always did.
 - **"Connected but broken" is no longer flattened into "not configured."** A genuine refresh failure surfaces as pi's `ModelsError { code: "oauth" }`; `isBrokenOAuth` (shape-checked, never message-matched) separates it from "never connected", and if the whole ladder then fails, the thrown error names the cause and tells the user to sign in again rather than to add an API key.
-- **BYOK-only providers** (`anthropic`, `openrouter`) skip the DB-OAuth step in the default chain. Both carry `auth.oauth` in pi-ai's catalog as of 0.83.0, but nothing in EZCorp ever *writes* `provider:oauth:anthropic` (the OAuth callback route accepts `openai` and `google` only), so the stored-credential precondition still stops it. Anthropic subscription auth is a feature, not a side effect of the catalog gaining the field.
+- **BYOK-only providers** (`anthropic`, `openrouter`, `kilo`) skip the DB-OAuth step in the default chain. Both carry `auth.oauth` in pi-ai's catalog as of 0.83.0, but nothing in EZCorp ever *writes* `provider:oauth:anthropic` (the OAuth callback route accepts `openai` and `google` only), so the stored-credential precondition still stops it. Anthropic subscription auth is a feature, not a side effect of the catalog gaining the field.
 
-`getApiKey(provider)` (the BYOK path, marked `@deprecated` in favor of `getCredential`) reads `provider:apiKey:<provider>` and decrypts, then falls back to pi-ai's `getEnvApiKey` (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`).
+`getApiKey(provider)` (the BYOK path, marked `@deprecated` in favor of `getCredential`) reads `provider:apiKey:<provider>` and decrypts, then falls back to pi-ai's `getEnvApiKey` (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GOOGLE_API_KEY`), and finally to this repo's own provider table for env vars pi-ai does not know (`KILO_API_KEY` — kilo is not a pi-ai provider, so without this the var was silently ignored and a configured deployment still ran free-only).
 
 ### Encryption at rest (`src/providers/encryption.ts`)
 
@@ -43,7 +44,8 @@ All stored secrets (API keys, OAuth blobs) round-trip through `encrypt`/`decrypt
 
 1. **pi-ai built-ins** — `getProviders()` × `getModels(provider)`.
 2. **Live-discovered models** — `provider:discoveredModels:<provider>` settings (written by refresh-models), with any id already known to pi-ai filtered out to avoid duplicates.
-3. **User custom models** — `provider:customModels` settings, normalized by `parseCustomModelEntries` (`src/runtime/routing/custom-models.ts`; defaults `provider: "ollama"`, `tier: "balanced"`, `contextWindow: 128_000`, carries a `baseUrl`). That normalizer is shared with tier **routing** — the picker and the router read the same function, so a row cannot display in one tier and route in another.
+3. **Kilo's catalog** — the built-in `kilo-auto/*` seed merged with anything `refresh-models` cached, then **filtered to what this deployment may call** (free-only until a Kilo key is saved). See _The Kilo AI Gateway_ below.
+4. **User custom models** — `provider:customModels` settings, normalized by `parseCustomModelEntries` (`src/runtime/routing/custom-models.ts`; defaults `provider: "ollama"`, `tier: "balanced"`, `contextWindow: 128_000`, carries a `baseUrl`). That normalizer is shared with tier **routing** — the picker and the router read the same function, so a row cannot display in one tier and route in another.
 
 `inferTier()` derives a display **tier** (`fast`/`balanced`/`powerful`) and **costTier** (`low`/`medium`/`high`) from real pricing (`model.cost.input + output`, blended USD/1M) with name-heuristic fallbacks (`mini|nano|flash|lite|haiku` → low/fast; `opus|pro|codex-max|o[1-9]` → high/powerful). It applies to **catalog** models only: a custom row's tier is the one the operator picked in the add-model form, never inferred from the model name (a local id like `qwen3:1.7b` or `my-finetune` carries no such signal). `resolveModelObject(provider, modelId, baseUrl?)` is the runtime resolver: pi-ai `getModel` → `resolveOAuthModel` (so `gpt-5.5` under the public `openai` id resolves to the `openai-codex` override with correct `input`/`reasoning`) → a synthesized `openai-completions` custom model (baseUrl coerced to end in `/v1`). `LOCAL_OAUTH_OVERRIDES` hardcodes OAuth-only models (e.g. `gpt-5.5`) that an OAuth token can't enumerate via `/v1/models`.
 
@@ -56,6 +58,73 @@ When an explicit `baseUrl` is supplied, the synthesized model also carries `comp
 - **Direct** — for `openai`/`anthropic` (the `DIRECT_PROVIDERS` whose `/v1/models` is OpenAI-shaped), pull the authoritative, key-scoped id list via the shared `listModels()` helper with the provider auth header attached, then enrich each id with **models.dev** catalog metadata (pricing, context window, modalities, reasoning).
 - **Catalog fallback** — the public `https://models.dev/api.json` catalog (unauth'd, 5-min in-memory cache) is used alone when there's no usable credential, when the direct call fails, or for **Google** (different API shape — catalog-only by design).
 - A chat-capability filter (`isExcludedById`) drops ids matching `embedding|whisper|tts|moderation|dall-e|image-gen|audio-preview`; on the catalog path it additionally requires the model to emit a `text` output modality.
+
+### The Kilo AI Gateway (`src/providers/kilo.ts`, `src/runtime/routing/kilo-catalog.ts`)
+
+Kilo is an OpenAI-compatible gateway in front of ~350 models at
+`https://api.kilo.ai/api/gateway` (pi-ai's client appends `/chat/completions`).
+It is the only provider EZCorp ships that **answers with no credential
+configured**, which is why it gets its own module rather than a row in
+`model-discovery.ts`.
+
+Everything below was measured against the live gateway, not read off a docs page:
+
+| Probe | Result |
+|---|---|
+| `POST /chat/completions` for `kilo-auto/free`, **no auth header** | `200`, `cost: "0"` |
+| Same for `anthropic/claude-sonnet-5`, no auth header | `401 PAID_MODEL_AUTH_REQUIRED` |
+| Free model with an **unusable** bearer token | `200` — the gateway ignores a bad key on free models |
+| `GET /api/gateway/models` | `200`, **unauthenticated**, 349 rows |
+| `store`, `developer` role, strict tools, `reasoning_effort`, SSE + `include_usage` | all accepted |
+| `max_tokens` **and** `max_completion_tokens` | both honoured |
+
+That last row is why **no `compat` override is set** for Kilo: pi-ai's default
+`detectCompat` output for an unrecognised OpenAI-compatible baseUrl is already
+correct here. (Contrast the custom-model path, which must force `max_tokens`
+because Ollama/vLLM ignore the other spelling.)
+
+**Free vs paid is enforced by construction, not by a check.** `kiloModelsForAccess`
+filters the catalog *before* it reaches the picker or the router, so a keyless
+deployment has no paid Kilo model to show **or** to route to. Access is `"full"`
+iff `provider:apiKey:kilo` or `KILO_API_KEY` is set. Free-ness comes from the
+payload's explicit `isFree` flag, never from the id — `openrouter/free` is a free
+model whose id has no `:free` suffix, and an id-shape rule would misclassify it.
+
+**Why there is a built-in seed.** pi-ai has no `kilo` provider, so `getModels("kilo")`
+is `[]` and a fresh install would show zero Kilo models until an admin pressed
+"Refresh models" — putting a configuration step in front of the one path that is
+supposed to need no configuration. The seed is deliberately *only* the five
+stable `kilo-auto/*` routers; Kilo rotates the free pool server-side, so
+`kilo-auto/free` follows it without a release here, where a hardcoded
+`vendor/model:free` list would go stale. Discovery merges over the seed, refreshing
+seeded ids in place and appending the rest.
+
+**Two projections, and the difference matters.** `kiloPickerEntries()` yields one
+row per model. `kiloRoutingEntries()` yields those *plus* `kilo-auto/free` repeated
+into every tier nothing else covers. Routing asks a provider for a model **at a
+specific tier** and moves on when there is none — so with only the seed, a keyless
+install (one model, at `balanced`) had no answer for the `powerful` tier, which is
+where the classifier sends every tool-using turn. `kilo-auto/free` is a server-side
+router across the whole free pool, so it genuinely serves any tier asked of it;
+repeating it is how a one-model-per-tier lookup expresses that. The picker never
+sees the duplicates.
+
+**Kilo routes last — behind local models too.** `getPreferenceOrder` demotes any
+keyless-free provider to the very end, *after* the custom/local providers that are
+themselves appended last. Without this, Kilo (which always authenticates) would
+outrank the operator's own Ollama endpoint on every local-only install and quietly
+start shipping prompts to a third party — and Kilo marks its free pool
+`mayTrainOnYourPrompts`, so that is a privacy regression, not just a surprise. The
+demotion applies **only** when Kilo was appended by the self-heal; an admin who
+puts `kilo` in `provider:preferenceOrder` explicitly has made a choice and it
+stands. The provider card discloses the logging caveat rather than burying it in
+this file, because that is where the decision is made.
+
+Kilo models reach tier routing through the **same overlay channel as custom
+models** (`getRoutableOverlayModels`), because it is the same problem: `getModels(p)`
+is `[]` for both `ollama` and `kilo`, and `findModelForProviderInTier` already
+accepts an explicit model list for exactly that reason. Custom models come first in
+the overlay — an operator's own registered model outranks a third-party gateway's.
 
 ### Attachment capabilities (`src/providers/model-capabilities.ts`)
 
@@ -71,7 +140,7 @@ When an explicit `baseUrl` is supplied, the synthesized model also carries `comp
 
 1. **Explicit provider + model** → passthrough (mock-provider gate; else discovered model → custom-model baseUrl → `resolveModelObject`). Pins are never re-routed; tier is ignored here.
 2. **Provider only** → best model in the requested tier (else `provider:defaultTier`, default `balanced`), else first model.
-3. **Neither** → iterate `provider:preferenceOrder` (default `[anthropic, openai, google, openrouter]`; stored orders self-heal via `mergePreferenceOrder`, and **providers that have custom models are appended last** so a local-only install is reachable at all), **skipping providers whose circuit breaker `isOpen()`**, picking the first tier-matching model.
+3. **Neither** → iterate `provider:preferenceOrder` (default `[anthropic, openai, google, openrouter, kilo]`; stored orders self-heal via `mergePreferenceOrder`, **providers that have custom models are appended last** so a local-only install is reachable at all, and a **keyless-free provider is demoted behind even those** unless the operator ordered it explicitly — see below), **skipping providers whose circuit breaker `isOpen()`**, picking the first tier-matching model.
 
 Levels 2 and 3 both consult custom models. `findModelForProviderInTier(provider, tier, ladder?, customModels?)` resolves in a fixed order — configured ladder over the catalog, built-in ladder over the catalog (openrouter only), configured ladder over custom models, catalog tier scan, then the custom tier scan **last**. Custom models therefore never displace or shadow a built-in, and a deployment with none routes exactly as it did before. Without this a local provider was unroutable outright: `getModels("ollama")` is `[]` (ollama is not a pi-ai provider), so every tier lookup returned `null` — and since a workflow `agent` step carries the `__current__` inherit sentinel that `resolveModel` collapses to "no pin", **every** workflow agent step is tier-routed.
 
@@ -122,10 +191,13 @@ Routing provenance is recorded per turn on the message `usage` blob (`routedTier
 
 - Settings: `provider:apiKey:<p>`, `provider:oauth:<p>`, `provider:accessMode:<p>`, `conversation:<id>:accessMode:<p>`, `provider:discoveredModels:<p>`, `provider:customModels`, `provider:defaultTier`, `provider:preferenceOrder`, `oauth:pending:<state>`.
 - Routing settings (all validated on write — an unrecognised value is a **400**, not a silent no-op — and read tolerantly): `provider:defaultSelection` (default `auto`), `provider:tierModels` (the tier ladder, unset by default), `provider:explorationRate` (default `0` = off), `provider:routingShadow` (unset = off). Full semantics in [LLM routing & failover](../../llm-routing-and-failover.md).
-- Env: `EZCORP_ENCRYPTION_SECRET`, `EZCORP_ENCRYPTION_SALT`, `EZCORP_SECRETS_DIR`, `EZCORP_DB_PATH`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `GOOGLE_CLOUD_PROJECT`.
+- Env: `EZCORP_ENCRYPTION_SECRET`, `EZCORP_ENCRYPTION_SALT`, `EZCORP_SECRETS_DIR`, `EZCORP_DB_PATH`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`, `KILO_API_KEY` (optional — Kilo's free models need no key), `GOOGLE_CLOUD_PROJECT`.
 
 ## Key files
 
+- `src/providers/kilo.ts` — Kilo seed catalog, live `/api/gateway/models` fetch, `resolveKiloModel`, the picker/routing projections, `hasKiloApiKey`.
+- `src/runtime/routing/kilo-catalog.ts` — pure (100% gate): payload parse, USD-per-token → per-1M conversion, free/paid classification, access filter, tier fill.
+- `src/runtime/routing/llm-providers.ts` — pure (100% gate): the ONE provider table (id, env key, OAuth support, BYOK-only, keyless-free) that the router, registry, credentials, health and all four provider API routes derive from.
 - `src/providers/credentials.ts` — `getCredential` precedence chain, OAuth auto-refresh, Google project discovery, BYOK/env fallback, `OAuthUnusableError` vs "not configured".
 - `src/providers/credential-store.ts` — `SettingsCredentialStore` (pi-ai `CredentialStore` over the encrypted `settings` table), `resolveOAuthAuth` (the `Models.getAuth` wrapper that replaced pi-ai's removed `getOAuthApiKey`), `isBrokenOAuth`, `MIN_OAUTH_VALIDITY_MS`. Per-provider serialization lives in `modify()`.
 - `src/runtime/routing/dropped-models.ts` — pure catalog-gap decision (`isCatalogGap`, `findCatalogGaps`, `reportCatalogGapOnce`): names a pinned model id the installed pi-ai catalog no longer lists, before it silently degrades into a synthesized 128k/unpriced stand-in. `scripts/scan-catalog-gaps.ts` runs the same decision over the stored pins.

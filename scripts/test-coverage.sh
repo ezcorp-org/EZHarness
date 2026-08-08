@@ -439,6 +439,7 @@ run_legs() {
       src/__tests__/api-users.server.test.ts \
       src/lib/audit-log-view.unit.test.ts \
       src/lib/settings-models.unit.test.ts \
+      src/lib/provider-meta.unit.test.ts \
       src/lib/tier-ladder-view.unit.test.ts \
       src/lib/components/__tests__/TierLadderSection.component.test.ts \
       src/lib/components/__tests__/DefaultSelectionSection.component.test.ts \
@@ -640,6 +641,7 @@ run_legs() {
       --coverage.include='src/routes/api/users/+server.ts' \
       --coverage.include='src/lib/audit-log-view.ts' \
       --coverage.include='src/lib/settings-models.ts' \
+      --coverage.include='src/lib/provider-meta.ts' \
       --coverage.include='src/lib/tier-ladder-view.ts' \
       --coverage.include='src/lib/components/settings/TierLadderSection.svelte' \
       --coverage.include='src/lib/components/settings/DefaultSelectionSection.svelte' \
