@@ -21,7 +21,7 @@
 
 import { test, expect, describe } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
-import { vector } from "@electric-sql/pglite/vector";
+import { vector } from "@electric-sql/pglite-pgvector";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";

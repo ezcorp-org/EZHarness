@@ -155,6 +155,9 @@ docker compose -f compose.prod.yml up -d
 
 Every boot runs through:
 
+0. **PostgreSQL major-version upgrade of the data directory.** See
+   [Upgrading across a PostgreSQL major version](#upgrading-across-a-postgresql-major-version)
+   below. A no-op on a fresh install and on an already-current data dir.
 1. **Circuit-breaker check.** If the previous boot of this exact image SHA
    failed a migration, a marker file `/app/data/.migration-failed` is
    present. The container opens the DB without re-running migrations and
@@ -171,6 +174,64 @@ Every boot runs through:
    the container exits with code 1. Docker's restart policy brings it back
    up — this time the circuit breaker kicks in and the app boots read-write
    (idempotent DDL won't be re-attempted).
+
+### Upgrading across a PostgreSQL major version
+
+The embedded database is PGlite, which bundles a whole Postgres build — so
+an EZCorp update can move Postgres itself. The update that ships PGlite
+0.5.4 moves **PostgreSQL 17 → 18**, and Postgres data directories are never
+compatible across majors.
+
+**You do not need to do anything.** On the first boot after the update the
+app detects a PG 17 data dir (by its `PG_VERSION` file), dumps it with the
+old engine, restores it into a new PG 18 data dir, verifies the restore
+row-for-row against the source, and only then swaps it in. The original is
+kept, not deleted:
+
+```
+/app/data/ezcorp-db                        the upgraded (PG 18) data dir
+/app/data/ezcorp-db.pg17-backup.<ts>       your original, untouched
+```
+
+The upgrade is logged at boot (`Upgrading the embedded database across a
+PostgreSQL major version`, then `Database upgraded; the pre-upgrade datadir
+was kept for rollback`). Expect the first boot to take longer than usual —
+it is a full dump and restore.
+
+**Plan for the extra disk.** The upgrade needs room for the original, the
+staging copy and the retained backup at the same time — budget roughly
+**3× the data dir** free before updating.
+
+**Rolling back.** The retained backup *is* the rollback. Stop the
+container, put it back, and run the previous image:
+
+```bash
+docker compose down
+mv /app/data/ezcorp-db /app/data/ezcorp-db.pg18-aside
+mv /app/data/ezcorp-db.pg17-backup.<ts> /app/data/ezcorp-db
+# then start the PREVIOUS image tag — a PG 17 data dir cannot be opened
+# by the PG 18 engine.
+```
+
+Once you are satisfied with the upgrade, the `*.pg17-backup.*` directory is
+safe to delete.
+
+**If the upgrade is interrupted** (power loss, OOM kill), the next boot
+detects the partial state from `/app/data/.ezcorp-datadir-upgrade.json` and
+either finishes the swap or rolls back to the original — a half-swapped
+data dir is never presented as healthy. If it cannot prove which state it
+is in, it refuses to boot and names the backup directory in the error
+rather than guessing.
+
+**If the data dir was written by some other Postgres major** (neither 17
+nor 18), the app refuses to boot and tells you so, rather than starting
+empty. Downgrade to the EZCorp version that wrote it, or restore a
+compatible backup.
+
+> **`EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE=1` is especially dangerous across
+> this update.** The upgrade runs *before* the open, so it should not
+> trigger — but if anything else makes the open fail, that flag renames
+> your data aside and boots empty. Leave it unset.
 
 ### Verifying the snapshot + rollback path
 

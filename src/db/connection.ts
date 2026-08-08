@@ -22,6 +22,7 @@ import {
   clearProcessHolder,
 } from "./live-holder-guard";
 import { applyPgliteNulPatches, patchJsonColumns, patchTextColumns } from "./nul-column-patch";
+import { clearStaleLockFiles, upgradeDatadirIfNeeded } from "./datadir-upgrade";
 const log = logger.child("db");
 
 const DEFAULT_DB_DIR = `${process.env.HOME}/ez-corp/.data`;
@@ -178,7 +179,7 @@ function recoverInterruptedRollback(dbPath: string = DB_PATH): void {
 
 async function initPglite(): Promise<void> {
   const { PGlite } = await import("@electric-sql/pglite");
-  const { vector } = await import("@electric-sql/pglite/vector");
+  const { vector } = await import("@electric-sql/pglite-pgvector");
   // pg_trgm MUST register at construction. Late `CREATE EXTENSION pg_trgm`
   // SQL succeeds against a stub but `SELECT similarity(...)` fails with
   // "function does not exist." The contrib module loads the C functions
@@ -210,6 +211,13 @@ async function initPglite(): Promise<void> {
     // server's datadir. Dead-pid claims (SIGKILL) pass through as stale.
     assertNoLiveHolder(DB_PATH);
     claimHolder(DB_PATH);
+    // Cross-major Postgres upgrade (PG 17 datadir -> the PG 18 engine this
+    // build ships). No-op on a fresh install and on an already-current
+    // datadir. Runs AFTER claimHolder so no other live EZCorp process can be
+    // writing while we dump — the holder pidfile is a SIBLING of DB_PATH
+    // (`live-holder-guard.holderPidPath`), so it survives the datadir swap.
+    // Before openPglite, because 0.5.x refuses a PG 17 datadir outright.
+    await upgradeDatadirIfNeeded(DB_PATH);
   }
   // PGlite uses the URI-style `memory://` scheme for in-memory mode;
   // passing the SQLite-style `:memory:` literal creates a directory of
@@ -275,22 +283,9 @@ async function initPglite(): Promise<void> {
   // here fixes the false positive without weakening the corrupted-data
   // fallback for genuinely unreadable directories. See
   // `tasks/incident-2026-05-10-stale-pid.md` for the full timeline.
-  if (!IS_MEMORY && existsSync(DB_PATH)) {
-    for (const lockfile of ["postmaster.pid", "postmaster.opts"]) {
-      const path = join(DB_PATH, lockfile);
-      if (existsSync(path)) {
-        try {
-          unlinkSync(path);
-          log.info("Removed stale PGlite lock file", { path });
-        } catch (rmErr) {
-          log.warn("Failed to remove stale PGlite lock file", {
-            path,
-            error: String(rmErr),
-          });
-        }
-      }
-    }
-  }
+  // Shared with the datadir upgrade, which opens DB_PATH for the same reason
+  // and needs the identical pre-flight (`datadir-upgrade.clearStaleLockFiles`).
+  if (!IS_MEMORY) clearStaleLockFiles(DB_PATH);
 
   try {
     _pglite = await openPglite(dbArg);

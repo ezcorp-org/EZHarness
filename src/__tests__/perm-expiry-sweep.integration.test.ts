@@ -76,7 +76,7 @@ import { extensions, settings } from "../db/schema";
 import { listAuditLog } from "../db/queries/audit-log";
 import { getDb } from "../db/connection";
 import { PGlite } from "@electric-sql/pglite";
-import { vector } from "@electric-sql/pglite/vector";
+import { vector } from "@electric-sql/pglite-pgvector";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle as drizzlePglite } from "drizzle-orm/pglite";
 import * as schema from "../db/schema";

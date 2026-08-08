@@ -27,7 +27,7 @@ import { test, expect, describe, beforeAll, afterAll, mock, spyOn } from "bun:te
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
-import { vector } from "@electric-sql/pglite/vector";
+import { vector } from "@electric-sql/pglite-pgvector";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";

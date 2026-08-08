@@ -28,7 +28,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
-import { vector } from "@electric-sql/pglite/vector";
+import { vector } from "@electric-sql/pglite-pgvector";
 import { drizzle } from "drizzle-orm/pglite";
 import {
   copyFileSync,

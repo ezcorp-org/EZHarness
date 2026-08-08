@@ -186,12 +186,30 @@ describe("browseMarketplace perf", () => {
     // for typo recall on PGlite — perf is still <50ms p95 at 1k rows
     // (proven by the bench above), so the trade is correct for the
     // marketplace search use case.
-    const result: { rows: Array<Record<string, unknown>> } = await db.execute(
-      sql`EXPLAIN ANALYZE SELECT * FROM marketplace_listings WHERE (name || ' ' || description) % 'git'`,
-    );
-    const planText = result.rows
-      .map((r) => Object.values(r).join(" "))
-      .join("\n");
-    expect(planText).toContain("idx_marketplace_listings_trgm");
+    //
+    // PG 18 (PGlite 0.5.x) update: on a 1k-row fixture the planner now costs a
+    // Seq Scan BELOW the bitmap scan and picks it, so asking "which plan wins
+    // by cost" measures the crossover point of whichever Postgres major is
+    // linked in — not whether the index works. The assertion above is about
+    // the index being PRESENT and USABLE, so pin the varying term: take the
+    // seq-scan option away and require the planner to reach for this index.
+    // Still fails loudly if the index is dropped or the operator stops being
+    // `gin_trgm_ops`-eligible — with seqscan off and no usable index, the plan
+    // falls back to a (disabled) Seq Scan and the index name never appears.
+    await db.execute(sql`SET enable_seqscan = off`);
+    try {
+      const result: { rows: Array<Record<string, unknown>> } = await db.execute(
+        sql`EXPLAIN ANALYZE SELECT * FROM marketplace_listings WHERE (name || ' ' || description) % 'git'`,
+      );
+      const planText = result.rows
+        .map((r) => Object.values(r).join(" "))
+        .join("\n");
+      expect(planText).toContain("idx_marketplace_listings_trgm");
+      // Not merely named in a Recheck Cond — actually scanned.
+      expect(planText).toContain("Bitmap Index Scan on idx_marketplace_listings_trgm");
+    } finally {
+      // PGlite is one session; leaving this set would follow every later test.
+      await db.execute(sql`RESET enable_seqscan`);
+    }
   });
 });
