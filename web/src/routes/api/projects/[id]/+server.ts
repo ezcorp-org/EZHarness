@@ -3,7 +3,7 @@ import { z } from "zod";
 import * as projectQueries from "$server/db/queries/projects";
 import { requireAuth, checkProjectRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
-import { firstIssueMessage, projectPathSchema } from "$lib/server/security/validation";
+import { projectPathSchema } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
@@ -86,7 +86,7 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   if (parsed.data.path !== undefined) {
     const path = projectPathSchema.safeParse(parsed.data.path);
     if (!path.success) {
-      return errorJson(400, firstIssueMessage(path.error, "Invalid project path"));
+      return errorJson(400, path.error.issues[0]?.message ?? "Invalid project path");
     }
   }
   const updated = await projectQueries.updateProject(params.id, parsed.data);

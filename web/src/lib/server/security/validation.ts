@@ -46,11 +46,6 @@ export const projectPathSchema = z.string()
     message: "Project path cannot contain ..",
   });
 
-/** First message from a failed parse, for routes that answer a bare string. */
-export function firstIssueMessage(error: ZodError, fallback: string): string {
-  return error.issues[0]?.message ?? fallback;
-}
-
 export function validationError(error: ZodError): Response {
   const fields: Record<string, string> = {};
   for (const issue of error.issues) {

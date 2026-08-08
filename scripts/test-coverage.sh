@@ -541,6 +541,7 @@ run_legs() {
       src/__tests__/api-memories-list-scope.server.test.ts \
       src/__tests__/api-projects.server.test.ts \
       src/__tests__/api-projects-id.server.test.ts \
+      src/__tests__/api-projects-path-validation.server.test.ts \
       src/__tests__/api-knowledge-base.server.test.ts \
       src/__tests__/api-knowledge-base-id.server.test.ts \
       src/__tests__/api-lessons.server.test.ts \
@@ -725,6 +726,7 @@ run_legs() {
       --coverage.include='src/routes/api/memories/+server.ts' \
       --coverage.include='src/routes/api/memories/[id]/+server.ts' \
       --coverage.include='src/routes/api/projects/+server.ts' \
+      --coverage.include='src/routes/api/projects/[id]/+server.ts' \
       --coverage.include='src/routes/api/knowledge-base/+server.ts' \
       --coverage.include='src/routes/api/lessons/[id]/+server.ts' \
       --coverage.include='src/routes/api/fs/mkdir/+server.ts' \
