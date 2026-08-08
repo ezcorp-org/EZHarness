@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { settings } from "./schema";
+import type { MigrateDb } from "./migrations/types";
 
 const log = logger.child("db");
 
@@ -41,10 +42,7 @@ export const SELF_PROJECT_SYSTEM_PROMPT = `This project is the live source tree 
  * guaranteed wired during the migrate pass (same constraint as
  * `backfillGithubProjectsApiTokens`).
  */
-// biome rule `suspicious/noExplicitAny` is off repo-wide; `db: any` matches
-// migrate()'s own signature (PGlite vs Bun.sql drizzle HKT mismatch).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function seedSelfProject(db: any, env: Record<string, string | undefined> = process.env): Promise<void> {
+export async function seedSelfProject(db: MigrateDb, env: Record<string, string | undefined> = process.env): Promise<void> {
   const path = env.EZCORP_SELF_PROJECT_PATH;
   if (!path) return;
   if (!existsSync(path)) {

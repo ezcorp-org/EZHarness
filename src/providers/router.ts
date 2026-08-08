@@ -2,13 +2,26 @@
  * Provider routing with fallback suggestions.
  */
 
-import { type Model } from "@earendil-works/pi-ai";
+import type { AnyModel } from "./model-types";
 import {
   resolveModelObject,
   findModelForProviderInTier,
   findRunnableModelForProviderInTier,
+  isKnownCatalogModel,
   resolveDiscoveredModel,
 } from "./registry";
+// Catalog-gap reporting. The decision + dedup are pure and live under
+// runtime/routing so they are coverage-gated; this module owns the memo and
+// the log call.
+import { reportCatalogGapOnce } from "../runtime/routing/dropped-models";
+import { logger } from "../logger";
+
+const log = logger.child("providers.router");
+
+/** Process-wide memo so a retired pin warns ONCE, not once per turn. The
+ *  once-only property is tested on the pure `reportCatalogGapOnce` (which
+ *  takes the Set), so this needs no reset hook. */
+const reportedCatalogGaps = new Set<string>();
 import { getCircuitBreaker } from "./circuit-breaker";
 import { tryGetCredential } from "./credentials";
 import { getSetting } from "../db/queries/settings";
@@ -138,7 +151,7 @@ export async function resolveModel(
   // the process-wide "shared" breaker so context-free callers are
   // behavior-identical to the old provider-only keying.
   credentialScope = "shared",
-): Promise<{ provider: string; model: string; piModel: Model<any> }> {
+): Promise<{ provider: string; model: string; piModel: AnyModel }> {
   // ── `__current__` IS AN INHERIT SENTINEL, NOT A PROVIDER ID ────────
   //
   // `CURRENT_MODEL_SENTINEL` means "use whatever model is in force", and
@@ -198,8 +211,37 @@ export async function resolveModel(
       return { provider, model: modelId, piModel: discovered };
     }
     // Look up custom model's baseUrl so resolveModelObject can set the correct endpoint
-    const customModels = (await getSetting("provider:customModels")) as any[] | undefined;
-    const custom = customModels?.find((m: any) => (m.id ?? m.modelId) === modelId && m.provider === provider);
+    // Raw stored rows, not `CustomModelEntry`: this reads the setting straight
+    // rather than through `parseCustomModelEntries`, so it must tolerate both
+    // the `id` and the legacy `modelId` spelling — which is the only reason
+    // the shape is stated here instead of imported.
+    const customModels = (await getSetting("provider:customModels")) as
+      | Array<{ id?: string; modelId?: string; provider?: string; baseUrl?: string }>
+      | undefined;
+    const custom = customModels?.find(
+      (m) => (m.id ?? m.modelId) === modelId && m.provider === provider,
+    );
+    // NAME A RETIRED PIN. This is the branch that honours an explicit
+    // provider+model pin, so it is the one place where a user's saved model
+    // choice meets the installed catalog. A pi-ai upgrade can retire an id
+    // (0.80.6 → 0.83.0 retired 18 across the four providers EZCorp ships) and
+    // the failure is SILENT: resolveModelObject synthesizes a stand-in with a
+    // guessed 128k window and an all-zero rate table, so the thread is
+    // compacted harder and spend reports as unmeasured, with no error until
+    // the provider itself rejects the id — if it rejects it at all.
+    //
+    // Deliberately a log and not a throw: a retired catalog id is frequently
+    // still servable, and hard-failing here would break working
+    // conversations to make a bookkeeping point. Deduped per process by
+    // `warnCatalogGapOnce`, because a pinned conversation resolves its model
+    // on every single turn.
+    const gapMessage = reportCatalogGapOnce(
+      { provider, modelId, source: "conversation pin" },
+      isKnownCatalogModel,
+      reportedCatalogGaps,
+      !!custom?.baseUrl,
+    );
+    if (gapMessage) log.warn(gapMessage, { provider, modelId });
     return { provider, model: modelId, piModel: resolveModelObject(provider, modelId, custom?.baseUrl) };
   }
 

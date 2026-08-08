@@ -241,6 +241,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // to the affected slot, and overwrites grantedAt. We allow `any`
   // here because `ExtensionPermissions` has heterogeneous field types
   // and TS can't narrow on a runtime `grantKey` string.
+  // biome-ignore lint/suspicious/noExplicitAny: grants are added and removed by string keys computed at runtime; unlike the sweep's copy this one is also merged from an untyped prior row, so the shape is only known once the write is validated downstream.
   const next: any = { ...(prior ?? {}), grantedAt: nextGrantedAt };
   if (clampedValue !== undefined) {
     next[grantKey] = clampedValue;

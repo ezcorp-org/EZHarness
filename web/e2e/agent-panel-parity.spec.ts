@@ -10,9 +10,16 @@
  *
  * Mocked API + WS via the shared e2e fixtures (same harness as
  * `agent-panel-chat.spec.ts`).
+ *
+ * `@evidence`: `<ChatThread variant="panel">` — the AgentDetailPanel mount —
+ * is rendered by NO other e2e spec, so before this entry a panel-only layout
+ * regression could ship with the visual gate green. The main-chat (`page`)
+ * variant is photographed by `main-chat-parity.spec.ts`; between them the two
+ * variants of the shared thread are both witnessed.
  */
 
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Agent Parity Project" });
@@ -94,6 +101,17 @@ async function openPanel(
 		await agentChip.dispatchEvent("click", { timeout: 2000 });
 		await expect(panel).toBeVisible({ timeout: 2000 });
 	}).toPass({ timeout: 15000 });
+	// SwipeDrawer slides the panel in with a 300ms `transform` transition
+	// (translateX(100%) → 0). `toBeVisible()` passes the INSTANT it mounts,
+	// while it is still parked partly off the right edge — a forced hover
+	// inside it then dies on "Element is outside of the viewport" (measured
+	// ~1-in-8 on the 390px case). Wait for the slide to park the panel fully
+	// inside the viewport so every case below acts on a settled drawer.
+	// `ratio: 0.99`, not 1: this runs in a `retries: 0` blocking lane, and an
+	// exact-geometry assertion would turn a future panel one pixel wider than
+	// the viewport into a hard red. 0.99 still fails the mid-slide state
+	// (the drawer is ~100% OUT, not 1% out) without pinning exact layout.
+	await expect(panel).toBeInViewport({ ratio: 0.99, timeout: 10000 });
 	return panel;
 }
 
@@ -136,11 +154,11 @@ const baseMock = {
 };
 
 test.describe("Agent sub-chat panel parity (Phase 5)", () => {
-	test("panel embeds the shared ChatThread (variant=panel) with sub-conv history", async ({
+	test("panel embeds the shared ChatThread (variant=panel) with sub-conv history @evidence", async ({
 		page,
 		mockApi,
 		emitWs,
-	}) => {
+	}, testInfo) => {
 		await mockApi(baseMock);
 		const panel = await openPanel(page, emitWs);
 		// openPanel already asserts the panel opened (no silent skip).
@@ -156,6 +174,10 @@ test.describe("Agent sub-chat panel parity (Phase 5)", () => {
 		await expect(
 			panel.getByText("Here is what I found in the sub-chat."),
 		).toBeVisible({ timeout: 5000 });
+
+		// The panel-variant thread as the user sees it: drawer chrome, the
+		// sub-conversation turns, and the panel composer.
+		await captureEvidence(page, testInfo, "chat-thread-panel-variant");
 	});
 
 	test("sub-chat composer sends and live WS tokens bind (no 5s poll)", async ({
@@ -191,12 +213,8 @@ test.describe("Agent sub-chat panel parity (Phase 5)", () => {
 		// openPanel already asserts the panel opened (no silent skip).
 		await expect(panel).toBeVisible();
 
-		const textarea = panel.locator("textarea");
-		await expect(textarea).toBeVisible({ timeout: 5000 });
-		await textarea.fill("follow-up");
-		await panel
-			.getByRole("button", { name: "Send message" })
-			.click();
+		await expect(panel.locator("textarea")).toBeVisible({ timeout: 5000 });
+		await sendComposerMessage(panel, "follow-up");
 		await expect(panel.getByText("follow-up")).toBeVisible({
 			timeout: 5000,
 		});

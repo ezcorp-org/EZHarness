@@ -66,6 +66,7 @@ mock.module("../db/queries/extensions", () => ({
 }));
 
 import { Agent } from "@earendil-works/pi-agent-core";
+import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Model } from "@earendil-works/pi-ai";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 import { subscribeBridge } from "../runtime/stream-chat/subscribe-bridge";
@@ -96,11 +97,14 @@ function makeModel(reasoning: boolean): Model<"openai-responses"> {
 }
 
 /** Construct a REAL Agent carrying the given model + thinking level in its
- *  state. We never call prompt()/continue(), so no streamFn/model call is
- *  ever made — the Agent exists purely as the state surface the watchdog
- *  reads via `agent.state.model.reasoning` / `agent.state.thinkingLevel`. */
+ *  state. We never call prompt()/continue(), so the stream function is never
+ *  INVOKED — but pi-agent-core 0.83.0 requires it at CONSTRUCTION (the
+ *  fallback `getDefaultStreamFn()` throws), so it is supplied here exactly as
+ *  the production path does. The Agent exists purely as the state surface the
+ *  watchdog reads via `agent.state.model.reasoning` /
+ *  `agent.state.thinkingLevel`. */
 function makeAgent(reasoning: boolean, thinkingLevel: ThinkingLevel): Agent {
-  return new Agent({ initialState: { model: makeModel(reasoning), thinkingLevel } });
+  return new Agent({ initialState: { model: makeModel(reasoning), thinkingLevel }, streamFn: streamSimple });
 }
 
 // ── Fake clock + setInterval capture ───────────────────────────────────

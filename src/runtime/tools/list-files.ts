@@ -1,7 +1,8 @@
 import { Type } from "@earendil-works/pi-ai";
 import { readdir } from "node:fs/promises";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef } from "./types";
+import type { BuiltinToolDef  } from "./types";
+import type { ToolParams } from "./validate";
 
 export function createListFilesTool(projectPath: string): BuiltinToolDef {
   return {
@@ -17,7 +18,7 @@ export function createListFilesTool(projectPath: string): BuiltinToolDef {
         pattern: { type: "string", description: "Optional glob pattern to filter results (e.g. '*.ts')" },
       },
     }),
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const dir = validatePath(projectPath, params.path || ".");
         const entries = await readdir(dir, { withFileTypes: true });
@@ -27,8 +28,8 @@ export function createListFilesTool(projectPath: string): BuiltinToolDef {
           items = items.filter(name => glob.match(name.replace(/\/$/, "")));
         }
         return { content: [{ type: "text" as const, text: items.join("\n") || "(empty directory)" }], details: {} };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], details: { isError: true } };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
       }
     },
   };

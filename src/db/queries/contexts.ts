@@ -16,6 +16,7 @@
  */
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb } from "../connection";
+import type { DbTransaction } from "../connection";
 import {
   contextTypes,
   conversationTopics,
@@ -138,7 +139,7 @@ export async function replaceTopics(
     byLower.set(t.label.toLowerCase(), t);
   }
 
-  return getDb().transaction(async (tx: any) => {
+  return getDb().transaction(async (tx: DbTransaction) => {
     const existing = (await tx
       .select()
       .from(conversationTopics)

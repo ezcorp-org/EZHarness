@@ -69,14 +69,13 @@
  * normalize-extension-state-root.ts.
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
 /** Settings-key prefix for the canonical per-user key rows. The trailing
  *  colon is what excludes the `apikeyhash:` index rows. */
 const API_KEY_ROW_PREFIX = "apikey:";
 
-export async function up(db: {
-  execute: (q: ReturnType<typeof sql>) => Promise<unknown>;
-}): Promise<void> {
+export async function up(db: MigrationDb): Promise<void> {
   const scopes = sql`value -> 'scopes'`;
   await db.execute(sql`
     UPDATE settings

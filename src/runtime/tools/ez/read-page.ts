@@ -19,8 +19,9 @@
  * via {@link runEzClientTool}.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef } from "../types";
+import type { BuiltinToolDef  } from "../types";
 import { runEzClientTool, type ClientToolContext } from "./client-tool";
+import type { ToolParams } from "../validate";
 
 export function createReadPageTool(ctx: ClientToolContext): BuiltinToolDef {
   return {
@@ -42,7 +43,7 @@ export function createReadPageTool(ctx: ClientToolContext): BuiltinToolDef {
       },
       required: [],
     }),
-    execute: async (toolCallId, params: any, signal) => {
+    execute: async (toolCallId, params: ToolParams, signal) => {
       // Lenient: anything other than the explicit "full" opt-in falls back
       // to the privacy-preserving summary level.
       const detail: "summary" | "full" = params?.detail === "full" ? "full" : "summary";

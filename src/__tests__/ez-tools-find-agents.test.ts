@@ -36,6 +36,8 @@ mockDbConnection();
 const { createUser } = await import("../db/queries/users");
 const { createAgentConfig } = await import("../db/queries/agent-configs");
 const { createFindAgentsTool } = await import("../runtime/tools/ez/find-agents");
+const { getDb } = await import("../db/connection");
+const { sql } = await import("drizzle-orm");
 
 let userId: string;
 
@@ -93,5 +95,22 @@ describe("find_agents", () => {
     const result = await tool.execute("f-5", { query: "  " });
     expect(expectDetails<ToolErrorDetails>(result).isError).toBe(true);
     expectText(result, "query");
+  });
+
+  // The catch arm. `capabilities` is jsonb, so nothing at the database level
+  // forces it to be an ARRAY — a hand-edited row, a bad import, or a future
+  // schema change can leave an object there, and the ranking pass then calls
+  // .map() on it and throws. This is the only route into the handler's catch,
+  // and it must produce a tool error result rather than an unhandled rejection
+  // that takes the whole model turn down. Written LAST because it corrupts a
+  // seeded row on purpose.
+  test("a malformed capabilities row degrades to an error result, not a throw", async () => {
+    await getDb().execute(
+      sql`UPDATE agent_configs SET capabilities = '{"not":"an array"}'::jsonb WHERE name = 'PDF Reader'`,
+    );
+    const tool = createFindAgentsTool({ userId });
+    const result = await tool.execute("f-6", { query: "pdf" });
+    expect(expectDetails<ToolErrorDetails>(result).isError).toBe(true);
+    expectText(result, "Error:");
   });
 });

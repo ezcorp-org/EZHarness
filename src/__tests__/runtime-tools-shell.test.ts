@@ -76,4 +76,18 @@ describe("createShellTool", () => {
     const result = await tool.execute("1", { command: "pwd" });
     expect(getText(result).trim()).toBe(projectPath);
   });
+
+  // The catch arm: Bun.spawn itself throwing, rather than the command exiting
+  // non-zero. A project directory that no longer exists (deleted or unmounted
+  // between turns) is the realistic trigger — the tool must degrade to an
+  // error result the model can read, not reject and kill the turn.
+  test("a spawn failure is reported as an error result, not a rejection", async () => {
+    const tool = createShellTool(resolve(tmpdir(), "shell-test-does-not-exist-" + Date.now()));
+    const result = await tool.execute("1", { command: "echo hi" });
+    expect(result.details.isError).toBe(true);
+    expect(result.details.exitCode).toBe(-1);
+    expect(getText(result)).toContain("Error:");
+    // The message is echoed into BOTH places the UI reads.
+    expect(result.details.stderr).toBe(getText(result).replace("Error: ", ""));
+  });
 });

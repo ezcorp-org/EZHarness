@@ -21,9 +21,12 @@
  */
 import { sanitizeNulDeep } from "./sanitize-nul";
 
-/** A drizzle column's `mapToDriverValue`. `this` is the column instance. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type DriverValueMapper = (this: any, value: unknown) => unknown;
+/**
+ * A drizzle column's `mapToDriverValue`. `this` is the column instance, which
+ * this module only ever forwards (`base.call(this, …)`) and never inspects —
+ * so `unknown` is enough and nothing here needs the column's real type.
+ */
+type DriverValueMapper = (this: unknown, value: unknown) => unknown;
 
 /**
  * Pristine (unpatched) `mapToDriverValue` per column prototype, captured the
@@ -38,8 +41,7 @@ const pristineMappers = new WeakMap<object, DriverValueMapper>();
 function pristineMapper(proto: object): DriverValueMapper {
   const existing = pristineMappers.get(proto);
   if (existing) return existing;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const original = (proto as any).mapToDriverValue as DriverValueMapper;
+  const original = (proto as { mapToDriverValue: DriverValueMapper }).mapToDriverValue;
   pristineMappers.set(proto, original);
   return original;
 }
@@ -57,10 +59,13 @@ const identity: DriverValueMapper = (value: unknown) => value;
  */
 function patchColumnMapper(proto: object, identityBase: boolean): void {
   const base = identityBase ? identity : pristineMapper(proto);
-  // `any` cast is deliberate: monkey-patching drizzle's private
-  // `mapToDriverValue` on the column-type prototype; there's no public type.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (proto as any).mapToDriverValue = function (this: unknown, value: unknown) {
+  // Monkey-patching drizzle's private `mapToDriverValue` on the column-type
+  // prototype — there is no public type for it, so the write goes through the
+  // one-property shape declared above rather than a blanket cast.
+  (proto as { mapToDriverValue: DriverValueMapper }).mapToDriverValue = function (
+    this: unknown,
+    value: unknown,
+  ) {
     return base.call(this, sanitizeNulDeep(value));
   };
 }

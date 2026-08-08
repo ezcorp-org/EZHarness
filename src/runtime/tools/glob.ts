@@ -1,6 +1,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef } from "./types";
+import type { BuiltinToolDef  } from "./types";
+import type { ToolParams } from "./validate";
 
 export function createGlobTool(projectPath: string): BuiltinToolDef {
   return {
@@ -18,7 +19,7 @@ export function createGlobTool(projectPath: string): BuiltinToolDef {
       },
       required: ["pattern"],
     }),
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const searchPath = validatePath(projectPath, params.path || ".");
         const maxResults = params.maxResults || 200;
@@ -52,9 +53,9 @@ export function createGlobTool(projectPath: string): BuiltinToolDef {
           content: [{ type: "text" as const, text }],
           details: { fileCount: files.length, truncated },
         };
-      } catch (e: any) {
+      } catch (e) {
         return {
-          content: [{ type: "text" as const, text: `Error: ${e.message}` }],
+          content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }],
           details: { isError: true, fileCount: 0, truncated: false },
         };
       }

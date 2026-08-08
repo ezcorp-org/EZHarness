@@ -119,4 +119,14 @@ describe("propose_create_project", () => {
     // (tests 1, 2, 5, 6).
     expect(rows.length).toBeGreaterThanOrEqual(4);
   });
+
+  // See the parallel case in ez-tools-create-agent.test.ts: an unknown userId
+  // makes createDraft violate the ez_drafts FK, exercising the catch arm that
+  // turns a thrown error into a tool error result.
+  test("a failure below validation is reported as an error result, not a throw", async () => {
+    const tool = createProposeCreateProjectTool({ userId: "user-that-does-not-exist" });
+    const result = await tool.execute("p-9", { name: "Orphan", path: "/tmp/orphan" });
+    expect(expectDetails<{ isError: true }>(result).isError).toBe(true);
+    expectText(result, "Error:");
+  });
 });

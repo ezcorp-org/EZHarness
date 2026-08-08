@@ -46,6 +46,7 @@
  */
 import { and, asc, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { getDb } from "../connection";
+import type { Database } from "../connection";
 import { workflowDefinitions, workflowDefinitionVersions, workflowRuns } from "../schema";
 import type { WorkflowDefinitionVersionRow } from "../schema";
 import {
@@ -61,11 +62,9 @@ export type WorkflowVersion = WorkflowDefinitionVersionRow;
  * guaranteed wired during the migrate pass); everything else defaults to
  * `getDb()`. Same convention as `backfillMcpManifestSecrets`.
  */
-// `any` because drizzle's PGlite and bun-sql handles share no public
-// type — the same reason `backfillMcpManifestSecrets` types its executor
-// this way.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type DbExecutor = any;
+// The shared driver-handle alias: PGlite and bun-sql drizzle handles have no
+// common public type (reason recorded on `Database` in ../connection.ts).
+type DbExecutor = Database;
 
 /**
  * The slice of a definition that decides WHAT RUNS. A change here mints a

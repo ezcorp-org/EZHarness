@@ -26,10 +26,9 @@
  * add-fork-tracking.ts.
  */
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
 
-export async function up(db: {
-  execute: (q: ReturnType<typeof sql>) => Promise<unknown>;
-}): Promise<void> {
+export async function up(db: MigrationDb): Promise<void> {
   // Pre-flight: find every (user_id, name) collision and rewrite the
   // newer rows' `name` to the smallest free `${name}-N` suffix per
   // user. ROW_NUMBER orders by created_at so the oldest row keeps the

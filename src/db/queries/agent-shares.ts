@@ -62,6 +62,7 @@ export async function getAgentShares(agentId: string): Promise<AgentShareInfo[]>
         WHERE ash.agent_id = ${agentId}
         ORDER BY ash.created_at ASC`
   );
+  // biome-ignore lint/suspicious/noExplicitAny: raw `db.execute(sql`…`)` rows that are SPREAD wholesale into the result — naming a row type here would duplicate the SELECT list rather than check it, and the two drivers disagree on the container shape.
   return (rows.rows as any[]).map(r => ({
     ...r,
     createdAt: r.createdAt instanceof Date ? r.createdAt : new Date(r.createdAt),
@@ -103,6 +104,7 @@ export async function getSharedAgentsForUser(userId: string): Promise<SharedAgen
         ORDER BY ac.id, ash.created_at ASC`
   );
 
+  // biome-ignore lint/suspicious/noExplicitAny: raw `db.execute(sql`…`)` rows spread wholesale into the result (same as listAgentShares above) — a named row type would restate the SELECT list without checking it.
   return (rows.rows as any[]).map((r) => ({
     ...r,
     shared: true as const,

@@ -5,9 +5,14 @@ import { up as upUserCommandsUnique } from "./migrations/add-user-commands-uniqu
 import { up as upApiKeyWriteScope } from "./migrations/backfill-api-key-write-scope";
 import { up as upClaimOwnerlessKbFilesOnce } from "./migrations/claim-ownerless-kb-files-once";
 // Value import is safe: this module imports only `drizzle-orm`. Its
-// project-root ARGUMENT comes from a dynamic import at the call site —
-// see the comment there for why that one cannot be static.
+// project-root ARGUMENT comes from `getProjectRoot()` below.
 import { up as upNormalizeExtensionStateRoot } from "./migrations/normalize-extension-state-root";
+import type { MigrateDb } from "./migrations/types";
+// Value import is safe: `project-root.ts` depends only on `../logger` and
+// node builtins. It used to live in `../extensions/bundled.ts`, which
+// reaches `db/queries/extensions.ts → db/connection.ts → migrate.ts` —
+// so this had to be a dynamic `import()` to keep that cycle open.
+import { getProjectRoot } from "../extensions/project-root";
 import { logger } from "../logger";
 
 const log = logger.child("db-migrate");
@@ -50,7 +55,7 @@ const EZ_SEED_ALLOWED_TOOLS = [
   "read_page",
 ];
 
-export async function migrate(db: any): Promise<void> {
+export async function migrate(db: MigrateDb): Promise<void> {
   // Enable pgvector extension (must be before any vector column usage)
   await db.execute(sql`CREATE EXTENSION IF NOT EXISTS vector`);
 
@@ -536,18 +541,20 @@ export async function migrate(db: any): Promise<void> {
   // matches an already-correct deployment whose root simply ends in
   // `web`, and would corrupt it on every boot (see the module header).
   //
-  // `getProjectRoot` is reached by DYNAMIC import on purpose. A static
-  // one would close the cycle migrate.ts → bundled.ts →
-  // db/queries/extensions.ts → db/connection.ts → migrate.ts; the same
-  // dynamic-import pattern is already used by
-  // src/startup/background-timers.ts. Resolution failure SKIPS the
-  // rewrite rather than failing the boot: doing nothing leaves the rows
-  // exactly as they are (repairable next boot or by hand), whereas
-  // guessing a root and rewriting is unrecoverable — and a migrate()
-  // throw here would trip the rollback-and-exit circuit breaker in
-  // db/connection.ts over a cosmetic path repair.
+  // `getProjectRoot` is a STATIC import (top of file). It used to be a
+  // dynamic one because the resolver lived in ../extensions/bundled.ts,
+  // and a static import of THAT closes the cycle migrate.ts →
+  // bundled.ts → db/queries/extensions.ts → db/connection.ts →
+  // migrate.ts. It now lives in ../extensions/project-root.ts, whose
+  // only non-builtin dependency is ../logger — no cycle to dodge.
+  //
+  // The try/catch stays: resolution failure SKIPS the rewrite rather
+  // than failing the boot: doing nothing leaves the rows exactly as they
+  // are (repairable next boot or by hand), whereas guessing a root and
+  // rewriting is unrecoverable — and a migrate() throw here would trip
+  // the rollback-and-exit circuit breaker in db/connection.ts over a
+  // cosmetic path repair.
   try {
-    const { getProjectRoot } = await import("../extensions/bundled");
     await upNormalizeExtensionStateRoot(db, getProjectRoot());
   } catch (err) {
     log.warn(

@@ -2,7 +2,8 @@ import { Type } from "@earendil-works/pi-ai";
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef } from "./types";
+import type { BuiltinToolDef  } from "./types";
+import type { ToolParams } from "./validate";
 
 export function createEditFileTool(projectPath: string): BuiltinToolDef {
   return {
@@ -31,7 +32,7 @@ export function createEditFileTool(projectPath: string): BuiltinToolDef {
       },
       required: ["path", "new_string"],
     }),
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const resolved = validatePath(projectPath, params.path);
         const oldStr: string | undefined = params.old_string;
@@ -125,8 +126,8 @@ export function createEditFileTool(projectPath: string): BuiltinToolDef {
           content: [{ type: "text" as const, text: `${msg}\n${snippet}` }],
           details: { oldContent, newContent },
         };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], details: { isError: true } };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
       }
     },
   };

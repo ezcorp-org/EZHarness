@@ -25,8 +25,15 @@
 
 	let name = $state(untrack(() => project?.name ?? initial?.name ?? ""));
 	// Default to the host-accessible bind mount from docker-compose so new
-	// projects are visible on the host at ./projects/ by default.
-	let path = $state(untrack(() => project?.path ?? initial?.path ?? "/app/projects/"));
+	// projects are visible on the host at ./.ezcorp/projects/ by default.
+	//
+	// This must stay INSIDE the dev server's cwd (/app/web): `createDir`
+	// below posts to /api/fs/mkdir, which sandboxes on
+	// `EZCORP_PROJECT_ROOT ?? process.cwd()`. The previous `/app/projects/`
+	// default sat outside it, so "Create folder" answered 403 on the value
+	// the form itself suggested. Held against the compose bind by
+	// src/__tests__/compose-projects-root.test.ts.
+	let path = $state(untrack(() => project?.path ?? initial?.path ?? "/app/web/.ezcorp/projects/"));
 	let icon = $state<string | null>(untrack(() => project?.icon ?? null));
 	let faviconUrl = $state("");
 	let fetchingFavicon = $state(false);
@@ -167,7 +174,7 @@
 		<label for="proj-path" class="mb-1 block text-sm font-medium text-[var(--color-text-secondary)]">Working Directory</label>
 		<div class="flex gap-2">
 			<div class="flex-1">
-				<FilePicker bind:value={path} placeholder="/app/projects/my-project" />
+				<FilePicker bind:value={path} placeholder="/app/web/.ezcorp/projects/my-project" />
 			</div>
 			<button
 				type="button"

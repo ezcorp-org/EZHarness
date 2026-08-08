@@ -50,6 +50,7 @@ export type ContextsTarget =
       provider: string;
       modelId: string;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // biome-ignore lint/suspicious/noExplicitAny: the resolved pi-ai model, whose type is `AnyModel` for the reason recorded in src/providers/model-types.ts; kept structural here so `src/contexts` does not take a type dependency on the provider registry.
       piModel: any;
     };
 
@@ -104,14 +105,17 @@ const DEFAULT_DEPS: ResolveContextsDeps = {
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: mirrors the `piModel` field on ContextsTarget above — same pi-ai HKT concession, restated because this is the constructor for that field.
 function piTarget(resolved: { provider: string; model: string; piModel: any }): ContextsTarget {
   return { kind: "pi", provider: resolved.provider, modelId: resolved.model, piModel: resolved.piModel };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: raw `provider:customModels` setting rows, read straight from storage rather than through parseCustomModelEntries — the whole point of this helper is to tolerate both the `id` and legacy `modelId` spellings before anything has normalized them.
 function findCustomModel(customModels: any[], provider: string, modelId: string) {
   return customModels.find(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: element of the raw settings array above; every field access is already guarded with `?.` because the row shape is not trusted.
     (m: any) => (m?.id ?? m?.modelId) === modelId && (m?.provider ?? "ollama") === provider,
   );
 }
@@ -146,6 +150,7 @@ export async function resolveContextsTarget(
     // baseUrl straight from `provider:customModels` — the same source
     // resolveModel() consults — so a local pin never loses its grammar.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // biome-ignore lint/suspicious/noExplicitAny: `getSetting` returns stored JSON with no schema; the rows are consumed only by findCustomModel above, which guards every access.
     const customModels = ((await deps.getSetting("provider:customModels")) as any[]) ?? [];
     const custom = findCustomModel(customModels, parsed.provider, parsed.modelId);
     if (custom?.baseUrl) {

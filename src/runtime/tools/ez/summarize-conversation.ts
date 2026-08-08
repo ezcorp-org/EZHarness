@@ -19,8 +19,9 @@
  * `resolveModel` + `completeLLM`.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef } from "../types";
+import type { BuiltinToolDef  } from "../types";
 import { getConversation, getMessages } from "../../../db/queries/conversations";
+import type { ToolParams } from "../validate";
 
 export type SummaryStyle = "brief" | "standup" | "tweet";
 
@@ -92,21 +93,27 @@ async function defaultSummarize(
     {
       systemPrompt,
       messages: [{ role: "user", content: transcript }],
+    // biome-ignore lint/suspicious/noExplicitAny: the pi-ai `completeLLM` request literal — its options type is keyed on the model's wire API (see AnyModel), which this summarizer resolves at runtime.
     } as any,
     { conversationId },
   );
   // pi-ai reports provider failures as result fields, not throws.
+  // biome-ignore lint/suspicious/noExplicitAny: pi-ai's completeLLM result is likewise keyed on the model's wire API; the four reads below (`stopReason`, `errorMessage`, `content`) are the API-independent fields.
   if ((result as any).stopReason === "error") {
+    // biome-ignore lint/suspicious/noExplicitAny: see the stopReason read above — same provider-generic pi-ai result.
     throw new Error((result as any).errorMessage || "model call failed with no error message");
   }
   // pi-ai AssistantMessage has a `content` array. Join text parts.
+  // biome-ignore lint/suspicious/noExplicitAny: see the stopReason read above — same provider-generic pi-ai result.
   const content = (result as any).content;
   const text =
     typeof content === "string"
       ? content
       : Array.isArray(content)
         ? content
+            // biome-ignore lint/suspicious/noExplicitAny: an element of that provider-generic content array; every field is guarded before it is read.
             .filter((p: any) => p?.type === "text" && typeof p.text === "string")
+            // biome-ignore lint/suspicious/noExplicitAny: element of the same provider-generic content array, already narrowed to a text part by the filter above.
             .map((p: any) => p.text)
             .join("")
         : String(content ?? "");
@@ -114,6 +121,7 @@ async function defaultSummarize(
   // of returning a blank the panel renders as a silent no-op.
   if (!text.trim()) {
     throw new Error(
+      // biome-ignore lint/suspicious/noExplicitAny: see the stopReason read above — same provider-generic pi-ai result.
       `model returned no text (stopReason: ${String((result as any).stopReason ?? "unknown")})`,
     );
   }
@@ -158,7 +166,7 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
       },
       required: ["conversationId"],
     }),
-    execute: async (_toolCallId, params: any) => {
+    execute: async (_toolCallId, params: ToolParams) => {
       try {
         const explicit = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
         const conversationId = explicit;
@@ -220,8 +228,8 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
           content: [{ type: "text" as const, text: summary }],
           details,
         };
-      } catch (e: any) {
-        return { content: [{ type: "text" as const, text: `Error: ${e.message}` }], details: { isError: true } };
+      } catch (e) {
+        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
       }
     },
   };

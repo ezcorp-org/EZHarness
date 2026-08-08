@@ -68,6 +68,7 @@ export interface FileProvider {
 
 export interface AgentContext {
   input: Record<string, unknown>;
+  // biome-ignore lint/suspicious/noExplicitAny: the public agent-authoring surface: a code-based agent's `llm` is whichever wrapper the runtime installed, and narrowing it here would pin every third-party agent to one adapter's shape.
   llm: any; // Code-based agents receive an LLM wrapper; typed as any for flexibility
   shell: ShellProvider;
   file: FileProvider;
