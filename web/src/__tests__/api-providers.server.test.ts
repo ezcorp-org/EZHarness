@@ -104,9 +104,9 @@ describe("GET /api/providers", () => {
       oauthConnected: boolean;
       oauthSupported: boolean;
     }>;
-    expect(body).toHaveLength(4);
+    expect(body).toHaveLength(5);
     const providers = body.map((b) => b.provider).sort();
-    expect(providers).toEqual(["anthropic", "google", "openai", "openrouter"]);
+    expect(providers).toEqual(["anthropic", "google", "kilo", "openai", "openrouter"]);
     for (const entry of body) {
       expect(entry.hasKey).toBe(false);
       expect(entry.source).toBe("none");
@@ -117,10 +117,15 @@ describe("GET /api/providers", () => {
     );
     expect(body.find((b) => b.provider === "openai")?.oauthSupported).toBe(true);
     expect(body.find((b) => b.provider === "google")?.oauthSupported).toBe(true);
-    // openrouter is BYOK-only — never OAuth.
+    // openrouter and kilo are BYOK-only — never OAuth.
     expect(body.find((b) => b.provider === "openrouter")?.oauthSupported).toBe(
       false,
     );
+    expect(body.find((b) => b.provider === "kilo")?.oauthSupported).toBe(false);
+    // Kilo's `hasKey: false` above is NOT "unusable": its free models answer
+    // with no credential. That distinction lives in provider AVAILABILITY
+    // (`resolveProviderAvailability`), not in this status payload, which
+    // reports only what is CONFIGURED.
   });
 
   test("reports source='env' when env var is set and no BYOK stored", async () => {

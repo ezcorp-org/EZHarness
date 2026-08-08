@@ -3,8 +3,9 @@
  *
  * Covers auth/scope gates, the provider whitelist (anthropic/openai/google
  * vs unknown), the no-tier-model fallback, and the LLM happy/error paths.
- * The pi-ai `complete` call, registry lookups, and credential lookup are
- * all mocked so no real LLM round-trip happens.
+ * The pi-ai `complete` call, registry lookups, the routing ladder/overlay
+ * readers, and credential lookup are all mocked so no real LLM round-trip
+ * (and no DB access) happens.
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
@@ -22,10 +23,23 @@ vi.mock("$server/providers/registry", () => ({
   resolveModelObject: vi.fn(),
 }));
 
+// The handler resolves its probe model the way ROUTING does — ladder + the
+// custom/kilo overlay — so a provider whose models are not in pi-ai's catalog
+// (kilo, ollama) is testable at all. Both readers hit `settings`, so they are
+// mocked here alongside the registry; without this the suite fails with
+// "Database not initialized" rather than exercising the handler.
+vi.mock("$server/providers/router", () => ({
+  getConfiguredTierLadder: vi.fn(async () => undefined),
+  getRoutableOverlayModels: vi.fn(async () => []),
+}));
+
 const { complete } = await import("@earendil-works/pi-ai/compat");
 const { getCredential } = await import("$server/providers/credentials");
 const { findModelForProviderInTier, resolveModelObject } = await import(
   "$server/providers/registry"
+);
+const { getConfiguredTierLadder, getRoutableOverlayModels } = await import(
+  "$server/providers/router"
 );
 const { POST } = await import(
   "../routes/api/providers/[provider]/test/+server"
@@ -57,6 +71,8 @@ describe("POST /api/providers/[provider]/test", () => {
     vi.mocked(getCredential).mockReset();
     vi.mocked(findModelForProviderInTier).mockReset();
     vi.mocked(resolveModelObject).mockReset();
+    vi.mocked(getConfiguredTierLadder).mockReset().mockResolvedValue(undefined);
+    vi.mocked(getRoutableOverlayModels).mockReset().mockResolvedValue([]);
   });
 
   // F6: this used to assert the handler THREW a 401 — the `expect.fail("should
@@ -186,8 +202,8 @@ describe("POST /api/providers/[provider]/test", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean };
     expect(body.success).toBe(true);
-    expect(findModelForProviderInTier).toHaveBeenCalledWith("anthropic", "fast");
-    expect(resolveModelObject).toHaveBeenCalledWith("anthropic", "claude-haiku");
+    expect(findModelForProviderInTier).toHaveBeenCalledWith("anthropic", "fast", undefined, []);
+    expect(resolveModelObject).toHaveBeenCalledWith("anthropic", "claude-haiku", undefined);
     expect(complete).toHaveBeenCalledTimes(1);
     // The handler wires apiKey + maxTokens=1 into the second arg
     const callArgs = vi.mocked(complete).mock.calls[0]!;
@@ -218,7 +234,7 @@ describe("POST /api/providers/[provider]/test", () => {
     const body = (await res.json()) as { success: boolean };
     expect(body.success).toBe(true);
     expect(getCredential).toHaveBeenCalledWith("openai");
-    expect(findModelForProviderInTier).toHaveBeenCalledWith("openai", "fast");
+    expect(findModelForProviderInTier).toHaveBeenCalledWith("openai", "fast", undefined, []);
     const callArgs = vi.mocked(complete).mock.calls[0]!;
     expect(callArgs[2]).toMatchObject({ apiKey: "sk-openai" });
   });
@@ -249,8 +265,8 @@ describe("POST /api/providers/[provider]/test", () => {
     const body = (await res.json()) as { success: boolean };
     expect(body.success).toBe(true);
     expect(getCredential).toHaveBeenCalledWith("openrouter");
-    expect(findModelForProviderInTier).toHaveBeenCalledWith("openrouter", "fast");
-    expect(resolveModelObject).toHaveBeenCalledWith("openrouter", "openrouter/auto");
+    expect(findModelForProviderInTier).toHaveBeenCalledWith("openrouter", "fast", undefined, []);
+    expect(resolveModelObject).toHaveBeenCalledWith("openrouter", "openrouter/auto", undefined);
     const callArgs = vi.mocked(complete).mock.calls[0]!;
     expect(callArgs[2]).toMatchObject({ apiKey: "sk-or-v1" });
   });
