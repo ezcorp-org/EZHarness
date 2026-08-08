@@ -75,13 +75,33 @@ Everything below was measured against the live gateway, not read off a docs page
 | Same for `anthropic/claude-sonnet-5`, no auth header | `401 PAID_MODEL_AUTH_REQUIRED` |
 | Free model with an **unusable** bearer token | `200` — the gateway ignores a bad key on free models |
 | `GET /api/gateway/models` | `200`, **unauthenticated**, 349 rows |
-| `store`, `developer` role, strict tools, `reasoning_effort`, SSE + `include_usage` | all accepted |
+| `store`, `developer` role, strict tools, SSE + `include_usage` | all accepted |
 | `max_tokens` **and** `max_completion_tokens` | both honoured |
+| `reasoning_effort` **plus** `reasoning.effort` | **400 on 10 of 12 free models** |
+| `reasoning: { effort }` alone (incl. `effort: "none"`) | 200 on all 12 |
 
-That last row is why **no `compat` override is set** for Kilo: pi-ai's default
-`detectCompat` output for an unrecognised OpenAI-compatible baseUrl is already
-correct here. (Contrast the custom-model path, which must force `max_tokens`
-because Ollama/vLLM ignore the other spelling.)
+**Kilo needs exactly one `compat` override, and it is not optional.** Kilo is an
+*OpenRouter-compatible* gateway — its catalog advertises `reasoning` /
+`include_reasoning` and never `reasoning_effort` — but pi-ai's `detectCompat`
+recognises OpenRouter only by `provider === "openrouter"` or
+`baseUrl.includes("openrouter.ai")`, neither of which matches Kilo. It therefore
+took the OpenAI branch and sent `reasoning_effort`; Kilo normalises that into its
+own `reasoning.effort` for the upstream and rejects the pair:
+
+```
+400 "reasoning_effort" and "reasoning.effort" are both provided with conflicting values
+```
+
+`KILO_COMPAT = { thinkingFormat: "openrouter" }` makes pi-ai emit only the nested
+form. The branches in pi-ai's `buildParams` are mutually exclusive, so the
+conflicting pair becomes *structurally impossible* from our side rather than
+merely unlikely. It is applied to **both** model constructors
+(`kiloModelToAnyModel` and `resolveKiloModel`'s stand-in) — a synthesized model
+that dropped it would reproduce the bug for any unseeded id.
+
+Nothing else is overridden: the `developer` role was probed across all 12 free
+models and accepted, so it stays on pi-ai's detection rather than being
+defensively disabled.
 
 **Free vs paid is enforced by construction, not by a check.** `kiloModelsForAccess`
 filters the catalog *before* it reaches the picker or the router, so a keyless
@@ -90,14 +110,34 @@ iff `provider:apiKey:kilo` or `KILO_API_KEY` is set. Free-ness comes from the
 payload's explicit `isFree` flag, never from the id — `openrouter/free` is a free
 model whose id has no `:free` suffix, and an id-shape rule would misclassify it.
 
-**Why there is a built-in seed.** pi-ai has no `kilo` provider, so `getModels("kilo")`
-is `[]` and a fresh install would show zero Kilo models until an admin pressed
-"Refresh models" — putting a configuration step in front of the one path that is
-supposed to need no configuration. The seed is deliberately *only* the five
-stable `kilo-auto/*` routers; Kilo rotates the free pool server-side, so
+**Why there is a built-in seed, and why it is not the whole story.** pi-ai has no
+`kilo` provider, so `getModels("kilo")` is `[]` and a fresh install would show zero
+Kilo models until an admin pressed "Refresh models" — a configuration step in front
+of the one path that is supposed to need none. The seed is deliberately *only* the
+five stable `kilo-auto/*` routers; Kilo rotates the free pool server-side, so
 `kilo-auto/free` follows it without a release here, where a hardcoded
-`vendor/model:free` list would go stale. Discovery merges over the seed, refreshing
-seeded ids in place and appending the rest.
+`vendor/model:free` list would go stale.
+
+The seed alone means the picker lists **one** free model. `warmKiloCatalog()` fixes
+that: at boot, once per `KILO_CATALOG_TTL_MS` (6 h), it fetches the unauthenticated
+catalog and writes the same `provider:discoveredModels:kilo` row the admin button
+writes. All 12 free models then list, tiered across fast/balanced/powerful. It is
+fire-and-forget and deliberately **off the request path** — `getModelRegistry()`
+runs on every `/api/models` call and must not make a network round trip — and it
+never throws, so a gateway outage at boot costs the extra models rather than the
+boot. The skip check requires a fresh timestamp *and* a non-empty row, so a failed
+warm cannot pin a deployment to the seed for six hours.
+
+**The persisted shape must round-trip.** `refresh-models` (and the warm) store
+`kiloModelToAnyModel` output — `contextWindow` / `cost` / `input`, not the wire's
+`context_length` / `pricing` / `architecture`. Reading that back with the wire
+parser silently defaulted every field: measured on a real round-trip, a 1M-context
+vision reasoning model returned as 128k, no vision, no reasoning, and
+`openrouter/free` came back **paid**, hiding a genuinely free model from exactly
+the deployments that need it. `normalizeKiloModel` now detects and handles both
+shapes, and `kiloModelToAnyModel` carries the `free` flag (inert to pi-ai) so the
+authoritative bit survives the write. Discovery still merges over the seed,
+refreshing seeded ids in place and appending the rest.
 
 **Two projections, and the difference matters.** `kiloPickerEntries()` yields one
 row per model. `kiloRoutingEntries()` yields those *plus* `kilo-auto/free` repeated
@@ -189,13 +229,13 @@ Routing provenance is recorded per turn on the message `usage` blob (`routedTier
 
 ### Settings keys & env vars
 
-- Settings: `provider:apiKey:<p>`, `provider:oauth:<p>`, `provider:accessMode:<p>`, `conversation:<id>:accessMode:<p>`, `provider:discoveredModels:<p>`, `provider:customModels`, `provider:defaultTier`, `provider:preferenceOrder`, `oauth:pending:<state>`.
+- Settings: `provider:apiKey:<p>`, `provider:oauth:<p>`, `provider:accessMode:<p>`, `conversation:<id>:accessMode:<p>`, `provider:discoveredModels:<p>`, `provider:discoveredModelsAt:kilo`, `provider:customModels`, `provider:defaultTier`, `provider:preferenceOrder`, `oauth:pending:<state>`.
 - Routing settings (all validated on write — an unrecognised value is a **400**, not a silent no-op — and read tolerantly): `provider:defaultSelection` (default `auto`), `provider:tierModels` (the tier ladder, unset by default), `provider:explorationRate` (default `0` = off), `provider:routingShadow` (unset = off). Full semantics in [LLM routing & failover](../../llm-routing-and-failover.md).
 - Env: `EZCORP_ENCRYPTION_SECRET`, `EZCORP_ENCRYPTION_SALT`, `EZCORP_SECRETS_DIR`, `EZCORP_DB_PATH`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `OPENROUTER_API_KEY`, `KILO_API_KEY` (optional — Kilo's free models need no key), `GOOGLE_CLOUD_PROJECT`.
 
 ## Key files
 
-- `src/providers/kilo.ts` — Kilo seed catalog, live `/api/gateway/models` fetch, `resolveKiloModel`, the picker/routing projections, `hasKiloApiKey`.
+- `src/providers/kilo.ts` — Kilo seed catalog, live `/api/gateway/models` fetch, `warmKiloCatalog` (boot warm), `KILO_COMPAT`, `resolveKiloModel`, the picker/routing projections, `hasKiloApiKey`.
 - `src/runtime/routing/kilo-catalog.ts` — pure (100% gate): payload parse, USD-per-token → per-1M conversion, free/paid classification, access filter, tier fill.
 - `src/runtime/routing/llm-providers.ts` — pure (100% gate): the ONE provider table (id, env key, OAuth support, BYOK-only, keyless-free) that the router, registry, credentials, health and all four provider API routes derive from.
 - `src/providers/credentials.ts` — `getCredential` precedence chain, OAuth auto-refresh, Google project discovery, BYOK/env fallback, `OAuthUnusableError` vs "not configured".

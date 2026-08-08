@@ -8,6 +8,8 @@
  *   T4  the routing fill that keeps a keyless deployment answerable at EVERY
  *       tier (without it the first tool-using turn is unroutable)
  *   T5  merge precedence: discovery refreshes the seed, seed is the floor
+ *   T6  the PERSISTED round-trip — what refresh-models actually writes must
+ *       read back unchanged (it did not; see the block for the measurements)
  */
 
 import { test, expect, describe } from "bun:test";
@@ -363,5 +365,116 @@ describe("T5 merge precedence", () => {
 
   test("the seed is the floor when discovery has never run", () => {
     expect(mergeKiloCatalog(seed, [])).toEqual(seed);
+  });
+});
+
+describe("T6 the persisted round-trip (regression: refresh-models degraded the catalog)", () => {
+  // `POST /api/providers/kilo/refresh-models` persists `kiloModelToAnyModel`
+  // output, NOT the gateway wire shape. Reading that back with the wire parser
+  // silently defaulted every field. Measured before the fix, for a 1M-context
+  // vision reasoning model: ctx 1000000 -> 128000, vision true -> false,
+  // reasoning true -> false — and `openrouter/free` free true -> FALSE, which
+  // hides a genuinely free model from a keyless deployment.
+  const PERSISTED = [
+    {
+      id: "nvidia/nemotron-3-ultra-550b-a55b:free",
+      name: "NVIDIA: Nemotron 3 Ultra (free)",
+      api: "openai-completions",
+      provider: "kilo",
+      baseUrl: KILO_BASE_URL,
+      free: true,
+      reasoning: true,
+      input: ["text", "image"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 1_000_000,
+      maxTokens: 32_768,
+    },
+    {
+      // The false-negative id: free, with no `:free` suffix.
+      id: "openrouter/free",
+      name: "OpenRouter Free Models Router",
+      api: "openai-completions",
+      provider: "kilo",
+      baseUrl: KILO_BASE_URL,
+      free: true,
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200_000,
+      maxTokens: 8_192,
+    },
+    {
+      id: "anthropic/claude-sonnet-5",
+      name: "Anthropic: Claude Sonnet 5",
+      api: "openai-completions",
+      provider: "kilo",
+      baseUrl: KILO_BASE_URL,
+      free: false,
+      reasoning: true,
+      input: ["text", "image"],
+      cost: { input: 2, output: 10, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 1_000_000,
+      maxTokens: 64_000,
+    },
+  ];
+
+  const parsed = parseKiloCatalog(PERSISTED);
+
+  test("every field survives — no silent defaulting", () => {
+    const ultra = byId(parsed, "nvidia/nemotron-3-ultra-550b-a55b:free")!;
+    expect(ultra.contextWindow).toBe(1_000_000);
+    expect(ultra.maxTokens).toBe(32_768);
+    expect(ultra.vision).toBe(true);
+    expect(ultra.reasoning).toBe(true);
+    expect(ultra.free).toBe(true);
+  });
+
+  test("a persisted `free` flag beats the id shape — openrouter/free stays FREE", () => {
+    expect(byId(parsed, "openrouter/free")!.free).toBe(true);
+    expect(kiloModelsForAccess(parsed, "free").map((m) => m.id)).toContain("openrouter/free");
+  });
+
+  test("persisted per-1M costs are NOT multiplied a second time", () => {
+    // The wire branch multiplies by 1e6; applying it to an already-converted
+    // row would price Sonnet at $2,000,000 per 1M and tier it "high".
+    expect(byId(parsed, "anthropic/claude-sonnet-5")!.cost).toEqual({
+      input: 2,
+      output: 10,
+      cacheRead: 0,
+      cacheWrite: 0,
+    });
+  });
+
+  test("paid persisted rows are still filtered out for free access", () => {
+    expect(kiloModelsForAccess(parsed, "free").map((m) => m.id)).not.toContain(
+      "anthropic/claude-sonnet-5",
+    );
+  });
+
+  test("a persisted non-chat row is still dropped", () => {
+    expect(normalizeKiloModel({ id: "x/text-embedding-3", contextWindow: 8192 })).toBeNull();
+  });
+
+  test("a persisted row missing `free` falls back to the id shape", () => {
+    expect(normalizeKiloModel({ id: "v/x:free", contextWindow: 1000 })!.free).toBe(true);
+    expect(normalizeKiloModel({ id: "v/x", contextWindow: 1000 })!.free).toBe(false);
+  });
+
+  test("garbage in a persisted row degrades to defaults rather than throwing", () => {
+    const m = normalizeKiloModel({
+      id: "v/x",
+      contextWindow: "big",
+      cost: { input: "free", output: -2 },
+      input: "text",
+      maxTokens: 0,
+    })!;
+    expect(m.contextWindow).toBe(KILO_DEFAULT_CONTEXT);
+    expect(m.maxTokens).toBe(KILO_DEFAULT_MAX_TOKENS);
+    expect(m.cost).toEqual({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 });
+    expect(m.vision).toBe(false);
+  });
+
+  test("the wire shape still parses — both shapes coexist", () => {
+    expect(byId(parseKiloCatalog({ data: LIVE_ROWS }), "kilo-auto/frontier")!.cost.input).toBe(5);
   });
 });

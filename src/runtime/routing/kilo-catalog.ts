@@ -167,11 +167,70 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
-/** Normalize ONE catalog row, or `null` when it cannot be called. */
+/**
+ * Is this row one WE persisted (a pi-ai `AnyModel` + `free`) rather than a row
+ * off the gateway wire?
+ *
+ * Both shapes reach {@link normalizeKiloModel}, and they are not
+ * interchangeable: the wire says `context_length` / `pricing.prompt` /
+ * `architecture.input_modalities`, ours says `contextWindow` / `cost.input` /
+ * `input`. Reading a persisted row with the wire parser silently produced a
+ * DEFAULTED model — measured on a real round-trip, a 1M-context vision
+ * reasoning model came back as 128k, no vision, no reasoning, and
+ * `openrouter/free` came back **paid**, which hides a genuinely free model from
+ * the deployment that most needs it.
+ *
+ * That path is not hypothetical: `POST /api/providers/kilo/refresh-models`
+ * persists exactly this shape, so every admin who pressed "Refresh models"
+ * degraded their own catalog.
+ */
+function isPersistedShape(raw: Record<string, unknown>): boolean {
+  return (
+    typeof raw.contextWindow === "number" ||
+    isPlainObject(raw.cost) ||
+    Array.isArray(raw.input)
+  );
+}
+
+/** Normalize a row WE wrote (`kiloModelToAnyModel` output + `free`). */
+function normalizePersistedKiloModel(raw: Record<string, unknown>, id: string): KiloModel {
+  const cost = isPlainObject(raw.cost) ? raw.cost : {};
+  const input = stringArray(raw.input);
+  const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0);
+  return {
+    id,
+    name: typeof raw.name === "string" && raw.name.trim() !== "" ? raw.name : id,
+    contextWindow: positiveInt(raw.contextWindow, KILO_DEFAULT_CONTEXT),
+    maxTokens: positiveInt(raw.maxTokens, KILO_DEFAULT_MAX_TOKENS),
+    vision: input.includes("image"),
+    reasoning: raw.reasoning === true,
+    // Already per-1M — persisted rows are written post-conversion, so they must
+    // NOT be multiplied again.
+    cost: {
+      input: num(cost.input),
+      output: num(cost.output),
+      cacheRead: num(cost.cacheRead),
+      cacheWrite: num(cost.cacheWrite),
+    },
+    free: typeof raw.free === "boolean" ? raw.free : isFreeKiloModelId(id),
+    declaredTier: isRoutingTier(KILO_AUTO_TIERS[id]) ? KILO_AUTO_TIERS[id] : undefined,
+  };
+}
+
+/**
+ * Normalize ONE row — from the gateway wire OR from our own persisted cache —
+ * or `null` when it cannot be called.
+ */
 export function normalizeKiloModel(raw: unknown): KiloModel | null {
   if (!isPlainObject(raw)) return null;
   const id = raw.id;
   if (typeof id !== "string" || id.trim() === "") return null;
+
+  if (isPersistedShape(raw)) {
+    // Chat-capability still applies: a persisted row for a non-chat model
+    // should not come back into the picker.
+    return isChatCapable(id, []) ? normalizePersistedKiloModel(raw, id) : null;
+  }
 
   const architecture = isPlainObject(raw.architecture) ? raw.architecture : {};
   const inputs = stringArray(architecture.input_modalities);
