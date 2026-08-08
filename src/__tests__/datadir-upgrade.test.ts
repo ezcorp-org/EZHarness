@@ -16,10 +16,12 @@ import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import type { PGlite as CurrentPGlite } from "@electric-sql/pglite";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
+  APP_DATABASE,
   CURRENT_PG_MAJOR,
   LEGACY_PG_MAJOR,
+  LEGACY_SOURCE_DATABASE,
   backupPathFor,
   clearStaleLockFiles,
   clearUpgradeMarker,
@@ -53,6 +55,47 @@ afterAll(() => {
 /** A 384-dim embedding, deterministic so KNN distances are exact. */
 function embedding(seed: number): string {
   return `[${Array.from({ length: 384 }, (_, i) => ((i + seed) % 7) / 7).join(",")}]`;
+}
+
+/**
+ * Build a GENUINE PostgreSQL 17 datadir the way a 0.3.x deployment really did:
+ * the legacy engine, the real `migrate()`, and rows including a vector column.
+ * Returns the source row counts for later comparison.
+ */
+async function buildLegacyDatadir(dbPath: string): Promise<TableCounts> {
+  const { PGlite } = await import("@electric-sql/pglite-legacy");
+  const { vector } = await import("@electric-sql/pglite-legacy/vector");
+  const { pg_trgm } = await import("@electric-sql/pglite-legacy/contrib/pg_trgm");
+  const { drizzle } = await import("drizzle-orm/pglite");
+  const schema = await import("../db/schema");
+  const { migrate } = await import("../db/migrate");
+
+  // Explicit source database, exactly as `dumpLegacyDatadir` reads it — a
+  // fixture built against the driver DEFAULT would stop proving anything the
+  // day that default moves, which is the 0.4.x failure this module guards.
+  const pg = new PGlite({
+    dataDir: dbPath,
+    database: LEGACY_SOURCE_DATABASE,
+    extensions: { vector, pg_trgm },
+  });
+  await pg.waitReady;
+  // Same resolution artifact as `dumpLegacyDatadir`'s cast: drizzle's types
+  // come from the 0.5.4 PGlite, the instance is the 0.3.16 alias. Identical
+  // runtime API — this is how a 0.3.x deployment's datadir was really made.
+  await migrate(drizzle(pg as unknown as CurrentPGlite, { schema }));
+  await pg.query(
+    `INSERT INTO memories (id, content, category, embedding)
+     VALUES ($1, $2, 'fact', $3::vector), ($4, $5, 'fact', $6::vector)`,
+    ["mem-1", "the first remembered thing", embedding(1), "mem-2", "the second remembered thing", embedding(2)],
+  );
+  await pg.query(`INSERT INTO projects (id, name, path) VALUES ($1, $2, $3)`, [
+    "proj-1",
+    "Upgrade Probe",
+    "/tmp/upgrade-probe",
+  ]);
+  const counts = await collectTableCounts((sql) => pg.query(sql));
+  await pg.close();
+  return counts;
 }
 
 /** Stand up a datadir with a given PG_VERSION but no real cluster behind it. */
@@ -95,33 +138,7 @@ describe("real PG 17 -> 18 upgrade of a fully migrated datadir", () => {
   let sourceCounts: TableCounts;
 
   beforeAll(async () => {
-    // ---- Build a genuine PG 17 datadir: legacy engine + the real migrate().
-    const { PGlite } = await import("@electric-sql/pglite-legacy");
-    const { vector } = await import("@electric-sql/pglite-legacy/vector");
-    const { pg_trgm } = await import("@electric-sql/pglite-legacy/contrib/pg_trgm");
-    const { drizzle } = await import("drizzle-orm/pglite");
-    const schema = await import("../db/schema");
-    const { migrate } = await import("../db/migrate");
-
-    const pg = new PGlite(dbPath, { extensions: { vector, pg_trgm } });
-    await pg.waitReady;
-    // Same resolution artifact as `dumpLegacyDatadir`'s cast: drizzle's types
-    // come from the 0.5.4 PGlite, the instance is the 0.3.16 alias. Identical
-    // runtime API — this is how a 0.3.x deployment's datadir was really made.
-    await migrate(drizzle(pg as unknown as CurrentPGlite, { schema }));
-    await pg.query(
-      `INSERT INTO memories (id, content, category, embedding)
-       VALUES ($1, $2, 'fact', $3::vector), ($4, $5, 'fact', $6::vector)`,
-      ["mem-1", "the first remembered thing", embedding(1), "mem-2", "the second remembered thing", embedding(2)],
-    );
-    await pg.query(`INSERT INTO projects (id, name, path) VALUES ($1, $2, $3)`, [
-      "proj-1",
-      "Upgrade Probe",
-      "/tmp/upgrade-probe",
-    ]);
-    sourceCounts = await collectTableCounts((sql) => pg.query(sql));
-    await pg.close();
-
+    sourceCounts = await buildLegacyDatadir(dbPath);
     expect(readDatadirMajor(dbPath)).toBe(LEGACY_PG_MAJOR);
 
     const outcome = await upgradeDatadirIfNeeded(dbPath);
@@ -222,6 +239,123 @@ describe("real PG 17 -> 18 upgrade of a fully migrated datadir", () => {
   test("a second call is a no-op — the upgrade is not repeated", async () => {
     const outcome = await upgradeDatadirIfNeeded(dbPath, forbiddenDeps);
     expect(outcome.action).toBe("none-already-current");
+  });
+});
+
+/**
+ * The highest-consequence path in the change.
+ *
+ * `EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE=1` (plumbed in `compose.prod.yml`,
+ * default unset) renames a failed-open datadir aside and boots EMPTY. A PG 17
+ * datadir cannot be opened by the PG 18 engine, so if the upgrade did not run
+ * strictly BEFORE `openPglite()`, an operator with that flag set would have
+ * their database destroyed by the very update meant to migrate it.
+ *
+ * Asserted by booting the REAL `initDb()` in a subprocess — the ordering lives
+ * in `connection.ts`, so nothing short of a real boot proves it.
+ */
+describe("an operator with EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE=1 gets migrated, never destroyed", () => {
+  const root = tmpRoot("auto-destroy");
+  const dbPath = join(root, "ezcorp-db");
+  let sourceCounts: TableCounts;
+  let child: {
+    ok: boolean;
+    initError: string | null;
+    corruptedSiblings: string[];
+    backups: string[];
+    memories: Array<{ id: string; content: string }>;
+    projectCount: number;
+    currentDatabase: string;
+    tableCount: number;
+  };
+
+  beforeAll(async () => {
+    sourceCounts = await buildLegacyDatadir(dbPath);
+    expect(readDatadirMajor(dbPath)).toBe(LEGACY_PG_MAJOR);
+
+    const connectionAbs = resolve(import.meta.dir, "..", "db", "connection.ts");
+    const driverPath = join(root, "driver.ts");
+    writeFileSync(
+      driverPath,
+      `
+      import { readdirSync } from "node:fs";
+      import { dirname, join, basename } from "node:path";
+      const result = { ok: false, initError: null, corruptedSiblings: [], backups: [],
+                       memories: [], projectCount: 0, currentDatabase: "", tableCount: 0 };
+      try {
+        const conn = await import(${JSON.stringify(connectionAbs)});
+        await conn.initDb();
+        result.ok = true;
+        const pg = conn.getPglite();
+        result.currentDatabase = (await pg.query("select current_database() as d")).rows[0].d;
+        result.memories = (await pg.query("select id, content from memories order by id")).rows;
+        result.projectCount = (await pg.query("select count(*)::int as n from projects")).rows[0].n;
+        result.tableCount = (await pg.query(
+          "select count(*)::int as n from information_schema.tables where table_schema='public'"
+        )).rows[0].n;
+        await conn.closeDb();
+      } catch (e) {
+        result.initError = e instanceof Error ? (e.stack ?? e.message) : String(e);
+      }
+      const dbPath = process.env.EZCORP_DB_PATH;
+      const parent = dirname(dbPath);
+      const base = basename(dbPath);
+      const names = readdirSync(parent);
+      result.corruptedSiblings = names.filter((n) => n.startsWith(base + ".corrupted."));
+      result.backups = names.filter((n) => n.startsWith(base + ".pg17-backup."));
+      process.stdout.write("\\n__BEGIN__" + JSON.stringify(result) + "__END__\\n");
+      process.exit(0);
+      `,
+    );
+
+    const env: Record<string, string> = {
+      ...(process.env as Record<string, string>),
+      EZCORP_DB_PATH: dbPath,
+      EZCORP_BACKUP_DIR: join(root, "backups"),
+      // The flag that made this path dangerous.
+      EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE: "1",
+    };
+    delete env.DATABASE_URL;
+    delete env.EZCORP_IMAGE_SHA;
+
+    const proc = Bun.spawnSync(["bun", driverPath], { env, stdout: "pipe", stderr: "pipe" });
+    const out = new TextDecoder().decode(proc.stdout);
+    const body = out.split("__BEGIN__")[1]?.split("__END__")[0];
+    if (!body) {
+      throw new Error(`child produced no result. stderr: ${new TextDecoder().decode(proc.stderr).slice(-2000)}`);
+    }
+    child = JSON.parse(body);
+  });
+
+  test("the boot succeeds instead of hitting the open-failure path at all", () => {
+    expect(child.initError).toBeNull();
+    expect(child.ok).toBe(true);
+  });
+
+  test("the datadir is NOT renamed aside and no empty database is substituted", () => {
+    expect(child.corruptedSiblings).toEqual([]);
+    expect(child.tableCount).toBe(Object.keys(sourceCounts).length);
+  });
+
+  test("every row the operator had is still there after the boot", () => {
+    expect(child.memories).toEqual([
+      { id: "mem-1", content: "the first remembered thing" },
+      { id: "mem-2", content: "the second remembered thing" },
+    ]);
+    expect(child.projectCount).toBe(sourceCounts.projects);
+  });
+
+  test("the datadir was upgraded in place and the original retained", () => {
+    expect(readDatadirMajor(dbPath)).toBe(CURRENT_PG_MAJOR);
+    expect(child.backups).toHaveLength(1);
+    expect(readDatadirMajor(join(root, child.backups[0] as string))).toBe(LEGACY_PG_MAJOR);
+  });
+
+  test("the app connects to the database the restore actually wrote", () => {
+    // Pins the template1 -> postgres hazard end to end: had the restore landed
+    // in a different database than connection.ts opens, the row assertions
+    // above would have been made against an empty schema.
+    expect(child.currentDatabase).toBe(APP_DATABASE);
   });
 });
 

@@ -22,7 +22,7 @@ import {
   clearProcessHolder,
 } from "./live-holder-guard";
 import { applyPgliteNulPatches, patchJsonColumns, patchTextColumns } from "./nul-column-patch";
-import { clearStaleLockFiles, upgradeDatadirIfNeeded } from "./datadir-upgrade";
+import { APP_DATABASE, clearStaleLockFiles, upgradeDatadirIfNeeded } from "./datadir-upgrade";
 const log = logger.child("db");
 
 const DEFAULT_DB_DIR = `${process.env.HOME}/ez-corp/.data`;
@@ -227,7 +227,12 @@ async function initPglite(): Promise<void> {
   const dbArg = IS_MEMORY ? "memory://" : DB_PATH;
 
   const openPglite = async (path: string) => {
-    const pg = new PGlite(path, { extensions: { vector, pg_trgm } });
+    // `database` is passed EXPLICITLY rather than left to the driver default.
+    // PGlite moved that default (`template1` -> `postgres`) in 0.4.x, and the
+    // datadir upgrade restores into APP_DATABASE — so the database the restore
+    // WRITES and the one the app READS come from the same constant instead of
+    // two independent defaults that happen to agree. See datadir-upgrade.ts.
+    const pg = new PGlite({ dataDir: path, database: APP_DATABASE, extensions: { vector, pg_trgm } });
     await pg.waitReady;
     return pg;
   };

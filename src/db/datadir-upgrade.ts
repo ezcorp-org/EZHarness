@@ -80,6 +80,26 @@ export const CURRENT_PG_MAJOR = "18";
 /** Postgres major shipped by `@electric-sql/pglite-legacy` (0.3.16). */
 export const LEGACY_PG_MAJOR = "17";
 
+/**
+ * The database name each side of the upgrade uses — passed EXPLICITLY, never
+ * taken from the driver's default.
+ *
+ * PGlite changed its default database from `template1` to `postgres` in 0.4.x.
+ * Relying on defaults happens to work for this exact pair of versions — the
+ * 0.3.16 datadir keeps everything in `template1` and 0.5.4 lands in `postgres`,
+ * which is also where the app then looks — but that is luck, not design. If a
+ * future PGlite moved the default again, an implicit dump would silently read
+ * an EMPTY database and "successfully" migrate nothing, which is precisely the
+ * silent-data-loss shape this whole module exists to prevent.
+ *
+ * So both ends are pinned. `APP_DATABASE` is also what `connection.ts` passes
+ * when it opens the datadir, so the database the restore writes and the
+ * database the app reads are the same name from the same constant rather than
+ * two independent defaults that happen to agree.
+ */
+export const LEGACY_SOURCE_DATABASE = "template1";
+export const APP_DATABASE = "postgres";
+
 const TMP_SUFFIX = ".pg-upgrade-tmp";
 const BACKUP_SUFFIX = ".pg17-backup.";
 const MARKER_FILENAME = ".ezcorp-datadir-upgrade.json";
@@ -219,7 +239,8 @@ export async function dumpLegacyDatadir(dbPath: string): Promise<{ sql: string; 
   const { pgDump } = await import("@electric-sql/pglite-tools/pg_dump");
 
   clearStaleLockFiles(dbPath);
-  const pg = new PGlite(dbPath, { extensions: { vector, pg_trgm } });
+  // Explicit source database — see LEGACY_SOURCE_DATABASE.
+  const pg = new PGlite({ dataDir: dbPath, database: LEGACY_SOURCE_DATABASE, extensions: { vector, pg_trgm } });
   try {
     await pg.waitReady;
     const counts = await collectTableCounts((sql) => pg.query(sql));
@@ -242,7 +263,8 @@ export async function restoreIntoNewDatadir(tmpPath: string, sql: string): Promi
   const { vector } = await import("@electric-sql/pglite-pgvector");
   const { pg_trgm } = await import("@electric-sql/pglite/contrib/pg_trgm");
 
-  const pg = new PGlite(tmpPath, { extensions: { vector, pg_trgm } });
+  // Explicit target database — the one connection.ts will open. See APP_DATABASE.
+  const pg = new PGlite({ dataDir: tmpPath, database: APP_DATABASE, extensions: { vector, pg_trgm } });
   try {
     await pg.waitReady;
     // ONE exec for the WHOLE script — see dumpLegacyDatadir.
@@ -266,7 +288,8 @@ export async function verifyRestoredDatadir(tmpPath: string, expected: TableCoun
   const { vector } = await import("@electric-sql/pglite-pgvector");
   const { pg_trgm } = await import("@electric-sql/pglite/contrib/pg_trgm");
 
-  const pg = new PGlite(tmpPath, { extensions: { vector, pg_trgm } });
+  // Same database the app will read, so verification proves what the app sees.
+  const pg = new PGlite({ dataDir: tmpPath, database: APP_DATABASE, extensions: { vector, pg_trgm } });
   let actual: TableCounts;
   try {
     await pg.waitReady;

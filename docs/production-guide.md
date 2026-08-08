@@ -216,6 +216,15 @@ mv /app/data/ezcorp-db.pg17-backup.<ts> /app/data/ezcorp-db
 Once you are satisfied with the upgrade, the `*.pg17-backup.*` directory is
 safe to delete.
 
+> **The usual snapshot/rollback machinery does NOT cover this upgrade.**
+> `snapshotPreBoot()` (§2 above) and the interval backups under
+> `/app/data/backups/` are `cpSync` copies of the data directory — so across
+> this update they are copies of a **PostgreSQL 17** directory. Restoring one
+> into a PG 18 build will not open; it only helps if you roll the **image**
+> back too. The `*.pg17-backup.*` directory left by the upgrade is the same
+> kind of artifact and carries the same condition. For this one update, "roll
+> back" always means *both* the data directory and the previous image tag.
+
 **If the upgrade is interrupted** (power loss, OOM kill), the next boot
 detects the partial state from `/app/data/.ezcorp-datadir-upgrade.json` and
 either finishes the swap or rolls back to the original — a half-swapped

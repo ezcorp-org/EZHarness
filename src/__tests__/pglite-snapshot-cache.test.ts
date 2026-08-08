@@ -195,6 +195,38 @@ describe("cache key — inputs beyond the source closure", () => {
     expect(schemaFingerprint({ roots: [root], repoRoot: withoutLock, env: NO_ENV })).not.toBe(before);
   });
 
+  test("the installed pglite version is an INPUT — a bump moves the key", () => {
+    // The datadir is a binary Postgres data directory produced by a specific
+    // WASM build, and PGlite bumps its bundled Postgres across MAJORS (0.3.x
+    // shipped PG 17, 0.5.x ships PG 18). Handing a snapshot from one engine to
+    // another version's `loadDataDir` is the silent mismatch this file's header
+    // calls out, and `src/db/datadir-upgrade.ts` exists because of it.
+    //
+    // The lockfile term above would usually move too, but it is a SEPARATE
+    // input: this isolates the version term so the guarantee does not quietly
+    // become "bun.lock happened to change".
+    const roots: string[] = [];
+    const keys = ["0.3.16", "0.5.4"].map((version) => {
+      const dir = tmp(`pgver-${version.replace(/\./g, "-")}`);
+      roots.push(dir);
+      // Byte-identical in every other input: same root module, no lockfile.
+      const root = write(dir, "root.ts", "export const a = 1;\n");
+      write(dir, "node_modules/@electric-sql/pglite/package.json", JSON.stringify({ version }));
+      expect(installedPgliteVersion(dir)).toBe(version);
+      return schemaFingerprint({ roots: [root], repoRoot: dir, env: NO_ENV });
+    });
+
+    expect(keys[0]).not.toBe(keys[1]);
+    // And it is the version doing the work, not the temp path: re-fingerprint
+    // the first root and it is stable.
+    const stable = schemaFingerprint({
+      roots: [join(roots[0] as string, "root.ts")],
+      repoRoot: roots[0] as string,
+      env: NO_ENV,
+    });
+    expect(stable).toBe(keys[0]);
+  });
+
   test("the installed pglite version is found by walking up to the real node_modules", () => {
     // A git worktree has no node_modules of its own — resolution must walk up
     // to the main checkout, or the datadir format would drop out of the key.
