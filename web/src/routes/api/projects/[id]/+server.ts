@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as projectQueries from "$server/db/queries/projects";
 import { requireAuth, checkProjectRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { projectPathSchema } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
@@ -79,6 +80,14 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   const parsed = updateProjectSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     return errorJson(400, "Invalid request body");
+  }
+  // Same shape rule as POST — an edit can corrupt `path` exactly as a create
+  // can, and this route is how a project gets REPOINTED at a bad directory.
+  if (parsed.data.path !== undefined) {
+    const path = projectPathSchema.safeParse(parsed.data.path);
+    if (!path.success) {
+      return errorJson(400, path.error.issues[0]?.message ?? "Invalid project path");
+    }
   }
   const updated = await projectQueries.updateProject(params.id, parsed.data);
   if (!updated) return errorJson(404, "Not found");

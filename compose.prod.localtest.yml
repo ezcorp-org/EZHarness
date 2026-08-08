@@ -7,36 +7,28 @@
 #     -f compose.prod.yml -f compose.prod.devdb.yml -f compose.prod.localtest.yml up -d
 #
 # Knobs (set in the environment or .env.prod):
-#   EZCORP_TEST_PROJECTS_DIR    host dir mounted as /app/projects   (default ./projects)
 #   EZCORP_TEST_BIND_IP         interface the test ports publish on (default 127.0.0.1)
 #   EZCORP_TEST_PRIMARY_PORT    host port mapped to container 8000  (default 8000)
 #
 # Full runbook: docs/local-prod-test-stack.md
 services:
   app:
-    volumes:
-      # The prod image intentionally mounts nothing but its data dirs, which is
-      # correct for a real install. But a test stack pointed at a COPY of a dev
-      # database inherits that database's `projects` rows, and those store
-      # absolute container paths like `/app/projects/<name>`. With no matching
-      # mount they resolve to nothing, and the failure is badly misleading:
-      #
-      #   - the `shell` tool spawns with cwd=<project path>, and a missing cwd
-      #     surfaces as `posix_spawn '/bin/sh' — ENOENT`, which reads like a
-      #     broken image rather than a missing directory;
-      #   - the file tools' containment check rejects it as
-      #     "Path traversal detected".
-      #
-      # So mount the same host tree at the path the database already expects.
-      #
-      # OWNERSHIP: this image runs unprivileged as uid 1000 (`bun`), which is
-      # usually NOT the host login user, so a plain bind mount is read-only in
-      # practice and agents silently cannot build. Grant shared-group write once:
-      #
-      #   sudo chgrp -R 1000 <projects-dir>
-      #   sudo chmod -R g+rwX <projects-dir>
-      #   sudo find <projects-dir> -type d -exec chmod g+s {} +   # inherit group
-      - ${EZCORP_TEST_PROJECTS_DIR:-./projects}:/app/projects
+    # NO projects bind here any more, and that is the fix rather than an
+    # omission. This overlay used to mount
+    # `${EZCORP_TEST_PROJECTS_DIR:-./projects}:/app/projects`, because a test
+    # stack pointed at a COPY of a dev database inherits that database's
+    # `projects` rows, which store absolute CONTAINER paths — and with no
+    # matching mount they resolved to nothing. The failure was badly
+    # misleading: the `shell` tool spawns with cwd=<project path>, so a
+    # missing dir surfaces as `posix_spawn '/bin/sh' — ENOENT` (reads like a
+    # broken image), and the file tools reject it as "Path traversal
+    # detected".
+    #
+    # Re-mounting the old path was treating the symptom. The dev and prod
+    # stacks now agree on ONE container path for project workspaces
+    # (/app/web/.ezcorp/projects, bound from ./.ezcorp/projects), so a dev DB
+    # copy resolves here with no overlay-specific mount at all.
+    # compose.prod.yml carries that bind; this file inherits it.
 
     # ── Direct access to servers an agent starts ──────────────────────────
     #

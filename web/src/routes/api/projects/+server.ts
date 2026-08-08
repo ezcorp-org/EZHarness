@@ -3,6 +3,7 @@ import { z } from "zod";
 import * as projectQueries from "$server/db/queries/projects";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
+import { projectPathSchema } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
@@ -55,6 +56,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const body = parsed.data;
   if (!body.name || !body.path) {
     return errorJson(400, "name and path required");
+  }
+  // Emptiness is answered above with the verbatim legacy message; SHAPE is a
+  // separate, more specific 400 so the form can tell the user what to fix.
+  const path = projectPathSchema.safeParse(body.path);
+  if (!path.success) {
+    return errorJson(400, path.error.issues[0]?.message ?? "Invalid project path");
   }
   // The creator IS the project's first owner. Without this stamp the
   // membership table would have no writer on the ordinary path, `owner`

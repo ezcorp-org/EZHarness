@@ -59,16 +59,24 @@ const CONTAINER = process.env.EZCORP_APP_CONTAINER ?? "ezharness-app-1";
 // in the header.
 const CONFIG_PATH = "/app/.ezcorp/extension-data/file-organizer/config.json";
 
-// Pre-made, reachable absolute watch dir inside the container. A typed
-// ABSOLUTE path is the only add-folder flow that works in the real app —
-// Browse 403s (fs-list jail). The container has this dir created.
-const WATCH_DIR = "/app/projects/fo-test-watched";
+// Pre-made, reachable absolute watch dir inside the container. These live
+// under the projects bind (./.ezcorp/projects → /app/web/.ezcorp/projects),
+// which every stack now shares.
+//
+// They used to sit at `/app/projects/...`, and the note here used to say a
+// typed ABSOLUTE path was the only flow that works because "Browse 403s
+// (fs-list jail)". That 403 was a CONSEQUENCE of the old location, not a
+// property of the picker: `/api/fs/list` jails on
+// `EZCORP_PROJECT_ROOT ?? process.cwd()` (= /app/web in dev), and
+// /app/projects was outside it. Under the current bind Browse works, so
+// typing the path is a choice for determinism, not a workaround.
+const WATCH_DIR = "/app/web/.ezcorp/projects/fo-test-watched";
 // A SECOND reachable dir used by the config-mutation round-trip so we can
 // add → mutate → remove it without disturbing WATCH_DIR. It must be a
 // SIBLING (not an ancestor/descendant) of WATCH_DIR — `addFolder` drops a
 // watched descendant when you add its ancestor, which would corrupt the
-// WATCH_DIR entry mid-suite. This sibling exists inside the container.
-const MUTATE_DIR = "/app/projects/fo-verify-new";
+// WATCH_DIR entry mid-suite. `beforeAll` mkdir -p's both in the container.
+const MUTATE_DIR = "/app/web/.ezcorp/projects/fo-verify-new";
 
 const FOLDERS_PAGE = "ext:file-organizer:overview";
 
@@ -179,8 +187,8 @@ test.describe(
     test.beforeAll(() => {
       configSnapshot = snapshotWriterConfig();
       // Ensure the scratch dirs the spec adds/probes exist in the container
-      // (idempotent — harmless test scratch under /app/projects). Makes the
-      // spec portable to a fresh container rather than relying on dirs a
+      // (idempotent — harmless test scratch under the projects bind). Makes
+      // the spec portable to a fresh container rather than relying on dirs a
       // prior audit happened to leave behind.
       try {
         execFileSync("docker", [

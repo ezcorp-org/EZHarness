@@ -112,7 +112,6 @@ Knobs for the third file (environment or `.env.prod`):
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `EZCORP_TEST_PROJECTS_DIR` | `./projects` | Host dir mounted at `/app/projects` |
 | `EZCORP_TEST_BIND_IP` | `127.0.0.1` | Interface the test ports publish on |
 | `EZCORP_TEST_PRIMARY_PORT` | `8000` | Host port mapped to container `8000` |
 
@@ -228,11 +227,15 @@ metacharacter**, so `cd app && bun dev` is *not* detected.
   setting it moves the platform off `:3000` and silently breaks the `4000:3000`
   publish, taking the whole UI down. Use `EZCORP_PORT`.
 - **Project paths come from the copied database** and are absolute container
-  paths (`/app/projects/<name>`). Without the mount they resolve to nothing, and
-  the symptom misleads: the shell tool spawns with `cwd=<missing dir>`, which
-  surfaces as `posix_spawn '/bin/sh' — ENOENT`, plus `Path traversal detected`
-  from the file tools. A **relative** path in a `projects.path` row fails the
-  same way even with the mount.
+  paths. This overlay used to carry its own `EZCORP_TEST_PROJECTS_DIR` mount at
+  `/app/projects` purely so those rows resolved; it no longer does, because the
+  dev and prod stacks now bind the SAME path
+  (`./.ezcorp/projects` → `/app/web/.ezcorp/projects`) and `compose.prod.yml`
+  supplies it. If a row still points somewhere else, the symptom misleads: the
+  shell tool spawns with `cwd=<missing dir>`, which surfaces as
+  `posix_spawn '/bin/sh' — ENOENT`, plus `Path traversal detected` from the file
+  tools. A **relative** path in a `projects.path` row fails the same way; new
+  writes are now rejected by `projectPathSchema`, but rows predating it survive.
 - **Any container recreate kills running agent servers** — rebuilds, `up -d`
   after a config change, restarts. Re-run the dev server afterwards.
 - **Extension-data ownership.** If a root-running dev stack shares
@@ -257,7 +260,7 @@ metacharacter**, so `cd app && bun dev` is *not* detected.
 curl -s localhost:4000/api/ready                          # {"state":"ready",…}
 docker compose … ps                                       # app healthy
 docker port <app-container>                               # port map intact
-docker exec <app-container> sh -c 'ls /app/projects'      # mounts present
+docker exec <app-container> sh -c 'ls /app/web/.ezcorp/projects'   # mounts present
 
 # Preview origin live? 404 = the proxy handled it; 302 = feature disabled.
 curl -s -o /dev/null -w '%{http_code}\n' \

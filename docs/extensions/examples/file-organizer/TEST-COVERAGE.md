@@ -175,10 +175,13 @@ selected value is `/Downloads`.
 **This does not happen against the real backend.** Verified live this
 session: `GET /api/fs/list?dir=/` returns **403** — the endpoint is
 sandbox-jailed to the project root, so Browse cannot list `/` and cannot
-reach an arbitrary watch folder. In the real app the **only** working
-add-folder path is a **typed absolute path** (e.g.
-`/app/projects/fo-test-watched`). The "absolute-mode" picker fix only
-affects browse/select, which is exactly the jailed flow.
+reach an arbitrary watch folder. In the real app a **typed absolute path**
+(e.g. `/app/web/.ezcorp/projects/fo-test-watched`) always works. Note the
+example moved with the projects bind: when the scratch dirs lived at
+`/app/projects/…` — outside the jail — typing the path was the *only*
+option, because Browse 403'd on the location itself. Under the current bind
+Browse reaches them, so the specs type the path for determinism rather than
+out of necessity. The "absolute-mode" picker fix only affects browse/select.
 
 **Recommendation:** **Keep, but relabel.** It is a legitimate
 **component-logic** check that absolute-mode browse emits `/`-rooted
