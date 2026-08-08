@@ -16,6 +16,7 @@ import {
   loadExtensionWorkflows,
 } from "$server/runtime/workflow-extension-loader";
 import { initDb, closeDb } from "$server/db/connection";
+import { warmKiloCatalog } from "$server/providers/kilo";
 import { validateEnv } from "$server/env-validation";
 import { loadDbCachedWorkflows } from "$server/db/queries/workflows";
 import { systemCachedWorkflow, type CachedWorkflow } from "$server/runtime/workflow-scope";
@@ -208,6 +209,14 @@ export async function ensureInitialized(): Promise<void> {
     getWorkflows,
     getCachedWorkflows,
     listAgents: () => getExecutor().listAgents(),
+  });
+  // Kilo's free catalog: fetched once per TTL at boot so the model picker
+  // lists every free model, not just the built-in `kilo-auto/free` seed. The
+  // endpoint is unauthenticated, so this works on a deployment with nothing
+  // configured — which is exactly the deployment that needs it. Best-effort
+  // and off the request path; a failure costs the extra models, never boot.
+  void warmKiloCatalog().then((result) => {
+    if (result === "failed") console.warn("[kilo] catalog warm failed — free models limited to the built-in seed");
   });
   void terminalizeOrphanedWorkflowRuns()
     .then((count) => {
