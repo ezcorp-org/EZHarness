@@ -39,6 +39,10 @@ import type { ModelPrices } from "../runtime/usage/cache-stats";
 // carve-outs below cannot drift from the table that declares it keyless.
 import { KILO_PROVIDER, LLM_PROVIDER_IDS } from "../runtime/routing/llm-providers";
 import { kiloPickerEntries, resolveKiloModel } from "./kilo";
+// Context-window truth. Pure + coverage-gated, for the reason spelled out in
+// that module's header: `src/providers/**` is outside the gate, so the window
+// DECISION must not live here even though the catalog reads do.
+import { capForModel, resolveContextWindow } from "../runtime/routing/model-context-windows";
 
 /** Providers whose discovered-model rows the generic loader below reads.
  *  Every known provider EXCEPT Kilo — see `loadDiscoveredModels`. */
@@ -91,12 +95,28 @@ export interface ModelEntry {
   provider: string;
   tier: "fast" | "balanced" | "powerful";
   contextWindow: number;
+  /**
+   * The model's output cap. Carried on the entry solely so ONE caller can
+   * derive the enforced input budget (`computeInputBudget` needs both fields)
+   * without re-resolving the whole model. Never written back — see the
+   * input-only compaction invariant in CLAUDE.md.
+   */
+  maxTokens?: number;
   vision: boolean;
   reasoning: boolean;
   costTier: "low" | "medium" | "high";
   displayName?: string;
   /** Base URL for custom/local model endpoints (e.g. http://localhost:11434). */
   baseUrl?: string;
+  /**
+   * True when `contextWindow` was INVENTED by a fallback rather than reported
+   * by any catalog — a retired pin, a custom model with no declared window, a
+   * discovery payload missing the field. The UI keys its "estimated" marker off
+   * this so a guessed window stops rendering identically to a measured one.
+   * Absent/false means a catalog reported the number (possibly capped down by
+   * `capForModel`, which makes it MORE certain, not less).
+   */
+  estimated?: boolean;
 }
 
 // ── Tier/Cost inference ──────────────────────────────────────────────
@@ -161,12 +181,38 @@ function piModelToEntry(model: AnyModel): ModelEntry {
     id: model.id,
     provider: model.provider,
     tier,
-    contextWindow: model.contextWindow,
+    // Corrected, not copied. The picker's window and the runtime's compaction
+    // budget MUST come from the same number, so both sides go through
+    // `capForModel` — see `cappedModel` below for the wire half.
+    contextWindow: capForModel(model.id, model.contextWindow),
+    maxTokens: model.maxTokens,
     vision: model.input.includes("image"),
     reasoning: !!model.reasoning,
     costTier,
     displayName: model.name,
   };
+}
+
+/**
+ * A catalog model with its context window corrected.
+ *
+ * This IS a clone, and the binding invariant in CLAUDE.md forbids cloning a
+ * model "to save context" — so the distinction matters. That rule is about
+ * COMPACTION manufacturing headroom it does not have (mutating `maxTokens`,
+ * writing back `responseReserve`). This is the opposite operation in both
+ * place and direction: it runs in the RESOLVER, before any compaction math
+ * sees the model, and `capForModel` can only ever lower a window. Nothing here
+ * touches `maxTokens`, and a model needing no correction is returned by
+ * reference, unchanged.
+ *
+ * It has to happen here rather than only in `piModelToEntry` because
+ * `resolveModelObject` is what the wire and `computeInputBudget` actually use.
+ * Correcting only the picker would have left the display honest and the trim
+ * point wrong — which is the bug this whole change exists to close.
+ */
+function cappedModel(model: AnyModel): AnyModel {
+  const capped = capForModel(model.id, model.contextWindow);
+  return capped === model.contextWindow ? model : { ...model, contextWindow: capped };
 }
 
 // ── Registry functions ───────────────────────────────────────────────
@@ -404,7 +450,7 @@ export function resolveModelForCredential(
 ): AnyModel {
   if (credType !== "oauth") return model;
   const oauthModel = resolveOAuthModel(provider, model.id);
-  if (oauthModel) return { ...oauthModel, provider };
+  if (oauthModel) return { ...cappedModel(oauthModel), provider };
   if (provider === "google" || provider === "openai") {
     throw new Error(
       `Model "${model.id}" is not supported with ${provider} OAuth. ` +
@@ -442,7 +488,25 @@ export function isKnownCatalogModel(provider: string, modelId: string): boolean 
   return resolveOAuthModel(provider, modelId) !== null;
 }
 
-export function resolveModelObject(provider: string, modelId: string, baseUrl?: string): AnyModel {
+/**
+ * `declaredContextWindow` is the window the CALLER already knows — a custom
+ * model's operator-declared size, or a discovered row's reported one. Passing
+ * it is what stops the synthesized branches below from overwriting a known
+ * number with the 128k stand-in.
+ *
+ * That overwrite was a real, measured defect, not a hypothetical: an
+ * `ollama` model declared at 262,144 was shown in the picker at its declared
+ * size while the runtime budgeted it at 101,760 — the trim point was 2.2x
+ * tighter than the UI implied, and the history loss was silent. It is ignored
+ * for models the catalog already knows, which keep the catalog's (corrected)
+ * number.
+ */
+export function resolveModelObject(
+  provider: string,
+  modelId: string,
+  baseUrl?: string,
+  declaredContextWindow?: number,
+): AnyModel {
   // Kilo FIRST: it is not a pi-ai provider, so `getModels("kilo")` is empty and
   // every branch below would fall through to the generic OpenAI-completions
   // stand-in — pointing a Kilo pin at `https://api.openai.com/v1` with Kilo
@@ -450,11 +514,26 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
   // of resolving. Handled here rather than via the `baseUrl` argument because
   // the generic branch appends `/v1` to any baseUrl it is handed, and the
   // gateway root (`…/api/gateway`) must be passed through verbatim.
-  if (provider === KILO_PROVIDER) return resolveKiloModel(modelId);
+  //
+  // `declaredContextWindow` matters here specifically. `resolveKiloModel` reads
+  // only the built-in SEED, so a DISCOVERED Kilo id — one the gateway lists but
+  // the seed does not — fell through to its 128k stand-in while the picker
+  // showed the gateway's real number. Measured on the default keyless
+  // deployment: `nvidia/nemotron-3-ultra-550b-a55b:free` displayed 1,000,000
+  // and was budgeted at 128,000, an ~8x split. Kilo is the one provider where
+  // discovered rows enter TIER ROUTING (via `getRoutableOverlayModels`), so the
+  // caller already holds the right window and only needed a way to pass it.
+  if (provider === KILO_PROVIDER) {
+    const kilo = cappedModel(resolveKiloModel(modelId));
+    const declared = resolveContextWindow(provider, modelId, declaredContextWindow);
+    return declared.estimated || declared.contextWindow === kilo.contextWindow
+      ? kilo
+      : { ...kilo, contextWindow: declared.contextWindow };
+  }
 
   try {
     const found = getModel(provider as BuiltinProvider, modelId as never);
-    if (found) return found;
+    if (found) return cappedModel(found);
   } catch {
     // fall through
   }
@@ -470,7 +549,7 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
   // history rehydrator to skip image injection on the one provider that
   // needed it most.
   const oauthOverride = resolveOAuthModel(provider, modelId);
-  if (oauthOverride) return oauthOverride;
+  if (oauthOverride) return cappedModel(oauthOverride);
 
   // Known catalog provider + unknown model id (and no explicit baseUrl): a
   // persisted id that pi-ai has since dropped — e.g. pi-ai 0.80.6 retired the
@@ -524,7 +603,7 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
         reasoning: false,
         input: ["text"] as ("text" | "image")[],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-        contextWindow: 128_000,
+        contextWindow: resolveContextWindow(provider, modelId, declaredContextWindow).contextWindow,
         maxTokens: 16_384,
       };
     }
@@ -572,7 +651,7 @@ export function resolveModelObject(provider: string, modelId: string, baseUrl?: 
     reasoning: false,
     input: ["text"] as ("text" | "image")[],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 128_000,
+    contextWindow: resolveContextWindow(provider, modelId, declaredContextWindow).contextWindow,
     maxTokens: 16_384,
   };
 }

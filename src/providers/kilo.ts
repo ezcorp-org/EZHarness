@@ -194,6 +194,7 @@ export function kiloModelToEntry(model: KiloModel): ModelEntry {
     provider: KILO_PROVIDER,
     tier: kiloRoutingTier(model),
     contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
     vision: model.vision,
     reasoning: model.reasoning,
     costTier: kiloCostTier(model),
