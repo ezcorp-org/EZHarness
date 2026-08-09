@@ -6,7 +6,7 @@
  * exhaustively cover every branch (bwrap / landlock / advisory) by feeding
  * synthetic ProbeOutcomes — no syscalls, no spawns. The live FFI probes
  * are exercised by the in-repo evidence scripts under
- * src/extensions/sandbox/__spikes__/.
+ * scripts/spikes/.
  *
  * The thin impure probes (probeUserns / probeCgroupV2Delegation /
  * probeKvm / probeLandlockAbi) are exercised live (they must never throw —

@@ -333,6 +333,13 @@ web_bunleg_files() {
       # Same arrangement, same reason: vitest is the only coverage producer for
       # web/src/lib/**, and this suite is what covers context-usage-logic.ts.
       printf '%s\n' web/src/__tests__/context-usage-logic.test.ts
+      # Same arrangement again (issue #142) — these three cover format-map.ts
+      # and the inline-tool-store.svelte.ts rune module, which bun cannot even
+      # load. Explicit entries in web/vitest.config.ts; basenames kept so the
+      # Gate-integrity test-rename check stays satisfied.
+      printf '%s\n' web/src/__tests__/format-map.test.ts
+      printf '%s\n' web/src/__tests__/inline-tool-store.test.ts
+      printf '%s\n' web/src/__tests__/inline-tool-store-upsert.test.ts
       passfail_files
       coverage_host_files
     } 2>/dev/null | sort -u

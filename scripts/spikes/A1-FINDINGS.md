@@ -11,14 +11,16 @@ the `.ezcorp/data` leak class. The isolation thesis holds: build Part A.
 
 ```bash
 # Host
-bun src/extensions/sandbox/__spikes__/landlock-selftest.ts
+bun scripts/spikes/landlock-selftest.ts
 
-# Inside the app container (dev or prod)
-docker exec <ctr> mkdir -p /tmp/llspike/sandbox/__spikes__
-docker cp src/extensions/sandbox/landlock-ffi.ts        <ctr>:/tmp/llspike/sandbox/
-docker cp src/extensions/sandbox/capability-probe.ts    <ctr>:/tmp/llspike/sandbox/
-docker cp src/extensions/sandbox/__spikes__/landlock-selftest.ts <ctr>:/tmp/llspike/sandbox/__spikes__/
-docker exec <ctr> bun /tmp/llspike/sandbox/__spikes__/landlock-selftest.ts
+# Inside the app container (dev or prod). The script imports its two sandbox
+# modules by the repo-relative path ../../src/extensions/sandbox/…, so the
+# staging dir mirrors that shape.
+docker exec <ctr> mkdir -p /tmp/llspike/scripts/spikes /tmp/llspike/src/extensions/sandbox
+docker cp src/extensions/sandbox/landlock-ffi.ts     <ctr>:/tmp/llspike/src/extensions/sandbox/
+docker cp src/extensions/sandbox/capability-probe.ts <ctr>:/tmp/llspike/src/extensions/sandbox/
+docker cp scripts/spikes/landlock-selftest.ts        <ctr>:/tmp/llspike/scripts/spikes/
+docker exec <ctr> bun /tmp/llspike/scripts/spikes/landlock-selftest.ts
 ```
 
 Exit 0 = containment proven. The script applies a read-only Landlock ruleset

@@ -1,4 +1,6 @@
 import { describe, test, expect } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { truncateOutput } from "../db/queries/conversations";
 
 /**
@@ -15,8 +17,46 @@ import { truncateOutput } from "../db/queries/conversations";
  * - Backend: truncateOutput() for outputSummary in hydration API
  * - Backend: /api/tool-calls/[id]/output for full output fetch
  * - Frontend: extractToolOutput() for streaming tool calls
- * - Frontend: stringifyError() for inline tool store
+ * - Frontend: stringifyToolOutput() for the inline tool store
+ *
+ * The three frontend/API extractors below used to be three hand-copied
+ * re-implementations living IN THIS FILE — a test file named after a function,
+ * asserting against its own private clone (issue #142). They now come from the
+ * shipped `web/src/lib/tool-output.ts`.
+ *
+ * That module is LOADED, NOT IMPORTED, and the distinction is load-bearing:
+ * this is a `bun:test` under `src/`, and the vitest coverage leg measures
+ * `web/src/lib/**`. An `import` here would attach Bun's line-attribution to
+ * the same file the v8 leg attributes differently, and merge-lcov would union
+ * the two line sets into unreachable misses (CLAUDE.md, "Coverage trap";
+ * worked example: author-draft-allowlist-parity.test.ts). Transpiling the
+ * source and evaluating it emits no lcov record at all, while still running
+ * the REAL implementation — no clone left to drift.
  */
+
+const WEB_TOOL_OUTPUT = join(import.meta.dir, "..", "..", "web", "src", "lib", "tool-output.ts");
+
+const { extractToolOutput, stringifyToolOutput } = (() => {
+  const ts = readFileSync(WEB_TOOL_OUTPUT, "utf8");
+  // `new Bun.Transpiler` strips the TS types; dropping the `export` keywords
+  // turns the module body into a plain function body the last line closes over.
+  const js = new Bun.Transpiler({ loader: "ts" }).transformSync(ts).replace(/^export\s+/gm, "");
+  return new Function(
+    `${js}\nreturn { extractToolOutput, stringifyToolOutput };`,
+  )() as {
+    extractToolOutput: (value: unknown) => unknown;
+    stringifyToolOutput: (value: unknown) => string;
+  };
+})();
+
+describe("web/src/lib/tool-output.ts is loadable without importing it", () => {
+  test("both exports came back as functions (a failed eval must not read as a pass)", () => {
+    // Without this, a transpile/eval regression would surface as every
+    // assertion below throwing "not a function" — loud, but not diagnostic.
+    expect(typeof extractToolOutput).toBe("function");
+    expect(typeof stringifyToolOutput).toBe("function");
+  });
+});
 
 // ── truncateOutput: DB → outputSummary path ──────────────────────────
 
@@ -153,19 +193,7 @@ describe("truncateOutput", () => {
   });
 });
 
-// ── Frontend extraction: mirrors extractToolOutput from stores.svelte.ts ──
-
-function extractToolOutput(value: unknown): unknown {
-  if (value == null || typeof value !== "object") return value;
-  const obj = value as Record<string, unknown>;
-  if (Array.isArray(obj.content)) {
-    const texts = (obj.content as any[])
-      .filter((c: any) => c.type === "text" && typeof c.text === "string")
-      .map((c: any) => c.text);
-    if (texts.length > 0) return texts.join("\n");
-  }
-  return value;
-}
+// ── Frontend extraction: the real extractToolOutput (loaded above) ────────
 
 describe("extractToolOutput (streaming path)", () => {
   test("returns null/undefined as-is", () => {
@@ -223,32 +251,17 @@ describe("extractToolOutput (streaming path)", () => {
   });
 });
 
-// ── Frontend stringifyError: mirrors inline-tool-store.svelte.ts ──
+// ── Frontend stringifyToolOutput: the inline tool store's display slot ────
+// (the real one, loaded above — it used to be a `stringifyError` clone here)
 
-function stringifyError(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (
-    value &&
-    typeof value === "object" &&
-    "content" in value &&
-    Array.isArray((value as any).content)
-  ) {
-    const texts = (value as any).content
-      .filter((c: any) => c.type === "text" && typeof c.text === "string")
-      .map((c: any) => c.text);
-    if (texts.length > 0) return texts.join("\n");
-  }
-  return JSON.stringify(value);
-}
-
-describe("stringifyError (inline tool store path)", () => {
+describe("stringifyToolOutput (inline tool store path)", () => {
   test("returns string as-is", () => {
-    expect(stringifyError("hello")).toBe("hello");
+    expect(stringifyToolOutput("hello")).toBe("hello");
   });
 
   test("extracts text from ToolCallResult", () => {
     const result = { content: [{ type: "text", text: "output text" }], isError: false };
-    expect(stringifyError(result)).toBe("output text");
+    expect(stringifyToolOutput(result)).toBe("output text");
   });
 
   test("joins multiple text blocks", () => {
@@ -258,11 +271,11 @@ describe("stringifyError (inline tool store path)", () => {
         { type: "text", text: "line2" },
       ],
     };
-    expect(stringifyError(result)).toBe("line1\nline2");
+    expect(stringifyToolOutput(result)).toBe("line1\nline2");
   });
 
   test("falls back to JSON.stringify for unknown objects", () => {
-    expect(stringifyError({ foo: "bar" })).toBe('{"foo":"bar"}');
+    expect(stringifyToolOutput({ foo: "bar" })).toBe('{"foo":"bar"}');
   });
 
   test("never produces [object Object]", () => {
@@ -275,23 +288,16 @@ describe("stringifyError (inline tool store path)", () => {
       null,
     ];
     for (const c of cases) {
-      const result = stringifyError(c);
+      const result = stringifyToolOutput(c);
       expect(result).not.toBe("[object Object]");
     }
   });
 });
 
 // ── API endpoint output extraction: /api/tool-calls/[id]/output ──
-
-function apiExtractOutput(raw: unknown): unknown {
-  if (raw && typeof raw === "object" && Array.isArray((raw as any).content)) {
-    const texts = ((raw as any).content as any[])
-      .filter((c: any) => c.type === "text" && typeof c.text === "string")
-      .map((c: any) => c.text);
-    if (texts.length > 0) return texts.join("\n");
-  }
-  return raw;
-}
+// The route unwraps exactly the same envelope, so it gets the same function
+// rather than a third spelling of it.
+const apiExtractOutput = extractToolOutput;
 
 describe("API /api/tool-calls/[id]/output extraction", () => {
   test("extracts text from DB jsonb ToolCallResult", () => {
@@ -441,8 +447,8 @@ describe("E2E: tool output pipeline", () => {
         expect(extracted).not.toBe("[object Object]");
       }
 
-      // Frontend stringifyError path
-      const stringified = stringifyError(output);
+      // Frontend stringifyToolOutput path
+      const stringified = stringifyToolOutput(output);
       expect(stringified).not.toBe("[object Object]");
 
       // API extraction path

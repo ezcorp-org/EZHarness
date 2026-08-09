@@ -108,7 +108,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       systemPrompt,
       messages: body.messages.map((m): Message =>
         m.role === "assistant"
-          ? { role: "assistant" as const, content: [{ type: "text" as const, text: m.content }], api: "openai-completions" as any, provider: "unknown", model: "unknown", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop" as const, timestamp: Date.now() }
+          ? { role: "assistant" as const, content: [{ type: "text" as const, text: m.content }], api: "openai-completions", provider: "unknown", model: "unknown", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop" as const, timestamp: Date.now() }
           : { role: "user" as const, content: m.content, timestamp: Date.now() }
       ),
     };

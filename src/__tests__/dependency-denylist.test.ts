@@ -271,17 +271,41 @@ describe("biome lint policy", () => {
     // fix for each is a test that exercises it, at which point its entry here
     // should be deleted and the `any` annotated or removed like everywhere
     // else. This list must only ever shrink.
+    //
+    // It is now EMPTY (issue #142). All seven entries were closed, and each
+    // exit is worth knowing because the next candidate will look like one of
+    // them:
+    //   - `src/db/seed-marketplace.ts` and the `__spikes__/` landlock
+    //     self-test were MISFILED, not unmeasurable — a dev script with no
+    //     exports and an evidence spike that `process.exit()`s at module
+    //     scope. Both moved to `scripts/`, outside SOURCE_GLOBS.
+    //   - the other five were tested-but-unmeasured: their suites existed and
+    //     were green, they just weren't on BOTH of the vitest coverage leg's
+    //     hand-maintained allowlists in scripts/test-coverage.sh. Wiring them
+    //     in made the files measurable, at which point four of the sixteen
+    //     `any`s were typed away outright and the rest took an ordinary
+    //     inline `biome-ignore` with a reason.
     const unmeasurable = globs.filter(
       (g) => !g.startsWith("**/") && !g.startsWith("web/e2e"),
     );
-    expect(unmeasurable.sort()).toEqual([
-      "src/db/seed-marketplace.ts",
-      "src/extensions/sandbox/__spikes__/**",
-      "web/src/lib/components/ui/format-map.ts",
-      "web/src/lib/inline-tool-store.svelte.ts",
-      "web/src/routes/api/agent-configs/\\[id\\]/+server.ts",
-      "web/src/routes/api/agent-configs/generate/+server.ts",
-      "web/src/routes/api/projects/\\[id\\]/tool-permission-mode/+server.ts",
+    expect(unmeasurable.sort()).toEqual([]);
+  });
+
+  test("the rule-scoped noExplicitAny opt-out is exactly ONE override (test code)", async () => {
+    // Belt-and-braces on the ratchet above: `unmeasurable` filters by glob
+    // SHAPE, so a new opt-out written as `**/something.ts` would slip past it
+    // while still disabling the rule for product code. Pin the count instead —
+    // the test-file override is the only one that may exist.
+    const cfg = await readBiomeConfig();
+    const optOuts = (cfg.overrides ?? []).filter(
+      (o) => o.linter?.rules?.suspicious?.noExplicitAny === "off",
+    );
+    expect(optOuts).toHaveLength(1);
+    expect((optOuts[0]?.includes ?? []).sort()).toEqual([
+      "**/*.spec.ts",
+      "**/*.test.ts",
+      "**/__tests__/**",
+      "web/e2e/**",
     ]);
   });
 

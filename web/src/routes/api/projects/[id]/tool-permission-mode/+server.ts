@@ -20,7 +20,7 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
 	return handleSetPermissionMode(request, params.id, {
 		onModeChange: (mode, conversationId) => {
 			if (conversationId) {
-				bus.emit("tool:permission_mode_change" as any, { conversationId, mode });
+				bus.emit("tool:permission_mode_change", { conversationId, mode });
 			}
 		},
 	});

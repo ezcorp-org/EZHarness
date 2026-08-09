@@ -17,7 +17,7 @@
  *
  * The pure `selectTier()` is unit-tested exhaustively by mocking each
  * probe's outcome; the live FFI probes are exercised by the in-repo
- * evidence scripts under `__spikes__/`.
+ * evidence scripts under `scripts/spikes/`.
  */
 
 import { spawnSync } from "node:child_process";
