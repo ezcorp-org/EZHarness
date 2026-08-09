@@ -556,10 +556,47 @@ or removed the app degrades gracefully — tool chips keep working, the
 ✨ enhancement row hides. Full feature doc:
 [docs/features/composer/suggestions.md](features/composer/suggestions.md).
 
-| Stack | App networking | Ollama reachability | `EZCORP_SUGGEST_OLLAMA_URL` default |
-|---|---|---|---|
-| dev (`docker-compose.yml`) | `network_mode: host` | publishes `127.0.0.1:11434` (loopback only) | `http://localhost:11434` |
-| prod (`compose.prod.yml`) | compose bridge | service DNS, **no published port** | `http://ollama:11434` |
+| Stack | App networking | Ollama reachability | Starts by default? | `EZCORP_SUGGEST_OLLAMA_URL` default |
+|---|---|---|---|---|
+| dev (`docker-compose.yml`) | `network_mode: host` | publishes `127.0.0.1:11434` (loopback only) | **No** — `--profile ollama` | `http://localhost:11434` |
+| prod (`compose.prod.yml`) | compose bridge | service DNS, **no published port** | Yes | `http://ollama:11434` |
+
+**Dev: the sidecar is opt-in.** 11434 is the well-known Ollama port, so
+a dev box already running Ollama natively (Homebrew service, NixOS
+`services.ollama`, a bare `ollama serve`) is holding it — and a lost
+bind is not a degraded sidecar, it aborts the whole `up`:
+
+```
+Error response from daemon: failed to set up container networking:
+failed to bind host port 127.0.0.1:11434/tcp: address already in use
+```
+
+postgres, app and searxng go down with it, over a service all three are
+independent of. It also strands a half-created `ollama` container with
+no network attached, so the *next* `up` fails somewhere unrelated —
+`ollama-init` exits 1 on `lookup ollama on 127.0.0.11:53: no such
+host`, which reads as a DNS bug rather than a port conflict.
+
+So `docker compose up -d` leaves it alone. Start it when nothing else
+holds the port:
+
+```sh
+docker compose --profile ollama up -d
+```
+
+Opting out costs nothing: the app is `network_mode: host` and points at
+`http://localhost:11434`, which is answered by a host-native daemon or
+by the opted-in container indifferently. A box with its own Ollama
+already has working suggestions — just make sure it has the tag
+`EZCORP_SUGGEST_MODEL` names (`ollama pull qwen3:1.7b`), since
+`ollama-init` only provisions the container's volume. A box with
+neither degrades gracefully, exactly as when the service is down.
+
+Prod is **not** gated: it runs on the compose bridge and publishes no
+host port for ollama, so it has no address to collide with and stays
+zero-setup. `src/__tests__/compose-ollama-profile.test.ts` holds both
+stacks to that rule — publish a host port for ollama in either file and
+it demands a profile.
 
 **Model provisioning:** the one-shot `ollama-init` service pulls
 `EZCORP_SUGGEST_MODEL` (default `qwen3:1.7b`, ~1 GB, Apache-2.0) once
@@ -574,8 +611,9 @@ a self-fine-tuned `ezcorp-suggest`, see the feature doc's runbook);
 near zero (Ollama unloads idle models after ~5 min). Expect 2–6 s per
 enhancement on CPU; the UI treats it as ambient (never blocks typing).
 
-**Opting out / BYO:** delete the `ollama` + `ollama-init` services and
-the `ollama-models` volume to run without local suggestions — or point
+**Opting out / BYO:** in dev, simply don't pass `--profile ollama`. In
+prod, delete the `ollama` + `ollama-init` services and the
+`ollama-models` volume to run without local suggestions — or point
 `EZCORP_SUGGEST_OLLAMA_URL` at any existing Ollama / llama.cpp /
 OpenAI-compatible endpoint (host-side reads only; this URL is never
 handed to extensions). Admins can also kill the whole feature at

@@ -448,13 +448,53 @@ services:
       - SEARXNG_SECRET=${SEARXNG_SECRET:-dev-only-secret}
 
   # Local suggestion model for the composer's prompt-enhancement row.
-  # Same optional-sidecar contract as searxng: always-on with hard resource
-  # caps, loopback-only port, and deliberately NO depends_on — the app falls
-  # back (tool chips stay embedding-only, the ✨ row hides) whenever this
-  # service is down or removed. Model weights persist in the named volume,
-  # so the ~1GB download happens once.
+  # Same optional-sidecar contract as searxng: hard resource caps,
+  # loopback-only port, and deliberately NO depends_on — the app falls back
+  # (tool chips stay embedding-only, the ✨ row hides) whenever this service
+  # is down or absent. Model weights persist in the named volume, so the
+  # ~1GB download happens once.
+  #
+  # ── Why this one is OPT-IN and searxng is not ───────────────────────────
+  #
+  # Unlike 8889, port 11434 is the WELL-KNOWN Ollama port, so a dev box that
+  # already runs Ollama natively (Homebrew service, NixOS `services.ollama`,
+  # a bare `ollama serve`) is already listening on it. Publishing it here
+  # then loses the bind, and Docker does not degrade — it aborts the whole
+  # `up`:
+  #
+  #   Error response from daemon: failed to set up container networking:
+  #   failed to bind host port 127.0.0.1:11434/tcp: address already in use
+  #
+  # That takes down postgres/app/searxng too, over a sidecar every one of
+  # them is independent of. It also strands a half-created `ollama`
+  # container with NO network attached, which makes the NEXT `up` fail
+  # somewhere else entirely — `ollama-init` exits 1 on
+  # `lookup ollama on 127.0.0.11:53: no such host`, which reads as a DNS
+  # bug rather than a port conflict.
+  #
+  # Opting out costs nothing, because the app cannot tell the difference:
+  # it is `network_mode: host`, and EZCORP_SUGGEST_OLLAMA_URL defaults to
+  # `http://localhost:11434` — the same address whether a host-native
+  # daemon or this container is listening on it. So a box with its own
+  # Ollama already has working suggestions, and a box with neither degrades
+  # gracefully, exactly as when the service is down.
+  #
+  # Start it when you DON'T have a host-native Ollama (nothing else is
+  # holding 11434, so the publish succeeds):
+  #
+  #   docker compose --profile ollama up -d
+  #
+  # Both services carry the profile. Gating only the server would leave
+  # `ollama-init` starting on its own and exiting 1 — it resolves the server
+  # by compose DNS, and the name does not exist when the server is absent.
+  # src/__tests__/compose-ollama-profile.test.ts pins that pairing.
+  #
+  # Prod (compose.prod.yml) is deliberately NOT gated: it runs on the
+  # compose bridge and publishes NO host port for ollama, so it has no
+  # address to collide with and stays zero-setup.
   ollama:
     image: docker.io/ollama/ollama:latest
+    profiles: ["ollama"]
     restart: unless-stopped
     mem_limit: 4g
     cpus: 4
@@ -472,8 +512,12 @@ services:
   # One-shot puller: fetches the suggestion model on first `up`, then exits
   # (restart "no"). Idempotent — `ollama pull` no-ops when the tag is
   # already current in the shared volume.
+  #
+  # Same `ollama` profile as the server above, and that is load-bearing
+  # rather than tidiness — see the block on the server.
   ollama-init:
     image: docker.io/ollama/ollama:latest
+    profiles: ["ollama"]
     depends_on:
       ollama:
         condition: service_healthy
