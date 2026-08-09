@@ -51,6 +51,17 @@ const EXEMPT_PATTERNS: RegExp[] = [
   // full-suite run has zero preview-test failures. Revisit if
   // preview-*.test.ts start failing in full-directory runs only.
   /^\.\.\/runtime\/preview\/preview-(port-watcher|port-source|consent|netns|uid-pool|detection-bridge|bus-registry)$/,
+  // assert-bundled-not-stranded.test.ts stubs the bundled-extension
+  // registry. It cannot be snapshotted: the eager preload import pulled
+  // in the whole bundled-extension graph per spawn, so it was trimmed
+  // from MODULE_PATHS in wave 3 (see the note in
+  // helpers/mock-cleanup.ts). Known residual leak — inert under
+  // scripts/test.sh's one-process-per-file pool, because that suite
+  // mocks the path at module top level and never imports the real
+  // module. Until issue #138 this entry was unnecessary only because
+  // loadModulePaths() scraped the path back out of that helper's
+  // COMMENT; the exemption now carries the justification explicitly.
+  /^\.\.\/extensions\/bundled$/,
 ];
 
 // Paths the cleanup helper snapshots. Keep in sync with MODULE_PATHS +
@@ -59,14 +70,45 @@ const EXEMPT_PATTERNS: RegExp[] = [
 // to the absolute path relative to `src/`).
 import { readFileSync as rfs } from "node:fs";
 
-function loadModulePaths(): Set<string> {
-  const src = rfs(join(import.meta.dir, "helpers", "mock-cleanup.ts"), "utf8");
+/**
+ * Drop `//` line comments and `*` continuation lines from a source
+ * fragment before any quoted-string scrape.
+ *
+ * BOTH scrapers below depend on this, for the same reason and in both
+ * directions: a path merely NAMED in prose must never be mistaken for a
+ * real occurrence. On the mock side, preview-netns.test.ts's "we
+ * deliberately do NOT mock.module(\"…\")" note must not count as a mock
+ * target. On the MODULE_PATHS side, mock-cleanup.ts documents the paths
+ * it deliberately does NOT snapshot (the wave-3 trims) by quoting them —
+ * and a comment mention used to satisfy this meta-test for a mock that
+ * `restoreModuleMocks()` cannot actually undo (issue #138).
+ *
+ * Keep this as the single shared filter: when only `extractMockPaths()`
+ * had it, the two sides drifted and the gate silently passed.
+ */
+function stripCommentLines(source: string): string {
+  return source
+    .split("\n")
+    .filter((line) => !/^\s*(\/\/|\*)/.test(line))
+    .join("\n");
+}
+
+/**
+ * Scrape the quoted paths out of a `const MODULE_PATHS = [...]` literal.
+ * Split from `loadModulePaths()` so the comment-stripping behaviour can
+ * be asserted against synthetic sources without touching disk.
+ */
+function parseModulePaths(source: string): Set<string> {
   const paths = new Set<string>();
-  const arrayMatch = src.match(/const MODULE_PATHS = \[([\s\S]*?)\];/);
+  const arrayMatch = source.match(/const MODULE_PATHS = \[([\s\S]*?)\];/);
   if (arrayMatch) {
-    for (const m of arrayMatch[1]!.matchAll(/"([^"]+)"/g)) paths.add(m[1]!);
+    for (const m of stripCommentLines(arrayMatch[1]!).matchAll(/"([^"]+)"/g)) paths.add(m[1]!);
   }
   return paths;
+}
+
+function loadModulePaths(): Set<string> {
+  return parseModulePaths(rfs(join(import.meta.dir, "helpers", "mock-cleanup.ts"), "utf8"));
 }
 
 // `$server/<top>/<…>` paths that match a known top-level `$server/*`
@@ -113,14 +155,7 @@ function listTestFiles(dir: string): string[] {
 }
 
 function extractMockPaths(source: string): string[] {
-  // Strip `//` line comments first — prose like preview-netns.test.ts's
-  // "we deliberately do NOT mock.module(\"…\")" note must not count as
-  // a real mock target.
-  const code = source
-    .split("\n")
-    .filter((line) => !/^\s*(\/\/|\*)/.test(line))
-    .join("\n");
-  const matches = code.matchAll(/mock\.module\(\s*"([^"]+)"/g);
+  const matches = stripCommentLines(source).matchAll(/mock\.module\(\s*"([^"]+)"/g);
   return Array.from(matches, (m) => m[1]!);
 }
 
@@ -262,5 +297,60 @@ describe("mock-cleanup coverage (meta-test)", () => {
   test("IDX-07: '../../memory/embeddings' stays registered in MODULE_PATHS", () => {
     const modulePaths = loadModulePaths();
     expect(modulePaths.has("../../memory/embeddings")).toBe(true);
+  });
+
+  // Issue #138 regression pin. loadModulePaths() used to scrape EVERY quoted
+  // string out of the MODULE_PATHS body, comments included, so a path that
+  // mock-cleanup.ts explicitly documents as NOT snapshotted still counted as
+  // covered — and the gate passed for a mock restoreModuleMocks() cannot undo.
+  // A commented-out entry must not satisfy the gate.
+  test("a commented-out MODULE_PATHS entry is not treated as snapshotted", () => {
+    const source = [
+      'const MODULE_PATHS = [',
+      '  "../../real/snapshotted",',
+      '  // "../../line-commented/trimmed" was trimmed — zero mockers.',
+      '  /**',
+      '   * "../../block-commented/trimmed" is only named in prose here.',
+      '   */',
+      '  "../../also/real",',
+      '];',
+    ].join("\n");
+
+    const parsed = parseModulePaths(source);
+
+    expect([...parsed].sort()).toEqual(["../../also/real", "../../real/snapshotted"]);
+    expect(parsed.has("../../line-commented/trimmed")).toBe(false);
+    expect(parsed.has("../../block-commented/trimmed")).toBe(false);
+  });
+
+  // The live consequence from the issue, pinned against the REAL helper.
+  // `../../extensions/bundled` is deliberately TRIMMED from MODULE_PATHS
+  // (its eager preload import pulls the whole bundled-extension graph per
+  // spawn), so assert-bundled-not-stranded.test.ts's stub is held by an
+  // explicit exemption — NOT by loadModulePaths() scraping the path back out
+  // of the helper's own comment, which is what used to happen. Both halves
+  // matter: re-snapshotting the path or dropping the exemption should each
+  // be a deliberate decision, not a silent one.
+  test("'../extensions/bundled' is held by an exemption, not a comment scrape", () => {
+    expect(loadModulePaths().has("../../extensions/bundled")).toBe(false);
+    expect(isExempt("../extensions/bundled")).toBe(true);
+  });
+
+  // The same filter guards the other scrape direction — prose naming a
+  // mock.module() target must not count as a real one. Both scrapers share
+  // stripCommentLines() precisely so they cannot drift apart again.
+  test("extractMockPaths and parseModulePaths share the comment filter", () => {
+    // `q` keeps the fixture's quotes out of the literal `mock.module("` form,
+    // so the walker above does not scrape this meta-test's own fixture as a
+    // real mock target (the same self-reference the `${` exemption covers).
+    const q = '"';
+    const commented = [
+      `// we deliberately do NOT mock.module(${q}../commented/only${q}) here`,
+      ` * mock.module(${q}../block-commented/only${q})`,
+      `mock.module(${q}../genuinely/mocked${q}, () => ({}));`,
+    ].join("\n");
+
+    expect(extractMockPaths(commented)).toEqual(["../genuinely/mocked"]);
+    expect(stripCommentLines(`// ${q}x${q}\n${q}y${q}`)).toBe(`${q}y${q}`);
   });
 });
