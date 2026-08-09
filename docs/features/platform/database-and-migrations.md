@@ -49,6 +49,35 @@ Three distinct non-destructive failure paths, all surfacing through the `readine
 - **Migration failure (rollback + circuit breaker).** Before open+migrate, `snapshotPreBoot()` copies the DB dir to `backups/pre-boot-<sha>-<iso>/` (keep 3). If `migrate()` throws, `rollbackMigration()` closes PGlite, renames the failed dir to `.failed.<ts>` (atomic, kept for forensics), `cpSync`-restores the latest pre-boot snapshot, writes a `.migration-failed` marker keyed on `EZCORP_IMAGE_SHA`, sets readiness `degraded / migration-failed`, and `process.exit(1)`. On the **next** boot of that same image SHA, the circuit breaker reads the marker and **skips `migrate()`** entirely — booting on the restored snapshot so pre-failure features still work while `/api/ready` reports 503. A clean boot calls `clearMarker()`. (On external Postgres there is no snapshot/rollback — a failed migrate just sets `degraded` and re-throws; manual intervention.)
 - **Interval backups.** `startBackups()` copies the live DB dir to `backups/ezcorp-db-<iso>/` every 30 min (keep 5), pruned by mtime. No-ops for `:memory:`, external Postgres, or while readiness is `degraded` (don't overwrite the trusted snapshot). `stopBackups()` takes a final backup on graceful shutdown.
 
+### Cross-major PostgreSQL upgrade of the PGlite datadir (`src/db/datadir-upgrade.ts`)
+
+PGlite bundles a whole Postgres build, so a PGlite bump can bump Postgres: `@electric-sql/pglite` 0.3.16 ships **PostgreSQL 17.5**, 0.5.4 ships **PostgreSQL 18.3**. Postgres data directories are never compatible across majors, so a 0.3.x datadir makes the 0.5.x engine abort at startup with `FATAL: database files are incompatible with server` — surfaced only as the uninformative "PGlite failed to initialize properly", because PGlite swallows the FATAL unless `debug` is on. PGlite is the default database whenever `DATABASE_URL` is unset, so without a migration every existing self-hosted deployment would fail to boot on update.
+
+`pg_upgrade` does not exist in a WASM build, so the upgrade is a logical dump under the old engine and a restore under the new one. Both are installed at once: **`@electric-sql/pglite-legacy`** is an alias of 0.3.16 kept solely to READ old datadirs (via `@electric-sql/pglite-tools`' `pgDump`), and it can be dropped once no supported upgrade path starts at PG 17.
+
+`upgradeDatadirIfNeeded(DB_PATH)` runs in `initPglite()` immediately after `claimHolder()` and before `openPglite()`. It reads the datadir's `PG_VERSION` file: `18` and a fresh install are no-ops, `17` upgrades, and **any other value refuses to boot loudly** rather than silently presenting an empty database.
+
+**The original datadir is never mutated.** The new one is built alongside it and swapped in only after being verified row-for-row against the source:
+
+| path | role |
+|---|---|
+| `<db>` | the live datadir |
+| `<db>.pg-upgrade-tmp` | staging; built, verified, then renamed into place |
+| `<db>.pg17-backup.<ts>` | the original, retained after the swap — **this is the rollback** |
+| `<db dir>/.ezcorp-datadir-upgrade.json` | crash marker; a sibling, so datadir renames can't move it |
+
+The only destructive operations are two `rename(2)` calls, and the state between them is detectable. On the next boot `resolveRecovery()` reads the on-disk `PG_VERSION` of each path — never mere directory existence, since `initPglite` may have `mkdir`ed an empty one — and decides: live `18` → clear the marker; live `17` → nothing was renamed, retry; live absent + staging `18` → **crashed between the renames, finish the swap**; live absent + backup `17` → roll back and retry; anything else → refuse. A half-swapped datadir is never presented as healthy. A *handled* failure (as opposed to a crash) removes its staging and clears its own marker, so the disk is left exactly as it was and the next boot is a clean retry.
+
+**Two traps the implementation encodes**, both found empirically: `pgDump`'s script opens by setting an empty `search_path`, so it must be replayed as one whole `exec()` — splitting it into statements loses that session state and the restore half-fails with `relation "public.x" does not exist`. And the session that ran the restore still carries that empty `search_path`, so verification must **reconnect** or unqualified operators fail (`operator does not exist: public.vector <-> unknown`).
+
+**PGlite 0.4.x is never used as a stepping stone.** It is still PostgreSQL 17, which makes it look like a cheaper intermediate hop; it is in fact the more dangerous version. 0.4.x changed the default database from `template1` to `postgres`, so opening a 0.3.x datadir with it *succeeds* and presents an empty database — 0 tables, no `vector` extension — while the real data sits unreachable in `template1`. `migrate()` would then recreate the schema empty and the user would see an empty install with no error anywhere. The 0.5.x hard refusal is by far the safer failure, so the upgrade goes 0.3 → 0.5 directly.
+
+**Explicit database names, never the driver default.** PGlite moved its default database from `template1` to `postgres` in 0.4.x. The dump reads `LEGACY_SOURCE_DATABASE` (`template1`) and the restore writes `APP_DATABASE` (`postgres`) — the same constant `connection.ts` passes to `openPglite()`, so the database the restore writes and the one the app reads are one name from one place rather than two defaults that happen to agree. Left implicit it would work for this exact version pair by luck; if a future PGlite moved the default again, an implicit dump would read an EMPTY database and "successfully" migrate nothing.
+
+**`snapshotPreBoot()` is not a rollback across a major.** The pre-boot snapshot and the interval backups are `cpSync` copies of the data directory, so across this upgrade they are copies of a PG 17 directory and will not open under PG 18. They only help alongside an image rollback — the same condition as the retained `*.pg17-backup.*`. The operator docs say this plainly rather than letting it be inferred.
+
+**Maintenance coupling.** pgvector is no longer bundled in PGlite; it lives in `@electric-sql/pglite-pgvector`, a **0.0.x** package that peer-pins an *exact* PGlite version (`0.0.5` → `0.5.4`). The root `@electric-sql/pglite` pin is therefore exact too, not a caret: a caret would let a patch bump drift off the pinned peer. Every future PGlite bump needs a matching pgvector release, which did not use to be true.
+
 ### NUL (U+0000) scrubbing at the column boundary
 
 Postgres cannot store U+0000 in `text` **or** `jsonb` — it is a storage-format limit, not a setting. One NUL anywhere in a value aborts the whole INSERT server-side (`invalid byte sequence for encoding "UTF8": 0x00` for text, `unsupported Unicode escape sequence` for jsonb). Tool- and subprocess-derived strings carry them: extension spawn errors embed a NUL in the reported path, and from 2026-07-20 that silently stopped every `tool_error` row reaching `observability_events` and dropped the matching `tool_calls` rows. It was invisible because both writers deliberately never throw — the failed tool call just disappeared from history and from the observability panel.
@@ -93,6 +122,7 @@ Operators and code interact with the DB mostly indirectly; the surface area is:
 - `src/db/migrate.ts` — the single idempotent `migrate(db)`: all `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` DDL, indexes, CTE backfills, and seeds.
 - `src/db/schema.ts` — Drizzle table definitions (74 `pgTable`s) — the typed API the query layer consumes.
 - `src/db/backup.ts` — pre-boot snapshots, 30-min interval backups, pruning, and the `.migration-failed` / `.ezcorp-recovery-needed.json` markers.
+- `src/db/datadir-upgrade.ts` — cross-major PostgreSQL upgrade of the PGlite datadir (PG 17 → 18): `PG_VERSION` detection, dump/restore via the `-legacy` alias, row-for-row verification, atomic swap, crash recovery, and the shared stale-lockfile pre-flight.
 - `src/db/migrations/*.ts` — per-feature `up(db)` modules (rationale headers + focused-test targets); **not** boot-sequenced.
 - `src/db/queries/*.ts` — ~45 entity query modules built on `getDb()` (the actual read/write call sites).
 - `src/readiness.ts` — `getReadiness`/`setReadiness`; backs `/api/ready`.

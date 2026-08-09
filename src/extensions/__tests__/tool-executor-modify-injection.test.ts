@@ -10,8 +10,8 @@
 // circuits before any subprocess), and assert the injection predicate
 // on all four arms + the install_draft parity arm.
 
-import { test, expect, describe, mock } from "bun:test";
-import { setupTestDb, getTestPglite } from "../../__tests__/helpers/test-pglite";
+import { test, expect, describe, mock, afterAll } from "bun:test";
+import { setupTestDb, getTestPglite, closeTestDb } from "../../__tests__/helpers/test-pglite";
 
 // ToolExecutor's import graph can transitively touch db/connection;
 // stub it like drafts-handler.test.ts so import never needs a live DB.
@@ -30,6 +30,12 @@ mock.module("../../db/connection", () => ({
 }));
 
 await setupTestDb();
+// Release the PGlite handle at teardown, like the other 396 DB-using suites.
+// PGlite 0.5.x aborts the process (exit 99) when a WASM instance is still open
+// at exit, so leaking it turns an all-green file into a failed one.
+afterAll(async () => {
+  await closeTestDb();
+});
 const { ToolExecutor } = await import("../tool-executor");
 
 interface Cap {
