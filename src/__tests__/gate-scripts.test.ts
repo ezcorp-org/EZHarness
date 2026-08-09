@@ -1620,11 +1620,15 @@ describe("gate-integrity: biome.json — against the REAL config", () => {
   test("shrinking the real noExplicitAny opt-out list is silent (#142)", async () => {
     const real = await readReal();
     const head = JSON.parse(real) as BiomeFixture;
-    // The unmeasurable-files override is the one #142 shrinks. Drop paths from
-    // it exactly as that PR does — the list "must only ever shrink", per
-    // dependency-denylist.test.ts.
-    const target = (head.overrides ?? []).find((o) =>
-      (o.includes ?? []).includes("src/db/seed-marketplace.ts"),
+    // Find the opt-out by the RULE it disarms, not by a path inside it. This
+    // named `src/db/seed-marketplace.ts` until #142 closed the last row and
+    // deleted that entry outright — so a hardcoded path makes the test die of
+    // the cleanup it is meant to bless, rather than of the behaviour it pins.
+    // Whichever override turns noExplicitAny off, shrinking its `includes` is
+    // a strengthening ("must only ever shrink", per dependency-denylist.test.ts)
+    // and must stay silent.
+    const target = (head.overrides ?? []).find(
+      (o) => fixtureGroup(o.linter, "suspicious")?.noExplicitAny === "off",
     );
     expect(target).toBeDefined();
     const kept = (target?.includes ?? []).slice(0, 2);
