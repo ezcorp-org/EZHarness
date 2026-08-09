@@ -4,6 +4,7 @@
 	import ModeSelector from "./ModeSelector.svelte";
 	import ConversationToolsSelector from "./ConversationToolsSelector.svelte";
 	import type { Mode } from "$lib/api";
+	import type { ModelWindowLike } from "$lib/context-usage-logic";
 	import MentionPopover from "./MentionPopover.svelte";
 	import MentionChip from "./MentionChip.svelte";
 	import InfoTooltip from "./InfoTooltip.svelte";
@@ -72,6 +73,7 @@
 		modelSupportsReasoning = false,
 		onreasoningchange,
 		oncontextwindowchange,
+		onmodelsloaded,
 		conversationId = '',
 		projectId,
 		ontoolinvoke,
@@ -110,6 +112,8 @@
 		modelSupportsReasoning?: boolean;
 		onreasoningchange?: (reasoning: boolean) => void;
 		oncontextwindowchange?: (contextWindow: number | null) => void;
+		/** Relayed straight through from ModelSelector — see its prop docs. */
+		onmodelsloaded?: (models: readonly ModelWindowLike[]) => void;
 		conversationId?: string;
 		/**
 		 * Active project id from the URL (`page.params.id`). Required for
@@ -1053,7 +1057,7 @@
 				<div class="flex items-center gap-3">
 					<div class="flex flex-col">
 						<span class="toolbar-label" data-tip="Choose which AI model powers this conversation">Model</span>
-						<ModelSelector selected={selectedModel} onselect={onmodelchange} {onreasoningchange} {oncontextwindowchange} {onautoselect} {allowAuto} {autoServed} {defaultSelection} />
+						<ModelSelector selected={selectedModel} onselect={onmodelchange} {onreasoningchange} {oncontextwindowchange} {onmodelsloaded} {onautoselect} {allowAuto} {autoServed} {defaultSelection} />
 					</div>
 					{#if modelSupportsReasoning && onthinkinglevelchange}
 						<div class="flex flex-col">

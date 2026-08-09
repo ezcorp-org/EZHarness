@@ -5,6 +5,7 @@ import { getSetting } from "$server/db/queries/settings";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { resolveProviderAvailability } from "$lib/server/provider-availability";
+import { computeInputBudget } from "$server/runtime/stream-chat/context-compaction";
 
 function mapModel(m: ModelEntry, available: boolean) {
 	return {
@@ -12,6 +13,16 @@ function mapModel(m: ModelEntry, available: boolean) {
 		model: m.id,
 		tier: m.tier,
 		contextWindow: m.contextWindow,
+		// The number the runtime ACTUALLY enforces: contextWindow minus the
+		// response reserve minus the safety margin. Computed here, server-side,
+		// from the one gated implementation — the client must never re-derive it,
+		// or the gauge and the trim point drift apart again the first time the
+		// compaction constants change.
+		inputBudget: computeInputBudget({
+			maxTokens: m.maxTokens ?? 0,
+			contextWindow: m.contextWindow,
+		}),
+		estimated: m.estimated === true,
 		vision: m.vision,
 		reasoning: m.reasoning,
 		costTier: m.costTier,

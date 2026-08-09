@@ -1,24 +1,34 @@
 <script lang="ts">
 	import { tick } from "svelte";
 	import {
+		budgetExplanation,
 		computePct,
 		computeTone,
 		fmtTokens,
-		tooltipText,
+		summaryText,
 		groupToolBreakdown,
 		type ContextBreakdown,
+		type ContextDenominator,
 		type ToolBreakdownEntry,
 	} from "$lib/context-usage-logic";
 
 	let {
 		usedTokens,
 		contextWindow,
+		denominator = null,
 		breakdown = null,
 		toolBreakdown = [],
 		oncallclick,
 	}: {
 		usedTokens: number | null;
 		contextWindow: number | null;
+		/**
+		 * The served model's window AND the budget the runtime enforces. When
+		 * omitted the component degrades to measuring against `contextWindow`
+		 * alone — the old behavior, kept so callers that have no model catalog
+		 * to hand still render something honest.
+		 */
+		denominator?: ContextDenominator | null;
 		breakdown?: ContextBreakdown | null;
 		toolBreakdown?: readonly ToolBreakdownEntry[];
 		/**
@@ -84,9 +94,22 @@
 		positionPopover();
 	}
 
-	let pct = $derived(computePct(usedTokens, contextWindow));
+	// A caller that passes no `denominator` gets one synthesized from
+	// `contextWindow`, with the budget equal to the window. That is the pre-fix
+	// arithmetic exactly — so this component's behavior is unchanged for those
+	// callers rather than quietly re-scaled.
+	let denom = $derived<ContextDenominator | null>(
+		denominator ??
+			(typeof contextWindow === "number" && Number.isFinite(contextWindow) && contextWindow > 0
+				? { contextWindow, inputBudget: contextWindow, estimated: false, matched: true }
+				: null),
+	);
+	// The percentage is against the ENFORCED budget: 100% now means "compaction
+	// is dropping messages", not "the model would reject this".
+	let pct = $derived(computePct(usedTokens, denom?.inputBudget ?? null));
 	let tone = $derived(computeTone(pct));
-	let summary = $derived(tooltipText(usedTokens, contextWindow));
+	let summary = $derived(summaryText(usedTokens, denom));
+	let explanation = $derived(budgetExplanation(denom));
 
 	let triggerEl = $state<HTMLDivElement | null>(null);
 	let popoverEl = $state<HTMLDivElement | null>(null);
@@ -170,7 +193,12 @@
 					style="width: {pct}%"
 				></div>
 			</div>
-			<span data-testid="context-usage-pct">{Math.round(pct)}%</span>
+			<!-- The tilde is the whole "estimated" affordance on the pill: a guessed
+			     window used to render identically to a measured one, which is what
+			     made an invented 128k look authoritative. The tooltip says why. -->
+			<span data-testid="context-usage-pct" data-estimated={denom?.estimated ? "true" : "false"}>
+				{denom?.estimated ? "~" : ""}{Math.round(pct)}%
+			</span>
 		</div>
 
 		{#snippet callList(calls: readonly { callId?: string; tokens: number; pct: number; preview: string }[])}
@@ -393,7 +421,12 @@
 				{/if}
 
 				<div class="mt-2 border-t border-[var(--color-border)] pt-2 text-[var(--color-text-muted)]">
-					{summary}
+					<div data-testid="ctx-usage-summary">{summary}</div>
+					{#if explanation}
+						<div class="mt-1 leading-relaxed" data-testid="ctx-usage-explanation">
+							{explanation}
+						</div>
+					{/if}
 				</div>
 			</div>
 		{/if}
