@@ -29,6 +29,11 @@ bun run podman logs -f app
 bun run podman down
 ```
 
+It `exec`s `docker compose "$@"`, so every flag passes straight through —
+including the opt-in suggestion sidecar
+([below](#suggestion-model-sidecar-ollama)):
+`bun run podman --profile ollama up -d`.
+
 It points `DOCKER_HOST` at the rootless Podman socket and layers
 `compose.podman.yml` on top of `docker-compose.yml`. Start the socket
 once per host:

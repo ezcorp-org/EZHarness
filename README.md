@@ -64,6 +64,21 @@ cp .env.example .env
 docker compose up -d                               # → http://localhost:3000
 ```
 
+**Optional local suggestion model.** The composer's ✨ prompt-enhancement row
+needs an Ollama on `localhost:11434`. The dev stack ships one, but it is
+**opt-in**, because publishing that well-known port fails the whole `up` on a
+box already running Ollama natively:
+
+```bash
+docker compose --profile ollama up -d              # adds the sidecar
+```
+
+Skip it if you already run Ollama yourself — the app is host-networked and
+uses whatever answers on `:11434`, so your own daemon works as-is (just
+`ollama pull qwen3:1.7b`). With neither, the ✨ row simply hides; everything
+else, including the tool-suggestion chips, is unaffected. Details:
+[deployment.md](docs/deployment.md#suggestion-model-sidecar-ollama).
+
 ### Self-modification project (dogfooding)
 
 The dev stack mounts the **whole checkout** read-write at `/repo` inside the

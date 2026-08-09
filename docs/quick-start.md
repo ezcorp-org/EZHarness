@@ -67,6 +67,12 @@ This uses the dev `docker-compose.yml` — a different stack from self-hosted:
 - Live source mounts for HMR
 - Built from `Dockerfile.dev`, not the production `Dockerfile`
 - No image labels, readiness gate, or update check
+- The Ollama suggestion sidecar is **opt-in** (`docker compose --profile ollama
+  up -d`), unlike self-hosted where it starts by default. Publishing the
+  well-known port 11434 would abort the whole `up` on a box already running
+  Ollama natively — and it doesn't need to, since the app is host-networked and
+  uses whatever answers on `localhost:11434`. See
+  [deployment.md](deployment.md#suggestion-model-sidecar-ollama).
 
 Use it for hacking; don't run it as a production instance.
 
