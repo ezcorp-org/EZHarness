@@ -7,6 +7,12 @@ backups, auto-updates, and TLS.
 ## Prerequisites
 
 - Docker with Docker Compose v2
+- **~1 GiB RAM available to the `app` container.** The embedded PGlite
+  engine is a WASM Postgres build held in-process: measured steady-state
+  RSS is **~557 MiB** with the database merely open, before any request
+  load. `compose.prod.yml` caps `searxng` (256m) and `ollama` (4g) but
+  deliberately leaves `app` uncapped — so on a memory-tight host the app
+  is what the OOM killer reaches for. Budget headroom rather than a floor.
 - (Optional) Reverse proxy for HTTPS (Caddy, nginx)
 - (Optional) PostgreSQL 15+ with [pgvector](https://github.com/pgvector/pgvector) **≥ 0.5.0** (the memory/knowledge-base embedding indexes use HNSW, which requires pgvector 0.5.0 or newer) — only if you choose external DB
 
@@ -86,6 +92,9 @@ deploy with an explanatory error.
 | `EZCORP_SECRETS_DIR`          | No       | Directory for legacy auto-generated secret fallbacks (`.pi-secret`, `.pi-salt`). Default: parent of `EZCORP_DB_PATH`. |
 | `EZCORP_DB_PATH`              | No       | DB directory inside the container (default: `/app/data/ezcorp`).                                                |
 | `EZCORP_BACKUP_DIR`           | No       | Override the backup directory. Default: sibling `backups/` of the DB dir (`/app/data/backups` under defaults).  |
+| `EZCORP_BACKUP_INTERVAL_MS`   | No       | Interval-backup period in milliseconds. Default: `1800000` (30 minutes). See §3.                               |
+| `EZCORP_BACKUP_INTERVAL_KEEP` | No       | Interval snapshots retained. Default: `12` (≈6 h of history at the default period). See §3.                    |
+| `EZCORP_BACKUP_DAILY_KEEP`    | No       | Daily snapshots retained, one per UTC day. Default: `7`. See §3.                                               |
 | `EZCORP_SCAN_GLOBAL_COMMANDS` | No       | Set to `0` to disable slash-command discovery from the server's home dir. **Recommended for multi-tenant.**     |
 | `DATABASE_URL`                | No       | Use external Postgres instead of embedded PGlite (see §5).                                                      |
 | `SEARXNG_BASE_URL`            | No       | Where the bundled web-search extension finds SearXNG. Default: `http://searxng:8080` (the bundled sidecar). Custom hostnames also need the extension's network grant widened — see [deployment.md "Web search sidecar"](deployment.md#web-search-sidecar-searxng). |
@@ -357,8 +366,10 @@ incidents on 2026-05-10. Instead, the container:
 docker exec <container> cat /app/data/.ezcorp-recovery-needed.json
 docker exec <container> ls -la /app/data/backups/
 # `pre-boot-<sha>-<ts>/` snapshots are taken on every clean boot (3 retained).
-# `ezcorp-db-<ts>/` snapshots are taken every 30 min while healthy (5 retained).
+# `ezcorp-db-<ts>/` snapshots are taken every 30 min while healthy (12 retained).
+# `daily-<YYYY-MM-DD>/` snapshots are one per UTC day (7 retained).
 # Pick the newest pre-boot or ezcorp-db snapshot — that's the rollback target.
+# Reach for a daily- snapshot only if the loss predates the ~6 h interval window.
 ```
 
 **Step 2 — swap in a clean snapshot:**
@@ -426,14 +437,26 @@ the next transient open failure will destroy user data. The default
 
 ## 3. Backups
 
-Two kinds of backups live under `/app/data/backups/`:
+Three tiers of backups live under `/app/data/backups/`:
 
-| Prefix        | Cadence                        | Retention | Purpose                                                          |
-|---------------|--------------------------------|-----------|------------------------------------------------------------------|
-| `pre-boot-`   | Every container start          | 3         | Rollback target if the next migration fails                      |
-| `ezcorp-db-`  | Every 30 minutes while healthy | 5         | Point-in-time recovery, copied once more on graceful shutdown    |
+| Prefix       | Cadence                               | Retention | Purpose                                                             |
+|--------------|---------------------------------------|-----------|---------------------------------------------------------------------|
+| `pre-boot-`  | Every container start, before migrate | 3         | Rollback target if the next migration fails                         |
+| `ezcorp-db-` | Every 30 minutes while healthy        | 12        | Fine-grained recent recovery, copied once more on graceful shutdown |
+| `daily-`     | First interval backup of each UTC day | 7         | Long-horizon recovery for data loss noticed days later              |
 
-> *Legacy:* instances upgraded from an earlier build may still carry `pi-db-*` entries. They count toward the 5-backup cap and age out on the same newest-first rotation — no manual cleanup needed.
+**Your restore horizon is ~6 hours of half-hourly points, plus 7 daily
+points going back a week.** The interval tier alone only reaches back
+`12 × 30 min`; the daily tier exists precisely because data loss is often
+noticed long after that window closes — including loss caused by an LLM
+tool action mutating data. Size your tolerance against both numbers, not
+against the interval tier alone.
+
+The `daily-` copy is not a third scan of the live database: it is copied
+from the interval snapshot that was just written, so it costs one extra
+directory copy per day rather than per interval.
+
+> *Legacy:* instances upgraded from an earlier build may still carry `pi-db-*` entries. They are counted together with `ezcorp-db-*` against the same 12-backup interval cap and age out on the same newest-first rotation — no manual cleanup needed.
 
 Each is a full directory copy of the PGlite data (cheap — PGlite datasets
 are typically under a few hundred MB). Restore by stopping the container,
@@ -449,6 +472,27 @@ docker compose -f compose.prod.yml up -d
 
 Move `EZCORP_BACKUP_DIR` to a separate mount (e.g. an NFS volume or S3-mounted
 path) if you want off-host snapshots.
+
+### Widening the restore horizon
+
+The interval and daily tiers are tunable without a rebuild — raise them if
+your tolerance for data loss is tighter than the defaults:
+
+```bash
+EZCORP_BACKUP_INTERVAL_MS=900000    # every 15 min instead of 30
+EZCORP_BACKUP_INTERVAL_KEEP=24      # 24 × 15 min = 6 h of fine-grained points
+EZCORP_BACKUP_DAILY_KEEP=30         # a month of daily points
+```
+
+Each must parse as a **positive integer**; anything else (including `0`)
+is ignored and the default applies. The pre-boot cap of 3 is a fixed
+constant with no environment override — it is sized for repeated restart
+loops, not for retention.
+
+Disk is the real constraint: every snapshot is a full copy of the data
+directory, so the worst case is roughly
+`(interval_keep + daily_keep + 3) × datadir` under `EZCORP_BACKUP_DIR`.
+At the defaults that is 22 copies.
 
 ## 4. Auto-updates
 
