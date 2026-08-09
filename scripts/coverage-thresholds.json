@@ -165,6 +165,7 @@
   "src/runtime/sentinels.ts": 100,
   "src/runtime/tier-classifier.ts": 100,
   "src/runtime/routing/dropped-models.ts": 100,
+  "src/runtime/routing/model-context-windows.ts": 100,
   "src/runtime/routing/tier-ladder.ts": 100,
   "src/runtime/routing/custom-models.ts": 100,
   "src/runtime/routing/kilo-catalog.ts": 100,
