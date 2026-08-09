@@ -69,7 +69,12 @@ jobs:
         with:
           web: "true"
           sync: "true"
-      - run: cd web && bunx svelte-check
+      # --tsgo selects the TypeScript 7 native (Go) compiler. svelte-check
+      # THROWS if the resolved `typescript` package is major >= 7, so the
+      # supported shape is a dual install: `typescript` stays 6.x (what tsc
+      # and the language service use) and `@typescript/native` is an alias of
+      # typescript@7 that only this flag reaches. See web/CLAUDE.md.
+      - run: cd web && bunx svelte-check --tsgo
 
   # vitest runs both *.component.test.ts (Svelte DOM) and *.server.test.ts
   # (route-handler unit tests), 3-way sharded for wall clock (per-file costs

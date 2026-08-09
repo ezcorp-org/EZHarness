@@ -6,6 +6,32 @@ prod served via `svelte-adapter-bun`; dev is `vite dev` (the repo-root
 HTML-imports pattern — `Bun.serve()` is the backend's server, not the
 frontend build.
 
+## TypeScript is a DUAL install — don't "tidy" it to one
+
+`package.json` carries two compilers on purpose:
+
+| dep | version | who uses it |
+|---|---|---|
+| `typescript` | `^6.0.3` | `tsc --noEmit` (`scripts/typecheck.sh`), the editor language service, Vite |
+| `@typescript/native` | `npm:typescript@7.0.2` | `svelte-check --tsgo` only |
+
+This is the shape svelte-check itself prescribes, and it is load-bearing:
+`svelte-check/bin/ts-version-check.js` reads `require('typescript/package.json')`
+and **throws** when that major is `>= 7` — no flag suppresses it. So bumping
+`typescript` to 7 breaks the `Svelte check` CI job outright (that is exactly
+what dependabot PR #163 did). TypeScript 7 is the native Go port; it reaches
+the codebase only through the alias, selected by `--tsgo`.
+
+Consequences:
+
+- **`--tsgo` must be on every svelte-check call site**, and there are three:
+  `.github/workflows/ci.yml`, `scripts/lib/hook-lib.sh` (`svelte_check`), and
+  the `check` / `check:watch` scripts here. Drop it from one and that path
+  throws instead of checking — a hole, not a failure.
+- The repo root still pins `typescript@^5.9.3` for the backend leg. Root and
+  web are separate installs (`web` is not a bun workspace), so the versions are
+  independent by design.
+
 ## Tests in this tree
 
 - Svelte component (`*.component.test.ts`), server-route (`*.server.test.ts`),

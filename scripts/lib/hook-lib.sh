@@ -48,12 +48,14 @@ run_biome_full() {
 
 # svelte_check
 # The same errors-only Svelte template/type gate CI runs (`cd web && bunx
-# svelte-check`, preceded by `svelte-kit sync` so generated `$types` exist).
-# Warnings stay visible; only errors set a non-zero exit.
+# svelte-check --tsgo`, preceded by `svelte-kit sync` so generated `$types`
+# exist). Warnings stay visible; only errors set a non-zero exit.
+# --tsgo must match ci.yml exactly — without it svelte-check throws on the
+# TypeScript 7 dual install rather than running (see web/package.json).
 svelte_check() {
   (
     cd web || return 1
     bunx --bun svelte-kit sync >/dev/null 2>&1 || true
-    bunx svelte-check
+    bunx svelte-check --tsgo
   )
 }
