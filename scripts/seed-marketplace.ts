@@ -1,20 +1,28 @@
 /**
  * Seed the marketplace with test listings for UI verification.
  *
- * Usage: bun src/db/seed-marketplace.ts
+ * Usage: bun scripts/seed-marketplace.ts
+ *
+ * Lives in `scripts/`, not `src/`, because it is a DEV SCRIPT and nothing
+ * else: zero exports, zero importers, a top-level `seed()` call and a
+ * `process.exit()`. Filed under `src/db/` it matched `SOURCE_GLOBS`
+ * (scripts/coverage-config.ts), so the patch-coverage gate demanded lcov data
+ * for a module no test can load — which is what made its two `any` casts
+ * un-annotatable and put it on `biome.json`'s noExplicitAny opt-out list
+ * (issue #142).
  */
-import { initDb, getDb } from "./connection";
-import { users, projects, conversations, agentConfigs, memories, memoryAuditLog } from "./schema";
-import { createAgentConfig } from "./queries/agent-configs";
-import { createListing } from "./queries/marketplace";
-import { createVersion } from "./queries/marketplace-versions";
-import { upsertRating } from "./queries/marketplace-ratings";
-import type { ExtensionManifestV2 } from "../extensions/types";
-import { generateSlug } from "../extensions/manifest";
-import { CURRENT_MODEL_SENTINEL } from "../types";
-import { marketplaceListings } from "./schema";
+import { initDb, getDb } from "../src/db/connection";
+import { users, projects, conversations, agentConfigs, memories, memoryAuditLog } from "../src/db/schema";
+import { createAgentConfig } from "../src/db/queries/agent-configs";
+import { createListing } from "../src/db/queries/marketplace";
+import { createVersion } from "../src/db/queries/marketplace-versions";
+import { upsertRating } from "../src/db/queries/marketplace-ratings";
+import type { ExtensionManifestV2 } from "../src/extensions/types";
+import { generateSlug } from "../src/extensions/manifest";
+import { CURRENT_MODEL_SENTINEL } from "../src/types";
+import { marketplaceListings } from "../src/db/schema";
 import { eq } from "drizzle-orm";
-import { logger } from "../logger";
+import { logger } from "../src/logger";
 const log = logger.child("seed");
 
 const SEED_AGENTS = [
@@ -150,7 +158,7 @@ async function seed() {
   // Ensure we have a test user with working credentials
   const testEmail = "test@test.com";
   const testPassword = "Test123!";
-  const { hashPassword } = await import("../auth/password");
+  const { hashPassword } = await import("../src/auth/password");
 
   const [existingUser] = await db
     .select()
@@ -249,8 +257,14 @@ async function seed() {
   // ── Seed Agent Teams ──────────────────────────────────────────────
   // Teams reference individual agents by their config IDs.
   // Look up the agents we just created by name.
-  const allConfigs = await db.select().from(agentConfigs);
-  const configByName = new Map(allConfigs.map((c: any) => [c.name, c]));
+  // `getDb()` is a union of the PGlite and Bun.sql drizzle clients, so its
+  // `.select()` result widens to `any[]`; name the row type from the schema
+  // instead of casting each callback parameter.
+  type AgentConfigRow = typeof agentConfigs.$inferSelect;
+  const allConfigs = (await db.select().from(agentConfigs)) as AgentConfigRow[];
+  const configByName = new Map<string, AgentConfigRow>(
+    allConfigs.map((c) => [c.name, c]),
+  );
 
   const SEED_TEAMS = [
     {
@@ -300,8 +314,8 @@ async function seed() {
     // Resolve member agent config IDs
     const members = team.memberNames
       .map(name => configByName.get(name))
-      .filter(Boolean)
-      .map((cfg: any) => ({ agentConfigId: cfg.id as string }));
+      .filter((cfg): cfg is AgentConfigRow => cfg !== undefined)
+      .map((cfg) => ({ agentConfigId: cfg.id }));
 
     if (members.length !== team.memberNames.length) {
       log.warn("Skipping team — missing member agents", { name: team.name });
@@ -478,13 +492,13 @@ async function seed() {
       },
     ];
 
-    const { generateEmbedding } = await import("../memory/embeddings");
+    const { generateEmbedding } = await import("../src/memory/embeddings");
     log.info("Generating embeddings for seed memories...");
 
     for (const mem of SEED_MEMORIES) {
       const embedding = await generateEmbedding(mem.content);
       const [inserted] = await db.insert(memories).values(mem).returning();
-      await import("./queries/memories").then(({ updateMemory }) =>
+      await import("../src/db/queries/memories").then(({ updateMemory }) =>
         updateMemory(inserted!.id, { embedding }),
       );
       await db.insert(memoryAuditLog).values({
@@ -501,8 +515,8 @@ async function seed() {
     const { sql: sqlTag } = await import("drizzle-orm");
     const missing = await db.select().from(memories).where(sqlTag`embedding IS NULL`);
     if (missing.length > 0) {
-      const { generateEmbedding } = await import("../memory/embeddings");
-      const { updateMemory } = await import("./queries/memories");
+      const { generateEmbedding } = await import("../src/memory/embeddings");
+      const { updateMemory } = await import("../src/db/queries/memories");
       log.info("Backfilling embeddings for memories without them", { count: missing.length });
       for (const mem of missing) {
         const embedding = await generateEmbedding(mem.content);
@@ -514,7 +528,7 @@ async function seed() {
   }
 
   // ── Ensure bundled extensions ────────────────────────────────────
-  const { ensureBundledExtensions } = await import("../extensions/bundled");
+  const { ensureBundledExtensions } = await import("../src/extensions/bundled");
   await ensureBundledExtensions();
 
   // Loop-safety invariant: every `critical` bundled extension
@@ -523,7 +537,7 @@ async function seed() {
   // but loud; one-time re-enables a within-ceiling disabled critical
   // extension.
   const { assertCriticalExtensions } = await import(
-    "../startup/assert-critical-extensions"
+    "../src/startup/assert-critical-extensions"
   );
   await assertCriticalExtensions();
 
@@ -535,7 +549,7 @@ async function seed() {
 
 /** Load API keys and OAuth tokens from .env.seed and store them encrypted in the settings table. */
 async function seedCredentials(): Promise<void> {
-  const seedFile = Bun.file(import.meta.dir + "/../../.env.seed");
+  const seedFile = Bun.file(import.meta.dir + "/../.env.seed");
   if (!(await seedFile.exists())) return;
 
   const text = await seedFile.text();
@@ -543,14 +557,14 @@ async function seedCredentials(): Promise<void> {
   // Use the server's encryption key (web/.pi-secret) so credentials are readable at runtime
   const { existsSync, readFileSync } = await import("node:fs");
   const { join } = await import("node:path");
-  const serverSecret = join(import.meta.dir, "../../web/.pi-secret");
+  const serverSecret = join(import.meta.dir, "../web/.pi-secret");
   if (existsSync(serverSecret) && !process.env.EZCORP_ENCRYPTION_SECRET) {
     process.env.EZCORP_ENCRYPTION_SECRET = readFileSync(serverSecret, "utf-8").trim();
   }
   // Reset cached key so it picks up the new env var
-  const { _resetKeyCache, encrypt } = await import("../providers/encryption");
+  const { _resetKeyCache, encrypt } = await import("../src/providers/encryption");
   _resetKeyCache();
-  const { upsertSetting } = await import("./queries/settings");
+  const { upsertSetting } = await import("../src/db/queries/settings");
 
   // Parse all non-comment KEY=VALUE lines
   const vars: Record<string, string> = {};

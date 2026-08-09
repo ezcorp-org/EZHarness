@@ -30,6 +30,9 @@
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
+// The SHIPPED unwrapper, not a hand-copy (issue #142). `$lib/tool-output` is
+// rune-free precisely so a bun:test suite can import the real function.
+import { extractToolOutput } from "$lib/tool-output";
 
 // ── Replicated reducer + extraction (verbatim from stores.svelte.ts) ──
 
@@ -54,18 +57,6 @@ interface StoreShape {
 
 function makeStore(): StoreShape {
 	return { streamingRunToConversation: {}, streamingToolCalls: {} };
-}
-
-function extractToolOutput(value: unknown): unknown {
-	if (value == null || typeof value !== "object") return value;
-	const obj = value as Record<string, unknown>;
-	if (Array.isArray(obj.content)) {
-		const texts = (obj.content as Array<Record<string, unknown>>)
-			.filter((c) => c.type === "text" && typeof c.text === "string")
-			.map((c) => c.text as string);
-		if (texts.length > 0) return texts.join("\n");
-	}
-	return value;
 }
 
 interface ToolStartEvent {

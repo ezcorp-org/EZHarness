@@ -391,7 +391,7 @@ describe("seed-marketplace — v2 manifest shape", () => {
 
   test("seed builds manifests with schemaVersion: 2", async () => {
     const seedContent = await Bun.file(
-      join(import.meta.dir, "..", "db", "seed-marketplace.ts"),
+      join(import.meta.dir, "..", "..", "scripts", "seed-marketplace.ts"),
     ).text();
 
     // Verify schemaVersion: 2 is used in manifest construction
@@ -400,7 +400,7 @@ describe("seed-marketplace — v2 manifest shape", () => {
 
   test("seed builds manifests with author object (name + id)", async () => {
     const seedContent = await Bun.file(
-      join(import.meta.dir, "..", "db", "seed-marketplace.ts"),
+      join(import.meta.dir, "..", "..", "scripts", "seed-marketplace.ts"),
     ).text();
 
     expect(seedContent).toContain('author: { name: "Marketplace Tester", id: userId }');
@@ -408,15 +408,15 @@ describe("seed-marketplace — v2 manifest shape", () => {
 
   test("seed imports ExtensionManifestV2 from extensions/types", async () => {
     const seedContent = await Bun.file(
-      join(import.meta.dir, "..", "db", "seed-marketplace.ts"),
+      join(import.meta.dir, "..", "..", "scripts", "seed-marketplace.ts"),
     ).text();
 
-    expect(seedContent).toContain('import type { ExtensionManifestV2 } from "../extensions/types"');
+    expect(seedContent).toContain('import type { ExtensionManifestV2 } from "../src/extensions/types"');
   });
 
   test("seed manifests include agent component with prompt", async () => {
     const seedContent = await Bun.file(
-      join(import.meta.dir, "..", "db", "seed-marketplace.ts"),
+      join(import.meta.dir, "..", "..", "scripts", "seed-marketplace.ts"),
     ).text();
 
     // Verify agent block structure

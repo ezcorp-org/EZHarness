@@ -163,7 +163,7 @@ services:
         (cd web && bun install --frozen-lockfile --ignore-scripts)
         if [ ! -f /app/state/.seeded ]; then
           echo "Seeding database..."
-          bun src/db/seed-marketplace.ts && touch /app/state/.seeded
+          bun scripts/seed-marketplace.ts && touch /app/state/.seeded
           echo "Seeding complete."
         else
           echo "Database already seeded, skipping."
@@ -316,7 +316,7 @@ services:
       # so on fresh clones Docker created an empty directory at the
       # host path and the seed step crashed reading it as a file. If
       # you actually rely on the seed-restore flow, re-add the line
-      # locally — the seed script (src/db/seed-marketplace.ts) no-ops
+      # locally — the seed script (scripts/seed-marketplace.ts) no-ops
       # cleanly when the file is absent.
       # Dependency manifests + lockfiles, read-only. Bind-mounting these lets
       # the boot-time `bun install --frozen-lockfile` (see command: above)
@@ -336,6 +336,13 @@ services:
       - ./packages/@ezcorp/harness-client/package.json:/app/packages/@ezcorp/harness-client/package.json:ro
       # Mount source for live reload (Vite HMR)
       - ./src:/app/src
+      # The one-shot seed runs `bun scripts/seed-marketplace.ts` (above) and
+      # that script imports bind-mounted `../src/**`. It lived under ./src
+      # until issue #142 relocated it out of SOURCE_GLOBS; without this mount
+      # it would be the IMAGE-BAKED copy calling CURRENT app code — the same
+      # build-time-vs-bind-mount skew the manifest.lock.json and SDK mounts
+      # below exist to prevent. :ro — the container only reads it.
+      - ./scripts:/app/scripts:ro
       - ./web/src:/app/web/src
       - ./web/static:/app/web/static
       - ./web/svelte.config.js:/app/web/svelte.config.js

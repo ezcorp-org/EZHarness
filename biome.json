@@ -99,24 +99,6 @@
 			}
 		},
 		{
-			"includes": [
-				"src/db/seed-marketplace.ts",
-				"src/extensions/sandbox/__spikes__/**",
-				"web/src/lib/components/ui/format-map.ts",
-				"web/src/lib/inline-tool-store.svelte.ts",
-				"web/src/routes/api/agent-configs/\\[id\\]/+server.ts",
-				"web/src/routes/api/agent-configs/generate/+server.ts",
-				"web/src/routes/api/projects/\\[id\\]/tool-permission-mode/+server.ts"
-			],
-			"linter": {
-				"rules": {
-					"suspicious": {
-						"noExplicitAny": "off"
-					}
-				}
-			}
-		},
-		{
 			"includes": ["web/**"],
 			"linter": {
 				"rules": {

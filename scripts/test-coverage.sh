@@ -567,6 +567,12 @@ run_legs() {
       src/__tests__/test-only-endpoints.server.test.ts \
       src/lib/__tests__/extract-tool-output.unit.test.ts \
       src/__tests__/context-usage-logic.test.ts \
+      src/__tests__/format-map.test.ts \
+      src/__tests__/inline-tool-store.test.ts \
+      src/__tests__/inline-tool-store-upsert.test.ts \
+      src/__tests__/api-agent-configs-id.server.test.ts \
+      src/__tests__/api-agent-configs-generate.server.test.ts \
+      src/__tests__/api-projects-id-tool-permission-mode.server.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -774,7 +780,13 @@ run_legs() {
       --coverage.include='src/routes/api/providers/[provider]/refresh-models/+server.ts' \
       --coverage.include='src/routes/api/conversations/[id]/export/+server.ts' \
       --coverage.include='src/routes/api/extensions/[id]/reopen/+server.ts' \
-      --coverage.include='src/routes/api/__test/seed-extension-author-draft/+server.ts' ) \
+      --coverage.include='src/routes/api/__test/seed-extension-author-draft/+server.ts' \
+      --coverage.include='src/lib/tool-output.ts' \
+      --coverage.include='src/lib/components/ui/format-map.ts' \
+      --coverage.include='src/lib/inline-tool-store.svelte.ts' \
+      --coverage.include='src/routes/api/agent-configs/[id]/+server.ts' \
+      --coverage.include='src/routes/api/agent-configs/generate/+server.ts' \
+      --coverage.include='src/routes/api/projects/[id]/tool-permission-mode/+server.ts' ) \
     > "$legs/vitest.out" 2>&1
   echo "$?" > "$legs/vitest.code"
   ) &

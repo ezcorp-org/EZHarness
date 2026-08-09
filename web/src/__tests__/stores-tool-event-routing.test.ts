@@ -12,6 +12,11 @@
  *   - status transitions (running → complete/error)
  */
 import { test, expect, describe, beforeEach } from "bun:test";
+// The SHIPPED unwrapper, not a hand-copy. This file used to carry its own
+// `extractToolOutput` (issue #142 counted six copies of it repo-wide); the
+// canonical one lives in the rune-free `$lib/tool-output` so bun:test suites
+// like this one can import it directly.
+import { extractToolOutput } from "$lib/tool-output";
 
 interface InlineToolCall {
 	id: string;
@@ -104,18 +109,6 @@ type ToolErrorEvent = {
 	source?: string;
 	invocationId?: string;
 };
-
-function extractToolOutput(value: unknown): unknown {
-	if (value == null || typeof value !== "object") return value;
-	const obj = value as Record<string, unknown>;
-	if (Array.isArray(obj.content)) {
-		const texts = (obj.content as any[])
-			.filter((c: any) => c.type === "text" && typeof c.text === "string")
-			.map((c: any) => c.text);
-		if (texts.length > 0) return texts.join("\n");
-	}
-	return value;
-}
 
 function routeToolStart(store: FakeStore, e: ToolStartEvent): void {
 	if (e.source === "inline" && e.invocationId) {

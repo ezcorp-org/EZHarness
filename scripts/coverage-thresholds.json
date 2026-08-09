@@ -197,6 +197,7 @@
   "src/extensions/page-schema.ts": 100,
   "src/extensions/page-cache.ts": 100,
   "web/src/lib/stores.svelte.ts": 28,
+  "web/src/lib/tool-output.ts": 100,
   "web/src/lib/hub.ts": 100,
   "web/src/lib/hub-last-page.ts": 100,
   "web/src/lib/project-icon.ts": 100,

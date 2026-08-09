@@ -13,17 +13,24 @@
  * that the container's seccomp profile permits syscalls 444/445/446 and the
  * kernel has the Landlock LSM active). Run with:
  *
- *   bun src/extensions/sandbox/__spikes__/landlock-selftest.ts
+ *   bun scripts/spikes/landlock-selftest.ts
  *
  * Exit code 0 = containment PROVEN (GO). Non-zero = NOT contained — read
  * the printed reason. Output is a single JSON line + human summary so the
  * orchestrator can capture it as gate evidence.
+ *
+ * Lives in `scripts/spikes/`, not under `src/`, because `process.exit(main())`
+ * runs at MODULE TOP LEVEL: importing it kills the importing process, so no
+ * test can ever load it. Filed under `src/**` it still matched `SOURCE_GLOBS`
+ * (scripts/coverage-config.ts) and the patch-coverage gate demanded lcov data
+ * for it — which is what made its one `any` un-annotatable and put it on
+ * `biome.json`'s noExplicitAny opt-out list (issue #142).
  */
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { probeSandboxCapabilities } from "../capability-probe";
-import { applyReadWriteJail, landlockAbiVersion } from "../landlock-ffi";
+import { probeSandboxCapabilities } from "../../src/extensions/sandbox/capability-probe";
+import { applyReadWriteJail, landlockAbiVersion } from "../../src/extensions/sandbox/landlock-ffi";
 
 interface Result {
   arch: string;
@@ -114,9 +121,10 @@ function main(): number {
   try {
     readFileSync(secretFile, "utf8");
     result.detail = "SECRET WAS READABLE AFTER JAIL — containment FAILED";
-  } catch (e: any) {
+  } catch (e) {
     result.deniedReadBlocked = true;
-    result.deniedErrno = e?.code ?? String(e);
+    // Node's fs errors carry `code` ("EACCES"); anything else stringifies.
+    result.deniedErrno = (e as NodeJS.ErrnoException)?.code ?? String(e);
   }
 
   // (d) denied WRITE under the secret dir must fail with EACCES

@@ -144,7 +144,7 @@ This is infrastructure — there is no API route or UI page. It is exercised by 
 
 - [docs/extensions/security.md](../../extensions/security.md) — bundled-extension trust model: the capability ceiling (`bundled-ceiling.ts`) + manifest lockfile (`manifest.lock.json`). Complements (does not duplicate) this OS-isolation layer.
 - [docs/extensions/data-storage.md](../../extensions/data-storage.md) — the `.ezcorp/extension-data/<name>/` convention that becomes the jail's writable workspace.
-- `src/extensions/sandbox/__spikes__/A1-FINDINGS.md` — in-repo evidence for the Landlock-primary thesis (why bwrap/netns failed in the container).
+- `scripts/spikes/A1-FINDINGS.md` — in-repo evidence for the Landlock-primary thesis (why bwrap/netns failed in the container).
 
 ## Notes & gotchas
 
@@ -156,4 +156,4 @@ This is infrastructure — there is no API route or UI page. It is exercised by 
 - **`advisory` tier means the extension subprocess is contained by the preload only** — an extension that manages to escape the JS poisoning (or an MCP binary, which the preload never touches) has the host fs unless a real OS tier is present. The OS jail is the load-bearing containment; the preload is the JS-level backstop.
 - **Memory bound is `prlimit --rss`, not the tmpfs `--size`.** The private `/tmp` size cap is defense-in-depth and is dropped on setuid-bwrap hosts; the real RAM bound is always the `--rss` on the inner command. MCP keeps a finite-but-generous `--as` (≥4 GiB) because JIT runtimes reserve tens of GB of *virtual* address space.
 - **The data-dir exclusion uses the HOST-resolved project root only.** `EZCORP_PROJECT_ROOT` (from `buildAllowedEnv`) computes `.ezcorp/data`; a manifest's `spec.env` can never steer it (the jail env additions are merged AFTER `spec.env`).
-- **bwrap-tier integration tests are skipped where userns is unavailable** — the live FFI/jail behavior is proven by the `__spikes__/` evidence scripts and by tier-pinned unit tests (`_setSandboxTierOverrideForTests`), not by spawning a real jail in CI.
+- **bwrap-tier integration tests are skipped where userns is unavailable** — the live FFI/jail behavior is proven by the `scripts/spikes/` evidence scripts and by tier-pinned unit tests (`_setSandboxTierOverrideForTests`), not by spawning a real jail in CI.

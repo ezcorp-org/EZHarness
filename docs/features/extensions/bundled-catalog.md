@@ -15,7 +15,7 @@ EZCorp's extension ecosystem is the primary way the platform grows new tools, ag
 3. If a row already exists, it runs the upgrade/heal pipeline: **S6 manifest-drift** detection (fail-closed on `network`/`filesystem`/`shell`/`env`/`storage`/`lifecycleHooks`; **auto-heal** for `eventSubscriptions` + `appendMessages`), **S9 version-bump re-approval** gate (disable-pending-reapproval unless `critical` and within ceiling), `manifest.lock.json` **tamper** verification, manifest refresh from disk (preserving the stored permissions block), and a **grant self-heal** that backfills the stored grant toward the declared-within-ceiling set.
 4. `registry.loadFromDb()` then makes the installed extensions live.
 5. Later in the same init, `bootSpawnFlaggedBundledExtensions(registry, wireRpc)` spawns the subprocess for every `bootSpawn: true` entry. This is required for **event-only** extensions (`lessons-distiller`, `memory-extractor`) whose only entrypoint is an event subscription — without a running subprocess, `EventSubscriptionDispatcher.dispatch` silently drops `run:complete` because `getProcessIfRunning` never starts one. Boot-spawn failures are logged + swallowed so a flaky extension cannot brick startup.
-6. The seed/admin path (`src/db/seed-marketplace.ts`) additionally calls `assertCriticalExtensions()` (`src/startup/assert-critical-extensions.ts`), the startup invariant that every `critical` bundled extension is `enabled=true`.
+6. The seed/admin path (`scripts/seed-marketplace.ts`) additionally calls `assertCriticalExtensions()` (`src/startup/assert-critical-extensions.ts`), the startup invariant that every `critical` bundled extension is `enabled=true`.
 
 ### Entry flags (`BundledExtension` interface)
 
@@ -105,7 +105,7 @@ Exported helpers from `src/extensions/bundled.ts`: `isBundledExtensionName(name)
 - `src/startup/assert-critical-extensions.ts` — startup invariant: every `critical` extension stays `enabled=true`.
 - `src/startup/assert-bundled-not-stranded.ts` — boot health signal: one aggregate WARN naming every bundled extension left disabled-pending-re-approval. Reports only (a fail-closed disable awaits human consent); called from `context.ts` after `ensureBundledExtensions()`.
 - `web/src/lib/server/context.ts` — boot wiring: `ensureBundledExtensions()` → `assertBundledNotStranded()` → `bootSpawnFlaggedBundledExtensions()`.
-- `src/db/seed-marketplace.ts` — seed/admin path that also calls `assertCriticalExtensions()`.
+- `scripts/seed-marketplace.ts` — seed/admin path that also calls `assertCriticalExtensions()`.
 - `src/extensions/ez-code-coder-agent.ts` — `ensureEzCodeCoderAgent()` seeds the system `ez-code` coder agent row.
 - `src/extensions/file-organizer-daemon.ts` — host-side watcher daemon backing the `file-organizer` extension.
 - `web/src/lib/server/security/bundled-creds.ts` — `bootstrapBundledCredentials` (host-internal loopback creds for `ai-kit`); called in `context.ts` before `ensureBundledExtensions`.

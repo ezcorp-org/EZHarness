@@ -90,6 +90,18 @@ export default defineConfig({
 			// potential silent de-gating. Registered here AND subtracted from
 			// `web_bunleg_files()`, so it runs in exactly one runner.
 			"src/__tests__/context-usage-logic.test.ts",
+			// Same arrangement, same reason (issue #142): the vitest leg is the
+			// only coverage producer for `web/src/lib/**`, and these three
+			// suites are what cover `format-map.ts` and the
+			// `inline-tool-store.svelte.ts` rune module. Under bun the two
+			// store suites could not load a `.svelte.ts` at all, so each drove
+			// a hand-maintained re-implementation instead of the shipped code;
+			// they now import the real store. Basenames kept (no rename) for
+			// the `Gate integrity` test-rename check, and each is subtracted
+			// from `web_bunleg_files()` so it runs in exactly one runner.
+			"src/__tests__/format-map.test.ts",
+			"src/__tests__/inline-tool-store.test.ts",
+			"src/__tests__/inline-tool-store-upsert.test.ts",
 		],
 		setupFiles: ["./src/__tests__/vitest-setup.ts"],
 		globals: true,
