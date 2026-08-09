@@ -28,13 +28,13 @@ import { scrollToToolCall } from "$lib/scroll-to-tool-call";
 import type { ContextBreakdown, ToolBreakdownEntry } from "$lib/context-usage-logic";
 
 const breakdown: ContextBreakdown = {
-	inputTokens: 8_000,
-	outputTokens: 2_000,
-	toolTokens: 1_500,
-	totalTokens: 10_000,
-	pctInput: 80,
-	pctOutput: 20,
-	pctTools: 15,
+  inputTokens: 8_000,
+  outputTokens: 2_000,
+  toolTokens: 1_500,
+  totalTokens: 10_000,
+  pctInput: 80,
+  pctOutput: 20,
+  pctTools: 15,
 };
 
 /**
@@ -43,156 +43,156 @@ const breakdown: ContextBreakdown = {
  * what the chat page writes around each `InlineToolCard`.
  */
 function mintCardAnchor(callId: string): HTMLElement {
-	const el = document.createElement("div");
-	el.id = `tool-call-${callId}`;
-	el.textContent = `Card body for ${callId}`;
-	document.body.appendChild(el);
-	(el as any).scrollIntoView = vi.fn();
-	return el;
+  const el = document.createElement("div");
+  el.id = `tool-call-${callId}`;
+  el.textContent = `Card body for ${callId}`;
+  document.body.appendChild(el);
+  (el as any).scrollIntoView = vi.fn();
+  return el;
 }
 
 describe("ContextUsageIndicator + scrollToToolCall (integration)", () => {
-	beforeEach(() => {
-		vi.useFakeTimers();
-	});
-	afterEach(() => {
-		vi.useRealTimers();
-		cleanup();
-		document.body.innerHTML = "";
-	});
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    cleanup();
+    document.body.innerHTML = "";
+  });
 
-	test("clicking a built-in call row scrolls the matching tool-card anchor into view", async () => {
-		// End-to-end through the popover: open → expand built-in row →
-		// click leaf call → assert the matching DOM anchor was scrolled.
-		const card = mintCardAnchor("call-bash-1");
-		const toolBreakdown: ToolBreakdownEntry[] = [
-			{
-				extensionName: "",
-				toolName: "Bash",
-				callCount: 2,
-				tokens: 200,
-				pct: 20,
-				calls: [
-					{ callId: "call-bash-1", tokens: 150, pct: 15, preview: "ls -la" },
-					{ callId: "call-bash-2", tokens: 50, pct: 5, preview: "pwd" },
-				],
-			},
-		];
-		const { getByTestId, getAllByTestId } = render(ContextUsageIndicator, {
-			usedTokens: 8_000,
-			contextWindow: 200_000,
-			breakdown,
-			toolBreakdown,
-			oncallclick: (id: string) => scrollToToolCall(id, { highlightMs: 0 }),
-		});
+  test("clicking a built-in call row scrolls the matching tool-card anchor into view", async () => {
+    // End-to-end through the popover: open → expand built-in row →
+    // click leaf call → assert the matching DOM anchor was scrolled.
+    const card = mintCardAnchor("call-bash-1");
+    const toolBreakdown: ToolBreakdownEntry[] = [
+      {
+        extensionName: "",
+        toolName: "Bash",
+        callCount: 2,
+        tokens: 200,
+        pct: 20,
+        calls: [
+          { callId: "call-bash-1", tokens: 150, pct: 15, preview: "ls -la" },
+          { callId: "call-bash-2", tokens: 50, pct: 5, preview: "pwd" },
+        ],
+      },
+    ];
+    const { getByTestId, getAllByTestId } = render(ContextUsageIndicator, {
+      usedTokens: 8_000,
+      contextWindow: 200_000,
+      breakdown,
+      toolBreakdown,
+      oncallclick: (id: string) => scrollToToolCall(id, { highlightMs: 0 }),
+    });
 
-		await fireEvent.mouseEnter(getByTestId("context-usage-indicator").parentElement!);
-		await fireEvent.click(getByTestId("ctx-bd-tool-row"));
-		const callRows = getAllByTestId("ctx-bd-call-row");
-		expect(callRows[0]?.getAttribute("data-call-id")).toBe("call-bash-1");
+    await fireEvent.mouseEnter(getByTestId("context-usage-indicator").parentElement!);
+    await fireEvent.click(getByTestId("ctx-bd-tool-row"));
+    const callRows = getAllByTestId("ctx-bd-call-row");
+    expect(callRows[0]?.getAttribute("data-call-id")).toBe("call-bash-1");
 
-		await fireEvent.click(callRows[0]!);
-		expect((card as any).scrollIntoView).toHaveBeenCalledTimes(1);
-		expect((card as any).scrollIntoView).toHaveBeenCalledWith({
-			behavior: "smooth",
-			block: "center",
-		});
-	});
+    await fireEvent.click(callRows[0]!);
+    expect((card as any).scrollIntoView).toHaveBeenCalledTimes(1);
+    expect((card as any).scrollIntoView).toHaveBeenCalledWith({
+      behavior: "smooth",
+      block: "center",
+    });
+  });
 
-	test("clicking an extension/MCP function call (two-level expand) routes to the right anchor", async () => {
-		// Extension groups go through a function-row level first. Both
-		// expands must wire the same callId through to the helper.
-		const playwrightCard = mintCardAnchor("pw-call-1");
-		const decoy = mintCardAnchor("call-bash-1");
-		const toolBreakdown: ToolBreakdownEntry[] = [
-			{
-				extensionName: "playwright",
-				toolName: "browser_click",
-				callCount: 1,
-				tokens: 500,
-				pct: 5,
-				calls: [{ callId: "pw-call-1", tokens: 500, pct: 5, preview: "btn1" }],
-			},
-		];
-		const { getByTestId } = render(ContextUsageIndicator, {
-			usedTokens: 8_000,
-			contextWindow: 200_000,
-			breakdown,
-			toolBreakdown,
-			oncallclick: (id: string) => scrollToToolCall(id, { highlightMs: 0 }),
-		});
+  test("clicking an extension/MCP function call (two-level expand) routes to the right anchor", async () => {
+    // Extension groups go through a function-row level first. Both
+    // expands must wire the same callId through to the helper.
+    const playwrightCard = mintCardAnchor("pw-call-1");
+    const decoy = mintCardAnchor("call-bash-1");
+    const toolBreakdown: ToolBreakdownEntry[] = [
+      {
+        extensionName: "playwright",
+        toolName: "browser_click",
+        callCount: 1,
+        tokens: 500,
+        pct: 5,
+        calls: [{ callId: "pw-call-1", tokens: 500, pct: 5, preview: "btn1" }],
+      },
+    ];
+    const { getByTestId } = render(ContextUsageIndicator, {
+      usedTokens: 8_000,
+      contextWindow: 200_000,
+      breakdown,
+      toolBreakdown,
+      oncallclick: (id: string) => scrollToToolCall(id, { highlightMs: 0 }),
+    });
 
-		await fireEvent.mouseEnter(getByTestId("context-usage-indicator").parentElement!);
-		await fireEvent.click(getByTestId("ctx-bd-tool-row"));
-		await fireEvent.click(getByTestId("ctx-bd-fn-row"));
-		await fireEvent.click(getByTestId("ctx-bd-call-row"));
+    await fireEvent.mouseEnter(getByTestId("context-usage-indicator").parentElement!);
+    await fireEvent.click(getByTestId("ctx-bd-tool-row"));
+    await fireEvent.click(getByTestId("ctx-bd-fn-row"));
+    await fireEvent.click(getByTestId("ctx-bd-call-row"));
 
-		expect((playwrightCard as any).scrollIntoView).toHaveBeenCalledTimes(1);
-		expect((decoy as any).scrollIntoView).not.toHaveBeenCalled();
-	});
+    expect((playwrightCard as any).scrollIntoView).toHaveBeenCalledTimes(1);
+    expect((decoy as any).scrollIntoView).not.toHaveBeenCalled();
+  });
 
-	test("highlight ring is added on click and auto-removed after the timeout", async () => {
-		const card = mintCardAnchor("call-h");
-		const toolBreakdown: ToolBreakdownEntry[] = [
-			{
-				extensionName: "",
-				toolName: "Bash",
-				callCount: 1,
-				tokens: 100,
-				pct: 10,
-				calls: [{ callId: "call-h", tokens: 100, pct: 10, preview: "ls" }],
-			},
-		];
-		const { getByTestId } = render(ContextUsageIndicator, {
-			usedTokens: 8_000,
-			contextWindow: 200_000,
-			breakdown,
-			toolBreakdown,
-			oncallclick: (id: string) => scrollToToolCall(id), // default 1500ms
-		});
+  test("highlight ring is added on click and auto-removed after the timeout", async () => {
+    const card = mintCardAnchor("call-h");
+    const toolBreakdown: ToolBreakdownEntry[] = [
+      {
+        extensionName: "",
+        toolName: "Bash",
+        callCount: 1,
+        tokens: 100,
+        pct: 10,
+        calls: [{ callId: "call-h", tokens: 100, pct: 10, preview: "ls" }],
+      },
+    ];
+    const { getByTestId } = render(ContextUsageIndicator, {
+      usedTokens: 8_000,
+      contextWindow: 200_000,
+      breakdown,
+      toolBreakdown,
+      oncallclick: (id: string) => scrollToToolCall(id), // default 1500ms
+    });
 
-		await fireEvent.mouseEnter(getByTestId("context-usage-indicator").parentElement!);
-		await fireEvent.click(getByTestId("ctx-bd-tool-row"));
-		await fireEvent.click(getByTestId("ctx-bd-call-row"));
+    await fireEvent.mouseEnter(getByTestId("context-usage-indicator").parentElement!);
+    await fireEvent.click(getByTestId("ctx-bd-tool-row"));
+    await fireEvent.click(getByTestId("ctx-bd-call-row"));
 
-		expect(card.classList.contains("ring-2")).toBe(true);
-		expect(card.classList.contains("ring-emerald-400/60")).toBe(true);
+    expect(card.classList.contains("ring-2")).toBe(true);
+    expect(card.classList.contains("ring-emerald-400/60")).toBe(true);
 
-		vi.advanceTimersByTime(1501);
-		expect(card.classList.contains("ring-2")).toBe(false);
-		expect(card.classList.contains("ring-emerald-400/60")).toBe(false);
-	});
+    vi.advanceTimersByTime(1501);
+    expect(card.classList.contains("ring-2")).toBe(false);
+    expect(card.classList.contains("ring-emerald-400/60")).toBe(false);
+  });
 
-	test("clicking a row whose anchor isn't mounted is a graceful no-op (popover still closes)", async () => {
-		// Older messages outside the paginated window won't have an anchor.
-		// The popover must still close so the user gets some visible
-		// acknowledgement of the click; the scroll just doesn't happen.
-		// (No throw, no DOM mutation on unrelated cards.)
-		const decoy = mintCardAnchor("present");
-		const toolBreakdown: ToolBreakdownEntry[] = [
-			{
-				extensionName: "",
-				toolName: "Bash",
-				callCount: 1,
-				tokens: 100,
-				pct: 10,
-				calls: [{ callId: "ghost", tokens: 100, pct: 10, preview: "rm -rf" }],
-			},
-		];
-		const { getByTestId, queryByTestId } = render(ContextUsageIndicator, {
-			usedTokens: 8_000,
-			contextWindow: 200_000,
-			breakdown,
-			toolBreakdown,
-			oncallclick: (id: string) => scrollToToolCall(id, { highlightMs: 0 }),
-		});
+  test("clicking a row whose anchor isn't mounted is a graceful no-op (popover still closes)", async () => {
+    // Older messages outside the paginated window won't have an anchor.
+    // The popover must still close so the user gets some visible
+    // acknowledgement of the click; the scroll just doesn't happen.
+    // (No throw, no DOM mutation on unrelated cards.)
+    const decoy = mintCardAnchor("present");
+    const toolBreakdown: ToolBreakdownEntry[] = [
+      {
+        extensionName: "",
+        toolName: "Bash",
+        callCount: 1,
+        tokens: 100,
+        pct: 10,
+        calls: [{ callId: "ghost", tokens: 100, pct: 10, preview: "rm -rf" }],
+      },
+    ];
+    const { getByTestId, queryByTestId } = render(ContextUsageIndicator, {
+      usedTokens: 8_000,
+      contextWindow: 200_000,
+      breakdown,
+      toolBreakdown,
+      oncallclick: (id: string) => scrollToToolCall(id, { highlightMs: 0 }),
+    });
 
-		await fireEvent.mouseEnter(getByTestId("context-usage-indicator").parentElement!);
-		await fireEvent.click(getByTestId("ctx-bd-tool-row"));
-		await fireEvent.click(getByTestId("ctx-bd-call-row"));
+    await fireEvent.mouseEnter(getByTestId("context-usage-indicator").parentElement!);
+    await fireEvent.click(getByTestId("ctx-bd-tool-row"));
+    await fireEvent.click(getByTestId("ctx-bd-call-row"));
 
-		expect(queryByTestId("context-usage-popover")).toBeNull();
-		expect((decoy as any).scrollIntoView).not.toHaveBeenCalled();
-		expect(decoy.classList.contains("ring-2")).toBe(false);
-	});
+    expect(queryByTestId("context-usage-popover")).toBeNull();
+    expect((decoy as any).scrollIntoView).not.toHaveBeenCalled();
+    expect(decoy.classList.contains("ring-2")).toBe(false);
+  });
 });

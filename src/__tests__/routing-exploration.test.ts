@@ -111,7 +111,11 @@ describe("applyExploration — off by default", () => {
 
   test("a negative rate cannot fire", () => {
     expect(
-      applyExploration({ verdict: { tier: "powerful", reason: "context-size" }, rate: -1, random: alwaysDraw }),
+      applyExploration({
+        verdict: { tier: "powerful", reason: "context-size" },
+        rate: -1,
+        random: alwaysDraw,
+      }),
     ).toEqual({ tier: "powerful", exploration: false });
   });
 });
@@ -119,13 +123,21 @@ describe("applyExploration — off by default", () => {
 describe("applyExploration — never overrides correctness or explicit intent", () => {
   test("a DECLARED tier is never explored, even at rate 1", () => {
     expect(
-      applyExploration({ verdict: { tier: "powerful", reason: "declared" }, rate: 1, random: alwaysDraw }),
+      applyExploration({
+        verdict: { tier: "powerful", reason: "declared" },
+        rate: 1,
+        random: alwaysDraw,
+      }),
     ).toEqual({ tier: "powerful", exploration: false });
   });
 
   test("an explicit HINT is never explored, even at rate 1", () => {
     expect(
-      applyExploration({ verdict: { tier: "balanced", reason: "hint" }, rate: 1, random: alwaysDraw }),
+      applyExploration({
+        verdict: { tier: "balanced", reason: "hint" },
+        rate: 1,
+        random: alwaysDraw,
+      }),
     ).toEqual({ tier: "balanced", exploration: false });
   });
 
@@ -151,31 +163,55 @@ describe("applyExploration — never overrides correctness or explicit intent", 
 describe("applyExploration — the draw", () => {
   test("a won draw routes exactly one rung down and flags it", () => {
     expect(
-      applyExploration({ verdict: { tier: "powerful", reason: "context-size" }, rate: 0.5, random: () => 0.1 }),
+      applyExploration({
+        verdict: { tier: "powerful", reason: "context-size" },
+        rate: 0.5,
+        random: () => 0.1,
+      }),
     ).toEqual({ tier: "balanced", exploration: true });
     expect(
-      applyExploration({ verdict: { tier: "balanced", reason: "tool-count" }, rate: 0.5, random: () => 0.1 }),
+      applyExploration({
+        verdict: { tier: "balanced", reason: "tool-count" },
+        rate: 0.5,
+        random: () => 0.1,
+      }),
     ).toEqual({ tier: "fast", exploration: true });
   });
 
   test("a lost draw leaves the verdict untouched", () => {
     expect(
-      applyExploration({ verdict: { tier: "powerful", reason: "context-size" }, rate: 0.5, random: neverDraw }),
+      applyExploration({
+        verdict: { tier: "powerful", reason: "context-size" },
+        rate: 0.5,
+        random: neverDraw,
+      }),
     ).toEqual({ tier: "powerful", exploration: false });
   });
 
   test("the draw is strictly `< rate`, so the boundary does not fire", () => {
     expect(
-      applyExploration({ verdict: { tier: "powerful", reason: "context-size" }, rate: 0.25, random: () => 0.25 }),
+      applyExploration({
+        verdict: { tier: "powerful", reason: "context-size" },
+        rate: 0.25,
+        random: () => 0.25,
+      }),
     ).toEqual({ tier: "powerful", exploration: false });
     expect(
-      applyExploration({ verdict: { tier: "powerful", reason: "context-size" }, rate: 0.25, random: () => 0.2499 }),
+      applyExploration({
+        verdict: { tier: "powerful", reason: "context-size" },
+        rate: 0.25,
+        random: () => 0.2499,
+      }),
     ).toEqual({ tier: "balanced", exploration: true });
   });
 
   test("the FAST tier is never explored — there is no cheaper rung", () => {
     expect(
-      applyExploration({ verdict: { tier: "fast", reason: "short-turn" }, rate: 1, random: alwaysDraw }),
+      applyExploration({
+        verdict: { tier: "fast", reason: "short-turn" },
+        rate: 1,
+        random: alwaysDraw,
+      }),
     ).toEqual({ tier: "fast", exploration: false });
   });
 

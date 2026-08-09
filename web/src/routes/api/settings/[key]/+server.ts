@@ -4,10 +4,7 @@ import * as settingQueries from "$server/db/queries/settings";
 import { checkRole } from "$server/auth/middleware";
 import { isSensitiveSettingKey } from "../deny-list";
 import { errorJson } from "$lib/server/http-errors";
-import {
-  TIER_LADDER_SETTING_KEY,
-  validateTierLadder,
-} from "$server/runtime/routing/tier-ladder";
+import { TIER_LADDER_SETTING_KEY, validateTierLadder } from "$server/runtime/routing/tier-ladder";
 import {
   EXPLORATION_RATE_SETTING_KEY,
   validateExplorationRate,
@@ -32,9 +29,11 @@ import type { RequestHandler } from "./$types";
 // fence off unknown top-level fields; the inline `value === undefined`
 // check below stays so the test-pinned 400 "value required" message
 // fires for both missing-key and explicit-undefined bodies.
-const upsertSettingSchema = z.object({
-  value: z.unknown(),
-}).strict();
+const upsertSettingSchema = z
+  .object({
+    value: z.unknown(),
+  })
+  .strict();
 
 /**
  * Per-key write-time validation. Settings are deliberately schema-less at the

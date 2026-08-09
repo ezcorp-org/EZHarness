@@ -13,23 +13,45 @@ let editorUser: { id: string; email: string; name: string; role: "admin" | "memb
 let viewerUser: { id: string; email: string; name: string; role: "admin" | "member" };
 let teamId: string;
 
-function makeLocals(user: { id: string; email: string; name: string; role: "admin" | "member" } | null) {
+function makeLocals(
+  user: { id: string; email: string; name: string; role: "admin" | "member" } | null,
+) {
   return { user } as App.Locals;
 }
 
 beforeAll(async () => {
   await setupTestDb();
 
-  const admin = await createUser({ email: "admin@test.com", passwordHash: "hash", name: "Admin", role: "admin" });
+  const admin = await createUser({
+    email: "admin@test.com",
+    passwordHash: "hash",
+    name: "Admin",
+    role: "admin",
+  });
   adminUser = { id: admin.id, email: admin.email, name: admin.name, role: admin.role };
 
-  const member = await createUser({ email: "member@test.com", passwordHash: "hash", name: "Member", role: "member" });
+  const member = await createUser({
+    email: "member@test.com",
+    passwordHash: "hash",
+    name: "Member",
+    role: "member",
+  });
   memberUser = { id: member.id, email: member.email, name: member.name, role: member.role };
 
-  const editor = await createUser({ email: "editor@test.com", passwordHash: "hash", name: "Editor", role: "member" });
+  const editor = await createUser({
+    email: "editor@test.com",
+    passwordHash: "hash",
+    name: "Editor",
+    role: "member",
+  });
   editorUser = { id: editor.id, email: editor.email, name: editor.name, role: editor.role };
 
-  const viewer = await createUser({ email: "viewer@test.com", passwordHash: "hash", name: "Viewer", role: "member" });
+  const viewer = await createUser({
+    email: "viewer@test.com",
+    passwordHash: "hash",
+    name: "Viewer",
+    role: "member",
+  });
   viewerUser = { id: viewer.id, email: viewer.email, name: viewer.name, role: viewer.role };
 
   const team = await createTeam("RBAC Test Team");
@@ -41,7 +63,9 @@ beforeAll(async () => {
   await addTeamMember(teamId, viewerUser.id, "viewer");
 });
 
-afterAll(async () => { await closeTestDb(); });
+afterAll(async () => {
+  await closeTestDb();
+});
 
 describe("RBAC Enforcement", () => {
   describe("requireAuth", () => {
@@ -140,8 +164,18 @@ describe("RBAC Enforcement", () => {
     });
 
     test("user with no team membership throws 403", async () => {
-      const outsider = await createUser({ email: "outsider@test.com", passwordHash: "hash", name: "Outsider", role: "member" });
-      const outsiderAuth = { id: outsider.id, email: outsider.email, name: outsider.name, role: outsider.role } as const;
+      const outsider = await createUser({
+        email: "outsider@test.com",
+        passwordHash: "hash",
+        name: "Outsider",
+        role: "member",
+      });
+      const outsiderAuth = {
+        id: outsider.id,
+        email: outsider.email,
+        name: outsider.name,
+        role: outsider.role,
+      } as const;
       try {
         await requireTeamRole(makeLocals(outsiderAuth), teamId, "viewer");
         expect(true).toBe(false);

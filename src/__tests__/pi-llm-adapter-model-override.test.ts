@@ -40,7 +40,8 @@ function recordStream(entry: RecordedCall["entry"]) {
 }
 
 mock.module("@earendil-works/pi-ai/compat", () => ({
-  complete: async (m: { id: string }, c: unknown, o: Record<string, unknown>) => record("complete")(m, c, o),
+  complete: async (m: { id: string }, c: unknown, o: Record<string, unknown>) =>
+    record("complete")(m, c, o),
   completeSimple: async (m: { id: string }, c: unknown, o: Record<string, unknown>) =>
     record("completeSimple")(m, c, o),
   stream: recordStream("stream"),

@@ -17,7 +17,7 @@ import { GET } from "../../web/src/routes/api/quickstart/+server";
 // ── Query helpers for test setup ─────────────────────────────────
 import { createUser } from "../db/queries/users";
 import { getDb } from "../db/connection";
-import { settings, conversations, extensions, agentConfigs, } from "../db/schema";
+import { settings, conversations, extensions, agentConfigs } from "../db/schema";
 
 // ── Test fixtures ────────────────────────────────────────────────
 let testUser: AuthUser;
@@ -145,11 +145,14 @@ describe("GET /api/quickstart", () => {
       path: "/test",
     });
     // Create a parent first
-    const parentRows = await db.insert(conversations).values({
-      projectId: "proj-qs-sub",
-      title: "Parent Chat",
-      userId: testUserId,
-    }).returning();
+    const parentRows = await db
+      .insert(conversations)
+      .values({
+        projectId: "proj-qs-sub",
+        title: "Parent Chat",
+        userId: testUserId,
+      })
+      .returning();
     // Now a sub-conversation referencing the parent
     await db.insert(conversations).values({
       projectId: "proj-qs-sub",

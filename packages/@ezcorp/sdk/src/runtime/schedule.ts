@@ -14,7 +14,7 @@ import { getChannel } from "./channel";
 export interface ScheduleHandlerContext {
   cron: string;
   scheduledAt: string; // ISO timestamp
-  firedAt: string;     // ISO timestamp
+  firedAt: string; // ISO timestamp
   fireId: string;
   catchUp: boolean;
   retry: boolean;
@@ -55,7 +55,8 @@ export class Schedule {
   /** Fire-now invocation — counts against the daily-runs quota. */
   async fireNow(cron: string): Promise<void> {
     await getChannel().request<void>("ezcorp/schedule", {
-      action: "fire-now", cron,
+      action: "fire-now",
+      cron,
     });
   }
 }

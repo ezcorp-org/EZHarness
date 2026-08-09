@@ -1,5 +1,10 @@
 import { json } from "@sveltejs/kit";
-import { getExtension, getExtensionByName, listExtensions, redactExtensionSecrets } from "$server/db/queries/extensions";
+import {
+  getExtension,
+  getExtensionByName,
+  listExtensions,
+  redactExtensionSecrets,
+} from "$server/db/queries/extensions";
 import {
   installFromLocal,
   installFromGitHub,
@@ -39,11 +44,17 @@ export const GET: RequestHandler = async ({ request, url, locals }) => {
   const nameFilter = url.searchParams.get("name");
   if (nameFilter !== null) {
     const ext = await getExtensionByName(nameFilter);
-    return cacheableResponse(request, ext ? [redactExtensionSecrets(ext)] : [], { maxAge: 60, staleWhileRevalidate: 300 });
+    return cacheableResponse(request, ext ? [redactExtensionSecrets(ext)] : [], {
+      maxAge: 60,
+      staleWhileRevalidate: 300,
+    });
   }
 
   const extensions = await listExtensions();
-  return cacheableResponse(request, extensions.map(redactExtensionSecrets), { maxAge: 60, staleWhileRevalidate: 300 });
+  return cacheableResponse(request, extensions.map(redactExtensionSecrets), {
+    maxAge: 60,
+    staleWhileRevalidate: 300,
+  });
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -124,7 +135,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // regardless of later grant activity. One row is enough: downstream
     // grant audits are written by the activate + permissions endpoints.
     try {
-      const meta: ExtensionAuditMetadata & { source: string; path?: string; repo?: string; url?: string } = {
+      const meta: ExtensionAuditMetadata & {
+        source: string;
+        path?: string;
+        repo?: string;
+        url?: string;
+      } = {
         permission: "install",
         oldValue: undefined,
         newValue: undefined,
@@ -136,7 +152,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         ...(url ? { url } : {}),
       };
       await insertAuditEntry(admin.id, EXT_AUDIT_ACTIONS.PERMISSION_GRANTED, ext.id, meta);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
 
     return json(ext, { status: 201 });
   } catch (e) {

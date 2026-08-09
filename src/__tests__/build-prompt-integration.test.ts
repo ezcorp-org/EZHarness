@@ -56,16 +56,14 @@ import { buildPromptInput } from "../runtime/stream-chat/build-prompt";
 // ─── Test fixtures ────────────────────────────────────────────────
 
 const PNG_1x1 = new Uint8Array([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
-  0x49, 0x48, 0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4, 0x89, 0x00, 0x00, 0x00,
-  0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
-  0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49,
-  0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+  0x89, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+  0x42, 0x60, 0x82,
 ]);
 
-const XLSX_MIME =
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 let projectRoot: string;
 let pngStoragePath: string;
@@ -142,10 +140,7 @@ describe("buildPromptInput — file mention", () => {
     mockProject = { id: "proj-1", path: projectRoot };
     projectShouldThrow = false;
 
-    const result = await buildPromptInput(
-      "look at @[file:foo.ts] for me",
-      { projectId: "proj-1" },
-    );
+    const result = await buildPromptInput("look at @[file:foo.ts] for me", { projectId: "proj-1" });
     // The system note is prepended; the original text follows after a
     // blank line.
     expect(result.text).toContain("[User referenced file: foo.ts");
@@ -182,9 +177,7 @@ describe("buildPromptInput — image attachment", () => {
     });
     expect(result.images).toHaveLength(1);
     expect(result.images[0]!.mimeType).toBe("image/png");
-    expect(result.images[0]!.data).toBe(
-      Buffer.from(PNG_1x1).toString("base64"),
-    );
+    expect(result.images[0]!.data).toBe(Buffer.from(PNG_1x1).toString("base64"));
     // Text part still includes the user prompt and the attachment ref block.
     expect(result.text).toContain("describe this");
     expect(result.text).toContain("ez-attachment://att-img-1");
@@ -209,16 +202,13 @@ describe("buildPromptInput — combined cmd + file + attachment", () => {
       storagePath: pngStoragePath,
     };
 
-    const result = await buildPromptInput(
-      "/[cmd:greet] please look at @[file:foo.ts]",
-      {
-        projectId: "proj-1",
-        provider: "anthropic",
-        model: "claude-sonnet-4-5",
-        attachments: [att],
-        commandResolver: resolver,
-      },
-    );
+    const result = await buildPromptInput("/[cmd:greet] please look at @[file:foo.ts]", {
+      projectId: "proj-1",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+      attachments: [att],
+      commandResolver: resolver,
+    });
 
     // Command body is substituted exactly once.
     expect(result.text).toContain("BODY-GREET");

@@ -155,7 +155,9 @@ let membershipStore: Map<string, { role: "owner" | "member" }>;
 const projectMembersMock = () => ({
   getProjectMembership: async (userId: string, projectId: string) => {
     const row = membershipStore.get(`${projectId}:${userId}`);
-    return row ? { id: "pm-1", projectId, userId, role: row.role, createdAt: new Date() } : undefined;
+    return row
+      ? { id: "pm-1", projectId, userId, role: row.role, createdAt: new Date() }
+      : undefined;
   },
 });
 mock.module("$server/db/queries/project-members", projectMembersMock);
@@ -205,9 +207,7 @@ import {
   DELETE as projectDelete,
 } from "../../../web/src/routes/api/projects/[id]/+server";
 import { GET as projectList } from "../../../web/src/routes/api/projects/+server";
-import {
-  DELETE as kbDelete,
-} from "../../../web/src/routes/api/knowledge-base/[id]/+server";
+import { DELETE as kbDelete } from "../../../web/src/routes/api/knowledge-base/[id]/+server";
 import {
   PUT as modePut,
   DELETE as modeDelete,
@@ -246,8 +246,20 @@ beforeEach(() => {
     ["kb-null-owner", { id: "kb-null-owner", userId: null, filename: "unowned-legacy.md" }],
   ]);
   modeStore = new Map<string, Mode>([
-    ["mode-owned-a", { id: "mode-owned-a", userId: "user-a", name: "A's mode", slug: "a-mode", builtin: false }],
-    ["mode-null-owner", { id: "mode-null-owner", userId: null, name: "Unowned mode", slug: "unowned-mode", builtin: false }],
+    [
+      "mode-owned-a",
+      { id: "mode-owned-a", userId: "user-a", name: "A's mode", slug: "a-mode", builtin: false },
+    ],
+    [
+      "mode-null-owner",
+      {
+        id: "mode-null-owner",
+        userId: null,
+        name: "Unowned mode",
+        slug: "unowned-mode",
+        builtin: false,
+      },
+    ],
   ]);
 });
 
@@ -371,10 +383,7 @@ describe("source: knowledge-base GET carve-out is deliberate, not missed", () =>
     // above; go read the invariant suite first, because tightening GET alone
     // is the list-but-404 defect that ruling exists to prevent.
     const src = read(REL);
-    const getSlice = src.slice(
-      src.indexOf("export const GET"),
-      src.indexOf("export const DELETE"),
-    );
+    const getSlice = src.slice(src.indexOf("export const GET"), src.indexOf("export const DELETE"));
     expect(getSlice).toMatch(/file\.userId\s*&&\s*file\.userId\s*!==\s*user\.id/);
   });
 });

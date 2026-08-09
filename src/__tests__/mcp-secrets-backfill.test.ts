@@ -82,7 +82,10 @@ describe("backfillMcpManifestSecrets", () => {
     // The real values live in the encrypted store and rehydrate on connect.
     const stored = await getSecret("legacy-http", null, "mcp:auth");
     expect(JSON.parse(stored!)).toEqual({ Authorization: "Bearer LEAK", "X-Api-Key": "k123" });
-    const rehydrated = (await rehydrateMcpServerSecrets("legacy-http", server)) as McpServerDefinition & ServerView;
+    const rehydrated = (await rehydrateMcpServerSecrets(
+      "legacy-http",
+      server,
+    )) as McpServerDefinition & ServerView;
     expect(rehydrated.headers).toEqual({ Authorization: "Bearer LEAK", "X-Api-Key": "k123" });
   });
 
@@ -98,7 +101,9 @@ describe("backfillMcpManifestSecrets", () => {
     const row = await getExtensionByName("legacy-stdio");
     const server = firstServer(row!.manifest);
     expect(server.env).toEqual({ API_TOKEN: "" });
-    expect(JSON.parse((await getSecret("legacy-stdio", null, "mcp:auth"))!)).toEqual({ API_TOKEN: "tok-legacy" });
+    expect(JSON.parse((await getSecret("legacy-stdio", null, "mcp:auth"))!)).toEqual({
+      API_TOKEN: "tok-legacy",
+    });
   });
 
   test("is idempotent — a second run migrates nothing", async () => {

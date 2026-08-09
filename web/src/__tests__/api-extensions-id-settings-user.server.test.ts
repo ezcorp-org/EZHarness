@@ -50,9 +50,7 @@ vi.mock("$server/db/queries/settings", () => ({
   upsertSetting: vi.fn(async () => undefined),
 }));
 
-const { PUT, DELETE } = await import(
-  "../routes/api/extensions/[id]/settings/user/+server.ts"
-);
+const { PUT, DELETE } = await import("../routes/api/extensions/[id]/settings/user/+server.ts");
 
 const USER = { id: "user-1", email: "u@x", name: "U", role: "member" };
 
@@ -99,7 +97,10 @@ beforeEach(() => {
 
 describe("PUT /api/extensions/:id/settings/user — F1 scope gate", () => {
   test("a read-only key is refused 403 and NO secret is stored", async () => {
-    const res = await call(PUT, evt("PUT", { body: { values: { apiKey: "sk-attacker" } }, scopes: ["read"] }));
+    const res = await call(
+      PUT,
+      evt("PUT", { body: { values: { apiKey: "sk-attacker" } }, scopes: ["read"] }),
+    );
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error?: string; required?: string };
     expect(body.error).toBe("Insufficient scope");
@@ -121,20 +122,29 @@ describe("PUT /api/extensions/:id/settings/user — F1 scope gate", () => {
   });
 
   test("a correctly-scoped 'extensions' key still succeeds", async () => {
-    const res = await call(PUT, evt("PUT", { body: { values: { apiKey: "sk-legit" } }, scopes: ["extensions"] }));
+    const res = await call(
+      PUT,
+      evt("PUT", { body: { values: { apiKey: "sk-legit" } }, scopes: ["extensions"] }),
+    );
     expect(res.status).toBe(200);
     expect(h.setSecretSetting).toHaveBeenCalled();
   });
 
   test("an empty-string secret CLEARS it rather than storing one", async () => {
-    const res = await call(PUT, evt("PUT", { body: { values: { apiKey: "" } }, scopes: ["extensions"] }));
+    const res = await call(
+      PUT,
+      evt("PUT", { body: { values: { apiKey: "" } }, scopes: ["extensions"] }),
+    );
     expect(res.status).toBe(200);
     expect(h.clearSecretSetting).toHaveBeenCalledWith("ext-1", "user-1", "api_key");
     expect(h.setSecretSetting).not.toHaveBeenCalled();
   });
 
   test("a non-string secret is rejected 400 before anything is applied", async () => {
-    const res = await call(PUT, evt("PUT", { body: { values: { apiKey: 42 } }, scopes: ["extensions"] }));
+    const res = await call(
+      PUT,
+      evt("PUT", { body: { values: { apiKey: 42 } }, scopes: ["extensions"] }),
+    );
     expect(res.status).toBe(400);
     expect(h.setUserSettings).not.toHaveBeenCalled();
   });
@@ -178,7 +188,10 @@ describe("PUT /api/extensions/:id/settings/user — F1 scope gate", () => {
 
   test("still 200 when the audit write throws (best-effort)", async () => {
     h.insertAuditEntry.mockRejectedValueOnce(new Error("audit-fail"));
-    const res = await call(PUT, evt("PUT", { body: { values: { voice: "b" } }, scopes: ["extensions"] }));
+    const res = await call(
+      PUT,
+      evt("PUT", { body: { values: { voice: "b" } }, scopes: ["extensions"] }),
+    );
     expect(res.status).toBe(200);
   });
 });

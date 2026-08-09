@@ -14,9 +14,7 @@ vi.mock("$server/db/queries/marketplace", () => ({
   getMarketplaceTagCounts: vi.fn(),
 }));
 
-const { getMarketplaceTagCounts } = await import(
-  "$server/db/queries/marketplace"
-);
+const { getMarketplaceTagCounts } = await import("$server/db/queries/marketplace");
 const { GET } = await import("../routes/api/marketplace/categories/+server.ts");
 
 beforeEach(() => {

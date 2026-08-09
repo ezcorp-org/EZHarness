@@ -41,9 +41,7 @@ describe("pickForkName", () => {
 
   test("a fork of a fork is an ordinary clone through the same rule", () => {
     // No chain walking, no special case — each fork is an independent row.
-    expect(pickForkName("docs-factory-2", (n) => n === "docs-factory-2")).toBe(
-      "docs-factory-2-2",
-    );
+    expect(pickForkName("docs-factory-2", (n) => n === "docs-factory-2")).toBe("docs-factory-2-2");
   });
 
   test("truncates before suffixing, so a maximal name still forks legally", () => {

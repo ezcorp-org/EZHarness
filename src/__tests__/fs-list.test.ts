@@ -3,7 +3,13 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgents } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings, restoreFetch } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+  restoreFetch,
+} from "./helpers/test-pglite";
 import type { AgentEvents } from "../types";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -58,14 +64,14 @@ describe("GET /api/fs/list", () => {
   test("returns entries for a valid directory", async () => {
     const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(testDir)}`);
     expect(res.status).toBe(200);
-    const entries = await res.json() as any[];
+    const entries = (await res.json()) as any[];
     expect(Array.isArray(entries)).toBe(true);
     expect(entries.length).toBeGreaterThanOrEqual(4);
   });
 
   test("entries have correct shape", async () => {
     const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(testDir)}`);
-    const entries = await res.json() as any[];
+    const entries = (await res.json()) as any[];
     for (const entry of entries) {
       expect(typeof entry.name).toBe("string");
       expect(typeof entry.isDir).toBe("boolean");
@@ -74,7 +80,7 @@ describe("GET /api/fs/list", () => {
 
   test("sorts directories before files", async () => {
     const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(testDir)}`);
-    const entries = await res.json() as any[];
+    const entries = (await res.json()) as any[];
 
     const firstFileIdx = entries.findIndex((e: any) => !e.isDir);
     const lastDirIdx = entries.findLastIndex((e: any) => e.isDir);
@@ -86,7 +92,7 @@ describe("GET /api/fs/list", () => {
 
   test("sorts alphabetically within dirs and files", async () => {
     const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(testDir)}`);
-    const entries = await res.json() as any[];
+    const entries = (await res.json()) as any[];
 
     const dirs = entries.filter((e: any) => e.isDir).map((e: any) => e.name);
     const files = entries.filter((e: any) => !e.isDir).map((e: any) => e.name);
@@ -97,7 +103,7 @@ describe("GET /api/fs/list", () => {
 
   test("filters dotfiles by default", async () => {
     const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(testDir)}`);
-    const entries = await res.json() as any[];
+    const entries = (await res.json()) as any[];
     const names = entries.map((e: any) => e.name);
 
     expect(names).toContain("alpha-dir");
@@ -108,7 +114,7 @@ describe("GET /api/fs/list", () => {
 
   test("shows dotfiles with hidden=1", async () => {
     const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(testDir)}&hidden=1`);
-    const entries = await res.json() as any[];
+    const entries = (await res.json()) as any[];
     const names = entries.map((e: any) => e.name);
 
     expect(names).toContain(".hidden-dir");
@@ -119,35 +125,39 @@ describe("GET /api/fs/list", () => {
   test("returns empty array for nonexistent directory", async () => {
     const res = await fetch(`${baseUrl}/api/fs/list?dir=/nonexistent/path/that/does/not/exist`);
     expect(res.status).toBe(200);
-    const entries = await res.json() as any;
+    const entries = (await res.json()) as any;
     expect(entries).toEqual([]);
   });
 
   test("expands tilde to HOME", async () => {
     const res = await fetch(`${baseUrl}/api/fs/list?dir=~`);
     expect(res.status).toBe(200);
-    const entries = await res.json() as any[];
+    const entries = (await res.json()) as any[];
     expect(entries.length).toBeGreaterThan(0);
 
     // Compare with explicit $HOME listing
-    const homeRes = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(process.env.HOME!)}`);
-    const homeEntries = await homeRes.json() as any[];
+    const homeRes = await fetch(
+      `${baseUrl}/api/fs/list?dir=${encodeURIComponent(process.env.HOME!)}`,
+    );
+    const homeEntries = (await homeRes.json()) as any[];
     expect(entries).toEqual(homeEntries);
   });
 
   test("defaults to HOME when no dir param", async () => {
     const res = await fetch(`${baseUrl}/api/fs/list`);
     expect(res.status).toBe(200);
-    const entries = await res.json() as any[];
+    const entries = (await res.json()) as any[];
 
-    const homeRes = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(process.env.HOME!)}`);
-    const homeEntries = await homeRes.json() as any[];
+    const homeRes = await fetch(
+      `${baseUrl}/api/fs/list?dir=${encodeURIComponent(process.env.HOME!)}`,
+    );
+    const homeEntries = (await homeRes.json()) as any[];
     expect(entries).toEqual(homeEntries);
   });
 
   test("correctly identifies directories vs files", async () => {
     const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(testDir)}`);
-    const entries = await res.json() as any[];
+    const entries = (await res.json()) as any[];
 
     const alphaDir = entries.find((e: any) => e.name === "alpha-dir");
     const fileA = entries.find((e: any) => e.name === "file-a.txt");
@@ -161,7 +171,7 @@ describe("GET /api/fs/list", () => {
   test("handles root directory", async () => {
     const res = await fetch(`${baseUrl}/api/fs/list?dir=/`);
     expect(res.status).toBe(200);
-    const entries = await res.json() as any[];
+    const entries = (await res.json()) as any[];
     expect(entries.length).toBeGreaterThan(0);
     // Root should contain common dirs
     const names = entries.map((e: any) => e.name);
@@ -175,7 +185,7 @@ describe("GET /api/fs/list", () => {
 
     const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(specialDir)}`);
     expect(res.status).toBe(200);
-    const entries = await res.json() as any[];
+    const entries = (await res.json()) as any[];
     expect(entries.length).toBe(1);
     expect(entries[0].name).toBe("inner.txt");
   });
@@ -184,7 +194,7 @@ describe("GET /api/fs/list", () => {
     const filePath = join(testDir, "file-a.txt");
     const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(filePath)}`);
     expect(res.status).toBe(200);
-    const entries = await res.json() as any;
+    const entries = (await res.json()) as any;
     expect(entries).toEqual([]);
   });
 });
@@ -223,13 +233,15 @@ describe("FilePicker browsing flow (integration)", () => {
 
   test("step 1: list root test dir -> see project folder", async () => {
     const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(testDir)}`);
-    const entries = await res.json() as any[];
+    const entries = (await res.json()) as any[];
     expect(entries).toEqual([{ name: "project", isDir: true }]);
   });
 
   test("step 2: navigate into project -> see dirs then files", async () => {
-    const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(join(testDir, "project"))}`);
-    const entries = await res.json() as any[];
+    const res = await fetch(
+      `${baseUrl}/api/fs/list?dir=${encodeURIComponent(join(testDir, "project"))}`,
+    );
+    const entries = (await res.json()) as any[];
     const names = entries.map((e: any) => e.name);
 
     // dirs first
@@ -242,8 +254,10 @@ describe("FilePicker browsing flow (integration)", () => {
   });
 
   test("step 3: navigate into src -> see .ts files", async () => {
-    const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(join(testDir, "project", "src"))}`);
-    const entries = await res.json() as any[];
+    const res = await fetch(
+      `${baseUrl}/api/fs/list?dir=${encodeURIComponent(join(testDir, "project", "src"))}`,
+    );
+    const entries = (await res.json()) as any[];
     expect(entries.length).toBe(2);
     expect(entries.every((e: any) => !e.isDir)).toBe(true);
     const names = entries.map((e: any) => e.name);
@@ -252,16 +266,20 @@ describe("FilePicker browsing flow (integration)", () => {
   });
 
   test("step 4: empty directory returns empty array", async () => {
-    const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(join(testDir, "project", "tests"))}`);
-    const entries = await res.json() as any;
+    const res = await fetch(
+      `${baseUrl}/api/fs/list?dir=${encodeURIComponent(join(testDir, "project", "tests"))}`,
+    );
+    const entries = (await res.json()) as any;
     expect(entries).toEqual([]);
   });
 
   test("simulates autocomplete: partial path prefix filtering", async () => {
     // The client splits "/path/to/project/sr" into dir="/path/to/project" partial="sr"
     // Fetch the parent dir
-    const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(join(testDir, "project"))}`);
-    const entries = await res.json() as any[];
+    const res = await fetch(
+      `${baseUrl}/api/fs/list?dir=${encodeURIComponent(join(testDir, "project"))}`,
+    );
+    const entries = (await res.json()) as any[];
 
     // Client-side filtering by partial "sr"
     const partial = "sr";
@@ -272,8 +290,10 @@ describe("FilePicker browsing flow (integration)", () => {
   });
 
   test("simulates autocomplete: partial file prefix filtering", async () => {
-    const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(join(testDir, "project", "src"))}`);
-    const entries = await res.json() as any[];
+    const res = await fetch(
+      `${baseUrl}/api/fs/list?dir=${encodeURIComponent(join(testDir, "project", "src"))}`,
+    );
+    const entries = (await res.json()) as any[];
 
     // Client-side filtering by partial "ind"
     const filtered = entries.filter((e: any) => e.name.toLowerCase().startsWith("ind"));
@@ -285,21 +305,21 @@ describe("FilePicker browsing flow (integration)", () => {
   test("simulates full browse-to-select flow", async () => {
     // User clicks browse -> list testDir
     const step1 = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(testDir)}`);
-    const entries1 = await step1.json() as any[];
+    const entries1 = (await step1.json()) as any[];
     expect(entries1[0].name).toBe("project");
     expect(entries1[0].isDir).toBe(true);
 
     // User clicks "project" -> navigate
     const projectPath = join(testDir, "project");
     const step2 = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(projectPath)}`);
-    const entries2 = await step2.json() as any[];
+    const entries2 = (await step2.json()) as any[];
     const srcEntry = entries2.find((e: any) => e.name === "src");
     expect(srcEntry).toBeDefined();
 
     // User clicks "src"
     const srcPath = join(projectPath, "src");
     const step3 = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent(srcPath)}`);
-    const entries3 = await step3.json() as any[];
+    const entries3 = (await step3.json()) as any[];
     const indexEntry = entries3.find((e: any) => e.name === "index.ts");
     expect(indexEntry).toBeDefined();
     expect(indexEntry.isDir).toBe(false);
@@ -342,8 +362,8 @@ describe("fs/list endpoint coexistence", () => {
     expect(agentsRes.status).toBe(200);
     expect(fsRes.status).toBe(200);
 
-    const agents = await agentsRes.json() as any;
-    const entries = await fsRes.json() as any;
+    const agents = (await agentsRes.json()) as any;
+    const entries = (await fsRes.json()) as any;
 
     expect(Array.isArray(agents)).toBe(true);
     expect(Array.isArray(entries)).toBe(true);

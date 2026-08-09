@@ -9,11 +9,7 @@
 
 import { getChannel } from "./channel";
 
-export type LifecycleEvent =
-  | "agent:spawn"
-  | "agent:complete"
-  | "run:start"
-  | "run:complete";
+export type LifecycleEvent = "agent:spawn" | "agent:complete" | "run:start" | "run:complete";
 
 /**
  * Register a handler for a lifecycle hook delivered by the host.

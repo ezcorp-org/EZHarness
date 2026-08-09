@@ -1,7 +1,5 @@
 {
-  "web/e2e/admin-routing-cost.spec.ts": [
-    "web/src/routes/(app)/admin/dashboard/+page.svelte"
-  ],
+  "web/e2e/admin-routing-cost.spec.ts": ["web/src/routes/(app)/admin/dashboard/+page.svelte"],
   "web/e2e/agent-panel-parity.spec.ts": [
     "web/src/lib/components/ChatThread.svelte",
     "web/src/lib/components/AgentDetailPanel.svelte"
@@ -36,15 +34,9 @@
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte",
     "web/src/lib/components/WaterfallTimeline.svelte"
   ],
-  "web/e2e/chat-prompt-arrow-nav-agentic.spec.ts": [
-    "web/src/lib/components/ChatThread.svelte"
-  ],
-  "web/e2e/chat-prompt-arrow-nav-cards.spec.ts": [
-    "web/src/lib/components/ChatThread.svelte"
-  ],
-  "web/e2e/chat-stick-to-bottom.spec.ts": [
-    "web/src/lib/components/ChatThread.svelte"
-  ],
+  "web/e2e/chat-prompt-arrow-nav-agentic.spec.ts": ["web/src/lib/components/ChatThread.svelte"],
+  "web/e2e/chat-prompt-arrow-nav-cards.spec.ts": ["web/src/lib/components/ChatThread.svelte"],
+  "web/e2e/chat-stick-to-bottom.spec.ts": ["web/src/lib/components/ChatThread.svelte"],
   "web/e2e/chat-turn-collapse.spec.ts": [
     "web/src/lib/components/ChatThread.svelte",
     "web/src/lib/components/TurnCollapsedSummary.svelte"
@@ -109,12 +101,8 @@
   "web/e2e/extensions-bundled-drift-reapproval.spec.ts": [
     "web/src/routes/(app)/extensions/[id]/+page.svelte"
   ],
-  "web/e2e/extensions-sort.spec.ts": [
-    "web/src/routes/(app)/extensions/+page.svelte"
-  ],
-  "web/e2e/extensions-workflows-grant.spec.ts": [
-    "web/src/routes/(app)/extensions/+page.svelte"
-  ],
+  "web/e2e/extensions-sort.spec.ts": ["web/src/routes/(app)/extensions/+page.svelte"],
+  "web/e2e/extensions-workflows-grant.spec.ts": ["web/src/routes/(app)/extensions/+page.svelte"],
   "web/e2e/ez-clear-conversation.spec.ts": [
     "web/src/lib/components/ez/**",
     "web/src/lib/components/ChatInput.svelte",
@@ -141,31 +129,21 @@
     "web/src/routes/(app)/hub/[pageId]/+page.svelte",
     "web/src/lib/components/hub/**/*.svelte"
   ],
-  "web/e2e/graded-card-scanner.spec.ts": [
-    "docs/extensions/examples/graded-card-scanner/app/**"
-  ],
+  "web/e2e/graded-card-scanner.spec.ts": ["docs/extensions/examples/graded-card-scanner/app/**"],
   "web/e2e/hub-side-nav.spec.ts": [
     "web/src/lib/components/hub/**/*.svelte",
     "web/src/routes/(app)/+layout.svelte"
   ],
-  "web/e2e/hydration-marker.spec.ts": [
-    "web/src/routes/+layout.svelte"
-  ],
+  "web/e2e/hydration-marker.spec.ts": ["web/src/routes/+layout.svelte"],
   "web/e2e/kilo-provider.spec.ts": [
     "web/src/lib/components/ProviderSettings.svelte",
     "web/src/lib/components/ProviderIcon.svelte",
     "web/src/lib/components/settings/PreferenceOrderSection.svelte",
     "web/src/routes/(app)/settings/models/+page.svelte"
   ],
-  "web/e2e/knowledge-base.spec.ts": [
-    "web/src/lib/components/KnowledgeBaseTab.svelte"
-  ],
-  "web/e2e/loops-kill-switch.spec.ts": [
-    "web/src/routes/(app)/settings/admin/+page.svelte"
-  ],
-  "web/e2e/main-chat-parity.spec.ts": [
-    "web/src/lib/components/ChatThread.svelte"
-  ],
+  "web/e2e/knowledge-base.spec.ts": ["web/src/lib/components/KnowledgeBaseTab.svelte"],
+  "web/e2e/loops-kill-switch.spec.ts": ["web/src/routes/(app)/settings/admin/+page.svelte"],
+  "web/e2e/main-chat-parity.spec.ts": ["web/src/lib/components/ChatThread.svelte"],
   "web/e2e/mode-preferred-tier.spec.ts": [
     "web/src/lib/components/ModeFormModal.svelte",
     "web/src/lib/components/settings/ModesSection.svelte"
@@ -241,9 +219,7 @@
     "web/src/lib/components/ChatMessage.svelte",
     "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
   ],
-  "web/e2e/settings-sticky-nav.spec.ts": [
-    "web/src/routes/(app)/settings/+layout.svelte"
-  ],
+  "web/e2e/settings-sticky-nav.spec.ts": ["web/src/routes/(app)/settings/+layout.svelte"],
   "web/e2e/task-panel-cold-start.spec.ts": [
     "web/src/lib/components/TaskPanel.svelte",
     "web/src/lib/chat/task-snapshot-store.ts",
@@ -279,10 +255,7 @@
     "web/src/lib/components/CommandForm.svelte",
     "web/src/routes/(app)/+layout.svelte"
   ],
-  "web/e2e/visual-evidence.spec.ts": [
-    "web/src/app.css",
-    "web/src/routes/(app)/hub/+page.svelte"
-  ],
+  "web/e2e/visual-evidence.spec.ts": ["web/src/app.css", "web/src/routes/(app)/hub/+page.svelte"],
   "web/e2e/workflow-approval-tray.spec.ts": [
     "web/src/lib/components/tool-cards/PendingDecisionsTray.svelte",
     "web/src/lib/components/tool-cards/PendingApprovalCard.svelte",
@@ -299,9 +272,7 @@
     "web/src/lib/components/ChatInput.svelte",
     "web/src/lib/components/ChatMessage.svelte"
   ],
-  "web/e2e/workflows-action-bar.spec.ts": [
-    "web/src/routes/(app)/workflows/[name]/+page.svelte"
-  ],
+  "web/e2e/workflows-action-bar.spec.ts": ["web/src/routes/(app)/workflows/[name]/+page.svelte"],
   "web/e2e/workflows-approvals.spec.ts": [
     "web/src/routes/(app)/workflows/approvals/+page.svelte",
     "web/src/lib/workflow-approvals-logic.ts"
@@ -321,9 +292,7 @@
     "web/src/lib/components/WorkflowBuilder.svelte",
     "web/src/lib/components/WorkflowStepForm.svelte"
   ],
-  "web/e2e/workflows-fork.spec.ts": [
-    "web/src/routes/(app)/workflows/[name]/+page.svelte"
-  ],
+  "web/e2e/workflows-fork.spec.ts": ["web/src/routes/(app)/workflows/[name]/+page.svelte"],
   "web/e2e/workflows-run-trace.spec.ts": [
     "web/src/routes/(app)/workflows/runs/[id]/+page.svelte",
     "web/src/lib/workflow-trace-logic.ts"

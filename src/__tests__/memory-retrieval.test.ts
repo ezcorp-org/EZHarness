@@ -1,12 +1,17 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection, type getTestPglite } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  type getTestPglite,
+} from "./helpers/test-pglite";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
 
 // Mock db/connection before any imports that use it
 mockDbConnection();
 
 // Import after mocking
-import { hybridSearch, searchKBChunksForQuery, } from "../memory/retrieval";
+import { hybridSearch, searchKBChunksForQuery } from "../memory/retrieval";
 
 // Helper: create a deterministic 384-dim vector that has known cosine similarity properties
 function makeVector(seed: number): number[] {
@@ -17,7 +22,7 @@ function makeVector(seed: number): number[] {
   vec[(seed + 2) % EMBEDDING_DIMENSIONS] = 0.1;
   // Normalize
   const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
-  return vec.map(v => v / norm);
+  return vec.map((v) => v / norm);
 }
 
 describe("hybridSearch", () => {
@@ -88,8 +93,8 @@ describe("hybridSearch", () => {
 
     expect(results.length).toBe(2);
     // proj-a memory should have higher score due to 1.5x boost vs global
-    const projA = results.find(r => r.id === "m-proj-a")!;
-    const globalMem = results.find(r => r.id === "m-global")!;
+    const projA = results.find((r) => r.id === "m-proj-a")!;
+    const globalMem = results.find((r) => r.id === "m-global")!;
     expect(projA.rrfScore).toBeGreaterThan(globalMem.rrfScore);
   });
 
@@ -152,7 +157,7 @@ describe("hybridSearch", () => {
 
     const results = await hybridSearch("memory from project", vec, { projectId: "proj-a" });
 
-    const ids = results.map(r => r.id);
+    const ids = results.map((r) => r.id);
     // proj-a memory and global memory should be returned
     expect(ids).toContain("m-glob-a");
     expect(ids).toContain("m-glob-global");
@@ -175,8 +180,8 @@ describe("hybridSearch", () => {
     const results = await hybridSearch("dark theme editor", vec, {});
 
     expect(results.length).toBe(2);
-    const activeResult = results.find(r => r.id === "m-active")!;
-    const staleResult = results.find(r => r.id === "m-stale")!;
+    const activeResult = results.find((r) => r.id === "m-active")!;
+    const staleResult = results.find((r) => r.id === "m-stale")!;
     // Stale RRF should be less than active (0.5x weight applied)
     expect(staleResult.rrfScore).toBeLessThan(activeResult.rrfScore);
     // The stale score should be roughly half (within margin due to different rank positions)
@@ -196,7 +201,7 @@ describe("hybridSearch", () => {
 
     const results = await hybridSearch("memory content", vec, {});
 
-    const ids = results.map(r => r.id);
+    const ids = results.map((r) => r.id);
     expect(ids).not.toContain("m-archived");
     expect(ids).toContain("m-keep");
   });
@@ -213,10 +218,10 @@ describe("hybridSearch", () => {
     const results = await hybridSearch("searchable content", vec, {});
 
     expect(results.length).toBeGreaterThanOrEqual(1);
-    expect(results.map(r => r.id)).toContain("m-touch");
+    expect(results.map((r) => r.id)).toContain("m-touch");
 
     // Wait a tick for the fire-and-forget touchMemoryAccess to complete
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // Verify lastAccessedAt was updated
     const row = await pglite.query("SELECT last_accessed_at FROM memories WHERE id = 'm-touch'");

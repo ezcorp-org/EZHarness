@@ -33,15 +33,15 @@ export type ToolScopeMap = Record<string, string[]>;
  * the extension has no key in the map (an empty array means OFF, not all).
  */
 export function isAllTools(map: ToolScopeMap, extId: string): boolean {
-	return !map[extId];
+  return !map[extId];
 }
 
 /**
  * Is this extension explicitly toggled OFF (present key, empty subset)?
  */
 export function isExtensionOff(map: ToolScopeMap, extId: string): boolean {
-	const subset = map[extId];
-	return subset !== undefined && subset.length === 0;
+  const subset = map[extId];
+  return subset !== undefined && subset.length === 0;
 }
 
 /**
@@ -49,8 +49,8 @@ export function isExtensionOff(map: ToolScopeMap, extId: string): boolean {
  * checked; OFF reads as unchecked; otherwise membership in the subset.
  */
 export function isToolChecked(map: ToolScopeMap, extId: string, toolName: string): boolean {
-	if (isAllTools(map, extId)) return true;
-	return map[extId]!.includes(toolName);
+  if (isAllTools(map, extId)) return true;
+  return map[extId]!.includes(toolName);
 }
 
 /**
@@ -59,10 +59,10 @@ export function isToolChecked(map: ToolScopeMap, extId: string, toolName: string
  * Returns a NEW map.
  */
 export function toggleExtension(map: ToolScopeMap, extId: string): ToolScopeMap {
-	const result: ToolScopeMap = { ...map };
-	if (isExtensionOff(map, extId)) delete result[extId];
-	else result[extId] = [];
-	return result;
+  const result: ToolScopeMap = { ...map };
+  if (isExtensionOff(map, extId)) delete result[extId];
+  else result[extId] = [];
+  return result;
 }
 
 /**
@@ -72,9 +72,9 @@ export function toggleExtension(map: ToolScopeMap, extId: string): ToolScopeMap 
  * stored order).
  */
 export function selectedLabel(map: ToolScopeMap, extId: string): string {
-	if (isAllTools(map, extId)) return "All tools";
-	if (isExtensionOff(map, extId)) return "No tools";
-	return map[extId]!.join(", ");
+  if (isAllTools(map, extId)) return "All tools";
+  if (isExtensionOff(map, extId)) return "No tools";
+  return map[extId]!.join(", ");
 }
 
 /**
@@ -90,25 +90,25 @@ export function selectedLabel(map: ToolScopeMap, extId: string): string {
  * extension instead.
  */
 export function toggleTool(
-	map: ToolScopeMap,
-	extId: string,
-	toolName: string,
-	allToolNames: string[],
+  map: ToolScopeMap,
+  extId: string,
+  toolName: string,
+  allToolNames: string[],
 ): ToolScopeMap {
-	// Current effective selection: the full set when in "all" mode, else the
-	// stored subset.
-	const current = new Set(isAllTools(map, extId) ? allToolNames : map[extId]!);
-	if (current.has(toolName)) current.delete(toolName);
-	else current.add(toolName);
-	// Preserve manifest order; drop anything no longer present in the manifest.
-	const next = allToolNames.filter((t) => current.has(t));
-	const result: ToolScopeMap = { ...map };
-	if (next.length === 0 || next.length === allToolNames.length) {
-		delete result[extId];
-	} else {
-		result[extId] = next;
-	}
-	return result;
+  // Current effective selection: the full set when in "all" mode, else the
+  // stored subset.
+  const current = new Set(isAllTools(map, extId) ? allToolNames : map[extId]!);
+  if (current.has(toolName)) current.delete(toolName);
+  else current.add(toolName);
+  // Preserve manifest order; drop anything no longer present in the manifest.
+  const next = allToolNames.filter((t) => current.has(t));
+  const result: ToolScopeMap = { ...map };
+  if (next.length === 0 || next.length === allToolNames.length) {
+    delete result[extId];
+  } else {
+    result[extId] = next;
+  }
+  return result;
 }
 
 /**
@@ -116,9 +116,9 @@ export function toggleTool(
  * Returns a NEW map. Used by the "Select all" affordance.
  */
 export function selectAllTools(map: ToolScopeMap, extId: string): ToolScopeMap {
-	const result: ToolScopeMap = { ...map };
-	delete result[extId];
-	return result;
+  const result: ToolScopeMap = { ...map };
+  delete result[extId];
+  return result;
 }
 
 /**
@@ -128,9 +128,9 @@ export function selectAllTools(map: ToolScopeMap, extId: string): ToolScopeMap {
  * subset to begin with).
  */
 export function pruneDetached(map: ToolScopeMap, attachedIds: string[]): ToolScopeMap {
-	const kept: ToolScopeMap = {};
-	for (const id of attachedIds) {
-		if (map[id]) kept[id] = map[id];
-	}
-	return kept;
+  const kept: ToolScopeMap = {};
+  for (const id of attachedIds) {
+    if (map[id]) kept[id] = map[id];
+  }
+  return kept;
 }

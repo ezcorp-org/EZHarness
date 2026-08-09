@@ -23,12 +23,12 @@ import type { EzProposeResult } from "$lib/components/ez/ez-tool-result.js";
 import { extractEzCardObject } from "./ez-install-card-logic.js";
 
 export function parseProposeCardResult(output: unknown): EzProposeResult | null {
-	const obj = extractEzCardObject(output);
-	if (!obj) return null;
-	if (typeof obj.openUrl !== "string" || obj.openUrl.length === 0) return null;
-	const draftId = typeof obj.draftId === "string" ? obj.draftId : undefined;
-	return {
-		openUrl: obj.openUrl,
-		...(draftId ? { draftId } : {}),
-	};
+  const obj = extractEzCardObject(output);
+  if (!obj) return null;
+  if (typeof obj.openUrl !== "string" || obj.openUrl.length === 0) return null;
+  const draftId = typeof obj.draftId === "string" ? obj.draftId : undefined;
+  return {
+    openUrl: obj.openUrl,
+    ...(draftId ? { draftId } : {}),
+  };
 }

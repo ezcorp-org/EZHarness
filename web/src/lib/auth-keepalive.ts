@@ -13,12 +13,11 @@ export function startAuthKeepalive(): () => void {
 
   const tick = () => {
     if (document.visibilityState !== "visible") return;
-    fetch("/api/auth/ping", { credentials: "same-origin", cache: "no-store" })
-      .catch(() => {
-        // Silent: a transient ping failure is benign — the next user nav
-        // will retry through the regular hooks path. Hard 401s surface
-        // there too, so we don't double-handle them here.
-      });
+    fetch("/api/auth/ping", { credentials: "same-origin", cache: "no-store" }).catch(() => {
+      // Silent: a transient ping failure is benign — the next user nav
+      // will retry through the regular hooks path. Hard 401s surface
+      // there too, so we don't double-handle them here.
+    });
   };
 
   const intervalId = window.setInterval(tick, KEEPALIVE_INTERVAL_MS);

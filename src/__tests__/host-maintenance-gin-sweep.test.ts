@@ -25,20 +25,8 @@
  * host-maintenance-daemon.test.ts — mockDbConnection + spy on db.execute.
  */
 
-import {
-  test,
-  expect,
-  describe,
-  beforeAll,
-  beforeEach,
-  afterAll,
-  spyOn,
-} from "bun:test";
-import {
-  setupTestDb,
-  closeTestDb,
-  mockDbConnection,
-} from "./helpers/test-pglite";
+import { test, expect, describe, beforeAll, beforeEach, afterAll, spyOn } from "bun:test";
+import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
 mockDbConnection();
 
@@ -91,9 +79,7 @@ function renderDrizzleChunks(value: unknown): string {
   return String(value);
 }
 
-function countGinSweepCalls(
-  spy: ReturnType<typeof spyOn<unknown, "execute">>,
-): number {
+function countGinSweepCalls(spy: ReturnType<typeof spyOn<unknown, "execute">>): number {
   let n = 0;
   for (const call of spy.mock.calls) {
     const rendered = renderDrizzleChunks(call?.[0]);
@@ -128,9 +114,7 @@ describe("HostMaintenanceDaemon GIN sub-tick", () => {
       }
       expect(countGinSweepCalls(spy as never)).toBeGreaterThanOrEqual(1);
       // The impl must target the trigram index specifically.
-      const renderedCalls = spy.mock.calls
-        .map((c) => renderDrizzleChunks(c?.[0]))
-        .join("\n");
+      const renderedCalls = spy.mock.calls.map((c) => renderDrizzleChunks(c?.[0])).join("\n");
       expect(renderedCalls).toContain("idx_marketplace_listings_trgm");
     } finally {
       spy.mockRestore();

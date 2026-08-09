@@ -54,7 +54,9 @@ describe("createGlobTool", () => {
   test("returns results sorted alphabetically", async () => {
     const tool = createGlobTool(projectPath);
     const result = await tool.execute("1", { pattern: "src/*.ts" });
-    const lines = getText(result).split("\n").filter((l) => l.length > 0 && !l.startsWith("["));
+    const lines = getText(result)
+      .split("\n")
+      .filter((l) => l.length > 0 && !l.startsWith("["));
     // Alphabetical: index.ts before utils.ts
     const indexIdx = lines.findIndex((l) => l.endsWith("index.ts"));
     const utilsIdx = lines.findIndex((l) => l.endsWith("utils.ts"));

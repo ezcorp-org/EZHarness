@@ -24,7 +24,7 @@
 import type { EzProposeResult } from "$lib/components/ez/ez-tool-result.js";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-	return !!value && typeof value === "object" && !Array.isArray(value);
+  return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
 /**
@@ -35,32 +35,32 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * identically. Returns null when nothing object-shaped can be recovered.
  */
 export function extractEzCardObject(out: unknown): Record<string, unknown> | null {
-	if (out == null) return null;
-	if (typeof out === "string") {
-		try {
-			const parsed = JSON.parse(out);
-			return isRecord(parsed) ? parsed : null;
-		} catch {
-			return null;
-		}
-	}
-	if (!isRecord(out)) return null;
-	// Defensive: a non-enveloped path could still hand us the MCP
-	// content array — unwrap the first text part like the other cards.
-	if (Array.isArray(out.content)) {
-		const text = (out.content as Array<{ type?: string; text?: unknown }>).find(
-			(c) => c.type === "text",
-		)?.text;
-		if (typeof text === "string") {
-			try {
-				const parsed = JSON.parse(text);
-				return isRecord(parsed) ? parsed : null;
-			} catch {
-				return null;
-			}
-		}
-	}
-	return out;
+  if (out == null) return null;
+  if (typeof out === "string") {
+    try {
+      const parsed = JSON.parse(out);
+      return isRecord(parsed) ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+  if (!isRecord(out)) return null;
+  // Defensive: a non-enveloped path could still hand us the MCP
+  // content array — unwrap the first text part like the other cards.
+  if (Array.isArray(out.content)) {
+    const text = (out.content as Array<{ type?: string; text?: unknown }>).find(
+      (c) => c.type === "text",
+    )?.text;
+    if (typeof text === "string") {
+      try {
+        const parsed = JSON.parse(text);
+        return isRecord(parsed) ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -77,19 +77,19 @@ export function extractEzCardObject(out: unknown): Record<string, unknown> | nul
  * card must never be able to contradict the result it renders.
  */
 export function parseInstallCardResult(output: unknown): EzProposeResult | null {
-	const obj = extractEzCardObject(output);
-	if (!obj) return null;
-	if (obj.ok === false) return null;
-	if (typeof obj.openUrl !== "string" || obj.openUrl.length === 0) return null;
-	const name = typeof obj.name === "string" ? obj.name : undefined;
-	return {
-		openUrl: obj.openUrl,
-		// D1: the install card's generalized label. The heading copy is
-		// install-specific too so the card reads coherently.
-		openUrlLabel: "Open extension",
-		title: name ? `Extension "${name}" installed` : "Extension installed",
-		summary: name
-			? `${name} is installed and enabled. Open it in the Extensions Library.`
-			: "The extension is installed and enabled. Open it in the Extensions Library.",
-	};
+  const obj = extractEzCardObject(output);
+  if (!obj) return null;
+  if (obj.ok === false) return null;
+  if (typeof obj.openUrl !== "string" || obj.openUrl.length === 0) return null;
+  const name = typeof obj.name === "string" ? obj.name : undefined;
+  return {
+    openUrl: obj.openUrl,
+    // D1: the install card's generalized label. The heading copy is
+    // install-specific too so the card reads coherently.
+    openUrlLabel: "Open extension",
+    title: name ? `Extension "${name}" installed` : "Extension installed",
+    summary: name
+      ? `${name} is installed and enabled. Open it in the Extensions Library.`
+      : "The extension is installed and enabled. Open it in the Extensions Library.",
+  };
 }

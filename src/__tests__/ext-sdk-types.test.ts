@@ -65,7 +65,9 @@ describe("tool template", () => {
   });
 
   test("toolEntrypoint returns non-empty string", async () => {
-    const { toolEntrypoint } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/tool");
+    const { toolEntrypoint } = await import(
+      "../../packages/@ezcorp/sdk/src/scaffold/templates/tool"
+    );
     const code = toolEntrypoint("my-tool", "A cool tool");
     expect(code.length).toBeGreaterThan(0);
     expect(code).toContain("jsonrpc");
@@ -88,7 +90,9 @@ describe("tool template", () => {
 
 describe("skill template", () => {
   test("skillManifest generates valid manifest with skills array", async () => {
-    const { skillManifest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/skill");
+    const { skillManifest } = await import(
+      "../../packages/@ezcorp/sdk/src/scaffold/templates/skill"
+    );
     const ts = skillManifest("my-skill", "A cool skill");
     const manifest = evalTemplateManifest(ts);
     const result = validateManifestV2(manifest);
@@ -98,7 +102,9 @@ describe("skill template", () => {
   });
 
   test("skillEntrypoint returns empty string", async () => {
-    const { skillEntrypoint } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/skill");
+    const { skillEntrypoint } = await import(
+      "../../packages/@ezcorp/sdk/src/scaffold/templates/skill"
+    );
     expect(skillEntrypoint("my-skill", "A cool skill")).toBe("");
   });
 
@@ -115,7 +121,9 @@ describe("skill template", () => {
 
 describe("agent template", () => {
   test("agentManifest generates valid manifest with agent component", async () => {
-    const { agentManifest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/agent");
+    const { agentManifest } = await import(
+      "../../packages/@ezcorp/sdk/src/scaffold/templates/agent"
+    );
     const ts = agentManifest("my-agent", "A cool agent");
     const manifest = evalTemplateManifest(ts);
     const result = validateManifestV2(manifest);
@@ -126,7 +134,9 @@ describe("agent template", () => {
   });
 
   test("agentEntrypoint returns empty string", async () => {
-    const { agentEntrypoint } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/agent");
+    const { agentEntrypoint } = await import(
+      "../../packages/@ezcorp/sdk/src/scaffold/templates/agent"
+    );
     expect(agentEntrypoint("my-agent", "A cool agent")).toBe("");
   });
 
@@ -143,7 +153,9 @@ describe("agent template", () => {
 
 describe("multi template", () => {
   test("multiManifest generates valid manifest with tools, skills, and agent", async () => {
-    const { multiManifest } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/multi");
+    const { multiManifest } = await import(
+      "../../packages/@ezcorp/sdk/src/scaffold/templates/multi"
+    );
     const ts = multiManifest("my-multi", "A cool multi");
     const manifest = evalTemplateManifest(ts);
     const result = validateManifestV2(manifest);
@@ -155,7 +167,9 @@ describe("multi template", () => {
   });
 
   test("multiEntrypoint returns non-empty string", async () => {
-    const { multiEntrypoint } = await import("../../packages/@ezcorp/sdk/src/scaffold/templates/multi");
+    const { multiEntrypoint } = await import(
+      "../../packages/@ezcorp/sdk/src/scaffold/templates/multi"
+    );
     const code = multiEntrypoint("my-multi", "A cool multi");
     expect(code.length).toBeGreaterThan(0);
     expect(code).toContain("jsonrpc");

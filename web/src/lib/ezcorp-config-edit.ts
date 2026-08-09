@@ -61,7 +61,8 @@ export function parseDependencies(source: string): DependencyEntry[] {
   if (block === null) return [];
   const entries: DependencyEntry[] = [];
   // Match: "name": { source: "…", version: "…" }
-  const re = /["']([^"']+)["']\s*:\s*\{\s*source\s*:\s*["']([^"']*)["']\s*,\s*version\s*:\s*["']([^"']*)["']\s*\}/g;
+  const re =
+    /["']([^"']+)["']\s*:\s*\{\s*source\s*:\s*["']([^"']*)["']\s*,\s*version\s*:\s*["']([^"']*)["']\s*\}/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(block)) !== null) {
     entries.push({ name: m[1]!, source: m[2]!, version: m[3]! });
@@ -80,7 +81,10 @@ function extractManagedDepBlock(source: string): string | null {
 function renderDepBlock(deps: DependencyEntry[], indent: string): string {
   if (deps.length === 0) return "";
   const inner = deps
-    .map((d) => `${indent}  ${JSON.stringify(d.name)}: { source: ${JSON.stringify(d.source)}, version: ${JSON.stringify(d.version)} },`)
+    .map(
+      (d) =>
+        `${indent}  ${JSON.stringify(d.name)}: { source: ${JSON.stringify(d.source)}, version: ${JSON.stringify(d.version)} },`,
+    )
     .join("\n");
   return `${indent}${DEP_BEGIN}\n${indent}dependencies: {\n${inner}\n${indent}},\n${indent}${DEP_END}\n`;
 }
@@ -232,6 +236,7 @@ function findCapValueSpan(
   const valEnd = i;
   // Consume a trailing comma (and the whitespace before it stays put).
   let entryEnd = valEnd;
+  // biome-ignore format: kept on one line because this loop's body is effect-dead and cannot be closed by a test. It only advances when `valEnd` lands on horizontal whitespace, which only an OBJECT value produces (the non-object walk stops on `,`/`}`/`\n`). Object values are always UNMANAGED, and the sole consumer of `entryEnd` (setCapabilityPermissions' removal path) skips unmanaged caps — so the one path that runs the loop discards its result. Split onto its own line it becomes a permanent zero-hit DA record. Kept rather than deleted: it is the correct behaviour if a future value shape ever ends before its comma.
   while (entryEnd < body.length && /\s/.test(body[entryEnd]!) && body[entryEnd] !== "\n") entryEnd++;
   if (body[entryEnd] === ",") entryEnd++;
   return { keyStart, valStart, valEnd, entryEnd };
@@ -366,7 +371,10 @@ export function setCapabilityPermissions(
   // Rebuild the permissions inner body: keep existing (trimmed) content +
   // the managed capability lines, normalized (no leading/trailing blank
   // lines). An empty result yields `permissions: {}`.
-  const kept = body.replace(/^\s*\n/, "").replace(/\n\s*$/, "").trim();
+  const kept = body
+    .replace(/^\s*\n/, "")
+    .replace(/\n\s*$/, "")
+    .trim();
   const parts: string[] = [];
   if (kept.length > 0) parts.push(`${indent}  ${kept}`);
   if (added.length > 0) parts.push(added);

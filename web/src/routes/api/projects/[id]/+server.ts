@@ -56,12 +56,14 @@ import type { RequestHandler } from "./$types";
 // Boundary validation for project update. The handler accepts a
 // partial of the same fields the POST handler uses. `.strict()`
 // rejects unknown fields — `updateProject` only reads these four.
-const updateProjectSchema = z.object({
-  name: z.string().optional(),
-  path: z.string().optional(),
-  icon: z.string().nullable().optional(),
-  variables: z.record(z.string(), z.unknown()).optional(),
-}).strict();
+const updateProjectSchema = z
+  .object({
+    name: z.string().optional(),
+    path: z.string().optional(),
+    icon: z.string().nullable().optional(),
+    variables: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
 
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");

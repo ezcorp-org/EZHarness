@@ -8,7 +8,12 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgents } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { createProject } from "../db/queries/projects";
 import type { AgentEvents } from "../types";
 
@@ -55,7 +60,9 @@ async function createConvAndSend(title: string, content: string) {
 describe("Chat observability integration", () => {
   test("obs:turn event is emitted during chat", async () => {
     let turnEvent: any = null;
-    const off = bus.on("obs:turn", (data) => { turnEvent = data; });
+    const off = bus.on("obs:turn", (data) => {
+      turnEvent = data;
+    });
     const conv = await createConvAndSend("Obs Turn Test", "hello obs");
     await new Promise((r) => setTimeout(r, 300));
     expect(turnEvent).not.toBeNull();
@@ -67,7 +74,9 @@ describe("Chat observability integration", () => {
 
   test("run:usage event fires with correct token counts", async () => {
     let usage: any = null;
-    const off = bus.on("run:usage", (data) => { usage = data.usage; });
+    const off = bus.on("run:usage", (data) => {
+      usage = data.usage;
+    });
     await createConvAndSend("Usage Event Test", "check usage");
     await new Promise((r) => setTimeout(r, 200));
     // Usage from pi-ai format

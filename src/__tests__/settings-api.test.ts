@@ -46,7 +46,9 @@ function mockSettingsReal() {
         const [row] = await getDb()
           .select({ count: sql`count(*)::int` })
           .from(tbl)
-          .where(sql`${tbl.key} LIKE 'marketplace:installed:%' AND ${tbl.value}->>'listingId' = ${listingId}`);
+          .where(
+            sql`${tbl.key} LIKE 'marketplace:installed:%' AND ${tbl.value}->>'listingId' = ${listingId}`,
+          );
         return (row?.count ?? 0) > 0;
       },
     };
@@ -87,7 +89,7 @@ describe("GET /api/settings", () => {
   test("returns JSON object", async () => {
     const res = await fetch(`${baseUrl}/api/settings`);
     expect(res.status).toBe(200);
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     expect(typeof data).toBe("object");
     expect(data).not.toBeNull();
   });
@@ -103,7 +105,7 @@ describe("PUT /api/settings/:key", () => {
     expect(res.status).toBe(200);
 
     const getRes = await fetch(`${baseUrl}/api/settings`);
-    const settings = await getRes.json() as any;
+    const settings = (await getRes.json()) as any;
     expect(settings.provider).toBe("anthropic");
   });
 
@@ -122,7 +124,7 @@ describe("PUT /api/settings/:key", () => {
     expect(res.status).toBe(200);
 
     const getRes = await fetch(`${baseUrl}/api/settings`);
-    const settings = await getRes.json() as any;
+    const settings = (await getRes.json()) as any;
     expect(settings.model).toBe("sonnet");
   });
 
@@ -144,7 +146,7 @@ describe("PUT /api/settings/:key", () => {
     });
 
     const getRes = await fetch(`${baseUrl}/api/settings`);
-    const settings = await getRes.json() as any;
+    const settings = (await getRes.json()) as any;
     expect(settings.complex).toEqual(complex);
   });
 });
@@ -163,7 +165,7 @@ describe("DELETE /api/settings/:key", () => {
     expect(res.status).toBe(200);
 
     const getRes = await fetch(`${baseUrl}/api/settings`);
-    const settings = await getRes.json() as any;
+    const settings = (await getRes.json()) as any;
     expect(settings["to-delete"]).toBeUndefined();
   });
 

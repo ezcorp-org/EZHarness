@@ -86,11 +86,7 @@ afterEach(() => {
 
 describe("agent-fuzzy-search-bridge", () => {
   test("empty query → all candidate indices in original order, no worker spawned", async () => {
-    const candidates = [
-      { name: "alpha" },
-      { name: "beta" },
-      { name: "gamma" },
-    ];
+    const candidates = [{ name: "alpha" }, { name: "beta" }, { name: "gamma" }];
     const res = await rankAgents("", candidates);
     expect(res.indices).toEqual([0, 1, 2]);
     expect(res.usedWorker).toBe(false);

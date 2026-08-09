@@ -57,7 +57,13 @@ describe("inline tool retry", () => {
     globalThis.fetch = mockFetch(async (_url: string | URL | Request, init?: RequestInit) => {
       capturedBody = JSON.parse(init?.body as string);
       return new Response(
-        JSON.stringify({ success: true, output: "retried ok", retryCount: 1, durationMs: 50, toolCallId: call.id }),
+        JSON.stringify({
+          success: true,
+          output: "retried ok",
+          retryCount: 1,
+          durationMs: 50,
+          toolCallId: call.id,
+        }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     });
@@ -92,7 +98,13 @@ describe("inline tool retry", () => {
     globalThis.fetch = mockFetch(async (_url: string | URL | Request, init?: RequestInit) => {
       capturedBody = JSON.parse(init?.body as string);
       return new Response(
-        JSON.stringify({ success: true, output: "ok", retryCount: 0, durationMs: 10, toolCallId: "unique-inv-42" }),
+        JSON.stringify({
+          success: true,
+          output: "ok",
+          retryCount: 0,
+          durationMs: 10,
+          toolCallId: "unique-inv-42",
+        }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       );
     });

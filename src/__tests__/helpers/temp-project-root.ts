@@ -45,20 +45,10 @@
  * directory. Call it from `afterAll`/`afterEach`; it is idempotent.
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import {
-  __resetProjectRootCacheForTests,
-  getProjectRoot,
-} from "../../extensions/bundled";
+import { __resetProjectRootCacheForTests, getProjectRoot } from "../../extensions/bundled";
 
 export interface TempProjectRoot {
   /** Absolute, realpath-resolved root. `.ezcorp/**` lands under here. */

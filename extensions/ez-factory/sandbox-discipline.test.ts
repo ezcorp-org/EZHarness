@@ -53,7 +53,10 @@ const EXT_DIR = join(import.meta.dir);
 
 /** Every forbidden primitive, with the permission it would need. */
 const FORBIDDEN: ReadonlyArray<{ label: string; pattern: RegExp }> = [
-  { label: "node:fs / fs / fs/promises import", pattern: /\bfrom\s+["'](?:node:)?fs(?:\/promises)?["']/ },
+  {
+    label: "node:fs / fs / fs/promises import",
+    pattern: /\bfrom\s+["'](?:node:)?fs(?:\/promises)?["']/,
+  },
   { label: "require('fs')", pattern: /\brequire\(\s*["'](?:node:)?fs(?:\/promises)?["']\s*\)/ },
   { label: "node:child_process", pattern: /["'](?:node:)?child_process["']/ },
   { label: "Bun.file", pattern: /\bBun\.file\b/ },
@@ -189,7 +192,12 @@ function scan(files: string[]): Violation[] {
     lines.forEach((text, index) => {
       for (const { label, pattern } of FORBIDDEN) {
         if (pattern.test(text)) {
-          violations.push({ file: file.slice(EXT_DIR.length + 1), line: index + 1, label, text: text.trim() });
+          violations.push({
+            file: file.slice(EXT_DIR.length + 1),
+            line: index + 1,
+            label,
+            text: text.trim(),
+          });
         }
       }
     });
@@ -286,7 +294,8 @@ describe("extensions/ez-factory/** touches no filesystem or process primitive", 
     const offenders: string[] = [];
     for (const file of productionFiles) {
       for (const line of stripComments(readFileSync(file, "utf8")).split("\n")) {
-        const isModuleRef = line.includes("from ") || line.includes("import(") || line.includes("require(");
+        const isModuleRef =
+          line.includes("from ") || line.includes("import(") || line.includes("require(");
         if (!isModuleRef) continue;
         if (line.includes(".test") || line.includes("__tests__")) {
           offenders.push(`${file.slice(EXT_DIR.length + 1)}: ${line.trim()}`);
@@ -306,9 +315,7 @@ describe("extensions/ez-factory/** touches no filesystem or process primitive", 
   });
 
   test("Bun.Glob is used for matching ONLY — never for scanning", () => {
-    const readFiles = stripComments(
-      readFileSync(join(EXT_DIR, "lib/tools/read-files.ts"), "utf8"),
-    );
+    const readFiles = stripComments(readFileSync(join(EXT_DIR, "lib/tools/read-files.ts"), "utf8"));
     expect(readFiles).toContain("new Bun.Glob(");
     expect(readFiles).toContain(".match(");
     // `.match()` is pure string matching; `.scan()` walks the filesystem

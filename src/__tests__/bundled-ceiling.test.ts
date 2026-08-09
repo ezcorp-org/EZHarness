@@ -94,11 +94,9 @@ mock.module("../db/queries/extensions", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-const {
-  BUNDLED_CEILING,
-  clampToBundledCeiling,
-  getCeiling,
-} = await import("../extensions/bundled-ceiling");
+const { BUNDLED_CEILING, clampToBundledCeiling, getCeiling } = await import(
+  "../extensions/bundled-ceiling"
+);
 
 const { ensureBundledExtensions, resolveBundledExtensions } = await import("../extensions/bundled");
 
@@ -272,7 +270,9 @@ describe("(g) rbacScopes declarations never trip the clamp", () => {
         "run:complete",
       ],
       storage: true,
-      rbacScopes: [{ name: "write-tickets", description: "Create and mutate board tickets from chat" }],
+      rbacScopes: [
+        { name: "write-tickets", description: "Create and mutate board tickets from chat" },
+      ],
       grantedAt: { eventSubscriptions: Date.now(), storage: Date.now() },
       ...extra,
     }) as unknown as ExtensionPermissions;

@@ -5,12 +5,24 @@ import type { AgentEvents } from "../../types";
 // Use dynamic require() inside handlers to always resolve from the current
 // mock.module() state.  Static ESM imports can go stale when restoreModuleMocks()
 // runs in another test file's afterAll (Bun shares one module cache across all files).
-function getProjectQueries() { return require("../../db/queries/projects"); }
-function getSettingQueries() { return require("../../db/queries/settings"); }
-function getConvQueries() { return require("../../db/queries/conversations"); }
-function getObsQueries() { return require("../../db/queries/observability"); }
-function getAgentConfigQueries() { return require("../../db/queries/agent-configs"); }
-function getExportLib() { return require("../../lib/export"); }
+function getProjectQueries() {
+  return require("../../db/queries/projects");
+}
+function getSettingQueries() {
+  return require("../../db/queries/settings");
+}
+function getConvQueries() {
+  return require("../../db/queries/conversations");
+}
+function getObsQueries() {
+  return require("../../db/queries/observability");
+}
+function getAgentConfigQueries() {
+  return require("../../db/queries/agent-configs");
+}
+function getExportLib() {
+  return require("../../lib/export");
+}
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -52,7 +64,9 @@ export async function startTestServer(
       if (method === "GET" && pathname === "/api/agents") {
         return (async () => {
           const fileAgents = executor.listAgents();
-          const dbConfigs = (await getAgentConfigQueries().listAgentConfigs()) as Array<Record<string, unknown>>;
+          const dbConfigs = (await getAgentConfigQueries().listAgentConfigs()) as Array<
+            Record<string, unknown>
+          >;
           const dbConfigMap = new Map(dbConfigs.map((c) => [c.name, c]));
 
           const agents = fileAgents.map((a) => {
@@ -114,7 +128,12 @@ export async function startTestServer(
 
       if (method === "POST" && pathname === "/api/projects") {
         return (async () => {
-          const body = (await req.json()) as { name: string; path: string; icon?: string | null; variables?: Record<string, unknown> };
+          const body = (await req.json()) as {
+            name: string;
+            path: string;
+            icon?: string | null;
+            variables?: Record<string, unknown>;
+          };
           if (!body.name || !body.path) return json({ error: "name and path required" }, 400);
           return json(await getProjectQueries().createProject(body), 201);
         })();
@@ -132,7 +151,12 @@ export async function startTestServer(
         }
         if (method === "PUT") {
           return (async () => {
-            const body = (await req.json()) as Partial<{ name: string; path: string; icon: string | null; variables: Record<string, unknown> }>;
+            const body = (await req.json()) as Partial<{
+              name: string;
+              path: string;
+              icon: string | null;
+              variables: Record<string, unknown>;
+            }>;
             const updated = await getProjectQueries().updateProject(id, body);
             if (!updated) return json({ error: "Not found" }, 404);
             return json(updated);
@@ -152,8 +176,11 @@ export async function startTestServer(
           const rawUrl = url.searchParams.get("url");
           if (!rawUrl) return json({ error: "url parameter required" }, 400);
           try {
-            const domain = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`).hostname;
-            const faviconRes = await fetch(`https://www.google.com/s2/favicons?domain=${domain}&sz=128`);
+            const domain = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`)
+              .hostname;
+            const faviconRes = await fetch(
+              `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
+            );
             if (!faviconRes.ok) return json({ error: "Failed to fetch favicon" }, 502);
             const buf = await faviconRes.arrayBuffer();
             const base64 = Buffer.from(buf).toString("base64");
@@ -210,7 +237,14 @@ export async function startTestServer(
 
       if (method === "POST" && pathname === "/api/conversations") {
         return (async () => {
-          const body = (await req.json()) as { projectId: string; title?: string; model?: string; provider?: string; agentConfigId?: string; test?: boolean };
+          const body = (await req.json()) as {
+            projectId: string;
+            title?: string;
+            model?: string;
+            provider?: string;
+            agentConfigId?: string;
+            test?: boolean;
+          };
           if (!body.projectId) return json({ error: "projectId required" }, 400);
 
           let systemPrompt: string | undefined;
@@ -223,14 +257,17 @@ export async function startTestServer(
             if (!title) title = `Chat with ${agentConfig.name}`;
           }
 
-          return json(await getConvQueries().createConversation(body.projectId, {
-            title,
-            model: body.model,
-            provider: body.provider,
-            agentConfigId: body.agentConfigId,
-            systemPrompt,
-            test: body.test,
-          }), 201);
+          return json(
+            await getConvQueries().createConversation(body.projectId, {
+              title,
+              model: body.model,
+              provider: body.provider,
+              agentConfigId: body.agentConfigId,
+              systemPrompt,
+              test: body.test,
+            }),
+            201,
+          );
         })();
       }
 
@@ -246,7 +283,12 @@ export async function startTestServer(
         }
         if (method === "PUT") {
           return (async () => {
-            const body = (await req.json()) as Partial<{ title: string; model: string; provider: string; systemPrompt: string }>;
+            const body = (await req.json()) as Partial<{
+              title: string;
+              model: string;
+              provider: string;
+              systemPrompt: string;
+            }>;
             const updated = await getConvQueries().updateConversation(id, body);
             if (!updated) return json({ error: "Not found" }, 404);
             return json(updated);
@@ -297,7 +339,9 @@ export async function startTestServer(
 
             // Handle edit: create sibling of the edited message (same parent)
             if (body.editOf) {
-              const allMessages = (await getConvQueries().getMessages(convId)) as Array<Record<string, unknown>>;
+              const allMessages = (await getConvQueries().getMessages(convId)) as Array<
+                Record<string, unknown>
+              >;
               const editedMsg = allMessages.find((m) => m.id === body.editOf);
               if (editedMsg) {
                 parentMessageId = (editedMsg.parentMessageId ?? undefined) as string | undefined;
@@ -326,7 +370,10 @@ export async function startTestServer(
 
             // Assistant message is now persisted by the executor before run:complete
             streamPromise.catch((err) => {
-              console.error("[test-server] streamChat error:", err instanceof Error ? err.message : err);
+              console.error(
+                "[test-server] streamChat error:",
+                err instanceof Error ? err.message : err,
+              );
             });
 
             return json({ userMessage, runId });
@@ -348,9 +395,7 @@ export async function startTestServer(
             msgs = await getConvQueries().getConversationPath(leafMessageId, convId);
           } else {
             const leaf = await getConvQueries().getLatestLeaf(convId);
-            msgs = leaf
-              ? await getConvQueries().getConversationPath(leaf.id, convId)
-              : [];
+            msgs = leaf ? await getConvQueries().getConversationPath(leaf.id, convId) : [];
           }
 
           const format = url.searchParams.get("format") ?? "markdown";
@@ -389,7 +434,9 @@ export async function startTestServer(
             const entries = dirents
               .filter((d) => showHidden || !d.name.startsWith("."))
               .map((d) => ({ name: d.name, isDir: d.isDirectory() }))
-              .sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1));
+              .sort((a, b) =>
+                a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
+              );
             return json(entries);
           } catch {
             return json([], 200);
@@ -413,7 +460,9 @@ export async function startTestServer(
       if (method === "GET" && pathname === "/api/observability/stats") {
         return (async () => {
           const days = url.searchParams.get("days");
-          return json(await getObsQueries().getGlobalStats(days ? { days: Number(days) } : undefined));
+          return json(
+            await getObsQueries().getGlobalStats(days ? { days: Number(days) } : undefined),
+          );
         })();
       }
 
@@ -446,7 +495,16 @@ export async function startTestServer(
     },
   });
 
-  for (const event of ["run:start", "run:status", "run:log", "run:complete", "run:error", "run:cancel", "run:token", "run:usage"] as const) {
+  for (const event of [
+    "run:start",
+    "run:status",
+    "run:log",
+    "run:complete",
+    "run:error",
+    "run:cancel",
+    "run:token",
+    "run:usage",
+  ] as const) {
     bus.on(event, (data) => {
       server.publish("events", JSON.stringify({ type: event, data }));
     });

@@ -78,67 +78,58 @@ export const STRUCTURED_NAME_CHAR_CLASS = "[^\\]]+";
 // it expands server-side into a system note describing the workflow so the
 // model can decide whether to call the `run_workflow` tool.
 export const MENTION_REGEX = new RegExp(
-	[
-		`!\\[(agent|ext|team|EZ|workflow):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
-		`@\\[(file|dir):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
-		`\\/\\[(cmd):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
-		`\\$\\[(feature):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
-		`\\%\\[(lesson):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
-	].join("|"),
-	"g",
+  [
+    `!\\[(agent|ext|team|EZ|workflow):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
+    `@\\[(file|dir):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
+    `\\/\\[(cmd):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
+    `\\$\\[(feature):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
+    `\\%\\[(lesson):(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
+  ].join("|"),
+  "g",
 );
 
 export type MentionKind =
-	| "agent"
-	| "ext"
-	| "team"
-	| "EZ"
-	| "workflow"
-	| "file"
-	| "dir"
-	| "cmd"
-	| "feature"
-	| "lesson";
+  | "agent"
+  | "ext"
+  | "team"
+  | "EZ"
+  | "workflow"
+  | "file"
+  | "dir"
+  | "cmd"
+  | "feature"
+  | "lesson";
 
 export interface MentionTrigger {
-	active: boolean;
-	query: string;
-	/**
-	 * For the `!` sigil, may be undefined (no explicit prefix) or the concrete
-	 * kind when the user typed `!agent:` / `!ext:` / `!team:` / `!workflow:`.
-	 * For the `@` sigil, always `"path"` — the popover shows mixed file + dir
-	 * results. The search API uses this to route to the project-filesystem
-	 * branch (returning entries whose concrete `kind` is `"file"` or `"dir"`).
-	 * For the `/` sigil, always `"cmd"` — the popover shows slash commands.
-	 * For the `$` sigil, always `"feature"` — the popover shows Feature Index
-	 * entries scoped to the active project.
-	 * For the `%` sigil, always `"lesson"` — the popover shows Lessons-Keeper
-	 * entries scoped to the active user + project (visibility-filtered).
-	 */
-	type?:
-		| "ext"
-		| "agent"
-		| "team"
-		| "EZ"
-		| "workflow"
-		| "path"
-		| "cmd"
-		| "feature"
-		| "lesson";
-	/** Which sigil activated the trigger. */
-	sigil: "!" | "@" | "/" | "$" | "%";
+  active: boolean;
+  query: string;
+  /**
+   * For the `!` sigil, may be undefined (no explicit prefix) or the concrete
+   * kind when the user typed `!agent:` / `!ext:` / `!team:` / `!workflow:`.
+   * For the `@` sigil, always `"path"` — the popover shows mixed file + dir
+   * results. The search API uses this to route to the project-filesystem
+   * branch (returning entries whose concrete `kind` is `"file"` or `"dir"`).
+   * For the `/` sigil, always `"cmd"` — the popover shows slash commands.
+   * For the `$` sigil, always `"feature"` — the popover shows Feature Index
+   * entries scoped to the active project.
+   * For the `%` sigil, always `"lesson"` — the popover shows Lessons-Keeper
+   * entries scoped to the active user + project (visibility-filtered).
+   */
+  type?: "ext" | "agent" | "team" | "EZ" | "workflow" | "path" | "cmd" | "feature" | "lesson";
+  /** Which sigil activated the trigger. */
+  sigil: "!" | "@" | "/" | "$" | "%";
 }
 
 export interface MentionToken {
-	kind: MentionKind;
-	name: string;
-	start: number;
-	end: number;
+  kind: MentionKind;
+  name: string;
+  start: number;
+  end: number;
 }
 
 export type Segment =
-	| { type: "text"; text: string }
-	| { type: "mention"; kind: string; name: string; raw: string };
+  | { type: "text"; text: string }
+  | { type: "mention"; kind: string; name: string; raw: string };
 
 // Trigger regexes anchored to end-of-input-before-cursor.
 // `!` captures an optional agent/ext/team/EZ/workflow: prefix and the query.
@@ -196,119 +187,115 @@ const PERCENT_TRIGGER_RE = /(?:^|\s)%([a-z_-][^\s]*|)$/i;
  * wins — because each pattern anchors to `$` (end-of-input), only the
  * rightmost word-boundary sigil can produce a match.
  */
-export function detectMentionTrigger(
-	value: string,
-	cursorPos: number,
-): MentionTrigger | null {
-	const before = value.slice(0, cursorPos);
+export function detectMentionTrigger(value: string, cursorPos: number): MentionTrigger | null {
+  const before = value.slice(0, cursorPos);
 
-	// Try `!` first. Because both patterns anchor at `$`, at most one can match
-	// for a given `before`, so order is not load-bearing for correctness — but
-	// `!` is tried first to keep behavior deterministic and mirror the legacy
-	// priority of agent/ext/team over file references.
-	const bang = before.match(BANG_TRIGGER_RE);
-	if (bang) {
-		const raw = bang[1]!;
-		if (raw.startsWith("ext:"))
-			return { active: true, query: raw.slice(4), type: "ext", sigil: "!" };
-		if (raw.startsWith("agent:"))
-			return { active: true, query: raw.slice(6), type: "agent", sigil: "!" };
-		if (raw.startsWith("team:"))
-			return { active: true, query: raw.slice(5), type: "team", sigil: "!" };
-		// Case-insensitive on the EZ kind prefix at trigger time — `!ez:`,
-		// `!Ez:`, `!EZ:` all route to the EZ search. The popover's selection
-		// step always inserts the canonical `![EZ:name]` token regardless of
-		// the typed casing, so persistence stays uniform.
-		if (/^ez:/i.test(raw))
-			return { active: true, query: raw.slice(3), type: "EZ", sigil: "!" };
-		if (raw.startsWith("workflow:"))
-			return { active: true, query: raw.slice(9), type: "workflow", sigil: "!" };
-		return { active: true, query: raw, type: undefined, sigil: "!" };
-	}
+  // Try `!` first. Because both patterns anchor at `$`, at most one can match
+  // for a given `before`, so order is not load-bearing for correctness — but
+  // `!` is tried first to keep behavior deterministic and mirror the legacy
+  // priority of agent/ext/team over file references.
+  const bang = before.match(BANG_TRIGGER_RE);
+  if (bang) {
+    const raw = bang[1]!;
+    if (raw.startsWith("ext:"))
+      return { active: true, query: raw.slice(4), type: "ext", sigil: "!" };
+    if (raw.startsWith("agent:"))
+      return { active: true, query: raw.slice(6), type: "agent", sigil: "!" };
+    if (raw.startsWith("team:"))
+      return { active: true, query: raw.slice(5), type: "team", sigil: "!" };
+    // Case-insensitive on the EZ kind prefix at trigger time — `!ez:`,
+    // `!Ez:`, `!EZ:` all route to the EZ search. The popover's selection
+    // step always inserts the canonical `![EZ:name]` token regardless of
+    // the typed casing, so persistence stays uniform.
+    if (/^ez:/i.test(raw)) return { active: true, query: raw.slice(3), type: "EZ", sigil: "!" };
+    if (raw.startsWith("workflow:"))
+      return { active: true, query: raw.slice(9), type: "workflow", sigil: "!" };
+    return { active: true, query: raw, type: undefined, sigil: "!" };
+  }
 
-	const at = before.match(AT_TRIGGER_RE);
-	if (at) {
-		// `@` triggers the path popover which contains BOTH files and dirs.
-		// Server returns entries with their concrete kind (`file` or `dir`)
-		// and the selection step inserts the matching structured token.
-		return { active: true, query: at[1]!, type: "path", sigil: "@" };
-	}
+  const at = before.match(AT_TRIGGER_RE);
+  if (at) {
+    // `@` triggers the path popover which contains BOTH files and dirs.
+    // Server returns entries with their concrete kind (`file` or `dir`)
+    // and the selection step inserts the matching structured token.
+    return { active: true, query: at[1]!, type: "path", sigil: "@" };
+  }
 
-	const slash = before.match(SLASH_TRIGGER_RE);
-	if (slash) {
-		// `/` triggers the slash-command popover. The search API routes this
-		// to the command registry (filesystem + DB sources).
-		return { active: true, query: slash[1]!, type: "cmd", sigil: "/" };
-	}
+  const slash = before.match(SLASH_TRIGGER_RE);
+  if (slash) {
+    // `/` triggers the slash-command popover. The search API routes this
+    // to the command registry (filesystem + DB sources).
+    return { active: true, query: slash[1]!, type: "cmd", sigil: "/" };
+  }
 
-	const dollar = before.match(DOLLAR_TRIGGER_RE);
-	if (dollar) {
-		// `$` triggers the Feature Index popover. The search API routes this
-		// to the per-project `features` table.
-		return { active: true, query: dollar[1]!, type: "feature", sigil: "$" };
-	}
+  const dollar = before.match(DOLLAR_TRIGGER_RE);
+  if (dollar) {
+    // `$` triggers the Feature Index popover. The search API routes this
+    // to the per-project `features` table.
+    return { active: true, query: dollar[1]!, type: "feature", sigil: "$" };
+  }
 
-	const percent = before.match(PERCENT_TRIGGER_RE);
-	if (percent) {
-		// `%` triggers the Lessons-Keeper popover. The search API routes this
-		// to the per-user / per-project `lessons` table (visibility-filtered).
-		return { active: true, query: percent[1]!, type: "lesson", sigil: "%" };
-	}
+  const percent = before.match(PERCENT_TRIGGER_RE);
+  if (percent) {
+    // `%` triggers the Lessons-Keeper popover. The search API routes this
+    // to the per-user / per-project `lessons` table (visibility-filtered).
+    return { active: true, query: percent[1]!, type: "lesson", sigil: "%" };
+  }
 
-	return null;
+  return null;
 }
 
 /**
  * Extract all structured mention tokens from raw text.
  */
 export function parseMentions(text: string): MentionToken[] {
-	const mentions: MentionToken[] = [];
-	const regex = new RegExp(MENTION_REGEX.source, "g");
-	let match: RegExpExecArray | null;
-	while ((match = regex.exec(text)) !== null) {
-		// Alternative 1 matched (! sigil, agent/ext/team/EZ/workflow)
-		if (match[1] !== undefined) {
-			mentions.push({
-				kind: match[1] as "agent" | "ext" | "team" | "EZ" | "workflow",
-				name: match[2]!,
-				start: match.index,
-				end: match.index + match[0].length,
-			});
-		} else if (match[3] !== undefined) {
-			// Alternative 2 matched (@ sigil, file or dir)
-			mentions.push({
-				kind: match[3] as "file" | "dir",
-				name: match[4]!,
-				start: match.index,
-				end: match.index + match[0].length,
-			});
-		} else if (match[5] !== undefined) {
-			// Alternative 3 matched (/ sigil, cmd)
-			mentions.push({
-				kind: match[5] as "cmd",
-				name: match[6]!,
-				start: match.index,
-				end: match.index + match[0].length,
-			});
-		} else if (match[7] !== undefined) {
-			// Alternative 4 matched ($ sigil, feature)
-			mentions.push({
-				kind: match[7] as "feature",
-				name: match[8]!,
-				start: match.index,
-				end: match.index + match[0].length,
-			});
-		} else if (match[9] !== undefined) {
-			// Alternative 5 matched (% sigil, lesson)
-			mentions.push({
-				kind: match[9] as "lesson",
-				name: match[10]!,
-				start: match.index,
-				end: match.index + match[0].length,
-			});
-		}
-	}
-	return mentions;
+  const mentions: MentionToken[] = [];
+  const regex = new RegExp(MENTION_REGEX.source, "g");
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(text)) !== null) {
+    // Alternative 1 matched (! sigil, agent/ext/team/EZ/workflow)
+    if (match[1] !== undefined) {
+      mentions.push({
+        kind: match[1] as "agent" | "ext" | "team" | "EZ" | "workflow",
+        name: match[2]!,
+        start: match.index,
+        end: match.index + match[0].length,
+      });
+    } else if (match[3] !== undefined) {
+      // Alternative 2 matched (@ sigil, file or dir)
+      mentions.push({
+        kind: match[3] as "file" | "dir",
+        name: match[4]!,
+        start: match.index,
+        end: match.index + match[0].length,
+      });
+    } else if (match[5] !== undefined) {
+      // Alternative 3 matched (/ sigil, cmd)
+      mentions.push({
+        kind: match[5] as "cmd",
+        name: match[6]!,
+        start: match.index,
+        end: match.index + match[0].length,
+      });
+    } else if (match[7] !== undefined) {
+      // Alternative 4 matched ($ sigil, feature)
+      mentions.push({
+        kind: match[7] as "feature",
+        name: match[8]!,
+        start: match.index,
+        end: match.index + match[0].length,
+      });
+    } else if (match[9] !== undefined) {
+      // Alternative 5 matched (% sigil, lesson)
+      mentions.push({
+        kind: match[9] as "lesson",
+        name: match[10]!,
+        start: match.index,
+        end: match.index + match[0].length,
+      });
+    }
+  }
+  return mentions;
 }
 
 /**
@@ -322,11 +309,11 @@ export function parseMentions(text: string): MentionToken[] {
  * {@link insertCommandLiteral}.
  */
 function triggerSpanStart(before: string, triggerRe: RegExp): number | null {
-	const spanMatch = before.match(triggerRe);
-	if (!spanMatch) return null;
-	const firstChar = spanMatch[0][0]!;
-	const leadingWs = firstChar === " " || firstChar === "\t" || firstChar === "\n" ? 1 : 0;
-	return before.length - spanMatch[0].length + leadingWs;
+  const spanMatch = before.match(triggerRe);
+  if (!spanMatch) return null;
+  const firstChar = spanMatch[0][0]!;
+  const leadingWs = firstChar === " " || firstChar === "\t" || firstChar === "\n" ? 1 : 0;
+  return before.length - spanMatch[0].length + leadingWs;
 }
 
 /**
@@ -343,45 +330,45 @@ function triggerSpanStart(before: string, triggerRe: RegExp): number | null {
  * the trailing space).
  */
 export function insertMentionToken(
-	value: string,
-	cursorPos: number,
-	mention: { kind: MentionKind; name: string },
+  value: string,
+  cursorPos: number,
+  mention: { kind: MentionKind; name: string },
 ): { text: string; cursor: number } {
-	const before = value.slice(0, cursorPos);
-	const isAtSigil = mention.kind === "file" || mention.kind === "dir";
-	const isSlashSigil = mention.kind === "cmd";
-	const isDollarSigil = mention.kind === "feature";
-	const isPercentSigil = mention.kind === "lesson";
+  const before = value.slice(0, cursorPos);
+  const isAtSigil = mention.kind === "file" || mention.kind === "dir";
+  const isSlashSigil = mention.kind === "cmd";
+  const isDollarSigil = mention.kind === "feature";
+  const isPercentSigil = mention.kind === "lesson";
 
-	// Match the trigger span that corresponds to the target sigil. We inspect
-	// the same underlying regex used for detection — the replacement only
-	// succeeds if the user is actually in a trigger for this sigil. The `!`
-	// case reuses BANG_TRIGGER_RE verbatim; `triggerSpanStart` reads only
-	// `match[0]`, so its capture group is inert here.
-	const triggerRe = isAtSigil
-		? /(?:^|\s)@[^\s]*$/
-		: isSlashSigil
-		? /(?:^|\s)\/[^\s]*$/
-		: isDollarSigil
-		? /(?:^|\s)\$[^\s]*$/
-		: isPercentSigil
-		? /(?:^|\s)%[^\s]*$/
-		: BANG_TRIGGER_RE;
-	const atStart = triggerSpanStart(before, triggerRe);
-	if (atStart === null) return { text: value, cursor: cursorPos };
+  // Match the trigger span that corresponds to the target sigil. We inspect
+  // the same underlying regex used for detection — the replacement only
+  // succeeds if the user is actually in a trigger for this sigil. The `!`
+  // case reuses BANG_TRIGGER_RE verbatim; `triggerSpanStart` reads only
+  // `match[0]`, so its capture group is inert here.
+  const triggerRe = isAtSigil
+    ? /(?:^|\s)@[^\s]*$/
+    : isSlashSigil
+      ? /(?:^|\s)\/[^\s]*$/
+      : isDollarSigil
+        ? /(?:^|\s)\$[^\s]*$/
+        : isPercentSigil
+          ? /(?:^|\s)%[^\s]*$/
+          : BANG_TRIGGER_RE;
+  const atStart = triggerSpanStart(before, triggerRe);
+  if (atStart === null) return { text: value, cursor: cursorPos };
 
-	const token = isAtSigil
-		? `@[${mention.kind}:${mention.name}] `
-		: isSlashSigil
-		? `/[${mention.kind}:${mention.name}] `
-		: isDollarSigil
-		? `$[${mention.kind}:${mention.name}] `
-		: isPercentSigil
-		? `%[${mention.kind}:${mention.name}] `
-		: `![${mention.kind}:${mention.name}] `;
-	const after = value.slice(cursorPos);
-	const newText = value.slice(0, atStart) + token + after;
-	return { text: newText, cursor: atStart + token.length };
+  const token = isAtSigil
+    ? `@[${mention.kind}:${mention.name}] `
+    : isSlashSigil
+      ? `/[${mention.kind}:${mention.name}] `
+      : isDollarSigil
+        ? `$[${mention.kind}:${mention.name}] `
+        : isPercentSigil
+          ? `%[${mention.kind}:${mention.name}] `
+          : `![${mention.kind}:${mention.name}] `;
+  const after = value.slice(cursorPos);
+  const newText = value.slice(0, atStart) + token + after;
+  return { text: newText, cursor: atStart + token.length };
 }
 
 /**
@@ -397,16 +384,16 @@ export function insertMentionToken(
  * Returns new text and cursor position after the inserted literal.
  */
 export function insertCommandLiteral(
-	value: string,
-	cursorPos: number,
-	literal: string,
+  value: string,
+  cursorPos: number,
+  literal: string,
 ): { text: string; cursor: number } {
-	const before = value.slice(0, cursorPos);
-	const atStart = triggerSpanStart(before, /(?:^|\s)\/[^\s]*$/);
-	if (atStart === null) return { text: value, cursor: cursorPos };
-	const after = value.slice(cursorPos);
-	const newText = value.slice(0, atStart) + literal + after;
-	return { text: newText, cursor: atStart + literal.length };
+  const before = value.slice(0, cursorPos);
+  const atStart = triggerSpanStart(before, /(?:^|\s)\/[^\s]*$/);
+  if (atStart === null) return { text: value, cursor: cursorPos };
+  const after = value.slice(cursorPos);
+  const newText = value.slice(0, atStart) + literal + after;
+  return { text: newText, cursor: atStart + literal.length };
 }
 
 /**
@@ -428,9 +415,9 @@ export function insertCommandLiteral(
  * path actually got stored.
  */
 export function formatPathDisplay(path: string, maxSegments: number = 2): string {
-	const segments = path.split("/").filter((s) => s.length > 0);
-	if (segments.length <= maxSegments) return segments.join("/");
-	return `${segments[0]}/.../${segments[segments.length - 1]}`;
+  const segments = path.split("/").filter((s) => s.length > 0);
+  if (segments.length <= maxSegments) return segments.join("/");
+  return `${segments[0]}/.../${segments[segments.length - 1]}`;
 }
 
 /**
@@ -450,19 +437,19 @@ export function formatPathDisplay(path: string, maxSegments: number = 2): string
  * descent is a navigation operation, not a commit.
  */
 export function descendIntoFolder(
-	value: string,
-	cursorPos: number,
-	folderPath: string,
+  value: string,
+  cursorPos: number,
+  folderPath: string,
 ): { text: string; cursor: number } {
-	const before = value.slice(0, cursorPos);
-	const atStart = triggerSpanStart(before, /(?:^|\s)@[^\s]*$/);
-	if (atStart === null) return { text: value, cursor: cursorPos };
+  const before = value.slice(0, cursorPos);
+  const atStart = triggerSpanStart(before, /(?:^|\s)@[^\s]*$/);
+  if (atStart === null) return { text: value, cursor: cursorPos };
 
-	const trimmed = folderPath.replace(/\/+$/, "");
-	const insert = `@${trimmed}/`;
-	const after = value.slice(cursorPos);
-	const newText = value.slice(0, atStart) + insert + after;
-	return { text: newText, cursor: atStart + insert.length };
+  const trimmed = folderPath.replace(/\/+$/, "");
+  const insert = `@${trimmed}/`;
+  const after = value.slice(cursorPos);
+  const newText = value.slice(0, atStart) + insert + after;
+  return { text: newText, cursor: atStart + insert.length };
 }
 
 /**
@@ -482,7 +469,7 @@ export const LITERAL_COMMAND_NAMES = ["goal"] as const;
 // (left-trimmed) message is treated as a command, so `/goalpost` and a mid-prose
 // `/goal` never match — exactly the cases the server also ignores.
 const LEADING_LITERAL_COMMAND_RE = new RegExp(
-	`^(\\s*)\\/(${LITERAL_COMMAND_NAMES.join("|")})(?=$|\\s)`,
+  `^(\\s*)\\/(${LITERAL_COMMAND_NAMES.join("|")})(?=$|\\s)`,
 );
 
 /**
@@ -495,19 +482,19 @@ const LEADING_LITERAL_COMMAND_RE = new RegExp(
  * yields a `/goal` pill *and* a file pill.
  */
 export function getSegments(text: string): Segment[] {
-	const literal = text.match(LEADING_LITERAL_COMMAND_RE);
-	if (literal) {
-		const leadingWs = literal[1]!;
-		const name = literal[2]!;
-		const raw = `/${name}`;
-		const out: Segment[] = [];
-		if (leadingWs) out.push({ type: "text", text: leadingWs });
-		out.push({ type: "mention", kind: "cmd", name, raw });
-		const rest = text.slice(leadingWs.length + raw.length);
-		if (rest.length > 0) out.push(...parseStructuredSegments(rest));
-		return out;
-	}
-	return parseStructuredSegments(text);
+  const literal = text.match(LEADING_LITERAL_COMMAND_RE);
+  if (literal) {
+    const leadingWs = literal[1]!;
+    const name = literal[2]!;
+    const raw = `/${name}`;
+    const out: Segment[] = [];
+    if (leadingWs) out.push({ type: "text", text: leadingWs });
+    out.push({ type: "mention", kind: "cmd", name, raw });
+    const rest = text.slice(leadingWs.length + raw.length);
+    if (rest.length > 0) out.push(...parseStructuredSegments(rest));
+    return out;
+  }
+  return parseStructuredSegments(text);
 }
 
 /**
@@ -515,50 +502,50 @@ export function getSegments(text: string): Segment[] {
  * The literal-command peel in {@link getSegments} runs before this.
  */
 function parseStructuredSegments(text: string): Segment[] {
-	const segments: Segment[] = [];
-	const regex = new RegExp(MENTION_REGEX.source, "g");
-	let lastIndex = 0;
-	let match: RegExpExecArray | null;
+  const segments: Segment[] = [];
+  const regex = new RegExp(MENTION_REGEX.source, "g");
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
 
-	while ((match = regex.exec(text)) !== null) {
-		if (match.index > lastIndex) {
-			segments.push({ type: "text", text: text.slice(lastIndex, match.index) });
-		}
-		// Five alternatives in MENTION_REGEX — pick the capture pair that matched.
-		let kind: string;
-		let name: string;
-		if (match[1] !== undefined) {
-			kind = match[1]!;
-			name = match[2]!;
-		} else if (match[3] !== undefined) {
-			kind = match[3]!;
-			name = match[4]!;
-		} else if (match[5] !== undefined) {
-			kind = match[5]!;
-			name = match[6]!;
-		} else if (match[7] !== undefined) {
-			kind = match[7]!;
-			name = match[8]!;
-		} else {
-			kind = match[9]!;
-			name = match[10]!;
-		}
-		segments.push({
-			type: "mention",
-			kind,
-			name,
-			raw: match[0],
-		});
-		lastIndex = match.index + match[0].length;
-	}
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ type: "text", text: text.slice(lastIndex, match.index) });
+    }
+    // Five alternatives in MENTION_REGEX — pick the capture pair that matched.
+    let kind: string;
+    let name: string;
+    if (match[1] !== undefined) {
+      kind = match[1]!;
+      name = match[2]!;
+    } else if (match[3] !== undefined) {
+      kind = match[3]!;
+      name = match[4]!;
+    } else if (match[5] !== undefined) {
+      kind = match[5]!;
+      name = match[6]!;
+    } else if (match[7] !== undefined) {
+      kind = match[7]!;
+      name = match[8]!;
+    } else {
+      kind = match[9]!;
+      name = match[10]!;
+    }
+    segments.push({
+      type: "mention",
+      kind,
+      name,
+      raw: match[0],
+    });
+    lastIndex = match.index + match[0].length;
+  }
 
-	if (lastIndex < text.length) {
-		segments.push({ type: "text", text: text.slice(lastIndex) });
-	}
+  if (lastIndex < text.length) {
+    segments.push({ type: "text", text: text.slice(lastIndex) });
+  }
 
-	if (segments.length === 0 && text.length > 0) {
-		segments.push({ type: "text", text });
-	}
+  if (segments.length === 0 && text.length > 0) {
+    segments.push({ type: "text", text });
+  }
 
-	return segments;
+  return segments;
 }

@@ -17,8 +17,9 @@ import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers
 
 mockDbConnection();
 
-const { claimBatch, markDone, markFailed, purgeFailedRows } =
-  await import("../db/queries/message-embed-outbox");
+const { claimBatch, markDone, markFailed, purgeFailedRows } = await import(
+  "../db/queries/message-embed-outbox"
+);
 
 let seedCounter = 0;
 
@@ -32,9 +33,15 @@ async function seedOutboxRow(opts?: {
   const pid = `p-conc-${seedCounter}`;
   const cid = `c-conc-${seedCounter}`;
   const mid = `m-conc-${seedCounter}`;
-  await db.execute(sql`INSERT INTO projects (id, name, path) VALUES (${pid}, 'p', ${`/tmp/${pid}`}) ON CONFLICT (id) DO NOTHING`);
-  await db.execute(sql`INSERT INTO conversations (id, project_id, title) VALUES (${cid}, ${pid}, 'c') ON CONFLICT (id) DO NOTHING`);
-  await db.execute(sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${mid}, ${cid}, 'user', 'x') ON CONFLICT (id) DO NOTHING`);
+  await db.execute(
+    sql`INSERT INTO projects (id, name, path) VALUES (${pid}, 'p', ${`/tmp/${pid}`}) ON CONFLICT (id) DO NOTHING`,
+  );
+  await db.execute(
+    sql`INSERT INTO conversations (id, project_id, title) VALUES (${cid}, ${pid}, 'c') ON CONFLICT (id) DO NOTHING`,
+  );
+  await db.execute(
+    sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${mid}, ${cid}, 'user', 'x') ON CONFLICT (id) DO NOTHING`,
+  );
   const status = opts?.status ?? "pending";
   const attempts = opts?.attempts ?? 0;
   const updatedAt = opts?.updatedAt ? opts.updatedAt.toISOString() : new Date().toISOString();
@@ -47,7 +54,11 @@ async function seedOutboxRow(opts?: {
 }
 
 async function getRow(messageId: string) {
-  const rows = await getTestDb().execute<{ status: string; attempts: number; next_attempt_after: string | null }>(sql`
+  const rows = await getTestDb().execute<{
+    status: string;
+    attempts: number;
+    next_attempt_after: string | null;
+  }>(sql`
     SELECT status, attempts, next_attempt_after FROM message_embed_outbox WHERE message_id = ${messageId}
   `);
   const r = (rows as any).rows ?? rows;
@@ -167,7 +178,10 @@ describe("purgeFailedRows — bounded terminal-failure retention", () => {
     const { messageId: agedFailed } = await seedOutboxRow({ status: "failed", updatedAt: old });
     const { messageId: freshFailed } = await seedOutboxRow({ status: "failed" }); // updated now
     const { messageId: pending } = await seedOutboxRow({ status: "pending", updatedAt: old });
-    const { messageId: inProgress } = await seedOutboxRow({ status: "in_progress", updatedAt: old });
+    const { messageId: inProgress } = await seedOutboxRow({
+      status: "in_progress",
+      updatedAt: old,
+    });
 
     const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60_000); // 7-day retention
     const purged = await purgeFailedRows(getTestDb(), cutoff);

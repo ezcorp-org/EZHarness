@@ -13,7 +13,7 @@
  * true, swap in tsvector full-text search.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import type { BuiltinToolDef } from "../types";
 import { listAgentConfigs } from "../../../db/queries/agent-configs";
 import type { EzToolContext } from "./propose-create-project";
 import type { ToolParams } from "../validate";
@@ -33,7 +33,13 @@ interface RankedHit {
 
 function scoreAgent(
   q: string,
-  agent: { name: string; prompt: string; description: string; capabilities: string[] | null; category: string | null },
+  agent: {
+    name: string;
+    prompt: string;
+    description: string;
+    capabilities: string[] | null;
+    category: string | null;
+  },
 ): number {
   const ql = q.toLowerCase();
   const name = agent.name.toLowerCase();
@@ -64,7 +70,11 @@ export function createFindAgentsTool(ctx: EzToolContext): BuiltinToolDef {
     parameters: Type.Unsafe({
       type: "object",
       properties: {
-        query: { type: "string", minLength: 1, description: "Search term — checked against name, capabilities, prompt, and category." },
+        query: {
+          type: "string",
+          minLength: 1,
+          description: "Search term — checked against name, capabilities, prompt, and category.",
+        },
       },
       required: ["query"],
     }),
@@ -72,7 +82,10 @@ export function createFindAgentsTool(ctx: EzToolContext): BuiltinToolDef {
       try {
         const query = typeof params?.query === "string" ? params.query.trim() : "";
         if (!query) {
-          return { content: [{ type: "text" as const, text: "Error: query is required" }], details: { isError: true } };
+          return {
+            content: [{ type: "text" as const, text: "Error: query is required" }],
+            details: { isError: true },
+          };
         }
         const all = await listAgentConfigs(ctx.userId);
 
@@ -120,7 +133,12 @@ export function createFindAgentsTool(ctx: EzToolContext): BuiltinToolDef {
           details: result,
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return {
+          content: [
+            { type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` },
+          ],
+          details: { isError: true },
+        };
       }
     },
   };

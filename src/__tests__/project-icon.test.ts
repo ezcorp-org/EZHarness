@@ -6,7 +6,15 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgents } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
-import { setupTestDb, getTestDb, getTestPglite, closeTestDb, mockDbConnection, mockRealSettings, restoreFetch } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  getTestDb,
+  getTestPglite,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+  restoreFetch,
+} from "./helpers/test-pglite";
 import type { AgentEvents } from "../types";
 
 mockDbConnection();
@@ -35,7 +43,8 @@ describe("project icon column", () => {
     const db = getTestDb();
     const id = crypto.randomUUID();
     const now = new Date();
-    await db.insert(schema.projects)
+    await db
+      .insert(schema.projects)
       .values({ id, name: "no-icon", path: "/tmp", variables: {}, createdAt: now, updatedAt: now });
 
     const rows = await db.select().from(schema.projects).where(eq(schema.projects.id, id));
@@ -48,8 +57,15 @@ describe("project icon column", () => {
     const id = crypto.randomUUID();
     const now = new Date();
     const icon = "data:image/png;base64,iVBORw0KGgo=";
-    await db.insert(schema.projects)
-      .values({ id, name: "with-icon", path: "/tmp", icon, variables: {}, createdAt: now, updatedAt: now });
+    await db.insert(schema.projects).values({
+      id,
+      name: "with-icon",
+      path: "/tmp",
+      icon,
+      variables: {},
+      createdAt: now,
+      updatedAt: now,
+    });
 
     const rows = await db.select().from(schema.projects).where(eq(schema.projects.id, id));
     expect(rows[0]!.icon).toBe(icon);
@@ -59,7 +75,8 @@ describe("project icon column", () => {
     const db = getTestDb();
     const id = crypto.randomUUID();
     const now = new Date();
-    await db.insert(schema.projects)
+    await db
+      .insert(schema.projects)
       .values({ id, name: "p", path: "/p", variables: {}, createdAt: now, updatedAt: now });
 
     const newIcon = "data:image/png;base64,AAAA";
@@ -73,8 +90,15 @@ describe("project icon column", () => {
     const db = getTestDb();
     const id = crypto.randomUUID();
     const now = new Date();
-    await db.insert(schema.projects)
-      .values({ id, name: "p", path: "/p", icon: "data:image/png;base64,AAAA", variables: {}, createdAt: now, updatedAt: now });
+    await db.insert(schema.projects).values({
+      id,
+      name: "p",
+      path: "/p",
+      icon: "data:image/png;base64,AAAA",
+      variables: {},
+      createdAt: now,
+      updatedAt: now,
+    });
 
     await db.update(schema.projects).set({ icon: null }).where(eq(schema.projects.id, id));
 
@@ -97,8 +121,15 @@ describe("project icon column", () => {
     const id = crypto.randomUUID();
     const now = new Date();
     const largeIcon = "data:image/png;base64," + "A".repeat(10000);
-    await db.insert(schema.projects)
-      .values({ id, name: "large-icon", path: "/tmp", icon: largeIcon, variables: {}, createdAt: now, updatedAt: now });
+    await db.insert(schema.projects).values({
+      id,
+      name: "large-icon",
+      path: "/tmp",
+      icon: largeIcon,
+      variables: {},
+      createdAt: now,
+      updatedAt: now,
+    });
 
     const rows = await db.select().from(schema.projects).where(eq(schema.projects.id, id));
     expect(rows[0]!.icon).toBe(largeIcon);
@@ -111,11 +142,24 @@ describe("project icon column", () => {
     const runId = crypto.randomUUID();
     const now = new Date();
 
-    await db.insert(schema.projects)
-      .values({ id: projectId, name: "del", path: "/del", icon: "data:image/png;base64,X", variables: {}, createdAt: now, updatedAt: now });
+    await db.insert(schema.projects).values({
+      id: projectId,
+      name: "del",
+      path: "/del",
+      icon: "data:image/png;base64,X",
+      variables: {},
+      createdAt: now,
+      updatedAt: now,
+    });
 
-    await db.insert(schema.runs)
-      .values({ id: runId, agentName: "test", projectId, status: "success", startedAt: now, createdAt: now });
+    await db.insert(schema.runs).values({
+      id: runId,
+      agentName: "test",
+      projectId,
+      status: "success",
+      startedAt: now,
+      createdAt: now,
+    });
 
     await db.delete(schema.projects).where(eq(schema.projects.id, projectId));
 
@@ -155,7 +199,7 @@ describe("projects API with icon", () => {
       body: JSON.stringify({ name: "no-icon-proj", path: "/tmp/no-icon" }),
     });
     expect(res.status).toBe(201);
-    const project = await res.json() as any;
+    const project = (await res.json()) as any;
     expect(project.name).toBe("no-icon-proj");
     expect(project.icon).toBeNull();
   });
@@ -168,7 +212,7 @@ describe("projects API with icon", () => {
       body: JSON.stringify({ name: "icon-proj", path: "/tmp/icon", icon }),
     });
     expect(res.status).toBe(201);
-    const project = await res.json() as any;
+    const project = (await res.json()) as any;
     expect(project.name).toBe("icon-proj");
     expect(project.icon).toBe(icon);
   });
@@ -179,7 +223,7 @@ describe("projects API with icon", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "update-icon", path: "/tmp/update" }),
     });
-    const created = await createRes.json() as any;
+    const created = (await createRes.json()) as any;
     expect(created.icon).toBeNull();
 
     const icon = "data:image/png;base64,UPDATED";
@@ -189,7 +233,7 @@ describe("projects API with icon", () => {
       body: JSON.stringify({ icon }),
     });
     expect(updateRes.status).toBe(200);
-    const updated = await updateRes.json() as any;
+    const updated = (await updateRes.json()) as any;
     expect(updated.icon).toBe(icon);
   });
 
@@ -200,7 +244,7 @@ describe("projects API with icon", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "clear-icon", path: "/tmp/clear", icon }),
     });
-    const created = await createRes.json() as any;
+    const created = (await createRes.json()) as any;
     expect(created.icon).toBe(icon);
 
     const updateRes = await fetch(`${baseUrl}/api/projects/${created.id}`, {
@@ -209,7 +253,7 @@ describe("projects API with icon", () => {
       body: JSON.stringify({ icon: null }),
     });
     expect(updateRes.status).toBe(200);
-    const updated = await updateRes.json() as any;
+    const updated = (await updateRes.json()) as any;
     expect(updated.icon).toBeNull();
   });
 
@@ -220,18 +264,18 @@ describe("projects API with icon", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "get-icon", path: "/tmp/get-icon", icon }),
     });
-    const created = await createRes.json() as any;
+    const created = (await createRes.json()) as any;
 
     const getRes = await fetch(`${baseUrl}/api/projects/${created.id}`);
     expect(getRes.status).toBe(200);
-    const project = await getRes.json() as any;
+    const project = (await getRes.json()) as any;
     expect(project.icon).toBe(icon);
   });
 
   test("GET /api/projects lists projects with icon field present", async () => {
     const res = await fetch(`${baseUrl}/api/projects`);
     expect(res.status).toBe(200);
-    const projects = await res.json() as any[];
+    const projects = (await res.json()) as any[];
     expect(projects.length).toBeGreaterThan(0);
     for (const p of projects) {
       expect("icon" in p).toBe(true);
@@ -242,9 +286,13 @@ describe("projects API with icon", () => {
     const createRes = await fetch(`${baseUrl}/api/projects`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "partial-update", path: "/tmp/partial", variables: { key: "value" } }),
+      body: JSON.stringify({
+        name: "partial-update",
+        path: "/tmp/partial",
+        variables: { key: "value" },
+      }),
     });
-    const created = await createRes.json() as any;
+    const created = (await createRes.json()) as any;
 
     const icon = "data:image/png;base64,PARTIAL";
     const updateRes = await fetch(`${baseUrl}/api/projects/${created.id}`, {
@@ -252,7 +300,7 @@ describe("projects API with icon", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ icon }),
     });
-    const updated = await updateRes.json() as any;
+    const updated = (await updateRes.json()) as any;
     expect(updated.icon).toBe(icon);
     expect(updated.name).toBe("partial-update");
     expect(updated.path).toBe("/tmp/partial");
@@ -263,9 +311,13 @@ describe("projects API with icon", () => {
     const createRes = await fetch(`${baseUrl}/api/projects`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "delete-icon", path: "/tmp/del", icon: "data:image/png;base64,DEL" }),
+      body: JSON.stringify({
+        name: "delete-icon",
+        path: "/tmp/del",
+        icon: "data:image/png;base64,DEL",
+      }),
     });
-    const created = await createRes.json() as any;
+    const created = (await createRes.json()) as any;
 
     const delRes = await fetch(`${baseUrl}/api/projects/${created.id}`, { method: "DELETE" });
     expect(delRes.status).toBe(200);
@@ -300,14 +352,14 @@ describe("GET /api/favicon", () => {
   test("returns 400 when url param is missing", async () => {
     const res = await fetch(`${baseUrl}/api/favicon`);
     expect(res.status).toBe(400);
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     expect(data.error).toBe("url parameter required");
   });
 
   test("returns base64 icon for valid domain", async () => {
     const res = await fetch(`${baseUrl}/api/favicon?url=https://google.com`);
     if (res.status === 200) {
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
       expect(data.icon).toMatch(/^data:image\/png;base64,/);
       const base64Part = data.icon.replace("data:image/png;base64,", "");
       expect(base64Part.length).toBeGreaterThan(10);
@@ -320,7 +372,7 @@ describe("GET /api/favicon", () => {
     const res = await fetch(`${baseUrl}/api/favicon?url=github.com`);
     expect([200, 502]).toContain(res.status);
     if (res.status === 200) {
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
       expect(data.icon).toMatch(/^data:image\/png;base64,/);
     }
   });
@@ -329,7 +381,7 @@ describe("GET /api/favicon", () => {
     const res = await fetch(`${baseUrl}/api/favicon?url=https://github.com/anthropics/claude`);
     expect([200, 502]).toContain(res.status);
     if (res.status === 200) {
-      const data = await res.json() as any;
+      const data = (await res.json()) as any;
       expect(data.icon).toMatch(/^data:image\/png;base64,/);
     }
   });
@@ -375,7 +427,7 @@ describe("E2E: project icon lifecycle", () => {
       body: JSON.stringify({ name: "lifecycle", path: "/tmp/lifecycle" }),
     });
     expect(createRes.status).toBe(201);
-    const created = await createRes.json() as any;
+    const created = (await createRes.json()) as any;
     expect(created.icon).toBeNull();
     const id = created.id;
 
@@ -386,7 +438,7 @@ describe("E2E: project icon lifecycle", () => {
       body: JSON.stringify({ icon: icon1 }),
     });
     expect(addRes.status).toBe(200);
-    expect((await addRes.json() as any).icon).toBe(icon1);
+    expect(((await addRes.json()) as any).icon).toBe(icon1);
 
     const icon2 = "data:image/png;base64,ICON2";
     const updateRes = await fetch(`${baseUrl}/api/projects/${id}`, {
@@ -395,10 +447,10 @@ describe("E2E: project icon lifecycle", () => {
       body: JSON.stringify({ icon: icon2 }),
     });
     expect(updateRes.status).toBe(200);
-    expect((await updateRes.json() as any).icon).toBe(icon2);
+    expect(((await updateRes.json()) as any).icon).toBe(icon2);
 
     const getRes = await fetch(`${baseUrl}/api/projects/${id}`);
-    expect((await getRes.json() as any).icon).toBe(icon2);
+    expect(((await getRes.json()) as any).icon).toBe(icon2);
 
     const removeRes = await fetch(`${baseUrl}/api/projects/${id}`, {
       method: "PUT",
@@ -406,10 +458,10 @@ describe("E2E: project icon lifecycle", () => {
       body: JSON.stringify({ icon: null }),
     });
     expect(removeRes.status).toBe(200);
-    expect((await removeRes.json() as any).icon).toBeNull();
+    expect(((await removeRes.json()) as any).icon).toBeNull();
 
     const finalRes = await fetch(`${baseUrl}/api/projects/${id}`);
-    const final = await finalRes.json() as any;
+    const final = (await finalRes.json()) as any;
     expect(final.icon).toBeNull();
     expect(final.name).toBe("lifecycle");
     expect(final.path).toBe("/tmp/lifecycle");
@@ -422,7 +474,7 @@ describe("E2E: project icon lifecycle", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "run-with-icon", path: "/tmp/run-icon", icon }),
     });
-    const project = await createRes.json() as any;
+    const project = (await createRes.json()) as any;
     expect(project.icon).toBe(icon);
 
     const runRes = await fetch(`${baseUrl}/api/agents/shell-runner/run`, {
@@ -431,12 +483,12 @@ describe("E2E: project icon lifecycle", () => {
       body: JSON.stringify({ command: "echo icon-run", projectId: project.id }),
     });
     expect(runRes.status).toBe(200);
-    const run = await runRes.json() as any;
+    const run = (await runRes.json()) as any;
     expect(run.projectId).toBe(project.id);
     expect(run.result.success).toBe(true);
 
     const getRes = await fetch(`${baseUrl}/api/projects/${project.id}`);
-    expect((await getRes.json() as any).icon).toBe(icon);
+    expect(((await getRes.json()) as any).icon).toBe(icon);
   });
 
   test("multiple projects with different icons", async () => {
@@ -449,13 +501,13 @@ describe("E2E: project icon lifecycle", () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: `multi-${i}`, path: `/tmp/multi-${i}`, icon: icons[i] }),
       });
-      const project = await res.json() as any;
+      const project = (await res.json()) as any;
       ids.push(project.id);
     }
 
     for (let i = 0; i < ids.length; i++) {
       const res = await fetch(`${baseUrl}/api/projects/${ids[i]}`);
-      const project = await res.json() as any;
+      const project = (await res.json()) as any;
       expect(project.icon).toBe(icons[i]);
     }
   });
@@ -466,7 +518,7 @@ describe("E2E: project icon lifecycle", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "timestamps", path: "/tmp/ts" }),
     });
-    const created = await createRes.json() as any;
+    const created = (await createRes.json()) as any;
     const createdAt = created.createdAt;
 
     await new Promise((r) => setTimeout(r, 10));
@@ -476,7 +528,7 @@ describe("E2E: project icon lifecycle", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ icon: "data:image/png;base64,TS" }),
     });
-    const updated = await updateRes.json() as any;
+    const updated = (await updateRes.json()) as any;
     expect(updated.createdAt).toBe(createdAt);
     expect(updated.updatedAt).not.toBe(createdAt);
   });

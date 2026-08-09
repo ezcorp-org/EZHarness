@@ -28,12 +28,7 @@ describe("EMBEDDING_DIMENSIONS constant", () => {
 
 describe("MemoryCategory type discriminants", () => {
   test("accepts all four documented categories as values", () => {
-    const cats: MemoryCategory[] = [
-      "preferences",
-      "biographical",
-      "technical",
-      "decisions_goals",
-    ];
+    const cats: MemoryCategory[] = ["preferences", "biographical", "technical", "decisions_goals"];
     // Round-trip through JSON to assert they are serializable string literals.
     const serialized = JSON.stringify(cats);
     const parsed = JSON.parse(serialized) as MemoryCategory[];
@@ -88,7 +83,12 @@ describe("MemoryProvenance JSON round-trip", () => {
       confidence: "high",
       history: [
         { action: "created", timestamp: new Date("2026-04-23T00:00:00Z"), reason: "init" },
-        { action: "updated", timestamp: new Date("2026-04-23T01:00:00Z"), reason: "refresh", previousContent: "old" },
+        {
+          action: "updated",
+          timestamp: new Date("2026-04-23T01:00:00Z"),
+          reason: "refresh",
+          previousContent: "old",
+        },
       ],
     };
 

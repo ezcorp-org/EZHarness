@@ -266,13 +266,16 @@ export function enforceDataDirLockdown(
       const s = statSync(p);
       return { mode: s.mode, uid: s.uid };
     });
-  const mkdirFn = deps.mkdirFn ?? ((p, m) => {
-    mkdirSync(p, { recursive: true, mode: m });
-  });
+  const mkdirFn =
+    deps.mkdirFn ??
+    ((p, m) => {
+      mkdirSync(p, { recursive: true, mode: m });
+    });
   // process.getuid is absent on non-POSIX hosts (Windows); default to a
   // sentinel that can never match a real owner uid so the assertion
   // fail-closes rather than throwing.
-  const getuidFn = deps.getuidFn ?? (() => (typeof process.getuid === "function" ? process.getuid() : -1));
+  const getuidFn =
+    deps.getuidFn ?? (() => (typeof process.getuid === "function" ? process.getuid() : -1));
 
   // Create-and-lock when the dir is absent. We mkdir 0700 (as the app uid)
   // so a later PGlite create can't leave a 0755 dir; the chmod + assertions

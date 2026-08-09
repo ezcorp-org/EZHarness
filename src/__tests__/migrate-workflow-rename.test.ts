@@ -137,7 +137,9 @@ describe("migrate() — ownership upgrade path over an existing database", () =>
     await db.execute(sql`ALTER TABLE workflow_definitions DROP COLUMN IF EXISTS user_id`);
     await db.execute(sql`ALTER TABLE workflow_definitions DROP COLUMN IF EXISTS visibility`);
     await db.execute(sql`ALTER TABLE workflow_definitions DROP COLUMN IF EXISTS forked_from`);
-    await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN created_by TEXT REFERENCES users(id) ON DELETE SET NULL`);
+    await db.execute(
+      sql`ALTER TABLE workflow_definitions ADD COLUMN created_by TEXT REFERENCES users(id) ON DELETE SET NULL`,
+    );
 
     // Users exist BEFORE the upgrade. Without this the "no backfill" claim
     // would be untestable — NULL could just mean there was nobody to

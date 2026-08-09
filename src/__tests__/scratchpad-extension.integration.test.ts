@@ -37,9 +37,12 @@ const EXT_ENTRY = join(
 
 interface TestProc {
   proc: Subprocess<"pipe", "pipe", "pipe">;
-  outbound: Record<string, unknown>[];       // messages the ext emitted
+  outbound: Record<string, unknown>[]; // messages the ext emitted
   inbound: (msg: Record<string, unknown>) => void; // push a message INTO ext stdin
-  wait: (pred: (m: Record<string, unknown>) => boolean, ms?: number) => Promise<Record<string, unknown>>;
+  wait: (
+    pred: (m: Record<string, unknown>) => boolean,
+    ms?: number,
+  ) => Promise<Record<string, unknown>>;
   kill: () => void;
 }
 
@@ -71,16 +74,29 @@ function spawnExtension(): TestProc {
           const line = buffer.slice(0, idx).trim();
           buffer = buffer.slice(idx + 1);
           if (!line) continue;
-          try { outbound.push(JSON.parse(line)); } catch { /* skip bad JSON */ }
+          try {
+            outbound.push(JSON.parse(line));
+          } catch {
+            /* skip bad JSON */
+          }
         }
       }
-    } catch { /* stream closed */ }
+    } catch {
+      /* stream closed */
+    }
   })();
 
   // Drain stderr so a wedged pipe buffer doesn't deadlock the sub.
   (async () => {
     const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
-    try { while (true) { const { done } = await reader.read(); if (done) return; } } catch { /* */ }
+    try {
+      while (true) {
+        const { done } = await reader.read();
+        if (done) return;
+      }
+    } catch {
+      /* */
+    }
   })();
 
   function inbound(msg: Record<string, unknown>): void {
@@ -101,7 +117,13 @@ function spawnExtension(): TestProc {
     throw new Error("wait: predicate never satisfied within " + ms + "ms");
   }
 
-  function kill(): void { try { proc.kill(); } catch { /* */ } }
+  function kill(): void {
+    try {
+      proc.kill();
+    } catch {
+      /* */
+    }
+  }
 
   return { proc, outbound, inbound, wait, kill };
 }
@@ -198,7 +220,9 @@ describe("scratchpad integration: real subprocess + RPC", () => {
         _meta: { ezConversationId: "conv-int-3" },
       },
     });
-    const setReq = await proc!.wait((m) => m.method === "ezcorp/storage" && (m.params as { action: string }).action === "set");
+    const setReq = await proc!.wait(
+      (m) => m.method === "ezcorp/storage" && (m.params as { action: string }).action === "set",
+    );
     proc!.inbound({ jsonrpc: "2.0", id: setReq.id, result: { ok: true, sizeBytes: 9 } });
     await proc!.wait((m) => m.id === 200);
 
@@ -213,7 +237,9 @@ describe("scratchpad integration: real subprocess + RPC", () => {
         _meta: { ezConversationId: "conv-int-3" },
       },
     });
-    const getReq = await proc!.wait((m) => m.method === "ezcorp/storage" && (m.params as { action: string }).action === "get");
+    const getReq = await proc!.wait(
+      (m) => m.method === "ezcorp/storage" && (m.params as { action: string }).action === "get",
+    );
     // Host returns what a prior set would have stored.
     proc!.inbound({
       jsonrpc: "2.0",

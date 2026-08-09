@@ -4,10 +4,7 @@ import { EventBus } from "../runtime/events";
 import { loadAgentsStatic } from "../runtime/loader";
 import type { AgentDefinition, AgentEvents, AgentRun } from "../types";
 
-function makeAgent(
-  name: string,
-  fn: AgentDefinition["execute"],
-): AgentDefinition {
+function makeAgent(name: string, fn: AgentDefinition["execute"]): AgentDefinition {
   return {
     name,
     description: `${name} agent`,
@@ -20,11 +17,7 @@ function makeAgent(
 // streamChat/DB/LLM path. To exercise filter+sort logic without standing up a
 // DB we reach in via `as any` — same pragmatic choice documented in
 // executor-active-run.test.ts.
-function seedRun(
-  exec: AgentExecutor,
-  run: AgentRun,
-  conversationId: string,
-): void {
+function seedRun(exec: AgentExecutor, run: AgentRun, conversationId: string): void {
   (exec as any).runs.set(run.id, run);
   (exec as any).runConversations.set(run.id, conversationId);
 }
@@ -83,8 +76,16 @@ describe("AgentExecutor.listActiveAgentRuns", () => {
     const bus = new EventBus<AgentEvents>();
     const exec = new AgentExecutor(new Map(), bus);
 
-    seedRun(exec, makeRun({ id: "r-p1", status: "running", projectId: "p1", startedAt: 100 }), "c1");
-    seedRun(exec, makeRun({ id: "r-p2", status: "running", projectId: "p2", startedAt: 200 }), "c2");
+    seedRun(
+      exec,
+      makeRun({ id: "r-p1", status: "running", projectId: "p1", startedAt: 100 }),
+      "c1",
+    );
+    seedRun(
+      exec,
+      makeRun({ id: "r-p2", status: "running", projectId: "p2", startedAt: 200 }),
+      "c2",
+    );
     seedRun(exec, makeRun({ id: "r-none", status: "running", startedAt: 300 }), "c3");
 
     const result = exec.listActiveAgentRuns("p1");
@@ -101,7 +102,7 @@ describe("AgentExecutor.listActiveAgentRuns", () => {
     seedRun(exec, makeRun({ id: "new", status: "running", startedAt: 300 }), "c-new");
     seedRun(exec, makeRun({ id: "mid", status: "running", startedAt: 200 }), "c-mid");
 
-    const ids = exec.listActiveAgentRuns().map(r => r.run.id);
+    const ids = exec.listActiveAgentRuns().map((r) => r.run.id);
     expect(ids).toEqual(["new", "mid", "old"]);
   });
 });

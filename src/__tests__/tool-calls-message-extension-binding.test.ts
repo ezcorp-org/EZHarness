@@ -32,28 +32,47 @@ beforeAll(async () => {
   await setupTestDb();
   const db = getTestDb();
   await db.insert(users).values({
-    id: "user-binding", email: "binding@t.local", passwordHash: "x", name: "b",
+    id: "user-binding",
+    email: "binding@t.local",
+    passwordHash: "x",
+    name: "b",
   } as never);
   await db.insert(projects).values({
-    id: "proj-binding", name: "proj-binding", path: "/tmp/proj-binding",
+    id: "proj-binding",
+    name: "proj-binding",
+    path: "/tmp/proj-binding",
   } as never);
   await db.insert(conversations).values({
-    id: CONV_ID, projectId: "proj-binding", title: "binding",
+    id: CONV_ID,
+    projectId: "proj-binding",
+    title: "binding",
   } as never);
   for (const extId of [EXT_KOKORO, EXT_OTHER]) {
     await db.insert(extensions).values({
-      id: extId, name: extId, version: "1.0.0", description: "t",
+      id: extId,
+      name: extId,
+      version: "1.0.0",
+      description: "t",
       manifest: {
-        schemaVersion: 2, name: extId, version: "1.0.0", description: "",
-        author: { name: "t" }, permissions: {},
+        schemaVersion: 2,
+        name: extId,
+        version: "1.0.0",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
       } as never,
-      source: `test:${extId}`, installPath: `/tmp/${extId}`, enabled: true,
+      source: `test:${extId}`,
+      installPath: `/tmp/${extId}`,
+      enabled: true,
       grantedPermissions: { grantedAt: {} } as never,
     } as never);
   }
   for (const msgId of [MSG_A, MSG_B]) {
     await db.insert(messages).values({
-      id: msgId, conversationId: CONV_ID, role: "extension", content: "turn",
+      id: msgId,
+      conversationId: CONV_ID,
+      role: "extension",
+      content: "turn",
     } as never);
   }
   // MSG_A: two rows from kokoro (dedup expected) + one from the other ext.

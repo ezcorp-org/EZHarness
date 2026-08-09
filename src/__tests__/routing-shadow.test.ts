@@ -92,9 +92,9 @@ describe("replayWithThresholds", () => {
     // A tool-loop turn is powerful regardless of how the candidate is tuned —
     // thresholds must not be able to undo a structural predicate.
     const signals = { promptChars: 4, hasToolMessages: true };
-    expect(replayWithThresholds(signals, { fastMaxTokens: 100_000, powerfulMinTokens: 200_000 })).toBe(
-      "powerful",
-    );
+    expect(
+      replayWithThresholds(signals, { fastMaxTokens: 100_000, powerfulMinTokens: 200_000 }),
+    ).toBe("powerful");
   });
 
   test("counts history and system chars, not just the prompt", () => {
@@ -178,7 +178,10 @@ describe("evaluateShadow", () => {
 describe("validateShadowThresholds", () => {
   test("accepts a well-formed candidate and returns the normalized pair", () => {
     const result = validateShadowThresholds({ fastMaxTokens: 250, powerfulMinTokens: 4000 });
-    expect(result).toEqual({ ok: true, thresholds: { fastMaxTokens: 250, powerfulMinTokens: 4000 } });
+    expect(result).toEqual({
+      ok: true,
+      thresholds: { fastMaxTokens: 250, powerfulMinTokens: 4000 },
+    });
   });
 
   test("drops unknown keys — only the two thresholds are stored", () => {
@@ -188,7 +191,8 @@ describe("validateShadowThresholds", () => {
       note: "from last week's sweep",
     });
     expect(result.ok).toBe(true);
-    if (result.ok) expect(result.thresholds).toEqual({ fastMaxTokens: 250, powerfulMinTokens: 4000 });
+    if (result.ok)
+      expect(result.thresholds).toEqual({ fastMaxTokens: 250, powerfulMinTokens: 4000 });
   });
 
   test.each([

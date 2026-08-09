@@ -104,7 +104,8 @@ describe("loadExtensionWorkflows — discovery", () => {
 
   test("defaults a missing description to the empty string", async () => {
     const src = await installExtension("my-ext", {
-      "d.workflow.yaml": "name: d\nsteps:\n  - name: t\n    kind: transform\n    output:\n      a: b\n",
+      "d.workflow.yaml":
+        "name: d\nsteps:\n  - name: t\n    kind: transform\n    output:\n      a: b\n",
     });
 
     expect((await loadExtensionWorkflows([src]))[0]?.description).toBe("");
@@ -155,8 +156,10 @@ describe("loadExtensionWorkflows — the shadowing guard", () => {
     const src = await installExtension("my-ext", {
       "a.workflow.yaml": VALID_YAML("../escape"),
       "b.workflow.yaml": VALID_YAML('"has space"'),
-      "c.workflow.yaml": 'name: ""\nsteps:\n  - name: t\n    kind: transform\n    output:\n      a: b\n',
-      "d.workflow.yaml": "name: 42\nsteps:\n  - name: t\n    kind: transform\n    output:\n      a: b\n",
+      "c.workflow.yaml":
+        'name: ""\nsteps:\n  - name: t\n    kind: transform\n    output:\n      a: b\n',
+      "d.workflow.yaml":
+        "name: 42\nsteps:\n  - name: t\n    kind: transform\n    output:\n      a: b\n",
       "e.workflow.yaml": "steps:\n  - name: t\n    kind: transform\n    output:\n      a: b\n",
     });
 
@@ -262,10 +265,11 @@ describe("collectExtensionWorkflowSources", () => {
       getAllManifests: () =>
         rows
           .map(
-            (r) => [r.id, { name: r.name } as unknown as ExtensionManifestV2] as [
-              string,
-              ExtensionManifestV2,
-            ],
+            (r) =>
+              [r.id, { name: r.name } as unknown as ExtensionManifestV2] as [
+                string,
+                ExtensionManifestV2,
+              ],
           )
           [Symbol.iterator](),
       getInstallPath: (id: string) => rows.find((r) => r.id === id)?.installPath ?? null,

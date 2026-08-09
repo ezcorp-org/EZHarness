@@ -67,10 +67,7 @@ const apiKeysMock = () => ({
   requireScope: () => null,
 });
 mock.module("$lib/server/security/api-keys", apiKeysMock);
-mock.module(
-  "../../../web/src/lib/server/security/api-keys",
-  apiKeysMock,
-);
+mock.module("../../../web/src/lib/server/security/api-keys", apiKeysMock);
 
 // validation helper — re-export the real module so validationError works.
 mock.module("$lib/server/security/validation", () =>
@@ -171,10 +168,7 @@ import {
 } from "../../../web/src/routes/api/memories/[id]/+server";
 
 // SvelteKit handlers sometimes throw Response on auth failure; unwrap.
-async function call(
-  handler: (ev: any) => unknown,
-  event: any,
-): Promise<Response> {
+async function call(handler: (ev: any) => unknown, event: any): Promise<Response> {
   try {
     return (await handler(event)) as Response;
   } catch (e) {
@@ -268,9 +262,7 @@ describe("sec-H3: all call sites have the fail-closed ownership check (source)",
       //     relaxes — the regression signal. The helper's own gate is pinned
       //     directly by web/src/lib/server/conversation-ownership.ts.
       // Require EITHER the inline role-gate OR the helper delegation.
-      expect(src).toMatch(
-        /user\.role\s*!==\s*"admin"|resolveRootConversationForOwnership/,
-      );
+      expect(src).toMatch(/user\.role\s*!==\s*"admin"|resolveRootConversationForOwnership/);
     });
 
     test(`${rel} — does NOT short-circuit on null conv/memory userId`, () => {

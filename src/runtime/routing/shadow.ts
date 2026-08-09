@@ -29,11 +29,7 @@
  * config and the signals.
  */
 
-import {
-  type RoutingTier,
-  type TierThresholds,
-  classifyTierVerdict,
-} from "../tier-classifier";
+import { type RoutingTier, type TierThresholds, classifyTierVerdict } from "../tier-classifier";
 
 /** Admin-gated setting holding the candidate threshold pair. Absent ⇒ shadow
  *  mode is OFF and not one extra byte is written to `usage`. */

@@ -245,10 +245,7 @@ export function remapDependsOn(
 
 /** On step removal, drop the removed step's name from every remaining
  *  sibling's `dependsOn`. */
-export function pruneDependsOn(
-  steps: Pick<StepDraft, "dependsOn">[],
-  removedName: string,
-): void {
+export function pruneDependsOn(steps: Pick<StepDraft, "dependsOn">[], removedName: string): void {
   for (const step of steps) {
     step.dependsOn = step.dependsOn.filter((d) => d !== removedName);
   }

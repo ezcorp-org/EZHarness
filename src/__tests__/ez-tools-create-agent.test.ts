@@ -42,7 +42,10 @@ afterAll(async () => {
 describe("propose_create_agent", () => {
   test("happy path: minimal name+prompt persists a draft", async () => {
     const tool = createProposeCreateAgentTool({ userId });
-    const result = await tool.execute("a-1", { name: "Summarizer", prompt: "Summarize PR comments." });
+    const result = await tool.execute("a-1", {
+      name: "Summarizer",
+      prompt: "Summarize PR comments.",
+    });
 
     const { draftId, openUrl } = expectJson<{ draftId: string; openUrl: string }>(result);
     expect(draftId).toBeDefined();
@@ -56,9 +59,18 @@ describe("propose_create_agent", () => {
 
   test("inputSchema and capabilities round-trip into the payload", async () => {
     const tool = createProposeCreateAgentTool({ userId });
-    const inputSchema = { type: "object", properties: { url: { type: "string" } }, required: ["url"] };
+    const inputSchema = {
+      type: "object",
+      properties: { url: { type: "string" } },
+      required: ["url"],
+    };
     const capabilities = ["llm", "tools"];
-    const result = await tool.execute("a-2", { name: "Crawler", prompt: "Crawl a URL.", inputSchema, capabilities });
+    const result = await tool.execute("a-2", {
+      name: "Crawler",
+      prompt: "Crawl a URL.",
+      inputSchema,
+      capabilities,
+    });
 
     const { draftId } = expectJson<{ draftId: string }>(result);
     const row = await getDraft(draftId, userId);

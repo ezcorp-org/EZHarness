@@ -10,7 +10,12 @@
  * actual ON CONFLICT semantics — not a mock's stand-in.
  */
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "../../../__tests__/helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
+} from "../../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
 
 // Route db/connection at the real PGlite test DB BEFORE importing anything that
@@ -18,12 +23,12 @@ import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
 mockDbConnection();
 
 const { GithubProjectsDaemon, reconcileOrphanedProposals } = await import("../daemon");
-const {
-  listProposalsByProject,
-  getProposalById,
-  updateProposal,
-} = await import("../../../db/queries/github-projects");
-const { projects, githubProjectsLinks, githubProjectsProposals, conversations } = await import("../../../db/schema");
+const { listProposalsByProject, getProposalById, updateProposal } = await import(
+  "../../../db/queries/github-projects"
+);
+const { projects, githubProjectsLinks, githubProjectsProposals, conversations } = await import(
+  "../../../db/schema"
+);
 
 afterAll(async () => {
   await closeTestDb();
@@ -61,17 +66,22 @@ function clientReturning(page: { items: unknown[]; cursor: Record<string, string
 
 async function insertLink(over: Partial<{ columnActionMap: unknown; pollCursor: unknown }> = {}) {
   const db = getTestDb();
-  const rows = await db.insert(githubProjectsLinks).values({
-    id: "link-int",
-    projectId: "proj-int",
-    boardNodeId: "PVT_int",
-    boardUrl: "https://github.com/orgs/x/projects/1",
-    authMode: "gh", // gh mode → resolved via injected ghAuthToken (no PAT/decrypt)
-    columnActionMap: over.columnActionMap ?? { "opt-doing": { action: "plan", autoSpawn: false } },
-    pollCursor: (over.pollCursor as never) ?? null,
-    pollIntervalSec: 60,
-    enabled: true,
-  } as never).returning();
+  const rows = await db
+    .insert(githubProjectsLinks)
+    .values({
+      id: "link-int",
+      projectId: "proj-int",
+      boardNodeId: "PVT_int",
+      boardUrl: "https://github.com/orgs/x/projects/1",
+      authMode: "gh", // gh mode → resolved via injected ghAuthToken (no PAT/decrypt)
+      columnActionMap: over.columnActionMap ?? {
+        "opt-doing": { action: "plan", autoSpawn: false },
+      },
+      pollCursor: (over.pollCursor as never) ?? null,
+      pollIntervalSec: 60,
+      enabled: true,
+    } as never)
+    .returning();
   return rows[0] as { id: string };
 }
 
@@ -117,7 +127,10 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
     // Injectable clock + mutable page: pollOnce persists lastPolledAt, so the
     // second sweep must advance past pollIntervalSec to be due again.
     let nowMs = Date.UTC(2026, 5, 1, 12, 0, 0);
-    let page = { items: [makeItem("2026-06-01T00:00:00Z")], cursor: { "item-A": "2026-06-01T00:00:00Z" } };
+    let page = {
+      items: [makeItem("2026-06-01T00:00:00Z")],
+      cursor: { "item-A": "2026-06-01T00:00:00Z" },
+    };
     const d = new GithubProjectsDaemon({
       client: { fetchBoardItems: () => Promise.resolve(page) } as never,
       ghAuthToken: () => Promise.resolve("gho_int"),
@@ -134,7 +147,10 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
 
     // The card is moved OUT and back INTO the triggering column: GitHub bumps
     // updatedAt past the stored high-water mark, so detectTrigger re-fires.
-    page = { items: [makeItem("2026-06-02T00:00:00Z")], cursor: { "item-A": "2026-06-02T00:00:00Z" } };
+    page = {
+      items: [makeItem("2026-06-02T00:00:00Z")],
+      cursor: { "item-A": "2026-06-02T00:00:00Z" },
+    };
     nowMs += 120_000; // past pollIntervalSec (60s) → link due again
     await d.pollOnce();
 
@@ -152,7 +168,10 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
   test("active-run cycle: a card bumped while its proposal is still active gains NO duplicate", async () => {
     await insertLink();
     let nowMs = Date.UTC(2026, 5, 1, 12, 0, 0);
-    let page = { items: [makeItem("2026-06-01T00:00:00Z")], cursor: { "item-A": "2026-06-01T00:00:00Z" } };
+    let page = {
+      items: [makeItem("2026-06-01T00:00:00Z")],
+      cursor: { "item-A": "2026-06-01T00:00:00Z" },
+    };
     const d = new GithubProjectsDaemon({
       client: { fetchBoardItems: () => Promise.resolve(page) } as never,
       ghAuthToken: () => Promise.resolve("gho_int"),
@@ -166,7 +185,10 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
     // proposal still owns the card's active slot.
     await updateProposal(first.id, { status: "running" });
 
-    page = { items: [makeItem("2026-06-02T00:00:00Z")], cursor: { "item-A": "2026-06-02T00:00:00Z" } };
+    page = {
+      items: [makeItem("2026-06-02T00:00:00Z")],
+      cursor: { "item-A": "2026-06-02T00:00:00Z" },
+    };
     nowMs += 120_000;
     await d.pollOnce();
 
@@ -188,14 +210,21 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
     // A fake spawn bridge that uses the REAL updateProposal to move the row
     // through the lifecycle, then completes it (stands in for the executor).
     const approve = async (proposalId: string, _actor: unknown) => {
-      await updateProposal(proposalId, { status: "spawned", agentRunId: "run-int", conversationId: "conv-int" });
+      await updateProposal(proposalId, {
+        status: "spawned",
+        agentRunId: "run-int",
+        conversationId: "conv-int",
+      });
       const running = await updateProposal(proposalId, { status: "running" });
       await updateProposal(proposalId, { status: "done", finishedAt: new Date() });
       return running;
     };
 
     const d = new GithubProjectsDaemon({
-      client: clientReturning({ items: [makeItem()], cursor: { "item-A": "2026-06-01T00:00:00Z" } }),
+      client: clientReturning({
+        items: [makeItem()],
+        cursor: { "item-A": "2026-06-01T00:00:00Z" },
+      }),
       ghAuthToken: () => Promise.resolve("gho_int"),
       approve,
     });
@@ -227,11 +256,18 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
         agentRunId: `run-${approvedIds.length}`,
         conversationId: "conv-fl",
       });
-      return updateProposal(proposalId, { status: "failed", error: "boom", finishedAt: new Date() });
+      return updateProposal(proposalId, {
+        status: "failed",
+        error: "boom",
+        finishedAt: new Date(),
+      });
     };
 
     let nowMs = Date.UTC(2026, 5, 1, 12, 0, 0);
-    let page = { items: [makeItem("2026-06-01T00:00:00Z")], cursor: { "item-A": "2026-06-01T00:00:00Z" } };
+    let page = {
+      items: [makeItem("2026-06-01T00:00:00Z")],
+      cursor: { "item-A": "2026-06-01T00:00:00Z" },
+    };
     const d = new GithubProjectsDaemon({
       client: { fetchBoardItems: () => Promise.resolve(page) } as never,
       ghAuthToken: () => Promise.resolve("gho_int"),
@@ -249,7 +285,10 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
     // The failed run's write-back bumps updatedAt → the card re-enters the
     // triggering column. Poll 2: a NEW pending proposal is created (Hub
     // visibility) but auto-spawn is SUPPRESSED (most-recent terminal = failed).
-    page = { items: [makeItem("2026-06-02T00:00:00Z")], cursor: { "item-A": "2026-06-02T00:00:00Z" } };
+    page = {
+      items: [makeItem("2026-06-02T00:00:00Z")],
+      cursor: { "item-A": "2026-06-02T00:00:00Z" },
+    };
     nowMs += 120_000;
     await d.pollOnce();
     expect(approvedIds).toHaveLength(1); // NO further auto-spawn
@@ -260,7 +299,10 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
     // Poll 3: the card churns AGAIN (another updatedAt bump). The pending
     // proposal still owns the active slot → ON CONFLICT swallows the insert, so
     // NO third proposal and still zero further auto-spawns. The loop is broken.
-    page = { items: [makeItem("2026-06-03T00:00:00Z")], cursor: { "item-A": "2026-06-03T00:00:00Z" } };
+    page = {
+      items: [makeItem("2026-06-03T00:00:00Z")],
+      cursor: { "item-A": "2026-06-03T00:00:00Z" },
+    };
     nowMs += 120_000;
     await d.pollOnce();
     expect(approvedIds).toHaveLength(1);
@@ -289,7 +331,10 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
     };
 
     let nowMs = Date.UTC(2026, 5, 1, 12, 0, 0);
-    let page = { items: [makeItem("2026-06-01T00:00:00Z")], cursor: { "item-A": "2026-06-01T00:00:00Z" } };
+    let page = {
+      items: [makeItem("2026-06-01T00:00:00Z")],
+      cursor: { "item-A": "2026-06-01T00:00:00Z" },
+    };
     const d = new GithubProjectsDaemon({
       client: { fetchBoardItems: () => Promise.resolve(page) } as never,
       ghAuthToken: () => Promise.resolve("gho_int"),
@@ -300,7 +345,10 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
     await d.pollOnce(); // done
     expect(approvedIds).toHaveLength(1);
 
-    page = { items: [makeItem("2026-06-02T00:00:00Z")], cursor: { "item-A": "2026-06-02T00:00:00Z" } };
+    page = {
+      items: [makeItem("2026-06-02T00:00:00Z")],
+      cursor: { "item-A": "2026-06-02T00:00:00Z" },
+    };
     nowMs += 120_000;
     await d.pollOnce(); // most-recent terminal = done → auto-spawn AGAIN
     expect(approvedIds).toHaveLength(2);
@@ -313,7 +361,12 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
     const link = await insertLink();
     const db = getTestDb();
     // Simulate the pre-restart state directly: three cards, one proposal each.
-    const seed = async (id: string, itemNodeId: string, status: string, agentRunId: string | null) => {
+    const seed = async (
+      id: string,
+      itemNodeId: string,
+      status: string,
+      agentRunId: string | null,
+    ) => {
       await db.insert(githubProjectsProposals).values({
         id,
         projectId: "proj-int",
@@ -369,14 +422,21 @@ describe("GithubProjectsDaemon — integration (real PGlite)", () => {
     await insertLink();
     const now = Date.UTC(2026, 5, 15, 12, 0, 0);
     const d = new GithubProjectsDaemon({
-      client: clientReturning({ items: [makeItem()], cursor: { "item-A": "2026-06-01T00:00:00Z" } }),
+      client: clientReturning({
+        items: [makeItem()],
+        cursor: { "item-A": "2026-06-01T00:00:00Z" },
+      }),
       ghAuthToken: () => Promise.resolve("gho_int"),
       now: () => now,
     });
     await d.pollOnce();
     const db = getTestDb();
     const rows = await db.select().from(githubProjectsLinks);
-    const link = rows[0] as { pollCursor: Record<string, string> | null; lastPolledAt: Date | null; lastError: string | null };
+    const link = rows[0] as {
+      pollCursor: Record<string, string> | null;
+      lastPolledAt: Date | null;
+      lastError: string | null;
+    };
     expect(link.pollCursor).toEqual({ "item-A": "2026-06-01T00:00:00Z" });
     expect(link.lastPolledAt).toBeInstanceOf(Date);
     expect(link.lastError).toBeNull();

@@ -63,29 +63,33 @@ export async function getEffectiveGrantsForConversation(
   extensionId: string,
   registryGrants: ExtensionPermissions | null,
 ): Promise<ExtensionPermissions> {
-  const override = await getConversationExtensionEffectiveGrants(
-    conversationId,
-    extensionId,
-  );
+  const override = await getConversationExtensionEffectiveGrants(conversationId, extensionId);
   if (override) return override;
   return registryGrants ?? { grantedAt: {} };
 }
 
 export async function addConversationExtensions(
   conversationId: string,
-  entries: { extensionId: string; messageId?: string; effectiveGrantedPermissions?: ExtensionPermissions }[],
+  entries: {
+    extensionId: string;
+    messageId?: string;
+    effectiveGrantedPermissions?: ExtensionPermissions;
+  }[],
 ): Promise<void> {
   if (entries.length === 0) return;
   const db = getDb();
-  await db.insert(conversationExtensions)
-    .values(entries.map(e => ({
-      conversationId,
-      extensionId: e.extensionId,
-      addedByMessageId: e.messageId,
-      ...(e.effectiveGrantedPermissions !== undefined
-        ? { effectiveGrantedPermissions: e.effectiveGrantedPermissions }
-        : {}),
-    })))
+  await db
+    .insert(conversationExtensions)
+    .values(
+      entries.map((e) => ({
+        conversationId,
+        extensionId: e.extensionId,
+        addedByMessageId: e.messageId,
+        ...(e.effectiveGrantedPermissions !== undefined
+          ? { effectiveGrantedPermissions: e.effectiveGrantedPermissions }
+          : {}),
+      })),
+    )
     .onConflictDoNothing();
   // Phase 54 SEC-01 — prime the override cache for entries that
   // declare an `effectiveGrantedPermissions`. The PDP's
@@ -130,9 +134,7 @@ export async function copyConversationExtensions(
  * inserted but the registry hasn't reloaded yet) contribute nothing —
  * they'll start contributing on the next registry reload.
  */
-export async function getConversationExtensionMimes(
-  conversationId: string,
-): Promise<string[]> {
+export async function getConversationExtensionMimes(conversationId: string): Promise<string[]> {
   const ids = await getConversationExtensionIds(conversationId);
   if (ids.length === 0) return [];
   const reg = ExtensionRegistry.getInstance();

@@ -11,7 +11,10 @@ import { makeAgent, makeAgentConfig, makeMode } from "./fixtures/data.js";
 // single-select (Model) pickers in one place.
 
 test.describe("ExtensionSearchPicker — pills on the agent edit page", () => {
-  test("pre-selected extensions render as pills with ×, click removes them", async ({ page, mockApi }) => {
+  test("pre-selected extensions render as pills with ×, click removes them", async ({
+    page,
+    mockApi,
+  }) => {
     const config = makeAgentConfig({
       id: "cfg-exts",
       name: "pills-agent",
@@ -52,7 +55,12 @@ test.describe("ExtensionSearchPicker — pills on the agent edit page", () => {
   });
 
   test("no selected → no pill, just placeholder input", async ({ page, mockApi }) => {
-    const config = makeAgentConfig({ id: "cfg-empty", name: "empty-agent", prompt: "P", extensions: [] });
+    const config = makeAgentConfig({
+      id: "cfg-empty",
+      name: "empty-agent",
+      prompt: "P",
+      extensions: [],
+    });
     await mockApi({
       agents: [makeAgent({ name: "empty-agent", source: "config", id: "cfg-empty", prompt: "P" })],
       agentConfigs: [config],
@@ -66,7 +74,10 @@ test.describe("ExtensionSearchPicker — pills on the agent edit page", () => {
 });
 
 test.describe("ToolSearchPicker — pills on the team edit page", () => {
-  test("team tool scope pre-selected tools render as pills with ×, removing a pill updates selection", async ({ page, mockApi }) => {
+  test("team tool scope pre-selected tools render as pills with ×, removing a pill updates selection", async ({
+    page,
+    mockApi,
+  }) => {
     const member = makeAgentConfig({ id: "m-1", name: "m1", prompt: "P" });
     const team = makeAgentConfig({
       id: "team-pills",
@@ -85,7 +96,13 @@ test.describe("ToolSearchPicker — pills on the team edit page", () => {
     });
     await mockApi({
       agents: [
-        makeAgent({ name: "pills-team", source: "config", id: "team-pills", category: "team", prompt: "Coordinate" }),
+        makeAgent({
+          name: "pills-team",
+          source: "config",
+          id: "team-pills",
+          category: "team",
+          prompt: "Coordinate",
+        }),
         makeAgent({ name: "m1", source: "config", id: "m-1", prompt: "P" }),
       ],
       agentConfigs: [team, member],
@@ -116,7 +133,10 @@ test.describe("ToolSearchPicker — pills on the team edit page", () => {
 });
 
 test.describe("ModelSearchPicker — single pill with × clears selection", () => {
-  test("pre-selected model renders as a pill; × clears when onclear is wired", async ({ page, mockApi }) => {
+  test("pre-selected model renders as a pill; × clears when onclear is wired", async ({
+    page,
+    mockApi,
+  }) => {
     const config = makeAgentConfig({
       id: "cfg-model",
       name: "model-agent",
@@ -173,7 +193,13 @@ test.describe("ModeSearchPicker — single pill clears via × to null", () => {
     });
     await mockApi({
       agents: [
-        makeAgent({ name: "mode-team", source: "config", id: "team-mode", category: "team", prompt: "Coordinate" }),
+        makeAgent({
+          name: "mode-team",
+          source: "config",
+          id: "team-mode",
+          category: "team",
+          prompt: "Coordinate",
+        }),
         makeAgent({ name: "m1", source: "config", id: "m-1", prompt: "P" }),
       ],
       agentConfigs: [team, member],
@@ -196,7 +222,10 @@ test.describe("ModeSearchPicker — single pill clears via × to null", () => {
 });
 
 test.describe("SelectedPill — shared component contract", () => {
-  test("every pill exposes an aria-labelled × button (accessibility)", async ({ page, mockApi }) => {
+  test("every pill exposes an aria-labelled × button (accessibility)", async ({
+    page,
+    mockApi,
+  }) => {
     // Any picker with pre-selected pills is enough to exercise the button.
     const config = makeAgentConfig({
       id: "cfg-a11y",
@@ -248,10 +277,18 @@ test.describe("Combobox layout — input width preserved with pills inside", () 
   // Regression for the user report "the input now moves to the right of the
   // pills". The fix stacks pills on their own row above the input inside the
   // same chrome, so the input's width does NOT shrink as pills are added.
-  test("input width stays equal whether 0 or many pills are selected", async ({ page, mockApi }) => {
+  test("input width stays equal whether 0 or many pills are selected", async ({
+    page,
+    mockApi,
+  }) => {
     // Two agents on the same page — one with empty extensions, one with 3 —
     // both inside the same layout so we can compare their picker input widths.
-    const empty = makeAgentConfig({ id: "empty", name: "empty-agent", prompt: "P", extensions: [] });
+    const empty = makeAgentConfig({
+      id: "empty",
+      name: "empty-agent",
+      prompt: "P",
+      extensions: [],
+    });
     const many = makeAgentConfig({
       id: "many",
       name: "many-agent",
@@ -324,13 +361,16 @@ test.describe("Combobox pill semantics — add & remove lifecycle", () => {
   });
 
   test("picking an option from the dropdown adds a pill", async ({ page, mockApi }) => {
-    const config = makeAgentConfig({ id: "cfg-add", name: "add-agent", prompt: "P", extensions: [] });
+    const config = makeAgentConfig({
+      id: "cfg-add",
+      name: "add-agent",
+      prompt: "P",
+      extensions: [],
+    });
     await mockApi({
       agents: [makeAgent({ name: "add-agent", source: "config", id: "cfg-add", prompt: "P" })],
       agentConfigs: [config],
-      extensions: [
-        { id: "ext-add", name: "addable", description: "desc" },
-      ],
+      extensions: [{ id: "ext-add", name: "addable", description: "desc" }],
     });
     await page.goto("/agents/add-agent");
     const combobox = page.getByTestId("extension-picker-combobox");
@@ -344,7 +384,10 @@ test.describe("Combobox pill semantics — add & remove lifecycle", () => {
     await expect(combobox.getByTestId("selected-pill")).toContainText("addable");
   });
 
-  test("long pill labels don't break the layout (truncate within pill)", async ({ page, mockApi }) => {
+  test("long pill labels don't break the layout (truncate within pill)", async ({
+    page,
+    mockApi,
+  }) => {
     const longName = "a-very-long-extension-name-that-would-normally-overflow-a-single-line";
     const config = makeAgentConfig({
       id: "cfg-long",

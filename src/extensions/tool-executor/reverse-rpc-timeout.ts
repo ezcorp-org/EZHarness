@@ -52,10 +52,9 @@ export function parseHostReverseRpcTimeoutMs(raw: string | undefined): number {
   return 20_000;
 }
 
-export const HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS: number =
-  parseHostReverseRpcTimeoutMs(
-    process.env.EZCORP_HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS,
-  );
+export const HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS: number = parseHostReverseRpcTimeoutMs(
+  process.env.EZCORP_HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS,
+);
 
 /**
  * Reverse-RPC methods EXEMPT from {@link HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS}.

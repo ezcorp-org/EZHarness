@@ -76,7 +76,9 @@ mock.module("$server/auth/middleware", () => require("../../../auth/middleware")
 // integration proof of the deny-by-default enforcement on the routes.
 mock.module("$server/auth/extension-rbac", () => require("../../../auth/extension-rbac"));
 mock.module("$server/db/queries/projects", () => require("../../../db/queries/projects"));
-mock.module("$server/db/queries/github-projects", () => require("../../../db/queries/github-projects"));
+mock.module("$server/db/queries/github-projects", () =>
+  require("../../../db/queries/github-projects"),
+);
 mock.module("$server/extensions/secrets-store", () => require("../../../extensions/secrets-store"));
 mock.module("$server/integrations/github-projects/client", () => require("../client"));
 mock.module("$server/integrations/github-projects/auth", () => require("../auth"));
@@ -110,9 +112,11 @@ async function patSecretRow(pid: string) {
 const { POST: connect } = await import(
   "../../../../web/src/routes/api/integrations/github-projects/connect/+server"
 );
-const { GET: linkGet, PATCH: linkPatch, DELETE: linkDelete } = await import(
-  "../../../../web/src/routes/api/integrations/github-projects/link/+server"
-);
+const {
+  GET: linkGet,
+  PATCH: linkPatch,
+  DELETE: linkDelete,
+} = await import("../../../../web/src/routes/api/integrations/github-projects/link/+server");
 const { POST: refreshColumns } = await import(
   "../../../../web/src/routes/api/integrations/github-projects/link/refresh-columns/+server"
 );
@@ -146,23 +150,31 @@ beforeEach(async () => {
     { id: "opt-doing", name: "Doing" },
   ];
   // The link's created_by_user_id FKs users.id — seed the acting user.
-  await createUser({ id: USER.id, email: USER.email, passwordHash: "x", name: USER.name, role: USER.role });
+  await createUser({
+    id: USER.id,
+    email: USER.email,
+    passwordHash: "x",
+    name: USER.name,
+    role: USER.role,
+  });
   // `extension_secrets.extension_id` FKs `extensions.name` — seed the bundled
   // github-projects extension row so the store's INSERT has its FK parent.
-  await getTestDb().insert(extensions).values({
-    name: GH_EXT,
-    version: "1.0.0",
-    source: "test:fixture",
-    manifest: sql`${JSON.stringify({
-      schemaVersion: 2,
+  await getTestDb()
+    .insert(extensions)
+    .values({
       name: GH_EXT,
       version: "1.0.0",
-      description: "",
-      author: { name: "test" },
-      kind: "subprocess",
-      entrypoint: { command: ["true"] },
-    })}::jsonb`,
-  });
+      source: "test:fixture",
+      manifest: sql`${JSON.stringify({
+        schemaVersion: 2,
+        name: GH_EXT,
+        version: "1.0.0",
+        description: "",
+        author: { name: "test" },
+        kind: "subprocess",
+        entrypoint: { command: ["true"] },
+      })}::jsonb`,
+    });
   // Deny-by-default RBAC: give the acting MEMBER an extension-scoped,
   // NULL-project grant (github-projects across ALL projects) covering every
   // scope the lifecycle tests exercise. Seeded AFTER the extensions row —
@@ -182,7 +194,14 @@ describe("github-projects connect lifecycle (real DB)", () => {
   test("connect (pat) stores the token ENCRYPTED at rest + writes the link", async () => {
     const secret = "github_pat_supersecret_value";
     const res = await connect(
-      ev("POST", { body: { projectId, boardUrl: "https://github.com/orgs/acme/projects/1", authMode: "pat", token: secret } }),
+      ev("POST", {
+        body: {
+          projectId,
+          boardUrl: "https://github.com/orgs/acme/projects/1",
+          authMode: "pat",
+          token: secret,
+        },
+      }),
     );
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -210,7 +229,9 @@ describe("github-projects connect lifecycle (real DB)", () => {
 
   test("malformed defaultModel → 400 (validated before board resolution), nothing persisted", async () => {
     const res = await connect(
-      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "t", defaultModel: "noprovider" } }),
+      ev("POST", {
+        body: { projectId, boardUrl: "u", authMode: "pat", token: "t", defaultModel: "noprovider" },
+      }),
     );
     expect(res.status).toBe(400);
     const body = await res.json();
@@ -231,7 +252,9 @@ describe("github-projects connect lifecycle (real DB)", () => {
   });
 
   test("GET reflects the connection (array), then PATCH pause flips enabled (token retained)", async () => {
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }),
+    );
     const linkId = (await getLinkByProjectId(projectId))!.id;
 
     const getRes = await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}` }));
@@ -252,7 +275,9 @@ describe("github-projects connect lifecycle (real DB)", () => {
   });
 
   test("disconnect PURGES the token, CANCELS active proposals, and DROPS the link", async () => {
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }),
+    );
     const link = await getLinkByProjectId(projectId);
     expect(link).not.toBeNull();
 
@@ -286,7 +311,9 @@ describe("github-projects connect lifecycle (real DB)", () => {
 
   test("connect persists the board's status options so the column editor survives a reload (named + complete)", async () => {
     // The mocked board has TWO columns: Todo + Doing.
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }),
+    );
     const linkId = (await getLinkByProjectId(projectId))!.id;
 
     // Map ONLY one of them (Doing). Before the fix, a reload then rendered just
@@ -295,7 +322,11 @@ describe("github-projects connect lifecycle (real DB)", () => {
     // back to Object.keys(columnActionMap).
     const patchRes = await linkPatch(
       ev("PATCH", {
-        body: { projectId, linkId, columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } } },
+        body: {
+          projectId,
+          linkId,
+          columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
+        },
       }),
     );
     expect(patchRes.status).toBe(200);
@@ -316,11 +347,15 @@ describe("github-projects connect lifecycle (real DB)", () => {
     expect(Object.keys(link.columnActionMap)).toEqual(["opt-doing"]);
     //   2) NAMED — every column has a human name, never its raw option id.
     expect(link.statusOptions.map((o: { name: string }) => o.name)).toEqual(["Todo", "Doing"]);
-    expect(link.statusOptions.every((o: { id: string; name: string }) => o.name !== o.id)).toBe(true);
+    expect(link.statusOptions.every((o: { id: string; name: string }) => o.name !== o.id)).toBe(
+      true,
+    );
   });
 
   test("defaultModel round-trips: PATCH sets it, GET/publicLinkView returns it; null clears it", async () => {
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }),
+    );
     const linkId = (await getLinkByProjectId(projectId))!.id;
 
     // A fresh connect leaves defaultModel null (the instance default).
@@ -329,7 +364,9 @@ describe("github-projects connect lifecycle (real DB)", () => {
 
     // PATCH a valid "<provider>:<model>" — the public view echoes it back.
     const setRes = await linkPatch(
-      ev("PATCH", { body: { projectId, linkId, defaultModel: "anthropic:claude-opus-4-20250514" } }),
+      ev("PATCH", {
+        body: { projectId, linkId, defaultModel: "anthropic:claude-opus-4-20250514" },
+      }),
     );
     expect(setRes.status).toBe(200);
     expect((await setRes.json()).link.defaultModel).toBe("anthropic:claude-opus-4-20250514");
@@ -338,17 +375,23 @@ describe("github-projects connect lifecycle (real DB)", () => {
     const afterSet = await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}` }));
     expect((await afterSet.json()).links[0].defaultModel).toBe("anthropic:claude-opus-4-20250514");
     // The DB row itself holds the raw string.
-    expect((await getLinkByProjectId(projectId))?.defaultModel).toBe("anthropic:claude-opus-4-20250514");
+    expect((await getLinkByProjectId(projectId))?.defaultModel).toBe(
+      "anthropic:claude-opus-4-20250514",
+    );
 
     // PATCH null clears it back to the instance default.
-    const clearRes = await linkPatch(ev("PATCH", { body: { projectId, linkId, defaultModel: null } }));
+    const clearRes = await linkPatch(
+      ev("PATCH", { body: { projectId, linkId, defaultModel: null } }),
+    );
     expect(clearRes.status).toBe(200);
     expect((await clearRes.json()).link.defaultModel).toBeNull();
     expect((await getLinkByProjectId(projectId))?.defaultModel).toBeNull();
   });
 
   test("defaultPermissionMode round-trips: connect → GET (null) → PATCH sets it → GET reflects it → null clears", async () => {
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }),
+    );
     const linkId = (await getLinkByProjectId(projectId))!.id;
 
     // A fresh connect (no permission mode given) leaves it null — the board
@@ -357,7 +400,9 @@ describe("github-projects connect lifecycle (real DB)", () => {
     expect((await initial.json()).links[0].defaultPermissionMode).toBeNull();
 
     // PATCH a valid runtime mode — the public view echoes it back + it persists.
-    const setRes = await linkPatch(ev("PATCH", { body: { projectId, linkId, defaultPermissionMode: "auto-edit" } }));
+    const setRes = await linkPatch(
+      ev("PATCH", { body: { projectId, linkId, defaultPermissionMode: "auto-edit" } }),
+    );
     expect(setRes.status).toBe(200);
     expect((await setRes.json()).link.defaultPermissionMode).toBe("auto-edit");
     const afterSet = await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}` }));
@@ -365,7 +410,9 @@ describe("github-projects connect lifecycle (real DB)", () => {
     expect((await getLinkByProjectId(projectId))?.defaultPermissionMode).toBe("auto-edit");
 
     // PATCH null clears it back to the board's "yolo" fallback.
-    const clearRes = await linkPatch(ev("PATCH", { body: { projectId, linkId, defaultPermissionMode: null } }));
+    const clearRes = await linkPatch(
+      ev("PATCH", { body: { projectId, linkId, defaultPermissionMode: null } }),
+    );
     expect(clearRes.status).toBe(200);
     expect((await clearRes.json()).link.defaultPermissionMode).toBeNull();
     expect((await getLinkByProjectId(projectId))?.defaultPermissionMode).toBeNull();
@@ -373,7 +420,15 @@ describe("github-projects connect lifecycle (real DB)", () => {
 
   test("invalid defaultPermissionMode → 400 (validated before board resolution), nothing persisted", async () => {
     const res = await connect(
-      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "t", defaultPermissionMode: "plan" } }),
+      ev("POST", {
+        body: {
+          projectId,
+          boardUrl: "u",
+          authMode: "pat",
+          token: "t",
+          defaultPermissionMode: "plan",
+        },
+      }),
     );
     expect(res.status).toBe(400);
     expect(await getLinkByProjectId(projectId)).toBeNull();
@@ -381,7 +436,9 @@ describe("github-projects connect lifecycle (real DB)", () => {
 
   test("refresh-columns: re-fetches a legacy/empty link's columns host-side + persists them (no PAT re-entry)", async () => {
     // Connect stores the board (Todo + Doing) AND the encrypted PAT.
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }),
+    );
     const linkId = (await getLinkByProjectId(projectId))!.id;
 
     // Simulate the exact production bug: a link whose columns were never stored
@@ -411,7 +468,11 @@ describe("github-projects connect lifecycle (real DB)", () => {
     const getRes = await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}` }));
     const row = (await getRes.json()).links[0];
     expect(row.statusOptions).toHaveLength(3);
-    expect(row.statusOptions.map((o: { name: string }) => o.name)).toEqual(["Todo", "Doing", "Done"]);
+    expect(row.statusOptions.map((o: { name: string }) => o.name)).toEqual([
+      "Todo",
+      "Doing",
+      "Done",
+    ]);
     // The DB row itself updated, including the resolved Status field id.
     const dbRow = await getLinkByProjectId(projectId);
     expect(dbRow?.statusOptions).toHaveLength(3);
@@ -419,7 +480,9 @@ describe("github-projects connect lifecycle (real DB)", () => {
   });
 
   test("refresh-columns: no stored credential → 401 and the saved columns are left UNTOUCHED", async () => {
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }),
+    );
     const linkId = (await getLinkByProjectId(projectId))!.id;
     // Connect persisted the board's two columns.
     expect((await getLinkByProjectId(projectId))?.statusOptions).toHaveLength(2);
@@ -439,7 +502,9 @@ describe("github-projects connect lifecycle (real DB)", () => {
   });
 
   test("re-connecting the SAME board refreshes the persisted status options", async () => {
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }),
+    );
     const link = await getLinkByProjectId(projectId);
     expect(link?.statusOptions).toEqual([
       { id: "opt-todo", name: "Todo" },
@@ -449,14 +514,18 @@ describe("github-projects connect lifecycle (real DB)", () => {
 
   test("re-connect ('Replace token') PRESERVES the board's config — column map, defaults, interval, paused state", async () => {
     // Connect, then configure the board the way a user would.
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }),
+    );
     const linkId = (await getLinkByProjectId(projectId))!.id;
     const configured = await linkPatch(
       ev("PATCH", {
         body: {
           projectId,
           linkId,
-          columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true, doneStatusOptionId: "opt-todo" } },
+          columnActionMap: {
+            "opt-doing": { action: "execute", autoSpawn: true, doneStatusOptionId: "opt-todo" },
+          },
           defaultModel: "ollama:gemma4:e2b",
           defaultPermissionMode: "ask",
           pollIntervalSec: 300,
@@ -471,7 +540,15 @@ describe("github-projects connect lifecycle (real DB)", () => {
     // onConflictDoUpdate reset every omitted field (map → {}, model/mode →
     // null, interval → 60) AND un-paused the board.
     const res = await connect(
-      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "rotated_tok", tokenScope: "board" } }),
+      ev("POST", {
+        body: {
+          projectId,
+          boardUrl: "u",
+          authMode: "pat",
+          token: "rotated_tok",
+          tokenScope: "board",
+        },
+      }),
     );
     expect(res.status).toBe(200);
 
@@ -489,12 +566,32 @@ describe("github-projects connect lifecycle (real DB)", () => {
   });
 
   test("re-connect with body-PRESENT defaults still applies them (the connect form sets them legitimately)", async () => {
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok", defaultModel: "ollama:gemma4:e2b", defaultPermissionMode: "ask" } }));
+    await connect(
+      ev("POST", {
+        body: {
+          projectId,
+          boardUrl: "u",
+          authMode: "pat",
+          token: "tok",
+          defaultModel: "ollama:gemma4:e2b",
+          defaultPermissionMode: "ask",
+        },
+      }),
+    );
     const linkId = (await getLinkByProjectId(projectId))!.id;
 
     // Re-connect the SAME board with NEW explicit defaults → they win.
     const res = await connect(
-      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok2", defaultModel: "openai:gpt-4o", defaultPermissionMode: "yolo" } }),
+      ev("POST", {
+        body: {
+          projectId,
+          boardUrl: "u",
+          authMode: "pat",
+          token: "tok2",
+          defaultModel: "openai:gpt-4o",
+          defaultPermissionMode: "yolo",
+        },
+      }),
     );
     expect(res.status).toBe(200);
     const link = (await getLinkByProjectId(projectId))!;
@@ -504,7 +601,17 @@ describe("github-projects connect lifecycle (real DB)", () => {
   });
 
   test("PATCH response reports hasTokenOverride:true for a board carrying its own token", async () => {
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "board_tok", tokenScope: "board" } }));
+    await connect(
+      ev("POST", {
+        body: {
+          projectId,
+          boardUrl: "u",
+          authMode: "pat",
+          token: "board_tok",
+          tokenScope: "board",
+        },
+      }),
+    );
     const linkId = (await getLinkByProjectId(projectId))!.id;
     expect(await getSecret(GH_EXT, projectId, boardTokenName(linkId))).toBe("board_tok");
 
@@ -517,7 +624,9 @@ describe("github-projects connect lifecycle (real DB)", () => {
 
   test("re-connect at SHARED scope purges the stale override; auth then resolves the NEW shared token", async () => {
     // Board connects shared, then gains a per-board override.
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "old_shared" } }));
+    await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "old_shared" } }),
+    );
     const linkId = (await getLinkByProjectId(projectId))!.id;
     await setSecret(GH_EXT, projectId, boardTokenName(linkId), "stale_override");
     expect(await resolveLinkAuth((await getLinkByProjectId(projectId))!)).toEqual({
@@ -527,7 +636,17 @@ describe("github-projects connect lifecycle (real DB)", () => {
 
     // Re-connect the SAME board with a NEW shared token. Before the fix the
     // override survived and kept shadowing it forever.
-    const res = await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "new_shared", tokenScope: "shared" } }));
+    const res = await connect(
+      ev("POST", {
+        body: {
+          projectId,
+          boardUrl: "u",
+          authMode: "pat",
+          token: "new_shared",
+          tokenScope: "shared",
+        },
+      }),
+    );
     expect(res.status).toBe(200);
     expect(await getSecret(GH_EXT, projectId, boardTokenName(linkId))).toBeNull();
     expect(await getSecret(GH_EXT, projectId, "apiToken")).toBe("new_shared");
@@ -538,14 +657,22 @@ describe("github-projects connect lifecycle (real DB)", () => {
   });
 
   test("PATCH with a stale doneStatusOptionId → 400 with a named error (what the page surfaces per-card)", async () => {
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }),
+    );
     const linkId = (await getLinkByProjectId(projectId))!.id;
     const res = await linkPatch(
       ev("PATCH", {
         body: {
           projectId,
           linkId,
-          columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false, doneStatusOptionId: "opt-deleted-on-github" } },
+          columnActionMap: {
+            "opt-doing": {
+              action: "plan",
+              autoSpawn: false,
+              doneStatusOptionId: "opt-deleted-on-github",
+            },
+          },
         },
       }),
     );
@@ -555,7 +682,9 @@ describe("github-projects connect lifecycle (real DB)", () => {
 
   test("re-connect of the SAME board pat → gh purges THIS board's override but keeps the shared token (other boards may use it)", async () => {
     // First board (PVT_kanban) connects with a shared token.
-    await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }));
+    await connect(
+      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "tok" } }),
+    );
     const linkId = (await getLinkByProjectId(projectId))!.id;
     expect(await getSecret(GH_EXT, projectId, "apiToken")).toBe("tok");
     // Give this board a per-board override too.
@@ -576,12 +705,26 @@ describe("github-projects multi-board lifecycle (real DB)", () => {
     const { listLinksByProjectId } = await import("../../../db/queries/github-projects");
 
     // Board A connects with the SHARED project token.
-    await connect(ev("POST", { body: { projectId, boardUrl: "board-a", authMode: "pat", token: "shared_tok" } }));
+    await connect(
+      ev("POST", {
+        body: { projectId, boardUrl: "board-a", authMode: "pat", token: "shared_tok" },
+      }),
+    );
     expect(await getSecret(GH_EXT, projectId, "apiToken")).toBe("shared_tok");
 
     // Board B connects with NO typed token → reuses the shared project token,
     // and ALSO sets a per-board override (tokenScope 'board').
-    await connect(ev("POST", { body: { projectId, boardUrl: "board-b", authMode: "pat", token: "b_override", tokenScope: "board" } }));
+    await connect(
+      ev("POST", {
+        body: {
+          projectId,
+          boardUrl: "board-b",
+          authMode: "pat",
+          token: "b_override",
+          tokenScope: "board",
+        },
+      }),
+    );
 
     const links = await listLinksByProjectId(projectId);
     expect(links).toHaveLength(2);
@@ -596,7 +739,11 @@ describe("github-projects multi-board lifecycle (real DB)", () => {
 
     // GET surfaces BOTH boards as an array; only board B reports a token override.
     const getRes = await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}` }));
-    const views = (await getRes.json()).links as Array<{ id: string; boardUrl: string; hasTokenOverride: boolean }>;
+    const views = (await getRes.json()).links as Array<{
+      id: string;
+      boardUrl: string;
+      hasTokenOverride: boolean;
+    }>;
     expect(views).toHaveLength(2);
     expect(views.find((v) => v.id === linkB.id)!.hasTokenOverride).toBe(true);
     expect(views.find((v) => v.id === linkA.id)!.hasTokenOverride).toBe(false);
@@ -619,7 +766,13 @@ describe("github-projects extension RBAC (real resolver + real grant rows)", () 
   /** A second MEMBER with NO grants (deny-by-default target). */
   async function seedMember(id = crypto.randomUUID()) {
     const user = { id, email: `m${id.slice(0, 8)}@test.local`, name: "M", role: "member" as const };
-    await createUser({ id: user.id, email: user.email, passwordHash: "x", name: user.name, role: user.role });
+    await createUser({
+      id: user.id,
+      email: user.email,
+      passwordHash: "x",
+      name: user.name,
+      role: user.role,
+    });
     return user;
   }
 
@@ -637,7 +790,9 @@ describe("github-projects extension RBAC (real resolver + real grant rows)", () 
       "use",
     );
     await expect403Naming(
-      await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "gh" }, user: member })),
+      await connect(
+        ev("POST", { body: { projectId, boardUrl: "u", authMode: "gh" }, user: member }),
+      ),
       "configure",
     );
     expect(await getLinkByProjectId(projectId)).toBeNull(); // nothing persisted
@@ -651,10 +806,15 @@ describe("github-projects extension RBAC (real resolver + real grant rows)", () 
       grantedByUserId: USER.id,
     });
     expect(
-      (await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}`, user: member }))).status,
+      (await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}`, user: member })))
+        .status,
     ).toBe(200);
     expect(
-      (await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "gh" }, user: member }))).status,
+      (
+        await connect(
+          ev("POST", { body: { projectId, boardUrl: "u", authMode: "gh" }, user: member }),
+        )
+      ).status,
     ).toBe(200);
 
     // Revoke (delete the row) → deny-by-default returns.
@@ -677,7 +837,10 @@ describe("github-projects extension RBAC (real resolver + real grant rows)", () 
       grantedByUserId: USER.id,
     });
     const denied = await connect(
-      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "ghp_member" }, user: member }),
+      ev("POST", {
+        body: { projectId, boardUrl: "u", authMode: "pat", token: "ghp_member" },
+        user: member,
+      }),
     );
     await expect403Naming(denied, "secrets");
     expect(await getSecret(GH_EXT, projectId, "apiToken")).toBeNull();
@@ -691,7 +854,10 @@ describe("github-projects extension RBAC (real resolver + real grant rows)", () 
       grantedByUserId: USER.id,
     });
     const ok = await connect(
-      ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "ghp_member" }, user: member }),
+      ev("POST", {
+        body: { projectId, boardUrl: "u", authMode: "pat", token: "ghp_member" },
+        user: member,
+      }),
     );
     expect(ok.status).toBe(200);
     expect(await getSecret(GH_EXT, projectId, "apiToken")).toBe("ghp_member");
@@ -708,7 +874,8 @@ describe("github-projects extension RBAC (real resolver + real grant rows)", () 
       grantedByUserId: USER.id,
     });
     expect(
-      (await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}`, user: member }))).status,
+      (await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}`, user: member })))
+        .status,
     ).toBe(200);
     await expect403Naming(
       await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projB.id}`, user: member })),
@@ -727,13 +894,32 @@ describe("github-projects extension RBAC (real resolver + real grant rows)", () 
 
   test("an ADMIN with no grant rows passes (implicit all scopes); opaque 404 ordering survives denial", async () => {
     const adminId = crypto.randomUUID();
-    const admin = { id: adminId, email: `a${adminId.slice(0, 8)}@test.local`, name: "A", role: "admin" as const };
-    await createUser({ id: admin.id, email: admin.email, passwordHash: "x", name: admin.name, role: admin.role });
+    const admin = {
+      id: adminId,
+      email: `a${adminId.slice(0, 8)}@test.local`,
+      name: "A",
+      role: "admin" as const,
+    };
+    await createUser({
+      id: admin.id,
+      email: admin.email,
+      passwordHash: "x",
+      name: admin.name,
+      role: admin.role,
+    });
     expect(
-      (await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}`, user: admin }))).status,
+      (await linkGet(ev("GET", { url: `http://localhost/x?projectId=${projectId}`, user: admin })))
+        .status,
     ).toBe(200);
     expect(
-      (await connect(ev("POST", { body: { projectId, boardUrl: "u", authMode: "pat", token: "t" }, user: admin }))).status,
+      (
+        await connect(
+          ev("POST", {
+            body: { projectId, boardUrl: "u", authMode: "pat", token: "t" },
+            user: admin,
+          }),
+        )
+      ).status,
     ).toBe(200);
 
     // A NO-grant member probing a nonexistent link still sees the opaque 404

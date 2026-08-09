@@ -18,21 +18,20 @@ afterEach(() => {
   __resetChannelForTests();
 });
 
-interface RequestCall { method: string; params: unknown; }
+interface RequestCall {
+  method: string;
+  params: unknown;
+}
 
-function stubRequest(
-  impl: (call: RequestCall) => Promise<unknown>,
-): { calls: RequestCall[] } {
+function stubRequest(impl: (call: RequestCall) => Promise<unknown>): { calls: RequestCall[] } {
   const ch: HostChannel = getChannel();
   const calls: RequestCall[] = [];
   const spy = spyOn(ch, "request");
-  spy.mockImplementation(
-    (async (method: string, params: unknown) => {
-      const call: RequestCall = { method, params };
-      calls.push(call);
-      return impl(call);
-    }) as HostChannel["request"],
-  );
+  spy.mockImplementation((async (method: string, params: unknown) => {
+    const call: RequestCall = { method, params };
+    calls.push(call);
+    return impl(call);
+  }) as HostChannel["request"]);
   return { calls };
 }
 
@@ -113,9 +112,7 @@ describe("TaskEvents — error propagation", () => {
     stubRequest(async () => {
       throw new JsonRpcError(-32001, "taskEvents permission not granted");
     });
-    await expect(new TaskEvents().emitSnapshot([])).rejects.toThrow(
-      /taskEvents permission/,
-    );
+    await expect(new TaskEvents().emitSnapshot([])).rejects.toThrow(/taskEvents permission/);
   });
 
   test("-32029 (rate limited) propagates — no client retry", async () => {
@@ -124,9 +121,7 @@ describe("TaskEvents — error propagation", () => {
       attempts += 1;
       throw new JsonRpcError(-32029, "Rate limited");
     });
-    await expect(new TaskEvents().emitSnapshot([])).rejects.toThrow(
-      /Rate limited/,
-    );
+    await expect(new TaskEvents().emitSnapshot([])).rejects.toThrow(/Rate limited/);
     expect(attempts).toBe(1);
   });
 
@@ -134,8 +129,6 @@ describe("TaskEvents — error propagation", () => {
     stubRequest(async () => {
       throw new JsonRpcError(-32602, "Invalid snapshot payload: payload.tasks: missing");
     });
-    await expect(
-      new TaskEvents().emitSnapshot([]),
-    ).rejects.toThrow(/snapshot payload/);
+    await expect(new TaskEvents().emitSnapshot([])).rejects.toThrow(/snapshot payload/);
   });
 });

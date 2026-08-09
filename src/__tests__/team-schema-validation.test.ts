@@ -22,9 +22,7 @@ describe("createAgentConfigSchema", () => {
     const result = createAgentConfigSchema.safeParse({
       ...base,
       references: {
-        members: [
-          member("a1", { subAgents: [member("a2")] }),
-        ],
+        members: [member("a1", { subAgents: [member("a2")] })],
       },
     });
     expect(result.success).toBe(true);

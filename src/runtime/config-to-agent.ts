@@ -51,7 +51,11 @@ export function composeAgent(
         return { success: true, output: response.text };
       } catch (err: unknown) {
         if (controller.signal.aborted) {
-          return { success: false, output: null, error: `Agent ${config.name} timed out after ${timeout}ms` };
+          return {
+            success: false,
+            output: null,
+            error: `Agent ${config.name} timed out after ${timeout}ms`,
+          };
         }
         return { success: false, output: null, error: String(err) };
       } finally {

@@ -3,11 +3,7 @@ import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { requireRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
-import {
-  listAllSessions,
-  revokeSession,
-  revokeAllUserSessions,
-} from "$server/db/queries/sessions";
+import { listAllSessions, revokeSession, revokeAllUserSessions } from "$server/db/queries/sessions";
 
 // Row shape mirrors the `select({...})` projection in
 // `src/db/queries/sessions.ts#listAllSessions`. Declared here so web's tsc

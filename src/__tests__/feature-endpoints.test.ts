@@ -37,49 +37,30 @@ mockServerAlias();
 
 // Make $server aliases used by the feature routes resolve to the real
 // modules backed by the mocked db/connection.
-mock.module("$server/db/queries/features", () =>
-  require("../db/queries/features"),
-);
-mock.module("$server/db/queries/projects", () =>
-  require("../db/queries/projects"),
-);
-mock.module("$server/runtime/scan/feature-scan", () =>
-  require("../runtime/scan/feature-scan"),
-);
+mock.module("$server/db/queries/features", () => require("../db/queries/features"));
+mock.module("$server/db/queries/projects", () => require("../db/queries/projects"));
+mock.module("$server/runtime/scan/feature-scan", () => require("../runtime/scan/feature-scan"));
 mock.module("$lib/server/security/api-keys", () => ({
   requireScope: () => null, // open scope — auth is checked separately by requireAuth
 }));
 mock.module("$lib/server/security/validation", () =>
   require("../../web/src/lib/server/security/validation"),
 );
-mock.module("$lib/server/http-errors", () =>
-  require("../../web/src/lib/server/http-errors"),
-);
+mock.module("$lib/server/http-errors", () => require("../../web/src/lib/server/http-errors"));
 
-mock.module(
-  "../../web/src/routes/api/projects/[id]/features/$types",
-  () => ({}),
-);
-mock.module(
-  "../../web/src/routes/api/projects/[id]/features/[featureId]/$types",
-  () => ({}),
-);
-mock.module(
-  "../../web/src/routes/api/projects/[id]/features/scan/$types",
-  () => ({}),
-);
+mock.module("../../web/src/routes/api/projects/[id]/features/$types", () => ({}));
+mock.module("../../web/src/routes/api/projects/[id]/features/[featureId]/$types", () => ({}));
+mock.module("../../web/src/routes/api/projects/[id]/features/scan/$types", () => ({}));
 
 // ── Handler imports (AFTER mocks) ───────────────────────────────────
 import { GET, POST as POST_create } from "../../web/src/routes/api/projects/[id]/features/+server";
-import {
-  PATCH,
-  DELETE,
-} from "../../web/src/routes/api/projects/[id]/features/[featureId]/+server";
+import { PATCH, DELETE } from "../../web/src/routes/api/projects/[id]/features/[featureId]/+server";
 import { POST as POST_scan } from "../../web/src/routes/api/projects/[id]/features/scan/+server";
 
 const { createProject } = await import("../db/queries/projects");
-const { createFeature, addUserFile, replaceAgentFiles, getFeature } =
-  await import("../db/queries/features");
+const { createFeature, addUserFile, replaceAgentFiles, getFeature } = await import(
+  "../db/queries/features"
+);
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -354,7 +335,9 @@ describe("PATCH /api/projects/:id/features/:featureId — validation messages", 
     // Refine messages live under the empty path "" because no specific
     // field failed — the whole object did.
     const messages = Object.values(body.fields ?? {});
-    expect(messages.some((m) => m.includes("name, description, addFiles, or removeFiles"))).toBe(true);
+    expect(messages.some((m) => m.includes("name, description, addFiles, or removeFiles"))).toBe(
+      true,
+    );
   });
 });
 
@@ -808,7 +791,11 @@ describe("PATCH /api/projects/:id/features/:featureId — file ops + invariants"
   });
 
   test("PATCH on a feature in a DIFFERENT project → 404 (cross-project isolation)", async () => {
-    const f = await createFeature({ projectId: otherProjectId, name: "other-proj", source: "user" });
+    const f = await createFeature({
+      projectId: otherProjectId,
+      name: "other-proj",
+      source: "user",
+    });
     // Try to PATCH from `projectId` (the wrong project) using the
     // featureId that belongs to `otherProjectId`.
     const event = createMockEvent({
@@ -1057,11 +1044,7 @@ describe("POST /api/projects/:id/features/scan — hybrid-ownership invariants",
     // Files from the rescan flow into the renamed row, not a duplicate.
     const reloaded = await getFeature(projectId, "user-renamed");
     const paths = reloaded!.files.map((f) => f.relpath).sort();
-    expect(paths).toEqual([
-      "src/featB/a.ts",
-      "src/featB/b.ts",
-      "src/featB/c.ts",
-    ]);
+    expect(paths).toEqual(["src/featB/a.ts", "src/featB/b.ts", "src/featB/c.ts"]);
     // And those files are scan-sourced (not user-pinned).
     for (const f of reloaded!.files) {
       expect(f.source).toBe("scan");

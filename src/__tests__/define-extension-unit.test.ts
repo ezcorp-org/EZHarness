@@ -72,7 +72,9 @@ describe("defineExtension", () => {
   test("works with mcpServers", () => {
     const config = defineExtension({
       ...BASE,
-      mcpServers: [{ transport: "stdio", name: "m", description: "d", command: "node", args: ["./mcp.ts"] }],
+      mcpServers: [
+        { transport: "stdio", name: "m", description: "d", command: "node", args: ["./mcp.ts"] },
+      ],
     });
     const s = at(config.mcpServers, 0, "mcp server");
     expect(s.transport).toBe("stdio");
@@ -83,7 +85,14 @@ describe("defineExtension", () => {
     const handler = () => "hello";
     const config = defineExtension({
       ...BASE,
-      tools: [{ name: "t", description: "d", inputSchema: { type: "object", properties: {} }, handler } as any],
+      tools: [
+        {
+          name: "t",
+          description: "d",
+          inputSchema: { type: "object", properties: {} },
+          handler,
+        } as any,
+      ],
     });
     expect((config.tools![0] as any).handler).toBe(handler);
   });
@@ -100,10 +109,15 @@ describe("defineExtension", () => {
       agent: {
         prompt: "test",
         modelRequirements: { tier: "powerful" },
-        exampleConversations: [{
-          title: "demo",
-          messages: [{ role: "user", content: "hi" }, { role: "assistant", content: "hey" }],
-        }],
+        exampleConversations: [
+          {
+            title: "demo",
+            messages: [
+              { role: "user", content: "hi" },
+              { role: "assistant", content: "hey" },
+            ],
+          },
+        ],
       },
     });
     const agent = need(config.agent, "config.agent");
@@ -118,11 +132,14 @@ describe("stripFunctions via loadManifest", () => {
   test("strips functions from skills array items", async () => {
     const dir = await makeTempDir();
     try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
+      await Bun.write(
+        join(dir, "ezcorp.config.ts"),
+        `export default {
         schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
         author: { name: "T" }, permissions: {},
         skills: [{ name: "s", description: "d", onInvoke: () => {} }],
-      };\n`);
+      };\n`,
+      );
       const m = await loadManifest(dir);
       const skill = at(m.skills, 0, "skill");
       expect((skill as any).onInvoke).toBeUndefined();
@@ -135,11 +152,14 @@ describe("stripFunctions via loadManifest", () => {
   test("strips functions from agent object", async () => {
     const dir = await makeTempDir();
     try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
+      await Bun.write(
+        join(dir, "ezcorp.config.ts"),
+        `export default {
         schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
         author: { name: "T" }, permissions: {},
         agent: { prompt: "hi", onMessage: () => {} },
-      };\n`);
+      };\n`,
+      );
       const m = await loadManifest(dir);
       expect((m.agent as any).onMessage).toBeUndefined();
       expect(m.agent!.prompt).toBe("hi");
@@ -151,11 +171,14 @@ describe("stripFunctions via loadManifest", () => {
   test("strips functions from mcpServers array items", async () => {
     const dir = await makeTempDir();
     try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
+      await Bun.write(
+        join(dir, "ezcorp.config.ts"),
+        `export default {
         schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
         author: { name: "T" }, permissions: {},
         mcpServers: [{ transport: "stdio", name: "m", description: "d", command: "node", args: ["./m.ts"], setup: () => {} }],
-      };\n`);
+      };\n`,
+      );
       const m = await loadManifest(dir);
       const server = at(m.mcpServers, 0, "mcp server");
       expect((server as any).setup).toBeUndefined();
@@ -168,7 +191,9 @@ describe("stripFunctions via loadManifest", () => {
   test("preserves non-function properties (strings, numbers, objects, arrays)", async () => {
     const dir = await makeTempDir();
     try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
+      await Bun.write(
+        join(dir, "ezcorp.config.ts"),
+        `export default {
         schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
         author: { name: "T" }, permissions: {},
         entrypoint: "./index.ts",
@@ -177,7 +202,8 @@ describe("stripFunctions via loadManifest", () => {
           inputSchema: { type: "object", properties: { x: { type: "number" } } },
           extra: 42, tags: ["a", "b"],
         }],
-      };\n`);
+      };\n`,
+      );
       const m = await loadManifest(dir);
       const tool = m.tools![0] as any;
       expect(tool.extra).toBe(42);
@@ -191,11 +217,14 @@ describe("stripFunctions via loadManifest", () => {
   test("handles empty tools/skills arrays", async () => {
     const dir = await makeTempDir();
     try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
+      await Bun.write(
+        join(dir, "ezcorp.config.ts"),
+        `export default {
         schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
         author: { name: "T" }, permissions: {},
         tools: [], skills: [],
-      };\n`);
+      };\n`,
+      );
       const m = await loadManifest(dir);
       expect(m.tools).toEqual([]);
       expect(m.skills).toEqual([]);
@@ -207,10 +236,13 @@ describe("stripFunctions via loadManifest", () => {
   test("handles missing tools/skills/agent keys", async () => {
     const dir = await makeTempDir();
     try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
+      await Bun.write(
+        join(dir, "ezcorp.config.ts"),
+        `export default {
         schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
         author: { name: "T" }, permissions: {},
-      };\n`);
+      };\n`,
+      );
       const m = await loadManifest(dir);
       // Phase 1's migrateManifestV2ToV3 normalizes missing `tools` to
       // an empty array in the v3 shape. `skills` and `agent` aren't
@@ -226,7 +258,9 @@ describe("stripFunctions via loadManifest", () => {
   test("handles multiple function properties on same tool", async () => {
     const dir = await makeTempDir();
     try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
+      await Bun.write(
+        join(dir, "ezcorp.config.ts"),
+        `export default {
         schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
         author: { name: "T" }, permissions: {},
         tools: [{
@@ -235,7 +269,8 @@ describe("stripFunctions via loadManifest", () => {
           handler: () => {}, validate: () => {}, transform: () => {},
         }],
         entrypoint: "./index.ts",
-      };\n`);
+      };\n`,
+      );
       const m = await loadManifest(dir);
       const tool = m.tools![0] as any;
       expect(tool.handler).toBeUndefined();
@@ -252,11 +287,14 @@ describe("stripFunctions via loadManifest", () => {
     try {
       // Top-level functions should pass through stripFunctions unchanged.
       // We write a config with a top-level function and verify it survives.
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
+      await Bun.write(
+        join(dir, "ezcorp.config.ts"),
+        `export default {
         schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
         author: { name: "T" }, permissions: {},
         onInstall: () => "installed",
-      };\n`);
+      };\n`,
+      );
       const m = await loadManifest(dir);
       expect(typeof (m as any).onInstall).toBe("function");
     } finally {
@@ -312,11 +350,14 @@ describe("loadManifest error paths", () => {
   test("passes through extra unknown properties", async () => {
     const dir = await makeTempDir();
     try {
-      await Bun.write(join(dir, "ezcorp.config.ts"), `export default {
+      await Bun.write(
+        join(dir, "ezcorp.config.ts"),
+        `export default {
         schemaVersion: 2, name: "t", version: "1.0.0", description: "T",
         author: { name: "T" }, permissions: {},
         customField: "hello", anotherExtra: 123,
-      };\n`);
+      };\n`,
+      );
       const m = await loadManifest(dir);
       expect((m as any).customField).toBe("hello");
       expect((m as any).anotherExtra).toBe(123);
@@ -332,8 +373,7 @@ describe("loadManifestFresh", () => {
   test("returns valid manifest (basic)", async () => {
     const dir = await makeTempDir();
     try {
-      await Bun.write(join(dir, "ezcorp.config.ts"),
-        `export default ${JSON.stringify(BASE)};\n`);
+      await Bun.write(join(dir, "ezcorp.config.ts"), `export default ${JSON.stringify(BASE)};\n`);
       const m = await loadManifestFresh(dir);
       expect(m.name).toBe("test-ext");
       // Phase 1: loadManifestFresh auto-promotes v2 → v3.
@@ -347,16 +387,20 @@ describe("loadManifestFresh", () => {
   test("returns updated content after file rewrite (cache-busting)", async () => {
     const dir = await makeTempDir();
     try {
-      await Bun.write(join(dir, "ezcorp.config.ts"),
-        `export default ${JSON.stringify({ ...BASE, name: "original" })};\n`);
+      await Bun.write(
+        join(dir, "ezcorp.config.ts"),
+        `export default ${JSON.stringify({ ...BASE, name: "original" })};\n`,
+      );
       const m1 = await loadManifestFresh(dir);
       expect(m1.name).toBe("original");
 
       // Small delay to ensure Date.now() produces a different cache-bust param
       await Bun.sleep(5);
 
-      await Bun.write(join(dir, "ezcorp.config.ts"),
-        `export default ${JSON.stringify({ ...BASE, name: "updated" })};\n`);
+      await Bun.write(
+        join(dir, "ezcorp.config.ts"),
+        `export default ${JSON.stringify({ ...BASE, name: "updated" })};\n`,
+      );
       const m2 = await loadManifestFresh(dir);
       expect(m2.name).toBe("updated");
     } finally {

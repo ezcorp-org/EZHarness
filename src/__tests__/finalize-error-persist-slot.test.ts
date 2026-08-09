@@ -86,10 +86,7 @@ mock.module("../db/queries/runs", () => ({
 }));
 
 import { ProviderUnavailableError } from "../providers/router";
-import {
-  finalizeError,
-  finalizeSetupError,
-} from "../runtime/stream-chat/finalize";
+import { finalizeError, finalizeSetupError } from "../runtime/stream-chat/finalize";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
 import type { StreamChatHost } from "../runtime/stream-chat/host";
@@ -155,12 +152,7 @@ beforeEach(() => {
 });
 
 const provErr = () =>
-  new ProviderUnavailableError(
-    "all providers down",
-    "anthropic",
-    "claude-x",
-    null,
-  );
+  new ProviderUnavailableError("all providers down", "anthropic", "claude-x", null);
 
 // ── finalizeError(ProviderUnavailableError) ────────────────────────────
 
@@ -205,9 +197,7 @@ describe("finalizeError ProviderUnavailableError persist-slot idempotency", () =
 
     expect(run.status).toBe("error");
     // No duplicate bubble — the slot was taken.
-    expect(createdMessages.filter((m) => m.role === "assistant")).toHaveLength(
-      0,
-    );
+    expect(createdMessages.filter((m) => m.role === "assistant")).toHaveLength(0);
     // Rendering path unchanged: run:error still fires.
     expect(h.runErrors).toHaveLength(1);
     expect(h.runErrors[0]).toContain("provider_unavailable");
@@ -278,9 +268,7 @@ describe("finalizeSetupError persist-slot idempotency", () => {
     );
 
     expect(run.status).toBe("error");
-    expect(createdMessages.filter((m) => m.role === "assistant")).toHaveLength(
-      0,
-    );
+    expect(createdMessages.filter((m) => m.role === "assistant")).toHaveLength(0);
     expect(h.runErrors).toHaveLength(1);
     // The abort/cleanup tail is independent of the persist guard.
     expect(ctrl.signal.aborted).toBe(true);

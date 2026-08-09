@@ -37,7 +37,12 @@
 
 import { test, expect, describe, beforeEach, beforeAll, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 
 mockDbConnection();
 mockRealSettings();
@@ -46,10 +51,7 @@ import { EventBus } from "../runtime/events";
 import { ObservabilityCollector } from "../observability/collector";
 import { createProject } from "../db/queries/projects";
 import { createConversation } from "../db/queries/conversations";
-import {
-  getConversationObservability,
-  getConversationStats,
-} from "../db/queries/observability";
+import { getConversationObservability, getConversationStats } from "../db/queries/observability";
 import type { AgentEvents } from "../types";
 
 let projectId: string;
@@ -203,9 +205,7 @@ describe("Seam 8: tool events roundtrip through collector → observability DB",
     const rows = await waitForEventCount(conversationId, 3);
     expect(rows).toHaveLength(3);
 
-    const byTool = new Map(
-      rows.map((r) => [(r.data as any).toolName, r]),
-    );
+    const byTool = new Map(rows.map((r) => [(r.data as any).toolName, r]));
     expect(byTool.get("read_file")?.durationMs).toBe(11);
     expect(byTool.get("grep")?.durationMs).toBe(22);
     expect(byTool.get("shell")?.durationMs).toBe(33);

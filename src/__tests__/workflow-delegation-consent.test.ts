@@ -146,7 +146,12 @@ describe("authorizeDelegationConsent — the owner-kind × visibility matrix", (
   });
 
   test("private: a service delegation is refused", () => {
-    const result = authorizeDelegationConsent([entry("secret", "private")], "secret", "service", "s1");
+    const result = authorizeDelegationConsent(
+      [entry("secret", "private")],
+      "secret",
+      "service",
+      "s1",
+    );
     expect(result).toMatchObject({ ok: false, code: DELEGATION_CONSENT_DENIALS.OWNER_CANNOT_RUN });
   });
 

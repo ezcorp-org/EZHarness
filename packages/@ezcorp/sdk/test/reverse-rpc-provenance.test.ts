@@ -18,10 +18,7 @@
  *   - a `request()` outside any inbound scope carries no `ezCallId`.
  */
 import { afterEach, describe, expect, test } from "bun:test";
-import {
-  __resetChannelForTests,
-  createHostChannelForTests,
-} from "../src/runtime/channel";
+import { __resetChannelForTests, createHostChannelForTests } from "../src/runtime/channel";
 
 interface ControlledStdin {
   iterable: AsyncIterable<string>;
@@ -35,12 +32,19 @@ function createStdin(): ControlledStdin {
   let closed = false;
   return {
     push(line) {
-      if (pending) { const r = pending; pending = null; r({ value: line, done: false }); }
-      else queue.push(line);
+      if (pending) {
+        const r = pending;
+        pending = null;
+        r({ value: line, done: false });
+      } else queue.push(line);
     },
     close() {
       closed = true;
-      if (pending) { const r = pending; pending = null; r({ value: "", done: true }); }
+      if (pending) {
+        const r = pending;
+        pending = null;
+        r({ value: "", done: true });
+      }
     },
     iterable: {
       [Symbol.asyncIterator]() {
@@ -49,7 +53,9 @@ function createStdin(): ControlledStdin {
             const b = queue.shift();
             if (b !== undefined) return Promise.resolve({ value: b, done: false });
             if (closed) return Promise.resolve({ value: "", done: true });
-            return new Promise((res) => { pending = res; });
+            return new Promise((res) => {
+              pending = res;
+            });
           },
         };
       },
@@ -59,7 +65,14 @@ function createStdin(): ControlledStdin {
 
 function createStdout() {
   const writes: string[] = [];
-  return { writes, stdout: { write: (s: string) => { writes.push(s); } } };
+  return {
+    writes,
+    stdout: {
+      write: (s: string) => {
+        writes.push(s);
+      },
+    },
+  };
 }
 
 async function waitFor(cond: () => boolean, timeoutMs = 500) {
@@ -75,7 +88,9 @@ function findFrame(writes: string[], method: string): Record<string, unknown> | 
     try {
       const m = JSON.parse(w) as Record<string, unknown>;
       if (m.method === method) return m;
-    } catch { /* skip non-JSON */ }
+    } catch {
+      /* skip non-JSON */
+    }
   }
   return undefined;
 }
@@ -87,7 +102,9 @@ function findFrames(writes: string[], method: string): Record<string, unknown>[]
     try {
       const m = JSON.parse(w) as Record<string, unknown>;
       if (m.method === method) out.push(m);
-    } catch { /* skip non-JSON */ }
+    } catch {
+      /* skip non-JSON */
+    }
   }
   return out;
 }
@@ -117,12 +134,14 @@ describe("reverse-RPC ezCallId echo", () => {
       return { content: [{ type: "text", text: "ok" }], isError: false };
     });
 
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: { name: "probe", arguments: {}, _meta: { ezCallId: "TOKEN-XYZ" } },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "probe", arguments: {}, _meta: { ezCallId: "TOKEN-XYZ" } },
+      }),
+    );
 
     await waitFor(() => findFrame(writes, "ezcorp/llm-complete") !== undefined);
     const rev = findFrame(writes, "ezcorp/llm-complete")!;
@@ -145,11 +164,13 @@ describe("reverse-RPC ezCallId echo", () => {
 
     // Notification: no id. The host attaches the host-issued token on
     // `_meta` exactly like the schedule-daemon does.
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      method: "ezcorp/schedule-fire",
-      params: { cron: "0 */6 * * *", fireId: "f1", _meta: { ezCallId: "SCHED-TOK" } },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "ezcorp/schedule-fire",
+        params: { cron: "0 */6 * * *", fireId: "f1", _meta: { ezCallId: "SCHED-TOK" } },
+      }),
+    );
 
     await waitFor(() => findFrame(writes, "ezcorp/memory") !== undefined);
     const rev = findFrame(writes, "ezcorp/memory")!;
@@ -168,12 +189,14 @@ describe("reverse-RPC ezCallId echo", () => {
       return { content: [], isError: false };
     });
 
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 7,
-      method: "tools/call",
-      params: { name: "p", arguments: {}, _meta: { ezCallId: "MERGE-TOK" } },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 7,
+        method: "tools/call",
+        params: { name: "p", arguments: {}, _meta: { ezCallId: "MERGE-TOK" } },
+      }),
+    );
 
     await waitFor(() => findFrame(writes, "ezcorp/storage") !== undefined);
     const rev = findFrame(writes, "ezcorp/storage")!;
@@ -216,7 +239,9 @@ describe("reverse-RPC ezCallId echo", () => {
     // frame's token would clobber the first and BOTH reverse-RPCs would
     // echo the same id.
     let release2: (() => void) | null = null;
-    const gate2 = new Promise<void>((r) => { release2 = r; });
+    const gate2 = new Promise<void>((r) => {
+      release2 = r;
+    });
 
     ch.onRequest("tools/call", async (params) => {
       const tag = (params as { arguments?: { tag?: string } }).arguments?.tag;
@@ -232,18 +257,22 @@ describe("reverse-RPC ezCallId echo", () => {
       return { content: [], isError: false };
     });
 
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: { name: "p", arguments: { tag: "first" }, _meta: { ezCallId: "TOK-1" } },
-    }));
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: { name: "p", arguments: { tag: "second" }, _meta: { ezCallId: "TOK-2" } },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "p", arguments: { tag: "first" }, _meta: { ezCallId: "TOK-1" } },
+      }),
+    );
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "p", arguments: { tag: "second" }, _meta: { ezCallId: "TOK-2" } },
+      }),
+    );
 
     await waitFor(() => findFrames(writes, "ezcorp/memory").length >= 2);
     const frames = findFrames(writes, "ezcorp/memory");
@@ -276,12 +305,14 @@ describe("reverse-RPC ezCallId echo", () => {
     });
 
     // No _meta at all on the inbound frame (older host / edge path).
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 9,
-      method: "tools/call",
-      params: { name: "p", arguments: {} },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 9,
+        method: "tools/call",
+        params: { name: "p", arguments: {} },
+      }),
+    );
 
     await waitFor(() => findFrame(writes, "ezcorp/storage") !== undefined);
     const rev = findFrame(writes, "ezcorp/storage")!;
@@ -311,12 +342,14 @@ describe("reverse-RPC ezCallId echo", () => {
       return { ok: true };
     });
 
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 11,
-      method: "lifecycle/activate",
-      params: { _meta: { ezCallId: "LIFECYCLE-TOK" } },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 11,
+        method: "lifecycle/activate",
+        params: { _meta: { ezCallId: "LIFECYCLE-TOK" } },
+      }),
+    );
 
     await waitFor(() => findFrame(writes, "ezcorp/memory") !== undefined);
     const rev = findFrame(writes, "ezcorp/memory")!;
@@ -336,11 +369,13 @@ describe("reverse-RPC ezCallId echo", () => {
     });
 
     // Notification (no id) — exercises the !hasId branch of the wrap.
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      method: "ezcorp/event/run-complete",
-      params: { runId: "r1", _meta: { ezCallId: "EVENT-TOK" } },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "ezcorp/event/run-complete",
+        params: { runId: "r1", _meta: { ezCallId: "EVENT-TOK" } },
+      }),
+    );
 
     await waitFor(() => findFrame(writes, "ezcorp/lessons") !== undefined);
     const rev = findFrame(writes, "ezcorp/lessons")!;

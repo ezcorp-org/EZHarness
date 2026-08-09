@@ -17,7 +17,11 @@ import {
 import type { WorkflowDefinition, WorkflowStep } from "../types";
 
 /** A definition whose steps nest `children`, in order. */
-function def(name: string, children: string[] = [], extra: WorkflowStep[] = []): WorkflowDefinition {
+function def(
+  name: string,
+  children: string[] = [],
+  extra: WorkflowStep[] = [],
+): WorkflowDefinition {
   return {
     name,
     description: name,
@@ -35,8 +39,7 @@ function def(name: string, children: string[] = [], extra: WorkflowStep[] = []):
 /** Resolve against a literal list — the shape the validator's injected
  *  resolver and C3's cache reader both reduce to. */
 function resolverOver(defs: WorkflowDefinition[]) {
-  return (name: string): WorkflowDefinition | undefined =>
-    defs.find((d) => d.name === name);
+  return (name: string): WorkflowDefinition | undefined => defs.find((d) => d.name === name);
 }
 
 describe("nestedWorkflowNames", () => {

@@ -156,9 +156,7 @@ export async function handleFsReadRpc(
     return rpcError(req.id, -32602, "Missing path");
   }
   const encoding =
-    params.encoding === "binary" || params.encoding === "utf-8"
-      ? params.encoding
-      : "utf-8";
+    params.encoding === "binary" || params.encoding === "utf-8" ? params.encoding : "utf-8";
   const toolName = typeof params._toolName === "string" ? params._toolName : undefined;
   const modeCheck = checkToolMode(ctx.registry, ctx.extensionId, toolName, "read");
   if (!modeCheck.ok) {
@@ -223,9 +221,7 @@ export async function handleFsWriteRpc(
     return rpcError(req.id, -32602, "Missing content (string)");
   }
   const encoding =
-    params.encoding === "binary" || params.encoding === "utf-8"
-      ? params.encoding
-      : "utf-8";
+    params.encoding === "binary" || params.encoding === "utf-8" ? params.encoding : "utf-8";
   const toolName = typeof params._toolName === "string" ? params._toolName : undefined;
   const modeCheck = checkToolMode(ctx.registry, ctx.extensionId, toolName, "write");
   if (!modeCheck.ok) {
@@ -241,7 +237,11 @@ export async function handleFsWriteRpc(
       bytes = new TextEncoder().encode(params.content);
     }
   } catch (e) {
-    return rpcError(req.id, -32602, `Failed to decode content: ${e instanceof Error ? e.message : String(e)}`);
+    return rpcError(
+      req.id,
+      -32602,
+      `Failed to decode content: ${e instanceof Error ? e.message : String(e)}`,
+    );
   }
   if (bytes.byteLength > MAX_BYTES_PER_OP) {
     return rpcError(
@@ -453,7 +453,12 @@ export async function handleFsUnlinkRpc(
   if (!granted || !installPath) {
     return jsonError(req.id, -32603, "Extension not found in registry");
   }
-  const check = await checkPrefixForWrite(linkTarget, granted.filesystem ?? [], installPath, ctx.userId);
+  const check = await checkPrefixForWrite(
+    linkTarget,
+    granted.filesystem ?? [],
+    installPath,
+    ctx.userId,
+  );
   if (!check.allowed) {
     const refusal = await refuseFs(ctx, check.denial, "unlink", requestedPath, linkTarget);
     return jsonError(req.id, refusal.error.code, refusal.error.message);
@@ -577,9 +582,7 @@ async function auditReservedDenial(
       capabilityKind: opLabel,
       capabilityValue: resolvedPath,
       conversationId:
-        ctx.conversationId && ctx.conversationId !== "unknown"
-          ? ctx.conversationId
-          : null,
+        ctx.conversationId && ctx.conversationId !== "unknown" ? ctx.conversationId : null,
     },
   ).catch(() => {
     /* audit best-effort — never block or weaken the deny */
@@ -595,10 +598,7 @@ async function gatePath(
   requestedPath: string,
   mode: FilesystemMode,
   capKind: "fs.read" | "fs.list" | "fs.stat",
-): Promise<
-  | { resolvedPath: string }
-  | { error: { code: number; message: string } }
-> {
+): Promise<{ resolvedPath: string } | { error: { code: number; message: string } }> {
   const granted = ctx.registry.getGrantedPermissions(ctx.extensionId);
   const installPath = ctx.registry.getInstallPath(ctx.extensionId);
   if (!granted || !installPath) {
@@ -657,10 +657,7 @@ async function gatePath(
 async function gateWritePath(
   ctx: FsHandlerContext,
   requestedPath: string,
-): Promise<
-  | { resolvedPath: string }
-  | { error: { code: number; message: string } }
-> {
+): Promise<{ resolvedPath: string } | { error: { code: number; message: string } }> {
   const granted = ctx.registry.getGrantedPermissions(ctx.extensionId);
   const installPath = ctx.registry.getInstallPath(ctx.extensionId);
   if (!granted || !installPath) {
@@ -729,8 +726,7 @@ async function gateExistsPath(
   ctx: FsHandlerContext,
   requestedPath: string,
 ): Promise<
-  | { targetPath: string; resolvedParent: string }
-  | { error: { code: number; message: string } }
+  { targetPath: string; resolvedParent: string } | { error: { code: number; message: string } }
 > {
   // Same path resolution shape as gateWritePath, but the cap is
   // fs.read (existence is information disclosure, classed as read).
@@ -882,10 +878,7 @@ export async function checkPrefixForWrite(
   } catch {
     resolvedInstall = installDir;
   }
-  if (
-    targetPath === resolvedInstall ||
-    targetPath.startsWith(resolvedInstall + "/")
-  ) {
+  if (targetPath === resolvedInstall || targetPath.startsWith(resolvedInstall + "/")) {
     return { allowed: true };
   }
   for (const rawPrefix of prefixes) {
@@ -898,10 +891,7 @@ export async function checkPrefixForWrite(
       expandGrantPrefix(rawPrefix, actingUserId),
     );
     if (resolvedPrefix === null) continue;
-    if (
-      targetPath === resolvedPrefix ||
-      targetPath.startsWith(resolvedPrefix + "/")
-    ) {
+    if (targetPath === resolvedPrefix || targetPath.startsWith(resolvedPrefix + "/")) {
       return { allowed: true };
     }
   }
@@ -922,10 +912,7 @@ export async function checkPrefixForWrite(
  * post-base64 length (CHUNK_MAX_BYTES * 4/3 + 4) which matches our
  * CHUNK_SIZE upper bound.
  */
-function buildStreamingFrames(
-  id: number | string,
-  wireStr: string,
-): string[] {
+function buildStreamingFrames(id: number | string, wireStr: string): string[] {
   const total = Math.ceil(wireStr.length / CHUNK_SIZE);
   const frames: string[] = [`\x02${id}:${total}\n`];
   for (let i = 0; i < total; i++) {
@@ -938,11 +925,7 @@ function buildStreamingFrames(
 
 // ── Helpers ────────────────────────────────────────────────────────
 
-function rpcError(
-  id: JsonRpcRequest["id"],
-  code: number,
-  message: string,
-): JsonRpcResponse {
+function rpcError(id: JsonRpcRequest["id"], code: number, message: string): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 
@@ -950,11 +933,7 @@ function rpcResult(id: JsonRpcRequest["id"], result: unknown): JsonRpcResponse {
   return { jsonrpc: "2.0", id, result };
 }
 
-function jsonError(
-  id: JsonRpcRequest["id"],
-  code: number,
-  message: string,
-): JsonRpcResponse {
+function jsonError(id: JsonRpcRequest["id"], code: number, message: string): JsonRpcResponse {
   return rpcError(id, code, message);
 }
 

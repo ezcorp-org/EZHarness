@@ -63,14 +63,11 @@ describe("seccomp profile shape", () => {
     expect(profile.syscalls.length).toBeGreaterThanOrEqual(250);
   });
 
-  test.skipIf(!BPF_PRESENT)(
-    "mcp-seccomp.bpf exists and is non-empty",
-    async () => {
-      const file = Bun.file(BPF_PATH);
-      const size = file.size;
-      expect(size).toBeGreaterThan(0);
-    },
-  );
+  test.skipIf(!BPF_PRESENT)("mcp-seccomp.bpf exists and is non-empty", async () => {
+    const file = Bun.file(BPF_PATH);
+    const size = file.size;
+    expect(size).toBeGreaterThan(0);
+  });
 
   test.skipIf(!BPF_PRESENT)(
     "openSeccompBpfFd returns a usable FD when the .bpf is present (Linux)",
@@ -83,7 +80,7 @@ describe("seccomp profile shape", () => {
         return;
       }
       expect(typeof fd).toBe("number");
-      expect(fd).toBeGreaterThan(2);  // not stdin/stdout/stderr
+      expect(fd).toBeGreaterThan(2); // not stdin/stdout/stderr
       // Best-effort close so we don't leak the FD into other tests.
       try {
         const { closeSync } = require("node:fs");
@@ -140,8 +137,6 @@ describe("Dockerfile shape", () => {
     expect(/gcc[^\n]*compile-seccomp\.c[^\n]*-lseccomp/.test(content)).toBe(true);
     // Build-stage invocation references both the JSON profile and the BPF
     // output, proving the JSON→BPF transformation is wired up.
-    expect(
-      /compile-seccomp[^\n]*mcp-seccomp\.json[^\n]*mcp-seccomp\.bpf/.test(content),
-    ).toBe(true);
+    expect(/compile-seccomp[^\n]*mcp-seccomp\.json[^\n]*mcp-seccomp\.bpf/.test(content)).toBe(true);
   });
 });

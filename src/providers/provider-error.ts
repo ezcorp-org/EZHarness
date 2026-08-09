@@ -83,10 +83,7 @@ export function isProviderConnectionError(err: unknown): boolean {
  * The returned string is the message BODY only — callers add any `Error: `
  * prefix themselves (matching the existing `finalize*` convention).
  */
-export function friendlyProviderError(
-  err: unknown,
-  target: ProviderTarget = {},
-): string | null {
+export function friendlyProviderError(err: unknown, target: ProviderTarget = {}): string | null {
   if (!isProviderConnectionError(err)) return null;
 
   const provider = target.provider?.trim();

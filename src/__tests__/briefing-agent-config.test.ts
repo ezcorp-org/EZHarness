@@ -73,10 +73,7 @@ describe("ensureBriefingAgentConfig", () => {
   });
 
   test("concurrent ensure calls yield one row", async () => {
-    const [a, b] = await Promise.all([
-      ensureBriefingAgentConfig(),
-      ensureBriefingAgentConfig(),
-    ]);
+    const [a, b] = await Promise.all([ensureBriefingAgentConfig(), ensureBriefingAgentConfig()]);
     expect(a.id).toBe(b.id);
     const all = await getTestDb().select().from(agentConfigs);
     expect(all).toHaveLength(1);
@@ -136,7 +133,9 @@ describe("ensureBriefingAgentConfig — lost insert race", () => {
           description: "race winner",
           prompt: "w",
         });
-        throw new Error('duplicate key value violates unique constraint "agent_configs_name_unique"');
+        throw new Error(
+          'duplicate key value violates unique constraint "agent_configs_name_unique"',
+        );
       },
     }));
     try {

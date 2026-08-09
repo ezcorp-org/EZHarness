@@ -28,7 +28,11 @@ import { mkdirSync, writeFileSync, rmSync, symlinkSync } from "node:fs";
 import { join, resolve as pathResolve } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import type { ExtensionPermissions, ExtensionManifestV2, JsonRpcRequest } from "../extensions/types";
+import type {
+  ExtensionPermissions,
+  ExtensionManifestV2,
+  JsonRpcRequest,
+} from "../extensions/types";
 
 // ── DB mocks (must be set before importing modules that touch DB) ───
 
@@ -100,10 +104,11 @@ async function runUnderPreload(
   if (opts.shellAllowed) env.EZCORP_SHELL_ALLOWED = "1";
   if (opts.permittedHosts) env.EZCORP_PERMITTED_HOSTS = opts.permittedHosts;
 
-  const proc = Bun.spawn(
-    ["bun", "--preload", SANDBOX_PRELOAD_PATH, "-e", code],
-    { stdout: "pipe", stderr: "pipe", env },
-  );
+  const proc = Bun.spawn(["bun", "--preload", SANDBOX_PRELOAD_PATH, "-e", code], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env,
+  });
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -241,7 +246,10 @@ describe("empty or scoped grantedPermissions — handlePiFs blocks filesystem es
 
     test("read of /etc/passwd is still denied", async () => {
       setup({ grantedAt: {}, filesystem: [sandboxDir] });
-      const executor = new ToolExecutor(ExtensionRegistry.getInstance(), createStubPermissionEngine());
+      const executor = new ToolExecutor(
+        ExtensionRegistry.getInstance(),
+        createStubPermissionEngine(),
+      );
 
       const resp = await executor.handlePiFs("ext-fs", fsReq("/etc/passwd"));
       expect(resp.error?.code).toBe(-32001);
@@ -253,7 +261,10 @@ describe("empty or scoped grantedPermissions — handlePiFs blocks filesystem es
       // resolved prefix and is rejected. This is the key anti-traversal
       // guarantee: string-prefix checks alone are not enough.
       setup({ grantedAt: {}, filesystem: [sandboxDir] });
-      const executor = new ToolExecutor(ExtensionRegistry.getInstance(), createStubPermissionEngine());
+      const executor = new ToolExecutor(
+        ExtensionRegistry.getInstance(),
+        createStubPermissionEngine(),
+      );
 
       const traversal = join(sandboxDir, "..", "escape", "secret.txt");
       const resp = await executor.handlePiFs("ext-fs", fsReq(traversal));
@@ -266,7 +277,10 @@ describe("empty or scoped grantedPermissions — handlePiFs blocks filesystem es
       // A symlink pointing outside the sandbox should NOT grant access,
       // because checkFilesystemPermission resolves realpath before compare.
       setup({ grantedAt: {}, filesystem: [sandboxDir] });
-      const executor = new ToolExecutor(ExtensionRegistry.getInstance(), createStubPermissionEngine());
+      const executor = new ToolExecutor(
+        ExtensionRegistry.getInstance(),
+        createStubPermissionEngine(),
+      );
 
       const linkPath = join(sandboxDir, "escape-link");
       symlinkSync(outsideDir, linkPath);
@@ -368,9 +382,13 @@ describe("empty grantedPermissions — process.env secrets are not leaked to the
     // it, Bun.env and process.env only see what the spawner put there.
     // Spawn a fresh subprocess WITHOUT SECRET in env and verify:
     const out = await runUnderPreload(
-      probeSync(`if (process.env.SECRET !== undefined || Bun.env.SECRET !== undefined) ` +
-        `throw new Error("SECRET leaked"); console.log("OK")`),
-      { /* no injectedEnv -- SECRET is absent */ },
+      probeSync(
+        `if (process.env.SECRET !== undefined || Bun.env.SECRET !== undefined) ` +
+          `throw new Error("SECRET leaked"); console.log("OK")`,
+      ),
+      {
+        /* no injectedEnv -- SECRET is absent */
+      },
     );
     expect(out.stdout).toMatch(/^OK$/m);
   });
@@ -428,13 +446,11 @@ describe("scoped grantedPermissions: network — Phase 2 shim semantics", () => 
 
   test("fetchPermitted surfaces fetch's throw verbatim (e.g. wrapper-deny in sandboxed proc)", async () => {
     // Simulate the wrapped fetch rejecting an off-allowlist host:
-    fetchSpy.mockImplementation(
-      (async () => {
-        throw new Error(
-          "Extension sandbox: hostname 'evil.com' is not in the granted network allowlist (granted: api.example.com)",
-        );
-      }) as unknown as typeof fetch,
-    );
+    fetchSpy.mockImplementation((async () => {
+      throw new Error(
+        "Extension sandbox: hostname 'evil.com' is not in the granted network allowlist (granted: api.example.com)",
+      );
+    }) as unknown as typeof fetch);
     await expect(fetchPermitted("https://evil.com/")).rejects.toThrow(
       /hostname 'evil\.com' is not in the granted network allowlist/,
     );

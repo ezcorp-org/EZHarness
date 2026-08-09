@@ -8,11 +8,7 @@
 // Keep these helpers thin and side-effect free — every caller still
 // owns its own auth, snapshot read/write, and bus emission.
 
-import type {
-  TaskAssignment,
-  TaskSnapshot,
-  TrackedTask,
-} from "$server/runtime/task-tracking-host";
+import type { TaskAssignment, TaskSnapshot, TrackedTask } from "$server/runtime/task-tracking-host";
 import {
   ensureTaskTrackingWired,
   getTaskSnapshotForConversation,

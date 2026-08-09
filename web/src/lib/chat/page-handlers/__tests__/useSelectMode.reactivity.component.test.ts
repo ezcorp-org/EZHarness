@@ -27,75 +27,72 @@ import type { Message } from "$lib/api.js";
 // time so they need stubs.
 vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
 vi.mock("$lib/utils/fetch-policy.js", () => ({
-	userFetch: vi.fn(),
-	backgroundFetch: vi.fn(),
-	invalidate: vi.fn(),
+  userFetch: vi.fn(),
+  backgroundFetch: vi.fn(),
+  invalidate: vi.fn(),
 }));
 
 import Harness from "./UseSelectModeHarness.svelte";
 
 function makeMessage(id: string): Message {
-	return {
-		id,
-		conversationId: "conv-1",
-		role: "user",
-		content: `content-${id}`,
-		createdAt: "2024-01-01T00:00:00.000Z",
-		excluded: false,
-	} as Message;
+  return {
+    id,
+    conversationId: "conv-1",
+    role: "user",
+    content: `content-${id}`,
+    createdAt: "2024-01-01T00:00:00.000Z",
+    excluded: false,
+  } as Message;
 }
 
 describe("useSelectMode rune-wrapper reactivity", () => {
-	test("clicking a row updates selectedCount and aria-checked", async () => {
-		const messages = ["a", "b", "c"].map(makeMessage);
-		const { getByTestId } = render(Harness, { messages });
+  test("clicking a row updates selectedCount and aria-checked", async () => {
+    const messages = ["a", "b", "c"].map(makeMessage);
+    const { getByTestId } = render(Harness, { messages });
 
-		// Pre-condition: harness auto-enters select-mode; nothing selected yet.
-		expect(getByTestId("selected-count")).toHaveTextContent("0");
-		expect(getByTestId("row-a")).toHaveAttribute("aria-checked", "false");
+    // Pre-condition: harness auto-enters select-mode; nothing selected yet.
+    expect(getByTestId("selected-count")).toHaveTextContent("0");
+    expect(getByTestId("row-a")).toHaveAttribute("aria-checked", "false");
 
-		await fireEvent.click(getByTestId("row-a"));
+    await fireEvent.click(getByTestId("row-a"));
 
-		// Post-condition: count bumped AND the clicked row's aria-checked
-		// flipped to "true". A non-reactive Set would keep both at the
-		// pre-click values.
-		expect(getByTestId("selected-count")).toHaveTextContent("1");
-		expect(getByTestId("row-a")).toHaveAttribute("aria-checked", "true");
-		expect(getByTestId("row-b")).toHaveAttribute("aria-checked", "false");
-	});
+    // Post-condition: count bumped AND the clicked row's aria-checked
+    // flipped to "true". A non-reactive Set would keep both at the
+    // pre-click values.
+    expect(getByTestId("selected-count")).toHaveTextContent("1");
+    expect(getByTestId("row-a")).toHaveAttribute("aria-checked", "true");
+    expect(getByTestId("row-b")).toHaveAttribute("aria-checked", "false");
+  });
 
-	test("clicking a second row adds it; clicking again removes it", async () => {
-		const messages = ["a", "b", "c"].map(makeMessage);
-		const { getByTestId } = render(Harness, { messages });
+  test("clicking a second row adds it; clicking again removes it", async () => {
+    const messages = ["a", "b", "c"].map(makeMessage);
+    const { getByTestId } = render(Harness, { messages });
 
-		await fireEvent.click(getByTestId("row-a"));
-		await fireEvent.click(getByTestId("row-c"));
-		expect(getByTestId("selected-count")).toHaveTextContent("2");
-		expect(getByTestId("row-a")).toHaveAttribute("aria-checked", "true");
-		expect(getByTestId("row-c")).toHaveAttribute("aria-checked", "true");
+    await fireEvent.click(getByTestId("row-a"));
+    await fireEvent.click(getByTestId("row-c"));
+    expect(getByTestId("selected-count")).toHaveTextContent("2");
+    expect(getByTestId("row-a")).toHaveAttribute("aria-checked", "true");
+    expect(getByTestId("row-c")).toHaveAttribute("aria-checked", "true");
 
-		// Toggle off — the same click that added it must remove it.
-		await fireEvent.click(getByTestId("row-a"));
-		expect(getByTestId("selected-count")).toHaveTextContent("1");
-		expect(getByTestId("row-a")).toHaveAttribute("aria-checked", "false");
-		expect(getByTestId("row-c")).toHaveAttribute("aria-checked", "true");
-	});
+    // Toggle off — the same click that added it must remove it.
+    await fireEvent.click(getByTestId("row-a"));
+    expect(getByTestId("selected-count")).toHaveTextContent("1");
+    expect(getByTestId("row-a")).toHaveAttribute("aria-checked", "false");
+    expect(getByTestId("row-c")).toHaveAttribute("aria-checked", "true");
+  });
 
-	test("shift+click range select reflects in aria-checked across the range", async () => {
-		const messages = ["a", "b", "c", "d"].map(makeMessage);
-		const { getByTestId } = render(Harness, { messages });
+  test("shift+click range select reflects in aria-checked across the range", async () => {
+    const messages = ["a", "b", "c", "d"].map(makeMessage);
+    const { getByTestId } = render(Harness, { messages });
 
-		await fireEvent.click(getByTestId("row-a"));
-		// Shift-click a row past the anchor — fills in the inclusive range.
-		await fireEvent.click(getByTestId("row-c"), { shiftKey: true });
+    await fireEvent.click(getByTestId("row-a"));
+    // Shift-click a row past the anchor — fills in the inclusive range.
+    await fireEvent.click(getByTestId("row-c"), { shiftKey: true });
 
-		expect(getByTestId("selected-count")).toHaveTextContent("3");
-		for (const id of ["a", "b", "c"]) {
-			expect(getByTestId(`row-${id}`)).toHaveAttribute(
-				"aria-checked",
-				"true",
-			);
-		}
-		expect(getByTestId("row-d")).toHaveAttribute("aria-checked", "false");
-	});
+    expect(getByTestId("selected-count")).toHaveTextContent("3");
+    for (const id of ["a", "b", "c"]) {
+      expect(getByTestId(`row-${id}`)).toHaveAttribute("aria-checked", "true");
+    }
+    expect(getByTestId("row-d")).toHaveAttribute("aria-checked", "false");
+  });
 });

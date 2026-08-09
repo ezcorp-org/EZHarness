@@ -283,9 +283,7 @@ export const RECONCILE_PAGE = 50;
  * failing the whole page: a rate-limited or refused read leaves the tab
  * showing what it had, not "This page failed to render".
  */
-export async function reconcileRuns(
-  jobs: readonly FactoryJob[],
-): Promise<JobRunRecord[]> {
+export async function reconcileRuns(jobs: readonly FactoryJob[]): Promise<JobRunRecord[]> {
   if (jobs.length === 0) return [];
   let hostRuns: HostWorkflowRun[];
   try {
@@ -501,7 +499,10 @@ export async function syncJobTrigger(
     try {
       await triggerClient().unregister(kind, key);
       await auditLog().append({
-        at: now, actor, kind: "trigger-unregistered", jobId: job.id,
+        at: now,
+        actor,
+        kind: "trigger-unregistered",
+        jobId: job.id,
         detail: { triggerKind: kind },
       });
     } catch (err) {
@@ -523,7 +524,10 @@ export async function syncJobTrigger(
     // silence.
     if (before !== null && isBackgroundTrigger(before)) {
       await auditLog().append({
-        at: now, actor, kind: "trigger-disarmed", jobId: job.id,
+        at: now,
+        actor,
+        kind: "trigger-disarmed",
+        jobId: job.id,
         detail: { triggerKind: job.trigger.kind, enabled: job.enabled },
       });
     }
@@ -555,7 +559,10 @@ async function registerJobTrigger(
         : { kind: "webhook", key: registration.key },
     );
     await auditLog().append({
-      at: now, actor, kind: "trigger-registered", jobId: job.id,
+      at: now,
+      actor,
+      kind: "trigger-registered",
+      jobId: job.id,
       // The KIND only. A cron expression is operator-typed text and the
       // host already records it on its own row; repeating it in a 30-day
       // bucket buys nothing and widens invariant I's surface.
@@ -564,7 +571,10 @@ async function registerJobTrigger(
   } catch (err) {
     const reason = fireRefusalReason(err);
     await auditLog().append({
-      at: now, actor, kind: "trigger-register-failed", jobId: job.id,
+      at: now,
+      actor,
+      kind: "trigger-register-failed",
+      jobId: job.id,
       detail: { triggerKind: registration.kind, reason },
     });
     // The job is saved and NOT armed. Record it where the console reads it,

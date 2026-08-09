@@ -8,7 +8,12 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgents } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { createProject } from "../db/queries/projects";
 import { insertObservabilityEvent } from "../db/queries/observability";
 import { createConversation, createMessage } from "../db/queries/conversations";

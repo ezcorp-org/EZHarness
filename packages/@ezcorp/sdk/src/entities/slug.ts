@@ -33,8 +33,6 @@ export function isValidSlug(slug: unknown): slug is string {
  */
 export function assertValidSlug(slug: unknown, label = "slug"): asserts slug is string {
   if (!isValidSlug(slug)) {
-    throw new Error(
-      `Invalid ${label} ${JSON.stringify(slug)} — must match ${SLUG_REGEX.source}`,
-    );
+    throw new Error(`Invalid ${label} ${JSON.stringify(slug)} — must match ${SLUG_REGEX.source}`);
   }
 }

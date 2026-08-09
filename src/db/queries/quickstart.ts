@@ -33,16 +33,8 @@ export async function getQuickstartSteps(userId: string): Promise<QuickstartStep
         sql`${conversations.userId} = ${userId} AND ${conversations.parentConversationId} IS NULL`,
       )
       .limit(1),
-    db
-      .select({ v: sql`1` })
-      .from(extensions)
-      .where(ne(extensions.name, "builtin-tools"))
-      .limit(1),
-    db
-      .select({ v: sql`1` })
-      .from(agentConfigs)
-      .where(eq(agentConfigs.userId, userId))
-      .limit(1),
+    db.select({ v: sql`1` }).from(extensions).where(ne(extensions.name, "builtin-tools")).limit(1),
+    db.select({ v: sql`1` }).from(agentConfigs).where(eq(agentConfigs.userId, userId)).limit(1),
   ]);
   return {
     provider: providerRow.length > 0,

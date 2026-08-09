@@ -29,10 +29,7 @@ import {
   publicLinkView,
 } from "../../_shared";
 import { createGithubClient } from "$server/integrations/github-projects/client";
-import {
-  resolveLinkAuth,
-  boardTokenName,
-} from "$server/integrations/github-projects/auth";
+import { resolveLinkAuth, boardTokenName } from "$server/integrations/github-projects/auth";
 import { updateLink } from "$server/db/queries/github-projects";
 import type { GithubBoardRef } from "$server/integrations/github-projects/types";
 import { hasSecret } from "$server/extensions/secrets-store";

@@ -80,7 +80,10 @@ function authRbacRoute(locals: RbacRouteLocals): { user: AuthUser } | { error: R
 
 /** Parse an optional grant coordinate: absent/null → null (covers-all);
  *  a supplied value must be a non-empty string. */
-function parseNullableId(value: unknown, field: string): { id: string | null } | { error: Response } {
+function parseNullableId(
+  value: unknown,
+  field: string,
+): { id: string | null } | { error: Response } {
   if (value === undefined || value === null) return { id: null };
   if (typeof value !== "string" || value.length === 0) {
     return { error: errorJson(400, `${field} must be a non-empty string or null`) };
@@ -165,7 +168,12 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   // row by overwriting it (canManageGrant refuses any target carrying it).
   const existing = await getGrant(userId, projectId, extensionId);
   const touchedScopes = existing ? Array.from(new Set([...scopes, ...existing.scopes])) : scopes;
-  const allowed = await canManageGrant(user, { userId, projectId, extensionId, scopes: touchedScopes });
+  const allowed = await canManageGrant(user, {
+    userId,
+    projectId,
+    extensionId,
+    scopes: touchedScopes,
+  });
   if (!allowed) return delegationDenied();
 
   // FK pre-flight (admin/manager-only reachable — delegation ran first):
@@ -179,7 +187,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     return errorJson(404, "Extension not found");
   }
 
-  const row = await upsertGrant({ userId, projectId, extensionId, scopes, grantedByUserId: user.id });
+  const row = await upsertGrant({
+    userId,
+    projectId,
+    extensionId,
+    scopes,
+    grantedByUserId: user.id,
+  });
 
   // Scope NAMES only — never secret material (RBAC_GRANTED contract).
   await insertAuditEntry(user.id, EXT_AUDIT_ACTIONS.RBAC_GRANTED, extensionId ?? undefined, {

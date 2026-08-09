@@ -32,12 +32,7 @@ import {
   mockDbConnection,
   mockRealSettings,
 } from "./helpers/test-pglite";
-import {
-  mockServerAlias,
-  createMockEvent,
-  MEMBER_USER,
-  ADMIN_USER,
-} from "./helpers/mock-request";
+import { mockServerAlias, createMockEvent, MEMBER_USER, ADMIN_USER } from "./helpers/mock-request";
 
 // ── Module-level mocks ───────────────────────────────────────────
 
@@ -102,10 +97,7 @@ function buildManifest(): ExtensionManifestV2 {
 let extensionId: string;
 let agentId: string;
 
-async function call(
-  handler: (ev: any) => unknown,
-  event: any,
-): Promise<Response> {
+async function call(handler: (ev: any) => unknown, event: any): Promise<Response> {
   try {
     return (await handler(event)) as Response;
   } catch (e) {
@@ -116,22 +108,24 @@ async function call(
 
 beforeAll(async () => {
   await setupTestDb();
-  await getTestDb().insert(users).values([
-    {
-      id: MEMBER_USER.id,
-      email: MEMBER_USER.email,
-      passwordHash: "h",
-      name: MEMBER_USER.name,
-      role: "member",
-    },
-    {
-      id: ADMIN_USER.id,
-      email: ADMIN_USER.email,
-      passwordHash: "h",
-      name: ADMIN_USER.name,
-      role: "admin",
-    },
-  ]);
+  await getTestDb()
+    .insert(users)
+    .values([
+      {
+        id: MEMBER_USER.id,
+        email: MEMBER_USER.email,
+        passwordHash: "h",
+        name: MEMBER_USER.name,
+        role: "member",
+      },
+      {
+        id: ADMIN_USER.id,
+        email: ADMIN_USER.email,
+        passwordHash: "h",
+        name: ADMIN_USER.name,
+        role: "admin",
+      },
+    ]);
 });
 
 afterAll(async () => {
@@ -228,12 +222,7 @@ describe("UI toggle-off gates the extension from assigned agents", () => {
     // (not a permission check, not a subprocess call). That proves
     // the gating happens at the registry, upstream of execution.
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
-    const result = await executor.executeToolCall(
-      NAMESPACED_TOOL,
-      {},
-      "conv-gated",
-      "msg-gated",
-    );
+    const result = await executor.executeToolCall(NAMESPACED_TOOL, {}, "conv-gated", "msg-gated");
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toContain("Unknown tool");
     expect(result.content[0]!.text).toContain(NAMESPACED_TOOL);
@@ -295,11 +284,13 @@ describe("UI toggle-off gates the extension from assigned agents", () => {
         manifest: {
           ...buildManifest(),
           name: siblingName,
-          tools: [{
-            name: siblingToolName,
-            description: "Sibling tool",
-            inputSchema: { type: "object", properties: {} },
-          }],
+          tools: [
+            {
+              name: siblingToolName,
+              description: "Sibling tool",
+              inputSchema: { type: "object", properties: {} },
+            },
+          ],
         } as any,
         source: "local:/tmp/other-ext",
         installPath: "/tmp/other-ext",
@@ -388,16 +379,11 @@ describe("POST /:id/activate refuses unresolvable npm dependencies", () => {
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error: string };
     expect(body.error).toMatch(/requires npm package\(s\) it cannot resolve/);
-    expect(body.error).toContain(
-      "nonexistent-pkg-xyz-does-not-exist@^1.0.0 (missing)",
-    );
+    expect(body.error).toContain("nonexistent-pkg-xyz-does-not-exist@^1.0.0 (missing)");
 
     // The refusal must NOT flip enabled — the row stays disabled so the
     // extension can't be invoked until its deps are actually installed.
-    const row = await db
-      .select()
-      .from(extensions)
-      .where(eq(extensions.id, npmExtId));
+    const row = await db.select().from(extensions).where(eq(extensions.id, npmExtId));
     expect(row[0]!.enabled).toBe(false);
   });
 });

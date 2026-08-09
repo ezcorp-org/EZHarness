@@ -27,7 +27,9 @@ async function migrate() {
   await initDb();
   const db = getDb();
 
-  console.log(DRY_RUN ? "DRY RUN - no changes will be made" : "Migrating pi-prefixed settings keys...");
+  console.log(
+    DRY_RUN ? "DRY RUN - no changes will be made" : "Migrating pi-prefixed settings keys...",
+  );
 
   let totalRenamed = 0;
 
@@ -44,9 +46,14 @@ async function migrate() {
         // Upsert: if new key exists, update its value; otherwise insert
         const existing = await db.select().from(settings).where(eq(settings.key, newKey));
         if (existing.length > 0) {
-          await db.update(settings).set({ value: row.value, updatedAt: new Date() }).where(eq(settings.key, newKey));
+          await db
+            .update(settings)
+            .set({ value: row.value, updatedAt: new Date() })
+            .where(eq(settings.key, newKey));
         } else {
-          await db.insert(settings).values({ key: newKey, value: row.value, updatedAt: new Date() });
+          await db
+            .insert(settings)
+            .values({ key: newKey, value: row.value, updatedAt: new Date() });
         }
         await db.delete(settings).where(eq(settings.key, row.key));
         console.log(`  Renamed: ${row.key} -> ${newKey}`);

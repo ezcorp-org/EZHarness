@@ -233,7 +233,12 @@ export function capabilityCovers(g: Capability, n: Capability): boolean {
 
   // Filesystem prefix-match: `/foo` covers `/foo` and `/foo/bar/baz` but
   // NOT `/foobar`. Mirrors `checkFilesystemPermission`'s prefix logic.
-  if (g.kind === "fs.read" || g.kind === "fs.write" || g.kind === "fs.list" || g.kind === "fs.stat") {
+  if (
+    g.kind === "fs.read" ||
+    g.kind === "fs.write" ||
+    g.kind === "fs.list" ||
+    g.kind === "fs.stat"
+  ) {
     return n.value === g.value || n.value.startsWith(g.value + "/");
   }
 
@@ -399,8 +404,7 @@ export function intersectPermissions(
   // `/foo/bar`).
   if (a.filesystem && b.filesystem) {
     const survivors = new Set<string>();
-    const covers = (g: string, n: string) =>
-      g === n || n.startsWith(g + "/");
+    const covers = (g: string, n: string) => g === n || n.startsWith(g + "/");
     for (const pa of a.filesystem) {
       for (const pb of b.filesystem) {
         if (covers(pa, pb)) survivors.add(pb);
@@ -464,9 +468,10 @@ export function intersectPermissions(
       concurrent = concurrentB;
     }
     if (hourly > 0) {
-      out.spawnAgents = concurrent !== undefined
-        ? { maxPerHour: hourly, maxConcurrent: concurrent }
-        : { maxPerHour: hourly };
+      out.spawnAgents =
+        concurrent !== undefined
+          ? { maxPerHour: hourly, maxConcurrent: concurrent }
+          : { maxPerHour: hourly };
     }
   }
 
@@ -480,8 +485,7 @@ export function intersectPermissions(
   if (a.appendMessages && b.appendMessages) {
     out.appendMessages = {
       excludedDefault:
-        a.appendMessages.excludedDefault === true ||
-        b.appendMessages.excludedDefault === true,
+        a.appendMessages.excludedDefault === true || b.appendMessages.excludedDefault === true,
     };
   }
 
@@ -644,7 +648,10 @@ export function intersectPermissions(
       maxRunsPerDay: Math.min(a.schedule.maxRunsPerDay, b.schedule.maxRunsPerDay),
       maxRunDurationMs: Math.min(a.schedule.maxRunDurationMs, b.schedule.maxRunDurationMs),
       // Tighter missed-run policy wins: skip < fire-once < fire-all.
-      missedRunPolicy: tighterMissedRunPolicy(a.schedule.missedRunPolicy, b.schedule.missedRunPolicy),
+      missedRunPolicy: tighterMissedRunPolicy(
+        a.schedule.missedRunPolicy,
+        b.schedule.missedRunPolicy,
+      ),
       maxRetries: Math.min(a.schedule.maxRetries, b.schedule.maxRetries),
     };
   }

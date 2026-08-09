@@ -31,7 +31,10 @@ beforeEach(async () => {
   const db = getTestDb();
   await db.delete(briefingConfigs);
   await db.delete(users);
-  const [u] = await db.insert(users).values({ email: "wl@t.local", passwordHash: "x", name: "W" }).returning();
+  const [u] = await db
+    .insert(users)
+    .values({ email: "wl@t.local", passwordHash: "x", name: "W" })
+    .returning();
   userId = u!.id;
 });
 
@@ -138,7 +141,10 @@ describe("removeWatchlistTopic", () => {
 describe("user scoping", () => {
   test("each call mutates only its own userId row", async () => {
     const db = getTestDb();
-    const [u2] = await db.insert(users).values({ email: "wl2@t.local", passwordHash: "x", name: "Z" }).returning();
+    const [u2] = await db
+      .insert(users)
+      .values({ email: "wl2@t.local", passwordHash: "x", name: "Z" })
+      .returning();
     await addWatchlistTopic(userId, "mine");
     await addWatchlistTopic(u2!.id, "theirs");
     expect((await getBriefingConfig(userId))!.watchlist.map((w) => w.topic)).toEqual(["mine"]);

@@ -40,10 +40,7 @@ describe("SHARED_VARIABLE_RESOLVERS", () => {
 
   test("only the two documented resolvers are registered", () => {
     // Prevents accidental additions slipping in un-audited.
-    expect(Object.keys(SHARED_VARIABLE_RESOLVERS).sort()).toEqual([
-      "project.cwd",
-      "project.name",
-    ]);
+    expect(Object.keys(SHARED_VARIABLE_RESOLVERS).sort()).toEqual(["project.cwd", "project.name"]);
   });
 });
 

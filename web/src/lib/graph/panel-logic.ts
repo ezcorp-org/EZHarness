@@ -22,12 +22,12 @@ import type { ChatGraph, GraphNode } from "$server/runtime/chat-graph/types";
  * disagree.
  */
 export interface GraphFrame {
-	/** Which conversation this frame maps. Changes when drilling into a sub-agent. */
-	conversationId: string;
-	/** The user message whose internals this frame shows. Absent ⇒ level 1. */
-	turnId?: string;
-	/** Breadcrumb crumb text. */
-	label: string;
+  /** Which conversation this frame maps. Changes when drilling into a sub-agent. */
+  conversationId: string;
+  /** The user message whose internals this frame shows. Absent ⇒ level 1. */
+  turnId?: string;
+  /** Breadcrumb crumb text. */
+  label: string;
 }
 
 /** Crumb text for the level-1 frame of the conversation the panel was opened on. */
@@ -35,7 +35,7 @@ export const ROOT_FRAME_LABEL = "Conversation";
 
 /** The bottom of the stack: level 1 of the conversation the panel is bound to. */
 export function rootFrame(conversationId: string): GraphFrame {
-	return { conversationId, label: ROOT_FRAME_LABEL };
+  return { conversationId, label: ROOT_FRAME_LABEL };
 }
 
 /**
@@ -45,14 +45,14 @@ export function rootFrame(conversationId: string): GraphFrame {
  * value, so both are encoded.
  */
 export function graphUrl(frame: GraphFrame): string {
-	const base = `/api/conversations/${encodeURIComponent(frame.conversationId)}/graph`;
-	return frame.turnId === undefined ? base : `${base}?turn=${encodeURIComponent(frame.turnId)}`;
+  const base = `/api/conversations/${encodeURIComponent(frame.conversationId)}/graph`;
+  return frame.turnId === undefined ? base : `${base}?turn=${encodeURIComponent(frame.turnId)}`;
 }
 
 /** Panel heading for a frame — the level, in words. */
 export function frameTitle(frame: GraphFrame | null): string {
-	if (frame === null) return "Conversation graph";
-	return frame.turnId === undefined ? "Conversation map" : "Turn trace";
+  if (frame === null) return "Conversation graph";
+  return frame.turnId === undefined ? "Conversation map" : "Turn trace";
 }
 
 /**
@@ -66,21 +66,21 @@ export function frameTitle(frame: GraphFrame | null): string {
  * treated as a leaf rather than navigating somewhere wrong.
  */
 export function drillFrame(node: GraphNode, current: GraphFrame): GraphFrame | null {
-	if (node.drillable !== true) return null;
-	if (node.kind === "subagent") {
-		if (node.subConversationId === undefined) return null;
-		return { conversationId: node.subConversationId, label: node.label };
-	}
-	if (node.kind === "prompt") {
-		return { conversationId: current.conversationId, turnId: node.id, label: node.label };
-	}
-	return null;
+  if (node.drillable !== true) return null;
+  if (node.kind === "subagent") {
+    if (node.subConversationId === undefined) return null;
+    return { conversationId: node.subConversationId, label: node.label };
+  }
+  if (node.kind === "prompt") {
+    return { conversationId: current.conversationId, turnId: node.id, label: node.label };
+  }
+  return null;
 }
 
 /** Pop the stack back to (and including) `index`. Out-of-range leaves it alone. */
 export function popTo(stack: readonly GraphFrame[], index: number): GraphFrame[] {
-	if (index < 0 || index >= stack.length - 1) return [...stack];
-	return stack.slice(0, index + 1);
+  if (index < 0 || index >= stack.length - 1) return [...stack];
+  return stack.slice(0, index + 1);
 }
 
 /**
@@ -88,17 +88,17 @@ export function popTo(stack: readonly GraphFrame[], index: number): GraphFrame[]
  * The payload rendered fine; something about the underlying data is odd.
  */
 export function graphNotices(graph: ChatGraph | null, hasCycle: boolean): string[] {
-	const out: string[] = [];
-	if (graph?.degraded === true) {
-		out.push("Branch history is unavailable, so this map is shown as a single chain.");
-	}
-	if (hasCycle) {
-		out.push("These messages link in a loop. The map was straightened out to draw it.");
-	}
-	return out;
+  const out: string[] = [];
+  if (graph?.degraded === true) {
+    out.push("Branch history is unavailable, so this map is shown as a single chain.");
+  }
+  if (hasCycle) {
+    out.push("These messages link in a loop. The map was straightened out to draw it.");
+  }
+  return out;
 }
 
 /** True once a graph has loaded and it genuinely has nothing to draw. */
 export function isEmptyGraph(graph: ChatGraph | null): boolean {
-	return graph !== null && graph.nodes.length === 0;
+  return graph !== null && graph.nodes.length === 0;
 }

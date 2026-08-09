@@ -1,9 +1,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
-import {
-  LifecycleHookDispatcher,
-} from "../extensions/lifecycle-dispatcher";
+import { LifecycleHookDispatcher } from "../extensions/lifecycle-dispatcher";
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -284,8 +282,11 @@ describe("LifecycleHookDispatcher — Security", () => {
     const payload = at(proc.calls, 0, "proc.calls").params;
     // Sanitized DATA fields are exactly the allowlist; `_meta` is host-added
     // ownerless provenance (a UUID), not sanitizer output — excluded here.
-    expect(Object.keys(payload).filter((k) => k !== "_meta").sort())
-      .toEqual(["agentName", "runId", "timestamp"]);
+    expect(
+      Object.keys(payload)
+        .filter((k) => k !== "_meta")
+        .sort(),
+    ).toEqual(["agentName", "runId", "timestamp"]);
     expect(typeof (payload._meta as { ezCallId?: string } | undefined)?.ezCallId).toBe("string");
     expect(payload).not.toHaveProperty("projectId");
     expect(payload).not.toHaveProperty("provider");

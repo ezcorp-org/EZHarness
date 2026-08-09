@@ -56,8 +56,7 @@ let nextId = 0;
 
 mock.module("../db/queries/extensions", () => ({
   getExtensionByName: async (name: string) => store.get(name) ?? null,
-  getExtension: async (id: string) =>
-    Array.from(store.values()).find((r) => r.id === id) ?? null,
+  getExtension: async (id: string) => Array.from(store.values()).find((r) => r.id === id) ?? null,
   createExtension: async (data: Omit<StoredExtension, "id">) => {
     const id = `ext-${++nextId}`;
     const row = { id, ...data } as StoredExtension;
@@ -98,11 +97,9 @@ const repoRoot = join(import.meta.dir, "..", "..");
 
 beforeAll(async () => {
   tempRoot = await mkdtemp(join(tmpdir(), "bundled-code-change-"));
-  await cp(
-    join(repoRoot, "docs/extensions/examples"),
-    join(tempRoot, "docs/extensions/examples"),
-    { recursive: true },
-  );
+  await cp(join(repoRoot, "docs/extensions/examples"), join(tempRoot, "docs/extensions/examples"), {
+    recursive: true,
+  });
   for (const tree of LINKED_TREES) {
     await symlink(join(repoRoot, tree), join(tempRoot, tree));
   }

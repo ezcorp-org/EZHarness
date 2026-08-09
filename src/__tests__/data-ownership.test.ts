@@ -8,7 +8,14 @@ import { listConversations, createConversation } from "../db/queries/conversatio
 import { listAgentConfigs, createAgentConfig } from "../db/queries/agent-configs";
 import { shareAgent, unshareAgent } from "../db/queries/agent-shares";
 import { createTeam, addTeamMember } from "../db/queries/teams";
-import { projects, conversations, agentConfigs, agentShares, teams, teamMembers } from "../db/schema";
+import {
+  projects,
+  conversations,
+  agentConfigs,
+  agentShares,
+  teams,
+  teamMembers,
+} from "../db/schema";
 
 let userA: { id: string; email: string; name: string; role: "admin" | "member" };
 let userB: { id: string; email: string; name: string; role: "admin" | "member" };
@@ -18,13 +25,32 @@ const projectId = "test-project-001";
 beforeAll(async () => {
   await setupTestDb();
   // Create the project that conversations reference via FK
-  await getTestDb().insert(projects).values({ id: projectId, name: "Test Project", path: "/tmp/test" });
-  userA = await createUser({ email: "a@test.local", passwordHash: "hash", name: "User A", role: "member" });
-  userB = await createUser({ email: "b@test.local", passwordHash: "hash", name: "User B", role: "member" });
-  userC = await createUser({ email: "c@test.local", passwordHash: "hash", name: "User C", role: "member" });
+  await getTestDb()
+    .insert(projects)
+    .values({ id: projectId, name: "Test Project", path: "/tmp/test" });
+  userA = await createUser({
+    email: "a@test.local",
+    passwordHash: "hash",
+    name: "User A",
+    role: "member",
+  });
+  userB = await createUser({
+    email: "b@test.local",
+    passwordHash: "hash",
+    name: "User B",
+    role: "member",
+  });
+  userC = await createUser({
+    email: "c@test.local",
+    passwordHash: "hash",
+    name: "User C",
+    role: "member",
+  });
 });
 
-afterAll(async () => { await closeTestDb(); });
+afterAll(async () => {
+  await closeTestDb();
+});
 
 beforeEach(async () => {
   const db = getTestDb();
@@ -72,7 +98,12 @@ describe("conversation isolation", () => {
 
 describe("agent config isolation", () => {
   test("owner can see their own agent config", async () => {
-    await createAgentConfig({ name: "A-Agent", description: "test", prompt: "do stuff", userId: userA.id });
+    await createAgentConfig({
+      name: "A-Agent",
+      description: "test",
+      prompt: "do stuff",
+      userId: userA.id,
+    });
 
     const result = await listAgentConfigs(userA.id);
     expect(result).toHaveLength(1);
@@ -80,15 +111,30 @@ describe("agent config isolation", () => {
   });
 
   test("user B cannot see user A's agent config", async () => {
-    await createAgentConfig({ name: "A-Agent", description: "test", prompt: "do stuff", userId: userA.id });
+    await createAgentConfig({
+      name: "A-Agent",
+      description: "test",
+      prompt: "do stuff",
+      userId: userA.id,
+    });
 
     const result = await listAgentConfigs(userB.id);
     expect(result).toHaveLength(0);
   });
 
   test("listAgentConfigs without userId returns ALL agents (admin view)", async () => {
-    await createAgentConfig({ name: "A-Agent", description: "test", prompt: "do stuff", userId: userA.id });
-    await createAgentConfig({ name: "B-Agent", description: "test", prompt: "do stuff", userId: userB.id });
+    await createAgentConfig({
+      name: "A-Agent",
+      description: "test",
+      prompt: "do stuff",
+      userId: userA.id,
+    });
+    await createAgentConfig({
+      name: "B-Agent",
+      description: "test",
+      prompt: "do stuff",
+      userId: userB.id,
+    });
 
     const all = await listAgentConfigs();
     expect(all).toHaveLength(2);
@@ -99,7 +145,12 @@ describe("agent config isolation", () => {
 
 describe("agent sharing", () => {
   test("shared agent is visible to team member", async () => {
-    const agent = await createAgentConfig({ name: "Shared-Agent", description: "test", prompt: "shared", userId: userA.id });
+    const agent = await createAgentConfig({
+      name: "Shared-Agent",
+      description: "test",
+      prompt: "shared",
+      userId: userA.id,
+    });
     const team = await createTeam("Test Team");
     await addTeamMember(team.id, userB.id, "editor");
     await shareAgent(agent.id, team.id, userA.id);
@@ -113,7 +164,12 @@ describe("agent sharing", () => {
   });
 
   test("non-team-member cannot see shared agent", async () => {
-    const agent = await createAgentConfig({ name: "Shared-Agent", description: "test", prompt: "shared", userId: userA.id });
+    const agent = await createAgentConfig({
+      name: "Shared-Agent",
+      description: "test",
+      prompt: "shared",
+      userId: userA.id,
+    });
     const team = await createTeam("Test Team");
     await addTeamMember(team.id, userB.id, "editor");
     await shareAgent(agent.id, team.id, userA.id);
@@ -124,7 +180,12 @@ describe("agent sharing", () => {
   });
 
   test("owner sees own agent without duplication when shared to their team", async () => {
-    const agent = await createAgentConfig({ name: "My-Agent", description: "test", prompt: "mine", userId: userA.id });
+    const agent = await createAgentConfig({
+      name: "My-Agent",
+      description: "test",
+      prompt: "mine",
+      userId: userA.id,
+    });
     const team = await createTeam("Owner Team");
     await addTeamMember(team.id, userA.id, "owner");
     await addTeamMember(team.id, userB.id, "editor");
@@ -138,7 +199,12 @@ describe("agent sharing", () => {
   });
 
   test("unsharing removes visibility for team member", async () => {
-    const agent = await createAgentConfig({ name: "Temp-Shared", description: "test", prompt: "temp", userId: userA.id });
+    const agent = await createAgentConfig({
+      name: "Temp-Shared",
+      description: "test",
+      prompt: "temp",
+      userId: userA.id,
+    });
     const team = await createTeam("Temp Team");
     await addTeamMember(team.id, userB.id, "viewer");
     await shareAgent(agent.id, team.id, userA.id);
@@ -173,9 +239,24 @@ describe("cross-user isolation", () => {
   });
 
   test("multiple users each only see their own agents plus shared agents", async () => {
-    const agentA = await createAgentConfig({ name: "Agent-A", description: "test", prompt: "a", userId: userA.id });
-    await createAgentConfig({ name: "Agent-B", description: "test", prompt: "b", userId: userB.id });
-    await createAgentConfig({ name: "Agent-C", description: "test", prompt: "c", userId: userC.id });
+    const agentA = await createAgentConfig({
+      name: "Agent-A",
+      description: "test",
+      prompt: "a",
+      userId: userA.id,
+    });
+    await createAgentConfig({
+      name: "Agent-B",
+      description: "test",
+      prompt: "b",
+      userId: userB.id,
+    });
+    await createAgentConfig({
+      name: "Agent-C",
+      description: "test",
+      prompt: "c",
+      userId: userC.id,
+    });
 
     // Share A's agent with a team containing B
     const team = await createTeam("AB Team");

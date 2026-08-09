@@ -31,9 +31,7 @@ describe("github-projects bus-registry", () => {
     expect(got).toBeDefined();
     got?.(GITHUB_PROJECTS_EVENT, { projectId: "proj-1" });
 
-    expect(calls).toEqual([
-      { event: GITHUB_PROJECTS_EVENT, payload: { projectId: "proj-1" } },
-    ]);
+    expect(calls).toEqual([{ event: GITHUB_PROJECTS_EVENT, payload: { projectId: "proj-1" } }]);
   });
 
   test("re-registering replaces the previous emitter (idempotent register)", () => {

@@ -308,11 +308,7 @@ steps:
         `name: good\nsteps:\n  - name: s\n    agent: a\n`,
         "utf8",
       );
-      writeFileSync(
-        join(mixedDir, "bad.workflow.yaml"),
-        `name: [broken yaml`,
-        "utf8",
-      );
+      writeFileSync(join(mixedDir, "bad.workflow.yaml"), `name: [broken yaml`, "utf8");
 
       const workflows = await loadYamlWorkflows(mixedDir);
 

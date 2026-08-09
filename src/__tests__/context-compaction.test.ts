@@ -36,12 +36,22 @@ const userImg = (n: number): Msg => ({
 const asstText = (text: string): Msg => ({
   role: "assistant",
   content: [{ type: "text", text }],
-  api: "x", provider: "x", model: "x", usage: {}, stopReason: "stop", timestamp: 1,
+  api: "x",
+  provider: "x",
+  model: "x",
+  usage: {},
+  stopReason: "stop",
+  timestamp: 1,
 });
 const asstToolCall = (id: string, name: string, args: object): Msg => ({
   role: "assistant",
   content: [{ type: "toolCall", id, name, arguments: args }],
-  api: "x", provider: "x", model: "x", usage: {}, stopReason: "toolUse", timestamp: 1,
+  api: "x",
+  provider: "x",
+  model: "x",
+  usage: {},
+  stopReason: "toolUse",
+  timestamp: 1,
 });
 const toolResult = (id: string, text: string): Msg => ({
   role: "toolResult",

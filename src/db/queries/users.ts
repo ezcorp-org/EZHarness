@@ -28,16 +28,11 @@ export async function getUserById(id: string): Promise<User | undefined> {
  * always keyed by every input id, even duplicates.
  */
 // fallow-ignore-next-line unused-export
-export async function getUsersByIds(
-  ids: string[],
-): Promise<Map<string, User | null>> {
+export async function getUsersByIds(ids: string[]): Promise<Map<string, User | null>> {
   const result = new Map<string, User | null>();
   if (ids.length === 0) return result;
   const uniqueIds = Array.from(new Set(ids));
-  const rows = await getDb()
-    .select()
-    .from(users)
-    .where(inArray(users.id, uniqueIds));
+  const rows = await getDb().select().from(users).where(inArray(users.id, uniqueIds));
   const byId = new Map<string, User>();
   for (const row of rows) byId.set(row.id, row);
   for (const id of ids) {
@@ -89,10 +84,7 @@ export async function listUsersPage(opts: ListUsersPageOpts): Promise<ListUsersP
     ? sql`(lower(${users.name}) LIKE ${pattern} ESCAPE '\\' OR lower(${users.email}) LIKE ${pattern} ESCAPE '\\')`
     : undefined;
 
-  const countRows = await db
-    .select({ count: sql<number>`count(*)::int` })
-    .from(users)
-    .where(where);
+  const countRows = await db.select({ count: sql<number>`count(*)::int` }).from(users).where(where);
   const total = Number(countRows[0]?.count ?? 0);
 
   const page = await db
@@ -106,7 +98,10 @@ export async function listUsersPage(opts: ListUsersPageOpts): Promise<ListUsersP
   return { users: page, total };
 }
 
-export async function updateUserStatus(id: string, status: "active" | "inactive"): Promise<boolean> {
+export async function updateUserStatus(
+  id: string,
+  status: "active" | "inactive",
+): Promise<boolean> {
   const rows = await getDb().update(users).set({ status }).where(eq(users.id, id)).returning();
   return rows.length > 0;
 }
@@ -134,12 +129,20 @@ export async function getUserCount(): Promise<number> {
 }
 
 export async function updateUserPassword(id: string, passwordHash: string): Promise<boolean> {
-  const rows = await getDb().update(users).set({ passwordHash }).where(eq(users.id, id)).returning();
+  const rows = await getDb()
+    .update(users)
+    .set({ passwordHash })
+    .where(eq(users.id, id))
+    .returning();
   return rows.length > 0;
 }
 
 export async function updateUserEmail(id: string, email: string): Promise<boolean> {
-  const rows = await getDb().update(users).set({ email: email.toLowerCase() }).where(eq(users.id, id)).returning();
+  const rows = await getDb()
+    .update(users)
+    .set({ email: email.toLowerCase() })
+    .where(eq(users.id, id))
+    .returning();
   return rows.length > 0;
 }
 

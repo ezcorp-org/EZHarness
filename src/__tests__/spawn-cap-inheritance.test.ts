@@ -65,12 +65,15 @@ mock.module("../runtime/start-assignment", () => ({
     assignment.startedAt = new Date().toISOString();
     const { getDb } = await import("../db/connection");
     const { conversations } = await import("../db/schema");
-    await getDb().insert(conversations).values({
-      id: subConversationId,
-      projectId: opts.projectId as string,
-      parentConversationId: opts.conversationId as string,
-      title: "child-cap",
-    } as any).onConflictDoNothing();
+    await getDb()
+      .insert(conversations)
+      .values({
+        id: subConversationId,
+        projectId: opts.projectId as string,
+        parentConversationId: opts.conversationId as string,
+        title: "child-cap",
+      } as any)
+      .onConflictDoNothing();
     return { subConversationId, agentRunId: runId };
   },
 }));
@@ -123,7 +126,11 @@ const {
 const { ExtensionRegistry } = await import("../extensions/registry");
 const { eq, and } = await import("drizzle-orm");
 
-import type { JsonRpcRequest, ExtensionPermissions, ExtensionManifestV2 } from "../extensions/types";
+import type {
+  JsonRpcRequest,
+  ExtensionPermissions,
+  ExtensionManifestV2,
+} from "../extensions/types";
 import type { SpawnAssignmentContext } from "../extensions/spawn-assignment-handler";
 import type { AgentEvents } from "../types";
 import type { AgentExecutor } from "../runtime/executor";
@@ -139,31 +146,37 @@ async function ensureExtension(
   perms: ExtensionPermissions,
   manifestPerms: ExtensionManifestV2["permissions"],
 ): Promise<void> {
-  await getDb().insert(extensionsTable).values({
-    id,
-    name: id,
-    version: "1.0.0",
-    description: "t",
-    manifest: {
-      schemaVersion: 2,
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id,
       name: id,
       version: "1.0.0",
       description: "t",
-      author: { name: "t" },
-      permissions: manifestPerms,
-    },
-    source: `test:${id}`,
-    installPath: `/tmp/${id}`,
-    enabled: true,
-    grantedPermissions: perms,
-  } as any).onConflictDoNothing();
+      manifest: {
+        schemaVersion: 2,
+        name: id,
+        version: "1.0.0",
+        description: "t",
+        author: { name: "t" },
+        permissions: manifestPerms,
+      },
+      source: `test:${id}`,
+      installPath: `/tmp/${id}`,
+      enabled: true,
+      grantedPermissions: perms,
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function wireParent(convId: string, extId: string): Promise<void> {
-  await getDb().insert(conversationExtensions).values({
-    conversationId: convId,
-    extensionId: extId,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(conversationExtensions)
+    .values({
+      conversationId: convId,
+      extensionId: extId,
+    } as any)
+    .onConflictDoNothing();
 }
 
 function makeCtx(
@@ -208,15 +221,29 @@ async function getEffectiveGrants(
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values({
-    id: "user-cap", email: "cap@t.local", passwordHash: "x", name: "Cap",
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({
-    id: PROJECT, name: PROJECT, path: `/tmp/${PROJECT}`,
-  } as any);
-  await getDb().insert(conversations).values({
-    id: PARENT_CONV, projectId: PROJECT, title: "parent",
-  } as any);
+  await getDb()
+    .insert(users)
+    .values({
+      id: "user-cap",
+      email: "cap@t.local",
+      passwordHash: "x",
+      name: "Cap",
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({
+      id: PROJECT,
+      name: PROJECT,
+      path: `/tmp/${PROJECT}`,
+    } as any);
+  await getDb()
+    .insert(conversations)
+    .values({
+      id: PARENT_CONV,
+      projectId: PROJECT,
+      title: "parent",
+    } as any);
 });
 
 afterAll(async () => {
@@ -266,10 +293,7 @@ describe("(a) Default — parent has foo.com; child agent wires C with foo.com m
     });
     reg.setGrantedPermsForTest("ext-C", cGrants);
 
-    const ctx = makeCtx(
-      { spawnAgents: { maxPerHour: 10 }, grantedAt: {} },
-      reg,
-    );
+    const ctx = makeCtx({ spawnAgents: { maxPerHour: 10 }, grantedAt: {} }, reg);
     const r = await handleSpawnAssignmentRpc(
       SPAWNER_EXT,
       rpc({ v: 1, task: "go", agentConfigId: "cfg-child-c-only" }, "a1"),
@@ -327,10 +351,7 @@ describe("(b) Default — parent has foo.com only; child agent wires C with bar.
       provider: null,
     });
 
-    const ctx = makeCtx(
-      { spawnAgents: { maxPerHour: 10 }, grantedAt: {} },
-      reg,
-    );
+    const ctx = makeCtx({ spawnAgents: { maxPerHour: 10 }, grantedAt: {} }, reg);
     const r = await handleSpawnAssignmentRpc(
       SPAWNER_EXT,
       rpc({ v: 1, task: "go", agentConfigId: "cfg-child-b" }, "b1"),
@@ -381,10 +402,7 @@ describe("(c) Default — parent has empty grants; child agent wires C with full
       provider: null,
     });
 
-    const ctx = makeCtx(
-      { spawnAgents: { maxPerHour: 10 }, grantedAt: {} },
-      reg,
-    );
+    const ctx = makeCtx({ spawnAgents: { maxPerHour: 10 }, grantedAt: {} }, reg);
     const r = await handleSpawnAssignmentRpc(
       SPAWNER_EXT,
       rpc({ v: 1, task: "go", agentConfigId: "cfg-child-c" }, "c1"),
@@ -510,10 +528,7 @@ describe("(e) Default (NO escalation) — same setup as (d) but parent's install
       provider: null,
     });
 
-    const ctx = makeCtx(
-      { spawnAgents: { maxPerHour: 10 }, grantedAt: {} },
-      reg,
-    );
+    const ctx = makeCtx({ spawnAgents: { maxPerHour: 10 }, grantedAt: {} }, reg);
     const r = await handleSpawnAssignmentRpc(
       SPAWNER_EXT,
       rpc({ v: 1, task: "go", agentConfigId: "cfg-child-e" }, "e1"),
@@ -585,10 +600,7 @@ describe("(g) Wiring rows persist on child conversation; PDP can read effective 
       provider: null,
     });
 
-    const ctx = makeCtx(
-      { spawnAgents: { maxPerHour: 10 }, grantedAt: {} },
-      reg,
-    );
+    const ctx = makeCtx({ spawnAgents: { maxPerHour: 10 }, grantedAt: {} }, reg);
     const r = await handleSpawnAssignmentRpc(
       SPAWNER_EXT,
       rpc({ v: 1, task: "go", agentConfigId: "cfg-child-g" }, "g1"),
@@ -658,10 +670,7 @@ describe("Child agent's wired-extension allowlist filters the inherited extensio
       provider: null,
     });
 
-    const ctx = makeCtx(
-      { spawnAgents: { maxPerHour: 10 }, grantedAt: {} },
-      reg,
-    );
+    const ctx = makeCtx({ spawnAgents: { maxPerHour: 10 }, grantedAt: {} }, reg);
     const r = await handleSpawnAssignmentRpc(
       SPAWNER_EXT,
       rpc({ v: 1, task: "go", agentConfigId: "cfg-child-foo-only" }, "fb1"),
@@ -738,8 +747,8 @@ describe("M4 — ctx.registry undefined → legacy blanket-copy fallback + conso
       expect(eff).toBeNull();
 
       // Visible signal that the fallback fired.
-      const warnedAboutFallback = warnings.some((w) =>
-        w.includes("registry not threaded") && w.includes("Phase 4 §M4"),
+      const warnedAboutFallback = warnings.some(
+        (w) => w.includes("registry not threaded") && w.includes("Phase 4 §M4"),
       );
       expect(warnedAboutFallback).toBe(true);
     } finally {
@@ -832,10 +841,7 @@ describe("M7 — 2-deep spawn does not widen caps; sub-spawn reads parent CONVER
           );
       });
 
-    const ctx = makeCtx(
-      { spawnAgents: { maxPerHour: 10 }, grantedAt: {} },
-      reg,
-    );
+    const ctx = makeCtx({ spawnAgents: { maxPerHour: 10 }, grantedAt: {} }, reg);
     const r = await handleSpawnAssignmentRpc(
       SPAWNER_EXT,
       rpc({ v: 1, task: "go", agentConfigId: "cfg-child1-nested" }, "m7"),
@@ -891,10 +897,7 @@ describe("M2 — spawn writes SPAWN_AUTHORIZED audit row + seeds child conversat
       provider: null,
     });
 
-    const ctx = makeCtx(
-      { spawnAgents: { maxPerHour: 10 }, grantedAt: {} },
-      reg,
-    );
+    const ctx = makeCtx({ spawnAgents: { maxPerHour: 10 }, grantedAt: {} }, reg);
     const r = await handleSpawnAssignmentRpc(
       SPAWNER_EXT,
       rpc({ v: 1, task: "go", agentConfigId: "cfg-child-aud" }, "m2"),
@@ -904,19 +907,14 @@ describe("M2 — spawn writes SPAWN_AUTHORIZED audit row + seeds child conversat
     const subId = (r.result as { subConversationId: string }).subConversationId;
 
     // The child's metadata should carry the spawn-authorize audit id.
-    const { getConversationSpawnParentAuditId } = await import(
-      "../db/queries/conversations"
-    );
+    const { getConversationSpawnParentAuditId } = await import("../db/queries/conversations");
     const spawnAuditId = await getConversationSpawnParentAuditId(subId);
     expect(spawnAuditId).toBeTruthy();
     expect(typeof spawnAuditId).toBe("string");
 
     // And that audit id should resolve to a SPAWN_AUTHORIZED row.
     const { auditLog } = await import("../db/schema");
-    const rows = await getDb()
-      .select()
-      .from(auditLog)
-      .where(eq(auditLog.id, spawnAuditId!));
+    const rows = await getDb().select().from(auditLog).where(eq(auditLog.id, spawnAuditId!));
     expect(rows[0]?.action).toBe("ext:spawn-authorized");
     expect((rows[0]?.metadata as Record<string, unknown>)?.subConversationId).toBe(subId);
   });

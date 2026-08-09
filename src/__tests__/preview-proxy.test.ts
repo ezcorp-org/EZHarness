@@ -36,12 +36,18 @@ const OTHER_ID = "z0123456789abcdefghjkmnpqr";
 
 describe("parsePreviewHost", () => {
   test("accepts <id>.preview.<appHost>", () => {
-    expect(parsePreviewHost(`${VALID_ID}.preview.${APP_HOST}`, APP_HOST)).toEqual({ previewId: VALID_ID });
+    expect(parsePreviewHost(`${VALID_ID}.preview.${APP_HOST}`, APP_HOST)).toEqual({
+      previewId: VALID_ID,
+    });
   });
 
   test("accepts a :port suffix and is case-insensitive", () => {
-    expect(parsePreviewHost(`${VALID_ID}.preview.localhost:5173`, "localhost")).toEqual({ previewId: VALID_ID });
-    expect(parsePreviewHost(`${VALID_ID.toUpperCase()}.PREVIEW.${APP_HOST.toUpperCase()}`, APP_HOST)).toEqual({ previewId: VALID_ID });
+    expect(parsePreviewHost(`${VALID_ID}.preview.localhost:5173`, "localhost")).toEqual({
+      previewId: VALID_ID,
+    });
+    expect(
+      parsePreviewHost(`${VALID_ID.toUpperCase()}.PREVIEW.${APP_HOST.toUpperCase()}`, APP_HOST),
+    ).toEqual({ previewId: VALID_ID });
   });
 
   test("rejects the app origin itself", () => {
@@ -75,9 +81,9 @@ describe("parsePreviewHost", () => {
 
 describe("resolvePreviewAppHost", () => {
   test("returns an explicit host verbatim", () => {
-    expect(
-      resolvePreviewAppHost({ EZCORP_PREVIEW_APP_HOST: "ezcorp.example.com" }),
-    ).toBe("ezcorp.example.com");
+    expect(resolvePreviewAppHost({ EZCORP_PREVIEW_APP_HOST: "ezcorp.example.com" })).toBe(
+      "ezcorp.example.com",
+    );
   });
 
   test("trims surrounding whitespace off an explicit host", () => {
@@ -173,9 +179,9 @@ describe("resolvePreviewAppHost", () => {
     });
     // The browser sends the port in the Host header; the resolved appHost
     // carries one too. Matching must survive both.
-    expect(
-      parsePreviewHost(`${VALID_ID}.preview.nixos-amd.taile1c5b0.ts.net:4000`, host!),
-    ).toEqual({ previewId: VALID_ID });
+    expect(parsePreviewHost(`${VALID_ID}.preview.nixos-amd.taile1c5b0.ts.net:4000`, host!)).toEqual(
+      { previewId: VALID_ID },
+    );
   });
 });
 
@@ -190,14 +196,19 @@ describe("sanitizeUpstreamResponse (dynamic passthrough)", () => {
 
   test("re-asserts the preview-origin security headers over the upstream", () => {
     const out = sanitizeUpstreamResponse(
-      new Response("b", { status: 200, headers: { "Referrer-Policy": "unsafe-url", "X-Content-Type-Options": "off" } }),
+      new Response("b", {
+        status: 200,
+        headers: { "Referrer-Policy": "unsafe-url", "X-Content-Type-Options": "off" },
+      }),
     );
     expect(out.headers.get("Referrer-Policy")).toBe("no-referrer");
     expect(out.headers.get("X-Content-Type-Options")).toBe("nosniff");
   });
 
   test("preserves status + statusText", () => {
-    const out = sanitizeUpstreamResponse(new Response("nf", { status: 404, statusText: "Not Found" }));
+    const out = sanitizeUpstreamResponse(
+      new Response("nf", { status: 404, statusText: "Not Found" }),
+    );
     expect(out.status).toBe(404);
   });
 
@@ -326,7 +337,9 @@ describe("resolveStaticFile", () => {
   });
 
   test("resolves a regular file", async () => {
-    expect(await resolveStaticFile(root, "/assets/app.js")).toBe(join(await import("node:fs/promises").then(m => m.realpath(root)), "assets", "app.js"));
+    expect(await resolveStaticFile(root, "/assets/app.js")).toBe(
+      join(await import("node:fs/promises").then((m) => m.realpath(root)), "assets", "app.js"),
+    );
   });
 
   test("'/' and '' resolve to index.html", async () => {
@@ -376,13 +389,18 @@ describe("resolveStaticFile", () => {
 
 describe("handlePreviewRequest", () => {
   const staticRow: PreviewRegistryRow = {
-    id: VALID_ID, userId: "u1", kind: "static", staticPath: "/srv/site", targetPort: null,
+    id: VALID_ID,
+    userId: "u1",
+    kind: "static",
+    staticPath: "/srv/site",
+    targetPort: null,
   };
 
   function deps(over: Partial<HandlePreviewRequestDeps> = {}): HandlePreviewRequestDeps {
     return {
       verifyToken: async (t) => (t === "good" ? { previewId: VALID_ID, userId: "u1" } : null),
-      getServable: async (id, userId) => (id === VALID_ID && userId === "u1" ? staticRow : undefined),
+      getServable: async (id, userId) =>
+        id === VALID_ID && userId === "u1" ? staticRow : undefined,
       readFile: async () => ({ body: new TextEncoder().encode("<h1>hi</h1>"), size: 11 }),
       ...over,
     };
@@ -391,7 +409,10 @@ describe("handlePreviewRequest", () => {
   test("serves the static happy path with security headers", async () => {
     const res = await handlePreviewRequest(
       { previewId: VALID_ID, requestPath: "/index.html", cookieToken: "good" },
-      { ...deps(), readFile: async () => ({ body: new TextEncoder().encode("<h1>hi</h1>"), size: 11 }) },
+      {
+        ...deps(),
+        readFile: async () => ({ body: new TextEncoder().encode("<h1>hi</h1>"), size: 11 }),
+      },
     );
     // resolveStaticFile would 404 on a non-existent /srv/site; inject a row
     // whose staticPath resolves. Re-run with a stub resolver via readFile is
@@ -402,12 +423,18 @@ describe("handlePreviewRequest", () => {
   });
 
   test("404 when no cookie token", async () => {
-    const res = await handlePreviewRequest({ previewId: VALID_ID, requestPath: "/", cookieToken: null }, deps());
+    const res = await handlePreviewRequest(
+      { previewId: VALID_ID, requestPath: "/", cookieToken: null },
+      deps(),
+    );
     expect(res.status).toBe(404);
   });
 
   test("404 on an invalid token", async () => {
-    const res = await handlePreviewRequest({ previewId: VALID_ID, requestPath: "/", cookieToken: "bad" }, deps());
+    const res = await handlePreviewRequest(
+      { previewId: VALID_ID, requestPath: "/", cookieToken: "bad" },
+      deps(),
+    );
     expect(res.status).toBe(404);
   });
 
@@ -428,7 +455,10 @@ describe("handlePreviewRequest", () => {
   });
 
   test("404 on a malformed previewId", async () => {
-    const res = await handlePreviewRequest({ previewId: "bad", requestPath: "/", cookieToken: "good" }, deps());
+    const res = await handlePreviewRequest(
+      { previewId: "bad", requestPath: "/", cookieToken: "good" },
+      deps(),
+    );
     expect(res.status).toBe(404);
   });
 
@@ -439,14 +469,20 @@ describe("handlePreviewRequest", () => {
     const base = await mkdtemp(join(tmpdir(), "ezprev-read-"));
     await writeFile(join(base, "index.html"), "<h1>hi</h1>");
     const realRow: PreviewRegistryRow = {
-      id: VALID_ID, userId: "u1", kind: "static", staticPath: base, targetPort: null,
+      id: VALID_ID,
+      userId: "u1",
+      kind: "static",
+      staticPath: base,
+      targetPort: null,
     };
     try {
       const res = await handlePreviewRequest(
         { previewId: VALID_ID, requestPath: "/index.html", cookieToken: "good" },
         deps({
           getServable: async () => realRow,
-          readFile: async () => { throw new Error("ENOENT — vanished"); },
+          readFile: async () => {
+            throw new Error("ENOENT — vanished");
+          },
         }),
       );
       expect(res.status).toBe(404);
@@ -456,13 +492,22 @@ describe("handlePreviewRequest", () => {
   });
 
   const dynRow: PreviewRegistryRow = {
-    id: VALID_ID, userId: "u1", kind: "dynamic", staticPath: null, targetPort: 5173,
+    id: VALID_ID,
+    userId: "u1",
+    kind: "dynamic",
+    staticPath: null,
+    targetPort: 5173,
   };
 
   test("dynamic kind: proxies to the pinned port + sanitizes upstream headers", async () => {
     let pinnedPort = -1;
     const res = await handlePreviewRequest(
-      { previewId: VALID_ID, requestPath: "/app.js", cookieToken: "good", request: new Request("http://x.preview.localhost/app.js") },
+      {
+        previewId: VALID_ID,
+        requestPath: "/app.js",
+        cookieToken: "good",
+        request: new Request("http://x.preview.localhost/app.js"),
+      },
       deps({
         getServable: async () => dynRow,
         proxyDynamic: async (port) => {
@@ -490,7 +535,12 @@ describe("handlePreviewRequest", () => {
 
   test("dynamic kind: still enforces token + registry gates (404 on no token)", async () => {
     const res = await handlePreviewRequest(
-      { previewId: VALID_ID, requestPath: "/", cookieToken: null, request: new Request("http://x/") },
+      {
+        previewId: VALID_ID,
+        requestPath: "/",
+        cookieToken: null,
+        request: new Request("http://x/"),
+      },
       deps({ getServable: async () => dynRow, proxyDynamic: async () => new Response("nope") }),
     );
     expect(res.status).toBe(404);
@@ -499,11 +549,19 @@ describe("handlePreviewRequest", () => {
   test("dynamic kind: over the rate limit → 429 (before touching upstream)", async () => {
     let proxied = false;
     const res = await handlePreviewRequest(
-      { previewId: VALID_ID, requestPath: "/", cookieToken: "good", request: new Request("http://x/") },
+      {
+        previewId: VALID_ID,
+        requestPath: "/",
+        cookieToken: "good",
+        request: new Request("http://x/"),
+      },
       deps({
         getServable: async () => dynRow,
         checkRate: () => false, // over cap
-        proxyDynamic: async () => { proxied = true; return new Response("ok"); },
+        proxyDynamic: async () => {
+          proxied = true;
+          return new Response("ok");
+        },
       }),
     );
     expect(res.status).toBe(429);
@@ -512,7 +570,12 @@ describe("handlePreviewRequest", () => {
 
   test("dynamic kind: under the rate limit → proxies normally", async () => {
     const res = await handlePreviewRequest(
-      { previewId: VALID_ID, requestPath: "/", cookieToken: "good", request: new Request("http://x/") },
+      {
+        previewId: VALID_ID,
+        requestPath: "/",
+        cookieToken: "good",
+        request: new Request("http://x/"),
+      },
       deps({
         getServable: async () => dynRow,
         checkRate: () => true,
@@ -524,7 +587,12 @@ describe("handlePreviewRequest", () => {
 
   test("dynamic kind: dev server down → graceful 502", async () => {
     const res = await handlePreviewRequest(
-      { previewId: VALID_ID, requestPath: "/", cookieToken: "good", request: new Request("http://x/") },
+      {
+        previewId: VALID_ID,
+        requestPath: "/",
+        cookieToken: "good",
+        request: new Request("http://x/"),
+      },
       deps({
         getServable: async () => dynRow,
         proxyDynamic: async () => {
@@ -537,7 +605,12 @@ describe("handlePreviewRequest", () => {
 
   test("dynamic kind: no proxyDynamic dep wired → 502 (static-only deploy)", async () => {
     const res = await handlePreviewRequest(
-      { previewId: VALID_ID, requestPath: "/", cookieToken: "good", request: new Request("http://x/") },
+      {
+        previewId: VALID_ID,
+        requestPath: "/",
+        cookieToken: "good",
+        request: new Request("http://x/"),
+      },
       deps({ getServable: async () => dynRow }),
     );
     expect(res.status).toBe(502);
@@ -546,7 +619,12 @@ describe("handlePreviewRequest", () => {
   test("dynamic kind: missing/invalid targetPort → opaque 404", async () => {
     const badPortRow: PreviewRegistryRow = { ...dynRow, targetPort: 0 };
     const res = await handlePreviewRequest(
-      { previewId: VALID_ID, requestPath: "/", cookieToken: "good", request: new Request("http://x/") },
+      {
+        previewId: VALID_ID,
+        requestPath: "/",
+        cookieToken: "good",
+        request: new Request("http://x/"),
+      },
       deps({ getServable: async () => badPortRow, proxyDynamic: async () => new Response("x") }),
     );
     expect(res.status).toBe(404);
@@ -556,7 +634,11 @@ describe("handlePreviewRequest", () => {
     let touched = false;
     await handlePreviewRequest(
       { previewId: VALID_ID, requestPath: "/", cookieToken: "good" },
-      deps({ touch: async () => { touched = true; } }),
+      deps({
+        touch: async () => {
+          touched = true;
+        },
+      }),
     );
     expect(touched).toBe(true);
   });
@@ -570,10 +652,18 @@ describe("handlePreviewRequest static serving end-to-end", () => {
     await mkdir(root, { recursive: true });
     await writeFile(join(root, "index.html"), "<h1>served</h1>");
   });
-  afterAll(async () => { await rm(root, { recursive: true, force: true }).catch(() => {}); });
+  afterAll(async () => {
+    await rm(root, { recursive: true, force: true }).catch(() => {});
+  });
 
   test("serves index.html for '/' with correct content-type", async () => {
-    const row: PreviewRegistryRow = { id: VALID_ID, userId: "u1", kind: "static", staticPath: root, targetPort: null };
+    const row: PreviewRegistryRow = {
+      id: VALID_ID,
+      userId: "u1",
+      kind: "static",
+      staticPath: root,
+      targetPort: null,
+    };
     const res = await handlePreviewRequest(
       { previewId: VALID_ID, requestPath: "/", cookieToken: "good" },
       {
@@ -591,13 +681,22 @@ describe("handlePreviewRequest static serving end-to-end", () => {
   });
 
   test("404 for a traversal request even when authorized", async () => {
-    const row: PreviewRegistryRow = { id: VALID_ID, userId: "u1", kind: "static", staticPath: root, targetPort: null };
+    const row: PreviewRegistryRow = {
+      id: VALID_ID,
+      userId: "u1",
+      kind: "static",
+      staticPath: root,
+      targetPort: null,
+    };
     const res = await handlePreviewRequest(
       { previewId: VALID_ID, requestPath: "/../../etc/passwd", cookieToken: "good" },
       {
         verifyToken: async () => ({ previewId: VALID_ID, userId: "u1" }),
         getServable: async () => row,
-        readFile: async (abs) => { const buf = await Bun.file(abs).bytes(); return { body: buf, size: buf.length }; },
+        readFile: async (abs) => {
+          const buf = await Bun.file(abs).bytes();
+          return { body: buf, size: buf.length };
+        },
       },
     );
     expect(res.status).toBe(404);

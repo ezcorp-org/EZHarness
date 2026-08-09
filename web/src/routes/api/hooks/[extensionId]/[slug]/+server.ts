@@ -24,7 +24,12 @@ import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
-import { getEnabledWebhook, insertDelivery, countDeliveriesSince, startOfUtcDay } from "$server/extensions/webhook-store";
+import {
+  getEnabledWebhook,
+  insertDelivery,
+  countDeliveriesSince,
+  startOfUtcDay,
+} from "$server/extensions/webhook-store";
 import { getWebhookSecret } from "$server/extensions/webhook-secret";
 import { verifyWebhookAuth, parseBearer, constantTimeEqual } from "$server/extensions/webhook-auth";
 import { WEBHOOK_SLUG_RE } from "$server/extensions/manifest";
@@ -87,10 +92,15 @@ function sanitizeAuditField(s: string): string {
 }
 
 async function auditReject(extensionName: string, slug: string, reason: string): Promise<void> {
-  await insertAuditEntry(null, EXT_AUDIT_ACTIONS.SDK_WEBHOOK_REJECTED, sanitizeAuditField(extensionName), {
-    slug: sanitizeAuditField(slug),
-    reason,
-  }).catch(() => {});
+  await insertAuditEntry(
+    null,
+    EXT_AUDIT_ACTIONS.SDK_WEBHOOK_REJECTED,
+    sanitizeAuditField(extensionName),
+    {
+      slug: sanitizeAuditField(slug),
+      reason,
+    },
+  ).catch(() => {});
 }
 
 export const POST: RequestHandler = async ({ params, request, getClientAddress }) => {
@@ -103,11 +113,17 @@ export const POST: RequestHandler = async ({ params, request, getClientAddress }
   // unknown hooks so it is never a known/unknown enumeration oracle. One
   // `rate-limited` audit row per (IP, window) on first block; then suppressed.
   let clientIp = "unknown";
-  try { clientIp = getClientAddress(); } catch { /* proxy not configured */ }
+  try {
+    clientIp = getClientAddress();
+  } catch {
+    /* proxy not configured */
+  }
   const preRl = preLookupLimiter.check(clientIp);
   if (!preRl.allowed) {
     if (preRl.firstBlock) await auditReject(extensionName, slug, "rate-limited");
-    return errorJson(429, "Too many requests", undefined, { "Retry-After": String(preRl.retryAfter ?? 60) });
+    return errorJson(429, "Too many requests", undefined, {
+      "Retry-After": String(preRl.retryAfter ?? 60),
+    });
   }
 
   // Malformed slug can never name a real hook — treat as unknown (enumeration-
@@ -152,7 +168,9 @@ export const POST: RequestHandler = async ({ params, request, getClientAddress }
   const rl = limiter.check(`${extensionName}:${slug}`);
   if (!rl.allowed) {
     await auditReject(extensionName, slug, "rate-limited");
-    return errorJson(429, "Too many requests", undefined, { "Retry-After": String(rl.retryAfter ?? 60) });
+    return errorJson(429, "Too many requests", undefined, {
+      "Retry-After": String(rl.retryAfter ?? 60),
+    });
   }
 
   // Per-hook daily fire budget — a leaked-but-valid token cannot burn unbounded

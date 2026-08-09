@@ -11,8 +11,17 @@ import {
 } from "../contexts/llm";
 import type { ContextsTarget } from "../contexts/config";
 
-const sidecarTarget: ContextsTarget = { kind: "sidecar", baseUrl: "http://local:11434/v1", model: "qwen3:1.7b" };
-const piTarget: ContextsTarget = { kind: "pi", provider: "anthropic", modelId: "claude-x", piModel: { id: "claude-x" } };
+const sidecarTarget: ContextsTarget = {
+  kind: "sidecar",
+  baseUrl: "http://local:11434/v1",
+  model: "qwen3:1.7b",
+};
+const piTarget: ContextsTarget = {
+  kind: "pi",
+  provider: "anthropic",
+  modelId: "claude-x",
+  piModel: { id: "claude-x" },
+};
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return { ok, status, json: async () => body } as unknown as Response;
@@ -82,10 +91,15 @@ describe("sidecar lane", () => {
   });
 
   test("empty / non-string content → throws", async () => {
-    const empty = (async () => jsonResponse({ choices: [{ message: { content: "   " } }] })) as unknown as typeof fetch;
-    await expect(runContextsCompletion(sidecarReq(), { fetchFn: empty })).rejects.toThrow(/empty content/);
+    const empty = (async () =>
+      jsonResponse({ choices: [{ message: { content: "   " } }] })) as unknown as typeof fetch;
+    await expect(runContextsCompletion(sidecarReq(), { fetchFn: empty })).rejects.toThrow(
+      /empty content/,
+    );
     const missing = (async () => jsonResponse({ choices: [{}] })) as unknown as typeof fetch;
-    await expect(runContextsCompletion(sidecarReq(), { fetchFn: missing })).rejects.toThrow(/empty content/);
+    await expect(runContextsCompletion(sidecarReq(), { fetchFn: missing })).rejects.toThrow(
+      /empty content/,
+    );
   });
 
   test("fetch rejection (abort/timeout) propagates", async () => {
@@ -101,7 +115,9 @@ describe("sidecar lane", () => {
       sawSignal = init.signal instanceof AbortSignal;
       return jsonResponse({ choices: [{ message: { content: "x" } }] });
     }) as unknown as typeof fetch;
-    await runContextsCompletion(sidecarReq({ timeoutMs: DEFAULT_CONTEXTS_TIMEOUT_MS }), { fetchFn });
+    await runContextsCompletion(sidecarReq({ timeoutMs: DEFAULT_CONTEXTS_TIMEOUT_MS }), {
+      fetchFn,
+    });
     expect(sawSignal).toBe(true);
   });
 });
@@ -139,23 +155,36 @@ describe("pi lane", () => {
   });
 
   test("stopReason 'error' → throws with errorMessage", async () => {
-    const completeFn = async () => ({ stopReason: "error", errorMessage: "provider 500", content: [] });
+    const completeFn = async () => ({
+      stopReason: "error",
+      errorMessage: "provider 500",
+      content: [],
+    });
     await expect(
-      runContextsCompletion({ target: piTarget, systemPrompt: "s", userPrompt: "u" }, { completeFn }),
+      runContextsCompletion(
+        { target: piTarget, systemPrompt: "s", userPrompt: "u" },
+        { completeFn },
+      ),
     ).rejects.toThrow("provider 500");
   });
 
   test("stopReason 'error' with no message → generic throw", async () => {
     const completeFn = async () => ({ stopReason: "error", content: [] });
     await expect(
-      runContextsCompletion({ target: piTarget, systemPrompt: "s", userPrompt: "u" }, { completeFn }),
+      runContextsCompletion(
+        { target: piTarget, systemPrompt: "s", userPrompt: "u" },
+        { completeFn },
+      ),
     ).rejects.toThrow(/no error message/);
   });
 
   test("empty content (undefined) → throws no-text", async () => {
     const completeFn = async () => ({ stopReason: "stop", content: undefined });
     await expect(
-      runContextsCompletion({ target: piTarget, systemPrompt: "s", userPrompt: "u" }, { completeFn }),
+      runContextsCompletion(
+        { target: piTarget, systemPrompt: "s", userPrompt: "u" },
+        { completeFn },
+      ),
     ).rejects.toThrow(/no text/);
   });
 });

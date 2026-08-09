@@ -21,10 +21,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  joinSelectedPath,
-  browseDir,
-} from "../../web/src/lib/components/ui/helpers";
+import { joinSelectedPath, browseDir } from "../../web/src/lib/components/ui/helpers";
 import {
   addFolder,
   checkReachability,
@@ -100,7 +97,9 @@ describe("picker absolute-mode output → folder validation (the bug the e2e mis
 // ── Host-side addWatchedFolder accepts the absolute picker output ────
 
 function fakeEngine(): PermissionEngine {
-  return { authorize: async () => ({ decision: "allow", auditId: "a1" }) } as unknown as PermissionEngine;
+  return {
+    authorize: async () => ({ decision: "allow", auditId: "a1" }),
+  } as unknown as PermissionEngine;
 }
 
 describe("addWatchedFolder (host) with the picker's absolute output", () => {
@@ -139,7 +138,11 @@ describe("addWatchedFolder (host) with the picker's absolute output", () => {
 
     // The real watched dir is `.../watched/Downloads`; select its name from
     // the grandparent for a clean absolute value pointing at it.
-    const realPick = joinSelectedPath(join(root, "watched") + "/", { name: "Downloads", isDir: false }, ABSOLUTE);
+    const realPick = joinSelectedPath(
+      join(root, "watched") + "/",
+      { name: "Downloads", isDir: false },
+      ABSOLUTE,
+    );
     expect(realPick).toBe(watched);
 
     const r = await state.addWatchedFolder(deps(), { path: realPick });

@@ -69,9 +69,7 @@ describe("envelope", () => {
   });
 
   test("trees over 64KB are rejected", () => {
-    const big = validate([
-      { type: "markdown", content: "x".repeat(MAX_PAGE_TREE_BYTES) },
-    ]);
+    const big = validate([{ type: "markdown", content: "x".repeat(MAX_PAGE_TREE_BYTES) }]);
     expect(big).toBeNull();
   });
 
@@ -104,7 +102,15 @@ describe("panel vocabulary nodes", () => {
     ]);
     expect(result).not.toBeNull();
     expect(result!.nodes.map((n) => n.type)).toEqual([
-      "header", "text", "badge", "progress", "status", "list", "kv", "counter", "divider",
+      "header",
+      "text",
+      "badge",
+      "progress",
+      "status",
+      "list",
+      "kv",
+      "counter",
+      "divider",
     ]);
     const progress = result!.nodes[3] as { type: "progress"; value: number };
     expect(progress.value).toBe(100);
@@ -166,9 +172,7 @@ describe("heading", () => {
 
 describe("markdown", () => {
   test("content is NOT <>-stripped (DOMPurify handles it client-side)", () => {
-    const result = validate([
-      { type: "markdown", content: "# Title\n<script>alert(1)</script>" },
-    ]);
+    const result = validate([{ type: "markdown", content: "# Title\n<script>alert(1)</script>" }]);
     const md = result!.nodes[0] as PageMarkdown;
     expect(md.content).toContain("<script>");
   });
@@ -217,7 +221,10 @@ describe("stats", () => {
 
   test("stat strings are stripped + truncated", () => {
     const result = validate([
-      { type: "stats", items: [{ label: `<${"a".repeat(100)}>`, value: "v".repeat(100), hint: "h".repeat(200) }] },
+      {
+        type: "stats",
+        items: [{ label: `<${"a".repeat(100)}>`, value: "v".repeat(100), hint: "h".repeat(200) }],
+      },
     ]);
     const item = (result!.nodes[0] as PageStats).items[0]!;
     expect(item.label).not.toContain("<");
@@ -358,10 +365,7 @@ describe("table", () => {
         columns: ["A", "B"],
         rows: [
           {
-            cells: [
-              { text: `<b>x</b>${"y".repeat(400)}`, tone: "danger" },
-              { tone: "success" },
-            ],
+            cells: [{ text: `<b>x</b>${"y".repeat(400)}`, tone: "danger" }, { tone: "success" }],
           },
         ],
       },
@@ -385,7 +389,11 @@ describe("button", () => {
         type: "button",
         label: "Clear",
         style: "danger",
-        action: { event: "demo:clear", confirm: "Really?", payload: { scope: "all", n: 2, force: true } },
+        action: {
+          event: "demo:clear",
+          confirm: "Really?",
+          payload: { scope: "all", n: 2, force: true },
+        },
       },
     ]);
     const b = result!.nodes[0] as PageButton;
@@ -393,7 +401,11 @@ describe("button", () => {
       type: "button",
       label: "Clear",
       style: "danger",
-      action: { event: "demo:clear", confirm: "Really?", payload: { scope: "all", n: 2, force: true } },
+      action: {
+        event: "demo:clear",
+        confirm: "Really?",
+        payload: { scope: "all", n: 2, force: true },
+      },
     });
   });
 
@@ -406,7 +418,9 @@ describe("button", () => {
   test("missing label / missing action / unknown style handling", () => {
     expect(validate([{ type: "button", action: { event: "demo:clear" } }])!.nodes).toHaveLength(0);
     expect(validate([{ type: "button", label: "X" }])!.nodes).toHaveLength(0);
-    const r = validate([{ type: "button", label: "X", style: "rainbow", action: { event: "demo:clear" } }]);
+    const r = validate([
+      { type: "button", label: "X", style: "rainbow", action: { event: "demo:clear" } },
+    ]);
     const b = r!.nodes[0] as PageButton;
     expect(b.style).toBeUndefined(); // unknown style variants are dropped, never passed through
   });
@@ -425,13 +439,16 @@ describe("button", () => {
   test("payload with nested objects / arrays drops the node", () => {
     expect(
       validate([
-        { type: "button", label: "X", action: { event: "demo:clear", payload: { nested: { a: 1 } } } },
+        {
+          type: "button",
+          label: "X",
+          action: { event: "demo:clear", payload: { nested: { a: 1 } } },
+        },
       ])!.nodes,
     ).toHaveLength(0);
     expect(
-      validate([
-        { type: "button", label: "X", action: { event: "demo:clear", payload: ["a"] } },
-      ])!.nodes,
+      validate([{ type: "button", label: "X", action: { event: "demo:clear", payload: ["a"] } }])!
+        .nodes,
     ).toHaveLength(0);
   });
 
@@ -453,9 +470,8 @@ describe("button", () => {
 
 describe("action prompt", () => {
   function buttonWith(prompt: unknown): PageButton | undefined {
-    return validate([
-      { type: "button", label: "Add", action: { event: "demo:refresh", prompt } },
-    ])!.nodes[0] as PageButton | undefined;
+    return validate([{ type: "button", label: "Add", action: { event: "demo:refresh", prompt } }])!
+      .nodes[0] as PageButton | undefined;
   }
 
   test("a valid prompt is normalized (defaults for field/maxLength)", () => {
@@ -495,7 +511,15 @@ describe("action prompt", () => {
   });
 
   test("bad field slugs fall back to the default 'value' (anti-spoof)", () => {
-    for (const badField of ["Topic", "has space", "_leading", "with-dash", "x".repeat(40), "a:b", ""]) {
+    for (const badField of [
+      "Topic",
+      "has space",
+      "_leading",
+      "with-dash",
+      "x".repeat(40),
+      "a:b",
+      "",
+    ]) {
       const b = buttonWith({ label: "T", field: badField });
       expect(b!.action.prompt!.field).toBe("value");
     }
@@ -536,7 +560,12 @@ describe("action prompt", () => {
   });
 
   test("file-path format round-trips with the other prompt fields", () => {
-    const b = buttonWith({ label: "Folder path", placeholder: "/watched/Downloads", field: "path", format: "file-path" });
+    const b = buttonWith({
+      label: "Folder path",
+      placeholder: "/watched/Downloads",
+      field: "path",
+      format: "file-path",
+    });
     expect(b!.action.prompt).toEqual({
       label: "Folder path",
       placeholder: "/watched/Downloads",
@@ -561,7 +590,12 @@ describe("action prompt", () => {
       {
         type: "table",
         columns: ["A"],
-        rows: [{ cells: ["x"], action: { event: "demo:refresh", prompt: { label: "Rename", field: "name" } } }],
+        rows: [
+          {
+            cells: ["x"],
+            action: { event: "demo:refresh", prompt: { label: "Rename", field: "name" } },
+          },
+        ],
       },
     ])!.nodes[0] as PageTable;
     expect(t.rows[0]!.action!.prompt).toEqual({ label: "Rename", field: "name", maxLength: 200 });
@@ -619,7 +653,12 @@ describe("action form", () => {
     // the slug regex rejects the capital `I`. A form of ONLY jobId degrades away.
     expect(formOf({ fields: [{ field: "jobId", label: "spoof" }] })).toBeUndefined();
     // Alongside a legal sibling, only jobId is dropped.
-    const f = formOf({ fields: [{ field: "jobId", label: "spoof" }, { field: "name", label: "Name" }] });
+    const f = formOf({
+      fields: [
+        { field: "jobId", label: "spoof" },
+        { field: "name", label: "Name" },
+      ],
+    });
     expect(f!.fields.map((x) => x.field)).toEqual(["name"]);
   });
 
@@ -627,13 +666,29 @@ describe("action form", () => {
     const many = Array.from({ length: 12 }, (_, i) => ({ field: `f${i}`, label: `L${i}` }));
     const f = formOf({ fields: many });
     expect(f!.fields).toHaveLength(10);
-    expect(f!.fields.map((x) => x.field)).toEqual(["f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9"]);
+    expect(f!.fields.map((x) => x.field)).toEqual([
+      "f0",
+      "f1",
+      "f2",
+      "f3",
+      "f4",
+      "f5",
+      "f6",
+      "f7",
+      "f8",
+      "f9",
+    ]);
   });
 
   test("a form with ZERO surviving fields degrades away — action still valid", () => {
     for (const bad of [
       { fields: [] },
-      { fields: [{ field: "Bad", label: "x" }, { field: "also-bad", label: "y" }] },
+      {
+        fields: [
+          { field: "Bad", label: "x" },
+          { field: "also-bad", label: "y" },
+        ],
+      },
       { fields: [{ label: "no field key" }] },
       { fields: [{ field: "ok", label: "" }] }, // empty label drops the only field
       { fields: "not-array" },
@@ -677,7 +732,8 @@ describe("action form", () => {
   });
 
   test("maxLength clamps to [1,500]; non-numeric → default 200", () => {
-    const ml = (v: unknown) => formOf({ fields: [{ field: "n", label: "N", maxLength: v }] })!.fields[0]!.maxLength;
+    const ml = (v: unknown) =>
+      formOf({ fields: [{ field: "n", label: "N", maxLength: v }] })!.fields[0]!.maxLength;
     expect(ml(0)).toBe(1);
     expect(ml(-5)).toBe(1);
     expect(ml(9999)).toBe(500);
@@ -719,10 +775,17 @@ describe("action form", () => {
       {
         type: "table",
         columns: ["A"],
-        rows: [{ cells: ["x"], action: { event: "demo:refresh", form: { fields: [{ field: "name", label: "Name" }] } } }],
+        rows: [
+          {
+            cells: ["x"],
+            action: { event: "demo:refresh", form: { fields: [{ field: "name", label: "Name" }] } },
+          },
+        ],
       },
     ])!.nodes[0] as PageTable;
-    expect(t.rows[0]!.action!.form).toEqual({ fields: [{ field: "name", label: "Name", maxLength: 200 }] });
+    expect(t.rows[0]!.action!.form).toEqual({
+      fields: [{ field: "name", label: "Name", maxLength: 200 }],
+    });
   });
 
   test("BACK-COMPAT: a form-less action serializes byte-identically (no `form` key emitted)", () => {
@@ -730,12 +793,19 @@ describe("action form", () => {
       { type: "button", label: "Go", action: { event: "demo:clear", payload: { a: "1" } } },
     ]);
     const withPrompt = validate([
-      { type: "button", label: "Add", action: { event: "demo:refresh", prompt: { label: "Topic" } } },
+      {
+        type: "button",
+        label: "Add",
+        action: { event: "demo:refresh", prompt: { label: "Topic" } },
+      },
     ]);
     expect(JSON.stringify(plain)).not.toContain("form");
     expect(JSON.stringify(withPrompt)).not.toContain("form");
     // Exact shape unchanged from the pre-form validator.
-    expect((plain!.nodes[0] as PageButton).action).toEqual({ event: "demo:clear", payload: { a: "1" } });
+    expect((plain!.nodes[0] as PageButton).action).toEqual({
+      event: "demo:clear",
+      payload: { a: "1" },
+    });
   });
 });
 
@@ -761,7 +831,13 @@ describe("prompt security invariants", () => {
     // And when the allowlist is empty, no prompt action survives.
     expect(
       validate(
-        [{ type: "button", label: "X", action: { event: "demo:refresh", prompt: { label: "Type" } } }],
+        [
+          {
+            type: "button",
+            label: "X",
+            action: { event: "demo:refresh", prompt: { label: "Type" } },
+          },
+        ],
         [],
       )!.nodes,
     ).toHaveLength(0);
@@ -771,7 +847,7 @@ describe("prompt security invariants", () => {
     // Simulate a handler echoing an untrusted typed value back into a
     // stat/markdown-free node. Every re-rendered tree passes through
     // validatePageTree, which <>-strips all display strings.
-    const echoed = '<script>alert(1)</script>';
+    const echoed = "<script>alert(1)</script>";
     const result = validate([
       { type: "stats", items: [{ label: "Watching", value: echoed }] },
       { type: "empty-state", title: echoed, detail: echoed },
@@ -930,7 +1006,11 @@ describe("empty allowlist", () => {
     const result = validate(
       [
         { type: "button", label: "X", action: { event: "demo:clear" } },
-        { type: "table", columns: ["A"], rows: [{ cells: ["x"], action: { event: "demo:clear" } }] },
+        {
+          type: "table",
+          columns: ["A"],
+          rows: [{ cells: ["x"], action: { event: "demo:clear" } }],
+        },
         { type: "table", columns: ["A"], rows: [{ cells: ["plain"] }] },
       ],
       [],
@@ -959,7 +1039,11 @@ describe("ECF job-view prompt fields survive the real validator", () => {
     return {
       type: "button",
       label: `Edit ${field}`,
-      action: { event: JOB_SAVE, payload: { jobId: "j1" }, prompt: { label: `Edit ${field}`, field, submitLabel: "Save" } },
+      action: {
+        event: JOB_SAVE,
+        payload: { jobId: "j1" },
+        prompt: { label: `Edit ${field}`, field, submitLabel: "Save" },
+      },
     };
   }
 
@@ -967,7 +1051,9 @@ describe("ECF job-view prompt fields survive the real validator", () => {
     const fields = ["name", "branch_pattern", "trigger", "skip_steps", "agent_name"];
     const result = validate(fields.map(editButton), [JOB_SAVE]);
     expect(result).not.toBeNull();
-    const buttons = result!.nodes.filter((n) => (n as { type: string }).type === "button") as PageButton[];
+    const buttons = result!.nodes.filter(
+      (n) => (n as { type: string }).type === "button",
+    ) as PageButton[];
     expect(buttons).toHaveLength(fields.length);
     const seen = buttons.map((b) => b.action.prompt!.field);
     expect(seen).toEqual(fields); // each field survived exactly
@@ -1030,7 +1116,12 @@ describe("form node", () => {
 
   test("a valid form node survives with action, fields, and submitLabel", () => {
     const result = validate([
-      { type: "form", action: { event: "demo:refresh", payload: { jobId: "j1" } }, fields: FIELDS, submitLabel: "Save job" },
+      {
+        type: "form",
+        action: { event: "demo:refresh", payload: { jobId: "j1" } },
+        fields: FIELDS,
+        submitLabel: "Save job",
+      },
     ]);
     const form = result!.nodes[0] as PageFormNode;
     expect(form.type).toBe("form");
@@ -1058,15 +1149,17 @@ describe("form node", () => {
   });
 
   test("an undeclared event drops the whole node", () => {
-    const result = validate([
-      { type: "form", action: { event: "evil:exfil" }, fields: FIELDS },
-    ]);
+    const result = validate([{ type: "form", action: { event: "evil:exfil" }, fields: FIELDS }]);
     expect(result!.nodes).toHaveLength(0);
   });
 
   test("zero surviving fields drops the whole node", () => {
     const result = validate([
-      { type: "form", action: { event: "demo:refresh" }, fields: [{ field: "Bad-Slug", label: "X" }] },
+      {
+        type: "form",
+        action: { event: "demo:refresh" },
+        fields: [{ field: "Bad-Slug", label: "X" }],
+      },
       { type: "form", action: { event: "demo:refresh" }, fields: [] },
       { type: "form", action: { event: "demo:refresh" } },
     ]);
@@ -1154,7 +1247,12 @@ describe("form-field select options", () => {
     const result = validate([
       NODE([
         { field: "one", label: "One", options: [{ value: "solo" }] },
-        { field: "junk", label: "Junk", value: "typed", options: [{ value: "" }, { label: "no value" }, "str", null] },
+        {
+          field: "junk",
+          label: "Junk",
+          value: "typed",
+          options: [{ value: "" }, { label: "no value" }, "str", null],
+        },
       ]),
     ]);
     const fields = (result!.nodes[0] as PageFormNode).fields;

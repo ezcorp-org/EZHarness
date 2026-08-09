@@ -155,13 +155,10 @@ mock.module("@earendil-works/pi-agent-core", () => ({
         });
 
         // 1c — generate_substack_draft(…)
-        const draftResult = await this._callTool(
-          "substack-pilot__generate_substack_draft",
-          {
-            postTypeSlug: "weekly",
-            urls: ["https://a.example/post1", "https://b.example/post2"],
-          },
-        );
+        const draftResult = await this._callTool("substack-pilot__generate_substack_draft", {
+          postTypeSlug: "weekly",
+          urls: ["https://a.example/post1", "https://b.example/post2"],
+        });
 
         // Extract the draft URL the stub returned so the final
         // assistant text can echo it back — this is the artefact the
@@ -224,10 +221,7 @@ mock.module("@earendil-works/pi-agent-core", () => ({
         details: { isError: boolean };
       };
       try {
-        result = await tool.execute(
-          `mock-call-${name}-${Date.now()}`,
-          args,
-        );
+        result = await tool.execute(`mock-call-${name}-${Date.now()}`, args);
       } catch (err) {
         result = {
           content: [{ type: "text", text: String(err) }],
@@ -368,10 +362,9 @@ describe("substack-pilot — chat E2E (gap #4)", () => {
     const bus = new EventBus<AgentEvents>();
     const executor = new AgentExecutor(new Map(), bus);
 
-    const toolEvents: Array<{ phase: "start" | "complete"; toolName: string; success?: boolean }> = [];
-    bus.on("tool:start", (data) =>
-      toolEvents.push({ phase: "start", toolName: data.toolName }),
-    );
+    const toolEvents: Array<{ phase: "start" | "complete"; toolName: string; success?: boolean }> =
+      [];
+    bus.on("tool:start", (data) => toolEvents.push({ phase: "start", toolName: data.toolName }));
     bus.on("tool:complete", (data) =>
       toolEvents.push({
         phase: "complete",

@@ -55,7 +55,14 @@ export const TEXT_MIMES = [
   "application/x-yaml",
 ] as const;
 export const PDF_MIMES = ["application/pdf"] as const;
-export const AUDIO_MIMES = ["audio/mpeg", "audio/wav", "audio/x-wav", "audio/mp4", "audio/m4a", "audio/ogg"] as const;
+export const AUDIO_MIMES = [
+  "audio/mpeg",
+  "audio/wav",
+  "audio/x-wav",
+  "audio/mp4",
+  "audio/m4a",
+  "audio/ogg",
+] as const;
 
 // ── Default size limits ───────────────────────────────────────────
 
@@ -72,14 +79,23 @@ interface Override {
   maxBytesPerFile?: number;
 }
 
-const OVERRIDES: Array<{ match: (provider: string, modelId: string) => boolean; override: Override }> = [
+const OVERRIDES: Array<{
+  match: (provider: string, modelId: string) => boolean;
+  override: Override;
+}> = [
   // Anthropic Claude: PDFs supported natively on API; we still extract text in
   // Phase 1 because pi-ai has no PDF content type, but the user can upload them.
   { match: (p) => p === "anthropic", override: { pdfNative: true, maxBytesPerFile: 32 * MB } },
   // Google Gemini: PDFs supported; audio also supported but not wired in Phase 1.
-  { match: (p) => p === "google" || p === "google-gemini-cli", override: { pdfNative: true, maxBytesPerFile: 20 * MB } },
+  {
+    match: (p) => p === "google" || p === "google-gemini-cli",
+    override: { pdfNative: true, maxBytesPerFile: 20 * MB },
+  },
   // OpenAI GPT-4o and o-series: PDFs via vision on some models; permit upload.
-  { match: (p, m) => p === "openai" && (/gpt-4o|o[1-9]|gpt-4-turbo/.test(m)), override: { pdfNative: true } },
+  {
+    match: (p, m) => p === "openai" && /gpt-4o|o[1-9]|gpt-4-turbo/.test(m),
+    override: { pdfNative: true },
+  },
 ];
 
 function findOverride(provider: string, modelId: string): Override {

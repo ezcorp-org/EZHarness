@@ -69,7 +69,12 @@ export async function setStorageValue(
       updatedAt: now,
     })
     .onConflictDoUpdate({
-      target: [extensionStorage.extensionId, extensionStorage.scope, extensionStorage.scopeId, extensionStorage.key],
+      target: [
+        extensionStorage.extensionId,
+        extensionStorage.scope,
+        extensionStorage.scopeId,
+        extensionStorage.key,
+      ],
       set: { value, encrypted, sizeBytes, expiresAt: expiresAt ?? null, updatedAt: now },
     });
 }

@@ -15,9 +15,7 @@ import { z } from "zod";
 export const workflowStepSchema = z
   .object({
     name: z.string().optional(),
-    kind: z
-      .enum(["agent", "transform", "gate", "tool", "approval", "workflow"])
-      .optional(),
+    kind: z.enum(["agent", "transform", "gate", "tool", "approval", "workflow"]).optional(),
     agent: z.string().optional(),
     input: z.record(z.string(), z.string()).optional(),
     retries: z.number().optional(),

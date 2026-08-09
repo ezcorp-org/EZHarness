@@ -133,9 +133,7 @@ describe("pre-spawn conntrack guard", () => {
     // Tear down the proxy started by buildSandboxedMcpSpec.
     if (result.proxyHandle) await result.proxyHandle.stop();
 
-    expect(
-      auditCalls.some((c) => c.action === EXT_AUDIT_ACTIONS.MCP_CONNTRACK_HIGH),
-    ).toBe(false);
+    expect(auditCalls.some((c) => c.action === EXT_AUDIT_ACTIONS.MCP_CONNTRACK_HIGH)).toBe(false);
   });
 
   test("count exactly 0.7 * max → spawn proceeds (strict `>` not `>=`)", async () => {
@@ -159,9 +157,7 @@ describe("pre-spawn conntrack guard", () => {
     expect(result.spec).toBeDefined();
     if (result.proxyHandle) await result.proxyHandle.stop();
 
-    expect(
-      auditCalls.some((c) => c.action === EXT_AUDIT_ACTIONS.MCP_CONNTRACK_HIGH),
-    ).toBe(false);
+    expect(auditCalls.some((c) => c.action === EXT_AUDIT_ACTIONS.MCP_CONNTRACK_HIGH)).toBe(false);
   });
 
   test("count > 0.7 * max → spawn refused + MCP_CONNTRACK_HIGH row with metadata", async () => {
@@ -176,13 +172,7 @@ describe("pre-spawn conntrack guard", () => {
 
     let thrown: Error | null = null;
     try {
-      await buildSandboxedMcpSpec(
-        makeSpec(),
-        makeManifest(),
-        makeGranted(),
-        "ext-1",
-        makeCtx(),
-      );
+      await buildSandboxedMcpSpec(makeSpec(), makeManifest(), makeGranted(), "ext-1", makeCtx());
     } catch (err) {
       thrown = err as Error;
     }
@@ -190,9 +180,7 @@ describe("pre-spawn conntrack guard", () => {
     expect(thrown!.message).toMatch(/conntrack/i);
     expect(thrown!.message).toMatch(/70%|0\.7/);
 
-    const row = auditCalls.find(
-      (c) => c.action === EXT_AUDIT_ACTIONS.MCP_CONNTRACK_HIGH,
-    );
+    const row = auditCalls.find((c) => c.action === EXT_AUDIT_ACTIONS.MCP_CONNTRACK_HIGH);
     expect(row).toBeDefined();
     expect(row?.metadata?.extensionName).toBe("test-mcp-ext");
     expect(row?.metadata?.conntrackCount).toBe(80000);
@@ -218,9 +206,7 @@ describe("pre-spawn conntrack guard", () => {
     expect(result.spec).toBeDefined();
     if (result.proxyHandle) await result.proxyHandle.stop();
 
-    expect(
-      auditCalls.some((c) => c.action === EXT_AUDIT_ACTIONS.MCP_CONNTRACK_HIGH),
-    ).toBe(false);
+    expect(auditCalls.some((c) => c.action === EXT_AUDIT_ACTIONS.MCP_CONNTRACK_HIGH)).toBe(false);
   });
 
   test("audit row metadata shape conforms to CONTEXT (permission, oldValue, newValue, actor)", async () => {
@@ -234,20 +220,12 @@ describe("pre-spawn conntrack guard", () => {
     });
 
     try {
-      await buildSandboxedMcpSpec(
-        makeSpec(),
-        makeManifest(),
-        makeGranted(),
-        "ext-1",
-        makeCtx(),
-      );
+      await buildSandboxedMcpSpec(makeSpec(), makeManifest(), makeGranted(), "ext-1", makeCtx());
     } catch {
       /* expected refusal */
     }
 
-    const row = auditCalls.find(
-      (c) => c.action === EXT_AUDIT_ACTIONS.MCP_CONNTRACK_HIGH,
-    );
+    const row = auditCalls.find((c) => c.action === EXT_AUDIT_ACTIONS.MCP_CONNTRACK_HIGH);
     expect(row).toBeDefined();
     expect(row?.metadata?.permission).toBe("network");
     expect(row?.metadata?.oldValue).toBe(null);

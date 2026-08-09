@@ -1,8 +1,4 @@
-import type {
-  AgentDefinition,
-  AgentContext,
-  AgentEvents,
-} from "../../src/types";
+import type { AgentDefinition, AgentContext, AgentEvents } from "../../src/types";
 import { EventBus } from "../../src/runtime/events";
 import { AgentExecutor } from "../../src/runtime/executor";
 import { loadAgentsStatic } from "../../src/runtime/loader";
@@ -15,7 +11,12 @@ const summarizer: AgentDefinition = {
   capabilities: ["llm"],
   inputSchema: {
     text: { type: "text", label: "Text", description: "Text to summarize", required: true },
-    provider: { type: "select", label: "Provider", options: ["anthropic", "google", "openai"], default: "anthropic" },
+    provider: {
+      type: "select",
+      label: "Provider",
+      options: ["anthropic", "google", "openai"],
+      default: "anthropic",
+    },
     model: { type: "string", label: "Model", description: "Override model name" },
   },
   async execute(ctx: AgentContext) {
@@ -23,14 +24,11 @@ const summarizer: AgentDefinition = {
     if (!text) return { success: false, output: null, error: "Missing input.text" };
 
     ctx.log("Summarizing text...");
-    const response = await ctx.llm.complete(
-      [{ role: "user", content: text }],
-      {
-        system: "Summarize the following text concisely.",
-        provider: (ctx.input.provider as string) ?? undefined,
-        model: ctx.input.model as string | undefined,
-      },
-    );
+    const response = await ctx.llm.complete([{ role: "user", content: text }], {
+      system: "Summarize the following text concisely.",
+      provider: (ctx.input.provider as string) ?? undefined,
+      model: ctx.input.model as string | undefined,
+    });
     return { success: true, output: { summary: response.text } };
   },
 };

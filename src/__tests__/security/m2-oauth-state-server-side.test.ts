@@ -97,9 +97,7 @@ mock.module("../../providers/encryption", () => ({
 }));
 
 // $lib alias for the shared OAuth config.
-mock.module("$lib/server/oauth-config", () =>
-  require("../../../web/src/lib/server/oauth-config"),
-);
+mock.module("$lib/server/oauth-config", () => require("../../../web/src/lib/server/oauth-config"));
 
 // Capture every outbound fetch so we can inspect the token exchange
 // body — specifically which codeVerifier the handler passed.

@@ -32,7 +32,12 @@ const USER = { id: "session-user", email: "u@x", name: "u", role: "member" } as 
 
 function makeEvent(opts: { body?: unknown; raw?: string; locals?: Record<string, unknown> }) {
   const href = "http://localhost/api/preview/consent";
-  const body = opts.raw !== undefined ? opts.raw : opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
+  const body =
+    opts.raw !== undefined
+      ? opts.raw
+      : opts.body !== undefined
+        ? JSON.stringify(opts.body)
+        : undefined;
   return {
     request: new Request(href, {
       method: "POST",
@@ -62,7 +67,9 @@ beforeEach(() => {
 
 describe("POST /api/preview/consent", () => {
   test("401 when unauthenticated", async () => {
-    const res = await run(makeEvent({ body: { conversationId: "c1", port: 5173, action: "expose" }, locals: {} }));
+    const res = await run(
+      makeEvent({ body: { conversationId: "c1", port: 5173, action: "expose" }, locals: {} }),
+    );
     expect(res.status).toBe(401);
     expect(mockExpose).not.toHaveBeenCalled();
   });
@@ -79,7 +86,9 @@ describe("POST /api/preview/consent", () => {
   });
 
   test("400 on unknown action", async () => {
-    const res = await run(makeEvent({ body: { conversationId: "c1", port: 5173, action: "frobnicate" } }));
+    const res = await run(
+      makeEvent({ body: { conversationId: "c1", port: 5173, action: "frobnicate" } }),
+    );
     expect(res.status).toBe(400);
   });
 
@@ -90,7 +99,9 @@ describe("POST /api/preview/consent", () => {
   });
 
   test("400 on a port above 65535 for expose", async () => {
-    const res = await run(makeEvent({ body: { conversationId: "c1", port: 70000, action: "expose" } }));
+    const res = await run(
+      makeEvent({ body: { conversationId: "c1", port: 70000, action: "expose" } }),
+    );
     expect(res.status).toBe(400);
     expect(mockExpose).not.toHaveBeenCalled();
   });
@@ -105,19 +116,31 @@ describe("POST /api/preview/consent", () => {
   test("expose calls exposeDetectedPort with the SESSION user (requester-scoped)", async () => {
     const res = await run(
       // A spoofed userId in the body MUST be ignored.
-      makeEvent({ body: { conversationId: "c1", port: 5173, action: "expose", userId: "attacker" } }),
+      makeEvent({
+        body: { conversationId: "c1", port: 5173, action: "expose", userId: "attacker" },
+      }),
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true, previewId: "pid26", code: "code123" });
-    expect(mockExpose).toHaveBeenCalledWith({ userId: "session-user", conversationId: "c1", port: 5173 });
+    expect(mockExpose).toHaveBeenCalledWith({
+      userId: "session-user",
+      conversationId: "c1",
+      port: 5173,
+    });
     expect(mockSetAlways).not.toHaveBeenCalled();
   });
 
   test("always-expose sets the pref THEN exposes", async () => {
-    const res = await run(makeEvent({ body: { conversationId: "c1", port: 5173, action: "always-expose" } }));
+    const res = await run(
+      makeEvent({ body: { conversationId: "c1", port: 5173, action: "always-expose" } }),
+    );
     expect(res.status).toBe(200);
     expect(mockSetAlways).toHaveBeenCalledWith("c1", "session-user");
-    expect(mockExpose).toHaveBeenCalledWith({ userId: "session-user", conversationId: "c1", port: 5173 });
+    expect(mockExpose).toHaveBeenCalledWith({
+      userId: "session-user",
+      conversationId: "c1",
+      port: 5173,
+    });
   });
 
   test("disable-always clears the pref + does not expose", async () => {

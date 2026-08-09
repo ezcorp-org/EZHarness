@@ -32,10 +32,7 @@
 // the (extensionId, scope, scopeId) tuple varies per call and the
 // cache invalidation would cost more than the construction.
 
-import type {
-  EntityStoreGetResult,
-  EntityStoreLike,
-} from "@ezcorp/sdk/entities";
+import type { EntityStoreGetResult, EntityStoreLike } from "@ezcorp/sdk/entities";
 import {
   deleteStorageValue,
   getStorageValue,
@@ -65,9 +62,7 @@ export interface HostEntityStoreOptions {
   scopeId: string | null;
 }
 
-function mapScope(
-  scope: HostEntityStoreOptions["scope"],
-): StorageScope {
+function mapScope(scope: HostEntityStoreOptions["scope"]): StorageScope {
   switch (scope) {
     case "user":
       return "user";
@@ -93,20 +88,13 @@ function mapScope(
  * `storage-handler.ts` clamp (rejecting `__*` from subprocess RPCs)
  * still applies to anything other than the SDK-served path.
  */
-export function createHostEntityStore(
-  opts: HostEntityStoreOptions,
-): EntityStoreLike {
+export function createHostEntityStore(opts: HostEntityStoreOptions): EntityStoreLike {
   const storageScope = mapScope(opts.scope);
   const { extensionId, scopeId } = opts;
 
   return {
     async get<T = unknown>(key: string): Promise<EntityStoreGetResult<T>> {
-      const row = await getStorageValue(
-        extensionId,
-        storageScope,
-        scopeId,
-        key,
-      );
+      const row = await getStorageValue(extensionId, storageScope, scopeId, key);
       if (!row) return { value: null, exists: false };
       // The host-served path never writes encrypted entity records —
       // the auto-table UI needs to read them as plain JSON. If we
@@ -137,12 +125,7 @@ export function createHostEntityStore(
     },
 
     async delete(key: string): Promise<{ deleted: boolean }> {
-      const deleted = await deleteStorageValue(
-        extensionId,
-        storageScope,
-        scopeId,
-        key,
-      );
+      const deleted = await deleteStorageValue(extensionId, storageScope, scopeId, key);
       return { deleted };
     },
   };

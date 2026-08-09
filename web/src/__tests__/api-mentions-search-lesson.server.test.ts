@@ -50,7 +50,9 @@ const USER = { id: "u1", email: "u@x", name: "u", role: "user" };
 // columns (frontmatter, sourceSha256, counters, timestamps) are present
 // in real rows but ignored by the route — leaving them off here keeps
 // each test fixture readable.
-function lessonRow(overrides: Partial<{ id: string; slug: string; title: string; body: string }> = {}) {
+function lessonRow(
+  overrides: Partial<{ id: string; slug: string; title: string; body: string }> = {},
+) {
   return {
     id: "lid-1",
     projectId: "p1",
@@ -108,9 +110,7 @@ describe("GET /api/mentions/search?type=lesson", () => {
 
   test("response shape: every entry has {name: slug, description, kind:'lesson'}; internal fields don't leak", async () => {
     vi.mocked(getProject).mockResolvedValue({ id: "p1", name: "Alpha", path: "/tmp/a" } as any);
-    mockSearchLessons.mockResolvedValue([
-      lessonRow({ slug: "rule-a", body: "short body" }),
-    ]);
+    mockSearchLessons.mockResolvedValue([lessonRow({ slug: "rule-a", body: "short body" })]);
 
     const res = await GET(
       makeEvent({

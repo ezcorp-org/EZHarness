@@ -69,7 +69,8 @@ describe("initExtension", () => {
       .replace("export default", "return");
     const noop = () => {};
     const manifest = new Function("defineExtension", "handleRequest", transformed)(
-      (x: any) => x, noop,
+      (x: any) => x,
+      noop,
     );
     if (manifest.tools) {
       for (const t of manifest.tools) delete t.handler;
@@ -113,7 +114,8 @@ describe("initExtension", () => {
       .replace("export default", "return");
     const noop = () => {};
     const manifest = new Function("defineExtension", "handleRequest", transformed)(
-      (x: any) => x, noop,
+      (x: any) => x,
+      noop,
     );
     expect(manifest.tools).toHaveLength(1);
     expect(manifest.skills).toHaveLength(1);
@@ -125,16 +127,14 @@ describe("initExtension", () => {
     mkdirSync(join(tempDir, "existing-ext"));
 
     await expect(
-      initExtension({ extName: "existing-ext", type: "tool", cwd: tempDir })
+      initExtension({ extName: "existing-ext", type: "tool", cwd: tempDir }),
     ).rejects.toThrow('Directory "existing-ext" already exists');
   });
 
   test("fails without extName", async () => {
     const { initExtension } = await import("../extensions/sdk/init");
 
-    await expect(
-      initExtension({ type: "tool", cwd: tempDir })
-    ).rejects.toThrow();
+    await expect(initExtension({ type: "tool", cwd: tempDir })).rejects.toThrow();
   });
 
   test("generated .gitignore contains common patterns", async () => {
@@ -201,7 +201,8 @@ describe("initExtension", () => {
       .replace("export default", "return");
     const noop = () => {};
     const manifest = new Function("defineExtension", "handleRequest", transformed)(
-      (x: any) => x, noop,
+      (x: any) => x,
+      noop,
     );
     expect(manifest.description).toBe("My custom description");
   });

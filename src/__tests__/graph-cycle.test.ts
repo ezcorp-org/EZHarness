@@ -16,12 +16,7 @@ describe("detectCycle (generic)", () => {
   });
 
   test("transitive three-node cycle", () => {
-    expect(detectCycle("A", edges({ A: ["B"], B: ["C"], C: ["A"] }))).toEqual([
-      "A",
-      "B",
-      "C",
-      "A",
-    ]);
+    expect(detectCycle("A", edges({ A: ["B"], B: ["C"], C: ["A"] }))).toEqual(["A", "B", "C", "A"]);
   });
 
   test("acyclic reachable subgraph returns null", () => {

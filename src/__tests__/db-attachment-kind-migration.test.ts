@@ -39,20 +39,33 @@ async function freshDb() {
   await migrate(db);
 }
 
-async function seedMessage(): Promise<{ projectId: string; conversationId: string; messageId: string }> {
-  const [project] = await db.insert(schema.projects).values({
-    name: "attachment-kind-test",
-    path: "/tmp/attachment-kind-test",
-  }).returning();
-  const [conv] = await db.insert(schema.conversations).values({
-    projectId: project!.id,
-    title: "kind test",
-  }).returning();
-  const [msg] = await db.insert(schema.messages).values({
-    conversationId: conv!.id,
-    role: "user",
-    content: "hi",
-  }).returning();
+async function seedMessage(): Promise<{
+  projectId: string;
+  conversationId: string;
+  messageId: string;
+}> {
+  const [project] = await db
+    .insert(schema.projects)
+    .values({
+      name: "attachment-kind-test",
+      path: "/tmp/attachment-kind-test",
+    })
+    .returning();
+  const [conv] = await db
+    .insert(schema.conversations)
+    .values({
+      projectId: project!.id,
+      title: "kind test",
+    })
+    .returning();
+  const [msg] = await db
+    .insert(schema.messages)
+    .values({
+      conversationId: conv!.id,
+      role: "user",
+      content: "hi",
+    })
+    .returning();
   return { projectId: project!.id, conversationId: conv!.id, messageId: msg!.id };
 }
 
@@ -69,15 +82,18 @@ describe("messageAttachments.kind union expansion", () => {
     const { conversationId, messageId } = await seedMessage();
 
     for (const kind of ALL_KINDS) {
-      const [row] = await db.insert(schema.messageAttachments).values({
-        messageId,
-        conversationId,
-        filename: `${kind}.bin`,
-        mimeType: "application/octet-stream",
-        sizeBytes: 42,
-        storagePath: `/tmp/${kind}.bin`,
-        kind,
-      }).returning();
+      const [row] = await db
+        .insert(schema.messageAttachments)
+        .values({
+          messageId,
+          conversationId,
+          filename: `${kind}.bin`,
+          mimeType: "application/octet-stream",
+          sizeBytes: 42,
+          storagePath: `/tmp/${kind}.bin`,
+          kind,
+        })
+        .returning();
 
       expect(row).toBeDefined();
       expect(row!.id).toBeDefined();
@@ -188,23 +204,27 @@ describe("messageAttachments.kind union expansion", () => {
     // Documents the deliberate choice to enforce the union at the TS layer
     // only. If a future migration adds a CHECK constraint, this test fails
     // and the author has to update both the schema and this guard in lockstep.
-    const cols = (await db.execute(sql`
+    const cols = (
+      await db.execute(sql`
       SELECT data_type, is_nullable
       FROM information_schema.columns
       WHERE table_schema = 'public'
         AND table_name = 'message_attachments'
         AND column_name = 'kind'
-    `)).rows as Array<{ data_type: string; is_nullable: string }>;
+    `)
+    ).rows as Array<{ data_type: string; is_nullable: string }>;
     expect(cols).toHaveLength(1);
     expect(cols[0]!.data_type).toBe("text");
     expect(cols[0]!.is_nullable).toBe("NO");
 
-    const checks = (await db.execute(sql`
+    const checks = (
+      await db.execute(sql`
       SELECT conname
       FROM pg_constraint
       WHERE conrelid = 'public.message_attachments'::regclass
         AND contype = 'c'
-    `)).rows as Array<{ conname: string }>;
+    `)
+    ).rows as Array<{ conname: string }>;
     expect(checks).toEqual([]);
   });
 });

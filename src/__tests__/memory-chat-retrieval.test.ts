@@ -1,5 +1,10 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { mockEmbedding, mockEmbeddingsModule } from "./helpers/mock-vectors";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { MemoryProvenance } from "../memory/types";
@@ -43,7 +48,10 @@ let memArchived: { id: string };
 let memStale: { id: string };
 let memC1: { id: string };
 
-async function insertTestMemory(content: string, opts?: { projectId?: string | null; projectIds?: string[]; category?: string; status?: string }) {
+async function insertTestMemory(
+  content: string,
+  opts?: { projectId?: string | null; projectIds?: string[]; category?: string; status?: string },
+) {
   const embedding = mockEmbedding();
   const provenance: MemoryProvenance = {
     sourceConversationId: conversationId,
@@ -65,7 +73,10 @@ async function insertTestMemory(content: string, opts?: { projectId?: string | n
   });
   if (opts?.status && opts.status !== "active") {
     const db = getDb();
-    await db.update(memories).set({ status: opts.status } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ status: opts.status } as any)
+      .where(eq(memories.id, mem.id));
   }
   return mem;
 }
@@ -80,14 +91,20 @@ beforeAll(async () => {
   projectBId = projectB.id;
   projectCId = projectC.id;
 
-  await getDb().insert(users).values({
-    id: ownerId,
-    email: "chat-owner@test.local",
-    name: "Chat Owner",
-    passwordHash: "fake-hash",
-  }).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values({
+      id: ownerId,
+      email: "chat-owner@test.local",
+      name: "Chat Owner",
+      passwordHash: "fake-hash",
+    })
+    .onConflictDoNothing();
 
-  const conv = await createConversation(projectAId, { title: "chat retrieval conv", userId: ownerId });
+  const conv = await createConversation(projectAId, {
+    title: "chat retrieval conv",
+    userId: ownerId,
+  });
   conversationId = conv.id;
 
   // Project A memories
@@ -99,17 +116,25 @@ beforeAll(async () => {
   memB2 = await insertTestMemory("Project B CSS architecture", { projectId: projectBId });
 
   // Shared memory assigned to BOTH projectA and projectB
-  memAB1 = await insertTestMemory("Shared deployment pipeline config", { projectIds: [projectAId, projectBId] });
+  memAB1 = await insertTestMemory("Shared deployment pipeline config", {
+    projectIds: [projectAId, projectBId],
+  });
 
   // Global memories (no project assignment)
   memGlobal1 = await insertTestMemory("Company coding standards", { projectId: null });
   memGlobal2 = await insertTestMemory("Team standup schedule", { projectId: null });
 
   // Archived memory in project A
-  memArchived = await insertTestMemory("Deprecated API endpoint", { projectId: projectAId, status: "archived" });
+  memArchived = await insertTestMemory("Deprecated API endpoint", {
+    projectId: projectAId,
+    status: "archived",
+  });
 
   // Stale memory in project A
-  memStale = await insertTestMemory("Old project A note", { projectId: projectAId, status: "stale" });
+  memStale = await insertTestMemory("Old project A note", {
+    projectId: projectAId,
+    status: "stale",
+  });
 
   // Project C memory
   memC1 = await insertTestMemory("Project C mobile app design", { projectId: projectCId });
@@ -122,19 +147,34 @@ afterAll(async () => {
 
 describe("chat memory retrieval - project scoping", () => {
   test("chat in project A retrieves project A memories", async () => {
-    const result = await buildSystemPromptWithMemories("Base.", "database schema", projectAId, ownerId);
+    const result = await buildSystemPromptWithMemories(
+      "Base.",
+      "database schema",
+      projectAId,
+      ownerId,
+    );
     expect(result.systemPrompt).toContain("database schema design");
     const usedIds = result.memoriesUsed.map((m) => m.id);
     expect(usedIds).toContain(memA1.id);
   });
 
   test("chat in project A retrieves global memories", async () => {
-    const result = await buildSystemPromptWithMemories("Base.", "coding standards", projectAId, ownerId);
+    const result = await buildSystemPromptWithMemories(
+      "Base.",
+      "coding standards",
+      projectAId,
+      ownerId,
+    );
     expect(result.systemPrompt).toContain("coding standards");
   });
 
   test("chat in project A does NOT retrieve project B memories", async () => {
-    const result = await buildSystemPromptWithMemories("Base.", "React components", projectAId, ownerId);
+    const result = await buildSystemPromptWithMemories(
+      "Base.",
+      "React components",
+      projectAId,
+      ownerId,
+    );
     const usedIds = result.memoriesUsed.map((m) => m.id);
     expect(usedIds).not.toContain(memB1.id);
     expect(usedIds).not.toContain(memB2.id);
@@ -143,17 +183,32 @@ describe("chat memory retrieval - project scoping", () => {
   });
 
   test("multi-project memory appears in both projects chats", async () => {
-    const resultA = await buildSystemPromptWithMemories("Base.", "deployment pipeline", projectAId, ownerId);
+    const resultA = await buildSystemPromptWithMemories(
+      "Base.",
+      "deployment pipeline",
+      projectAId,
+      ownerId,
+    );
     const usedIdsA = resultA.memoriesUsed.map((m) => m.id);
     expect(usedIdsA).toContain(memAB1.id);
 
-    const resultB = await buildSystemPromptWithMemories("Base.", "deployment pipeline", projectBId, ownerId);
+    const resultB = await buildSystemPromptWithMemories(
+      "Base.",
+      "deployment pipeline",
+      projectBId,
+      ownerId,
+    );
     const usedIdsB = resultB.memoriesUsed.map((m) => m.id);
     expect(usedIdsB).toContain(memAB1.id);
   });
 
   test("archived memories never appear in chat", async () => {
-    const result = await buildSystemPromptWithMemories("Base.", "deprecated API", projectAId, ownerId);
+    const result = await buildSystemPromptWithMemories(
+      "Base.",
+      "deprecated API",
+      projectAId,
+      ownerId,
+    );
     const usedIds = result.memoriesUsed.map((m) => m.id);
     expect(usedIds).not.toContain(memArchived.id);
   });
@@ -161,7 +216,12 @@ describe("chat memory retrieval - project scoping", () => {
   test("memory disabled setting skips all memories", async () => {
     await upsertSetting("global:memoryEnabled", false);
     try {
-      const result = await buildSystemPromptWithMemories("Base.", "database schema", projectAId, ownerId);
+      const result = await buildSystemPromptWithMemories(
+        "Base.",
+        "database schema",
+        projectAId,
+        ownerId,
+      );
       expect(result.memoriesUsed).toEqual([]);
       expect(result.systemPrompt).toBe("Base.");
     } finally {
@@ -190,22 +250,30 @@ describe("chat memory retrieval - cross-project leak prevention", () => {
   });
 
   test("after reassigning memory from A to B, it stops appearing in A chat", async () => {
-    const reassignMem = await insertTestMemory("Reassignable memory content for testing", { projectId: projectAId });
+    const reassignMem = await insertTestMemory("Reassignable memory content for testing", {
+      projectId: projectAId,
+    });
     const embedding = mockEmbedding();
 
     // Should appear in project A
-    const beforeResults = await hybridSearch("reassignable memory", embedding, { projectId: projectAId });
+    const beforeResults = await hybridSearch("reassignable memory", embedding, {
+      projectId: projectAId,
+    });
     expect(beforeResults.map((r) => r.id)).toContain(reassignMem.id);
 
     // Reassign to project B
     await setMemoryProjects(reassignMem.id, [projectBId]);
 
     // Should no longer appear in project A
-    const afterResultsA = await hybridSearch("reassignable memory", embedding, { projectId: projectAId });
+    const afterResultsA = await hybridSearch("reassignable memory", embedding, {
+      projectId: projectAId,
+    });
     expect(afterResultsA.map((r) => r.id)).not.toContain(reassignMem.id);
 
     // Should now appear in project B
-    const afterResultsB = await hybridSearch("reassignable memory", embedding, { projectId: projectBId });
+    const afterResultsB = await hybridSearch("reassignable memory", embedding, {
+      projectId: projectBId,
+    });
     expect(afterResultsB.map((r) => r.id)).toContain(reassignMem.id);
   });
 
@@ -227,7 +295,12 @@ describe("chat memory retrieval - isolation mode", () => {
   test("isolation mode ON excludes global memories", async () => {
     await upsertSetting(`project:${projectAId}:memoryIsolation`, true);
     try {
-      const result = await buildSystemPromptWithMemories("Base.", "coding standards database schema", projectAId, ownerId);
+      const result = await buildSystemPromptWithMemories(
+        "Base.",
+        "coding standards database schema",
+        projectAId,
+        ownerId,
+      );
       const usedIds = result.memoriesUsed.map((m) => m.id);
 
       // Global memories should NOT appear
@@ -243,7 +316,12 @@ describe("chat memory retrieval - isolation mode", () => {
   });
 
   test("isolation mode OFF (default) includes global + project memories", async () => {
-    const result = await buildSystemPromptWithMemories("Base.", "coding standards database schema", projectAId, ownerId);
+    const result = await buildSystemPromptWithMemories(
+      "Base.",
+      "coding standards database schema",
+      projectAId,
+      ownerId,
+    );
     const usedIds = result.memoriesUsed.map((m) => m.id);
 
     // Both project A and global memories should appear
@@ -256,10 +334,18 @@ describe("chat memory retrieval - isolation mode", () => {
 
 describe("chat memory retrieval - edge cases", () => {
   test("project with no memories returns base prompt unchanged", async () => {
-    const emptyProject = await createProject({ name: "empty-chat-project", path: "/tmp/empty-chat-project" });
+    const emptyProject = await createProject({
+      name: "empty-chat-project",
+      path: "/tmp/empty-chat-project",
+    });
     await upsertSetting(`project:${emptyProject.id}:memoryIsolation`, true);
     try {
-      const result = await buildSystemPromptWithMemories("Base prompt only.", "anything at all", emptyProject.id, ownerId);
+      const result = await buildSystemPromptWithMemories(
+        "Base prompt only.",
+        "anything at all",
+        emptyProject.id,
+        ownerId,
+      );
       expect(result.systemPrompt).toBe("Base prompt only.");
       expect(result.memoriesUsed).toEqual([]);
     } finally {

@@ -26,11 +26,11 @@
  *  content-block tool_ref push that pairs with a genuinely-new card). An
  *  entry with no `id` can't be deduped and is always appended. */
 export function appendStreamingToolCall<T extends { id?: string }>(
-	existing: readonly T[],
-	entry: T,
+  existing: readonly T[],
+  entry: T,
 ): { calls: T[]; added: boolean } {
-	if (entry.id != null && existing.some((tc) => tc.id === entry.id)) {
-		return { calls: existing as T[], added: false };
-	}
-	return { calls: [...existing, entry], added: true };
+  if (entry.id != null && existing.some((tc) => tc.id === entry.id)) {
+    return { calls: existing as T[], added: false };
+  }
+  return { calls: [...existing, entry], added: true };
 }

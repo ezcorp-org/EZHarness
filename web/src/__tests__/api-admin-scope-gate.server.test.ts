@@ -46,7 +46,9 @@ const h = vi.hoisted(() => ({
   listModels: vi.fn(async () => ({ models: [] })),
   checkLocalModel: vi.fn(async () => ({ ok: true })),
   // ── F6 second wave: the five handlers that still gated on ROLE alone ──
-  getAllSettings: vi.fn(async () => ({ "provider:defaultSelection": "auto" }) as Record<string, unknown>),
+  getAllSettings: vi.fn(
+    async () => ({ "provider:defaultSelection": "auto" }) as Record<string, unknown>,
+  ),
   listInvites: vi.fn(async () => [] as unknown[]),
   createInvite: vi.fn(async () => ({
     id: "inv-1",
@@ -78,7 +80,9 @@ vi.mock("$server/providers/registry", () => ({
   resolveModelObject: h.resolveModelObject,
 }));
 vi.mock("@earendil-works/pi-ai/compat", () => ({ complete: h.complete }));
-vi.mock("$server/providers/model-discovery", () => ({ fetchProviderModels: h.fetchProviderModels }));
+vi.mock("$server/providers/model-discovery", () => ({
+  fetchProviderModels: h.fetchProviderModels,
+}));
 vi.mock("$server/db/queries/audit-log", () => ({ insertAuditEntry: h.insertAuditEntry }));
 vi.mock("$server/providers/encryption", () => ({ encrypt: h.encrypt, decrypt: h.decrypt }));
 vi.mock("$server/db/queries/extensions", () => ({
@@ -127,7 +131,9 @@ const modifiable = await import("../routes/api/extensions/[id]/modifiable/+serve
 const settingsRoot = await import("../routes/api/settings/+server.ts");
 const invite = await import("../routes/api/auth/invite/+server.ts");
 const providerTest = await import("../routes/api/providers/[provider]/test/+server.ts");
-const providerRefresh = await import("../routes/api/providers/[provider]/refresh-models/+server.ts");
+const providerRefresh = await import(
+  "../routes/api/providers/[provider]/refresh-models/+server.ts"
+);
 
 // ── Principals ───────────────────────────────────────────────────────
 const ADMIN = { id: "admin-1", email: "a@x", name: "a", role: "admin" };
@@ -194,12 +200,17 @@ async function invoke(
 const ROUTES: Record<string, Probe> = {
   "POST /api/providers": {
     call: (l) =>
-      invoke(providers.POST, evt("/api/providers", "POST", { provider: "openai", apiKey: "sk-pwn" }), l),
+      invoke(
+        providers.POST,
+        evt("/api/providers", "POST", { provider: "openai", apiKey: "sk-pwn" }),
+        l,
+      ),
     arm: () => {},
     breached: () => h.upsertSetting.mock.calls.some(([k]) => k === "provider:apiKey:openai"),
   },
   "DELETE /api/providers": {
-    call: (l) => invoke(providers.DELETE, evt("/api/providers", "DELETE", { provider: "anthropic" }), l),
+    call: (l) =>
+      invoke(providers.DELETE, evt("/api/providers", "DELETE", { provider: "anthropic" }), l),
     arm: () => {},
     breached: () => h.deleteSetting.mock.calls.some(([k]) => k === "provider:apiKey:anthropic"),
   },
@@ -210,36 +221,63 @@ const ROUTES: Record<string, Probe> = {
   },
   "POST /api/search/backend": {
     call: (l) =>
-      invoke(searchBackend.POST, evt("/api/search/backend", "POST", { provider: "tavily", apiKey: "tv-pwn" }), l),
+      invoke(
+        searchBackend.POST,
+        evt("/api/search/backend", "POST", { provider: "tavily", apiKey: "tv-pwn" }),
+        l,
+      ),
     arm: () => {},
     breached: () => h.upsertSetting.mock.calls.some(([k]) => k === "provider:apiKey:tavily"),
   },
   "DELETE /api/search/backend": {
-    call: (l) => invoke(searchBackend.DELETE, evt("/api/search/backend", "DELETE", { provider: "brave" }), l),
+    call: (l) =>
+      invoke(searchBackend.DELETE, evt("/api/search/backend", "DELETE", { provider: "brave" }), l),
     arm: () => {},
     breached: () => h.deleteSetting.mock.calls.some(([k]) => k === "provider:apiKey:brave"),
   },
   "POST /api/mcp-servers": {
-    call: (l) => invoke(mcpServers.POST, evt("/api/mcp-servers", "POST", { name: "srv", server: MCP_SERVER }), l),
+    call: (l) =>
+      invoke(
+        mcpServers.POST,
+        evt("/api/mcp-servers", "POST", { name: "srv", server: MCP_SERVER }),
+        l,
+      ),
     arm: () => {},
     breached: () => h.installMcpExtension.mock.calls.length > 0,
   },
   "PUT /api/mcp-servers/:id": {
     call: (l) =>
-      invoke(mcpServerId.PUT, evt("/api/mcp-servers/e1", "PUT", { server: MCP_SERVER }, { id: "e1" }), l),
+      invoke(
+        mcpServerId.PUT,
+        evt("/api/mcp-servers/e1", "PUT", { server: MCP_SERVER }, { id: "e1" }),
+        l,
+      ),
     arm: () => {
-      h.getExtension.mockResolvedValue({ id: "e1", name: "srv", manifest: { kind: "mcp", mcpServers: [MCP_SERVER] } });
+      h.getExtension.mockResolvedValue({
+        id: "e1",
+        name: "srv",
+        manifest: { kind: "mcp", mcpServers: [MCP_SERVER] },
+      });
     },
     breached: () => h.updateMcpExtension.mock.calls.length > 0,
   },
   "POST /api/mcp-servers/:id/refresh": {
-    call: (l) => invoke(mcpRefresh.POST, evt("/api/mcp-servers/e1/refresh", "POST", undefined, { id: "e1" }), l),
+    call: (l) =>
+      invoke(
+        mcpRefresh.POST,
+        evt("/api/mcp-servers/e1/refresh", "POST", undefined, { id: "e1" }),
+        l,
+      ),
     arm: () => {},
     breached: () => h.refreshMcpTools.mock.calls.length > 0,
   },
   "POST /api/providers/local/models": {
     call: (l) =>
-      invoke(localModels.POST, evt("/api/providers/local/models", "POST", { baseUrl: "https://llm.example.com" }), l),
+      invoke(
+        localModels.POST,
+        evt("/api/providers/local/models", "POST", { baseUrl: "https://llm.example.com" }),
+        l,
+      ),
     arm: () => {},
     breached: () => h.listModels.mock.calls.length > 0,
   },
@@ -247,7 +285,10 @@ const ROUTES: Record<string, Probe> = {
     call: (l) =>
       invoke(
         localTest.POST,
-        evt("/api/providers/local/test", "POST", { baseUrl: "https://llm.example.com", modelId: "m" }),
+        evt("/api/providers/local/test", "POST", {
+          baseUrl: "https://llm.example.com",
+          modelId: "m",
+        }),
         l,
       ),
     arm: () => {},
@@ -255,9 +296,18 @@ const ROUTES: Record<string, Probe> = {
   },
   "POST /api/extensions/:id/modifiable": {
     call: (l) =>
-      invoke(modifiable.POST, evt("/api/extensions/e1/modifiable", "POST", { modifiable: true }, { id: "e1" }), l),
+      invoke(
+        modifiable.POST,
+        evt("/api/extensions/e1/modifiable", "POST", { modifiable: true }, { id: "e1" }),
+        l,
+      ),
     arm: () => {
-      h.getExtension.mockResolvedValue({ id: "e1", name: "x", isBundled: false, modifiable: false });
+      h.getExtension.mockResolvedValue({
+        id: "e1",
+        name: "x",
+        isBundled: false,
+        modifiable: false,
+      });
       h.setExtensionModifiable.mockResolvedValue({ id: "e1", modifiable: true });
     },
     breached: () => h.setExtensionModifiable.mock.calls.length > 0,
@@ -281,13 +331,21 @@ const ROUTES: Record<string, Probe> = {
     // The escalation this closes: `role` is part of the body, so an ungated
     // call mints an ADMIN invite — account creation with a privilege grant.
     call: (l) =>
-      invoke(invite.POST, evt("/api/auth/invite", "POST", { email: "pwn@example.com", role: "admin" }), l),
+      invoke(
+        invite.POST,
+        evt("/api/auth/invite", "POST", { email: "pwn@example.com", role: "admin" }),
+        l,
+      ),
     arm: () => {},
     breached: () => h.createInvite.mock.calls.length > 0,
   },
   "POST /api/providers/:provider/test": {
     call: (l) =>
-      invoke(providerTest.POST, evt("/api/providers/openai/test", "POST", undefined, { provider: "openai" }), l),
+      invoke(
+        providerTest.POST,
+        evt("/api/providers/openai/test", "POST", undefined, { provider: "openai" }),
+        l,
+      ),
     arm: () => {},
     // Reaching `getCredential` IS the breach: it decrypts the instance BYOK
     // key, and the handler then spends it on a live completion.
@@ -303,7 +361,8 @@ const ROUTES: Record<string, Probe> = {
     arm: () => {},
     // Overwrites `provider:discoveredModels:openai` — the list every routing
     // decision reads.
-    breached: () => h.upsertSetting.mock.calls.some(([k]) => k === "provider:discoveredModels:openai"),
+    breached: () =>
+      h.upsertSetting.mock.calls.some(([k]) => k === "provider:discoveredModels:openai"),
   },
 };
 
@@ -360,13 +419,16 @@ describe("F2 — admin routes enforce the SCOPE axis, not just ROLE", () => {
     expect(probe.breached()).toBe(true);
   });
 
-  test.each(ROUTE_NAMES)("%s — a non-admin member is still refused 403 (role axis)", async (name) => {
-    const probe = ROUTES[name];
-    probe.arm();
-    const res = await probe.call(MEMBER_COOKIE);
-    expect(res.status).toBe(403);
-    expect(probe.breached()).toBe(false);
-  });
+  test.each(ROUTE_NAMES)(
+    "%s — a non-admin member is still refused 403 (role axis)",
+    async (name) => {
+      const probe = ROUTES[name];
+      probe.arm();
+      const res = await probe.call(MEMBER_COOKIE);
+      expect(res.status).toBe(403);
+      expect(probe.breached()).toBe(false);
+    },
+  );
 
   // F6: `requireRole` throws a raw Response, which SvelteKit renders as a
   // 500 rather than the intended 403. `checkRole` returns it instead.

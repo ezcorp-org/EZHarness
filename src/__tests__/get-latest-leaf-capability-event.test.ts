@@ -148,8 +148,6 @@ describe("getLatestLeaf — excludeCapabilityEvents", () => {
   test("empty conversation → null in both modes", async () => {
     const conv = await createConversation(projectId, { userId });
     expect(await getLatestLeaf(conv.id)).toBeNull();
-    expect(
-      await getLatestLeaf(conv.id, { excludeCapabilityEvents: true }),
-    ).toBeNull();
+    expect(await getLatestLeaf(conv.id, { excludeCapabilityEvents: true })).toBeNull();
   });
 });

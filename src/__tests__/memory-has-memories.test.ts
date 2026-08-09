@@ -1,5 +1,10 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { mockEmbedding, mockEmbeddingsModule } from "./helpers/mock-vectors";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { MemoryProvenance } from "../memory/types";
@@ -19,7 +24,10 @@ let projectBId: string;
 let emptyProjectId: string;
 let conversationId: string;
 
-async function insertTestMemory(content: string, opts?: { projectId?: string | null; projectIds?: string[]; category?: string; status?: string }) {
+async function insertTestMemory(
+  content: string,
+  opts?: { projectId?: string | null; projectIds?: string[]; category?: string; status?: string },
+) {
   const embedding = mockEmbedding();
   const provenance: MemoryProvenance = {
     sourceConversationId: conversationId,
@@ -43,7 +51,10 @@ async function insertTestMemory(content: string, opts?: { projectId?: string | n
     const db = getDb();
     const { memories } = await import("../db/schema");
     const { eq } = await import("drizzle-orm");
-    await db.update(memories).set({ status: opts.status } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ status: opts.status } as any)
+      .where(eq(memories.id, mem.id));
   }
   return mem;
 }

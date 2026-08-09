@@ -56,9 +56,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 
   // Find the team orchestrator's sub-conversation (direct child of parent)
   const parentSubConvs = await convQueries.getSubConversations(params.id);
-  const orchestratorConv = parentSubConvs.find(
-    (sc) => sc.agentConfigId === params.agentConfigId,
-  );
+  const orchestratorConv = parentSubConvs.find((sc) => sc.agentConfigId === params.agentConfigId);
 
   // Member sub-conversations are children of the ORCHESTRATOR, not the parent.
   // Also check direct children of parent as a fallback (in case members were
@@ -68,7 +66,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
     : [];
 
   // Build a map of agentConfigId -> subConversation (check both levels)
-  const subConvByAgent = new Map<string, typeof parentSubConvs[0]>();
+  const subConvByAgent = new Map<string, (typeof parentSubConvs)[0]>();
   for (const sc of [...memberSubConvs, ...parentSubConvs]) {
     if (sc.agentConfigId && !subConvByAgent.has(sc.agentConfigId)) {
       subConvByAgent.set(sc.agentConfigId, sc);

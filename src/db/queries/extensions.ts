@@ -2,7 +2,11 @@ import { and, eq, or, sql, inArray } from "drizzle-orm";
 import { getDb, getPglite } from "../connection";
 import type { Database } from "../connection";
 import { extensions, type Extension, type NewExtension } from "../schema";
-import type { McpServerDefinition, ExtensionManifestV2, ToolDefinition } from "../../extensions/types";
+import type {
+  McpServerDefinition,
+  ExtensionManifestV2,
+  ToolDefinition,
+} from "../../extensions/types";
 import { getSecret, setSecret } from "../../extensions/secrets-store";
 import { logger } from "../../logger";
 
@@ -158,17 +162,21 @@ function serializeJsonbFields<T extends Record<string, unknown>>(data: T): T {
   if ("manifest" in out && out.manifest !== undefined && typeof out.manifest !== "string") {
     out.manifest = enc(out.manifest);
   }
-  if ("grantedPermissions" in out && out.grantedPermissions !== undefined && typeof out.grantedPermissions !== "string") {
+  if (
+    "grantedPermissions" in out &&
+    out.grantedPermissions !== undefined &&
+    typeof out.grantedPermissions !== "string"
+  ) {
     out.grantedPermissions = enc(out.grantedPermissions);
   }
   // v1.3 security review HIGH 2 — `installed_permissions` is jsonb and
   // nullable. Match the granted_permissions serialization pattern; null
   // passes through to the driver verbatim.
   if (
-    "installedPermissions" in out
-    && out.installedPermissions !== undefined
-    && out.installedPermissions !== null
-    && typeof out.installedPermissions !== "string"
+    "installedPermissions" in out &&
+    out.installedPermissions !== undefined &&
+    out.installedPermissions !== null &&
+    typeof out.installedPermissions !== "string"
   ) {
     out.installedPermissions = enc(out.installedPermissions);
   }
@@ -235,18 +243,12 @@ export async function backfillMcpManifestSecrets(
 }
 
 export async function getExtension(id: string): Promise<Extension | null> {
-  const rows = await getDb()
-    .select()
-    .from(extensions)
-    .where(eq(extensions.id, id));
+  const rows = await getDb().select().from(extensions).where(eq(extensions.id, id));
   return rows[0] ?? null;
 }
 
 export async function getExtensionByName(name: string): Promise<Extension | null> {
-  const rows = await getDb()
-    .select()
-    .from(extensions)
-    .where(eq(extensions.name, name));
+  const rows = await getDb().select().from(extensions).where(eq(extensions.name, name));
   return rows[0] ?? null;
 }
 
@@ -291,10 +293,7 @@ export async function getExtensionsByNames(names: string[]): Promise<Map<string,
   const out = new Map<string, Extension>();
   if (names.length === 0) return out;
   const unique = [...new Set(names)];
-  const rows = await getDb()
-    .select()
-    .from(extensions)
-    .where(inArray(extensions.name, unique));
+  const rows = await getDb().select().from(extensions).where(inArray(extensions.name, unique));
   for (const row of rows) out.set(row.name, row);
   return out;
 }
@@ -355,9 +354,10 @@ export async function listExtensions(
   // Phase 52 added the bundled filter for the Library tabs split — same
   // single-arg shape, but admit an options object so call sites can compose
   // bundled+enabled filters without overloading the boolean position.
-  const opts = typeof enabledOnlyOrOpts === "boolean"
-    ? { enabledOnly: enabledOnlyOrOpts }
-    : (enabledOnlyOrOpts ?? {});
+  const opts =
+    typeof enabledOnlyOrOpts === "boolean"
+      ? { enabledOnly: enabledOnlyOrOpts }
+      : (enabledOnlyOrOpts ?? {});
 
   const conds = [];
   if (opts.enabledOnly) conds.push(eq(extensions.enabled, true));
@@ -370,10 +370,7 @@ export async function listExtensions(
 }
 
 export async function createExtension(data: NewExtension): Promise<Extension> {
-  const rows = await getDb()
-    .insert(extensions)
-    .values(serializeJsonbFields(data))
-    .returning();
+  const rows = await getDb().insert(extensions).values(serializeJsonbFields(data)).returning();
   return rows[0]!;
 }
 

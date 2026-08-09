@@ -40,7 +40,10 @@ function realTokenizerModuleUrl(): string {
 }
 
 type RealTokenizer = {
-  (text: string, opts: { padding: boolean; truncation: boolean }): { input_ids: { dims: number[] } };
+  (
+    text: string,
+    opts: { padding: boolean; truncation: boolean },
+  ): { input_ids: { dims: number[] } };
   config: { model_max_length: number };
   model_max_length: number;
 };
@@ -93,7 +96,9 @@ mock.module("@huggingface/transformers", () => ({
       // Mirrors FeatureExtractionPipeline._call: this is the ONLY tokenize the
       // real pipeline performs, and the only place the cap can take effect.
       const modelInputs = tokenizer(text, { padding: true, truncation: true });
-      observedInputIdLengths.push(modelInputs.input_ids.dims[modelInputs.input_ids.dims.length - 1]!);
+      observedInputIdLengths.push(
+        modelInputs.input_ids.dims[modelInputs.input_ids.dims.length - 1]!,
+      );
       const data = new Float32Array(EMBEDDING_DIMENSIONS);
       for (let i = 0; i < EMBEDDING_DIMENSIONS; i++) data[i] = (i + 1) * 0.001;
       return { data };

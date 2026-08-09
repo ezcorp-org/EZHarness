@@ -129,9 +129,7 @@ describe("S9 critical-aware gate", () => {
     // Version recorded so S9 doesn't re-fire next boot.
     expect(row?.version).not.toBe("0.0.1");
     // Auto-reapproval audit row written.
-    const auto = auditEntries.filter(
-      (a) => a.action === "ext:bundled:critical-auto-reapproved",
-    );
+    const auto = auditEntries.filter((a) => a.action === "ext:bundled:critical-auto-reapproved");
     expect(auto.length).toBeGreaterThanOrEqual(1);
     expect(auto[0]?.target).toBe("seed-ask-user");
   }, 30_000);
@@ -154,8 +152,7 @@ describe("S9 critical-aware gate", () => {
     expect(
       auditEntries.some(
         (a) =>
-          a.action === "ext:bundled:critical-auto-reapproved" &&
-          a.target === "seed-scratchpad",
+          a.action === "ext:bundled:critical-auto-reapproved" && a.target === "seed-scratchpad",
       ),
     ).toBe(false);
   }, 30_000);

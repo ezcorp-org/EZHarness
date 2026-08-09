@@ -18,7 +18,14 @@ function makeAgent(name: string, fn: AgentDefinition["execute"]): AgentDefinitio
 // happens via streamChat, which requires an LLM), so tests poke the internal maps.
 function seedRunningRun(
   executor: AgentExecutor,
-  opts: { runId: string; agentName: string; conversationId: string; projectId?: string; startedAt?: number; status?: AgentRun["status"] },
+  opts: {
+    runId: string;
+    agentName: string;
+    conversationId: string;
+    projectId?: string;
+    startedAt?: number;
+    status?: AgentRun["status"];
+  },
 ): AgentRun {
   const run: AgentRun = {
     id: opts.runId,
@@ -147,8 +154,18 @@ describe("GET /api/active-agents", () => {
     // Both runs tagged as project A at the run level, but their *conversations* differ.
     // The handler filters by conv.projectId when projectId is supplied, so the run
     // pointing at convB must be excluded.
-    seedRunningRun(executor, { runId: "run-for-a", agentName: "chat", conversationId: convA.id, projectId: projectAId });
-    seedRunningRun(executor, { runId: "run-for-b", agentName: "chat", conversationId: convB.id, projectId: projectBId });
+    seedRunningRun(executor, {
+      runId: "run-for-a",
+      agentName: "chat",
+      conversationId: convA.id,
+      projectId: projectAId,
+    });
+    seedRunningRun(executor, {
+      runId: "run-for-b",
+      agentName: "chat",
+      conversationId: convB.id,
+      projectId: projectBId,
+    });
 
     const res = await fetch(`${baseUrl}/api/active-agents?projectId=${projectAId}`);
     expect(res.status).toBe(200);
@@ -188,8 +205,18 @@ describe("GET /api/active-agents", () => {
     const convA = await createConversation(projectAId, { title: "A conv" });
     const convB = await createConversation(projectBId, { title: "B conv" });
 
-    seedRunningRun(executor, { runId: "run-a", agentName: "chat", conversationId: convA.id, projectId: projectAId });
-    seedRunningRun(executor, { runId: "run-b", agentName: "chat", conversationId: convB.id, projectId: projectBId });
+    seedRunningRun(executor, {
+      runId: "run-a",
+      agentName: "chat",
+      conversationId: convA.id,
+      projectId: projectAId,
+    });
+    seedRunningRun(executor, {
+      runId: "run-b",
+      agentName: "chat",
+      conversationId: convB.id,
+      projectId: projectBId,
+    });
 
     const res = await fetch(`${baseUrl}/api/active-agents`);
     expect(res.status).toBe(200);
@@ -214,8 +241,18 @@ describe("GET /api/active-agents", () => {
     // A control run in project B that must NOT appear.
     const convB = await createConversation(projectBId, { title: "B conv" });
 
-    seedRunningRun(executor, { runId: "run-sub-a", agentName: "chat", conversationId: child.id, projectId: projectAId });
-    seedRunningRun(executor, { runId: "run-b", agentName: "chat", conversationId: convB.id, projectId: projectBId });
+    seedRunningRun(executor, {
+      runId: "run-sub-a",
+      agentName: "chat",
+      conversationId: child.id,
+      projectId: projectAId,
+    });
+    seedRunningRun(executor, {
+      runId: "run-b",
+      agentName: "chat",
+      conversationId: convB.id,
+      projectId: projectBId,
+    });
 
     const res = await fetch(`${baseUrl}/api/active-agents?projectId=${projectAId}`);
     expect(res.status).toBe(200);

@@ -26,10 +26,7 @@
 import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
-import {
-  createDraft,
-  getExtensionAuthorDraftDir,
-} from "$server/db/queries/ez-drafts";
+import { createDraft, getExtensionAuthorDraftDir } from "$server/db/queries/ez-drafts";
 import { scaffoldExtension, type ExtType } from "@ezcorp/sdk";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -54,9 +51,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     if (typeof body.type !== "string" || !VALID_TYPES.has(body.type)) {
       return errorJson(400, "`type` must be one of tool|skill|agent|multi");
     }
-    const description = typeof body.description === "string"
-      ? body.description
-      : "E2E seeded extension";
+    const description =
+      typeof body.description === "string" ? body.description : "E2E seeded extension";
 
     // 1) Scaffold pure → file map. Fails fast on bad name BEFORE we
     //    mint a draft row, mirroring the bundled extension's order.

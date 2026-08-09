@@ -17,130 +17,134 @@ import { openChatWithTasks } from "./fixtures/task-seed.js";
  */
 
 const proj = makeProject({ id: "proj-schema", name: "Schema Project" });
-const conv = makeConversation({ id: "conv-schema", projectId: "proj-schema", title: "Schema Convo" });
+const conv = makeConversation({
+  id: "conv-schema",
+  projectId: "proj-schema",
+  title: "Schema Convo",
+});
 
 function runningAssignment(id: string, agentName: string, subConversationId: string) {
-	return {
-		id,
-		agentConfigId: "cfg-1",
-		agentName,
-		isTeam: false,
-		status: "running" as const,
-		assignedAt: "2026-01-01T00:00:00.000Z",
-		startedAt: "2026-01-01T00:00:00.000Z",
-		subConversationId,
-		agentRunId: "run-init",
-	};
+  return {
+    id,
+    agentConfigId: "cfg-1",
+    agentName,
+    isTeam: false,
+    status: "running" as const,
+    assignedAt: "2026-01-01T00:00:00.000Z",
+    startedAt: "2026-01-01T00:00:00.000Z",
+    subConversationId,
+    agentRunId: "run-init",
+  };
 }
 
 function seededSnapshot() {
-	return {
-		conversationId: "conv-schema",
-		tasks: [
-			{
-				id: "t1",
-				title: "Extract structured report",
-				description: "",
-				status: "active" as const,
-				priority: 0,
-				subtasks: [],
-				assignments: [runningAssignment("a1", "schema-worker", "sub-42")],
-				createdAt: "2026-01-01T00:00:00.000Z",
-			},
-		],
-		activeTaskId: "t1",
-	};
+  return {
+    conversationId: "conv-schema",
+    tasks: [
+      {
+        id: "t1",
+        title: "Extract structured report",
+        description: "",
+        status: "active" as const,
+        priority: 0,
+        subtasks: [],
+        assignments: [runningAssignment("a1", "schema-worker", "sub-42")],
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+    activeTaskId: "t1",
+  };
 }
 
 test.describe("@evidence task-panel schema-failure badge", () => {
-	test("terminal update with structuredResultError renders the amber schema chip", async ({
-		page,
-		mockApi,
-		emitSse,
-	}, testInfo) => {
-		await openChatWithTasks(page, mockApi, {
-			project: proj,
-			conversation: conv,
-			snapshot: seededSnapshot(),
-		});
+  test("terminal update with structuredResultError renders the amber schema chip", async ({
+    page,
+    mockApi,
+    emitSse,
+  }, testInfo) => {
+    await openChatWithTasks(page, mockApi, {
+      project: proj,
+      conversation: conv,
+      snapshot: seededSnapshot(),
+    });
 
-		// The running assignment pill is present, with no schema chip yet.
-		await expect(page.getByText("@schema-worker")).toBeVisible();
-		await expect(page.getByTestId("assignment-schema-failed")).toHaveCount(0);
+    // The running assignment pill is present, with no schema chip yet.
+    await expect(page.getByText("@schema-worker")).toBeVisible();
+    await expect(page.getByTestId("assignment-schema-failed")).toHaveCount(0);
 
-		// Drive the terminal update: the child COMPLETED but its output never
-		// validated — `structuredResultError` rides the top-level event field.
-		await emitSse({
-			type: "task:assignment_update",
-			data: {
-				conversationId: "conv-schema",
-				taskId: "t1",
-				assignment: {
-					...runningAssignment("a1", "schema-worker", "sub-42"),
-					status: "completed",
-					completedAt: "2026-01-01T00:05:00.000Z",
-					resultPreview: "Here is the report you asked for…",
-				},
-				structuredResultError: "field `total` is required but was missing",
-			},
-		});
+    // Drive the terminal update: the child COMPLETED but its output never
+    // validated — `structuredResultError` rides the top-level event field.
+    await emitSse({
+      type: "task:assignment_update",
+      data: {
+        conversationId: "conv-schema",
+        taskId: "t1",
+        assignment: {
+          ...runningAssignment("a1", "schema-worker", "sub-42"),
+          status: "completed",
+          completedAt: "2026-01-01T00:05:00.000Z",
+          resultPreview: "Here is the report you asked for…",
+        },
+        structuredResultError: "field `total` is required but was missing",
+      },
+    });
 
-		// The amber "schema" chip now marks the completed-but-invalid assignment.
-		const chip = page.getByTestId("assignment-schema-failed");
-		await expect(chip).toBeVisible();
-		await expect(chip).toHaveText("schema");
+    // The amber "schema" chip now marks the completed-but-invalid assignment.
+    const chip = page.getByTestId("assignment-schema-failed");
+    await expect(chip).toBeVisible();
+    await expect(chip).toHaveText("schema");
 
-		await captureEvidence(page, testInfo, "task-panel-schema-badge");
+    await captureEvidence(page, testInfo, "task-panel-schema-badge");
 
-		// A subsequent agent:complete for the same sub-conversation must not
-		// crash or reset the panel — it drives the sub-agent done indicator.
-		await emitSse({
-			type: "agent:complete",
-			data: {
-				runId: "run-final-cycle",
-				agentRunId: "run-final-cycle",
-				subConversationId: "sub-42",
-				agentName: "schema-worker",
-				agentConfigId: "cfg-1",
-				success: true,
-				resultPreview: "Here is the report you asked for…",
-				parentConversationId: "conv-schema",
-			},
-		});
+    // A subsequent agent:complete for the same sub-conversation must not
+    // crash or reset the panel — it drives the sub-agent done indicator.
+    await emitSse({
+      type: "agent:complete",
+      data: {
+        runId: "run-final-cycle",
+        agentRunId: "run-final-cycle",
+        subConversationId: "sub-42",
+        agentName: "schema-worker",
+        agentConfigId: "cfg-1",
+        success: true,
+        resultPreview: "Here is the report you asked for…",
+        parentConversationId: "conv-schema",
+      },
+    });
 
-		// Panel + chip remain intact after the terminal agent:complete.
-		await expect(page.getByText("@schema-worker")).toBeVisible();
-		await expect(page.getByTestId("assignment-schema-failed")).toBeVisible();
+    // Panel + chip remain intact after the terminal agent:complete.
+    await expect(page.getByText("@schema-worker")).toBeVisible();
+    await expect(page.getByTestId("assignment-schema-failed")).toBeVisible();
 
-		await captureEvidence(page, testInfo, "task-panel-after-agent-complete");
-	});
+    await captureEvidence(page, testInfo, "task-panel-after-agent-complete");
+  });
 
-	test("a clean completion does NOT render the schema chip", async ({ page, mockApi, emitSse }) => {
-		await openChatWithTasks(page, mockApi, {
-			project: proj,
-			conversation: conv,
-			snapshot: seededSnapshot(),
-		});
+  test("a clean completion does NOT render the schema chip", async ({ page, mockApi, emitSse }) => {
+    await openChatWithTasks(page, mockApi, {
+      project: proj,
+      conversation: conv,
+      snapshot: seededSnapshot(),
+    });
 
-		await expect(page.getByText("@schema-worker")).toBeVisible();
+    await expect(page.getByText("@schema-worker")).toBeVisible();
 
-		await emitSse({
-			type: "task:assignment_update",
-			data: {
-				conversationId: "conv-schema",
-				taskId: "t1",
-				assignment: {
-					...runningAssignment("a1", "schema-worker", "sub-42"),
-					status: "completed",
-					completedAt: "2026-01-01T00:05:00.000Z",
-					resultPreview: "All good",
-				},
-				// No structuredResultError → clean success, no chip.
-			},
-		});
+    await emitSse({
+      type: "task:assignment_update",
+      data: {
+        conversationId: "conv-schema",
+        taskId: "t1",
+        assignment: {
+          ...runningAssignment("a1", "schema-worker", "sub-42"),
+          status: "completed",
+          completedAt: "2026-01-01T00:05:00.000Z",
+          resultPreview: "All good",
+        },
+        // No structuredResultError → clean success, no chip.
+      },
+    });
 
-		// Wait for the completed check icon, then assert the chip is absent.
-		await expect(page.locator('svg path[d="M5 13l4 4L19 7"]').first()).toBeVisible();
-		await expect(page.getByTestId("assignment-schema-failed")).toHaveCount(0);
-	});
+    // Wait for the completed check icon, then assert the chip is absent.
+    await expect(page.locator('svg path[d="M5 13l4 4L19 7"]').first()).toBeVisible();
+    await expect(page.getByTestId("assignment-schema-failed")).toHaveCount(0);
+  });
 });

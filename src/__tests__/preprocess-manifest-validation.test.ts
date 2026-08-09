@@ -77,13 +77,9 @@ describe("validateManifestV2 — preprocessors surface", () => {
   });
 
   test("missing / empty tool is a manifest error", () => {
-    const res = validateManifestV2(
-      baseManifest({ preprocessors: [{ accepts: ["image/png"] }] }),
-    );
+    const res = validateManifestV2(baseManifest({ preprocessors: [{ accepts: ["image/png"] }] }));
     expect(res.valid).toBe(false);
-    expect(
-      res.errors.some((e) => e.includes("preprocessors[0].tool is required")),
-    ).toBe(true);
+    expect(res.errors.some((e) => e.includes("preprocessors[0].tool is required"))).toBe(true);
   });
 
   test("empty accepts array is a manifest error", () => {
@@ -97,9 +93,7 @@ describe("validateManifestV2 — preprocessors surface", () => {
   });
 
   test("missing accepts is a manifest error", () => {
-    const res = validateManifestV2(
-      baseManifest({ preprocessors: [{ tool: "identify_thing" }] }),
-    );
+    const res = validateManifestV2(baseManifest({ preprocessors: [{ tool: "identify_thing" }] }));
     expect(res.valid).toBe(false);
     expect(
       res.errors.some((e) => e.includes("preprocessors[0].accepts must be a non-empty array")),
@@ -109,16 +103,12 @@ describe("validateManifestV2 — preprocessors surface", () => {
   test("malformed accepts entries are rejected (non-string, bare type, */*, whitespace)", () => {
     const res = validateManifestV2(
       baseManifest({
-        preprocessors: [
-          { tool: "identify_thing", accepts: [42, "image", "*/*", "image / png"] },
-        ],
+        preprocessors: [{ tool: "identify_thing", accepts: [42, "image", "*/*", "image / png"] }],
       }),
     );
     expect(res.valid).toBe(false);
     for (const j of [0, 1, 2, 3]) {
-      expect(
-        res.errors.some((e) => e.includes(`preprocessors[0].accepts[${j}]`)),
-      ).toBe(true);
+      expect(res.errors.some((e) => e.includes(`preprocessors[0].accepts[${j}]`))).toBe(true);
     }
   });
 
@@ -129,9 +119,7 @@ describe("validateManifestV2 — preprocessors surface", () => {
   });
 
   test("non-object entries are rejected (null, array, string)", () => {
-    const res = validateManifestV2(
-      baseManifest({ preprocessors: [null, ["x"], "nope"] }),
-    );
+    const res = validateManifestV2(baseManifest({ preprocessors: [null, ["x"], "nope"] }));
     expect(res.valid).toBe(false);
     expect(res.errors.some((e) => e.includes("preprocessors[0] must be an object"))).toBe(true);
     expect(res.errors.some((e) => e.includes("preprocessors[1] must be an object"))).toBe(true);
@@ -141,9 +129,7 @@ describe("validateManifestV2 — preprocessors surface", () => {
   test("non-string description is a manifest error", () => {
     const res = validateManifestV2(
       baseManifest({
-        preprocessors: [
-          { tool: "identify_thing", accepts: ["image/png"], description: 7 },
-        ],
+        preprocessors: [{ tool: "identify_thing", accepts: ["image/png"], description: 7 }],
       }),
     );
     expect(res.valid).toBe(false);
@@ -196,7 +182,9 @@ describe("validatePreprocessorsArray — direct edge cases", () => {
       errors,
     );
     expect(errors.some((e) => e.includes("preprocessors[1].tool is required"))).toBe(true);
-    expect(errors.some((e) => e.includes("preprocessors[2].accepts must be a non-empty array"))).toBe(true);
+    expect(
+      errors.some((e) => e.includes("preprocessors[2].accepts must be a non-empty array")),
+    ).toBe(true);
     // Entry 0 is clean — exactly the two errors above.
     expect(errors).toHaveLength(2);
   });
@@ -255,9 +243,7 @@ describe("validateManifestV2 — npmDependencies surface", () => {
   });
 
   test("empty-string and non-string range values are rejected", () => {
-    const res = validateManifestV2(
-      baseManifest({ npmDependencies: { "pkg-a": "", "pkg-b": 42 } }),
-    );
+    const res = validateManifestV2(baseManifest({ npmDependencies: { "pkg-a": "", "pkg-b": 42 } }));
     expect(res.valid).toBe(false);
     expect(res.errors.some((e) => e.includes("npmDependencies.pkg-a"))).toBe(true);
     expect(res.errors.some((e) => e.includes("npmDependencies.pkg-b"))).toBe(true);
@@ -310,8 +296,6 @@ describe("migrateManifestV2ToV3 — preprocessors passthrough", () => {
       preprocessors: [{ tool: "identify_thing", accepts: ["image/*"] }],
     }) as unknown as ExtensionManifest;
     const migrated = migrateManifestV2ToV3(manifest);
-    expect(migrated.preprocessors).toEqual([
-      { tool: "identify_thing", accepts: ["image/*"] },
-    ]);
+    expect(migrated.preprocessors).toEqual([{ tool: "identify_thing", accepts: ["image/*"] }]);
   });
 });

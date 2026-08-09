@@ -48,35 +48,35 @@ const USER = { id: "u1", email: "u@x.test", name: "u", role: "member" };
 
 /** A minimal SvelteKit RequestEvent — enough to reach the scope gate. */
 function makeEvent(scopes: string[], method: string) {
-	const url = new URL("http://localhost/api/probe");
-	return {
-		locals: { user: USER, apiKeyScopes: scopes },
-		params: { id: "00000000-0000-4000-8000-000000000000", name: "distill" },
-		url,
-		request: new Request(url, {
-			method,
-			headers: { "content-type": "application/json" },
-			body: method === "GET" || method === "DELETE" ? undefined : "{}",
-		}),
-		cookies: { get: () => undefined, set: () => {}, delete: () => {}, getAll: () => [] },
-		fetch: globalThis.fetch,
-		setHeaders: () => {},
-		getClientAddress: () => "127.0.0.1",
-		route: { id: "/api/probe" },
-		isDataRequest: false,
-		isSubRequest: false,
-	} as never;
+  const url = new URL("http://localhost/api/probe");
+  return {
+    locals: { user: USER, apiKeyScopes: scopes },
+    params: { id: "00000000-0000-4000-8000-000000000000", name: "distill" },
+    url,
+    request: new Request(url, {
+      method,
+      headers: { "content-type": "application/json" },
+      body: method === "GET" || method === "DELETE" ? undefined : "{}",
+    }),
+    cookies: { get: () => undefined, set: () => {}, delete: () => {}, getAll: () => [] },
+    fetch: globalThis.fetch,
+    setHeaders: () => {},
+    getClientAddress: () => "127.0.0.1",
+    route: { id: "/api/probe" },
+    isDataRequest: false,
+    isSubRequest: false,
+  } as never;
 }
 
 /** What a handler did, reduced to the three facts a scope test cares about. */
 interface Verdict {
-	/** HTTP status, or `null` when the handler threw a non-Response error —
-	 *  which only happens AFTER the gate, down in the DB layer this suite
-	 *  deliberately leaves unstubbed, and is therefore itself evidence of
-	 *  admission. */
-	status: number | null;
-	error?: string;
-	required?: string;
+  /** HTTP status, or `null` when the handler threw a non-Response error —
+   *  which only happens AFTER the gate, down in the DB layer this suite
+   *  deliberately leaves unstubbed, and is therefore itself evidence of
+   *  admission. */
+  status: number | null;
+  error?: string;
+  required?: string;
 }
 
 /**
@@ -85,110 +85,121 @@ interface Verdict {
  * a returned one so no test has to care which style a route uses.
  */
 async function probe(
-	handler: (e: never) => unknown,
-	scopes: string[],
-	method: string,
+  handler: (e: never) => unknown,
+  scopes: string[],
+  method: string,
 ): Promise<Verdict> {
-	let res: unknown;
-	try {
-		res = await handler(makeEvent(scopes, method));
-	} catch (e) {
-		if (!(e instanceof Response)) return { status: null };
-		res = e;
-	}
-	if (!(res instanceof Response)) return { status: null };
-	const body = (await res.clone().json().catch(() => ({}))) as {
-		error?: string;
-		required?: string;
-	};
-	return { status: res.status, error: body.error, required: body.required };
+  let res: unknown;
+  try {
+    res = await handler(makeEvent(scopes, method));
+  } catch (e) {
+    if (!(e instanceof Response)) return { status: null };
+    res = e;
+  }
+  if (!(res instanceof Response)) return { status: null };
+  const body = (await res
+    .clone()
+    .json()
+    .catch(() => ({}))) as {
+    error?: string;
+    required?: string;
+  };
+  return { status: res.status, error: body.error, required: body.required };
 }
 
 /** The exact shape a scope refusal takes. Spelled once; asserted inline. */
 function refusal(required: string): Verdict {
-	return { status: 403, error: "Insufficient scope", required };
+  return { status: 403, error: "Insufficient scope", required };
 }
 
 describe("routes moved onto the `write` scope", () => {
-	test("POST /api/memories refuses read, admits write", async () => {
-		expect(await probe(memories.POST, ["read"], "POST")).toEqual(refusal("write"));
-		expect((await probe(memories.POST, ["write"], "POST")).error).not.toBe("Insufficient scope");
-	});
+  test("POST /api/memories refuses read, admits write", async () => {
+    expect(await probe(memories.POST, ["read"], "POST")).toEqual(refusal("write"));
+    expect((await probe(memories.POST, ["write"], "POST")).error).not.toBe("Insufficient scope");
+  });
 
-	test("PUT /api/memories/:id refuses read, admits write", async () => {
-		expect(await probe(memoriesId.PUT, ["read"], "PUT")).toEqual(refusal("write"));
-		expect((await probe(memoriesId.PUT, ["write"], "PUT")).error).not.toBe("Insufficient scope");
-	});
+  test("PUT /api/memories/:id refuses read, admits write", async () => {
+    expect(await probe(memoriesId.PUT, ["read"], "PUT")).toEqual(refusal("write"));
+    expect((await probe(memoriesId.PUT, ["write"], "PUT")).error).not.toBe("Insufficient scope");
+  });
 
-	test("PATCH /api/memories/:id refuses read, admits write", async () => {
-		// The line the patch-coverage gate flagged (`+server.ts:128`): PATCH's
-		// scope gate had no test reaching it under coverage.
-		expect(await probe(memoriesId.PATCH, ["read"], "PATCH")).toEqual(refusal("write"));
-		expect((await probe(memoriesId.PATCH, ["write"], "PATCH")).error).not.toBe("Insufficient scope");
-	});
+  test("PATCH /api/memories/:id refuses read, admits write", async () => {
+    // The line the patch-coverage gate flagged (`+server.ts:128`): PATCH's
+    // scope gate had no test reaching it under coverage.
+    expect(await probe(memoriesId.PATCH, ["read"], "PATCH")).toEqual(refusal("write"));
+    expect((await probe(memoriesId.PATCH, ["write"], "PATCH")).error).not.toBe(
+      "Insufficient scope",
+    );
+  });
 
-	test("DELETE /api/memories/:id refuses read, admits write", async () => {
-		expect(await probe(memoriesId.DELETE, ["read"], "DELETE")).toEqual(refusal("write"));
-		expect((await probe(memoriesId.DELETE, ["write"], "DELETE")).error).not.toBe("Insufficient scope");
-	});
+  test("DELETE /api/memories/:id refuses read, admits write", async () => {
+    expect(await probe(memoriesId.DELETE, ["read"], "DELETE")).toEqual(refusal("write"));
+    expect((await probe(memoriesId.DELETE, ["write"], "DELETE")).error).not.toBe(
+      "Insufficient scope",
+    );
+  });
 
-	test("POST /api/projects refuses read, admits write", async () => {
-		expect(await probe(projects.POST, ["read"], "POST")).toEqual(refusal("write"));
-		expect((await probe(projects.POST, ["write"], "POST")).error).not.toBe("Insufficient scope");
-	});
+  test("POST /api/projects refuses read, admits write", async () => {
+    expect(await probe(projects.POST, ["read"], "POST")).toEqual(refusal("write"));
+    expect((await probe(projects.POST, ["write"], "POST")).error).not.toBe("Insufficient scope");
+  });
 
-	test("POST /api/knowledge-base refuses read, admits write", async () => {
-		expect(await probe(knowledgeBase.POST, ["read"], "POST")).toEqual(refusal("write"));
-		expect((await probe(knowledgeBase.POST, ["write"], "POST")).error).not.toBe("Insufficient scope");
-	});
+  test("POST /api/knowledge-base refuses read, admits write", async () => {
+    expect(await probe(knowledgeBase.POST, ["read"], "POST")).toEqual(refusal("write"));
+    expect((await probe(knowledgeBase.POST, ["write"], "POST")).error).not.toBe(
+      "Insufficient scope",
+    );
+  });
 
-	test("DELETE /api/lessons/:id refuses read, admits write", async () => {
-		expect(await probe(lessonsId.DELETE, ["read"], "DELETE")).toEqual(refusal("write"));
-		expect((await probe(lessonsId.DELETE, ["write"], "DELETE")).error).not.toBe("Insufficient scope");
-	});
+  test("DELETE /api/lessons/:id refuses read, admits write", async () => {
+    expect(await probe(lessonsId.DELETE, ["read"], "DELETE")).toEqual(refusal("write"));
+    expect((await probe(lessonsId.DELETE, ["write"], "DELETE")).error).not.toBe(
+      "Insufficient scope",
+    );
+  });
 
-	test("PATCH /api/lessons/:id refuses read, admits write", async () => {
-		expect(await probe(lessonsId.PATCH, ["read"], "PATCH")).toEqual(refusal("write"));
-		expect((await probe(lessonsId.PATCH, ["write"], "PATCH")).error).not.toBe("Insufficient scope");
-	});
+  test("PATCH /api/lessons/:id refuses read, admits write", async () => {
+    expect(await probe(lessonsId.PATCH, ["read"], "PATCH")).toEqual(refusal("write"));
+    expect((await probe(lessonsId.PATCH, ["write"], "PATCH")).error).not.toBe("Insufficient scope");
+  });
 });
 
 describe("routes moved elsewhere by the same pass", () => {
-	test("POST /api/fs/mkdir now demands `admin`, not `read`", async () => {
-		// It enforced admin INLINE (`+server.ts:22`) while advertising `read` —
-		// the F4 blind spot. The scope now says what the gate does. Admitting the
-		// admin SCOPE then hits the ROLE wall (this principal is a member), which
-		// is the two-axis model working: a different 403, carrying no `required`.
-		expect(await probe(fsMkdir.POST, ["read"], "POST")).toEqual(refusal("admin"));
-		expect(await probe(fsMkdir.POST, ["admin"], "POST")).toEqual({
-			status: 403,
-			error: "Access denied: admin role required",
-			required: undefined,
-		});
-	});
+  test("POST /api/fs/mkdir now demands `admin`, not `read`", async () => {
+    // It enforced admin INLINE (`+server.ts:22`) while advertising `read` —
+    // the F4 blind spot. The scope now says what the gate does. Admitting the
+    // admin SCOPE then hits the ROLE wall (this principal is a member), which
+    // is the two-axis model working: a different 403, carrying no `required`.
+    expect(await probe(fsMkdir.POST, ["read"], "POST")).toEqual(refusal("admin"));
+    expect(await probe(fsMkdir.POST, ["admin"], "POST")).toEqual({
+      status: 403,
+      error: "Access denied: admin role required",
+      required: undefined,
+    });
+  });
 
-	test("POST /api/ez-actions/:name now demands `chat`, not `read`", async () => {
-		expect(await probe(ezActions.POST, ["read"], "POST")).toEqual(refusal("chat"));
-		expect((await probe(ezActions.POST, ["chat"], "POST")).error).not.toBe("Insufficient scope");
-	});
+  test("POST /api/ez-actions/:name now demands `chat`, not `read`", async () => {
+    expect(await probe(ezActions.POST, ["read"], "POST")).toEqual(refusal("chat"));
+    expect((await probe(ezActions.POST, ["chat"], "POST")).error).not.toBe("Insufficient scope");
+  });
 });
 
 describe("the read scope still opens the read-shaped verbs", () => {
-	// The split is per-VERB. If the re-scope had moved a whole file, every
-	// read-only integration would break — the opposite failure, equally
-	// invisible without these.
-	test("GET /api/memories/:id admits read, refuses chat", async () => {
-		expect((await probe(memoriesId.GET, ["read"], "GET")).error).not.toBe("Insufficient scope");
-		expect(await probe(memoriesId.GET, ["chat"], "GET")).toEqual(refusal("read"));
-	});
+  // The split is per-VERB. If the re-scope had moved a whole file, every
+  // read-only integration would break — the opposite failure, equally
+  // invisible without these.
+  test("GET /api/memories/:id admits read, refuses chat", async () => {
+    expect((await probe(memoriesId.GET, ["read"], "GET")).error).not.toBe("Insufficient scope");
+    expect(await probe(memoriesId.GET, ["chat"], "GET")).toEqual(refusal("read"));
+  });
 
-	test("GET /api/projects admits read, refuses chat", async () => {
-		expect((await probe(projects.GET, ["read"], "GET")).error).not.toBe("Insufficient scope");
-		expect(await probe(projects.GET, ["chat"], "GET")).toEqual(refusal("read"));
-	});
+  test("GET /api/projects admits read, refuses chat", async () => {
+    expect((await probe(projects.GET, ["read"], "GET")).error).not.toBe("Insufficient scope");
+    expect(await probe(projects.GET, ["chat"], "GET")).toEqual(refusal("read"));
+  });
 
-	test("GET /api/knowledge-base admits read, refuses chat", async () => {
-		expect((await probe(knowledgeBase.GET, ["read"], "GET")).error).not.toBe("Insufficient scope");
-		expect(await probe(knowledgeBase.GET, ["chat"], "GET")).toEqual(refusal("read"));
-	});
+  test("GET /api/knowledge-base admits read, refuses chat", async () => {
+    expect((await probe(knowledgeBase.GET, ["read"], "GET")).error).not.toBe("Insufficient scope");
+    expect(await probe(knowledgeBase.GET, ["chat"], "GET")).toEqual(refusal("read"));
+  });
 });

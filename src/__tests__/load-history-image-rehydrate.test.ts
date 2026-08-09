@@ -75,7 +75,15 @@ beforeAll(async () => {
     name: "test-image-gen",
     version: "0.0.0",
     source: "test",
-    manifest: { schemaVersion: 2, name: "test-image-gen", version: "0.0.0", entrypoint: "x", author: { name: "t" }, tools: [], permissions: {} } as any,
+    manifest: {
+      schemaVersion: 2,
+      name: "test-image-gen",
+      version: "0.0.0",
+      entrypoint: "x",
+      author: { name: "t" },
+      tools: [],
+      permissions: {},
+    } as any,
   });
   testExtensionId = ext.id;
 });
@@ -99,7 +107,9 @@ afterEach(() => {
   // process.cwd() pointing at a deleted directory.
   process.chdir(SAFE_CWD);
   if (tmpRoot) {
-    try { rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    } catch {}
     tmpRoot = "";
   }
 });
@@ -139,7 +149,9 @@ describe("collectRehydratedImages cap arithmetic", () => {
   afterEach(() => {
     process.chdir(SAFE_CWD);
     if (unitCwd) {
-      try { rmSync(unitCwd, { recursive: true, force: true }); } catch {}
+      try {
+        rmSync(unitCwd, { recursive: true, force: true });
+      } catch {}
       unitCwd = "";
     }
   });
@@ -285,7 +297,9 @@ describe("collectRehydratedImages cap arithmetic", () => {
     };
   }
 
-  function rehydrateLines(captured: string[]): Array<{ level: string; statMisses?: number; msg: string }> {
+  function rehydrateLines(
+    captured: string[],
+  ): Array<{ level: string; statMisses?: number; msg: string }> {
     const out: Array<{ level: string; statMisses?: number; msg: string }> = [];
     for (const chunk of captured) {
       for (const line of chunk.split("\n")) {
@@ -295,7 +309,9 @@ describe("collectRehydratedImages cap arithmetic", () => {
           if (j.subsystem === "executor.loadHistory.rehydrate" && j.msg.startsWith("walked")) {
             out.push({ level: j.level, statMisses: j.statMisses, msg: j.msg });
           }
-        } catch { /* not JSON, skip */ }
+        } catch {
+          /* not JSON, skip */
+        }
       }
     }
     return out;
@@ -354,7 +370,7 @@ describe("findNextUserIndex", () => {
       { role: "user" },
       { role: "assistant" }, // from here
       { role: "assistant" }, // adjacent assistant — skip
-      { role: "user" },      // ← match (idx 3)
+      { role: "user" }, // ← match (idx 3)
       { role: "user" },
     ];
     expect(findNextUserIndex(branch, 1)).toBe(3);
@@ -381,7 +397,11 @@ describe("loadHistory image-rehydration", () => {
     let parent: string | undefined;
     let leafId = "";
     for (const t of turns) {
-      const m = await createMessage(conv.id, { role: t.role, content: t.content, parentMessageId: parent });
+      const m = await createMessage(conv.id, {
+        role: t.role,
+        content: t.content,
+        parentMessageId: parent,
+      });
       parent = m.id;
       leafId = m.id;
     }
@@ -405,7 +425,9 @@ describe("loadHistory image-rehydration", () => {
     // Assistant message: text-only (pi-ai contract).
     expect(history[1]!.role).toBe("assistant");
     expect(Array.isArray((history[1] as any).content)).toBe(true);
-    expect((history[1] as any).content.every((p: any) => p.type === "text" || p.type === "thinking")).toBe(true);
+    expect(
+      (history[1] as any).content.every((p: any) => p.type === "text" || p.type === "thinking"),
+    ).toBe(true);
     // Follow-up user: parts-array with text + injected image.
     expect(history[2]!.role).toBe("user");
     const parts = partsOf((history[2] as any).content);
@@ -601,7 +623,11 @@ describe("loadHistory image-rehydration", () => {
     const conv = await createConversation(project.id, { title: "t" });
     const m1 = await createMessage(conv.id, { role: "user", content: "gen" });
     // Model produced prose with no URL — perfectly fine per SKILL.md.
-    const m2 = await createMessage(conv.id, { role: "assistant", content: "Done.", parentMessageId: m1.id });
+    const m2 = await createMessage(conv.id, {
+      role: "assistant",
+      content: "Done.",
+      parentMessageId: m1.id,
+    });
     // Tool output carries the URL.
     await persistToolCall({
       conversationId: conv.id,
@@ -613,7 +639,11 @@ describe("loadHistory image-rehydration", () => {
       success: true,
       durationMs: 10,
     });
-    const m3 = await createMessage(conv.id, { role: "user", content: "edit it", parentMessageId: m2.id });
+    const m3 = await createMessage(conv.id, {
+      role: "user",
+      content: "edit it",
+      parentMessageId: m2.id,
+    });
 
     const { history } = await loadHistory(mkCtx(), conv.id, {
       parentMessageId: m3.id,
@@ -646,7 +676,11 @@ describe("loadHistory image-rehydration", () => {
       success: true,
       durationMs: 10,
     });
-    const m3 = await createMessage(conv.id, { role: "user", content: "edit", parentMessageId: m2.id });
+    const m3 = await createMessage(conv.id, {
+      role: "user",
+      content: "edit",
+      parentMessageId: m2.id,
+    });
 
     const { history } = await loadHistory(mkCtx(), conv.id, {
       parentMessageId: m3.id,
@@ -663,7 +697,11 @@ describe("loadHistory image-rehydration", () => {
     const project = await createProject({ name: "MultiTool", path: tmpRoot });
     const conv = await createConversation(project.id, { title: "t" });
     const m1 = await createMessage(conv.id, { role: "user", content: "gen two" });
-    const m2 = await createMessage(conv.id, { role: "assistant", content: "", parentMessageId: m1.id });
+    const m2 = await createMessage(conv.id, {
+      role: "assistant",
+      content: "",
+      parentMessageId: m1.id,
+    });
     await persistToolCall({
       conversationId: conv.id,
       messageId: m2.id,
@@ -684,7 +722,11 @@ describe("loadHistory image-rehydration", () => {
       success: true,
       durationMs: 10,
     });
-    const m3 = await createMessage(conv.id, { role: "user", content: "combine", parentMessageId: m2.id });
+    const m3 = await createMessage(conv.id, {
+      role: "user",
+      content: "combine",
+      parentMessageId: m2.id,
+    });
 
     const { history } = await loadHistory(mkCtx(), conv.id, {
       parentMessageId: m3.id,
@@ -699,7 +741,11 @@ describe("loadHistory image-rehydration", () => {
     const project = await createProject({ name: "NonImg", path: tmpRoot });
     const conv = await createConversation(project.id, { title: "t" });
     const m1 = await createMessage(conv.id, { role: "user", content: "run" });
-    const m2 = await createMessage(conv.id, { role: "assistant", content: "done", parentMessageId: m1.id });
+    const m2 = await createMessage(conv.id, {
+      role: "assistant",
+      content: "done",
+      parentMessageId: m1.id,
+    });
     await persistToolCall({
       conversationId: conv.id,
       messageId: m2.id,
@@ -710,7 +756,11 @@ describe("loadHistory image-rehydration", () => {
       success: true,
       durationMs: 10,
     });
-    const m3 = await createMessage(conv.id, { role: "user", content: "next", parentMessageId: m2.id });
+    const m3 = await createMessage(conv.id, {
+      role: "user",
+      content: "next",
+      parentMessageId: m2.id,
+    });
 
     const { history } = await loadHistory(mkCtx(), conv.id, {
       parentMessageId: m3.id,

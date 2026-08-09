@@ -177,7 +177,13 @@ function compareShots(a: GalleryShot, b: GalleryShot): number {
 }
 
 /** Render one shot to its heading + immutable-URL image + trailing blank line. */
-function renderShot(shot: GalleryShot, repo: string, commitSha: string, pr: number, runId: number): string[] {
+function renderShot(
+  shot: GalleryShot,
+  repo: string,
+  commitSha: string,
+  pr: number,
+  runId: number,
+): string[] {
   // URL segments use the hyphenated, sanitized forms so the path is stable
   // and contains no markdown/URL-hostile characters; the comment shows the
   // human label as plain text (never inside the link).
@@ -235,7 +241,10 @@ function changedPathSegLists(changedSpecPaths: readonly string[]): string[][] {
  * splits per call) and buildGalleryMarkdown's hot loop (which splits once), so
  * the suffix-match logic lives in exactly one place.
  */
-function matchesAnySegs(shotSegs: readonly string[], changedSegsList: readonly string[][]): boolean {
+function matchesAnySegs(
+  shotSegs: readonly string[],
+  changedSegsList: readonly string[][],
+): boolean {
   if (shotSegs.length === 0) return false;
   for (const changedSegs of changedSegsList) {
     if (isSpecSuffixMatch(shotSegs, changedSegs)) return true;
@@ -382,7 +391,9 @@ async function emitOutput(key: string, value: string): Promise<void> {
   const delim = `__EVIDENCE_${key}_${Date.now()}__`;
   await Bun.write(
     Bun.file(out),
-    (await Bun.file(out).text().catch(() => "")) + `${key}<<${delim}\n${value}\n${delim}\n`,
+    (await Bun.file(out)
+      .text()
+      .catch(() => "")) + `${key}<<${delim}\n${value}\n${delim}\n`,
   );
 }
 

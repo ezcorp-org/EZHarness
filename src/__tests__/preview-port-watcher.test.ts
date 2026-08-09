@@ -126,7 +126,11 @@ describe("PreviewPortWatcher — detection rules", () => {
   test("infra-port filter: caller-supplied infra ports are merged", async () => {
     const { events, onDetected } = collector();
     const w = new PreviewPortWatcher({
-      source, onDetected, stabilizeTicks: 1, skipLockfile: true, infraPorts: [9999],
+      source,
+      onDetected,
+      stabilizeTicks: 1,
+      skipLockfile: true,
+      infraPorts: [9999],
     });
     w.watch("conv1", "userA");
     source.set("conv1", [9999, 4321]);
@@ -186,7 +190,12 @@ describe("PreviewPortWatcher — detection rules", () => {
         return [{ port: 5173 }];
       },
     };
-    const w = new PreviewPortWatcher({ source: failing, onDetected, stabilizeTicks: 1, skipLockfile: true });
+    const w = new PreviewPortWatcher({
+      source: failing,
+      onDetected,
+      stabilizeTicks: 1,
+      skipLockfile: true,
+    });
     w.watch("conv1", "userA");
     w.watch("conv2", "userB");
     await w.tickOnce();
@@ -197,7 +206,9 @@ describe("PreviewPortWatcher — detection rules", () => {
   test("onDetected throwing does not crash the tick", async () => {
     const w = new PreviewPortWatcher({
       source,
-      onDetected: () => { throw new Error("handler boom"); },
+      onDetected: () => {
+        throw new Error("handler boom");
+      },
       stabilizeTicks: 1,
       skipLockfile: true,
     });
@@ -211,7 +222,12 @@ describe("PreviewPortWatcher — detection rules", () => {
     const asyncSource = {
       listListeners: (_id: string) => Promise.resolve([{ port: 4000 }]),
     };
-    const w = new PreviewPortWatcher({ source: asyncSource, onDetected, stabilizeTicks: 1, skipLockfile: true });
+    const w = new PreviewPortWatcher({
+      source: asyncSource,
+      onDetected,
+      stabilizeTicks: 1,
+      skipLockfile: true,
+    });
     w.watch("conv1", "userA");
     await w.tickOnce();
     expect(events).toHaveLength(1);
@@ -225,7 +241,11 @@ describe("PreviewPortWatcher — lifecycle", () => {
     process.env.EZCORP_DISABLE_PREVIEW_WATCHER = "1";
     try {
       const { onDetected } = collector();
-      const w = new PreviewPortWatcher({ source: new StaticPortSource(), onDetected, skipLockfile: true });
+      const w = new PreviewPortWatcher({
+        source: new StaticPortSource(),
+        onDetected,
+        skipLockfile: true,
+      });
       expect(await w.start()).toBe(false);
     } finally {
       if (prev === undefined) delete process.env.EZCORP_DISABLE_PREVIEW_WATCHER;
@@ -235,7 +255,11 @@ describe("PreviewPortWatcher — lifecycle", () => {
 
   test("start() is idempotent; stop() is safe to repeat", async () => {
     const { onDetected } = collector();
-    const w = new PreviewPortWatcher({ source: new StaticPortSource(), onDetected, skipLockfile: true });
+    const w = new PreviewPortWatcher({
+      source: new StaticPortSource(),
+      onDetected,
+      skipLockfile: true,
+    });
     expect(await w.start()).toBe(true);
     expect(await w.start()).toBe(true);
     w.stop();
@@ -252,7 +276,9 @@ describe("PreviewPortWatcher — lifecycle", () => {
     const events: PreviewDetectedEvent[] = [];
     const w = new PreviewPortWatcher({
       source,
-      onDetected: (e) => { events.push(e); },
+      onDetected: (e) => {
+        events.push(e);
+      },
       stabilizeTicks: 1,
       // tiny interval (clamped to MIN_POLL_MS=250) so the real timer fires fast
       wakeIntervalMs: 1,
@@ -298,9 +324,7 @@ describe("PreviewPortWatcher — lifecycle", () => {
   });
 
   test("start() refuses when a genuine live sibling owns the lockfile", async () => {
-    const dir = await import("node:fs/promises").then((fs) =>
-      fs.mkdtemp("/tmp/prev-watcher-sib-"),
-    );
+    const dir = await import("node:fs/promises").then((fs) => fs.mkdtemp("/tmp/prev-watcher-sib-"));
     const lockfilePath = `${dir}/watcher.pid`;
     // A genuine live sibling: a foreign live PID (1) whose stored identity
     // token still matches → acquire must refuse.
@@ -334,8 +358,7 @@ describe("PreviewPortWatcher — lifecycle", () => {
   });
 
   test("lockfile primitives: acquire / stale-pid takeover / isProcessAlive / release", async () => {
-    const { acquireLockfile, releaseLockfile, isProcessAlive } =
-      _previewPortWatcherInternals;
+    const { acquireLockfile, releaseLockfile, isProcessAlive } = _previewPortWatcherInternals;
     const fs = await import("node:fs/promises");
     const dir = await fs.mkdtemp("/tmp/prev-watcher-prim-");
     const path = `${dir}/nested/dir/watcher.pid`; // forces ensureDir mkdir -p
@@ -452,7 +475,9 @@ describe("PreviewPortWatcher — idle reaping (Phase 3b)", () => {
       stabilizeTicks: 1,
       skipLockfile: true,
       idleReapTicks: 2,
-      onIdleReap: (c) => { reaped.push(c); },
+      onIdleReap: (c) => {
+        reaped.push(c);
+      },
     });
     w.watch("conv1", "userA");
     source.set("conv1", [5173]);
@@ -474,7 +499,9 @@ describe("PreviewPortWatcher — idle reaping (Phase 3b)", () => {
       stabilizeTicks: 1,
       skipLockfile: true,
       idleReapTicks: 1,
-      onIdleReap: (c) => { reaped.push(c); },
+      onIdleReap: (c) => {
+        reaped.push(c);
+      },
     });
     w.watch("conv1", "userA");
     source.set("conv1", []); // never binds
@@ -493,7 +520,9 @@ describe("PreviewPortWatcher — idle reaping (Phase 3b)", () => {
       stabilizeTicks: 1,
       skipLockfile: true,
       idleReapTicks: 2,
-      onIdleReap: (c) => { reaped.push(c); },
+      onIdleReap: (c) => {
+        reaped.push(c);
+      },
     });
     w.watch("conv1", "userA");
     source.set("conv1", [5173]);
@@ -515,7 +544,9 @@ describe("PreviewPortWatcher — idle reaping (Phase 3b)", () => {
       stabilizeTicks: 1,
       skipLockfile: true,
       idleReapTicks: 0,
-      onIdleReap: (c) => { reaped.push(c); },
+      onIdleReap: (c) => {
+        reaped.push(c);
+      },
     });
     w.watch("conv1", "userA");
     source.set("conv1", [5173]);
@@ -535,7 +566,9 @@ describe("PreviewPortWatcher — idle reaping (Phase 3b)", () => {
       stabilizeTicks: 1,
       skipLockfile: true,
       idleReapTicks: 1,
-      onIdleReap: () => { throw new Error("reap boom"); },
+      onIdleReap: () => {
+        throw new Error("reap boom");
+      },
     });
     w.watch("conv1", "userA");
     source.set("conv1", [5173]);

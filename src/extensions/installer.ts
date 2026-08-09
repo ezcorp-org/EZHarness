@@ -18,10 +18,7 @@ import {
 import { parseSource } from "./source-parser";
 import { clone, lsRemoteTags, gitExec } from "./git";
 import { ExtensionRegistry } from "./registry";
-import {
-  runEntityNamespaceMigration,
-  type LegacyNamespaceMapping,
-} from "./entities/migrate";
+import { runEntityNamespaceMigration, type LegacyNamespaceMapping } from "./entities/migrate";
 import { runEntitySeed } from "./entities/seed";
 import {
   createExtension,
@@ -148,14 +145,10 @@ async function runEnvKeyLeakInstallGate(
   opts: InstallFromLocalOpts,
 ): Promise<void> {
   const { checkEnvKeyLeakInstallGate } = await import("./clamp-permissions");
-  const gateError = await checkEnvKeyLeakInstallGate(
-    manifest.name,
-    manifest.permissions?.env,
-    {
-      isBundled: opts.isBundled === true,
-      envEscapeHatch: opts.envEscapeHatch === true,
-    },
-  );
+  const gateError = await checkEnvKeyLeakInstallGate(manifest.name, manifest.permissions?.env, {
+    isBundled: opts.isBundled === true,
+    envEscapeHatch: opts.envEscapeHatch === true,
+  });
   if (gateError) throw gateError;
 }
 
@@ -170,10 +163,7 @@ async function runEnvKeyLeakInstallGate(
  * crash-looping the subprocess into auto-disable (live incident
  * 2026-07-11). See `verifyNpmDependencies` / `formatNpmDepError`.
  */
-function runNpmDependencyInstallGate(
-  manifest: ExtensionManifestV2,
-  installDir: string,
-): void {
+function runNpmDependencyInstallGate(manifest: ExtensionManifestV2, installDir: string): void {
   const check = verifyNpmDependencies(manifest.npmDependencies, installDir);
   if (!check.ok) {
     throw new Error(formatNpmDepError(manifest.name, check.issues));
@@ -350,8 +340,7 @@ export async function installFromLocal(
   // it's held by reopen owner-scoping + the never-persisted
   // always-prompt on `ezcorp:extension:modify`, not by this flag.
   const authorAutoModifiable =
-    opts.creatorUserId != null &&
-    (await getSetting("extensions:authorAutoModifiable")) === true;
+    opts.creatorUserId != null && (await getSetting("extensions:authorAutoModifiable")) === true;
 
   // Create DB record
   const ext = await createExtension({
@@ -388,7 +377,8 @@ export async function installFromLocal(
 function parseRepoSpec(repoSpec: string): { owner: string; repo: string; tag?: string } {
   const [ownerRepo, tag] = repoSpec.split("@");
   const [owner, repo] = ownerRepo!.split("/");
-  if (!owner || !repo) throw new Error(`Invalid repo spec: ${repoSpec}. Expected "user/repo" or "user/repo@tag"`);
+  if (!owner || !repo)
+    throw new Error(`Invalid repo spec: ${repoSpec}. Expected "user/repo" or "user/repo@tag"`);
   return { owner, repo, tag };
 }
 
@@ -465,7 +455,8 @@ export async function installFromGitHub(
       const entrypointPath = join(manifestDir, manifest.entrypoint.replace(/^\.\//, ""));
       if (manifest.checksum) {
         const valid = await verifyChecksum(entrypointPath, manifest.checksum);
-        if (!valid) throw new Error("Checksum mismatch: entrypoint file does not match manifest checksum");
+        if (!valid)
+          throw new Error("Checksum mismatch: entrypoint file does not match manifest checksum");
       }
       checksum = await computeChecksum(entrypointPath);
     }
@@ -497,7 +488,12 @@ export async function installFromGitHub(
       name: manifest.name,
       version: manifest.version,
       description: manifest.description || "",
-      manifest: { ...manifest, checksum, packageChecksums, packageChecksumsAlgo: PACKAGE_CHECKSUM_ALGO },
+      manifest: {
+        ...manifest,
+        checksum,
+        packageChecksums,
+        packageChecksumsAlgo: PACKAGE_CHECKSUM_ALGO,
+      },
       source: `github:${repoSpec}@${release.tag_name}`,
       installPath: installDir,
       enabled,
@@ -615,7 +611,9 @@ export async function installFromGit(
       name: installName,
       version: manifest.version,
       description: manifest.description || "",
-      manifest: checksum ? { ...manifest, checksum, packageChecksums } : { ...manifest, packageChecksums },
+      manifest: checksum
+        ? { ...manifest, checksum, packageChecksums }
+        : { ...manifest, packageChecksums },
       source: sourceStr,
       installPath: installDir,
       enabled: opts?.enabled ?? false,
@@ -653,9 +651,7 @@ export async function installFromGit(
 
 // ── Update Extension ────────────────────────────────────────────────
 
-export async function updateExtension(
-  name: string,
-): Promise<{ from: string; to: string }> {
+export async function updateExtension(name: string): Promise<{ from: string; to: string }> {
   const ext = await getExtensionByName(name);
   if (!ext) {
     throw new Error(`Extension "${name}" not found`);
@@ -666,7 +662,9 @@ export async function updateExtension(
   }
 
   if (ext.source.startsWith("mcp:") || !ext.installPath) {
-    throw new Error(`Cannot update MCP extension "${name}" via git. Use the refresh endpoint instead.`);
+    throw new Error(
+      `Cannot update MCP extension "${name}" via git. Use the refresh endpoint instead.`,
+    );
   }
 
   const installPath = ext.installPath;

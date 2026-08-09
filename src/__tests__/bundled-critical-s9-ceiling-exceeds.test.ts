@@ -23,11 +23,7 @@ interface CapturedAudit {
 const auditEntries: CapturedAudit[] = [];
 
 mock.module("../db/queries/audit-log", () => ({
-  insertAuditEntry: async (
-    _u: string | null,
-    action: string,
-    target?: string,
-  ) => {
+  insertAuditEntry: async (_u: string | null, action: string, target?: string) => {
     auditEntries.push({ action, target });
     return `audit-${auditEntries.length}`;
   },
@@ -117,10 +113,8 @@ describe("S9 critical gate — ceiling EXCEEDS (security floor)", () => {
     const row = store.get("ask-user");
     // Security floor preserved even though ask-user is critical.
     expect(row?.enabled).toBe(false);
-    expect(
-      auditEntries.some(
-        (a) => a.action === "ext:bundled:critical-auto-reapproved",
-      ),
-    ).toBe(false);
+    expect(auditEntries.some((a) => a.action === "ext:bundled:critical-auto-reapproved")).toBe(
+      false,
+    );
   }, 30_000);
 });

@@ -35,11 +35,14 @@ import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import type { JsonRpcRequest } from "../extensions/types";
 
 const ROOT = join(import.meta.dir ?? process.cwd(), "..", "..");
-const ASK_USER_ENTRY = join(
-  ROOT, "docs", "extensions", "examples", "ask-user", "index.ts",
-);
+const ASK_USER_ENTRY = join(ROOT, "docs", "extensions", "examples", "ask-user", "index.ts");
 const PIPELINE_ENTRY = join(
-  ROOT, "docs", "extensions", "examples", "substack-pipeline", "index.ts",
+  ROOT,
+  "docs",
+  "extensions",
+  "examples",
+  "substack-pipeline",
+  "index.ts",
 );
 
 // ── stdio subprocess harness (ask-user.integration.test.ts pattern) ──
@@ -163,11 +166,7 @@ describe("substack-pipeline integration (a) — cross-ext ask-user is NOT viable
       isRunning: true,
       setNotificationHandler: () => {},
       setRequestHandler: () => {},
-      async callTool(
-        name: string,
-        args: Record<string, unknown>,
-        meta?: Record<string, unknown>,
-      ) {
+      async callTool(name: string, args: Record<string, unknown>, meta?: Record<string, unknown>) {
         const id = ++nextId;
         askProc!.inbound({
           jsonrpc: "2.0",
@@ -187,8 +186,7 @@ describe("substack-pipeline integration (a) — cross-ext ask-user is NOT viable
     const fakeRegistry = {
       resolveDepTool: (_callerId: string, tool: string) =>
         tool === "ask-user__ask_user_question" ? askTool : null,
-      getRegisteredTool: (n: string) =>
-        n === "ask-user__ask_user_question" ? askTool : undefined,
+      getRegisteredTool: (n: string) => (n === "ask-user__ask_user_question" ? askTool : undefined),
       getManifest: () => manifest,
       getGrantedPermissions: () => ({ grantedAt: {} }),
       getInstallPath: () => "/tmp/ask-user-int",
@@ -198,10 +196,7 @@ describe("substack-pipeline integration (a) — cross-ext ask-user is NOT viable
       getProcess: async () => procWrapper,
     };
 
-    const executor = new ToolExecutor(
-      fakeRegistry as never,
-      createStubPermissionEngine(),
-    );
+    const executor = new ToolExecutor(fakeRegistry as never, createStubPermissionEngine());
 
     const req: JsonRpcRequest = {
       jsonrpc: "2.0",

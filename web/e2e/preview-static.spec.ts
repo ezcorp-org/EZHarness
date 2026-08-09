@@ -21,7 +21,9 @@ const APP = "http://localhost:4173";
 const PREVIEW_HOST = `${VALID_ID}.preview.localhost`;
 
 test.describe("secure preview origin — access layer", () => {
-  test("access denied: a preview request with no __ezpreview cookie is 404", async ({ request }) => {
+  test("access denied: a preview request with no __ezpreview cookie is 404", async ({
+    request,
+  }) => {
     const res = await request.get(`${APP}/index.html`, {
       headers: { host: PREVIEW_HOST },
       maxRedirects: 0,
@@ -40,7 +42,9 @@ test.describe("secure preview origin — access layer", () => {
     expect(res.headers()["set-cookie"]).toBeFalsy();
   });
 
-  test("a malformed preview-host label does NOT route to the preview origin", async ({ request }) => {
+  test("a malformed preview-host label does NOT route to the preview origin", async ({
+    request,
+  }) => {
     // 'short' is not a valid 26-char preview id -> parse returns null ->
     // falls through to the normal app (which redirects unauth to /login).
     const res = await request.get(`${APP}/`, {
@@ -60,7 +64,9 @@ test.describe("secure preview origin — static happy path (Docker-gated)", () =
   // so the Docker job picks it up.
   test.skip(!process.env.DOCKER_TEST, "requires Docker harness + seeded preview row");
 
-  test("access denied: an invalid __ezpreview cookie is 404 (verify needs the JWT secret -> DB)", async ({ request }) => {
+  test("access denied: an invalid __ezpreview cookie is 404 (verify needs the JWT secret -> DB)", async ({
+    request,
+  }) => {
     const res = await request.get(`${APP}/`, {
       headers: { host: PREVIEW_HOST, cookie: "__ezpreview=garbage.jwt.value" },
       maxRedirects: 0,

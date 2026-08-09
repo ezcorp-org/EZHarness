@@ -67,9 +67,10 @@ export async function hybridSearch(
   // (projectParam is parameterized to prevent SQL injection).
   // The injection path additionally excludes injection-ineligible memories
   // (opt-in — search/palette callers still see them).
-  const baseFilter = opts.injectionEligibleOnly === true
-    ? "status != 'archived' AND injection_eligible = true"
-    : "status != 'archived'";
+  const baseFilter =
+    opts.injectionEligibleOnly === true
+      ? "status != 'archived' AND injection_eligible = true"
+      : "status != 'archived'";
   let isolationFilter: string;
   if (isolate && projectId) {
     // Strict isolation: only memories assigned to this project (no global)
@@ -100,9 +101,10 @@ export async function hybridSearch(
 
   // Project boost: in global mode, multiply RRF by 1.5 for matching project
   // In isolation mode, all results are already from the project so no boost needed
-  const boostExpr = !isolate && projectId
-    ? `CASE WHEN EXISTS (SELECT 1 FROM memory_projects WHERE memory_id = COALESCE(v.id, k.id) AND project_id = ${projectParam}) THEN 1.5 ELSE 1.0 END`
-    : "1.0";
+  const boostExpr =
+    !isolate && projectId
+      ? `CASE WHEN EXISTS (SELECT 1 FROM memory_projects WHERE memory_id = COALESCE(v.id, k.id) AND project_id = ${projectParam}) THEN 1.5 ELSE 1.0 END`
+      : "1.0";
 
   // Status-aware weight: active=1.0, stale=0.5
   const statusWeightExpr = `CASE WHEN COALESCE(v.status, k.status) = 'stale' THEN 0.5 ELSE 1.0 END`;

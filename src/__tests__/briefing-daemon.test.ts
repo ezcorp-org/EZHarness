@@ -51,11 +51,14 @@ beforeEach(async () => {
   await db.delete(users);
   userIds = [];
   for (let i = 0; i < 6; i++) {
-    const [u] = await db.insert(users).values({
-      email: `u${i}@t.local`,
-      passwordHash: "x",
-      name: `U${i}`,
-    }).returning();
+    const [u] = await db
+      .insert(users)
+      .values({
+        email: `u${i}@t.local`,
+        passwordHash: "x",
+        name: `U${i}`,
+      })
+      .returning();
     userIds.push(u!.id);
   }
 });
@@ -66,14 +69,16 @@ async function seedConfig(opts: {
   enabled?: boolean;
   consecutiveErrors?: number;
 }): Promise<void> {
-  await getTestDb().insert(briefingConfigs).values({
-    userId: opts.userId,
-    enabled: opts.enabled ?? true,
-    cron: "0 7 * * *",
-    timezone: "UTC",
-    nextFireAt: opts.nextFireAt,
-    consecutiveErrors: opts.consecutiveErrors ?? 0,
-  });
+  await getTestDb()
+    .insert(briefingConfigs)
+    .values({
+      userId: opts.userId,
+      enabled: opts.enabled ?? true,
+      cron: "0 7 * * *",
+      timezone: "UTC",
+      nextFireAt: opts.nextFireAt,
+      consecutiveErrors: opts.consecutiveErrors ?? 0,
+    });
 }
 
 function makeDaemon(opts: {
@@ -85,7 +90,11 @@ function makeDaemon(opts: {
   wakeIntervalMs?: number;
   now?: () => Date;
   onAutoDisable?: (config: BriefingConfig, count: number) => Promise<void>;
-}): { daemon: BriefingDaemon; calls: PipelineCall[]; resolvers: Array<(r: BriefingRunResult) => void> } {
+}): {
+  daemon: BriefingDaemon;
+  calls: PipelineCall[];
+  resolvers: Array<(r: BriefingRunResult) => void>;
+} {
   const calls: PipelineCall[] = [];
   const resolvers: Array<(r: BriefingRunResult) => void> = [];
   const daemon = new BriefingDaemon({
@@ -144,7 +153,11 @@ describe("tick — claim and dispatch", () => {
 
   test("not-due and disabled configs are never dispatched", async () => {
     await seedConfig({ userId: userIds[0]!, nextFireAt: new Date("2026-06-11T07:00:00.000Z") }); // future
-    await seedConfig({ userId: userIds[1]!, nextFireAt: new Date("2026-06-10T07:00:00.000Z"), enabled: false });
+    await seedConfig({
+      userId: userIds[1]!,
+      nextFireAt: new Date("2026-06-10T07:00:00.000Z"),
+      enabled: false,
+    });
     const { daemon, calls } = makeDaemon({});
     const tick = await daemon.tick();
     expect(tick.claimed).toBe(0);
@@ -232,7 +245,11 @@ describe("fire-result bookkeeping", () => {
   });
 
   test("'skipped' is recorded without touching the error counter", async () => {
-    await seedConfig({ userId: userIds[0]!, nextFireAt: new Date("2026-06-10T07:00:00.000Z"), consecutiveErrors: 2 });
+    await seedConfig({
+      userId: userIds[0]!,
+      nextFireAt: new Date("2026-06-10T07:00:00.000Z"),
+      consecutiveErrors: 2,
+    });
     const { daemon } = makeDaemon({ result: { status: "skipped" } });
     const tick = await daemon.tick();
     await tick.settled;
@@ -369,10 +386,19 @@ describe("runtime-not-registered fail-safe", () => {
     // pipeline + bookkeeping path end-to-end without an LLM.
     registerBriefingRuntime({
       executor: {
-        streamChat: async () => { throw new Error("unreachable"); },
+        streamChat: async () => {
+          throw new Error("unreachable");
+        },
         cancelRun: () => true,
       } as never,
-      bus: { emit() {}, on() { return () => {}; }, off() {}, clear() {} } as never,
+      bus: {
+        emit() {},
+        on() {
+          return () => {};
+        },
+        off() {},
+        clear() {},
+      } as never,
     });
     const daemon = new BriefingDaemon({ now: () => NOW, guardTimeoutMs: 5_000 });
     const tick = await daemon.tick();

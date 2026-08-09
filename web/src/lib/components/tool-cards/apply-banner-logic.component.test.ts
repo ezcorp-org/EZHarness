@@ -56,9 +56,7 @@ describe("summarizeChangedVars", () => {
   });
 
   test("two --space-* vars stay listed verbatim (below threshold)", () => {
-    expect(summarizeChangedVars(["--space-1", "--space-2"])).toBe(
-      "updated --space-1, --space-2",
-    );
+    expect(summarizeChangedVars(["--space-1", "--space-2"])).toBe("updated --space-1, --space-2");
   });
 
   test("three --space-* vars collapse to 'N spacing tokens'", () => {
@@ -68,9 +66,9 @@ describe("summarizeChangedVars", () => {
   });
 
   test("three --radius-* vars collapse to 'N radius tokens'", () => {
-    expect(
-      summarizeChangedVars(["--radius-base", "--radius-lg", "--radius-xl"]),
-    ).toBe("updated 3 radius tokens");
+    expect(summarizeChangedVars(["--radius-base", "--radius-lg", "--radius-xl"])).toBe(
+      "updated 3 radius tokens",
+    );
   });
 
   test("primary + many spacing + one radius — example from spec", () => {
@@ -96,19 +94,14 @@ describe("summarizeChangedVars", () => {
   // Validation gap-fill: 4+ space vars (no radius/other) collapses; 4+ radius
   // vars (no space/other) collapses; mixed three categories.
   test("4 --space-* vars (no other categories) collapse to 'N spacing tokens'", () => {
-    expect(
-      summarizeChangedVars(["--space-1", "--space-2", "--space-3", "--space-4"]),
-    ).toBe("updated 4 spacing tokens");
+    expect(summarizeChangedVars(["--space-1", "--space-2", "--space-3", "--space-4"])).toBe(
+      "updated 4 spacing tokens",
+    );
   });
 
   test("4 --radius-* vars (no other categories) collapse to 'N radius tokens'", () => {
     expect(
-      summarizeChangedVars([
-        "--radius-base",
-        "--radius-sm",
-        "--radius-lg",
-        "--radius-xl",
-      ]),
+      summarizeChangedVars(["--radius-base", "--radius-sm", "--radius-lg", "--radius-xl"]),
     ).toBe("updated 4 radius tokens");
   });
 
@@ -124,9 +117,7 @@ describe("summarizeChangedVars", () => {
         "--radius-lg",
         "--radius-xl",
       ]),
-    ).toBe(
-      "updated --color-primary, --color-secondary, 3 spacing tokens, 3 radius tokens",
-    );
+    ).toBe("updated --color-primary, --color-secondary, 3 spacing tokens, 3 radius tokens");
   });
 });
 
@@ -234,9 +225,7 @@ describe("formatRevisionLabel", () => {
   }
 
   test("isOriginal → '<time> — original'", () => {
-    expect(formatRevisionLabel(rev({ isOriginal: true }))).toBe(
-      "12:43:08 — original",
-    );
+    expect(formatRevisionLabel(rev({ isOriginal: true }))).toBe("12:43:08 — original");
   });
 
   test("no overrides on a non-original revision → 'no overrides' tail", () => {
@@ -298,9 +287,9 @@ describe("formatRevisionLabel", () => {
 
   // Gap-fill: 1 key with no truncation, 6 keys (boundary above MAX_KEYS).
   test("exactly 1 key renders verbatim with no '+N more' suffix", () => {
-    expect(
-      formatRevisionLabel(rev({ knobValues: { primaryColor: "#ff0066" } })),
-    ).toBe("12:43:08 — primaryColor=#ff0066");
+    expect(formatRevisionLabel(rev({ knobValues: { primaryColor: "#ff0066" } }))).toBe(
+      "12:43:08 — primaryColor=#ff0066",
+    );
   });
 
   test("6 keys → first 3 + '(+3 more)'", () => {

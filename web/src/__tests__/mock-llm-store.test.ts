@@ -147,7 +147,10 @@ describe("buildChunkUsage (synthetic cache usage)", () => {
 
   test("mockTurnToChunks threads the turn usage into the final chunk", () => {
     const chunks = mockTurnToChunks({ text: "hi", usage: { input: 1, cacheRead: 2 } }) as any[];
-    expect(chunks.at(-1).usage.prompt_tokens_details).toEqual({ cached_tokens: 2, cache_write_tokens: 0 });
+    expect(chunks.at(-1).usage.prompt_tokens_details).toEqual({
+      cached_tokens: 2,
+      cache_write_tokens: 0,
+    });
   });
 });
 
@@ -196,7 +199,8 @@ describe("buildMockTurnResponse (dispatcher)", () => {
   });
 
   test("matches buildMockStreamResponse for a non-fault turn", () => {
-    expect(buildMockTurnResponse({ text: "x" }).headers.get("Content-Type"))
-      .toBe(buildMockStreamResponse({ text: "x" }).headers.get("Content-Type"));
+    expect(buildMockTurnResponse({ text: "x" }).headers.get("Content-Type")).toBe(
+      buildMockStreamResponse({ text: "x" }).headers.get("Content-Type"),
+    );
   });
 });

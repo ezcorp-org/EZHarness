@@ -23,7 +23,12 @@ import type { RequestHandler } from "./$types";
 // Categories matched by hooks.server.ts RATE_LIMITED_ROUTES, overridable via
 // the `limits:rateLimit` settings row (60s-cached there).
 const RATE_LIMIT_CATEGORIES = [
-  "login", "conversationCreate", "chat", "agentRun", "agentGenerate", "workflowRun",
+  "login",
+  "conversationCreate",
+  "chat",
+  "agentRun",
+  "agentGenerate",
+  "workflowRun",
 ] as const;
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -40,9 +45,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     rateLimitPerMin?: unknown;
   };
 
-  const projectName = typeof body.projectName === "string" && body.projectName.length > 0
-    ? body.projectName
-    : `harness-${crypto.randomUUID().slice(0, 8)}`;
+  const projectName =
+    typeof body.projectName === "string" && body.projectName.length > 0
+      ? body.projectName
+      : `harness-${crypto.randomUUID().slice(0, 8)}`;
   const title = typeof body.title === "string" && body.title.length > 0 ? body.title : "harness";
 
   const project = await createProject({
@@ -52,7 +58,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const conversation = await createConversation(project.id, { title, userId: user.id });
 
   let rateLimitPerMin: number | undefined;
-  if (typeof body.rateLimitPerMin === "number" && Number.isFinite(body.rateLimitPerMin) && body.rateLimitPerMin > 0) {
+  if (
+    typeof body.rateLimitPerMin === "number" &&
+    Number.isFinite(body.rateLimitPerMin) &&
+    body.rateLimitPerMin > 0
+  ) {
     rateLimitPerMin = Math.floor(body.rateLimitPerMin);
     const overrides: Record<string, number> = {};
     for (const c of RATE_LIMIT_CATEGORIES) overrides[c] = rateLimitPerMin;
@@ -60,7 +70,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   }
 
   return json(
-    { projectId: project.id, conversationId: conversation.id, ...(rateLimitPerMin ? { rateLimitPerMin } : {}) },
+    {
+      projectId: project.id,
+      conversationId: conversation.id,
+      ...(rateLimitPerMin ? { rateLimitPerMin } : {}),
+    },
     { status: 201 },
   );
 };

@@ -40,19 +40,20 @@ export interface MemoryListOpts {
 
 export class Memory {
   async list(opts?: MemoryListOpts): Promise<MemoryRecord[]> {
-    const result = await getChannel().request<{ memories: MemoryRecord[] }>(
-      "ezcorp/memory",
-      { action: "list", ...(opts?.category ? { category: opts.category } : {}), ...(opts?.limit !== undefined ? { limit: opts.limit } : {}) },
-    );
+    const result = await getChannel().request<{ memories: MemoryRecord[] }>("ezcorp/memory", {
+      action: "list",
+      ...(opts?.category ? { category: opts.category } : {}),
+      ...(opts?.limit !== undefined ? { limit: opts.limit } : {}),
+    });
     return result.memories;
   }
 
   async get(id: string): Promise<MemoryRecord | null> {
     try {
-      const result = await getChannel().request<{ memory: MemoryRecord }>(
-        "ezcorp/memory",
-        { action: "get", id },
-      );
+      const result = await getChannel().request<{ memory: MemoryRecord }>("ezcorp/memory", {
+        action: "get",
+        id,
+      });
       return result.memory;
     } catch (err) {
       if (err instanceof JsonRpcError && err.code === -32001) return null;
@@ -61,24 +62,21 @@ export class Memory {
   }
 
   async write(input: MemoryWriteInput): Promise<MemoryRecord> {
-    const result = await getChannel().request<{ memory: MemoryRecord }>(
-      "ezcorp/memory",
-      { action: "write", input },
-    );
+    const result = await getChannel().request<{ memory: MemoryRecord }>("ezcorp/memory", {
+      action: "write",
+      input,
+    });
     return result.memory;
   }
 
-  async update(id: string, patch: { content?: string; confidence?: MemoryConfidence }): Promise<{ ok: true }> {
-    return getChannel().request<{ ok: true }>(
-      "ezcorp/memory",
-      { action: "update", id, patch },
-    );
+  async update(
+    id: string,
+    patch: { content?: string; confidence?: MemoryConfidence },
+  ): Promise<{ ok: true }> {
+    return getChannel().request<{ ok: true }>("ezcorp/memory", { action: "update", id, patch });
   }
 
   async archive(id: string): Promise<{ ok: true }> {
-    return getChannel().request<{ ok: true }>(
-      "ezcorp/memory",
-      { action: "archive", id },
-    );
+    return getChannel().request<{ ok: true }>("ezcorp/memory", { action: "archive", id });
   }
 }

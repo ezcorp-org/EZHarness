@@ -5,14 +5,21 @@
  */
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { restoreModuleMocks } from "../../../src/__tests__/helpers/mock-cleanup";
-import { mockDbConnection, mockRealSettings, setupTestDb, closeTestDb } from "../../../src/__tests__/helpers/test-pglite";
+import {
+  mockDbConnection,
+  mockRealSettings,
+  setupTestDb,
+  closeTestDb,
+} from "../../../src/__tests__/helpers/test-pglite";
 
 mockDbConnection();
 mockRealSettings();
 
 const { POST: seed } = await import("../routes/api/__test/seed/+server");
 const { POST: reset } = await import("../routes/api/__test/reset/+server");
-const { getConversation, createConversation } = await import("../../../src/db/queries/conversations");
+const { getConversation, createConversation } = await import(
+  "../../../src/db/queries/conversations"
+);
 const { createProject } = await import("../../../src/db/queries/projects");
 const { getSetting } = await import("../../../src/db/queries/settings");
 const { createUser } = await import("../../../src/db/queries/users");
@@ -23,23 +30,44 @@ const savedAllow = process.env.EZCORP_ALLOW_TEST_SURFACE;
 const user = { id: "u1", email: "a@b", name: "A", role: "member" } as const;
 
 function req(body: unknown): Request {
-  return new Request("http://127.0.0.1/x", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  return new Request("http://127.0.0.1/x", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
-const ev = (body: unknown, locals: unknown = { user }) => ({ request: req(body), locals } as any);
+const ev = (body: unknown, locals: unknown = { user }) => ({ request: req(body), locals }) as any;
 
 beforeAll(async () => {
   await setupTestDb();
   // conversations.user_id is an FK → users.id; create the principals first.
   for (const id of ["u1", "other-user"]) {
-    await createUser({ id, email: `${id}@x.test`, passwordHash: "x", name: id, role: "member", status: "active" });
+    await createUser({
+      id,
+      email: `${id}@x.test`,
+      passwordHash: "x",
+      name: id,
+      role: "member",
+      status: "active",
+    });
   }
 });
-afterAll(async () => { await closeTestDb(); restoreModuleMocks(); });
-beforeEach(() => { process.env.PI_E2E_REAL = "1"; delete process.env.NODE_ENV; process.env.EZCORP_ALLOW_TEST_SURFACE = "1"; });
+afterAll(async () => {
+  await closeTestDb();
+  restoreModuleMocks();
+});
+beforeEach(() => {
+  process.env.PI_E2E_REAL = "1";
+  delete process.env.NODE_ENV;
+  process.env.EZCORP_ALLOW_TEST_SURFACE = "1";
+});
 afterEach(() => {
-  if (savedE2E === undefined) delete process.env.PI_E2E_REAL; else process.env.PI_E2E_REAL = savedE2E;
-  if (savedNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = savedNodeEnv;
-  if (savedAllow === undefined) delete process.env.EZCORP_ALLOW_TEST_SURFACE; else process.env.EZCORP_ALLOW_TEST_SURFACE = savedAllow;
+  if (savedE2E === undefined) delete process.env.PI_E2E_REAL;
+  else process.env.PI_E2E_REAL = savedE2E;
+  if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = savedNodeEnv;
+  if (savedAllow === undefined) delete process.env.EZCORP_ALLOW_TEST_SURFACE;
+  else process.env.EZCORP_ALLOW_TEST_SURFACE = savedAllow;
 });
 
 describe("POST /api/__test/seed", () => {
@@ -92,7 +120,10 @@ describe("POST /api/__test/reset", () => {
   });
 
   test("already-deleted conversation → idempotent no-op", async () => {
-    expect(await (await reset(ev({ conversationId: "does-not-exist" }))).json()).toEqual({ ok: true, deleted: false });
+    expect(await (await reset(ev({ conversationId: "does-not-exist" }))).json()).toEqual({
+      ok: true,
+      deleted: false,
+    });
   });
 
   test("403 when resetting another user's conversation as non-admin", async () => {

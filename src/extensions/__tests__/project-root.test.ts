@@ -93,15 +93,12 @@ describe("warnIfCwdFallback", () => {
     expect(record.msg).toContain("expected in the container");
   });
 
-  test.each(["env", "import-meta", "git-walk"] as const)(
-    "source=%s is silent",
-    (source) => {
-      const lines = captureStderr(() => {
-        warnIfCwdFallback({ root: "/repo", source });
-      });
-      expect(lines).toEqual([]);
-    },
-  );
+  test.each(["env", "import-meta", "git-walk"] as const)("source=%s is silent", (source) => {
+    const lines = captureStderr(() => {
+      warnIfCwdFallback({ root: "/repo", source });
+    });
+    expect(lines).toEqual([]);
+  });
 });
 
 describe("resolveProjectRoot — import.meta.url secondary signal", () => {

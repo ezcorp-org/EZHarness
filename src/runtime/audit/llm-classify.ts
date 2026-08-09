@@ -38,10 +38,7 @@ interface LlmShape {
   rationale?: unknown;
 }
 
-async function buildUserPrompt(
-  feature: FeatureWithFiles,
-  projectRoot: string,
-): Promise<string> {
+async function buildUserPrompt(feature: FeatureWithFiles, projectRoot: string): Promise<string> {
   const lines: string[] = [];
   lines.push(`Feature: ${feature.name}`);
   if (feature.description) lines.push(`Description: ${feature.description}`);
@@ -69,7 +66,9 @@ async function buildUserPrompt(
   return lines.join("\n");
 }
 
-function coerceVerdict(raw: { exposed?: unknown; evidence?: unknown } | undefined): SurfaceVerdict | undefined {
+function coerceVerdict(
+  raw: { exposed?: unknown; evidence?: unknown } | undefined,
+): SurfaceVerdict | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   if (typeof raw.exposed !== "boolean") return undefined;
   return {
@@ -95,10 +94,9 @@ export async function llmClassify(
   let parsed: LlmShape | undefined;
   let rationale = "";
   try {
-    const response = await ctx.llm.complete(
-      [{ role: "user", content: userPrompt }],
-      { system: SYSTEM_PROMPT },
-    );
+    const response = await ctx.llm.complete([{ role: "user", content: userPrompt }], {
+      system: SYSTEM_PROMPT,
+    });
     const text: string = response?.text ?? "";
     rationale = "";
     parsed = JSON.parse(text) as LlmShape;

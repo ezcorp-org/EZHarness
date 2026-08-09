@@ -55,11 +55,19 @@ class MockEventSource {
     this.url = url;
     esInstances.push(this);
   }
-  close() { this.readyState = MockEventSource.CLOSED; }
+  close() {
+    this.readyState = MockEventSource.CLOSED;
+  }
 
-  simulateOpen() { this.onopen?.({ type: "open" }); }
-  simulateError() { this.onerror?.({ type: "error" }); }
-  simulateMessage(data: any) { this.onmessage?.({ data: JSON.stringify(data) }); }
+  simulateOpen() {
+    this.onopen?.({ type: "open" });
+  }
+  simulateError() {
+    this.onerror?.({ type: "error" });
+  }
+  simulateMessage(data: any) {
+    this.onmessage?.({ data: JSON.stringify(data) });
+  }
 }
 
 (globalThis as any).EventSource = MockEventSource;
@@ -77,11 +85,7 @@ function latestES(): MockEventSource {
 }
 
 // Import after mocks are set up
-import {
-  createWSClient,
-  MAX_ATTEMPTS,
-  type WSEvent,
-} from "../../web/src/lib/ws";
+import { createWSClient, MAX_ATTEMPTS, type WSEvent } from "../../web/src/lib/ws";
 
 beforeEach(() => {
   esInstances = [];
@@ -98,7 +102,8 @@ describe("SSE disconnect → reconnect flow", () => {
     // window (CONNECTION_GRACE_MS): a transient blip stays "connected" until
     // the grace timer fires, so we must let it fire to observe "reconnecting".
     const origSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = ((fn: (...args: unknown[]) => unknown, _delay?: number) => origSetTimeout(fn, 0)) as any;
+    globalThis.setTimeout = ((fn: (...args: unknown[]) => unknown, _delay?: number) =>
+      origSetTimeout(fn, 0)) as any;
 
     const events: WSEvent[] = [];
     const client = createWSClient();
@@ -109,20 +114,20 @@ describe("SSE disconnect → reconnect flow", () => {
     expect(es1.url).toBe("/api/runtime-events");
     es1.simulateOpen();
     expect(storeValue.state).toBe("connected");
-    expect(events.some(e => e.type === "ws:connected")).toBe(true);
+    expect(events.some((e) => e.type === "ws:connected")).toBe(true);
 
     // Disconnect
     storeHistory = [];
     es1.simulateError();
 
-    expect(events.some(e => e.type === "ws:disconnected")).toBe(true);
+    expect(events.some((e) => e.type === "ws:disconnected")).toBe(true);
 
     // Let the grace timer fire so the gated state surfaces "reconnecting".
-    await new Promise(r => origSetTimeout(r, 10));
+    await new Promise((r) => origSetTimeout(r, 10));
     expect(storeValue.state).toBe("reconnecting");
 
     // Backoff timer also fires immediately under the patched setTimeout.
-    await new Promise(r => origSetTimeout(r, 10));
+    await new Promise((r) => origSetTimeout(r, 10));
 
     // New EventSource created
     const es2 = latestES();
@@ -134,7 +139,7 @@ describe("SSE disconnect → reconnect flow", () => {
     expect(storeValue.attempt).toBe(0);
 
     // Event ordering
-    const types = events.map(e => e.type);
+    const types = events.map((e) => e.type);
     const firstConnect = types.indexOf("ws:connected");
     const disconnect = types.indexOf("ws:disconnected");
     const reconnect = types.lastIndexOf("ws:connected");
@@ -147,7 +152,8 @@ describe("SSE disconnect → reconnect flow", () => {
 
   test("attempt counter increments through reconnection cycle", async () => {
     const origSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = ((fn: (...args: unknown[]) => unknown, _delay?: number) => origSetTimeout(fn, 0)) as any;
+    globalThis.setTimeout = ((fn: (...args: unknown[]) => unknown, _delay?: number) =>
+      origSetTimeout(fn, 0)) as any;
 
     const client = createWSClient();
     latestES().simulateOpen();
@@ -158,7 +164,7 @@ describe("SSE disconnect → reconnect flow", () => {
     // Track attempts seen
     const attempts: number[] = [];
     for (let i = 0; i < 4; i++) {
-      await new Promise(r => origSetTimeout(r, 10));
+      await new Promise((r) => origSetTimeout(r, 10));
       attempts.push(storeValue.attempt);
       const es = latestES();
       if (es.readyState !== MockEventSource.CLOSED) es.simulateError();
@@ -168,7 +174,8 @@ describe("SSE disconnect → reconnect flow", () => {
     for (let i = 1; i < attempts.length; i++) {
       const curr = attempts[i];
       const prev = attempts[i - 1];
-      if (curr === undefined || prev === undefined) throw new Error("expected attempts entry to be defined");
+      if (curr === undefined || prev === undefined)
+        throw new Error("expected attempts entry to be defined");
       expect(curr).toBeGreaterThanOrEqual(prev);
     }
 
@@ -187,7 +194,7 @@ describe("SSE disconnect → reconnect flow", () => {
     es.simulateMessage({ type: "run:complete", data: { runId: "r1" } });
     es.simulateError();
 
-    const types = events.map(e => e.type);
+    const types = events.map((e) => e.type);
     expect(types).toEqual(["ws:connected", "run:start", "run:complete", "ws:disconnected"]);
 
     client.close();
@@ -199,7 +206,8 @@ describe("SSE disconnect → reconnect flow", () => {
 describe("SSE permanent failure → manual retry", () => {
   test("10 consecutive failures transition to failed, manualRetry resets", async () => {
     const origSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = ((fn: (...args: unknown[]) => unknown, _delay?: number) => origSetTimeout(fn, 0)) as any;
+    globalThis.setTimeout = ((fn: (...args: unknown[]) => unknown, _delay?: number) =>
+      origSetTimeout(fn, 0)) as any;
 
     const client = createWSClient();
     latestES().simulateOpen();
@@ -207,17 +215,17 @@ describe("SSE permanent failure → manual retry", () => {
 
     // Exhaust all attempts
     for (let i = 0; i < MAX_ATTEMPTS + 5; i++) {
-      await new Promise(r => origSetTimeout(r, 10));
+      await new Promise((r) => origSetTimeout(r, 10));
       const es = latestES();
       if (es.readyState !== MockEventSource.CLOSED) es.simulateError();
     }
-    await new Promise(r => origSetTimeout(r, 50));
+    await new Promise((r) => origSetTimeout(r, 50));
 
     expect(storeValue.state).toBe("failed");
 
     // Manual retry
     client.manualRetry();
-    await new Promise(r => origSetTimeout(r, 10));
+    await new Promise((r) => origSetTimeout(r, 10));
 
     // Attempt resets
     expect(storeValue.attempt).toBe(0);
@@ -233,7 +241,8 @@ describe("SSE permanent failure → manual retry", () => {
 
   test("state passes through reconnecting before reaching failed", async () => {
     const origSetTimeout = globalThis.setTimeout;
-    globalThis.setTimeout = ((fn: (...args: unknown[]) => unknown, _delay?: number) => origSetTimeout(fn, 0)) as any;
+    globalThis.setTimeout = ((fn: (...args: unknown[]) => unknown, _delay?: number) =>
+      origSetTimeout(fn, 0)) as any;
 
     storeHistory = [];
     const client = createWSClient();
@@ -241,13 +250,13 @@ describe("SSE permanent failure → manual retry", () => {
     latestES().simulateError();
 
     for (let i = 0; i < MAX_ATTEMPTS + 5; i++) {
-      await new Promise(r => origSetTimeout(r, 10));
+      await new Promise((r) => origSetTimeout(r, 10));
       const es = latestES();
       if (es.readyState !== MockEventSource.CLOSED) es.simulateError();
     }
-    await new Promise(r => origSetTimeout(r, 50));
+    await new Promise((r) => origSetTimeout(r, 50));
 
-    const states = storeHistory.map(s => s.state);
+    const states = storeHistory.map((s) => s.state);
     expect(states).toContain("reconnecting");
     expect(states).toContain("failed");
     // reconnecting appears before failed
@@ -302,11 +311,13 @@ describe("Health degradation scenarios", () => {
       isEmbeddingReady: () => true,
     }));
     mock.module("../db/queries/settings", () => ({
-      getAllSettings: mock(() => Promise.resolve({
-        "provider:apiKey:anthropic": "sk-test",
-        "provider:apiKey:openai": "sk-test",
-        "provider:apiKey:google": "gk-test",
-      })),
+      getAllSettings: mock(() =>
+        Promise.resolve({
+          "provider:apiKey:anthropic": "sk-test",
+          "provider:apiKey:openai": "sk-test",
+          "provider:apiKey:google": "gk-test",
+        }),
+      ),
     }));
 
     const { buildHealthResponse } = await import("../health");
@@ -348,7 +359,9 @@ describe("Memory unavailable → recovery flow", () => {
   test("emits memory_unavailable event with correct shape on injection failure", () => {
     const events: any[] = [];
     const mockBus = {
-      emit: (type: string, data: any) => { events.push({ type, data }); },
+      emit: (type: string, data: any) => {
+        events.push({ type, data });
+      },
     };
 
     // Reproduce executor catch block behavior
@@ -370,7 +383,9 @@ describe("Memory unavailable → recovery flow", () => {
   test("successful run after failure clears degraded state", () => {
     const events: any[] = [];
     const mockBus = {
-      emit: (type: string, data: any) => { events.push({ type, data }); },
+      emit: (type: string, data: any) => {
+        events.push({ type, data });
+      },
     };
 
     // First run: memory fails
@@ -384,7 +399,7 @@ describe("Memory unavailable → recovery flow", () => {
     // Second run: memory works (no degraded event)
     mockBus.emit("run:status", { runId: "run-2", status: "running" });
 
-    const degradedEvents = events.filter(e => e.data.degraded === true);
+    const degradedEvents = events.filter((e) => e.data.degraded === true);
     expect(degradedEvents).toHaveLength(1);
     expect(degradedEvents[0].data.runId).toBe("run-1");
     expect(events[1].data.degraded).toBeUndefined();
@@ -397,7 +412,9 @@ describe("ConnectionBanner state mapping (visibility logic)", () => {
   // Extracted from ConnectionBanner.svelte line 31:
   // visible = state === "reconnecting" || state === "failed" || state === "disconnected" || showConnected
   function isVisible(state: ConnectionInfo["state"], showConnected: boolean): boolean {
-    return state === "reconnecting" || state === "failed" || state === "disconnected" || showConnected;
+    return (
+      state === "reconnecting" || state === "failed" || state === "disconnected" || showConnected
+    );
   }
 
   test("visible when reconnecting", () => {

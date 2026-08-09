@@ -3,7 +3,12 @@
  * Provides isolated, DB-backed key-value storage with encryption, quotas, and rate limiting.
  */
 
-import type { JsonRpcRequest, JsonRpcResponse, ExtensionPermissions, ExtensionManifestV2 } from "./types";
+import type {
+  JsonRpcRequest,
+  JsonRpcResponse,
+  ExtensionPermissions,
+  ExtensionManifestV2,
+} from "./types";
 import type { PermissionEngine } from "./permission-engine";
 import {
   getStorageValue,
@@ -20,9 +25,9 @@ import { rpcError, rpcResult } from "./json-rpc";
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const DEFAULT_QUOTA_BYTES = 5 * 1024 * 1024;   // 5 MB
-const MAX_QUOTA_BYTES = 100 * 1024 * 1024;      // 100 MB
-const MAX_VALUE_BYTES = 1 * 1024 * 1024;         // 1 MB per key
+const DEFAULT_QUOTA_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_QUOTA_BYTES = 100 * 1024 * 1024; // 100 MB
+const MAX_VALUE_BYTES = 1 * 1024 * 1024; // 1 MB per key
 const MAX_KEY_LENGTH = 256;
 const MAX_OPS_PER_SECOND = 50;
 const KEY_REGEX = /^[a-zA-Z0-9_.\-/:]{1,256}$/;
@@ -74,9 +79,12 @@ function resolveScopeId(scope: Scope, ctx: StorageContext): string | null {
     // decision #4. Never put per-user data here; `handleSet` rejects
     // encrypted writes to this scope so secrets can't land in the
     // shared bucket.
-    case "global": return null;
-    case "conversation": return ctx.conversationId;
-    case "user": return ctx.userId;
+    case "global":
+      return null;
+    case "conversation":
+      return ctx.conversationId;
+    case "user":
+      return ctx.userId;
   }
 }
 
@@ -143,9 +151,7 @@ export async function handleStorageRpc(
           extensionId,
           userId: ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null,
           conversationId:
-            ctx.conversationId && ctx.conversationId !== "unknown"
-              ? ctx.conversationId
-              : null,
+            ctx.conversationId && ctx.conversationId !== "unknown" ? ctx.conversationId : null,
           toolName: "ezcorp/storage",
         },
         [{ kind: "storage" }],
@@ -186,21 +192,31 @@ export async function handleStorageRpc(
   }
 
   switch (action) {
-    case "get": return handleGet(extensionId, req.id, params, scope, scopeId, isBuiltin);
-    case "set": return handleSet(extensionId, req.id, params, scope, scopeId, ctx.manifest, isBuiltin);
-    case "delete": return handleDelete(extensionId, req.id, params, scope, scopeId, isBuiltin);
-    case "list": return handleList(extensionId, req.id, params, scope, scopeId);
-    case "batch": return handleBatch(extensionId, req.id, params, scope, scopeId, ctx.manifest, isBuiltin);
-    default: return rpcError(req.id, -32602, `Unknown action: ${action}`);
+    case "get":
+      return handleGet(extensionId, req.id, params, scope, scopeId, isBuiltin);
+    case "set":
+      return handleSet(extensionId, req.id, params, scope, scopeId, ctx.manifest, isBuiltin);
+    case "delete":
+      return handleDelete(extensionId, req.id, params, scope, scopeId, isBuiltin);
+    case "list":
+      return handleList(extensionId, req.id, params, scope, scopeId);
+    case "batch":
+      return handleBatch(extensionId, req.id, params, scope, scopeId, ctx.manifest, isBuiltin);
+    default:
+      return rpcError(req.id, -32602, `Unknown action: ${action}`);
   }
 }
 
 // ── Action handlers ─────────────────────────────────────────────────
 
 async function handleGet(
-  extensionId: string, id: number | string,
-  params: Record<string, unknown>, scope: Scope, scopeId: string | null,
-  isBuiltin: boolean, skipRateLimit = false,
+  extensionId: string,
+  id: number | string,
+  params: Record<string, unknown>,
+  scope: Scope,
+  scopeId: string | null,
+  isBuiltin: boolean,
+  skipRateLimit = false,
 ): Promise<JsonRpcResponse> {
   const key = params.key as string;
   const pre = preflightKeyOp(extensionId, id, key, isBuiltin, skipRateLimit);
@@ -222,9 +238,14 @@ async function handleGet(
 }
 
 async function handleSet(
-  extensionId: string, id: number | string,
-  params: Record<string, unknown>, scope: Scope, scopeId: string | null,
-  manifest: ExtensionManifestV2, isBuiltin: boolean, skipRateLimit = false,
+  extensionId: string,
+  id: number | string,
+  params: Record<string, unknown>,
+  scope: Scope,
+  scopeId: string | null,
+  manifest: ExtensionManifestV2,
+  isBuiltin: boolean,
+  skipRateLimit = false,
 ): Promise<JsonRpcResponse> {
   const key = params.key as string;
   const pre = preflightKeyOp(extensionId, id, key, isBuiltin, skipRateLimit);
@@ -271,23 +292,35 @@ async function handleSet(
   }
 
   const rawTtl = params.ttlSeconds;
-  const ttlSeconds = typeof rawTtl === "number" && rawTtl > 0 && rawTtl <= 31_536_000 ? rawTtl : undefined;
+  const ttlSeconds =
+    typeof rawTtl === "number" && rawTtl > 0 && rawTtl <= 31_536_000 ? rawTtl : undefined;
   if (rawTtl !== undefined && !ttlSeconds) {
     return rpcError(id, -32602, "ttlSeconds must be a positive number (max 31536000 / 1 year)");
   }
-  const expiresAt = ttlSeconds
-    ? new Date(Date.now() + ttlSeconds * 1000)
-    : undefined;
+  const expiresAt = ttlSeconds ? new Date(Date.now() + ttlSeconds * 1000) : undefined;
 
-  await setStorageValue(extensionId, scope, scopeId, key, valueToStore, shouldEncrypt, sizeBytes, expiresAt);
+  await setStorageValue(
+    extensionId,
+    scope,
+    scopeId,
+    key,
+    valueToStore,
+    shouldEncrypt,
+    sizeBytes,
+    expiresAt,
+  );
 
   return rpcResult(id, { ok: true, sizeBytes });
 }
 
 async function handleDelete(
-  extensionId: string, id: number | string,
-  params: Record<string, unknown>, scope: Scope, scopeId: string | null,
-  isBuiltin: boolean, skipRateLimit = false,
+  extensionId: string,
+  id: number | string,
+  params: Record<string, unknown>,
+  scope: Scope,
+  scopeId: string | null,
+  isBuiltin: boolean,
+  skipRateLimit = false,
 ): Promise<JsonRpcResponse> {
   const key = params.key as string;
   const pre = preflightKeyOp(extensionId, id, key, isBuiltin, skipRateLimit);
@@ -298,8 +331,11 @@ async function handleDelete(
 }
 
 async function handleList(
-  extensionId: string, id: number | string,
-  params: Record<string, unknown>, scope: Scope, scopeId: string | null,
+  extensionId: string,
+  id: number | string,
+  params: Record<string, unknown>,
+  scope: Scope,
+  scopeId: string | null,
 ): Promise<JsonRpcResponse> {
   if (!consumeTokens(extensionId, 1)) return rpcError(id, -32004, "Rate limited");
 
@@ -311,9 +347,13 @@ async function handleList(
 }
 
 async function handleBatch(
-  extensionId: string, id: number | string,
-  params: Record<string, unknown>, scope: Scope, scopeId: string | null,
-  manifest: ExtensionManifestV2, isBuiltin: boolean,
+  extensionId: string,
+  id: number | string,
+  params: Record<string, unknown>,
+  scope: Scope,
+  scopeId: string | null,
+  manifest: ExtensionManifestV2,
+  isBuiltin: boolean,
 ): Promise<JsonRpcResponse> {
   const operations = params.operations as Array<Record<string, unknown>> | undefined;
   if (!Array.isArray(operations) || operations.length === 0) {
@@ -337,7 +377,16 @@ async function handleBatch(
         result = await handleGet(extensionId, id, opParams, scope, scopeId, isBuiltin, true);
         break;
       case "set":
-        result = await handleSet(extensionId, id, opParams, scope, scopeId, manifest, isBuiltin, true);
+        result = await handleSet(
+          extensionId,
+          id,
+          opParams,
+          scope,
+          scopeId,
+          manifest,
+          isBuiltin,
+          true,
+        );
         break;
       case "delete":
         result = await handleDelete(extensionId, id, opParams, scope, scopeId, isBuiltin, true);

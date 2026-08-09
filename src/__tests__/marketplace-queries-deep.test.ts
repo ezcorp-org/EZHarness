@@ -58,11 +58,13 @@ beforeAll(async () => {
   testUserId = crypto.randomUUID();
   testUser2Id = crypto.randomUUID();
   adminUserId = crypto.randomUUID();
-  await getDb().insert(users).values([
-    { id: testUserId, email: "q1@test.com", passwordHash: "h", name: "User 1", role: "member" },
-    { id: testUser2Id, email: "q2@test.com", passwordHash: "h", name: "User 2", role: "member" },
-    { id: adminUserId, email: "admin@test.com", passwordHash: "h", name: "Admin", role: "admin" },
-  ]);
+  await getDb()
+    .insert(users)
+    .values([
+      { id: testUserId, email: "q1@test.com", passwordHash: "h", name: "User 1", role: "member" },
+      { id: testUser2Id, email: "q2@test.com", passwordHash: "h", name: "User 2", role: "member" },
+      { id: adminUserId, email: "admin@test.com", passwordHash: "h", name: "Admin", role: "admin" },
+    ]);
 });
 
 afterAll(async () => {
@@ -212,13 +214,15 @@ describe("Listings", () => {
 
   test("9. getListingsByAuthor returns only that author's listings, ordered newest first", async () => {
     const authorId = crypto.randomUUID();
-    await getDb().insert(users).values({
-      id: authorId,
-      email: `author-${authorId.slice(0, 8)}@test.com`,
-      passwordHash: "h",
-      name: "Author",
-      role: "member",
-    });
+    await getDb()
+      .insert(users)
+      .values({
+        id: authorId,
+        email: `author-${authorId.slice(0, 8)}@test.com`,
+        passwordHash: "h",
+        name: "Author",
+        role: "member",
+      });
 
     const first = await createListing({
       authorId,
@@ -396,8 +400,7 @@ describe("Browse", () => {
     const results = await browseMarketplace({ sort: "rating" });
     // Verify sort order: (ratingPositive * 100) / (ratingTotal + 1) DESC
     for (let i = 1; i < results.length; i++) {
-      const prevScore =
-        (results[i - 1]!.ratingPositive * 100) / (results[i - 1]!.ratingTotal + 1);
+      const prevScore = (results[i - 1]!.ratingPositive * 100) / (results[i - 1]!.ratingTotal + 1);
       const currScore = (results[i]!.ratingPositive * 100) / (results[i]!.ratingTotal + 1);
       expect(prevScore).toBeGreaterThanOrEqual(currScore);
     }

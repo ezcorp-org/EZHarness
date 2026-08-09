@@ -15,7 +15,10 @@ import {
 import type { AgentResult, WorkflowModelBinding, WorkflowStep } from "../types";
 import type { RefContext } from "../runtime/workflow-refs";
 
-function ctx(input: Record<string, unknown> = {}, steps: Array<[string, AgentResult]> = []): RefContext {
+function ctx(
+  input: Record<string, unknown> = {},
+  steps: Array<[string, AgentResult]> = [],
+): RefContext {
   return { input, stepResults: new Map(steps), prevResult: undefined };
 }
 
@@ -30,7 +33,7 @@ describe("validateModelOverride", () => {
           maxTokens: 8000,
           effort: "high",
         },
-        "Step \"x\" model",
+        'Step "x" model',
       ),
     ).toEqual([]);
   });
@@ -65,10 +68,7 @@ describe("validateModelOverride", () => {
   );
 
   test("rejects an over-long string field", () => {
-    const errors = validateModelOverride(
-      { model: "m".repeat(MAX_MODEL_FIELD_LENGTH + 1) },
-      "L",
-    );
+    const errors = validateModelOverride({ model: "m".repeat(MAX_MODEL_FIELD_LENGTH + 1) }, "L");
     expect(errors).toEqual([
       `L "model" exceeds the maximum length of ${MAX_MODEL_FIELD_LENGTH} characters`,
     ]);
@@ -138,7 +138,10 @@ describe("validateModelOverride", () => {
 });
 
 describe("effectiveModelOverride", () => {
-  const step = (model?: WorkflowModelBinding): WorkflowStep => ({ name: "s", ...(model ? { model } : {}) });
+  const step = (model?: WorkflowModelBinding): WorkflowStep => ({
+    name: "s",
+    ...(model ? { model } : {}),
+  });
 
   test("prefers the step's own binding", () => {
     expect(
@@ -175,7 +178,13 @@ describe("resolveModelOverride", () => {
   test("passes literals through untouched", () => {
     expect(
       resolveModelOverride(
-        { provider: "anthropic", model: "claude-opus-5", temperature: 0.3, maxTokens: 100, effort: "max" },
+        {
+          provider: "anthropic",
+          model: "claude-opus-5",
+          temperature: 0.3,
+          maxTokens: 100,
+          effort: "max",
+        },
         ctx(),
         "s",
       ),
@@ -218,15 +227,15 @@ describe("resolveModelOverride", () => {
   });
 
   test("keeps numeric fields even when every string field resolves away", () => {
-    expect(
-      resolveModelOverride({ model: "$input.missing", maxTokens: 4000 }, ctx(), "s"),
-    ).toEqual({ maxTokens: 4000 });
+    expect(resolveModelOverride({ model: "$input.missing", maxTokens: 4000 }, ctx(), "s")).toEqual({
+      maxTokens: 4000,
+    });
   });
 
   test("throws, naming the step, when a ref resolves to a non-string", () => {
-    expect(() =>
-      resolveModelOverride({ model: "$input.n" }, ctx({ n: 42 }), "verify"),
-    ).toThrow(/Step "verify" model override "model" resolved to a non-string value \(42\)/);
+    expect(() => resolveModelOverride({ model: "$input.n" }, ctx({ n: 42 }), "verify")).toThrow(
+      /Step "verify" model override "model" resolved to a non-string value \(42\)/,
+    );
   });
 
   test("throws when a ref resolves to a blank string", () => {

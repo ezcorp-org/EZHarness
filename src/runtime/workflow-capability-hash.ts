@@ -316,9 +316,7 @@ export function consentCapabilityClosure(material: ConsentHashMaterial): string[
 
 /** {@link ConsentSemanticMaterial} for a material. Pure projection — it
  *  reads, it never recomputes. */
-export function consentSemanticMaterial(
-  material: ConsentHashMaterial,
-): ConsentSemanticMaterial {
+export function consentSemanticMaterial(material: ConsentHashMaterial): ConsentSemanticMaterial {
   return {
     v: material.v,
     extensionName: material.extensionName,

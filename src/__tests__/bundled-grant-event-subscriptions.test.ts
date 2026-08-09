@@ -35,7 +35,12 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 interface StoredExtension {
   id: string;
   name: string;
-  manifest: { schemaVersion: 2; name: string; version: string; permissions?: Record<string, unknown> } & Record<string, unknown>;
+  manifest: {
+    schemaVersion: 2;
+    name: string;
+    version: string;
+    permissions?: Record<string, unknown>;
+  } & Record<string, unknown>;
   installPath: string;
   enabled: boolean;
   isBundled?: boolean;
@@ -168,10 +173,7 @@ describe("ensureBundledExtensions — eventSubscriptions auto-heal (drift policy
   // `claude-design:brief-answer` (the latter added with the form-card
   // landing). The full disk set is used by every test here; ordering
   // assertions sort first so the merge order isn't a contract.
-  const DISK_EVENTS = [
-    "claude-design:knob-change",
-    "claude-design:brief-answer",
-  ];
+  const DISK_EVENTS = ["claude-design:knob-change", "claude-design:brief-answer"];
 
   test("preexisting row with NO eventSubscriptions in grant → backfilled with disk additions", async () => {
     seedStaleClaudeDesign();
@@ -179,12 +181,15 @@ describe("ensureBundledExtensions — eventSubscriptions auto-heal (drift policy
     const row = store.get("claude-design")!;
     // Auto-heal surfaces the full disk set on the runtime grant so the
     // dispatcher picks them up.
-    expect((row.grantedPermissions.eventSubscriptions ?? []).slice().sort())
-      .toEqual([...DISK_EVENTS].sort());
+    expect((row.grantedPermissions.eventSubscriptions ?? []).slice().sort()).toEqual(
+      [...DISK_EVENTS].sort(),
+    );
     // The DB-stored manifest's permissions block is also backfilled so
     // future drift checks don't see a fake mismatch.
     expect(
-      ((row.manifest.permissions as { eventSubscriptions?: string[] }).eventSubscriptions ?? []).slice().sort(),
+      ((row.manifest.permissions as { eventSubscriptions?: string[] }).eventSubscriptions ?? [])
+        .slice()
+        .sort(),
     ).toEqual([...DISK_EVENTS].sort());
     // grantedAt timestamp tracks the heal.
     expect(typeof row.grantedPermissions.grantedAt.eventSubscriptions).toBe("number");
@@ -222,16 +227,16 @@ describe("ensureBundledExtensions — eventSubscriptions auto-heal (drift policy
     ).toHaveLength(0);
     // Grant remains the union — no duplication.
     const row = store.get("claude-design")!;
-    expect((row.grantedPermissions.eventSubscriptions ?? []).slice().sort())
-      .toEqual([...DISK_EVENTS].sort());
+    expect((row.grantedPermissions.eventSubscriptions ?? []).slice().sort()).toEqual(
+      [...DISK_EVENTS].sort(),
+    );
   });
 
   test("when grant ALREADY contains the disk subscription → no backfill, no audit", async () => {
     const row = seedStaleClaudeDesign();
     row.grantedPermissions.eventSubscriptions = [...DISK_EVENTS];
     row.grantedPermissions.grantedAt.eventSubscriptions = 100;
-    (row.manifest.permissions as Record<string, unknown>).eventSubscriptions =
-      [...DISK_EVENTS];
+    (row.manifest.permissions as Record<string, unknown>).eventSubscriptions = [...DISK_EVENTS];
     await ensureBundledExtensions();
     expect(
       auditCalls.filter(
@@ -251,8 +256,9 @@ describe("ensureBundledExtensions — eventSubscriptions auto-heal (drift policy
     row.grantedPermissions.grantedAt.eventSubscriptions = 100;
     await ensureBundledExtensions();
     const updated = store.get("claude-design")!;
-    expect((updated.grantedPermissions.eventSubscriptions ?? []).slice().sort())
-      .toEqual([...DISK_EVENTS, "legacy:event"].sort());
+    expect((updated.grantedPermissions.eventSubscriptions ?? []).slice().sort()).toEqual(
+      [...DISK_EVENTS, "legacy:event"].sort(),
+    );
   });
 
   test("validation: bundled grant for claude-design includes BOTH knob-change AND brief-answer post-self-heal", async () => {
@@ -272,13 +278,12 @@ describe("ensureBundledExtensions — eventSubscriptions auto-heal (drift policy
       "claude-design:knob-change",
     ]);
     // The DB-stored manifest's permissions block reflects the same set.
-    const manifestEvents =
-      ((row.manifest.permissions as { eventSubscriptions?: string[] })
-        .eventSubscriptions ?? []).slice().sort();
-    expect(manifestEvents).toEqual([
-      "claude-design:brief-answer",
-      "claude-design:knob-change",
-    ]);
+    const manifestEvents = (
+      (row.manifest.permissions as { eventSubscriptions?: string[] }).eventSubscriptions ?? []
+    )
+      .slice()
+      .sort();
+    expect(manifestEvents).toEqual(["claude-design:brief-answer", "claude-design:knob-change"]);
   });
 
   test("network drift on the SAME row → MANIFEST_DRIFTED warns-and-fails-closed (legacy policy unchanged)", async () => {

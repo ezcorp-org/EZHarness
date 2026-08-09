@@ -24,34 +24,34 @@ const PROJECTS_BIND = "/app/web/.ezcorp/projects";
 const PATH_PLACEHOLDER = `${PROJECTS_BIND}/my-project`;
 
 test("new-project form defaults the working directory to the persisted bind @evidence", async ({
-	page,
-	mockApi,
+  page,
+  mockApi,
 }, testInfo) => {
-	await mockApi();
-	await page.goto("/new-project");
+  await mockApi();
+  await page.goto("/new-project");
 
-	await expect(page.getByRole("heading", { name: "Create Project" })).toBeVisible();
-	await expect(page.getByTestId("open-file-picker")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Create Project" })).toBeVisible();
+  await expect(page.getByTestId("open-file-picker")).toBeVisible();
 
-	// The regression guard: the pre-fix default sat outside the sandbox root,
-	// so "Create Folder" 403'd on the form's own suggestion.
-	expect(await filePickerValue(page)).toBe(`${PROJECTS_BIND}/`);
+  // The regression guard: the pre-fix default sat outside the sandbox root,
+  // so "Create Folder" 403'd on the form's own suggestion.
+  expect(await filePickerValue(page)).toBe(`${PROJECTS_BIND}/`);
 
-	await captureEvidence(page, testInfo, "project-form-default-path");
+  await captureEvidence(page, testInfo, "project-form-default-path");
 });
 
 test("typing a project name under the default keeps it inside the bind", async ({
-	page,
-	mockApi,
+  page,
+  mockApi,
 }) => {
-	await mockApi();
-	await page.goto("/new-project");
+  await mockApi();
+  await page.goto("/new-project");
 
-	await page.locator("#proj-name").fill("herdr-overlay");
+  await page.locator("#proj-name").fill("herdr-overlay");
 
-	const pathInput = await openFilePickerInput(page, PATH_PLACEHOLDER);
-	await pathInput.fill(`${PROJECTS_BIND}/herdr-overlay`);
+  const pathInput = await openFilePickerInput(page, PATH_PLACEHOLDER);
+  await pathInput.fill(`${PROJECTS_BIND}/herdr-overlay`);
 
-	await expect(pathInput).toHaveValue(`${PROJECTS_BIND}/herdr-overlay`);
-	expect(await filePickerValue(page)).toBe(`${PROJECTS_BIND}/herdr-overlay`);
+  await expect(pathInput).toHaveValue(`${PROJECTS_BIND}/herdr-overlay`);
+  expect(await filePickerValue(page)).toBe(`${PROJECTS_BIND}/herdr-overlay`);
 });

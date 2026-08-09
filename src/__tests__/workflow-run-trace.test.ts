@@ -171,14 +171,26 @@ describe("trace payload shape", () => {
       durationMs: 900,
     });
     await upsertWorkflowStepIteration({
-      workflowRunId: "run-shape", stepName: "revise",
-      iteration: 1, attempt: 0, status: "success",
-      model: "claude-haiku-4-5", inputTokens: 10, outputTokens: 2, durationMs: 400,
+      workflowRunId: "run-shape",
+      stepName: "revise",
+      iteration: 1,
+      attempt: 0,
+      status: "success",
+      model: "claude-haiku-4-5",
+      inputTokens: 10,
+      outputTokens: 2,
+      durationMs: 400,
     });
     await upsertWorkflowStepIteration({
-      workflowRunId: "run-shape", stepName: "revise",
-      iteration: 2, attempt: 0, status: "success",
-      model: "claude-opus-5", inputTokens: 30, outputTokens: 6, durationMs: 500,
+      workflowRunId: "run-shape",
+      stepName: "revise",
+      iteration: 2,
+      attempt: 0,
+      status: "success",
+      model: "claude-opus-5",
+      inputTokens: 30,
+      outputTokens: 6,
+      durationMs: 500,
     });
   });
 
@@ -204,10 +216,7 @@ describe("trace payload shape", () => {
     const revise = trace.steps.find((s) => s.stepName === "revise")!;
     expect(revise.iterationRows.map((i) => i.iteration)).toEqual([1, 2]);
     // The escalation the parent row cannot show.
-    expect(revise.iterationRows.map((i) => i.model)).toEqual([
-      "claude-haiku-4-5",
-      "claude-opus-5",
-    ]);
+    expect(revise.iterationRows.map((i) => i.model)).toEqual(["claude-haiku-4-5", "claude-opus-5"]);
     // And they are attached to the RIGHT step, not pooled onto the run.
     expect(trace.steps.find((s) => s.stepName === "draft")!.iterationRows).toEqual([]);
   });
@@ -226,7 +235,10 @@ describe("trace payload shape", () => {
     // an unmeasured run look like a measured cheap one.
     await seedRun({ id: "run-silent", userId: "user-owner" });
     await upsertWorkflowStepRun({
-      workflowRunId: "run-silent", stepName: "shape", runId: "", status: "success",
+      workflowRunId: "run-silent",
+      stepName: "shape",
+      runId: "",
+      status: "success",
     });
     const trace = (await getWorkflowRunTrace("run-silent", OWNER))!;
     expect(trace.totals.inputTokens).toBeNull();
@@ -306,7 +318,12 @@ describe("a REAL parked run, read through the real trace path", () => {
       ],
     };
 
-    const run = await wf.runWorkflow(def, { token: "ghp_aaaaaaaaaaaaaaaaaaaaaa" }, undefined, "user-owner");
+    const run = await wf.runWorkflow(
+      def,
+      { token: "ghp_aaaaaaaaaaaaaaaaaaaaaa" },
+      undefined,
+      "user-owner",
+    );
     parkedRunId = run.id;
     // Fail loudly here rather than letting every assertion below degrade
     // into a vacuous pass if the park path ever stops parking.
@@ -643,9 +660,7 @@ describe("run list — scoping and keyset pagination", () => {
   test("an admin sees every caller's runs", async () => {
     const { runs } = await listWorkflowRunsForCaller({ workflowName: "paged" }, ADMIN);
     expect(runs).toHaveLength(12);
-    expect(new Set(runs.map((r) => r.userId))).toEqual(
-      new Set(["user-owner", "user-stranger"]),
-    );
+    expect(new Set(runs.map((r) => r.userId))).toEqual(new Set(["user-owner", "user-stranger"]));
   });
 
   test("the list omits `input` — it is the same untrusted payload the trace redacts", async () => {
@@ -738,10 +753,7 @@ describe("run list — scoping and keyset pagination", () => {
   });
 
   test("limit is clamped to the cap, and to at least one", async () => {
-    const capped = await listWorkflowRunsForCaller(
-      { workflowName: "paged", limit: 10_000 },
-      ADMIN,
-    );
+    const capped = await listWorkflowRunsForCaller({ workflowName: "paged", limit: 10_000 }, ADMIN);
     expect(capped.runs.length).toBeLessThanOrEqual(RUN_PAGE_MAX);
     const floored = await listWorkflowRunsForCaller({ workflowName: "paged", limit: 0 }, OWNER);
     expect(floored.runs).toHaveLength(1);
@@ -798,10 +810,7 @@ describe("run list — the `workflowNames` SET filter", () => {
   });
 
   test("matches every name in the set and nothing outside it", async () => {
-    const { runs } = await listWorkflowRunsForCaller(
-      { workflowNames: ["set-a", "set-b"] },
-      OWNER,
-    );
+    const { runs } = await listWorkflowRunsForCaller({ workflowNames: ["set-a", "set-b"] }, OWNER);
     expect(new Set(runs.map((r) => r.workflowName))).toEqual(new Set(["set-a", "set-b"]));
   });
 

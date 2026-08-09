@@ -30,19 +30,38 @@
  * prove the ladder against a world that agrees with it.
  */
 import {
-  test, expect, describe, beforeAll, beforeEach, afterAll, afterEach, mock, spyOn,
+  test,
+  expect,
+  describe,
+  beforeAll,
+  beforeEach,
+  afterAll,
+  afterEach,
+  mock,
+  spyOn,
 } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -68,15 +87,20 @@ import { insertWorkflowRun } from "../../db/queries/workflow-runs";
 import { computeDelegationConsentRecord } from "../../runtime/workflow-delegation-record";
 import { delegationPrincipal } from "../../runtime/workflow-delegation-consent";
 import {
-  extensions, projects, sdkCapabilityCalls, auditLog, users,
-  serviceAccounts, workflowDelegations, workflowRuns, workflowStepRuns, messages, errorLogs,
+  extensions,
+  projects,
+  sdkCapabilityCalls,
+  auditLog,
+  users,
+  serviceAccounts,
+  workflowDelegations,
+  workflowRuns,
+  workflowStepRuns,
+  messages,
+  errorLogs,
 } from "../../db/schema";
 import { eq } from "drizzle-orm";
-import type {
-  ExtensionManifestV2,
-  ExtensionPermissions,
-  JsonRpcRequest,
-} from "../types";
+import type { ExtensionManifestV2, ExtensionPermissions, JsonRpcRequest } from "../types";
 import type { AgentDefinition, WorkflowDefinition, WorkflowRun } from "../../types";
 import { systemCachedWorkflow, type CachedWorkflow } from "../../runtime/workflow-scope";
 // The SDK surface under test in phase 7. Imported from source (the package
@@ -382,28 +406,46 @@ async function consentColumnsOf(id: string): Promise<{
 beforeAll(async () => {
   await setupTestDb();
   const owner = await createUser({
-    email: "c3-owner@example.com", passwordHash: "h", name: "Owner",
-    role: "member", status: "active",
+    email: "c3-owner@example.com",
+    passwordHash: "h",
+    name: "Owner",
+    role: "member",
+    status: "active",
   });
   ownerUserId = owner.id;
   const low = await createUser({
-    email: "c3-low@example.com", passwordHash: "h", name: "Low",
-    role: "member", status: "active",
+    email: "c3-low@example.com",
+    passwordHash: "h",
+    name: "Low",
+    role: "member",
+    status: "active",
   });
   lowPrivUserId = low.id;
   const admin = await createUser({
-    email: "c3-admin@example.com", passwordHash: "h", name: "Admin",
-    role: "admin", status: "active",
+    email: "c3-admin@example.com",
+    passwordHash: "h",
+    name: "Admin",
+    role: "admin",
+    status: "active",
   });
   adminUserId = admin.id;
-  const [row] = await getTestDb().insert(extensions).values({
-    name: EXT_NAME, version: "0.0.1", description: "",
-    manifest: manifest() as never,
-    source: "test", enabled: true, grantedPermissions: granted() as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name: EXT_NAME,
+      version: "0.0.1",
+      description: "",
+      manifest: manifest() as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: granted() as never,
+    })
+    .returning({ id: extensions.id });
   extensionId = row!.id;
-  const [proj] = await getTestDb().insert(projects)
-    .values({ name: "c3-proj", path: "/tmp/c3" }).returning({ id: projects.id });
+  const [proj] = await getTestDb()
+    .insert(projects)
+    .values({ name: "c3-proj", path: "/tmp/c3" })
+    .returning({ id: projects.id });
   projectId = proj!.id;
   const account = await createServiceAccount({
     name: "org-runner",
@@ -457,14 +499,19 @@ afterAll(async () => {
 describe("the accept path", () => {
   test("a user-kind delegation fires as the OWNER and writes all three C3 columns", async () => {
     const delegationId = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
 
     expect(resp.error).toBeUndefined();
     expect(resp.result).toEqual({
-      v: 1, workflow: "org-nightly", runAs: "user", started: true,
+      v: 1,
+      workflow: "org-nightly",
+      runAs: "user",
+      started: true,
     });
     expect(started).toHaveLength(1);
     // The OWNER, not the caller — the caller is ownerless.
@@ -479,7 +526,9 @@ describe("the accept path", () => {
 
   test("the wire cannot name the workflow, the owner or the project", async () => {
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
       projectId,
     });
 
@@ -510,14 +559,18 @@ describe("the accept path", () => {
     const { sdk, log } = await auditDestinations();
     expect(sdk).toHaveLength(1);
     expect(sdk[0]).toMatchObject({
-      errorCode: null, onBehalfOf: ownerUserId, action: "runFor",
+      errorCode: null,
+      onBehalfOf: ownerUserId,
+      action: "runFor",
     });
     expect(log).toHaveLength(0);
   });
 
   test("a SERVICE-kind accept fires with NO user and audits to audit_log", async () => {
     await delegate({
-      ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-nightly",
+      ownerKind: "service",
+      ownerId: serviceAccountId,
+      workflowName: "org-nightly",
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -553,7 +606,9 @@ describe("the ladder is exactly as wide as the read/run ladder (R-1)", () => {
     // and so that the day a membership model lands, THIS test is what
     // fails and forces the decision to be explicit.
     await delegate({
-      ownerKind: "user", ownerId: lowPrivUserId, workflowName: "team-fork",
+      ownerKind: "user",
+      ownerId: lowPrivUserId,
+      workflowName: "team-fork",
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -567,7 +622,9 @@ describe("the ladder is exactly as wide as the read/run ladder (R-1)", () => {
     // The pair that proves the row above is about the LADDER and not
     // about the handler waving everything through.
     await delegate({
-      ownerKind: "service", ownerId: serviceAccountId, workflowName: "team-fork",
+      ownerKind: "service",
+      ownerId: serviceAccountId,
+      workflowName: "team-fork",
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -578,7 +635,9 @@ describe("the ladder is exactly as wide as the read/run ladder (R-1)", () => {
 
   test("`private` binds even a user-kind delegation — the one confidentiality boundary D7 has", async () => {
     await delegate({
-      ownerKind: "user", ownerId: lowPrivUserId, workflowName: "someones-private",
+      ownerKind: "user",
+      ownerId: lowPrivUserId,
+      workflowName: "someones-private",
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -589,7 +648,9 @@ describe("the ladder is exactly as wide as the read/run ladder (R-1)", () => {
 
   test("…and its OWNER's delegation runs it, so the refusal above is ownership and not a blanket deny", async () => {
     await delegate({
-      ownerKind: "user", ownerId: adminUserId, workflowName: "someones-private",
+      ownerKind: "user",
+      ownerId: adminUserId,
+      workflowName: "someones-private",
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -607,9 +668,9 @@ describe("rung 1b — EZCORP_DISABLE_DELEGATED_WORKFLOWS", () => {
     expect(
       delegatedWorkflowsDisabled({ EZCORP_DISABLE_DELEGATED_WORKFLOWS: "true" } as never),
     ).toBe(false);
-    expect(
-      delegatedWorkflowsDisabled({ EZCORP_DISABLE_DELEGATED_WORKFLOWS: "1" } as never),
-    ).toBe(true);
+    expect(delegatedWorkflowsDisabled({ EZCORP_DISABLE_DELEGATED_WORKFLOWS: "1" } as never)).toBe(
+      true,
+    );
   });
 
   test("DELEGATION_DISABLED, before any DB work, to the caller's destination", async () => {
@@ -724,7 +785,13 @@ describe("rung 6 — the PDP, on a KIND-ONLY capability", () => {
 
     const resp = await handleWorkflowsRpc(
       req(),
-      ctx({ engine: { async authorize() { return { decision: "allow" }; } } as never }),
+      ctx({
+        engine: {
+          async authorize() {
+            return { decision: "allow" };
+          },
+        } as never,
+      }),
     );
 
     expect(resp.error).toBeUndefined();
@@ -741,7 +808,12 @@ describe("rung D1 — DELEGATION_BAD_REF", () => {
 
   test("a missing ref is refused too — there is no default job", async () => {
     const resp = await handleWorkflowsRpc(
-      { jsonrpc: "2.0", id: 1, method: DELEGATED_WORKFLOWS_METHOD, params: { v: 1, op: DELEGATED_OP } },
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: DELEGATED_WORKFLOWS_METHOD,
+        params: { v: 1, op: DELEGATED_OP },
+      },
       ctx(),
     );
 
@@ -761,11 +833,18 @@ describe("rung D2 — DELEGATION_NOT_FOUND (the §4 inexpressibility)", () => {
 
   test("another extension's delegation is invisible — the key is the REGISTRY id", async () => {
     await delegate({ ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly" });
-    const [other] = await getTestDb().insert(extensions).values({
-      name: "other-ext", version: "0.0.1", description: "",
-      manifest: manifest() as never, source: "test", enabled: true,
-      grantedPermissions: granted() as never,
-    }).returning({ id: extensions.id });
+    const [other] = await getTestDb()
+      .insert(extensions)
+      .values({
+        name: "other-ext",
+        version: "0.0.1",
+        description: "",
+        manifest: manifest() as never,
+        source: "test",
+        enabled: true,
+        grantedPermissions: granted() as never,
+      })
+      .returning({ id: extensions.id });
 
     const resp = await handleWorkflowsRpc(
       req(),
@@ -777,9 +856,12 @@ describe("rung D2 — DELEGATION_NOT_FOUND (the §4 inexpressibility)", () => {
 
   test("a REVOKED delegation is not found either", async () => {
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
-    await getTestDb().update(workflowDelegations)
+    await getTestDb()
+      .update(workflowDelegations)
       .set({ revokedAt: new Date() })
       .where(eq(workflowDelegations.id, id));
 
@@ -792,9 +874,7 @@ describe("rung D2 — DELEGATION_NOT_FOUND (the §4 inexpressibility)", () => {
 describe("rung D4 — DELEGATION_OWNER_UNRESOLVED, audit_log for BOTH kinds", () => {
   test("a DEACTIVATED owner refuses, and the trail is in audit_log with a NULL user", async () => {
     await delegate({ ownerKind: "user", ownerId: lowPrivUserId, workflowName: "org-nightly" });
-    await getTestDb().update(users)
-      .set({ status: "inactive" })
-      .where(eq(users.id, lowPrivUserId));
+    await getTestDb().update(users).set({ status: "inactive" }).where(eq(users.id, lowPrivUserId));
 
     const resp = await handleWorkflowsRpc(req(), ctx());
 
@@ -812,9 +892,7 @@ describe("rung D4 — DELEGATION_OWNER_UNRESOLVED, audit_log for BOTH kinds", ()
     expect(log[0]?.action).toBe("ext:workflow-delegation-no-owner");
     expect(log[0]?.userId).toBeNull();
 
-    await getTestDb().update(users)
-      .set({ status: "active" })
-      .where(eq(users.id, lowPrivUserId));
+    await getTestDb().update(users).set({ status: "active" }).where(eq(users.id, lowPrivUserId));
   });
 
   test("…and the same delegation runs once the owner is active again", async () => {
@@ -827,9 +905,12 @@ describe("rung D4 — DELEGATION_OWNER_UNRESOLVED, audit_log for BOTH kinds", ()
 
   test("a DISABLED service account refuses to audit_log too", async () => {
     await delegate({
-      ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-nightly",
+      ownerKind: "service",
+      ownerId: serviceAccountId,
+      workflowName: "org-nightly",
     });
-    await getTestDb().update(serviceAccounts)
+    await getTestDb()
+      .update(serviceAccounts)
       .set({ enabled: false })
       .where(eq(serviceAccounts.id, serviceAccountId));
 
@@ -840,14 +921,17 @@ describe("rung D4 — DELEGATION_OWNER_UNRESOLVED, audit_log for BOTH kinds", ()
     expect(sdk).toHaveLength(0);
     expect(log[0]?.action).toBe("ext:workflow-delegation-no-owner");
 
-    await getTestDb().update(serviceAccounts)
+    await getTestDb()
+      .update(serviceAccounts)
       .set({ enabled: true })
       .where(eq(serviceAccounts.id, serviceAccountId));
   });
 
   test("…and the same delegation runs once the account is enabled again", async () => {
     await delegate({
-      ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-nightly",
+      ownerKind: "service",
+      ownerId: serviceAccountId,
+      workflowName: "org-nightly",
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -857,13 +941,16 @@ describe("rung D4 — DELEGATION_OWNER_UNRESOLVED, audit_log for BOTH kinds", ()
 
   test("a row on the mapped arm with a NULL id names nobody and is refused", async () => {
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
     // The state the CASCADE FKs and `ownerColumnValues` exist to make
     // unreachable — reached here by hand, because "unreachable" is a
     // claim about writers and this rung is the reader that must not trust
     // it.
-    await getTestDb().update(workflowDelegations)
+    await getTestDb()
+      .update(workflowDelegations)
       .set({ ownerUserId: null })
       .where(eq(workflowDelegations.id, id));
 
@@ -878,9 +965,12 @@ describe("rung D4 — DELEGATION_OWNER_UNRESOLVED, audit_log for BOTH kinds", ()
 describe("rung D3 — DELEGATION_DISABLED_ROW carries the REASON", () => {
   test("the refusal surfaces `disabled_reason`, not a generic message", async () => {
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
-    await getTestDb().update(workflowDelegations)
+    await getTestDb()
+      .update(workflowDelegations)
       .set({ enabled: false, disabledReason: "stopped: the workflow went private" })
       .where(eq(workflowDelegations.id, id));
 
@@ -893,16 +983,21 @@ describe("rung D3 — DELEGATION_DISABLED_ROW carries the REASON", () => {
     const { sdk, log } = await auditDestinations();
     expect(sdk).toHaveLength(1);
     expect(sdk[0]).toMatchObject({
-      errorCode: "DELEGATION_DISABLED_ROW", onBehalfOf: ownerUserId, action: "runFor",
+      errorCode: "DELEGATION_DISABLED_ROW",
+      onBehalfOf: ownerUserId,
+      action: "runFor",
     });
     expect(log).toHaveLength(0);
   });
 
   test("a disabled SERVICE delegation routes the same refusal to audit_log", async () => {
     const id = await delegate({
-      ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-nightly",
+      ownerKind: "service",
+      ownerId: serviceAccountId,
+      workflowName: "org-nightly",
     });
-    await getTestDb().update(workflowDelegations)
+    await getTestDb()
+      .update(workflowDelegations)
       .set({ enabled: false, disabledReason: "switched off" })
       .where(eq(workflowDelegations.id, id));
 
@@ -975,17 +1070,18 @@ describe("rung D7 — DELEGATION_OWNER_LOST_WORKFLOW_ACCESS drives disabled_reas
     // The scenario the code exists for: a `system` workflow, legitimately
     // consented to by a service account, re-tiered to `project` later.
     const id = await delegate({
-      ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-nightly",
+      ownerKind: "service",
+      ownerId: serviceAccountId,
+      workflowName: "org-nightly",
     });
-    cachedEntries = [
-      dbEntry(SYSTEM_WF, "project", ownerUserId),
-      ...cachedEntries.slice(1),
-    ];
+    cachedEntries = [dbEntry(SYSTEM_WF, "project", ownerUserId), ...cachedEntries.slice(1)];
 
     const resp = await handleWorkflowsRpc(req(), ctx());
 
     expect(resp.error?.data).toEqual({ reason: "DELEGATION_OWNER_LOST_WORKFLOW_ACCESS" });
-    const [row] = await getTestDb().select().from(workflowDelegations)
+    const [row] = await getTestDb()
+      .select()
+      .from(workflowDelegations)
       .where(eq(workflowDelegations.id, id));
     // This is the whole rung: a stated reason instead of silent
     // `consecutive_failures` accrual toward the auto-disable threshold.
@@ -1013,7 +1109,9 @@ describe("rung D7 — DELEGATION_OWNER_LOST_WORKFLOW_ACCESS drives disabled_reas
     // liveness half of `canRunWorkflow` is what catches it, and the
     // ladder alone would wave this through as a `system` entry.
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "ghost-ext:deploy",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "ghost-ext:deploy",
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -1024,7 +1122,9 @@ describe("rung D7 — DELEGATION_OWNER_LOST_WORKFLOW_ACCESS drives disabled_reas
 
   test("…and an unchanged, live target runs", async () => {
     await delegate({
-      ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-nightly",
+      ownerKind: "service",
+      ownerId: serviceAccountId,
+      workflowName: "org-nightly",
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -1057,7 +1157,9 @@ describe("rung D6 — a WIDENED closure PARKS the run", () => {
     // the live graph reaches a tool. That is a capability the human never
     // approved, so nothing may execute under it.
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-tooled",
       capabilitySet: [],
       consentHash: "a-hash-from-a-graph-that-no-longer-exists",
     });
@@ -1093,7 +1195,9 @@ describe("rung D6 — a WIDENED closure PARKS the run", () => {
     // Without this the operator is told "something changed" and has to
     // walk the closure by hand to find out what.
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-tooled",
       consentHash: "stale",
       capabilitySet: [{ kind: "tool", value: "ext__do_thing" }],
     });
@@ -1112,7 +1216,9 @@ describe("rung D6 — a WIDENED closure PARKS the run", () => {
 
   test("no `workflow_approvals` row is written — answering one would not resume it", async () => {
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-tooled",
       capabilitySet: [],
       consentHash: "stale",
     });
@@ -1126,7 +1232,9 @@ describe("rung D6 — a WIDENED closure PARKS the run", () => {
 
   test("a SERVICE park routes its audit row to audit_log and owns no user", async () => {
     await delegate({
-      ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-tooled",
+      ownerKind: "service",
+      ownerId: serviceAccountId,
+      workflowName: "org-tooled",
       capabilitySet: [],
       consentHash: "stale",
     });
@@ -1157,11 +1265,15 @@ describe("rung D6 — a WIDENED closure PARKS the run", () => {
       dbEntry(PROJECT_TOOLED_WF, "project", ownerUserId),
     ];
     const asService = await consentRecordFor({
-      ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-nightly",
+      ownerKind: "service",
+      ownerId: serviceAccountId,
+      workflowName: "org-nightly",
     });
     expect(asService.capabilitySet, "the service principal cannot see the child").toEqual([]);
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
       consentHash: asService.consentHash,
       definitionHash: asService.definitionHash,
       capabilitySet: asService.capabilitySet,
@@ -1185,7 +1297,9 @@ describe("rung D6 — an unchanged or NARROWED closure carries consent forward",
 
   test("an UNCHANGED graph passes D6, runs, and re-stamps nothing", async () => {
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-tooled",
     });
     const before = await consentColumnsOf(id);
 
@@ -1202,7 +1316,9 @@ describe("rung D6 — an unchanged or NARROWED closure carries consent forward",
   test("a DEFINITION-only edit runs and audits 're-authorized by release'", async () => {
     // THE defect. Consent against the current graph…
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-tooled",
     });
     const before = await consentColumnsOf(id);
     // …then do what a release does to a bundled extension's shipped
@@ -1260,10 +1376,15 @@ describe("rung D6 — an unchanged or NARROWED closure carries consent forward",
     // that puts the tool back would compare against it, find nothing
     // added, and re-grant with no human in the loop.
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-tooled",
     });
     expect((await consentColumnsOf(id)).capabilitySet.length).toBeGreaterThan(0);
-    const narrowed = { ...TOOLED_WF, steps: [{ name: "call", kind: "transform" as const, output: {} }] };
+    const narrowed = {
+      ...TOOLED_WF,
+      steps: [{ name: "call", kind: "transform" as const, output: {} }],
+    };
     cachedEntries = [...cachedEntries.slice(0, 4), dbEntry(narrowed, "system", ownerUserId)];
 
     const first = await handleWorkflowsRpc(req(), ctx());
@@ -1290,7 +1411,9 @@ describe("rung D6 — an unchanged or NARROWED closure carries consent forward",
     // written before the split has no honest value for the new column, so
     // NULL reads as "the definition changed" and the widening test decides.
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-tooled",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-tooled",
     });
     await getTestDb()
       .update(workflowDelegations)
@@ -1320,11 +1443,15 @@ describe("rung D6 — an unchanged or NARROWED closure carries consent forward",
       dbEntry(PROJECT_TOOLED_WF, "project", ownerUserId),
     ];
     const asUser = await consentRecordFor({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
     expect(asUser.capabilitySet.length, "the user principal DOES see the child").toBeGreaterThan(0);
     const id = await delegate({
-      ownerKind: "service", ownerId: serviceAccountId, workflowName: "org-nightly",
+      ownerKind: "service",
+      ownerId: serviceAccountId,
+      workflowName: "org-nightly",
       consentHash: asUser.consentHash,
       definitionHash: asUser.definitionHash,
       capabilitySet: asUser.capabilitySet,
@@ -1341,14 +1468,22 @@ describe("rung D6 — an unchanged or NARROWED closure carries consent forward",
 describe("rung D8 — DELEGATION_QUOTA_EXCEEDED, a UTC calendar day", () => {
   test("the cap refuses once today's runs reach it", async () => {
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
       maxRunsPerDay: 2,
     });
     for (let i = 0; i < 2; i++) {
-      await getTestDb().insert(workflowRuns).values({
-        id: `today-${i}`, workflowName: "org-nightly", status: "success",
-        input: {}, startedAt: new Date(), delegationId: id,
-      });
+      await getTestDb()
+        .insert(workflowRuns)
+        .values({
+          id: `today-${i}`,
+          workflowName: "org-nightly",
+          status: "success",
+          input: {},
+          startedAt: new Date(),
+          delegationId: id,
+        });
     }
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -1357,21 +1492,30 @@ describe("rung D8 — DELEGATION_QUOTA_EXCEEDED, a UTC calendar day", () => {
     expect(resp.error?.data).toEqual({ reason: "DELEGATION_QUOTA_EXCEEDED" });
     const { sdk } = await auditDestinations();
     expect(sdk[0]).toMatchObject({
-      errorCode: "DELEGATION_QUOTA_EXCEEDED", onBehalfOf: ownerUserId,
+      errorCode: "DELEGATION_QUOTA_EXCEEDED",
+      onBehalfOf: ownerUserId,
     });
   });
 
   test("YESTERDAY's runs do not count — it is a calendar day, not a rolling window", async () => {
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
       maxRunsPerDay: 2,
     });
     const yesterday = new Date(Date.now() - 36 * 60 * 60 * 1000);
     for (let i = 0; i < 5; i++) {
-      await getTestDb().insert(workflowRuns).values({
-        id: `old-${i}`, workflowName: "org-nightly", status: "success",
-        input: {}, startedAt: yesterday, delegationId: id,
-      });
+      await getTestDb()
+        .insert(workflowRuns)
+        .values({
+          id: `old-${i}`,
+          workflowName: "org-nightly",
+          status: "success",
+          input: {},
+          startedAt: yesterday,
+          delegationId: id,
+        });
     }
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -1381,16 +1525,25 @@ describe("rung D8 — DELEGATION_QUOTA_EXCEEDED, a UTC calendar day", () => {
 
   test("ANOTHER delegation's runs do not count against this one", async () => {
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
       maxRunsPerDay: 1,
     });
     const otherId = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "team-fork",
-      jobRef: "job-2", maxRunsPerDay: 1,
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "team-fork",
+      jobRef: "job-2",
+      maxRunsPerDay: 1,
     });
     await getTestDb().insert(workflowRuns).values({
-      id: "other-run", workflowName: "team-fork", status: "success",
-      input: {}, startedAt: new Date(), delegationId: otherId,
+      id: "other-run",
+      workflowName: "team-fork",
+      status: "success",
+      input: {},
+      startedAt: new Date(),
+      delegationId: otherId,
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -1402,7 +1555,9 @@ describe("rung D8 — DELEGATION_QUOTA_EXCEEDED, a UTC calendar day", () => {
 describe("rung D9 — DELEGATION_SPEND_EXCEEDED at dispatch", () => {
   test("a cap that admits no work refuses instead of starting a permanently-stuck run", async () => {
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
       maxTokensPerRun: 0,
     });
 
@@ -1418,7 +1573,9 @@ describe("rung D9 — DELEGATION_SPEND_EXCEEDED at dispatch", () => {
 
   test("…and a positive cap runs, carrying delegationId into the executor", async () => {
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
       maxTokensPerRun: 1,
     });
 
@@ -1446,17 +1603,19 @@ async function seedServiceSpend(spec: {
   runId: string;
   startedAt?: Date;
 }): Promise<void> {
-  await getTestDb().insert(workflowRuns).values({
-    id: spec.runId,
-    workflowName: "org-nightly",
-    status: "success",
-    input: {},
-    startedAt: spec.startedAt ?? new Date(),
-    // The SNAPSHOT, not `delegation_id`. That is what the aggregate keys
-    // on, precisely so a revoke or a supersede cannot refund a day.
-    runAsKind: "service",
-    runAs: spec.accountId,
-  });
+  await getTestDb()
+    .insert(workflowRuns)
+    .values({
+      id: spec.runId,
+      workflowName: "org-nightly",
+      status: "success",
+      input: {},
+      startedAt: spec.startedAt ?? new Date(),
+      // The SNAPSHOT, not `delegation_id`. That is what the aggregate keys
+      // on, precisely so a revoke or a supersede cannot refund a day.
+      runAsKind: "service",
+      runAs: spec.accountId,
+    });
   await getTestDb().insert(workflowStepRuns).values({
     workflowRunId: spec.runId,
     stepName: "s1",
@@ -1485,7 +1644,9 @@ describe("rung D10 — DELEGATION_DAILY_TOKENS_EXCEEDED, and it audits to audit_
   test("an account that has spent its day is refused, and the denial lands in audit_log", async () => {
     const accountId = await account(500);
     await delegate({
-      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
+      ownerKind: "service",
+      ownerId: accountId,
+      workflowName: "org-nightly",
     });
     await seedServiceSpend({ accountId, tokens: 500, runId: "spent-1" });
 
@@ -1515,7 +1676,9 @@ describe("rung D10 — DELEGATION_DAILY_TOKENS_EXCEEDED, and it audits to audit_
     // refuses every service-kind delegation outright.
     const accountId = await account(500);
     const id = await delegate({
-      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
+      ownerKind: "service",
+      ownerId: accountId,
+      workflowName: "org-nightly",
     });
     await seedServiceSpend({ accountId, tokens: 499, runId: "spent-2" });
 
@@ -1530,7 +1693,9 @@ describe("rung D10 — DELEGATION_DAILY_TOKENS_EXCEEDED, and it audits to audit_
   test("YESTERDAY's tokens do not count — a calendar day, not a rolling window", async () => {
     const accountId = await account(500);
     await delegate({
-      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
+      ownerKind: "service",
+      ownerId: accountId,
+      workflowName: "org-nightly",
     });
     await seedServiceSpend({
       accountId,
@@ -1593,15 +1758,25 @@ describe("rung D10 — DELEGATION_DAILY_TOKENS_EXCEEDED, and it audits to audit_
     // fires — it is bounded by its own two caps, which is what the human
     // agreed to.
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
     await getTestDb().insert(workflowRuns).values({
-      id: "user-spend", workflowName: "org-nightly", status: "success",
-      input: {}, startedAt: new Date(), runAsKind: "user", runAs: ownerUserId,
+      id: "user-spend",
+      workflowName: "org-nightly",
+      status: "success",
+      input: {},
+      startedAt: new Date(),
+      runAsKind: "user",
+      runAs: ownerUserId,
     });
     await getTestDb().insert(workflowStepRuns).values({
-      workflowRunId: "user-spend", stepName: "s1", status: "success",
-      inputTokens: 1_000_000, outputTokens: 1_000_000,
+      workflowRunId: "user-spend",
+      stepName: "s1",
+      status: "success",
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -1620,9 +1795,12 @@ describe("the three token/run bounds are SEPARATE, and each says which one it wa
   test("D10 fires while D8 and D9 are both generous", async () => {
     const accountId = await account(100);
     await delegate({
-      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
+      ownerKind: "service",
+      ownerId: accountId,
+      workflowName: "org-nightly",
       // Both of the OTHER bounds wide open.
-      maxRunsPerDay: 1000, maxTokensPerRun: 1_000_000,
+      maxRunsPerDay: 1000,
+      maxTokensPerRun: 1_000_000,
     });
     await seedServiceSpend({ accountId, tokens: 100, runId: "sep-1" });
 
@@ -1634,15 +1812,23 @@ describe("the three token/run bounds are SEPARATE, and each says which one it wa
   test("D8 fires while D10 is generous — a RUN count, not a token count", async () => {
     const accountId = await account(1_000_000);
     const id = await delegate({
-      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
-      maxRunsPerDay: 1, maxTokensPerRun: 1_000_000,
+      ownerKind: "service",
+      ownerId: accountId,
+      workflowName: "org-nightly",
+      maxRunsPerDay: 1,
+      maxTokensPerRun: 1_000_000,
     });
     // One prior run TODAY against this delegation, spending nothing. D10
     // sees zero tokens; D8 sees one run.
     await getTestDb().insert(workflowRuns).values({
-      id: "sep-2", workflowName: "org-nightly", status: "success",
-      input: {}, startedAt: new Date(), delegationId: id,
-      runAsKind: "service", runAs: accountId,
+      id: "sep-2",
+      workflowName: "org-nightly",
+      status: "success",
+      input: {},
+      startedAt: new Date(),
+      delegationId: id,
+      runAsKind: "service",
+      runAs: accountId,
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -1653,8 +1839,11 @@ describe("the three token/run bounds are SEPARATE, and each says which one it wa
   test("D9 fires while D8 and D10 are both generous — a PER-RUN cap", async () => {
     const accountId = await account(1_000_000);
     await delegate({
-      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
-      maxRunsPerDay: 1000, maxTokensPerRun: 0,
+      ownerKind: "service",
+      ownerId: accountId,
+      workflowName: "org-nightly",
+      maxRunsPerDay: 1000,
+      maxTokensPerRun: 0,
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -1665,8 +1854,11 @@ describe("the three token/run bounds are SEPARATE, and each says which one it wa
   test("…and with all three satisfied the fire goes through", async () => {
     const accountId = await account(1_000_000);
     const id = await delegate({
-      ownerKind: "service", ownerId: accountId, workflowName: "org-nightly",
-      maxRunsPerDay: 1000, maxTokensPerRun: 1_000_000,
+      ownerKind: "service",
+      ownerId: accountId,
+      workflowName: "org-nightly",
+      maxRunsPerDay: 1000,
+      maxTokensPerRun: 1_000_000,
     });
     await seedServiceSpend({ accountId, tokens: 10, runId: "sep-4" });
 
@@ -1680,21 +1872,27 @@ describe("the three token/run bounds are SEPARATE, and each says which one it wa
 describe("rung 13 — dispatch, and the failure counter", () => {
   test("a throwing executor is WORKFLOWS_DISPATCH_FAILED and counts a failure", async () => {
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
     runWorkflowThrows = true;
 
     const resp = await handleWorkflowsRpc(req(), ctx());
 
     expect(resp.error?.data).toEqual({ reason: "WORKFLOWS_DISPATCH_FAILED" });
-    const [row] = await getTestDb().select().from(workflowDelegations)
+    const [row] = await getTestDb()
+      .select()
+      .from(workflowDelegations)
       .where(eq(workflowDelegations.id, id));
     expect(row?.consecutiveFailures).toBe(1);
   });
 
   test("five consecutive ERROR outcomes auto-disable the row with a stated reason", async () => {
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
     runStatus = "error";
     for (let i = 0; i < 5; i++) {
@@ -1708,7 +1906,9 @@ describe("rung 13 — dispatch, and the failure counter", () => {
       await _awaitDelegatedDispatchForTests();
     }
 
-    const [row] = await getTestDb().select().from(workflowDelegations)
+    const [row] = await getTestDb()
+      .select()
+      .from(workflowDelegations)
       .where(eq(workflowDelegations.id, id));
     expect(row?.consecutiveFailures).toBe(5);
     expect(row?.enabled).toBe(false);
@@ -1717,16 +1917,21 @@ describe("rung 13 — dispatch, and the failure counter", () => {
 
   test("a SUCCESS resets the counter — a job that recovers is not one failure from disabled", async () => {
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
-    await getTestDb().update(workflowDelegations)
+    await getTestDb()
+      .update(workflowDelegations)
       .set({ consecutiveFailures: 4 })
       .where(eq(workflowDelegations.id, id));
 
     await handleWorkflowsRpc(req(), ctx());
     await _awaitDelegatedDispatchForTests();
 
-    const [row] = await getTestDb().select().from(workflowDelegations)
+    const [row] = await getTestDb()
+      .select()
+      .from(workflowDelegations)
       .where(eq(workflowDelegations.id, id));
     expect(row?.consecutiveFailures).toBe(0);
     expect(row?.enabled).toBe(true);
@@ -1737,9 +1942,12 @@ describe("rung 13 — dispatch, and the failure counter", () => {
     // keeps an unhandled rejection from taking the process down; counting
     // it would auto-disable a healthy job because the host misbehaved.
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
-    await getTestDb().update(workflowDelegations)
+    await getTestDb()
+      .update(workflowDelegations)
       .set({ consecutiveFailures: 2 })
       .where(eq(workflowDelegations.id, id));
     runWorkflowRejects = true;
@@ -1749,7 +1957,9 @@ describe("rung 13 — dispatch, and the failure counter", () => {
     expect(resp.error).toBeUndefined();
     await _awaitDelegatedDispatchForTests();
 
-    const [row] = await getTestDb().select().from(workflowDelegations)
+    const [row] = await getTestDb()
+      .select()
+      .from(workflowDelegations)
       .where(eq(workflowDelegations.id, id));
     expect(row?.consecutiveFailures).toBe(2);
     expect(row?.enabled).toBe(true);
@@ -1757,9 +1967,12 @@ describe("rung 13 — dispatch, and the failure counter", () => {
 
   test("a SUSPENDED run is not a failure — an approval-parked job must not auto-disable", async () => {
     const id = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
-    await getTestDb().update(workflowDelegations)
+    await getTestDb()
+      .update(workflowDelegations)
       .set({ consecutiveFailures: 3 })
       .where(eq(workflowDelegations.id, id));
     runStatus = "suspended";
@@ -1767,7 +1980,9 @@ describe("rung 13 — dispatch, and the failure counter", () => {
     await handleWorkflowsRpc(req(), ctx());
     await _awaitDelegatedDispatchForTests();
 
-    const [row] = await getTestDb().select().from(workflowDelegations)
+    const [row] = await getTestDb()
+      .select()
+      .from(workflowDelegations)
       .where(eq(workflowDelegations.id, id));
     expect(row?.consecutiveFailures).toBe(3);
   });
@@ -1784,7 +1999,12 @@ describe("the shared rungs still bound the delegated op", () => {
 
   test("rung 10 — a missing `v` is refused", async () => {
     const resp = await handleWorkflowsRpc(
-      { jsonrpc: "2.0", id: 1, method: DELEGATED_WORKFLOWS_METHOD, params: { op: DELEGATED_OP, jobRef: "job-1" } },
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: DELEGATED_WORKFLOWS_METHOD,
+        params: { op: DELEGATED_OP, jobRef: "job-1" },
+      },
       ctx(),
     );
 
@@ -1793,7 +2013,9 @@ describe("the shared rungs still bound the delegated op", () => {
 
   test("rung 11 — the delegated op consumes the SAME hourly budget as `run`", async () => {
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
 
     const resp = await handleWorkflowsRpc(
@@ -1852,8 +2074,8 @@ describe("the shared rungs still bound the delegated op", () => {
     try {
       for (let i = 0; i < 400 && !drained; i++) {
         const r = await handleWorkflowsRpc(req(), wide);
-        drained = (r.error?.data as { reason?: string } | undefined)?.reason
-          === "WORKFLOWS_RATE_LIMITED";
+        drained =
+          (r.error?.data as { reason?: string } | undefined)?.reason === "WORKFLOWS_RATE_LIMITED";
       }
       // THE point of the test: a plain `run` on the SAME extension is now
       // refused too. A delegated fire that carried its own bucket would
@@ -1875,7 +2097,8 @@ describe("the shared rungs still bound the delegated op", () => {
   test("rung 8 — a conversation the extension is not wired to is refused", async () => {
     await delegate({ ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly" });
     const { conversations } = await import("../../db/schema");
-    const [conv] = await getTestDb().insert(conversations)
+    const [conv] = await getTestDb()
+      .insert(conversations)
       .values({ projectId, userId: ownerUserId, title: "t", kind: "regular" })
       .returning({ id: conversations.id });
 
@@ -1901,15 +2124,23 @@ describe("the ordinary `run` op is untouched by any of this", () => {
     // behaviours — the trap in this phase was inheriting the fallback.
     _resetWorkflowRuntimeForTests();
     cacheReader = undefined;
-    cachedEntries = [systemCachedWorkflow(
-      { name: `${EXT_NAME}:own`, description: "", steps: [{ name: "t", kind: "transform", output: {} }] },
-      "extension",
-    )];
+    cachedEntries = [
+      systemCachedWorkflow(
+        {
+          name: `${EXT_NAME}:own`,
+          description: "",
+          steps: [{ name: "t", kind: "transform", output: {} }],
+        },
+        "extension",
+      ),
+    ];
     registerRuntime();
 
     const resp = await handleWorkflowsRpc(
       {
-        jsonrpc: "2.0", id: 3, method: "ezcorp/workflows",
+        jsonrpc: "2.0",
+        id: 3,
+        method: "ezcorp/workflows",
         params: { v: 1, workflow: "own" },
       },
       ctx({
@@ -1946,9 +2177,7 @@ describe("the SDK surface — Workflows.runFor", () => {
   /** Route the SDK's outbound frame into the real handler, optionally
    *  overriding the METHOD to prove the op is not admitted on the other
    *  one. Returns the frames it saw, for the caller to assert on inline. */
-  function wireSdkToHost(
-    opts: { ctx?: Partial<WorkflowsHandlerContext>; method?: string } = {},
-  ): {
+  function wireSdkToHost(opts: { ctx?: Partial<WorkflowsHandlerContext>; method?: string } = {}): {
     seen: Array<{ method: string; params: Record<string, unknown> }>;
     spy: ReturnType<typeof spyOn>;
   } {
@@ -1990,7 +2219,9 @@ describe("the SDK surface — Workflows.runFor", () => {
 
   test("THE LEGITIMATE CALLER — the SDK fires a real delegation and gets the envelope its type promises", async () => {
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
     const { seen, spy } = wireSdkToHost();
 
@@ -2014,7 +2245,9 @@ describe("the SDK surface — Workflows.runFor", () => {
     // `WORKFLOWS_BAD_OP` here would mean the op never got routed at all —
     // which reads as "it denied" to a test that only asserted a rejection.
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
     const { spy } = wireSdkToHost({
       ctx: { grantedPermissions: granted({ names: ["something"], allowDelegated: false }) },
@@ -2037,7 +2270,9 @@ describe("the SDK surface — Workflows.runFor", () => {
     // `DELEGATION_NOT_GRANTED` would see an unrecognised failure for the
     // most likely way of making it.
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
     const { spy } = wireSdkToHost({
       ctx: { grantedPermissions: granted({ names: [], allowDelegated: false }) },
@@ -2057,7 +2292,9 @@ describe("the SDK surface — Workflows.runFor", () => {
     // wall it hits — and it hits it with a live delegation in the table,
     // so the refusal is about the method and nothing else.
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
     const { spy } = wireSdkToHost({ method: "ezcorp/workflows" });
 
@@ -2078,10 +2315,14 @@ describe("the SDK surface — Workflows.runFor", () => {
     // every database rung, so "untouched" is also the observable half of
     // "refused before any database work".)
     const delegationId = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
     const before = await getTestDb()
-      .select().from(workflowDelegations).where(eq(workflowDelegations.id, delegationId));
+      .select()
+      .from(workflowDelegations)
+      .where(eq(workflowDelegations.id, delegationId));
     process.env.EZCORP_DISABLE_DELEGATED_WORKFLOWS = "1";
     const { spy } = wireSdkToHost();
 
@@ -2090,7 +2331,9 @@ describe("the SDK surface — Workflows.runFor", () => {
     expect(err.data).toEqual({ reason: "DELEGATION_DISABLED" });
     expect(started).toHaveLength(0);
     const after = await getTestDb()
-      .select().from(workflowDelegations).where(eq(workflowDelegations.id, delegationId));
+      .select()
+      .from(workflowDelegations)
+      .where(eq(workflowDelegations.id, delegationId));
     expect(after).toEqual(before);
     // Scoped to this VERB: the same extension's status poll still answers
     // while the switch is set, which is the other half of the claim.
@@ -2135,8 +2378,9 @@ describe("the SDK surface — Workflows.runFor", () => {
       ctx({ userId: ownerUserId, grantedPermissions: granted({ names: ["own"] }) }),
     );
 
-    const names = (resp.result as { runs: Array<{ workflowName: string }> }).runs
-      .map((r) => r.workflowName);
+    const names = (resp.result as { runs: Array<{ workflowName: string }> }).runs.map(
+      (r) => r.workflowName,
+    );
     expect(names).toEqual([`${EXT_NAME}:own`]);
     expect(names).not.toContain("org-nightly");
   });
@@ -2146,7 +2390,9 @@ describe("the SDK surface — Workflows.runFor", () => {
     // principal, so the most they can do is guess a ref. A guess is not a
     // weaker authorization, it is no row.
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: "org-nightly",
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: "org-nightly",
     });
     const { spy } = wireSdkToHost();
 

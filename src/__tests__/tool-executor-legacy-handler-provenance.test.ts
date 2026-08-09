@@ -100,8 +100,12 @@ function makeRegistry(): ExtensionRegistry {
   return {
     getGrantedPermissions: () => granted,
     getManifest: () => ({
-      schemaVersion: 2, name: EXT_ID, version: "1.0.0", description: "",
-      author: { name: "t" }, permissions: {},
+      schemaVersion: 2,
+      name: EXT_ID,
+      version: "1.0.0",
+      description: "",
+      author: { name: "t" },
+      permissions: {},
     }),
     getInstallPath: () => "/tmp/prov-ext",
     getRegisteredTool: () => null,

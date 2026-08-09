@@ -33,21 +33,12 @@ describe("intersect", () => {
   });
 
   test("full overlap → returns the shared caps (deduped)", () => {
-    const both: CapabilitySet = [
-      { kind: "network", value: "a.com" },
-      { kind: "shell" },
-    ];
-    expect(intersect(both, both)).toEqual([
-      { kind: "network", value: "a.com" },
-      { kind: "shell" },
-    ]);
+    const both: CapabilitySet = [{ kind: "network", value: "a.com" }, { kind: "shell" }];
+    expect(intersect(both, both)).toEqual([{ kind: "network", value: "a.com" }, { kind: "shell" }]);
   });
 
   test("partial overlap → only the matching cap survives", () => {
-    const a: CapabilitySet = [
-      { kind: "network", value: "a.com" },
-      { kind: "shell" },
-    ];
+    const a: CapabilitySet = [{ kind: "network", value: "a.com" }, { kind: "shell" }];
     const b: CapabilitySet = [{ kind: "shell" }, { kind: "storage" }];
     expect(intersect(a, b)).toEqual([{ kind: "shell" }]);
   });
@@ -92,20 +83,14 @@ describe("isSubset", () => {
   });
 
   test("single missing cap → false", () => {
-    const needed: CapabilitySet = [
-      { kind: "shell" },
-      { kind: "network", value: "a.com" },
-    ];
+    const needed: CapabilitySet = [{ kind: "shell" }, { kind: "network", value: "a.com" }];
     const granted: CapabilitySet = [{ kind: "shell" }];
     expect(isSubset(needed, granted)).toBe(false);
   });
 
   test("filesystem prefix-match: /foo covers /foo/bar", () => {
     expect(
-      isSubset(
-        [{ kind: "fs.read", value: "/foo/bar" }],
-        [{ kind: "fs.read", value: "/foo" }],
-      ),
+      isSubset([{ kind: "fs.read", value: "/foo/bar" }], [{ kind: "fs.read", value: "/foo" }]),
     ).toBe(true);
   });
 });
@@ -115,10 +100,7 @@ describe("isSubset", () => {
 describe("capabilityCovers", () => {
   test("kind mismatch → false even with identical value", () => {
     expect(
-      capabilityCovers(
-        { kind: "fs.read", value: "/x" },
-        { kind: "fs.write", value: "/x" },
-      ),
+      capabilityCovers({ kind: "fs.read", value: "/x" }, { kind: "fs.write", value: "/x" }),
     ).toBe(false);
   });
 
@@ -128,9 +110,7 @@ describe("capabilityCovers", () => {
   });
 
   test("boolean granted vs valued needed → false (mismatched shapes)", () => {
-    expect(
-      capabilityCovers({ kind: "network" }, { kind: "network", value: "a.com" }),
-    ).toBe(false);
+    expect(capabilityCovers({ kind: "network" }, { kind: "network", value: "a.com" })).toBe(false);
   });
 
   test("filesystem prefix-match: /foo covers /foo and /foo/bar but NOT /foobar", () => {
@@ -142,10 +122,7 @@ describe("capabilityCovers", () => {
 
   test("network/env: exact value match", () => {
     expect(
-      capabilityCovers(
-        { kind: "network", value: "a.com" },
-        { kind: "network", value: "a.com" },
-      ),
+      capabilityCovers({ kind: "network", value: "a.com" }, { kind: "network", value: "a.com" }),
     ).toBe(true);
     expect(
       capabilityCovers(
@@ -153,18 +130,15 @@ describe("capabilityCovers", () => {
         { kind: "network", value: "subdomain.a.com" },
       ),
     ).toBe(false);
-    expect(
-      capabilityCovers(
-        { kind: "env", value: "FOO" },
-        { kind: "env", value: "FOO" },
-      ),
-    ).toBe(true);
+    expect(capabilityCovers({ kind: "env", value: "FOO" }, { kind: "env", value: "FOO" })).toBe(
+      true,
+    );
   });
 
   test("namespaced ezcorp:* boolean caps: kind match covers", () => {
-    expect(
-      capabilityCovers({ kind: "ezcorp:tasks:emit" }, { kind: "ezcorp:tasks:emit" }),
-    ).toBe(true);
+    expect(capabilityCovers({ kind: "ezcorp:tasks:emit" }, { kind: "ezcorp:tasks:emit" })).toBe(
+      true,
+    );
   });
 });
 
@@ -173,10 +147,7 @@ describe("capabilityCovers", () => {
 describe("firstMissingCapability", () => {
   test("returns null when granted ⊇ needed", () => {
     expect(
-      firstMissingCapability(
-        [{ kind: "shell" }],
-        [{ kind: "shell" }, { kind: "storage" }],
-      ),
+      firstMissingCapability([{ kind: "shell" }], [{ kind: "shell" }, { kind: "storage" }]),
     ).toBeNull();
   });
 
@@ -255,9 +226,7 @@ describe("capabilityDeclarationToSet", () => {
     };
     const caps = capabilityDeclarationToSet(decl, {});
     const kinds = caps.map((c) => c.kind);
-    expect(kinds).toEqual(
-      expect.arrayContaining(["fs.read", "fs.list", "fs.stat", "fs.write"]),
-    );
+    expect(kinds).toEqual(expect.arrayContaining(["fs.read", "fs.list", "fs.stat", "fs.write"]));
   });
 
   test("filesystem with mode=[] (empty) → defaults to read-only triad (read+list+stat)", () => {
@@ -277,9 +246,7 @@ describe("capabilityDeclarationToSet", () => {
   });
 
   test("shell: true → single shell cap", () => {
-    expect(capabilityDeclarationToSet({ shell: true }, {})).toEqual([
-      { kind: "shell" },
-    ]);
+    expect(capabilityDeclarationToSet({ shell: true }, {})).toEqual([{ kind: "shell" }]);
   });
 
   test("shell: false → no shell cap emitted", () => {
@@ -295,45 +262,38 @@ describe("capabilityDeclarationToSet", () => {
   });
 
   test("storage: true → single storage cap", () => {
-    expect(capabilityDeclarationToSet({ storage: true }, {})).toEqual([
-      { kind: "storage" },
-    ]);
+    expect(capabilityDeclarationToSet({ storage: true }, {})).toEqual([{ kind: "storage" }]);
   });
 
   test("custom: { taskEvents: true } → ezcorp:tasks:emit cap", () => {
-    expect(
-      capabilityDeclarationToSet({ custom: { taskEvents: true } }, {}),
-    ).toEqual([{ kind: "ezcorp:tasks:emit" }]);
-  });
-
-  test("custom: { loopEvents: true } → ezcorp:loops:emit cap", () => {
-    expect(
-      capabilityDeclarationToSet({ custom: { loopEvents: true } }, {}),
-    ).toEqual([{ kind: "ezcorp:loops:emit" }]);
-  });
-
-  test("custom: { eventSubscriptions: ['x:y'] } → namespaced cap with value", () => {
-    expect(
-      capabilityDeclarationToSet({ custom: { eventSubscriptions: ["x:y"] } }, {}),
-    ).toEqual([{ kind: "ezcorp:events:subscribe", value: "x:y" }]);
-  });
-
-  test("custom: { webhooks: ['tickets'] } → ezcorp:webhooks:receive cap per slug", () => {
-    expect(
-      capabilityDeclarationToSet({ custom: { webhooks: ["tickets", "alerts"] } }, {}),
-    ).toEqual([
-      { kind: "ezcorp:webhooks:receive", value: "tickets" },
-      { kind: "ezcorp:webhooks:receive", value: "alerts" },
+    expect(capabilityDeclarationToSet({ custom: { taskEvents: true } }, {})).toEqual([
+      { kind: "ezcorp:tasks:emit" },
     ]);
   });
 
+  test("custom: { loopEvents: true } → ezcorp:loops:emit cap", () => {
+    expect(capabilityDeclarationToSet({ custom: { loopEvents: true } }, {})).toEqual([
+      { kind: "ezcorp:loops:emit" },
+    ]);
+  });
+
+  test("custom: { eventSubscriptions: ['x:y'] } → namespaced cap with value", () => {
+    expect(capabilityDeclarationToSet({ custom: { eventSubscriptions: ["x:y"] } }, {})).toEqual([
+      { kind: "ezcorp:events:subscribe", value: "x:y" },
+    ]);
+  });
+
+  test("custom: { webhooks: ['tickets'] } → ezcorp:webhooks:receive cap per slug", () => {
+    expect(capabilityDeclarationToSet({ custom: { webhooks: ["tickets", "alerts"] } }, {})).toEqual(
+      [
+        { kind: "ezcorp:webhooks:receive", value: "tickets" },
+        { kind: "ezcorp:webhooks:receive", value: "alerts" },
+      ],
+    );
+  });
+
   test("custom: unknown key is dropped (forward-compat ignore)", () => {
-    expect(
-      capabilityDeclarationToSet(
-        { custom: { unknownKey: ["x"] } },
-        {},
-      ),
-    ).toEqual([]);
+    expect(capabilityDeclarationToSet({ custom: { unknownKey: ["x"] } }, {})).toEqual([]);
   });
 });
 
@@ -463,16 +423,14 @@ describe("intersectPermissions — shell, env, storage", () => {
 
   test("storage AND truth table", () => {
     expect(
-      intersectPermissions(
-        { storage: true, grantedAt: {} },
-        { storage: true, grantedAt: {} },
-      ).storage,
+      intersectPermissions({ storage: true, grantedAt: {} }, { storage: true, grantedAt: {} })
+        .storage,
     ).toBe(true);
     expect(
-      intersectPermissions(
-        { storage: true, grantedAt: {} },
-        { storage: false, grantedAt: {} } as ExtensionPermissions,
-      ).storage,
+      intersectPermissions({ storage: true, grantedAt: {} }, {
+        storage: false,
+        grantedAt: {},
+      } as ExtensionPermissions).storage,
     ).toBeUndefined();
   });
 });
@@ -533,10 +491,7 @@ describe("intersectPermissions — capability tier", () => {
       ).agentConfig,
     ).toBe("read");
     expect(
-      intersectPermissions(
-        { agentConfig: "read", grantedAt: {} },
-        { grantedAt: {} },
-      ).agentConfig,
+      intersectPermissions({ agentConfig: "read", grantedAt: {} }, { grantedAt: {} }).agentConfig,
     ).toBeUndefined();
   });
 
@@ -652,10 +607,9 @@ describe("intersectPermissions — grantedAt audit trail", () => {
   });
 
   test("drops grantedAt entries for fields that didn't survive", () => {
-    const r = intersectPermissions(
-      { shell: true, grantedAt: { shell: 100 } },
-      { grantedAt: { shell: 50 } } as ExtensionPermissions,
-    );
+    const r = intersectPermissions({ shell: true, grantedAt: { shell: 100 } }, {
+      grantedAt: { shell: 50 },
+    } as ExtensionPermissions);
     expect(r.grantedAt.shell).toBeUndefined();
   });
 
@@ -765,7 +719,10 @@ describe("grantsToCapabilitySet — $CWD expansion", () => {
     };
     const granted = grantsToCapabilitySet(grants);
     const needed: CapabilitySet = [
-      { kind: "fs.write", value: `${process.cwd()}/.ezcorp/extension-data/openai-image-gen-2/generated` },
+      {
+        kind: "fs.write",
+        value: `${process.cwd()}/.ezcorp/extension-data/openai-image-gen-2/generated`,
+      },
     ];
     expect(isSubset(needed, granted)).toBe(true);
     expect(firstMissingCapability(needed, granted)).toBeNull();
@@ -797,9 +754,7 @@ describe("grantsToCapabilitySet — capability tier", () => {
       ),
     ).toBe(true);
     expect(
-      grantsToCapabilitySet({ grantedAt: {} }).some(
-        (c) => c.kind === "ezcorp:loops:emit",
-      ),
+      grantsToCapabilitySet({ grantedAt: {} }).some((c) => c.kind === "ezcorp:loops:emit"),
     ).toBe(false);
   });
 
@@ -810,9 +765,7 @@ describe("grantsToCapabilitySet — capability tier", () => {
       { kind: "ezcorp:webhooks:receive", value: "alerts" },
     ]);
     expect(
-      grantsToCapabilitySet({ grantedAt: {} }).some(
-        (c) => c.kind === "ezcorp:webhooks:receive",
-      ),
+      grantsToCapabilitySet({ grantedAt: {} }).some((c) => c.kind === "ezcorp:webhooks:receive"),
     ).toBe(false);
   });
 });
@@ -861,11 +814,9 @@ describe("grantsToCapabilitySet — ezcorp:extension:install derivation", () => 
         (c) => c.kind === "ezcorp:extension:install",
       ),
     ).toBe(false);
-    expect(
-      grantsToCapabilitySet(null).some(
-        (c) => c.kind === "ezcorp:extension:install",
-      ),
-    ).toBe(false);
+    expect(grantsToCapabilitySet(null).some((c) => c.kind === "ezcorp:extension:install")).toBe(
+      false,
+    );
   });
 });
 
@@ -913,11 +864,9 @@ describe("grantsToCapabilitySet — ezcorp:extension:modify derivation", () => {
         (c) => c.kind === "ezcorp:extension:modify",
       ),
     ).toBe(false);
-    expect(
-      grantsToCapabilitySet(null).some(
-        (c) => c.kind === "ezcorp:extension:modify",
-      ),
-    ).toBe(false);
+    expect(grantsToCapabilitySet(null).some((c) => c.kind === "ezcorp:extension:modify")).toBe(
+      false,
+    );
   });
 });
 

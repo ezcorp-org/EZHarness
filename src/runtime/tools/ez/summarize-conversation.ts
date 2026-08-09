@@ -19,16 +19,19 @@
  * `resolveModel` + `completeLLM`.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import type { BuiltinToolDef } from "../types";
 import { getConversation, getMessages } from "../../../db/queries/conversations";
 import type { ToolParams } from "../validate";
 
 export type SummaryStyle = "brief" | "standup" | "tweet";
 
 const STYLE_PROMPTS: Record<SummaryStyle, string> = {
-  brief: "Summarize the following conversation in 2-3 sentences. Capture the core outcome, not the back-and-forth.",
-  standup: "Summarize the following conversation as a daily-standup update: what was discussed, what was decided, what's next. 3-5 bullet points.",
-  tweet: "Summarize the following conversation as a single tweet under 280 characters. Capture the gist, no fluff.",
+  brief:
+    "Summarize the following conversation in 2-3 sentences. Capture the core outcome, not the back-and-forth.",
+  standup:
+    "Summarize the following conversation as a daily-standup update: what was discussed, what was decided, what's next. 3-5 bullet points.",
+  tweet:
+    "Summarize the following conversation as a single tweet under 280 characters. Capture the gist, no fluff.",
 };
 
 export interface SummarizeContext {
@@ -93,7 +96,7 @@ async function defaultSummarize(
     {
       systemPrompt,
       messages: [{ role: "user", content: transcript }],
-    // biome-ignore lint/suspicious/noExplicitAny: the pi-ai `completeLLM` request literal — its options type is keyed on the model's wire API (see AnyModel), which this summarizer resolves at runtime.
+      // biome-ignore lint/suspicious/noExplicitAny: the pi-ai `completeLLM` request literal — its options type is keyed on the model's wire API (see AnyModel), which this summarizer resolves at runtime.
     } as any,
     { conversationId },
   );
@@ -136,7 +139,10 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
   // to know about model resolution. Test-injected stubs ignore this
   // entirely — they receive `(systemPrompt, transcript)` and short-circuit
   // before defaultSummarize runs.
-  const summarize = ctx.summarize ?? ((sys: string, t: string) => defaultSummarize(sys, t, ctx.provider, ctx.model, ctx.conversationId));
+  const summarize =
+    ctx.summarize ??
+    ((sys: string, t: string) =>
+      defaultSummarize(sys, t, ctx.provider, ctx.model, ctx.conversationId));
   return {
     name: "summarize_conversation",
     label: "summarize_conversation",
@@ -157,32 +163,37 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
           type: "string",
           description: "Conversation to summarize. Required.",
         },
-        style: { type: "string", enum: ["brief", "standup", "tweet"], description: "Summary style (ignored when `question` is set)." },
+        style: {
+          type: "string",
+          enum: ["brief", "standup", "tweet"],
+          description: "Summary style (ignored when `question` is set).",
+        },
         question: {
           type: "string",
           description:
-            "Optional. A specific question to answer over the FULL transcript (e.g. \"how many limited editions were listed?\", \"list every decision made\"). When set, the tool answers it precisely instead of producing a style summary — the escalation path when a read_page excerpt is truncated.",
+            'Optional. A specific question to answer over the FULL transcript (e.g. "how many limited editions were listed?", "list every decision made"). When set, the tool answers it precisely instead of producing a style summary — the escalation path when a read_page excerpt is truncated.',
         },
       },
       required: ["conversationId"],
     }),
     execute: async (_toolCallId, params: ToolParams) => {
       try {
-        const explicit = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
+        const explicit =
+          typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
         const conversationId = explicit;
         if (!conversationId) {
           return {
             content: [
               {
                 type: "text" as const,
-                text:
-                  "Error: conversationId is required. Pass the id explicitly.",
+                text: "Error: conversationId is required. Pass the id explicitly.",
               },
             ],
             details: { isError: true },
           };
         }
-        const style: SummaryStyle = params?.style && STYLE_PROMPTS[params.style as SummaryStyle] ? params.style : "brief";
+        const style: SummaryStyle =
+          params?.style && STYLE_PROMPTS[params.style as SummaryStyle] ? params.style : "brief";
         // A non-empty `question` turns this into a targeted-answer pass over
         // the transcript instead of a style summary (the escalation path when
         // a read_page excerpt is truncated). Whitespace-only falls back to
@@ -192,14 +203,18 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
         const conv = await getConversation(conversationId);
         if (!conv) {
           return {
-            content: [{ type: "text" as const, text: `Error: conversation ${conversationId} not found` }],
+            content: [
+              { type: "text" as const, text: `Error: conversation ${conversationId} not found` },
+            ],
             details: { isError: true },
           };
         }
         const messages = await getMessages(conversationId);
         if (messages.length === 0) {
           return {
-            content: [{ type: "text" as const, text: "(empty conversation — nothing to summarize)" }],
+            content: [
+              { type: "text" as const, text: "(empty conversation — nothing to summarize)" },
+            ],
             details: { messageCount: 0, style },
           };
         }
@@ -207,9 +222,7 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
         // Build the transcript. Strip tool-call noise that doesn't help a
         // human-facing summary; keep role + content. Truncate from the
         // start (oldest) so recent context survives the cap.
-        let transcript = messages
-          .map((m) => `${m.role}: ${m.content}`.trim())
-          .join("\n\n");
+        let transcript = messages.map((m) => `${m.role}: ${m.content}`.trim()).join("\n\n");
         if (transcript.length > MAX_TRANSCRIPT_CHARS) {
           transcript = `…[truncated]…\n${transcript.slice(transcript.length - MAX_TRANSCRIPT_CHARS)}`;
         }
@@ -218,7 +231,12 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
           ? `Answer the following question about the conversation transcript below. Be precise and quote/count from the transcript; if the transcript does not contain the answer, say so plainly. Question: ${question}`
           : STYLE_PROMPTS[style];
         const summary = await summarize(systemPrompt, transcript);
-        const details: { conversationId: string; style: SummaryStyle; messageCount: number; question?: string } = {
+        const details: {
+          conversationId: string;
+          style: SummaryStyle;
+          messageCount: number;
+          question?: string;
+        } = {
           conversationId,
           style,
           messageCount: messages.length,
@@ -229,7 +247,12 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
           details,
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return {
+          content: [
+            { type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` },
+          ],
+          details: { isError: true },
+        };
       }
     },
   };

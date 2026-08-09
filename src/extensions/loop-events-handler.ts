@@ -153,9 +153,7 @@ export async function handleEmitLoopEventRpc(
         extensionId,
         userId: userIdForAudit,
         conversationId:
-          ctx.conversationId && ctx.conversationId !== "unknown"
-            ? ctx.conversationId
-            : null,
+          ctx.conversationId && ctx.conversationId !== "unknown" ? ctx.conversationId : null,
         toolName: "ezcorp/emit-loop-event",
       },
       [{ kind: "ezcorp:loops:emit" }],
@@ -177,32 +175,37 @@ export async function handleEmitLoopEventRpc(
 
   // 4. Payload validation.
   if (params.v !== 1) {
-    await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["v: expected 1"] });
+    await auditReject(extensionId, userIdForAudit, "schema-mismatch", {
+      errors: ["v: expected 1"],
+    });
     return rpcError(req.id, -32602, "Missing or invalid 'v' (expected 1)");
   }
 
   const type = isString(params.type) ? params.type : undefined;
   const payload = params.payload;
   if (!isObj(payload)) {
-    await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload: not an object"] });
+    await auditReject(extensionId, userIdForAudit, "schema-mismatch", {
+      errors: ["payload: not an object"],
+    });
     return rpcError(req.id, -32602, "Invalid payload: expected an object");
   }
 
   const { loopId, conversationId } = payload;
   // loopId + conversationId shape are common to every event type.
   if (!isString(loopId) || loopId.length === 0) {
-    await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload.loopId is required"] });
+    await auditReject(extensionId, userIdForAudit, "schema-mismatch", {
+      errors: ["payload.loopId is required"],
+    });
     return rpcError(req.id, -32602, "payload.loopId is required");
   }
   if (conversationId !== undefined && !isString(conversationId)) {
-    await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload.conversationId must be a string when present"] });
+    await auditReject(extensionId, userIdForAudit, "schema-mismatch", {
+      errors: ["payload.conversationId must be a string when present"],
+    });
     return rpcError(req.id, -32602, "payload.conversationId must be a string when present");
   }
   // Only forward a non-empty conversationId (empty → global broadcast).
-  const conv =
-    isString(conversationId) && conversationId.length > 0
-      ? { conversationId }
-      : {};
+  const conv = isString(conversationId) && conversationId.length > 0 ? { conversationId } : {};
 
   // loopId PROVENANCE — stamp the wire id with THIS extension's id, taken
   // from the handler's `extensionId` (host-known provenance, never the
@@ -216,7 +219,9 @@ export async function handleEmitLoopEventRpc(
   if (type === "approval_pending" || type === "approval_resolved") {
     const runId = payload.runId;
     if (!isString(runId) || runId.length === 0) {
-      await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload.runId is required"] });
+      await auditReject(extensionId, userIdForAudit, "schema-mismatch", {
+        errors: ["payload.runId is required"],
+      });
       return rpcError(req.id, -32602, "payload.runId is required");
     }
     if (type === "approval_pending") {
@@ -226,7 +231,9 @@ export async function handleEmitLoopEventRpc(
     }
     const decision = payload.decision;
     if (decision !== "approved" && decision !== "declined") {
-      await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload.decision must be 'approved' | 'declined'"] });
+      await auditReject(extensionId, userIdForAudit, "schema-mismatch", {
+        errors: ["payload.decision must be 'approved' | 'declined'"],
+      });
       return rpcError(req.id, -32602, "payload.decision must be 'approved' | 'declined'");
     }
     ctx.bus?.emit("loops:approval_resolved", { loopId: wireLoopId, runId, decision, ...conv });
@@ -237,7 +244,9 @@ export async function handleEmitLoopEventRpc(
   if (type === "auto_disabled") {
     const consecutiveErrors = payload.consecutiveErrors;
     if (typeof consecutiveErrors !== "number" || !Number.isFinite(consecutiveErrors)) {
-      await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: ["payload.consecutiveErrors must be a finite number"] });
+      await auditReject(extensionId, userIdForAudit, "schema-mismatch", {
+        errors: ["payload.consecutiveErrors must be a finite number"],
+      });
       return rpcError(req.id, -32602, "payload.consecutiveErrors must be a finite number");
     }
     ctx.bus?.emit("loops:auto_disabled", { loopId: wireLoopId, consecutiveErrors, ...conv });
@@ -245,6 +254,8 @@ export async function handleEmitLoopEventRpc(
     return rpcResult(req.id, { ok: true });
   }
 
-  await auditReject(extensionId, userIdForAudit, "schema-mismatch", { errors: [`type: unknown value ${String(type)}`] });
+  await auditReject(extensionId, userIdForAudit, "schema-mismatch", {
+    errors: [`type: unknown value ${String(type)}`],
+  });
   return rpcError(req.id, -32602, `Unknown event type: ${String(type)}`);
 }

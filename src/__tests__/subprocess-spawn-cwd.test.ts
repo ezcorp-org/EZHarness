@@ -79,7 +79,10 @@ describe("extension spawn cwd pin (#61)", () => {
     tmpRoots.push(root);
     let capturedCwd: string | undefined;
     let called = false;
-    const spy = spyOn(Bun, "spawn").mockImplementation(((_argv: string[], opts?: { cwd?: string }) => {
+    const spy = spyOn(Bun, "spawn").mockImplementation(((
+      _argv: string[],
+      opts?: { cwd?: string },
+    ) => {
       called = true;
       capturedCwd = opts?.cwd;
       return fakeProc();
@@ -102,7 +105,10 @@ describe("extension spawn cwd pin (#61)", () => {
     const root = mkdtempSync(join(tmpdir(), "ez-tier-handoff-"));
     tmpRoots.push(root);
     let capturedEnv: Record<string, string> | undefined;
-    const spy = spyOn(Bun, "spawn").mockImplementation(((_argv: string[], opts?: { env?: Record<string, string> }) => {
+    const spy = spyOn(Bun, "spawn").mockImplementation(((
+      _argv: string[],
+      opts?: { env?: Record<string, string> },
+    ) => {
       capturedEnv = opts?.env;
       return fakeProc();
     }) as unknown as typeof Bun.spawn);
@@ -119,7 +125,8 @@ describe("extension spawn cwd pin (#61)", () => {
   test("ensureRunning creates + grants the NAME-keyed extension-data dir (data-dir convention)", () => {
     const root = mkdtempSync(join(tmpdir(), "ez-name-grant-"));
     tmpRoots.push(root);
-    const spy = spyOn(Bun, "spawn").mockImplementation((() => fakeProc()) as unknown as typeof Bun.spawn);
+    const spy = spyOn(Bun, "spawn").mockImplementation((() =>
+      fakeProc()) as unknown as typeof Bun.spawn);
     try {
       ep = new ExtensionProcess(
         "name-ext-id",
@@ -133,7 +140,8 @@ describe("extension spawn cwd pin (#61)", () => {
       // a real inode. On an advisory host resolveSandboxWrap returns null
       // before the mkdir, so only assert under a usable tier.
       const { existsSync } = require("node:fs") as typeof import("node:fs");
-      const { getSandboxTier } = require("../extensions/sandbox/capability-probe") as typeof import("../extensions/sandbox/capability-probe");
+      const { getSandboxTier } =
+        require("../extensions/sandbox/capability-probe") as typeof import("../extensions/sandbox/capability-probe");
       if (getSandboxTier() !== "advisory") {
         expect(existsSync(join(root, ".ezcorp", "extension-data", "my-named-ext"))).toBe(true);
       }
@@ -145,7 +153,10 @@ describe("extension spawn cwd pin (#61)", () => {
   test("ensureRunning omits cwd (inherit) when no project root is injected", () => {
     let capturedCwd: string | undefined = "SENTINEL";
     let called = false;
-    const spy = spyOn(Bun, "spawn").mockImplementation(((_argv: string[], opts?: { cwd?: string }) => {
+    const spy = spyOn(Bun, "spawn").mockImplementation(((
+      _argv: string[],
+      opts?: { cwd?: string },
+    ) => {
       called = true;
       capturedCwd = opts?.cwd;
       return fakeProc();

@@ -1,17 +1,14 @@
 import { Type } from "@earendil-works/pi-ai";
 import { mkdirSync } from "node:fs";
 import { validateTimeout, type ToolParams } from "./validate";
-import type { BuiltinToolDef  } from "./types";
+import type { BuiltinToolDef } from "./types";
 import type { AgentToolUpdateCallback } from "@earendil-works/pi-agent-core";
 import { buildStreamTruncationMarker, getToolOutputLimit } from "./output-limits";
 import { logger } from "../../logger";
 import { detectDevServerCommand } from "../preview/dev-command-detection";
 import { getSandboxTier } from "../../extensions/sandbox/capability-probe";
 import { buildSandboxArgv } from "../../extensions/sandbox/build-sandbox-argv";
-import {
-  DEFAULT_RUNTIME_RO_DIRS,
-  runtimeExecRoDirs,
-} from "../../extensions/sandbox/landlock";
+import { DEFAULT_RUNTIME_RO_DIRS, runtimeExecRoDirs } from "../../extensions/sandbox/landlock";
 
 const log = logger.child("shell-tool");
 
@@ -43,7 +40,11 @@ export interface ShellPreviewWiring {
     command: string;
     args?: readonly string[];
   }) =>
-    | { ok: true; uid: number; process: { pid: number; exited: Promise<number>; kill(signal?: number): void } }
+    | {
+        ok: true;
+        uid: number;
+        process: { pid: number; exited: Promise<number>; kill(signal?: number): void };
+      }
     | { ok: false; reason: string };
 }
 
@@ -122,13 +123,13 @@ function sanitizeEnv(): Record<string, string | undefined> {
 }
 
 const DANGEROUS_COMMAND_PATTERNS = [
-  /rm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?\/($|\s)/,        // rm -rf / or rm /
-  /mkfs\./,                                             // format filesystem
-  /dd\s+.*of=\/dev\//,                                  // write to device
-  /chmod\s+.*\/etc|\/usr|\/bin|\/sbin/,                 // chmod system dirs
-  />\s*\/etc\//,                                         // overwrite /etc files
-  /curl.*\|\s*(ba)?sh/,                                  // curl pipe to shell
-  /wget.*\|\s*(ba)?sh/,                                  // wget pipe to shell
+  /rm\s+(-[a-zA-Z]*f[a-zA-Z]*\s+)?\/($|\s)/, // rm -rf / or rm /
+  /mkfs\./, // format filesystem
+  /dd\s+.*of=\/dev\//, // write to device
+  /chmod\s+.*\/etc|\/usr|\/bin|\/sbin/, // chmod system dirs
+  />\s*\/etc\//, // overwrite /etc files
+  /curl.*\|\s*(ba)?sh/, // curl pipe to shell
+  /wget.*\|\s*(ba)?sh/, // wget pipe to shell
 ];
 
 export function createShellTool(
@@ -139,7 +140,8 @@ export function createShellTool(
   return {
     name: "shell",
     label: "shell",
-    description: "Execute a shell command in the project directory. Streams stdout/stderr in real-time. Supports timeout and abort.",
+    description:
+      "Execute a shell command in the project directory. Streams stdout/stderr in real-time. Supports timeout and abort.",
     category: "execute",
     cardType: "terminal",
     // Match the tool's own per-command `timeout` arg cap (600_000ms,
@@ -152,19 +154,42 @@ export function createShellTool(
       type: "object",
       properties: {
         command: { type: "string", description: "Shell command to execute" },
-        timeout: { type: "number", description: "Timeout in ms (default: 120000, max: 600000)", default: 120000 },
-        background: { type: "boolean", description: "Run in background (basic support)", default: false },
+        timeout: {
+          type: "number",
+          description: "Timeout in ms (default: 120000, max: 600000)",
+          default: 120000,
+        },
+        background: {
+          type: "boolean",
+          description: "Run in background (basic support)",
+          default: false,
+        },
       },
       required: ["command"],
     }),
-    execute: async (_toolCallId, params: ToolParams, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback) => {
-      log.debug("shell-audit", { command: params.command, cwd: projectPath, timestamp: new Date().toISOString() });
+    execute: async (
+      _toolCallId,
+      params: ToolParams,
+      signal?: AbortSignal,
+      onUpdate?: AgentToolUpdateCallback,
+    ) => {
+      log.debug("shell-audit", {
+        command: params.command,
+        cwd: projectPath,
+        timestamp: new Date().toISOString(),
+      });
 
       const blocked = DANGEROUS_COMMAND_PATTERNS.find((p) => p.test(params.command));
       if (blocked) {
         return {
           content: [{ type: "text" as const, text: `Error: command blocked by security policy` }],
-          details: { exitCode: -1, stdout: "", stderr: "Command matches dangerous pattern blocklist", streaming: false, isError: true },
+          details: {
+            exitCode: -1,
+            stdout: "",
+            stderr: "Command matches dangerous pattern blocklist",
+            streaming: false,
+            isError: true,
+          },
         };
       }
 
@@ -229,9 +254,7 @@ export function createShellTool(
         const jail = resolveShellSandbox(params.command, sandbox);
         const spawnArgv = jail ? jail.argv : ["/bin/sh", "-c", params.command];
         const spawnCwd = jail ? sandbox!.workspaceDir : projectPath;
-        const spawnEnv = jail
-          ? { ...sanitizeEnv(), ...jail.env }
-          : sanitizeEnv();
+        const spawnEnv = jail ? { ...sanitizeEnv(), ...jail.env } : sanitizeEnv();
         const proc = Bun.spawn(spawnArgv, {
           cwd: spawnCwd,
           stdout: "pipe",
@@ -263,18 +286,26 @@ export function createShellTool(
           })(),
           // Timeout
           new Promise<{ type: "timeout" }>((resolve) =>
-            setTimeout(() => resolve({ type: "timeout" }), timeout)
+            setTimeout(() => resolve({ type: "timeout" }), timeout),
           ),
           // External abort
-          ...(signal ? [new Promise<{ type: "aborted" }>((resolve) =>
-            signal.addEventListener("abort", () => resolve({ type: "aborted" }), { once: true })
-          )] : []),
+          ...(signal
+            ? [
+                new Promise<{ type: "aborted" }>((resolve) =>
+                  signal.addEventListener("abort", () => resolve({ type: "aborted" }), {
+                    once: true,
+                  }),
+                ),
+              ]
+            : []),
         ]);
 
         if (result.type === "timeout") {
           proc.kill();
           return {
-            content: [{ type: "text" as const, text: `Command timed out after ${timeout}ms\n${output}` }],
+            content: [
+              { type: "text" as const, text: `Command timed out after ${timeout}ms\n${output}` },
+            ],
             details: { exitCode: -1, stdout: output, stderr, streaming: false, timeout: true },
           };
         }
@@ -290,7 +321,13 @@ export function createShellTool(
         const fullOutput = stderr ? `${output}\n${stderr}` : output;
         return {
           content: [{ type: "text" as const, text: fullOutput || "(no output)" }],
-          details: { exitCode: result.exitCode, stdout: output, stderr, streaming: false, truncated },
+          details: {
+            exitCode: result.exitCode,
+            stdout: output,
+            stderr,
+            streaming: false,
+            truncated,
+          },
         };
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);

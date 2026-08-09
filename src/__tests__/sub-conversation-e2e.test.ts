@@ -12,10 +12,34 @@ function need<T>(v: T | undefined, what: string): T {
 // ── Test Agents ──────────────────────────────────────────────────────
 
 const AGENTS = {
-  researcher: { id: "agent-researcher", name: "researcher", description: "Research agent", capabilities: ["llm"] as AgentCapability[], prompt: "You are a researcher" },
-  coder: { id: "agent-coder", name: "coder", description: "Coding agent", capabilities: ["llm", "custom"] as AgentCapability[], prompt: "You are a coder" },
-  reviewer: { id: "agent-reviewer", name: "reviewer", description: "Review agent", capabilities: ["llm"] as AgentCapability[], prompt: "You are a reviewer" },
-  debugger: { id: "agent-debugger", name: "debugger", description: "Debug agent", capabilities: ["llm", "custom"] as AgentCapability[], prompt: "You are a debugger" },
+  researcher: {
+    id: "agent-researcher",
+    name: "researcher",
+    description: "Research agent",
+    capabilities: ["llm"] as AgentCapability[],
+    prompt: "You are a researcher",
+  },
+  coder: {
+    id: "agent-coder",
+    name: "coder",
+    description: "Coding agent",
+    capabilities: ["llm", "custom"] as AgentCapability[],
+    prompt: "You are a coder",
+  },
+  reviewer: {
+    id: "agent-reviewer",
+    name: "reviewer",
+    description: "Review agent",
+    capabilities: ["llm"] as AgentCapability[],
+    prompt: "You are a reviewer",
+  },
+  debugger: {
+    id: "agent-debugger",
+    name: "debugger",
+    description: "Debug agent",
+    capabilities: ["llm", "custom"] as AgentCapability[],
+    prompt: "You are a debugger",
+  },
 };
 
 // ── Re-implement store without Svelte 5 runes for testability ────────
@@ -40,8 +64,12 @@ class TestSubConversationStore {
   subConvoMessages: SubConvoMessage[] = [];
   isStreaming = false;
 
-  get isInSubConversation(): boolean { return this.activeSubConversation !== null; }
-  get activeSubConversationId(): string | null { return this.activeSubConversation?.id ?? null; }
+  get isInSubConversation(): boolean {
+    return this.activeSubConversation !== null;
+  }
+  get activeSubConversationId(): string | null {
+    return this.activeSubConversation?.id ?? null;
+  }
 
   startSubConversation(opts: SubConversationState): void {
     this.activeSubConversation = opts;
@@ -61,12 +89,18 @@ class TestSubConversationStore {
     this.subConvoMessages = [...this.subConvoMessages, msg];
   }
 
-  setStreaming(streaming: boolean): void { this.isStreaming = streaming; }
+  setStreaming(streaming: boolean): void {
+    this.isStreaming = streaming;
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function makeSubConvoState(agent: typeof AGENTS.researcher, parentConvId = "conv-1", parentMsgId = "msg-1"): SubConversationState {
+function makeSubConvoState(
+  agent: typeof AGENTS.researcher,
+  parentConvId = "conv-1",
+  parentMsgId = "msg-1",
+): SubConversationState {
   return {
     id: `sub-${agent.id}`,
     agentConfigId: agent.id,
@@ -81,7 +115,7 @@ function makeMessage(id: string, role: string, content: string): SubConvoMessage
 }
 
 function getSummary(messages: SubConvoMessage[]): SubConvoMessage | undefined {
-  return [...messages].reverse().find(m => m.role === "assistant");
+  return [...messages].reverse().find((m) => m.role === "assistant");
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
@@ -190,7 +224,9 @@ describe("Sub-Conversation E2E Flows", () => {
       expect(detectCycle(AGENTS.reviewer.id, [AGENTS.coder.id], allRefs)).toBeNull();
 
       // debugger refs [researcher, reviewer] — still no cycle
-      expect(detectCycle(AGENTS.debugger.id, [AGENTS.researcher.id, AGENTS.reviewer.id], allRefs)).toBeNull();
+      expect(
+        detectCycle(AGENTS.debugger.id, [AGENTS.researcher.id, AGENTS.reviewer.id], allRefs),
+      ).toBeNull();
 
       // Now add debugger with those refs
       allRefs.set(AGENTS.debugger.id, [AGENTS.researcher.id, AGENTS.reviewer.id]);

@@ -42,10 +42,7 @@ async function bootEntrypoint(): Promise<{
     stdout: "pipe",
     stderr: "pipe",
   });
-  const [exitCode, stderr] = await Promise.all([
-    proc.exited,
-    new Response(proc.stderr).text(),
-  ]);
+  const [exitCode, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
   return { exitCode, stderr };
 }
 

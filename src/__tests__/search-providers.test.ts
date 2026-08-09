@@ -63,7 +63,16 @@ const transport: Transport = (req: TransportRequest) => {
 };
 
 // REAL captured DuckDuckGo pages (sanitized).
-const FIXTURES = join(import.meta.dir, "..", "..", "docs", "extensions", "examples", "web-search", "testdata");
+const FIXTURES = join(
+  import.meta.dir,
+  "..",
+  "..",
+  "docs",
+  "extensions",
+  "examples",
+  "web-search",
+  "testdata",
+);
 const DDG_LITE_FIXTURE = readFileSync(join(FIXTURES, "ddg-lite.html"), "utf8");
 const DDG_HTML_FIXTURE = readFileSync(join(FIXTURES, "ddg-html.html"), "utf8");
 const DDG_CHALLENGE_FIXTURE = readFileSync(join(FIXTURES, "ddg-challenge.html"), "utf8");
@@ -103,7 +112,12 @@ describe("makeGuardedTransport", () => {
       resolveHost: async () => ["8.8.8.8"],
     });
     await expect(
-      t({ url: "https://evil.test/x", init: {}, mode: "backend", allowedHosts: ["api.tavily.com"] }),
+      t({
+        url: "https://evil.test/x",
+        init: {},
+        mode: "backend",
+        allowedHosts: ["api.tavily.com"],
+      }),
     ).rejects.toThrow(/Backend host not allowed/);
   });
 });
@@ -137,7 +151,9 @@ describe("resolveProviders", () => {
   });
 
   test("SEARXNG_BASE_URL → searxng-named fallback wrapper", () => {
-    const { search } = resolveProviders(transport, { SEARXNG_BASE_URL: "http://localhost:8889" } as NodeJS.ProcessEnv);
+    const { search } = resolveProviders(transport, {
+      SEARXNG_BASE_URL: "http://localhost:8889",
+    } as NodeJS.ProcessEnv);
     expect(search.name).toBe("searxng");
     expect(hasOutcome(search)).toBe(true);
   });
@@ -158,21 +174,29 @@ describe("resolveProviders", () => {
   });
 
   test("Tavily key → Tavily; reader stays Jina", () => {
-    const { search, reader } = resolveProviders(transport, { TAVILY_API_KEY: "x" } as NodeJS.ProcessEnv);
+    const { search, reader } = resolveProviders(transport, {
+      TAVILY_API_KEY: "x",
+    } as NodeJS.ProcessEnv);
     expect(search.name).toBe("tavily");
     expect(reader.name).toBe("jina");
   });
 
   test("Brave key → Brave", () => {
-    expect(resolveProviders(transport, { BRAVE_API_KEY: "x" } as NodeJS.ProcessEnv).search.name).toBe("brave");
+    expect(
+      resolveProviders(transport, { BRAVE_API_KEY: "x" } as NodeJS.ProcessEnv).search.name,
+    ).toBe("brave");
   });
 
   test("Exa key → Exa", () => {
-    expect(resolveProviders(transport, { EXA_API_KEY: "x" } as NodeJS.ProcessEnv).search.name).toBe("exa");
+    expect(resolveProviders(transport, { EXA_API_KEY: "x" } as NodeJS.ProcessEnv).search.name).toBe(
+      "exa",
+    );
   });
 
   test("SerpAPI key → SerpAPI", () => {
-    expect(resolveProviders(transport, { SERPAPI_API_KEY: "x" } as NodeJS.ProcessEnv).search.name).toBe("serpapi");
+    expect(
+      resolveProviders(transport, { SERPAPI_API_KEY: "x" } as NodeJS.ProcessEnv).search.name,
+    ).toBe("serpapi");
   });
 
   test("full precedence: Tavily > Brave > Exa > SerpAPI > keyed Jina > SearXNG > DuckDuckGo", () => {
@@ -221,13 +245,15 @@ describe("resolveProviders", () => {
 describe("JinaSearch", () => {
   test("parses data[] into SearchResult[] and slices to maxResults", async () => {
     nextResponse = () =>
-      new Response(JSON.stringify({
-        data: [
-          { title: "T1", url: "https://a", description: "D1" },
-          { title: "T2", url: "https://b", content: "C2" },
-          { title: "T3", url: "https://c", description: "D3" },
-        ],
-      }));
+      new Response(
+        JSON.stringify({
+          data: [
+            { title: "T1", url: "https://a", description: "D1" },
+            { title: "T2", url: "https://b", content: "C2" },
+            { title: "T3", url: "https://c", description: "D3" },
+          ],
+        }),
+      );
     const out = await new JinaSearch(transport).search("bun", 2);
     expect(out).toEqual([
       { title: "T1", url: "https://a", snippet: "D1" },
@@ -275,7 +301,9 @@ describe("JinaSearch", () => {
 
   test("malformed JSON throws the dedicated malformed-JSON error", async () => {
     nextResponse = () => new Response("not json", { status: 200 });
-    await expect(new JinaSearch(transport).search("q", 5)).rejects.toThrow("Jina returned malformed JSON");
+    await expect(new JinaSearch(transport).search("q", 5)).rejects.toThrow(
+      "Jina returned malformed JSON",
+    );
   });
 });
 
@@ -292,7 +320,9 @@ describe("JinaReader", () => {
 
   test("empty body → friendly binary/unreachable error", async () => {
     nextResponse = () => new Response("", { status: 200 });
-    await expect(new JinaReader(transport).read("https://x")).rejects.toThrow(/binary or unreachable/);
+    await expect(new JinaReader(transport).read("https://x")).rejects.toThrow(
+      /binary or unreachable/,
+    );
   });
 
   test("non-2xx throws with provider-tagged status", async () => {
@@ -582,7 +612,9 @@ describe("withReaderFallback", () => {
           throw new Error("Direct reader HTTP 403");
         }),
       ).readWithOutcome("https://x"),
-    ).rejects.toThrow("jina unavailable (keyless 401); direct fallback failed: Direct reader HTTP 403");
+    ).rejects.toThrow(
+      "jina unavailable (keyless 401); direct fallback failed: Direct reader HTTP 403",
+    );
   });
 
   test("plain UrlReader.read() delegates through the same path", async () => {
@@ -636,12 +668,14 @@ describe("reader chain (Jina → direct) over a canned transport", () => {
 describe("Tavily", () => {
   test("POSTs api_key + query and parses results[]", async () => {
     nextResponse = () =>
-      new Response(JSON.stringify({
-        results: [
-          { title: "T", url: "https://a", content: "C" },
-          { title: "T2", url: "https://b", content: "C2" },
-        ],
-      }));
+      new Response(
+        JSON.stringify({
+          results: [
+            { title: "T", url: "https://a", content: "C" },
+            { title: "T2", url: "https://b", content: "C2" },
+          ],
+        }),
+      );
     const out = await new Tavily(transport, "tav-k").search("bun", 5);
     expect(out).toEqual([
       { title: "T", url: "https://a", snippet: "C" },
@@ -653,7 +687,9 @@ describe("Tavily", () => {
     expect(body.api_key).toBe("tav-k");
     expect(body.query).toBe("bun");
     expect(body.max_results).toBe(5);
-    expect((calls[0]!.init.headers as Record<string, string>)["content-type"]).toBe("application/json");
+    expect((calls[0]!.init.headers as Record<string, string>)["content-type"]).toBe(
+      "application/json",
+    );
   });
 
   test("missing results[] → empty array", async () => {
@@ -683,7 +719,9 @@ describe("Tavily", () => {
 describe("Brave", () => {
   test("GETs /res/v1/web/search and parses web.results[]", async () => {
     nextResponse = () =>
-      new Response(JSON.stringify({ web: { results: [{ title: "B", url: "https://b", description: "D" }] } }));
+      new Response(
+        JSON.stringify({ web: { results: [{ title: "B", url: "https://b", description: "D" }] } }),
+      );
     const out = await new Brave(transport, "br-k").search("bun", 1);
     expect(out).toEqual([{ title: "B", url: "https://b", snippet: "D" }]);
     expect(calls[0]!.url).toContain("https://api.search.brave.com/res/v1/web/search");
@@ -718,7 +756,8 @@ describe("Brave", () => {
 
 describe("Exa", () => {
   test("POSTs { query, numResults } with x-api-key", async () => {
-    nextResponse = () => new Response(JSON.stringify({ results: [{ title: "E", url: "https://e", text: "T" }] }));
+    nextResponse = () =>
+      new Response(JSON.stringify({ results: [{ title: "E", url: "https://e", text: "T" }] }));
     const out = await new Exa(transport, "ex-k").search("bun", 4);
     expect(out).toEqual([{ title: "E", url: "https://e", snippet: "T" }]);
     expect(calls[0]!.url).toBe("https://api.exa.ai/search");
@@ -756,7 +795,9 @@ describe("Exa", () => {
 describe("SerpApi", () => {
   test("GETs with api_key in query string and parses organic_results", async () => {
     nextResponse = () =>
-      new Response(JSON.stringify({ organic_results: [{ title: "S", link: "https://s", snippet: "X" }] }));
+      new Response(
+        JSON.stringify({ organic_results: [{ title: "S", link: "https://s", snippet: "X" }] }),
+      );
     const out = await new SerpApi(transport, "sa-k").search("bun", 7);
     expect(out).toEqual([{ title: "S", url: "https://s", snippet: "X" }]);
     expect(calls[0]!.url).toContain("https://serpapi.com/search.json");
@@ -835,17 +876,23 @@ describe("SearXNG", () => {
 
   test("result entries with missing fields → empty-string tolerance, no throw", async () => {
     nextResponse = () => new Response(JSON.stringify({ results: [{}] }));
-    expect(await new SearXNG(transport, "http://x").search("q", 5)).toEqual([{ title: "", url: "", snippet: "" }]);
+    expect(await new SearXNG(transport, "http://x").search("q", 5)).toEqual([
+      { title: "", url: "", snippet: "" },
+    ]);
   });
 
   test("malformed JSON throws the dedicated malformed-JSON error", async () => {
     nextResponse = () => new Response("<html>not json</html>", { status: 200 });
-    await expect(new SearXNG(transport, "http://x").search("q", 5)).rejects.toThrow("SearXNG returned malformed JSON");
+    await expect(new SearXNG(transport, "http://x").search("q", 5)).rejects.toThrow(
+      "SearXNG returned malformed JSON",
+    );
   });
 
   test("non-2xx throws with status", async () => {
     nextResponse = () => new Response("Forbidden", { status: 403 });
-    await expect(new SearXNG(transport, "http://x").search("q", 5)).rejects.toThrow("SearXNG HTTP 403");
+    await expect(new SearXNG(transport, "http://x").search("q", 5)).rejects.toThrow(
+      "SearXNG HTTP 403",
+    );
   });
 });
 
@@ -853,7 +900,8 @@ describe("SearXNG", () => {
 
 describe("DuckDuckGo", () => {
   test("lite happy path: parses the real captured fixture", async () => {
-    nextResponse = () => new Response(DDG_LITE_FIXTURE, { headers: { "content-type": "text/html" } });
+    nextResponse = () =>
+      new Response(DDG_LITE_FIXTURE, { headers: { "content-type": "text/html" } });
     const out = await new DuckDuckGo(transport).search("bun javascript runtime", 10);
     expect(calls.length).toBe(1);
     expect(calls[0]!.url).toBe("https://lite.duckduckgo.com/lite/?q=bun%20javascript%20runtime");
@@ -892,7 +940,9 @@ describe("DuckDuckGo", () => {
     const out = await new DuckDuckGo(transport).search("bun javascript runtime", 5);
     expect(calls.length).toBe(2);
     expect(calls[1]!.url).toBe("https://html.duckduckgo.com/html/?q=bun%20javascript%20runtime");
-    expect((calls[1]!.init.headers as Record<string, string>)["user-agent"]).toContain("Mozilla/5.0");
+    expect((calls[1]!.init.headers as Record<string, string>)["user-agent"]).toContain(
+      "Mozilla/5.0",
+    );
     expect(out.length).toBe(5);
     expect(out[0]!.url).toBe("https://bun.sh/");
     expect(out[0]!.title).toBe("Bun — A fast all-in-one JavaScript runtime");
@@ -928,7 +978,11 @@ describe("DuckDuckGo", () => {
     nextResponse = () => new Response(html);
     const out = await new DuckDuckGo(transport).search("q", 5);
     expect(out).toEqual([
-      { title: "R&D 'quoted' — ok", url: "https://example.com/a", snippet: `1 < 2 > 0, "q" 'a' end` },
+      {
+        title: "R&D 'quoted' — ok",
+        url: "https://example.com/a",
+        snippet: `1 < 2 > 0, "q" 'a' end`,
+      },
     ]);
   });
 
@@ -954,23 +1008,27 @@ describe("DuckDuckGo", () => {
 
 describe("unwrapDdgRedirect", () => {
   test("protocol-relative redirect → decoded target URL", () => {
-    expect(unwrapDdgRedirect("//duckduckgo.com/l/?uddg=https%3A%2F%2Fbun.sh%2F&rut=0000")).toBe("https://bun.sh/");
+    expect(unwrapDdgRedirect("//duckduckgo.com/l/?uddg=https%3A%2F%2Fbun.sh%2F&rut=0000")).toBe(
+      "https://bun.sh/",
+    );
   });
   test("absolute redirect → decoded target URL", () => {
-    expect(unwrapDdgRedirect("https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa%3Fb%3D1")).toBe(
-      "https://example.com/a?b=1",
-    );
+    expect(
+      unwrapDdgRedirect("https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fa%3Fb%3D1"),
+    ).toBe("https://example.com/a?b=1");
   });
   test("direct URL passes through unchanged", () => {
     expect(unwrapDdgRedirect("https://bun.sh")).toBe("https://bun.sh");
   });
   test("double-encoded uddg → exactly one decode pass", () => {
-    expect(unwrapDdgRedirect("//duckduckgo.com/l/?uddg=https%253A%252F%252Fbun.sh%252F&rut=0000")).toBe(
-      "https%3A%2F%2Fbun.sh%2F",
-    );
+    expect(
+      unwrapDdgRedirect("//duckduckgo.com/l/?uddg=https%253A%252F%252Fbun.sh%252F&rut=0000"),
+    ).toBe("https%3A%2F%2Fbun.sh%2F");
   });
   test("duckduckgo URL without uddg param passes through", () => {
-    expect(unwrapDdgRedirect("https://duckduckgo.com/l/?rut=abc")).toBe("https://duckduckgo.com/l/?rut=abc");
+    expect(unwrapDdgRedirect("https://duckduckgo.com/l/?rut=abc")).toBe(
+      "https://duckduckgo.com/l/?rut=abc",
+    );
   });
   test("malformed href passes through", () => {
     expect(unwrapDdgRedirect("not a url")).toBe("not a url");
@@ -1025,7 +1083,10 @@ describe("isConnectionError", () => {
 describe("withFallback", () => {
   const RESULTS: SearchResult[] = [{ title: "T", url: "https://u", snippet: "S" }];
 
-  function fakeProvider(name: string, impl: () => Promise<SearchResult[]>): SearchProvider & { calls: number } {
+  function fakeProvider(
+    name: string,
+    impl: () => Promise<SearchResult[]>,
+  ): SearchProvider & { calls: number } {
     const p = {
       name,
       calls: 0,
@@ -1043,12 +1104,18 @@ describe("withFallback", () => {
   // log line still executes under test so it stays covered.
 
   test("wrapper keeps the primary's name (cache GET namespace)", () => {
-    const wrapped = withFallback(fakeProvider("searxng", async () => RESULTS), fakeProvider("duckduckgo", async () => []));
+    const wrapped = withFallback(
+      fakeProvider("searxng", async () => RESULTS),
+      fakeProvider("duckduckgo", async () => []),
+    );
     expect(wrapped.name).toBe("searxng");
   });
 
   test("wrapper exposes fallbackName", () => {
-    const wrapped = withFallback(fakeProvider("searxng", async () => RESULTS), fakeProvider("duckduckgo", async () => []));
+    const wrapped = withFallback(
+      fakeProvider("searxng", async () => RESULTS),
+      fakeProvider("duckduckgo", async () => []),
+    );
     expect(wrapped.fallbackName).toBe("duckduckgo");
   });
 
@@ -1076,7 +1143,9 @@ describe("withFallback", () => {
       throw new Error("SearXNG HTTP 503");
     });
     const fallback = fakeProvider("duckduckgo", async () => RESULTS);
-    await expect(withFallback(primary, fallback).searchWithOutcome("q", 5)).rejects.toThrow("SearXNG HTTP 503");
+    await expect(withFallback(primary, fallback).searchWithOutcome("q", 5)).rejects.toThrow(
+      "SearXNG HTTP 503",
+    );
     expect(fallback.calls).toBe(0);
   });
 

@@ -169,7 +169,11 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
     listenerHandle = null;
 
     for (const t of activeTunnels) {
-      try { t.close(); } catch { /* socket already torn down */ }
+      try {
+        t.close();
+      } catch {
+        /* socket already torn down */
+      }
     }
     activeTunnels.clear();
   }
@@ -191,7 +195,11 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
     // the listening address to "0.0.0.0" / "::" in some configs, which
     // produces an unreachable HTTPS_PROXY URL for the MCP child.
     boundAddress = { host: hostname, port: listener.port };
-    return { close: async () => { listener.stop(true); } };
+    return {
+      close: async () => {
+        listener.stop(true);
+      },
+    };
   }
 
   function buildSocketHandler() {
@@ -262,7 +270,11 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
           state.tunnel = null;
         }
         if (state?.upstream) {
-          try { state.upstream.end(); } catch { /* already torn */ }
+          try {
+            state.upstream.end();
+          } catch {
+            /* already torn */
+          }
           state.upstream = null;
         }
       },
@@ -270,7 +282,11 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
       error(client: Socket<ClientState>) {
         const state = client.data;
         if (state?.upstream) {
-          try { state.upstream.end(); } catch { /* already torn */ }
+          try {
+            state.upstream.end();
+          } catch {
+            /* already torn */
+          }
         }
       },
     };
@@ -314,11 +330,7 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
       // never opens that door.
       const normalized = normalizeHostname(hostname);
       if (isInternalHost(normalized)) {
-        writeStatusAndClose(
-          client,
-          "403 Forbidden",
-          `Internal host blocked: ${hostname}`,
-        );
+        writeStatusAndClose(client, "403 Forbidden", `Internal host blocked: ${hostname}`);
         void auditBlocked(config, "internal", hostname);
         return;
       }
@@ -360,11 +372,7 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
         }
         for (const rec of records) {
           if (isInternalHost(rec.address)) {
-            writeStatusAndClose(
-              client,
-              "403 Forbidden",
-              `Internal IP blocked: ${rec.address}`,
-            );
+            writeStatusAndClose(client, "403 Forbidden", `Internal IP blocked: ${rec.address}`);
             void auditBlocked(config, "rebind", hostname);
             return;
           }
@@ -417,8 +425,16 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
 
       const tunnel = {
         close() {
-          try { upstream.end(); } catch { /* already torn */ }
-          try { client.end(); } catch { /* already torn */ }
+          try {
+            upstream.end();
+          } catch {
+            /* already torn */
+          }
+          try {
+            client.end();
+          } catch {
+            /* already torn */
+          }
         },
       };
       activeTunnels.add(tunnel);
@@ -451,8 +467,16 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
           if (!peer) return;
           if (!consumeBytes(config.extensionId, chunk.byteLength)) {
             void auditBlocked(config, "quota:bytes", null);
-            try { upstream.end(); } catch { /* race */ }
-            try { peer.end(); } catch { /* race */ }
+            try {
+              upstream.end();
+            } catch {
+              /* race */
+            }
+            try {
+              peer.end();
+            } catch {
+              /* race */
+            }
             return;
           }
           txBytes += chunk.byteLength;
@@ -460,19 +484,36 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
         },
         close(upstream: Socket<TunnelData>) {
           const peer = upstream.data?.client;
-          if (peer) try { peer.end(); } catch { /* race */ }
+          if (peer)
+            try {
+              peer.end();
+            } catch {
+              /* race */
+            }
         },
         error(upstream: Socket<TunnelData>) {
           const peer = upstream.data?.client;
-          if (peer) try { peer.end(); } catch { /* race */ }
+          if (peer)
+            try {
+              peer.end();
+            } catch {
+              /* race */
+            }
         },
       };
     }
   }
 
   function tearDown(
-    client: Socket<{ headerBuf: Buffer | null; upstream: Socket<{ client: Socket<unknown> }> | null; tunnel: { close: () => void } | null }>,
-    state: { upstream: Socket<{ client: Socket<unknown> }> | null; tunnel: { close: () => void } | null },
+    client: Socket<{
+      headerBuf: Buffer | null;
+      upstream: Socket<{ client: Socket<unknown> }> | null;
+      tunnel: { close: () => void } | null;
+    }>,
+    state: {
+      upstream: Socket<{ client: Socket<unknown> }> | null;
+      tunnel: { close: () => void } | null;
+    },
     reason: string,
   ): void {
     writeStatusAndClose(client, "429 Too Many Requests", reason);
@@ -481,7 +522,11 @@ export function createMcpProxy(config: McpProxyConfig): McpProxyHandle {
       state.tunnel = null;
     }
     if (state.upstream) {
-      try { state.upstream.end(); } catch { /* race */ }
+      try {
+        state.upstream.end();
+      } catch {
+        /* race */
+      }
       state.upstream = null;
     }
   }
@@ -541,9 +586,7 @@ interface ParsedConnectFail {
  * curl / requests / Go all forward as a Basic-auth Proxy-Authorization
  * header where the password slot is the token.
  */
-export function parseConnectRequest(
-  headerStr: string,
-): ParsedConnectOk | ParsedConnectFail {
+export function parseConnectRequest(headerStr: string): ParsedConnectOk | ParsedConnectFail {
   const lines = headerStr.split("\r\n");
   const requestLine = lines[0] ?? "";
   // CONNECT <host:port> HTTP/1.1
@@ -577,7 +620,9 @@ export function parseConnectRequest(
           const decoded = Buffer.from(m[1], "base64").toString("utf8");
           const sep = decoded.indexOf(":");
           if (sep !== -1) providedToken = decoded.slice(sep + 1);
-        } catch { /* malformed — leave empty */ }
+        } catch {
+          /* malformed — leave empty */
+        }
       }
     }
   }
@@ -585,11 +630,7 @@ export function parseConnectRequest(
   return { ok: true, hostname: hostnamePart, port, providedToken };
 }
 
-function writeStatusAndClose(
-  client: Socket<unknown>,
-  statusLine: string,
-  body: string,
-): void {
+function writeStatusAndClose(client: Socket<unknown>, statusLine: string, body: string): void {
   const payload = body || "";
   const headers = [
     `HTTP/1.1 ${statusLine}`,
@@ -599,8 +640,16 @@ function writeStatusAndClose(
     "",
     payload,
   ].join("\r\n");
-  try { client.write(headers); } catch { /* peer already gone */ }
-  try { client.end(); } catch { /* peer already gone */ }
+  try {
+    client.write(headers);
+  } catch {
+    /* peer already gone */
+  }
+  try {
+    client.end();
+  } catch {
+    /* peer already gone */
+  }
 }
 
 async function auditBlocked(
@@ -609,21 +658,18 @@ async function auditBlocked(
   hostname: string | null,
 ): Promise<void> {
   try {
-    await insertAuditEntry(
-      config.userId,
-      EXT_AUDIT_ACTIONS.MCP_HOST_BLOCKED,
-      config.extensionId,
-      {
-        permission: "network",
-        oldValue: null,
-        newValue: null,
-        actor: "system",
-        reason: reasonClass,
-        extensionName: config.extensionName,
-        hostname: hostname ?? null,
-      },
-    );
-  } catch { /* DB blip — never fail-open the proxy on a logging error */ }
+    await insertAuditEntry(config.userId, EXT_AUDIT_ACTIONS.MCP_HOST_BLOCKED, config.extensionId, {
+      permission: "network",
+      oldValue: null,
+      newValue: null,
+      actor: "system",
+      reason: reasonClass,
+      extensionName: config.extensionName,
+      hostname: hostname ?? null,
+    });
+  } catch {
+    /* DB blip — never fail-open the proxy on a logging error */
+  }
 }
 
 /**
@@ -640,9 +686,7 @@ async function auditBlocked(
  * the other two Stage 1 kill-switches (tmpfs, seccomp) so operators
  * see all three uniformly in /audit.
  */
-async function emitDnsRecheckKillSwitchBootRow(
-  config: McpProxyConfig,
-): Promise<void> {
+async function emitDnsRecheckKillSwitchBootRow(config: McpProxyConfig): Promise<void> {
   try {
     await insertAuditEntry(
       config.userId,
@@ -658,7 +702,9 @@ async function emitDnsRecheckKillSwitchBootRow(
         platform: process.platform,
       },
     );
-  } catch { /* fire-and-forget — mirror auditBlocked posture */ }
+  } catch {
+    /* fire-and-forget — mirror auditBlocked posture */
+  }
 }
 
 /**

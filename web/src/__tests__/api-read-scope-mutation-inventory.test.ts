@@ -81,7 +81,7 @@ const SCOPE_ARG2_HEAD = /requireScope\s*\(\s*[\w.$]+\s*,\s*(\S)/g;
 /** Does this source call `requireScope` with a NON-literal scope argument? */
 function hasDynamicScopeCall(src: string): boolean {
   return [...decomment(src).matchAll(SCOPE_ARG2_HEAD)].some(
-    (m) => !["\"", "'", "`"].includes(m[1]!),
+    (m) => !['"', "'", "`"].includes(m[1]!),
   );
 }
 
@@ -131,7 +131,10 @@ function scopesIn(text: string): string[] {
 
 function fileToRoutePath(rel: string): string {
   let p = rel.replace(/\/\+server\.ts$/, "");
-  p = p.split("/").filter((s) => !(s.startsWith("(") && s.endsWith(")"))).join("/");
+  p = p
+    .split("/")
+    .filter((s) => !(s.startsWith("(") && s.endsWith(")")))
+    .join("/");
   return `/${p.replace(/\[\.\.\.([^\]]+)\]/g, ":$1").replace(/\[([^\]]+)\]/g, ":$1")}`;
 }
 
@@ -167,7 +170,8 @@ function scanHandlers(): Handler[] {
     const src = readFileSync(`${routesDir}/${rel}`, "utf8");
     const decls = topLevelDecls(src);
     for (const m of METHODS) {
-      if (!new RegExp(`export\\s+(?:const|function|async\\s+function)\\s+${m}\\b`).test(src)) continue;
+      if (!new RegExp(`export\\s+(?:const|function|async\\s+function)\\s+${m}\\b`).test(src))
+        continue;
       out.push({
         key: `${m} ${fileToRoutePath(rel)}`,
         file: rel,
@@ -424,7 +428,9 @@ describe("the detection method itself (this is what the audit got wrong)", () =>
     expect(hasDynamicScopeCall(`requireScope(locals, wanted)`)).toBe(true);
     expect(hasDynamicScopeCall(`requireScope(locals, "read")`)).toBe(false);
     expect(hasDynamicScopeCall(`requireScope(locals,"read")`)).toBe(false);
-    const decls = topLevelDecls(`const helper = () => requireScope(l, "read");\nexport const POST = () => helper();\n`);
+    const decls = topLevelDecls(
+      `const helper = () => requireScope(l, "read");\nexport const POST = () => helper();\n`,
+    );
     expect(scopesIn(closureSource(decls, "POST"))).toEqual(["read"]);
   });
 });

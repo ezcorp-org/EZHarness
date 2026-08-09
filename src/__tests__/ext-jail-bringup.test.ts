@@ -81,9 +81,7 @@ async function spawnJailedBringup(
   // not the bare `prlimit` chain) — otherwise we'd be asserting an unjailed
   // spawn and the regression would be untested.
   const wrapped = argv[0] !== "prlimit";
-  const env = (
-    ep as unknown as { buildSpawnEnv(): Record<string, string> }
-  ).buildSpawnEnv();
+  const env = (ep as unknown as { buildSpawnEnv(): Record<string, string> }).buildSpawnEnv();
   const proc = Bun.spawn(argv, {
     env: { ...process.env, ...env },
     stdin: "pipe",

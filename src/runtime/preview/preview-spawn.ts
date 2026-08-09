@@ -104,13 +104,7 @@ export function buildPreviewSpawnArgv(
   if (!input.command) {
     throw new Error("preview-spawn: command is required");
   }
-  return [
-    helperPath,
-    String(input.uid),
-    input.workDir,
-    input.command,
-    ...(input.args ?? []),
-  ];
+  return [helperPath, String(input.uid), input.workDir, input.command, ...(input.args ?? [])];
 }
 
 /**

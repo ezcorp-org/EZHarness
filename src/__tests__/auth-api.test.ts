@@ -1,18 +1,37 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach } from "bun:test";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
+import {
+  mockServerAlias,
+  createMockEvent,
+  jsonFromResponse,
+  ADMIN_USER,
+  MEMBER_USER,
+} from "./helpers/mock-request";
 
 // Must be at module level BEFORE handler imports
 mockDbConnection();
 mockServerAlias();
 
 // NOW import handlers
-import { POST as setupPost, __rateLimiter as setupLimiter } from "../../web/src/routes/api/auth/setup/+server";
-import { POST as loginPost, __rateLimiter as loginLimiter } from "../../web/src/routes/api/auth/login/+server";
+import {
+  POST as setupPost,
+  __rateLimiter as setupLimiter,
+} from "../../web/src/routes/api/auth/setup/+server";
+import {
+  POST as loginPost,
+  __rateLimiter as loginLimiter,
+} from "../../web/src/routes/api/auth/login/+server";
 import { POST as logoutPost } from "../../web/src/routes/api/auth/logout/+server";
 import { GET as meGet } from "../../web/src/routes/api/auth/me/+server";
-import { POST as invitePost, GET as inviteListGet } from "../../web/src/routes/api/auth/invite/+server";
-import { GET as inviteTokenGet, POST as inviteTokenPost, __rateLimiter as inviteTokenLimiter } from "../../web/src/routes/api/auth/invite/[token]/+server";
+import {
+  POST as invitePost,
+  GET as inviteListGet,
+} from "../../web/src/routes/api/auth/invite/+server";
+import {
+  GET as inviteTokenGet,
+  POST as inviteTokenPost,
+  __rateLimiter as inviteTokenLimiter,
+} from "../../web/src/routes/api/auth/invite/[token]/+server";
 
 import { users, invites, settings, auditLog } from "../db/schema";
 import { hashPassword } from "../auth/password";
@@ -256,13 +275,16 @@ describe("POST /auth/login", () => {
   async function seedUser(overrides: Partial<{ email: string; status: string }> = {}) {
     const db = getTestDb();
     const hash = await hashPassword(TEST_PASSWORD);
-    const rows = await db.insert(users).values({
-      email: overrides.email ?? "user@test.com",
-      passwordHash: hash,
-      name: "Test User",
-      role: "member",
-      status: (overrides.status as any) ?? "active",
-    }).returning();
+    const rows = await db
+      .insert(users)
+      .values({
+        email: overrides.email ?? "user@test.com",
+        passwordHash: hash,
+        name: "Test User",
+        role: "member",
+        status: (overrides.status as any) ?? "active",
+      })
+      .returning();
     return rows[0]!;
   }
 
@@ -406,13 +428,16 @@ describe("GET /auth/me", () => {
 describe("POST /auth/invite", () => {
   async function seedAdminUser() {
     const db = getTestDb();
-    const rows = await db.insert(users).values({
-      id: ADMIN_USER.id,
-      email: ADMIN_USER.email,
-      passwordHash: "hashed",
-      name: ADMIN_USER.name,
-      role: "admin",
-    }).returning();
+    const rows = await db
+      .insert(users)
+      .values({
+        id: ADMIN_USER.id,
+        email: ADMIN_USER.email,
+        passwordHash: "hashed",
+        name: ADMIN_USER.name,
+        role: "admin",
+      })
+      .returning();
     return rows[0]!;
   }
 
@@ -503,7 +528,11 @@ describe("GET /auth/invite/[token]", () => {
       role: "admin",
     });
 
-    const invite = await createInvite({ email: "invited@test.com", role: "member", createdBy: ADMIN_USER.id });
+    const invite = await createInvite({
+      email: "invited@test.com",
+      role: "member",
+      createdBy: ADMIN_USER.id,
+    });
 
     const event = createMockEvent({
       method: "GET",

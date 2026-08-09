@@ -44,30 +44,28 @@ export interface LessonsListOpts {
 
 export class Lessons {
   async list(opts?: LessonsListOpts): Promise<LessonRecord[]> {
-    const result = await getChannel().request<{ lessons: LessonRecord[] }>(
-      "ezcorp/lessons",
-      {
-        action: "list",
-        ...(opts?.projectId !== undefined ? { projectId: opts.projectId } : {}),
-        ...(opts?.limit !== undefined ? { limit: opts.limit } : {}),
-      },
-    );
+    const result = await getChannel().request<{ lessons: LessonRecord[] }>("ezcorp/lessons", {
+      action: "list",
+      ...(opts?.projectId !== undefined ? { projectId: opts.projectId } : {}),
+      ...(opts?.limit !== undefined ? { limit: opts.limit } : {}),
+    });
     return result.lessons;
   }
 
   async get(id: string): Promise<LessonRecord | null> {
-    const result = await getChannel().request<{ lesson: LessonRecord | null }>(
-      "ezcorp/lessons",
-      { action: "get", id },
-    );
+    const result = await getChannel().request<{ lesson: LessonRecord | null }>("ezcorp/lessons", {
+      action: "get",
+      id,
+    });
     return result.lesson;
   }
 
   async getBySlug(slug: string, projectId: string): Promise<LessonRecord | null> {
-    const result = await getChannel().request<{ lesson: LessonRecord | null }>(
-      "ezcorp/lessons",
-      { action: "get", slug, projectId },
-    );
+    const result = await getChannel().request<{ lesson: LessonRecord | null }>("ezcorp/lessons", {
+      action: "get",
+      slug,
+      projectId,
+    });
     return result.lesson;
   }
 
@@ -79,30 +77,18 @@ export class Lessons {
   }
 
   async update(id: string, patch: Partial<LessonInput>): Promise<{ ok: true }> {
-    return getChannel().request<{ ok: true }>(
-      "ezcorp/lessons",
-      { action: "update", id, patch },
-    );
+    return getChannel().request<{ ok: true }>("ezcorp/lessons", { action: "update", id, patch });
   }
 
   async archive(id: string): Promise<{ ok: true }> {
-    return getChannel().request<{ ok: true }>(
-      "ezcorp/lessons",
-      { action: "archive", id },
-    );
+    return getChannel().request<{ ok: true }>("ezcorp/lessons", { action: "archive", id });
   }
 
   async recordFired(id: string): Promise<{ ok: true }> {
-    return getChannel().request<{ ok: true }>(
-      "ezcorp/lessons",
-      { action: "recordFired", id },
-    );
+    return getChannel().request<{ ok: true }>("ezcorp/lessons", { action: "recordFired", id });
   }
 
   async recordDismissed(id: string): Promise<{ ok: true }> {
-    return getChannel().request<{ ok: true }>(
-      "ezcorp/lessons",
-      { action: "recordDismissed", id },
-    );
+    return getChannel().request<{ ok: true }>("ezcorp/lessons", { action: "recordDismissed", id });
   }
 }

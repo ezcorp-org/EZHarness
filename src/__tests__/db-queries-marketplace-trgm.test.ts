@@ -28,19 +28,8 @@
  * Track B Task 1), the similarity calls in cases 4-6 stop throwing.
  */
 
-import {
-  test,
-  expect,
-  describe,
-  beforeAll,
-  beforeEach,
-  afterAll,
-} from "bun:test";
-import {
-  setupTestDb,
-  closeTestDb,
-  mockDbConnection,
-} from "./helpers/test-pglite";
+import { test, expect, describe, beforeAll, beforeEach, afterAll } from "bun:test";
+import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
 mockDbConnection();
 

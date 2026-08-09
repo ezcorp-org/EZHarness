@@ -432,10 +432,7 @@ export interface LoopActContext<Input = unknown> {
   /** Shared `Llm` with centralized provider→default-model resolution. */
   llm: Llm;
   /** Fetch + slice + format recent messages (default last 20). */
-  recentMessages: (
-    conversationId: string,
-    n?: number,
-  ) => Promise<LoopMessage[]>;
+  recentMessages: (conversationId: string, n?: number) => Promise<LoopMessage[]>;
   /** Format a message slice into the canonical `[id] role: content` text. */
   formatMessages: (messages: LoopMessage[]) => string;
   /** Deferred dispatch. */
@@ -492,20 +489,14 @@ export interface LoopDashboard<Outcome = unknown> {
    *  ez-code's `buildDashboard`. */
   render: (runs: LoopRunState<Outcome>[]) => HubPageTree | PageBuilder;
   /** Row/button action handlers keyed by full namespaced event name. */
-  rowActions?: Record<
-    string,
-    (event: PageActionEvent) => Promise<void> | void
-  >;
+  rowActions?: Record<string, (event: PageActionEvent) => Promise<void> | void>;
 }
 
 export interface LoopLog<Outcome = unknown> {
   /** Map a terminal outcome to a human-readable artifact mirrored under
    *  `.ezcorp/extension-data/<loop>/` (NEVER the source of truth). Return
    *  `null` to write nothing. Fail-soft — a write error never fails the run. */
-  artifact?: (
-    run: LoopRunState<Outcome>,
-    outcome: Outcome,
-  ) => LoopArtifact | null;
+  artifact?: (run: LoopRunState<Outcome>, outcome: Outcome) => LoopArtifact | null;
   /** Optional Hub dashboard — opt-in, declarative. */
   dashboard?: LoopDashboard<Outcome>;
 }

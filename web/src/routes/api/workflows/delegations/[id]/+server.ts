@@ -109,10 +109,9 @@ const patchBodySchema = z
     maxRunsPerDay: z.number().int().positive().optional(),
   })
   .strict()
-  .refine(
-    (body) => body.maxTokensPerRun !== undefined || body.maxRunsPerDay !== undefined,
-    { message: "at least one of maxTokensPerRun or maxRunsPerDay is required" },
-  );
+  .refine((body) => body.maxTokensPerRun !== undefined || body.maxRunsPerDay !== undefined, {
+    message: "at least one of maxTokensPerRun or maxRunsPerDay is required",
+  });
 
 /**
  * Adjust a LIVE delegation's SPEND BOUNDS in place — the route that makes

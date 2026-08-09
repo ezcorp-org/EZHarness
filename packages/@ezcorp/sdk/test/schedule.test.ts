@@ -12,24 +12,10 @@
 // stashing the handler. All later tests reuse the captured closure (which
 // reads the live module-level `handlers` Map) to simulate host fire frames.
 
-import {
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  spyOn,
-  test,
-} from "bun:test";
+import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 
-import {
-  Schedule,
-  type ScheduleHandlerContext,
-} from "../src/runtime/schedule";
-import {
-  __resetChannelForTests,
-  getChannel,
-  type HostChannel,
-} from "../src/runtime/channel";
+import { Schedule, type ScheduleHandlerContext } from "../src/runtime/schedule";
+import { __resetChannelForTests, getChannel, type HostChannel } from "../src/runtime/channel";
 
 // Captured once — the receiver closure the SDK installs for schedule-fire.
 let receiver: ((p: unknown) => Promise<unknown> | unknown) | undefined;
@@ -52,9 +38,7 @@ afterEach(() => {
   __resetChannelForTests();
 });
 
-function makeCtx(
-  overrides: Partial<ScheduleHandlerContext> = {},
-): ScheduleHandlerContext {
+function makeCtx(overrides: Partial<ScheduleHandlerContext> = {}): ScheduleHandlerContext {
   return {
     cron: "0 9 * * *",
     scheduledAt: "2026-01-01T09:00:00.000Z",
@@ -122,15 +106,13 @@ describe("Schedule.fireNow", () => {
     const ch: HostChannel = getChannel();
     const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
     const reqSpy = spyOn(ch, "request");
-    reqSpy.mockImplementation(
-      (async (method: string, params: unknown) => {
-        calls.push({
-          method,
-          params: (params ?? {}) as Record<string, unknown>,
-        });
-        return undefined;
-      }) as HostChannel["request"],
-    );
+    reqSpy.mockImplementation((async (method: string, params: unknown) => {
+      calls.push({
+        method,
+        params: (params ?? {}) as Record<string, unknown>,
+      });
+      return undefined;
+    }) as HostChannel["request"]);
     await new Schedule().fireNow("0 9 * * *");
     expect(calls[0]?.method).toBe("ezcorp/schedule");
     expect(calls[0]?.params).toEqual({ action: "fire-now", cron: "0 9 * * *" });

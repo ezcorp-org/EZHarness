@@ -17,9 +17,7 @@ import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers
 
 mockDbConnection();
 
-const { deactivateUserAndTransferAgents } = await import(
-  "../db/queries/user-deactivation"
-);
+const { deactivateUserAndTransferAgents } = await import("../db/queries/user-deactivation");
 const { createUser, getUserById } = await import("../db/queries/users");
 const { listAuditLog } = await import("../db/queries/audit-log");
 const { agentConfigs } = await import("../db/schema");

@@ -107,12 +107,7 @@ function wrapNoteOutput(output: string, noteLimit: number): string {
  * line (the failure/skip paths append a "do not retry — report to the
  * user" directive; the success path passes none).
  */
-function composeNote(
-  header: string,
-  output: string,
-  noteLimit: number,
-  trailer?: string,
-): string {
+function composeNote(header: string, output: string, noteLimit: number, trailer?: string): string {
   const body = `${header}\n${wrapNoteOutput(output, noteLimit)}`;
   return trailer ? `${body}\n${trailer}` : body;
 }
@@ -406,9 +401,7 @@ export async function runPreprocessors(
  *  `ExtensionRegistry`; a plain fake in tests). */
 export interface PreprocessRegistry {
   getManifest(extensionId: string): ExtensionManifestV2 | null | undefined;
-  getToolsForExtension(
-    extensionId: string,
-  ): Array<{ name: string; originalName: string }>;
+  getToolsForExtension(extensionId: string): Array<{ name: string; originalName: string }>;
 }
 
 export interface PreprocessTurnArgs {

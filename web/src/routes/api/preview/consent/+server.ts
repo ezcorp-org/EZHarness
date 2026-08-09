@@ -89,15 +89,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     port,
   });
 
-  return new Response(
-    JSON.stringify({ ok: true, action, previewId, code, subdomainLabel }),
-    {
-      status: 200,
-      headers: {
-        "Content-Type": "application/json",
-        "Referrer-Policy": "no-referrer",
-        "Cache-Control": "private, no-store",
-      },
+  return new Response(JSON.stringify({ ok: true, action, previewId, code, subdomainLabel }), {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json",
+      "Referrer-Policy": "no-referrer",
+      "Cache-Control": "private, no-store",
     },
-  );
+  });
 };

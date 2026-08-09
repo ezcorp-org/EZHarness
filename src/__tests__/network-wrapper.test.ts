@@ -378,10 +378,7 @@ describe("parsePermittedHosts", () => {
   });
 
   test("normalizes case + trims whitespace", () => {
-    expect(parsePermittedHosts("  Api.Foo.COM  , bar.io ")).toEqual([
-      "api.foo.com",
-      "bar.io",
-    ]);
+    expect(parsePermittedHosts("  Api.Foo.COM  , bar.io ")).toEqual(["api.foo.com", "bar.io"]);
   });
 
   test("filters empty entries between commas", () => {

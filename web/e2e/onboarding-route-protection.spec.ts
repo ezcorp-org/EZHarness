@@ -23,22 +23,25 @@ import { test, expect } from "./fixtures/test-base.js";
  */
 
 test.describe("/onboarding — route protection", () => {
-	test("unauthenticated navigation to /onboarding redirects to /login", async ({ page, mockApi }) => {
-		await mockApi({});
+  test("unauthenticated navigation to /onboarding redirects to /login", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({});
 
-		const response = await page.goto("/onboarding");
-		// Either the server-load issued a 302 to /login (which the browser
-		// follows) or hooks.server.ts's PI_SKIP_INIT bypass ran first;
-		// either way, the user must end up on /login (not the wizard).
-		await page.waitForURL(/\/login/, { timeout: 5000 });
-		expect(page.url()).toMatch(/\/login/);
+    const response = await page.goto("/onboarding");
+    // Either the server-load issued a 302 to /login (which the browser
+    // follows) or hooks.server.ts's PI_SKIP_INIT bypass ran first;
+    // either way, the user must end up on /login (not the wizard).
+    await page.waitForURL(/\/login/, { timeout: 5000 });
+    expect(page.url()).toMatch(/\/login/);
 
-		// And the wizard's distinctive heading must NOT have been rendered.
-		await expect(page.getByText("Connect a provider")).toHaveCount(0);
+    // And the wizard's distinctive heading must NOT have been rendered.
+    await expect(page.getByText("Connect a provider")).toHaveCount(0);
 
-		// HTTP-level: if the response object is exposed (i.e. no client-side
-		// nav happened), confirm the status was a redirect or the final OK.
-		// (Playwright collapses the 302 chain into the final 200 from /login.)
-		expect(response).not.toBeNull();
-	});
+    // HTTP-level: if the response object is exposed (i.e. no client-side
+    // nav happened), confirm the status was a redirect or the final OK.
+    // (Playwright collapses the 302 chain into the final 200 from /login.)
+    expect(response).not.toBeNull();
+  });
 });

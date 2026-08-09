@@ -24,8 +24,12 @@ mock.module("$server/db/queries/extensions", () => require("../db/queries/extens
 const realLogger = require("../logger");
 mock.module("$server/logger", () => realLogger);
 mock.module("$lib/server/http-errors", () => require("../../web/src/lib/server/http-errors"));
-mock.module("$lib/server/security/api-keys", () => require("../../web/src/lib/server/security/api-keys"));
-mock.module("$lib/server/security/rate-limiter", () => require("../../web/src/lib/server/security/rate-limiter"));
+mock.module("$lib/server/security/api-keys", () =>
+  require("../../web/src/lib/server/security/api-keys"),
+);
+mock.module("$lib/server/security/rate-limiter", () =>
+  require("../../web/src/lib/server/security/rate-limiter"),
+);
 mock.module("$lib/hub", () => require("../../web/src/lib/hub"));
 // ORDER COUPLING (sister file: extension-events-hub-branch.test.ts):
 // when that file runs FIRST in this process, the real
@@ -35,7 +39,9 @@ mock.module("$lib/hub", () => require("../../web/src/lib/hub"));
 // sister file's stub therefore DELEGATES to the genuine query
 // functions once its afterAll flips its active flag; the real-DB tests
 // below rely on that call-through.
-mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
+mock.module("$lib/server/hub-extension-pages", () =>
+  require("../../web/src/lib/server/hub-extension-pages"),
+);
 mock.module("../../web/src/routes/api/hub/pages/$types", () => ({}));
 mock.module("../../web/src/routes/api/hub/pages/[id]/$types", () => ({}));
 mock.module("../../web/src/routes/api/hub/pages/[id]/actions/[action]/$types", () => ({}));
@@ -103,7 +109,10 @@ function registerDemoProvider(overrides: Partial<HubPageProvider> = {}): void {
   });
 }
 
-async function call(handler: (event: ReturnType<typeof createMockEvent>) => Promise<Response>, event: ReturnType<typeof createMockEvent>): Promise<Response> {
+async function call(
+  handler: (event: ReturnType<typeof createMockEvent>) => Promise<Response>,
+  event: ReturnType<typeof createMockEvent>,
+): Promise<Response> {
   try {
     return await handler(event);
   } catch (e) {
@@ -121,8 +130,12 @@ afterAll(async () => {
   // subsequent files clean without adding the web-lib module graphs to
   // the eager MODULE_PATHS preload.
   mock.module("$lib/hub", () => require("../../web/src/lib/hub"));
-  mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
-  mock.module("$lib/server/hub-render-pull", () => require("../../web/src/lib/server/hub-render-pull"));
+  mock.module("$lib/server/hub-extension-pages", () =>
+    require("../../web/src/lib/server/hub-extension-pages"),
+  );
+  mock.module("$lib/server/hub-render-pull", () =>
+    require("../../web/src/lib/server/hub-render-pull"),
+  );
   mock.module("$server/logger", () => realLogger);
   restoreModuleMocks();
   await closeTestDb();
@@ -138,7 +151,10 @@ beforeEach(async () => {
   await db.delete(extensions);
   await db.delete(users);
   await db.delete(projects);
-  const [u1] = await db.insert(users).values({ email: "a@t.local", passwordHash: "x", name: "A" }).returning();
+  const [u1] = await db
+    .insert(users)
+    .values({ email: "a@t.local", passwordHash: "x", name: "A" })
+    .returning();
   userA = { id: u1!.id, email: u1!.email, name: u1!.name, role: "member" };
 });
 
@@ -253,7 +269,9 @@ describe("GET /api/hub/pages", () => {
 
 describe("GET /api/hub/pages/[id]", () => {
   test("401 / 403", async () => {
-    expect((await call(renderGet, createMockEvent({ params: { id: "core:demo" } }))).status).toBe(401);
+    expect((await call(renderGet, createMockEvent({ params: { id: "core:demo" } }))).status).toBe(
+      401,
+    );
     const event = createMockEvent({ user: userA, params: { id: "core:demo" } });
     (event.locals as { apiKeyScopes?: string[] }).apiKeyScopes = ["chat"];
     expect((await call(renderGet, event)).status).toBe(403);
@@ -261,7 +279,15 @@ describe("GET /api/hub/pages/[id]", () => {
 
   test("404 for malformed ids, unknown providers, and unresolved ext pages", async () => {
     registerDemoProvider();
-    for (const id of ["", "garbage", "core:", "core:UPPER", "core:nope", "ext:cron-dash:page", "core:demo:extra"]) {
+    for (const id of [
+      "",
+      "garbage",
+      "core:",
+      "core:UPPER",
+      "core:nope",
+      "ext:cron-dash:page",
+      "core:demo:extra",
+    ]) {
       const res = await call(renderGet, createMockEvent({ user: userA, params: { id } }));
       expect(res.status).toBe(404);
     }
@@ -270,7 +296,10 @@ describe("GET /api/hub/pages/[id]", () => {
   test("ext branch: success result passes page + renderedAt (+ stale) through", async () => {
     const tree = { title: "Cron Dashboard", nodes: [] };
     __extRenderResult = { page: tree, renderedAt: 123, stale: true };
-    const res = await call(renderGet, createMockEvent({ user: userA, params: { id: "ext:cron-dash:dashboard" } }));
+    const res = await call(
+      renderGet,
+      createMockEvent({ user: userA, params: { id: "ext:cron-dash:dashboard" } }),
+    );
     expect(res.status).toBe(200);
     expect(await jsonFromResponse(res)).toEqual({ page: tree, renderedAt: 123, stale: true });
     // The route forwards the parsed segments + session user.
@@ -278,13 +307,19 @@ describe("GET /api/hub/pages/[id]", () => {
 
     // Fresh (non-stale) results omit the stale key.
     __extRenderResult = { page: tree, renderedAt: 456 };
-    const fresh = await call(renderGet, createMockEvent({ user: userA, params: { id: "ext:cron-dash:dashboard" } }));
+    const fresh = await call(
+      renderGet,
+      createMockEvent({ user: userA, params: { id: "ext:cron-dash:dashboard" } }),
+    );
     expect(await jsonFromResponse(fresh)).toEqual({ page: tree, renderedAt: 456 });
   });
 
   test("ext branch: render-pull {error} becomes the 200 error envelope", async () => {
     __extRenderResult = { error: "This page failed to render — try again." };
-    const res = await call(renderGet, createMockEvent({ user: userA, params: { id: "ext:cron-dash:dashboard" } }));
+    const res = await call(
+      renderGet,
+      createMockEvent({ user: userA, params: { id: "ext:cron-dash:dashboard" } }),
+    );
     expect(res.status).toBe(200);
     const data = await jsonFromResponse(res);
     expect(data.error).toContain("failed to render");
@@ -293,7 +328,10 @@ describe("GET /api/hub/pages/[id]", () => {
 
   test("200 renders + validates a core page (allowed action survives)", async () => {
     registerDemoProvider();
-    const res = await call(renderGet, createMockEvent({ user: userA, params: { id: "core:demo" } }));
+    const res = await call(
+      renderGet,
+      createMockEvent({ user: userA, params: { id: "core:demo" } }),
+    );
     expect(res.status).toBe(200);
     const data = await jsonFromResponse(res);
     expect(data.page.title).toBe("Demo");
@@ -320,7 +358,10 @@ describe("GET /api/hub/pages/[id]", () => {
         nodes: [{ type: "button", label: "Forged", action: { event: "not-an-action" } }],
       }),
     });
-    const res = await call(renderGet, createMockEvent({ user: userA, params: { id: "core:demo" } }));
+    const res = await call(
+      renderGet,
+      createMockEvent({ user: userA, params: { id: "core:demo" } }),
+    );
     const data = await jsonFromResponse(res);
     expect(data.page.nodes).toHaveLength(0);
   });
@@ -331,7 +372,10 @@ describe("GET /api/hub/pages/[id]", () => {
         throw new Error("boom");
       },
     });
-    const res = await call(renderGet, createMockEvent({ user: userA, params: { id: "core:demo" } }));
+    const res = await call(
+      renderGet,
+      createMockEvent({ user: userA, params: { id: "core:demo" } }),
+    );
     expect(res.status).toBe(200);
     const data = await jsonFromResponse(res);
     expect(data.error).toContain("failed to render");
@@ -342,23 +386,39 @@ describe("GET /api/hub/pages/[id]", () => {
     registerDemoProvider({
       render: async () => ({ nodes: [] }) as never,
     });
-    const res = await call(renderGet, createMockEvent({ user: userA, params: { id: "core:demo" } }));
+    const res = await call(
+      renderGet,
+      createMockEvent({ user: userA, params: { id: "core:demo" } }),
+    );
     const data = await jsonFromResponse(res);
     expect(data.error).toContain("invalid content");
   });
 
   test("429 after 12 renders/min, keyed per user+page", async () => {
     registerDemoProvider();
-    registerHubPageProvider({ id: "other", title: "O", render: async () => ({ title: "O", nodes: [] }) });
+    registerHubPageProvider({
+      id: "other",
+      title: "O",
+      render: async () => ({ title: "O", nodes: [] }),
+    });
     for (let i = 0; i < 12; i++) {
-      const res = await call(renderGet, createMockEvent({ user: userA, params: { id: "core:demo" } }));
+      const res = await call(
+        renderGet,
+        createMockEvent({ user: userA, params: { id: "core:demo" } }),
+      );
       expect(res.status).toBe(200);
     }
-    const blocked = await call(renderGet, createMockEvent({ user: userA, params: { id: "core:demo" } }));
+    const blocked = await call(
+      renderGet,
+      createMockEvent({ user: userA, params: { id: "core:demo" } }),
+    );
     expect(blocked.status).toBe(429);
     expect(Number(blocked.headers.get("Retry-After"))).toBeGreaterThan(0);
     // Different page id — separate bucket.
-    const other = await call(renderGet, createMockEvent({ user: userA, params: { id: "core:other" } }));
+    const other = await call(
+      renderGet,
+      createMockEvent({ user: userA, params: { id: "core:other" } }),
+    );
     expect(other.status).toBe(200);
   });
 
@@ -395,12 +455,7 @@ describe("GET /api/hub/pages/[id]", () => {
     // Covers: unknown uuid, junk, the synthetic "global" fallback the
     // extension detail page links to, and an oversized value (skips the
     // DB lookup entirely). Pre-fix each of these dead-ended with 404.
-    const values = [
-      "6f9619ff-8b86-4d01-b42d-00cf4fc964ff",
-      "abc",
-      "global",
-      "x".repeat(200),
-    ];
+    const values = ["6f9619ff-8b86-4d01-b42d-00cf4fc964ff", "abc", "global", "x".repeat(200)];
     for (const value of values) {
       __extRenderResult = { page: { title: "T", nodes: [] }, renderedAt: 1 };
       const res = await call(
@@ -418,7 +473,7 @@ describe("GET /api/hub/pages/[id]", () => {
     for (const args of __extRenderCalls) expect(args[4]).toBeUndefined();
   });
 
-  test("the seeded self project (non-UUID id \"self\") resolves as real project context", async () => {
+  test('the seeded self project (non-UUID id "self") resolves as real project context', async () => {
     const db = getTestDb();
     // Mirrors src/db/seed-self-project.ts: SELF_PROJECT_ID = "self".
     await db
@@ -449,9 +504,7 @@ describe("GET /api/hub/pages/[id]", () => {
     const db = getTestDb();
     const rows = await db
       .insert(projects)
-      .values(
-        Array.from({ length: 13 }, (_, i) => ({ name: `p${i}`, path: `/proj/p${i}` })),
-      )
+      .values(Array.from({ length: 13 }, (_, i) => ({ name: `p${i}`, path: `/proj/p${i}` })))
       .returning();
     __extRenderResult = { page: { title: "T", nodes: [] }, renderedAt: 1 };
     for (const row of rows) {
@@ -491,10 +544,7 @@ describe("GET /api/hub/pages/[id]", () => {
 
   test("core pages tolerate a valid ?project= (resolved, unused)", async () => {
     const db = getTestDb();
-    const [proj] = await db
-      .insert(projects)
-      .values({ name: "P", path: "/p" })
-      .returning();
+    const [proj] = await db.insert(projects).values({ name: "P", path: "/p" }).returning();
     registerDemoProvider();
     const res = await call(
       renderGet,
@@ -511,13 +561,7 @@ describe("GET /api/hub/pages/[id]", () => {
 // ── POST /api/hub/pages/[id]/actions/[action] ─────────────────────
 
 function actionEvent(
-  opts: {
-    id?: string;
-    action?: string;
-    body?: unknown;
-    user?: AuthUser;
-    authMethod?: string;
-  } = {},
+  opts: { id?: string; action?: string; body?: unknown; user?: AuthUser; authMethod?: string } = {},
 ) {
   return createMockEvent({
     method: "POST",
@@ -534,7 +578,11 @@ function actionEvent(
 describe("POST /api/hub/pages/[id]/actions/[action]", () => {
   test("401 / 403", async () => {
     registerDemoProvider();
-    const unauth = createMockEvent({ method: "POST", body: {}, params: { id: "core:demo", action: "go" } });
+    const unauth = createMockEvent({
+      method: "POST",
+      body: {},
+      params: { id: "core:demo", action: "go" },
+    });
     expect((await call(actionPost, unauth)).status).toBe(401);
     const event = actionEvent();
     (event.locals as { apiKeyScopes?: string[] }).apiKeyScopes = ["read"];
@@ -601,11 +649,21 @@ describe("POST /api/hub/pages/[id]/actions/[action]", () => {
     // Scalar values pass; nested object/array values are rejected so a
     // prompt can't smuggle structured data past the handler's String()
     // coercion. Mirrors validateAction's payload rule (page-schema.ts).
-    expect((await call(actionPost, actionEvent({ body: { payload: { topic: "ok" } } }))).status).toBe(200);
-    expect((await call(actionPost, actionEvent({ body: { payload: { n: 5, b: true } } }))).status).toBe(200);
-    expect((await call(actionPost, actionEvent({ body: { payload: { nested: { evil: 1 } } } }))).status).toBe(400);
-    expect((await call(actionPost, actionEvent({ body: { payload: { arr: [1, 2] } } }))).status).toBe(400);
-    expect((await call(actionPost, actionEvent({ body: { payload: { nul: null } } }))).status).toBe(400);
+    expect(
+      (await call(actionPost, actionEvent({ body: { payload: { topic: "ok" } } }))).status,
+    ).toBe(200);
+    expect(
+      (await call(actionPost, actionEvent({ body: { payload: { n: 5, b: true } } }))).status,
+    ).toBe(200);
+    expect(
+      (await call(actionPost, actionEvent({ body: { payload: { nested: { evil: 1 } } } }))).status,
+    ).toBe(400);
+    expect(
+      (await call(actionPost, actionEvent({ body: { payload: { arr: [1, 2] } } }))).status,
+    ).toBe(400);
+    expect((await call(actionPost, actionEvent({ body: { payload: { nul: null } } }))).status).toBe(
+      400,
+    );
   });
 
   test("200 with a validated fresh tree", async () => {
@@ -892,7 +950,9 @@ describe("$lib/hub client helpers (route-facing contract)", () => {
     expect(buildActionRequest(core, { event: "NOT VALID" })).toBeNull();
 
     const ext = parseHubPageId("ext:cron-dashboard:dashboard");
-    expect(buildActionRequest(ext, { event: "cron-dashboard:clear-log", payload: { a: 1 } })).toEqual({
+    expect(
+      buildActionRequest(ext, { event: "cron-dashboard:clear-log", payload: { a: 1 } }),
+    ).toEqual({
       url: "/api/extensions/cron-dashboard/events/clear-log",
       body: { source: "hub", pageId: "dashboard", payload: { a: 1 } },
     });

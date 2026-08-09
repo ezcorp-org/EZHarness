@@ -15,42 +15,42 @@ const { getUpdateCheck } = vi.hoisted(() => ({ getUpdateCheck: vi.fn() }));
 vi.mock("$server/update-check", () => ({ getUpdateCheck }));
 
 describe("GET /api/version", () => {
-	beforeEach(() => getUpdateCheck.mockReset());
+  beforeEach(() => getUpdateCheck.mockReset());
 
-	test("returns getUpdateCheck()'s result as a 200 JSON response", async () => {
-		const result = {
-			current: "1.3.0",
-			latest: "1.4.0",
-			updateAvailable: true,
-			checkedAt: "2026-06-01T00:00:00.000Z",
-			source: "github-releases",
-			releaseUrl: "https://github.com/ezcorp-org/EZCorp/releases/tag/app-v1.4.0",
-		};
-		getUpdateCheck.mockResolvedValue(result);
+  test("returns getUpdateCheck()'s result as a 200 JSON response", async () => {
+    const result = {
+      current: "1.3.0",
+      latest: "1.4.0",
+      updateAvailable: true,
+      checkedAt: "2026-06-01T00:00:00.000Z",
+      source: "github-releases",
+      releaseUrl: "https://github.com/ezcorp-org/EZCorp/releases/tag/app-v1.4.0",
+    };
+    getUpdateCheck.mockResolvedValue(result);
 
-		const { GET } = await import("../routes/api/version/+server");
-		const res = await (GET as (event: unknown) => Promise<Response>)({});
+    const { GET } = await import("../routes/api/version/+server");
+    const res = await (GET as (event: unknown) => Promise<Response>)({});
 
-		expect(getUpdateCheck).toHaveBeenCalledTimes(1);
-		expect(res.status).toBe(200);
-		expect(res.headers.get("content-type")).toContain("application/json");
-		expect(await res.json()).toEqual(result);
-	});
+    expect(getUpdateCheck).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(await res.json()).toEqual(result);
+  });
 
-	test("passes through the disabled-mode shape unchanged", async () => {
-		const disabled = {
-			current: "dev",
-			latest: null,
-			updateAvailable: false,
-			checkedAt: null,
-			source: "disabled",
-		};
-		getUpdateCheck.mockResolvedValue(disabled);
+  test("passes through the disabled-mode shape unchanged", async () => {
+    const disabled = {
+      current: "dev",
+      latest: null,
+      updateAvailable: false,
+      checkedAt: null,
+      source: "disabled",
+    };
+    getUpdateCheck.mockResolvedValue(disabled);
 
-		const { GET } = await import("../routes/api/version/+server");
-		const res = await (GET as (event: unknown) => Promise<Response>)({});
+    const { GET } = await import("../routes/api/version/+server");
+    const res = await (GET as (event: unknown) => Promise<Response>)({});
 
-		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual(disabled);
-	});
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(disabled);
+  });
 });

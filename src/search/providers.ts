@@ -68,9 +68,7 @@ export type Transport = (req: TransportRequest) => Promise<Response>;
 
 /** Production transport — delegates to the SSRF guard. Audit hook is
  *  threaded in by `src/search/index.ts` via `withAuditHook`. */
-export function makeGuardedTransport(
-  guardOpts?: Partial<GuardedFetchOptions>,
-): Transport {
+export function makeGuardedTransport(guardOpts?: Partial<GuardedFetchOptions>): Transport {
   return ({ url, init, mode, allowedHosts }) =>
     guardedFetch(url, init, {
       mode,
@@ -165,12 +163,9 @@ export class JinaSearch implements SearchProvider {
     const url = `${base}/?q=${encodeURIComponent(query)}`;
     const headers: Record<string, string> = { accept: "application/json" };
     if (this.apiKey) headers.authorization = `Bearer ${this.apiKey}`;
-    const body = await doFetch<{ data?: Array<{ title?: string; url?: string; content?: string; description?: string }> }>(
-      this.transport,
-      "Jina",
-      url,
-      { headers, allowedHosts: [hostnameOf(url)] },
-    );
+    const body = await doFetch<{
+      data?: Array<{ title?: string; url?: string; content?: string; description?: string }>;
+    }>(this.transport, "Jina", url, { headers, allowedHosts: [hostnameOf(url)] });
     const data = Array.isArray(body?.data) ? body.data : [];
     return data.slice(0, maxResults).map((r) => ({
       title: String(r.title ?? ""),
@@ -267,8 +262,7 @@ export class JinaReader implements UrlReader {
 
 /** Browser-ish UA — a default/absent agent gets 403'd or challenge-paged by
  *  a meaningful slice of the web. Shared with the DuckDuckGo scraper. */
-const BROWSER_USER_AGENT =
-  "Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0";
+const BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:127.0) Gecko/20100101 Firefox/127.0";
 
 /**
  * Hard ceiling on what a reader hands back. `performRead` clamps per call to
@@ -372,16 +366,13 @@ export class Tavily implements SearchProvider {
   async search(query: string, maxResults: number): Promise<SearchResult[]> {
     const base = host("TAVILY_BASE_URL", "https://api.tavily.com");
     const url = `${base}/search`;
-    const body = await doFetch<{ results?: Array<{ title?: string; url?: string; content?: string }> }>(
-      this.transport,
-      "Tavily",
-      url,
-      {
-        method: "POST",
-        body: { api_key: this.apiKey, query, max_results: maxResults },
-        allowedHosts: [hostnameOf(url)],
-      },
-    );
+    const body = await doFetch<{
+      results?: Array<{ title?: string; url?: string; content?: string }>;
+    }>(this.transport, "Tavily", url, {
+      method: "POST",
+      body: { api_key: this.apiKey, query, max_results: maxResults },
+      allowedHosts: [hostnameOf(url)],
+    });
     const results = Array.isArray(body?.results) ? body.results : [];
     return results.slice(0, maxResults).map((r) => ({
       title: String(r.title ?? ""),
@@ -402,12 +393,12 @@ export class Brave implements SearchProvider {
   async search(query: string, maxResults: number): Promise<SearchResult[]> {
     const base = host("BRAVE_BASE_URL", "https://api.search.brave.com");
     const url = `${base}/res/v1/web/search?q=${encodeURIComponent(query)}&count=${maxResults}`;
-    const body = await doFetch<{ web?: { results?: Array<{ title?: string; url?: string; description?: string }> } }>(
-      this.transport,
-      "Brave",
-      url,
-      { headers: { accept: "application/json", "x-subscription-token": this.apiKey }, allowedHosts: [hostnameOf(url)] },
-    );
+    const body = await doFetch<{
+      web?: { results?: Array<{ title?: string; url?: string; description?: string }> };
+    }>(this.transport, "Brave", url, {
+      headers: { accept: "application/json", "x-subscription-token": this.apiKey },
+      allowedHosts: [hostnameOf(url)],
+    });
     const results = Array.isArray(body?.web?.results) ? body.web!.results! : [];
     return results.slice(0, maxResults).map((r) => ({
       title: String(r.title ?? ""),
@@ -428,17 +419,14 @@ export class Exa implements SearchProvider {
   async search(query: string, maxResults: number): Promise<SearchResult[]> {
     const base = host("EXA_BASE_URL", "https://api.exa.ai");
     const url = `${base}/search`;
-    const body = await doFetch<{ results?: Array<{ title?: string; url?: string; text?: string }> }>(
-      this.transport,
-      "Exa",
-      url,
-      {
-        method: "POST",
-        headers: { "x-api-key": this.apiKey },
-        body: { query, numResults: maxResults, contents: { text: { maxCharacters: 400 } } },
-        allowedHosts: [hostnameOf(url)],
-      },
-    );
+    const body = await doFetch<{
+      results?: Array<{ title?: string; url?: string; text?: string }>;
+    }>(this.transport, "Exa", url, {
+      method: "POST",
+      headers: { "x-api-key": this.apiKey },
+      body: { query, numResults: maxResults, contents: { text: { maxCharacters: 400 } } },
+      allowedHosts: [hostnameOf(url)],
+    });
     const results = Array.isArray(body?.results) ? body.results : [];
     return results.slice(0, maxResults).map((r) => ({
       title: String(r.title ?? ""),
@@ -459,12 +447,9 @@ export class SerpApi implements SearchProvider {
   async search(query: string, maxResults: number): Promise<SearchResult[]> {
     const base = host("SERPAPI_BASE_URL", "https://serpapi.com");
     const url = `${base}/search.json?q=${encodeURIComponent(query)}&num=${maxResults}&api_key=${encodeURIComponent(this.apiKey)}`;
-    const body = await doFetch<{ organic_results?: Array<{ title?: string; link?: string; snippet?: string }> }>(
-      this.transport,
-      "SerpAPI",
-      url,
-      { allowedHosts: [hostnameOf(url)] },
-    );
+    const body = await doFetch<{
+      organic_results?: Array<{ title?: string; link?: string; snippet?: string }>;
+    }>(this.transport, "SerpAPI", url, { allowedHosts: [hostnameOf(url)] });
     const results = Array.isArray(body?.organic_results) ? body.organic_results : [];
     return results.slice(0, maxResults).map((r) => ({
       title: String(r.title ?? ""),
@@ -487,12 +472,12 @@ export class SearXNG implements SearchProvider {
     const url = `${base}/search?q=${encodeURIComponent(query)}&format=json&safesearch=1`;
     // The SearXNG host is the sanctioned internal target — allow it by
     // its configured host (the egress guard still IP-pins).
-    const body = await doFetch<{ results?: Array<{ title?: string; url?: string; content?: string }> }>(
-      this.transport,
-      "SearXNG",
-      url,
-      { headers: { accept: "application/json" }, allowedHosts: [hostnameOf(url)] },
-    );
+    const body = await doFetch<{
+      results?: Array<{ title?: string; url?: string; content?: string }>;
+    }>(this.transport, "SearXNG", url, {
+      headers: { accept: "application/json" },
+      allowedHosts: [hostnameOf(url)],
+    });
     const results = Array.isArray(body?.results) ? body.results : [];
     return results.slice(0, maxResults).map((r) => ({
       title: String(r.title ?? ""),
@@ -584,11 +569,19 @@ export class DuckDuckGo implements SearchProvider {
     try {
       const base = host("DDG_LITE_BASE_URL", "https://lite.duckduckgo.com");
       const url = `${base}/lite/?q=${q}`;
-      html = await doFetch<string>(this.transport, "DuckDuckGo", url, { headers, as: "text", allowedHosts: [hostnameOf(url)] });
+      html = await doFetch<string>(this.transport, "DuckDuckGo", url, {
+        headers,
+        as: "text",
+        allowedHosts: [hostnameOf(url)],
+      });
     } catch {
       const base = host("DDG_HTML_BASE_URL", "https://html.duckduckgo.com");
       const url = `${base}/html/?q=${q}`;
-      html = await doFetch<string>(this.transport, "DuckDuckGo", url, { headers, as: "text", allowedHosts: [hostnameOf(url)] });
+      html = await doFetch<string>(this.transport, "DuckDuckGo", url, {
+        headers,
+        as: "text",
+        allowedHosts: [hostnameOf(url)],
+      });
       selectors = DDG_HTML_SELECTORS;
     }
     const results = await parseDdgResults(html, selectors);
@@ -621,7 +614,10 @@ export function hasOutcome(p: SearchProvider): p is FallbackSearchProvider {
   return typeof (p as FallbackSearchProvider).searchWithOutcome === "function";
 }
 
-export function withFallback(primary: SearchProvider, fallback: SearchProvider): FallbackSearchProvider {
+export function withFallback(
+  primary: SearchProvider,
+  fallback: SearchProvider,
+): FallbackSearchProvider {
   const searchWithOutcome = async (query: string, maxResults: number): Promise<SearchOutcome> => {
     let primaryErr: Error;
     try {
@@ -735,15 +731,21 @@ export function resolveProviders(
   env: NodeJS.ProcessEnv = process.env,
 ): ResolvedProviders {
   const jinaKey = env.JINA_API_KEY;
-  const reader = withReaderFallback(new JinaReader(transport, jinaKey), new DirectReader(transport));
-  if (env.TAVILY_API_KEY)  return { search: new Tavily(transport, env.TAVILY_API_KEY),   reader };
-  if (env.BRAVE_API_KEY)   return { search: new Brave(transport, env.BRAVE_API_KEY),    reader };
-  if (env.EXA_API_KEY)     return { search: new Exa(transport, env.EXA_API_KEY),        reader };
+  const reader = withReaderFallback(
+    new JinaReader(transport, jinaKey),
+    new DirectReader(transport),
+  );
+  if (env.TAVILY_API_KEY) return { search: new Tavily(transport, env.TAVILY_API_KEY), reader };
+  if (env.BRAVE_API_KEY) return { search: new Brave(transport, env.BRAVE_API_KEY), reader };
+  if (env.EXA_API_KEY) return { search: new Exa(transport, env.EXA_API_KEY), reader };
   if (env.SERPAPI_API_KEY) return { search: new SerpApi(transport, env.SERPAPI_API_KEY), reader };
-  if (jinaKey)             return { search: new JinaSearch(transport, jinaKey),          reader };
+  if (jinaKey) return { search: new JinaSearch(transport, jinaKey), reader };
   const duckduckgo = new DuckDuckGo(transport);
   if (env.SEARXNG_BASE_URL) {
-    return { search: withFallback(new SearXNG(transport, env.SEARXNG_BASE_URL), duckduckgo), reader };
+    return {
+      search: withFallback(new SearXNG(transport, env.SEARXNG_BASE_URL), duckduckgo),
+      reader,
+    };
   }
   return { search: duckduckgo, reader };
 }

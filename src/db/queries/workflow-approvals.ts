@@ -90,10 +90,7 @@ export async function getWorkflowApproval(
 export async function getWorkflowApprovalById(
   id: string,
 ): Promise<WorkflowApprovalRow | undefined> {
-  const rows = await getDb()
-    .select()
-    .from(workflowApprovals)
-    .where(eq(workflowApprovals.id, id));
+  const rows = await getDb().select().from(workflowApprovals).where(eq(workflowApprovals.id, id));
   return rows[0];
 }
 
@@ -139,15 +136,11 @@ export async function recordWorkflowApprovalAnswer(
  * testable without waiting — the daemon passes its own injected clock, so
  * a single seam covers both.
  */
-export async function listExpiredWorkflowApprovals(
-  now: Date,
-): Promise<WorkflowApprovalRow[]> {
+export async function listExpiredWorkflowApprovals(now: Date): Promise<WorkflowApprovalRow[]> {
   return getDb()
     .select()
     .from(workflowApprovals)
-    .where(
-      and(eq(workflowApprovals.status, "pending"), lte(workflowApprovals.expiresAt, now)),
-    );
+    .where(and(eq(workflowApprovals.status, "pending"), lte(workflowApprovals.expiresAt, now)));
 }
 
 /**
@@ -264,10 +257,7 @@ export async function listPendingWorkflowApprovalsForUser(
 
 /** "This run's delegation names ME as the human who consented to it." */
 function consentedByCaller(userId: string) {
-  return and(
-    eq(workflowDelegations.consentedByUserId, userId),
-    delegationHoldsAuthority(),
-  );
+  return and(eq(workflowDelegations.consentedByUserId, userId), delegationHoldsAuthority());
 }
 
 /**

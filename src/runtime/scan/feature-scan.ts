@@ -306,15 +306,7 @@ export async function scanProject(projectRoot: string): Promise<ScanProjectResul
       }
 
       const files: string[] = [];
-      await walkFilesUnder(
-        realRoot,
-        dir.abs,
-        dir.relPath,
-        files,
-        seen,
-        totalCount,
-        /* depth */ 0,
-      );
+      await walkFilesUnder(realRoot, dir.abs, dir.relPath, files, seen, totalCount, /* depth */ 0);
       if (files.length < MIN_FILES_PER_FEATURE) continue;
       files.sort();
 

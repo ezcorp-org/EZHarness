@@ -2,7 +2,13 @@ import { eq, inArray, and, ne, isNull } from "drizzle-orm";
 import { getDb } from "../connection";
 import { agentConfigs } from "../schema";
 import { configToAgent } from "../../runtime/config-to-agent";
-import { CURRENT_MODEL_SENTINEL, type AgentConfig, type AgentDefinition, type InputSchema, type TeamMember } from "../../types";
+import {
+  CURRENT_MODEL_SENTINEL,
+  type AgentConfig,
+  type AgentDefinition,
+  type InputSchema,
+  type TeamMember,
+} from "../../types";
 import { getSharedAgentsForUser } from "./agent-shares";
 import { detectCycle } from "../../runtime/dag-validator";
 
@@ -26,7 +32,10 @@ export class AgentValidationError extends Error {
   }
 }
 
-async function validateReferences(agentId: string, references: { agents?: string[]; extensions?: string[] }): Promise<void> {
+async function validateReferences(
+  agentId: string,
+  references: { agents?: string[]; extensions?: string[] },
+): Promise<void> {
   const agentRefs = references.agents ?? [];
   if (agentRefs.length === 0) return;
 
@@ -35,14 +44,15 @@ async function validateReferences(agentId: string, references: { agents?: string
   const allRefs = new Map<string, string[]>();
   const nameById = new Map<string, string>();
   for (const cfg of allConfigs) {
-    const refs = (cfg.references as { agents?: string[]; extensions?: string[] } | null)?.agents ?? [];
+    const refs =
+      (cfg.references as { agents?: string[]; extensions?: string[] } | null)?.agents ?? [];
     allRefs.set(cfg.id, refs);
     nameById.set(cfg.id, cfg.name);
   }
 
   const cycle = detectCycle(agentId, agentRefs, allRefs);
   if (cycle) {
-    const names = cycle.map(id => nameById.get(id) ?? id);
+    const names = cycle.map((id) => nameById.get(id) ?? id);
     throw new AgentValidationError(`Circular reference: ${names.join(" -> ")}`);
   }
 }
@@ -63,7 +73,9 @@ export interface AgentListEntry {
   sharedByName?: string;
 }
 
-export async function listAgentConfigs(userId?: string): Promise<(DbAgentConfig & { shared?: boolean; sharedBy?: string; sharedByName?: string })[]> {
+export async function listAgentConfigs(
+  userId?: string,
+): Promise<(DbAgentConfig & { shared?: boolean; sharedBy?: string; sharedByName?: string })[]> {
   if (userId) {
     const owned = await getDb().select().from(agentConfigs).where(eq(agentConfigs.userId, userId));
     const ownedWithFlag = owned.map((a: DbAgentConfig) => ({ ...a, shared: false }));
@@ -121,7 +133,21 @@ export async function getAgentConfigsByNames(names: string[]): Promise<Map<strin
   return out;
 }
 
-export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> & { id?: string; capabilities?: string[]; category?: string | null; userId?: string; references?: { agents?: string[]; extensions?: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../../types").TeamToolScope } }): Promise<DbAgentConfig> {
+export async function createAgentConfig(
+  data: Omit<AgentConfig, "capabilities"> & {
+    id?: string;
+    capabilities?: string[];
+    category?: string | null;
+    userId?: string;
+    references?: {
+      agents?: string[];
+      extensions?: string[];
+      members?: TeamMember[];
+      autoSpinUp?: boolean;
+      teamToolScope?: import("../../types").TeamToolScope;
+    };
+  },
+): Promise<DbAgentConfig> {
   const now = new Date();
   // Callers may pin a fixed, well-known id (e.g. the bundled ez-code
   // coder, which must be resolvable by a stable id that survives the
@@ -166,7 +192,19 @@ export async function createAgentConfig(data: Omit<AgentConfig, "capabilities"> 
   return row;
 }
 
-export async function updateAgentConfig(id: string, data: Partial<AgentConfig> & { category?: string | null; references?: { agents?: string[]; extensions?: string[]; members?: TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../../types").TeamToolScope } }): Promise<DbAgentConfig | undefined> {
+export async function updateAgentConfig(
+  id: string,
+  data: Partial<AgentConfig> & {
+    category?: string | null;
+    references?: {
+      agents?: string[];
+      extensions?: string[];
+      members?: TeamMember[];
+      autoSpinUp?: boolean;
+      teamToolScope?: import("../../types").TeamToolScope;
+    };
+  },
+): Promise<DbAgentConfig | undefined> {
   const existing = await getAgentConfig(id);
   if (!existing) return undefined;
 
@@ -196,15 +234,18 @@ export async function updateAgentConfig(id: string, data: Partial<AgentConfig> &
     updates.extensions = (data as { extensions?: string[] }).extensions;
   }
   if ((data as { extensionTools?: Record<string, string[]> | null }).extensionTools !== undefined) {
-    updates.extensionTools = (data as { extensionTools?: Record<string, string[]> | null }).extensionTools;
+    updates.extensionTools = (
+      data as { extensionTools?: Record<string, string[]> | null }
+    ).extensionTools;
   }
-  if (data.references !== undefined) updates.references = {
-    agents: data.references?.agents ?? [],
-    extensions: data.references?.extensions ?? [],
-    ...(data.references?.members?.length ? { members: data.references.members } : {}),
-    ...(data.references?.autoSpinUp != null ? { autoSpinUp: data.references.autoSpinUp } : {}),
-    ...(data.references?.teamToolScope ? { teamToolScope: data.references.teamToolScope } : {}),
-  };
+  if (data.references !== undefined)
+    updates.references = {
+      agents: data.references?.agents ?? [],
+      extensions: data.references?.extensions ?? [],
+      ...(data.references?.members?.length ? { members: data.references.members } : {}),
+      ...(data.references?.autoSpinUp != null ? { autoSpinUp: data.references.autoSpinUp } : {}),
+      ...(data.references?.teamToolScope ? { teamToolScope: data.references.teamToolScope } : {}),
+    };
 
   await getDb().update(agentConfigs).set(updates).where(eq(agentConfigs.id, id));
   return getAgentConfig(id);
@@ -243,11 +284,7 @@ export async function deleteAgentConfigsByNameExceptId(
   const rows = await getDb()
     .delete(agentConfigs)
     .where(
-      and(
-        eq(agentConfigs.name, name),
-        ne(agentConfigs.id, keepId),
-        isNull(agentConfigs.userId),
-      ),
+      and(eq(agentConfigs.name, name), ne(agentConfigs.id, keepId), isNull(agentConfigs.userId)),
     )
     .returning();
   return rows.length;

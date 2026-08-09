@@ -110,9 +110,13 @@ export async function startDevServer(opts?: DevServerOptions): Promise<void> {
       await cleanup();
       return;
     }
-    opts._signal.addEventListener("abort", () => {
-      cleanup();
-    }, { once: true });
+    opts._signal.addEventListener(
+      "abort",
+      () => {
+        cleanup();
+      },
+      { once: true },
+    );
   } else {
     process.on("SIGINT", async () => {
       await cleanup();

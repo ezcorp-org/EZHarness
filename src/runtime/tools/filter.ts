@@ -116,10 +116,7 @@ function stripToolNamespace(name: string): string {
  *     restrictive `deniedTools` scopes (an orchestrator lost task_plan et al.).
  */
 export function isPreservedOrchestrationTool(name: string): boolean {
-  return (
-    ORCHESTRATION_TOOLS.has(name) ||
-    ORCHESTRATION_TOOLS.has(stripToolNamespace(name))
-  );
+  return ORCHESTRATION_TOOLS.has(name) || ORCHESTRATION_TOOLS.has(stripToolNamespace(name));
 }
 
 export interface ToolFilterOptions {

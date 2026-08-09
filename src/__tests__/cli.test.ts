@@ -15,7 +15,9 @@ async function captureServeSpawn(args: string[]): Promise<ServeSpawn> {
   let captured: ServeSpawn | undefined;
   const spawnStub = (cmd: string[], options: { env: Record<string, string | undefined> }) => {
     captured = { cmd, env: options.env };
-    return { kill: () => {}, exited: Promise.resolve(0) } as unknown as ReturnType<typeof Bun.spawn>;
+    return { kill: () => {}, exited: Promise.resolve(0) } as unknown as ReturnType<
+      typeof Bun.spawn
+    >;
   };
   const spawnSpy = spyOn(Bun, "spawn").mockImplementation(spawnStub as unknown as typeof Bun.spawn);
   const beforeTerm = process.listeners("SIGTERM");

@@ -11,7 +11,11 @@ const routingTierEnum = z.enum(VALID_TIERS as readonly [RoutingTier, ...RoutingT
 
 export const createModeSchema = z.object({
   name: z.string().min(1).max(100),
-  slug: z.string().min(1).max(50).regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with hyphens"),
+  slug: z
+    .string()
+    .min(1)
+    .max(50)
+    .regex(/^[a-z0-9-]+$/, "Slug must be lowercase alphanumeric with hyphens"),
   icon: z.string().max(10).optional(),
   description: z.string().max(500).optional(),
   systemPromptInstruction: z.string().min(1).max(10000),
@@ -20,7 +24,10 @@ export const createModeSchema = z.object({
   preferredProvider: z.string().max(100).nullable().optional(),
   /** WS3b: routing tier for this kind of task, when the mode names no model. */
   preferredTier: routingTierEnum.nullable().optional(),
-  preferredThinkingLevel: z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]).nullable().optional(),
+  preferredThinkingLevel: z
+    .enum(["off", "minimal", "low", "medium", "high", "xhigh"])
+    .nullable()
+    .optional(),
   temperature: z.number().int().min(0).max(100).nullable().optional(),
   toolRestriction: z.enum(["all", "read-only", "none"]).optional(),
   extensionIds: z.array(z.string().max(200)).max(100).optional(),

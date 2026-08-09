@@ -200,7 +200,12 @@ describe("PUT /api/projects/:id/tool-permission-mode", () => {
     const res = await handleSetPermissionMode(
       putMode("proj-6", { mode: "yolo", conversationId: "conv-123" }),
       "proj-6",
-      { onModeChange: (mode, convId) => { callbackMode = mode; callbackConvId = convId; } },
+      {
+        onModeChange: (mode, convId) => {
+          callbackMode = mode;
+          callbackConvId = convId;
+        },
+      },
     );
 
     expect(res.status).toBe(200);
@@ -210,11 +215,11 @@ describe("PUT /api/projects/:id/tool-permission-mode", () => {
 
   test("onModeChange callback receives undefined conversationId when not provided", async () => {
     let callbackConvId: string | undefined = "should-be-undefined";
-    await handleSetPermissionMode(
-      putMode("proj-7", { mode: "ask" }),
-      "proj-7",
-      { onModeChange: (_mode, convId) => { callbackConvId = convId; } },
-    );
+    await handleSetPermissionMode(putMode("proj-7", { mode: "ask" }), "proj-7", {
+      onModeChange: (_mode, convId) => {
+        callbackConvId = convId;
+      },
+    });
 
     expect(callbackConvId).toBeUndefined();
   });

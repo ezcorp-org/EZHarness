@@ -33,10 +33,7 @@ import {
   type DependencyTreeNode,
 } from "../extensions/dependency-resolver";
 
-import type {
-  ExtensionManifestV2,
-  DependencySpec,
-} from "../extensions/types";
+import type { ExtensionManifestV2, DependencySpec } from "../extensions/types";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -67,98 +64,120 @@ describe("manifest.ts coverage gaps", () => {
 
   describe("validateToolsArray via validateManifestV2", () => {
     test("tools as a string rejects with 'tools must be an array'", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        tools: "not-array" as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          tools: "not-array" as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("tools must be an array");
     });
 
     test("tools as a number rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        tools: 42 as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          tools: 42 as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("tools must be an array");
     });
 
     test("tool item as primitive (number) rejects with 'must be an object'", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        tools: [123] as any,
-        entrypoint: "./x.ts",
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          tools: [123] as any,
+          entrypoint: "./x.ts",
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("tools[0] must be an object"))).toBe(true);
     });
 
     test("tool item as string rejects with 'must be an object'", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        tools: ["bad"] as any,
-        entrypoint: "./x.ts",
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          tools: ["bad"] as any,
+          entrypoint: "./x.ts",
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("tools[0] must be an object"))).toBe(true);
     });
 
     test("tool item as false rejects with 'must be an object'", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        tools: [false] as any,
-        entrypoint: "./x.ts",
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          tools: [false] as any,
+          entrypoint: "./x.ts",
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("tools[0] must be an object"))).toBe(true);
     });
 
     test("tool missing name reports name error", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        tools: [{ description: "d", inputSchema: {} }] as any,
-        entrypoint: "./x.ts",
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          tools: [{ description: "d", inputSchema: {} }] as any,
+          entrypoint: "./x.ts",
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("tools[0].name is required"))).toBe(true);
     });
 
     test("tool with name as number reports name error", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        tools: [{ name: 42, description: "d", inputSchema: {} }] as any,
-        entrypoint: "./x.ts",
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          tools: [{ name: 42, description: "d", inputSchema: {} }] as any,
+          entrypoint: "./x.ts",
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("tools[0].name is required"))).toBe(true);
     });
 
     test("tool missing description reports description error", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        tools: [{ name: "x", inputSchema: {} }] as any,
-        entrypoint: "./x.ts",
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          tools: [{ name: "x", inputSchema: {} }] as any,
+          entrypoint: "./x.ts",
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("tools[0].description is required"))).toBe(true);
     });
 
     test("tool with inputSchema as string reports inputSchema error", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        tools: [{ name: "x", description: "d", inputSchema: "bad" }] as any,
-        entrypoint: "./x.ts",
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          tools: [{ name: "x", description: "d", inputSchema: "bad" }] as any,
+          entrypoint: "./x.ts",
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("tools[0].inputSchema is required"))).toBe(true);
     });
 
     test("tool with inputSchema as null reports inputSchema error", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        tools: [{ name: "x", description: "d", inputSchema: null }] as any,
-        entrypoint: "./x.ts",
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          tools: [{ name: "x", description: "d", inputSchema: null }] as any,
+          entrypoint: "./x.ts",
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("tools[0].inputSchema is required"))).toBe(true);
     });
 
     test("non-object tool items continue to next item", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        tools: [null, { name: "ok", description: "ok", inputSchema: {} }] as any,
-        entrypoint: "./x.ts",
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          tools: [null, { name: "ok", description: "ok", inputSchema: {} }] as any,
+          entrypoint: "./x.ts",
+        }),
+      );
       // First item error, second item valid
       expect(r.errors.some((e) => e.includes("tools[0] must be an object"))).toBe(true);
       expect(r.errors.some((e) => e.includes("tools[1]"))).toBe(false);
@@ -169,57 +188,71 @@ describe("manifest.ts coverage gaps", () => {
 
   describe("validateSkillsArray via validateManifestV2", () => {
     test("skills as a number rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        skills: 99 as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          skills: 99 as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("skills must be an array");
     });
 
     test("skills as a boolean rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        skills: true as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          skills: true as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("skills must be an array");
     });
 
     test("skill item as primitive rejects with 'must be an object'", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        skills: [42] as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          skills: [42] as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("skills[0] must be an object"))).toBe(true);
     });
 
     test("skill item as undefined rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        skills: [undefined] as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          skills: [undefined] as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("skills[0] must be an object"))).toBe(true);
     });
 
     test("skill missing name reports name error", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        skills: [{ description: "d" }] as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          skills: [{ description: "d" }] as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("skills[0].name is required"))).toBe(true);
     });
 
     test("skill missing description reports description error", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        skills: [{ name: "s" }] as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          skills: [{ name: "s" }] as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("skills[0].description is required"))).toBe(true);
     });
 
     test("non-object skill items continue to next item", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        skills: [false, { name: "ok", description: "ok" }] as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          skills: [false, { name: "ok", description: "ok" }] as any,
+        }),
+      );
       expect(r.errors.some((e) => e.includes("skills[0] must be an object"))).toBe(true);
       expect(r.errors.some((e) => e.includes("skills[1]"))).toBe(false);
     });
@@ -229,73 +262,91 @@ describe("manifest.ts coverage gaps", () => {
 
   describe("validateMcpServersArray via validateManifestV2", () => {
     test("mcpServers as a string rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        mcpServers: "bad" as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          mcpServers: "bad" as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("mcpServers must be an array");
     });
 
     test("mcpServers as boolean rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        mcpServers: false as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          mcpServers: false as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("mcpServers must be an array");
     });
 
     test("mcpServer item as primitive rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        mcpServers: ["bad"] as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          mcpServers: ["bad"] as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("mcpServers[0] must be an object"))).toBe(true);
     });
 
     test("mcpServer item as undefined rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        mcpServers: [undefined] as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          mcpServers: [undefined] as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("mcpServers[0] must be an object"))).toBe(true);
     });
 
     test("mcpServer missing name reports name error", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        mcpServers: [{ transport: "stdio", command: "node" }] as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          mcpServers: [{ transport: "stdio", command: "node" }] as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("mcpServers[0].name is required"))).toBe(true);
     });
 
     test("mcpServer missing transport reports transport error", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        mcpServers: [{ name: "m" }] as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          mcpServers: [{ name: "m" }] as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("mcpServers[0].transport"))).toBe(true);
     });
 
     test("stdio mcpServer missing command reports command error", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        mcpServers: [{ transport: "stdio", name: "m" }] as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          mcpServers: [{ transport: "stdio", name: "m" }] as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("mcpServers[0].command"))).toBe(true);
     });
 
     test("http mcpServer missing url reports url error", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        mcpServers: [{ transport: "http", name: "m" }] as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          mcpServers: [{ transport: "http", name: "m" }] as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("mcpServers[0].url"))).toBe(true);
     });
 
     test("non-object mcpServer items continue to next", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        mcpServers: [0, { transport: "stdio", name: "ok", command: "node" }] as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          mcpServers: [0, { transport: "stdio", name: "ok", command: "node" }] as any,
+        }),
+      );
       expect(r.errors.some((e) => e.includes("mcpServers[0] must be an object"))).toBe(true);
       expect(r.errors.some((e) => e.includes("mcpServers[1]"))).toBe(false);
     });
@@ -305,33 +356,41 @@ describe("manifest.ts coverage gaps", () => {
 
   describe("validateAgentComponent via validateManifestV2", () => {
     test("agent as number rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        agent: 42 as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          agent: 42 as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("agent must be an object");
     });
 
     test("agent as false rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        agent: false as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          agent: false as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("agent must be an object");
     });
 
     test("agent with prompt as number rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        agent: { prompt: 42 } as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          agent: { prompt: 42 } as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("agent.prompt is required");
     });
 
     test("agent with missing prompt rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        agent: {} as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          agent: {} as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("agent.prompt is required");
     });
@@ -341,25 +400,31 @@ describe("manifest.ts coverage gaps", () => {
 
   describe("validateScriptsBlock via validateManifestV2", () => {
     test("scripts as number rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        scripts: 42 as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          scripts: 42 as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("scripts must be an object");
     });
 
     test("scripts as string rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        scripts: "bad" as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          scripts: "bad" as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("scripts must be an object");
     });
 
     test("scripts as false rejects", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", undefined, {
-        scripts: false as any,
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", undefined, {
+          scripts: false as any,
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors).toContain("scripts must be an object");
     });
@@ -518,9 +583,11 @@ describe("manifest.ts coverage gaps", () => {
     });
 
     test("validateManifestV2 integrates validateDependencies", () => {
-      const r = validateManifestV2(makeManifest("t", "1.0.0", {
-        bad: { source: "github:u/r", version: "~1.0.0" },
-      }));
+      const r = validateManifestV2(
+        makeManifest("t", "1.0.0", {
+          bad: { source: "github:u/r", version: "~1.0.0" },
+        }),
+      );
       expect(r.valid).toBe(false);
       expect(r.errors.some((e) => e.includes("bad") && e.includes("~"))).toBe(true);
     });
@@ -599,38 +666,58 @@ describe("manifest.ts coverage gaps", () => {
 
   describe("inferPackageType", () => {
     test("agent-only returns 'agent'", () => {
-      expect(inferPackageType(makeManifest("a", "1.0.0", undefined, {
-        agent: { prompt: "hi" },
-      }))).toBe("agent");
+      expect(
+        inferPackageType(
+          makeManifest("a", "1.0.0", undefined, {
+            agent: { prompt: "hi" },
+          }),
+        ),
+      ).toBe("agent");
     });
 
     test("agent + tools returns 'extension'", () => {
-      expect(inferPackageType(makeManifest("a", "1.0.0", undefined, {
-        agent: { prompt: "hi" },
-        tools: [{ name: "t", description: "d", inputSchema: {} }],
-        entrypoint: "./x.ts",
-      }))).toBe("extension");
+      expect(
+        inferPackageType(
+          makeManifest("a", "1.0.0", undefined, {
+            agent: { prompt: "hi" },
+            tools: [{ name: "t", description: "d", inputSchema: {} }],
+            entrypoint: "./x.ts",
+          }),
+        ),
+      ).toBe("extension");
     });
 
     test("agent + skills returns 'extension'", () => {
-      expect(inferPackageType(makeManifest("a", "1.0.0", undefined, {
-        agent: { prompt: "hi" },
-        skills: [{ name: "s", description: "d" }],
-      }))).toBe("extension");
+      expect(
+        inferPackageType(
+          makeManifest("a", "1.0.0", undefined, {
+            agent: { prompt: "hi" },
+            skills: [{ name: "s", description: "d" }],
+          }),
+        ),
+      ).toBe("extension");
     });
 
     test("agent + mcpServers returns 'extension'", () => {
-      expect(inferPackageType(makeManifest("a", "1.0.0", undefined, {
-        agent: { prompt: "hi" },
-        mcpServers: [{ transport: "stdio", name: "m", command: "node" }],
-      }))).toBe("extension");
+      expect(
+        inferPackageType(
+          makeManifest("a", "1.0.0", undefined, {
+            agent: { prompt: "hi" },
+            mcpServers: [{ transport: "stdio", name: "m", command: "node" }],
+          }),
+        ),
+      ).toBe("extension");
     });
 
     test("agent + scripts returns 'extension'", () => {
-      expect(inferPackageType(makeManifest("a", "1.0.0", undefined, {
-        agent: { prompt: "hi" },
-        scripts: { postinstall: "./s.ts" },
-      }))).toBe("extension");
+      expect(
+        inferPackageType(
+          makeManifest("a", "1.0.0", undefined, {
+            agent: { prompt: "hi" },
+            scripts: { postinstall: "./s.ts" },
+          }),
+        ),
+      ).toBe("extension");
     });
 
     test("no components returns 'extension'", () => {
@@ -638,10 +725,14 @@ describe("manifest.ts coverage gaps", () => {
     });
 
     test("tools only returns 'extension'", () => {
-      expect(inferPackageType(makeManifest("a", "1.0.0", undefined, {
-        tools: [{ name: "t", description: "d", inputSchema: {} }],
-        entrypoint: "./x.ts",
-      }))).toBe("extension");
+      expect(
+        inferPackageType(
+          makeManifest("a", "1.0.0", undefined, {
+            tools: [{ name: "t", description: "d", inputSchema: {} }],
+            entrypoint: "./x.ts",
+          }),
+        ),
+      ).toBe("extension");
     });
   });
 });
@@ -839,9 +930,7 @@ describe("dependency-resolver.ts coverage gaps", () => {
         name: "root",
         version: "1.0.0",
         status: "install",
-        children: [
-          { name: "child", version: "2.0.0", status: "install", children: [] },
-        ],
+        children: [{ name: "child", version: "2.0.0", status: "install", children: [] }],
       };
       const out = formatDepTree(tree);
       expect(out).toContain("root@1.0.0 (new)");
@@ -876,9 +965,7 @@ describe("dependency-resolver.ts coverage gaps", () => {
             name: "A",
             version: "1.0.0",
             status: "install",
-            children: [
-              { name: "B", version: "2.0.0", status: "install", children: [] },
-            ],
+            children: [{ name: "B", version: "2.0.0", status: "install", children: [] }],
           },
         ],
       };
@@ -930,7 +1017,9 @@ describe("dependency-resolver.ts coverage gaps", () => {
       const root = makeManifest("root", "1.0.0");
       const result = await resolveDependencies(root, {
         getInstalled: async () => null,
-        fetchManifest: async () => { throw new Error("should not call"); },
+        fetchManifest: async () => {
+          throw new Error("should not call");
+        },
       });
       expect(result.toInstall).toHaveLength(0);
       expect(result.tree.name).toBe("root");
@@ -942,7 +1031,9 @@ describe("dependency-resolver.ts coverage gaps", () => {
       const root = makeManifest("root", "1.0.0", {});
       const result = await resolveDependencies(root, {
         getInstalled: async () => null,
-        fetchManifest: async () => { throw new Error("should not call"); },
+        fetchManifest: async () => {
+          throw new Error("should not call");
+        },
       });
       expect(result.toInstall).toHaveLength(0);
     });
@@ -952,7 +1043,7 @@ describe("dependency-resolver.ts coverage gaps", () => {
         A: { source: "github:u/A", version: "^1.0.0" },
       });
       const result = await resolveDependencies(root, {
-        getInstalled: async (name) => name === "A" ? { version: "1.5.0" } : null,
+        getInstalled: async (name) => (name === "A" ? { version: "1.5.0" } : null),
         fetchManifest: async () => makeManifest("A", "1.5.0"),
       });
       expect(result.toInstall).toHaveLength(1);

@@ -27,7 +27,9 @@ mockDbConnection();
 const { enqueueEmbedJob, enqueueEmbedJobIfAbsent, clearMessageEmbedState } = await import(
   "../db/queries/message-embed-outbox"
 );
-const { createConversation, createMessage, updateMessageContent } = await import("../db/queries/conversations");
+const { createConversation, createMessage, updateMessageContent } = await import(
+  "../db/queries/conversations"
+);
 const { createProject } = await import("../db/queries/projects");
 const { EMBEDDING_MODEL_ID } = await import("../memory/embeddings");
 const { messageEmbedOutbox, messageChunks } = await import("../db/schema");
@@ -38,7 +40,10 @@ async function seedConversation() {
 }
 
 async function outboxRowsFor(messageId: string) {
-  return getTestDb().select().from(messageEmbedOutbox).where(eq(messageEmbedOutbox.messageId, messageId));
+  return getTestDb()
+    .select()
+    .from(messageEmbedOutbox)
+    .where(eq(messageEmbedOutbox.messageId, messageId));
 }
 
 async function chunkRowsFor(messageId: string) {

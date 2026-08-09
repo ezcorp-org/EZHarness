@@ -30,14 +30,7 @@
  */
 
 import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
-  readFileSync,
-  statSync,
-} from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, statSync } from "node:fs";
 import { promises as fsp } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -50,7 +43,10 @@ import { join } from "node:path";
 // single seam for all outgoing HTTP. Tests assign `nextResponse` to
 // shape the upstream reply and read `captured` to inspect what we sent.
 
-interface CapturedCall { url: string; init?: RequestInit }
+interface CapturedCall {
+  url: string;
+  init?: RequestInit;
+}
 let captured: CapturedCall[] = [];
 let nextResponse: (call: CapturedCall) => Response = () => new Response("{}");
 
@@ -70,7 +66,12 @@ mock.module("@ezcorp/sdk/runtime", () => ({
   // direct node:fs delegation is byte-identical to what the host's
   // ezcorp/fs.* handlers would return.
   fsExists: async (path: string) => {
-    try { statSync(path); return true; } catch { return false; }
+    try {
+      statSync(path);
+      return true;
+    } catch {
+      return false;
+    }
   },
   fsRead: async (path: string, opts?: { encoding?: "utf-8" | "binary" }) => {
     const buf = readFileSync(path);
@@ -83,9 +84,7 @@ mock.module("@ezcorp/sdk/runtime", () => ({
   },
   fsWrite: async (path: string, content: string | Uint8Array) => {
     const isBinary = content instanceof Uint8Array;
-    const bytes = isBinary
-      ? content.byteLength
-      : Buffer.byteLength(content as string);
+    const bytes = isBinary ? content.byteLength : Buffer.byteLength(content as string);
     await fsp.writeFile(path, isBinary ? Buffer.from(content) : (content as string));
     return { bytes, resolvedPath: path };
   },
@@ -99,15 +98,17 @@ import {
 
 // ── Test scaffolding ───────────────────────────────────────────────────
 
-interface ResultShape { content: Array<{ type: "text"; text: string }>; isError: boolean }
+interface ResultShape {
+  content: Array<{ type: "text"; text: string }>;
+  isError: boolean;
+}
 const textOf = (r: unknown): string => (r as ResultShape).content[0]!.text;
 
 // 16-byte minimal PNG-shaped fixture. The bytes don't need to render —
 // they just need to survive the disk → multipart/data-URI pipeline
 // byte-for-byte so the assertions are unambiguous.
 const FIXTURE_PNG = new Uint8Array([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-  0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
 ]);
 
 // A valid JWT shape carrying the chatgpt_account_id claim Codex requires.
@@ -129,10 +130,14 @@ function codexImageStreamResponse(b64: string): Response {
   return new Response(
     new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(encoder.encode(sseFrame({
-          type: "response.output_item.done",
-          item: { type: "image_generation_call", result: b64, output_format: "png" },
-        })));
+        controller.enqueue(
+          encoder.encode(
+            sseFrame({
+              type: "response.output_item.done",
+              item: { type: "image_generation_call", result: b64, output_format: "png" },
+            }),
+          ),
+        );
         controller.close();
       },
     }),
@@ -181,7 +186,9 @@ afterEach(() => {
     if (prevCwd) process.chdir(prevCwd);
   } finally {
     if (projectRoot) {
-      try { rmSync(projectRoot, { recursive: true, force: true }); } catch {}
+      try {
+        rmSync(projectRoot, { recursive: true, force: true });
+      } catch {}
       projectRoot = "";
     }
     delete process.env.OPENAI_API_KEY;
@@ -300,9 +307,9 @@ describe("edit handler — mixed input forms (ext-files + data: + https:)", () =
     const r = await makeEditHandler()({
       prompt: "remix",
       images: [
-        EXT_FILES_URL,                       // resolved locally
-        "data:image/png;base64,QUFB",        // decoded inline
-        "https://img.example/remote.png",    // fetched
+        EXT_FILES_URL, // resolved locally
+        "data:image/png;base64,QUFB", // decoded inline
+        "https://img.example/remote.png", // fetched
       ],
       augment: false,
     });
@@ -343,11 +350,7 @@ describe("edit handler — mixed input forms (ext-files + data: + https:)", () =
 
     const r = await makeEditHandler()({
       prompt: "remix",
-      images: [
-        EXT_FILES_URL,
-        "data:image/png;base64,QUFB",
-        "https://img.example/remote.png",
-      ],
+      images: [EXT_FILES_URL, "data:image/png;base64,QUFB", "https://img.example/remote.png"],
       augment: false,
     });
     expect((r as ResultShape).isError).toBe(false);
@@ -369,10 +372,7 @@ describe("edit handler — mixed input forms (ext-files + data: + https:)", () =
     const extImg = content[1]!.image_url as string;
     expect(extImg).not.toContain("/api/ext-files/");
     expect(extImg.startsWith("data:image/png;base64,")).toBe(true);
-    const decoded = Buffer.from(
-      extImg.slice("data:image/png;base64,".length),
-      "base64",
-    );
+    const decoded = Buffer.from(extImg.slice("data:image/png;base64,".length), "base64");
     expect(decoded.equals(Buffer.from(FIXTURE_PNG))).toBe(true);
 
     // Slot 2 — data: passthrough.
@@ -393,7 +393,9 @@ describe("edit handler — mixed input forms (ext-files + data: + https:)", () =
 
 describe("edit handler — missing ext-files target", () => {
   test("BYOK: tool error mentioning the URL; no fetch issued", async () => {
-    nextResponse = () => { throw new Error("network must not be called when the file is missing"); };
+    nextResponse = () => {
+      throw new Error("network must not be called when the file is missing");
+    };
 
     const missingUrl = "/api/ext-files/openai-image-gen-2/generated/does-not-exist.png";
     const r = await makeEditHandler()({
@@ -412,7 +414,9 @@ describe("edit handler — missing ext-files target", () => {
   test("Codex: tool error mentioning the URL; no fetch issued", async () => {
     delete process.env.OPENAI_API_KEY;
     process.env.OPENAI_ACCESS_TOKEN = makeCodexToken();
-    nextResponse = () => { throw new Error("network must not be called when the file is missing"); };
+    nextResponse = () => {
+      throw new Error("network must not be called when the file is missing");
+    };
 
     const missingUrl = "/api/ext-files/openai-image-gen-2/generated/does-not-exist.png";
     const r = await makeEditHandler()({
@@ -431,7 +435,9 @@ describe("edit handler — missing ext-files target", () => {
 
 describe("edit handler — path traversal rejected", () => {
   test("BYOK: validation error, no fetch and no disk read", async () => {
-    nextResponse = () => { throw new Error("network must not be called for traversal"); };
+    nextResponse = () => {
+      throw new Error("network must not be called for traversal");
+    };
 
     const r = await makeEditHandler()({
       prompt: "p",
@@ -447,7 +453,9 @@ describe("edit handler — path traversal rejected", () => {
   test("Codex: validation error, no fetch", async () => {
     delete process.env.OPENAI_API_KEY;
     process.env.OPENAI_ACCESS_TOKEN = makeCodexToken();
-    nextResponse = () => { throw new Error("network must not be called for traversal"); };
+    nextResponse = () => {
+      throw new Error("network must not be called for traversal");
+    };
 
     const r = await makeEditHandler()({
       prompt: "p",
@@ -464,7 +472,9 @@ describe("edit handler — path traversal rejected", () => {
 
 describe("edit handler — unknown ext-files extension namespace", () => {
   test("BYOK: validation error, no fetch", async () => {
-    nextResponse = () => { throw new Error("network must not be called for unknown namespace"); };
+    nextResponse = () => {
+      throw new Error("network must not be called for unknown namespace");
+    };
 
     const r = await makeEditHandler()({
       prompt: "p",
@@ -488,7 +498,9 @@ describe("edit handler — unknown ext-files extension namespace", () => {
     // ChatGPT backend can't fetch.
     delete process.env.OPENAI_API_KEY;
     process.env.OPENAI_ACCESS_TOKEN = makeCodexToken();
-    nextResponse = () => { throw new Error("network must not be called for unknown namespace"); };
+    nextResponse = () => {
+      throw new Error("network must not be called for unknown namespace");
+    };
 
     const r = await makeEditHandler()({
       prompt: "p",

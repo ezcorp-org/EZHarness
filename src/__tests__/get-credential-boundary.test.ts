@@ -96,10 +96,13 @@ const STATIC_IMPORT = /\bimport\s*\{[^}]*\bgetCredential\b(?![A-Za-z0-9_])[^}]*\
  *  Match the path-side anchor (the credentials file) so we don't
  *  flag dynamic imports of unrelated modules.
  */
-const DYNAMIC_IMPORT_DESTRUCT = /\{\s*[^}]*\bgetCredential\b(?![A-Za-z0-9_])[^}]*\}\s*=\s*await\s+import\s*\(\s*['"][^'"]*credentials['"]\s*\)/;
-const DYNAMIC_IMPORT_PROP = /await\s+import\s*\(\s*['"][^'"]*credentials['"]\s*\)\s*\)?\s*\.\s*getCredential\b/;
+const DYNAMIC_IMPORT_DESTRUCT =
+  /\{\s*[^}]*\bgetCredential\b(?![A-Za-z0-9_])[^}]*\}\s*=\s*await\s+import\s*\(\s*['"][^'"]*credentials['"]\s*\)/;
+const DYNAMIC_IMPORT_PROP =
+  /await\s+import\s*\(\s*['"][^'"]*credentials['"]\s*\)\s*\)?\s*\.\s*getCredential\b/;
 /** CommonJS require destructure (rare; included for completeness). */
-const REQUIRE_DESTRUCT = /\{\s*[^}]*\bgetCredential\b(?![A-Za-z0-9_])[^}]*\}\s*=\s*require\s*\(\s*['"][^'"]*credentials['"]\s*\)/;
+const REQUIRE_DESTRUCT =
+  /\{\s*[^}]*\bgetCredential\b(?![A-Za-z0-9_])[^}]*\}\s*=\s*require\s*\(\s*['"][^'"]*credentials['"]\s*\)/;
 
 function isTestPath(rel: string): boolean {
   if (rel.includes("/__tests__/")) return true;
@@ -174,9 +177,9 @@ describe("getCredential boundary invariant", () => {
     if (stale.length > 0) {
       throw new Error(
         "Stale ALLOWLIST entries — these files no longer import " +
-        "getCredential. Remove them so the allowlist stays " +
-        "minimal:\n" +
-        stale.map((f) => `  - ${f}`).join("\n"),
+          "getCredential. Remove them so the allowlist stays " +
+          "minimal:\n" +
+          stale.map((f) => `  - ${f}`).join("\n"),
       );
     }
   });

@@ -20,8 +20,17 @@ const toolBearing: WorkflowDefinition = {
   description: "agent + tool + transform + gate",
   steps: [
     { name: "draft", kind: "agent", agent: "writer", input: { topic: "$input.topic" } },
-    { name: "publish", kind: "tool", tool: "ext__write_file", input: { body: "$steps.draft.output.text" } },
-    { name: "summary", kind: "transform", output: { url: "$steps.publish.output.url", topic: "$input.topic" } },
+    {
+      name: "publish",
+      kind: "tool",
+      tool: "ext__write_file",
+      input: { body: "$steps.draft.output.text" },
+    },
+    {
+      name: "summary",
+      kind: "transform",
+      output: { url: "$steps.publish.output.url", topic: "$input.topic" },
+    },
   ],
 };
 
@@ -203,7 +212,9 @@ describe("dry-run stubs resolve arbitrary ref paths", () => {
   });
 
   test("renderStubs replaces stubs anywhere in the tree and leaves real data alone", () => {
-    expect(renderStubs({ a: dryRunStub("x"), b: [1, dryRunStub("y")], c: "kept", d: null })).toEqual({
+    expect(
+      renderStubs({ a: dryRunStub("x"), b: [1, dryRunStub("y")], c: "kept", d: null }),
+    ).toEqual({
       a: "«x»",
       b: [1, "«y»"],
       c: "kept",
@@ -335,8 +346,16 @@ describe("a gate over fabricated operands is recorded, never enforced", () => {
         description: "",
         steps: [
           { name: "draft", kind: "agent", agent: "writer" },
-          { name: "first", kind: "gate", condition: { ref: "$steps.draft.output.ok", op: "truthy" } },
-          { name: "second", kind: "gate", condition: { ref: "$steps.first.output.passed", op: "truthy" } },
+          {
+            name: "first",
+            kind: "gate",
+            condition: { ref: "$steps.draft.output.ok", op: "truthy" },
+          },
+          {
+            name: "second",
+            kind: "gate",
+            condition: { ref: "$steps.first.output.passed", op: "truthy" },
+          },
         ],
       },
       {},
@@ -354,7 +373,9 @@ describe("a gate over fabricated operands is recorded, never enforced", () => {
       {
         name: "ghost-ref",
         description: "",
-        steps: [{ name: "check", kind: "gate", condition: { ref: "$steps.ghost.output", op: "exists" } }],
+        steps: [
+          { name: "check", kind: "gate", condition: { ref: "$steps.ghost.output", op: "exists" } },
+        ],
       },
       {},
     );
@@ -373,7 +394,11 @@ describe("a gate over fabricated operands is recorded, never enforced", () => {
         description: "",
         steps: [
           { name: "draft", kind: "agent", agent: "writer" },
-          { name: "check", kind: "gate", condition: { ref: "$steps.draft.output.ok", op: "truthy" } },
+          {
+            name: "check",
+            kind: "gate",
+            condition: { ref: "$steps.draft.output.ok", op: "truthy" },
+          },
           { name: "hard", kind: "gate", condition: { ref: "$input.n", op: "gt", value: 1 } },
         ],
       },

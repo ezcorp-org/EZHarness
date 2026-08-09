@@ -42,7 +42,10 @@ export const SELF_PROJECT_SYSTEM_PROMPT = `This project is the live source tree 
  * guaranteed wired during the migrate pass (same constraint as
  * `backfillGithubProjectsApiTokens`).
  */
-export async function seedSelfProject(db: MigrateDb, env: Record<string, string | undefined> = process.env): Promise<void> {
+export async function seedSelfProject(
+  db: MigrateDb,
+  env: Record<string, string | undefined> = process.env,
+): Promise<void> {
   const path = env.EZCORP_SELF_PROJECT_PATH;
   if (!path) return;
   if (!existsSync(path)) {
@@ -50,9 +53,14 @@ export async function seedSelfProject(db: MigrateDb, env: Record<string, string 
     return;
   }
 
-  const result = await db.execute(sql`SELECT path, icon FROM projects WHERE id = ${SELF_PROJECT_ID}`);
+  const result = await db.execute(
+    sql`SELECT path, icon FROM projects WHERE id = ${SELF_PROJECT_ID}`,
+  );
   // bun-sql returns arrays, PGlite returns { rows }; normalize both shapes.
-  const rows = ((result as { rows?: unknown }).rows ?? result) as Array<{ path: string; icon: string | null }>;
+  const rows = ((result as { rows?: unknown }).rows ?? result) as Array<{
+    path: string;
+    icon: string | null;
+  }>;
   const existing = rows[0];
 
   if (!existing) {

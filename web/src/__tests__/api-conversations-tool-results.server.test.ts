@@ -25,14 +25,9 @@ vi.mock("$server/db/queries/conversations", () => ({
   getConversation,
 }));
 
-const { POST } = await import(
-  "../routes/api/conversations/[id]/tool-results/+server.ts"
-);
-const {
-  registerPendingEzClientTool,
-  getPendingEzClientTool,
-  _resetPendingEzClientToolsForTests,
-} = await import("$server/runtime/ez-client-tool-registry");
+const { POST } = await import("../routes/api/conversations/[id]/tool-results/+server.ts");
+const { registerPendingEzClientTool, getPendingEzClientTool, _resetPendingEzClientToolsForTests } =
+  await import("$server/runtime/ez-client-tool-registry");
 
 function makeEvent(opts: {
   locals?: Record<string, unknown>;
@@ -80,7 +75,12 @@ describe("POST /api/conversations/[id]/tool-results — Gap #3 endpoint", () => 
         locals: { user },
         body: {
           toolCallId: "call-fill-1",
-          result: { ok: true, toolName: "fill_form", toolCallId: "call-fill-1", detail: { formId: "agent-new" } },
+          result: {
+            ok: true,
+            toolName: "fill_form",
+            toolCallId: "call-fill-1",
+            detail: { formId: "agent-new" },
+          },
         },
       }),
     )) as Response;
@@ -208,7 +208,9 @@ describe("POST /api/conversations/[id]/tool-results — Gap #3 endpoint", () => 
     // hooks). The endpoint must NOT silently resolve the Promise.
     let threw = false;
     try {
-      await POST(makeEvent({ locals: {}, body: { toolCallId: "call-no-auth", result: { ok: true } } }));
+      await POST(
+        makeEvent({ locals: {}, body: { toolCallId: "call-no-auth", result: { ok: true } } }),
+      );
     } catch {
       threw = true;
     }

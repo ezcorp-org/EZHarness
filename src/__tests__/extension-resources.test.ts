@@ -1,6 +1,11 @@
 import { test, expect, describe, mock, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { parseMemoryLimit, DEFAULT_MEMORY_LIMIT_MB, MIN_MEMORY_LIMIT_MB, ExtensionProcess } from "../extensions/subprocess";
+import {
+  parseMemoryLimit,
+  DEFAULT_MEMORY_LIMIT_MB,
+  MIN_MEMORY_LIMIT_MB,
+  ExtensionProcess,
+} from "../extensions/subprocess";
 
 describe("parseMemoryLimit", () => {
   test("parses '256MB' to bytes", () => {
@@ -29,13 +34,11 @@ describe("parseMemoryLimit", () => {
 });
 
 describe("ExtensionProcess prlimit spawn", () => {
-  beforeEach(() => {
-  });
+  beforeEach(() => {});
 
   test("spawn command includes prlimit with --as flag", () => {
     // We test by importing and checking the spawn args construction.
     // The actual spawn is tested via the command array structure.
-
 
     // Create a process with default options
     const proc = new ExtensionProcess("test-ext", "/path/to/ext.ts", { PATH: "/usr/bin" });
@@ -53,25 +56,32 @@ describe("ExtensionProcess prlimit spawn", () => {
   });
 
   test("custom memory limit from options overrides default", () => {
-
     const customBytes = 512 * 1024 * 1024;
-    const proc = new ExtensionProcess("test-ext", "/path/to/ext.ts", { PATH: "/usr/bin" }, {
-      memoryLimitBytes: customBytes,
-    });
+    const proc = new ExtensionProcess(
+      "test-ext",
+      "/path/to/ext.ts",
+      { PATH: "/usr/bin" },
+      {
+        memoryLimitBytes: customBytes,
+      },
+    );
     expect(proc.memoryLimitBytes).toBe(customBytes);
   });
 
   test("memory limit below 512MB floor is clamped to 512MB", () => {
-
     const tooSmall = 256 * 1024 * 1024; // 256MB
-    const proc = new ExtensionProcess("test-ext", "/path/to/ext.ts", { PATH: "/usr/bin" }, {
-      memoryLimitBytes: tooSmall,
-    });
+    const proc = new ExtensionProcess(
+      "test-ext",
+      "/path/to/ext.ts",
+      { PATH: "/usr/bin" },
+      {
+        memoryLimitBytes: tooSmall,
+      },
+    );
     expect(proc.memoryLimitBytes).toBe(MIN_MEMORY_LIMIT_MB * 1024 * 1024);
   });
 
   test("spawn command array structure for prlimit", () => {
-
     const proc = new ExtensionProcess("test-ext", "/path/to/ext.ts", { PATH: "/usr/bin" });
     // The spawnArgs getter should return the prlimit-wrapped command with the
     // sandbox preload injected after `run`, before the entrypoint.
@@ -95,17 +105,24 @@ describe("resetFailures on successful call", () => {
     mock.module("../db/queries/extensions", () => ({
       incrementFailures: async () => 0,
       disableExtension: async () => {},
-      resetFailures: async (id: string) => { resetCalls.push(id); },
+      resetFailures: async (id: string) => {
+        resetCalls.push(id);
+      },
     }));
 
-afterAll(() => restoreModuleMocks());
+    afterAll(() => restoreModuleMocks());
 
     // Re-import to pick up mock
     const { ExtensionProcess } = await import("../extensions/subprocess");
 
-    const proc = new ExtensionProcess("reset-test", "/path/to/ext.ts", { PATH: "/usr/bin" }, {
-      callTimeoutMs: 5000,
-    });
+    const proc = new ExtensionProcess(
+      "reset-test",
+      "/path/to/ext.ts",
+      { PATH: "/usr/bin" },
+      {
+        callTimeoutMs: 5000,
+      },
+    );
 
     // Stub ensureRunning and transport to avoid real subprocess
     const fakeResponse = { jsonrpc: "2.0" as const, id: 1, result: { ok: true } };

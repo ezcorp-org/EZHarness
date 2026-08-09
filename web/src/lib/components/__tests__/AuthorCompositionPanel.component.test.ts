@@ -35,226 +35,237 @@ export default defineExtension({
 // Shaped like real `/api/extensions` rows: `source` + `isBundled` decide
 // what the panel may offer and which dependency source it declares.
 const INSTALLED = [
-	{
-		id: "ext-ai-kit",
-		name: "ai-kit",
-		version: "0.1.0",
-		source: "local:/opt/ez/extensions/ai-kit",
-		isBundled: true,
-		manifest: { tools: [] },
-	},
-	{
-		id: "ext-web-search",
-		name: "web-search",
-		version: "1.0.0",
-		source: "github:ezcorp/web-search",
-		isBundled: false,
-		manifest: { tools: [] },
-	},
+  {
+    id: "ext-ai-kit",
+    name: "ai-kit",
+    version: "0.1.0",
+    source: "local:/opt/ez/extensions/ai-kit",
+    isBundled: true,
+    manifest: { tools: [] },
+  },
+  {
+    id: "ext-web-search",
+    name: "web-search",
+    version: "1.0.0",
+    source: "github:ezcorp/web-search",
+    isBundled: false,
+    manifest: { tools: [] },
+  },
 ];
 
 /** The VIRTUAL row `src/db/migrate.ts` seeds for native tool calls — not
  *  a real extension, and never a valid dependency. */
 const VIRTUAL_BUILTIN_ROW = {
-	id: "builtin",
-	name: "Built-in Tools",
-	version: "1.0.0",
-	source: "builtin",
-	isBundled: false,
-	manifest: { tools: [] },
+  id: "builtin",
+  name: "Built-in Tools",
+  version: "1.0.0",
+  source: "builtin",
+  isBundled: false,
+  manifest: { tools: [] },
 };
 
 function stubExtensions(list = INSTALLED) {
-	vi.stubGlobal(
-		"fetch",
-		vi.fn(async (input: RequestInfo | URL) => {
-			if (String(input).includes("/api/extensions")) return Response.json(list);
-			return Response.json({});
-		}),
-	);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("/api/extensions")) return Response.json(list);
+      return Response.json({});
+    }),
+  );
 }
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("AuthorCompositionPanel — recognized config", () => {
-	test("renders capability toggles + the Use-other-extensions affordance", async () => {
-		stubExtensions();
-		const { getByTestId } = render(AuthorCompositionPanel, {
-			props: { source: SCAFFOLD, onsave: vi.fn(async () => {}) },
-		});
-		expect(getByTestId("author-composition-panel")).toBeInTheDocument();
-		expect(getByTestId("author-capability-search")).toBeInTheDocument();
-		expect(getByTestId("author-use-extensions-open")).toBeInTheDocument();
-		expect(getByTestId("author-deps-empty")).toBeInTheDocument();
-	});
+  test("renders capability toggles + the Use-other-extensions affordance", async () => {
+    stubExtensions();
+    const { getByTestId } = render(AuthorCompositionPanel, {
+      props: { source: SCAFFOLD, onsave: vi.fn(async () => {}) },
+    });
+    expect(getByTestId("author-composition-panel")).toBeInTheDocument();
+    expect(getByTestId("author-capability-search")).toBeInTheDocument();
+    expect(getByTestId("author-use-extensions-open")).toBeInTheDocument();
+    expect(getByTestId("author-deps-empty")).toBeInTheDocument();
+  });
 
-	test("toggling Search ON saves a config with permissions.search = inherit", async () => {
-		stubExtensions();
-		let saved = "";
-		const onsave = vi.fn(async (next: string) => {
-			saved = next;
-		});
-		const { getByTestId } = render(AuthorCompositionPanel, { props: { source: SCAFFOLD, onsave } });
+  test("toggling Search ON saves a config with permissions.search = inherit", async () => {
+    stubExtensions();
+    let saved = "";
+    const onsave = vi.fn(async (next: string) => {
+      saved = next;
+    });
+    const { getByTestId } = render(AuthorCompositionPanel, { props: { source: SCAFFOLD, onsave } });
 
-		expect(getByTestId("author-capability-search").getAttribute("aria-checked")).toBe("false");
-		await fireEvent.click(getByTestId("author-capability-search"));
+    expect(getByTestId("author-capability-search").getAttribute("aria-checked")).toBe("false");
+    await fireEvent.click(getByTestId("author-capability-search"));
 
-		await waitFor(() => expect(onsave).toHaveBeenCalled());
-		expect(parseCapabilities(saved)).toEqual({ search: true, memory: false, llm: false });
-	});
+    await waitFor(() => expect(onsave).toHaveBeenCalled());
+    expect(parseCapabilities(saved)).toEqual({ search: true, memory: false, llm: false });
+  });
 
-	test("toggling an already-on capability OFF removes it", async () => {
-		stubExtensions();
-		const onWith = SCAFFOLD.replace("permissions: {}", `permissions: {\n    search: "inherit",\n  }`);
-		let saved = "";
-		const onsave = vi.fn(async (next: string) => {
-			saved = next;
-		});
-		const { getByTestId } = render(AuthorCompositionPanel, { props: { source: onWith, onsave } });
+  test("toggling an already-on capability OFF removes it", async () => {
+    stubExtensions();
+    const onWith = SCAFFOLD.replace(
+      "permissions: {}",
+      `permissions: {\n    search: "inherit",\n  }`,
+    );
+    let saved = "";
+    const onsave = vi.fn(async (next: string) => {
+      saved = next;
+    });
+    const { getByTestId } = render(AuthorCompositionPanel, { props: { source: onWith, onsave } });
 
-		expect(getByTestId("author-capability-search").getAttribute("aria-checked")).toBe("true");
-		await fireEvent.click(getByTestId("author-capability-search"));
+    expect(getByTestId("author-capability-search").getAttribute("aria-checked")).toBe("true");
+    await fireEvent.click(getByTestId("author-capability-search"));
 
-		await waitFor(() => expect(onsave).toHaveBeenCalled());
-		expect(parseCapabilities(saved).search).toBe(false);
-	});
+    await waitFor(() => expect(onsave).toHaveBeenCalled());
+    expect(parseCapabilities(saved).search).toBe(false);
+  });
 
-	test("an OBJECT-valued (custom ceiling) cap is READ-ONLY: toggle disabled + warning, no save/corruption", async () => {
-		stubExtensions();
-		const objectCap = SCAFFOLD.replace(
-			"permissions: {}",
-			`permissions: {\n    search: { quota: 500, maxResults: 10 },\n  }`,
-		);
-		const onsave = vi.fn(async () => {});
-		const { getByTestId } = render(AuthorCompositionPanel, { props: { source: objectCap, onsave } });
+  test("an OBJECT-valued (custom ceiling) cap is READ-ONLY: toggle disabled + warning, no save/corruption", async () => {
+    stubExtensions();
+    const objectCap = SCAFFOLD.replace(
+      "permissions: {}",
+      `permissions: {\n    search: { quota: 500, maxResults: 10 },\n  }`,
+    );
+    const onsave = vi.fn(async () => {});
+    const { getByTestId } = render(AuthorCompositionPanel, {
+      props: { source: objectCap, onsave },
+    });
 
-		// Search shows ON (object = granted) but the toggle is LOCKED.
-		expect(getByTestId("author-capability-search").getAttribute("aria-checked")).toBe("true");
-		expect(getByTestId("author-capability-search")).toBeDisabled();
-		expect(getByTestId("author-capability-unmanaged-warning")).toHaveTextContent("search");
+    // Search shows ON (object = granted) but the toggle is LOCKED.
+    expect(getByTestId("author-capability-search").getAttribute("aria-checked")).toBe("true");
+    expect(getByTestId("author-capability-search")).toBeDisabled();
+    expect(getByTestId("author-capability-unmanaged-warning")).toHaveTextContent("search");
 
-		// Forcing a click is a no-op — never persists (can't corrupt/widen).
-		await fireEvent.click(getByTestId("author-capability-search"));
-		expect(onsave).not.toHaveBeenCalled();
+    // Forcing a click is a no-op — never persists (can't corrupt/widen).
+    await fireEvent.click(getByTestId("author-capability-search"));
+    expect(onsave).not.toHaveBeenCalled();
 
-		// An UNMANAGED cap doesn't lock the OTHER toggles.
-		expect(getByTestId("author-capability-memory")).not.toBeDisabled();
-	});
+    // An UNMANAGED cap doesn't lock the OTHER toggles.
+    expect(getByTestId("author-capability-memory")).not.toBeDisabled();
+  });
 
-	test("picking an extension writes manifest.dependencies (name + caret version)", async () => {
-		stubExtensions();
-		let saved = "";
-		const onsave = vi.fn(async (next: string) => {
-			saved = next;
-		});
-		const { getByTestId } = render(AuthorCompositionPanel, { props: { source: SCAFFOLD, onsave } });
+  test("picking an extension writes manifest.dependencies (name + caret version)", async () => {
+    stubExtensions();
+    let saved = "";
+    const onsave = vi.fn(async (next: string) => {
+      saved = next;
+    });
+    const { getByTestId } = render(AuthorCompositionPanel, { props: { source: SCAFFOLD, onsave } });
 
-		// Open the picker, select ai-kit, submit.
-		await fireEvent.click(getByTestId("author-use-extensions-open"));
-		await waitFor(() => expect(getByTestId("extension-attach-picker")).toBeInTheDocument());
-		// Wait for the picker's own /api/extensions load to populate cards.
-		await waitFor(() => expect(getByTestId("extension-attach-picker-submit")).toBeInTheDocument());
+    // Open the picker, select ai-kit, submit.
+    await fireEvent.click(getByTestId("author-use-extensions-open"));
+    await waitFor(() => expect(getByTestId("extension-attach-picker")).toBeInTheDocument());
+    // Wait for the picker's own /api/extensions load to populate cards.
+    await waitFor(() => expect(getByTestId("extension-attach-picker-submit")).toBeInTheDocument());
 
-		const card = await waitFor(() => {
-			const c = document.querySelector('[data-testid="extension-attach-picker-card"][data-ext-id="ext-ai-kit"]');
-			if (!c) throw new Error("card not yet rendered");
-			return c as HTMLElement;
-		});
-		await fireEvent.click(card.querySelector("button")!);
-		await fireEvent.click(getByTestId("extension-attach-picker-submit"));
+    const card = await waitFor(() => {
+      const c = document.querySelector(
+        '[data-testid="extension-attach-picker-card"][data-ext-id="ext-ai-kit"]',
+      );
+      if (!c) throw new Error("card not yet rendered");
+      return c as HTMLElement;
+    });
+    await fireEvent.click(card.querySelector("button")!);
+    await fireEvent.click(getByTestId("extension-attach-picker-submit"));
 
-		await waitFor(() => expect(onsave).toHaveBeenCalled());
-		// `ai-kit` is a bundled row → source "bundled". Whatever is written
-		// here MUST be accepted by the host's `validateDependencies` —
-		// locksteped by `src/__tests__/dependency-source-parity.test.ts`.
-		expect(parseDependencies(saved)).toEqual([{ name: "ai-kit", source: "bundled", version: "^0.1.0" }]);
-	});
+    await waitFor(() => expect(onsave).toHaveBeenCalled());
+    // `ai-kit` is a bundled row → source "bundled". Whatever is written
+    // here MUST be accepted by the host's `validateDependencies` —
+    // locksteped by `src/__tests__/dependency-source-parity.test.ts`.
+    expect(parseDependencies(saved)).toEqual([
+      { name: "ai-kit", source: "bundled", version: "^0.1.0" },
+    ]);
+  });
 
-	test("picking a NON-bundled extension declares source 'local'", async () => {
-		stubExtensions();
-		let saved = "";
-		const onsave = vi.fn(async (next: string) => {
-			saved = next;
-		});
-		const { getByTestId } = render(AuthorCompositionPanel, { props: { source: SCAFFOLD, onsave } });
+  test("picking a NON-bundled extension declares source 'local'", async () => {
+    stubExtensions();
+    let saved = "";
+    const onsave = vi.fn(async (next: string) => {
+      saved = next;
+    });
+    const { getByTestId } = render(AuthorCompositionPanel, { props: { source: SCAFFOLD, onsave } });
 
-		await fireEvent.click(getByTestId("author-use-extensions-open"));
-		await waitFor(() => expect(getByTestId("extension-attach-picker")).toBeInTheDocument());
-		const card = await waitFor(() => {
-			const c = document.querySelector(
-				'[data-testid="extension-attach-picker-card"][data-ext-id="ext-web-search"]',
-			);
-			if (!c) throw new Error("card not yet rendered");
-			return c as HTMLElement;
-		});
-		await fireEvent.click(card.querySelector("button")!);
-		await fireEvent.click(getByTestId("extension-attach-picker-submit"));
+    await fireEvent.click(getByTestId("author-use-extensions-open"));
+    await waitFor(() => expect(getByTestId("extension-attach-picker")).toBeInTheDocument());
+    const card = await waitFor(() => {
+      const c = document.querySelector(
+        '[data-testid="extension-attach-picker-card"][data-ext-id="ext-web-search"]',
+      );
+      if (!c) throw new Error("card not yet rendered");
+      return c as HTMLElement;
+    });
+    await fireEvent.click(card.querySelector("button")!);
+    await fireEvent.click(getByTestId("extension-attach-picker-submit"));
 
-		await waitFor(() => expect(onsave).toHaveBeenCalled());
-		expect(parseDependencies(saved)).toEqual([
-			{ name: "web-search", source: "local", version: "^1.0.0" },
-		]);
-	});
+    await waitFor(() => expect(onsave).toHaveBeenCalled());
+    expect(parseDependencies(saved)).toEqual([
+      { name: "web-search", source: "local", version: "^1.0.0" },
+    ]);
+  });
 
-	test("the virtual 'Built-in Tools' row is NOT offered as a dependency", async () => {
-		// It is a DB-seeded placeholder so native tool calls have an
-		// extension_id — depending on it yields a manifest naming
-		// something that can never resolve. It used to be the FIRST card
-		// in this grid.
-		stubExtensions([VIRTUAL_BUILTIN_ROW, ...INSTALLED]);
-		const { getByTestId } = render(AuthorCompositionPanel, {
-			props: { source: SCAFFOLD, onsave: vi.fn(async () => {}) },
-		});
+  test("the virtual 'Built-in Tools' row is NOT offered as a dependency", async () => {
+    // It is a DB-seeded placeholder so native tool calls have an
+    // extension_id — depending on it yields a manifest naming
+    // something that can never resolve. It used to be the FIRST card
+    // in this grid.
+    stubExtensions([VIRTUAL_BUILTIN_ROW, ...INSTALLED]);
+    const { getByTestId } = render(AuthorCompositionPanel, {
+      props: { source: SCAFFOLD, onsave: vi.fn(async () => {}) },
+    });
 
-		await fireEvent.click(getByTestId("author-use-extensions-open"));
-		await waitFor(() => expect(getByTestId("extension-attach-picker")).toBeInTheDocument());
-		// Real extensions still render...
-		await waitFor(() => {
-			const c = document.querySelector(
-				'[data-testid="extension-attach-picker-card"][data-ext-id="ext-ai-kit"]',
-			);
-			if (!c) throw new Error("card not yet rendered");
-		});
-		// ...the virtual row does not.
-		expect(
-			document.querySelector('[data-testid="extension-attach-picker-card"][data-ext-id="builtin"]'),
-		).toBeNull();
-		expect(document.querySelectorAll('[data-testid="extension-attach-picker-card"]').length).toBe(2);
-	});
+    await fireEvent.click(getByTestId("author-use-extensions-open"));
+    await waitFor(() => expect(getByTestId("extension-attach-picker")).toBeInTheDocument());
+    // Real extensions still render...
+    await waitFor(() => {
+      const c = document.querySelector(
+        '[data-testid="extension-attach-picker-card"][data-ext-id="ext-ai-kit"]',
+      );
+      if (!c) throw new Error("card not yet rendered");
+    });
+    // ...the virtual row does not.
+    expect(
+      document.querySelector('[data-testid="extension-attach-picker-card"][data-ext-id="builtin"]'),
+    ).toBeNull();
+    expect(document.querySelectorAll('[data-testid="extension-attach-picker-card"]').length).toBe(
+      2,
+    );
+  });
 
-	test("a failed save flashes the error", async () => {
-		stubExtensions();
-		const onsave = vi.fn(async () => {
-			throw new Error("save boom");
-		});
-		const { getByTestId } = render(AuthorCompositionPanel, { props: { source: SCAFFOLD, onsave } });
-		await fireEvent.click(getByTestId("author-capability-memory"));
-		await waitFor(() => expect(getByTestId("author-composition-error")).toBeInTheDocument());
-	});
+  test("a failed save flashes the error", async () => {
+    stubExtensions();
+    const onsave = vi.fn(async () => {
+      throw new Error("save boom");
+    });
+    const { getByTestId } = render(AuthorCompositionPanel, { props: { source: SCAFFOLD, onsave } });
+    await fireEvent.click(getByTestId("author-capability-memory"));
+    await waitFor(() => expect(getByTestId("author-composition-error")).toBeInTheDocument());
+  });
 
-	test("unresolved-dependency warning shows for a declared dep absent from the installed set", async () => {
-		// Installed set has only web-search; the config declares ghost-ext.
-		stubExtensions([INSTALLED[1]!]);
-		const ghostConfig = SCAFFOLD.replace(
-			"  permissions: {}",
-			`  // ezcorp:dependencies (managed)\n  dependencies: {\n    "ghost-ext": { source: "bundled", version: "1.0.0" },\n  },\n  // ezcorp:dependencies:end\n  permissions: {}`,
-		);
-		const { getByTestId } = render(AuthorCompositionPanel, {
-			props: { source: ghostConfig, onsave: vi.fn(async () => {}) },
-		});
-		await waitFor(() => expect(getByTestId("author-unresolved-warning")).toBeInTheDocument());
-		expect(getByTestId("author-unresolved-warning")).toHaveTextContent("ghost-ext");
-	});
+  test("unresolved-dependency warning shows for a declared dep absent from the installed set", async () => {
+    // Installed set has only web-search; the config declares ghost-ext.
+    stubExtensions([INSTALLED[1]!]);
+    const ghostConfig = SCAFFOLD.replace(
+      "  permissions: {}",
+      `  // ezcorp:dependencies (managed)\n  dependencies: {\n    "ghost-ext": { source: "bundled", version: "1.0.0" },\n  },\n  // ezcorp:dependencies:end\n  permissions: {}`,
+    );
+    const { getByTestId } = render(AuthorCompositionPanel, {
+      props: { source: ghostConfig, onsave: vi.fn(async () => {}) },
+    });
+    await waitFor(() => expect(getByTestId("author-unresolved-warning")).toBeInTheDocument());
+    expect(getByTestId("author-unresolved-warning")).toHaveTextContent("ghost-ext");
+  });
 });
 
 describe("AuthorCompositionPanel — unrecognized config", () => {
-	test("disables itself with a hand-edit message", () => {
-		stubExtensions();
-		const { getByTestId, queryByTestId } = render(AuthorCompositionPanel, {
-			props: { source: "export const x = 1;", onsave: vi.fn(async () => {}) },
-		});
-		expect(getByTestId("author-composition-unrecognized")).toBeInTheDocument();
-		expect(queryByTestId("author-capability-toggles")).toBeNull();
-		expect(queryByTestId("author-use-extensions-open")).toBeNull();
-	});
+  test("disables itself with a hand-edit message", () => {
+    stubExtensions();
+    const { getByTestId, queryByTestId } = render(AuthorCompositionPanel, {
+      props: { source: "export const x = 1;", onsave: vi.fn(async () => {}) },
+    });
+    expect(getByTestId("author-composition-unrecognized")).toBeInTheDocument();
+    expect(queryByTestId("author-capability-toggles")).toBeNull();
+    expect(queryByTestId("author-use-extensions-open")).toBeNull();
+  });
 });

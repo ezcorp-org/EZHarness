@@ -40,18 +40,10 @@ import {
   _setLoopEventsForTests,
 } from "../src/runtime/loop";
 import type { LoopEvents } from "../src/runtime/loop-events";
-import {
-  loopDataDir,
-  _setLogFsForTests,
-  _setLogPageForTests,
-} from "../src/runtime/loop-log";
+import { loopDataDir, _setLogFsForTests, _setLogPageForTests } from "../src/runtime/loop-log";
 import { Schedule } from "../src/runtime/schedule";
 import { createLoopRunStore } from "../src/runtime/loop-store";
-import {
-  __resetChannelForTests,
-  getChannel,
-  type HostChannel,
-} from "../src/runtime/channel";
+import { __resetChannelForTests, getChannel, type HostChannel } from "../src/runtime/channel";
 import type { StorageScope } from "../src/runtime/storage";
 import type { PageDefinition } from "../src/runtime/page";
 import type { TaskAssignmentUpdateEvent } from "../src/runtime/host-event-types";
@@ -70,7 +62,7 @@ function scopedStoreFactory() {
     user: new Map(),
     conversation: new Map(),
   };
-  const factory = <O,>(loopId: string, contract: { scope?: StorageScope }) => {
+  const factory = <O>(loopId: string, contract: { scope?: StorageScope }) => {
     const scope = contract.scope ?? "global";
     const map = maps[scope]!;
     const kv = (_s: StorageScope) => ({
@@ -132,10 +124,7 @@ beforeEach(() => {
   __resetChannelForTests();
   eventHandlers = new Map();
   const ch: HostChannel = getChannel();
-  spyOn(ch, "onRequest").mockImplementation(((
-    method: string,
-    handler: (p: unknown) => unknown,
-  ) => {
+  spyOn(ch, "onRequest").mockImplementation(((method: string, handler: (p: unknown) => unknown) => {
     eventHandlers.set(method, handler);
   }) as HostChannel["onRequest"]);
 
@@ -557,13 +546,9 @@ describe("a user-scoped run never appears in a global dashboard render", () => {
     // And completing the PRIVATE run does not push the shared page (its owning
     // loop has no dashboard).
     const pushesBefore = pagePushes.length;
-    await dispatchAssignmentUpdate(
-      completionEvent("task-1", "assign-1", "run-1"),
-    );
+    await dispatchAssignmentUpdate(completionEvent("task-1", "assign-1", "run-1"));
     expect(pagePushes.length).toBe(pushesBefore);
-    expect((await _getRegisteredLoop("user-runs")!.store.list())[0]!.status).toBe(
-      "completed",
-    );
+    expect((await _getRegisteredLoop("user-runs")!.store.list())[0]!.status).toBe("completed");
   });
 });
 
@@ -794,9 +779,7 @@ describe("an extension with multiple loops routes each trigger and completion to
     await emitEvent("tool:complete", {}); // → deferred-loop (opens run)
 
     // The completion routes ONLY to the deferred loop's open run.
-    await dispatchAssignmentUpdate(
-      completionEvent("task-1", "assign-1", "run-1"),
-    );
+    await dispatchAssignmentUpdate(completionEvent("task-1", "assign-1", "run-1"));
 
     const captureRuns = await _getRegisteredLoop("capture-loop")!.store.list();
     const deferredRuns = await _getRegisteredLoop("deferred-loop")!.store.list();

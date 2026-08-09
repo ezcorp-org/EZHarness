@@ -87,8 +87,12 @@ mock.module("../db/queries/settings", () => {
       return rows[0]?.value;
     },
     async upsertSetting(_key: string, _value: unknown) {},
-    async deleteSetting(_key: string) { return false; },
-    async isListingInstalled() { return false; },
+    async deleteSetting(_key: string) {
+      return false;
+    },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -163,10 +167,7 @@ describe("Seam 7: memory injection token counting", () => {
     // If this test ever fails, step 1 of the Seam 7 chain is broken
     // and NONE of the downstream counting claims hold.
     const base = "You are a helpful assistant.";
-    mockMemories = [
-      makeMemory(0, "User's name is Alice"),
-      makeMemory(1, "User prefers dark mode"),
-    ];
+    mockMemories = [makeMemory(0, "User's name is Alice"), makeMemory(1, "User prefers dark mode")];
 
     const result = await buildSystemPromptWithMemories(base, "hi", "proj-1", "user-1");
 
@@ -190,8 +191,20 @@ describe("Seam 7: memory injection token counting", () => {
     // is "a bit more" because the injection block also includes the
     // header + newlines.
     const lineBudget =
-      estimateTokens(memoryLine({ content: "User's name is Alice", category: "preferences", confidence: "high" })) +
-      estimateTokens(memoryLine({ content: "User prefers dark mode", category: "preferences", confidence: "high" }));
+      estimateTokens(
+        memoryLine({
+          content: "User's name is Alice",
+          category: "preferences",
+          confidence: "high",
+        }),
+      ) +
+      estimateTokens(
+        memoryLine({
+          content: "User prefers dark mode",
+          category: "preferences",
+          confidence: "high",
+        }),
+      );
     const deltaTokens = estimateTokens(result.systemPrompt) - estimateTokens(base);
     expect(deltaTokens).toBeGreaterThanOrEqual(lineBudget);
   });
@@ -285,8 +298,12 @@ describe("Seam 7: memory injection token counting", () => {
       makeMemory(i, `Long memory ${i} with padding to eat budget quickly`),
     );
 
-    const tight = await buildSystemPromptWithMemories(undefined, "q", "proj-1", "user-1", { tokenBudget: 50 });
-    const loose = await buildSystemPromptWithMemories(undefined, "q", "proj-1", "user-1", { tokenBudget: 500 });
+    const tight = await buildSystemPromptWithMemories(undefined, "q", "proj-1", "user-1", {
+      tokenBudget: 50,
+    });
+    const loose = await buildSystemPromptWithMemories(undefined, "q", "proj-1", "user-1", {
+      tokenBudget: 500,
+    });
 
     expect(loose.memoriesUsed.length).toBeGreaterThan(tight.memoriesUsed.length);
     expect(loose.systemPrompt.length).toBeGreaterThan(tight.systemPrompt.length);

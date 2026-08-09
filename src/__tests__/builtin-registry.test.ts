@@ -1,6 +1,10 @@
 import { test, expect, describe } from "bun:test";
 
-import { getBuiltInToolMetadata, getBuiltInCategories, getBuiltInToolsByCategory } from "../runtime/tools/builtin-registry";
+import {
+  getBuiltInToolMetadata,
+  getBuiltInCategories,
+  getBuiltInToolsByCategory,
+} from "../runtime/tools/builtin-registry";
 
 describe("builtin-registry", () => {
   test("returns only `ez` category tools (legacy categories all moved to bundled extensions)", () => {

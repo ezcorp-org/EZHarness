@@ -60,8 +60,16 @@ describe("createGrepTool", () => {
 
   test("case-insensitive search finds more hits than case-sensitive", async () => {
     const tool = createGrepTool(projectPath);
-    const sensitive = await tool.execute("1", { pattern: "hello", path: "src", caseSensitive: true });
-    const insensitive = await tool.execute("1", { pattern: "hello", path: "src", caseSensitive: false });
+    const sensitive = await tool.execute("1", {
+      pattern: "hello",
+      path: "src",
+      caseSensitive: true,
+    });
+    const insensitive = await tool.execute("1", {
+      pattern: "hello",
+      path: "src",
+      caseSensitive: false,
+    });
     expect(det(insensitive).matchCount).toBeGreaterThan(det(sensitive).matchCount);
   });
 
@@ -133,33 +141,27 @@ describe("createGrepTool — ignore handling", () => {
     await rm(ignProject, { recursive: true, force: true });
   });
 
-  test.skipIf(!HAS_RG)(
-    "ripgrep skips ignored dirs by default",
-    async () => {
-      process.env.EZCORP_GREP_BACKEND = "rg";
-      const tool = createGrepTool(ignProject);
-      const result = await tool.execute("1", { pattern: "NEEDLE_TOKEN", path: "." });
-      const text = getText(result);
-      expect(text).toContain("app.ts");
-      expect(text).not.toContain("node_modules");
-      expect(det(result).matchCount).toBe(1);
-    },
-  );
+  test.skipIf(!HAS_RG)("ripgrep skips ignored dirs by default", async () => {
+    process.env.EZCORP_GREP_BACKEND = "rg";
+    const tool = createGrepTool(ignProject);
+    const result = await tool.execute("1", { pattern: "NEEDLE_TOKEN", path: "." });
+    const text = getText(result);
+    expect(text).toContain("app.ts");
+    expect(text).not.toContain("node_modules");
+    expect(det(result).matchCount).toBe(1);
+  });
 
-  test.skipIf(!HAS_RG)(
-    "ripgrep noIgnore:true also searches ignored dirs",
-    async () => {
-      process.env.EZCORP_GREP_BACKEND = "rg";
-      const tool = createGrepTool(ignProject);
-      const result = await tool.execute("1", {
-        pattern: "NEEDLE_TOKEN",
-        path: ".",
-        noIgnore: true,
-      });
-      expect(getText(result)).toContain("node_modules");
-      expect(det(result).matchCount).toBe(2);
-    },
-  );
+  test.skipIf(!HAS_RG)("ripgrep noIgnore:true also searches ignored dirs", async () => {
+    process.env.EZCORP_GREP_BACKEND = "rg";
+    const tool = createGrepTool(ignProject);
+    const result = await tool.execute("1", {
+      pattern: "NEEDLE_TOKEN",
+      path: ".",
+      noIgnore: true,
+    });
+    expect(getText(result)).toContain("node_modules");
+    expect(det(result).matchCount).toBe(2);
+  });
 
   test("GNU grep fallback skips node_modules via --exclude-dir", async () => {
     process.env.EZCORP_GREP_BACKEND = "grep";

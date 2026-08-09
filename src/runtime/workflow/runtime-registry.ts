@@ -32,10 +32,7 @@ import type { CachedWorkflow } from "../workflow-scope";
  *  continues a parked run, and the answer path lives in `src/` — it
  *  cannot reach the web layer's executor any other way. This registry is
  *  the only legal seam for it. */
-export type WorkflowRuntimeExecutor = Pick<
-  WorkflowExecutor,
-  "runWorkflow" | "resumeWorkflow"
->;
+export type WorkflowRuntimeExecutor = Pick<WorkflowExecutor, "runWorkflow" | "resumeWorkflow">;
 
 export interface WorkflowRuntime {
   workflowExecutor: WorkflowRuntimeExecutor;

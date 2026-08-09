@@ -26,9 +26,14 @@ const realRegistry = { ...(await import("../extensions/registry")) };
 /** Per-test stubs served by the mocked seams. */
 let stubExtension: { id: string; enabled: boolean } | null = { id: "ext-author-1", enabled: true };
 let stubThrows = false;
-let stubTools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> = [
-  { name: "extension-author__create_extension", description: "scaffold", inputSchema: { type: "object" } },
-];
+let stubTools: Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> =
+  [
+    {
+      name: "extension-author__create_extension",
+      description: "scaffold",
+      inputSchema: { type: "object" },
+    },
+  ];
 
 const fakeRegistryInstance = {
   getToolsForExtension: (_id: string) => stubTools,
@@ -65,7 +70,11 @@ beforeEach(() => {
   stubExtension = { id: "ext-author-1", enabled: true };
   stubThrows = false;
   stubTools = [
-    { name: "extension-author__create_extension", description: "scaffold", inputSchema: { type: "object" } },
+    {
+      name: "extension-author__create_extension",
+      description: "scaffold",
+      inputSchema: { type: "object" },
+    },
   ];
 });
 
@@ -101,7 +110,9 @@ describe("wireExtensionToolsIntoTurn (pure loop)", () => {
   });
 
   test("dedupes against a tool already present by name", () => {
-    const agentTools: AgentTool[] = [{ name: "extension-author__create_extension" } as unknown as AgentTool];
+    const agentTools: AgentTool[] = [
+      { name: "extension-author__create_extension" } as unknown as AgentTool,
+    ];
     const wired = wireExtensionToolsIntoTurn({
       agentTools,
       registry: {

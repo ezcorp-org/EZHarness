@@ -100,7 +100,21 @@ export interface SearchResult {
 
 export async function createConversation(
   projectId: string,
-  opts?: { title?: string; model?: string; provider?: string; agentConfigId?: string; systemPrompt?: string; test?: boolean; userId?: string; parentConversationId?: string; parentMessageId?: string; forkedFromConversationId?: string; forkedFromMessageId?: string; extensionTools?: Record<string, string[]> | null; kind?: "regular" | "ext-service" },
+  opts?: {
+    title?: string;
+    model?: string;
+    provider?: string;
+    agentConfigId?: string;
+    systemPrompt?: string;
+    test?: boolean;
+    userId?: string;
+    parentConversationId?: string;
+    parentMessageId?: string;
+    forkedFromConversationId?: string;
+    forkedFromMessageId?: string;
+    extensionTools?: Record<string, string[]> | null;
+    kind?: "regular" | "ext-service";
+  },
 ): Promise<Conversation> {
   if (!projectId) throw new Error("projectId is required to create a conversation");
   const rows = await getDb()
@@ -130,9 +144,7 @@ export async function createConversation(
   // depend on the wiring write succeeding. See
   // `src/extensions/auto-wire-bundled.ts` for the contract.
   try {
-    const { autoWireBundledExtensions } = await import(
-      "../../extensions/auto-wire-bundled"
-    );
+    const { autoWireBundledExtensions } = await import("../../extensions/auto-wire-bundled");
     await autoWireBundledExtensions(created.id);
   } catch (err) {
     // Defensive — autoWireBundledExtensions itself swallows; this is
@@ -148,7 +160,14 @@ export async function createConversation(
 
 export async function createSubConversation(
   projectId: string,
-  opts: { parentConversationId: string; parentMessageId?: string; agentConfigId?: string; systemPrompt?: string; userId?: string; title?: string },
+  opts: {
+    parentConversationId: string;
+    parentMessageId?: string;
+    agentConfigId?: string;
+    systemPrompt?: string;
+    userId?: string;
+    title?: string;
+  },
 ): Promise<Conversation> {
   if (!opts.parentConversationId) throw new Error("parentConversationId is required");
   return createConversation(projectId, {
@@ -280,29 +299,20 @@ export async function getTestConversations(agentConfigId: string): Promise<Conve
   return getDb()
     .select()
     .from(conversations)
-    .where(and(
-      eq(conversations.agentConfigId, agentConfigId),
-      eq(conversations.test, true),
-    ))
+    .where(and(eq(conversations.agentConfigId, agentConfigId), eq(conversations.test, true)))
     .orderBy(desc(conversations.createdAt));
 }
 
 export async function deleteTestConversations(agentConfigId: string): Promise<number> {
   const rows = await getDb()
     .delete(conversations)
-    .where(and(
-      eq(conversations.agentConfigId, agentConfigId),
-      eq(conversations.test, true),
-    ))
+    .where(and(eq(conversations.agentConfigId, agentConfigId), eq(conversations.test, true)))
     .returning({ id: conversations.id });
   return rows.length;
 }
 
 export async function getConversation(id: string): Promise<Conversation | null> {
-  const rows = await getDb()
-    .select()
-    .from(conversations)
-    .where(eq(conversations.id, id));
+  const rows = await getDb().select().from(conversations).where(eq(conversations.id, id));
   return rows[0] ?? null;
 }
 
@@ -324,7 +334,10 @@ export async function getConversationSpawnDepth(conversationId: string): Promise
 
 /** Persist `spawnDepth` into the conversation's metadata bag, preserving
  *  any other keys already present. No-op on unknown conversation. */
-export async function setConversationSpawnDepth(conversationId: string, depth: number): Promise<void> {
+export async function setConversationSpawnDepth(
+  conversationId: string,
+  depth: number,
+): Promise<void> {
   const conv = await getConversation(conversationId);
   if (!conv) return;
   const meta = { ...((conv.metadata ?? {}) as Record<string, unknown>), spawnDepth: depth };
@@ -373,7 +386,15 @@ export async function setConversationSpawnParentAuditId(
 
 export async function updateConversation(
   id: string,
-  data: { title?: string; model?: string; provider?: string; systemPrompt?: string; agentConfigId?: string; modeId?: string | null; extensionTools?: Record<string, string[]> | null },
+  data: {
+    title?: string;
+    model?: string;
+    provider?: string;
+    systemPrompt?: string;
+    agentConfigId?: string;
+    modeId?: string | null;
+    extensionTools?: Record<string, string[]> | null;
+  },
 ): Promise<Conversation | null> {
   const rows = await getDb()
     .update(conversations)
@@ -659,7 +680,9 @@ export async function deleteAllMessagesForConversation(conversationId: string): 
   // calls permanently). Order preserved: extensions/tool_calls first, messages
   // last (so the message-cascade for attachments still fires correctly).
   return getDb().transaction(async (tx: DbTransaction) => {
-    await tx.delete(conversationExtensions).where(eq(conversationExtensions.conversationId, conversationId));
+    await tx
+      .delete(conversationExtensions)
+      .where(eq(conversationExtensions.conversationId, conversationId));
     await tx.delete(toolCalls).where(eq(toolCalls.conversationId, conversationId));
     const rows = await tx
       .delete(messages)
@@ -863,11 +886,13 @@ export async function cloneTurnsIntoNewConversation(
     const sourceCalls = await tx
       .select()
       .from(toolCalls)
-      .where(and(eq(toolCalls.conversationId, sourceConvId), inArray(toolCalls.messageId, uniqueIds)))
+      .where(
+        and(eq(toolCalls.conversationId, sourceConvId), inArray(toolCalls.messageId, uniqueIds)),
+      )
       .orderBy(asc(toolCalls.createdAt));
 
     for (const tc of sourceCalls) {
-      const remappedMessageId = tc.messageId ? messageIdMap.get(tc.messageId) ?? null : null;
+      const remappedMessageId = tc.messageId ? (messageIdMap.get(tc.messageId) ?? null) : null;
       if (!remappedMessageId) continue;
       await tx.insert(toolCalls).values({
         conversationId: newConv.id,
@@ -1013,9 +1038,7 @@ export async function getLatestLeaf(
   // and falls back to the last real message). Off by default so the
   // GET conversation-path caller keeps its existing behavior; the
   // message-create default opts in.
-  const roleFilter = opts?.excludeCapabilityEvents
-    ? sql` AND m.role <> 'capability-event'`
-    : sql``;
+  const roleFilter = opts?.excludeCapabilityEvents ? sql` AND m.role <> 'capability-event'` : sql``;
   const childRoleFilter = opts?.excludeCapabilityEvents
     ? sql` AND child.role <> 'capability-event'`
     : sql``;
@@ -1141,13 +1164,17 @@ export async function resolveSystemPrompt(
     modeId ? getMode(modeId) : undefined,
   ]);
 
-  const basePrompt = conv?.systemPrompt ?? (projectPrompt as string | undefined) ?? (globalPrompt as string | undefined);
+  const basePrompt =
+    conv?.systemPrompt ??
+    (projectPrompt as string | undefined) ??
+    (globalPrompt as string | undefined);
 
   // Layer mode instruction on top of base prompt
   if (mode?.systemPromptInstruction) {
     const instruction = mode.systemPromptInstruction;
     if (mode.instructionPosition === "replace") return instruction;
-    if (mode.instructionPosition === "append") return basePrompt ? `${basePrompt}\n\n${instruction}` : instruction;
+    if (mode.instructionPosition === "append")
+      return basePrompt ? `${basePrompt}\n\n${instruction}` : instruction;
     // Default: prepend
     return basePrompt ? `${instruction}\n\n${basePrompt}` : instruction;
   }
@@ -1170,7 +1197,10 @@ export function extractOutputText(output: unknown): string | null {
     // Handle ToolCallResult shape: { content: [{ type: "text", text: "..." }] }
     if (Array.isArray(obj.content)) {
       const texts = (obj.content as ReadonlyArray<{ type?: unknown; text?: unknown }>)
-        .filter((c): c is { type: "text"; text: string } => c?.type === "text" && typeof c?.text === "string")
+        .filter(
+          (c): c is { type: "text"; text: string } =>
+            c?.type === "text" && typeof c?.text === "string",
+        )
         .map((c) => c.text);
       return texts.length > 0 ? texts.join("\n") : JSON.stringify(output);
     }
@@ -1229,9 +1259,11 @@ export interface MessageWithToolCalls extends Message {
  */
 function toolCallRowToSummary(tc: typeof toolCalls.$inferSelect): ToolCallSummary {
   const status: ToolCallSummary["status"] =
-    tc.success === null && tc.output === null ? "interrupted"
-      : tc.success === false ? "error"
-      : "success";
+    tc.success === null && tc.output === null
+      ? "interrupted"
+      : tc.success === false
+        ? "error"
+        : "success";
 
   // Ship full output when either
   //   (a) the tool has a cardType — custom cards render structured data, or
@@ -1336,14 +1368,18 @@ export async function getMessagesWithToolCalls(conversationId: string): Promise<
     last_message_preview?: string | null;
     parent_message_id?: string | null;
   };
-  const subConversations: SubConversationSummary[] = (subConvoRows.rows as SubConvoRow[]).map((r) => ({
-    id: r.id,
-    agentName: r.agent_name ?? null,
-    agentConfigId: r.agent_config_id ?? null,
-    messageCount: Number(r.message_count),
-    lastMessagePreview: r.last_message_preview ? truncateOutput(r.last_message_preview, 80) : null,
-    parentMessageId: r.parent_message_id ?? null,
-  }));
+  const subConversations: SubConversationSummary[] = (subConvoRows.rows as SubConvoRow[]).map(
+    (r) => ({
+      id: r.id,
+      agentName: r.agent_name ?? null,
+      agentConfigId: r.agent_config_id ?? null,
+      messageCount: Number(r.message_count),
+      lastMessagePreview: r.last_message_preview
+        ? truncateOutput(r.last_message_preview, 80)
+        : null,
+      parentMessageId: r.parent_message_id ?? null,
+    }),
+  );
 
   return { messages: messagesWithCalls, subConversations, orphanedToolCalls };
 }

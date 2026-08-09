@@ -12,12 +12,14 @@ const FAKE_API_KEY = "sk-test-api-key-abc";
 const _FAKE_ENCRYPTED_API_KEY = "enc:sk-test-api-key-abc";
 
 /** Build pi-ai OAuthCredentials JSON string */
-function makeTokenData(overrides: Partial<{
-  access: string;
-  refresh: string;
-  expires: number;
-  projectId: string;
-}> = {}) {
+function makeTokenData(
+  overrides: Partial<{
+    access: string;
+    refresh: string;
+    expires: number;
+    projectId: string;
+  }> = {},
+) {
   return JSON.stringify({
     access: overrides.access ?? FAKE_ACCESS_TOKEN,
     refresh: overrides.refresh ?? FAKE_REFRESH_TOKEN,
@@ -94,7 +96,10 @@ mock.module("../db/queries/settings", () => ({
     settingsStore[key] = value;
   }),
   getAllSettings: mock(async () => ({ ...settingsStore })),
-  deleteSetting: mock(async (key: string) => { delete settingsStore[key]; return true; }),
+  deleteSetting: mock(async (key: string) => {
+    delete settingsStore[key];
+    return true;
+  }),
   isListingInstalled: mock(async () => false),
 }));
 
@@ -107,7 +112,9 @@ mock.module("../db/queries/settings", () => ({
 mock.module("../providers/encryption", () => ({
   encrypt: mock((plaintext: string) => `enc:${plaintext}`),
   decrypt: mock((ciphertext: string) =>
-    typeof ciphertext === "string" && ciphertext.startsWith("enc:") ? ciphertext.slice(4) : decryptReturn,
+    typeof ciphertext === "string" && ciphertext.startsWith("enc:")
+      ? ciphertext.slice(4)
+      : decryptReturn,
   ),
   _resetKeyCache: () => {},
 }));
@@ -127,11 +134,7 @@ afterAll(() => restoreModuleMocks());
 
 // Import after mocks are set up
 const { getCredentialStore } = await import("../providers/credential-store");
-const {
-  getCredential,
-  getApiKey,
-  _clearRefreshLocks,
-} = await import("../providers/credentials");
+const { getCredential, getApiKey, _clearRefreshLocks } = await import("../providers/credentials");
 
 // Store original env
 const _originalEnv = { ...process.env };
@@ -334,7 +337,9 @@ test("a BROKEN OAuth connection reports the refresh failure, not 'no credentials
   delete process.env.OPENAI_API_KEY;
 
   const err = await getCredential("openai").then(
-    () => { throw new Error("expected getCredential to reject"); },
+    () => {
+      throw new Error("expected getCredential to reject");
+    },
     (e: unknown) => e as Error,
   );
   expect(err.message).toContain("could not be refreshed");
@@ -348,9 +353,7 @@ test("a provider with NOTHING connected still reports the generic message", asyn
   // The contrast case for the test above: no stored OAuth, no BYOK, no env.
   delete process.env.OPENAI_API_KEY;
 
-  await expect(getCredential("openai")).rejects.toThrow(
-    "No credentials available for openai",
-  );
+  await expect(getCredential("openai")).rejects.toThrow("No credentials available for openai");
 });
 
 // ── Concurrent Refresh Lock Tests ───────────────────────────────────
@@ -360,10 +363,7 @@ test("concurrent getCredential calls with expired token share a single refresh r
   settingsStore["provider:oauth:openai"] = FAKE_ENCRYPTED;
 
   // Launch two concurrent calls
-  const [cred1, cred2] = await Promise.all([
-    getCredential("openai"),
-    getCredential("openai"),
-  ]);
+  const [cred1, cred2] = await Promise.all([getCredential("openai"), getCredential("openai")]);
 
   // Both should succeed with the same refreshed token
   expect(cred1.token).toBe(FAKE_REFRESHED_API_KEY);
@@ -462,7 +462,9 @@ test("getCredential('openai') refreshes token expiring at 59999ms (just under 60
 
 test("getApiKey falls back to env var when getSetting throws", async () => {
   const { getSetting } = await import("../db/queries/settings");
-  (getSetting as any).mockImplementationOnce(() => { throw new Error("DB down"); });
+  (getSetting as any).mockImplementationOnce(() => {
+    throw new Error("DB down");
+  });
 
   const key = await getApiKey("openai");
   expect(key).toBe(FAKE_API_KEY); // from env var fallback
@@ -473,7 +475,9 @@ test("getApiKey falls back to env var when getSetting throws", async () => {
 test("getApiKey falls back to env var when decrypt throws on corrupted stored key", async () => {
   settingsStore["provider:apiKey:openai"] = "corrupted-data";
   const { decrypt: decryptFn } = await import("../providers/encryption");
-  (decryptFn as any).mockImplementationOnce(() => { throw new Error("bad data"); });
+  (decryptFn as any).mockImplementationOnce(() => {
+    throw new Error("bad data");
+  });
 
   const key = await getApiKey("openai");
   expect(key).toBe(FAKE_API_KEY); // env var fallback
@@ -582,9 +586,7 @@ test("getCredential('google') throws when both OAuth and BYOK are unavailable", 
   // No OAuth token, no env var
   delete process.env.GOOGLE_API_KEY;
 
-  await expect(getCredential("google")).rejects.toThrow(
-    "No credentials available for google",
-  );
+  await expect(getCredential("google")).rejects.toThrow("No credentials available for google");
 });
 
 // ── Local Provider Custom Model Fallback Tests ─────────────────────

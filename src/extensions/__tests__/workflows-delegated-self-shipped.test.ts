@@ -32,20 +32,29 @@
  * ladder suite gives: the ladder's job is to read and write rows, and a
  * mocked query layer would prove it against a world that agrees with it.
  */
-import {
-  test, expect, describe, beforeAll, beforeEach, afterAll, mock,
-} from "bun:test";
+import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -68,14 +77,17 @@ import { createWorkflowDelegation } from "../../db/queries/workflow-delegations"
 import { computeDelegationConsentRecord } from "../../runtime/workflow-delegation-record";
 import { delegationPrincipal } from "../../runtime/workflow-delegation-consent";
 import {
-  extensions, projects, sdkCapabilityCalls, auditLog,
-  workflowDelegations, workflowRuns, workflowStepRuns, messages, errorLogs,
+  extensions,
+  projects,
+  sdkCapabilityCalls,
+  auditLog,
+  workflowDelegations,
+  workflowRuns,
+  workflowStepRuns,
+  messages,
+  errorLogs,
 } from "../../db/schema";
-import type {
-  ExtensionManifestV2,
-  ExtensionPermissions,
-  JsonRpcRequest,
-} from "../types";
+import type { ExtensionManifestV2, ExtensionPermissions, JsonRpcRequest } from "../types";
 import type { AgentDefinition, WorkflowDefinition, WorkflowRun } from "../../types";
 import { systemCachedWorkflow, type CachedWorkflow } from "../../runtime/workflow-scope";
 
@@ -242,25 +254,40 @@ async function delegate(spec: {
 beforeAll(async () => {
   await setupTestDb();
   const owner = await createUser({
-    email: "selfship-owner@example.com", passwordHash: "h", name: "Owner",
-    role: "member", status: "active",
+    email: "selfship-owner@example.com",
+    passwordHash: "h",
+    name: "Owner",
+    role: "member",
+    status: "active",
   });
   ownerUserId = owner.id;
   const admin = await createUser({
-    email: "selfship-admin@example.com", passwordHash: "h", name: "Admin",
-    role: "admin", status: "active",
+    email: "selfship-admin@example.com",
+    passwordHash: "h",
+    name: "Admin",
+    role: "admin",
+    status: "active",
   });
   adminUserId = admin.id;
   // The CALLING extension, installed and ENABLED — which is what the
   // liveness rung reads for a `delegated-ext:`-namespaced name.
-  const [row] = await getTestDb().insert(extensions).values({
-    name: EXT_NAME, version: "0.0.1", description: "",
-    manifest: manifest() as never,
-    source: "test", enabled: true, grantedPermissions: granted() as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name: EXT_NAME,
+      version: "0.0.1",
+      description: "",
+      manifest: manifest() as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: granted() as never,
+    })
+    .returning({ id: extensions.id });
   extensionId = row!.id;
-  const [proj] = await getTestDb().insert(projects)
-    .values({ name: "selfship-proj", path: "/tmp/selfship" }).returning({ id: projects.id });
+  const [proj] = await getTestDb()
+    .insert(projects)
+    .values({ name: "selfship-proj", path: "/tmp/selfship" })
+    .returning({ id: projects.id });
   projectId = proj!.id;
   const account = await createServiceAccount({
     name: "selfship-runner",
@@ -291,8 +318,13 @@ beforeEach(async () => {
     systemCachedWorkflow(SELF_SHIPPED_WF, "extension"),
     systemCachedWorkflow(DEAD_EXT_WF, "extension"),
     {
-      definition: FOREIGN_WF, source: "db", id: "def-org-nightly",
-      projectId: null, userId: ownerUserId, visibility: "system", forkedFrom: null,
+      definition: FOREIGN_WF,
+      source: "db",
+      id: "def-org-nightly",
+      projectId: null,
+      userId: ownerUserId,
+      visibility: "system",
+      forkedFrom: null,
     } as CachedWorkflow,
   ];
   agents = [];
@@ -345,12 +377,16 @@ describe("THE QUESTION — runFor against a workflow the caller itself ships", (
     // declared, nothing granted), which is what makes the accept above a
     // property of the DELEGATED ladder rather than of the grant.
     await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: SELF_SHIPPED_WF.name,
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: SELF_SHIPPED_WF.name,
     });
 
     const viaRun = await handleWorkflowsRpc(
       {
-        jsonrpc: "2.0", id: 2, method: "ezcorp/workflows",
+        jsonrpc: "2.0",
+        id: 2,
+        method: "ezcorp/workflows",
         params: { v: 1, workflow: "etl-factory" },
       },
       ctx(),
@@ -379,7 +415,8 @@ describe("THE QUESTION — runFor against a workflow the caller itself ships", (
     // No session to stream to — the documented service-account trade.
     expect(started[0]?.userId).toBeUndefined();
     expect(started[0]?.opts).toMatchObject({
-      runAsKind: "service", runAs: serviceAccountId,
+      runAsKind: "service",
+      runAs: serviceAccountId,
     });
   });
 
@@ -387,7 +424,9 @@ describe("THE QUESTION — runFor against a workflow the caller itself ships", (
     // Proves the accepts above are the liveness rung passing rather than
     // the ladder never looking at the namespace at all.
     const delegationId = await delegate({
-      ownerKind: "user", ownerId: ownerUserId, workflowName: DEAD_EXT_WF.name,
+      ownerKind: "user",
+      ownerId: ownerUserId,
+      workflowName: DEAD_EXT_WF.name,
     });
 
     const resp = await handleWorkflowsRpc(req(), ctx());
@@ -434,10 +473,16 @@ describe("THE QUESTION — runFor against a workflow the caller itself ships", (
       "../../runtime/workflow-delegation-consent"
     );
     const asUser = authorizeDelegationConsent(
-      cachedEntries, SELF_SHIPPED_WF.name, "user", ownerUserId,
+      cachedEntries,
+      SELF_SHIPPED_WF.name,
+      "user",
+      ownerUserId,
     );
     const asService = authorizeDelegationConsent(
-      cachedEntries, SELF_SHIPPED_WF.name, "service", serviceAccountId,
+      cachedEntries,
+      SELF_SHIPPED_WF.name,
+      "service",
+      serviceAccountId,
     );
     expect(asUser.ok).toBe(true);
     expect(asService.ok).toBe(true);

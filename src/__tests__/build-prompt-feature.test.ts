@@ -23,13 +23,16 @@ afterAll(() => restoreModuleMocks());
 let projectRoot: string;
 let mockProject: { id: string; path: string } | undefined;
 
-let mockFeatures: Record<string, {
-  id: string;
-  projectId: string;
-  name: string;
-  description: string;
-  files: { relpath: string }[];
-}> = {};
+let mockFeatures: Record<
+  string,
+  {
+    id: string;
+    projectId: string;
+    name: string;
+    description: string;
+    files: { relpath: string }[];
+  }
+> = {};
 let getFeatureShouldThrow = false;
 const featureCalls: Array<{ projectId: string; name: string }> = [];
 
@@ -116,10 +119,9 @@ describe("buildPromptInput — feature expansion happy path", () => {
       description: "Alpha",
       files: [{ relpath: "src/a/1.ts" }, { relpath: "src/a/2.ts" }],
     };
-    const result = await buildPromptInput(
-      "first $[feature:b] then $[feature:a]",
-      { projectId: "proj-1" },
-    );
+    const result = await buildPromptInput("first $[feature:b] then $[feature:a]", {
+      projectId: "proj-1",
+    });
     const idxB = result.text.indexOf("**Feature: b**");
     const idxA = result.text.indexOf("**Feature: a**");
     expect(idxB).toBeGreaterThanOrEqual(0);
@@ -182,10 +184,9 @@ describe("buildPromptInput — feature + file expansion together", () => {
       description: "Bar",
       files: [{ relpath: "src/bar/1.ts" }, { relpath: "src/bar/2.ts" }],
     };
-    const result = await buildPromptInput(
-      "look at @[file:foo.ts] and $[feature:bar]",
-      { projectId: "proj-1" },
-    );
+    const result = await buildPromptInput("look at @[file:foo.ts] and $[feature:bar]", {
+      projectId: "proj-1",
+    });
     // build-prompt.ts runs file-mention expansion BEFORE feature
     // expansion (lines 58-66 then 75-90). After both prepends:
     //   <feature-note>\n\n<file-note>\n\n<original>
@@ -215,10 +216,7 @@ describe("buildPromptInput — no double-expansion across the integration bounda
       projectId: "proj-1",
       name: "evil",
       description: "see ![ext:evil] and @[file:secret.ts] and $[feature:meta]",
-      files: [
-        { relpath: "src/normal.ts" },
-        { relpath: "src/$[feature:nested]/x.ts" },
-      ],
+      files: [{ relpath: "src/normal.ts" }, { relpath: "src/$[feature:nested]/x.ts" }],
     };
     const result = await buildPromptInput("trigger $[feature:evil]", {
       projectId: "proj-1",

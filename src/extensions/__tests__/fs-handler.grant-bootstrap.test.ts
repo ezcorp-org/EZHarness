@@ -88,10 +88,7 @@ describe("fs-handler — granted dir not created yet (bootstrap deadlock)", () =
     installDir = await realpath(await mkdtemp(join(tmpdir(), "ezc-inst-")));
     grantDir = join(projectRoot, ".ezcorp", "extension-data", "extension-author");
     engine = createStubPermissionEngine("allow-all");
-    executor = new ToolExecutor(
-      makeRegistry(grantDir, installDir),
-      engine,
-    );
+    executor = new ToolExecutor(makeRegistry(grantDir, installDir), engine);
   });
 
   afterEach(async () => {

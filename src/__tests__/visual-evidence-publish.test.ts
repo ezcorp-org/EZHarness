@@ -419,7 +419,12 @@ describe("publish: buildGalleryMarkdown diff-scoped partition", () => {
       // rawSpec matches the changed path → this shot floats into the inline
       // section; its `spec` carries a markdown-breakout payload to prove the
       // inline render path still neutralizes it (renderShot → sanitizeLabel).
-      { spec: "x)](http://evil).spec.ts", rawSpec: "web/e2e/x.spec.ts", label: "shot", file: "1.png" },
+      {
+        spec: "x)](http://evil).spec.ts",
+        rawSpec: "web/e2e/x.spec.ts",
+        label: "shot",
+        file: "1.png",
+      },
       { spec: "web/e2e/other.spec.ts", label: "other", file: "2.png" },
     ];
     const md = buildGalleryMarkdown({ ...base, shots, changedSpecs: ["web/e2e/x.spec.ts"] });
@@ -514,7 +519,11 @@ describe("build-manifest: parseReportJsonl", () => {
     const jsonl = [
       JSON.stringify({
         method: "onProject",
-        params: { suites: [{ title: "s", entries: [{ testId: "t2", location: { file: "e2e/a.spec.ts" } }] }] },
+        params: {
+          suites: [
+            { title: "s", entries: [{ testId: "t2", location: { file: "e2e/a.spec.ts" } }] },
+          ],
+        },
       }),
       JSON.stringify({
         method: "onTestEnd",
@@ -561,95 +570,102 @@ describe("build-manifest: parseReportJsonl", () => {
 // + rawSpec) — not fixture approximations — feed buildGalleryMarkdown. Pins
 // the skipped/update-only path and the partition path end to end.
 describe("publish: main() integration", () => {
-	const PUBLISH = joinPath(resolvePath(import.meta.dir, "..", ".."), "scripts/visual-evidence/publish.ts");
-	// Smallest valid PNG (1x1 RGB), enough to pass the magic-byte + stage checks.
-	const PNG = Buffer.from(
-		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-		"base64",
-	);
+  const PUBLISH = joinPath(
+    resolvePath(import.meta.dir, "..", ".."),
+    "scripts/visual-evidence/publish.ts",
+  );
+  // Smallest valid PNG (1x1 RGB), enough to pass the magic-byte + stage checks.
+  const PNG = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    "base64",
+  );
 
-	const sandboxes: string[] = [];
-	afterEach(() => {
-		for (const dir of sandboxes.splice(0)) rmSync(dir, { recursive: true, force: true });
-	});
+  const sandboxes: string[] = [];
+  afterEach(() => {
+    for (const dir of sandboxes.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
 
-	async function runMain(opts: {
-		manifest: unknown;
-		pngs?: string[];
-		changedFiles?: string;
-	}): Promise<{ body: string; outputs: string }> {
-		const root = mkdtempSync(joinPath(tmpdir(), "evpub-"));
-		sandboxes.push(root);
-		const artifact = joinPath(root, "artifact");
-		mkdirSync(joinPath(artifact, "extracted"), { recursive: true });
-		await Bun.write(joinPath(artifact, "manifest.json"), JSON.stringify(opts.manifest));
-		for (const rel of opts.pngs ?? []) await Bun.write(joinPath(artifact, rel), PNG);
-		const env: Record<string, string> = {
-			...process.env,
-			EVIDENCE_ARTIFACT_DIR: artifact,
-			EVIDENCE_STAGE_DIR: joinPath(root, "stage"),
-			EVIDENCE_COMMENT_FILE: joinPath(root, "comment.md"),
-			EVIDENCE_COMMIT_SHA: "cafef00d",
-			GITHUB_OUTPUT: joinPath(root, "outputs.txt"),
-		};
-		if (opts.changedFiles !== undefined) {
-			await Bun.write(joinPath(root, "changed.txt"), opts.changedFiles);
-			env.EVIDENCE_CHANGED_FILES = joinPath(root, "changed.txt");
-		} else {
-			delete env.EVIDENCE_CHANGED_FILES;
-		}
-		const proc = Bun.spawn(["bun", PUBLISH], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
-		await proc.exited;
-		const body = await Bun.file(joinPath(root, "comment.md")).text().catch(() => "");
-		const outputs = await Bun.file(joinPath(root, "outputs.txt")).text().catch(() => "");
-		return { body, outputs };
-	}
+  async function runMain(opts: {
+    manifest: unknown;
+    pngs?: string[];
+    changedFiles?: string;
+  }): Promise<{ body: string; outputs: string }> {
+    const root = mkdtempSync(joinPath(tmpdir(), "evpub-"));
+    sandboxes.push(root);
+    const artifact = joinPath(root, "artifact");
+    mkdirSync(joinPath(artifact, "extracted"), { recursive: true });
+    await Bun.write(joinPath(artifact, "manifest.json"), JSON.stringify(opts.manifest));
+    for (const rel of opts.pngs ?? []) await Bun.write(joinPath(artifact, rel), PNG);
+    const env: Record<string, string> = {
+      ...process.env,
+      EVIDENCE_ARTIFACT_DIR: artifact,
+      EVIDENCE_STAGE_DIR: joinPath(root, "stage"),
+      EVIDENCE_COMMENT_FILE: joinPath(root, "comment.md"),
+      EVIDENCE_COMMIT_SHA: "cafef00d",
+      GITHUB_OUTPUT: joinPath(root, "outputs.txt"),
+    };
+    if (opts.changedFiles !== undefined) {
+      await Bun.write(joinPath(root, "changed.txt"), opts.changedFiles);
+      env.EVIDENCE_CHANGED_FILES = joinPath(root, "changed.txt");
+    } else {
+      delete env.EVIDENCE_CHANGED_FILES;
+    }
+    const proc = Bun.spawn(["bun", PUBLISH], { cwd: root, env, stdout: "pipe", stderr: "pipe" });
+    await proc.exited;
+    const body = await Bun.file(joinPath(root, "comment.md"))
+      .text()
+      .catch(() => "");
+    const outputs = await Bun.file(joinPath(root, "outputs.txt"))
+      .text()
+      .catch(() => "");
+    return { body, outputs };
+  }
 
-	test("skipped manifest with zero shots → neutral body + update_only=1", async () => {
-		const { body, outputs } = await runMain({
-			manifest: { pr: 7, headSha: "abc", runId: 3, shots: [], skipped: true },
-		});
-		expect(body).toContain(COMMENT_MARKER);
-		expect(body).toContain("No user-visible changes");
-		expect(body).not.toContain("⚠️");
-		expect(outputs).toContain("update_only<<");
-		expect(outputs).toMatch(/update_only<<[^\n]+\n1\n/);
-	});
+  test("skipped manifest with zero shots → neutral body + update_only=1", async () => {
+    const { body, outputs } = await runMain({
+      manifest: { pr: 7, headSha: "abc", runId: 3, shots: [], skipped: true },
+    });
+    expect(body).toContain(COMMENT_MARKER);
+    expect(body).toContain("No user-visible changes");
+    expect(body).not.toContain("⚠️");
+    expect(outputs).toContain("update_only<<");
+    expect(outputs).toMatch(/update_only<<[^\n]+\n1\n/);
+  });
 
-	test("hostile skipped=true WITH shots still renders the normal gallery (not update-only)", async () => {
-		const { body, outputs } = await runMain({
-			manifest: {
-				pr: 7,
-				headSha: "abc",
-				runId: 3,
-				skipped: true,
-				shots: [{ spec: "e2e/dash.spec.ts", label: "dash", file: "extracted/a.png" }],
-			},
-			pngs: ["extracted/a.png"],
-		});
-		expect(body).toContain("![evidence](");
-		expect(body).not.toContain("No user-visible changes");
-		expect(outputs).toMatch(/update_only<<[^\n]+\n\n/);
-	});
+  test("hostile skipped=true WITH shots still renders the normal gallery (not update-only)", async () => {
+    const { body, outputs } = await runMain({
+      manifest: {
+        pr: 7,
+        headSha: "abc",
+        runId: 3,
+        skipped: true,
+        shots: [{ spec: "e2e/dash.spec.ts", label: "dash", file: "extracted/a.png" }],
+      },
+      pngs: ["extracted/a.png"],
+    });
+    expect(body).toContain("![evidence](");
+    expect(body).not.toContain("No user-visible changes");
+    expect(outputs).toMatch(/update_only<<[^\n]+\n\n/);
+  });
 
-	test("real staging shapes partition against a changed-files list (rawSpec end to end)", async () => {
-		const { body } = await runMain({
-			manifest: {
-				pr: 7,
-				headSha: "abc",
-				runId: 3,
-				shots: [
-					{ spec: "e2e/dash.spec.ts", label: "dash", file: "extracted/a.png" },
-					{ spec: "e2e/chat.spec.ts", label: "chat", file: "extracted/b.png" },
-				],
-			},
-			pngs: ["extracted/a.png", "extracted/b.png"],
-			changedFiles: "web/e2e/dash.spec.ts\nweb/src/lib/components/Chat.svelte\n",
-		});
-		const detailsAt = body.indexOf("<details>");
-		expect(detailsAt).toBeGreaterThan(-1);
-		expect(body.slice(0, detailsAt)).toContain("e2e-dash.spec.ts");
-		expect(body.slice(detailsAt)).toContain("e2e-chat.spec.ts");
-		expect(body).toContain("1 more screenshot(s) from the full suite");
-	});
+  test("real staging shapes partition against a changed-files list (rawSpec end to end)", async () => {
+    const { body } = await runMain({
+      manifest: {
+        pr: 7,
+        headSha: "abc",
+        runId: 3,
+        shots: [
+          { spec: "e2e/dash.spec.ts", label: "dash", file: "extracted/a.png" },
+          { spec: "e2e/chat.spec.ts", label: "chat", file: "extracted/b.png" },
+        ],
+      },
+      pngs: ["extracted/a.png", "extracted/b.png"],
+      changedFiles: "web/e2e/dash.spec.ts\nweb/src/lib/components/Chat.svelte\n",
+    });
+    const detailsAt = body.indexOf("<details>");
+    expect(detailsAt).toBeGreaterThan(-1);
+    expect(body.slice(0, detailsAt)).toContain("e2e-dash.spec.ts");
+    expect(body.slice(detailsAt)).toContain("e2e-chat.spec.ts");
+    expect(body).toContain("1 more screenshot(s) from the full suite");
+  });
 });

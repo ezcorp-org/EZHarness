@@ -103,7 +103,16 @@ describe("buildFullGrantFromManifest", () => {
     // schedule survives too
     expect(g.schedule?.crons).toEqual(["*/15 * * * *"]);
     // grantedAt stamped for each surviving grant
-    for (const k of ["network", "filesystem", "shell", "env", "storage", "spawnAgents", "eventSubscriptions", "schedule"] as const) {
+    for (const k of [
+      "network",
+      "filesystem",
+      "shell",
+      "env",
+      "storage",
+      "spawnAgents",
+      "eventSubscriptions",
+      "schedule",
+    ] as const) {
       expect(g.grantedAt[k]).toBe(1000);
     }
   });
@@ -140,7 +149,14 @@ describe("buildFullGrantFromManifest", () => {
 
   test("empty permissions → only grantedAt", () => {
     const g = buildFullGrantFromManifest(
-      { schemaVersion: 2, name: "e", version: "1.0.0", description: "x", entrypoint: "./i.ts", permissions: {} } as unknown as ExtensionManifestV2,
+      {
+        schemaVersion: 2,
+        name: "e",
+        version: "1.0.0",
+        description: "x",
+        entrypoint: "./i.ts",
+        permissions: {},
+      } as unknown as ExtensionManifestV2,
       1000,
     );
     expect(g).toEqual({ grantedAt: {} });
@@ -252,7 +268,14 @@ describe("promptForPermissions", () => {
     const restore = setTTY(true);
     try {
       const g = await promptForPermissions(
-        { schemaVersion: 2, name: "e", version: "1.0.0", description: "x", entrypoint: "./i.ts", permissions: {} } as unknown as ExtensionManifestV2,
+        {
+          schemaVersion: 2,
+          name: "e",
+          version: "1.0.0",
+          description: "x",
+          entrypoint: "./i.ts",
+          permissions: {},
+        } as unknown as ExtensionManifestV2,
         false,
       );
       expect(g).toEqual({ grantedAt: {} });
@@ -266,10 +289,7 @@ describe("promptForPermissions", () => {
     const restore = setTTY(true);
     askAnswers = ["n"];
     try {
-      await promptForPermissions(
-        fullManifest({}, { spawnAgents: { maxPerHour: 5 } }),
-        false,
-      );
+      await promptForPermissions(fullManifest({}, { spawnAgents: { maxPerHour: 5 } }), false);
       expect(askedPrompts.length).toBeGreaterThan(0);
     } finally {
       restore();

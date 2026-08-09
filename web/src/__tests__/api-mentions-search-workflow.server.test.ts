@@ -119,27 +119,17 @@ describe("GET /api/mentions/search?type=workflow", () => {
       { name: "deploy", description: "d", steps: [{ name: "s1" }], inputSchema: {} },
     ]);
     const body = await search("?type=workflow");
-    expect(Object.keys(body[0]!).sort()).toEqual([
-      "description",
-      "kind",
-      "name",
-    ]);
+    expect(Object.keys(body[0]!).sort()).toEqual(["description", "kind", "name"]);
   });
 
   test("fuzzy-matches on name", async () => {
-    mockGetWorkflows.mockReturnValue([
-      wf("deploy", "ship it"),
-      wf("nightly", "regression sweep"),
-    ]);
+    mockGetWorkflows.mockReturnValue([wf("deploy", "ship it"), wf("nightly", "regression sweep")]);
     const body = await search("?type=workflow&q=depl");
     expect(body.map((b) => b.name)).toEqual(["deploy"]);
   });
 
   test("fuzzy-matches on description too", async () => {
-    mockGetWorkflows.mockReturnValue([
-      wf("deploy", "ship it"),
-      wf("nightly", "regression sweep"),
-    ]);
+    mockGetWorkflows.mockReturnValue([wf("deploy", "ship it"), wf("nightly", "regression sweep")]);
     const body = await search("?type=workflow&q=regression");
     expect(body.map((b) => b.name)).toEqual(["nightly"]);
   });
@@ -150,9 +140,7 @@ describe("GET /api/mentions/search?type=workflow", () => {
   });
 
   test("caps at MAX_RESULTS (10)", async () => {
-    mockGetWorkflows.mockReturnValue(
-      Array.from({ length: 25 }, (_, i) => wf(`wf-${i}`)),
-    );
+    mockGetWorkflows.mockReturnValue(Array.from({ length: 25 }, (_, i) => wf(`wf-${i}`)));
     const body = await search("?type=workflow");
     expect(body).toHaveLength(10);
   });
@@ -202,9 +190,7 @@ describe("GET /api/mentions/search (no type param) — workflows in the `!` merg
   test("bare `!` (no query) → workflows appear in the merged response", async () => {
     mockGetWorkflows.mockReturnValue([wf("deploy", "ship it")]);
     const body = await search("");
-    expect(body).toEqual([
-      { name: "deploy", description: "ship it", kind: "workflow" },
-    ]);
+    expect(body).toEqual([{ name: "deploy", description: "ship it", kind: "workflow" }]);
   });
 
   test("typing the kind label (`!w` / `!work`) surfaces ALL workflows", async () => {
@@ -222,25 +208,17 @@ describe("GET /api/mentions/search (no type param) — workflows in the `!` merg
   });
 
   test("a non-label query still substring-matches name and description", async () => {
-    mockGetWorkflows.mockReturnValue([
-      wf("deploy", "ship it"),
-      wf("nightly", "regression sweep"),
-    ]);
+    mockGetWorkflows.mockReturnValue([wf("deploy", "ship it"), wf("nightly", "regression sweep")]);
     const byName = await search("?q=deploy");
     expect(byName.map((b) => b.name)).toEqual(["deploy"]);
 
-    mockGetWorkflows.mockReturnValue([
-      wf("deploy", "ship it"),
-      wf("nightly", "regression sweep"),
-    ]);
+    mockGetWorkflows.mockReturnValue([wf("deploy", "ship it"), wf("nightly", "regression sweep")]);
     const byDescription = await search("?q=regression");
     expect(byDescription.map((b) => b.name)).toEqual(["nightly"]);
   });
 
   test("the merge respects MAX_RESULTS", async () => {
-    mockGetWorkflows.mockReturnValue(
-      Array.from({ length: 25 }, (_, i) => wf(`wf-${i}`)),
-    );
+    mockGetWorkflows.mockReturnValue(Array.from({ length: 25 }, (_, i) => wf(`wf-${i}`)));
     const body = await search("");
     expect(body).toHaveLength(10);
   });

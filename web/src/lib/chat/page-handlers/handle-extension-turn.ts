@@ -25,19 +25,19 @@
  */
 
 export interface HandleExtensionTurnDeps {
-	/** Drop a fetch-policy cooldown by exact key. */
-	invalidateFetchPolicy: (key: string) => void;
-	/** Re-fetch the conversation's persisted message tree. */
-	loadMessages: () => unknown;
-	/** Re-fetch the conversation's tool-call rows into inlineToolStore. */
-	hydrateToolCallsFromApi: () => unknown;
+  /** Drop a fetch-policy cooldown by exact key. */
+  invalidateFetchPolicy: (key: string) => void;
+  /** Re-fetch the conversation's persisted message tree. */
+  loadMessages: () => unknown;
+  /** Re-fetch the conversation's tool-call rows into inlineToolStore. */
+  hydrateToolCallsFromApi: () => unknown;
 }
 
 export interface HandleExtensionTurnInput {
-	convId: string;
-	messageId: string;
-	/** Caller's snapshot — used to dedupe. */
-	knownMessageIds: ReadonlySet<string> | { has(id: string): boolean };
+  convId: string;
+  messageId: string;
+  /** Caller's snapshot — used to dedupe. */
+  knownMessageIds: ReadonlySet<string> | { has(id: string): boolean };
 }
 
 /**
@@ -46,14 +46,14 @@ export interface HandleExtensionTurnInput {
  * via the injected deps.
  */
 export function handleExtensionTurnSaved(
-	deps: HandleExtensionTurnDeps,
-	input: HandleExtensionTurnInput,
+  deps: HandleExtensionTurnDeps,
+  input: HandleExtensionTurnInput,
 ): boolean {
-	if (input.knownMessageIds.has(input.messageId)) return false;
+  if (input.knownMessageIds.has(input.messageId)) return false;
 
-	deps.invalidateFetchPolicy(`messages-all:${input.convId}`);
-	deps.invalidateFetchPolicy(`messages-tools:${input.convId}`);
-	void deps.loadMessages();
-	void deps.hydrateToolCallsFromApi();
-	return true;
+  deps.invalidateFetchPolicy(`messages-all:${input.convId}`);
+  deps.invalidateFetchPolicy(`messages-tools:${input.convId}`);
+  void deps.loadMessages();
+  void deps.hydrateToolCallsFromApi();
+  return true;
 }

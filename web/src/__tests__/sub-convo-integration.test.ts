@@ -44,7 +44,10 @@ function getSummaryText(messages: SubConvoMessage[]): string {
 }
 
 const makeMsg = (id: string, role: string, content: string): SubConvoMessage => ({
-  id, role, content, createdAt: new Date(),
+  id,
+  role,
+  content,
+  createdAt: new Date(),
 });
 
 describe("Sub-Convo Block Logic", () => {
@@ -105,15 +108,17 @@ describe("Sub-Convo Block Logic", () => {
     agentBMessages.push(makeMsg("b2", "assistant", "Code written"));
 
     // No cross-contamination
-    expect(agentAMessages.every(m => m.id.startsWith("a"))).toBe(true);
-    expect(agentBMessages.every(m => m.id.startsWith("b"))).toBe(true);
+    expect(agentAMessages.every((m) => m.id.startsWith("a"))).toBe(true);
+    expect(agentBMessages.every((m) => m.id.startsWith("b"))).toBe(true);
     expect(agentAMessages.length).toBe(2);
     expect(agentBMessages.length).toBe(2);
   });
 
   test("return-to-main callback pattern with multiple agents", () => {
     const mainMessages: string[] = [];
-    const returnToMain = (summary: string) => { mainMessages.push(summary); };
+    const returnToMain = (summary: string) => {
+      mainMessages.push(summary);
+    };
 
     // Researcher finishes
     const researchMsgs = [makeMsg("r1", "assistant", "Research complete: found 3 papers")];
@@ -168,7 +173,10 @@ describe("Sub-Conversation API Helpers", () => {
     });
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    const [url, opts] = (globalThis.fetch as unknown as ReturnType<typeof mock>).mock.calls[0]! as [string, RequestInit];
+    const [url, opts] = (globalThis.fetch as unknown as ReturnType<typeof mock>).mock.calls[0]! as [
+      string,
+      RequestInit,
+    ];
     expect(url).toBe("/api/conversations");
     expect(opts.method).toBe("POST");
 
@@ -186,7 +194,7 @@ describe("Sub-Conversation API Helpers", () => {
     const mockResponse = {
       ok: true,
       status: 200,
-      json: async () => ([]),
+      json: async () => [],
     } as Response;
     (globalThis.fetch as unknown as ReturnType<typeof mock>).mockResolvedValue(mockResponse);
 
@@ -194,7 +202,9 @@ describe("Sub-Conversation API Helpers", () => {
     await fetchSubConversations("conv-42");
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
-    const [url] = (globalThis.fetch as unknown as ReturnType<typeof mock>).mock.calls[0]! as [string];
+    const [url] = (globalThis.fetch as unknown as ReturnType<typeof mock>).mock.calls[0]! as [
+      string,
+    ];
     expect(url).toBe("/api/conversations/conv-42/sub-conversations");
 
     globalThis.fetch = originalFetch;

@@ -48,14 +48,9 @@ export async function mintApiKeyForUser(
  * route can still answer 404 unchanged). Tolerates a missing index row
  * (legacy keys minted before the index existed simply have none).
  */
-export async function deleteApiKeyForUser(
-  userId: string,
-  keyId: string,
-): Promise<boolean> {
+export async function deleteApiKeyForUser(userId: string, keyId: string): Promise<boolean> {
   const { getSetting } = await import("../db/queries/settings");
-  const existing = (await getSetting(apiKeySettingsKey(userId, keyId))) as
-    | ApiKeyEntry
-    | undefined;
+  const existing = (await getSetting(apiKeySettingsKey(userId, keyId))) as ApiKeyEntry | undefined;
   const deleted = await deleteSetting(apiKeySettingsKey(userId, keyId));
   if (existing?.hash) await deleteSetting(apiKeyHashIndexKey(existing.hash));
   return deleted;

@@ -87,9 +87,7 @@ export function validateRbacScopeDeclarations(
     return;
   }
   if (value.length > MAX_RBAC_SCOPE_DECLARATIONS) {
-    errors.push(
-      `${path} declares ${value.length} scopes — max ${MAX_RBAC_SCOPE_DECLARATIONS}`,
-    );
+    errors.push(`${path} declares ${value.length} scopes — max ${MAX_RBAC_SCOPE_DECLARATIONS}`);
   }
   const seen = new Set<string>();
   for (let i = 0; i < value.length; i++) {

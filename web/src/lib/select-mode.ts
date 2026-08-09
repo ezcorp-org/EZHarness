@@ -8,31 +8,31 @@
  */
 
 export interface SelectionState {
-	selectedIds: Set<string>;
+  selectedIds: Set<string>;
 }
 
 /** Immutably returns a fresh Set with `id` toggled. Callers reassign the
  *  returned set so Svelte's `$state` sees a new reference and re-renders. */
 export function toggleSelection(selectedIds: Set<string>, id: string): Set<string> {
-	const next = new Set(selectedIds);
-	if (next.has(id)) {
-		next.delete(id);
-	} else {
-		next.add(id);
-	}
-	return next;
+  const next = new Set(selectedIds);
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+  return next;
 }
 
 export function clearSelection(): Set<string> {
-	return new Set<string>();
+  return new Set<string>();
 }
 
 export function isSelected(selectedIds: Set<string>, id: string): boolean {
-	return selectedIds.has(id);
+  return selectedIds.has(id);
 }
 
 export function selectionSize(selectedIds: Set<string>): number {
-	return selectedIds.size;
+  return selectedIds.size;
 }
 
 /** Order-preserving export of selected ids in the supplied reference order.
@@ -41,7 +41,7 @@ export function selectionSize(selectedIds: Set<string>): number {
  *  by `cloneTurnsIntoNewConversation`, but surfacing them correctly here
  *  keeps the client send payload predictable for tests. */
 export function orderedSelection(selectedIds: Set<string>, orderedIds: string[]): string[] {
-	return orderedIds.filter((id) => selectedIds.has(id));
+  return orderedIds.filter((id) => selectedIds.has(id));
 }
 
 /** Apply a range action between `anchorId` and `targetId` (inclusive) in
@@ -62,30 +62,30 @@ export function orderedSelection(selectedIds: Set<string>, orderedIds: string[])
  *    (default) the range is always additive.
  */
 export function selectRange(
-	current: Set<string>,
-	orderedIds: string[],
-	anchorId: string,
-	targetId: string,
-	opts?: { skipPredicate?: (id: string) => boolean; toggle?: boolean },
+  current: Set<string>,
+  orderedIds: string[],
+  anchorId: string,
+  targetId: string,
+  opts?: { skipPredicate?: (id: string) => boolean; toggle?: boolean },
 ): Set<string> {
-	const anchorIdx = orderedIds.indexOf(anchorId);
-	const targetIdx = orderedIds.indexOf(targetId);
-	if (anchorIdx === -1 || targetIdx === -1) return current;
-	// Toggle off: target is already selected → remove just the target id.
-	// Don't touch anything else, so users can pick a single row out of an
-	// existing range without destroying the rest of the selection.
-	if (opts?.toggle === true && current.has(targetId)) {
-		const next = new Set(current);
-		next.delete(targetId);
-		return next;
-	}
-	const [start, end] = anchorIdx <= targetIdx ? [anchorIdx, targetIdx] : [targetIdx, anchorIdx];
-	const next = new Set(current);
-	const skip = opts?.skipPredicate;
-	for (let i = start; i <= end; i++) {
-		const id = orderedIds[i]!;
-		if (skip && skip(id)) continue;
-		next.add(id);
-	}
-	return next;
+  const anchorIdx = orderedIds.indexOf(anchorId);
+  const targetIdx = orderedIds.indexOf(targetId);
+  if (anchorIdx === -1 || targetIdx === -1) return current;
+  // Toggle off: target is already selected → remove just the target id.
+  // Don't touch anything else, so users can pick a single row out of an
+  // existing range without destroying the rest of the selection.
+  if (opts?.toggle === true && current.has(targetId)) {
+    const next = new Set(current);
+    next.delete(targetId);
+    return next;
+  }
+  const [start, end] = anchorIdx <= targetIdx ? [anchorIdx, targetIdx] : [targetIdx, anchorIdx];
+  const next = new Set(current);
+  const skip = opts?.skipPredicate;
+  for (let i = start; i <= end; i++) {
+    const id = orderedIds[i]!;
+    if (skip && skip(id)) continue;
+    next.add(id);
+  }
+  return next;
 }

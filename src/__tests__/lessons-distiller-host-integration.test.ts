@@ -151,9 +151,7 @@ mock.module("../db/queries/extension-settings", () => ({
 const { ExtensionRegistry } = await import("../extensions/registry");
 const { ToolExecutor } = await import("../extensions/tool-executor");
 const { EventBus } = await import("../runtime/events");
-const { EventSubscriptionDispatcher } = await import(
-  "../extensions/event-subscription-dispatcher"
-);
+const { EventSubscriptionDispatcher } = await import("../extensions/event-subscription-dispatcher");
 const { bootSpawnFlaggedBundledExtensions, resolveBundledExtensions } = await import(
   "../extensions/bundled"
 );
@@ -170,9 +168,7 @@ const {
   toolCalls,
   lessons,
 } = await import("../db/schema");
-const distillerManifestModule = await import(
-  "../../extensions/lessons-distiller/ezcorp.config"
-);
+const distillerManifestModule = await import("../../extensions/lessons-distiller/ezcorp.config");
 import type {
   ExtensionManifestV2,
   ExtensionPermissions,
@@ -190,9 +186,7 @@ const DISTILLER_DIR = resolve(import.meta.dir, "..", "..", "extensions", "lesson
  *  `BUNDLED_EXTENSIONS` entry's `permissions` block on the row, so the
  *  llm / lessons / storage ceilings the host handlers enforce here are
  *  the production ones, not a hand-written approximation. */
-const DISTILLER_ENTRY = resolveBundledExtensions().find(
-  (e) => e.name === "lessons-distiller",
-);
+const DISTILLER_ENTRY = resolveBundledExtensions().find((e) => e.name === "lessons-distiller");
 if (!DISTILLER_ENTRY) throw new Error("lessons-distiller is not a registered bundled extension");
 const DISTILLER_GRANTS: ExtensionPermissions = {
   ...DISTILLER_ENTRY.permissions,
@@ -247,10 +241,15 @@ beforeAll(async () => {
     { id: OTHER_ID, email: "bystander@distill.local", passwordHash: "x", name: "Bystander" },
   ] as never);
   await db.insert(projects).values({
-    id: PROJECT_ID, name: "distill", path: "/tmp/proj-distill",
+    id: PROJECT_ID,
+    name: "distill",
+    path: "/tmp/proj-distill",
   } as never);
   await db.insert(conversations).values({
-    id: CONV_ID, projectId: PROJECT_ID, title: "distill integration", userId: OWNER_ID,
+    id: CONV_ID,
+    projectId: PROJECT_ID,
+    title: "distill integration",
+    userId: OWNER_ID,
   } as never);
   // The latest user message is deliberately signal-FREE: no correction
   // token, no `[lesson]` tag. That leaves the tool-call count as the
@@ -258,7 +257,12 @@ beforeAll(async () => {
   // window and nothing else.
   await db.insert(messages).values([
     { id: "m1", conversationId: CONV_ID, role: "user", content: "summarise the build output" },
-    { id: "m2", conversationId: CONV_ID, role: "assistant", content: "the build produced 3 warnings" },
+    {
+      id: "m2",
+      conversationId: CONV_ID,
+      role: "assistant",
+      content: "the build produced 3 warnings",
+    },
   ] as never);
   await db.insert(extensions).values({
     id: EXT_ID,
@@ -276,7 +280,9 @@ beforeAll(async () => {
   // both read — the single trust source for "this extension may see this
   // conversation".
   await db.insert(conversationExtensions).values({
-    id: "convext-1", conversationId: CONV_ID, extensionId: EXT_ID,
+    id: "convext-1",
+    conversationId: CONV_ID,
+    extensionId: EXT_ID,
   } as never);
   // Negative control. A SECOND user has the distiller switched ON. If
   // the host ever resolved the wrong identity (or fell back to declared
@@ -284,7 +290,9 @@ beforeAll(async () => {
   // so its "nothing happened" assertions only hold when the resolved
   // user is genuinely the conversation owner.
   await db.insert(extensionSettingsUser).values({
-    userId: OTHER_ID, extensionId: EXT_ID, values: { enabled: true },
+    userId: OTHER_ID,
+    extensionId: EXT_ID,
+    values: { enabled: true },
   } as never);
 
   _resetCallProvenanceForTests();
@@ -348,8 +356,16 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(async () => {
-  try { dispatcher?.stop(); } catch { dispatcher = null; }
-  try { registry?.killAll(); } catch { registry = null; }
+  try {
+    dispatcher?.stop();
+  } catch {
+    dispatcher = null;
+  }
+  try {
+    registry?.killAll();
+  } catch {
+    registry = null;
+  }
   ExtensionRegistry.resetInstance();
   await closeTestDb();
   restoreModuleMocks();
@@ -368,7 +384,9 @@ async function setOwnerSettings(values: Record<string, unknown>): Promise<void> 
       ),
     );
   await db.insert(extensionSettingsUser).values({
-    userId: OWNER_ID, extensionId: EXT_ID, values,
+    userId: OWNER_ID,
+    extensionId: EXT_ID,
+    values,
   } as never);
 }
 

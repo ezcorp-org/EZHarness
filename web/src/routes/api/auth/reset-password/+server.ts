@@ -21,9 +21,14 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     const rl = __rateLimiter.check(admin.id);
     if (!rl.allowed) {
-      return errorJson(429, "Too many requests", { retryAfter: rl.retryAfter }, {
-        "Retry-After": String(rl.retryAfter ?? 1),
-      });
+      return errorJson(
+        429,
+        "Too many requests",
+        { retryAfter: rl.retryAfter },
+        {
+          "Retry-After": String(rl.retryAfter ?? 1),
+        },
+      );
     }
 
     const result = generateResetSchema.safeParse(await request.json());

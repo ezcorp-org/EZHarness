@@ -91,7 +91,10 @@ beforeEach(() => {
 // session-cookie request, and it is the ONLY value `requireSessionAuth`
 // allows — so every non-gate test below describes a REAL caller.
 const admin = { user: { id: "a1", email: "a@x", name: "a", role: "admin" }, authMethod: "session" };
-const member = { user: { id: "u1", email: "u@x", name: "u", role: "member" }, authMethod: "session" };
+const member = {
+  user: { id: "u1", email: "u@x", name: "u", role: "member" },
+  authMethod: "session",
+};
 
 const VALID_BODY = { name: "nightly", maxTokensPerDay: 10_000, scopes: ["use"] };
 

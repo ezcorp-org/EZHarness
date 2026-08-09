@@ -14,15 +14,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
       Math.max(parseInt(url.searchParams.get("limit") ?? "100", 10) || 100, 1),
       500,
     );
-    const offset = Math.max(
-      parseInt(url.searchParams.get("offset") ?? "0", 10) || 0,
-      0,
-    );
+    const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10) || 0, 0);
 
-    const [errors, total] = await Promise.all([
-      listErrors({ limit, offset }),
-      countErrors(),
-    ]);
+    const [errors, total] = await Promise.all([listErrors({ limit, offset }), countErrors()]);
 
     return json({ errors, total });
   } catch (e) {

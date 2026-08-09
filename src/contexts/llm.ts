@@ -56,7 +56,10 @@ export interface ContextsCompletionDeps {
 /** Strip a trailing `/v1`, slashes, or colons — same normalization as
  *  `src/suggest/enhance.ts` so a bare or `/v1`-suffixed baseUrl both work. */
 function normalizeUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/v1\/?$/, "").replace(/[/:]+$/, "");
+  return baseUrl
+    .trim()
+    .replace(/\/v1\/?$/, "")
+    .replace(/[/:]+$/, "");
 }
 
 interface ChatCompletionResponse {
@@ -151,7 +154,9 @@ async function runPi(
   }
   const text = extractText(result?.content);
   if (!text.trim()) {
-    throw new Error(`contexts model returned no text (stopReason: ${String(result?.stopReason ?? "unknown")})`);
+    throw new Error(
+      `contexts model returned no text (stopReason: ${String(result?.stopReason ?? "unknown")})`,
+    );
   }
   return text;
 }

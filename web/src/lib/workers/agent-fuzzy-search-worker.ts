@@ -44,10 +44,7 @@ export function rank(req: RankRequest): RankResponse {
   const scored: { idx: number; score: number; name: string }[] = [];
   for (let i = 0; i < req.candidates.length; i++) {
     const c = req.candidates[i]!;
-    const best = bestFuzzyScore([
-      fuzzyScore(q, c.name ?? ""),
-      fuzzyScore(q, c.description ?? ""),
-    ]);
+    const best = bestFuzzyScore([fuzzyScore(q, c.name ?? ""), fuzzyScore(q, c.description ?? "")]);
     if (best === null) continue;
     scored.push({ idx: i, score: best, name: c.name ?? "" });
   }
@@ -72,16 +69,13 @@ export function rank(req: RankRequest): RankResponse {
 // directly, so this branch is dead code under test runners.
 const isWorker =
   typeof self !== "undefined" &&
-  typeof (self as unknown as { importScripts?: unknown }).importScripts ===
-    "function";
+  typeof (self as unknown as { importScripts?: unknown }).importScripts === "function";
 
 if (isWorker) {
   self.addEventListener("message", (ev: MessageEvent<RankRequest>) => {
     const data = ev.data;
     if (!data || data.type !== "rank") return;
     const reply = rank(data);
-    (self as unknown as { postMessage: (m: unknown) => void }).postMessage(
-      reply,
-    );
+    (self as unknown as { postMessage: (m: unknown) => void }).postMessage(reply);
   });
 }

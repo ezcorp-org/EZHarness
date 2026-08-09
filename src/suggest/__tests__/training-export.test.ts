@@ -36,7 +36,9 @@ describe("buildTrainingExamples (pure)", () => {
   });
 
   test("drops prompts below the signal floor", () => {
-    expect(buildTrainingExamples([{ messageId: "m1", prompt: "  ok  ", toolName: "t" }])).toEqual([]);
+    expect(buildTrainingExamples([{ messageId: "m1", prompt: "  ok  ", toolName: "t" }])).toEqual(
+      [],
+    );
   });
 
   test("caps pasted walls of text", () => {
@@ -76,8 +78,16 @@ describe("syntheticPromptToolRows (pure)", () => {
       },
     ]);
     expect(rows).toEqual([
-      { messageId: "synthetic:web-search:search-web:0", prompt: "search the web now", toolName: "web-search__search-web" },
-      { messageId: "synthetic:web-search:search-web:1", prompt: "find recent news", toolName: "web-search__search-web" },
+      {
+        messageId: "synthetic:web-search:search-web:0",
+        prompt: "search the web now",
+        toolName: "web-search__search-web",
+      },
+      {
+        messageId: "synthetic:web-search:search-web:1",
+        prompt: "find recent news",
+        toolName: "web-search__search-web",
+      },
     ]);
   });
 
@@ -93,19 +103,33 @@ describe("syntheticPromptToolRows (pure)", () => {
       },
     ]);
     expect(rows).toEqual([
-      { messageId: "synthetic:file-organizer::0", prompt: "clean up my downloads", toolName: "file-organizer__propose_moves" },
-      { messageId: "synthetic:file-organizer::0", prompt: "clean up my downloads", toolName: "file-organizer__teach_rule" },
+      {
+        messageId: "synthetic:file-organizer::0",
+        prompt: "clean up my downloads",
+        toolName: "file-organizer__propose_moves",
+      },
+      {
+        messageId: "synthetic:file-organizer::0",
+        prompt: "clean up my downloads",
+        toolName: "file-organizer__teach_rule",
+      },
     ]);
   });
 
   test("extension-level example on a tool-less manifest yields no rows", () => {
-    expect(syntheticPromptToolRows([{ name: "x", suggestExamples: ["clean up my stuff"], tools: [] }])).toEqual([]);
-    expect(syntheticPromptToolRows([{ name: "x", suggestExamples: ["clean up my stuff"] }])).toEqual([]);
+    expect(
+      syntheticPromptToolRows([{ name: "x", suggestExamples: ["clean up my stuff"], tools: [] }]),
+    ).toEqual([]);
+    expect(
+      syntheticPromptToolRows([{ name: "x", suggestExamples: ["clean up my stuff"] }]),
+    ).toEqual([]);
   });
 
   test("a manifest with no authored examples yields no rows", () => {
     expect(
-      syntheticPromptToolRows([{ name: "x", tools: [{ name: "t", description: "d", inputSchema: {} }] }]),
+      syntheticPromptToolRows([
+        { name: "x", tools: [{ name: "t", description: "d", inputSchema: {} }] },
+      ]),
     ).toEqual([]);
   });
 });
@@ -133,7 +157,11 @@ describe("buildTrainingExamples — synthetic provenance + grouping", () => {
   test("stamps source from the `synthetic:` messageId prefix", () => {
     const examples = buildTrainingExamples([
       { messageId: "m1", prompt: "scan my repository", toolName: "analyzer__scan" },
-      { messageId: "synthetic:web-search:search-web:0", prompt: "search the web now", toolName: "web-search__search-web" },
+      {
+        messageId: "synthetic:web-search:search-web:0",
+        prompt: "search the web now",
+        toolName: "web-search__search-web",
+      },
     ]);
     const bySource = Object.fromEntries(examples.map((e) => [e.source, e]));
     expect(bySource.history!.messages[1]!.content).toBe("scan my repository");
@@ -160,7 +188,10 @@ describe("buildTrainingExamples — synthetic provenance + grouping", () => {
 
   test("synthetic prompts below the signal floor are dropped like real ones", () => {
     const rows = syntheticPromptToolRows([
-      { name: "x", tools: [{ name: "t", description: "d", inputSchema: {}, suggestExamples: ["go"] }] },
+      {
+        name: "x",
+        tools: [{ name: "t", description: "d", inputSchema: {}, suggestExamples: ["go"] }],
+      },
     ]);
     expect(rows).toHaveLength(1); // the row is produced,
     expect(buildTrainingExamples(rows)).toEqual([]); // but "go" is under MIN length.
@@ -191,11 +222,22 @@ describe("collectPromptToolRows (DB)", () => {
     await getTestDb().insert(conversations).values({ id, projectId: "global" });
   }
 
-  async function seedMessage(id: string, conversationId: string, role: string, content: string, createdAt: Date) {
+  async function seedMessage(
+    id: string,
+    conversationId: string,
+    role: string,
+    content: string,
+    createdAt: Date,
+  ) {
     await getTestDb().insert(messages).values({ id, conversationId, role, content, createdAt });
   }
 
-  async function seedCall(conversationId: string, toolName: string, createdAt: Date, success = true) {
+  async function seedCall(
+    conversationId: string,
+    toolName: string,
+    createdAt: Date,
+    success = true,
+  ) {
     await getTestDb().insert(toolCalls).values({
       extensionId: "builtin",
       conversationId,
@@ -232,13 +274,15 @@ describe("collectPromptToolRows (DB)", () => {
     await seedConversation("c1");
     await seedMessage("m1", "c1", "user", "scan my repository please", at(0));
     await seedCall("c1", "failed__tool", at(1), false);
-    await getTestDb().insert(toolCalls).values({
-      extensionId: "builtin",
-      toolName: "orphan__tool",
-      success: true,
-      durationMs: 5,
-      createdAt: at(1),
-    });
+    await getTestDb()
+      .insert(toolCalls)
+      .values({
+        extensionId: "builtin",
+        toolName: "orphan__tool",
+        success: true,
+        durationMs: 5,
+        createdAt: at(1),
+      });
     await seedCall("c1", "ancient__tool", new Date("2020-01-01T00:00:00Z"));
 
     expect(await collectPromptToolRows(365)).toEqual([]);

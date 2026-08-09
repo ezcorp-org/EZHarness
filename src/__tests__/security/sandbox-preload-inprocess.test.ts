@@ -55,14 +55,12 @@ describe("sandbox-preload: in-process load", () => {
     // map, and the early return for everything else.
     expect(() => require("node:fs")).toThrow(FS_DENY);
     expect(() => require("bun:ffi")).toThrow(/requires 'native' permission/);
-    expect(typeof (require("node:path") as { join: unknown }).join).toBe(
-      "function",
-    );
+    expect(typeof (require("node:path") as { join: unknown }).join).toBe("function");
   });
 
   test("process.binding denylist blocks fs, passes other names through", () => {
-    expect(() =>
-      (process as unknown as { binding: (n: string) => unknown }).binding("fs"),
-    ).toThrow(/process\.binding/);
+    expect(() => (process as unknown as { binding: (n: string) => unknown }).binding("fs")).toThrow(
+      /process\.binding/,
+    );
   });
 });

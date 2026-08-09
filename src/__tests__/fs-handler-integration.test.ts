@@ -19,15 +19,7 @@
  *     way to verify `Bun.file` denial.
  */
 
-import {
-  test,
-  expect,
-  describe,
-  beforeEach,
-  afterEach,
-  afterAll,
-  mock,
-} from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 // Restore in afterAll so the DB mocks below don't leak into subsequent
@@ -65,10 +57,7 @@ import {
   _resetCallProvenanceForTests,
 } from "../extensions/call-provenance";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
-import {
-  handleFsReadRpc,
-  handleFsWriteRpc,
-} from "../extensions/fs-handler";
+import { handleFsReadRpc, handleFsWriteRpc } from "../extensions/fs-handler";
 import type {
   ExtensionPermissions,
   ExtensionManifestV2,
@@ -87,8 +76,7 @@ function makeReg(opts: {
 }) {
   const extId = opts.extId ?? "ext-int";
   return {
-    getGrantedPermissions: (id: string) =>
-      id === extId ? opts.granted : null,
+    getGrantedPermissions: (id: string) => (id === extId ? opts.granted : null),
     getInstallPath: (id: string) => (id === extId ? installDir : null),
     getManifest: (id: string) => (id === extId ? opts.manifest : undefined),
     getRegisteredTool: () => null,
@@ -164,7 +152,12 @@ describe("fs handler integration — executor dispatcher routes", () => {
     // Shape: {encoding, body, bytes, resolvedPath} — NOT
     // {allowed, resolvedPath} (which is the legacy shim shape).
     expect(r.error).toBeUndefined();
-    const result = r.result as { encoding: string; body: string; bytes: number; resolvedPath: string };
+    const result = r.result as {
+      encoding: string;
+      body: string;
+      bytes: number;
+      resolvedPath: string;
+    };
     expect(result.encoding).toBe("utf-8");
     expect(result.bytes).toBe(5);
     expect(result.resolvedPath).toBe(target);
@@ -290,7 +283,11 @@ describe("fs handler integration — executor dispatcher routes", () => {
       const orig = console.warn;
       const noop: typeof console.warn = () => undefined;
       console.warn = noop;
-      return { mockRestore: () => { console.warn = orig; } };
+      return {
+        mockRestore: () => {
+          console.warn = orig;
+        },
+      };
     })();
 
     // Legacy call.

@@ -47,9 +47,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     const entries = dirents
       .filter((d) => showHidden || !d.name.startsWith("."))
       .map((d) => ({ name: d.name, isDir: d.isDirectory() }))
-      .sort((a, b) =>
-        a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1,
-      );
+      .sort((a, b) => (a.isDir === b.isDir ? a.name.localeCompare(b.name) : a.isDir ? -1 : 1));
     return json(entries);
   } catch {
     return json([], { status: 200 });

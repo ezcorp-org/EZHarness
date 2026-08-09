@@ -303,13 +303,10 @@ describe("activeProjectRoot", () => {
     // `EZCORP_EXTENSION_DATA_ROOT` is always injected, and from the SAME
     // `getProjectRoot()` that `grantCwdBase()` expands `$CWD` through.
     toolContext = undefined;
-    withEnv(
-      { EZCORP_PROJECT_ROOT: undefined, EZCORP_EXTENSION_DATA_ROOT: "/data-root" },
-      () => {
-        expect(activeProjectRoot()).toBe("/data-root");
-        expect(activeProjectRoot()).not.toBe(process.cwd());
-      },
-    );
+    withEnv({ EZCORP_PROJECT_ROOT: undefined, EZCORP_EXTENSION_DATA_ROOT: "/data-root" }, () => {
+      expect(activeProjectRoot()).toBe("/data-root");
+      expect(activeProjectRoot()).not.toBe(process.cwd());
+    });
   });
 
   test("EZCORP_PROJECT_ROOT still wins over the data root when both are set", () => {
@@ -324,12 +321,9 @@ describe("activeProjectRoot", () => {
 
   test("falls back to the process cwd as a last resort", () => {
     toolContext = undefined;
-    withEnv(
-      { EZCORP_PROJECT_ROOT: undefined, EZCORP_EXTENSION_DATA_ROOT: undefined },
-      () => {
-        expect(activeProjectRoot()).toBe(process.cwd());
-      },
-    );
+    withEnv({ EZCORP_PROJECT_ROOT: undefined, EZCORP_EXTENSION_DATA_ROOT: undefined }, () => {
+      expect(activeProjectRoot()).toBe(process.cwd());
+    });
   });
 });
 
@@ -370,9 +364,10 @@ describe("page registration", () => {
     registerPages();
     expect(pages.length).toBeGreaterThan(0);
     for (const page of pages) {
-      expect(Object.keys(page.actions ?? {}).sort()).toEqual(
-        ["ez-factory:job-run", "ez-factory:job-save"],
-      );
+      expect(Object.keys(page.actions ?? {}).sort()).toEqual([
+        "ez-factory:job-run",
+        "ez-factory:job-save",
+      ]);
     }
   });
 });
@@ -455,14 +450,24 @@ describe("renderJobPage", () => {
 describe("recentRuns", () => {
   test("interleaves per-job indexes newest-first and bounds the result", async () => {
     await jobStore().recordRun({
-      jobId: "a", workflowRunId: "r1", workflowName: "w",
-      status: "completed", startedAt: "2026-08-01T01:00:00.000Z",
-      finishedAt: null, suspendedReason: null, resumable: false,
+      jobId: "a",
+      workflowRunId: "r1",
+      workflowName: "w",
+      status: "completed",
+      startedAt: "2026-08-01T01:00:00.000Z",
+      finishedAt: null,
+      suspendedReason: null,
+      resumable: false,
     });
     await jobStore().recordRun({
-      jobId: "b", workflowRunId: "r2", workflowName: "w",
-      status: "completed", startedAt: "2026-08-01T03:00:00.000Z",
-      finishedAt: null, suspendedReason: null, resumable: false,
+      jobId: "b",
+      workflowRunId: "r2",
+      workflowName: "w",
+      status: "completed",
+      startedAt: "2026-08-01T03:00:00.000Z",
+      finishedAt: null,
+      suspendedReason: null,
+      resumable: false,
     });
     // `recentRuns` reads nothing but `.id`, so an id-only stub is the
     // honest fixture; the double cast is what lets it stand in for the

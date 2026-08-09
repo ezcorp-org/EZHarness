@@ -13,15 +13,15 @@
 import { test, expect, describe, vi, beforeEach } from "vitest";
 
 vi.mock("$server/db/queries/attachments", () => ({
-	getAttachment: vi.fn(),
+  getAttachment: vi.fn(),
 }));
 
 vi.mock("$server/db/queries/conversations", () => ({
-	getConversation: vi.fn(),
+  getConversation: vi.fn(),
 }));
 
 vi.mock("$server/db/queries/audit-log", () => ({
-	insertAuditEntry: vi.fn(async () => undefined),
+  insertAuditEntry: vi.fn(async () => undefined),
 }));
 
 const { getAttachment } = await import("$server/db/queries/attachments");
@@ -36,169 +36,162 @@ const { GET } = await import("../routes/api/attachments/[id]/+server");
 // under a real Bun runtime.
 (globalThis as { Bun?: unknown }).Bun ??= {};
 
-function makeEvent(opts: {
-	id?: string;
-	locals?: Record<string, unknown>;
-	href?: string;
-}) {
-	const id = opts.id ?? "att-1";
-	const href = opts.href ?? `http://localhost/api/attachments/${id}`;
-	return {
-		url: new URL(href),
-		locals: opts.locals ?? {},
-		params: { id },
-		request: new Request(href, { method: "GET" }),
-	} as any;
+function makeEvent(opts: { id?: string; locals?: Record<string, unknown>; href?: string }) {
+  const id = opts.id ?? "att-1";
+  const href = opts.href ?? `http://localhost/api/attachments/${id}`;
+  return {
+    url: new URL(href),
+    locals: opts.locals ?? {},
+    params: { id },
+    request: new Request(href, { method: "GET" }),
+  } as any;
 }
 
 async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
+  fn: () => Promise<Response> | Response,
+  status: number,
 ): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		res = await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res!.status).toBe(status);
-	return res!;
+  let res: Response | undefined;
+  try {
+    res = await fn();
+  } catch (thrown) {
+    expect(thrown).toBeInstanceOf(Response);
+    res = thrown as Response;
+  }
+  expect(res!.status).toBe(status);
+  return res!;
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };
 const adminUser = { id: "admin-1", email: "a@x", name: "a", role: "admin" };
 
 const attachment = {
-	id: "att-1",
-	conversationId: "conv-1",
-	storagePath: "/tmp/does-not-exist-for-test",
-	filename: "doc.pdf",
-	mimeType: "application/pdf",
-	sizeBytes: 12,
+  id: "att-1",
+  conversationId: "conv-1",
+  storagePath: "/tmp/does-not-exist-for-test",
+  filename: "doc.pdf",
+  mimeType: "application/pdf",
+  sizeBytes: 12,
 };
 
 describe("GET /api/attachments/[id]", () => {
-	beforeEach(() => {
-		vi.mocked(getAttachment).mockReset();
-		vi.mocked(getConversation).mockReset();
-		vi.mocked(insertAuditEntry).mockReset();
-	});
+  beforeEach(() => {
+    vi.mocked(getAttachment).mockReset();
+    vi.mocked(getConversation).mockReset();
+    vi.mocked(insertAuditEntry).mockReset();
+  });
 
-	test("returns 403 when API-key scope missing 'read'", async () => {
-		const res = await GET(
-			makeEvent({
-				locals: {
-					user,
-					apiKeyScopes: ["chat"],
-				},
-			}),
-		);
-		expect(res.status).toBe(403);
-		const body = (await res.json()) as { error?: string; required?: string };
-		expect(body.error).toBe("Insufficient scope");
-		expect(body.required).toBe("read");
-	});
+  test("returns 403 when API-key scope missing 'read'", async () => {
+    const res = await GET(
+      makeEvent({
+        locals: {
+          user,
+          apiKeyScopes: ["chat"],
+        },
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: string; required?: string };
+    expect(body.error).toBe("Insufficient scope");
+    expect(body.required).toBe("read");
+  });
 
-	test("throws 401 when unauthenticated", async () => {
-		const res = await expectThrownResponse(
-			() => GET(makeEvent({ locals: {} })),
-			401,
-		);
-		const body = (await res.json()) as { error?: string };
-		expect(body.error).toBe("Authentication required");
-	});
+  test("throws 401 when unauthenticated", async () => {
+    const res = await expectThrownResponse(() => GET(makeEvent({ locals: {} })), 401);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("Authentication required");
+  });
 
-	test("returns 404 when attachment not found", async () => {
-		vi.mocked(getAttachment).mockResolvedValue(null as any);
-		const res = await GET(makeEvent({ locals: { user } }));
-		expect(res.status).toBe(404);
-		const body = (await res.json()) as { error?: string };
-		expect(body.error).toBe("Not found");
-	});
+  test("returns 404 when attachment not found", async () => {
+    vi.mocked(getAttachment).mockResolvedValue(null as any);
+    const res = await GET(makeEvent({ locals: { user } }));
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("Not found");
+  });
 
-	test("returns 404 when owning conversation not found", async () => {
-		vi.mocked(getAttachment).mockResolvedValue(attachment as any);
-		vi.mocked(getConversation).mockResolvedValue(null as any);
-		const res = await GET(makeEvent({ locals: { user } }));
-		expect(res.status).toBe(404);
-		const body = (await res.json()) as { error?: string };
-		expect(body.error).toBe("Not found");
-	});
+  test("returns 404 when owning conversation not found", async () => {
+    vi.mocked(getAttachment).mockResolvedValue(attachment as any);
+    vi.mocked(getConversation).mockResolvedValue(null as any);
+    const res = await GET(makeEvent({ locals: { user } }));
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("Not found");
+  });
 
-	test("returns 404 when caller is not owner and not admin", async () => {
-		vi.mocked(getAttachment).mockResolvedValue(attachment as any);
-		vi.mocked(getConversation).mockResolvedValue({
-			id: "conv-1",
-			userId: "someone-else",
-		} as any);
-		const res = await GET(makeEvent({ locals: { user } }));
-		// Fail-closed: cross-user reads collapse to 404, not 403, to avoid
-		// leaking attachment existence.
-		expect(res.status).toBe(404);
-		const body = (await res.json()) as { error?: string };
-		expect(body.error).toBe("Not found");
-		expect(vi.mocked(insertAuditEntry)).not.toHaveBeenCalled();
-	});
+  test("returns 404 when caller is not owner and not admin", async () => {
+    vi.mocked(getAttachment).mockResolvedValue(attachment as any);
+    vi.mocked(getConversation).mockResolvedValue({
+      id: "conv-1",
+      userId: "someone-else",
+    } as any);
+    const res = await GET(makeEvent({ locals: { user } }));
+    // Fail-closed: cross-user reads collapse to 404, not 403, to avoid
+    // leaking attachment existence.
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("Not found");
+    expect(vi.mocked(insertAuditEntry)).not.toHaveBeenCalled();
+  });
 
-	test("admin reading another user's attachment writes audit entry (storage missing → 404)", async () => {
-		// Admin path: ownership check passes. We stub `Bun.file(...).exists()`
-		// to return false so the handler returns 404 BEFORE attempting to
-		// stream the file. Lets us verify the audit-log side-effect cleanly.
-		vi.mocked(getAttachment).mockResolvedValue(attachment as any);
-		vi.mocked(getConversation).mockResolvedValue({
-			id: "conv-1",
-			userId: "owner-2",
-		} as any);
+  test("admin reading another user's attachment writes audit entry (storage missing → 404)", async () => {
+    // Admin path: ownership check passes. We stub `Bun.file(...).exists()`
+    // to return false so the handler returns 404 BEFORE attempting to
+    // stream the file. Lets us verify the audit-log side-effect cleanly.
+    vi.mocked(getAttachment).mockResolvedValue(attachment as any);
+    vi.mocked(getConversation).mockResolvedValue({
+      id: "conv-1",
+      userId: "owner-2",
+    } as any);
 
-		// `globalThis.Bun` is a readonly global under Bun >=1.3.x, so we can't
-		// swap the whole namespace; `Bun.file` itself is writable, so stub it.
-		const originalFile = Bun.file;
-		(Bun as { file: typeof Bun.file }).file = (() => ({
-			exists: async () => false,
-		})) as unknown as typeof Bun.file;
-		try {
-			const res = await GET(makeEvent({ locals: { user: adminUser } }));
-			expect(res.status).toBe(404);
-		} finally {
-			(Bun as { file: typeof Bun.file }).file = originalFile;
-		}
+    // `globalThis.Bun` is a readonly global under Bun >=1.3.x, so we can't
+    // swap the whole namespace; `Bun.file` itself is writable, so stub it.
+    const originalFile = Bun.file;
+    (Bun as { file: typeof Bun.file }).file = (() => ({
+      exists: async () => false,
+    })) as unknown as typeof Bun.file;
+    try {
+      const res = await GET(makeEvent({ locals: { user: adminUser } }));
+      expect(res.status).toBe(404);
+    } finally {
+      (Bun as { file: typeof Bun.file }).file = originalFile;
+    }
 
-		// Side-effect: privileged read logged for owner audit.
-		expect(vi.mocked(insertAuditEntry)).toHaveBeenCalledTimes(1);
-		expect(vi.mocked(insertAuditEntry)).toHaveBeenCalledWith(
-			adminUser.id,
-			"attachment:admin_read",
-			attachment.id,
-			expect.objectContaining({
-				conversationId: attachment.conversationId,
-				ownerId: "owner-2",
-				filename: attachment.filename,
-				mimeType: attachment.mimeType,
-			}),
-		);
-	});
+    // Side-effect: privileged read logged for owner audit.
+    expect(vi.mocked(insertAuditEntry)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(insertAuditEntry)).toHaveBeenCalledWith(
+      adminUser.id,
+      "attachment:admin_read",
+      attachment.id,
+      expect.objectContaining({
+        conversationId: attachment.conversationId,
+        ownerId: "owner-2",
+        filename: attachment.filename,
+        mimeType: attachment.mimeType,
+      }),
+    );
+  });
 
-	test("owner self-read does NOT write audit entry", async () => {
-		// Self-read of own attachment must not log an admin-read audit entry,
-		// even when the user IS an admin.
-		vi.mocked(getAttachment).mockResolvedValue(attachment as any);
-		vi.mocked(getConversation).mockResolvedValue({
-			id: "conv-1",
-			userId: adminUser.id,
-		} as any);
+  test("owner self-read does NOT write audit entry", async () => {
+    // Self-read of own attachment must not log an admin-read audit entry,
+    // even when the user IS an admin.
+    vi.mocked(getAttachment).mockResolvedValue(attachment as any);
+    vi.mocked(getConversation).mockResolvedValue({
+      id: "conv-1",
+      userId: adminUser.id,
+    } as any);
 
-		// `globalThis.Bun` is a readonly global under Bun >=1.3.x, so we can't
-		// swap the whole namespace; `Bun.file` itself is writable, so stub it.
-		const originalFile = Bun.file;
-		(Bun as { file: typeof Bun.file }).file = (() => ({
-			exists: async () => false,
-		})) as unknown as typeof Bun.file;
-		try {
-			await GET(makeEvent({ locals: { user: adminUser } }));
-		} finally {
-			(Bun as { file: typeof Bun.file }).file = originalFile;
-		}
-		expect(vi.mocked(insertAuditEntry)).not.toHaveBeenCalled();
-	});
+    // `globalThis.Bun` is a readonly global under Bun >=1.3.x, so we can't
+    // swap the whole namespace; `Bun.file` itself is writable, so stub it.
+    const originalFile = Bun.file;
+    (Bun as { file: typeof Bun.file }).file = (() => ({
+      exists: async () => false,
+    })) as unknown as typeof Bun.file;
+    try {
+      await GET(makeEvent({ locals: { user: adminUser } }));
+    } finally {
+      (Bun as { file: typeof Bun.file }).file = originalFile;
+    }
+    expect(vi.mocked(insertAuditEntry)).not.toHaveBeenCalled();
+  });
 });

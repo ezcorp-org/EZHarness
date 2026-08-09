@@ -4,10 +4,7 @@ import { nowMinusInterval } from "./sql-interval";
 import { activeRuns } from "../schema";
 
 export async function createActiveRun(id: string, conversationId: string) {
-  const rows = await getDb()
-    .insert(activeRuns)
-    .values({ id, conversationId })
-    .returning();
+  const rows = await getDb().insert(activeRuns).values({ id, conversationId }).returning();
   return rows[0]!;
 }
 
@@ -15,10 +12,7 @@ export async function getActiveRun(conversationId: string) {
   const rows = await getDb()
     .select()
     .from(activeRuns)
-    .where(and(
-      eq(activeRuns.conversationId, conversationId),
-      eq(activeRuns.status, "running"),
-    ));
+    .where(and(eq(activeRuns.conversationId, conversationId), eq(activeRuns.status, "running")));
   return rows[0] ?? null;
 }
 
@@ -53,10 +47,12 @@ export async function cleanupOrphanedRuns(timeoutMinutes: number): Promise<numbe
   const result = await getDb()
     .update(activeRuns)
     .set({ status: "interrupted" })
-    .where(and(
-      eq(activeRuns.status, "running"),
-      lt(activeRuns.lastHeartbeat, nowMinusInterval(timeoutMinutes, "minutes")),
-    ))
+    .where(
+      and(
+        eq(activeRuns.status, "running"),
+        lt(activeRuns.lastHeartbeat, nowMinusInterval(timeoutMinutes, "minutes")),
+      ),
+    )
     .returning();
   return result.length;
 }

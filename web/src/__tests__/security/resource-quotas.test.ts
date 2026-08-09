@@ -1,5 +1,9 @@
 import { test, expect, mock, beforeEach } from "bun:test";
-import { checkTokenBudget, recordTokenUsage, checkStorageQuota } from "../../lib/server/security/resource-quotas";
+import {
+  checkTokenBudget,
+  recordTokenUsage,
+  checkStorageQuota,
+} from "../../lib/server/security/resource-quotas";
 
 const mockSettings: Record<string, unknown> = {};
 

@@ -19,10 +19,7 @@ vi.mock("$server/extensions/registry", () => ({
 
 const { POST } = await import("../routes/api/mcp-servers/[id]/refresh/+server");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  params?: { id?: string };
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; params?: { id?: string } }) {
   return {
     url: new URL("http://localhost/api/mcp-servers/x/refresh"),
     locals: opts.locals ?? {},
@@ -48,11 +45,15 @@ describe("POST /api/mcp-servers/[id]/refresh", () => {
   });
 
   test("rejects non-admin authenticated user with 403", async () => {
-    const res = await expectDenied(() => POST(
-            makeEvent({
-              locals: { user: { id: "u1", email: "u@x", name: "u", role: "user" } },
-            }),
-          ), 403);
+    const res = await expectDenied(
+      () =>
+        POST(
+          makeEvent({
+            locals: { user: { id: "u1", email: "u@x", name: "u", role: "user" } },
+          }),
+        ),
+      403,
+    );
     expect(res.status).toBe(403);
   });
 
@@ -76,9 +77,7 @@ describe("POST /api/mcp-servers/[id]/refresh", () => {
       { name: "add", description: "add two numbers" },
     ];
     refreshMcpTools.mockResolvedValueOnce(tools);
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { id: "ext-42" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { id: "ext-42" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { id?: string; tools?: unknown[] };
     expect(body.id).toBe("ext-42");
@@ -88,9 +87,7 @@ describe("POST /api/mcp-servers/[id]/refresh", () => {
 
   test("returns 502 when refreshMcpTools throws an Error", async () => {
     refreshMcpTools.mockRejectedValueOnce(new Error("mcp subprocess died"));
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { id: "ext-42" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { id: "ext-42" } }));
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("mcp subprocess died");
@@ -98,9 +95,7 @@ describe("POST /api/mcp-servers/[id]/refresh", () => {
 
   test("returns 502 with generic message when refreshMcpTools throws a non-Error", async () => {
     refreshMcpTools.mockRejectedValueOnce("pipe closed");
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { id: "ext-42" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { id: "ext-42" } }));
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Refresh failed");

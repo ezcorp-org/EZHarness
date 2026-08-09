@@ -22,25 +22,35 @@ const BREAKPOINTS = { sm: 640, md: 768, lg: 1024, xl: 1280 } as const;
 export type BreakpointName = keyof typeof BREAKPOINTS;
 
 export function useBreakpoint(name: BreakpointName): { readonly below: boolean } {
-	const px = BREAKPOINTS[name];
+  const px = BREAKPOINTS[name];
 
-	// SSR path: window is undefined → frozen `{ below: false }`. The
-	// matchMedia branch is skipped entirely so no listeners leak.
-	if (typeof window === "undefined") {
-		return { get below() { return false; } };
-	}
+  // SSR path: window is undefined → frozen `{ below: false }`. The
+  // matchMedia branch is skipped entirely so no listeners leak.
+  if (typeof window === "undefined") {
+    return {
+      get below() {
+        return false;
+      },
+    };
+  }
 
-	let below = $state(window.innerWidth < px);
-	const mql = window.matchMedia(`(max-width: ${px - 1}px)`);
-	const onChange = () => { below = mql.matches; };
-	// Use the modern `change` event — `MediaQueryList.addListener` was
-	// deprecated in Safari 14+ and Chrome 39+.
-	mql.addEventListener("change", onChange);
-	// Module-level effect: `$effect.root` lets us register cleanup without
-	// being inside a component lifecycle. The returned getter object is
-	// returned to the caller IMMEDIATELY; cleanup runs when the root effect
-	// is destroyed (process tear-down in practice).
-	$effect.root(() => () => mql.removeEventListener("change", onChange));
+  let below = $state(window.innerWidth < px);
+  const mql = window.matchMedia(`(max-width: ${px - 1}px)`);
+  const onChange = () => {
+    below = mql.matches;
+  };
+  // Use the modern `change` event — `MediaQueryList.addListener` was
+  // deprecated in Safari 14+ and Chrome 39+.
+  mql.addEventListener("change", onChange);
+  // Module-level effect: `$effect.root` lets us register cleanup without
+  // being inside a component lifecycle. The returned getter object is
+  // returned to the caller IMMEDIATELY; cleanup runs when the root effect
+  // is destroyed (process tear-down in practice).
+  $effect.root(() => () => mql.removeEventListener("change", onChange));
 
-	return { get below() { return below; } };
+  return {
+    get below() {
+      return below;
+    },
+  };
 }

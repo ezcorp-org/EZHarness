@@ -4,10 +4,7 @@ import { checkRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { getExtension } from "$server/db/queries/extensions";
 import { errorJson } from "$lib/server/http-errors";
-import {
-  listDynamicCrons,
-  listDynamicWebhooks,
-} from "$server/extensions/triggers-store";
+import { listDynamicCrons, listDynamicWebhooks } from "$server/extensions/triggers-store";
 
 /**
  * GET /api/extensions/[id]/triggers

@@ -1,7 +1,7 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { mockServerAlias, createMockEvent, jsonFromResponse, } from "./helpers/mock-request";
+import { mockServerAlias, createMockEvent, jsonFromResponse } from "./helpers/mock-request";
 import type { AuthUser } from "../auth/types";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -15,7 +15,10 @@ mock.module("$lib/server/security/validation", () =>
 );
 
 // ── Handler imports ──────────────────────────────────────────────
-import { GET as sessionsGet, DELETE as sessionsDelete } from "../../web/src/routes/api/account/sessions/+server";
+import {
+  GET as sessionsGet,
+  DELETE as sessionsDelete,
+} from "../../web/src/routes/api/account/sessions/+server";
 import { GET as loginHistoryGet } from "../../web/src/routes/api/account/login-history/+server";
 
 // ── DB helpers ───────────────────────────────────────────────────
@@ -46,34 +49,48 @@ beforeEach(async () => {
   await db.delete(sessions);
   await db.delete(users);
 
-  const [user] = await db.insert(users).values({
+  const [user] = await db
+    .insert(users)
+    .values({
+      email: "session-user@test.local",
+      passwordHash: "hashed",
+      name: "Session User",
+      role: "member",
+    })
+    .returning();
+  testUserId = user!.id;
+  testUser = {
+    id: testUserId,
     email: "session-user@test.local",
-    passwordHash: "hashed",
     name: "Session User",
     role: "member",
-  }).returning();
-  testUserId = user!.id;
-  testUser = { id: testUserId, email: "session-user@test.local", name: "Session User", role: "member" };
+  };
 
   const currentHash = await hashToken(KNOWN_TOKEN);
   const otherHash = await hashToken(OTHER_TOKEN);
 
-  const [s1] = await db.insert(sessions).values({
-    userId: testUserId,
-    tokenHash: currentHash,
-    userAgent: "Chrome/120",
-    ipAddress: "10.0.0.1",
-    expiresAt: new Date(Date.now() + 86400000),
-  }).returning();
+  const [s1] = await db
+    .insert(sessions)
+    .values({
+      userId: testUserId,
+      tokenHash: currentHash,
+      userAgent: "Chrome/120",
+      ipAddress: "10.0.0.1",
+      expiresAt: new Date(Date.now() + 86400000),
+    })
+    .returning();
   currentSessionId = s1!.id;
 
-  const [s2] = await db.insert(sessions).values({
-    userId: testUserId,
-    tokenHash: otherHash,
-    userAgent: "Firefox/119",
-    ipAddress: "10.0.0.2",
-    expiresAt: new Date(Date.now() + 86400000),
-  }).returning();
+  const [s2] = await db
+    .insert(sessions)
+    .values({
+      userId: testUserId,
+      tokenHash: otherHash,
+      userAgent: "Firefox/119",
+      ipAddress: "10.0.0.2",
+      expiresAt: new Date(Date.now() + 86400000),
+    })
+    .returning();
   otherSessionId = s2!.id;
 });
 

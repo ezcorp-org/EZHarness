@@ -12,14 +12,19 @@ describe("buildOpenApiSpec", () => {
   test("valid OpenAPI 3 envelope with bearer security scheme", () => {
     expect(spec.openapi).toBe("3.0.3");
     expect(spec.info.title).toBe("EZCorp API");
-    expect(spec.components.securitySchemes.bearerAuth).toMatchObject({ type: "http", scheme: "bearer" });
+    expect(spec.components.securitySchemes.bearerAuth).toMatchObject({
+      type: "http",
+      scheme: "bearer",
+    });
     expect(spec.servers).toEqual([{ url: "http://localhost:3000" }]);
   });
 
   test("Express :id paths become OpenAPI {id} with a path parameter", () => {
     const op = spec.paths["/api/conversations/{id}/messages"]?.post;
     expect(op).toBeDefined();
-    expect(op.parameters).toEqual([{ name: "id", in: "path", required: true, schema: { type: "string" } }]);
+    expect(op.parameters).toEqual([
+      { name: "id", in: "path", required: true, schema: { type: "string" } },
+    ]);
   });
 
   test("scoped routes carry bearer security with the scope name", () => {

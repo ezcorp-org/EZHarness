@@ -858,9 +858,7 @@ export interface ExtensionManifestInternal extends ExtensionManifestV2 {
 
 export type ExtensionPackageType = "agent" | "extension";
 
-export function inferPackageType(
-  manifest: ExtensionManifestV2,
-): ExtensionPackageType {
+export function inferPackageType(manifest: ExtensionManifestV2): ExtensionPackageType {
   const hasTools = (manifest.tools?.length ?? 0) > 0;
   const hasSkills = (manifest.skills?.length ?? 0) > 0;
   const hasMcp = (manifest.mcpServers?.length ?? 0) > 0;
@@ -896,20 +894,77 @@ export type MarketplaceSortOption = "rating" | "popular" | "newest";
 
 // ── Extension Panel Component Vocabulary ────────────────────────
 
-export type PanelComponentType = "header" | "text" | "badge" | "progress" | "status" | "list" | "kv" | "counter" | "divider";
+export type PanelComponentType =
+  | "header"
+  | "text"
+  | "badge"
+  | "progress"
+  | "status"
+  | "list"
+  | "kv"
+  | "counter"
+  | "divider";
 
-export interface PanelHeader { type: "header"; title: string; subtitle?: string; }
-export interface PanelText { type: "text"; content: string; variant?: "muted" | "default" | "emphasis"; }
-export interface PanelBadge { type: "badge"; label: string; color?: "blue" | "green" | "red" | "yellow" | "purple" | "gray"; }
-export interface PanelProgress { type: "progress"; value: number; label?: string; }
-export interface PanelStatus { type: "status"; label: string; state: "idle" | "running" | "success" | "error" | "warning"; }
-export interface PanelListItem { label: string; status?: "pending" | "active" | "completed" | "failed"; detail?: string; badge?: string; badgeColor?: PanelBadge["color"]; }
-export interface PanelList { type: "list"; items: PanelListItem[]; }
-export interface PanelKV { type: "kv"; pairs: { key: string; value: string }[]; }
-export interface PanelCounter { type: "counter"; label: string; value: number; total?: number; }
-export interface PanelDivider { type: "divider"; }
+export interface PanelHeader {
+  type: "header";
+  title: string;
+  subtitle?: string;
+}
+export interface PanelText {
+  type: "text";
+  content: string;
+  variant?: "muted" | "default" | "emphasis";
+}
+export interface PanelBadge {
+  type: "badge";
+  label: string;
+  color?: "blue" | "green" | "red" | "yellow" | "purple" | "gray";
+}
+export interface PanelProgress {
+  type: "progress";
+  value: number;
+  label?: string;
+}
+export interface PanelStatus {
+  type: "status";
+  label: string;
+  state: "idle" | "running" | "success" | "error" | "warning";
+}
+export interface PanelListItem {
+  label: string;
+  status?: "pending" | "active" | "completed" | "failed";
+  detail?: string;
+  badge?: string;
+  badgeColor?: PanelBadge["color"];
+}
+export interface PanelList {
+  type: "list";
+  items: PanelListItem[];
+}
+export interface PanelKV {
+  type: "kv";
+  pairs: { key: string; value: string }[];
+}
+export interface PanelCounter {
+  type: "counter";
+  label: string;
+  value: number;
+  total?: number;
+}
+export interface PanelDivider {
+  type: "divider";
+}
 
-export type PanelComponent = PanelHeader | PanelText | PanelBadge | PanelProgress | PanelStatus | PanelList | PanelKV | PanelCounter | PanelDivider;
+export type PanelComponent =
+  | PanelHeader
+  | PanelText
+  | PanelBadge
+  | PanelProgress
+  | PanelStatus
+  | PanelList
+  | PanelKV
+  | PanelCounter
+  | PanelDivider;
 
 export interface ExtensionPanelState {
   title: string;

@@ -51,7 +51,15 @@ describe("example directories contain expected files", () => {
     });
   }
 
-  for (const name of ["github-stats", "project-analyzer", "markdown-utils", "code-review-delegator", "web-search", "weather", "ez-code"] as const) {
+  for (const name of [
+    "github-stats",
+    "project-analyzer",
+    "markdown-utils",
+    "code-review-delegator",
+    "web-search",
+    "weather",
+    "ez-code",
+  ] as const) {
     test(`${name} has index.ts`, async () => {
       expect(await fileExists(join(EXAMPLES_DIR, name, "index.ts"))).toBe(true);
     });

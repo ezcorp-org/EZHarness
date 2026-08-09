@@ -20,11 +20,21 @@ mock.module("../providers/encryption", () => {
   function getAppSalt(): string {
     if (_cachedSalt) return _cachedSalt;
     const envSalt = process.env.EZCORP_ENCRYPTION_SALT;
-    if (envSalt) { _cachedSalt = envSalt; return envSalt; }
+    if (envSalt) {
+      _cachedSalt = envSalt;
+      return envSalt;
+    }
     const saltPath = join(process.cwd(), ".pi-salt");
-    if (existsSync(saltPath)) { const s = readFileSync(saltPath, "utf-8").trim(); _cachedSalt = s; return s; }
+    if (existsSync(saltPath)) {
+      const s = readFileSync(saltPath, "utf-8").trim();
+      _cachedSalt = s;
+      return s;
+    }
     const secretPath = join(process.cwd(), ".pi-secret");
-    if (existsSync(secretPath)) { _cachedSalt = LEGACY_SALT; return LEGACY_SALT; }
+    if (existsSync(secretPath)) {
+      _cachedSalt = LEGACY_SALT;
+      return LEGACY_SALT;
+    }
     const newSalt = randomBytes(16).toString("hex");
     writeFileSync(saltPath, newSalt, { mode: 0o600 });
     _cachedSalt = newSalt;

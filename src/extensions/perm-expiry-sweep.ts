@@ -53,17 +53,9 @@
 import { and, eq, like, sql } from "drizzle-orm";
 import { extensions, settings } from "../db/schema";
 import { insertAuditEntry } from "../db/queries/audit-log";
-import {
-  TTL_CONFIG,
-  getForeverTtlMs,
-  type CapabilityExpiryKind,
-} from "./perm-expiry-config";
+import { TTL_CONFIG, getForeverTtlMs, type CapabilityExpiryKind } from "./perm-expiry-config";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
-import {
-  parseAlwaysAllowValue,
-  readTtlOverrideMs,
-  type AlwaysAllowScope,
-} from "./permissions";
+import { parseAlwaysAllowValue, readTtlOverrideMs, type AlwaysAllowScope } from "./permissions";
 import type { ExtensionPermissions } from "./types";
 import type { Database } from "../db/connection";
 
@@ -222,9 +214,7 @@ export interface SweepInputs {
  * If a Phase-N follow-up adds a per-mode grant record key, this
  * helper updates with it.
  */
-export function mapGrantKeyToExpiryKind(
-  grantKey: string,
-): CapabilityExpiryKind | null {
+export function mapGrantKeyToExpiryKind(grantKey: string): CapabilityExpiryKind | null {
   switch (grantKey) {
     case "network":
       return "network";
@@ -299,9 +289,9 @@ function parseAlwaysAllowKey(
   //   [5]"always_allow", [6]capability
   if (parts.length === 7 && parts[0] === "ext" && parts[5] === "always_allow") {
     const scopeRaw = parts[3]!;
-    const scope = (
-      ["session", "conversation", "project", "forever"] as const
-    ).find((s) => s === scopeRaw);
+    const scope = (["session", "conversation", "project", "forever"] as const).find(
+      (s) => s === scopeRaw,
+    );
     if (!scope) return null;
     return {
       extensionId: parts[1]!,
@@ -400,9 +390,7 @@ export async function runSweep(inputs: SweepInputs): Promise<SweepResult> {
   const { db, now } = inputs;
   const ttlConfig = inputs.config?.ttlConfig ?? TTL_CONFIG;
   const foreverTtlMs =
-    inputs.config?.foreverTtlMs !== undefined
-      ? inputs.config.foreverTtlMs
-      : getForeverTtlMs();
+    inputs.config?.foreverTtlMs !== undefined ? inputs.config.foreverTtlMs : getForeverTtlMs();
 
   const revocations: Revocation[] = [];
   const audits: AuditPlan[] = [];
@@ -650,29 +638,18 @@ export async function applySweepResult(
         ageMs: rev.ageMs,
       },
     };
-    const id = await insertAuditEntry(
-      audit.userId,
-      audit.action,
-      audit.target,
-      audit.metadata,
-    );
+    const id = await insertAuditEntry(audit.userId, audit.action, audit.target, audit.metadata);
     if (id !== "") auditCount++;
   };
 
   for (const [extensionId, revs] of byExt) {
     // ── extension-grant batch ────────────────────────────────────
     const extGrants = revs.filter(
-      (r): r is Extract<Revocation, { kind: "extension-grant" }> =>
-        r.kind === "extension-grant",
+      (r): r is Extract<Revocation, { kind: "extension-grant" }> => r.kind === "extension-grant",
     );
     if (extGrants.length > 0) {
       try {
-        const outcome = await applyExtensionGrants(
-          db,
-          extensionId,
-          extGrants,
-          now,
-        );
+        const outcome = await applyExtensionGrants(db, extensionId, extGrants, now);
         appliedCount += outcome.applied;
         skippedConcurrent += outcome.skipped;
         // Emit audits for the keys that actually applied. The
@@ -693,8 +670,7 @@ export async function applySweepResult(
 
     // ── always-allow rows (one-row-per-revocation) ───────────────
     const aaRevs = revs.filter(
-      (r): r is Extract<Revocation, { kind: "always-allow" }> =>
-        r.kind === "always-allow",
+      (r): r is Extract<Revocation, { kind: "always-allow" }> => r.kind === "always-allow",
     );
     for (const rev of aaRevs) {
       try {
@@ -801,8 +777,7 @@ async function applyExtensionGrants(
     ...current,
     grantedAt: nextGrantedAt,
   };
-  const appliedRevs: Array<Extract<Revocation, { kind: "extension-grant" }>> =
-    [];
+  const appliedRevs: Array<Extract<Revocation, { kind: "extension-grant" }>> = [];
   let skippedKeys = 0;
   for (const rev of revs) {
     const curTs = nextGrantedAt[rev.grantKey];
@@ -940,10 +915,7 @@ async function applyAlwaysAllowRevocation(
     .update(settings)
     .set({ value: sql`${JSON.stringify(next)}::jsonb`, updatedAt: sql`NOW()` })
     .where(
-      and(
-        eq(settings.key, rev.settingKey),
-        sql`${settings.value} = ${JSON.stringify(cur)}::jsonb`,
-      ),
+      and(eq(settings.key, rev.settingKey), sql`${settings.value} = ${JSON.stringify(cur)}::jsonb`),
     )
     .returning({ key: settings.key });
   return updated.length > 0 ? "applied" : "skipped";

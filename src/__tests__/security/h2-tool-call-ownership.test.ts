@@ -104,9 +104,7 @@ mock.module("../../db/queries/conversations", convQueriesMock);
 // The +server.ts route does `await import("$server/routes/tool-permission")`.
 // $server/* is a SvelteKit alias and needs an explicit mock in tests.
 // Point it at the real module (which will pick up our mocked deps above).
-mock.module("$server/routes/tool-permission", () =>
-  require("../../routes/tool-permission"),
-);
+mock.module("$server/routes/tool-permission", () => require("../../routes/tool-permission"));
 
 // ── Handler + gate helpers (AFTER mocks) ────────────────────────────
 import { POST } from "../../../web/src/routes/api/tool-calls/[id]/permission/+server";

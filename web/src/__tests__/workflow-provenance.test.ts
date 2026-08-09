@@ -10,10 +10,7 @@
  * `system` and stamps its author.
  */
 import { describe, test, expect } from "bun:test";
-import {
-  workflowProvenanceBadge,
-  type WorkflowProvenanceInput,
-} from "../lib/workflow-provenance";
+import { workflowProvenanceBadge, type WorkflowProvenanceInput } from "../lib/workflow-provenance";
 
 /** A DB row a member created and owns — the create route's default shape. */
 const OWNED_SYSTEM: WorkflowProvenanceInput = {

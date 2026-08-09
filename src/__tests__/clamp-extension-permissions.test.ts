@@ -101,13 +101,11 @@ describe("clampExtensionPermissions — capability tier", () => {
 
   test("loopEvents attaches only when BOTH manifest + submitted declare it", () => {
     // Both declare → granted.
-    expect(
-      clampExtensionPermissions({ loopEvents: true }, { loopEvents: true }).loopEvents,
-    ).toBe(true);
+    expect(clampExtensionPermissions({ loopEvents: true }, { loopEvents: true }).loopEvents).toBe(
+      true,
+    );
     // Manifest silent → dropped (can't grant beyond the manifest).
-    expect(
-      clampExtensionPermissions({ loopEvents: true }, {}).loopEvents,
-    ).toBeUndefined();
+    expect(clampExtensionPermissions({ loopEvents: true }, {}).loopEvents).toBeUndefined();
     // Kill-switch disables the whole tier even when both declare.
     process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"] = "1";
     expect(
@@ -127,7 +125,9 @@ describe("clampExtensionPermissions — capability tier", () => {
   test("eventSubscriptions: object forms normalize on BOTH sides", () => {
     const out = clampExtensionPermissions(
       {
-        eventSubscriptions: { events: [DCE_EVENT] } as unknown as ExtensionPermissions["eventSubscriptions"],
+        eventSubscriptions: {
+          events: [DCE_EVENT],
+        } as unknown as ExtensionPermissions["eventSubscriptions"],
       },
       { eventSubscriptions: { events: [DCE_EVENT], includeFullPayload: true } },
     );
@@ -157,11 +157,11 @@ describe("clampExtensionPermissions — capability tier", () => {
     const out = clampExtensionPermissions(
       {
         eventSubscriptions: [
-          "other-ext:steal",     // foreign namespace — dispatcher refuses, clamp must too
-          ":no-namespace",       // empty namespace half
-          "no-event:",           // empty event half
-          "plainname",           // no separator, not a carrier event
-          "ez-code-factory:ok",  // the one legitimate custom
+          "other-ext:steal", // foreign namespace — dispatcher refuses, clamp must too
+          ":no-namespace", // empty namespace half
+          "no-event:", // empty event half
+          "plainname", // no separator, not a carrier event
+          "ez-code-factory:ok", // the one legitimate custom
         ],
       },
       {
@@ -209,10 +209,7 @@ describe("clampExtensionPermissions — capability tier", () => {
   });
 
   test("webhooks: no overlap yields no grant", () => {
-    const out = clampExtensionPermissions(
-      { webhooks: ["tickets"] },
-      { webhooks: ["alerts"] },
-    );
+    const out = clampExtensionPermissions({ webhooks: ["tickets"] }, { webhooks: ["alerts"] });
     expect(out.webhooks).toBeUndefined();
   });
 });
@@ -288,7 +285,9 @@ describe("clampExtensionPermissions — deputy flags + grantedAt", () => {
 
 describe("manifestEventsIncludeFullPayload", () => {
   test("true only for the object form with includeFullPayload: true", () => {
-    expect(manifestEventsIncludeFullPayload({ events: [DCE_EVENT], includeFullPayload: true })).toBe(true);
+    expect(
+      manifestEventsIncludeFullPayload({ events: [DCE_EVENT], includeFullPayload: true }),
+    ).toBe(true);
     expect(manifestEventsIncludeFullPayload({ events: [DCE_EVENT] })).toBe(false);
     expect(manifestEventsIncludeFullPayload([DCE_EVENT])).toBe(false);
     expect(manifestEventsIncludeFullPayload(undefined)).toBe(false);

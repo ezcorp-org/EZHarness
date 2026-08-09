@@ -6,7 +6,13 @@
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
+import {
+  mockServerAlias,
+  createMockEvent,
+  jsonFromResponse,
+  ADMIN_USER,
+  MEMBER_USER,
+} from "./helpers/mock-request";
 
 mockServerAlias();
 
@@ -33,9 +39,8 @@ let mockSourceConv: MockConv | null = null;
 let mockUpdatedMessage: MockMessage | null = null;
 let mockActiveRun: { id: string; conversationId: string } | null = null;
 let capturedUpdate: { conversationId: string; messageId: string; content: string } | null = null;
-let capturedExcluded:
-  | { conversationId: string; messageId: string; excluded: boolean }
-  | null = null;
+let capturedExcluded: { conversationId: string; messageId: string; excluded: boolean } | null =
+  null;
 
 const convQueriesMock = () => ({
   getConversation: async (_id: string) => mockSourceConv,
@@ -97,7 +102,11 @@ describe("PATCH /api/conversations/[id]/messages/[mid]", () => {
     expect(res.status).toBe(200);
     const data = await jsonFromResponse(res);
     expect(data.content).toBe("Edited text.");
-    expect(capturedUpdate).toEqual({ conversationId: "conv-1", messageId: "msg-1", content: "Edited text." });
+    expect(capturedUpdate).toEqual({
+      conversationId: "conv-1",
+      messageId: "msg-1",
+      content: "Edited text.",
+    });
   });
 
   test("returns 404 when caller does not own the conversation", async () => {
@@ -198,7 +207,11 @@ describe("PATCH /api/conversations/[id]/messages/[mid]", () => {
     expect(res.status).toBe(200);
     const data = await jsonFromResponse(res);
     expect(data.excluded).toBe(true);
-    expect(capturedExcluded).toEqual({ conversationId: "conv-1", messageId: "msg-1", excluded: true });
+    expect(capturedExcluded).toEqual({
+      conversationId: "conv-1",
+      messageId: "msg-1",
+      excluded: true,
+    });
     // Belt + suspenders: the content helper must NOT have been called.
     expect(capturedUpdate).toBeNull();
   });
@@ -214,7 +227,11 @@ describe("PATCH /api/conversations/[id]/messages/[mid]", () => {
     });
     const res = await patchMessage(event);
     expect(res.status).toBe(200);
-    expect(capturedExcluded).toEqual({ conversationId: "conv-1", messageId: "msg-1", excluded: false });
+    expect(capturedExcluded).toEqual({
+      conversationId: "conv-1",
+      messageId: "msg-1",
+      excluded: false,
+    });
   });
 
   test("PATCH {excluded: true} returns 404 when the message is not found", async () => {

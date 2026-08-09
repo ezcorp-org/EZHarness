@@ -52,10 +52,11 @@ async function lintInSimulatedAgentWorktree(): Promise<{ exitCode: number; outpu
     writeFileSync(join(worktree, ".gitignore"), "");
     writeFileSync(join(worktree, "probe.ts"), "export const probe = 1;\n");
 
-    const proc = Bun.spawnSync(
-      [join(REPO_ROOT, "node_modules", ".bin", "biome"), "check", "."],
-      { cwd: worktree, stdout: "pipe", stderr: "pipe" },
-    );
+    const proc = Bun.spawnSync([join(REPO_ROOT, "node_modules", ".bin", "biome"), "check", "."], {
+      cwd: worktree,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     return {
       exitCode: proc.exitCode,
       output: proc.stdout.toString() + proc.stderr.toString(),

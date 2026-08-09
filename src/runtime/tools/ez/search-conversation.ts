@@ -31,7 +31,7 @@
  * `message-search.ts` until `defaultSearch` is invoked.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import type { BuiltinToolDef } from "../types";
 import type { MessageSearchHit } from "../../../db/queries/message-search";
 import type { ToolParams } from "../validate";
 
@@ -82,9 +82,17 @@ export function createSearchConversationTool(ctx: SearchConversationContext): Bu
   // searchMessages import is lazy (see the file header) so it loads only when
   // a real search runs. Test stubs replace this entirely.
   const search: NonNullable<SearchConversationContext["search"]> =
-    ctx.search ?? (async (p) => {
+    ctx.search ??
+    (async (p) => {
       const { searchMessages } = await import("../../../db/queries/message-search");
-      return searchMessages({ query: p.query, mode: "keyword", queryEmbedding: null, userId: p.userId, scope: "all", limit: p.limit });
+      return searchMessages({
+        query: p.query,
+        mode: "keyword",
+        queryEmbedding: null,
+        userId: p.userId,
+        scope: "all",
+        limit: p.limit,
+      });
     });
   return {
     name: "search_conversation",
@@ -96,9 +104,19 @@ export function createSearchConversationTool(ctx: SearchConversationContext): Bu
     parameters: Type.Unsafe({
       type: "object",
       properties: {
-        query: { type: "string", minLength: 1, description: "What to search for (keyword / phrase)." },
-        conversationId: { type: "string", description: "Optional. Narrow results to a single conversation id." },
-        limit: { type: "number", description: "Optional. Max hits to return (default 10, max 20)." },
+        query: {
+          type: "string",
+          minLength: 1,
+          description: "What to search for (keyword / phrase).",
+        },
+        conversationId: {
+          type: "string",
+          description: "Optional. Narrow results to a single conversation id.",
+        },
+        limit: {
+          type: "number",
+          description: "Optional. Max hits to return (default 10, max 20).",
+        },
       },
       required: ["query"],
     }),
@@ -106,11 +124,17 @@ export function createSearchConversationTool(ctx: SearchConversationContext): Bu
       try {
         const query = typeof params?.query === "string" ? params.query.trim() : "";
         if (!query) {
-          return { content: [{ type: "text" as const, text: "Error: query is required" }], details: { isError: true } };
+          return {
+            content: [{ type: "text" as const, text: "Error: query is required" }],
+            details: { isError: true },
+          };
         }
-        const conversationId = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
+        const conversationId =
+          typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
         const rawLimit =
-          typeof params?.limit === "number" && Number.isFinite(params.limit) ? Math.floor(params.limit) : DEFAULT_LIMIT;
+          typeof params?.limit === "number" && Number.isFinite(params.limit)
+            ? Math.floor(params.limit)
+            : DEFAULT_LIMIT;
         const limit = Math.max(1, Math.min(rawLimit, MAX_LIMIT));
 
         // When narrowing to one conversation we over-fetch (to the cap) so the
@@ -125,7 +149,12 @@ export function createSearchConversationTool(ctx: SearchConversationContext): Bu
         if (hits.length === 0) {
           const scopeNote = conversationId ? ` in conversation ${conversationId}` : "";
           return {
-            content: [{ type: "text" as const, text: `No messages matching "${query}"${scopeNote} were found.` }],
+            content: [
+              {
+                type: "text" as const,
+                text: `No messages matching "${query}"${scopeNote} were found.`,
+              },
+            ],
             details: { query, conversationId: conversationId || undefined, count: 0 },
           };
         }
@@ -135,7 +164,12 @@ export function createSearchConversationTool(ctx: SearchConversationContext): Bu
           details: { query, conversationId: conversationId || undefined, count: hits.length },
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return {
+          content: [
+            { type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` },
+          ],
+          details: { isError: true },
+        };
       }
     },
   };

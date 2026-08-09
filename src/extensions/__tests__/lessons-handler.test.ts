@@ -13,15 +13,26 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -29,9 +40,15 @@ mockDbConnection();
 import { handlePiLessons, _resetLessonsWriteQuotaForTests } from "../lessons-handler";
 import { createUser } from "../../db/queries/users";
 import {
-  extensions, conversations, projects,
-  sdkCapabilityCalls, messages, errorLogs, auditLog,
-  lessons, lessonsAuditLog,
+  extensions,
+  conversations,
+  projects,
+  sdkCapabilityCalls,
+  messages,
+  errorLogs,
+  auditLog,
+  lessons,
+  lessonsAuditLog,
 } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import type { ExtensionPermissions } from "../types";
@@ -43,23 +60,49 @@ let projectId: string;
 let conversationId: string;
 
 async function ensureExtension(name: string): Promise<string> {
-  const [row] = await getTestDb().insert(extensions).values({
-    name, version: "0.0.1", description: "",
-    manifest: { schemaVersion: 2, name, version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as any,
-    source: "test", enabled: true, grantedPermissions: {} as any,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name,
+      version: "0.0.1",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as any,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as any,
+    })
+    .returning({ id: extensions.id });
   return row!.id;
 }
 
 beforeAll(async () => {
   await setupTestDb();
-  const u = await createUser({ email: "less-h@example.com", passwordHash: "h", name: "U", role: "admin", status: "active" });
+  const u = await createUser({
+    email: "less-h@example.com",
+    passwordHash: "h",
+    name: "U",
+    role: "admin",
+    status: "active",
+  });
   userId = u.id;
   extensionId = await ensureExtension("less-h-ext-1");
   extensionId2 = await ensureExtension("less-h-ext-2");
-  const [proj] = await getTestDb().insert(projects).values({ name: "less-proj", path: "/tmp/less" }).returning({ id: projects.id });
+  const [proj] = await getTestDb()
+    .insert(projects)
+    .values({ name: "less-proj", path: "/tmp/less" })
+    .returning({ id: projects.id });
   projectId = proj!.id;
-  const [conv] = await getTestDb().insert(conversations).values({ projectId, userId, title: "t", kind: "regular" }).returning({ id: conversations.id });
+  const [conv] = await getTestDb()
+    .insert(conversations)
+    .values({ projectId, userId, title: "t", kind: "regular" })
+    .returning({ id: conversations.id });
   conversationId = conv!.id;
 });
 
@@ -78,7 +121,9 @@ afterAll(async () => {
   await closeTestDb();
 });
 
-function grantedWrite(overrides: Partial<NonNullable<ExtensionPermissions["lessons"]>> = {}): ExtensionPermissions {
+function grantedWrite(
+  overrides: Partial<NonNullable<ExtensionPermissions["lessons"]>> = {},
+): ExtensionPermissions {
   return {
     grantedAt: { lessons: Date.now() },
     lessons: { access: "write", maxWritesPerDay: 50, maxVisibility: "user", ...overrides },
@@ -93,14 +138,19 @@ describe("lessons: write", () => {
   test("stamps authorExtensionId from host (NOT RPC meta)", async () => {
     const resp = await handlePiLessons(
       {
-        jsonrpc: "2.0", id: 1, method: "ezcorp/lessons",
+        jsonrpc: "2.0",
+        id: 1,
+        method: "ezcorp/lessons",
         params: { action: "write", input: { slug: "test-1", title: "T", body: "B", projectId } },
       },
       { granted: grantedWrite(), registeredTool: { extensionId } },
       { ...rpcMeta(), actorExtensionId: "evil-ext" },
     );
     expect(resp.error).toBeUndefined();
-    const result = resp.result as { lesson: { id: string; authorExtensionId: string }; created: boolean };
+    const result = resp.result as {
+      lesson: { id: string; authorExtensionId: string };
+      created: boolean;
+    };
     expect(result.created).toBe(true);
     expect(result.lesson.authorExtensionId).toBe(extensionId);
   });
@@ -108,7 +158,9 @@ describe("lessons: write", () => {
   test("invalid slug → -32001 'invalid-slug'", async () => {
     const resp = await handlePiLessons(
       {
-        jsonrpc: "2.0", id: 2, method: "ezcorp/lessons",
+        jsonrpc: "2.0",
+        id: 2,
+        method: "ezcorp/lessons",
         params: { action: "write", input: { slug: "Bad Slug!", title: "T", body: "B", projectId } },
       },
       { granted: grantedWrite(), registeredTool: { extensionId } },
@@ -121,8 +173,13 @@ describe("lessons: write", () => {
   test("requested visibility=global clamped down to maxVisibility", async () => {
     const resp = await handlePiLessons(
       {
-        jsonrpc: "2.0", id: 3, method: "ezcorp/lessons",
-        params: { action: "write", input: { slug: "vis-test", title: "T", body: "B", visibility: "global", projectId } },
+        jsonrpc: "2.0",
+        id: 3,
+        method: "ezcorp/lessons",
+        params: {
+          action: "write",
+          input: { slug: "vis-test", title: "T", body: "B", visibility: "global", projectId },
+        },
       },
       { granted: grantedWrite({ maxVisibility: "user" }), registeredTool: { extensionId } },
       rpcMeta(),
@@ -131,7 +188,10 @@ describe("lessons: write", () => {
     const result = resp.result as { lesson: { visibility: string } };
     expect(result.lesson.visibility).toBe("user");
     // Phase 51.3.5: visibility-clamped audit warning (S2).
-    const audits = await getTestDb().select().from(auditLog).where(eq(auditLog.action, "ext:sdk-lessons-visibility-clamped"));
+    const audits = await getTestDb()
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, "ext:sdk-lessons-visibility-clamped"));
     expect(audits.length).toBe(1);
     expect(audits[0]!.target).toBe(extensionId);
     const meta = audits[0]!.metadata as { oldValue?: string; newValue?: string };
@@ -141,10 +201,21 @@ describe("lessons: write", () => {
 
   test("slug collision returns existing row with created=false", async () => {
     const ctx = { granted: grantedWrite(), registeredTool: { extensionId } };
-    const params = { action: "write" as const, input: { slug: "dup", title: "T1", body: "B1", projectId } };
+    const params = {
+      action: "write" as const,
+      input: { slug: "dup", title: "T1", body: "B1", projectId },
+    };
 
-    const first = await handlePiLessons({ jsonrpc: "2.0", id: 10, method: "ezcorp/lessons", params }, ctx, rpcMeta());
-    const second = await handlePiLessons({ jsonrpc: "2.0", id: 11, method: "ezcorp/lessons", params }, ctx, rpcMeta());
+    const first = await handlePiLessons(
+      { jsonrpc: "2.0", id: 10, method: "ezcorp/lessons", params },
+      ctx,
+      rpcMeta(),
+    );
+    const second = await handlePiLessons(
+      { jsonrpc: "2.0", id: 11, method: "ezcorp/lessons", params },
+      ctx,
+      rpcMeta(),
+    );
     const r1 = first.result as { lesson: { id: string }; created: boolean };
     const r2 = second.result as { lesson: { id: string } | null; created: boolean };
     expect(r1.created).toBe(true);
@@ -153,7 +224,10 @@ describe("lessons: write", () => {
   });
 
   test("composite slug uniqueness — two extensions share slug for same user", async () => {
-    const params = { action: "write" as const, input: { slug: "shared-slug", title: "T", body: "B", projectId } };
+    const params = {
+      action: "write" as const,
+      input: { slug: "shared-slug", title: "T", body: "B", projectId },
+    };
     const r1 = await handlePiLessons(
       { jsonrpc: "2.0", id: 20, method: "ezcorp/lessons", params },
       { granted: grantedWrite(), registeredTool: { extensionId } },
@@ -175,7 +249,9 @@ describe("lessons: write", () => {
   test("update of non-owned lesson → -32001 'not-author'", async () => {
     const written = await handlePiLessons(
       {
-        jsonrpc: "2.0", id: 30, method: "ezcorp/lessons",
+        jsonrpc: "2.0",
+        id: 30,
+        method: "ezcorp/lessons",
         params: { action: "write", input: { slug: "owned", title: "T", body: "B", projectId } },
       },
       { granted: grantedWrite(), registeredTool: { extensionId } },
@@ -184,7 +260,9 @@ describe("lessons: write", () => {
     const lessonId = (written.result as { lesson: { id: string } }).lesson.id;
     const denied = await handlePiLessons(
       {
-        jsonrpc: "2.0", id: 31, method: "ezcorp/lessons",
+        jsonrpc: "2.0",
+        id: 31,
+        method: "ezcorp/lessons",
         params: { action: "update", id: lessonId, patch: { body: "hacked" } },
       },
       { granted: grantedWrite(), registeredTool: { extensionId: extensionId2 } },
@@ -197,7 +275,9 @@ describe("lessons: write", () => {
   test("lessons_audit_log row captures body diff on update", async () => {
     const written = await handlePiLessons(
       {
-        jsonrpc: "2.0", id: 40, method: "ezcorp/lessons",
+        jsonrpc: "2.0",
+        id: 40,
+        method: "ezcorp/lessons",
         params: { action: "write", input: { slug: "diff", title: "T", body: "v1", projectId } },
       },
       { granted: grantedWrite(), registeredTool: { extensionId } },
@@ -206,13 +286,18 @@ describe("lessons: write", () => {
     const lessonId = (written.result as { lesson: { id: string } }).lesson.id;
     await handlePiLessons(
       {
-        jsonrpc: "2.0", id: 41, method: "ezcorp/lessons",
+        jsonrpc: "2.0",
+        id: 41,
+        method: "ezcorp/lessons",
         params: { action: "update", id: lessonId, patch: { body: "v2" } },
       },
       { granted: grantedWrite(), registeredTool: { extensionId } },
       rpcMeta(),
     );
-    const audits = await getTestDb().select().from(lessonsAuditLog).where(eq(lessonsAuditLog.lessonId, lessonId));
+    const audits = await getTestDb()
+      .select()
+      .from(lessonsAuditLog)
+      .where(eq(lessonsAuditLog.lessonId, lessonId));
     // 2 rows: created + updated.
     expect(audits.length).toBe(2);
     const created = audits.find((a) => a.action === "created");
@@ -225,7 +310,9 @@ describe("lessons: write", () => {
   test("write without grant → -32001", async () => {
     const resp = await handlePiLessons(
       {
-        jsonrpc: "2.0", id: 50, method: "ezcorp/lessons",
+        jsonrpc: "2.0",
+        id: 50,
+        method: "ezcorp/lessons",
         params: { action: "write", input: { slug: "x", title: "T", body: "B", projectId } },
       },
       { granted: { grantedAt: {} }, registeredTool: { extensionId } },
@@ -237,14 +324,24 @@ describe("lessons: write", () => {
   test("daily quota exceeded → -32103", async () => {
     const ctx = { granted: grantedWrite({ maxWritesPerDay: 1 }), registeredTool: { extensionId } };
     await handlePiLessons(
-      { jsonrpc: "2.0", id: 60, method: "ezcorp/lessons",
-        params: { action: "write", input: { slug: "q1", title: "T", body: "B", projectId } } },
-      ctx, rpcMeta(),
+      {
+        jsonrpc: "2.0",
+        id: 60,
+        method: "ezcorp/lessons",
+        params: { action: "write", input: { slug: "q1", title: "T", body: "B", projectId } },
+      },
+      ctx,
+      rpcMeta(),
     );
     const denied = await handlePiLessons(
-      { jsonrpc: "2.0", id: 61, method: "ezcorp/lessons",
-        params: { action: "write", input: { slug: "q2", title: "T", body: "B", projectId } } },
-      ctx, rpcMeta(),
+      {
+        jsonrpc: "2.0",
+        id: 61,
+        method: "ezcorp/lessons",
+        params: { action: "write", input: { slug: "q2", title: "T", body: "B", projectId } },
+      },
+      ctx,
+      rpcMeta(),
     );
     expect(denied.error?.code).toBe(-32103);
   });

@@ -38,9 +38,10 @@ export async function getClientCapabilities(
    */
   pendingExtensionNames?: readonly string[],
 ): Promise<ClientCapabilities> {
-  const sortedExt = pendingExtensionNames && pendingExtensionNames.length > 0
-    ? [...new Set(pendingExtensionNames)].sort().join(",")
-    : "";
+  const sortedExt =
+    pendingExtensionNames && pendingExtensionNames.length > 0
+      ? [...new Set(pendingExtensionNames)].sort().join(",")
+      : "";
   // Cache key includes conversationId AND the pending-extensions set so
   // the picker re-fetches whenever the user types or removes an `!ext:`
   // mention.

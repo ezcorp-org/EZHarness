@@ -30,41 +30,45 @@
 import type { TaskAssignment, TaskPanelTask, TaskSnapshot } from "$lib/stores.svelte.js";
 
 export interface TaskSnapshotState {
-	/** conversationId → the snapshot the panel renders. */
-	snapshots: Record<string, TaskSnapshot>;
-	/**
-	 * conversationId → number of live bus events applied so far. Monotonic;
-	 * used only to detect that a hydrate response has been overtaken.
-	 */
-	seq: Record<string, number>;
+  /** conversationId → the snapshot the panel renders. */
+  snapshots: Record<string, TaskSnapshot>;
+  /**
+   * conversationId → number of live bus events applied so far. Monotonic;
+   * used only to detect that a hydrate response has been overtaken.
+   */
+  seq: Record<string, number>;
 }
 
 export interface ApplyResult {
-	state: TaskSnapshotState;
-	/**
-	 * The event referenced a conversation (or task) with no loaded snapshot,
-	 * so the delta could not be applied and is now lost. The caller should
-	 * cold-start hydrate that conversation to resync. Before this existed the
-	 * update was silently dropped and the panel stayed stale until the next
-	 * full snapshot happened to arrive.
-	 */
-	hydrateNeeded: boolean;
+  state: TaskSnapshotState;
+  /**
+   * The event referenced a conversation (or task) with no loaded snapshot,
+   * so the delta could not be applied and is now lost. The caller should
+   * cold-start hydrate that conversation to resync. Before this existed the
+   * update was silently dropped and the panel stayed stale until the next
+   * full snapshot happened to arrive.
+   */
+  hydrateNeeded: boolean;
 }
 
 export function emptyTaskSnapshotState(): TaskSnapshotState {
-	return { snapshots: {}, seq: {} };
+  return { snapshots: {}, seq: {} };
 }
 
 /** Live-event counter for a conversation (0 when it has seen none). */
 export function seqFor(state: TaskSnapshotState, conversationId: string): number {
-	return state.seq[conversationId] ?? 0;
+  return state.seq[conversationId] ?? 0;
 }
 
-function bump(state: TaskSnapshotState, conversationId: string, snapshot: TaskSnapshot): TaskSnapshotState {
-	return {
-		snapshots: { ...state.snapshots, [conversationId]: snapshot },
-		seq: { ...state.seq, [conversationId]: seqFor(state, conversationId) + 1 },
-	};
+function bump(
+  state: TaskSnapshotState,
+  conversationId: string,
+  snapshot: TaskSnapshot,
+): TaskSnapshotState {
+  return {
+    snapshots: { ...state.snapshots, [conversationId]: snapshot },
+    seq: { ...state.seq, [conversationId]: seqFor(state, conversationId) + 1 },
+  };
 }
 
 /**
@@ -72,24 +76,24 @@ function bump(state: TaskSnapshotState, conversationId: string, snapshot: TaskSn
  * state at emit time and arrives in bus order.
  */
 export function applyLiveSnapshot(
-	state: TaskSnapshotState,
-	payload: TaskSnapshot | undefined | null,
+  state: TaskSnapshotState,
+  payload: TaskSnapshot | undefined | null,
 ): ApplyResult {
-	if (!payload?.conversationId) return { state, hydrateNeeded: false };
-	const snapshot: TaskSnapshot = {
-		conversationId: payload.conversationId,
-		tasks: Array.isArray(payload.tasks) ? payload.tasks : [],
-		...(payload.activeTaskId !== undefined ? { activeTaskId: payload.activeTaskId } : {}),
-	};
-	return { state: bump(state, payload.conversationId, snapshot), hydrateNeeded: false };
+  if (!payload?.conversationId) return { state, hydrateNeeded: false };
+  const snapshot: TaskSnapshot = {
+    conversationId: payload.conversationId,
+    tasks: Array.isArray(payload.tasks) ? payload.tasks : [],
+    ...(payload.activeTaskId !== undefined ? { activeTaskId: payload.activeTaskId } : {}),
+  };
+  return { state: bump(state, payload.conversationId, snapshot), hydrateNeeded: false };
 }
 
 export interface AssignmentUpdatePayload {
-	conversationId: string;
-	taskId: string;
-	assignment: TaskAssignment;
-	structuredResultError?: string;
-	structuredResultOverCap?: boolean;
+  conversationId: string;
+  taskId: string;
+  assignment: TaskAssignment;
+  structuredResultError?: string;
+  structuredResultOverCap?: boolean;
 }
 
 /**
@@ -105,63 +109,63 @@ export interface AssignmentUpdatePayload {
  * timestamps are assertable.
  */
 export function applyAssignmentUpdate(
-	state: TaskSnapshotState,
-	payload: AssignmentUpdatePayload,
-	nowIso: string,
+  state: TaskSnapshotState,
+  payload: AssignmentUpdatePayload,
+  nowIso: string,
 ): ApplyResult {
-	const { conversationId, taskId, assignment } = payload;
-	if (!conversationId || !taskId || !assignment?.id) {
-		return { state, hydrateNeeded: false };
-	}
+  const { conversationId, taskId, assignment } = payload;
+  if (!conversationId || !taskId || !assignment?.id) {
+    return { state, hydrateNeeded: false };
+  }
 
-	const snapshot = state.snapshots[conversationId];
-	// No snapshot loaded yet (fresh tab, or the run started before this page
-	// opened) — the delta has nowhere to go. Ask for a hydrate instead of
-	// dropping it on the floor.
-	if (!snapshot) return { state, hydrateNeeded: true };
+  const snapshot = state.snapshots[conversationId];
+  // No snapshot loaded yet (fresh tab, or the run started before this page
+  // opened) — the delta has nowhere to go. Ask for a hydrate instead of
+  // dropping it on the floor.
+  if (!snapshot) return { state, hydrateNeeded: true };
 
-	const taskIdx = snapshot.tasks.findIndex((t) => t.id === taskId);
-	if (taskIdx < 0) return { state, hydrateNeeded: true };
+  const taskIdx = snapshot.tasks.findIndex((t) => t.id === taskId);
+  if (taskIdx < 0) return { state, hydrateNeeded: true };
 
-	// The schema-failure flag rides the top-level event field (the backend
-	// keeps it OFF the assignment object). A terminal update carrying
-	// `structuredResultError` WITHOUT `structuredResultOverCap` is a genuine
-	// schema failure; a validated-but-oversized result is not.
-	const schemaFailed =
-		payload.structuredResultError !== undefined && !payload.structuredResultOverCap;
-	const merged: TaskAssignment = { ...assignment, schemaFailed };
+  // The schema-failure flag rides the top-level event field (the backend
+  // keeps it OFF the assignment object). A terminal update carrying
+  // `structuredResultError` WITHOUT `structuredResultOverCap` is a genuine
+  // schema failure; a validated-but-oversized result is not.
+  const schemaFailed =
+    payload.structuredResultError !== undefined && !payload.structuredResultOverCap;
+  const merged: TaskAssignment = { ...assignment, schemaFailed };
 
-	const task = snapshot.tasks[taskIdx]!;
-	const assignments = [...(task.assignments ?? [])];
-	const idx = assignments.findIndex((a) => a.id === merged.id);
-	if (idx >= 0) assignments[idx] = merged;
-	else assignments.push(merged);
+  const task = snapshot.tasks[taskIdx]!;
+  const assignments = [...(task.assignments ?? [])];
+  const idx = assignments.findIndex((a) => a.id === merged.id);
+  if (idx >= 0) assignments[idx] = merged;
+  else assignments.push(merged);
 
-	let next: TaskPanelTask = { ...task, assignments };
-	let activeTaskId = snapshot.activeTaskId;
+  let next: TaskPanelTask = { ...task, assignments };
+  let activeTaskId = snapshot.activeTaskId;
 
-	const allTerminal =
-		assignments.length > 0 &&
-		assignments.every((a) => a.status === "completed" || a.status === "failed");
-	if (next.status !== "completed" && next.status !== "failed" && allTerminal) {
-		const anyFailed = assignments.some((a) => a.status === "failed");
-		next = anyFailed
-			? { ...next, status: "failed", failedAt: next.failedAt ?? nowIso }
-			: { ...next, status: "completed", completedAt: next.completedAt ?? nowIso };
-		if (activeTaskId === next.id) activeTaskId = undefined;
-	}
+  const allTerminal =
+    assignments.length > 0 &&
+    assignments.every((a) => a.status === "completed" || a.status === "failed");
+  if (next.status !== "completed" && next.status !== "failed" && allTerminal) {
+    const anyFailed = assignments.some((a) => a.status === "failed");
+    next = anyFailed
+      ? { ...next, status: "failed", failedAt: next.failedAt ?? nowIso }
+      : { ...next, status: "completed", completedAt: next.completedAt ?? nowIso };
+    if (activeTaskId === next.id) activeTaskId = undefined;
+  }
 
-	const tasks = [...snapshot.tasks];
-	tasks[taskIdx] = next;
+  const tasks = [...snapshot.tasks];
+  tasks[taskIdx] = next;
 
-	return {
-		state: bump(state, conversationId, {
-			conversationId,
-			tasks,
-			...(activeTaskId !== undefined ? { activeTaskId } : {}),
-		}),
-		hydrateNeeded: false,
-	};
+  return {
+    state: bump(state, conversationId, {
+      conversationId,
+      tasks,
+      ...(activeTaskId !== undefined ? { activeTaskId } : {}),
+    }),
+    hydrateNeeded: false,
+  };
 }
 
 /**
@@ -173,30 +177,30 @@ export function applyAssignmentUpdate(
  * panel flicker backwards.
  */
 export function applyHydratedSnapshot(
-	state: TaskSnapshotState,
-	conversationId: string,
-	payload: { tasks?: unknown; activeTaskId?: string } | null | undefined,
-	seqAtFetchStart: number,
+  state: TaskSnapshotState,
+  conversationId: string,
+  payload: { tasks?: unknown; activeTaskId?: string } | null | undefined,
+  seqAtFetchStart: number,
 ): TaskSnapshotState {
-	if (!conversationId || !payload) return state;
-	if (seqFor(state, conversationId) !== seqAtFetchStart) return state;
+  if (!conversationId || !payload) return state;
+  if (seqFor(state, conversationId) !== seqAtFetchStart) return state;
 
-	const tasks = Array.isArray(payload.tasks) ? (payload.tasks as TaskPanelTask[]) : [];
-	// Nothing persisted and nothing on screen — don't churn the store (and
-	// don't manufacture an empty record that `hasAnyTasks` has to filter).
-	if (tasks.length === 0 && !state.snapshots[conversationId]) return state;
+  const tasks = Array.isArray(payload.tasks) ? (payload.tasks as TaskPanelTask[]) : [];
+  // Nothing persisted and nothing on screen — don't churn the store (and
+  // don't manufacture an empty record that `hasAnyTasks` has to filter).
+  if (tasks.length === 0 && !state.snapshots[conversationId]) return state;
 
-	return {
-		// The hydrate is not a live event, so `seq` is deliberately untouched:
-		// it counts only what arrived on the bus.
-		seq: state.seq,
-		snapshots: {
-			...state.snapshots,
-			[conversationId]: {
-				conversationId,
-				tasks,
-				...(payload.activeTaskId !== undefined ? { activeTaskId: payload.activeTaskId } : {}),
-			},
-		},
-	};
+  return {
+    // The hydrate is not a live event, so `seq` is deliberately untouched:
+    // it counts only what arrived on the bus.
+    seq: state.seq,
+    snapshots: {
+      ...state.snapshots,
+      [conversationId]: {
+        conversationId,
+        tasks,
+        ...(payload.activeTaskId !== undefined ? { activeTaskId: payload.activeTaskId } : {}),
+      },
+    },
+  };
 }

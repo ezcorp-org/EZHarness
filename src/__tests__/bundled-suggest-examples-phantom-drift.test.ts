@@ -31,10 +31,7 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { ExtensionPermissions, ToolDefinition } from "../extensions/types";
 // Bound to the REAL implementations before `mock.module` swaps the module
 // below — the hashing under test must not be stubbed.
-import {
-  canonicalizeAndHash,
-  canonicalizeAndHashForReapproval,
-} from "../extensions/bundled-lock";
+import { canonicalizeAndHash, canonicalizeAndHashForReapproval } from "../extensions/bundled-lock";
 
 // ── Captured audit rows ─────────────────────────────────────────────
 const auditActions: string[] = [];
@@ -161,9 +158,7 @@ async function seedRowWithoutSuggestExamples(
 }
 
 function disableWrites(): number {
-  return updateCalls.filter(
-    (c) => c.id === SEED_ID && c.patch.enabled === false,
-  ).length;
+  return updateCalls.filter((c) => c.id === SEED_ID && c.patch.enabled === false).length;
 }
 
 describe("canonicalizeAndHashForReapproval", () => {
@@ -175,30 +170,37 @@ describe("canonicalizeAndHashForReapproval", () => {
 
   test("ignores suggestExamples — authoring one is not a capability change", () => {
     const withExamples = { ...base, suggestExamples: ["search the web for bun"] };
-    expect(canonicalizeAndHashForReapproval([withExamples as ToolDefinition]))
-      .toBe(canonicalizeAndHashForReapproval([base]));
+    expect(canonicalizeAndHashForReapproval([withExamples as ToolDefinition])).toBe(
+      canonicalizeAndHashForReapproval([base]),
+    );
   });
 
   test("the LOCKFILE hash still notices suggestExamples (tamper fidelity)", () => {
     const withExamples = { ...base, suggestExamples: ["search the web for bun"] };
-    expect(canonicalizeAndHash([withExamples as ToolDefinition]))
-      .not.toBe(canonicalizeAndHash([base]));
+    expect(canonicalizeAndHash([withExamples as ToolDefinition])).not.toBe(
+      canonicalizeAndHash([base]),
+    );
   });
 
   test.each([
     ["description", { ...base, description: "Something else entirely." }],
     ["name", { ...base, name: "search-web-v2" }],
-    ["inputSchema", { ...base, inputSchema: { type: "object", properties: { q: { type: "string" } } } }],
+    [
+      "inputSchema",
+      { ...base, inputSchema: { type: "object", properties: { q: { type: "string" } } } },
+    ],
     ["capabilities", { ...base, capabilities: { network: { hosts: ["evil.example"] } } }],
   ])("still flips on a real %s change", (_field, mutated) => {
-    expect(canonicalizeAndHashForReapproval([mutated as ToolDefinition]))
-      .not.toBe(canonicalizeAndHashForReapproval([base]));
+    expect(canonicalizeAndHashForReapproval([mutated as ToolDefinition])).not.toBe(
+      canonicalizeAndHashForReapproval([base]),
+    );
   });
 
   test("still flips when a tool is added or removed", () => {
     const second = { ...base, name: "read-url" } as ToolDefinition;
-    expect(canonicalizeAndHashForReapproval([base, second]))
-      .not.toBe(canonicalizeAndHashForReapproval([base]));
+    expect(canonicalizeAndHashForReapproval([base, second])).not.toBe(
+      canonicalizeAndHashForReapproval([base]),
+    );
   });
 });
 
@@ -211,9 +213,7 @@ describe("S9 tool-list gate — authored suggestExamples", () => {
     // exercises the bug and not a no-op.
     const seededTools = (store.get(SEED_NAME)!.manifest as { tools: ToolDefinition[] }).tools;
     const disk = await loadDiskManifest();
-    expect(canonicalizeAndHash(seededTools)).not.toBe(
-      canonicalizeAndHash(disk.tools ?? []),
-    );
+    expect(canonicalizeAndHash(seededTools)).not.toBe(canonicalizeAndHash(disk.tools ?? []));
 
     await ensureBundledExtensions();
 
@@ -240,9 +240,7 @@ describe("S9 tool-list gate — authored suggestExamples", () => {
       expect(tool).toHaveProperty("suggestExamples");
     }
     const disk = await loadDiskManifest();
-    expect(canonicalizeAndHash(refreshed.tools ?? [])).toBe(
-      canonicalizeAndHash(disk.tools ?? []),
-    );
+    expect(canonicalizeAndHash(refreshed.tools ?? [])).toBe(canonicalizeAndHash(disk.tools ?? []));
   }, 30_000);
 
   test("a GENUINE tool-list change still disables fail-closed", async () => {

@@ -35,11 +35,7 @@ import { getPageCache } from "../page-cache";
 import { EventBus } from "../../runtime/events";
 import type { AgentEvents } from "../../types";
 import type { ExtensionProcess } from "../subprocess";
-import type {
-  JsonRpcRequest,
-  JsonRpcResponse,
-  JsonRpcNotification,
-} from "../types";
+import type { JsonRpcRequest, JsonRpcResponse, JsonRpcNotification } from "../types";
 import type { ExtensionRegistry } from "../registry";
 
 // ── Stub subprocess ───────────────────────────────────────────────
@@ -47,12 +43,8 @@ import type { ExtensionRegistry } from "../registry";
 interface StubProc {
   setRequestHandlerCalls: number;
   setNotificationHandlerCalls: number;
-  installedRequestHandler:
-    | ((req: JsonRpcRequest) => Promise<JsonRpcResponse>)
-    | null;
-  installedNotificationHandler:
-    | ((notification: JsonRpcNotification) => void)
-    | null;
+  installedRequestHandler: ((req: JsonRpcRequest) => Promise<JsonRpcResponse>) | null;
+  installedNotificationHandler: ((notification: JsonRpcNotification) => void) | null;
 }
 
 function makeStubProc(): StubProc & ExtensionProcess {
@@ -84,13 +76,9 @@ function makeStubProc(): StubProc & ExtensionProcess {
 // our goal here is to assert the dispatcher landed in the right
 // branch, not to exercise the inner handler's full contract.
 
-function makeStubRegistry(opts: {
-  granted?: boolean;
-  manifest?: boolean;
-} = {}): ExtensionRegistry {
+function makeStubRegistry(opts: { granted?: boolean; manifest?: boolean } = {}): ExtensionRegistry {
   const registry = {
-    getGrantedPermissions: (_id: string) =>
-      opts.granted ? { grantedAt: {} } : null,
+    getGrantedPermissions: (_id: string) => (opts.granted ? { grantedAt: {} } : null),
     getManifest: (_id: string) => (opts.manifest ? { schemaVersion: 2 } : null),
     getInstallPath: (_id: string) => "/tmp/ext",
     getRegisteredTool: (_name: string) => null,

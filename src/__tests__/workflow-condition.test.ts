@@ -15,8 +15,12 @@ describe("evaluateCondition — leaf operators", () => {
   test("eq / neq (primitive and deep object equality)", () => {
     expect(evalLeaf({ ref: "$input.a", op: "eq", value: 1 }, { a: 1 }).passed).toBe(true);
     expect(evalLeaf({ ref: "$input.a", op: "neq", value: 2 }, { a: 1 }).passed).toBe(true);
-    expect(evalLeaf({ ref: "$input.a", op: "eq", value: { x: 1 } }, { a: { x: 1 } }).passed).toBe(true);
-    expect(evalLeaf({ ref: "$input.a", op: "eq", value: { x: 2 } }, { a: { x: 1 } }).passed).toBe(false);
+    expect(evalLeaf({ ref: "$input.a", op: "eq", value: { x: 1 } }, { a: { x: 1 } }).passed).toBe(
+      true,
+    );
+    expect(evalLeaf({ ref: "$input.a", op: "eq", value: { x: 2 } }, { a: { x: 1 } }).passed).toBe(
+      false,
+    );
     // one side non-object → deepEq falls through to false
     expect(evalLeaf({ ref: "$input.a", op: "eq", value: { x: 1 } }, { a: 5 }).passed).toBe(false);
   });
@@ -35,9 +39,15 @@ describe("evaluateCondition — leaf operators", () => {
   });
 
   test("contains covers string-substring and array-includes", () => {
-    expect(evalLeaf({ ref: "$input.s", op: "contains", value: "ell" }, { s: "hello" }).passed).toBe(true);
-    expect(evalLeaf({ ref: "$input.arr", op: "contains", value: 2 }, { arr: [1, 2, 3] }).passed).toBe(true);
-    expect(evalLeaf({ ref: "$input.arr", op: "contains", value: 9 }, { arr: [1, 2, 3] }).passed).toBe(false);
+    expect(evalLeaf({ ref: "$input.s", op: "contains", value: "ell" }, { s: "hello" }).passed).toBe(
+      true,
+    );
+    expect(
+      evalLeaf({ ref: "$input.arr", op: "contains", value: 2 }, { arr: [1, 2, 3] }).passed,
+    ).toBe(true);
+    expect(
+      evalLeaf({ ref: "$input.arr", op: "contains", value: 9 }, { arr: [1, 2, 3] }).passed,
+    ).toBe(false);
     // non-string, non-array → false
     expect(evalLeaf({ ref: "$input.n", op: "contains", value: 1 }, { n: 5 }).passed).toBe(false);
   });
@@ -98,9 +108,13 @@ describe("evaluateCondition — reason formatting", () => {
   });
 
   test("formats undefined, null and object actuals in the reason", () => {
-    expect(evalLeaf({ ref: "$input.missing", op: "eq", value: 1 }, {}).reason).toContain("undefined");
+    expect(evalLeaf({ ref: "$input.missing", op: "eq", value: 1 }, {}).reason).toContain(
+      "undefined",
+    );
     expect(evalLeaf({ ref: "$input.a", op: "eq", value: 1 }, { a: null }).reason).toContain("null");
-    expect(evalLeaf({ ref: "$input.a", op: "eq", value: 1 }, { a: { x: 1 } }).reason).toContain('{"x":1}');
+    expect(evalLeaf({ ref: "$input.a", op: "eq", value: 1 }, { a: { x: 1 } }).reason).toContain(
+      '{"x":1}',
+    );
   });
 });
 
@@ -127,7 +141,12 @@ describe("conditionRefs", () => {
       conditionRefs({
         all: [
           { ref: "$input.a", op: "truthy" },
-          { any: [{ ref: "$prev.output.b", op: "exists" }, { not: { ref: "$steps.s.output.c", op: "eq", value: 1 } }] },
+          {
+            any: [
+              { ref: "$prev.output.b", op: "exists" },
+              { not: { ref: "$steps.s.output.c", op: "eq", value: 1 } },
+            ],
+          },
         ],
       }),
     ).toEqual(["$input.a", "$prev.output.b", "$steps.s.output.c"]);
@@ -139,7 +158,9 @@ describe("conditionRefs", () => {
     // the error keeps coming from evaluateCondition.
     expect(conditionRefs({ op: "eq", value: 1 } as unknown as WorkflowCondition)).toEqual([]);
     expect(
-      conditionRefs({ all: [{ ref: "$input.a", op: "truthy" }, {} as unknown as WorkflowCondition] }),
+      conditionRefs({
+        all: [{ ref: "$input.a", op: "truthy" }, {} as unknown as WorkflowCondition],
+      }),
     ).toEqual(["$input.a"]);
   });
 });

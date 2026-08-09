@@ -1,9 +1,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
-import {
-  LifecycleHookDispatcher,
-} from "../extensions/lifecycle-dispatcher";
+import { LifecycleHookDispatcher } from "../extensions/lifecycle-dispatcher";
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -77,7 +75,12 @@ describe("LifecycleHookDispatcher", () => {
   test("multiple extensions subscribed to same hook all receive notification", () => {
     const procA = mockProc();
     const procB = mockProc();
-    const registry = mockRegistry(new Map([["ext-a", procA], ["ext-b", procB]]));
+    const registry = mockRegistry(
+      new Map([
+        ["ext-a", procA],
+        ["ext-b", procB],
+      ]),
+    );
     const dispatcher = new LifecycleHookDispatcher(bus, registry);
 
     dispatcher.registerExtension("ext-a", ["run:start"]);
@@ -162,11 +165,19 @@ describe("LifecycleHookDispatcher", () => {
     // Drive the private notification path with params that ALREADY carry `_meta`
     // (a future sanitizer / caller may). The stamp must ADD ezCallId, not drop
     // the prior fields — defensive merge (#nit).
-    (dispatcher as unknown as {
-      sendNotification(id: string, hook: string, params: Record<string, unknown>): void;
-    }).sendNotification("ext-a", "agent:spawn", { runId: "r1", _meta: { correlationId: "keep-me" } });
+    (
+      dispatcher as unknown as {
+        sendNotification(id: string, hook: string, params: Record<string, unknown>): void;
+      }
+    ).sendNotification("ext-a", "agent:spawn", {
+      runId: "r1",
+      _meta: { correlationId: "keep-me" },
+    });
 
-    const meta = at(proc.calls, 0, "proc.calls").params._meta as { ezCallId?: string; correlationId?: string };
+    const meta = at(proc.calls, 0, "proc.calls").params._meta as {
+      ezCallId?: string;
+      correlationId?: string;
+    };
     expect(meta.correlationId).toBe("keep-me"); // prior field preserved
     expect(typeof meta.ezCallId).toBe("string"); // ezCallId added
   });
@@ -257,7 +268,9 @@ describe("LifecycleHookDispatcher", () => {
 
   test("handles missing/crashed processes gracefully (no throw)", () => {
     const registry = {
-      getProcessIfRunning() { return null; },
+      getProcessIfRunning() {
+        return null;
+      },
     } as any;
 
     const dispatcher = new LifecycleHookDispatcher(bus, registry);
@@ -282,7 +295,9 @@ describe("LifecycleHookDispatcher", () => {
       getProcessIfRunning() {
         return {
           isRunning: true,
-          sendNotification() { throw new Error("process crashed"); },
+          sendNotification() {
+            throw new Error("process crashed");
+          },
         };
       },
     } as any;
@@ -322,8 +337,11 @@ describe("LifecycleHookDispatcher", () => {
     expect(payload).toHaveProperty("agentName", "builder");
     expect(payload).toHaveProperty("status", "success");
     expect(payload).toHaveProperty("timestamp");
-    expect(Object.keys(payload).filter((k) => k !== "_meta").sort())
-      .toEqual(["agentName", "runId", "status", "timestamp"]);
+    expect(
+      Object.keys(payload)
+        .filter((k) => k !== "_meta")
+        .sort(),
+    ).toEqual(["agentName", "runId", "status", "timestamp"]);
     expect(typeof (payload._meta as { ezCallId?: string } | undefined)?.ezCallId).toBe("string");
   });
 
@@ -352,8 +370,11 @@ describe("LifecycleHookDispatcher", () => {
     expect(payload).toHaveProperty("runId", "r1");
     expect(payload).toHaveProperty("success", true);
     expect(payload).toHaveProperty("timestamp");
-    expect(Object.keys(payload).filter((k) => k !== "_meta").sort())
-      .toEqual(["agentConfigId", "agentName", "runId", "success", "timestamp"]);
+    expect(
+      Object.keys(payload)
+        .filter((k) => k !== "_meta")
+        .sort(),
+    ).toEqual(["agentConfigId", "agentName", "runId", "success", "timestamp"]);
     expect(typeof (payload._meta as { ezCallId?: string } | undefined)?.ezCallId).toBe("string");
   });
 
@@ -374,8 +395,11 @@ describe("LifecycleHookDispatcher", () => {
     expect(payload).toHaveProperty("runId", "r1");
     expect(payload).toHaveProperty("agentName", "builder");
     expect(payload).toHaveProperty("timestamp");
-    expect(Object.keys(payload).filter((k) => k !== "_meta").sort())
-      .toEqual(["agentName", "runId", "timestamp"]);
+    expect(
+      Object.keys(payload)
+        .filter((k) => k !== "_meta")
+        .sort(),
+    ).toEqual(["agentName", "runId", "timestamp"]);
     expect(typeof (payload._meta as { ezCallId?: string } | undefined)?.ezCallId).toBe("string");
   });
 

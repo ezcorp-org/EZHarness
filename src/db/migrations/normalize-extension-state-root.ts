@@ -143,7 +143,5 @@ export async function up(db: MigrationDb, projectRoot: string): Promise<void> {
   // prefix. installFromLocal() matches an existing row by this exact
   // string, so it has to move in lockstep with install_path or a
   // reinstall would fork a second row for the same extension.
-  await db.execute(
-    rewritePrefix("source", `local:${stale}`, `local:${canonical}`),
-  );
+  await db.execute(rewritePrefix("source", `local:${stale}`, `local:${canonical}`));
 }

@@ -82,10 +82,7 @@ export interface PiLlmAdapter {
     messages: PiLlmMessage[],
     options?: PiLlmOptions,
   ): Promise<{ text: string; usage: { inputTokens: number; outputTokens: number } }>;
-  stream(
-    messages: PiLlmMessage[],
-    options?: PiLlmOptions,
-  ): AsyncGenerator<PiLlmStreamEvent>;
+  stream(messages: PiLlmMessage[], options?: PiLlmOptions): AsyncGenerator<PiLlmStreamEvent>;
   /**
    * Provider + model the MOST RECENT call resolved to. Written after
    * `resolveModel`, so it reports what actually served the call — the
@@ -224,9 +221,7 @@ export function createPiLlmAdapter(
   // because a caller may vary `options.provider`/`options.model` between
   // calls and each distinct drop is its own fact.
   const noticed = new Set<string>();
-  const noteEffortIfIgnored = (
-    resolved: Awaited<ReturnType<typeof resolveModel>>,
-  ): void => {
+  const noteEffortIfIgnored = (resolved: Awaited<ReturnType<typeof resolveModel>>): void => {
     if (reasoning === undefined || onEffortIgnored === undefined) return;
     if (modelHonoursEffort(resolved.piModel)) return;
     const key = `${resolved.provider}/${resolved.model}`;
@@ -305,15 +300,23 @@ export function createPiLlmAdapter(
         // A stream that errors before `done` never reaches this line, so
         // it contributes nothing — which is the honest reading: no usage
         // was reported for it.
-        if (event.type === "done") { const usage = { inputTokens: event.message.usage.input, outputTokens: event.message.usage.output }; accumulateUsage(adapter, usage); yield { type: "done", usage }; }
+        if (event.type === "done") {
+          const usage = {
+            inputTokens: event.message.usage.input,
+            outputTokens: event.message.usage.output,
+          };
+          accumulateUsage(adapter, usage);
+          yield { type: "done", usage };
+        }
         if (event.type === "error") {
           // pi-ai's error event carries a partial AssistantMessage whose
           // content array mixes TextContent / ThinkingContent / ToolCall.
           // Filter to text parts for the surfaced error string.
-          const errText = event.error.content
-            ?.filter((c): c is { type: "text"; text: string } => c.type === "text")
-            .map((c) => c.text)
-            .join("") ?? "Stream error";
+          const errText =
+            event.error.content
+              ?.filter((c): c is { type: "text"; text: string } => c.type === "text")
+              .map((c) => c.text)
+              .join("") ?? "Stream error";
           yield { type: "error", error: errText };
         }
       }
@@ -353,17 +356,11 @@ export async function persistErrorMessage(
     await getDb()
       .update(toolCalls)
       .set({ messageId: errorMsg.id })
-      .where(and(
-        eq(toolCalls.conversationId, conversationId),
-        eq(toolCalls.messageId, runId),
-      ));
+      .where(and(eq(toolCalls.conversationId, conversationId), eq(toolCalls.messageId, runId)));
     await getDb()
       .update(toolCalls)
       .set({ messageId: errorMsg.id })
-      .where(and(
-        eq(toolCalls.conversationId, conversationId),
-        isNull(toolCalls.messageId),
-      ));
+      .where(and(eq(toolCalls.conversationId, conversationId), isNull(toolCalls.messageId)));
   } catch (err) {
     log.error("Failed to persist error message", { error: String(err) });
   }

@@ -41,10 +41,7 @@ import { expect } from "vitest";
  * @param status  The HTTP status the caller must actually receive.
  * @returns       The returned denial Response, for further body assertions.
  */
-export async function expectDenied(
-  invoke: () => unknown,
-  status: number,
-): Promise<Response> {
+export async function expectDenied(invoke: () => unknown, status: number): Promise<Response> {
   let result: unknown;
   try {
     result = await invoke();
@@ -52,7 +49,7 @@ export async function expectDenied(
     if (thrown instanceof Response) {
       expect.fail(
         `handler THREW its ${thrown.status} Response instead of returning it. ` +
-          "SvelteKit surfaces a thrown Response as a 500 \"Internal Error\", so " +
+          'SvelteKit surfaces a thrown Response as a 500 "Internal Error", so ' +
           `the caller never sees ${status}. Gate the route with checkRole() or ` +
           "requireAdmin(), which RETURN the denial Response.",
       );

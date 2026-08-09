@@ -1,11 +1,6 @@
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import {
-  setupTestDb,
-  closeTestDb,
-  mockDbConnection,
-  getTestDb,
-} from "./helpers/test-pglite";
+import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 
@@ -142,7 +137,12 @@ describe("insertOrReplaceSecret", () => {
   test("a non-race insert failure is rethrown unchanged (re-select finds no winner)", async () => {
     // FK violation (extensions row missing), NOT the unique-violation race:
     // the retry's re-select finds nothing, so the original error surfaces.
-    const orphan: SecretScope = { extensionId: "never-installed", projectId: null, userId: null, name: "apiToken" };
+    const orphan: SecretScope = {
+      extensionId: "never-installed",
+      projectId: null,
+      userId: null,
+      name: "apiToken",
+    };
     await expect(insertOrReplaceSecret(orphan, "ct")).rejects.toThrow();
     expect(await getSecretRow(orphan)).toBeUndefined();
   });

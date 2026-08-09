@@ -23,11 +23,7 @@
 import { existsSync } from "node:fs";
 import { cp, mkdir, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import {
-  consumeDraft,
-  getDraft,
-  getExtensionAuthorDraftDir,
-} from "../db/queries/ez-drafts";
+import { consumeDraft, getDraft, getExtensionAuthorDraftDir } from "../db/queries/ez-drafts";
 import { getExtensionByName, updateExtension } from "../db/queries/extensions";
 import { installFromLocal } from "./installer";
 import { ExtensionRegistry } from "./registry";
@@ -151,11 +147,7 @@ export type AuthorInstallErrorCode =
 export class AuthorInstallError extends Error {
   readonly code: AuthorInstallErrorCode;
   readonly details?: Record<string, unknown>;
-  constructor(
-    code: AuthorInstallErrorCode,
-    message: string,
-    details?: Record<string, unknown>,
-  ) {
+  constructor(code: AuthorInstallErrorCode, message: string, details?: Record<string, unknown>) {
     super(message);
     this.name = "AuthorInstallError";
     this.code = code;
@@ -211,10 +203,7 @@ export async function installAuthoredDraft(args: {
     );
   }
   if (row.kind !== "extension") {
-    throw new AuthorInstallError(
-      "NOT_EXTENSION_DRAFT",
-      "Draft is not an extension draft",
-    );
+    throw new AuthorInstallError("NOT_EXTENSION_DRAFT", "Draft is not an extension draft");
   }
 
   let draftDir: string;
@@ -227,10 +216,7 @@ export async function installAuthoredDraft(args: {
     );
   }
   if (!existsSync(draftDir)) {
-    throw new AuthorInstallError(
-      "DRAFT_DIR_MISSING",
-      "Draft directory does not exist",
-    );
+    throw new AuthorInstallError("DRAFT_DIR_MISSING", "Draft directory does not exist");
   }
 
   // 2) Acceptance gate — the SAME `runAuthorAcceptanceGate` the web
@@ -241,8 +227,7 @@ export async function installAuthoredDraft(args: {
   //    additionally HARD-FAIL unless a declared `smokeTest` round-trips
   //    in a real sandbox.
   const draftPayload = (row.payload ?? {}) as Record<string, unknown>;
-  const draftType =
-    typeof draftPayload.type === "string" ? draftPayload.type : "";
+  const draftType = typeof draftPayload.type === "string" ? draftPayload.type : "";
   const gate = await runAuthorAcceptanceGate({ draftDir, draftType });
   if (!gate.ok) {
     const code = gate.code ?? "VERIFY_FAILED";
@@ -315,8 +300,7 @@ export async function installAuthoredDraft(args: {
   // install-time state, never the stale reopen-time decision. Anything
   // that fails the re-check falls through to the normal NAME_COLLISION
   // — the generic create flow still "asks the user".
-  const modifyOf =
-    typeof draftPayload.modifyOf === "string" ? draftPayload.modifyOf : null;
+  const modifyOf = typeof draftPayload.modifyOf === "string" ? draftPayload.modifyOf : null;
   const existing = await getExtensionByName(name);
   const sanctionedModify =
     modifyOf !== null &&
@@ -326,16 +310,11 @@ export async function installAuthoredDraft(args: {
     existing.modifiable === true &&
     existing.isBundled === false;
   if (existing && !sanctionedModify) {
-    throw new AuthorInstallError(
-      "NAME_COLLISION",
-      `Extension "${name}" is already installed`,
-    );
+    throw new AuthorInstallError("NAME_COLLISION", `Extension "${name}" is already installed`);
   }
   // `<root>/.ezcorp/extension-data/extension-author/drafts/<uid>/<did>`
   // → walk up 6 segments to the project root.
-  const root = dirname(
-    dirname(dirname(dirname(dirname(dirname(draftDir))))),
-  );
+  const root = dirname(dirname(dirname(dirname(dirname(dirname(draftDir))))));
   const installedPath = join(root, ".ezcorp/extensions", name);
   if (existsSync(installedPath)) {
     if (!sanctionedModify) {
@@ -394,14 +373,20 @@ export async function installAuthoredDraft(args: {
     ...requestedPermissions,
     eventSubscriptions: eventSubs,
     grantedAt: {
-      ...(requestedPermissions.network && requestedPermissions.network.length > 0 ? { network: now } : {}),
-      ...(requestedPermissions.filesystem && requestedPermissions.filesystem.length > 0 ? { filesystem: now } : {}),
+      ...(requestedPermissions.network && requestedPermissions.network.length > 0
+        ? { network: now }
+        : {}),
+      ...(requestedPermissions.filesystem && requestedPermissions.filesystem.length > 0
+        ? { filesystem: now }
+        : {}),
       ...(requestedPermissions.shell ? { shell: now } : {}),
       ...(requestedPermissions.env && requestedPermissions.env.length > 0 ? { env: now } : {}),
       ...(requestedPermissions.storage ? { storage: now } : {}),
       ...(requestedPermissions.lifecycleHooks ? { lifecycleHooks: now } : {}),
       ...(eventSubs.length > 0 ? { eventSubscriptions: now } : {}),
-      ...(requestedPermissions.webhooks && requestedPermissions.webhooks.length > 0 ? { webhooks: now } : {}),
+      ...(requestedPermissions.webhooks && requestedPermissions.webhooks.length > 0
+        ? { webhooks: now }
+        : {}),
       ...(requestedPermissions.taskEvents ? { taskEvents: now } : {}),
       ...(requestedPermissions.loopEvents ? { loopEvents: now } : {}),
       ...(requestedPermissions.agentConfig ? { agentConfig: now } : {}),
@@ -420,19 +405,14 @@ export async function installAuthoredDraft(args: {
     if (modifyBackupDir) {
       await carryForwardUnauthoredEntries(modifyBackupDir, installedPath);
     }
-    installed = await installFromLocal(
-      installedPath,
-      grantedPermissions,
-      false,
-      {
-        isBundled: false,
-        envEscapeHatch: false,
-        preloadedManifest: manifest,
-        // Attribute the row to the draft owner — this is the ONLY path
-        // that records a creator, gating the admin-only modify flow.
-        creatorUserId: userId,
-      },
-    );
+    installed = await installFromLocal(installedPath, grantedPermissions, false, {
+      isBundled: false,
+      envEscapeHatch: false,
+      preloadedManifest: manifest,
+      // Attribute the row to the draft owner — this is the ONLY path
+      // that records a creator, gating the admin-only modify flow.
+      creatorUserId: userId,
+    });
   } catch (err) {
     try {
       await mkdir(dirname(draftDir), { recursive: true });
@@ -444,22 +424,17 @@ export async function installAuthoredDraft(args: {
         modifyBackupDir = null;
       }
     } catch (rollbackErr) {
-      throw new AuthorInstallError(
-        "ROLLBACK_FAILED",
-        "Install failed AND rollback failed",
-        {
-          errors: [
-            err instanceof Error ? err.message : String(err),
-            `rollback: ${rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)}`,
-          ],
-        },
-      );
+      throw new AuthorInstallError("ROLLBACK_FAILED", "Install failed AND rollback failed", {
+        errors: [
+          err instanceof Error ? err.message : String(err),
+          `rollback: ${rollbackErr instanceof Error ? rollbackErr.message : String(rollbackErr)}`,
+        ],
+      });
     }
     const errName = err instanceof Error ? err.name : "Error";
     const errMsg = err instanceof Error ? err.message : "Install failed";
     if (errName === "EnvKeyLeakInstallError") {
-      const leakedNames =
-        (err as { leakedNames?: readonly string[] }).leakedNames ?? [];
+      const leakedNames = (err as { leakedNames?: readonly string[] }).leakedNames ?? [];
       throw new AuthorInstallError("ENV_KEY_LEAK", errMsg, {
         errors: [`env-key-leak: ${leakedNames.join(", ")}`],
         leakedNames,
@@ -478,8 +453,7 @@ export async function installAuthoredDraft(args: {
   // `{ok:true}` for an extension the caller asked to have enabled and
   // loaded that is neither — the install card then tells the user
   // "installed and enabled" about an extension with no live tools.
-  let postFailure: { code: AuthorInstallErrorCode; message: string } | null =
-    null;
+  let postFailure: { code: AuthorInstallErrorCode; message: string } | null = null;
   const warnings: string[] = [];
 
   // 4b) Auto-enable BEFORE the registry reload so the reload

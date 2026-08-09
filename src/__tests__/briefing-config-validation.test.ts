@@ -109,7 +109,10 @@ describe("validateBriefingConfigInput", () => {
     expect(r.ok).toBe(true);
     if (r.ok) {
       expect(r.input.watchlist).toHaveLength(2);
-      expect(r.input.watchlist![0]).toEqual({ topic: "Bun 2.0", addedAt: "2026-06-01T00:00:00.000Z" });
+      expect(r.input.watchlist![0]).toEqual({
+        topic: "Bun 2.0",
+        addedAt: "2026-06-01T00:00:00.000Z",
+      });
       expect(r.input.watchlist![1]!.topic).toBe("SvelteKit");
       expect(Number.isNaN(Date.parse(r.input.watchlist![1]!.addedAt))).toBe(false);
     }
@@ -129,7 +132,9 @@ describe("validateBriefingConfigInput", () => {
     expectFail({ watchlist: [{ topic: 4 }] }, /non-empty topic/);
     expectFail({ watchlist: [{ topic: "x".repeat(MAX_TOPIC_LENGTH + 1) }] }, /topic too long/);
     expectFail(
-      { watchlist: Array.from({ length: MAX_WATCHLIST_TOPICS + 1 }, (_, i) => ({ topic: `t${i}` })) },
+      {
+        watchlist: Array.from({ length: MAX_WATCHLIST_TOPICS + 1 }, (_, i) => ({ topic: `t${i}` })),
+      },
       /watchlist too long/,
     );
   });

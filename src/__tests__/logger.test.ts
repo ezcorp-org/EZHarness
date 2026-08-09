@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeEach, afterEach, } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 
 function at<T>(arr: readonly T[], i: number, what: string): T {
   const v = arr[i];

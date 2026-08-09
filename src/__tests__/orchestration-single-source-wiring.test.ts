@@ -35,7 +35,9 @@ const mockSubscribe = mock((fn: (e: any) => void) => {
 mock.module("@earendil-works/pi-agent-core", () => ({
   Agent: class MockAgent {
     state = { error: undefined };
-    constructor(opts: any) { capturedAgentOpts = opts; }
+    constructor(opts: any) {
+      capturedAgentOpts = opts;
+    }
     prompt = mockPrompt;
     subscribe = mockSubscribe;
   },
@@ -43,24 +45,47 @@ mock.module("@earendil-works/pi-agent-core", () => ({
 
 mock.module("../providers/router", () => ({
   resolveModel: mock(async () => ({
-    provider: "anthropic", model: "claude-sonnet-4",
+    provider: "anthropic",
+    model: "claude-sonnet-4",
     piModel: { provider: "anthropic", id: "claude-sonnet-4" },
   })),
-  ProviderUnavailableError: class extends Error { failedProvider = ""; failedModel = ""; suggestion = ""; },
+  ProviderUnavailableError: class extends Error {
+    failedProvider = "";
+    failedModel = "";
+    suggestion = "";
+  },
 }));
 mock.module("../providers/registry", () => ({ resolveOAuthModel: mock(() => null) }));
-mock.module("../providers/credentials", () => ({ getCredential: mock(async () => ({ type: "apikey", token: "k" })) }));
-mock.module("../providers/shell", () => ({ createShellProvider: () => ({ run: async () => ({ stdout: "", stderr: "", exitCode: 0 }) }) }));
-mock.module("../providers/file", () => ({ createFileProvider: () => ({ read: async () => "", write: async () => {}, exists: async () => false }) }));
+mock.module("../providers/credentials", () => ({
+  getCredential: mock(async () => ({ type: "apikey", token: "k" })),
+}));
+mock.module("../providers/shell", () => ({
+  createShellProvider: () => ({ run: async () => ({ stdout: "", stderr: "", exitCode: 0 }) }),
+}));
+mock.module("../providers/file", () => ({
+  createFileProvider: () => ({
+    read: async () => "",
+    write: async () => {},
+    exists: async () => false,
+  }),
+}));
 mock.module("../observability/collector", () => ({ startCollector: () => {} }));
 mock.module("../db/queries/runs", () => ({ insertRun: async () => {}, updateRun: async () => {} }));
 mock.module("../db/queries/active-runs", () => ({
-  createActiveRun: async () => {}, deleteActiveRun: async () => {}, cleanupOrphanedRuns: async () => {},
-  updateHeartbeat: async () => {}, updatePartialResponse: async () => {},
+  createActiveRun: async () => {},
+  deleteActiveRun: async () => {},
+  cleanupOrphanedRuns: async () => {},
+  updateHeartbeat: async () => {},
+  updatePartialResponse: async () => {},
 }));
-mock.module("../memory/embeddings", () => ({ generateEmbedding: async () => new Float32Array(384) }));
+mock.module("../memory/embeddings", () => ({
+  generateEmbedding: async () => new Float32Array(384),
+}));
 mock.module("../memory/injection", () => ({
-  buildSystemPromptWithMemories: async (sys: string | undefined) => ({ systemPrompt: sys ?? "", memoriesUsed: [] }),
+  buildSystemPromptWithMemories: async (sys: string | undefined) => ({
+    systemPrompt: sys ?? "",
+    memoriesUsed: [],
+  }),
 }));
 mock.module("../runtime/task-tracking-host", () => ({
   ensureTaskTrackingWired: async () => {},
@@ -79,12 +104,35 @@ mock.module("../extensions/registry", () => ({
       getToolsForExtension: (extensionId: string) => {
         if (extensionId === ORCH_EXT_ID) {
           return [
-            { name: "orchestration__invoke_agent", originalName: "invoke_agent", extensionId: ORCH_EXT_ID, extensionName: "orchestration", description: "d", inputSchema: { type: "object" } },
-            { name: "orchestration__collect_agent_result", originalName: "collect_agent_result", extensionId: ORCH_EXT_ID, extensionName: "orchestration", description: "d", inputSchema: { type: "object" } },
+            {
+              name: "orchestration__invoke_agent",
+              originalName: "invoke_agent",
+              extensionId: ORCH_EXT_ID,
+              extensionName: "orchestration",
+              description: "d",
+              inputSchema: { type: "object" },
+            },
+            {
+              name: "orchestration__collect_agent_result",
+              originalName: "collect_agent_result",
+              extensionId: ORCH_EXT_ID,
+              extensionName: "orchestration",
+              description: "d",
+              inputSchema: { type: "object" },
+            },
           ];
         }
         if (extensionId === OTHER_EXT_ID) {
-          return [{ name: "other__tool", originalName: "tool", extensionId: OTHER_EXT_ID, extensionName: "other", description: "d", inputSchema: { type: "object" } }];
+          return [
+            {
+              name: "other__tool",
+              originalName: "tool",
+              extensionId: OTHER_EXT_ID,
+              extensionName: "other",
+              description: "d",
+              inputSchema: { type: "object" },
+            },
+          ];
         }
         return [];
       },
@@ -94,12 +142,21 @@ mock.module("../extensions/registry", () => ({
 
 mock.module("../extensions/tool-executor", () => ({
   ToolExecutor: class {
-    setStateMediator() {} setExecutor() {} setSpawnQuota() {} setCurrentUserId() {}
-    setCurrentModel() {} setCurrentProvider() {} setArgsResolver() {}
-    setCurrentAgentConfigId() {} setPendingPermissionGate() {}
+    setStateMediator() {}
+    setExecutor() {}
+    setSpawnQuota() {}
+    setCurrentUserId() {}
+    setCurrentModel() {}
+    setCurrentProvider() {}
+    setArgsResolver() {}
+    setCurrentAgentConfigId() {}
+    setPendingPermissionGate() {}
   },
   extensionToAgentTool: (tool: { name: string; description: string; inputSchema: unknown }) => ({
-    name: tool.name, label: tool.name, description: tool.description, parameters: tool.inputSchema,
+    name: tool.name,
+    label: tool.name,
+    description: tool.description,
+    parameters: tool.inputSchema,
     execute: async () => ({ content: [{ type: "text" as const, text: "(stub)" }], details: {} }),
   }),
 }));
@@ -137,7 +194,13 @@ mock.module("../runtime/orchestration-host", () => ({
       parentMessageId: params.parentMessageId,
     });
     const push = (name: string) =>
-      params.agentTools.push({ name, label: name, description: "d", parameters: {}, execute: async () => ({ content: [] }) });
+      params.agentTools.push({
+        name,
+        label: name,
+        description: "d",
+        parameters: {},
+        execute: async () => ({ content: [] }),
+      });
     push("collect_agent_result"); // always
     if (params.availableAgents.length > 0) push("invoke_agent"); // enum-gated
   },

@@ -78,7 +78,10 @@ describe("CI test-set drift", () => {
 
   test("every set function yields a non-empty set (a broken find must not silently empty a CI set)", () => {
     for (const fn of SET_FUNCTIONS) {
-      expect(setSizes[fn], `${fn} returned 0 files — find/pattern rot in ${SETS_LIB}?`).toBeGreaterThan(0);
+      expect(
+        setSizes[fn],
+        `${fn} returned 0 files — find/pattern rot in ${SETS_LIB}?`,
+      ).toBeGreaterThan(0);
     }
   });
 
@@ -108,7 +111,10 @@ describe("CI test-set drift", () => {
     const onDisk = new Set(allTestFiles);
     for (const e of DOCUMENTED_EXCEPTIONS) {
       expect(onDisk.has(e.file), `exception '${e.file}' no longer exists — remove it`).toBe(true);
-      expect(union.has(e.file), `exception '${e.file}' is now covered by a CI set — remove it`).toBe(false);
+      expect(
+        union.has(e.file),
+        `exception '${e.file}' is now covered by a CI set — remove it`,
+      ).toBe(false);
     }
   });
 });

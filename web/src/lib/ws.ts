@@ -3,8 +3,8 @@ import { gatedConnectionState, CONNECTION_GRACE_MS } from "./connection-grace";
 import type { RuntimeEventName } from "./runtime-event-names";
 
 export type WSConnectionEvent =
-	| { type: "ws:connected"; data: Record<string, never> }
-	| { type: "ws:disconnected"; data: { reason?: string } };
+  | { type: "ws:connected"; data: Record<string, never> }
+  | { type: "ws:disconnected"; data: { reason?: string } };
 
 // The event-name union is derived from the single canonical list in
 // `runtime-event-names.ts` (shared with the server SSE endpoint's
@@ -14,8 +14,8 @@ export type WSConnectionEvent =
 // are re-dispatched as window CustomEvents by that subscriber so each
 // feature consumes the one SSE stream without a second EventSource.
 export type WSRunEvent = {
-	type: RuntimeEventName;
-	data: Record<string, unknown>;
+  type: RuntimeEventName;
+  data: Record<string, unknown>;
 };
 
 export type WSEvent = WSConnectionEvent | WSRunEvent;
@@ -31,7 +31,7 @@ export const MAX_DELAY = 30000;
 
 // fallow-ignore-next-line unused-export
 export function getBackoffDelay(attempt: number): number {
-	return Math.min(BASE_DELAY * 2 ** attempt, MAX_DELAY);
+  return Math.min(BASE_DELAY * 2 ** attempt, MAX_DELAY);
 }
 
 /**
@@ -52,173 +52,173 @@ export function getBackoffDelay(attempt: number): number {
  * previous WebSocket client so no downstream consumer changes are needed.
  */
 export function createWSClient() {
-	let es: EventSource | null = null;
-	let subscribers: Subscriber[] = [];
-	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-	let closed = false;
-	let attempt = 0;
-	// SSE resume cursor (C3). Because we intercept `onerror` and reconnect
-	// with a FRESH EventSource (which loses the native Last-Event-ID memory),
-	// we track the last seen event id ourselves and hand it back as a
-	// `?lastEventId=` query param so the server can replay the gap. The
-	// server also honours the standard `Last-Event-ID` header for any native
-	// auto-reconnect path.
-	let lastEventId: string | null = null;
+  let es: EventSource | null = null;
+  let subscribers: Subscriber[] = [];
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let closed = false;
+  let attempt = 0;
+  // SSE resume cursor (C3). Because we intercept `onerror` and reconnect
+  // with a FRESH EventSource (which loses the native Last-Event-ID memory),
+  // we track the last seen event id ourselves and hand it back as a
+  // `?lastEventId=` query param so the server can replay the gap. The
+  // server also honours the standard `Last-Event-ID` header for any native
+  // auto-reconnect path.
+  let lastEventId: string | null = null;
 
-	// Connection-issue UI (banner + disabled chat input) is gated behind a
-	// grace window: a transient blip shorter than CONNECTION_GRACE_MS never
-	// surfaces, so flaky networks don't flicker the UI. The reconnect/backoff
-	// loop below is unaffected — only what we publish to `connectionState` is
-	// delayed. `problemActive` tracks the current uninterrupted problem;
-	// `graceElapsed` flips once the timer fires (the timer firing IS the
-	// signal that the grace window passed). `lastRaw` is the latest raw
-	// transport state, used when the timer flushes the now-visible state.
-	let problemActive = false;
-	let graceElapsed = false;
-	let graceTimer: ReturnType<typeof setTimeout> | null = null;
-	let lastRaw: "connected" | "disconnected" | "reconnecting" | "failed" = "connected";
+  // Connection-issue UI (banner + disabled chat input) is gated behind a
+  // grace window: a transient blip shorter than CONNECTION_GRACE_MS never
+  // surfaces, so flaky networks don't flicker the UI. The reconnect/backoff
+  // loop below is unaffected — only what we publish to `connectionState` is
+  // delayed. `problemActive` tracks the current uninterrupted problem;
+  // `graceElapsed` flips once the timer fires (the timer firing IS the
+  // signal that the grace window passed). `lastRaw` is the latest raw
+  // transport state, used when the timer flushes the now-visible state.
+  let problemActive = false;
+  let graceElapsed = false;
+  let graceTimer: ReturnType<typeof setTimeout> | null = null;
+  let lastRaw: "connected" | "disconnected" | "reconnecting" | "failed" = "connected";
 
-	function publish(state: "connected" | "disconnected" | "reconnecting" | "failed") {
-		connectionState.set({ state, attempt, maxAttempts: MAX_ATTEMPTS });
-	}
+  function publish(state: "connected" | "disconnected" | "reconnecting" | "failed") {
+    connectionState.set({ state, attempt, maxAttempts: MAX_ATTEMPTS });
+  }
 
-	function clearGraceTimer() {
-		if (graceTimer) {
-			clearTimeout(graceTimer);
-			graceTimer = null;
-		}
-	}
+  function clearGraceTimer() {
+    if (graceTimer) {
+      clearTimeout(graceTimer);
+      graceTimer = null;
+    }
+  }
 
-	function updateState(raw: "connected" | "disconnected" | "reconnecting" | "failed") {
-		lastRaw = raw;
+  function updateState(raw: "connected" | "disconnected" | "reconnecting" | "failed") {
+    lastRaw = raw;
 
-		if (raw === "connected") {
-			problemActive = false;
-			graceElapsed = false;
-			clearGraceTimer();
-			publish("connected");
-			return;
-		}
+    if (raw === "connected") {
+      problemActive = false;
+      graceElapsed = false;
+      clearGraceTimer();
+      publish("connected");
+      return;
+    }
 
-		// "failed" is only reached after the full reconnect backoff (far
-		// longer than the grace window) and is terminal — surface it now.
-		if (raw === "failed") {
-			clearGraceTimer();
-			publish("failed");
-			return;
-		}
+    // "failed" is only reached after the full reconnect backoff (far
+    // longer than the grace window) and is terminal — surface it now.
+    if (raw === "failed") {
+      clearGraceTimer();
+      publish("failed");
+      return;
+    }
 
-		// "disconnected" | "reconnecting" — gate behind the grace window.
-		if (!problemActive) {
-			problemActive = true;
-			graceElapsed = false;
-			graceTimer = setTimeout(() => {
-				graceTimer = null;
-				graceElapsed = true;
-				if (problemActive) {
-					publish(gatedConnectionState(lastRaw, CONNECTION_GRACE_MS));
-				}
-			}, CONNECTION_GRACE_MS);
-		}
+    // "disconnected" | "reconnecting" — gate behind the grace window.
+    if (!problemActive) {
+      problemActive = true;
+      graceElapsed = false;
+      graceTimer = setTimeout(() => {
+        graceTimer = null;
+        graceElapsed = true;
+        if (problemActive) {
+          publish(gatedConnectionState(lastRaw, CONNECTION_GRACE_MS));
+        }
+      }, CONNECTION_GRACE_MS);
+    }
 
-		publish(gatedConnectionState(raw, graceElapsed ? CONNECTION_GRACE_MS : 0));
-	}
+    publish(gatedConnectionState(raw, graceElapsed ? CONNECTION_GRACE_MS : 0));
+  }
 
-	function connect() {
-		if (closed) return;
+  function connect() {
+    if (closed) return;
 
-		es = new EventSource(
-			lastEventId
-				? `/api/runtime-events?lastEventId=${encodeURIComponent(lastEventId)}`
-				: "/api/runtime-events",
-		);
+    es = new EventSource(
+      lastEventId
+        ? `/api/runtime-events?lastEventId=${encodeURIComponent(lastEventId)}`
+        : "/api/runtime-events",
+    );
 
-		es.onopen = () => {
-			attempt = 0;
-			updateState("connected");
-			subscribers.forEach((fn) => {
-				fn({ type: "ws:connected", data: {} });
-			});
-		};
+    es.onopen = () => {
+      attempt = 0;
+      updateState("connected");
+      subscribers.forEach((fn) => {
+        fn({ type: "ws:connected", data: {} });
+      });
+    };
 
-		es.onmessage = (event) => {
-			// Track the server-assigned id so a manual reconnect can resume
-			// from it (EventSource exposes the `id:` field as `lastEventId`).
-			if (event.lastEventId) lastEventId = event.lastEventId;
-			try {
-				const parsed: WSEvent = JSON.parse(event.data);
-				subscribers.forEach((fn) => {
-					fn(parsed);
-				});
-			} catch {
-				// ignore malformed messages or heartbeat comments
-			}
-		};
+    es.onmessage = (event) => {
+      // Track the server-assigned id so a manual reconnect can resume
+      // from it (EventSource exposes the `id:` field as `lastEventId`).
+      if (event.lastEventId) lastEventId = event.lastEventId;
+      try {
+        const parsed: WSEvent = JSON.parse(event.data);
+        subscribers.forEach((fn) => {
+          fn(parsed);
+        });
+      } catch {
+        // ignore malformed messages or heartbeat comments
+      }
+    };
 
-		es.onerror = () => {
-			// EventSource fires error on both connection failure and stream
-			// end. Close the current source and schedule a reconnect.
-			es?.close();
-			es = null;
-			subscribers.forEach((fn) => {
-				fn({ type: "ws:disconnected", data: {} });
-			});
-			scheduleReconnect();
-		};
-	}
+    es.onerror = () => {
+      // EventSource fires error on both connection failure and stream
+      // end. Close the current source and schedule a reconnect.
+      es?.close();
+      es = null;
+      subscribers.forEach((fn) => {
+        fn({ type: "ws:disconnected", data: {} });
+      });
+      scheduleReconnect();
+    };
+  }
 
-	function scheduleReconnect() {
-		if (closed) return;
-		if (reconnectTimer) clearTimeout(reconnectTimer);
+  function scheduleReconnect() {
+    if (closed) return;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
 
-		if (attempt >= MAX_ATTEMPTS) {
-			updateState("failed");
-			return;
-		}
+    if (attempt >= MAX_ATTEMPTS) {
+      updateState("failed");
+      return;
+    }
 
-		updateState("reconnecting");
-		const delay = getBackoffDelay(attempt);
-		attempt++;
-		reconnectTimer = setTimeout(connect, delay);
-	}
+    updateState("reconnecting");
+    const delay = getBackoffDelay(attempt);
+    attempt++;
+    reconnectTimer = setTimeout(connect, delay);
+  }
 
-	function manualRetry() {
-		attempt = 0;
-		if (reconnectTimer) clearTimeout(reconnectTimer);
-		updateState("reconnecting");
-		connect();
-	}
+  function manualRetry() {
+    attempt = 0;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    updateState("reconnecting");
+    connect();
+  }
 
-	// Tab visibility: reconnect immediately when user returns
-	if (typeof document !== "undefined") {
-		document.addEventListener("visibilitychange", () => {
-			if (!document.hidden) {
-				connectionState.subscribe((s) => {
-					if (s.state !== "connected") {
-						if (reconnectTimer) clearTimeout(reconnectTimer);
-						attempt = 0;
-						connect();
-					}
-				})(); // subscribe and immediately unsubscribe
-			}
-		});
-	}
+  // Tab visibility: reconnect immediately when user returns
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (!document.hidden) {
+        connectionState.subscribe((s) => {
+          if (s.state !== "connected") {
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            attempt = 0;
+            connect();
+          }
+        })(); // subscribe and immediately unsubscribe
+      }
+    });
+  }
 
-	connect();
+  connect();
 
-	return {
-		subscribe(fn: Subscriber) {
-			subscribers.push(fn);
-			return () => {
-				subscribers = subscribers.filter((s) => s !== fn);
-			};
-		},
-		close() {
-			closed = true;
-			if (reconnectTimer) clearTimeout(reconnectTimer);
-			clearGraceTimer();
-			es?.close();
-		},
-		manualRetry,
-	};
+  return {
+    subscribe(fn: Subscriber) {
+      subscribers.push(fn);
+      return () => {
+        subscribers = subscribers.filter((s) => s !== fn);
+      };
+    },
+    close() {
+      closed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      clearGraceTimer();
+      es?.close();
+    },
+    manualRetry,
+  };
 }

@@ -62,7 +62,9 @@ mock.module("../extensions/registry", () => ({
 // Mock initDb to no-op (we use in-memory mocks)
 mock.module("../db/connection", () => ({
   initDb: async () => {},
-  getDb: () => { throw new Error("DB not available in test"); },
+  getDb: () => {
+    throw new Error("DB not available in test");
+  },
 }));
 
 // Import after mocks
@@ -71,8 +73,7 @@ const { parseArgs, cli } = await import("../cli");
 // ── Test fixtures ─────────────────────────────────────────────────────
 
 const env = { ...process.env };
-const spawn = (cmd: string[], opts?: { cwd?: string }) =>
-  Bun.spawnSync(cmd, { ...opts, env });
+const spawn = (cmd: string[], opts?: { cwd?: string }) => Bun.spawnSync(cmd, { ...opts, env });
 
 function makeManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionManifestV2 {
   return {
@@ -189,13 +190,15 @@ describe("cli - ext error cases", () => {
   test("ext install without source prints error", async () => {
     const logs: string[] = [];
     const spy = spyOn(console, "error").mockImplementation((...args) => logs.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("exit");
+    });
 
     try {
       await cli(["ext", "install"]);
     } catch {}
 
-    expect(logs.some(l => l.includes("source"))).toBe(true);
+    expect(logs.some((l) => l.includes("source"))).toBe(true);
     spy.mockRestore();
     exitSpy.mockRestore();
   });
@@ -203,13 +206,15 @@ describe("cli - ext error cases", () => {
   test("ext remove without name prints error", async () => {
     const logs: string[] = [];
     const spy = spyOn(console, "error").mockImplementation((...args) => logs.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("exit");
+    });
 
     try {
       await cli(["ext", "remove"]);
     } catch {}
 
-    expect(logs.some(l => l.includes("name"))).toBe(true);
+    expect(logs.some((l) => l.includes("name"))).toBe(true);
     spy.mockRestore();
     exitSpy.mockRestore();
   });
@@ -217,13 +222,15 @@ describe("cli - ext error cases", () => {
   test("ext info without name prints error", async () => {
     const logs: string[] = [];
     const spy = spyOn(console, "error").mockImplementation((...args) => logs.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("exit");
+    });
 
     try {
       await cli(["ext", "info"]);
     } catch {}
 
-    expect(logs.some(l => l.includes("name"))).toBe(true);
+    expect(logs.some((l) => l.includes("name"))).toBe(true);
     spy.mockRestore();
     exitSpy.mockRestore();
   });
@@ -243,7 +250,7 @@ describe("cli - ext integration lifecycle", () => {
 
     await cli(["ext", "install", `file://${bareRepoDir}`, "--yes"]);
 
-    expect(logs.some(l => l.includes("Installed") && l.includes("test-cli-ext"))).toBe(true);
+    expect(logs.some((l) => l.includes("Installed") && l.includes("test-cli-ext"))).toBe(true);
     spy.mockRestore();
     delete process.env.__EZCORP_TEST_EXTENSIONS_DIR;
   });
@@ -279,7 +286,7 @@ describe("cli - ext integration lifecycle", () => {
 
     await cli(["ext", "list"]);
 
-    expect(logs.some(l => l.includes("No extensions installed"))).toBe(true);
+    expect(logs.some((l) => l.includes("No extensions installed"))).toBe(true);
     spy.mockRestore();
   });
 
@@ -311,13 +318,15 @@ describe("cli - ext integration lifecycle", () => {
   test("ext info for non-existent extension errors", async () => {
     const logs: string[] = [];
     const spy = spyOn(console, "error").mockImplementation((...args) => logs.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("exit");
+    });
 
     try {
       await cli(["ext", "info", "nonexistent"]);
     } catch {}
 
-    expect(logs.some(l => l.includes("not found"))).toBe(true);
+    expect(logs.some((l) => l.includes("not found"))).toBe(true);
     spy.mockRestore();
     exitSpy.mockRestore();
   });
@@ -341,20 +350,22 @@ describe("cli - ext integration lifecycle", () => {
 
     await cli(["ext", "remove", "test-cli-ext"]);
 
-    expect(logs.some(l => l.includes("Removed") && l.includes("test-cli-ext"))).toBe(true);
+    expect(logs.some((l) => l.includes("Removed") && l.includes("test-cli-ext"))).toBe(true);
     spy.mockRestore();
   });
 
   test("ext remove non-existent extension errors", async () => {
     const logs: string[] = [];
     const spy = spyOn(console, "error").mockImplementation((...args) => logs.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("exit");
+    });
 
     try {
       await cli(["ext", "remove", "nonexistent"]);
     } catch {}
 
-    expect(logs.some(l => l.includes("not found"))).toBe(true);
+    expect(logs.some((l) => l.includes("not found"))).toBe(true);
     spy.mockRestore();
     exitSpy.mockRestore();
   });
@@ -382,13 +393,17 @@ describe("cli - ext update edge cases", () => {
   test("ext update non-existent extension prints error", async () => {
     const logs: string[] = [];
     const spy = spyOn(console, "error").mockImplementation((...args) => logs.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("exit");
+    });
 
     try {
       await cli(["ext", "update", "nonexistent-extension"]);
     } catch {}
 
-    expect(logs.some(l => l.includes("not found") || l.includes("nonexistent-extension"))).toBe(true);
+    expect(logs.some((l) => l.includes("not found") || l.includes("nonexistent-extension"))).toBe(
+      true,
+    );
     spy.mockRestore();
     exitSpy.mockRestore();
   });
@@ -399,7 +414,7 @@ describe("cli - ext update edge cases", () => {
 
     await cli(["ext", "update"]);
 
-    expect(logs.some(l => l.includes("No extensions installed"))).toBe(true);
+    expect(logs.some((l) => l.includes("No extensions installed"))).toBe(true);
     spy.mockRestore();
   });
 });

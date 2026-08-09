@@ -67,10 +67,7 @@ const DEFAULT_WAKE_MS = 30_000;
 const DEFAULT_RATE_LIMIT_BACKOFF_MS = 60_000;
 
 /** Emit the Hub-refresh event. The web layer wires the real bus emitter. */
-type EventEmitter = (
-  event: typeof GITHUB_PROJECTS_EVENT,
-  payload: { projectId: string },
-) => void;
+type EventEmitter = (event: typeof GITHUB_PROJECTS_EVENT, payload: { projectId: string }) => void;
 
 export interface GithubProjectsDaemonOptions {
   /** GitHub client (host-only). Defaults to the real `createGithubClient()`. */
@@ -222,9 +219,7 @@ export class GithubProjectsDaemon {
    * (`paused` — the user must resume first; we never silently override their
    * pause). On success runs the full poll body against the link.
    */
-  async pollLinkNow(
-    link: GithubProjectsLink,
-  ): Promise<{ polled: boolean; reason?: string }> {
+  async pollLinkNow(link: GithubProjectsLink): Promise<{ polled: boolean; reason?: string }> {
     log.info("github-projects poll-now requested", { projectId: link.projectId, linkId: link.id });
     if (!link.enabled) {
       log.info("github-projects poll-now skipped", {
@@ -251,7 +246,14 @@ export class GithubProjectsDaemon {
       // Auth resolution (missing/garbage PAT, gh shell failure) degrades the
       // link exactly like a 401 — surface it, don't crash the loop.
       await this.degrade(link, err, nowMs);
-      return { due: true, fetched: 0, triggers: 0, newProposals: 0, autoSpawned: 0, degraded: true };
+      return {
+        due: true,
+        fetched: 0,
+        triggers: 0,
+        newProposals: 0,
+        autoSpawned: 0,
+        degraded: true,
+      };
     }
 
     let page: GithubFetchPage;
@@ -263,7 +265,14 @@ export class GithubProjectsDaemon {
       );
     } catch (err) {
       await this.degrade(link, err, nowMs);
-      return { due: true, fetched: 0, triggers: 0, newProposals: 0, autoSpawned: 0, degraded: true };
+      return {
+        due: true,
+        fetched: 0,
+        triggers: 0,
+        newProposals: 0,
+        autoSpawned: 0,
+        degraded: true,
+      };
     }
 
     const prevCursor = link.pollCursor ?? {};
@@ -326,12 +335,15 @@ export class GithubProjectsDaemon {
           statusOptionId,
         );
         if (priorTerminal === "failed" || priorTerminal === "cancelled") {
-          log.debug("github-projects auto-spawn suppressed after prior failure — awaiting manual approval", {
-            linkId: link.id,
-            itemNodeId: item.itemNodeId,
-            statusOptionId,
-            priorTerminal,
-          });
+          log.debug(
+            "github-projects auto-spawn suppressed after prior failure — awaiting manual approval",
+            {
+              linkId: link.id,
+              itemNodeId: item.itemNodeId,
+              statusOptionId,
+              priorTerminal,
+            },
+          );
         } else {
           // Auto-spawn is the dangerous opt-in path. approveProposal enforces
           // the per-project concurrency cap + pins a non-yolo permission mode.
@@ -377,7 +389,14 @@ export class GithubProjectsDaemon {
       emit?.(GITHUB_PROJECTS_EVENT, { projectId: link.projectId });
     }
 
-    return { due: true, fetched: page.items.length, triggers, newProposals, autoSpawned, degraded: false };
+    return {
+      due: true,
+      fetched: page.items.length,
+      triggers,
+      newProposals,
+      autoSpawned,
+      degraded: false,
+    };
   }
 
   /**
@@ -507,9 +526,7 @@ export interface ReconcileOrphansDeps {
  *
  * Returns the number of proposals flipped.
  */
-export async function reconcileOrphanedProposals(
-  deps: ReconcileOrphansDeps = {},
-): Promise<number> {
+export async function reconcileOrphanedProposals(deps: ReconcileOrphansDeps = {}): Promise<number> {
   let orphans: GithubProjectsProposal[];
   try {
     orphans = await failInterruptedProposals();

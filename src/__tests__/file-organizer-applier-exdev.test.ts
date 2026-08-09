@@ -94,7 +94,8 @@ mock.module("node:fs/promises", () => ({
     return realRm(...args);
   },
   lstat: async (...args: Parameters<typeof realLstat>) => {
-    if (forceAllExist) return { isSymbolicLink: () => false } as Awaited<ReturnType<typeof realLstat>>;
+    if (forceAllExist)
+      return { isSymbolicLink: () => false } as Awaited<ReturnType<typeof realLstat>>;
     return realLstat(...args);
   },
   unlink: ((...args: Parameters<typeof realUnlink>) => {
@@ -108,9 +109,8 @@ mock.module("node:fs/promises", () => ({
 }));
 
 // Import the applier AFTER the mock is registered so it binds the stub.
-const { applyProposal, restoreFromQuarantine, replayJournal, hardDeleteTrash, _applierInternals } = await import(
-  "../extensions/file-organizer-applier"
-);
+const { applyProposal, restoreFromQuarantine, replayJournal, hardDeleteTrash, _applierInternals } =
+  await import("../extensions/file-organizer-applier");
 type ApplierContext = import("../extensions/file-organizer-applier").ApplierContext;
 type ApplierProposal = import("../extensions/file-organizer-applier").ApplierProposal;
 
@@ -227,7 +227,14 @@ describe("applyQuarantine — failure aborts with the original intact", () => {
     const src = join(watched, "junk.tmp");
     await writeFile(src, "x");
     forceMkdirThrow = true; // trash dir can't be created
-    const p: ApplierProposal = { id: "p", kind: "delete-quarantine", src, dst: null, quarantineId: "q1", snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 } };
+    const p: ApplierProposal = {
+      id: "p",
+      kind: "delete-quarantine",
+      src,
+      dst: null,
+      quarantineId: "q1",
+      snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 },
+    };
     const outcome = await applyProposal(p, ctx());
     expect(outcome.status).toBe("failed");
     expect(await Bun.file(src).exists()).toBe(true); // original kept
@@ -241,7 +248,10 @@ describe("restoreFromQuarantine — failure surfaces as 'failed'", () => {
     const trashed = join(trashDir, "a.txt");
     await writeFile(trashed, "bytes");
     forceMkdirThrow = true;
-    const outcome = await restoreFromQuarantine({ trashPath: trashed, restorePath: join(watched, "a.txt") }, ctx());
+    const outcome = await restoreFromQuarantine(
+      { trashPath: trashed, restorePath: join(watched, "a.txt") },
+      ctx(),
+    );
     expect(outcome.status).toBe("failed");
   });
 });
@@ -276,7 +286,13 @@ describe("replayJournal — a per-entry failure is swallowed (continue)", () => 
     const src = join(watched, "a.txt");
     await writeFile(src, "data");
     await _applierInternals.writeJournal(journalPath, [
-      { op: "move", src, dst: join(watched, "sub", "a.txt"), quarantineId: null, phase: "copy-done" } as never,
+      {
+        op: "move",
+        src,
+        dst: join(watched, "sub", "a.txt"),
+        quarantineId: null,
+        phase: "copy-done",
+      } as never,
     ]);
     forceUnlinkSyncThrow = true; // unlink throws into replayJournal's catch
     // Must not reject — the entry error is logged + swallowed (the throw

@@ -108,9 +108,7 @@ export function _resetOrchestrationExtensionIdCache(): void {
  * Callers use the return value to decide whether to skip the extension
  * for the current turn.
  */
-export async function ensureOrchestrationWired(
-  conversationId: string,
-): Promise<boolean> {
+export async function ensureOrchestrationWired(conversationId: string): Promise<boolean> {
   let extId: string | undefined;
   try {
     extId = await getOrchestrationExtensionId();
@@ -242,10 +240,10 @@ export async function wireOrchestrationToolsForTurn(
   //     allowlist-bypass the single-source fix removes).
   const extId = await getOrchestrationExtensionId();
   if (!extId) {
-    log.warn(
-      "Orchestration extension not installed — skipping invoke_agent wiring for turn",
-      { conversationId, runId },
-    );
+    log.warn("Orchestration extension not installed — skipping invoke_agent wiring for turn", {
+      conversationId,
+      runId,
+    });
     return;
   }
 
@@ -272,13 +270,8 @@ export async function wireOrchestrationToolsForTurn(
   //    Bare LLM-visible name; namespaced dispatch key (see invoke_agent).
   //    Carries only the caller `conversationId` (F3 authz). Absent from the
   //    registry (older manifest) → silently skipped.
-  const collectTool = registeredTools.find(
-    (t) => t.originalName === "collect_agent_result",
-  );
-  if (
-    collectTool &&
-    !agentTools.some((t) => t.name === collectTool.originalName)
-  ) {
+  const collectTool = registeredTools.find((t) => t.originalName === "collect_agent_result");
+  if (collectTool && !agentTools.some((t) => t.name === collectTool.originalName)) {
     agentTools.push(
       extensionToAgentTool(
         {
@@ -306,9 +299,7 @@ export async function wireOrchestrationToolsForTurn(
   //    terminal-child continuation registers under this orchestrator run and
   //    cascades on Stop, mirroring invoke_agent. Absent from the registry
   //    (older manifest) → silently skipped.
-  const sendTool = registeredTools.find(
-    (t) => t.originalName === "send_to_agent",
-  );
+  const sendTool = registeredTools.find((t) => t.originalName === "send_to_agent");
   if (sendTool && !agentTools.some((t) => t.name === sendTool.originalName)) {
     const sendMetadata: Record<string, unknown> = {
       conversationId,
@@ -343,14 +334,13 @@ export async function wireOrchestrationToolsForTurn(
     return;
   }
 
-  const invokeAgentTool = registeredTools.find(
-    (t) => t.originalName === "invoke_agent",
-  );
+  const invokeAgentTool = registeredTools.find((t) => t.originalName === "invoke_agent");
   if (!invokeAgentTool) {
-    log.warn(
-      "Orchestration extension has no invoke_agent tool registered — registry not loaded?",
-      { conversationId, runId, extId },
-    );
+    log.warn("Orchestration extension has no invoke_agent tool registered — registry not loaded?", {
+      conversationId,
+      runId,
+      extId,
+    });
     return;
   }
 
@@ -359,9 +349,7 @@ export async function wireOrchestrationToolsForTurn(
   //    cached RegisteredTool.inputSchema pristine for other turns /
   //    conversations.
   const uniqueAgentIds = Array.from(new Set(availableAgents.map((a) => a.id)));
-  const schemaOverride = structuredClone(
-    invokeAgentTool.inputSchema as Record<string, unknown>,
-  );
+  const schemaOverride = structuredClone(invokeAgentTool.inputSchema as Record<string, unknown>);
   const props = schemaOverride.properties as Record<string, Record<string, unknown>> | undefined;
   if (props?.agentConfigId) {
     props.agentConfigId = {

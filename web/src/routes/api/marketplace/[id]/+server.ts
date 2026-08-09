@@ -28,7 +28,10 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   return json({
     listing: {
       ...listing,
-      ratingPercent: listing.ratingTotal > 0 ? Math.round((listing.ratingPositive / listing.ratingTotal) * 100) : 0,
+      ratingPercent:
+        listing.ratingTotal > 0
+          ? Math.round((listing.ratingPositive / listing.ratingTotal) * 100)
+          : 0,
     },
     latestVersion,
     versions,

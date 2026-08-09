@@ -101,10 +101,7 @@ describe("runPrecheck — content grep rules", () => {
 describe("runPrecheck — empty / undecided", () => {
   test("feature with no surface signals leaves all surfaces undefined", async () => {
     writeFixture("src/util/random-helper.ts", "export function noop() {}");
-    const v = await runPrecheck(
-      feat("random-helper", ["src/util/random-helper.ts"]),
-      projectRoot,
-    );
+    const v = await runPrecheck(feat("random-helper", ["src/util/random-helper.ts"]), projectRoot);
     expect(v.sdk).toBeUndefined();
     expect(v.ezbutton).toBeUndefined();
     expect(v.mcp).toBeUndefined();
@@ -114,10 +111,7 @@ describe("runPrecheck — empty / undecided", () => {
     // .png is in BINARY_EXTENSIONS — even with grep markers "in" the file
     // (impossible but pretend) we should not open it. Use a non-existent
     // file; since the file doesn't exist it's also a no-op.
-    const v = await runPrecheck(
-      feat("only-image", ["assets/foo.png"]),
-      projectRoot,
-    );
+    const v = await runPrecheck(feat("only-image", ["assets/foo.png"]), projectRoot);
     expect(v.ezbutton).toBeUndefined();
     expect(v.mcp).toBeUndefined();
   });

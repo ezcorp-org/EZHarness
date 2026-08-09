@@ -24,7 +24,9 @@ mock.module("@huggingface/transformers", () => ({
     // (IDX-06), so the stub must expose a `config` or that write NPEs. This
     // suite only exercises the init state machine — the cap itself is pinned
     // against the real tokenizer in memory-embeddings-token-cap.test.ts.
-    (extractor as unknown as { tokenizer: { config: { model_max_length?: number } } }).tokenizer = { config: {} };
+    (extractor as unknown as { tokenizer: { config: { model_max_length?: number } } }).tokenizer = {
+      config: {},
+    };
     return extractor;
   },
   env: { backends: { onnx: {} } },

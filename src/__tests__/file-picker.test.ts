@@ -6,7 +6,13 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgents } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings, restoreFetch } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+  restoreFetch,
+} from "./helpers/test-pglite";
 import type { AgentEvents } from "../types";
 
 mockDbConnection();
@@ -105,7 +111,9 @@ describe("GET /api/fs/list", () => {
   });
 
   test("returns empty array for nonexistent directory", async () => {
-    const res = await fetch(`${baseUrl}/api/fs/list?dir=${encodeURIComponent("/nonexistent-dir-xyz")}`);
+    const res = await fetch(
+      `${baseUrl}/api/fs/list?dir=${encodeURIComponent("/nonexistent-dir-xyz")}`,
+    );
     expect(res.status).toBe(200);
     const entries = (await res.json()) as unknown[];
     expect(entries).toEqual([]);

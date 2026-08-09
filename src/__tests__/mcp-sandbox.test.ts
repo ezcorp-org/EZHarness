@@ -119,7 +119,10 @@ describe("buildSandboxedMcpSpec — stdio wrap", () => {
     const granted: ExtensionPermissions = { grantedAt: {} };
 
     const { spec: rawWrapped, proxyHandle } = await buildSandboxedMcpSpec(
-      spec, manifest, granted, "ext-1",
+      spec,
+      manifest,
+      granted,
+      "ext-1",
     );
     const wrapped = rawWrapped as McpServerStdio;
 
@@ -138,11 +141,16 @@ describe("buildSandboxedMcpSpec — stdio wrap", () => {
 
   test("uses manifest.resources.memory to set prlimit bytes", async () => {
     const spec: McpServerDefinition = {
-      transport: "stdio", name: "x", command: "/bin/true",
+      transport: "stdio",
+      name: "x",
+      command: "/bin/true",
     };
     const manifest = mcpManifest({ resources: { memory: "1GB" } });
     const { spec: rawWrapped } = await buildSandboxedMcpSpec(
-      spec, manifest, { grantedAt: {} }, "ext-mem",
+      spec,
+      manifest,
+      { grantedAt: {} },
+      "ext-mem",
     );
     const wrapped = rawWrapped as McpServerStdio;
 
@@ -160,10 +168,15 @@ describe("buildSandboxedMcpSpec — stdio wrap", () => {
     process.env.EZCORP_PERMITTED_HOSTS = "evil.example.com";
     try {
       const spec: McpServerDefinition = {
-        transport: "stdio", name: "x", command: "/bin/true",
+        transport: "stdio",
+        name: "x",
+        command: "/bin/true",
       };
       const { spec: rawWrapped } = await buildSandboxedMcpSpec(
-        spec, mcpManifest(), { grantedAt: {} }, "ext-no-net",
+        spec,
+        mcpManifest(),
+        { grantedAt: {} },
+        "ext-no-net",
       );
       const wrapped = rawWrapped as McpServerStdio;
       expect(wrapped.env?.EZCORP_PERMITTED_HOSTS).toBeUndefined();
@@ -177,10 +190,15 @@ describe("buildSandboxedMcpSpec — stdio wrap", () => {
     process.env.EZCORP_SHELL_ALLOWED = "1";
     try {
       const spec: McpServerDefinition = {
-        transport: "stdio", name: "x", command: "/bin/true",
+        transport: "stdio",
+        name: "x",
+        command: "/bin/true",
       };
       const { spec: rawWrapped } = await buildSandboxedMcpSpec(
-        spec, mcpManifest(), { grantedAt: {} }, "ext-no-shell",
+        spec,
+        mcpManifest(),
+        { grantedAt: {} },
+        "ext-no-shell",
       );
       const wrapped = rawWrapped as McpServerStdio;
       expect(wrapped.env?.EZCORP_SHELL_ALLOWED).toBeUndefined();
@@ -194,10 +212,15 @@ describe("buildSandboxedMcpSpec — stdio wrap", () => {
     process.env.AF1_SECRET = "shh";
     try {
       const spec: McpServerDefinition = {
-        transport: "stdio", name: "x", command: "/bin/true",
+        transport: "stdio",
+        name: "x",
+        command: "/bin/true",
       };
       const { spec: rawWrapped } = await buildSandboxedMcpSpec(
-        spec, mcpManifest(), { grantedAt: {} }, "ext-no-secret",
+        spec,
+        mcpManifest(),
+        { grantedAt: {} },
+        "ext-no-secret",
       );
       const wrapped = rawWrapped as McpServerStdio;
       expect(wrapped.env?.AF1_SECRET).toBeUndefined();
@@ -213,7 +236,9 @@ describe("buildSandboxedMcpSpec — stdio wrap", () => {
     process.env.AF1_SECRET = "from-host";
     try {
       const spec: McpServerDefinition = {
-        transport: "stdio", name: "x", command: "/bin/true",
+        transport: "stdio",
+        name: "x",
+        command: "/bin/true",
       };
       const manifest = mcpManifest({
         permissions: { env: ["AF1_SECRET"] },
@@ -223,7 +248,10 @@ describe("buildSandboxedMcpSpec — stdio wrap", () => {
         env: ["AF1_SECRET"],
       };
       const { spec: rawWrapped } = await buildSandboxedMcpSpec(
-        spec, manifest, granted, "ext-granted-env",
+        spec,
+        manifest,
+        granted,
+        "ext-granted-env",
       );
       const wrapped = rawWrapped as McpServerStdio;
       expect(wrapped.env?.AF1_SECRET).toBe("from-host");
@@ -234,14 +262,19 @@ describe("buildSandboxedMcpSpec — stdio wrap", () => {
 
   test("granted network hosts become EZCORP_PERMITTED_HOSTS", async () => {
     const spec: McpServerDefinition = {
-      transport: "stdio", name: "x", command: "/bin/true",
+      transport: "stdio",
+      name: "x",
+      command: "/bin/true",
     };
     const granted: ExtensionPermissions = {
       grantedAt: {},
       network: ["api.example.com", "cdn.example.com"],
     };
     const { spec: rawWrapped } = await buildSandboxedMcpSpec(
-      spec, mcpManifest(), granted, "ext-net",
+      spec,
+      mcpManifest(),
+      granted,
+      "ext-net",
     );
     const wrapped = rawWrapped as McpServerStdio;
     expect(wrapped.env?.EZCORP_PERMITTED_HOSTS).toBe("api.example.com,cdn.example.com");
@@ -255,7 +288,10 @@ describe("buildSandboxedMcpSpec — stdio wrap", () => {
       env: { MCP_MODE: "strict", MCP_LOG_LEVEL: "info" },
     };
     const { spec: rawWrapped } = await buildSandboxedMcpSpec(
-      spec, mcpManifest(), { grantedAt: {} }, "ext-spec-env",
+      spec,
+      mcpManifest(),
+      { grantedAt: {} },
+      "ext-spec-env",
     );
     const wrapped = rawWrapped as McpServerStdio;
     expect(wrapped.env?.MCP_MODE).toBe("strict");
@@ -266,10 +302,15 @@ describe("buildSandboxedMcpSpec — stdio wrap", () => {
 describe("buildSandboxedMcpSpec — non-stdio pass-through", () => {
   test("http spec is returned unchanged", async () => {
     const spec: McpServerDefinition = {
-      transport: "http", name: "x", url: "https://example.com/mcp",
+      transport: "http",
+      name: "x",
+      url: "https://example.com/mcp",
     };
     const { spec: wrapped, proxyHandle } = await buildSandboxedMcpSpec(
-      spec, mcpManifest(), { grantedAt: {} }, "ext-http",
+      spec,
+      mcpManifest(),
+      { grantedAt: {} },
+      "ext-http",
     );
     expect(wrapped).toBe(spec);
     expect(proxyHandle).toBeNull();
@@ -277,10 +318,15 @@ describe("buildSandboxedMcpSpec — non-stdio pass-through", () => {
 
   test("sse spec is returned unchanged", async () => {
     const spec: McpServerDefinition = {
-      transport: "sse", name: "x", url: "https://example.com/sse",
+      transport: "sse",
+      name: "x",
+      url: "https://example.com/sse",
     };
     const { spec: wrapped, proxyHandle } = await buildSandboxedMcpSpec(
-      spec, mcpManifest(), { grantedAt: {} }, "ext-sse",
+      spec,
+      mcpManifest(),
+      { grantedAt: {} },
+      "ext-sse",
     );
     expect(wrapped).toBe(spec);
     expect(proxyHandle).toBeNull();
@@ -335,7 +381,11 @@ describe("bwrap tmpfs", () => {
         userId: null,
       };
       const { spec: rawWrapped, proxyHandle } = await buildSandboxedMcpSpec(
-        spec, mcpManifest(), { grantedAt: {} }, "ext-bwrap-on", ctx,
+        spec,
+        mcpManifest(),
+        { grantedAt: {} },
+        "ext-bwrap-on",
+        ctx,
       );
       const wrapped = rawWrapped as McpServerStdio;
       expect(wrapped.env?.EZCORP_MCP_BWRAP_ENABLED).toBe("1");
@@ -395,7 +445,11 @@ describe("bwrap tmpfs", () => {
         userId: null,
       };
       const { spec: rawWrapped, proxyHandle } = await buildSandboxedMcpSpec(
-        spec, mcpManifest(), { grantedAt: {} }, "ext-bwrap-missing", ctx,
+        spec,
+        mcpManifest(),
+        { grantedAt: {} },
+        "ext-bwrap-missing",
+        ctx,
       );
       const wrapped = rawWrapped as McpServerStdio;
       expect(wrapped.env?.EZCORP_MCP_BWRAP_ENABLED).toBeUndefined();
@@ -447,14 +501,22 @@ describe("bwrap tmpfs", () => {
       };
       // First spawn — boot row should fire.
       const { proxyHandle: h1, spec: rawWrapped1 } = await buildSandboxedMcpSpec(
-        spec, mcpManifest(), { grantedAt: {} }, "ext-killswitch-1", ctx,
+        spec,
+        mcpManifest(),
+        { grantedAt: {} },
+        "ext-killswitch-1",
+        ctx,
       );
       const wrapped1 = rawWrapped1 as McpServerStdio;
       expect(wrapped1.env?.EZCORP_MCP_BWRAP_ENABLED).toBeUndefined();
 
       // Second spawn — boot row should NOT fire again (one-time per process).
       const { proxyHandle: h2 } = await buildSandboxedMcpSpec(
-        spec, mcpManifest(), { grantedAt: {} }, "ext-killswitch-2", ctx,
+        spec,
+        mcpManifest(),
+        { grantedAt: {} },
+        "ext-killswitch-2",
+        ctx,
       );
 
       // Poll for the FIRST row's arrival (presence race, same as the
@@ -526,7 +588,7 @@ describe("seccomp log mode", () => {
       whichBwrap: () => "/usr/bin/bwrap",
       probeRunner: () => ({ success: true, exitCode: 0 }),
     });
-    MOCK_SECCOMP_FD = 42;  // synthetic FD value; we never actually spawn
+    MOCK_SECCOMP_FD = 42; // synthetic FD value; we never actually spawn
     try {
       const spec: McpServerDefinition = {
         transport: "stdio",
@@ -540,7 +602,11 @@ describe("seccomp log mode", () => {
         userId: null,
       };
       const { spec: rawWrapped, proxyHandle } = await buildSandboxedMcpSpec(
-        spec, mcpManifest(), { grantedAt: {} }, "ext-seccomp-on", ctx,
+        spec,
+        mcpManifest(),
+        { grantedAt: {} },
+        "ext-seccomp-on",
+        ctx,
       );
       const wrapped = rawWrapped as McpServerStdio;
       expect(wrapped.env?.EZCORP_MCP_BWRAP_SECCOMP_FD).toBe("3");
@@ -587,7 +653,11 @@ describe("seccomp log mode", () => {
       };
       // First spawn — boot row should fire.
       const { proxyHandle: h1, spec: rawWrapped1 } = await buildSandboxedMcpSpec(
-        spec, mcpManifest(), { grantedAt: {} }, "ext-seccomp-ks-1", ctx,
+        spec,
+        mcpManifest(),
+        { grantedAt: {} },
+        "ext-seccomp-ks-1",
+        ctx,
       );
       const wrapped1 = rawWrapped1 as McpServerStdio;
       expect(wrapped1.env?.EZCORP_MCP_BWRAP_SECCOMP_FD).toBeUndefined();
@@ -595,7 +665,11 @@ describe("seccomp log mode", () => {
 
       // Second spawn — boot row should NOT fire again (one-time-per-process).
       const { proxyHandle: h2 } = await buildSandboxedMcpSpec(
-        spec, mcpManifest(), { grantedAt: {} }, "ext-seccomp-ks-2", ctx,
+        spec,
+        mcpManifest(),
+        { grantedAt: {} },
+        "ext-seccomp-ks-2",
+        ctx,
       );
 
       await new Promise((res) => setTimeout(res, 30));
@@ -625,7 +699,7 @@ describe("seccomp log mode", () => {
       whichBwrap: () => "/usr/bin/bwrap",
       probeRunner: () => ({ success: true, exitCode: 0 }),
     });
-    MOCK_SECCOMP_FD = null;  // mimic dev-host: docker build never ran
+    MOCK_SECCOMP_FD = null; // mimic dev-host: docker build never ran
     try {
       const spec: McpServerDefinition = {
         transport: "stdio",
@@ -639,7 +713,11 @@ describe("seccomp log mode", () => {
         userId: null,
       };
       const { spec: rawWrapped, proxyHandle } = await buildSandboxedMcpSpec(
-        spec, mcpManifest(), { grantedAt: {} }, "ext-seccomp-noblob", ctx,
+        spec,
+        mcpManifest(),
+        { grantedAt: {} },
+        "ext-seccomp-noblob",
+        ctx,
       );
       const wrapped = rawWrapped as McpServerStdio;
       expect(wrapped.env?.EZCORP_MCP_BWRAP_SECCOMP_FD).toBeUndefined();

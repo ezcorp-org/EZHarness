@@ -61,13 +61,18 @@ interface TestProc {
   proc: Subprocess<"pipe", "pipe", "pipe">;
   outbound: Record<string, unknown>[];
   inbound: (msg: Record<string, unknown>) => void;
-  wait: (pred: (m: Record<string, unknown>) => boolean, ms?: number) => Promise<Record<string, unknown>>;
+  wait: (
+    pred: (m: Record<string, unknown>) => boolean,
+    ms?: number,
+  ) => Promise<Record<string, unknown>>;
   kill: () => void;
 }
 
 function spawnExtension(): TestProc {
   const proc = spawn(["bun", "run", EXT_ENTRY], {
-    stdin: "pipe", stdout: "pipe", stderr: "pipe",
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
     env: { ...process.env },
   }) as Subprocess<"pipe", "pipe", "pipe">;
 
@@ -87,15 +92,28 @@ function spawnExtension(): TestProc {
           const line = buffer.slice(0, idx).trim();
           buffer = buffer.slice(idx + 1);
           if (!line) continue;
-          try { outbound.push(JSON.parse(line)); } catch { /* non-JSON */ }
+          try {
+            outbound.push(JSON.parse(line));
+          } catch {
+            /* non-JSON */
+          }
         }
       }
-    } catch { /* stream closed */ }
+    } catch {
+      /* stream closed */
+    }
   })();
 
   (async () => {
     const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
-    try { while (true) { const { done } = await reader.read(); if (done) return; } } catch { /* */ }
+    try {
+      while (true) {
+        const { done } = await reader.read();
+        if (done) return;
+      }
+    } catch {
+      /* */
+    }
   })();
 
   function inbound(msg: Record<string, unknown>): void {
@@ -115,7 +133,13 @@ function spawnExtension(): TestProc {
     throw new Error("wait: predicate never satisfied within " + ms + "ms");
   }
 
-  function kill(): void { try { proc.kill(); } catch { /* */ } }
+  function kill(): void {
+    try {
+      proc.kill();
+    } catch {
+      /* */
+    }
+  }
   return { proc, outbound, inbound, wait, kill };
 }
 
@@ -125,30 +149,34 @@ const aliceConfigId = crypto.randomUUID();
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values([
-    { id: "user-alice-int", email: "ai@t.local", passwordHash: "x", name: "alice" } as any,
-    { id: "user-bob-int", email: "bi@t.local", passwordHash: "x", name: "bob" } as any,
-  ]);
-  await getDb().insert(agentConfigs).values([
-    {
-      id: aliceConfigId,
-      name: "alice-helper-int",
-      description: "Alice's helper",
-      prompt: "p",
-      capabilities: ["llm"],
-      references: { agents: [], extensions: [] },
-      userId: "user-alice-int",
-    } as any,
-    {
-      id: crypto.randomUUID(),
-      name: "bob-private-int",
-      description: "Bob's private",
-      prompt: "p",
-      capabilities: ["llm"],
-      references: { agents: [], extensions: [] },
-      userId: "user-bob-int",
-    } as any,
-  ]);
+  await getDb()
+    .insert(users)
+    .values([
+      { id: "user-alice-int", email: "ai@t.local", passwordHash: "x", name: "alice" } as any,
+      { id: "user-bob-int", email: "bi@t.local", passwordHash: "x", name: "bob" } as any,
+    ]);
+  await getDb()
+    .insert(agentConfigs)
+    .values([
+      {
+        id: aliceConfigId,
+        name: "alice-helper-int",
+        description: "Alice's helper",
+        prompt: "p",
+        capabilities: ["llm"],
+        references: { agents: [], extensions: [] },
+        userId: "user-alice-int",
+      } as any,
+      {
+        id: crypto.randomUUID(),
+        name: "bob-private-int",
+        description: "Bob's private",
+        prompt: "p",
+        capabilities: ["llm"],
+        references: { agents: [], extensions: [] },
+        userId: "user-bob-int",
+      } as any,
+    ]);
 });
 
 afterAll(async () => {
@@ -157,8 +185,13 @@ afterAll(async () => {
 });
 
 let proc: TestProc | null = null;
-beforeEach(() => { proc = spawnExtension(); });
-afterEach(() => { if (proc) proc.kill(); proc = null; });
+beforeEach(() => {
+  proc = spawnExtension();
+});
+afterEach(() => {
+  if (proc) proc.kill();
+  proc = null;
+});
 
 async function relayOneRpc(ctx: AgentConfigsContext): Promise<Record<string, unknown>> {
   // Wait for the extension to make an ezcorp/agent-configs request.
@@ -166,7 +199,11 @@ async function relayOneRpc(ctx: AgentConfigsContext): Promise<Record<string, unk
   // Call the REAL handler.
   const resp = await handleAgentConfigsRpc(EXT_ID, req as any, ctx);
   // Send the response back to the subprocess.
-  proc!.inbound({ jsonrpc: "2.0", id: req.id, ...(resp.result !== undefined ? { result: resp.result } : { error: resp.error }) });
+  proc!.inbound({
+    jsonrpc: "2.0",
+    id: req.id,
+    ...(resp.result !== undefined ? { result: resp.result } : { error: resp.error }),
+  });
   return req;
 }
 
@@ -181,14 +218,19 @@ describe("agent-configs integration: real subprocess + real handler", () => {
   test("list() returns alice's own configs over the full SDK+wire+handler+DB stack", async () => {
     const TOOL_CALL_ID = 500;
     proc!.inbound({
-      jsonrpc: "2.0", id: TOOL_CALL_ID, method: "tools/call",
+      jsonrpc: "2.0",
+      id: TOOL_CALL_ID,
+      method: "tools/call",
       params: { name: "list_configs", arguments: {} },
     });
     await relayOneRpc({ userId: "user-alice-int", grantedPermissions: grantedRead });
     const toolResp = await proc!.wait((m) => m.id === TOOL_CALL_ID && m.result !== undefined);
     const result = toolResp.result as { content: Array<{ text: string }>; isError?: boolean };
     expect(result.isError).toBeFalsy();
-    const configs = JSON.parse(result.content[0]!.text) as Array<{ name: string; ownerUserId: string }>;
+    const configs = JSON.parse(result.content[0]!.text) as Array<{
+      name: string;
+      ownerUserId: string;
+    }>;
     const names = configs.map((c) => c.name);
     expect(names).toContain("alice-helper-int");
     expect(names).not.toContain("bob-private-int");
@@ -197,7 +239,9 @@ describe("agent-configs integration: real subprocess + real handler", () => {
   test("resolve() by name returns the matching summary", async () => {
     const TOOL_CALL_ID = 501;
     proc!.inbound({
-      jsonrpc: "2.0", id: TOOL_CALL_ID, method: "tools/call",
+      jsonrpc: "2.0",
+      id: TOOL_CALL_ID,
+      method: "tools/call",
       params: { name: "resolve_config", arguments: { idOrName: "alice-helper-int" } },
     });
     await relayOneRpc({ userId: "user-alice-int", grantedPermissions: grantedRead });
@@ -212,7 +256,9 @@ describe("agent-configs integration: real subprocess + real handler", () => {
   test("resolve() by missing name returns SDK null (not an error)", async () => {
     const TOOL_CALL_ID = 502;
     proc!.inbound({
-      jsonrpc: "2.0", id: TOOL_CALL_ID, method: "tools/call",
+      jsonrpc: "2.0",
+      id: TOOL_CALL_ID,
+      method: "tools/call",
       params: { name: "resolve_config", arguments: { idOrName: "does-not-exist" } },
     });
     await relayOneRpc({ userId: "user-alice-int", grantedPermissions: grantedRead });
@@ -226,7 +272,9 @@ describe("agent-configs integration: real subprocess + real handler", () => {
   test("permission-denied host response surfaces as tool error, not hang", async () => {
     const TOOL_CALL_ID = 503;
     proc!.inbound({
-      jsonrpc: "2.0", id: TOOL_CALL_ID, method: "tools/call",
+      jsonrpc: "2.0",
+      id: TOOL_CALL_ID,
+      method: "tools/call",
       params: { name: "list_configs", arguments: {} },
     });
     // Relay with permissions REVOKED — handler returns -32001.

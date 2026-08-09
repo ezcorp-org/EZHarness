@@ -35,11 +35,7 @@ describe("discovery excludes SKILL.md from the command walk", () => {
       "---\ndescription: a skill\n---\nskill body",
       "utf8",
     );
-    await writeFile(
-      join(dir, "review.md"),
-      "---\ndescription: real cmd\n---\nbody",
-      "utf8",
-    );
+    await writeFile(join(dir, "review.md"), "---\ndescription: real cmd\n---\nbody", "utf8");
 
     const cmds = await discoverProjectCommands(root);
     expect(cmds).toHaveLength(1);
@@ -68,11 +64,7 @@ describe("discovery excludes SKILL.md from the command walk", () => {
       "---\ndescription: home skill\n---\nbody",
       "utf8",
     );
-    await writeFile(
-      join(dir, "agent.md"),
-      "---\ndescription: real agent\n---\nbody",
-      "utf8",
-    );
+    await writeFile(join(dir, "agent.md"), "---\ndescription: real agent\n---\nbody", "utf8");
 
     const cmds = await discoverHomeCommands(root);
     expect(cmds.map((c) => c.name)).toEqual(["agent"]);

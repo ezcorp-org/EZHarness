@@ -96,10 +96,8 @@ mock.module("../db/queries/extensions", () => ({
 const realConversations = await import("../db/queries/conversations");
 mock.module("../db/queries/conversations", () => ({
   ...realConversations,
-  getConversation: async (id: string) =>
-    (conversationStore.get(id) as unknown) ?? null,
-  getMessages: async (id: string) =>
-    (messagesStore.get(id) as unknown) ?? [],
+  getConversation: async (id: string) => (conversationStore.get(id) as unknown) ?? null,
+  getMessages: async (id: string) => (messagesStore.get(id) as unknown) ?? [],
 }));
 
 const realConvExt = await import("../db/queries/conversation-extensions");
@@ -113,9 +111,7 @@ mock.module("../db/queries/conversation-extensions", () => ({
 const { bootSpawnFlaggedBundledExtensions } = await import("../extensions/bundled");
 const { ExtensionRegistry } = await import("../extensions/registry");
 const { EventBus } = await import("../runtime/events");
-const { EventSubscriptionDispatcher } = await import(
-  "../extensions/event-subscription-dispatcher"
-);
+const { EventSubscriptionDispatcher } = await import("../extensions/event-subscription-dispatcher");
 const { ToolExecutor } = await import("../extensions/tool-executor");
 
 // Build a manifest for the fixture matching the bundled-extension shape.
@@ -155,11 +151,19 @@ beforeAll(() => {
 
 afterEach(() => {
   if (dispatcher) {
-    try { dispatcher.stop(); } catch { /* ignore */ }
+    try {
+      dispatcher.stop();
+    } catch {
+      /* ignore */
+    }
     dispatcher = null;
   }
   if (registry) {
-    try { registry.killAll(); } catch { /* ignore */ }
+    try {
+      registry.killAll();
+    } catch {
+      /* ignore */
+    }
     registry = null;
   }
   // Symmetric with the per-test `resetInstance()` below: drop the
@@ -368,10 +372,7 @@ describe("bootSpawnFlaggedBundledExtensions — real subprocess (Phase 53.6)", (
     //    round-trip is async (event delivery → fixture writes RPC →
     //    host reads, dispatches, replies → fixture reads response →
     //    fixture writes echo). 4000ms is generous.
-    await waitFor(
-      () => received.some((n) => n.method === "test/rpc-result"),
-      4000,
-    );
+    await waitFor(() => received.some((n) => n.method === "test/rpc-result"), 4000);
 
     const echo = received.find((n) => n.method === "test/rpc-result");
     expect(echo).toBeDefined();

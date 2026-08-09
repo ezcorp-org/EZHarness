@@ -294,9 +294,7 @@ export function _resetBwrapProbeCacheForTests(): void {
  * Tests use this to drive the missing-binary and probe-failure branches
  * without mocking Bun globals.
  */
-export function _setBwrapProbeOverridesForTests(
-  overrides: BwrapProbeOverrides | null,
-): void {
+export function _setBwrapProbeOverridesForTests(overrides: BwrapProbeOverrides | null): void {
   bwrapProbeOverrides = overrides;
 }
 
@@ -407,9 +405,7 @@ function defaultVethProbeRunner(): { success: boolean; exitCode: number | null }
  * binary, non-Linux, and probe-failure branches without mocking Bun
  * globals (mirrors `_setBwrapProbeOverridesForTests` shape).
  */
-export function _setVethProbeOverridesForTests(
-  overrides: VethProbeOverrides | null,
-): void {
+export function _setVethProbeOverridesForTests(overrides: VethProbeOverrides | null): void {
   vethProbeOverrides = overrides;
   vethProbeCache = null; // reset cache on every override change
 }
@@ -517,26 +513,18 @@ export function isStage2DegradedAtBoot(): boolean {
   return stage2DegradedAtBoot;
 }
 
-async function emitStage2BootRow(
-  userId: string | null,
-  reason: string,
-): Promise<void> {
+async function emitStage2BootRow(userId: string | null, reason: string): Promise<void> {
   if (stage2BootRowEmitted) return;
   stage2BootRowEmitted = true;
   try {
-    await insertAuditEntry(
-      userId,
-      EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK,
-      undefined,
-      {
-        permission: "network",
-        oldValue: null,
-        newValue: null,
-        actor: "system",
-        reason,
-        platform: process.platform,
-      },
-    );
+    await insertAuditEntry(userId, EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK, undefined, {
+      permission: "network",
+      oldValue: null,
+      newValue: null,
+      actor: "system",
+      reason,
+      platform: process.platform,
+    });
   } catch {
     // Fire-and-forget — boot must not fail on audit write hiccup.
   }
@@ -715,9 +703,7 @@ export interface BuildNetnsSpawnArgsResult {
  * command/args unchanged. The caller (`mcp-sandbox.ts`) then injects
  * `HTTPS_PROXY` env to cover the fallback path.
  */
-export function buildNetnsSpawnArgs(
-  input: BuildNetnsSpawnArgsInput,
-): BuildNetnsSpawnArgsResult {
+export function buildNetnsSpawnArgs(input: BuildNetnsSpawnArgsInput): BuildNetnsSpawnArgsResult {
   const probe = probeNetnsAvailability();
   const bwrap = probeBwrapAvailability();
   // Plan 55-02 kill-switch: operators set EZCORP_MCP_STAGE1_TMPFS=0 to

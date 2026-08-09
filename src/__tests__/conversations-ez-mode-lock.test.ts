@@ -17,12 +17,8 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 mockDbConnection();
 
 const { createUser } = await import("../db/queries/users");
-const {
-  getOrCreateEzConversation,
-  createConversation,
-  updateConversation,
-  getConversation,
-} = await import("../db/queries/conversations");
+const { getOrCreateEzConversation, createConversation, updateConversation, getConversation } =
+  await import("../db/queries/conversations");
 const { createProject } = await import("../db/queries/projects");
 const { getModeBySlug } = await import("../db/queries/modes");
 

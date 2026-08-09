@@ -43,10 +43,7 @@ export async function countErrors(): Promise<number> {
 /**
  * List error logs with pagination, ordered by most recent first.
  */
-export async function listErrors(opts?: {
-  limit?: number;
-  offset?: number;
-}): Promise<ErrorLog[]> {
+export async function listErrors(opts?: { limit?: number; offset?: number }): Promise<ErrorLog[]> {
   const limit = opts?.limit ?? 100;
   const offset = opts?.offset ?? 0;
 

@@ -35,7 +35,15 @@ describe("scaffoldExtension — file set per type", () => {
   test("tool produces manifest + index + test + readme + tsconfig + package.json + .gitignore", () => {
     const { files } = scaffoldExtension({ name: "weather", type: "tool", description: "x" });
     expect(Object.keys(files).sort()).toEqual(
-      [".gitignore", "README.md", "ezcorp.config.ts", "index.test.ts", "index.ts", "package.json", "tsconfig.json"].sort(),
+      [
+        ".gitignore",
+        "README.md",
+        "ezcorp.config.ts",
+        "index.test.ts",
+        "index.ts",
+        "package.json",
+        "tsconfig.json",
+      ].sort(),
     );
   });
 
@@ -62,7 +70,11 @@ describe("scaffoldExtension — file set per type", () => {
 describe("scaffoldExtension — manifest validates", () => {
   for (const type of EXT_TYPES) {
     test(`${type} manifest passes validateManifestV2`, () => {
-      const { files } = scaffoldExtension({ name: `ext-${type}`, type, description: "scaffold smoke" });
+      const { files } = scaffoldExtension({
+        name: `ext-${type}`,
+        type,
+        description: "scaffold smoke",
+      });
       const manifest = evalManifestSrc(files["ezcorp.config.ts"]!);
       const result = validateManifestV2(manifest);
       if (!result.valid) {
@@ -80,7 +92,9 @@ describe("scaffoldExtension — name validation", () => {
   });
 
   test("UPPERCASE name throws (NAME_REGEX requires lowercase start)", () => {
-    expect(() => scaffoldExtension({ name: "MyExt", type: "tool", description: "x" })).toThrow(/NAME_REGEX|match/);
+    expect(() => scaffoldExtension({ name: "MyExt", type: "tool", description: "x" })).toThrow(
+      /NAME_REGEX|match/,
+    );
   });
 
   test("name with .. throws", () => {
@@ -92,7 +106,9 @@ describe("scaffoldExtension — name validation", () => {
   });
 
   test("65-char name throws (max 64)", () => {
-    expect(() => scaffoldExtension({ name: "a".repeat(65), type: "tool", description: "x" })).toThrow();
+    expect(() =>
+      scaffoldExtension({ name: "a".repeat(65), type: "tool", description: "x" }),
+    ).toThrow();
   });
 
   test("64-char name accepted", () => {
@@ -116,12 +132,20 @@ describe("scaffoldExtension — type validation", () => {
 
 describe("scaffoldExtension — description handling", () => {
   test("description is interpolated into manifest", () => {
-    const { files } = scaffoldExtension({ name: "weather", type: "tool", description: "Returns weather" });
+    const { files } = scaffoldExtension({
+      name: "weather",
+      type: "tool",
+      description: "Returns weather",
+    });
     expect(files["ezcorp.config.ts"]).toContain("Returns weather");
   });
 
   test("description is interpolated into README", () => {
-    const { files } = scaffoldExtension({ name: "weather", type: "agent", description: "A weather agent" });
+    const { files } = scaffoldExtension({
+      name: "weather",
+      type: "agent",
+      description: "A weather agent",
+    });
     expect(files["README.md"]).toContain("A weather agent");
   });
 });
@@ -134,7 +158,11 @@ describe("scaffoldExtension — package.json shape", () => {
   });
 
   test("name + description match scaffold inputs", () => {
-    const { files } = scaffoldExtension({ name: "weather", type: "tool", description: "Weather queries" });
+    const { files } = scaffoldExtension({
+      name: "weather",
+      type: "tool",
+      description: "Weather queries",
+    });
     const pkg = JSON.parse(files["package.json"]!);
     expect(pkg.name).toBe("weather");
     expect(pkg.description).toBe("Weather queries");

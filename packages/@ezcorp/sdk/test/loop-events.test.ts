@@ -9,11 +9,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
 import { LoopEvents } from "../src/runtime/loop-events";
-import {
-  __resetChannelForTests,
-  getChannel,
-  type HostChannel,
-} from "../src/runtime/channel";
+import { __resetChannelForTests, getChannel, type HostChannel } from "../src/runtime/channel";
 
 afterEach(() => {
   __resetChannelForTests();
@@ -27,12 +23,10 @@ interface RequestCall {
 function stubRequest(): { calls: RequestCall[] } {
   const ch: HostChannel = getChannel();
   const calls: RequestCall[] = [];
-  spyOn(ch, "request").mockImplementation(
-    (async (method: string, params: unknown) => {
-      calls.push({ method, params: (params ?? {}) as Record<string, unknown> });
-      return { ok: true };
-    }) as HostChannel["request"],
-  );
+  spyOn(ch, "request").mockImplementation((async (method: string, params: unknown) => {
+    calls.push({ method, params: (params ?? {}) as Record<string, unknown> });
+    return { ok: true };
+  }) as HostChannel["request"]);
   return { calls };
 }
 
@@ -54,7 +48,11 @@ describe("LoopEvents.emitApprovalPending", () => {
 
   test("threads conversationId when the loop is conversation-wired", async () => {
     const { calls } = stubRequest();
-    await new LoopEvents().emitApprovalPending({ loopId: "docs", runId: "r1", conversationId: "c9" });
+    await new LoopEvents().emitApprovalPending({
+      loopId: "docs",
+      runId: "r1",
+      conversationId: "c9",
+    });
     expect((calls[0]!.params.payload as Record<string, unknown>).conversationId).toBe("c9");
   });
 });
@@ -62,7 +60,11 @@ describe("LoopEvents.emitApprovalPending", () => {
 describe("LoopEvents.emitApprovalResolved", () => {
   test("emits v1 approval_resolved carrying the decision", async () => {
     const { calls } = stubRequest();
-    await new LoopEvents().emitApprovalResolved({ loopId: "docs", runId: "r1", decision: "approved" });
+    await new LoopEvents().emitApprovalResolved({
+      loopId: "docs",
+      runId: "r1",
+      decision: "approved",
+    });
     expect(calls[0]!.params).toEqual({
       v: 1,
       type: "approval_resolved",
@@ -100,7 +102,11 @@ describe("LoopEvents.emitAutoDisabled", () => {
 
   test("threads conversationId when present", async () => {
     const { calls } = stubRequest();
-    await new LoopEvents().emitAutoDisabled({ loopId: "flaky", consecutiveErrors: 3, conversationId: "c1" });
+    await new LoopEvents().emitAutoDisabled({
+      loopId: "flaky",
+      consecutiveErrors: 3,
+      conversationId: "c1",
+    });
     expect((calls[0]!.params.payload as Record<string, unknown>).conversationId).toBe("c1");
   });
 });

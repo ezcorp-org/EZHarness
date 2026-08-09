@@ -13,10 +13,14 @@ mockServerAlias();
 // Additional aliases this route uses that mockServerAlias() doesn't cover.
 mock.module("$server/db/queries/attachments", () => require("../db/queries/attachments"));
 mock.module("$server/db/queries/projects", () => require("../db/queries/projects"));
-mock.module("$server/providers/model-capabilities", () => require("../providers/model-capabilities"));
+mock.module("$server/providers/model-capabilities", () =>
+  require("../providers/model-capabilities"),
+);
 mock.module("$server/chat/attachments/validator", () => require("../chat/attachments/validator"));
 mock.module("$server/chat/attachments/storage", () => require("../chat/attachments/storage"));
-mock.module("$server/chat/attachments/content-builder", () => require("../chat/attachments/content-builder"));
+mock.module("$server/chat/attachments/content-builder", () =>
+  require("../chat/attachments/content-builder"),
+);
 
 // Stubs for security + auth middleware that don't exist in src/ (they live in web/).
 mock.module("$server/auth/middleware", () => ({
@@ -36,7 +40,8 @@ mock.module("$lib/server/context", () => ({
   ensureInitialized: async () => {},
 }));
 mock.module("$lib/server/security/validation", () => ({
-  validationError: (err: any) => new Response(JSON.stringify({ error: err.issues ?? String(err) }), { status: 400 }),
+  validationError: (err: any) =>
+    new Response(JSON.stringify({ error: err.issues ?? String(err) }), { status: 400 }),
 }));
 mock.module("$lib/server/security/resource-quotas", () => ({
   checkTokenBudget: async () => ({ allowed: true, resetsAt: null }),
@@ -63,8 +68,12 @@ mock.module("../db/queries/settings", () => {
       return rows[0]?.value;
     },
     async upsertSetting() {},
-    async deleteSetting() { return false; },
-    async isListingInstalled() { return false; },
+    async deleteSetting() {
+      return false;
+    },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -90,13 +99,17 @@ let projectId: string;
 let conversationId: string;
 
 async function fileExists(p: string) {
-  try { await access(p); return true; } catch { return false; }
+  try {
+    await access(p);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function resetExecutorCalls() {
   streamChatCalls.length = 0;
 }
-
 
 beforeAll(async () => {
   await setupTestDb();
@@ -110,7 +123,9 @@ beforeAll(async () => {
 beforeEach(async () => {
   resetExecutorCalls();
   const conv = await convQueries.createConversation(projectId, {
-    title: "c", provider: "anthropic", model: "claude-sonnet-4-5",
+    title: "c",
+    provider: "anthropic",
+    model: "claude-sonnet-4-5",
   });
   conversationId = conv.id;
   // ADMIN_USER has role "admin" which bypasses ownership check in verifyConversationOwnership.
@@ -122,10 +137,14 @@ afterAll(async () => {
   await rm(projectRoot, { recursive: true, force: true }).catch(() => {});
 });
 
-function buildMultipartRequest(fields: Record<string, string>, files: Array<{ name: string; type: string; bytes: Uint8Array }>): Request {
+function buildMultipartRequest(
+  fields: Record<string, string>,
+  files: Array<{ name: string; type: string; bytes: Uint8Array }>,
+): Request {
   const form = new FormData();
   for (const [k, v] of Object.entries(fields)) form.set(k, v);
-  for (const f of files) form.append("files", new File([f.bytes as BlobPart], f.name, { type: f.type }));
+  for (const f of files)
+    form.append("files", new File([f.bytes as BlobPart], f.name, { type: f.type }));
   return new Request(`http://localhost/api/conversations/${conversationId}/messages`, {
     method: "POST",
     body: form,
@@ -232,7 +251,13 @@ describe("POST /api/conversations/:id/messages (multi-modal)", () => {
   test("MIME/magic-byte mismatch → 400", async () => {
     const req = buildMultipartRequest(
       { content: "x", provider: "anthropic", model: "claude-sonnet-4-5" },
-      [{ name: "fake.png", type: "image/png", bytes: new TextEncoder().encode("plain text bytes") }],
+      [
+        {
+          name: "fake.png",
+          type: "image/png",
+          bytes: new TextEncoder().encode("plain text bytes"),
+        },
+      ],
     );
     const res = await invokePost(req);
     expect(res.status).toBe(400);
@@ -291,5 +316,4 @@ describe("POST /api/conversations/:id/messages (multi-modal)", () => {
     expect(body.attachments[1].filename).toBe("b.png");
     expect(body.attachments[0].id).not.toBe(body.attachments[1].id);
   });
-
 });

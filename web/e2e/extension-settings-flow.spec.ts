@@ -86,7 +86,9 @@ function makeNoSettingsDetail(): Record<string, unknown> {
       author: "Test",
       entrypoint: "./index.ts",
       persistent: false,
-      tools: [{ name: "do-thing", description: "do it", inputSchema: { type: "object", properties: {} } }],
+      tools: [
+        { name: "do-thing", description: "do it", inputSchema: { type: "object", properties: {} } },
+      ],
       permissions: {},
     },
     grantedPermissions: { network: [], filesystem: [], shell: false, env: [], grantedAt: {} },
@@ -189,7 +191,10 @@ test.describe("Per-extension settings — UI flow", () => {
     await expect(page.getByTestId("settings-panel-global")).toHaveCount(0);
   });
 
-  test("user sets voice, reload preserves it, no global panel exists", async ({ page, mockApi }) => {
+  test("user sets voice, reload preserves it, no global panel exists", async ({
+    page,
+    mockApi,
+  }) => {
     const detail = makeKokoroDetail();
     await mockApi({
       projects: [proj],
@@ -216,7 +221,9 @@ test.describe("Per-extension settings — UI flow", () => {
 
     await page.reload();
     await expect(page.getByTestId("settings-panel-user")).toBeVisible({ timeout: 5000 });
-    await expect(page.getByTestId("settings-panel-user").getByTestId("schema-input-voice")).toHaveValue("bf_emma");
+    await expect(
+      page.getByTestId("settings-panel-user").getByTestId("schema-input-voice"),
+    ).toHaveValue("bf_emma");
     await expect(page.getByTestId("settings-panel-global")).toHaveCount(0);
   });
 
@@ -249,7 +256,10 @@ test.describe("Per-extension settings — UI flow", () => {
     expect(voiceAfterReset).not.toBe("bf_emma");
   });
 
-  test("no-settings extension GET returns schema:null with empty value blobs", async ({ page, mockApi }) => {
+  test("no-settings extension GET returns schema:null with empty value blobs", async ({
+    page,
+    mockApi,
+  }) => {
     const detail = makeNoSettingsDetail();
     await mockApi({
       projects: [proj],

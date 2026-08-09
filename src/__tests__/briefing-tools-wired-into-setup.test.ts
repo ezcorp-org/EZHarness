@@ -202,8 +202,14 @@ describe("wireBriefingToolsIfBriefingConversation — gate", () => {
       { name: "edit-file" } as unknown as AgentTool,
       { name: "shell" } as unknown as AgentTool,
     );
-    turn.builtinToolDefsMap.set("read-file", { name: "read-file", category: "read" } as BuiltinToolDef);
-    turn.builtinToolDefsMap.set("edit-file", { name: "edit-file", category: "write" } as BuiltinToolDef);
+    turn.builtinToolDefsMap.set("read-file", {
+      name: "read-file",
+      category: "read",
+    } as BuiltinToolDef);
+    turn.builtinToolDefsMap.set("edit-file", {
+      name: "edit-file",
+      category: "write",
+    } as BuiltinToolDef);
     turn.builtinToolDefsMap.set("shell", { name: "shell", category: "execute" } as BuiltinToolDef);
 
     await wireBriefingToolsIfBriefingConversation({

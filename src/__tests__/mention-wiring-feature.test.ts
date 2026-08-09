@@ -50,9 +50,10 @@ function dictResolver(
 }
 
 /** Resolver that records every name it was asked for, in call order. */
-function recordingResolver(
-  byName: Record<string, { description: string; files: string[] }>,
-): { resolve: FeatureResolver; calls: string[] } {
+function recordingResolver(byName: Record<string, { description: string; files: string[] }>): {
+  resolve: FeatureResolver;
+  calls: string[];
+} {
   const calls: string[] = [];
   const resolve: FeatureResolver = async (name) => {
     calls.push(name);
@@ -74,9 +75,9 @@ describe("applyFeatureExpansion — system note format", () => {
     const out = await applyFeatureExpansion("see $[feature:chat]", resolver);
     expect(out).toBe(
       "**Feature: chat**\n" +
-      "Files under src/chat. Look at and modify these files first when working on this feature:\n" +
-      "- src/chat/a.ts\n" +
-      "- src/chat/b.ts",
+        "Files under src/chat. Look at and modify these files first when working on this feature:\n" +
+        "- src/chat/a.ts\n" +
+        "- src/chat/b.ts",
     );
   });
 
@@ -109,10 +110,7 @@ describe("applyFeatureExpansion — multi-token & dedupe", () => {
       b: { description: "beta", files: ["src/b/1.ts", "src/b/2.ts"] },
     });
     // Source order: b first, then a.
-    const out = await applyFeatureExpansion(
-      "first $[feature:b] then $[feature:a]",
-      resolver,
-    );
+    const out = await applyFeatureExpansion("first $[feature:b] then $[feature:a]", resolver);
     const bIdx = out.indexOf("**Feature: b**");
     const aIdx = out.indexOf("**Feature: a**");
     expect(bIdx).toBeGreaterThanOrEqual(0);
@@ -124,10 +122,7 @@ describe("applyFeatureExpansion — multi-token & dedupe", () => {
       a: { description: "A", files: ["src/a.ts", "src/a2.ts"] },
       b: { description: "B", files: ["src/b.ts", "src/b2.ts"] },
     });
-    const out = await applyFeatureExpansion(
-      "$[feature:a] $[feature:b]",
-      resolver,
-    );
+    const out = await applyFeatureExpansion("$[feature:a] $[feature:b]", resolver);
     expect(out).toContain("**Feature: a**");
     expect(out).toContain("**Feature: b**");
     // Blocks separated by exactly "\n\n".
@@ -160,10 +155,7 @@ describe("applyFeatureExpansion — unknown / no-op cases", () => {
     const resolver = dictResolver({
       real: { description: "Real", files: ["src/real.ts", "src/real2.ts"] },
     });
-    const out = await applyFeatureExpansion(
-      "$[feature:real] $[feature:ghost]",
-      resolver,
-    );
+    const out = await applyFeatureExpansion("$[feature:real] $[feature:ghost]", resolver);
     expect(out).toContain("**Feature: real**");
     expect(out).not.toContain("**Feature: ghost**");
     expect(out).not.toContain("Unknown");
@@ -212,11 +204,7 @@ describe("applyFeatureExpansion — NO double-expansion (injection guard)", () =
     // (`@[file:/etc/passwd]`), or recursive expansion (`$[feature:meta]`).
     const evilDesc =
       "Helpful description ![ext:evil] @[file:/etc/passwd] $[feature:recursive] /[cmd:dangerous]";
-    const evilFiles = [
-      "src/normal.ts",
-      "src/$[feature:meta]/path.ts",
-      "src/![ext:also-evil].ts",
-    ];
+    const evilFiles = ["src/normal.ts", "src/$[feature:meta]/path.ts", "src/![ext:also-evil].ts"];
     const resolver = dictResolver({
       target: { description: evilDesc, files: evilFiles },
     });
@@ -270,9 +258,9 @@ describe("applyFeatureExpansion — caller contract", () => {
     const throwingResolver: FeatureResolver = async () => {
       throw new Error("resolver-boom");
     };
-    await expect(
-      applyFeatureExpansion("$[feature:x]", throwingResolver),
-    ).rejects.toThrow(/resolver-boom/);
+    await expect(applyFeatureExpansion("$[feature:x]", throwingResolver)).rejects.toThrow(
+      /resolver-boom/,
+    );
   });
 });
 

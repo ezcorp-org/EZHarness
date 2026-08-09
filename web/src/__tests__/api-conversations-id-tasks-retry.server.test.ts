@@ -47,28 +47,18 @@ vi.mock("$server/runtime/start-assignment", () => ({
   })),
 }));
 
-const { POST } = await import(
-  "../routes/api/conversations/[id]/tasks/[taskId]/retry/+server.ts"
-);
+const { POST } = await import("../routes/api/conversations/[id]/tasks/[taskId]/retry/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown }) {
   return {
-    url: new URL(
-      "http://localhost/api/conversations/c1/tasks/t1/retry",
-    ),
+    url: new URL("http://localhost/api/conversations/c1/tasks/t1/retry"),
     locals: opts.locals ?? {},
     params: { id: "c1", taskId: "t1" },
-    request: new Request(
-      "http://localhost/api/conversations/c1/tasks/t1/retry",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: opts.body !== undefined ? JSON.stringify(opts.body) : "{}",
-      },
-    ),
+    request: new Request("http://localhost/api/conversations/c1/tasks/t1/retry", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : "{}",
+    }),
   } as any;
 }
 

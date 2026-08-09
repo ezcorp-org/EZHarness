@@ -10,9 +10,9 @@ import type { AgentEvents, AgentRun, AgentStatus } from "../../../src/types";
 
 let bus: EventBus<AgentEvents>;
 let runs: Map<string, AgentRun>;
-let runConvs: Map<string, string>;        // runId → owning conversationId
-let runUsers: Map<string, string>;        // runId → initiating userId
-let ownedConvs: Set<string>;              // conversations the caller owns
+let runConvs: Map<string, string>; // runId → owning conversationId
+let runUsers: Map<string, string>; // runId → initiating userId
+let ownedConvs: Set<string>; // conversations the caller owns
 
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({
@@ -62,7 +62,12 @@ afterAll(() => restoreModuleMocks());
 describe("run ownership (IDOR guard)", () => {
   const nonAdmin = { user: { id: "u2", email: "x@y", name: "X", role: "member" } } as any;
   const evAs = (id: string, l: unknown) =>
-    ({ params: { id }, url: new URL(`http://x/api/runs/${id}`), locals: l, request: reqStub } as any);
+    ({
+      params: { id },
+      url: new URL(`http://x/api/runs/${id}`),
+      locals: l,
+      request: reqStub,
+    }) as any;
 
   test("GET 404 when the run's conversation isn't owned by the caller", async () => {
     runs.set("o1", mkRun("o1", "success"));

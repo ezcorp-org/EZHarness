@@ -66,7 +66,8 @@ mock.module("../runtime/start-assignment", () => ({
     const runId = `run-int-${nextRunId++}`;
     const subConversationId = `sub-${runId}`;
     const assignment = opts.assignment as {
-      id: string; status: string;
+      id: string;
+      status: string;
       agentRunId?: string;
       subConversationId?: string;
       startedAt?: string;
@@ -77,12 +78,15 @@ mock.module("../runtime/start-assignment", () => ({
     assignment.startedAt = new Date().toISOString();
     const { getDb } = await import("../db/connection");
     const { conversations } = await import("../db/schema");
-    await getDb().insert(conversations).values({
-      id: subConversationId,
-      projectId: opts.projectId as string,
-      parentConversationId: opts.conversationId as string,
-      title: "int-sub",
-    } as any).onConflictDoNothing();
+    await getDb()
+      .insert(conversations)
+      .values({
+        id: subConversationId,
+        projectId: opts.projectId as string,
+        parentConversationId: opts.conversationId as string,
+        title: "int-sub",
+      } as any)
+      .onConflictDoNothing();
     return { subConversationId, agentRunId: runId };
   },
 }));
@@ -150,7 +154,10 @@ interface TestProc {
   proc: Subprocess<"pipe", "pipe", "pipe">;
   outbound: Record<string, unknown>[];
   inbound: (msg: Record<string, unknown>) => void;
-  wait: (pred: (m: Record<string, unknown>) => boolean, ms?: number) => Promise<Record<string, unknown>>;
+  wait: (
+    pred: (m: Record<string, unknown>) => boolean,
+    ms?: number,
+  ) => Promise<Record<string, unknown>>;
   kill: () => void;
 }
 
@@ -178,17 +185,28 @@ function spawnExtension(): TestProc {
           const line = buffer.slice(0, idx).trim();
           buffer = buffer.slice(idx + 1);
           if (!line) continue;
-          try { outbound.push(JSON.parse(line)); } catch { /* skip non-JSON */ }
+          try {
+            outbound.push(JSON.parse(line));
+          } catch {
+            /* skip non-JSON */
+          }
         }
       }
-    } catch { /* stream closed */ }
+    } catch {
+      /* stream closed */
+    }
   })();
 
   (async () => {
     const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
     try {
-      while (true) { const { done } = await reader.read(); if (done) return; }
-    } catch { /* */ }
+      while (true) {
+        const { done } = await reader.read();
+        if (done) return;
+      }
+    } catch {
+      /* */
+    }
   })();
 
   function inbound(msg: Record<string, unknown>): void {
@@ -208,7 +226,13 @@ function spawnExtension(): TestProc {
     throw new Error("wait: predicate never satisfied within " + ms + "ms");
   }
 
-  function kill(): void { try { proc.kill(); } catch { /* */ } }
+  function kill(): void {
+    try {
+      proc.kill();
+    } catch {
+      /* */
+    }
+  }
   return { proc, outbound, inbound, wait, kill };
 }
 
@@ -239,35 +263,51 @@ function makeStubRegistry(proc: TestProc): ExtensionRegistry {
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values({
-    id: USER_ID, email: "int@t.local", passwordHash: "x", name: "Int",
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({
-    id: PROJ_ID, name: PROJ_ID, path: "/tmp/" + PROJ_ID,
-  } as any);
-  await getDb().insert(conversations).values({
-    id: CONV_ID, projectId: PROJ_ID, title: "sa-int",
-  } as any);
-  await getDb().insert(extensionsTable).values({
-    id: EXT_ID,
-    name: EXT_ID,
-    version: "1.0.0",
-    description: "integration",
-    manifest: {
-      schemaVersion: 2,
+  await getDb()
+    .insert(users)
+    .values({
+      id: USER_ID,
+      email: "int@t.local",
+      passwordHash: "x",
+      name: "Int",
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({
+      id: PROJ_ID,
+      name: PROJ_ID,
+      path: "/tmp/" + PROJ_ID,
+    } as any);
+  await getDb()
+    .insert(conversations)
+    .values({
+      id: CONV_ID,
+      projectId: PROJ_ID,
+      title: "sa-int",
+    } as any);
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id: EXT_ID,
       name: EXT_ID,
       version: "1.0.0",
       description: "integration",
-      author: { name: "test" },
-      permissions: {
-        spawnAgents: { maxPerHour: 5, maxConcurrent: 2 },
-        eventSubscriptions: ["task:assignment_update"],
+      manifest: {
+        schemaVersion: 2,
+        name: EXT_ID,
+        version: "1.0.0",
+        description: "integration",
+        author: { name: "test" },
+        permissions: {
+          spawnAgents: { maxPerHour: 5, maxConcurrent: 2 },
+          eventSubscriptions: ["task:assignment_update"],
+        },
       },
-    },
-    source: `test:${EXT_ID}`,
-    installPath: `/tmp/${EXT_ID}`,
-    enabled: true,
-  } as any);
+      source: `test:${EXT_ID}`,
+      installPath: `/tmp/${EXT_ID}`,
+      enabled: true,
+    } as any);
   await addConversationExtensions(CONV_ID, [{ extensionId: EXT_ID }]);
 });
 
@@ -277,8 +317,13 @@ afterAll(async () => {
 });
 
 let proc: TestProc | null = null;
-beforeEach(() => { proc = spawnExtension(); });
-afterEach(() => { if (proc) proc.kill(); proc = null; });
+beforeEach(() => {
+  proc = spawnExtension();
+});
+afterEach(() => {
+  if (proc) proc.kill();
+  proc = null;
+});
 
 // ── Driver helpers ──────────────────────────────────────────────────
 
@@ -326,15 +371,8 @@ async function driveSpawn(
     method: "tools/call",
     params: { name: "spawn_one", arguments: args },
   });
-  const rpc = await waitAfter(
-    cursor,
-    (m) => m.method === "ezcorp/spawn-assignment",
-  );
-  const resp = await handleSpawnAssignmentRpc(
-    EXT_ID,
-    rpc as any,
-    makeCtx(bus, quota),
-  );
+  const rpc = await waitAfter(cursor, (m) => m.method === "ezcorp/spawn-assignment");
+  const resp = await handleSpawnAssignmentRpc(EXT_ID, rpc as any, makeCtx(bus, quota));
   proc!.inbound({
     jsonrpc: "2.0",
     id: rpc.id,
@@ -352,7 +390,11 @@ async function driveSpawn(
   // raw text — same shape the test expects via the `payload` field.
   let payload: unknown = text;
   if (text) {
-    try { payload = JSON.parse(text); } catch { payload = text; }
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      payload = text;
+    }
   }
   return {
     isError: Boolean(result.isError),
@@ -390,10 +432,7 @@ async function drainUpdates(): Promise<unknown[]> {
     method: "tools/call",
     params: { name: "drain_updates", arguments: {} },
   });
-  const toolResp = await waitAfter(
-    cursor,
-    (m) => m.id === toolCallId && m.result !== undefined,
-  );
+  const toolResp = await waitAfter(cursor, (m) => m.id === toolCallId && m.result !== undefined);
   const result = toolResp.result as { content: Array<{ text: string }> };
   return JSON.parse(result.content[0]!.text) as unknown[];
 }
@@ -409,7 +448,8 @@ describe("spawn-assignment integration: real subprocess + real handler + bus", (
     const first = await driveSpawn(
       100,
       { agentConfigId: "cfg-int-echo", task: "say hi #1" },
-      bus, quota,
+      bus,
+      quota,
     );
     expect(first.isError).toBe(false);
     const firstHandle = first.payload as {
@@ -432,7 +472,8 @@ describe("spawn-assignment integration: real subprocess + real handler + bus", (
     const second = await driveSpawn(
       101,
       { agentConfigId: "cfg-int-echo", task: "say hi #2" },
-      bus, quota,
+      bus,
+      quota,
     );
     expect(second.isError).toBe(false);
 
@@ -445,7 +486,8 @@ describe("spawn-assignment integration: real subprocess + real handler + bus", (
     const third = await driveSpawn(
       102,
       { agentConfigId: "cfg-int-echo", task: "say hi #3" },
-      bus, quota,
+      bus,
+      quota,
     );
     expect(third.isError).toBe(true);
     const thirdErr = third.payload as {
@@ -471,7 +513,8 @@ describe("spawn-assignment integration: real subprocess + real handler + bus", (
       [CONV_ID]: [EXT_ID],
     };
     const dispatcher = new EventSubscriptionDispatcher(
-      bus, registry,
+      bus,
+      registry,
       async (convId) => wiringMap[convId] ?? [],
     );
     dispatcher.registerExtension(EXT_ID, ["task:assignment_update"]);

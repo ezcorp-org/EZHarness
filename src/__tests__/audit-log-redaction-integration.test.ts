@@ -35,8 +35,12 @@ mock.module("../db/queries/settings", () => {
         await db.insert(tbl).values({ key, value, updatedAt: new Date() });
       }
     },
-    async deleteSetting() { return false; },
-    async isListingInstalled() { return false; },
+    async deleteSetting() {
+      return false;
+    },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 

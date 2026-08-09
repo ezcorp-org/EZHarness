@@ -20,15 +20,10 @@ vi.mock("$server/db/queries/teams", () => ({
   removeTeamMember: vi.fn(async () => true),
 }));
 
-const {
-  getTeamMembers,
-  getTeamMembership,
-  addTeamMember,
-  removeTeamMember,
-} = await import("$server/db/queries/teams");
-const { GET, POST, DELETE } = await import(
-  "../routes/api/teams/[id]/members/+server"
+const { getTeamMembers, getTeamMembership, addTeamMember, removeTeamMember } = await import(
+  "$server/db/queries/teams"
 );
+const { GET, POST, DELETE } = await import("../routes/api/teams/[id]/members/+server");
 
 function makeEvent(opts: {
   id?: string;
@@ -75,9 +70,7 @@ describe("GET /api/teams/[id]/members", () => {
   });
 
   test("rejects 403 when API-key lacks 'read' scope", async () => {
-    const res = await GET(
-      makeEvent({ locals: { ...adminLocals, apiKeyScopes: ["chat"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { ...adminLocals, apiKeyScopes: ["chat"] } }));
     expect(res.status).toBe(403);
     const body = (await res.json()) as { required?: string };
     expect(body.required).toBe("read");
@@ -101,9 +94,7 @@ describe("POST /api/teams/[id]/members", () => {
   });
 
   test("returns 401 when locals.user is missing", async () => {
-    const res = await POST(
-      makeEvent({ method: "POST", body: { userId: "u2" } }),
-    );
+    const res = await POST(makeEvent({ method: "POST", body: { userId: "u2" } }));
     expect(res.status).toBe(401);
   });
 
@@ -167,16 +158,12 @@ describe("DELETE /api/teams/[id]/members", () => {
   });
 
   test("returns 401 when locals.user is missing", async () => {
-    const res = await DELETE(
-      makeEvent({ method: "DELETE", body: { userId: "u2" } }),
-    );
+    const res = await DELETE(makeEvent({ method: "DELETE", body: { userId: "u2" } }));
     expect(res.status).toBe(401);
   });
 
   test("rejects 400 when userId missing", async () => {
-    const res = await DELETE(
-      makeEvent({ method: "DELETE", locals: adminLocals, body: {} }),
-    );
+    const res = await DELETE(makeEvent({ method: "DELETE", locals: adminLocals, body: {} }));
     expect(res.status).toBe(400);
   });
 

@@ -20,8 +20,12 @@ import type { AuthUser } from "../auth/types";
 mockDbConnection();
 mockServerAlias();
 mock.module("$server/db/queries/briefing-configs", () => require("../db/queries/briefing-configs"));
-mock.module("$server/runtime/briefing/config-validation", () => require("../runtime/briefing/config-validation"));
-mock.module("$server/runtime/briefing/runtime-registry", () => require("../runtime/briefing/runtime-registry"));
+mock.module("$server/runtime/briefing/config-validation", () =>
+  require("../runtime/briefing/config-validation"),
+);
+mock.module("$server/runtime/briefing/runtime-registry", () =>
+  require("../runtime/briefing/runtime-registry"),
+);
 mock.module("$server/runtime/briefing/run", () => require("../runtime/briefing/run"));
 // In-file restore pattern for `$server/logger` (it has no served
 // top-level namespace in MODULE_PATHS): snapshot the real module,
@@ -30,22 +34,46 @@ mock.module("$server/runtime/briefing/run", () => require("../runtime/briefing/r
 const realLogger = require("../logger");
 mock.module("$server/logger", () => realLogger);
 mock.module("$lib/server/http-errors", () => require("../../web/src/lib/server/http-errors"));
-mock.module("$lib/server/security/api-keys", () => require("../../web/src/lib/server/security/api-keys"));
-mock.module("$lib/server/security/rate-limiter", () => require("../../web/src/lib/server/security/rate-limiter"));
+mock.module("$lib/server/security/api-keys", () =>
+  require("../../web/src/lib/server/security/api-keys"),
+);
+mock.module("$lib/server/security/rate-limiter", () =>
+  require("../../web/src/lib/server/security/rate-limiter"),
+);
 // Shared run-now trigger (Extension Pages Hub): the route delegates to
 // this module; alias it to the real web-layer file so the route + the
 // hub action exercise ONE rate bucket in these tests.
-mock.module("$lib/server/briefing-run-now", () => require("../../web/src/lib/server/briefing-run-now"));
+mock.module("$lib/server/briefing-run-now", () =>
+  require("../../web/src/lib/server/briefing-run-now"),
+);
 mock.module("../../web/src/routes/api/briefing/config/$types", () => ({}));
 mock.module("../../web/src/routes/api/briefing/run-now/$types", () => ({}));
 
 // ── Handler imports ──────────────────────────────────────────────
-import { GET as configGet, PUT as configPut } from "../../web/src/routes/api/briefing/config/+server";
-import { POST as runNowPost, __rateLimiter, __testHooks } from "../../web/src/routes/api/briefing/run-now/+server";
+import {
+  GET as configGet,
+  PUT as configPut,
+} from "../../web/src/routes/api/briefing/config/+server";
+import {
+  POST as runNowPost,
+  __rateLimiter,
+  __testHooks,
+} from "../../web/src/routes/api/briefing/run-now/+server";
 
 // ── Backing modules ──────────────────────────────────────────────
-import { users, projects, conversations, messages, agentConfigs, briefingConfigs } from "../db/schema";
-import { getBriefingConfig, upsertBriefingConfig, BRIEFING_AUTO_DISABLE_AFTER } from "../db/queries/briefing-configs";
+import {
+  users,
+  projects,
+  conversations,
+  messages,
+  agentConfigs,
+  briefingConfigs,
+} from "../db/schema";
+import {
+  getBriefingConfig,
+  upsertBriefingConfig,
+  BRIEFING_AUTO_DISABLE_AFTER,
+} from "../db/queries/briefing-configs";
 import { createMessage } from "../db/queries/conversations";
 import {
   registerBriefingRuntime,
@@ -60,7 +88,10 @@ let userA: AuthUser;
 let userB: AuthUser;
 let projectId: string;
 
-function makeStubExecutor(opts: { assistantContent?: string | null; fail?: boolean }): BriefingExecutor {
+function makeStubExecutor(opts: {
+  assistantContent?: string | null;
+  fail?: boolean;
+}): BriefingExecutor {
   return {
     async streamChat(conversationId: string, _msg: string, options: Record<string, unknown>) {
       if (opts.fail) throw new Error("provider exploded");
@@ -81,11 +112,16 @@ function makeStubExecutor(opts: { assistantContent?: string | null; fail?: boole
   } as unknown as BriefingExecutor;
 }
 
-function registerStubRuntime(opts: { assistantContent?: string | null; fail?: boolean } = { assistantContent: "Morning!" }): void {
+function registerStubRuntime(
+  opts: { assistantContent?: string | null; fail?: boolean } = { assistantContent: "Morning!" },
+): void {
   registerBriefingRuntime({ executor: makeStubExecutor(opts), bus: new EventBus<AgentEvents>() });
 }
 
-async function call(handler: (event: ReturnType<typeof createMockEvent>) => Promise<Response>, event: ReturnType<typeof createMockEvent>): Promise<Response> {
+async function call(
+  handler: (event: ReturnType<typeof createMockEvent>) => Promise<Response>,
+  event: ReturnType<typeof createMockEvent>,
+): Promise<Response> {
   try {
     return await handler(event);
   } catch (e) {
@@ -105,7 +141,9 @@ afterAll(async () => {
   // IS the real module, so re-registering is a no-op that satisfies
   // the mock-cleanup meta-test without eagerly preloading the briefing
   // run pipeline's module graph at every test-process start).
-  mock.module("$lib/server/briefing-run-now", () => require("../../web/src/lib/server/briefing-run-now"));
+  mock.module("$lib/server/briefing-run-now", () =>
+    require("../../web/src/lib/server/briefing-run-now"),
+  );
   mock.module("$server/logger", () => realLogger);
   restoreModuleMocks();
   await closeTestDb();
@@ -125,8 +163,14 @@ beforeEach(async () => {
   await db.delete(projects);
   await db.delete(users);
 
-  const [u1] = await db.insert(users).values({ email: "a@t.local", passwordHash: "x", name: "A" }).returning();
-  const [u2] = await db.insert(users).values({ email: "b@t.local", passwordHash: "x", name: "B" }).returning();
+  const [u1] = await db
+    .insert(users)
+    .values({ email: "a@t.local", passwordHash: "x", name: "A" })
+    .returning();
+  const [u2] = await db
+    .insert(users)
+    .values({ email: "b@t.local", passwordHash: "x", name: "B" })
+    .returning();
   userA = { id: u1!.id, email: u1!.email, name: u1!.name, role: "member" };
   userB = { id: u2!.id, email: u2!.email, name: u2!.name, role: "member" };
   const [p] = await db.insert(projects).values({ name: "P", path: "/tmp/p" }).returning();
@@ -137,7 +181,10 @@ beforeEach(async () => {
 
 describe("GET /api/briefing/config", () => {
   test("401 unauthenticated", async () => {
-    const res = await call(configGet, createMockEvent({ url: "http://localhost/api/briefing/config" }));
+    const res = await call(
+      configGet,
+      createMockEvent({ url: "http://localhost/api/briefing/config" }),
+    );
     expect(res.status).toBe(401);
   });
 
@@ -223,11 +270,20 @@ describe("PUT /api/briefing/config", () => {
   });
 
   test("200 creates the row and computes nextFireAt", async () => {
-    const res = await call(configPut, createMockEvent({
-      method: "PUT",
-      body: { enabled: true, cron: "30 6 * * 1-5", timezone: "UTC", projectId, instructions: "short + sharp" },
-      user: userA,
-    }));
+    const res = await call(
+      configPut,
+      createMockEvent({
+        method: "PUT",
+        body: {
+          enabled: true,
+          cron: "30 6 * * 1-5",
+          timezone: "UTC",
+          projectId,
+          instructions: "short + sharp",
+        },
+        user: userA,
+      }),
+    );
     expect(res.status).toBe(200);
     const data = await jsonFromResponse(res);
     expect(data.cron).toBe("30 6 * * 1-5");
@@ -246,18 +302,24 @@ describe("PUT /api/briefing/config", () => {
       cron: "totally not cron",
       timezone: "UTC",
     });
-    const res = await call(configPut, createMockEvent({ method: "PUT", body: { enabled: true }, user: userA }));
+    const res = await call(
+      configPut,
+      createMockEvent({ method: "PUT", body: { enabled: true }, user: userA }),
+    );
     expect(res.status).toBe(400);
     // Fixed string — raw parser/driver text never reaches the client.
     expect((await jsonFromResponse(res)).error).toBe("invalid briefing config");
   });
 
   test("400 'unknown project' when projectId points at a nonexistent project (FK violation mapped)", async () => {
-    const res = await call(configPut, createMockEvent({
-      method: "PUT",
-      body: { enabled: true, projectId: crypto.randomUUID() },
-      user: userA,
-    }));
+    const res = await call(
+      configPut,
+      createMockEvent({
+        method: "PUT",
+        body: { enabled: true, projectId: crypto.randomUUID() },
+        user: userA,
+      }),
+    );
     expect(res.status).toBe(400);
     expect((await jsonFromResponse(res)).error).toBe("unknown project");
     expect(await getBriefingConfig(userA.id)).toBeNull(); // nothing persisted
@@ -265,7 +327,10 @@ describe("PUT /api/briefing/config", () => {
 
   test("200 partial update preserves other fields", async () => {
     await upsertBriefingConfig(userA.id, { enabled: true, instructions: "old", projectId });
-    const res = await call(configPut, createMockEvent({ method: "PUT", body: { instructions: "new" }, user: userA }));
+    const res = await call(
+      configPut,
+      createMockEvent({ method: "PUT", body: { instructions: "new" }, user: userA }),
+    );
     expect(res.status).toBe(200);
     const row = await getBriefingConfig(userA.id);
     expect(row!.instructions).toBe("new");
@@ -274,7 +339,10 @@ describe("PUT /api/briefing/config", () => {
   });
 
   test("own-config only: user A's PUT never touches user B", async () => {
-    await call(configPut, createMockEvent({ method: "PUT", body: { enabled: true, instructions: "A's" }, user: userA }));
+    await call(
+      configPut,
+      createMockEvent({ method: "PUT", body: { enabled: true, instructions: "A's" }, user: userA }),
+    );
     const resB = await call(configGet, createMockEvent({ user: userB }));
     const dataB = await jsonFromResponse(resB);
     expect(dataB.enabled).toBe(false);
@@ -339,7 +407,9 @@ describe("POST /api/briefing/run-now", () => {
   test("202 without a stored config: runs on defaults via the project fallback chain", async () => {
     registerStubRuntime({ assistantContent: "Briefing on defaults." });
     // The user's most recent conversation anchors the fallback project.
-    await getTestDb().insert(conversations).values({ projectId, title: "Recent work", userId: userA.id });
+    await getTestDb()
+      .insert(conversations)
+      .values({ projectId, title: "Recent work", userId: userA.id });
 
     const res = await call(runNowPost, createMockEvent({ method: "POST", user: userA }));
     expect(res.status).toBe(202);
@@ -392,7 +462,9 @@ describe("POST /api/briefing/run-now", () => {
 
     // And the inverse ordering: route first, hub second.
     __rateLimiter.reset();
-    expect((await call(runNowPost, createMockEvent({ method: "POST", user: userA }))).status).toBe(202);
+    expect((await call(runNowPost, createMockEvent({ method: "POST", user: userA }))).status).toBe(
+      202,
+    );
     await __testHooks.lastRun;
     const hubSecond = await triggerBriefingRunNow(userA.id);
     expect(hubSecond.ok).toBe(false);
@@ -436,10 +508,16 @@ describe("POST /api/briefing/run-now", () => {
     await upsertBriefingConfig(userA.id, { projectId });
     await upsertBriefingConfig(userB.id, { projectId });
 
-    expect((await call(runNowPost, createMockEvent({ method: "POST", user: userA }))).status).toBe(202);
+    expect((await call(runNowPost, createMockEvent({ method: "POST", user: userA }))).status).toBe(
+      202,
+    );
     await __testHooks.lastRun;
-    expect((await call(runNowPost, createMockEvent({ method: "POST", user: userA }))).status).toBe(429);
-    expect((await call(runNowPost, createMockEvent({ method: "POST", user: userB }))).status).toBe(202);
+    expect((await call(runNowPost, createMockEvent({ method: "POST", user: userA }))).status).toBe(
+      429,
+    );
+    expect((await call(runNowPost, createMockEvent({ method: "POST", user: userB }))).status).toBe(
+      202,
+    );
     await __testHooks.lastRun;
   });
 
@@ -491,7 +569,8 @@ describe("POST /api/briefing/run-now", () => {
     // Pre-load 4 prior failures.
     const db = getTestDb();
     const { eq } = await import("drizzle-orm");
-    await db.update(briefingConfigs)
+    await db
+      .update(briefingConfigs)
       .set({ consecutiveErrors: BRIEFING_AUTO_DISABLE_AFTER - 1 })
       .where(eq(briefingConfigs.userId, userA.id));
 

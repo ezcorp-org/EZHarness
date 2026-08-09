@@ -13,11 +13,7 @@ class PlainInlineToolStore {
     this.calls = [...this.calls, { ...call, status: "pending", retryCount: 0 }];
   }
 
-  updateFromEvent(
-    invocationId: string,
-    eventType: string,
-    data: Record<string, unknown>,
-  ): void {
+  updateFromEvent(invocationId: string, eventType: string, data: Record<string, unknown>): void {
     const idx = this.calls.findIndex((c) => c.id === invocationId);
     if (idx < 0) return;
 
@@ -32,10 +28,7 @@ class PlainInlineToolStore {
         updated[idx] = {
           ...call,
           status: "complete",
-          output:
-            typeof data.output === "string"
-              ? data.output
-              : JSON.stringify(data.output),
+          output: typeof data.output === "string" ? data.output : JSON.stringify(data.output),
           duration: data.duration as number,
         };
         break;
@@ -150,7 +143,9 @@ function collectValues(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeCall(overrides: Partial<Omit<InlineToolCall, "status" | "retryCount">> = {}): Omit<InlineToolCall, "status" | "retryCount"> {
+function makeCall(
+  overrides: Partial<Omit<InlineToolCall, "status" | "retryCount">> = {},
+): Omit<InlineToolCall, "status" | "retryCount"> {
   return {
     id: overrides.id ?? crypto.randomUUID(),
     extensionName: overrides.extensionName ?? "test-ext",
@@ -239,7 +234,12 @@ describe("error + retry flow", () => {
   });
 
   test("retry creates new call while old remains in error", () => {
-    const params = { extensionName: "ext", toolName: "tool", input: { x: 1 }, conversationId: "conv-1" };
+    const params = {
+      extensionName: "ext",
+      toolName: "tool",
+      input: { x: 1 },
+      conversationId: "conv-1",
+    };
 
     // First attempt fails
     store.add(makeCall({ id: "attempt-1", ...params }));
@@ -396,11 +396,14 @@ describe("API contract tests", () => {
   });
 
   function mockFetch(status: number, body: Record<string, unknown>) {
-    globalThis.fetch = mock(() =>
-      Promise.resolve(new Response(JSON.stringify(body), {
-        status,
-        headers: { "Content-Type": "application/json" },
-      })),
+    globalThis.fetch = mock(
+      () =>
+        Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
       // Bun's `Mock<…>` lacks `preconnect`; route through `unknown`.
     ) as unknown as typeof fetch;
   }

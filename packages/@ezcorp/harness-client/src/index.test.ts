@@ -4,7 +4,14 @@
  * driven against a live fake server.
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { HarnessClient, HarnessApiError, SseDataBuffer, RUNTIME_EVENT_NAMES, HARNESS_ROUTES, buildPath } from "./index";
+import {
+  HarnessClient,
+  HarnessApiError,
+  SseDataBuffer,
+  RUNTIME_EVENT_NAMES,
+  HARNESS_ROUTES,
+  buildPath,
+} from "./index";
 // The app's canonical list — must stay identical to the package's copy.
 import { RUNTIME_EVENT_NAMES as APP_EVENT_NAMES } from "../../../../web/src/lib/runtime-event-names";
 
@@ -78,7 +85,10 @@ beforeAll(() => {
       }
       // Redirect route: a 3xx the client must refuse to follow.
       if (req.method === "GET" && p === "/api/settings/redirect") {
-        return new Response(null, { status: 302, headers: { Location: "http://evil.example/steal" } });
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "http://evil.example/steal" },
+        });
       }
       if (req.method === "POST" && p === "/api/conversations/c1/messages") {
         return Response.json({ userMessage: { id: "m1" }, runId: "r1" });
@@ -86,7 +96,10 @@ beforeAll(() => {
       // ── Sessions P4 rewind/checkpoint surface ──
       if (req.method === "GET" && /^\/api\/conversations\/[^/]+\/tree$/.test(p)) {
         if (p === "/api/conversations/off/tree") {
-          return Response.json({ error: "Session history producer is disabled", code: "session_producer_disabled" }, { status: 409 });
+          return Response.json(
+            { error: "Session history producer is disabled", code: "session_producer_disabled" },
+            { status: 409 },
+          );
         }
         return Response.json({
           conversationId: p.split("/")[3],
@@ -96,25 +109,40 @@ beforeAll(() => {
       }
       if (req.method === "POST" && /^\/api\/conversations\/[^/]+\/rewind$/.test(p)) {
         lastRewindBody = (await req.json()) as Record<string, unknown>;
-        return Response.json({ conversationId: p.split("/")[3], currentLeaf: lastRewindBody.targetMessageId, nodes: [] });
+        return Response.json({
+          conversationId: p.split("/")[3],
+          currentLeaf: lastRewindBody.targetMessageId,
+          nodes: [],
+        });
       }
       // ── Sessions P5 clean A/B retry surface ──
-      if (req.method === "POST" && /^\/api\/conversations\/[^/]+\/messages\/[^/]+\/retry$/.test(p)) {
+      if (
+        req.method === "POST" &&
+        /^\/api\/conversations\/[^/]+\/messages\/[^/]+\/retry$/.test(p)
+      ) {
         lastRetryPath = p;
         lastRetryBody = (await req.json()) as Record<string, unknown>;
-        return Response.json({ userMessage: { id: "u1" }, retriedMessageId: p.split("/")[5], runId: "r-retry" });
+        return Response.json({
+          userMessage: { id: "u1" },
+          retriedMessageId: p.split("/")[5],
+          runId: "r-retry",
+        });
       }
       // ── Extension control surface ──
       if (req.method === "GET" && p === "/api/extensions") {
         if (extListShape === "array") return Response.json([{ id: "e1", name: "scratchpad" }]);
-        if (extListShape === "wrapper") return Response.json({ extensions: [{ id: "e2", name: "task-tracking" }] });
+        if (extListShape === "wrapper")
+          return Response.json({ extensions: [{ id: "e2", name: "task-tracking" }] });
         return Response.json({ note: "neither array nor wrapper" });
       }
       if (p.startsWith("/api/conversations/") && p.endsWith("/extensions")) {
         if (req.method === "POST") {
           lastWireBody = (await req.json()) as Record<string, unknown>;
           if (p === "/api/conversations/forbidden/extensions") {
-            return Response.json({ error: "Insufficient scope", required: "extensions" }, { status: 403 });
+            return Response.json(
+              { error: "Insufficient scope", required: "extensions" },
+              { status: 403 },
+            );
           }
           const names = (lastWireBody.names as string[]) ?? [];
           const unknown = names.filter((n) => n === "ghost");
@@ -130,19 +158,33 @@ beforeAll(() => {
       if (req.method === "POST" && p === "/api/tool-invoke") {
         lastToolInvoke = (await req.json()) as Record<string, unknown>;
         if (lastToolInvoke.extensionName === "denied") {
-          return Response.json({ error: "Insufficient scope", required: "extensions" }, { status: 403 });
+          return Response.json(
+            { error: "Insufficient scope", required: "extensions" },
+            { status: 403 },
+          );
         }
         // A tool-level failure is HTTP 200 with { success: false } — the client
         // must RESOLVE with it, not throw.
         if (lastToolInvoke.extensionName === "failing") {
-          return Response.json({ success: false, error: "boom", toolCallId: lastToolInvoke.invocationId });
+          return Response.json({
+            success: false,
+            error: "boom",
+            toolCallId: lastToolInvoke.invocationId,
+          });
         }
-        return Response.json({ success: true, output: `${lastToolInvoke.toolName}:ok`, toolCallId: lastToolInvoke.invocationId });
+        return Response.json({
+          success: true,
+          output: `${lastToolInvoke.toolName}:ok`,
+          toolCallId: lastToolInvoke.invocationId,
+        });
       }
       // ── Extension lifecycle surface (Track 3) ──
       if (req.method === "POST" && p === "/api/extensions") {
         lastInstallBody = (await req.json()) as Record<string, unknown>;
-        return Response.json({ id: "ext-new", name: "installed-ext", enabled: false }, { status: 201 });
+        return Response.json(
+          { id: "ext-new", name: "installed-ext", enabled: false },
+          { status: 201 },
+        );
       }
       if (req.method === "POST" && /^\/api\/extensions\/[^/]+\/activate$/.test(p)) {
         lastActivateBody = (await req.json()) as Record<string, unknown>;
@@ -162,7 +204,10 @@ beforeAll(() => {
           lastSecretBody = body;
           // id "denied" models a per-extension RBAC refusal.
           if (p === "/api/extensions/denied/secrets") {
-            return Response.json({ error: "Missing extension scope 'secrets' for denied" }, { status: 403 });
+            return Response.json(
+              { error: "Missing extension scope 'secrets' for denied" },
+              { status: 403 },
+            );
           }
           return Response.json({ ok: true });
         }
@@ -175,7 +220,10 @@ beforeAll(() => {
         if (req.method === "PATCH") {
           lastPatchBody = (await req.json()) as Record<string, unknown>;
           if (lastPatchBody.enabled === true) {
-            return Response.json({ error: "Use POST /:id/activate to enable an extension" }, { status: 400 });
+            return Response.json(
+              { error: "Use POST /:id/activate to enable an extension" },
+              { status: 400 },
+            );
           }
           return Response.json({ id: p.split("/")[3], name: "installed-ext", enabled: false });
         }
@@ -199,7 +247,10 @@ beforeAll(() => {
         return Response.json({ error: "Run not found or not running" }, { status: 404 });
       }
       if (req.method === "GET" && p === "/api/runs/r1" && url.searchParams.get("wait") === "1") {
-        return Response.json({ outcome: "complete", run: { id: "r1", status: "success", result: { output: "done" } } });
+        return Response.json({
+          outcome: "complete",
+          run: { id: "r1", status: "success", result: { output: "done" } },
+        });
       }
       if (req.method === "POST" && p === "/api/__test/mock-llm/script") {
         scripted = (await req.json()) as typeof scripted;
@@ -222,7 +273,10 @@ beforeAll(() => {
       }
       // SSE redirect route: a 3xx the streamEvents path must refuse to follow.
       if (req.method === "GET" && p === "/api/runtime-events-redirect") {
-        return new Response(null, { status: 302, headers: { Location: "http://evil.example/steal" } });
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "http://evil.example/steal" },
+        });
       }
       if (req.method === "GET" && p === "/api/runtime-events") {
         const body = new ReadableStream<Uint8Array>({
@@ -300,7 +354,11 @@ describe("HarnessClient", () => {
   });
 
   test("retryMessage posts the clean-A/B path (mid in the URL) + optional overrides", async () => {
-    const res = await client().retryMessage("c1", "a2", { provider: "openai", model: "gpt", thinkingLevel: "high" });
+    const res = await client().retryMessage("c1", "a2", {
+      provider: "openai",
+      model: "gpt",
+      thinkingLevel: "high",
+    });
     expect(lastRetryPath).toBe("/api/conversations/c1/messages/a2/retry");
     expect(lastRetryBody).toEqual({ provider: "openai", model: "gpt", thinkingLevel: "high" });
     expect(res.retriedMessageId).toBe("a2");
@@ -316,7 +374,9 @@ describe("HarnessClient", () => {
   });
 
   test("resolveToolPermission posts approval with scope", async () => {
-    expect(await client().resolveToolPermission("tc1", true, { scope: "session" })).toEqual({ ok: true });
+    expect(await client().resolveToolPermission("tc1", true, { scope: "session" })).toEqual({
+      ok: true,
+    });
   });
 
   test("clearLlmScripts clears the mock scripts", async () => {
@@ -333,7 +393,9 @@ describe("HarnessClient", () => {
   });
 
   test("runScripted seeds the mock then drives with the mock provider", async () => {
-    const r = await client().runScripted("c1", "go", [{ text: "scripted reply" }], { scriptKey: "k1" });
+    const r = await client().runScripted("c1", "go", [{ text: "scripted reply" }], {
+      scriptKey: "k1",
+    });
     expect(scripted).toMatchObject({ scriptKey: "k1", turns: [{ text: "scripted reply" }] });
     expect(r.outcome).toBe("complete");
   });
@@ -377,10 +439,14 @@ describe("HarnessClient", () => {
   });
 
   test("encodes conversationId and toolCallId path segments", async () => {
-    await client().sendMessage("c/../x", "hi").catch(() => {});
+    await client()
+      .sendMessage("c/../x", "hi")
+      .catch(() => {});
     expect(new URL(lastUrl!).pathname).toBe("/api/conversations/c%2F..%2Fx/messages");
 
-    await client().resolveToolPermission("tc/../1", true).catch(() => {});
+    await client()
+      .resolveToolPermission("tc/../1", true)
+      .catch(() => {});
     expect(new URL(lastUrl!).pathname).toBe("/api/tool-calls/tc%2F..%2F1/permission");
   });
 
@@ -450,7 +516,9 @@ describe("HarnessClient — extension control", () => {
 
   test("listExtensions throws on an unexpected shape (does not silently return [])", async () => {
     extListShape = "other";
-    await expect(client().listExtensions()).rejects.toThrow(/unexpected \/api\/extensions response shape/);
+    await expect(client().listExtensions()).rejects.toThrow(
+      /unexpected \/api\/extensions response shape/,
+    );
   });
 
   test("wireExtensions posts { names } and returns wired + extensionIds", async () => {
@@ -473,7 +541,10 @@ describe("HarnessClient — extension control", () => {
     } catch (e) {
       expect(e).toBeInstanceOf(HarnessApiError);
       expect((e as HarnessApiError).status).toBe(404);
-      expect((e as HarnessApiError).body).toMatchObject({ error: "Unknown extension(s)", unknown: ["ghost"] });
+      expect((e as HarnessApiError).body).toMatchObject({
+        error: "Unknown extension(s)",
+        unknown: ["ghost"],
+      });
     }
   });
 
@@ -494,7 +565,10 @@ describe("HarnessClient — extension control", () => {
   });
 
   test("invokeExtensionTool auto-generates an invocationId and returns the result", async () => {
-    const res = await client().invokeExtensionTool("c1", "scratchpad", "scratchpad_write", { key: "k", value: "v" });
+    const res = await client().invokeExtensionTool("c1", "scratchpad", "scratchpad_write", {
+      key: "k",
+      value: "v",
+    });
     expect(res).toMatchObject({ success: true, output: "scratchpad_write:ok" });
     expect(lastToolInvoke).toMatchObject({
       conversationId: "c1",
@@ -509,10 +583,16 @@ describe("HarnessClient — extension control", () => {
   });
 
   test("invokeExtensionTool honours an explicit invocationId + messageId, defaults input to {}", async () => {
-    const res = await client().invokeExtensionTool("c1", "scratchpad", "scratchpad_read", undefined, {
-      invocationId: "inv-fixed",
-      messageId: "m-9",
-    });
+    const res = await client().invokeExtensionTool(
+      "c1",
+      "scratchpad",
+      "scratchpad_read",
+      undefined,
+      {
+        invocationId: "inv-fixed",
+        messageId: "m-9",
+      },
+    );
     expect(res.success).toBe(true);
     expect(lastToolInvoke).toEqual({
       conversationId: "c1",
@@ -555,8 +635,12 @@ describe("route table (HARNESS_ROUTES + buildPath)", () => {
   });
 
   test("buildPath percent-encodes each param as a single segment", () => {
-    expect(buildPath("/api/settings/:key", { key: "theme:dark" })).toBe("/api/settings/theme%3Adark");
-    expect(buildPath("/api/extensions/:id/activate", { id: "../x" })).toBe("/api/extensions/..%2Fx/activate");
+    expect(buildPath("/api/settings/:key", { key: "theme:dark" })).toBe(
+      "/api/settings/theme%3Adark",
+    );
+    expect(buildPath("/api/extensions/:id/activate", { id: "../x" })).toBe(
+      "/api/extensions/..%2Fx/activate",
+    );
     expect(buildPath("/api/hub/pages/:id/actions/:action", { id: "p 1", action: "do" })).toBe(
       "/api/hub/pages/p%201/actions/do",
     );
@@ -645,7 +729,9 @@ describe("HarnessClient — extension secrets", () => {
   });
 
   test("setExtensionSecret maps a per-extension RBAC 403 to HarnessApiError", async () => {
-    await expect(client().setExtensionSecret("denied", "TOKEN", "v")).rejects.toMatchObject({ status: 403 });
+    await expect(client().setExtensionSecret("denied", "TOKEN", "v")).rejects.toMatchObject({
+      status: 403,
+    });
   });
 
   test("deleteExtensionSecret returns { deleted } and forwards projectId when given", async () => {
@@ -687,8 +773,14 @@ describe("HarnessClient — deliverHook (Loops EZ Mode Phase 4)", () => {
   // Self-contained: a stub fetch captures the request so we can assert the hook
   // route path, the per-hook auth headers, and the CRITICAL invariant that the
   // harness API key is NEVER attached to the public webhook route.
-  interface Captured { url: string; init: RequestInit }
-  function stubClient(status: number, body: unknown): { client: HarnessClient; captured: Captured[] } {
+  interface Captured {
+    url: string;
+    init: RequestInit;
+  }
+  function stubClient(
+    status: number,
+    body: unknown,
+  ): { client: HarnessClient; captured: Captured[] } {
     const captured: Captured[] = [];
     // Cast to `typeof fetch`: the real type carries a `preconnect` member a bare
     // arrow can't satisfy (same shape the redirect test uses).
@@ -696,7 +788,9 @@ describe("HarnessClient — deliverHook (Loops EZ Mode Phase 4)", () => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       captured.push({ url, init: init ?? {} });
       return Promise.resolve(
-        status === 202 ? Response.json(body, { status }) : new Response(JSON.stringify(body), { status }),
+        status === 202
+          ? Response.json(body, { status })
+          : new Response(JSON.stringify(body), { status }),
       );
     }) as unknown as typeof fetch;
     return {

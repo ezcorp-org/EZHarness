@@ -47,11 +47,17 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
     await setupTestDb();
     const db = getTestDb();
 
-    const [p] = await db.insert(projects).values({ name: "Explain", path: "/tmp/explain" }).returning();
+    const [p] = await db
+      .insert(projects)
+      .values({ name: "Explain", path: "/tmp/explain" })
+      .returning();
     projectId = p!.id;
     // Second project owned by the SAME user — proves the scope=all (user_id)
     // tenant predicate keeps the HNSW index scan at multi-project scale.
-    const [p2] = await db.insert(projects).values({ name: "Explain2", path: "/tmp/explain2" }).returning();
+    const [p2] = await db
+      .insert(projects)
+      .values({ name: "Explain2", path: "/tmp/explain2" })
+      .returning();
     projectId2 = p2!.id;
     const [u] = await db
       .insert(users)
@@ -81,12 +87,14 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
     // ~10% land in Project 2 so the user's project set spans both projects.
     for (let i = 0; i < 2500; i++) {
       const inP2 = i % 10 === 0;
-      const convId = inP2
-        ? conv2Ids[i % conv2Ids.length]!
-        : convIds[i % convIds.length]!;
+      const convId = inP2 ? conv2Ids[i % conv2Ids.length]! : convIds[i % convIds.length]!;
       const [msg] = await db
         .insert(messages)
-        .values({ conversationId: convId, role: "user", content: `chunked message ${i} content body` })
+        .values({
+          conversationId: convId,
+          role: "user",
+          content: `chunked message ${i} content body`,
+        })
         .returning();
       const lit = toVectorLiteral(seededVector(i));
       await db.execute(sql`
@@ -226,7 +234,13 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
     const queryVec = seededVector(0);
     // <2-char guard (no SQL touched).
     expect(
-      await searchMessages({ projectId, userId, query: "a", mode: "hybrid", queryEmbedding: queryVec }),
+      await searchMessages({
+        projectId,
+        userId,
+        query: "a",
+        mode: "hybrid",
+        queryEmbedding: queryVec,
+      }),
     ).toEqual([]);
     // scope=project without a projectId → unresolvable tenant.
     expect(
@@ -234,14 +248,31 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
     ).toEqual([]);
     // scope=all without a userId → unresolvable tenant (never global).
     expect(
-      await searchMessages({ scope: "all", query: "chunked", mode: "hybrid", queryEmbedding: queryVec }),
+      await searchMessages({
+        scope: "all",
+        query: "chunked",
+        mode: "hybrid",
+        queryEmbedding: queryVec,
+      }),
     ).toEqual([]);
     // vector modes with a null embedding → [] before any SQL.
     expect(
-      await searchMessages({ projectId, userId, query: "chunked", mode: "hybrid", queryEmbedding: null }),
+      await searchMessages({
+        projectId,
+        userId,
+        query: "chunked",
+        mode: "hybrid",
+        queryEmbedding: null,
+      }),
     ).toEqual([]);
     expect(
-      await searchMessages({ projectId, userId, query: "chunked", mode: "semantic", queryEmbedding: null }),
+      await searchMessages({
+        projectId,
+        userId,
+        query: "chunked",
+        mode: "semantic",
+        queryEmbedding: null,
+      }),
     ).toEqual([]);
   });
 });

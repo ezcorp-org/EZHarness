@@ -19,11 +19,7 @@ export const STALE_STAGING_MS = 60 * 60 * 1000;
 export async function resolveProjectRoot(
   projectId: unknown,
 ): Promise<{ root: string } | { err: Response }> {
-  if (
-    typeof projectId !== "string" ||
-    projectId.length === 0 ||
-    projectId === "global"
-  ) {
+  if (typeof projectId !== "string" || projectId.length === 0 || projectId === "global") {
     return {
       err: errorJson(
         400,

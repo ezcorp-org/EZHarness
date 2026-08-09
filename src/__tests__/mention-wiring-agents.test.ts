@@ -46,9 +46,7 @@ describe("resolveMentionedAgents", () => {
   });
 
   test("resolves single ![agent:…] mention to config with id, name, description", async () => {
-    const result = await resolveMentionedAgents(
-      "Please ![agent:code-reviewer] check this",
-    );
+    const result = await resolveMentionedAgents("Please ![agent:code-reviewer] check this");
     expect(result.length).toBe(1);
     expect(result[0]!.id).toBe(codeReviewId);
     expect(result[0]!.name).toBe("code-reviewer");
@@ -111,9 +109,7 @@ describe("![workflow:…] is INERT for agent delegation", () => {
   });
 
   test("a workflow token alongside an agent token resolves ONLY the agent", async () => {
-    const result = await resolveMentionedAgents(
-      "![workflow:planner] then ![agent:planner] please",
-    );
+    const result = await resolveMentionedAgents("![workflow:planner] then ![agent:planner] please");
     expect(result.length).toBe(1);
     expect(result[0]!.id).toBe(plannerId);
   });

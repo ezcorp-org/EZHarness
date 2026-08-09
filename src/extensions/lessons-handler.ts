@@ -95,7 +95,8 @@ function checkAndConsumeWriteQuota(
 
 function softFail(req: JsonRpcRequest, reason: string, code = -32001): JsonRpcResponse {
   return {
-    jsonrpc: "2.0", id: req.id,
+    jsonrpc: "2.0",
+    id: req.id,
     error: { code, message: reason, data: { reason } },
   };
 }
@@ -106,7 +107,8 @@ function isUniqueViolationError(err: unknown): boolean {
     const code = (cur as { code?: string }).code;
     if (code === "23505") return true;
     const message = (cur as { message?: string }).message;
-    if (typeof message === "string" && /duplicate key|unique constraint/i.test(message)) return true;
+    if (typeof message === "string" && /duplicate key|unique constraint/i.test(message))
+      return true;
     const next = (cur as { cause?: unknown }).cause;
     if (next === cur) break;
     cur = next;
@@ -135,7 +137,8 @@ export async function handlePiLessons(
   const granted = ctx.granted.lessons;
   if (!granted) return softFail(req, "lessons permission not granted");
 
-  const isWrite = params.action === "write" || params.action === "update" || params.action === "archive";
+  const isWrite =
+    params.action === "write" || params.action === "update" || params.action === "archive";
   if (isWrite && granted.access !== "write") {
     return softFail(req, "lessons write access not granted");
   }
@@ -148,11 +151,17 @@ export async function handlePiLessons(
       if (typeof params.projectId === "string") {
         conditions.push(eq(lessons.projectId, params.projectId));
       }
-      const rows = await db.select().from(lessons).where(and(...conditions))
+      const rows = await db
+        .select()
+        .from(lessons)
+        .where(and(...conditions))
         .limit(Math.min(typeof params.limit === "number" ? params.limit : 50, 200));
       await recordCapabilityCall({
-        ctx: handlerCtx, capability: "lessons", action: "list",
-        durationMs: Date.now() - startedAt, success: true,
+        ctx: handlerCtx,
+        capability: "lessons",
+        action: "list",
+        durationMs: Date.now() - startedAt,
+        success: true,
         after: { count: rows.length },
         insertChatPill: false,
       });
@@ -165,11 +174,16 @@ export async function handlePiLessons(
         return { jsonrpc: "2.0", id: req.id, result: { lesson: rows[0] ?? null } };
       }
       if (typeof params.slug === "string" && typeof params.projectId === "string") {
-        const rows = await db.select().from(lessons).where(and(
-          eq(lessons.slug, params.slug),
-          eq(lessons.projectId, params.projectId),
-          eq(lessons.authorExtensionId, handlerCtx.actorExtensionId),
-        ));
+        const rows = await db
+          .select()
+          .from(lessons)
+          .where(
+            and(
+              eq(lessons.slug, params.slug),
+              eq(lessons.projectId, params.projectId),
+              eq(lessons.authorExtensionId, handlerCtx.actorExtensionId),
+            ),
+          );
         return { jsonrpc: "2.0", id: req.id, result: { lesson: rows[0] ?? null } };
       }
       return softFail(req, "id or (slug+projectId) required");
@@ -184,10 +198,7 @@ export async function handlePiLessons(
       // Phase 51.3.5 audit: emit a soft governance row when the
       // requested visibility was higher than the granted ceiling.
       // Soft outcome — the call still succeeds with the clamped value.
-      if (
-        requestedVisibility !== undefined
-        && requestedVisibility !== visibility
-      ) {
+      if (requestedVisibility !== undefined && requestedVisibility !== visibility) {
         await insertAuditEntry(
           handlerCtx.onBehalfOf,
           EXT_AUDIT_ACTIONS.SDK_LESSONS_VISIBILITY_CLAMPED,
@@ -205,34 +216,45 @@ export async function handlePiLessons(
       const quota = checkAndConsumeWriteQuota(handlerCtx.actorExtensionId, granted.maxWritesPerDay);
       if (!quota.ok) {
         return {
-          jsonrpc: "2.0", id: req.id,
-          error: { code: -32103, message: "lessons write quota exceeded",
-                   data: { reason: "writes-per-day", retryAfterMs: quota.retryAfterMs } },
+          jsonrpc: "2.0",
+          id: req.id,
+          error: {
+            code: -32103,
+            message: "lessons write quota exceeded",
+            data: { reason: "writes-per-day", retryAfterMs: quota.retryAfterMs },
+          },
         };
       }
 
       // Try to insert; on slug-collision, fetch the existing row and
       // return `created: false`.
       try {
-        const [inserted] = await db.insert(lessons).values({
-          projectId: params.input.projectId,
-          ownerId: handlerCtx.onBehalfOf,
-          visibility,
-          slug: params.input.slug,
-          title: params.input.title,
-          body: params.input.body,
-          ...(params.input.frontmatter ? { frontmatter: params.input.frontmatter } : {}),
-          // Type tweak: source enum extended to include "extension"
-          // by Phase 51's spec; cast to satisfy current Drizzle inferred type.
-          source: "extension" as never,
-          authorExtensionId: handlerCtx.actorExtensionId,
-        }).returning();
+        const [inserted] = await db
+          .insert(lessons)
+          .values({
+            projectId: params.input.projectId,
+            ownerId: handlerCtx.onBehalfOf,
+            visibility,
+            slug: params.input.slug,
+            title: params.input.title,
+            body: params.input.body,
+            ...(params.input.frontmatter ? { frontmatter: params.input.frontmatter } : {}),
+            // Type tweak: source enum extended to include "extension"
+            // by Phase 51's spec; cast to satisfy current Drizzle inferred type.
+            source: "extension" as never,
+            authorExtensionId: handlerCtx.actorExtensionId,
+          })
+          .returning();
 
         await recordCapabilityCall({
-          ctx: handlerCtx, capability: "lessons", action: "write",
-          resourceType: "lesson", resourceId: inserted!.id,
+          ctx: handlerCtx,
+          capability: "lessons",
+          action: "write",
+          resourceType: "lesson",
+          resourceId: inserted!.id,
           after: { id: inserted!.id, slug: inserted!.slug, visibility, created: true },
-          durationMs: Date.now() - startedAt, success: true,
+          durationMs: Date.now() - startedAt,
+          success: true,
           perResourceAudit: {
             kind: "lesson",
             lessonId: inserted!.id,
@@ -248,13 +270,22 @@ export async function handlePiLessons(
       } catch (err) {
         if (!isUniqueViolationError(err)) throw err;
         // Slug-collision soft outcome: return existing row.
-        const existing = await db.select().from(lessons).where(and(
-          eq(lessons.projectId, params.input.projectId),
-          eq(lessons.ownerId, handlerCtx.onBehalfOf),
-          eq(lessons.slug, params.input.slug),
-          eq(lessons.authorExtensionId, handlerCtx.actorExtensionId),
-        ));
-        return { jsonrpc: "2.0", id: req.id, result: { lesson: existing[0] ?? null, created: false } };
+        const existing = await db
+          .select()
+          .from(lessons)
+          .where(
+            and(
+              eq(lessons.projectId, params.input.projectId),
+              eq(lessons.ownerId, handlerCtx.onBehalfOf),
+              eq(lessons.slug, params.input.slug),
+              eq(lessons.authorExtensionId, handlerCtx.actorExtensionId),
+            ),
+          );
+        return {
+          jsonrpc: "2.0",
+          id: req.id,
+          result: { lesson: existing[0] ?? null, created: false },
+        };
       }
     }
 
@@ -275,9 +306,13 @@ export async function handlePiLessons(
       await db.update(lessons).set(setVals).where(eq(lessons.id, params.id));
 
       await recordCapabilityCall({
-        ctx: handlerCtx, capability: "lessons", action: "update",
-        resourceType: "lesson", resourceId: params.id,
-        durationMs: Date.now() - startedAt, success: true,
+        ctx: handlerCtx,
+        capability: "lessons",
+        action: "update",
+        resourceType: "lesson",
+        resourceId: params.id,
+        durationMs: Date.now() - startedAt,
+        success: true,
         perResourceAudit: {
           kind: "lesson",
           lessonId: params.id,
@@ -285,7 +320,10 @@ export async function handlePiLessons(
           previousBody: rows[0]!.body,
           newBody: params.patch?.body ?? rows[0]!.body,
           previousFrontmatter: (rows[0]!.frontmatter as Record<string, unknown> | null) ?? null,
-          newFrontmatter: params.patch?.frontmatter ?? (rows[0]!.frontmatter as Record<string, unknown> | null) ?? null,
+          newFrontmatter:
+            params.patch?.frontmatter ??
+            (rows[0]!.frontmatter as Record<string, unknown> | null) ??
+            null,
         },
         insertChatPill: handlerCtx.conversationId !== null,
       });
@@ -302,9 +340,13 @@ export async function handlePiLessons(
       // Hard delete is the simplest archive — the audit_log row preserves the body.
       await db.delete(lessons).where(eq(lessons.id, params.id));
       await recordCapabilityCall({
-        ctx: handlerCtx, capability: "lessons", action: "archive",
-        resourceType: "lesson", resourceId: params.id,
-        durationMs: Date.now() - startedAt, success: true,
+        ctx: handlerCtx,
+        capability: "lessons",
+        action: "archive",
+        resourceType: "lesson",
+        resourceId: params.id,
+        durationMs: Date.now() - startedAt,
+        success: true,
         insertChatPill: handlerCtx.conversationId !== null,
       });
       return { jsonrpc: "2.0", id: req.id, result: { ok: true } };
@@ -320,10 +362,13 @@ export async function handlePiLessons(
       if (rows[0]!.authorExtensionId !== handlerCtx.actorExtensionId) {
         return softFail(req, "not-author");
       }
-      await db.update(lessons).set({
-        firedCount: (rows[0]!.firedCount ?? 0) + 1,
-        lastFiredAt: new Date(),
-      }).where(eq(lessons.id, params.id));
+      await db
+        .update(lessons)
+        .set({
+          firedCount: (rows[0]!.firedCount ?? 0) + 1,
+          lastFiredAt: new Date(),
+        })
+        .where(eq(lessons.id, params.id));
       return { jsonrpc: "2.0", id: req.id, result: { ok: true } };
     }
 
@@ -334,9 +379,12 @@ export async function handlePiLessons(
       if (rows[0]!.authorExtensionId !== handlerCtx.actorExtensionId) {
         return softFail(req, "not-author");
       }
-      await db.update(lessons).set({
-        dismissedCount: (rows[0]!.dismissedCount ?? 0) + 1,
-      }).where(eq(lessons.id, params.id));
+      await db
+        .update(lessons)
+        .set({
+          dismissedCount: (rows[0]!.dismissedCount ?? 0) + 1,
+        })
+        .where(eq(lessons.id, params.id));
       return { jsonrpc: "2.0", id: req.id, result: { ok: true } };
     }
 

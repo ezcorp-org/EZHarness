@@ -69,7 +69,10 @@ describe("fill_form / navigate_to round-trip via the ez-client-tool registry", (
       userId: "user-1",
     });
 
-    const pending = liveTool.execute("call-fill-1", { formId: "agent-new", values: { name: "Foo" } });
+    const pending = liveTool.execute("call-fill-1", {
+      formId: "agent-new",
+      values: { name: "Foo" },
+    });
 
     // Yield to the microtask queue so the execute body's emit + register
     // run before we inspect.
@@ -198,7 +201,10 @@ describe("fill_form / navigate_to round-trip via the ez-client-tool registry", (
       bus: sharedBus,
       userId: "user-timeout",
     });
-    const pending = tool.execute("call-fill-timeout", { formId: "agent-new", values: { name: "X" } });
+    const pending = tool.execute("call-fill-timeout", {
+      formId: "agent-new",
+      values: { name: "X" },
+    });
 
     const result = await pending;
     expect((result.details as Record<string, unknown>).isError).toBe(true);

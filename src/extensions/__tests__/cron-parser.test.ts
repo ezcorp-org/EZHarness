@@ -13,8 +13,14 @@ describe("validateCron", () => {
 
   test("rejects sub-5-min interval", () => {
     expect(validateCron("* * * * *")).toEqual({ ok: false, reason: "min-5-min-interval-required" });
-    expect(validateCron("*/1 * * * *")).toEqual({ ok: false, reason: "min-5-min-interval-required" });
-    expect(validateCron("*/4 * * * *")).toEqual({ ok: false, reason: "min-5-min-interval-required" });
+    expect(validateCron("*/1 * * * *")).toEqual({
+      ok: false,
+      reason: "min-5-min-interval-required",
+    });
+    expect(validateCron("*/4 * * * *")).toEqual({
+      ok: false,
+      reason: "min-5-min-interval-required",
+    });
   });
 
   test("rejects @-shorthand expressions", () => {

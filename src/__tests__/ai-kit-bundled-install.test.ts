@@ -59,10 +59,7 @@ mock.module("../db/queries/extensions", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-import {
-  ensureBundledExtensions,
-  resolveBundledExtensions,
-} from "../extensions/bundled";
+import { ensureBundledExtensions, resolveBundledExtensions } from "../extensions/bundled";
 
 beforeEach(() => {
   store = new Map();

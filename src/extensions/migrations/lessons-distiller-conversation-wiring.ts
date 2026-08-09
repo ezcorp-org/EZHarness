@@ -92,10 +92,9 @@ export async function migrateLessonsDistillerConversationWiring(
   if (rows.length === 0) {
     // Nothing to backfill — stamp the sentinel and exit.
     await upsertSetting(SENTINEL_KEY, new Date().toISOString());
-    log.info(
-      "lessons-distiller wiring backfill: no conversations to wire; sentinel stamped",
-      { extensionId: lessonsDistillerExtensionId },
-    );
+    log.info("lessons-distiller wiring backfill: no conversations to wire; sentinel stamped", {
+      extensionId: lessonsDistillerExtensionId,
+    });
     return;
   }
 
@@ -114,9 +113,7 @@ export async function migrateLessonsDistillerConversationWiring(
     // an entire conversation-table-sized insert. Each call is its own
     // statement under PG's `onConflictDoNothing` semantics.
     for (const row of slice) {
-      await addConversationExtensions(row.id, [
-        { extensionId: lessonsDistillerExtensionId },
-      ]);
+      await addConversationExtensions(row.id, [{ extensionId: lessonsDistillerExtensionId }]);
       inserted += 1;
     }
   }

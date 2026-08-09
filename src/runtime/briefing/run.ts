@@ -123,7 +123,7 @@ export function buildBriefingSystemPrompt(opts: {
     sectionLines.push(
       "3. **Watchlist** — the user subscribed to these topics: " +
         watchlist.map((t) => `"${t}"`).join(", ") +
-        ". For each topic, research overnight developments with search-web (and read-url for promising results) and report 1-3 findings, each with a source link. A topic with nothing new gets a one-line \"nothing new\"; if EVERY topic is quiet, suppress the whole section.",
+        '. For each topic, research overnight developments with search-web (and read-url for promising results) and report 1-3 findings, each with a source link. A topic with nothing new gets a one-line "nothing new"; if EVERY topic is quiet, suppress the whole section.',
     );
   } else if (watchlist.length > 0) {
     sectionLines.push(
@@ -338,13 +338,18 @@ export async function runBriefingForUser(
       }
       const deleted = await deleteBriefingConversationIfEmpty(conversation.id);
       log.warn("briefing run timed out", { userId: config.userId, runId, timeoutMs, deleted });
-      return { status: "error", conversationId: conversation.id, error: `briefing run timed out after ${timeoutMs}ms` };
+      return {
+        status: "error",
+        conversationId: conversation.id,
+        error: `briefing run timed out after ${timeoutMs}ms`,
+      };
     }
 
     if (outcome.run.status !== "success") {
-      const errText = typeof outcome.run.result?.error === "string"
-        ? outcome.run.result.error
-        : JSON.stringify(outcome.run.result?.error ?? `run ${outcome.run.status}`);
+      const errText =
+        typeof outcome.run.result?.error === "string"
+          ? outcome.run.result.error
+          : JSON.stringify(outcome.run.result?.error ?? `run ${outcome.run.status}`);
       const deleted = await deleteBriefingConversationIfEmpty(conversation.id);
       log.warn("briefing run failed", { userId: config.userId, runId, error: errText, deleted });
       return { status: "error", conversationId: conversation.id, error: errText };
@@ -356,7 +361,11 @@ export async function runBriefingForUser(
     // user reply keeps the conversation alive.
     if (!(await hasAssistantContent(conversation.id))) {
       await deleteBriefingConversationIfEmpty(conversation.id);
-      return { status: "error", conversationId: conversation.id, error: "run completed without assistant content" };
+      return {
+        status: "error",
+        conversationId: conversation.id,
+        error: "run completed without assistant content",
+      };
     }
 
     deps.bus.emit("conversation:created", {
@@ -396,7 +405,9 @@ export async function notifyBriefingAutoDisabled(
     const deps = resolveDeps(depsOverride);
     const projectId = await resolveBriefingProject(config);
     if (!projectId) {
-      log.warn("auto-disable notification skipped — no resolvable project", { userId: config.userId });
+      log.warn("auto-disable notification skipped — no resolvable project", {
+        userId: config.userId,
+      });
       return;
     }
     const agent = await ensureBriefingAgentConfig();
@@ -418,7 +429,10 @@ export async function notifyBriefingAutoDisabled(
       userId: config.userId,
       source: "briefing",
     });
-    log.info("auto-disable notification posted", { userId: config.userId, conversationId: conversation.id });
+    log.info("auto-disable notification posted", {
+      userId: config.userId,
+      conversationId: conversation.id,
+    });
   } catch (err) {
     log.warn("auto-disable notification failed", { userId: config.userId, error: String(err) });
   }

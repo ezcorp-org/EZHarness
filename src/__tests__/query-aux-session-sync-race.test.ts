@@ -22,8 +22,9 @@ import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers
 
 mockDbConnection();
 
-const { syncSessionForConversation, computeSessionBranch, SYNC_CURSOR_META_KEY } =
-  await import("../db/session-sync");
+const { syncSessionForConversation, computeSessionBranch, SYNC_CURSOR_META_KEY } = await import(
+  "../db/session-sync"
+);
 
 const PROJECT_ID = "p-race";
 let convSeq = 0;
@@ -33,28 +34,49 @@ const at = (i: number): Date => new Date(BASE + i * 1000);
 async function newConversation(): Promise<string> {
   const db = getTestDb();
   const { projects, conversations } = await import("../db/schema");
-  await db.insert(projects).values({ id: PROJECT_ID, name: "P", path: "/tmp/p-race" }).onConflictDoNothing();
+  await db
+    .insert(projects)
+    .values({ id: PROJECT_ID, name: "P", path: "/tmp/p-race" })
+    .onConflictDoNothing();
   const convId = `race-conv-${++convSeq}`;
   await db.insert(conversations).values({ id: convId, projectId: PROJECT_ID, title: "C" });
   return convId;
 }
 
-async function seedMsg(convId: string, id: string, role: string, parentId: string | null, createdAt: Date): Promise<void> {
+async function seedMsg(
+  convId: string,
+  id: string,
+  role: string,
+  parentId: string | null,
+  createdAt: Date,
+): Promise<void> {
   const { messages } = await import("../db/schema");
   await getTestDb().insert(messages).values({
-    id, conversationId: convId, role, content: id, parentMessageId: parentId, createdAt,
+    id,
+    conversationId: convId,
+    role,
+    content: id,
+    parentMessageId: parentId,
+    createdAt,
   });
 }
 
 async function cursorOf(convId: string): Promise<unknown> {
   const { agentSessions } = await import("../db/schema");
-  const [s] = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, convId));
+  const [s] = await getTestDb()
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.conversationId, convId));
   return (s?.metadata as Record<string, unknown> | null)?.[SYNC_CURSOR_META_KEY];
 }
 
 describe("syncSessionForConversation — late-commit / clock-step race", () => {
-  beforeEach(async () => { await setupTestDb(); }, 30_000);
-  afterAll(async () => { await closeTestDb(); });
+  beforeEach(async () => {
+    await setupTestDb();
+  }, 30_000);
+  afterAll(async () => {
+    await closeTestDb();
+  });
 
   test("a row whose createdAt is BELOW the advanced cursor is still appended (not skipped forever)", async () => {
     const c = await newConversation();

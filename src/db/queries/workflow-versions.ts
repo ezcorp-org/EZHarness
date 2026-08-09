@@ -49,10 +49,7 @@ import { getDb } from "../connection";
 import type { Database } from "../connection";
 import { workflowDefinitions, workflowDefinitionVersions, workflowRuns } from "../schema";
 import type { WorkflowDefinitionVersionRow } from "../schema";
-import {
-  stableStringify,
-  workflowDefinitionHash,
-} from "../../runtime/workflow-definition-hash";
+import { stableStringify, workflowDefinitionHash } from "../../runtime/workflow-definition-hash";
 import type { InputSchema, WorkflowModelBinding, WorkflowStep } from "../../types";
 
 export type WorkflowVersion = WorkflowDefinitionVersionRow;
@@ -118,10 +115,7 @@ export function versionMaterialKey(material: VersionMaterial): string {
 }
 
 /** True when `next` would run differently from the recorded `current`. */
-export function versionMaterialChanged(
-  current: VersionMaterial,
-  next: VersionMaterial,
-): boolean {
+export function versionMaterialChanged(current: VersionMaterial, next: VersionMaterial): boolean {
   return versionMaterialKey(current) !== versionMaterialKey(next);
 }
 

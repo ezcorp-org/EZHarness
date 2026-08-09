@@ -99,8 +99,18 @@ describe("agent-configs queries", () => {
   test("listAgentConfigs filtered by userId returns owned with shared=false", async () => {
     const u1 = await createUser({ email: "u1@test.com", passwordHash: "h", name: "U1" });
     const u2 = await createUser({ email: "u2@test.com", passwordHash: "h", name: "U2" });
-    await createAgentConfig({ name: "owned-1", description: "d", prompt: "p", userId: u1.id } as any);
-    await createAgentConfig({ name: "other-owned", description: "d", prompt: "p", userId: u2.id } as any);
+    await createAgentConfig({
+      name: "owned-1",
+      description: "d",
+      prompt: "p",
+      userId: u1.id,
+    } as any);
+    await createAgentConfig({
+      name: "other-owned",
+      description: "d",
+      prompt: "p",
+      userId: u2.id,
+    } as any);
     const rows = await listAgentConfigs(u1.id);
     expect(rows.length).toBe(1);
     expect(rows[0]!.name).toBe("owned-1");

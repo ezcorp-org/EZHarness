@@ -42,7 +42,9 @@ function getWorkerPath(): string {
     try {
       cachedWorkerPath = fileURLToPath(new URL("./oauth-callback-worker.ts", url));
       return cachedWorkerPath;
-    } catch { /* fall through */ }
+    } catch {
+      /* fall through */
+    }
   }
   cachedWorkerPath = resolve(process.cwd(), "src/auth/oauth-callback-worker.ts");
   return cachedWorkerPath;

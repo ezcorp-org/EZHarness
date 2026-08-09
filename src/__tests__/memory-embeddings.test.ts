@@ -72,7 +72,7 @@ describe("schema", () => {
   });
 
   afterAll(async () => {
-  restoreModuleMocks();
+    restoreModuleMocks();
     await closeTestDb();
   });
 
@@ -83,13 +83,22 @@ describe("schema", () => {
       ON CONFLICT DO NOTHING
     `);
 
-    const mockEmbedding = Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => i / EMBEDDING_DIMENSIONS);
+    const mockEmbedding = Array.from(
+      { length: EMBEDDING_DIMENSIONS },
+      (_, i) => i / EMBEDDING_DIMENSIONS,
+    );
     const provenance: MemoryProvenance = {
       sourceConversationId: "conv-1",
       sourceMessageIds: ["msg-1", "msg-2"],
       extractedAt: new Date("2026-01-01"),
       confidence: "high",
-      history: [{ action: "created", timestamp: new Date("2026-01-01"), reason: "Extracted from conversation" }],
+      history: [
+        {
+          action: "created",
+          timestamp: new Date("2026-01-01"),
+          reason: "Extracted from conversation",
+        },
+      ],
     };
 
     const embeddingStr = `[${mockEmbedding.join(",")}]`;

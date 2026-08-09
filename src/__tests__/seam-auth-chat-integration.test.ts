@@ -23,7 +23,13 @@
 
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { setupTestDb, closeTestDb, getTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  getTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { mockServerAlias, createMockEvent, jsonFromResponse } from "./helpers/mock-request";
 
 // ── Module-level mocks (must run BEFORE handler imports) ─────────────
@@ -184,7 +190,9 @@ describe("Seam: login cookie → /api/conversations", () => {
 
     const [h, p, s] = realCookie.split(".");
     const tamperedPayload = btoa(JSON.stringify({ ...JSON.parse(atob(p!)), role: "admin" }))
-      .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
     const tamperedCookie = `${h}.${tamperedPayload}.${s}`;
 
     const secret = await getJwtSecret();

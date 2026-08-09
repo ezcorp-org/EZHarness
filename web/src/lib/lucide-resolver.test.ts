@@ -80,9 +80,7 @@ describe("resolveLucideIcon — memoization", () => {
     let calls = 0;
     __setIconLoader(async () => {
       calls++;
-      const stub = (() => null) as unknown as Parameters<
-        typeof Object.assign
-      >[0];
+      const stub = (() => null) as unknown as Parameters<typeof Object.assign>[0];
       return { default: stub as never };
     });
     const a = resolveLucideIcon("Volume2");

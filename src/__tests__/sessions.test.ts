@@ -54,14 +54,24 @@ function createChainableDb() {
       if (chain._op === "update") _lastUpdateWhere = args;
       if (chain._op === "select") {
         return {
-          orderBy: (..._args: any[]) => ({ then: (resolve: any, reject?: any) => Promise.resolve(mockRows).then(resolve, reject) }),
+          orderBy: (..._args: any[]) => ({
+            then: (resolve: any, reject?: any) => Promise.resolve(mockRows).then(resolve, reject),
+          }),
           then: (resolve: any, reject?: any) => Promise.resolve(mockRows).then(resolve, reject),
         };
       }
       return chain;
     },
     orderBy: (..._args: any[]) => {
-      return { then: (resolve: any, reject?: any) => Promise.resolve(mockRows).then(resolve, reject), limit: (_n: any) => ({ offset: (_o: any) => ({ then: (r: any, j?: any) => Promise.resolve(mockRows).then(r, j) }), then: (r: any, j?: any) => Promise.resolve(mockRows).then(r, j) }) };
+      return {
+        then: (resolve: any, reject?: any) => Promise.resolve(mockRows).then(resolve, reject),
+        limit: (_n: any) => ({
+          offset: (_o: any) => ({
+            then: (r: any, j?: any) => Promise.resolve(mockRows).then(r, j),
+          }),
+          then: (r: any, j?: any) => Promise.resolve(mockRows).then(r, j),
+        }),
+      };
     },
     returning: (_cols?: any) => Promise.resolve(mockRows),
     execute: () => Promise.resolve(executeResults),
@@ -75,7 +85,10 @@ mock.module("../db/connection", () => ({
   getDb: () => createChainableDb(),
 }));
 
-afterAll(() => { mock.restore(); restoreModuleMocks(); });
+afterAll(() => {
+  mock.restore();
+  restoreModuleMocks();
+});
 
 // ── Schema tests ──────────────────────────────────────────────────────
 

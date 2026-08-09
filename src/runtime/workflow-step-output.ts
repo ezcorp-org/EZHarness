@@ -52,9 +52,7 @@ export const MAX_STEP_OUTPUT_BYTES = 256 * 1024;
 export const MAX_RESOLVED_INPUT_BYTES = 64 * 1024;
 
 /** Is this stored output the overflow sentinel rather than a real result? */
-export function isTruncatedStepOutput(
-  value: unknown,
-): value is TruncatedStepOutput {
+export function isTruncatedStepOutput(value: unknown): value is TruncatedStepOutput {
   return (
     value !== null &&
     typeof value === "object" &&

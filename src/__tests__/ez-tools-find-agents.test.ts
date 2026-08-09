@@ -47,10 +47,34 @@ beforeAll(async () => {
   userId = u.id;
 
   // Seed a small library so the ranking has something to chew on.
-  await createAgentConfig({ name: "Crawler", description: "Crawls web pages", prompt: "You are a web crawler agent.", capabilities: ["llm", "tools"], userId });
-  await createAgentConfig({ name: "Summarizer", description: "Summarizes text", prompt: "You summarize content using llm.", capabilities: ["llm"], userId });
-  await createAgentConfig({ name: "PDF Reader", description: "Reads PDFs", prompt: "You read PDFs.", capabilities: ["pdf"], userId });
-  await createAgentConfig({ name: "MentionsCrawler", description: "Crawls mentions", prompt: "Find mentions in PR descriptions.", capabilities: ["llm"], userId });
+  await createAgentConfig({
+    name: "Crawler",
+    description: "Crawls web pages",
+    prompt: "You are a web crawler agent.",
+    capabilities: ["llm", "tools"],
+    userId,
+  });
+  await createAgentConfig({
+    name: "Summarizer",
+    description: "Summarizes text",
+    prompt: "You summarize content using llm.",
+    capabilities: ["llm"],
+    userId,
+  });
+  await createAgentConfig({
+    name: "PDF Reader",
+    description: "Reads PDFs",
+    prompt: "You read PDFs.",
+    capabilities: ["pdf"],
+    userId,
+  });
+  await createAgentConfig({
+    name: "MentionsCrawler",
+    description: "Crawls mentions",
+    prompt: "Find mentions in PR descriptions.",
+    capabilities: ["llm"],
+    userId,
+  });
 });
 
 afterAll(async () => {

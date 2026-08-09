@@ -15,7 +15,10 @@ beforeEach(() => {
 
 function createMockRegistry(tools: RegisteredTool[]) {
   const toolMap = new Map(tools.map((t) => [t.name, t]));
-  const processes = new Map<string, { callTool: ReturnType<typeof mock>; setRequestHandler: ReturnType<typeof mock> }>();
+  const processes = new Map<
+    string,
+    { callTool: ReturnType<typeof mock>; setRequestHandler: ReturnType<typeof mock> }
+  >();
 
   return {
     getToolExtension(name: string) {
@@ -31,10 +34,16 @@ function createMockRegistry(tools: RegisteredTool[]) {
     getProcess(extensionId: string) {
       if (!processes.has(extensionId)) {
         processes.set(extensionId, {
-          callTool: mock(async (_name: string, _args: Record<string, unknown>, _meta?: Record<string, unknown>): Promise<ToolCallResult> => ({
-            content: [{ type: "text", text: "ok" }],
-            isError: false,
-          })),
+          callTool: mock(
+            async (
+              _name: string,
+              _args: Record<string, unknown>,
+              _meta?: Record<string, unknown>,
+            ): Promise<ToolCallResult> => ({
+              content: [{ type: "text", text: "ok" }],
+              isError: false,
+            }),
+          ),
           setRequestHandler: mock(() => {}),
         });
       }
@@ -67,12 +76,7 @@ describe("ToolExecutor namespace stripping", () => {
     const registry = createMockRegistry([weatherTool]);
     const executor = new ToolExecutor(registry as any, createStubPermissionEngine());
 
-    await executor.executeToolCall(
-      "weather.getForecast",
-      { city: "NYC" },
-      "conv-1",
-      "msg-1",
-    );
+    await executor.executeToolCall("weather.getForecast", { city: "NYC" }, "conv-1", "msg-1");
 
     const proc = registry._processes.get("ext-weather")!;
     expect(proc.callTool).toHaveBeenCalledTimes(1);
@@ -85,12 +89,7 @@ describe("ToolExecutor namespace stripping", () => {
     const registry = createMockRegistry([weatherTool]);
     const executor = new ToolExecutor(registry as any, createStubPermissionEngine());
 
-    const result = await executor.executeToolCall(
-      "nonexistent.tool",
-      {},
-      "conv-1",
-      "msg-1",
-    );
+    const result = await executor.executeToolCall("nonexistent.tool", {}, "conv-1", "msg-1");
 
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toContain("nonexistent.tool");
@@ -107,14 +106,11 @@ describe("ToolExecutor namespace stripping", () => {
       },
       on: () => () => {},
     };
-    const executor = new ToolExecutor(registry as any, createStubPermissionEngine(), { bus: bus as any });
+    const executor = new ToolExecutor(registry as any, createStubPermissionEngine(), {
+      bus: bus as any,
+    });
 
-    await executor.executeToolCall(
-      "weather.getForecast",
-      { city: "NYC" },
-      "conv-1",
-      "msg-1",
-    );
+    await executor.executeToolCall("weather.getForecast", { city: "NYC" }, "conv-1", "msg-1");
 
     // tool:start and tool:complete should both have the namespaced name
     const startEvent = emitted.find((e) => e.event === "tool:start");

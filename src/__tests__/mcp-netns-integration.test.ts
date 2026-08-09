@@ -58,9 +58,7 @@ mock.module("../db/queries/audit-log", () => ({
 // The recheck passes through, the PDP is consulted, and the deny-all
 // engine produces the expected 403 + host-blocked audit row.
 mock.module("../extensions/runtime/dns", () => ({
-  lookup: async (_hostname: string) => [
-    { address: "203.0.113.1", family: 4 as const, ttl: 60 },
-  ],
+  lookup: async (_hostname: string) => [{ address: "203.0.113.1", family: 4 as const, ttl: 60 }],
 }));
 
 import {
@@ -116,28 +114,25 @@ describe("mcp netns integration (Linux + unprivileged userns)", () => {
     expect(probe.reason).toBeUndefined();
   });
 
-  test.skipIf(SKIP)(
-    "buildNetnsSpawnArgs uses -U -m only (no -n) — fix-pass C2",
-    () => {
-      _resetProbeCacheForTests();
-      const result = buildNetnsSpawnArgs({
-        origCommand: "prlimit",
-        origArgs: ["--rss=536870912", "/usr/bin/python3", "-m", "x"],
-        launcherPath: getDefaultLauncherPath(),
-      });
-      expect(result.wrapped).toBe(true);
-      expect(result.command).toBe("unshare");
-      // -U and -m only. -n was dropped so the host's loopback proxy
-      // remains reachable from inside the namespace.
-      expect(result.args.includes("-U")).toBe(true);
-      expect(result.args.includes("-m")).toBe(true);
-      expect(result.args.includes("-n")).toBe(false);
-      expect(result.args.includes("--map-root-user")).toBe(true);
-      const launcherIdx = result.args.indexOf(getDefaultLauncherPath());
-      expect(launcherIdx).toBeGreaterThanOrEqual(0);
-      expect(result.args[launcherIdx + 1]).toBe("prlimit");
-    },
-  );
+  test.skipIf(SKIP)("buildNetnsSpawnArgs uses -U -m only (no -n) — fix-pass C2", () => {
+    _resetProbeCacheForTests();
+    const result = buildNetnsSpawnArgs({
+      origCommand: "prlimit",
+      origArgs: ["--rss=536870912", "/usr/bin/python3", "-m", "x"],
+      launcherPath: getDefaultLauncherPath(),
+    });
+    expect(result.wrapped).toBe(true);
+    expect(result.command).toBe("unshare");
+    // -U and -m only. -n was dropped so the host's loopback proxy
+    // remains reachable from inside the namespace.
+    expect(result.args.includes("-U")).toBe(true);
+    expect(result.args.includes("-m")).toBe(true);
+    expect(result.args.includes("-n")).toBe(false);
+    expect(result.args.includes("--map-root-user")).toBe(true);
+    const launcherIdx = result.args.indexOf(getDefaultLauncherPath());
+    expect(launcherIdx).toBeGreaterThanOrEqual(0);
+    expect(result.args[launcherIdx + 1]).toBe("prlimit");
+  });
 
   test.skipIf(SKIP)(
     "host loopback IS reachable from inside the namespace (post-fix-pass C2)",
@@ -260,16 +255,13 @@ describe("mcp netns integration (Linux + unprivileged userns)", () => {
         //    the URL was parsed AND curl reached the proxy AND the
         //    proxy parsed CONNECT).
         expect(engine.calls.length).toBeGreaterThanOrEqual(1);
-        const networkCall = engine.calls.find(
-          (c) => c.needed[0]?.kind === "network",
-        );
+        const networkCall = engine.calls.find((c) => c.needed[0]?.kind === "network");
         expect(networkCall).toBeDefined();
         expect(networkCall?.needed[0]?.value).toBe("api.foo.test");
 
         // 2. host-blocked audit row written (deny-all engine).
         const blocked = auditCalls.find(
-          (c) => c.action === "ext:mcp:host-blocked" &&
-                 c.metadata?.reason === "host",
+          (c) => c.action === "ext:mcp:host-blocked" && c.metadata?.reason === "host",
         );
         expect(blocked).toBeDefined();
       } finally {
@@ -416,8 +408,7 @@ describe("bwrap tmpfs isolation", () => {
         });
         await child.exited;
         const combined =
-          (await new Response(child.stdout).text()) +
-          (await new Response(child.stderr).text());
+          (await new Response(child.stdout).text()) + (await new Response(child.stderr).text());
         // dd should report a non-zero exit AND the kernel should have
         // surfaced ENOSPC (the bwrap tmpfs --size 67108864 is enforced
         // by the kernel tmpfs driver, not by bwrap itself).
@@ -429,66 +420,63 @@ describe("bwrap tmpfs isolation", () => {
     },
   );
 
-  test.skipIf(BWRAP_SKIP)(
-    "no --unshare-pid: host PID matches mcpChild.pid",
-    async () => {
-      // Plan 55-03 (MCP-03) needs the spawned bwrap-child's PID to
-      // match what `journalctl -k --since=<spawn-time>` records on
-      // type=1326 lines. Bwrap with `--unshare-pid` would isolate the
-      // PID namespace; the launcher MUST NOT pass that flag.
+  test.skipIf(BWRAP_SKIP)("no --unshare-pid: host PID matches mcpChild.pid", async () => {
+    // Plan 55-03 (MCP-03) needs the spawned bwrap-child's PID to
+    // match what `journalctl -k --since=<spawn-time>` records on
+    // type=1326 lines. Bwrap with `--unshare-pid` would isolate the
+    // PID namespace; the launcher MUST NOT pass that flag.
+    cleanupHostTmp();
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const pidPath = `/tmp/pidfile-${suffix}`;
+    try {
+      const child = Bun.spawn({
+        cmd: [
+          "unshare",
+          "-U",
+          "-m",
+          "--map-root-user",
+          "--",
+          BWRAP_PATH,
+          "--proc",
+          "/proc",
+          "--dev",
+          "/dev",
+          "--bind",
+          "/",
+          "/",
+          "--size",
+          "67108864",
+          "--tmpfs",
+          "/tmp",
+          "--",
+          SHELL_BIN,
+          "-c",
+          // Write our PID to a tmpfs file AND emit it on stdout.
+          // Then `cat` it back from inside the namespace (proves
+          // /tmp is writable by the same process that observes it).
+          `echo $$ > ${pidPath} && cat ${pidPath}`,
+        ],
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const hostPid = child.pid;
+      await child.exited;
+      const stdout = (await new Response(child.stdout).text()).trim();
+      // The in-namespace PID should be visible on the host. The exact
+      // PID number is not guaranteed to match `child.pid` (the host
+      // PID is the unshare wrapper's pid, not the inner shell's), but
+      // both must be valid PIDs from the host's perspective — we
+      // assert the in-namespace PID is a positive integer in the
+      // same numeric space as the host (i.e., NOT a re-numbered
+      // PID like "1" which would indicate --unshare-pid took effect).
+      const inNsPid = Number.parseInt(stdout, 10);
+      expect(Number.isFinite(inNsPid)).toBe(true);
+      expect(inNsPid).toBeGreaterThan(1);
+      expect(hostPid).toBeGreaterThan(0);
+    } finally {
       cleanupHostTmp();
-      const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const pidPath = `/tmp/pidfile-${suffix}`;
-      try {
-        const child = Bun.spawn({
-          cmd: [
-            "unshare",
-            "-U",
-            "-m",
-            "--map-root-user",
-            "--",
-            BWRAP_PATH,
-            "--proc",
-            "/proc",
-            "--dev",
-            "/dev",
-            "--bind",
-            "/",
-            "/",
-            "--size",
-            "67108864",
-            "--tmpfs",
-            "/tmp",
-            "--",
-            SHELL_BIN,
-            "-c",
-            // Write our PID to a tmpfs file AND emit it on stdout.
-            // Then `cat` it back from inside the namespace (proves
-            // /tmp is writable by the same process that observes it).
-            `echo $$ > ${pidPath} && cat ${pidPath}`,
-          ],
-          stdout: "pipe",
-          stderr: "pipe",
-        });
-        const hostPid = child.pid;
-        await child.exited;
-        const stdout = (await new Response(child.stdout).text()).trim();
-        // The in-namespace PID should be visible on the host. The exact
-        // PID number is not guaranteed to match `child.pid` (the host
-        // PID is the unshare wrapper's pid, not the inner shell's), but
-        // both must be valid PIDs from the host's perspective — we
-        // assert the in-namespace PID is a positive integer in the
-        // same numeric space as the host (i.e., NOT a re-numbered
-        // PID like "1" which would indicate --unshare-pid took effect).
-        const inNsPid = Number.parseInt(stdout, 10);
-        expect(Number.isFinite(inNsPid)).toBe(true);
-        expect(inNsPid).toBeGreaterThan(1);
-        expect(hostPid).toBeGreaterThan(0);
-      } finally {
-        cleanupHostTmp();
-      }
-    },
-  );
+    }
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────
@@ -517,12 +505,7 @@ describe("bwrap tmpfs isolation", () => {
 
 import { resolve as pathResolve } from "node:path";
 
-const SECCOMP_BPF_PATH = pathResolve(
-  import.meta.dir,
-  "..",
-  "extensions",
-  "mcp-seccomp.bpf",
-);
+const SECCOMP_BPF_PATH = pathResolve(import.meta.dir, "..", "extensions", "mcp-seccomp.bpf");
 const ACTIONS_LOGGED_PATH = "/proc/sys/kernel/seccomp/actions_logged";
 
 function seccompActionsLoggedHasLog(): boolean {
@@ -544,113 +527,114 @@ const SECCOMP_SKIP =
   Bun.which("journalctl") === null;
 
 describe("seccomp log mode", () => {
-  test.skipIf(SECCOMP_SKIP)(
-    "seccomp log → MCP_SECCOMP_VIOLATION audit row",
-    async () => {
-      // Pre-flight: compile a tiny C probe that intentionally calls
-      // ptrace(PTRACE_TRACEME). ptrace is in the Docker default seccomp
-      // profile (syscall #101 on x86_64), so the call will trigger
-      // SCMP_ACT_LOG → kernel audit type=1326 → journalctl captures it.
-      const probeSrc = `#include <sys/ptrace.h>
+  test.skipIf(SECCOMP_SKIP)("seccomp log → MCP_SECCOMP_VIOLATION audit row", async () => {
+    // Pre-flight: compile a tiny C probe that intentionally calls
+    // ptrace(PTRACE_TRACEME). ptrace is in the Docker default seccomp
+    // profile (syscall #101 on x86_64), so the call will trigger
+    // SCMP_ACT_LOG → kernel audit type=1326 → journalctl captures it.
+    const probeSrc = `#include <sys/ptrace.h>
 int main(void) { ptrace(PTRACE_TRACEME, 0, 0, 0); return 0; }`;
-      const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const srcPath = `/tmp/probe-${suffix}.c`;
-      const probePath = `/tmp/probe-${suffix}`;
-      await Bun.write(srcPath, probeSrc);
-      const compileResult = Bun.spawnSync({
-        cmd: ["gcc", srcPath, "-o", probePath],
-        stdout: "ignore",
+    const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const srcPath = `/tmp/probe-${suffix}.c`;
+    const probePath = `/tmp/probe-${suffix}`;
+    await Bun.write(srcPath, probeSrc);
+    const compileResult = Bun.spawnSync({
+      cmd: ["gcc", srcPath, "-o", probePath],
+      stdout: "ignore",
+      stderr: "pipe",
+    });
+    if (compileResult.exitCode !== 0) {
+      // gcc unavailable in this runtime image OR compile failed.
+      // Per checker W4: SKIP cleanly with a log message; manual-
+      // verification fallback in docs/deployment.md applies.
+      console.log(
+        "[seccomp-integration] SKIP: gcc compile failed — see docs/deployment.md §Stage-1 seccomp manual verification.",
+      );
+      return;
+    }
+
+    const spawnAt = new Date();
+    const fd = (await import("../extensions/runtime/seccomp-loader")).openSeccompBpfFd();
+    if (fd === null) {
+      console.log("[seccomp-integration] SKIP: BPF FD open failed");
+      return;
+    }
+
+    try {
+      const child = Bun.spawn({
+        cmd: [
+          "unshare",
+          "-U",
+          "-m",
+          "--map-root-user",
+          "--",
+          BWRAP_PATH,
+          "--proc",
+          "/proc",
+          "--dev",
+          "/dev",
+          "--bind",
+          "/",
+          "/",
+          "--size",
+          "67108864",
+          "--tmpfs",
+          "/tmp",
+          "--seccomp",
+          "3",
+          "--",
+          probePath,
+        ],
+        stdout: "pipe",
         stderr: "pipe",
-      });
-      if (compileResult.exitCode !== 0) {
-        // gcc unavailable in this runtime image OR compile failed.
-        // Per checker W4: SKIP cleanly with a log message; manual-
-        // verification fallback in docs/deployment.md applies.
-        console.log(
-          "[seccomp-integration] SKIP: gcc compile failed — see docs/deployment.md §Stage-1 seccomp manual verification.",
-        );
-        return;
-      }
+        // Pass the BPF FD to the child at index 3 (FD-passthrough).
+        stdio: [null, null, null, fd],
+      } as Parameters<typeof Bun.spawn>[0]);
 
-      const spawnAt = new Date();
-      const fd = (await import("../extensions/runtime/seccomp-loader")).openSeccompBpfFd();
-      if (fd === null) {
-        console.log("[seccomp-integration] SKIP: BPF FD open failed");
-        return;
-      }
+      const childPid = child.pid;
+      await child.exited;
+      // Give the kernel a moment to emit the audit line into the journal.
+      await new Promise((res) => setTimeout(res, 2000));
 
+      // Run the soak reader explicitly — assert a row lands within 5s.
+      const { runMcpSeccompSoakReader } = await import("../extensions/mcp-sandbox");
+      const ctx = {
+        userId: "user-integration",
+        extensionId: "ext-seccomp-integration",
+        extensionName: "probe-mcp",
+      };
+      // The audit mock at module scope captures the rows into auditCalls.
+      const startAuditCount = auditCalls.length;
+      await runMcpSeccompSoakReader(childPid, spawnAt, ctx);
+      // Wait up to 5s for fire-and-forget rows to land.
+      const deadline = Date.now() + 5000;
+      while (
+        !auditCalls.slice(startAuditCount).some((c) => c.action === "ext:mcp:seccomp-violation") &&
+        Date.now() < deadline
+      ) {
+        await new Promise((res) => setTimeout(res, 100));
+      }
+      const violation = auditCalls
+        .slice(startAuditCount)
+        .find((c) => c.action === "ext:mcp:seccomp-violation");
+      expect(violation).toBeDefined();
+      expect(violation?.metadata?.pid).toBe(String(childPid));
+    } finally {
       try {
-        const child = Bun.spawn({
-          cmd: [
-            "unshare",
-            "-U",
-            "-m",
-            "--map-root-user",
-            "--",
-            BWRAP_PATH,
-            "--proc",
-            "/proc",
-            "--dev",
-            "/dev",
-            "--bind",
-            "/",
-            "/",
-            "--size",
-            "67108864",
-            "--tmpfs",
-            "/tmp",
-            "--seccomp",
-            "3",
-            "--",
-            probePath,
-          ],
-          stdout: "pipe",
-          stderr: "pipe",
-          // Pass the BPF FD to the child at index 3 (FD-passthrough).
-          stdio: [null, null, null, fd],
-        } as Parameters<typeof Bun.spawn>[0]);
-
-        const childPid = child.pid;
-        await child.exited;
-        // Give the kernel a moment to emit the audit line into the journal.
-        await new Promise((res) => setTimeout(res, 2000));
-
-        // Run the soak reader explicitly — assert a row lands within 5s.
-        const { runMcpSeccompSoakReader } = await import(
-          "../extensions/mcp-sandbox"
-        );
-        const ctx = {
-          userId: "user-integration",
-          extensionId: "ext-seccomp-integration",
-          extensionName: "probe-mcp",
-        };
-        // The audit mock at module scope captures the rows into auditCalls.
-        const startAuditCount = auditCalls.length;
-        await runMcpSeccompSoakReader(childPid, spawnAt, ctx);
-        // Wait up to 5s for fire-and-forget rows to land.
-        const deadline = Date.now() + 5000;
-        while (
-          !auditCalls
-            .slice(startAuditCount)
-            .some((c) => c.action === "ext:mcp:seccomp-violation") &&
-          Date.now() < deadline
-        ) {
-          await new Promise((res) => setTimeout(res, 100));
-        }
-        const violation = auditCalls
-          .slice(startAuditCount)
-          .find((c) => c.action === "ext:mcp:seccomp-violation");
-        expect(violation).toBeDefined();
-        expect(violation?.metadata?.pid).toBe(String(childPid));
-      } finally {
-        try {
-          const { closeSync } = require("node:fs");
-          closeSync(fd);
-        } catch { /* best-effort */ }
-        try {
-          Bun.spawnSync({ cmd: ["rm", "-f", srcPath, probePath], stdout: "ignore", stderr: "ignore" });
-        } catch { /* best-effort */ }
+        const { closeSync } = require("node:fs");
+        closeSync(fd);
+      } catch {
+        /* best-effort */
       }
-    },
-  );
+      try {
+        Bun.spawnSync({
+          cmd: ["rm", "-f", srcPath, probePath],
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
+  });
 });

@@ -78,12 +78,24 @@ function sig(over: Partial<StoredRoutingSignals> = {}): StoredRoutingSignals {
  * it. That consistency is exactly what the baseline-reproduction check verifies,
  * so the fixtures must not fake it.
  */
-function turnOf(promptChars: number, usd: number | null, over: Partial<StoredRoutingSignals> = {}): SweepTurn {
+function turnOf(
+  promptChars: number,
+  usd: number | null,
+  over: Partial<StoredRoutingSignals> = {},
+): SweepTurn {
   const estTokens = Math.ceil(promptChars / 4);
   const tier: RoutingTier =
-    estTokens >= POWERFUL_MIN_TOKENS ? "powerful" : estTokens <= FAST_MAX_TOKENS ? "fast" : "balanced";
+    estTokens >= POWERFUL_MIN_TOKENS
+      ? "powerful"
+      : estTokens <= FAST_MAX_TOKENS
+        ? "fast"
+        : "balanced";
   const reason =
-    estTokens >= POWERFUL_MIN_TOKENS ? "context-size" : estTokens <= FAST_MAX_TOKENS ? "short-turn" : "midsize-turn";
+    estTokens >= POWERFUL_MIN_TOKENS
+      ? "context-size"
+      : estTokens <= FAST_MAX_TOKENS
+        ? "short-turn"
+        : "midsize-turn";
   return {
     signals: sig({ promptChars, estTokens, tier, reason, ...over }),
     servedTier: (over.tier as RoutingTier) ?? tier,
@@ -106,44 +118,76 @@ beforeAll(async () => {
   await setupTestDb();
   const db = getTestDb();
   await db.insert(users).values({
-    id: USER_ID, email: "s@x.com", passwordHash: "x", name: "S", role: "admin",
+    id: USER_ID,
+    email: "s@x.com",
+    passwordHash: "x",
+    name: "S",
+    role: "admin",
   } as any);
   await db.insert(projects).values({ id: PROJECT_ID, name: "s", path: "/tmp/s" } as any);
-  await db.insert(conversations).values({ id: CONV, projectId: PROJECT_ID, userId: USER_ID } as any);
+  await db
+    .insert(conversations)
+    .values({ id: CONV, projectId: PROJECT_ID, userId: USER_ID } as any);
   await db.insert(messages).values([
     // A routed turn with signals — the only shape the sweep replays. The model
     // is one the registry actually PRICES, so `usd` comes out non-null.
     {
-      id: "s-a1", conversationId: CONV, role: "assistant", content: "x",
-      provider: "anthropic", model: "claude-sonnet-4-5",
+      id: "s-a1",
+      conversationId: CONV,
+      role: "assistant",
+      content: "x",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
       usage: {
-        inputTokens: ONE_M, outputTokens: 0, requestedModel: null,
+        inputTokens: ONE_M,
+        outputTokens: 0,
+        requestedModel: null,
         routedTier: "balanced",
-        routingSignals: sig({ promptChars: 8_000, estTokens: 2_000, tier: "balanced", reason: "midsize-turn" }),
+        routingSignals: sig({
+          promptChars: 8_000,
+          estTokens: 2_000,
+          tier: "balanced",
+          reason: "midsize-turn",
+        }),
       },
       createdAt: at(1),
     },
     // A routed turn served by an UNPRICED (subscription) model.
     {
-      id: "s-a2", conversationId: CONV, role: "assistant", content: "x",
-      provider: "anthropic", model: "claude-sonnet-4-5-subscription-only",
+      id: "s-a2",
+      conversationId: CONV,
+      role: "assistant",
+      content: "x",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5-subscription-only",
       usage: {
-        inputTokens: 500, outputTokens: 100, requestedModel: null,
+        inputTokens: 500,
+        outputTokens: 100,
+        requestedModel: null,
         routingSignals: sig({ estTokens: 200 }),
       },
       createdAt: at(2),
     },
     // A PINNED turn: no routingSignals ⇒ nothing to replay, must be skipped.
     {
-      id: "s-a3", conversationId: CONV, role: "assistant", content: "x",
-      provider: "anthropic", model: "claude-opus-4-5",
+      id: "s-a3",
+      conversationId: CONV,
+      role: "assistant",
+      content: "x",
+      provider: "anthropic",
+      model: "claude-opus-4-5",
       usage: { inputTokens: 10, outputTokens: 10, requestedModel: "claude-opus-4-5" },
       createdAt: at(3),
     },
     // A legacy row with no usage at all.
     {
-      id: "s-a4", conversationId: CONV, role: "assistant", content: "x",
-      provider: "anthropic", model: "claude-opus-4-5", createdAt: at(4),
+      id: "s-a4",
+      conversationId: CONV,
+      role: "assistant",
+      content: "x",
+      provider: "anthropic",
+      model: "claude-opus-4-5",
+      createdAt: at(4),
     },
     // A user turn — never a sweep turn.
     { id: "s-u1", conversationId: CONV, role: "user", content: "hi", createdAt: at(0) },
@@ -168,18 +212,37 @@ describe("parseSweepArgs", () => {
   });
 
   test("accepts explicit grids and a target rate", () => {
-    expect(parseSweepArgs(["--days", "7", "--fast", "100, 200", "--powerful", "1000", "--target-escalation-rate", "0.3"]))
-      .toEqual({ days: 7, fast: [100, 200], powerful: [1000], targetEscalationRate: 0.3 });
+    expect(
+      parseSweepArgs([
+        "--days",
+        "7",
+        "--fast",
+        "100, 200",
+        "--powerful",
+        "1000",
+        "--target-escalation-rate",
+        "0.3",
+      ]),
+    ).toEqual({ days: 7, fast: [100, 200], powerful: [1000], targetEscalationRate: 0.3 });
   });
 
   test("rejects bad numbers instead of guessing", () => {
     expect(parseSweepArgs(["--days", "-1"])).toEqual({ error: "--days needs a positive number" });
-    expect(parseSweepArgs(["--fast", "100,0"])).toEqual({ error: '--fast has a non-positive value "0"' });
-    expect(parseSweepArgs(["--powerful", "x"])).toEqual({ error: '--powerful has a non-positive value "x"' });
-    expect(parseSweepArgs(["--fast"])).toEqual({ error: "--fast needs a comma-separated list of numbers" });
-    expect(parseSweepArgs(["--powerful"])).toEqual({ error: "--powerful needs a comma-separated list of numbers" });
-    expect(parseSweepArgs(["--target-escalation-rate", "2"]))
-      .toEqual({ error: "--target-escalation-rate needs a number in [0,1]" });
+    expect(parseSweepArgs(["--fast", "100,0"])).toEqual({
+      error: '--fast has a non-positive value "0"',
+    });
+    expect(parseSweepArgs(["--powerful", "x"])).toEqual({
+      error: '--powerful has a non-positive value "x"',
+    });
+    expect(parseSweepArgs(["--fast"])).toEqual({
+      error: "--fast needs a comma-separated list of numbers",
+    });
+    expect(parseSweepArgs(["--powerful"])).toEqual({
+      error: "--powerful needs a comma-separated list of numbers",
+    });
+    expect(parseSweepArgs(["--target-escalation-rate", "2"])).toEqual({
+      error: "--target-escalation-rate needs a number in [0,1]",
+    });
     expect(parseSweepArgs(["--wat"])).toEqual({ error: 'unknown flag "--wat"' });
   });
 });
@@ -263,13 +326,21 @@ describe("evaluateCandidate", () => {
   });
 
   test("a non-baseline candidate reports no mismatch field at all", () => {
-    const result = evaluateCandidate(FIXTURE, { fastMaxTokens: 1_000, powerfulMinTokens: 4_000 }, rates);
+    const result = evaluateCandidate(
+      FIXTURE,
+      { fastMaxTokens: 1_000, powerfulMinTokens: 4_000 },
+      rates,
+    );
     expect(result.isBaseline).toBe(false);
     expect("baselineMismatches" in result).toBe(false);
   });
 
   test("routing everything up costs strictly more", () => {
-    const cheap = evaluateCandidate(FIXTURE, { fastMaxTokens: 20_000, powerfulMinTokens: 40_000 }, rates);
+    const cheap = evaluateCandidate(
+      FIXTURE,
+      { fastMaxTokens: 20_000, powerfulMinTokens: 40_000 },
+      rates,
+    );
     const dear = evaluateCandidate(FIXTURE, { fastMaxTokens: 1, powerfulMinTokens: 2 }, rates);
     expect(dear.escalationRate).toBe(1);
     expect(cheap.escalationRate).toBe(0);
@@ -280,7 +351,11 @@ describe("evaluateCandidate", () => {
     // Only `fast` was ever priced here, so a candidate that routes turns to
     // `powerful` cannot be priced for them.
     const partial: SweepTurn[] = [turnOf(400, 0.001), turnOf(40_000, null)];
-    const result = evaluateCandidate(partial, { fastMaxTokens: 1, powerfulMinTokens: 2 }, observedTierRates(partial));
+    const result = evaluateCandidate(
+      partial,
+      { fastMaxTokens: 1, powerfulMinTokens: 2 },
+      observedTierRates(partial),
+    );
     expect(result.unprojectable).toBe(1);
     expect(result.projectedUsd).toBe(0);
   });
@@ -311,7 +386,10 @@ describe("sweep — cost at a fixed escalation rate", () => {
   });
 
   test("the recommendation is the CHEAPEST candidate at or under the target rate", () => {
-    const report = sweep({ days: 30, fast: [250, 500, 1_000, 4_000], powerful: [4_000, 8_000, 32_000] }, FIXTURE);
+    const report = sweep(
+      { days: 30, fast: [250, 500, 1_000, 4_000], powerful: [4_000, 8_000, 32_000] },
+      FIXTURE,
+    );
     expect(report.recommended).not.toBeNull();
     expect(report.recommended!.escalationRate).toBeLessThanOrEqual(report.targetEscalationRate);
     for (const c of report.candidates) {
@@ -333,10 +411,9 @@ describe("sweep — cost at a fixed escalation rate", () => {
 
   test("no candidate under the target ⇒ recommended null and no delta", () => {
     // Every candidate escalates at least one turn; the target forbids any.
-    const report = sweep(
-      { days: 30, fast: [1], powerful: [2], targetEscalationRate: 0 },
-      [turnOf(40_000, 0.1)],
-    );
+    const report = sweep({ days: 30, fast: [1], powerful: [2], targetEscalationRate: 0 }, [
+      turnOf(40_000, 0.1),
+    ]);
     expect(report.recommended).toBeNull();
     expect(report.deltaVsBaselineUsd).toBeNull();
   });
@@ -345,7 +422,9 @@ describe("sweep — cost at a fixed escalation rate", () => {
     // "Keep whatever tier we already chose" agrees with every stored tier (100%
     // agreement) while saving exactly $0. That is why the report ranks on cost at
     // a fixed escalation rate instead.
-    const baseline = sweep(parseSweepArgs([]) as any, FIXTURE).candidates.find((c) => c.isBaseline)!;
+    const baseline = sweep(parseSweepArgs([]) as any, FIXTURE).candidates.find(
+      (c) => c.isBaseline,
+    )!;
     const agreement = (FIXTURE.length - (baseline.baselineMismatches ?? 0)) / FIXTURE.length;
     expect(agreement).toBe(1);
     const cheaper = sweep(
@@ -406,7 +485,9 @@ describe("loadSweepTurns + main against the seeded DB", () => {
     expect(code).toBe(0);
     const report = JSON.parse(out);
     expect(report).toMatchObject({ days: 30, turns: 2, unpricedTurns: 1 });
-    expect(report.candidates.find((c: { isBaseline: boolean }) => c.isBaseline).baselineMismatches).toBe(0);
+    expect(
+      report.candidates.find((c: { isBaseline: boolean }) => c.isBaseline).baselineMismatches,
+    ).toBe(0);
   });
 
   test("a bad flag exits 2 without touching the DB", async () => {

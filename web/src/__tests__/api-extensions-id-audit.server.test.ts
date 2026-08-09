@@ -35,15 +35,9 @@ vi.mock("$server/db/queries/audit-merge", () => ({
 const { getExtension } = await import("$server/db/queries/extensions");
 const { listAuditForExtension } = await import("$server/db/queries/audit-log");
 const { mergeAuditForExtension } = await import("$server/db/queries/audit-merge");
-const { GET } = await import(
-  "../routes/api/extensions/[id]/audit/+server.ts"
-);
+const { GET } = await import("../routes/api/extensions/[id]/audit/+server.ts");
 
-function makeEvent(opts: {
-  id?: string;
-  locals?: Record<string, unknown>;
-  search?: string;
-}) {
+function makeEvent(opts: { id?: string; locals?: Record<string, unknown>; search?: string }) {
   const id = opts.id ?? "ext-1";
   const href = `http://localhost/api/extensions/${id}/audit${opts.search ?? ""}`;
   return {
@@ -97,9 +91,7 @@ describe("GET /api/extensions/[id]/audit", () => {
   test("happy path: routes through mergeAuditForExtension by default", async () => {
     vi.mocked(getExtension).mockResolvedValue({ id: "ext-1" } as any);
     vi.mocked(mergeAuditForExtension).mockResolvedValue({
-      entries: [
-        { kind: "capability", id: "c1" } as any,
-      ],
+      entries: [{ kind: "capability", id: "c1" } as any],
       nextCursor: "cur-2",
     });
 
@@ -128,10 +120,10 @@ describe("GET /api/extensions/[id]/audit", () => {
     );
     expect(res.status).toBe(200);
     // limit is clamped to 500 by the legacy branch
-    expect(vi.mocked(listAuditForExtension)).toHaveBeenCalledWith(
-      "ext-1",
-      { limit: 500, offset: 25 },
-    );
+    expect(vi.mocked(listAuditForExtension)).toHaveBeenCalledWith("ext-1", {
+      limit: 500,
+      offset: 25,
+    });
     expect(vi.mocked(mergeAuditForExtension)).not.toHaveBeenCalled();
   });
 
@@ -142,7 +134,8 @@ describe("GET /api/extensions/[id]/audit", () => {
     await GET(
       makeEvent({
         locals: { user: adminUser },
-        search: "?capability=llm&status=denial&since=2026-05-01T00:00:00Z&until=2026-05-08T00:00:00Z&cursor=abc&limit=50",
+        search:
+          "?capability=llm&status=denial&since=2026-05-01T00:00:00Z&until=2026-05-08T00:00:00Z&cursor=abc&limit=50",
       }),
     );
 

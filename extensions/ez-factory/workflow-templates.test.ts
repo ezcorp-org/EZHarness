@@ -79,9 +79,7 @@ const TEMPLATE_FILES = [
  *  to FIRE. Shipping an asset is not the privileged act; firing it is, and
  *  a template whose declared name is absent here loads fine and is then
  *  refused at `ctx.workflows.run()`. */
-const grantedNames = (
-  manifest.permissions?.workflows as { names: string[] } | undefined
-)?.names;
+const grantedNames = (manifest.permissions?.workflows as { names: string[] } | undefined)?.names;
 
 /** Read one asset exactly as the loader does: parse the YAML, take it at
  *  face value, no schema coercion. */
@@ -145,8 +143,7 @@ const approvalPromptsCarryingATemplate = (defs: WorkflowDefinition[]): string[] 
       .map((s) => `${def.name}.${s.name}`),
   );
 
-const declaredNamesOf = (defs: WorkflowDefinition[]): string[] =>
-  defs.map((d) => d.name).sort();
+const declaredNamesOf = (defs: WorkflowDefinition[]): string[] => defs.map((d) => d.name).sort();
 
 // ── Ref integrity, which `validateWorkflow` does NOT check ──────────
 //
@@ -269,8 +266,7 @@ const controlFlowReadingInput = (defs: WorkflowDefinition[]): string[] =>
     def.steps.flatMap((step) =>
       refsOf(step)
         .filter(
-          (r) =>
-            (r.field === "when" || r.field === "condition") && r.ref.startsWith("$input."),
+          (r) => (r.field === "when" || r.field === "condition") && r.ref.startsWith("$input."),
         )
         .map((r) => `${def.name}.${r.step}.${r.field} -> ${r.ref}`),
     ),
@@ -333,12 +329,15 @@ describe("ez-factory templates — identity and the manifest grant", () => {
 });
 
 describe("ez-factory templates — the shared validator accepts every one", () => {
-  test.each([...TEMPLATE_FILES])("%s validates clean, namespaced as the loader names it", async (file) => {
-    const def = asLoaderWouldName(await readTemplate(file));
-    // `toEqual([])` rather than a length check: a failure prints the
-    // validator's own messages, which name the offending step and rule.
-    expect(validateWorkflow(def)).toEqual([]);
-  });
+  test.each([...TEMPLATE_FILES])(
+    "%s validates clean, namespaced as the loader names it",
+    async (file) => {
+      const def = asLoaderWouldName(await readTemplate(file));
+      // `toEqual([])` rather than a length check: a failure prints the
+      // validator's own messages, which name the offending step and rule.
+      expect(validateWorkflow(def)).toEqual([]);
+    },
+  );
 
   test("the boot loader admits all three, renamed <extension>:<name>", async () => {
     // The real entry point. It parses, renames, validates and warn-SKIPS —
@@ -456,9 +455,7 @@ describe("ez-factory templates — ref integrity (the validator does not check t
   test("the check discriminates — an undeclared input field is reported", () => {
     const def = mutantOf("etl-factory");
     stepNamed(def, "write").input!.path = "$input.outputPath";
-    expect(undeclaredInputRefs([def])).toEqual([
-      "etl-factory.write.input -> $input.outputPath",
-    ]);
+    expect(undeclaredInputRefs([def])).toEqual(["etl-factory.write.input -> $input.outputPath"]);
   });
 
   test("no gate condition or when reads $input.* — control flow reads $steps only", () => {
@@ -490,9 +487,7 @@ describe("ez-factory templates — ref integrity (the validator does not check t
   test("the check discriminates — a $loop ref on an unlooped step is reported", () => {
     const def = mutantOf("docs-factory");
     stepNamed(def, "draft").input!.prior = "$loop.last.output";
-    expect(misplacedLoopRefs([def])).toEqual([
-      "docs-factory.draft.input -> $loop.last.output",
-    ]);
+    expect(misplacedLoopRefs([def])).toEqual(["docs-factory.draft.input -> $loop.last.output"]);
   });
 });
 
@@ -609,9 +604,7 @@ describe("ez-factory templates — every agent step names a seeded agent", () =>
     // `writer` would shadow (or be shadowed by) any user's own agent.
     const def = mutantOf("draft-and-verify");
     stepNamed(def, "revise").agent = "writer";
-    expect(agentStepsNamingAnUnseededAgent([def])).toEqual([
-      "draft-and-verify.revise -> writer",
-    ]);
+    expect(agentStepsNamingAnUnseededAgent([def])).toEqual(["draft-and-verify.revise -> writer"]);
   });
 
   test("every agent step's name carries the ez-factory prefix", () => {
@@ -641,7 +634,9 @@ describe("ez-factory templates — per-step model bindings", () => {
     // spends one deliberately.
     const agentSteps = everyStep().filter((s) => stepKindOf(s) === "agent");
     for (const step of agentSteps) {
-      expect(VALID_MODEL_EFFORTS).toContain(step.model?.effort as (typeof VALID_MODEL_EFFORTS)[number]);
+      expect(VALID_MODEL_EFFORTS).toContain(
+        step.model?.effort as (typeof VALID_MODEL_EFFORTS)[number],
+      );
     }
   });
 
@@ -1006,7 +1001,8 @@ describe("ez-factory templates — write_file publishes a document, not an envel
     const report = stepNamed(mutant, "report");
     report.output = {
       ...report.output,
-      document: "{{$steps.classify.output}}\n\n---\n\nIngest: {{$steps.ingest.output.fileCount}} file(s).",
+      document:
+        "{{$steps.classify.output}}\n\n---\n\nIngest: {{$steps.ingest.output.fileCount}} file(s).",
     };
     const defs = templates.map((d) => (d.name === "etl-factory" ? mutant : d));
     expect(publishedContentTakingAWholeAgentOutput(defs)).toEqual([
@@ -1261,10 +1257,7 @@ describe("ez-factory templates — dry run (the graph actually executes)", () =>
   };
 
   test.each(Object.keys(inputs))("%s dry-runs to completion with no ref error", async (name) => {
-    const report = await dryRunWorkflow(
-      asLoaderWouldName(mutantOf(name)),
-      inputs[name]!,
-    );
+    const report = await dryRunWorkflow(asLoaderWouldName(mutantOf(name)), inputs[name]!);
     expectNoFailure(report, name);
   });
 
@@ -1717,7 +1710,10 @@ describe("ez-factory templates — the decision vocabulary fails closed", () => 
     // not a gate that can never pass.
     expect(evaluateCondition(acceptedGate, afterLoop("accept")).passed).toBe(true);
     for (const declined of ["revise", "abort"]) {
-      expect({ choice: declined, publishes: evaluateCondition(acceptedGate, afterLoop(declined)).passed }).toEqual({
+      expect({
+        choice: declined,
+        publishes: evaluateCondition(acceptedGate, afterLoop(declined)).passed,
+      }).toEqual({
         choice: declined,
         publishes: false,
       });
@@ -1729,7 +1725,10 @@ describe("ez-factory templates — the decision vocabulary fails closed", () => 
     // blocking side — the run fails naming the decisive leaf, which is the
     // honest terminal state for "nobody said yes".
     for (const bad of OUTSIDE_THE_VOCABULARY) {
-      expect({ value: bad, publishes: evaluateCondition(acceptedGate, afterLoop(bad)).passed }).toEqual({
+      expect({
+        value: bad,
+        publishes: evaluateCondition(acceptedGate, afterLoop(bad)).passed,
+      }).toEqual({
         value: bad,
         publishes: false,
       });
@@ -1742,7 +1741,10 @@ describe("ez-factory templates — the decision vocabulary fails closed", () => 
     // `onExhausted: fail` after paying for three more LLM passes.
     expect(evaluateCondition(loopUntil, loopResult("revise")).passed).toBe(false); // keep looping
     for (const exits of ["accept", "abort", ...OUTSIDE_THE_VOCABULARY]) {
-      expect({ value: exits, exitsLoop: evaluateCondition(loopUntil, loopResult(exits)).passed }).toEqual({
+      expect({
+        value: exits,
+        exitsLoop: evaluateCondition(loopUntil, loopResult(exits)).passed,
+      }).toEqual({
         value: exits,
         exitsLoop: true,
       });
@@ -2053,9 +2055,7 @@ describe("ez-factory templates — an agent step is handed what its RECEIVER's c
     ).toBe(EXTRACTOR);
     // …and the document published from it addresses the writer's own
     // declared prose key, the cross-file tie `ez-factory-agents.ts` breaks.
-    expect(stepNamed(etl, "report").output!.document).toContain(
-      "{{$steps.compose.output.draft}}",
-    );
+    expect(stepNamed(etl, "report").output!.document).toContain("{{$steps.compose.output.draft}}");
     expect(contractKeysOf(seeded(shippedAgents, WRITER)!.prompt)).toContain("draft");
   });
 
@@ -2189,7 +2189,9 @@ describe("ez-factory templates — an agent step is handed what its RECEIVER's c
     const agent = configToAgent(config);
     return Promise.all([
       agent.execute(ctxFor(resolveMapping(shipped, afterRevise(WRITER_OUTPUT)))),
-      agent.execute(ctxFor(resolveMapping(stepNamed(mutant, "verify").input!, afterRevise(WRITER_OUTPUT)))),
+      agent.execute(
+        ctxFor(resolveMapping(stepNamed(mutant, "verify").input!, afterRevise(WRITER_OUTPUT))),
+      ),
     ]).then(() => {
       const [fixed, broken] = sent as [string, string];
       // Fixed: the document arrives as itself, real newlines and all, so a

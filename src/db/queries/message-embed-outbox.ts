@@ -193,8 +193,9 @@ export async function getEmbedProgress(db: DrainDb): Promise<EmbedProgress> {
     FROM message_embed_outbox
     GROUP BY status
   `);
-  const backlogRows = ((backlogRes as { rows?: { status: string; count: number }[] }).rows
-    ?? (backlogRes as { status: string; count: number }[]));
+  const backlogRows =
+    (backlogRes as { rows?: { status: string; count: number }[] }).rows ??
+    (backlogRes as { status: string; count: number }[]);
 
   const backlog = { pending: 0, inProgress: 0, failed: 0, total: 0 };
   for (const r of backlogRows) {
@@ -213,8 +214,8 @@ export async function getEmbedProgress(db: DrainDb): Promise<EmbedProgress> {
       AND m.role IN ('user', 'assistant')
       AND length(trim(m.content)) > 0
   `);
-  const eligibleRows = ((eligibleRes as { rows?: { count: number }[] }).rows
-    ?? (eligibleRes as { count: number }[]));
+  const eligibleRows =
+    (eligibleRes as { rows?: { count: number }[] }).rows ?? (eligibleRes as { count: number }[]);
   const eligibleMessages = Number(eligibleRows[0]?.count ?? 0);
 
   const embeddedRes = await db.execute(sql`
@@ -226,8 +227,8 @@ export async function getEmbedProgress(db: DrainDb): Promise<EmbedProgress> {
       AND m.role IN ('user', 'assistant')
       AND length(trim(m.content)) > 0
   `);
-  const embeddedRows = ((embeddedRes as { rows?: { count: number }[] }).rows
-    ?? (embeddedRes as { count: number }[]));
+  const embeddedRows =
+    (embeddedRes as { rows?: { count: number }[] }).rows ?? (embeddedRes as { count: number }[]);
   const embeddedMessages = Number(embeddedRows[0]?.count ?? 0);
 
   return { backlog, coverage: { eligibleMessages, embeddedMessages } };
@@ -331,8 +332,9 @@ export async function claimBatch(
       )
     RETURNING message_id, conversation_id, attempts
   `);
-  const rows = (result as { rows: { message_id: string; conversation_id: string; attempts: number }[] }).rows
-    ?? (result as { message_id: string; conversation_id: string; attempts: number }[]);
+  const rows =
+    (result as { rows: { message_id: string; conversation_id: string; attempts: number }[] })
+      .rows ?? (result as { message_id: string; conversation_id: string; attempts: number }[]);
   return rows.map((r) => ({
     messageId: r.message_id,
     conversationId: r.conversation_id,
@@ -353,9 +355,14 @@ export async function claimBatch(
  * or absent row is a harmless no-op.
  */
 export async function markDone(db: DrainDb, messageId: string): Promise<void> {
-  await db.delete(messageEmbedOutbox).where(
-    and(eq(messageEmbedOutbox.messageId, messageId), eq(messageEmbedOutbox.status, "in_progress")),
-  );
+  await db
+    .delete(messageEmbedOutbox)
+    .where(
+      and(
+        eq(messageEmbedOutbox.messageId, messageId),
+        eq(messageEmbedOutbox.status, "in_progress"),
+      ),
+    );
 }
 
 /**
@@ -417,8 +424,8 @@ export async function resetAttemptsForPending(db: DrainDb): Promise<number> {
     WHERE status = 'pending'
     RETURNING message_id
   `);
-  const rows = (result as { rows: { message_id: string }[] }).rows
-    ?? (result as { message_id: string }[]);
+  const rows =
+    (result as { rows: { message_id: string }[] }).rows ?? (result as { message_id: string }[]);
   return rows.length;
 }
 
@@ -438,7 +445,7 @@ export async function purgeFailedRows(db: DrainDb, cutoff: Date): Promise<number
     WHERE status = 'failed' AND updated_at < ${cutoff.toISOString()}
     RETURNING message_id
   `);
-  const rows = (result as { rows: { message_id: string }[] }).rows
-    ?? (result as { message_id: string }[]);
+  const rows =
+    (result as { rows: { message_id: string }[] }).rows ?? (result as { message_id: string }[]);
   return rows.length;
 }

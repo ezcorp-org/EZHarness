@@ -85,8 +85,8 @@ describe("DB schema references ExtensionManifestV2", () => {
     const schemaContent = await Bun.file(`${import.meta.dir}/../db/schema.ts`).text();
     // The extensions table manifest column should use ExtensionManifestV2
     const extensionsBlock = schemaContent.slice(
-      schemaContent.indexOf('export const extensions = pgTable'),
-      schemaContent.indexOf('export const toolCalls'),
+      schemaContent.indexOf("export const extensions = pgTable"),
+      schemaContent.indexOf("export const toolCalls"),
     );
     expect(extensionsBlock).toContain("ExtensionManifestV2");
     expect(extensionsBlock).toContain("manifest");
@@ -95,8 +95,8 @@ describe("DB schema references ExtensionManifestV2", () => {
   test("marketplace_versions table manifest column references ExtensionManifestV2", async () => {
     const schemaContent = await Bun.file(`${import.meta.dir}/../db/schema.ts`).text();
     const versionsBlock = schemaContent.slice(
-      schemaContent.indexOf('export const marketplaceVersions = pgTable'),
-      schemaContent.indexOf('export const marketplaceRatings'),
+      schemaContent.indexOf("export const marketplaceVersions = pgTable"),
+      schemaContent.indexOf("export const marketplaceRatings"),
     );
     expect(versionsBlock).toContain("ExtensionManifestV2");
     expect(versionsBlock).toContain("manifest");
@@ -281,10 +281,7 @@ describe("marketplace import validates v2", () => {
       author: { name: "Author" },
       permissions: {},
       entrypoint: "./index.ts",
-      tools: [
-        { name: "", description: "missing name" },
-        { name: "valid-tool" },
-      ],
+      tools: [{ name: "", description: "missing name" }, { name: "valid-tool" }],
     };
 
     const { valid, errors } = validateManifestV2(manifest);
@@ -303,10 +300,7 @@ describe("marketplace import validates v2", () => {
       description: "Agent with invalid skills",
       author: { name: "Author" },
       permissions: {},
-      skills: [
-        { name: "" },
-        { description: "missing name" },
-      ],
+      skills: [{ name: "" }, { description: "missing name" }],
     };
 
     const { valid, errors } = validateManifestV2(manifest);
@@ -324,9 +318,7 @@ describe("marketplace import validates v2", () => {
       description: "Agent with invalid mcpServers",
       author: { name: "Author" },
       permissions: {},
-      mcpServers: [
-        { name: "server1" },
-      ],
+      mcpServers: [{ name: "server1" }],
     };
 
     const { valid, errors } = validateManifestV2(manifest);
@@ -342,14 +334,14 @@ describe("marketplace import validates v2", () => {
       description: "Has tools but no entrypoint",
       author: { name: "Author" },
       permissions: {},
-      tools: [
-        { name: "tool1", description: "A tool", inputSchema: { type: "object" } },
-      ],
+      tools: [{ name: "tool1", description: "A tool", inputSchema: { type: "object" } }],
     };
 
     const { valid, errors } = validateManifestV2(manifest);
     expect(valid).toBe(false);
-    expect(errors.some((e) => e.includes("entrypoint is required when tools are declared"))).toBe(true);
+    expect(errors.some((e) => e.includes("entrypoint is required when tools are declared"))).toBe(
+      true,
+    );
   });
 
   test("manifest missing required fields fails with multiple errors", () => {
@@ -436,9 +428,7 @@ describe("type consistency: marketplace types live in extensions/types.ts", () =
       const lines = content.split("\n");
       for (const line of lines) {
         if (manifestCastPattern.test(line)) {
-          throw new Error(
-            `Found manifest cast to 'any' in ${relPath}: ${line.trim()}`,
-          );
+          throw new Error(`Found manifest cast to 'any' in ${relPath}: ${line.trim()}`);
         }
       }
     }
@@ -453,7 +443,7 @@ describe("type consistency: marketplace types live in extensions/types.ts", () =
 
   test("extensions/manifest.ts does not re-export from marketplace/", async () => {
     const manifestContent = await Bun.file(`${import.meta.dir}/../extensions/manifest.ts`).text();
-    expect(manifestContent).not.toContain("from \"../marketplace");
+    expect(manifestContent).not.toContain('from "../marketplace');
     expect(manifestContent).not.toContain("from './marketplace");
   });
 });

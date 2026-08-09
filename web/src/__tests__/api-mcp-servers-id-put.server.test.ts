@@ -120,7 +120,10 @@ describe("PUT /api/mcp-servers/[id]", () => {
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    const res = await expectDenied(() => PUT(makeEvent({ locals: memberUser, body: validStdioBody() })), 403);
+    const res = await expectDenied(
+      () => PUT(makeEvent({ locals: memberUser, body: validStdioBody() })),
+      403,
+    );
     expect(res.status).toBe(403);
   });
 
@@ -205,7 +208,12 @@ describe("PUT /api/mcp-servers/[id]", () => {
           tools: [],
           permissions: {},
           mcpServers: [
-            { transport: "http", name: "ext-http", url: "https://old.example/mcp", headers: { Authorization: "Bearer SECRET" } },
+            {
+              transport: "http",
+              name: "ext-http",
+              url: "https://old.example/mcp",
+              headers: { Authorization: "Bearer SECRET" },
+            },
           ],
         },
       }) as any,
@@ -253,7 +261,12 @@ describe("PUT /api/mcp-servers/[id]", () => {
           tools: [],
           permissions: {},
           mcpServers: [
-            { transport: "http", name: "ext-http", url: "https://old.example/mcp", headers: { Authorization: "Bearer OLD" } },
+            {
+              transport: "http",
+              name: "ext-http",
+              url: "https://old.example/mcp",
+              headers: { Authorization: "Bearer OLD" },
+            },
           ],
         },
       }) as any,
@@ -265,7 +278,12 @@ describe("PUT /api/mcp-servers/[id]", () => {
       makeEvent({
         locals: adminUser,
         body: {
-          server: { transport: "http", name: "ext-http", url: "https://new.example/mcp", headers: { Authorization: "Bearer NEW" } },
+          server: {
+            transport: "http",
+            name: "ext-http",
+            url: "https://new.example/mcp",
+            headers: { Authorization: "Bearer NEW" },
+          },
         },
       }),
     );
@@ -276,7 +294,10 @@ describe("PUT /api/mcp-servers/[id]", () => {
     const tools = [{ name: "echo" }];
     vi.mocked(getExtension).mockResolvedValueOnce(mcpExtension() as any);
     mcpListTools.mockResolvedValueOnce(tools as any);
-    vi.mocked(updateMcpExtension).mockResolvedValueOnce({ id: "ext-1", manifest: { tools } } as any);
+    vi.mocked(updateMcpExtension).mockResolvedValueOnce({
+      id: "ext-1",
+      manifest: { tools },
+    } as any);
 
     const res = await PUT(makeEvent({ locals: adminUser, body: validStdioBody() }));
     expect(res.status).toBe(200);
@@ -311,7 +332,12 @@ describe("PUT /api/mcp-servers/[id]", () => {
           tools: [],
           permissions: {},
           mcpServers: [
-            { transport: "http", name: "ext-was-http", url: "https://old.example/mcp", headers: { Authorization: "Bearer SECRET" } },
+            {
+              transport: "http",
+              name: "ext-was-http",
+              url: "https://old.example/mcp",
+              headers: { Authorization: "Bearer SECRET" },
+            },
           ],
         },
       }) as any,

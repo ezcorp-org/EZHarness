@@ -38,11 +38,7 @@ interface CapturedAudit {
 const auditEntries: CapturedAudit[] = [];
 
 mock.module("../db/queries/audit-log", () => ({
-  insertAuditEntry: async (
-    _u: string | null,
-    action: string,
-    target?: string,
-  ) => {
+  insertAuditEntry: async (_u: string | null, action: string, target?: string) => {
     auditEntries.push({ action, target });
     return `audit-${auditEntries.length}`;
   },
@@ -154,15 +150,11 @@ describe("S9 critical gate — disk manifest UNREADABLE (security floor)", () =>
     // ⇒ cannot prove within-ceiling ⇒ security floor: disable stands.
     expect(row?.enabled).toBe(false);
     // NOT auto-reapproved (no within-ceiling proof).
-    expect(
-      auditEntries.some(
-        (a) => a.action === "ext:bundled:critical-auto-reapproved",
-      ),
-    ).toBe(false);
+    expect(auditEntries.some((a) => a.action === "ext:bundled:critical-auto-reapproved")).toBe(
+      false,
+    );
     // Confirm the critical block actually ran a 3rd (throwing) read —
     // i.e. the branch under test was exercised, not short-circuited.
-    expect((loadCalls.get("ask-user") ?? 0)).toBeGreaterThanOrEqual(
-      THROW_ON_CALL,
-    );
+    expect(loadCalls.get("ask-user") ?? 0).toBeGreaterThanOrEqual(THROW_ON_CALL);
   }, 30_000);
 });

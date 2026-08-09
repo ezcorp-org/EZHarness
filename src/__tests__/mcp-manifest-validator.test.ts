@@ -9,9 +9,7 @@ function baseMcp(overrides: Record<string, unknown> = {}) {
     description: "remote",
     author: { name: "t" },
     kind: "mcp" as const,
-    mcpServers: [
-      { transport: "stdio", name: "remote", command: "node", args: ["./s.ts"] },
-    ],
+    mcpServers: [{ transport: "stdio", name: "remote", command: "node", args: ["./s.ts"] }],
     permissions: {},
     ...overrides,
   };
@@ -25,20 +23,27 @@ describe("validateMcpManifest", () => {
   });
 
   test("valid http manifest passes", () => {
-    const r = validateMcpManifest(baseMcp({
-      mcpServers: [
-        { transport: "http", name: "r", url: "https://ex.com/mcp", headers: { Authorization: "Bearer x" } },
-      ],
-    }));
+    const r = validateMcpManifest(
+      baseMcp({
+        mcpServers: [
+          {
+            transport: "http",
+            name: "r",
+            url: "https://ex.com/mcp",
+            headers: { Authorization: "Bearer x" },
+          },
+        ],
+      }),
+    );
     expect(r.valid).toBe(true);
   });
 
   test("valid sse manifest passes", () => {
-    const r = validateMcpManifest(baseMcp({
-      mcpServers: [
-        { transport: "sse", name: "r", url: "https://ex.com/sse" },
-      ],
-    }));
+    const r = validateMcpManifest(
+      baseMcp({
+        mcpServers: [{ transport: "sse", name: "r", url: "https://ex.com/sse" }],
+      }),
+    );
     expect(r.valid).toBe(true);
   });
 
@@ -63,12 +68,14 @@ describe("validateMcpManifest", () => {
   });
 
   test("two mcpServers entries fails", () => {
-    const r = validateMcpManifest(baseMcp({
-      mcpServers: [
-        { transport: "stdio", name: "a", command: "node" },
-        { transport: "stdio", name: "b", command: "node" },
-      ],
-    }));
+    const r = validateMcpManifest(
+      baseMcp({
+        mcpServers: [
+          { transport: "stdio", name: "a", command: "node" },
+          { transport: "stdio", name: "b", command: "node" },
+        ],
+      }),
+    );
     expect(r.valid).toBe(false);
     expect(r.errors.some((e) => e.includes("exactly one mcpServers entry"))).toBe(true);
   });
@@ -80,11 +87,11 @@ describe("validateMcpManifest", () => {
   });
 
   test("cached tools are allowed without entrypoint", () => {
-    const r = validateMcpManifest(baseMcp({
-      tools: [
-        { name: "t", description: "d", inputSchema: { type: "object" } },
-      ],
-    }));
+    const r = validateMcpManifest(
+      baseMcp({
+        tools: [{ name: "t", description: "d", inputSchema: { type: "object" } }],
+      }),
+    );
     expect(r.valid).toBe(true);
     expect(r.errors).toHaveLength(0);
   });
@@ -95,9 +102,11 @@ describe("validateMcpManifest", () => {
   });
 
   test("transport-specific field error bubbles up from validateMcpServersArray", () => {
-    const r = validateMcpManifest(baseMcp({
-      mcpServers: [{ transport: "http", name: "r" }],
-    }));
+    const r = validateMcpManifest(
+      baseMcp({
+        mcpServers: [{ transport: "http", name: "r" }],
+      }),
+    );
     expect(r.valid).toBe(false);
     expect(r.errors.some((e) => e.includes("mcpServers[0].url"))).toBe(true);
   });

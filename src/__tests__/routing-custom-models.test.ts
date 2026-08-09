@@ -73,8 +73,7 @@ const OLLAMA_ROW = {
 
 /** Route every settings key to undefined except the ones given. */
 function settings(overrides: Record<string, unknown>): void {
-  mockGetSetting.mockImplementation(((key: string) =>
-    Promise.resolve(overrides[key])) as never);
+  mockGetSetting.mockImplementation(((key: string) => Promise.resolve(overrides[key])) as never);
 }
 
 beforeEach(() => {
@@ -189,7 +188,9 @@ describe("normalizeCustomModel()", () => {
   });
 
   test("an invalid costTier falls back to low; valid ones are kept", () => {
-    expect(normalizeCustomModel({ id: "m", provider: "p", costTier: "free" })?.costTier).toBe("low");
+    expect(normalizeCustomModel({ id: "m", provider: "p", costTier: "free" })?.costTier).toBe(
+      "low",
+    );
     expect(normalizeCustomModel({ id: "m", provider: "p", costTier: "medium" })?.costTier).toBe(
       "medium",
     );
@@ -206,8 +207,9 @@ describe("normalizeCustomModel()", () => {
   });
 
   test("a non-numeric contextWindow falls back to 128k", () => {
-    expect(normalizeCustomModel({ id: "m", provider: "p", contextWindow: "big" })?.contextWindow)
-      .toBe(128_000);
+    expect(
+      normalizeCustomModel({ id: "m", provider: "p", contextWindow: "big" })?.contextWindow,
+    ).toBe(128_000);
   });
 
   test("displayName defaults to the id; a blank baseUrl becomes undefined", () => {
@@ -345,7 +347,13 @@ describe("findModelForProviderInTier() with custom models", () => {
   });
 
   test("findRunnableModelForProviderInTier threads custom models through the apikey path", () => {
-    const entry = findRunnableModelForProviderInTier("ollama", "fast", "apikey", undefined, ollamaFast);
+    const entry = findRunnableModelForProviderInTier(
+      "ollama",
+      "fast",
+      "apikey",
+      undefined,
+      ollamaFast,
+    );
     expect(entry?.id).toBe("qwen3:1.7b");
   });
 
@@ -453,7 +461,9 @@ describe("resolveModel() on a local-only install", () => {
 // ── Picker/router agreement ─────────────────────────────────────────
 describe("getModelRegistry() and routing agree on a custom row", () => {
   test("the picker's tier for a row is the tier routing answers on", async () => {
-    settings({ "provider:customModels": [{ modelId: "solo", provider: "ollama", tier: "powerful" }] });
+    settings({
+      "provider:customModels": [{ modelId: "solo", provider: "ollama", tier: "powerful" }],
+    });
     const registry = await getModelRegistry();
     const shown = registry.find((m) => m.id === "solo");
     expect(shown?.tier).toBe("powerful");

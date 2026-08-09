@@ -5,19 +5,41 @@ mockDbConnection(); // Must be at module level BEFORE imports that use db
 
 import { signJWT, verifyJWT, getJwtSecret, _resetSecretCache } from "../auth/jwt";
 import { hashPassword, verifyPassword } from "../auth/password";
-import { createUser, getUserByEmail, getUserById, listUsers, updateUserStatus, getUserCount } from "../db/queries/users";
-import { createInvite, getInviteByToken, markInviteUsed, listInvites, deleteInvite } from "../db/queries/invites";
+import {
+  createUser,
+  getUserByEmail,
+  getUserById,
+  listUsers,
+  updateUserStatus,
+  getUserCount,
+} from "../db/queries/users";
+import {
+  createInvite,
+  getInviteByToken,
+  markInviteUsed,
+  listInvites,
+  deleteInvite,
+} from "../db/queries/invites";
 import { getTestDb } from "./helpers/test-pglite";
 import { users, invites, settings } from "../db/schema";
 
-beforeAll(async () => { await setupTestDb(); });
-afterAll(async () => { await closeTestDb(); });
+beforeAll(async () => {
+  await setupTestDb();
+});
+afterAll(async () => {
+  await closeTestDb();
+});
 
 // ── JWT ─────────────────────────────────────────────────────────────
 
 describe("JWT", () => {
   const secret = "test-secret-key-for-jwt";
-  const payload = { id: "u1", email: "test@example.com", name: "Test User", role: "admin" as const };
+  const payload = {
+    id: "u1",
+    email: "test@example.com",
+    name: "Test User",
+    role: "admin" as const,
+  };
 
   test("signJWT creates a valid token string with 3 dot-separated parts", async () => {
     const token = await signJWT(payload, secret);
@@ -146,7 +168,11 @@ describe("User queries", () => {
   });
 
   test("getUserById finds user by id", async () => {
-    const created = await createUser({ email: "carol@example.com", passwordHash: "h", name: "Carol" });
+    const created = await createUser({
+      email: "carol@example.com",
+      passwordHash: "h",
+      name: "Carol",
+    });
     const found = await getUserById(created.id);
     expect(found).toBeDefined();
     expect(found!.email).toBe("carol@example.com");
@@ -185,7 +211,12 @@ describe("Invite queries", () => {
   beforeEach(async () => {
     await getTestDb().delete(invites);
     await getTestDb().delete(users);
-    const creator = await createUser({ email: "admin@example.com", passwordHash: "h", name: "Admin", role: "admin" });
+    const creator = await createUser({
+      email: "admin@example.com",
+      passwordHash: "h",
+      name: "Admin",
+      role: "admin",
+    });
     creatorId = creator.id;
   });
 
@@ -229,7 +260,11 @@ describe("Invite queries", () => {
   });
 
   test("listInvites filters by createdBy", async () => {
-    const other = await createUser({ email: "other@example.com", passwordHash: "h", name: "Other" });
+    const other = await createUser({
+      email: "other@example.com",
+      passwordHash: "h",
+      name: "Other",
+    });
     await createInvite({ role: "member", createdBy: creatorId });
     await createInvite({ role: "member", createdBy: other.id });
     const filtered = await listInvites(creatorId);

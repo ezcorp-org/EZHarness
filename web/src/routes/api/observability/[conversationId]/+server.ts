@@ -1,5 +1,8 @@
 import { json } from "@sveltejs/kit";
-import { getConversationObservability, getConversationStats } from "$server/db/queries/observability";
+import {
+  getConversationObservability,
+  getConversationStats,
+} from "$server/db/queries/observability";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import type { RequestHandler } from "./$types";

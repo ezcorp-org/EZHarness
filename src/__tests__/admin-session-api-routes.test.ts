@@ -1,7 +1,13 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
+import {
+  mockServerAlias,
+  createMockEvent,
+  jsonFromResponse,
+  ADMIN_USER,
+  MEMBER_USER,
+} from "./helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
 mockDbConnection();
@@ -41,41 +47,53 @@ beforeEach(async () => {
   await db.delete(sessions);
   await db.delete(users);
 
-  const [admin] = await db.insert(users).values({
-    email: "admin@test.local",
-    passwordHash: "hashed",
-    name: "Test Admin",
-    role: "admin",
-  }).returning();
+  const [admin] = await db
+    .insert(users)
+    .values({
+      email: "admin@test.local",
+      passwordHash: "hashed",
+      name: "Test Admin",
+      role: "admin",
+    })
+    .returning();
   adminUserId = admin!.id;
 
-  const [member] = await db.insert(users).values({
-    email: "member@test.local",
-    passwordHash: "hashed",
-    name: "Test Member",
-    role: "member",
-  }).returning();
+  const [member] = await db
+    .insert(users)
+    .values({
+      email: "member@test.local",
+      passwordHash: "hashed",
+      name: "Test Member",
+      role: "member",
+    })
+    .returning();
   memberUserId = member!.id;
 
   const adminHash = await hashToken("admin-token");
   const memberHash = await hashToken("member-token");
 
-  const [s1] = await db.insert(sessions).values({
-    userId: adminUserId,
-    tokenHash: adminHash,
-    userAgent: "Chrome/120",
-    ipAddress: "10.0.0.1",
-    expiresAt: new Date(Date.now() + 86400000),
-  }).returning();
+  const [s1] = await db
+    .insert(sessions)
+    .values({
+      userId: adminUserId,
+      tokenHash: adminHash,
+      userAgent: "Chrome/120",
+      ipAddress: "10.0.0.1",
+      expiresAt: new Date(Date.now() + 86400000),
+    })
+    .returning();
   adminSessionId = s1!.id;
 
-  const [s2] = await db.insert(sessions).values({
-    userId: memberUserId,
-    tokenHash: memberHash,
-    userAgent: "Firefox/119",
-    ipAddress: "10.0.0.2",
-    expiresAt: new Date(Date.now() + 86400000),
-  }).returning();
+  const [s2] = await db
+    .insert(sessions)
+    .values({
+      userId: memberUserId,
+      tokenHash: memberHash,
+      userAgent: "Firefox/119",
+      ipAddress: "10.0.0.2",
+      expiresAt: new Date(Date.now() + 86400000),
+    })
+    .returning();
   memberSessionId = s2!.id;
 });
 

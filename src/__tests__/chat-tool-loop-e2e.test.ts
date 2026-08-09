@@ -14,11 +14,28 @@ mock.module("../providers/router", () => ({
   resolveModel: async () => ({
     provider: "anthropic",
     model: "test-model",
-    piModel: { id: "test-model", provider: "anthropic", api: "anthropic-messages", baseUrl: "", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 4096 },
+    piModel: {
+      id: "test-model",
+      provider: "anthropic",
+      api: "anthropic-messages",
+      baseUrl: "",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200000,
+      maxTokens: 4096,
+    },
   }),
   ProviderUnavailableError: class extends Error {
-    failedProvider: string; failedModel: string; suggestion: any;
-    constructor(msg: string, fp: string, fm: string, sug: any) { super(msg); this.failedProvider = fp; this.failedModel = fm; this.suggestion = sug; }
+    failedProvider: string;
+    failedModel: string;
+    suggestion: any;
+    constructor(msg: string, fp: string, fm: string, sug: any) {
+      super(msg);
+      this.failedProvider = fp;
+      this.failedModel = fm;
+      this.suggestion = sug;
+    }
   },
 }));
 
@@ -28,7 +45,10 @@ mock.module("../providers/credentials", () => ({
 }));
 
 mock.module("@earendil-works/pi-ai/compat", () => ({
-  stream: () => ({ [Symbol.asyncIterator]: async function* () {}, result: async () => stubAssistantMessage() }),
+  stream: () => ({
+    [Symbol.asyncIterator]: async function* () {},
+    result: async () => stubAssistantMessage(),
+  }),
   complete: async () => stubAssistantMessage(),
   getModel: () => ({ id: "test-model", provider: "anthropic" }),
   getModels: () => [],
@@ -45,7 +65,10 @@ mock.module("@earendil-works/pi-agent-core", () => ({
     constructor(opts: any) {
       this._tools = opts.initialState?.tools ?? [];
     }
-    subscribe(cb: any) { this._subs.push(cb); return () => {}; }
+    subscribe(cb: any) {
+      this._subs.push(cb);
+      return () => {};
+    }
     abort() {}
     async prompt() {
       toolCallCount++;
@@ -98,7 +121,11 @@ mock.module("@earendil-works/pi-agent-core", () => ({
 
       // Emit turn_end with usage
       const usage = {
-        input: 15, output: 8, cacheRead: 0, cacheWrite: 0, totalTokens: 23,
+        input: 15,
+        output: 8,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 23,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
       };
       for (const sub of this._subs) {
@@ -141,7 +168,13 @@ beforeAll(async () => {
       version: "1.0.0",
       description: "E2E test extension",
       entrypoint: "./entrypoint.ts",
-      tools: [{ name: "echo", description: "Echoes text back", inputSchema: { type: "object", properties: { text: { type: "string" } } } }],
+      tools: [
+        {
+          name: "echo",
+          description: "Echoes text back",
+          inputSchema: { type: "object", properties: { text: { type: "string" } } },
+        },
+      ],
       permissions: {},
     },
     source: "local:/test",
@@ -218,7 +251,9 @@ describe("Chat + Tool Loop E2E", () => {
     const executor = new AgentExecutor(new Map(), bus);
 
     let turnEvent: any = null;
-    bus.on("obs:turn", (data) => { turnEvent = data; });
+    bus.on("obs:turn", (data) => {
+      turnEvent = data;
+    });
 
     await executor.streamChat(conv.id, "Timing test", { agentConfigId });
 

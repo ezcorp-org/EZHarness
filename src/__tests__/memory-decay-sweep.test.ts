@@ -52,7 +52,10 @@ async function insertTestMemory(content: string, opts?: { category?: string; sta
   });
   if (opts?.status && opts.status !== "active") {
     const db = getDb();
-    await db.update(memories).set({ status: opts.status } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ status: opts.status } as any)
+      .where(eq(memories.id, mem.id));
   }
   return mem;
 }
@@ -69,7 +72,10 @@ describe("runDecaySweep", () => {
 
     const db = getDb();
     const pastDate = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000); // 35 days ago
-    await db.update(memories).set({ lastAccessedAt: pastDate } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ lastAccessedAt: pastDate } as any)
+      .where(eq(memories.id, mem.id));
 
     await runDecaySweep();
 
@@ -82,7 +88,10 @@ describe("runDecaySweep", () => {
 
     const db = getDb();
     const pastDate = new Date(Date.now() - 65 * 24 * 60 * 60 * 1000); // 65 days ago
-    await db.update(memories).set({ lastAccessedAt: pastDate } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ lastAccessedAt: pastDate } as any)
+      .where(eq(memories.id, mem.id));
 
     await runDecaySweep();
 
@@ -105,8 +114,14 @@ describe("runDecaySweep", () => {
 
     const db = getDb();
     const pastDate = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000); // 35 days ago
-    await db.update(memories).set({ lastAccessedAt: pastDate } as any).where(eq(memories.id, mem1.id));
-    await db.update(memories).set({ lastAccessedAt: pastDate } as any).where(eq(memories.id, mem2.id));
+    await db
+      .update(memories)
+      .set({ lastAccessedAt: pastDate } as any)
+      .where(eq(memories.id, mem1.id));
+    await db
+      .update(memories)
+      .set({ lastAccessedAt: pastDate } as any)
+      .where(eq(memories.id, mem2.id));
 
     const count = await runDecaySweep();
     expect(count).toBe(2);
@@ -124,10 +139,13 @@ describe("startDecayTimer", () => {
     const mem = await insertTestMemory("Timer sweep candidate");
     const db = getDb();
     const pastDate = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000);
-    await db.update(memories).set({ lastAccessedAt: pastDate } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ lastAccessedAt: pastDate } as any)
+      .where(eq(memories.id, mem.id));
 
     const stop = startDecayTimer(20);
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 200));
     stop();
 
     const updated = await getMemoryById(mem.id);
@@ -138,11 +156,14 @@ describe("startDecayTimer", () => {
     const mem = await insertTestMemory("Timer cleanup candidate");
     const db = getDb();
     const pastDate = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000);
-    await db.update(memories).set({ lastAccessedAt: pastDate } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ lastAccessedAt: pastDate } as any)
+      .where(eq(memories.id, mem.id));
 
     const stop = startDecayTimer(20);
     stop(); // Stop immediately
-    await new Promise(resolve => setTimeout(resolve, 200));
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     const unchanged = await getMemoryById(mem.id);
     expect((unchanged as any).status).toBe("active");
@@ -160,7 +181,10 @@ describe("getMemoriesForDecay", () => {
     const mem = await insertTestMemory("Old active for decay query");
     const db = getDb();
     const pastDate = new Date(Date.now() - 35 * 24 * 60 * 60 * 1000);
-    await db.update(memories).set({ lastAccessedAt: pastDate } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ lastAccessedAt: pastDate } as any)
+      .where(eq(memories.id, mem.id));
 
     const candidates = await getMemoriesForDecay();
     expect(candidates.some((c: any) => c.id === mem.id)).toBe(true);
@@ -170,7 +194,10 @@ describe("getMemoriesForDecay", () => {
     const mem = await insertTestMemory("Old stale for decay query", { status: "stale" });
     const db = getDb();
     const pastDate = new Date(Date.now() - 65 * 24 * 60 * 60 * 1000);
-    await db.update(memories).set({ lastAccessedAt: pastDate } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ lastAccessedAt: pastDate } as any)
+      .where(eq(memories.id, mem.id));
 
     const candidates = await getMemoriesForDecay();
     expect(candidates.some((c: any) => c.id === mem.id)).toBe(true);
@@ -187,7 +214,10 @@ describe("getMemoriesForDecay", () => {
     const mem = await insertTestMemory("Already archived", { status: "archived" });
     const db = getDb();
     const pastDate = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
-    await db.update(memories).set({ lastAccessedAt: pastDate } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ lastAccessedAt: pastDate } as any)
+      .where(eq(memories.id, mem.id));
 
     const candidates = await getMemoriesForDecay();
     expect(candidates.some((c: any) => c.id === mem.id)).toBe(false);

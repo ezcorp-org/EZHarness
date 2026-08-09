@@ -92,17 +92,11 @@ function resetState(): void {
 
 mock.module("../extensions/mcp-netns", () => ({
   probeNetnsAvailability: () =>
-    state.netnsAvailable
-      ? { available: true }
-      : { available: false, reason: state.netnsReason },
+    state.netnsAvailable ? { available: true } : { available: false, reason: state.netnsReason },
   probeBwrapAvailability: () =>
-    state.bwrapAvailable
-      ? { available: true }
-      : { available: false, reason: state.bwrapReason },
+    state.bwrapAvailable ? { available: true } : { available: false, reason: state.bwrapReason },
   probeVethCapability: () =>
-    state.vethAvailable
-      ? { available: true }
-      : { available: false, reason: state.vethReason },
+    state.vethAvailable ? { available: true } : { available: false, reason: state.vethReason },
   buildNetnsSpawnArgs: (input: {
     origCommand: string;
     origArgs: readonly string[];
@@ -154,10 +148,7 @@ import {
   _setProjectRootOverrideForTests,
   _setSandboxTierOverrideForTests,
 } from "../extensions/mcp-sandbox";
-import {
-  assertJailArgsSafe,
-  forbiddenDataDir,
-} from "../extensions/preview-jail";
+import { assertJailArgsSafe, forbiddenDataDir } from "../extensions/preview-jail";
 import { getDbMaskDirs } from "../db/connection";
 import { EXT_AUDIT_ACTIONS } from "../extensions/audit-actions";
 
@@ -170,11 +161,7 @@ function expectedDataDirMask(jailRoot: string | null): string | undefined {
   if (jailRoot) set.add(forbiddenDataDir(jailRoot));
   return set.size > 0 ? [...set].join(":") : undefined;
 }
-import type {
-  ExtensionManifestV2,
-  McpServerDefinition,
-  McpServerStdio,
-} from "../extensions/types";
+import type { ExtensionManifestV2, McpServerDefinition, McpServerStdio } from "../extensions/types";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 
 const REFUSAL_ACTION = EXT_AUDIT_ACTIONS.MCP_SANDBOX_REQUIRED_REFUSAL;
@@ -306,9 +293,7 @@ describe("flag off — existing fail-open behavior preserved", () => {
 
     expect(wrapped.command).toBe("prlimit");
     expect(wrapped.env?.HTTPS_PROXY).toBeDefined();
-    const fallback = auditCalls.find(
-      (c) => c.action === EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK,
-    );
+    const fallback = auditCalls.find((c) => c.action === EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK);
     expect(fallback).toBeDefined();
     expect(fallback?.metadata?.reason).toBe("not linux");
     expect(refusalRows()).toHaveLength(0);
@@ -441,9 +426,7 @@ describe("flag on — degraded host is refused", () => {
         /* already closed by the guard — expected */
       }
     }
-    expect(refusalRows()[0]?.metadata?.reason).toBe(
-      "veth slot exhausted (60 concurrent MCP cap)",
-    );
+    expect(refusalRows()[0]?.metadata?.reason).toBe("veth slot exhausted (60 concurrent MCP cap)");
   });
 
   test("veth pair create fails at runtime → refused with the ip stderr", async () => {
@@ -497,10 +480,7 @@ describe("flag on — degraded host is refused", () => {
     mkdirSync(join(evilRoot, ".ezcorp", "data"), { recursive: true });
     // `.ezcorp/extension-data` → symlink into `.ezcorp/data`: the
     // canonicalize-before-assert step must reject the realpath.
-    symlinkSync(
-      join(evilRoot, ".ezcorp", "data"),
-      join(evilRoot, ".ezcorp", "extension-data"),
-    );
+    symlinkSync(join(evilRoot, ".ezcorp", "data"), join(evilRoot, ".ezcorp", "extension-data"));
     _setProjectRootOverrideForTests(evilRoot);
     try {
       await expect(build("ext-rs-evil-workdir")).rejects.toThrow(
@@ -625,12 +605,7 @@ describe("default posture (flag off) — fs-jail is unconditional on a capable h
       const spy = fakeIpSpawnSync(() => ({ success: true, exitCode: 0 }));
       try {
         // The MCP's own workspace + a planted secret under .ezcorp/data.
-        const workDir = join(
-          JAIL_ROOT,
-          ".ezcorp",
-          "extension-data",
-          "require-sandbox-probe",
-        );
+        const workDir = join(JAIL_ROOT, ".ezcorp", "extension-data", "require-sandbox-probe");
         mkdirSync(workDir, { recursive: true });
         writeFileSync(join(workDir, "ws.txt"), "WORKSPACE-OK");
         const dataDir = join(JAIL_ROOT, ".ezcorp", "data");
@@ -662,10 +637,11 @@ describe("default posture (flag off) — fs-jail is unconditional on a capable h
         for (const p of [...llSpec.ro, ...llSpec.rw]) {
           expect(p.startsWith(dataDir)).toBe(false);
         }
-        const pDeny = Bun.spawnSync(
-          [denyWrapped.command, ...(denyWrapped.args ?? [])],
-          { env: { ...process.env, ...denyWrapped.env }, stdout: "pipe", stderr: "pipe" },
-        );
+        const pDeny = Bun.spawnSync([denyWrapped.command, ...(denyWrapped.args ?? [])], {
+          env: { ...process.env, ...denyWrapped.env },
+          stdout: "pipe",
+          stderr: "pipe",
+        });
         expect(pDeny.exitCode).not.toBe(0);
         expect(pDeny.stderr.toString().toLowerCase()).toContain("permission denied");
         await denyBuilt.proxyHandle?.stop();
@@ -685,10 +661,11 @@ describe("default posture (flag off) — fs-jail is unconditional on a capable h
           makeCtx(),
         );
         const allowWrapped = allowBuilt.spec as McpServerStdio;
-        const pAllow = Bun.spawnSync(
-          [allowWrapped.command, ...(allowWrapped.args ?? [])],
-          { env: { ...process.env, ...allowWrapped.env }, stdout: "pipe", stderr: "pipe" },
-        );
+        const pAllow = Bun.spawnSync([allowWrapped.command, ...(allowWrapped.args ?? [])], {
+          env: { ...process.env, ...allowWrapped.env },
+          stdout: "pipe",
+          stderr: "pipe",
+        });
         expect(pAllow.exitCode).toBe(0);
         expect(pAllow.stdout.toString()).toContain("WORKSPACE-OK");
         await allowBuilt.proxyHandle?.stop();
@@ -800,9 +777,7 @@ describe("flag on — fully capable host spawns normally", () => {
       expect(
         auditCalls.find((c) => c.action === EXT_AUDIT_ACTIONS.MCP_NETNS_CREATED),
       ).toBeDefined();
-      expect(
-        auditCalls.find((c) => c.action === EXT_AUDIT_ACTIONS.MCP_VETH_CREATED),
-      ).toBeDefined();
+      expect(auditCalls.find((c) => c.action === EXT_AUDIT_ACTIONS.MCP_VETH_CREATED)).toBeDefined();
 
       await proxyHandle?.stop();
     } finally {

@@ -126,11 +126,7 @@ function findEffortNoops(material: ConsentHashMaterial): EffortNoop[] {
       const effort = binding.effort;
       const provider = binding.provider;
       const model = binding.model;
-      if (
-        typeof effort !== "string" ||
-        typeof provider !== "string" ||
-        typeof model !== "string"
-      ) {
+      if (typeof effort !== "string" || typeof provider !== "string" || typeof model !== "string") {
         continue;
       }
 

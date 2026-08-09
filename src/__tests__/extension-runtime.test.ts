@@ -400,7 +400,9 @@ describe("ExtensionRegistry", () => {
         description: "Test",
         author: { name: "Test" },
         entrypoint: "./entrypoint.ts",
-        tools: [{ name: "agent-echo", description: "Echo for agent", inputSchema: { type: "object" } }],
+        tools: [
+          { name: "agent-echo", description: "Echo for agent", inputSchema: { type: "object" } },
+        ],
         permissions: {},
       },
       source: "local:/test",

@@ -158,9 +158,7 @@ mock.module("$server/types", () => ({ CURRENT_MODEL_SENTINEL: "__current__" }));
 const stopMod = await import(
   "../routes/api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/stop/+server"
 );
-const retryMod = await import(
-  "../routes/api/conversations/[id]/tasks/[taskId]/retry/+server"
-);
+const retryMod = await import("../routes/api/conversations/[id]/tasks/[taskId]/retry/+server");
 
 const POST_stop = stopMod.POST;
 const POST_retry = retryMod.POST;
@@ -193,11 +191,7 @@ function makeAssignment(overrides: Partial<TaskAssignment> = {}): TaskAssignment
   };
 }
 
-function makeStopEvent(
-  conversationId: string,
-  taskId: string,
-  assignmentId: string,
-) {
+function makeStopEvent(conversationId: string, taskId: string, assignmentId: string) {
   return {
     request: new Request(
       `http://localhost/api/conversations/${conversationId}/tasks/${taskId}/assignments/${assignmentId}/stop`,
@@ -208,11 +202,7 @@ function makeStopEvent(
   } as any;
 }
 
-function makeRetryEvent(
-  conversationId: string,
-  taskId: string,
-  body?: Record<string, unknown>,
-) {
+function makeRetryEvent(conversationId: string, taskId: string, body?: Record<string, unknown>) {
   return {
     request: new Request(
       `http://localhost/api/conversations/${conversationId}/tasks/${taskId}/retry`,
@@ -285,7 +275,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
     const res = await POST_stop(makeStopEvent("conv-1", "task-1", "assign-1"));
     expect(res.status).toBe(409);
     const body = await res.json();
-    expect(body.error).toContain("expected \"running\"");
+    expect(body.error).toContain('expected "running"');
     // Must not have attempted to cancel.
     expect(mockCancelRun).not.toHaveBeenCalled();
   });
@@ -300,9 +290,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
   });
 
   test("returns 404 when task not found", async () => {
-    const res = await POST_stop(
-      makeStopEvent("conv-1", "nonexistent-task", "assign-1"),
-    );
+    const res = await POST_stop(makeStopEvent("conv-1", "nonexistent-task", "assign-1"));
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Task not found");
@@ -321,9 +309,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
       },
     ];
 
-    const res = await POST_stop(
-      makeStopEvent("conv-1", "task-1", "nonexistent-assignment"),
-    );
+    const res = await POST_stop(makeStopEvent("conv-1", "task-1", "nonexistent-assignment"));
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Assignment not found");
@@ -485,7 +471,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/retry", () => {
     const res = await POST_retry(makeRetryEvent("conv-1", "task-1"));
     expect(res.status).toBe(409);
     const body = await res.json();
-    expect(body.error).toContain("expected \"failed\"");
+    expect(body.error).toContain('expected "failed"');
     expect(mockStartAssignment).not.toHaveBeenCalled();
   });
 
@@ -648,9 +634,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/retry", () => {
     const ids = assignmentUpdates.map((c: any[]) => c[1].assignment.id).sort();
     expect(ids).toEqual(["a1", "a2", "a3"]);
     // Snapshot fired at least once too.
-    const snapshotCalls = mockBusEmit.mock.calls.filter(
-      (c: any[]) => c[0] === "task:snapshot",
-    );
+    const snapshotCalls = mockBusEmit.mock.calls.filter((c: any[]) => c[0] === "task:snapshot");
     expect(snapshotCalls.length).toBeGreaterThanOrEqual(1);
   });
 

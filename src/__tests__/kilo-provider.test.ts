@@ -64,7 +64,9 @@ function nothingConfigured() {
 /** Settings state: a Kilo BYOK key is saved. */
 function kiloKeyConfigured() {
   mockGetSetting.mockImplementation(((key: string) =>
-    Promise.resolve(key === `provider:apiKey:${KILO_PROVIDER}` ? "encrypted-blob" : undefined)) as never);
+    Promise.resolve(
+      key === `provider:apiKey:${KILO_PROVIDER}` ? "encrypted-blob" : undefined,
+    )) as never);
 }
 
 beforeEach(() => {
@@ -148,7 +150,9 @@ describe("T2 the picker", () => {
     expect(free!.provider).toBe(KILO_PROVIDER);
     expect(free!.costTier).toBe("low");
     // …and no paid Kilo model does, on a keyless deployment.
-    expect(registry.some((m) => m.provider === KILO_PROVIDER && m.id === "kilo-auto/frontier")).toBe(false);
+    expect(
+      registry.some((m) => m.provider === KILO_PROVIDER && m.id === "kilo-auto/frontier"),
+    ).toBe(false);
   });
 
   test("seeded auto-routers carry their DECLARED tier, not a price-inferred one", async () => {
@@ -227,7 +231,14 @@ describe("T5 precedence", () => {
     mockGetSetting.mockImplementation(((key: string) =>
       Promise.resolve(
         key === "provider:customModels"
-          ? [{ modelId: "qwen3:1.7b", provider: "ollama", tier: "balanced", baseUrl: "http://localhost:11434" }]
+          ? [
+              {
+                modelId: "qwen3:1.7b",
+                provider: "ollama",
+                tier: "balanced",
+                baseUrl: "http://localhost:11434",
+              },
+            ]
           : undefined,
       )) as never);
 
@@ -243,7 +254,14 @@ describe("T5 precedence", () => {
         key === "provider:preferenceOrder"
           ? [KILO_PROVIDER, "ollama"]
           : key === "provider:customModels"
-            ? [{ modelId: "qwen3:1.7b", provider: "ollama", tier: "balanced", baseUrl: "http://localhost:11434" }]
+            ? [
+                {
+                  modelId: "qwen3:1.7b",
+                  provider: "ollama",
+                  tier: "balanced",
+                  baseUrl: "http://localhost:11434",
+                },
+              ]
             : undefined,
       )) as never);
 
@@ -297,7 +315,8 @@ describe("T6 discovery", () => {
 
   test("an HTTP failure is reported, not swallowed", async () => {
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => new Response("upstream down", { status: 503 })) as unknown as typeof fetch;
+    globalThis.fetch = (async () =>
+      new Response("upstream down", { status: 503 })) as unknown as typeof fetch;
     try {
       await expect(fetchProviderModels(KILO_PROVIDER)).rejects.toThrow(/503/);
     } finally {
@@ -361,9 +380,7 @@ describe("T7 the reasoning wire form (regression: 400 conflicting values)", () =
     expect(thinkingFormatOf(resolveModelObject(KILO_PROVIDER, KILO_FREE_AUTO_MODEL))).toBe(
       "openrouter",
     );
-    expect(thinkingFormatOf(resolveModelObject(KILO_PROVIDER, "vendor/unseen"))).toBe(
-      "openrouter",
-    );
+    expect(thinkingFormatOf(resolveModelObject(KILO_PROVIDER, "vendor/unseen"))).toBe("openrouter");
   });
 
   test("the persisted shape carries `free` — without it openrouter/free reads as PAID", () => {
@@ -396,9 +413,11 @@ describe("T8 the boot warm", () => {
       calls++;
       return res();
     }) as unknown as typeof fetch;
-    return fn().finally(() => {
-      globalThis.fetch = original;
-    }).then(() => calls);
+    return fn()
+      .finally(() => {
+        globalThis.fetch = original;
+      })
+      .then(() => calls);
   }
 
   test("a cold deployment fetches and persists the catalog", async () => {

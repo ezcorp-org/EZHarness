@@ -59,15 +59,11 @@ mock.module("../db/connection", () => ({
   closeDb: async () => {},
 }));
 
-const {
-  ensureAskUserWired,
-  wireAskUserToolForTurn,
-  _resetAskUserExtensionIdCache,
-} = await import("../runtime/ask-user-host");
-const { EventBus } = await import("../runtime/events");
-const { EventSubscriptionDispatcher } = await import(
-  "../extensions/event-subscription-dispatcher"
+const { ensureAskUserWired, wireAskUserToolForTurn, _resetAskUserExtensionIdCache } = await import(
+  "../runtime/ask-user-host"
 );
+const { EventBus } = await import("../runtime/events");
+const { EventSubscriptionDispatcher } = await import("../extensions/event-subscription-dispatcher");
 const { getDb } = await import("../db/connection");
 const {
   conversations,
@@ -75,11 +71,9 @@ const {
   projects,
   users,
 } = await import("../db/schema");
-const {
-  getPendingAskUser,
-  registerPendingAskUser,
-  _resetPendingAskUserForTests,
-} = await import("../runtime/ask-user-registry");
+const { getPendingAskUser, registerPendingAskUser, _resetPendingAskUserForTests } = await import(
+  "../runtime/ask-user-registry"
+);
 // Phase 1 fail-closed: wireAskUserToolForTurn calls getPermissionEngine()
 // without deps; the singleton must be pre-initialized before any test
 // runs. Install an allow-all stub so the wrapped tool's authorize()
@@ -88,9 +82,7 @@ const {
 const { _setPermissionEngineForTests, _resetPermissionEngineForTests } = await import(
   "../extensions/permission-engine"
 );
-const { createStubPermissionEngine } = await import(
-  "./helpers/permission-engine-stub"
-);
+const { createStubPermissionEngine } = await import("./helpers/permission-engine-stub");
 
 import type { AgentEvents } from "../types";
 import type { ExtensionManifestV2, ExtensionPermissions } from "../extensions/types";
@@ -236,7 +228,9 @@ interface FakeRegistry {
       meta?: Record<string, unknown>,
     ) => Promise<unknown>;
     setNotificationHandler: (fn: (n: unknown) => void) => void;
-    setRequestHandler: (fn: (req: Record<string, unknown>) => Promise<Record<string, unknown>>) => void;
+    setRequestHandler: (
+      fn: (req: Record<string, unknown>) => Promise<Record<string, unknown>>,
+    ) => void;
   }>;
   getManifest: (extId: string) => ExtensionManifestV2 | undefined;
   getGrantedPermissions: (extId: string) => ExtensionPermissions | undefined;
@@ -249,8 +243,7 @@ function makeFakeRegistry(p: TestProc): FakeRegistry {
   const askTool: RegisteredTool = {
     name: "ask_user_question",
     originalName: "ask_user_question",
-    description:
-      "Ask the user a question and wait for their answer. Use options when finite.",
+    description: "Ask the user a question and wait for their answer. Use options when finite.",
     inputSchema: {
       type: "object",
       properties: {
@@ -267,11 +260,7 @@ function makeFakeRegistry(p: TestProc): FakeRegistry {
     isRunning: true,
     setNotificationHandler: () => {},
     setRequestHandler: () => {},
-    async callTool(
-      name: string,
-      args: Record<string, unknown>,
-      meta?: Record<string, unknown>,
-    ) {
+    async callTool(name: string, args: Record<string, unknown>, meta?: Record<string, unknown>) {
       const id = ++nextCallId;
       const cursor = p.outbound.length;
       p.inbound({
@@ -304,15 +293,13 @@ function makeFakeRegistry(p: TestProc): FakeRegistry {
 
   return {
     getToolsForExtension: (extId: string) => (extId === EXT_ID ? [askTool] : []),
-    getRegisteredTool: (name: string) =>
-      name === "ask_user_question" ? askTool : undefined,
+    getRegisteredTool: (name: string) => (name === "ask_user_question" ? askTool : undefined),
     getProcess: async (extId: string) => {
       if (extId !== EXT_ID) throw new Error(`unknown extension: ${extId}`);
       return procWrapper;
     },
     getManifest: (extId: string) => (extId === EXT_ID ? MANIFEST : undefined),
-    getGrantedPermissions: (extId: string) =>
-      extId === EXT_ID ? GRANTED : undefined,
+    getGrantedPermissions: (extId: string) => (extId === EXT_ID ? GRANTED : undefined),
     getInstallPath: (extId: string) => (extId === EXT_ID ? "/tmp/ask-user-e2e" : undefined),
     getMcpClient: () => {
       throw new Error("not an MCP extension");
@@ -535,7 +522,6 @@ describe("ask-user e2e: wire → tool call → simulated POST → bus emit → s
       const agentTools = await wireTools(proc, CONV_ID, "run-text");
       const ask = agentTools.find((t) => t.name === "ask_user_question")!;
       const toolCallId = "tc-e2e-text-1";
-      
 
       const execPromise = ask.execute(toolCallId, { question: "What's your name?" });
       await new Promise((r) => setTimeout(r, 50));
@@ -557,12 +543,7 @@ describe("ask-user e2e: wire → tool call → simulated POST → bus emit → s
     const events: unknown[] = [];
     bus.on("ask-user:answer" as never, ((p: unknown) => events.push(p)) as never);
 
-    const post = simulatePostAnswer(
-      bus,
-      "tc-DOES-NOT-EXIST",
-      "stale",
-      USER_ID,
-    );
+    const post = simulatePostAnswer(bus, "tc-DOES-NOT-EXIST", "stale", USER_ID);
     expect(post.status).toBe("ok");
     expect(post.emitted).toBe(false);
     expect(events).toHaveLength(0);
@@ -601,7 +582,6 @@ describe("ask-user e2e: wire → tool call → simulated POST → bus emit → s
       const agentTools = await wireTools(proc, CONV_ID, "run-guard");
       const ask = agentTools.find((t) => t.name === "ask_user_question")!;
       const toolCallId = "tc-e2e-guard-1";
-      
 
       const execPromise = ask.execute(toolCallId, { question: "guard test" });
       await new Promise((r) => setTimeout(r, 50));
@@ -617,9 +597,7 @@ describe("ask-user e2e: wire → tool call → simulated POST → bus emit → s
         answer: "tampered",
       });
 
-      const sentinel = new Promise<"sentinel">((r) =>
-        setTimeout(() => r("sentinel"), 300),
-      );
+      const sentinel = new Promise<"sentinel">((r) => setTimeout(() => r("sentinel"), 300));
       const toolResolve = execPromise.then(() => "resolved" as const);
       const winner = await Promise.race([sentinel, toolResolve]);
       expect(winner).toBe("sentinel");
@@ -663,8 +641,6 @@ describe("ask-user e2e: wire → tool call → simulated POST → bus emit → s
 
       const toolCallIdA = "tc-conc-A";
       const toolCallIdB = "tc-conc-B";
-      
-      
 
       const execA = askA.execute(toolCallIdA, { question: "A?" });
       const execB = askB.execute(toolCallIdB, { question: "B?" });

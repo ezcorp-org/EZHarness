@@ -114,7 +114,7 @@ export function computePreviewCapabilities(
     // netns present but veth/CAP_NET_ADMIN missing — fall through to uid.
   }
   const netnsReason = !netns.available
-    ? netns.reason ?? "user+mount namespace unavailable"
+    ? (netns.reason ?? "user+mount namespace unavailable")
     : "veth / CAP_NET_ADMIN unavailable";
 
   // ── Tier 2: portable uid mode. ──
@@ -242,7 +242,10 @@ export function _resetPreviewNetnsForTests(): void {
  *
  * `gateway` defaults to the fixed bridge gateway 10.42.0.1.
  */
-export function buildIngressAllowRule(devPort: number, gateway: string = PREVIEW_BRIDGE_GATEWAY): string {
+export function buildIngressAllowRule(
+  devPort: number,
+  gateway: string = PREVIEW_BRIDGE_GATEWAY,
+): string {
   if (!Number.isInteger(devPort) || devPort <= 0 || devPort > 65535) {
     throw new Error(`buildIngressAllowRule: invalid devPort ${devPort}`);
   }

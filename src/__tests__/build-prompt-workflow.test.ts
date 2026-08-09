@@ -30,13 +30,16 @@ import type { WorkflowDefinition } from "../types";
 
 // ── Mock state (the OTHER expansion passes) ──────────────────────────
 
-let mockFeatures: Record<string, {
-  id: string;
-  projectId: string;
-  name: string;
-  description: string;
-  files: { relpath: string }[];
-}> = {};
+let mockFeatures: Record<
+  string,
+  {
+    id: string;
+    projectId: string;
+    name: string;
+    description: string;
+    files: { relpath: string }[];
+  }
+> = {};
 let mockLessons: Record<string, { id: string; title: string; body: string }> = {};
 
 mock.module("../db/queries/projects", () => ({
@@ -80,7 +83,9 @@ const executorCalls: string[] = [];
  * test can REPLACE the array (what `reloadWorkflows()` does) and prove
  * the thunk is re-read rather than snapshotted.
  */
-function registerCache(initial: WorkflowDefinition[]): { replace: (next: WorkflowDefinition[]) => void } {
+function registerCache(initial: WorkflowDefinition[]): {
+  replace: (next: WorkflowDefinition[]) => void;
+} {
   let current = initial;
   registerWorkflowRuntime({
     workflowExecutor: {
@@ -95,7 +100,11 @@ function registerCache(initial: WorkflowDefinition[]): { replace: (next: Workflo
     },
     getWorkflows: () => current,
   });
-  return { replace: (next) => { current = next; } };
+  return {
+    replace: (next) => {
+      current = next;
+    },
+  };
 }
 
 function wf(
@@ -170,7 +179,9 @@ describe("buildPromptInput — ![workflow:…] expansion", () => {
         runWorkflow: (async () => {}) as never,
         resumeWorkflow: (async () => {}) as never,
       },
-      getWorkflows: () => { throw new Error("cache exploded"); },
+      getWorkflows: () => {
+        throw new Error("cache exploded");
+      },
     });
 
     const result = await buildPromptInput("run ![workflow:deploy]", {});
@@ -203,9 +214,7 @@ describe("buildPromptInput — reads the workflow cache through the thunk", () =
 
 describe("buildPromptInput — workflow expansion per-turn cap", () => {
   test("10 ![workflow:…] tokens → exactly 5 notes; the rest silently dropped", async () => {
-    registerCache(
-      Array.from({ length: 10 }, (_, i) => wf(`w${i + 1}`, `desc ${i + 1}`)),
-    );
+    registerCache(Array.from({ length: 10 }, (_, i) => wf(`w${i + 1}`, `desc ${i + 1}`)));
 
     const message = Array.from({ length: 10 }, (_, i) => `![workflow:w${i + 1}]`).join(" ");
     const result = await buildPromptInput(message, {});

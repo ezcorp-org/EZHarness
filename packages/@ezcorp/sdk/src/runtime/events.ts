@@ -40,18 +40,15 @@ export function registerEventHandler<E extends SubscribableEvent>(
   event: E,
   handler: (payload: SubscribableEventMap[E]) => Promise<void> | void,
 ): void {
-  getChannel().onRequest(
-    `ezcorp/event/${event}`,
-    async (params: unknown) => {
-      await handler(params as SubscribableEventMap[E]);
-      // onRequest handlers are called for both id-bearing requests AND
-      // no-id notifications; only the former get a response written
-      // back. Return `undefined` so the id-bearing path gets an empty
-      // result (defensive — the host always sends notifications, but
-      // returning nothing is still correct).
-      return undefined;
-    },
-  );
+  getChannel().onRequest(`ezcorp/event/${event}`, async (params: unknown) => {
+    await handler(params as SubscribableEventMap[E]);
+    // onRequest handlers are called for both id-bearing requests AND
+    // no-id notifications; only the former get a response written
+    // back. Return `undefined` so the id-bearing path gets an empty
+    // result (defensive — the host always sends notifications, but
+    // returning nothing is still correct).
+    return undefined;
+  });
 }
 
 /**

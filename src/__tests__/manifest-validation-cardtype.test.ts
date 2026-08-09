@@ -70,9 +70,7 @@ describe("validateManifestV2 — cardType", () => {
   test("a non-string cardType is rejected", () => {
     const result = validateManifestV2(withTool({ cardType: 42 }));
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e) => e.includes("cardType must be a string"))).toBe(
-      true,
-    );
+    expect(result.errors.some((e) => e.includes("cardType must be a string"))).toBe(true);
   });
 
   test("the offending tool INDEX is reported for a multi-tool manifest", () => {

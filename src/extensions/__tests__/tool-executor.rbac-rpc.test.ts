@@ -34,10 +34,7 @@ mockDbConnection();
 import { sql } from "drizzle-orm";
 import { ToolExecutor } from "../tool-executor";
 import { createStubPermissionEngine } from "../../__tests__/helpers/permission-engine-stub";
-import {
-  _resetCallProvenanceForTests,
-  registerCallProvenance,
-} from "../call-provenance";
+import { _resetCallProvenanceForTests, registerCallProvenance } from "../call-provenance";
 import { upsertGrant } from "../../db/queries/extension-rbac";
 import { conversations, extensions, projects, users } from "../../db/schema";
 import type { ExtensionProcess } from "../subprocess";
@@ -382,10 +379,7 @@ describe("ToolExecutor · ezcorp/rbac-check reverse-RPC", () => {
     // member's grant is project-scoped — it must NOT cover the global context.
     const scoped = await executor.handlePiRbacCheck(
       EXT_ID,
-      rbacRequest(
-        mintToken(memberId, null),
-        WRITE_TICKETS,
-      ),
+      rbacRequest(mintToken(memberId, null), WRITE_TICKETS),
     );
     // (declaration missing on this manifest → use the declared one)
     expect(scoped.error?.code).toBe(-32602);

@@ -87,10 +87,7 @@ describe("cacheableResponse", () => {
     const data = { items: [1, 2, 3] };
     const req = makeRequest();
 
-    const [res, expectedEtag] = await Promise.all([
-      cacheableResponse(req, data),
-      etagFor(data),
-    ]);
+    const [res, expectedEtag] = await Promise.all([cacheableResponse(req, data), etagFor(data)]);
 
     expect(res.headers.get("ETag")).toBe(expectedEtag);
   });

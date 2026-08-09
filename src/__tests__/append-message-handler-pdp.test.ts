@@ -66,14 +66,8 @@ mock.module("../db/connection", () => ({
 
 const { handleAppendMessageRpc } = await import("../extensions/append-message-handler");
 const { getDb } = await import("../db/connection");
-const {
-  conversations,
-  projects,
-  conversationExtensions,
-  messages,
-  users,
-  extensions,
-} = await import("../db/schema");
+const { conversations, projects, conversationExtensions, messages, users, extensions } =
+  await import("../db/schema");
 const { eq } = await import("drizzle-orm");
 
 import type { JsonRpcRequest } from "../extensions/types";
@@ -240,7 +234,11 @@ describe("SEC-06 PDP wiring contract", () => {
     // Belt-and-suspenders: the never-persisted content string must
     // not appear in any row.
     expect(
-      afterRows.find((r: { id: string; content: unknown }) => typeof r.content === "string" && (r.content as string).includes("SHOULD NOT BE PERSISTED")),
+      afterRows.find(
+        (r: { id: string; content: unknown }) =>
+          typeof r.content === "string" &&
+          (r.content as string).includes("SHOULD NOT BE PERSISTED"),
+      ),
     ).toBeUndefined();
   });
 

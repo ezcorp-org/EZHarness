@@ -118,9 +118,7 @@ describe("parseSource", () => {
   });
 
   test("trailing @ with empty ref throws", () => {
-    expect(() => parseSource("github:user/repo@")).toThrow(
-      /Unrecognized source format/,
-    );
+    expect(() => parseSource("github:user/repo@")).toThrow(/Unrecognized source format/);
   });
 });
 
@@ -128,33 +126,25 @@ describe("parseSource", () => {
 
 describe("parseSource ref validation", () => {
   test("rejects ref with leading dash (option injection)", () => {
-    expect(() =>
-      parseSource("github:user/repo@--upload-pack=/tmp/evil"),
-    ).toThrow(/Invalid git ref/);
+    expect(() => parseSource("github:user/repo@--upload-pack=/tmp/evil")).toThrow(
+      /Invalid git ref/,
+    );
   });
 
   test("rejects ref with leading dash on ssh source", () => {
-    expect(() =>
-      parseSource("git@github.com:user/repo.git@--mirror"),
-    ).toThrow(/Invalid git ref/);
+    expect(() => parseSource("git@github.com:user/repo.git@--mirror")).toThrow(/Invalid git ref/);
   });
 
   test("rejects ref with shell metacharacters", () => {
-    expect(() => parseSource("github:user/repo@v1.0.0;rm -rf ~")).toThrow(
-      /Invalid git ref/,
-    );
-    expect(() => parseSource("github:user/repo@$(whoami)")).toThrow(
-      /Invalid git ref/,
-    );
-    expect(() => parseSource("github:user/repo@main branch")).toThrow(
-      /Invalid git ref/,
-    );
+    expect(() => parseSource("github:user/repo@v1.0.0;rm -rf ~")).toThrow(/Invalid git ref/);
+    expect(() => parseSource("github:user/repo@$(whoami)")).toThrow(/Invalid git ref/);
+    expect(() => parseSource("github:user/repo@main branch")).toThrow(/Invalid git ref/);
   });
 
   test("rejects option-shaped ref on https source", () => {
-    expect(() =>
-      parseSource("https://example.com/repo.git@--config=core.fsmonitor=x"),
-    ).toThrow(/Invalid git ref/);
+    expect(() => parseSource("https://example.com/repo.git@--config=core.fsmonitor=x")).toThrow(
+      /Invalid git ref/,
+    );
   });
 
   test("accepts valid tag, branch, slash-branch, and sha refs", () => {
@@ -173,8 +163,7 @@ describe("git operations", () => {
   const tempDirs: string[] = [];
 
   const env = { ...process.env };
-  const spawn = (cmd: string[], opts?: { cwd?: string }) =>
-    Bun.spawnSync(cmd, { ...opts, env });
+  const spawn = (cmd: string[], opts?: { cwd?: string }) => Bun.spawnSync(cmd, { ...opts, env });
 
   beforeAll(async () => {
     tempBase = await mkdtemp(join(tmpdir(), "git-ops-"));
@@ -191,14 +180,17 @@ describe("git operations", () => {
     spawn(["git", "config", "user.name", "Test"], { cwd: workDir });
 
     // Create an ezcorp.config.ts and commit
-    await Bun.write(join(workDir, "ezcorp.config.ts"), `export default ${JSON.stringify({
-      schemaVersion: 2,
-      name: "test-ext",
-      version: "1.0.0",
-      description: "Test",
-      author: { name: "Test" },
-      permissions: {},
-    })};\n`);
+    await Bun.write(
+      join(workDir, "ezcorp.config.ts"),
+      `export default ${JSON.stringify({
+        schemaVersion: 2,
+        name: "test-ext",
+        version: "1.0.0",
+        description: "Test",
+        author: { name: "Test" },
+        permissions: {},
+      })};\n`,
+    );
     spawn(["git", "add", "."], { cwd: workDir });
     spawn(["git", "commit", "-m", "initial"], { cwd: workDir });
     spawn(["git", "tag", "v1.0.0"], { cwd: workDir });
@@ -258,10 +250,7 @@ describe("git operations", () => {
 
   test("clone failure with bad URL", () => {
     const dest = join(tempBase, "clone-bad-url");
-    const result = clone(
-      "https://invalid-url-that-doesnt-exist.example.com/repo.git",
-      dest,
-    );
+    const result = clone("https://invalid-url-that-doesnt-exist.example.com/repo.git", dest);
     expect(result.ok).toBe(false);
     expect(result.stderr.length).toBeGreaterThan(0);
   });
@@ -284,9 +273,7 @@ describe("git operations", () => {
   });
 
   test("getCurrentRef throws for nonexistent dir", () => {
-    expect(() => getCurrentRef("/nonexistent-dir-xyz")).toThrow(
-      /Failed to get HEAD ref/,
-    );
+    expect(() => getCurrentRef("/nonexistent-dir-xyz")).toThrow(/Failed to get HEAD ref/);
   });
 
   test("gitExec respects cwd option", async () => {

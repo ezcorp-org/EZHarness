@@ -49,9 +49,7 @@ describe("extensionDataUrl — happy paths", () => {
 
   test("encodes URL meta-characters in path segments", () => {
     const url = extensionDataUrl("ext", "weird name?with#hash.html");
-    expect(url).toBe(
-      "/api/extensions/ext/data/weird%20name%3Fwith%23hash.html",
-    );
+    expect(url).toBe("/api/extensions/ext/data/weird%20name%3Fwith%23hash.html");
   });
 
   test("normalizes Windows-style backslashes to forward slashes", () => {
@@ -101,9 +99,7 @@ describe("extensionDataUrl — validation", () => {
   });
 
   test("rejects path traversal via ..", () => {
-    expect(() => extensionDataUrl("ext", "drafts/../../etc/passwd")).toThrow(
-      /segment forbidden/,
-    );
+    expect(() => extensionDataUrl("ext", "drafts/../../etc/passwd")).toThrow(/segment forbidden/);
   });
 
   test("rejects bare ..", () => {
@@ -165,9 +161,7 @@ describe("assertContentType", () => {
   });
 
   test("throws when path's extension is unknown", () => {
-    expect(() => assertContentType("file.xyz", "text/html")).toThrow(
-      /unknown extension/,
-    );
+    expect(() => assertContentType("file.xyz", "text/html")).toThrow(/unknown extension/);
   });
 
   test("throws when path is empty", () => {
@@ -175,9 +169,7 @@ describe("assertContentType", () => {
   });
 
   test("throws when expected is empty", () => {
-    expect(() => assertContentType("file.html", "")).toThrow(
-      /expected must be a non-empty/,
-    );
+    expect(() => assertContentType("file.html", "")).toThrow(/expected must be a non-empty/);
   });
 
   test("includes both actual and expected types in the error message", () => {

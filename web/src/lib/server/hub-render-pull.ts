@@ -127,13 +127,25 @@ function variantKey(scope?: PageRenderScope): string {
     ? scope.step
       ? `run:${scope.run}:step:${scope.step}`
       : `run:${scope.run}`
-    : scope?.project?.id ?? "";
+    : (scope?.project?.id ?? "");
   return scope?.view ? `${base}:view:${scope.view}` : base;
 }
 
 export type RenderExtensionPageResult =
-  | { notFound: true; error?: undefined; page?: undefined; renderedAt?: undefined; stale?: undefined }
-  | { notFound?: undefined; error: string; page?: undefined; renderedAt?: undefined; stale?: undefined }
+  | {
+      notFound: true;
+      error?: undefined;
+      page?: undefined;
+      renderedAt?: undefined;
+      stale?: undefined;
+    }
+  | {
+      notFound?: undefined;
+      error: string;
+      page?: undefined;
+      renderedAt?: undefined;
+      stale?: undefined;
+    }
   | {
       notFound?: undefined;
       error?: undefined;
@@ -163,10 +175,7 @@ export interface RenderPullDeps {
  *  race, expiry rejects WITHOUT killing the subprocess. */
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`page render timed out after ${ms}ms`)),
-      ms,
-    );
+    const timer = setTimeout(() => reject(new Error(`page render timed out after ${ms}ms`)), ms);
     promise.then(
       (value) => {
         clearTimeout(timer);
@@ -335,10 +344,7 @@ async function doPullAndCache(
 ): Promise<{ tree: HubPageTree } | { error: string }> {
   let response: JsonRpcResponse;
   try {
-    response = await withTimeout(
-      deps.callPage(extension, pageId, userId, scope),
-      deps.timeoutMs,
-    );
+    response = await withTimeout(deps.callPage(extension, pageId, userId, scope), deps.timeoutMs);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn("extension page render failed", { extension: extension.name, pageId, error: message });
@@ -401,9 +407,7 @@ export async function renderExtensionPage(
   const baseScope: PageRenderScope | undefined = perProject
     ? { ...(project ? { project } : { listProjects: true }), ...(runStepScope ?? {}) }
     : runStepScope;
-  const scope: PageRenderScope | undefined = view
-    ? { ...(baseScope ?? {}), view }
-    : baseScope;
+  const scope: PageRenderScope | undefined = view ? { ...(baseScope ?? {}), view } : baseScope;
   const variant = variantKey(scope);
 
   const cached = deps.cache.get(extension.id, pageId, variant);

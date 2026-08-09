@@ -61,10 +61,9 @@ describe("`when` — a false guard skips, it does not fail", () => {
     let ran = 0;
     const wfx = setup([makeAgent("a", () => ran++)]);
 
-    const run = await wfx.runWorkflow(
-      wf([{ name: "maybe", agent: "a", when: NEVER }]),
-      { go: "no" },
-    );
+    const run = await wfx.runWorkflow(wf([{ name: "maybe", agent: "a", when: NEVER }]), {
+      go: "no",
+    });
 
     // Both halves. A `gate` already produces "step did not proceed"; what
     // is new is that the run survives it.
@@ -77,10 +76,9 @@ describe("`when` — a false guard skips, it does not fail", () => {
     let ran = 0;
     const wfx = setup([makeAgent("a", () => ran++)]);
 
-    const run = await wfx.runWorkflow(
-      wf([{ name: "maybe", agent: "a", when: ALWAYS }]),
-      { go: "no" },
-    );
+    const run = await wfx.runWorkflow(wf([{ name: "maybe", agent: "a", when: ALWAYS }]), {
+      go: "no",
+    });
 
     expect(run.status).toBe("success");
     expect(stepNamed(run, "maybe")?.status).toBe("success");
@@ -89,10 +87,9 @@ describe("`when` — a false guard skips, it does not fail", () => {
 
   test("the skipped step carries a reason naming its own guard", async () => {
     const wfx = setup([makeAgent("a", () => {})]);
-    const run = await wfx.runWorkflow(
-      wf([{ name: "maybe", agent: "a", when: NEVER }]),
-      { go: "no" },
-    );
+    const run = await wfx.runWorkflow(wf([{ name: "maybe", agent: "a", when: NEVER }]), {
+      go: "no",
+    });
     // A trace showing "skipped" with no explanation is indistinguishable
     // from a step that was never reached.
     expect(stepNamed(run, "maybe")?.skippedReason).toContain('its "when" was not met');
@@ -329,8 +326,7 @@ describe("a skipped step's refs stay STRICT", () => {
 });
 
 describe("validateWorkflow — the skip/ref rule", () => {
-  const errorsFor = (steps: WorkflowStep[]): string[] =>
-    validateWorkflow(wf(steps));
+  const errorsFor = (steps: WorkflowStep[]): string[] => validateWorkflow(wf(steps));
 
   test("a reader of a skippable step without dependsOn is a DEFINITION-time error", () => {
     const errors = errorsFor([

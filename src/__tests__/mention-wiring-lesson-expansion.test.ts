@@ -188,10 +188,8 @@ describe("applyLessonExpansion — 8 KB total-expanded-chars cap", () => {
       huge: makeLesson("huge", 16 * 1024),
     };
     const fired: string[] = [];
-    const out = await applyLessonExpansion(
-      "%[lesson:huge]",
-      dictResolver(dict),
-      (id) => fired.push(id),
+    const out = await applyLessonExpansion("%[lesson:huge]", dictResolver(dict), (id) =>
+      fired.push(id),
     );
     expect(out).toBe("");
     expect(fired).toEqual([]);
@@ -204,11 +202,7 @@ describe("applyLessonExpansion — unknown / no-op cases", () => {
   test("unknown slug → empty string, no `onFired` call (silent no-op)", async () => {
     const { resolve, calls } = recordingResolver({});
     const fired: string[] = [];
-    const out = await applyLessonExpansion(
-      "%[lesson:nope]",
-      resolve,
-      (id) => fired.push(id),
-    );
+    const out = await applyLessonExpansion("%[lesson:nope]", resolve, (id) => fired.push(id));
     expect(out).toBe("");
     expect(calls).toEqual(["nope"]); // resolver WAS asked
     expect(fired).toEqual([]); // but `onFired` was NOT called
@@ -234,10 +228,8 @@ describe("applyLessonExpansion — unknown / no-op cases", () => {
       x: { title: "x", body: "x", lessonId: "id-x" },
     });
     const fired: string[] = [];
-    const out = await applyLessonExpansion(
-      "just plain text — no sigils here",
-      resolve,
-      (id) => fired.push(id),
+    const out = await applyLessonExpansion("just plain text — no sigils here", resolve, (id) =>
+      fired.push(id),
     );
     expect(out).toBe("");
     expect(calls).toEqual([]);
@@ -292,10 +284,8 @@ describe("applyLessonExpansion — onFired invocation", () => {
       c: { title: "C", body: "body C", lessonId: "id-c" },
     };
     const fired: string[] = [];
-    await applyLessonExpansion(
-      "%[lesson:a] %[lesson:b] %[lesson:c]",
-      dictResolver(dict),
-      (id) => fired.push(id),
+    await applyLessonExpansion("%[lesson:a] %[lesson:b] %[lesson:c]", dictResolver(dict), (id) =>
+      fired.push(id),
     );
     expect(fired).toEqual(["id-a", "id-b", "id-c"]);
   });
@@ -338,10 +328,7 @@ describe("applyLessonExpansion — source order", () => {
       a: { title: "A", body: "body-a", lessonId: "id-a" },
       b: { title: "B", body: "body-b", lessonId: "id-b" },
     };
-    const out = await applyLessonExpansion(
-      "%[lesson:a] %[lesson:b]",
-      dictResolver(dict),
-    );
+    const out = await applyLessonExpansion("%[lesson:a] %[lesson:b]", dictResolver(dict));
     expect(out).toBe("**Lesson: A**\nbody-a\n\n**Lesson: B**\nbody-b");
   });
 });

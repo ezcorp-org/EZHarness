@@ -101,10 +101,7 @@ export function checkRole(locals: AuthLocals, role: "admin"): AuthUser | Respons
   try {
     const user = requireRole(locals, role);
     if (!hasRequiredScope(locals.apiKeyScopes, "admin")) {
-      return Response.json(
-        { error: "Insufficient scope", required: "admin" },
-        { status: 403 },
-      );
+      return Response.json({ error: "Insufficient scope", required: "admin" }, { status: 403 });
     }
     return user;
   } catch (e) {
@@ -175,10 +172,7 @@ export function requireSessionAuth(locals: AuthLocals): AuthUser | Response {
   }
   const method = locals.authMethod;
   if (method === undefined || !SESSION_AUTH_METHODS.has(method)) {
-    return Response.json(
-      { error: "Interactive session required" },
-      { status: 403 },
-    );
+    return Response.json({ error: "Interactive session required" }, { status: 403 });
   }
   return user;
 }

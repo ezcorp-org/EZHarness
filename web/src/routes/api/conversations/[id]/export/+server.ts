@@ -6,7 +6,10 @@ import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
 
 function sanitizeFilename(name: string): string {
-  return name.replace(/[^a-zA-Z0-9_\- ]/g, "").replace(/\s+/g, "-").slice(0, 100);
+  return name
+    .replace(/[^a-zA-Z0-9_\- ]/g, "")
+    .replace(/\s+/g, "-")
+    .slice(0, 100);
 }
 
 export const GET: RequestHandler = async ({ params, url, locals }) => {
@@ -28,9 +31,7 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
     msgs = await convQueries.getConversationPath(leafMessageId, conversationId);
   } else {
     const leaf = await convQueries.getLatestLeaf(conversationId);
-    msgs = leaf
-      ? await convQueries.getConversationPath(leaf.id, conversationId)
-      : [];
+    msgs = leaf ? await convQueries.getConversationPath(leaf.id, conversationId) : [];
   }
 
   const date = new Date().toISOString().slice(0, 10);

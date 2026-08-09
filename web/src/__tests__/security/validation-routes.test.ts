@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { z, } from "zod";
+import { z } from "zod";
 import { validationError } from "../../lib/server/security/validation";
 import { loginSchema } from "../../routes/api/auth/login/schema";
 import { createMessageSchema } from "../../routes/api/conversations/[id]/messages/schema";
@@ -81,7 +81,10 @@ describe("createMessageSchema", () => {
 
 describe("createAgentConfigSchema", () => {
   test("accepts valid minimal input", () => {
-    const result = createAgentConfigSchema.safeParse({ name: "test-agent", prompt: "You are helpful" });
+    const result = createAgentConfigSchema.safeParse({
+      name: "test-agent",
+      prompt: "You are helpful",
+    });
     expect(result.success).toBe(true);
   });
 
@@ -96,8 +99,12 @@ describe("createAgentConfigSchema", () => {
   });
 
   test("validates temperature range", () => {
-    expect(createAgentConfigSchema.safeParse({ name: "a", prompt: "b", temperature: 3 }).success).toBe(false);
-    expect(createAgentConfigSchema.safeParse({ name: "a", prompt: "b", temperature: 0.7 }).success).toBe(true);
+    expect(
+      createAgentConfigSchema.safeParse({ name: "a", prompt: "b", temperature: 3 }).success,
+    ).toBe(false);
+    expect(
+      createAgentConfigSchema.safeParse({ name: "a", prompt: "b", temperature: 0.7 }).success,
+    ).toBe(true);
   });
 });
 

@@ -23,28 +23,28 @@ import { render, screen } from "@testing-library/svelte";
 import SelectedPill from "../SelectedPill.svelte";
 
 describe("SelectedPill chipId -> data-chip-id pass-through (GAP-57-C)", () => {
-	test("renders data-chip-id=<value> when chipId prop is supplied", () => {
-		render(SelectedPill, {
-			label: "Extension A",
-			onremove: vi.fn(),
-			chipId: "ext-a",
-		});
-		const pill = screen.getByTestId("selected-pill");
-		expect(pill.getAttribute("data-chip-id")).toBe("ext-a");
-	});
+  test("renders data-chip-id=<value> when chipId prop is supplied", () => {
+    render(SelectedPill, {
+      label: "Extension A",
+      onremove: vi.fn(),
+      chipId: "ext-a",
+    });
+    const pill = screen.getByTestId("selected-pill");
+    expect(pill.getAttribute("data-chip-id")).toBe("ext-a");
+  });
 
-	test("omits data-chip-id attribute when chipId prop is undefined", () => {
-		render(SelectedPill, {
-			label: "Extension B",
-			onremove: vi.fn(),
-			// chipId intentionally omitted
-		});
-		const pill = screen.getByTestId("selected-pill");
-		// Svelte 5 omits attributes bound to `undefined` from the DOM
-		// (verified at SelectedPill.svelte:47 — `data-chip-id={chipId}`).
-		// hasAttribute is the precise check: a literal `undefined` string
-		// value would also fail toBeNull on getAttribute, so hasAttribute
-		// is the stronger assertion.
-		expect(pill.hasAttribute("data-chip-id")).toBe(false);
-	});
+  test("omits data-chip-id attribute when chipId prop is undefined", () => {
+    render(SelectedPill, {
+      label: "Extension B",
+      onremove: vi.fn(),
+      // chipId intentionally omitted
+    });
+    const pill = screen.getByTestId("selected-pill");
+    // Svelte 5 omits attributes bound to `undefined` from the DOM
+    // (verified at SelectedPill.svelte:47 — `data-chip-id={chipId}`).
+    // hasAttribute is the precise check: a literal `undefined` string
+    // value would also fail toBeNull on getAttribute, so hasAttribute
+    // is the stronger assertion.
+    expect(pill.hasAttribute("data-chip-id")).toBe(false);
+  });
 });

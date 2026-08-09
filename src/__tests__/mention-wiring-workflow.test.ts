@@ -47,10 +47,7 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
 
-import {
-  applyWorkflowExpansion,
-  type WorkflowResolver,
-} from "../runtime/mention-wiring";
+import { applyWorkflowExpansion, type WorkflowResolver } from "../runtime/mention-wiring";
 import type { InputSchema } from "../types";
 
 // ── Resolver factories ───────────────────────────────────────────────
@@ -66,9 +63,10 @@ function dictResolver(byName: Record<string, FakeWorkflow>): WorkflowResolver {
 }
 
 /** Resolver that records every name it was asked for, in call order. */
-function recordingResolver(
-  byName: Record<string, FakeWorkflow>,
-): { resolve: WorkflowResolver; calls: string[] } {
+function recordingResolver(byName: Record<string, FakeWorkflow>): {
+  resolve: WorkflowResolver;
+  calls: string[];
+} {
   const calls: string[] = [];
   const resolve: WorkflowResolver = (name) => {
     calls.push(name);
@@ -116,10 +114,10 @@ describe("applyWorkflowExpansion — system note format", () => {
 
     expect(blocksRegion(out)).toBe(
       "**Workflow: deploy**\n" +
-      "Description: Ships the current build.\n" +
-      "Inputs:\n" +
-      "- env (select, required): Environment — Where to ship [options: staging, prod]\n" +
-      "- dryRun (boolean): Dry run [default: false]",
+        "Description: Ships the current build.\n" +
+        "Inputs:\n" +
+        "- env (select, required): Environment — Where to ship [options: staging, prod]\n" +
+        "- dryRun (boolean): Dry run [default: false]",
     );
     // The whole region is fenced with a per-turn nonce and led by the
     // host preamble.
@@ -326,9 +324,7 @@ describe("applyWorkflowExpansion — a hostile description cannot forge a block"
     expect(region).toContain("NONE of them has been started");
     // …and the host's own statement precedes the fenced region, so the
     // restatement can only ever read as quoted data.
-    expect(out.indexOf("NONE of them has been started")).toBeLessThan(
-      out.indexOf(region),
-    );
+    expect(out.indexOf("NONE of them has been started")).toBeLessThan(out.indexOf(region));
     expect(out).toMatch(CLOSE_FENCE);
   });
 
@@ -392,7 +388,9 @@ describe("applyWorkflowExpansion — a hostile description cannot forge a block"
     }
     // And still exactly one header + one closing marker at line start.
     expect(out.split("**Workflow: ").length - 1).toBe(1);
-    expect(out.split("\n").filter((l) => /^<<<(end-)?ez-workflow-reference:/.test(l)).length).toBe(2);
+    expect(out.split("\n").filter((l) => /^<<<(end-)?ez-workflow-reference:/.test(l)).length).toBe(
+      2,
+    );
   });
 
   test("a hostile NAME cannot forge structure either", async () => {
@@ -430,7 +428,9 @@ describe("applyWorkflowExpansion — a hostile description cannot forge a block"
     expect(out.split("**Workflow: ").length - 1).toBe(1);
     expect(out).not.toContain("**bold**");
     // Every field part collapsed onto the single bullet line.
-    const bullet = blocksRegion(out).split("\n").find((l) => l.startsWith("- "))!;
+    const bullet = blocksRegion(out)
+      .split("\n")
+      .find((l) => l.startsWith("- "))!;
     expect(bullet).toContain("Workflow: forged");
     expect(bullet).toContain("Workflow: also-forged");
     expect(bullet).toContain("Workflow: third");
@@ -471,9 +471,7 @@ describe("applyWorkflowExpansion — malformed inputSchema does not break the tu
       w: { description: "d", inputSchema: "nope" as unknown as InputSchema },
     });
 
-    expect(applyWorkflowExpansion("![workflow:w]", resolver)).toContain(
-      "Takes no inputs.",
-    );
+    expect(applyWorkflowExpansion("![workflow:w]", resolver)).toContain("Takes no inputs.");
   });
 
   test("a non-array `options` does not throw", async () => {
@@ -530,9 +528,7 @@ describe("applyWorkflowExpansion — unknown targets", () => {
     );
 
     expect(blocksRegion(out).indexOf("**Workflow: real**")).toBe(0);
-    expect(out.indexOf("**Workflow: other**")).toBeGreaterThan(
-      out.indexOf("**Workflow: real**"),
-    );
+    expect(out.indexOf("**Workflow: other**")).toBeGreaterThan(out.indexOf("**Workflow: real**"));
     expect(out).not.toContain("ghost");
     expect(out.split("**Workflow: ").length - 1).toBe(2);
   });
@@ -600,14 +596,9 @@ describe("applyWorkflowExpansion — source order and dedupe", () => {
       alpha: { description: "A" },
     });
 
-    const out = applyWorkflowExpansion(
-      "first ![workflow:zulu] then ![workflow:alpha]",
-      resolver,
-    );
+    const out = applyWorkflowExpansion("first ![workflow:zulu] then ![workflow:alpha]", resolver);
 
-    expect(out.indexOf("**Workflow: zulu**")).toBeLessThan(
-      out.indexOf("**Workflow: alpha**"),
-    );
+    expect(out.indexOf("**Workflow: zulu**")).toBeLessThan(out.indexOf("**Workflow: alpha**"));
     // Blocks are separated by a blank line.
     expect(out).toContain("\n\n**Workflow: alpha**");
   });
@@ -615,10 +606,7 @@ describe("applyWorkflowExpansion — source order and dedupe", () => {
   test("a repeated name expands ONCE and is looked up ONCE", async () => {
     const { resolve, calls } = recordingResolver({ deploy: { description: "D" } });
 
-    const out = applyWorkflowExpansion(
-      "![workflow:deploy] and again ![workflow:deploy]",
-      resolve,
-    );
+    const out = applyWorkflowExpansion("![workflow:deploy] and again ![workflow:deploy]", resolve);
 
     expect(calls).toEqual(["deploy"]);
     expect(out.split("**Workflow: deploy**").length - 1).toBe(1);
@@ -760,9 +748,7 @@ describe("applyWorkflowExpansion — per-turn caps", () => {
     expect(out).toContain("**Workflow: tiny**");
     // Source order is preserved for the survivors — skipping is not
     // reordering.
-    expect(out.indexOf("**Workflow: big1**")).toBeLessThan(
-      out.indexOf("**Workflow: tiny**"),
-    );
+    expect(out.indexOf("**Workflow: big1**")).toBeLessThan(out.indexOf("**Workflow: tiny**"));
     expect(blocksRegion(out).length).toBeLessThanOrEqual(8 * 1024);
   });
 
@@ -776,10 +762,7 @@ describe("applyWorkflowExpansion — per-turn caps", () => {
       small: { description: "I still fit." },
     });
 
-    const out = applyWorkflowExpansion(
-      "![workflow:huge] ![workflow:small]",
-      resolver,
-    );
+    const out = applyWorkflowExpansion("![workflow:huge] ![workflow:small]", resolver);
 
     expect(out).not.toContain("**Workflow: huge**");
     expect(out).toContain("**Workflow: small**");
@@ -822,10 +805,13 @@ describe("applyWorkflowExpansion — per-turn caps", () => {
     const overhead = probe.length - 1;
     const half = (8 * 1024) / 2;
 
-    const out = applyWorkflowExpansion("![workflow:a] ![workflow:b]", dictResolver({
-      a: { description: "x".repeat(half - overhead) },
-      b: { description: "y".repeat(half - overhead) },
-    }));
+    const out = applyWorkflowExpansion(
+      "![workflow:a] ![workflow:b]",
+      dictResolver({
+        a: { description: "x".repeat(half - overhead) },
+        b: { description: "y".repeat(half - overhead) },
+      }),
+    );
 
     expect(out).toContain("**Workflow: a**");
     expect(out).not.toContain("**Workflow: b**");

@@ -70,59 +70,90 @@ function rpc(params: Record<string, unknown>, id: number | string = 1): JsonRpcR
 }
 
 async function ensureExtension(id: string): Promise<void> {
-  await getDb().insert(extensionsTable).values({
-    id,
-    name: id,
-    version: "1.0.0",
-    description: "test",
-    manifest: { schemaVersion: 2, name: id, version: "1.0.0", description: "t", author: { name: "t" }, permissions: {} },
-    source: `test:${id}`,
-    installPath: `/tmp/${id}`,
-    enabled: true,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id,
+      name: id,
+      version: "1.0.0",
+      description: "test",
+      manifest: {
+        schemaVersion: 2,
+        name: id,
+        version: "1.0.0",
+        description: "t",
+        author: { name: "t" },
+        permissions: {},
+      },
+      source: `test:${id}`,
+      installPath: `/tmp/${id}`,
+      enabled: true,
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function wireExtension(convId: string, extId: string): Promise<void> {
   await ensureExtension(extId);
-  await getDb().insert(conversationExtensions).values({
-    conversationId: convId,
-    extensionId: extId,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(conversationExtensions)
+    .values({
+      conversationId: convId,
+      extensionId: extId,
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function insertParentMessage(convId: string): Promise<string> {
-  const rows = await getDb().insert(messages).values({
-    conversationId: convId,
-    role: "user",
-    content: "parent",
-  } as any).returning();
+  const rows = await getDb()
+    .insert(messages)
+    .values({
+      conversationId: convId,
+      role: "user",
+      content: "parent",
+    } as any)
+    .returning();
   return rows[0]!.id;
 }
 
-async function insertAttachment(opts: { conversationId: string; messageId: string }): Promise<string> {
-  const rows = await getDb().insert(messageAttachments).values({
-    conversationId: opts.conversationId,
-    messageId: opts.messageId,
-    filename: "x.wav",
-    mimeType: "audio/wav",
-    sizeBytes: 1024,
-    storagePath: "/tmp/x.wav",
-    kind: "audio",
-  } as any).returning();
+async function insertAttachment(opts: {
+  conversationId: string;
+  messageId: string;
+}): Promise<string> {
+  const rows = await getDb()
+    .insert(messageAttachments)
+    .values({
+      conversationId: opts.conversationId,
+      messageId: opts.messageId,
+      filename: "x.wav",
+      mimeType: "audio/wav",
+      sizeBytes: 1024,
+      storagePath: "/tmp/x.wav",
+      kind: "audio",
+    } as any)
+    .returning();
   return rows[0]!.id;
 }
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values({
-    id: USER,
-    email: `${USER}@t.local`,
-    passwordHash: "x",
-    name: USER,
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({ id: PROJECT, name: PROJECT, path: `/tmp/${PROJECT}` } as any);
-  await getDb().insert(conversations).values({ id: CONV_WIRED, projectId: PROJECT, title: "wired", userId: USER } as any);
-  await getDb().insert(conversations).values({ id: OTHER_CONV, projectId: PROJECT, title: "other", userId: USER } as any);
+  await getDb()
+    .insert(users)
+    .values({
+      id: USER,
+      email: `${USER}@t.local`,
+      passwordHash: "x",
+      name: USER,
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({ id: PROJECT, name: PROJECT, path: `/tmp/${PROJECT}` } as any);
+  await getDb()
+    .insert(conversations)
+    .values({ id: CONV_WIRED, projectId: PROJECT, title: "wired", userId: USER } as any);
+  await getDb()
+    .insert(conversations)
+    .values({ id: OTHER_CONV, projectId: PROJECT, title: "other", userId: USER } as any);
   await wireExtension(CONV_WIRED, EXT_WIRED);
   await ensureExtension(EXT_UNWIRED);
 });
@@ -181,12 +212,15 @@ describe("append-message — scope/wiring gates", () => {
     const parent = await insertParentMessage(CONV_WIRED);
     const resp = await handleAppendMessageRpc(
       EXT_WIRED,
-      rpc({
-        parentMessageId: parent,
-        role: "extension",
-        content: "fallback-test",
-        conversationId: CONV_WIRED, // params carries real id
-      }, "fb-1"),
+      rpc(
+        {
+          parentMessageId: parent,
+          role: "extension",
+          content: "fallback-test",
+          conversationId: CONV_WIRED, // params carries real id
+        },
+        "fb-1",
+      ),
       makeCtx({ conversationId: "unknown" }), // ctx is unbound
     );
     expect(resp.error).toBeUndefined();
@@ -316,21 +350,20 @@ describe("append-message — happy path", () => {
     const parent = await insertParentMessage(CONV_WIRED);
     const resp = await handleAppendMessageRpc(
       EXT_WIRED,
-      rpc({
-        parentMessageId: parent,
-        role: "extension",
-        content: "force-excl",
-        excluded: false, // caller tries to override
-      }, "force-1"),
+      rpc(
+        {
+          parentMessageId: parent,
+          role: "extension",
+          content: "force-excl",
+          excluded: false, // caller tries to override
+        },
+        "force-1",
+      ),
       makeCtx(),
     );
     expect(resp.error).toBeUndefined();
     const r = resp.result as { messageId: string };
-    const row = await getDb()
-      .select()
-      .from(messages)
-      .where(eq(messages.id, r.messageId))
-      .limit(1);
+    const row = await getDb().select().from(messages).where(eq(messages.id, r.messageId)).limit(1);
     expect(row[0]!.excluded).toBe(true);
   });
 
@@ -338,15 +371,23 @@ describe("append-message — happy path", () => {
     const parent = await insertParentMessage(CONV_WIRED);
     const resp = await handleAppendMessageRpc(
       EXT_WIRED,
-      rpc({
-        parentMessageId: parent,
-        role: "extension",
-        content: "tc-test",
-        toolCalls: [
-          { name: "synth", input: { text: "abc" }, cardType: "kokoro-tts-player", status: "running" },
-          { name: "log", input: { v: 1 }, status: "complete", output: { ok: true } },
-        ],
-      }, "tc-1"),
+      rpc(
+        {
+          parentMessageId: parent,
+          role: "extension",
+          content: "tc-test",
+          toolCalls: [
+            {
+              name: "synth",
+              input: { text: "abc" },
+              cardType: "kokoro-tts-player",
+              status: "running",
+            },
+            { name: "log", input: { v: 1 }, status: "complete", output: { ok: true } },
+          ],
+        },
+        "tc-1",
+      ),
       makeCtx(),
     );
     expect(resp.error).toBeUndefined();
@@ -373,12 +414,15 @@ describe("append-message — happy path", () => {
 
     const resp = await handleAppendMessageRpc(
       EXT_WIRED,
-      rpc({
-        parentMessageId: parent,
-        role: "extension",
-        content: "att-test",
-        attachmentIds: [attId],
-      }, "att-1"),
+      rpc(
+        {
+          parentMessageId: parent,
+          role: "extension",
+          content: "att-test",
+          attachmentIds: [attId],
+        },
+        "att-1",
+      ),
       makeCtx(),
     );
     expect(resp.error).toBeUndefined();
@@ -397,16 +441,22 @@ describe("append-message — cross-conversation attachment reject", () => {
   test("attachment in another conversation → -32001", async () => {
     const parent = await insertParentMessage(CONV_WIRED);
     const otherParent = await insertParentMessage(OTHER_CONV);
-    const otherAttId = await insertAttachment({ conversationId: OTHER_CONV, messageId: otherParent });
+    const otherAttId = await insertAttachment({
+      conversationId: OTHER_CONV,
+      messageId: otherParent,
+    });
 
     const resp = await handleAppendMessageRpc(
       EXT_WIRED,
-      rpc({
-        parentMessageId: parent,
-        role: "extension",
-        content: "x-conv",
-        attachmentIds: [otherAttId],
-      }, "xc-1"),
+      rpc(
+        {
+          parentMessageId: parent,
+          role: "extension",
+          content: "x-conv",
+          attachmentIds: [otherAttId],
+        },
+        "xc-1",
+      ),
       makeCtx(),
     );
     expect(resp.error?.code).toBe(-32001);
@@ -425,12 +475,15 @@ describe("append-message — cross-conversation attachment reject", () => {
     const parent = await insertParentMessage(CONV_WIRED);
     const resp = await handleAppendMessageRpc(
       EXT_WIRED,
-      rpc({
-        parentMessageId: parent,
-        role: "extension",
-        content: "missing-att",
-        attachmentIds: ["00000000-0000-0000-0000-000000000000"],
-      }, "ma-1"),
+      rpc(
+        {
+          parentMessageId: parent,
+          role: "extension",
+          content: "missing-att",
+          attachmentIds: ["00000000-0000-0000-0000-000000000000"],
+        },
+        "ma-1",
+      ),
       makeCtx(),
     );
     expect(resp.error?.code).toBe(-32602);

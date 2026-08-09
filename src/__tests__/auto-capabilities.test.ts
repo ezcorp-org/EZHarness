@@ -71,10 +71,7 @@ describe("intersectCapabilities", () => {
   });
 
   test("an empty accept list on one candidate empties the intersection", () => {
-    const merged = intersectCapabilities([
-      caps(),
-      caps({ kinds: [], acceptedMimeTypes: [] }),
-    ]);
+    const merged = intersectCapabilities([caps(), caps({ kinds: [], acceptedMimeTypes: [] })]);
     expect(merged?.kinds).toEqual([]);
     expect(merged?.acceptedMimeTypes).toEqual([]);
   });

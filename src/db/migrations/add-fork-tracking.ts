@@ -18,7 +18,13 @@ import { sql } from "drizzle-orm";
 import type { MigrationDb } from "./types";
 
 export async function up(db: MigrationDb): Promise<void> {
-  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS forked_from_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`);
-  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS forked_from_message_id TEXT`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_forked_from ON conversations(forked_from_conversation_id)`);
+  await db.execute(
+    sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS forked_from_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`,
+  );
+  await db.execute(
+    sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS forked_from_message_id TEXT`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conversations_forked_from ON conversations(forked_from_conversation_id)`,
+  );
 }

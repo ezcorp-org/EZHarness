@@ -9,11 +9,11 @@
  * passing "no reconnect storm" test while actually covering nothing.
  */
 export const storeStub = $state({
-	connected: false,
-	streamingToolCalls: {} as Record<string, unknown[]>,
+  connected: false,
+  streamingToolCalls: {} as Record<string, unknown[]>,
 });
 
 export function resetStoreStub(): void {
-	storeStub.connected = false;
-	storeStub.streamingToolCalls = {};
+  storeStub.connected = false;
+  storeStub.streamingToolCalls = {};
 }

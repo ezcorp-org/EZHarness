@@ -27,7 +27,9 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   if (!ownership) return errorJson(404, "Not found");
 
   if (!(await isSessionHistoryProducerEnabled())) {
-    return errorJson(409, "Session history producer is disabled", { code: "session_producer_disabled" });
+    return errorJson(409, "Session history producer is disabled", {
+      code: "session_producer_disabled",
+    });
   }
 
   return json(await computeSessionTree(params.id));

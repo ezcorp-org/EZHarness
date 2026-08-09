@@ -1,23 +1,31 @@
-import { eq, and, sql, } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { getDb } from "../connection";
-import { agentShares, } from "../schema";
+import { agentShares } from "../schema";
 import type { DbAgentConfig } from "./agent-configs";
 
-export async function shareAgent(agentId: string, teamId: string, sharedBy: string, permission: "read" | "edit" = "read"): Promise<void> {
+export async function shareAgent(
+  agentId: string,
+  teamId: string,
+  sharedBy: string,
+  permission: "read" | "edit" = "read",
+): Promise<void> {
   await getDb().execute(
     sql`INSERT INTO agent_shares (id, agent_id, team_id, shared_by, permission)
         VALUES (${crypto.randomUUID()}, ${agentId}, ${teamId}, ${sharedBy}, ${permission})
-        ON CONFLICT (agent_id, team_id) DO UPDATE SET permission = ${permission}`
+        ON CONFLICT (agent_id, team_id) DO UPDATE SET permission = ${permission}`,
   );
 }
 
 export async function shareAgentWithUser(
-  agentId: string, targetUserId: string, sharedBy: string, permission: "read" | "edit" = "read"
+  agentId: string,
+  targetUserId: string,
+  sharedBy: string,
+  permission: "read" | "edit" = "read",
 ): Promise<void> {
   await getDb().execute(
     sql`INSERT INTO agent_shares (id, agent_id, user_id, shared_by, permission)
         VALUES (${crypto.randomUUID()}, ${agentId}, ${targetUserId}, ${sharedBy}, ${permission})
-        ON CONFLICT (agent_id, user_id) WHERE user_id IS NOT NULL DO UPDATE SET permission = ${permission}`
+        ON CONFLICT (agent_id, user_id) WHERE user_id IS NOT NULL DO UPDATE SET permission = ${permission}`,
   );
 }
 
@@ -29,7 +37,10 @@ export async function unshareAgent(agentId: string, teamId: string): Promise<boo
   return rows.length > 0;
 }
 
-export async function unshareAgentFromUser(agentId: string, targetUserId: string): Promise<boolean> {
+export async function unshareAgentFromUser(
+  agentId: string,
+  targetUserId: string,
+): Promise<boolean> {
   const rows = await getDb()
     .delete(agentShares)
     .where(and(eq(agentShares.agentId, agentId), eq(agentShares.userId, targetUserId)))
@@ -60,10 +71,10 @@ export async function getAgentShares(agentId: string): Promise<AgentShareInfo[]>
         LEFT JOIN teams t ON t.id = ash.team_id
         LEFT JOIN users recipient ON recipient.id = ash.user_id
         WHERE ash.agent_id = ${agentId}
-        ORDER BY ash.created_at ASC`
+        ORDER BY ash.created_at ASC`,
   );
   // biome-ignore lint/suspicious/noExplicitAny: raw `db.execute(sql`…`)` rows that are SPREAD wholesale into the result — naming a row type here would duplicate the SELECT list rather than check it, and the two drivers disagree on the container shape.
-  return (rows.rows as any[]).map(r => ({
+  return (rows.rows as any[]).map((r) => ({
     ...r,
     createdAt: r.createdAt instanceof Date ? r.createdAt : new Date(r.createdAt),
   }));
@@ -101,7 +112,7 @@ export async function getSharedAgentsForUser(userId: string): Promise<SharedAgen
             (ash.team_id IS NOT NULL AND tm.user_id IS NOT NULL)
             OR (ash.user_id = ${userId})
           )
-        ORDER BY ac.id, ash.created_at ASC`
+        ORDER BY ac.id, ash.created_at ASC`,
   );
 
   // biome-ignore lint/suspicious/noExplicitAny: raw `db.execute(sql`…`)` rows spread wholesale into the result (same as listAgentShares above) — a named row type would restate the SELECT list without checking it.

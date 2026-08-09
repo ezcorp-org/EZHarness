@@ -16,7 +16,13 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgents } from "../runtime/loader";
 import { startTestServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings, restoreFetch } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+  restoreFetch,
+} from "./helpers/test-pglite";
 import { createProject } from "../db/queries/projects";
 import {
   createAgentConfig,
@@ -93,7 +99,8 @@ describe("AGNT-01: NL Agent Creation", () => {
     const agentJson = JSON.stringify({
       name: "test-agent",
       description: "A test agent",
-      prompt: "You are a test agent.\n\n# Identity\nTest helper\n\n# Personality & Tone\nFriendly\n\n# Domain Expertise\nTesting\n\n# Constraints\nNone",
+      prompt:
+        "You are a test agent.\n\n# Identity\nTest helper\n\n# Personality & Tone\nFriendly\n\n# Domain Expertise\nTesting\n\n# Constraints\nNone",
       provider: "anthropic",
       model: null,
       temperature: null,
@@ -127,7 +134,8 @@ describe("AGNT-01: NL Agent Creation", () => {
     const nlConfig = {
       name: "nl-created-agent",
       description: "Created via NL path",
-      prompt: "# Identity\nNL agent\n\n# Personality & Tone\nHelpful\n\n# Domain Expertise\nGeneral\n\n# Constraints\nNone",
+      prompt:
+        "# Identity\nNL agent\n\n# Personality & Tone\nHelpful\n\n# Domain Expertise\nGeneral\n\n# Constraints\nNone",
       provider: "anthropic" as const,
       category: "general",
     };
@@ -268,9 +276,20 @@ describe("AGNT-03: Schema Parity", () => {
     });
 
     const requiredFields = [
-      "id", "name", "description", "prompt", "capabilities",
-      "inputSchema", "outputFormat", "provider", "model",
-      "temperature", "maxTokens", "category", "createdAt", "updatedAt",
+      "id",
+      "name",
+      "description",
+      "prompt",
+      "capabilities",
+      "inputSchema",
+      "outputFormat",
+      "provider",
+      "model",
+      "temperature",
+      "maxTokens",
+      "category",
+      "createdAt",
+      "updatedAt",
     ];
 
     for (const field of requiredFields) {

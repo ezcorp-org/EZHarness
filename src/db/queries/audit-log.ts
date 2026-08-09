@@ -62,7 +62,7 @@ export async function insertAuditEntry(
     await persistError({
       level: "warn",
       message: "audit-write-failed: audit_log",
-      stack: err instanceof Error ? err.stack ?? null : null,
+      stack: err instanceof Error ? (err.stack ?? null) : null,
       metadata: {
         userId,
         action,
@@ -88,14 +88,12 @@ export async function listAuditLog(opts?: {
   if (opts?.userId) conditions.push(eq(auditLog.userId, opts.userId));
 
   const query = getDb().select().from(auditLog);
-  const filtered = conditions.length > 0
-    ? query.where(conditions.length === 1 ? conditions[0]! : and(...conditions))
-    : query;
+  const filtered =
+    conditions.length > 0
+      ? query.where(conditions.length === 1 ? conditions[0]! : and(...conditions))
+      : query;
 
-  return filtered
-    .orderBy(desc(auditLog.createdAt))
-    .limit(limit)
-    .offset(offset);
+  return filtered.orderBy(desc(auditLog.createdAt)).limit(limit).offset(offset);
 }
 
 /**
@@ -115,10 +113,12 @@ export async function listAuditForExtension(
   return getDb()
     .select()
     .from(auditLog)
-    .where(and(
-      eq(auditLog.target, extensionId),
-      or(like(auditLog.action, "ext:%"), like(auditLog.action, "extension:%"))!,
-    ))
+    .where(
+      and(
+        eq(auditLog.target, extensionId),
+        or(like(auditLog.action, "ext:%"), like(auditLog.action, "extension:%"))!,
+      ),
+    )
     .orderBy(desc(auditLog.createdAt))
     .limit(limit)
     .offset(offset);

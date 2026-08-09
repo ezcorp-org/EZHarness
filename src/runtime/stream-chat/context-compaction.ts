@@ -123,16 +123,10 @@ const TRUNCATION_MARK = "…[truncated to fit context]…";
 
 /** LLM-visible messages — mirrors the `convertToLlm` filter in build-pi-agent. */
 function isLlmMessage(m: AgentMessage): m is Message {
-  return (
-    "role" in m &&
-    (m.role === "user" || m.role === "assistant" || m.role === "toolResult")
-  );
+  return "role" in m && (m.role === "user" || m.role === "assistant" || m.role === "toolResult");
 }
 
-export function estimateMessageTokens(
-  m: AgentMessage,
-  cfg: CompactionConfig = DEFAULTS,
-): number {
+export function estimateMessageTokens(m: AgentMessage, cfg: CompactionConfig = DEFAULTS): number {
   if (!isLlmMessage(m)) return 0;
   let chars = 0;
   let images = 0;
@@ -167,17 +161,10 @@ export function estimateMessageTokens(
     }
   }
 
-  return (
-    PER_MESSAGE_OVERHEAD +
-    Math.ceil(chars / cfg.charsPerToken) +
-    images * cfg.imageTokens
-  );
+  return PER_MESSAGE_OVERHEAD + Math.ceil(chars / cfg.charsPerToken) + images * cfg.imageTokens;
 }
 
-export function estimateTokens(
-  messages: AgentMessage[],
-  cfg: CompactionConfig = DEFAULTS,
-): number {
+export function estimateTokens(messages: AgentMessage[], cfg: CompactionConfig = DEFAULTS): number {
   let sum = 0;
   for (const m of messages) sum += estimateMessageTokens(m, cfg);
   return sum;
@@ -525,10 +512,7 @@ function truncateOversizedToolResults(
 class TrimStrategy implements CompactionStrategy {
   readonly name = "trim";
 
-  async compact(
-    messages: AgentMessage[],
-    ctx: CompactionContext,
-  ): Promise<CompactionResult> {
+  async compact(messages: AgentMessage[], ctx: CompactionContext): Promise<CompactionResult> {
     const noop: CompactionResult = {
       messages,
       droppedCount: 0,
@@ -548,10 +532,7 @@ class TrimStrategy implements CompactionStrategy {
 
     // Reserve the marker's own token cost so [anchor + marker + tail] — not
     // just the survivors — fits the budget. The message count bounds its digits.
-    const markerCost = estimateMessageTokens(
-      makeMarker(base.length, ctx.budget),
-      ctx.cfg,
-    );
+    const markerCost = estimateMessageTokens(makeMarker(base.length, ctx.budget), ctx.cfg);
 
     // ── 1. Stable oldest ANCHOR ───────────────────────────────────────
     // Cap the anchor by BOTH the configured fraction AND the room left for
@@ -575,10 +556,7 @@ class TrimStrategy implements CompactionStrategy {
     const anchor = anchorBlocks.flat();
 
     // ── 2. Recent WINDOW (newest droppable blocks) + the active turn ──
-    const tailBudget = Math.max(
-      1,
-      ctx.budget - markerCost - ctx.estimateTokens(anchor),
-    );
+    const tailBudget = Math.max(1, ctx.budget - markerCost - ctx.estimateTokens(anchor));
     let tail: AgentMessage[] = [...active];
     let t = body.length - 1;
     while (t >= a) {
@@ -593,10 +571,7 @@ class TrimStrategy implements CompactionStrategy {
     const droppedTokens = ctx.estimateTokens(droppedMsgs);
 
     // Nothing to drop and it already fits → identity no-op.
-    if (
-      droppedMsgs.length === 0 &&
-      ctx.estimateTokens([...anchor, ...tail]) <= ctx.budget
-    ) {
+    if (droppedMsgs.length === 0 && ctx.estimateTokens([...anchor, ...tail]) <= ctx.budget) {
       return noop;
     }
 
@@ -604,8 +579,7 @@ class TrimStrategy implements CompactionStrategy {
     // something). With an empty anchor (`cacheAnchorFraction: 0` or a
     // single oversized oldest block) it naturally lands at the front —
     // the cache can't be helped there anyway.
-    const marker =
-      droppedMsgs.length > 0 ? makeMarker(droppedMsgs.length, ctx.budget) : undefined;
+    const marker = droppedMsgs.length > 0 ? makeMarker(droppedMsgs.length, ctx.budget) : undefined;
     const assemble = (tailPart: AgentMessage[]): AgentMessage[] =>
       marker ? [...anchor, marker, ...tailPart] : [...anchor, ...tailPart];
 

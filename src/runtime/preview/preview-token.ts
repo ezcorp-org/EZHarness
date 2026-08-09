@@ -83,7 +83,9 @@ export function mintOneTimeCode(claims: PreviewTokenClaims): string {
   sweepExpiredCodes(now);
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  const code = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+  const code = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
   codeStore.set(code, {
     previewId: claims.previewId,
     userId: claims.userId,

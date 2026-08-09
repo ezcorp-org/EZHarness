@@ -249,10 +249,7 @@ describe("chooseTurnTier", () => {
 
   test("short tool-less turn on a fresh thread → fast", () => {
     expect(
-      chooseTurnTier(
-        { userMessage: "hi", options: {}, convExtensionTools: null },
-        resolveNone,
-      ),
+      chooseTurnTier({ userMessage: "hi", options: {}, convExtensionTools: null }, resolveNone),
     ).toBe("fast");
   });
 
@@ -499,7 +496,10 @@ describe("classifyTier — legacy input produces the PRE-WS5 tier exactly", () =
     [{ promptChars: 10, toolCount: 1 }, "balanced"],
     [{ promptChars: 5, hasComplexTools: true }, "powerful"],
     [{ promptChars: 1_000_000, tierHint: "fast" }, "fast"],
-    [{ promptChars: 10, declaredTier: "powerful", tierHint: "fast", hasComplexTools: false }, "powerful"],
+    [
+      { promptChars: 10, declaredTier: "powerful", tierHint: "fast", hasComplexTools: false },
+      "powerful",
+    ],
   ];
 
   for (const [input, expected] of legacy) {
@@ -529,14 +529,22 @@ describe("contentChars", () => {
     expect(contentChars("hello")).toBe(5);
   });
   test("sums the text parts of a parts array", () => {
-    expect(contentChars([{ type: "text", text: "abc" }, { type: "text", text: "de" }])).toBe(5);
+    expect(
+      contentChars([
+        { type: "text", text: "abc" },
+        { type: "text", text: "de" },
+      ]),
+    ).toBe(5);
   });
   test("non-text parts count 0 (their cost is billed via attachmentCount)", () => {
     expect(contentChars([{ type: "image", data: "AAAABBBBCCCC", mimeType: "image/png" }])).toBe(0);
   });
   test("mixed parts count only the text", () => {
     expect(
-      contentChars([{ type: "image", data: "AAAA" }, { type: "text", text: "hi" }]),
+      contentChars([
+        { type: "image", data: "AAAA" },
+        { type: "text", text: "hi" },
+      ]),
     ).toBe(2);
   });
   test("tolerates null / non-array / non-string payloads", () => {

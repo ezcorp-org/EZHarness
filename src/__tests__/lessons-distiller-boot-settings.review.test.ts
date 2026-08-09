@@ -44,10 +44,9 @@ mock.module("../db/queries/extension-settings", () => ({
 }));
 
 const { handlePiInvoke } = await import("../extensions/tool-executor/invoke");
-const {
-  registerFireCallProvenance,
-  _resetCallProvenanceForTests,
-} = await import("../extensions/call-provenance");
+const { registerFireCallProvenance, _resetCallProvenanceForTests } = await import(
+  "../extensions/call-provenance"
+);
 
 afterAll(() => restoreModuleMocks());
 
@@ -99,11 +98,7 @@ function fireToken(onBehalfOf: string | null) {
   });
 }
 
-function getMySettings(
-  host: Parameters<typeof handlePiInvoke>[0],
-  id: number,
-  ezCallId?: string,
-) {
+function getMySettings(host: Parameters<typeof handlePiInvoke>[0], id: number, ezCallId?: string) {
   return handlePiInvoke(host, EXT_ID, {
     jsonrpc: "2.0",
     id,

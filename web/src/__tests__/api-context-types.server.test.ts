@@ -46,7 +46,13 @@ beforeEach(() => {
     { id: "feature", label: "Feature", description: "A capability.", sortOrder: 1, source: "seed" },
     { id: "idea", label: "Idea", description: "A proposal.", sortOrder: 2, source: "seed" },
     // An LLM-proposed auto type must flow through the projection too.
-    { id: "design-review", label: "Design Review", description: "Auto-detected: Design Review", sortOrder: 0, source: "auto" },
+    {
+      id: "design-review",
+      label: "Design Review",
+      description: "Auto-detected: Design Review",
+      sortOrder: 0,
+      source: "auto",
+    },
   ];
 });
 
@@ -66,9 +72,21 @@ describe("GET /api/context-types", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
     expect(body.types).toEqual([
-      { id: "feature", label: "Feature", description: "A capability.", sortOrder: 1, source: "seed" },
+      {
+        id: "feature",
+        label: "Feature",
+        description: "A capability.",
+        sortOrder: 1,
+        source: "seed",
+      },
       { id: "idea", label: "Idea", description: "A proposal.", sortOrder: 2, source: "seed" },
-      { id: "design-review", label: "Design Review", description: "Auto-detected: Design Review", sortOrder: 0, source: "auto" },
+      {
+        id: "design-review",
+        label: "Design Review",
+        description: "Auto-detected: Design Review",
+        sortOrder: 0,
+        source: "auto",
+      },
     ]);
   });
 });

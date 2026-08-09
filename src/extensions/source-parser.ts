@@ -100,9 +100,7 @@ export function parseSource(source: string): ParsedSource {
   if (httpsMatch) {
     const [, cloneUrl, ref] = httpsMatch;
     // Strip protocol and .git suffix for display
-    const displayName = cloneUrl!
-      .replace(/^https?:\/\//, "")
-      .replace(/\.git$/, "");
+    const displayName = cloneUrl!.replace(/^https?:\/\//, "").replace(/\.git$/, "");
     return {
       type: "https",
       cloneUrl: cloneUrl!,

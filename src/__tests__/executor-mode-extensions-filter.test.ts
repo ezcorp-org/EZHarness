@@ -116,15 +116,20 @@ mock.module("../memory/injection", () => ({
 // `getToolsForExtension(extId)` returns when the mode-extensions code
 // path resolves `mode.extensionIds`. Tests reset these in
 // beforeEach so isolation is per-test.
-const agentToolsMap = new Map<string, Array<{ name: string; description: string; inputSchema: any }>>();
-const extensionToolsMap = new Map<string, Array<{ name: string; description: string; inputSchema: any }>>();
+const agentToolsMap = new Map<
+  string,
+  Array<{ name: string; description: string; inputSchema: any }>
+>();
+const extensionToolsMap = new Map<
+  string,
+  Array<{ name: string; description: string; inputSchema: any }>
+>();
 const getToolsForExtensionCalls: string[] = [];
 
 mock.module("../extensions/registry", () => ({
   ExtensionRegistry: {
     getInstance: () => ({
-      getToolsForAgent: async (agentConfigId: string) =>
-        agentToolsMap.get(agentConfigId) ?? [],
+      getToolsForAgent: async (agentConfigId: string) => agentToolsMap.get(agentConfigId) ?? [],
       getToolsForExtension: (extId: string) => {
         getToolsForExtensionCalls.push(extId);
         return extensionToolsMap.get(extId) ?? [];
@@ -200,7 +205,10 @@ const TOOL_DEF = (name: string) => ({
 
 beforeAll(async () => {
   await setupTestDb();
-  const project = await createProject({ name: "Mode-Ext Filter Test", path: "/tmp/mode-ext-filter" });
+  const project = await createProject({
+    name: "Mode-Ext Filter Test",
+    path: "/tmp/mode-ext-filter",
+  });
   projectId = project.id;
 
   const conv = await createConversation(projectId);
@@ -248,10 +256,7 @@ describe("executor mode.extensionIds → allowlist filter", () => {
       TOOL_DEF("ext-x__tool_b"),
       TOOL_DEF("ext-y__tool_c"),
     ]);
-    extensionToolsMap.set("ext-attached", [
-      TOOL_DEF("ext-x__tool_a"),
-      TOOL_DEF("ext-x__tool_b"),
-    ]);
+    extensionToolsMap.set("ext-attached", [TOOL_DEF("ext-x__tool_a"), TOOL_DEF("ext-x__tool_b")]);
 
     const mode = await createMode({
       name: "Allowlist Mode",
@@ -352,10 +357,7 @@ describe("executor mode.extensionIds → allowlist filter", () => {
     // stripped. Our stub agent tools have no builtinDef entry, so under
     // read-only ALL of them get stripped (only orchestration tools
     // would survive, and we stubbed those out for this suite).
-    agentToolsMap.set(agentConfigId, [
-      TOOL_DEF("read_a"),
-      TOOL_DEF("write_b"),
-    ]);
+    agentToolsMap.set(agentConfigId, [TOOL_DEF("read_a"), TOOL_DEF("write_b")]);
     extensionToolsMap.set("ext-noop", [TOOL_DEF("read_a")]);
 
     const mode = await createMode({
@@ -419,9 +421,7 @@ describe("executor mode.extensionIds → allowlist filter", () => {
       TOOL_DEF("write_y"),
       TOOL_DEF("write_z"),
     ]);
-    extensionToolsMap.set("ext-write-allowed", [
-      TOOL_DEF("write_y"),
-    ]);
+    extensionToolsMap.set("ext-write-allowed", [TOOL_DEF("write_y")]);
 
     const mode = await createMode({
       name: "Supersede Mode",
@@ -549,13 +549,20 @@ describe("executor mode.extensionIds → allowlist filter", () => {
     // name), while the registry exposes RegisteredTool.name as namespaced
     // and RegisteredTool.originalName as the original. The filter must
     // honor a subset expressed in original names.
-    agentToolsMap.set(agentConfigId, [
-      TOOL_DEF("myext__alpha"),
-      TOOL_DEF("myext__beta"),
-    ]);
+    agentToolsMap.set(agentConfigId, [TOOL_DEF("myext__alpha"), TOOL_DEF("myext__beta")]);
     extensionToolsMap.set("ext-orig", [
-      { name: "myext__alpha", originalName: "alpha", description: "a", inputSchema: { type: "object", properties: {}, required: [] } },
-      { name: "myext__beta", originalName: "beta", description: "b", inputSchema: { type: "object", properties: {}, required: [] } },
+      {
+        name: "myext__alpha",
+        originalName: "alpha",
+        description: "a",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
+      {
+        name: "myext__beta",
+        originalName: "beta",
+        description: "b",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
     ] as any);
 
     const mode = await createMode({
@@ -698,7 +705,11 @@ describe("executor conversation.extensionTools narrows the mode allowlist", () =
 
     const convId = await convWith({ "ext-conv": ["ext-x__tool_a"] });
     const { executor } = createExecutor();
-    await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
+    await executor.streamChat(convId, "do something", {
+      projectId,
+      agentConfigId,
+      modeId: mode.id,
+    });
 
     const names = nameSet(capturedAgentOpts.initialState.tools);
     expect(names.has("ext-x__tool_a")).toBe(true);
@@ -722,7 +733,11 @@ describe("executor conversation.extensionTools narrows the mode allowlist", () =
     // Only narrows ext-1; ext-2 is absent from the conv map → unchanged.
     const convId = await convWith({ "ext-1": ["nonexistent"] });
     const { executor } = createExecutor();
-    await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
+    await executor.streamChat(convId, "do something", {
+      projectId,
+      agentConfigId,
+      modeId: mode.id,
+    });
 
     const names = nameSet(capturedAgentOpts.initialState.tools);
     // ext-1's only tool isn't in the conv subset → removed.
@@ -747,7 +762,11 @@ describe("executor conversation.extensionTools narrows the mode allowlist", () =
 
     const convId = await convWith({ "ext-z": [] });
     const { executor } = createExecutor();
-    await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
+    await executor.streamChat(convId, "do something", {
+      projectId,
+      agentConfigId,
+      modeId: mode.id,
+    });
 
     const names = nameSet(capturedAgentOpts.initialState.tools);
     expect(names.has("z__a")).toBe(false);
@@ -770,7 +789,11 @@ describe("executor conversation.extensionTools narrows the mode allowlist", () =
     // Conv tries to "select" w__b — but the mode never allowed it.
     const convId = await convWith({ "ext-w": ["w__b"] });
     const { executor } = createExecutor();
-    await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
+    await executor.streamChat(convId, "do something", {
+      projectId,
+      agentConfigId,
+      modeId: mode.id,
+    });
 
     const names = nameSet(capturedAgentOpts.initialState.tools);
     // w__a was mode-allowed but the conv subset (w__b) excludes it → removed.
@@ -782,8 +805,18 @@ describe("executor conversation.extensionTools narrows the mode allowlist", () =
   test("conv subset matches the original (unnamespaced) tool name", async () => {
     agentToolsMap.set(agentConfigId, [TOOL_DEF("conv__alpha"), TOOL_DEF("conv__beta")]);
     extensionToolsMap.set("ext-cn", [
-      { name: "conv__alpha", originalName: "alpha", description: "a", inputSchema: { type: "object", properties: {}, required: [] } },
-      { name: "conv__beta", originalName: "beta", description: "b", inputSchema: { type: "object", properties: {}, required: [] } },
+      {
+        name: "conv__alpha",
+        originalName: "alpha",
+        description: "a",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
+      {
+        name: "conv__beta",
+        originalName: "beta",
+        description: "b",
+        inputSchema: { type: "object", properties: {}, required: [] },
+      },
     ] as any);
 
     const mode = await createMode({
@@ -795,7 +828,11 @@ describe("executor conversation.extensionTools narrows the mode allowlist", () =
 
     const convId = await convWith({ "ext-cn": ["alpha"] });
     const { executor } = createExecutor();
-    await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
+    await executor.streamChat(convId, "do something", {
+      projectId,
+      agentConfigId,
+      modeId: mode.id,
+    });
 
     const names = nameSet(capturedAgentOpts.initialState.tools);
     expect(names.has("conv__alpha")).toBe(true);
@@ -815,7 +852,11 @@ describe("executor conversation.extensionTools narrows the mode allowlist", () =
 
     const convId = await convWith(null);
     const { executor } = createExecutor();
-    await executor.streamChat(convId, "do something", { projectId, agentConfigId, modeId: mode.id });
+    await executor.streamChat(convId, "do something", {
+      projectId,
+      agentConfigId,
+      modeId: mode.id,
+    });
 
     const names = nameSet(capturedAgentOpts.initialState.tools);
     expect(names.has("n__a")).toBe(true);
@@ -845,10 +886,7 @@ describe("executor: no mode — conversation.extensionTools narrows loaded tools
       TOOL_DEF("ext-y__tool_c"),
     ]);
     // The registry knows ext-x's two tools; the conversation keeps only tool_a.
-    extensionToolsMap.set("ext-x-id", [
-      TOOL_DEF("ext-x__tool_a"),
-      TOOL_DEF("ext-x__tool_b"),
-    ]);
+    extensionToolsMap.set("ext-x-id", [TOOL_DEF("ext-x__tool_a"), TOOL_DEF("ext-x__tool_b")]);
 
     const convId = await convWith({ "ext-x-id": ["ext-x__tool_a"] });
     const { executor } = createExecutor();
@@ -873,27 +911,24 @@ describe("executor: no mode — conversation.extensionTools narrows loaded tools
   });
 });
 
-  test("master toggle OFF ({ext: []}): ALL of that extension's tools are stripped", async () => {
-    agentToolsMap.set(agentConfigId, [
-      TOOL_DEF("ext-x__tool_a"),
-      TOOL_DEF("ext-x__tool_b"),
-      TOOL_DEF("ext-y__tool_c"),
-    ]);
-    extensionToolsMap.set("ext-x-id", [
-      TOOL_DEF("ext-x__tool_a"),
-      TOOL_DEF("ext-x__tool_b"),
-    ]);
+test("master toggle OFF ({ext: []}): ALL of that extension's tools are stripped", async () => {
+  agentToolsMap.set(agentConfigId, [
+    TOOL_DEF("ext-x__tool_a"),
+    TOOL_DEF("ext-x__tool_b"),
+    TOOL_DEF("ext-y__tool_c"),
+  ]);
+  extensionToolsMap.set("ext-x-id", [TOOL_DEF("ext-x__tool_a"), TOOL_DEF("ext-x__tool_b")]);
 
-    const conv = await createConversation(projectId);
-    await updateConversation(conv.id, { extensionTools: { "ext-x-id": [] } });
-    const { executor } = createExecutor();
-    await executor.streamChat(conv.id, "do something", { projectId, agentConfigId });
+  const conv = await createConversation(projectId);
+  await updateConversation(conv.id, { extensionTools: { "ext-x-id": [] } });
+  const { executor } = createExecutor();
+  await executor.streamChat(conv.id, "do something", { projectId, agentConfigId });
 
-    const names = nameSet(capturedAgentOpts.initialState.tools);
-    expect(names.has("ext-x__tool_a")).toBe(false);
-    expect(names.has("ext-x__tool_b")).toBe(false);
-    expect(names.has("ext-y__tool_c")).toBe(true); // other extensions untouched
-  });
+  const names = nameSet(capturedAgentOpts.initialState.tools);
+  expect(names.has("ext-x__tool_a")).toBe(false);
+  expect(names.has("ext-x__tool_b")).toBe(false);
+  expect(names.has("ext-y__tool_c")).toBe(true); // other extensions untouched
+});
 
 // ── Orchestration-tool toggle (ask-user) ─────────────────────────────────
 //
@@ -922,7 +957,11 @@ describe("executor: explicit conv toggle strips an orchestration tool", () => {
     const convA = await createConversation(projectId);
     {
       const { executor } = createExecutor();
-      await executor.streamChat(convA.id, "do something", { projectId, agentConfigId, modeId: mode.id });
+      await executor.streamChat(convA.id, "do something", {
+        projectId,
+        agentConfigId,
+        modeId: mode.id,
+      });
       const names = nameSet(capturedAgentOpts.initialState.tools);
       expect(names.has("ext-x__tool_a")).toBe(true);
       expect(names.has("ask-user__ask_user_question")).toBe(true);
@@ -933,7 +972,11 @@ describe("executor: explicit conv toggle strips an orchestration tool", () => {
     await updateConversation(convB.id, { extensionTools: { "ext-askuser": [] } });
     {
       const { executor } = createExecutor();
-      await executor.streamChat(convB.id, "do something", { projectId, agentConfigId, modeId: mode.id });
+      await executor.streamChat(convB.id, "do something", {
+        projectId,
+        agentConfigId,
+        modeId: mode.id,
+      });
       const names = nameSet(capturedAgentOpts.initialState.tools);
       expect(names.has("ext-x__tool_a")).toBe(true);
       expect(names.has("ask-user__ask_user_question")).toBe(false);

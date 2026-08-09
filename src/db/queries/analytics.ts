@@ -310,7 +310,9 @@ export async function getToolUsageByTool(days = 30): Promise<ToolUsageByTool[]> 
       toolName: toolCalls.toolName,
       extensionId: toolCalls.extensionId,
       count: count(toolCalls.id).as("count"),
-      successCount: sql<number>`SUM(CASE WHEN ${toolCalls.success} THEN 1 ELSE 0 END)`.as("success_count"),
+      successCount: sql<number>`SUM(CASE WHEN ${toolCalls.success} THEN 1 ELSE 0 END)`.as(
+        "success_count",
+      ),
     })
     .from(toolCalls)
     .where(sinceDays(days))
@@ -339,7 +341,9 @@ export async function getToolUsageByAgent(days = 30): Promise<ToolUsageByAgent[]
       agentName: agentConfigs.name,
       toolName: toolCalls.toolName,
       count: count(toolCalls.id).as("count"),
-      successCount: sql<number>`SUM(CASE WHEN ${toolCalls.success} THEN 1 ELSE 0 END)`.as("success_count"),
+      successCount: sql<number>`SUM(CASE WHEN ${toolCalls.success} THEN 1 ELSE 0 END)`.as(
+        "success_count",
+      ),
     })
     .from(toolCalls)
     .leftJoin(agentConfigs, eq(toolCalls.agentConfigId, agentConfigs.id))
@@ -371,7 +375,9 @@ export async function getToolUsageByUser(days = 30): Promise<ToolUsageByUser[]> 
       userEmail: users.email,
       toolName: toolCalls.toolName,
       count: count(toolCalls.id).as("count"),
-      successCount: sql<number>`SUM(CASE WHEN ${toolCalls.success} THEN 1 ELSE 0 END)`.as("success_count"),
+      successCount: sql<number>`SUM(CASE WHEN ${toolCalls.success} THEN 1 ELSE 0 END)`.as(
+        "success_count",
+      ),
     })
     .from(toolCalls)
     .leftJoin(users, eq(toolCalls.userId, users.id))
@@ -403,7 +409,9 @@ export async function getToolUsageByModel(days = 30): Promise<ToolUsageByModel[]
       provider: toolCalls.provider,
       toolName: toolCalls.toolName,
       count: count(toolCalls.id).as("count"),
-      successCount: sql<number>`SUM(CASE WHEN ${toolCalls.success} THEN 1 ELSE 0 END)`.as("success_count"),
+      successCount: sql<number>`SUM(CASE WHEN ${toolCalls.success} THEN 1 ELSE 0 END)`.as(
+        "success_count",
+      ),
     })
     .from(toolCalls)
     .where(and(sinceDays(days), isNotNull(toolCalls.model)))
@@ -771,25 +779,27 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
     ORDER BY conversation_id, turn_index
     LIMIT ${ROUTING_SAMPLE_CAP}
   `);
-  const switchSamples: RoutingModelSwitch[] = (switchRes.rows as Record<string, unknown>[]).map((r) => {
-    const fromProvider = String(r.prev_provider ?? "unknown");
-    const fromModel = String(r.prev_model);
-    const toProvider = String(r.req_provider ?? "unknown");
-    const toModel = String(r.req_model);
-    const fromTier = tierForModelId(fromProvider, fromModel);
-    const toTier = tierForModelId(toProvider, toModel);
-    return {
-      conversationId: String(r.conversation_id),
-      turnIndex: aggNum(r.turn_index),
-      fromProvider,
-      fromModel,
-      fromTier,
-      toProvider,
-      toModel,
-      toTier,
-      kind: switchKind(fromTier, toTier),
-    };
-  });
+  const switchSamples: RoutingModelSwitch[] = (switchRes.rows as Record<string, unknown>[]).map(
+    (r) => {
+      const fromProvider = String(r.prev_provider ?? "unknown");
+      const fromModel = String(r.prev_model);
+      const toProvider = String(r.req_provider ?? "unknown");
+      const toModel = String(r.req_model);
+      const fromTier = tierForModelId(fromProvider, fromModel);
+      const toTier = tierForModelId(toProvider, toModel);
+      return {
+        conversationId: String(r.conversation_id),
+        turnIndex: aggNum(r.turn_index),
+        fromProvider,
+        fromModel,
+        fromTier,
+        toProvider,
+        toModel,
+        toTier,
+        kind: switchKind(fromTier, toTier),
+      };
+    },
+  );
   // The kind tallies come from the sample list, so they describe exactly the
   // switches shown. `total` above is the uncapped count; when it exceeds the
   // cap the tallies are a floor, not a contradiction.
@@ -854,12 +864,14 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
     ORDER BY g.sibling_count DESC, g.parent_message_id
     LIMIT ${ROUTING_SAMPLE_CAP}
   `);
-  const retrySamples: RoutingRetryGroup[] = (retryRes.rows as Record<string, unknown>[]).map((r) => ({
-    conversationId: String(r.conversation_id),
-    parentMessageId: String(r.parent_message_id),
-    siblingCount: aggNum(r.sibling_count),
-    continuedThroughMessageId: r.continued_id == null ? null : String(r.continued_id),
-  }));
+  const retrySamples: RoutingRetryGroup[] = (retryRes.rows as Record<string, unknown>[]).map(
+    (r) => ({
+      conversationId: String(r.conversation_id),
+      parentMessageId: String(r.parent_message_id),
+      siblingCount: aggNum(r.sibling_count),
+      continuedThroughMessageId: r.continued_id == null ? null : String(r.continued_id),
+    }),
+  );
 
   // ── Priced spend per provider+model+provenance ──
   // Deliberately NOT capped in SQL. Every USD figure below is summed from these
@@ -904,8 +916,7 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
     const provider = String(row.provider ?? "unknown");
     const model = String(row.model ?? "unknown");
     const raw = String(row.provenance ?? "legacy");
-    const provenance: RoutingProvenance =
-      raw === "routed" || raw === "pinned" ? raw : "legacy";
+    const provenance: RoutingProvenance = raw === "routed" || raw === "pinned" ? raw : "legacy";
     const tokens = {
       input: aggNum(row.input),
       output: aggNum(row.output),
@@ -991,8 +1002,7 @@ export async function getRoutingStats(days = 30): Promise<RoutingStats> {
       unpricedTurns,
       unpricedTokens,
       conversations,
-      usdPerConversation:
-        conversations > 0 && pricedTurns > 0 ? totalUsd / conversations : null,
+      usdPerConversation: conversations > 0 && pricedTurns > 0 ? totalUsd / conversations : null,
     },
   };
 }

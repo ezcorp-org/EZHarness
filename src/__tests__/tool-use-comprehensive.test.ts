@@ -18,7 +18,14 @@ function stubAssistantMessage(overrides: Record<string, unknown> = {}) {
     api: "anthropic-messages",
     provider: "anthropic",
     model: "test",
-    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
     stopReason: "stop",
     timestamp: Date.now(),
     ...overrides,
@@ -41,12 +48,27 @@ afterAll(() => restoreModuleMocks());
 function createMockRegistry(knownTools: Record<string, string> = { read_file: "ext-123" }) {
   return {
     getToolExtension: (name: string) => knownTools[name] ?? null,
-    getRegisteredTool: (name: string) => knownTools[name] ? { name, originalName: name, extensionId: knownTools[name], description: "mock", inputSchema: {} } : null,
+    getRegisteredTool: (name: string) =>
+      knownTools[name]
+        ? {
+            name,
+            originalName: name,
+            extensionId: knownTools[name],
+            description: "mock",
+            inputSchema: {},
+          }
+        : null,
     // Non-mcp manifest so executeToolCall takes the subprocess path.
     getManifest: () => ({ kind: "local" as const }),
-    getMcpClient: () => { throw new Error("not an mcp ext"); },
+    getMcpClient: () => {
+      throw new Error("not an mcp ext");
+    },
     getProcess: () => ({
-      callTool: async (_name: string, _args: Record<string, unknown>, _meta?: Record<string, unknown>) => ({
+      callTool: async (
+        _name: string,
+        _args: Record<string, unknown>,
+        _meta?: Record<string, unknown>,
+      ) => ({
         content: [{ type: "text" as const, text: "result" }],
         isError: false,
       }),
@@ -61,9 +83,20 @@ function createMockRegistry(knownTools: Record<string, string> = { read_file: "e
 function createFailingRegistry() {
   return {
     getToolExtension: (name: string) => (name === "fail_tool" ? "ext-fail" : null),
-    getRegisteredTool: (name: string) => name === "fail_tool" ? { name, originalName: name, extensionId: "ext-fail", description: "mock", inputSchema: {} } : null,
+    getRegisteredTool: (name: string) =>
+      name === "fail_tool"
+        ? {
+            name,
+            originalName: name,
+            extensionId: "ext-fail",
+            description: "mock",
+            inputSchema: {},
+          }
+        : null,
     getManifest: () => ({ kind: "local" as const }),
-    getMcpClient: () => { throw new Error("not an mcp ext"); },
+    getMcpClient: () => {
+      throw new Error("not an mcp ext");
+    },
     getProcess: () => ({
       callTool: async () => {
         throw new Error("subprocess crashed");
@@ -94,13 +127,16 @@ describe("ToolExecutor", () => {
   test("PDP deny throws PermissionDeniedError", async () => {
     const executor = new ToolExecutor(createMockRegistry(), createStubPermissionEngine("deny-all"));
 
-    await expect(
-      executor.executeToolCall("read_file", {}, "conv-1", "msg-1"),
-    ).rejects.toThrow(PermissionDeniedError);
+    await expect(executor.executeToolCall("read_file", {}, "conv-1", "msg-1")).rejects.toThrow(
+      PermissionDeniedError,
+    );
   });
 
   test("PDP allow lets the call through", async () => {
-    const executor = new ToolExecutor(createMockRegistry(), createStubPermissionEngine("allow-all"));
+    const executor = new ToolExecutor(
+      createMockRegistry(),
+      createStubPermissionEngine("allow-all"),
+    );
     const result = await executor.executeToolCall("read_file", {}, "conv-1", "msg-1");
 
     expect(result.isError).toBe(false);
@@ -123,9 +159,9 @@ describe("ToolExecutor", () => {
 
     // Flip to deny-all → next call rejects
     engine.setMode("deny-all");
-    await expect(
-      executor.executeToolCall("read_file", {}, "c", "m"),
-    ).rejects.toThrow(PermissionDeniedError);
+    await expect(executor.executeToolCall("read_file", {}, "c", "m")).rejects.toThrow(
+      PermissionDeniedError,
+    );
   });
 
   test("PDP runtime fail-closed: engine.authorize throwing converts to PermissionDeniedError", async () => {
@@ -149,9 +185,7 @@ describe("ToolExecutor", () => {
     }
     expect(caught).toBeInstanceOf(PermissionDeniedError);
     expect((caught as PermissionDeniedError).reason).toContain("engine error");
-    expect((caught as PermissionDeniedError).reason).toContain(
-      "simulated DB outage",
-    );
+    expect((caught as PermissionDeniedError).reason).toContain("simulated DB outage");
   });
 
   test("PermissionDeniedError has correct extensionId and toolName", () => {
@@ -184,13 +218,27 @@ describe("ToolExecutor", () => {
     let callCount = 0;
     const registry = {
       getToolExtension: (name: string) => (name.startsWith("tool_") ? "ext-seq" : null),
-      getRegisteredTool: (name: string) => name.startsWith("tool_") ? { name, originalName: name, extensionId: "ext-seq", description: "mock", inputSchema: {} } : null,
+      getRegisteredTool: (name: string) =>
+        name.startsWith("tool_")
+          ? {
+              name,
+              originalName: name,
+              extensionId: "ext-seq",
+              description: "mock",
+              inputSchema: {},
+            }
+          : null,
       getManifest: () => ({ kind: "local" as const }),
-      getMcpClient: () => { throw new Error("not an mcp ext"); },
+      getMcpClient: () => {
+        throw new Error("not an mcp ext");
+      },
       getProcess: () => ({
         callTool: async (_name: string) => {
           callCount++;
-          return { content: [{ type: "text" as const, text: `result-${callCount}` }], isError: false };
+          return {
+            content: [{ type: "text" as const, text: `result-${callCount}` }],
+            isError: false,
+          };
         },
         setRequestHandler: () => {},
       }),
@@ -243,7 +291,9 @@ describe("ToolExecutor with EventBus", () => {
     const events: AgentEvents["tool:error"][] = [];
     bus.on("tool:error", (data) => events.push(data));
 
-    const executor = new ToolExecutor(createFailingRegistry(), createStubPermissionEngine(), { bus });
+    const executor = new ToolExecutor(createFailingRegistry(), createStubPermissionEngine(), {
+      bus,
+    });
     await executor.executeToolCall("fail_tool", {}, "conv-1", "msg-1");
 
     expect(events.length).toBe(1);
@@ -290,7 +340,14 @@ describe("AssistantMessageEvent type correctness", () => {
 
   test("done event has reason and message fields", () => {
     const msg = stubAssistantMessage({
-      usage: { input: 10, output: 20, cacheRead: 0, cacheWrite: 0, totalTokens: 30, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      usage: {
+        input: 10,
+        output: 20,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 30,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
     });
     const event: AssistantMessageEvent = {
       type: "done",

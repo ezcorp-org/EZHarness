@@ -7,7 +7,10 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-cleanup";
 
-let userStore: Map<string, { id: string; email: string; passwordHash: string; name: string; role: string; status: string }>;
+let userStore: Map<
+  string,
+  { id: string; email: string; passwordHash: string; name: string; role: string; status: string }
+>;
 let hashCalls: string[] = [];
 
 // Re-registered in beforeEach because parallel/sibling test files also mock
@@ -16,7 +19,14 @@ let hashCalls: string[] = [];
 function installMocks(): void {
   mock.module("$server/db/queries/users", () => ({
     getUserById: async (id: string) => userStore.get(id),
-    createUser: async (data: { id?: string; email: string; passwordHash: string; name: string; role?: string; status?: string }) => {
+    createUser: async (data: {
+      id?: string;
+      email: string;
+      passwordHash: string;
+      name: string;
+      role?: string;
+      status?: string;
+    }) => {
       const id = data.id ?? `test-${userStore.size + 1}`;
       const row = {
         id,

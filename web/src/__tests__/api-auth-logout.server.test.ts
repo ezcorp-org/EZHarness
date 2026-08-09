@@ -27,9 +27,7 @@ type CookieStore = {
 
 function makeCookies(initial?: string): CookieStore {
   return {
-    get: vi.fn((name: string) =>
-      name === "ezcorp_session" ? initial : undefined,
-    ),
+    get: vi.fn((name: string) => (name === "ezcorp_session" ? initial : undefined)),
     set: vi.fn(),
     delete: vi.fn(),
   };

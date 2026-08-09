@@ -39,7 +39,8 @@ export function buildOpenAIInjectedEnv(
 ): Record<string, string> {
   const out: Record<string, string> = {};
   if (typeof apiKey === "string" && apiKey.length > 0) out.OPENAI_API_KEY = apiKey;
-  if (typeof accessToken === "string" && accessToken.length > 0) out.OPENAI_ACCESS_TOKEN = accessToken;
+  if (typeof accessToken === "string" && accessToken.length > 0)
+    out.OPENAI_ACCESS_TOKEN = accessToken;
   return out;
 }
 

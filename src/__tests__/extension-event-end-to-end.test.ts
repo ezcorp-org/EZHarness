@@ -100,9 +100,7 @@ afterAll(() => {
 // ── Now import the route + dispatcher AFTER mocks. ──────────────────
 import { EventSubscriptionDispatcher } from "../extensions/event-subscription-dispatcher";
 
-const { POST } = await import(
-  "../../web/src/routes/api/extensions/[name]/events/[event]/+server"
-);
+const { POST } = await import("../../web/src/routes/api/extensions/[name]/events/[event]/+server");
 
 // ── Fixtures ────────────────────────────────────────────────────────
 
@@ -111,7 +109,10 @@ const FAKE_EXT_NAME = "fake";
 const FAKE_EVENT = "ping";
 const FAKE_FULL_EVENT = `${FAKE_EXT_NAME}:${FAKE_EVENT}`;
 
-interface SendCall { method: string; params: Record<string, unknown>; }
+interface SendCall {
+  method: string;
+  params: Record<string, unknown>;
+}
 function mockProc() {
   const calls: SendCall[] = [];
   return {
@@ -125,14 +126,11 @@ function mockProc() {
 
 function makeRequest(body: unknown, name = FAKE_EXT_NAME, event = FAKE_EVENT) {
   return {
-    request: new Request(
-      `http://localhost/api/extensions/${name}/events/${event}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: typeof body === "string" ? body : JSON.stringify(body),
-      },
-    ),
+    request: new Request(`http://localhost/api/extensions/${name}/events/${event}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    }),
     locals: {
       user: { id: "user-1", email: "u@x.com", name: "U", role: "member" },
     },
@@ -249,9 +247,7 @@ describe("extension-event end-to-end (route → bus → dispatcher → subproces
     // be empty for `fake:ping` and the route must reject.
     expect(isRegisteredExtensionEvent(FAKE_FULL_EVENT)).toBe(false);
     mockConv = { id: "conv-1", userId: "user-1" };
-    const res = await POST(
-      makeRequest({ toolCallId: "tc-1", conversationId: "conv-1" }) as never,
-    );
+    const res = await POST(makeRequest({ toolCallId: "tc-1", conversationId: "conv-1" }) as never);
     expect(res.status).toBe(404);
     // And the conversation lookup must NOT have run — gate ordering:
     // event-registry rejection precedes any DB read.

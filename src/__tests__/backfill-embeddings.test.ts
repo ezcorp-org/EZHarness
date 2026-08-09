@@ -60,7 +60,12 @@ async function seedConversation(opts: { test?: boolean | null } = {}) {
   return conv!;
 }
 
-async function seedMessage(conversationId: string, role: string, content: string, createdAt?: Date) {
+async function seedMessage(
+  conversationId: string,
+  role: string,
+  content: string,
+  createdAt?: Date,
+) {
   const db = getTestDb();
   const [msg] = await db
     .insert(messages)
@@ -80,13 +85,15 @@ async function seedChunk(messageId: string, conversationId: string) {
 }
 
 async function seedStaleChunk(messageId: string, conversationId: string) {
-  await getTestDb().insert(messageChunks).values({
-    messageId,
-    conversationId,
-    content: "stale-model chunk",
-    chunkIndex: 0,
-    embeddingModelId: `${EMBEDDING_MODEL_ID}-OLD`, // differs from current model
-  });
+  await getTestDb()
+    .insert(messageChunks)
+    .values({
+      messageId,
+      conversationId,
+      content: "stale-model chunk",
+      chunkIndex: 0,
+      embeddingModelId: `${EMBEDDING_MODEL_ID}-OLD`, // differs from current model
+    });
 }
 
 async function outboxRows() {
@@ -94,10 +101,19 @@ async function outboxRows() {
 }
 
 async function outboxFor(messageId: string) {
-  return getTestDb().select().from(messageEmbedOutbox).where(eq(messageEmbedOutbox.messageId, messageId));
+  return getTestDb()
+    .select()
+    .from(messageEmbedOutbox)
+    .where(eq(messageEmbedOutbox.messageId, messageId));
 }
 
-const FULL = { dryRun: false, refreshStale: false, projectId: null, batchSize: 50, sleepMs: 0 } as const;
+const FULL = {
+  dryRun: false,
+  refreshStale: false,
+  projectId: null,
+  batchSize: 50,
+  sleepMs: 0,
+} as const;
 
 describe("backfill-embeddings (OPS-01/OPS-02) — RED until Plans 02+04", () => {
   beforeEach(async () => {

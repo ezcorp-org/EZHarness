@@ -108,9 +108,7 @@ const log = extensionLogger("github-projects", "handler");
  * an entry here is a security-relevant decision reviewed at the same level as a
  * `BUNDLED_CEILING` change.
  */
-export const BUNDLED_GITHUB_PROJECTS_ALLOWLIST: ReadonlySet<string> = new Set([
-  "github-projects",
-]);
+export const BUNDLED_GITHUB_PROJECTS_ALLOWLIST: ReadonlySet<string> = new Set(["github-projects"]);
 
 /** Audit action prefix for this feature (picked up by `action LIKE 'ext:%'`). */
 const AUDIT_TICKET_MUTATE = "ext:github-projects:ticket-mutate";
@@ -166,9 +164,7 @@ export async function runGhAuthToken(spawn: SpawnFn): Promise<string> {
 }
 
 const defaultGhTokenResolver: GhTokenResolver = () =>
-  runGhAuthToken(
-    (cmd) => Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" }) as unknown as GhProc,
-  );
+  runGhAuthToken((cmd) => Bun.spawn(cmd, { stdout: "pipe", stderr: "pipe" }) as unknown as GhProc);
 let ghTokenResolverImpl: GhTokenResolver = defaultGhTokenResolver;
 /** @internal test-only — substitute the `gh auth token` resolver. */
 export function _setGhTokenResolverForTests(fn: GhTokenResolver | null): void {
@@ -219,11 +215,7 @@ async function requireRpcScope(
       scope,
     }));
   if (allowed) return null;
-  return rpcError(
-    req.id,
-    -32603,
-    `Missing extension scope '${scope}' for github-projects`,
-  );
+  return rpcError(req.id, -32603, `Missing extension scope '${scope}' for github-projects`);
 }
 
 // ── projectId / link derivation (server-side) ────────────────────────
@@ -308,17 +300,16 @@ export async function handleGithubProjectsRpc(
 async function resolveTicketContext(
   req: JsonRpcRequest,
   ctx: GithubProjectsContext,
-):
-  | Promise<
-      | {
-          ok: true;
-          projectId: string;
-          link: GithubProjectsLink;
-          auth: GithubAuth;
-          client: ReturnType<typeof createGithubClient>;
-        }
-      | { ok: false; errorResponse: JsonRpcResponse }
-    > {
+): Promise<
+  | {
+      ok: true;
+      projectId: string;
+      link: GithubProjectsLink;
+      auth: GithubAuth;
+      client: ReturnType<typeof createGithubClient>;
+    }
+  | { ok: false; errorResponse: JsonRpcResponse }
+> {
   const projectId = await deriveProjectId(ctx.conversationId);
   if (!projectId) {
     return {
@@ -410,7 +401,11 @@ async function handleList(
     const page = await client.fetchBoardItems(link.boardNodeId, auth, null);
     items = page.items;
   } catch (err) {
-    return rpcError(req.id, -32603, `list failed: ${err instanceof Error ? err.message : String(err)}`);
+    return rpcError(
+      req.id,
+      -32603,
+      `list failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
   if (statusFilter) {
     items = items.filter((i) => (i.statusName ?? "").toLowerCase() === statusFilter.toLowerCase());
@@ -505,11 +500,7 @@ async function handleTicketMutation(
         if (!statusName) return rpcError(req.id, -32602, "'statusName' is required");
         const optionId = await resolveStatusOptionId(client, link, auth, statusName);
         if (!optionId) {
-          return rpcError(
-            req.id,
-            -32602,
-            `No Status column named "${statusName}" on this board.`,
-          );
+          return rpcError(req.id, -32602, `No Status column named "${statusName}" on this board.`);
         }
         await client.setItemStatus(link.boardNodeId, auth, itemNodeId, optionId);
         result = { ok: true };
@@ -692,7 +683,11 @@ async function handleApprove(
     await writeAudit(AUDIT_CONTROL, ctx, { verb: "approve", proposalId: guard.proposal.id });
     return rpcResult(req.id, { ok: true, status: updated.status });
   } catch (err) {
-    return rpcError(req.id, -32603, `approve failed: ${err instanceof Error ? err.message : String(err)}`);
+    return rpcError(
+      req.id,
+      -32603,
+      `approve failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -711,7 +706,11 @@ async function handleDismiss(
     await writeAudit(AUDIT_CONTROL, ctx, { verb: "dismiss", proposalId: guard.proposal.id });
     return rpcResult(req.id, { ok: true, status: updated.status });
   } catch (err) {
-    return rpcError(req.id, -32603, `dismiss failed: ${err instanceof Error ? err.message : String(err)}`);
+    return rpcError(
+      req.id,
+      -32603,
+      `dismiss failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -750,7 +749,11 @@ async function handleRerun(
     if (err instanceof GithubProposalNotRerunnableError || err instanceof GithubCardBusyError) {
       return rpcError(req.id, -32602, err.message);
     }
-    return rpcError(req.id, -32603, `rerun failed: ${err instanceof Error ? err.message : String(err)}`);
+    return rpcError(
+      req.id,
+      -32603,
+      `rerun failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -773,7 +776,11 @@ async function handleSetEnabled(
     await writeAudit(AUDIT_CONTROL, ctx, { verb: enabled ? "resume" : "pause", linkId });
     return rpcResult(req.id, { ok: true, enabled });
   } catch (err) {
-    return rpcError(req.id, -32603, `${enabled ? "resume" : "pause"} failed: ${err instanceof Error ? err.message : String(err)}`);
+    return rpcError(
+      req.id,
+      -32603,
+      `${enabled ? "resume" : "pause"} failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -807,7 +814,11 @@ async function handlePollNow(
     await writeAudit(AUDIT_CONTROL, ctx, { verb: "poll-now", linkId });
     return rpcResult(req.id, { ok: true, ...result });
   } catch (err) {
-    return rpcError(req.id, -32603, `poll-now failed: ${err instanceof Error ? err.message : String(err)}`);
+    return rpcError(
+      req.id,
+      -32603,
+      `poll-now failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 

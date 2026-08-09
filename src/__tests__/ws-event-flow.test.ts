@@ -1,9 +1,6 @@
 import { mock, test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import {
-  setupPiAiMocks,
-  resetMockAgent,
-} from "./helpers/mock-pi-ai";
+import { setupPiAiMocks, resetMockAgent } from "./helpers/mock-pi-ai";
 import type { AgentEvents } from "../types";
 
 afterAll(() => {
@@ -72,7 +69,9 @@ mock.module("../providers/file", () => ({
 }));
 
 mock.module("../memory/injection", () => ({
-  buildSystemPromptWithMemories: async () => { throw new Error("not available"); },
+  buildSystemPromptWithMemories: async () => {
+    throw new Error("not available");
+  },
 }));
 
 mock.module("../memory/retrieval", () => ({
@@ -90,9 +89,13 @@ mock.module("../extensions/registry", () => ({
 mock.module("../extensions/tool-executor", () => ({
   MAX_TOOL_CALLS_PER_TURN: 10,
   ToolExecutor: class {
-    createToolsContext() { return { invoke: async () => ({}) }; }
+    createToolsContext() {
+      return { invoke: async () => ({}) };
+    }
     setPermissionChecker() {}
-    async executeToolCall() { return { content: [{ text: "result" }] }; }
+    async executeToolCall() {
+      return { content: [{ text: "result" }] };
+    }
   },
 }));
 
@@ -105,7 +108,8 @@ mock.module("../extensions/permissions", () => ({
 beforeEach(() => {
   // Restore pristine globals that may have been replaced by other test files
   if ((globalThis as any).__pristineFetch) globalThis.fetch = (globalThis as any).__pristineFetch;
-  if ((globalThis as any).__pristineWebSocket) globalThis.WebSocket = (globalThis as any).__pristineWebSocket;
+  if ((globalThis as any).__pristineWebSocket)
+    globalThis.WebSocket = (globalThis as any).__pristineWebSocket;
   mock.module("../db/connection", () => ({
     getDb: () => ({
       select: () => ({ from: () => ({ where: async () => [] }) }),
@@ -172,9 +176,13 @@ beforeEach(() => {
   mock.module("../extensions/tool-executor", () => ({
     MAX_TOOL_CALLS_PER_TURN: 10,
     ToolExecutor: class {
-      createToolsContext() { return { invoke: async () => ({}) }; }
+      createToolsContext() {
+        return { invoke: async () => ({}) };
+      }
       setPermissionChecker() {}
-      async executeToolCall() { return { content: [{ text: "result" }] }; }
+      async executeToolCall() {
+        return { content: [{ text: "result" }] };
+      }
     },
   }));
   mock.module("../extensions/permissions", () => ({
@@ -194,7 +202,9 @@ beforeEach(() => {
     }),
   }));
   mock.module("../memory/injection", () => ({
-    buildSystemPromptWithMemories: async () => { throw new Error("not available"); },
+    buildSystemPromptWithMemories: async () => {
+      throw new Error("not available");
+    },
   }));
   mock.module("../memory/retrieval", () => ({
     searchKBChunksForQuery: async () => [],
@@ -212,7 +222,16 @@ import { EventBus } from "../runtime/events";
 
 // ── Helpers: simulate the hooks.server.ts WS forwarding + frontend store ──
 
-const BUS_EVENTS = ["run:start", "run:status", "run:log", "run:complete", "run:error", "run:cancel", "run:token", "run:usage"] as const;
+const BUS_EVENTS = [
+  "run:start",
+  "run:status",
+  "run:log",
+  "run:complete",
+  "run:error",
+  "run:cancel",
+  "run:token",
+  "run:usage",
+] as const;
 
 /** Start a real Bun WebSocket server with EventBus forwarding (like hooks.server.ts dev mode) */
 function startWsRelay(bus: EventBus<AgentEvents>) {
@@ -223,17 +242,23 @@ function startWsRelay(bus: EventBus<AgentEvents>) {
       return new Response("WS only", { status: 400 });
     },
     websocket: {
-      open(ws) { ws.subscribe("events"); },
+      open(ws) {
+        ws.subscribe("events");
+      },
       message() {},
-      close(ws) { ws.unsubscribe("events"); },
+      close(ws) {
+        ws.unsubscribe("events");
+      },
     },
   });
 
   const unsubs: (() => void)[] = [];
   for (const event of BUS_EVENTS) {
-    unsubs.push(bus.on(event, (data: unknown) => {
-      server.publish("events", JSON.stringify({ type: event, data }));
-    }));
+    unsubs.push(
+      bus.on(event, (data: unknown) => {
+        server.publish("events", JSON.stringify({ type: event, data }));
+      }),
+    );
   }
 
   return {
@@ -256,7 +281,11 @@ function collectWsMessages(
     const ws = new WebSocket(url);
     const timer = setTimeout(() => {
       ws.close();
-      reject(new Error(`Timed out after ${timeoutMs}ms. Got ${messages.length} messages: ${JSON.stringify(messages.map(m => m.type))}`));
+      reject(
+        new Error(
+          `Timed out after ${timeoutMs}ms. Got ${messages.length} messages: ${JSON.stringify(messages.map((m) => m.type))}`,
+        ),
+      );
     }, timeoutMs);
 
     ws.onmessage = (event) => {
@@ -286,9 +315,8 @@ describe("WebSocket event flow (end-to-end)", () => {
 
     try {
       // Start collecting WS messages, wait for run:complete
-      const msgsPromise = collectWsMessages(
-        `ws://localhost:${relay.server.port}`,
-        (msgs) => msgs.some((m) => m.type === "run:complete"),
+      const msgsPromise = collectWsMessages(`ws://localhost:${relay.server.port}`, (msgs) =>
+        msgs.some((m) => m.type === "run:complete"),
       );
 
       // Small delay for WS client to connect
@@ -345,7 +373,10 @@ describe("WebSocket event flow (end-to-end)", () => {
       Agent: class MockAgent {
         state = { error: null };
         private _subs: any[] = [];
-        subscribe(cb: any) { this._subs.push(cb); return () => {}; }
+        subscribe(cb: any) {
+          this._subs.push(cb);
+          return () => {};
+        }
         abort() {}
         async prompt() {
           throw new Error("API key invalid");
@@ -358,9 +389,8 @@ describe("WebSocket event flow (end-to-end)", () => {
     const exec = new AgentExecutor(new Map(), bus, { persist: false });
 
     try {
-      const msgsPromise = collectWsMessages(
-        `ws://localhost:${relay.server.port}`,
-        (msgs) => msgs.some((m) => m.type === "run:error"),
+      const msgsPromise = collectWsMessages(`ws://localhost:${relay.server.port}`, (msgs) =>
+        msgs.some((m) => m.type === "run:error"),
       );
 
       await new Promise((r) => setTimeout(r, 100));
@@ -387,9 +417,8 @@ describe("WebSocket event flow (end-to-end)", () => {
     const exec = new AgentExecutor(new Map(), bus, { persist: false });
 
     try {
-      const msgsPromise = collectWsMessages(
-        `ws://localhost:${relay.server.port}`,
-        (msgs) => msgs.some((m) => m.type === "run:complete"),
+      const msgsPromise = collectWsMessages(`ws://localhost:${relay.server.port}`, (msgs) =>
+        msgs.some((m) => m.type === "run:complete"),
       );
 
       await new Promise((r) => setTimeout(r, 100));
@@ -457,9 +486,8 @@ describe("WebSocket event flow (end-to-end)", () => {
 
     try {
       // Connect to the NEW relay
-      const msgsPromise = collectWsMessages(
-        `ws://localhost:${relay2.server.port}`,
-        (msgs) => msgs.some((m) => m.type === "run:token"),
+      const msgsPromise = collectWsMessages(`ws://localhost:${relay2.server.port}`, (msgs) =>
+        msgs.some((m) => m.type === "run:token"),
       );
 
       await new Promise((r) => setTimeout(r, 100));

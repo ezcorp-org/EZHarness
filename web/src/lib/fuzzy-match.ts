@@ -26,36 +26,36 @@
 const BOUNDARY_RE = /[/_\-.\s]/;
 
 export function fuzzyScore(query: string, target: string): number | null {
-	if (query.length === 0) return 0;
+  if (query.length === 0) return 0;
 
-	const q = query.toLowerCase();
-	const t = target.toLowerCase();
+  const q = query.toLowerCase();
+  const t = target.toLowerCase();
 
-	if (q === t) return 10_000;
-	if (t.startsWith(q)) return 5_000 - (target.length - query.length);
+  if (q === t) return 10_000;
+  if (t.startsWith(q)) return 5_000 - (target.length - query.length);
 
-	let qi = 0;
-	let score = 0;
-	let firstMatch = -1;
-	let lastMatch = -1;
+  let qi = 0;
+  let score = 0;
+  let firstMatch = -1;
+  let lastMatch = -1;
 
-	for (let ti = 0; ti < t.length && qi < q.length; ti++) {
-		if (t[ti] !== q[qi]) continue;
-		if (firstMatch === -1) firstMatch = ti;
-		// Contiguous-run bonus
-		if (ti === lastMatch + 1) score += 15;
-		// Word-boundary bonus (match at start of target, or immediately after a
-		// path-ish separator)
-		if (ti === 0 || BOUNDARY_RE.test(t[ti - 1]!)) score += 10;
-		lastMatch = ti;
-		qi++;
-	}
+  for (let ti = 0; ti < t.length && qi < q.length; ti++) {
+    if (t[ti] !== q[qi]) continue;
+    if (firstMatch === -1) firstMatch = ti;
+    // Contiguous-run bonus
+    if (ti === lastMatch + 1) score += 15;
+    // Word-boundary bonus (match at start of target, or immediately after a
+    // path-ish separator)
+    if (ti === 0 || BOUNDARY_RE.test(t[ti - 1]!)) score += 10;
+    lastMatch = ti;
+    qi++;
+  }
 
-	if (qi < q.length) return null;
+  if (qi < q.length) return null;
 
-	score -= firstMatch;
-	score -= Math.floor(target.length / 10);
-	return score;
+  score -= firstMatch;
+  score -= Math.floor(target.length / 10);
+  return score;
 }
 
 /**
@@ -63,7 +63,7 @@ export function fuzzyScore(query: string, target: string): number | null {
  * `query`. Equivalent to `fuzzyScore(query, target) !== null`.
  */
 export function fuzzyMatches(query: string, target: string): boolean {
-	return fuzzyScore(query, target) !== null;
+  return fuzzyScore(query, target) !== null;
 }
 
 /**
@@ -76,10 +76,10 @@ export function fuzzyMatches(query: string, target: string): boolean {
  * field count exceeded two (audit defect C9 close-out).
  */
 export function bestFuzzyScore(scores: ReadonlyArray<number | null>): number | null {
-	let best: number | null = null;
-	for (const s of scores) {
-		if (s === null) continue;
-		if (best === null || s > best) best = s;
-	}
-	return best;
+  let best: number | null = null;
+  for (const s of scores) {
+    if (s === null) continue;
+    if (best === null || s > best) best = s;
+  }
+  return best;
 }

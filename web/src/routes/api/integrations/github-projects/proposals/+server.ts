@@ -10,7 +10,12 @@
  */
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
-import { authGithubRoute, resolveProject, requireGithubScope, publicProposalView } from "../_shared";
+import {
+  authGithubRoute,
+  resolveProject,
+  requireGithubScope,
+  publicProposalView,
+} from "../_shared";
 import { listProposalsByProject } from "$server/db/queries/github-projects";
 import {
   GITHUB_ACTIVE_STATUSES,

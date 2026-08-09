@@ -67,8 +67,7 @@ function peekBucket(
   mediator: ExtensionStateMediator,
   extensionId: string,
 ): BucketSnapshot | undefined {
-  return (mediator as unknown as { buckets: Map<string, BucketSnapshot> })
-    .buckets.get(extensionId);
+  return (mediator as unknown as { buckets: Map<string, BucketSnapshot> }).buckets.get(extensionId);
 }
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -157,14 +156,10 @@ describe("sec-SB5: different-extension bucket isolation", () => {
     const calls: Promise<void>[] = [];
     for (let i = 0; i < 100; i++) {
       calls.push(
-        Promise.resolve().then(() =>
-          mediator.handleNotification("ext-X", makeNotification({ i })),
-        ),
+        Promise.resolve().then(() => mediator.handleNotification("ext-X", makeNotification({ i }))),
       );
       calls.push(
-        Promise.resolve().then(() =>
-          mediator.handleNotification("ext-Y", makeNotification({ i })),
-        ),
+        Promise.resolve().then(() => mediator.handleNotification("ext-Y", makeNotification({ i }))),
       );
     }
     await Promise.all(calls);

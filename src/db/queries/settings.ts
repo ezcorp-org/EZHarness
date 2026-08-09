@@ -77,7 +77,9 @@ export async function isListingInstalled(listingId: string): Promise<boolean> {
   const [row] = await getDb()
     .select({ count: sql<number>`count(*)::int` })
     .from(settings)
-    .where(sql`${settings.key} LIKE 'marketplace:installed:%' AND ${settings.value}->>'listingId' = ${listingId}`);
+    .where(
+      sql`${settings.key} LIKE 'marketplace:installed:%' AND ${settings.value}->>'listingId' = ${listingId}`,
+    );
   return (row?.count ?? 0) > 0;
 }
 

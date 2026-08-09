@@ -9,10 +9,7 @@
 import { test, expect, describe } from "vitest";
 import { GET } from "../routes/api/favicon/+server.ts";
 
-function makeEvent(opts: {
-  rawUrl?: string;
-  locals?: Record<string, unknown>;
-}) {
+function makeEvent(opts: { rawUrl?: string; locals?: Record<string, unknown> }) {
   const href = opts.rawUrl
     ? `http://localhost/api/favicon?url=${encodeURIComponent(opts.rawUrl)}`
     : "http://localhost/api/favicon";

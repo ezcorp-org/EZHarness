@@ -164,7 +164,13 @@ describe("resolveBundledExtensions — task-tracking entry", () => {
     expect(entry.permissions.eventSubscriptions).toEqual(["task:assignment_update"]);
     // grantedAt timestamps present for every permission so the audit
     // path can write oldValue/newValue deltas.
-    for (const key of ["storage", "taskEvents", "agentConfig", "spawnAgents", "eventSubscriptions"]) {
+    for (const key of [
+      "storage",
+      "taskEvents",
+      "agentConfig",
+      "spawnAgents",
+      "eventSubscriptions",
+    ]) {
       expect(entry.permissions.grantedAt[key]).toBeGreaterThan(0);
     }
   });

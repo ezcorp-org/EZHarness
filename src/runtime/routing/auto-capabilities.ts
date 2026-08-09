@@ -84,9 +84,7 @@ export function routableRungs(
  * built-in ladder lists `openrouter/auto` in all three) must not be probed —
  * or weighted — more than once.
  */
-export function uniqueRungs(
-  perTier: ReadonlyArray<readonly LadderRung[]>,
-): LadderRung[] {
+export function uniqueRungs(perTier: ReadonlyArray<readonly LadderRung[]>): LadderRung[] {
   const seen = new Set<string>();
   const out: LadderRung[] = [];
   for (const tier of perTier) {

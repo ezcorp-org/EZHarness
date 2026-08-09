@@ -39,21 +39,21 @@
 /** Everything the badge needs off a serialized workflow. All optional —
  *  the wire shape is additive and older payloads simply lack them. */
 export interface WorkflowProvenanceInput {
-	visibility?: string | null;
-	/** `null` for an ownerless row: legacy, orphaned, or a file on disk. */
-	userId?: string | null;
-	/** `"db" | "yaml" | "extension"` — server-derived, never client-set. */
-	source?: string | null;
+  visibility?: string | null;
+  /** `null` for an ownerless row: legacy, orphaned, or a file on disk. */
+  userId?: string | null;
+  /** `"db" | "yaml" | "extension"` — server-derived, never client-set. */
+  source?: string | null;
 }
 
 export interface WorkflowProvenanceBadge {
-	/** The pill text. Short, lowercase, and never a user id. */
-	label: string;
-	/** Hover + assistive text: who may run it, and who may change it. */
-	title: string;
-	/** Tailwind classes, so `built-in` is distinguishable at a glance and
-	 *  not only on hover. */
-	className: string;
+  /** The pill text. Short, lowercase, and never a user id. */
+  label: string;
+  /** Hover + assistive text: who may run it, and who may change it. */
+  title: string;
+  /** Tailwind classes, so `built-in` is distinguishable at a glance and
+   *  not only on hover. */
+  className: string;
 }
 
 /** The default pill treatment — muted, no claim of its own. */
@@ -68,46 +68,46 @@ const NEUTRAL = "bg-[var(--color-surface-tertiary)] text-[var(--color-text-muted
  * older server never renders a blank pill.
  */
 export function workflowProvenanceBadge(
-	workflow: WorkflowProvenanceInput,
+  workflow: WorkflowProvenanceInput,
 ): WorkflowProvenanceBadge {
-	if (workflow.visibility === "private") {
-		return {
-			label: "private",
-			title: "Only you and an admin can see, run or change this workflow.",
-			className: NEUTRAL,
-		};
-	}
-	if (workflow.visibility === "project") {
-		return {
-			label: "project",
-			title:
-				"Anyone signed in to this instance can run it. Only its creator or an admin can change it.",
-			className: NEUTRAL,
-		};
-	}
+  if (workflow.visibility === "private") {
+    return {
+      label: "private",
+      title: "Only you and an admin can see, run or change this workflow.",
+      className: NEUTRAL,
+    };
+  }
+  if (workflow.visibility === "project") {
+    return {
+      label: "project",
+      title:
+        "Anyone signed in to this instance can run it. Only its creator or an admin can change it.",
+      className: NEUTRAL,
+    };
+  }
 
-	// The `system` family. A file on disk first: it ships with the
-	// install and there is nothing to write, whoever is asking.
-	if (workflow.source === "yaml" || workflow.source === "extension") {
-		return {
-			label: "built-in",
-			title:
-				"Ships with EZCorp or with an installed extension. It is a file on disk, so it cannot be edited here — duplicate it to get a copy of your own.",
-			className: "bg-teal-500/15 text-teal-300",
-		};
-	}
-	if (workflow.userId == null) {
-		return {
-			label: "unowned",
-			title:
-				"Runnable by anyone on this instance, with no owner on record. Only an admin can change it.",
-			className: "bg-amber-500/15 text-amber-300",
-		};
-	}
-	return {
-		label: "instance-wide",
-		title:
-			"Made here, and runnable by anyone on this instance. Only its owner or an admin can change it.",
-		className: NEUTRAL,
-	};
+  // The `system` family. A file on disk first: it ships with the
+  // install and there is nothing to write, whoever is asking.
+  if (workflow.source === "yaml" || workflow.source === "extension") {
+    return {
+      label: "built-in",
+      title:
+        "Ships with EZCorp or with an installed extension. It is a file on disk, so it cannot be edited here — duplicate it to get a copy of your own.",
+      className: "bg-teal-500/15 text-teal-300",
+    };
+  }
+  if (workflow.userId == null) {
+    return {
+      label: "unowned",
+      title:
+        "Runnable by anyone on this instance, with no owner on record. Only an admin can change it.",
+      className: "bg-amber-500/15 text-amber-300",
+    };
+  }
+  return {
+    label: "instance-wide",
+    title:
+      "Made here, and runnable by anyone on this instance. Only its owner or an admin can change it.",
+    className: NEUTRAL,
+  };
 }

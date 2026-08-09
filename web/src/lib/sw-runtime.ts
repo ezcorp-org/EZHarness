@@ -17,12 +17,12 @@
  */
 
 export interface SwManifest {
-	/** Build version string (from `$service-worker`). */
-	version: string;
-	/** App chunk URLs (content-hashed `/_app/immutable/…`). */
-	build: string[];
-	/** Files served from `static/`. */
-	files: string[];
+  /** Build version string (from `$service-worker`). */
+  version: string;
+  /** App chunk URLs (content-hashed `/_app/immutable/…`). */
+  build: string[];
+  /** Files served from `static/`. */
+  files: string[];
 }
 
 /**
@@ -31,34 +31,34 @@ export interface SwManifest {
  * the network.
  */
 export const PRECACHE_STATIC: readonly string[] = [
-	"/logo.svg",
-	"/manifest.json",
-	"/favicon.ico",
-	"/favicon-192.png",
-	"/favicon-512.png",
+  "/logo.svg",
+  "/manifest.json",
+  "/favicon.ico",
+  "/favicon-192.png",
+  "/favicon-512.png",
 ];
 
 /** Versioned cache name — bumps on every deploy so `activate` can purge old. */
 export function cacheName(version: string): string {
-	return `ezcorp-${version}`;
+  return `ezcorp-${version}`;
 }
 
 /** Precache URL list: all app chunks + the curated static subset present. */
 export function precacheList(
-	manifest: SwManifest,
-	staticAllow: readonly string[] = PRECACHE_STATIC,
+  manifest: SwManifest,
+  staticAllow: readonly string[] = PRECACHE_STATIC,
 ): string[] {
-	const fileSet = new Set(manifest.files);
-	const staticHits = staticAllow.filter((f) => fileSet.has(f));
-	return [...manifest.build, ...staticHits];
+  const fileSet = new Set(manifest.files);
+  const staticHits = staticAllow.filter((f) => fileSet.has(f));
+  return [...manifest.build, ...staticHits];
 }
 
 export type RequestClass = "bypass" | "cache-first";
 
 export interface ClassifiableRequest {
-	method: string;
-	mode: string;
-	url: string;
+  method: string;
+  mode: string;
+  url: string;
 }
 
 /**
@@ -67,44 +67,44 @@ export interface ClassifiableRequest {
  * served cache-first.
  */
 export function classifyRequest(request: ClassifiableRequest, origin: string): RequestClass {
-	if (request.method !== "GET") return "bypass";
-	let url: URL;
-	try {
-		url = new URL(request.url);
-	} catch {
-		return "bypass";
-	}
-	if (url.origin !== origin) return "bypass";
-	if (request.mode === "navigate") return "bypass";
-	if (url.pathname.startsWith("/api/")) return "bypass";
-	if (url.pathname.startsWith("/_app/immutable/")) return "cache-first";
-	if (PRECACHE_STATIC.includes(url.pathname)) return "cache-first";
-	return "bypass";
+  if (request.method !== "GET") return "bypass";
+  let url: URL;
+  try {
+    url = new URL(request.url);
+  } catch {
+    return "bypass";
+  }
+  if (url.origin !== origin) return "bypass";
+  if (request.mode === "navigate") return "bypass";
+  if (url.pathname.startsWith("/api/")) return "bypass";
+  if (url.pathname.startsWith("/_app/immutable/")) return "cache-first";
+  if (PRECACHE_STATIC.includes(url.pathname)) return "cache-first";
+  return "bypass";
 }
 
 export interface FetchEnv {
-	caches: CacheStorage;
-	fetch: typeof fetch;
-	/** Result of `cacheName(version)`. */
-	cacheKey: string;
+  caches: CacheStorage;
+  fetch: typeof fetch;
+  /** Result of `cacheName(version)`. */
+  cacheKey: string;
 }
 
 /** Serve from cache, falling back to network and populating the cache. */
 export async function cacheFirst(request: Request, env: FetchEnv): Promise<Response> {
-	const cache = await env.caches.open(env.cacheKey);
-	const hit = await cache.match(request);
-	if (hit) return hit;
-	const res = await env.fetch(request);
-	if (res.ok) {
-		await cache.put(request, res.clone());
-	}
-	return res;
+  const cache = await env.caches.open(env.cacheKey);
+  const hit = await cache.match(request);
+  if (hit) return hit;
+  const res = await env.fetch(request);
+  if (res.ok) {
+    await cache.put(request, res.clone());
+  }
+  return res;
 }
 
 /** Minimal shape of the `fetch` event the shell forwards to us. */
 export interface FetchEventLike {
-	request: Request;
-	respondWith(response: Promise<Response>): void;
+  request: Request;
+  respondWith(response: Promise<Response>): void;
 }
 
 /**
@@ -113,9 +113,9 @@ export interface FetchEventLike {
  * fetch (preserving SSR, auth, and streaming).
  */
 export function onFetch(event: FetchEventLike, env: FetchEnv, origin: string): void {
-	if (classifyRequest(event.request, origin) === "cache-first") {
-		event.respondWith(cacheFirst(event.request, env));
-	}
+  if (classifyRequest(event.request, origin) === "cache-first") {
+    event.respondWith(cacheFirst(event.request, env));
+  }
 }
 
 /**
@@ -124,19 +124,17 @@ export function onFetch(event: FetchEventLike, env: FetchEnv, origin: string): v
  * individually and failures are swallowed.
  */
 export async function onInstall(env: FetchEnv, manifest: SwManifest): Promise<void> {
-	const cache = await env.caches.open(env.cacheKey);
-	await Promise.all(
-		precacheList(manifest).map((url) => cache.add(url).catch(() => undefined)),
-	);
+  const cache = await env.caches.open(env.cacheKey);
+  await Promise.all(precacheList(manifest).map((url) => cache.add(url).catch(() => undefined)));
 }
 
 /** `activate` handler: drop every cache except the current version, then claim. */
 export async function onActivate(env: {
-	caches: CacheStorage;
-	keepKey: string;
-	claim: () => Promise<void>;
+  caches: CacheStorage;
+  keepKey: string;
+  claim: () => Promise<void>;
 }): Promise<void> {
-	const keys = await env.caches.keys();
-	await Promise.all(keys.filter((k) => k !== env.keepKey).map((k) => env.caches.delete(k)));
-	await env.claim();
+  const keys = await env.caches.keys();
+  await Promise.all(keys.filter((k) => k !== env.keepKey).map((k) => env.caches.delete(k)));
+  await env.claim();
 }

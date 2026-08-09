@@ -45,12 +45,7 @@ function makeRun(partial: Partial<AgentRun> & { id: string }): AgentRun {
 // (`runs`, `runConversations`, `activeAgents`) are private and only populated
 // by the streamChat/DB/LLM path, so we reach in via `as any` to seed a live
 // run and its Agent instance.
-function seed(
-  exec: AgentExecutor,
-  run: AgentRun,
-  conversationId: string,
-  agent?: StubAgent,
-): void {
+function seed(exec: AgentExecutor, run: AgentRun, conversationId: string, agent?: StubAgent): void {
   (exec as any).runs.set(run.id, run);
   (exec as any).runConversations.set(run.id, conversationId);
   if (agent) (exec as any).activeAgents.set(run.id, agent);
@@ -85,10 +80,7 @@ describe("AgentExecutor.steerConversation", () => {
     exec.steerConversation("conv-1", "first");
     exec.steerConversation("conv-1", "second");
 
-    expect(agent.queue.map((m) => (m as { content: string }).content)).toEqual([
-      "first",
-      "second",
-    ]);
+    expect(agent.queue.map((m) => (m as { content: string }).content)).toEqual(["first", "second"]);
   });
 
   test("returns no-live-run when no run owns the conversation", () => {
@@ -130,7 +122,9 @@ describe("AgentExecutor.steerConversation", () => {
     seed(exec, run, "conv-1", agent);
 
     let undelivered = 0;
-    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    exec.steerConversation("conv-1", "hi", () => {
+      undelivered++;
+    });
     // pi drains the steer → emits message_start carrying the exact object.
     agent.emitEvent({ type: "message_start", message: steered(agent) });
     bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
@@ -166,7 +160,9 @@ describe("AgentExecutor.steerConversation", () => {
     seed(exec, run, "conv-1", agent);
 
     let undelivered = 0;
-    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    exec.steerConversation("conv-1", "hi", () => {
+      undelivered++;
+    });
     bus.emit("run:cancel", { run } as AgentEvents["run:cancel"]);
 
     expect(undelivered).toBe(1);
@@ -180,7 +176,9 @@ describe("AgentExecutor.steerConversation", () => {
     seed(exec, run, "conv-1", agent);
 
     let undelivered = 0;
-    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    exec.steerConversation("conv-1", "hi", () => {
+      undelivered++;
+    });
     bus.emit("run:error", { run } as AgentEvents["run:error"]);
 
     expect(undelivered).toBe(1);
@@ -195,8 +193,12 @@ describe("AgentExecutor.steerConversation", () => {
 
     let firstDropped = 0;
     let secondDropped = 0;
-    exec.steerConversation("conv-1", "first", () => { firstDropped++; });
-    exec.steerConversation("conv-1", "second", () => { secondDropped++; });
+    exec.steerConversation("conv-1", "first", () => {
+      firstDropped++;
+    });
+    exec.steerConversation("conv-1", "second", () => {
+      secondDropped++;
+    });
     // Only the FIRST steer is drained/delivered.
     agent.emitEvent({ type: "message_start", message: steered(agent, 0) });
     bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
@@ -213,10 +215,15 @@ describe("AgentExecutor.steerConversation", () => {
     seed(exec, run, "conv-1", agent);
 
     let undelivered = 0;
-    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    exec.steerConversation("conv-1", "hi", () => {
+      undelivered++;
+    });
     // Wrong type, and a message_start for a DIFFERENT object (e.g. the prompt).
     agent.emitEvent({ type: "turn_start" });
-    agent.emitEvent({ type: "message_start", message: { role: "user", content: "other", timestamp: 1 } });
+    agent.emitEvent({
+      type: "message_start",
+      message: { role: "user", content: "other", timestamp: 1 },
+    });
     bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
 
     expect(undelivered).toBe(1);
@@ -230,7 +237,9 @@ describe("AgentExecutor.steerConversation", () => {
     seed(exec, run, "conv-1", agent);
 
     let undelivered = 0;
-    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    exec.steerConversation("conv-1", "hi", () => {
+      undelivered++;
+    });
     bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
     bus.emit("run:complete", { run } as AgentEvents["run:complete"]);
 
@@ -245,7 +254,9 @@ describe("AgentExecutor.steerConversation", () => {
     seed(exec, run, "conv-1", attempt1);
 
     let undelivered = 0;
-    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    exec.steerConversation("conv-1", "hi", () => {
+      undelivered++;
+    });
     // Drained on attempt-1's loop-start poll → message_start fires (delivered).
     // But a user-message injection doesn't set emittedToClient, so a
     // pre-first-token failure fails over: the run's live Agent is swapped to
@@ -265,7 +276,9 @@ describe("AgentExecutor.steerConversation", () => {
     seed(exec, makeRun({ id: "r1" }), "conv-1", agent);
 
     let undelivered = 0;
-    exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    exec.steerConversation("conv-1", "hi", () => {
+      undelivered++;
+    });
     expect(agent.listenerCount()).toBe(1);
 
     exec.destroy();
@@ -285,7 +298,9 @@ describe("AgentExecutor.steerConversation — P4 run-mode guard", () => {
     exec.registerRunMode("r1", { autonomous: true, schema: false });
 
     let undelivered = 0;
-    const result = exec.steerConversation("conv-1", "hi", () => { undelivered++; });
+    const result = exec.steerConversation("conv-1", "hi", () => {
+      undelivered++;
+    });
 
     expect(result).toEqual({ status: "guarded", runId: "r1", reason: "autonomous" });
     expect(agent.queue).toHaveLength(0); // NOT steered
@@ -447,7 +462,14 @@ describe("AgentExecutor.consumeSteerPersistedId — P4 §1.2 reconciliation seam
     seed(exec, run, "conv-1", agent);
 
     let undelivered = 0;
-    exec.steerConversation("conv-1", "hi", () => { undelivered++; }, "row-U");
+    exec.steerConversation(
+      "conv-1",
+      "hi",
+      () => {
+        undelivered++;
+      },
+      "row-U",
+    );
     // subscribe-bridge consumes the persisted id for reconciliation…
     expect(exec.consumeSteerPersistedId("r1", steered(agent))).toBe("row-U");
     // …and the shadow's own delivery listener still fires on the same event, so

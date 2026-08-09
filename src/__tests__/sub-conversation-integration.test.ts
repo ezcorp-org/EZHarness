@@ -34,7 +34,9 @@ mock.module("../db/queries/settings", () => {
       await getDb().delete(tbl).where(eq(tbl.key, key));
       return true;
     },
-    async isListingInstalled() { return false; },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -64,7 +66,10 @@ function at<T>(arr: readonly T[], i: number, what: string): T {
 
 beforeAll(async () => {
   await setupTestDb();
-  const project = await createProject({ name: "Sub-Convo Test Project", path: "/tmp/sub-convo-test" });
+  const project = await createProject({
+    name: "Sub-Convo Test Project",
+    path: "/tmp/sub-convo-test",
+  });
   projectId = project.id;
 });
 
@@ -164,9 +169,9 @@ describe("createSubConversation", () => {
   });
 
   test("throws when parentConversationId is missing", async () => {
-    expect(() =>
-      createSubConversation(projectId, { parentConversationId: "" })
-    ).toThrow("parentConversationId is required");
+    expect(() => createSubConversation(projectId, { parentConversationId: "" })).toThrow(
+      "parentConversationId is required",
+    );
   });
 });
 
@@ -338,7 +343,7 @@ describe("sub-conversation end-to-end flow", () => {
 
     // 4. Add messages to sub
     await createMessage(sub.id, { role: "user", content: "Searching for topic X" });
-    await new Promise(r => setTimeout(r, 10)); // ensure distinct timestamps for ordering
+    await new Promise((r) => setTimeout(r, 10)); // ensure distinct timestamps for ordering
     await createMessage(sub.id, { role: "assistant", content: "Found 3 relevant papers" });
 
     // 5. Verify via getSubConversations
@@ -403,7 +408,12 @@ describe("resolveConversationOwnerUserId", () => {
   test("returns the conversation's own userId when set", async () => {
     const { createUser } = await import("../db/queries/users");
     const { resolveConversationOwnerUserId } = await import("../db/queries/conversations");
-    const owner = await createUser({ email: "walk-own@test.com", passwordHash: "hash", name: "Walk Own", role: "member" });
+    const owner = await createUser({
+      email: "walk-own@test.com",
+      passwordHash: "hash",
+      name: "Walk Own",
+      role: "member",
+    });
     const conv = await createConversation(projectId, { title: "Owned", userId: owner.id });
     expect(await resolveConversationOwnerUserId(conv.id)).toBe(owner.id);
   });
@@ -411,7 +421,12 @@ describe("resolveConversationOwnerUserId", () => {
   test("walks a null-owner chain up to the owning ancestor", async () => {
     const { createUser } = await import("../db/queries/users");
     const { resolveConversationOwnerUserId } = await import("../db/queries/conversations");
-    const owner = await createUser({ email: "walk-chain@test.com", passwordHash: "hash", name: "Walk Chain", role: "member" });
+    const owner = await createUser({
+      email: "walk-chain@test.com",
+      passwordHash: "hash",
+      name: "Walk Chain",
+      role: "member",
+    });
     const root = await createConversation(projectId, { title: "Root", userId: owner.id });
     const mid = await createSubConversation(projectId, { parentConversationId: root.id });
     const leaf = await createSubConversation(projectId, { parentConversationId: mid.id });

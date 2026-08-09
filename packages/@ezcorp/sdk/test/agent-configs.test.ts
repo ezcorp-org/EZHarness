@@ -24,19 +24,15 @@ interface RequestCall {
   params: unknown;
 }
 
-function stubRequest(
-  impl: (call: RequestCall) => Promise<unknown>,
-): { calls: RequestCall[] } {
+function stubRequest(impl: (call: RequestCall) => Promise<unknown>): { calls: RequestCall[] } {
   const ch: HostChannel = getChannel();
   const calls: RequestCall[] = [];
   const spy = spyOn(ch, "request");
-  spy.mockImplementation(
-    (async (method: string, params: unknown) => {
-      const call: RequestCall = { method, params };
-      calls.push(call);
-      return impl(call);
-    }) as HostChannel["request"],
-  );
+  spy.mockImplementation((async (method: string, params: unknown) => {
+    const call: RequestCall = { method, params };
+    calls.push(call);
+    return impl(call);
+  }) as HostChannel["request"]);
   return { calls };
 }
 
@@ -77,7 +73,10 @@ describe("AgentConfigs — wire format", () => {
 
 describe("AgentConfigs — return unwrapping", () => {
   test("list() returns the configs array from the envelope", async () => {
-    stubRequest(async () => ({ v: 1, configs: [sampleSummary, { ...sampleSummary, id: "x", name: "other" }] }));
+    stubRequest(async () => ({
+      v: 1,
+      configs: [sampleSummary, { ...sampleSummary, id: "x", name: "other" }],
+    }));
     const out = await new AgentConfigs().list();
     expect(out).toHaveLength(2);
     expect(out[0]).toEqual(sampleSummary);
@@ -109,9 +108,7 @@ describe("AgentConfigs — error propagation", () => {
     stubRequest(async () => {
       throw new JsonRpcError(-32001, "agentConfig permission not granted");
     });
-    await expect(new AgentConfigs().list()).rejects.toThrow(
-      /agentConfig permission/,
-    );
+    await expect(new AgentConfigs().list()).rejects.toThrow(/agentConfig permission/);
   });
 
   test("-32029 (rate limited) propagates — no client-side retry", async () => {
@@ -128,8 +125,6 @@ describe("AgentConfigs — error propagation", () => {
     stubRequest(async () => {
       throw new JsonRpcError(-32602, "User scope unavailable");
     });
-    await expect(
-      new AgentConfigs().resolve("anything"),
-    ).rejects.toThrow(/User scope/);
+    await expect(new AgentConfigs().resolve("anything")).rejects.toThrow(/User scope/);
   });
 });

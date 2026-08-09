@@ -74,30 +74,21 @@ mock.module("$lib/server/http-errors", () => ({
 
 const mockRegisteredEvents = new Set<string>();
 mock.module("$server/runtime/sse-conversation-filter", () => ({
-  isRegisteredExtensionEvent: (eventType: string) =>
-    mockRegisteredEvents.has(eventType),
+  isRegisteredExtensionEvent: (eventType: string) => mockRegisteredEvents.has(eventType),
 }));
 
 // ── Mock conversation lookup ──────────────────────────────────────
 
-let mockConv:
-  | { id: string; userId: string | null }
-  | null = null;
-const mockGetConversation = mock(
-  async (_id: string) => mockConv,
-);
+let mockConv: { id: string; userId: string | null } | null = null;
+const mockGetConversation = mock(async (_id: string) => mockConv);
 mock.module("$server/db/queries/conversations", () => ({
   getConversation: mockGetConversation,
 }));
 
 // ── Mock tool-call lookup (F2 cross-binding) ──────────────────────
 
-let mockToolCall:
-  | { id: string; conversationId: string | null }
-  | null = null;
-const mockGetToolCallConversationById = mock(
-  async (_id: string) => mockToolCall,
-);
+let mockToolCall: { id: string; conversationId: string | null } | null = null;
+const mockGetToolCallConversationById = mock(async (_id: string) => mockToolCall);
 mock.module("$server/db/queries/tool-calls", () => ({
   getToolCallConversationById: mockGetToolCallConversationById,
 }));
@@ -108,14 +99,12 @@ mock.module("$server/db/queries/tool-calls", () => ({
 // (those that carry `messageId` but no `toolCallId`). Drive the
 // spawn / wiring expectations from these mocks.
 
-let mockExt:
-  | {
-      id: string;
-      name: string;
-      enabled: boolean;
-      grantedPermissions?: { appendMessages?: { excludedDefault: boolean } };
-    }
-  | null = null;
+let mockExt: {
+  id: string;
+  name: string;
+  enabled: boolean;
+  grantedPermissions?: { appendMessages?: { excludedDefault: boolean } };
+} | null = null;
 const mockGetExtensionByName = mock(async (_name: string) => mockExt);
 mock.module("$server/db/queries/extensions", () => ({
   getExtensionByName: mockGetExtensionByName,
@@ -178,7 +167,12 @@ mock.module("$server/extensions/permission-engine", () => ({
 // route's downstream logic (run:turn_saved emit, success response)
 // is exercisable without mounting the real DB/registry.
 const mockAppendCalls: Array<{ extensionId: string; req: unknown; ctx: unknown }> = [];
-let mockAppendResponse: { jsonrpc: "2.0"; id: unknown; result?: unknown; error?: { code: number; message: string } } = {
+let mockAppendResponse: {
+  jsonrpc: "2.0";
+  id: unknown;
+  result?: unknown;
+  error?: { code: number; message: string };
+} = {
   jsonrpc: "2.0",
   id: 1,
   result: { messageId: "new-msg-1", toolCallIds: ["tc-new-1"] },
@@ -191,7 +185,12 @@ mock.module("$server/extensions/append-message-handler", () => ({
 }));
 
 const mockFinalizeCalls: Array<{ extensionId: string; req: unknown; ctx: unknown }> = [];
-let mockFinalizeResponse: { jsonrpc: "2.0"; id: unknown; result?: unknown; error?: { code: number; message: string } } = {
+let mockFinalizeResponse: {
+  jsonrpc: "2.0";
+  id: unknown;
+  result?: unknown;
+  error?: { code: number; message: string };
+} = {
   jsonrpc: "2.0",
   id: 1,
   result: { ok: true },
@@ -215,9 +214,7 @@ mock.module("$server/logger", () => ({
 
 // ── Import handler AFTER mocks ────────────────────────────────────
 
-const { POST } = await import(
-  "../routes/api/extensions/[name]/events/[event]/+server"
-);
+const { POST } = await import("../routes/api/extensions/[name]/events/[event]/+server");
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -235,14 +232,11 @@ function makeEvent(
   },
 ): RequestEventLike {
   return {
-    request: new Request(
-      `http://localhost/api/extensions/${params.name}/events/${params.event}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: typeof body === "string" ? body : JSON.stringify(body),
-      },
-    ),
+    request: new Request(`http://localhost/api/extensions/${params.name}/events/${params.event}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    }),
     locals: {
       user: { id: "user-1", email: "t@t.com", name: "T", role: "member" },
     },
@@ -325,10 +319,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
 
   test("missing extension-name param → 404", async () => {
     const res = await POST(
-      makeEvent(
-        { toolCallId: "tc", conversationId: "c" },
-        { event: "knob-change" },
-      ) as never,
+      makeEvent({ toolCallId: "tc", conversationId: "c" }, { event: "knob-change" }) as never,
     );
     expect(res.status).toBe(404);
   });
@@ -337,9 +328,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
 
   test("unregistered event (not declared by extension) → 404", async () => {
     // mockRegisteredEvents is empty — every event is unknown
-    const res = await POST(
-      makeEvent({ toolCallId: "tc", conversationId: "c" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc", conversationId: "c" }) as never);
     expect(res.status).toBe(404);
     expect(mockBusEmit).not.toHaveBeenCalled();
     // Conversation lookup should NOT happen if the event is unregistered
@@ -350,9 +339,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
 
   test("missing conversationId → 400", async () => {
     mockRegisteredEvents.add("claude-design:knob-change");
-    const res = await POST(
-      makeEvent({ toolCallId: "tc" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc" }) as never);
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe("Invalid body");
@@ -361,9 +348,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
 
   test("missing toolCallId → 400", async () => {
     mockRegisteredEvents.add("claude-design:knob-change");
-    const res = await POST(
-      makeEvent({ conversationId: "c" }) as never,
-    );
+    const res = await POST(makeEvent({ conversationId: "c" }) as never);
     expect(res.status).toBe(400);
     expect(mockBusEmit).not.toHaveBeenCalled();
   });
@@ -432,9 +417,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
   test("conversation does not exist → 404 (no leakage)", async () => {
     mockRegisteredEvents.add("claude-design:knob-change");
     mockConv = null;
-    const res = await POST(
-      makeEvent({ toolCallId: "tc", conversationId: "c-missing" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc", conversationId: "c-missing" }) as never);
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Not found");
@@ -444,9 +427,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
   test("conversation owned by another user → 404 (auth boundary)", async () => {
     mockRegisteredEvents.add("claude-design:knob-change");
     mockConv = { id: "c-other", userId: "stranger" };
-    const res = await POST(
-      makeEvent({ toolCallId: "tc", conversationId: "c-other" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc", conversationId: "c-other" }) as never);
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Not found");
@@ -456,9 +437,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
   test("conversation with null userId → 404 (no anonymous emits)", async () => {
     mockRegisteredEvents.add("claude-design:knob-change");
     mockConv = { id: "c", userId: null };
-    const res = await POST(
-      makeEvent({ toolCallId: "tc", conversationId: "c" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc", conversationId: "c" }) as never);
     expect(res.status).toBe(404);
     expect(mockBusEmit).not.toHaveBeenCalled();
   });
@@ -519,9 +498,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
     // so an attacker can't probe conversation existence via the body.
     mockConv = { id: "c", userId: "user-1" };
     // mockRegisteredEvents intentionally empty
-    const res = await POST(
-      makeEvent({ toolCallId: "tc", conversationId: "c" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc", conversationId: "c" }) as never);
     expect(res.status).toBe(404);
     expect(mockGetConversation).not.toHaveBeenCalled();
   });
@@ -549,9 +526,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
     mockConv = { id: "c-1", userId: "user-1" };
     mockToolCall = null;
 
-    const res = await POST(
-      makeEvent({ toolCallId: "tc-fresh", conversationId: "c-1" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc-fresh", conversationId: "c-1" }) as never);
     expect(res.status).toBe(200);
     expect(mockBusEmit).toHaveBeenCalledTimes(1);
   });
@@ -561,9 +536,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
     mockConv = { id: "c-1", userId: "user-1" };
     mockToolCall = { id: "tc-bound", conversationId: "c-1" };
 
-    const res = await POST(
-      makeEvent({ toolCallId: "tc-bound", conversationId: "c-1" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc-bound", conversationId: "c-1" }) as never);
     expect(res.status).toBe(200);
     expect(mockBusEmit).toHaveBeenCalledTimes(1);
   });
@@ -572,26 +545,20 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
 
   test("empty-string toolCallId → 400 (z.string().min(1) lower bound)", async () => {
     mockRegisteredEvents.add("claude-design:knob-change");
-    const res = await POST(
-      makeEvent({ toolCallId: "", conversationId: "c" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "", conversationId: "c" }) as never);
     expect(res.status).toBe(400);
     expect(mockBusEmit).not.toHaveBeenCalled();
   });
 
   test("empty-string conversationId → 400 (z.string().min(1) lower bound)", async () => {
     mockRegisteredEvents.add("claude-design:knob-change");
-    const res = await POST(
-      makeEvent({ toolCallId: "tc", conversationId: "" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc", conversationId: "" }) as never);
     expect(res.status).toBe(400);
   });
 
   test("non-string toolCallId (number) → 400", async () => {
     mockRegisteredEvents.add("claude-design:knob-change");
-    const res = await POST(
-      makeEvent({ toolCallId: 12345, conversationId: "c" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: 12345, conversationId: "c" }) as never);
     expect(res.status).toBe(400);
   });
 
@@ -612,10 +579,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
 
   test("empty event-name in URL → 404 (regex lower bound)", async () => {
     const res = await POST(
-      makeEvent(
-        { toolCallId: "tc", conversationId: "c" },
-        { name: "ext", event: "" },
-      ) as never,
+      makeEvent({ toolCallId: "tc", conversationId: "c" }, { name: "ext", event: "" }) as never,
     );
     expect(res.status).toBe(404);
     expect(mockBusEmit).not.toHaveBeenCalled();
@@ -694,15 +658,18 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
       expect(params.role).toBe("extension");
       expect(params.content).toMatch(/TTS of message/);
       expect(params.excluded).toBe(true);
-      const tcs = params.toolCalls as Array<{ name: string; cardType: string; status: string; input: { text: string } }>;
+      const tcs = params.toolCalls as Array<{
+        name: string;
+        cardType: string;
+        status: string;
+        input: { text: string };
+      }>;
       expect(tcs[0]?.cardType).toBe("kokoro-tts-player");
       expect(tcs[0]?.status).toBe("running");
       expect(tcs[0]?.input.text).toBe("Hello world.");
 
       // run:turn_saved emitted so the chat UI reloads.
-      const turnSavedCalls = mockBusEmit.mock.calls.filter(
-        (c) => c[0] === "run:turn_saved",
-      );
+      const turnSavedCalls = mockBusEmit.mock.calls.filter((c) => c[0] === "run:turn_saved");
       expect(turnSavedCalls).toHaveLength(1);
       const payload = turnSavedCalls[0]?.[1] as { runId: string; messageId: string };
       expect(payload.runId).toBe("ext:ext-kokoro:new-msg-1");
@@ -917,9 +884,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
       mockRegisteredEvents.add("claude-design:knob-change");
       mockConv = { id: "c-1", userId: "user-1" };
 
-      const res = await POST(
-        makeEvent({ toolCallId: "tc-1", conversationId: "c-1" }) as never,
-      );
+      const res = await POST(makeEvent({ toolCallId: "tc-1", conversationId: "c-1" }) as never);
       expect(res.status).toBe(200);
       expect(mockAppendCalls).toHaveLength(0);
       expect(mockFinalizeCalls).toHaveLength(0);
@@ -1065,9 +1030,7 @@ describe("POST /api/extensions/[name]/events/[event]", () => {
       expect(params.output).toEqual({ attachmentId: "att-real-1" });
       // Save events don't fan out to other subscribers — they're a
       // host-side bookkeeping callback.
-      const fanoutCalls = mockBusEmit.mock.calls.filter(
-        (c) => c[0] === "kokoro-tts:save",
-      );
+      const fanoutCalls = mockBusEmit.mock.calls.filter((c) => c[0] === "kokoro-tts:save");
       expect(fanoutCalls).toHaveLength(0);
     });
 

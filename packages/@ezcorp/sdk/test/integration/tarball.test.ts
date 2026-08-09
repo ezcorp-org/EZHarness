@@ -52,9 +52,7 @@ beforeAll(async () => {
     cwd: SDK_DIR,
   });
   if (pack.exitCode !== 0) {
-    throw new Error(
-      `bun pm pack failed (exit ${pack.exitCode}):\n${pack.stdout}\n${pack.stderr}`,
-    );
+    throw new Error(`bun pm pack failed (exit ${pack.exitCode}):\n${pack.stdout}\n${pack.stderr}`);
   }
 
   // Locate the produced tarball (`ezcorp-sdk-<version>.tgz`).
@@ -131,20 +129,16 @@ afterAll(() => {
   if (fixtureDir) rmSync(fixtureDir, { recursive: true, force: true });
 });
 
-test(
-  "installed @ezcorp/sdk tarball: fixture extension test suite passes",
-  async () => {
-    const result = await run(["bun", "test", "fixture.test.ts"], {
-      cwd: fixtureDir,
-    });
-    if (result.exitCode !== 0) {
-      console.error("fixture stdout:\n", result.stdout);
-      console.error("fixture stderr:\n", result.stderr);
-    }
-    expect(result.exitCode).toBe(0);
-    // Bun emits test summary to stderr: `N pass` should appear, `0 fail`.
-    expect(result.stderr).toMatch(/\d+ pass/);
-    expect(result.stderr).not.toMatch(/[1-9]\d* fail/);
-  },
-  60_000,
-);
+test("installed @ezcorp/sdk tarball: fixture extension test suite passes", async () => {
+  const result = await run(["bun", "test", "fixture.test.ts"], {
+    cwd: fixtureDir,
+  });
+  if (result.exitCode !== 0) {
+    console.error("fixture stdout:\n", result.stdout);
+    console.error("fixture stderr:\n", result.stderr);
+  }
+  expect(result.exitCode).toBe(0);
+  // Bun emits test summary to stderr: `N pass` should appear, `0 fail`.
+  expect(result.stderr).toMatch(/\d+ pass/);
+  expect(result.stderr).not.toMatch(/[1-9]\d* fail/);
+}, 60_000);

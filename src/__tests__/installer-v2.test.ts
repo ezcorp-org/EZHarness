@@ -70,9 +70,7 @@ function makeValidV2Manifest(overrides: Partial<ExtensionManifestV2> = {}): Exte
     description: "A test extension",
     author: { name: "Tester" },
     entrypoint: "index.ts",
-    tools: [
-      { name: "greet", description: "Say hi", inputSchema: { type: "object" } },
-    ],
+    tools: [{ name: "greet", description: "Say hi", inputSchema: { type: "object" } }],
     permissions: { network: ["api.example.com"] },
     ...overrides,
   };
@@ -83,7 +81,10 @@ const defaultPermissions: ExtensionPermissions = {
   grantedAt: { network: Date.now() },
 };
 
-async function setupExtDir(manifest: ExtensionManifestV2 | Record<string, unknown>, entryContent = 'console.log("ext");') {
+async function setupExtDir(
+  manifest: ExtensionManifestV2 | Record<string, unknown>,
+  entryContent = 'console.log("ext");',
+) {
   const dir = await mkdtemp(join(tmpdir(), "ext-v2-test-"));
   await writeConfig(dir, manifest);
   if ((manifest as any).entrypoint) {
@@ -276,7 +277,11 @@ describe("DB storage — v2 manifest shape", () => {
   test("stored manifest preserves tools array", async () => {
     const tools = [
       { name: "tool_a", description: "Tool A", inputSchema: { type: "object" } },
-      { name: "tool_b", description: "Tool B", inputSchema: { type: "object", properties: { x: { type: "number" } } } },
+      {
+        name: "tool_b",
+        description: "Tool B",
+        inputSchema: { type: "object", properties: { x: { type: "number" } } },
+      },
     ];
     const manifest = makeValidV2Manifest({ tools });
     const dir = await setupExtDir(manifest);
@@ -285,7 +290,9 @@ describe("DB storage — v2 manifest shape", () => {
     expect(lastCreateCall.manifest.tools).toHaveLength(2);
     expect(lastCreateCall.manifest.tools[0].name).toBe("tool_a");
     expect(lastCreateCall.manifest.tools[1].name).toBe("tool_b");
-    expect(lastCreateCall.manifest.tools[1].inputSchema.properties).toEqual({ x: { type: "number" } });
+    expect(lastCreateCall.manifest.tools[1].inputSchema.properties).toEqual({
+      x: { type: "number" },
+    });
   });
 
   test("stored manifest includes computed checksum", async () => {
@@ -346,7 +353,9 @@ describe("DB storage — v2 manifest shape", () => {
 
     expect(lastCreateCall.manifest.tags).toEqual(["utility", "dev"]);
     expect(lastCreateCall.manifest.category).toBe("Development");
-    expect(lastCreateCall.manifest.skills).toEqual([{ name: "refactor", description: "Refactors code" }]);
+    expect(lastCreateCall.manifest.skills).toEqual([
+      { name: "refactor", description: "Refactors code" },
+    ]);
   });
 });
 
@@ -411,7 +420,9 @@ describe("seed-marketplace — v2 manifest shape", () => {
       join(import.meta.dir, "..", "..", "scripts", "seed-marketplace.ts"),
     ).text();
 
-    expect(seedContent).toContain('import type { ExtensionManifestV2 } from "../src/extensions/types"');
+    expect(seedContent).toContain(
+      'import type { ExtensionManifestV2 } from "../src/extensions/types"',
+    );
   });
 
   test("seed manifests include agent component with prompt", async () => {
@@ -455,7 +466,14 @@ describe("import path cleanup — no marketplace/types or marketplace/manifest",
   test("zero 'from' imports of marketplace/types in src/", async () => {
     // Match actual import statements, not comments or string literals
     const proc = Bun.spawnSync(
-      ["grep", "-rP", "from\\s+[\"'].*marketplace/types", "--include=*.ts", "--include=*.tsx", "-l"],
+      [
+        "grep",
+        "-rP",
+        "from\\s+[\"'].*marketplace/types",
+        "--include=*.ts",
+        "--include=*.tsx",
+        "-l",
+      ],
       { cwd: join(import.meta.dir, "..") },
     );
     const stdout = proc.stdout.toString().trim();
@@ -464,7 +482,14 @@ describe("import path cleanup — no marketplace/types or marketplace/manifest",
 
   test("zero 'from' imports of marketplace/manifest in src/", async () => {
     const proc = Bun.spawnSync(
-      ["grep", "-rP", "from\\s+[\"'].*marketplace/manifest", "--include=*.ts", "--include=*.tsx", "-l"],
+      [
+        "grep",
+        "-rP",
+        "from\\s+[\"'].*marketplace/manifest",
+        "--include=*.ts",
+        "--include=*.tsx",
+        "-l",
+      ],
       { cwd: join(import.meta.dir, "..") },
     );
     const stdout = proc.stdout.toString().trim();
@@ -473,7 +498,15 @@ describe("import path cleanup — no marketplace/types or marketplace/manifest",
 
   test("zero 'from' imports of marketplace/types in web/src/", async () => {
     const proc = Bun.spawnSync(
-      ["grep", "-rP", "from\\s+[\"'].*marketplace/types", "--include=*.ts", "--include=*.tsx", "--include=*.svelte", "-l"],
+      [
+        "grep",
+        "-rP",
+        "from\\s+[\"'].*marketplace/types",
+        "--include=*.ts",
+        "--include=*.tsx",
+        "--include=*.svelte",
+        "-l",
+      ],
       { cwd: join(import.meta.dir, "../../web/src") },
     );
     const stdout = proc.stdout.toString().trim();
@@ -482,7 +515,15 @@ describe("import path cleanup — no marketplace/types or marketplace/manifest",
 
   test("zero 'from' imports of marketplace/manifest in web/src/", async () => {
     const proc = Bun.spawnSync(
-      ["grep", "-rP", "from\\s+[\"'].*marketplace/manifest", "--include=*.ts", "--include=*.tsx", "--include=*.svelte", "-l"],
+      [
+        "grep",
+        "-rP",
+        "from\\s+[\"'].*marketplace/manifest",
+        "--include=*.ts",
+        "--include=*.tsx",
+        "--include=*.svelte",
+        "-l",
+      ],
       { cwd: join(import.meta.dir, "../../web/src") },
     );
     const stdout = proc.stdout.toString().trim();

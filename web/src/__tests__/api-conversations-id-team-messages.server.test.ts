@@ -33,14 +33,10 @@ const { GET } = await import(
 
 function makeEvent(opts: { locals?: Record<string, unknown> }) {
   return {
-    url: new URL(
-      "http://localhost/api/conversations/c1/team/agent-cfg/messages",
-    ),
+    url: new URL("http://localhost/api/conversations/c1/team/agent-cfg/messages"),
     locals: opts.locals ?? {},
     params: { id: "c1", agentConfigId: "agent-cfg" },
-    request: new Request(
-      "http://localhost/api/conversations/c1/team/agent-cfg/messages",
-    ),
+    request: new Request("http://localhost/api/conversations/c1/team/agent-cfg/messages"),
   } as any;
 }
 

@@ -185,9 +185,7 @@ describe("Phase 54 SEC-03 — per-conversation call-depth cap", () => {
     const rejected = await executor.handlePiInvoke("caller-id", makeInvoke(51));
     expect(rejected.error).toBeDefined();
     expect(rejected.error!.code).toBe(-32000);
-    expect(rejected.error!.message).toMatch(
-      /Per-conversation call-depth cap exceeded \(max 50\)/,
-    );
+    expect(rejected.error!.message).toMatch(/Per-conversation call-depth cap exceeded \(max 50\)/);
 
     // Drain the parked promises.
     resolveAll!();

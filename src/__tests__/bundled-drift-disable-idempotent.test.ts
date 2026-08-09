@@ -38,11 +38,7 @@ interface CapturedAudit {
 }
 const auditEntries: CapturedAudit[] = [];
 mock.module("../db/queries/audit-log", () => ({
-  insertAuditEntry: async (
-    _u: string | null,
-    action: string,
-    target?: string,
-  ) => {
+  insertAuditEntry: async (_u: string | null, action: string, target?: string) => {
     auditEntries.push({ action, target });
     return `audit-${auditEntries.length}`;
   },
@@ -148,9 +144,7 @@ function seedDriftedScratchpad(enabled: boolean): void {
 }
 
 function scratchpadEnabledWrites(): number {
-  return updateCalls.filter(
-    (c) => c.id === "seed-scratchpad" && c.patch.enabled === false,
-  ).length;
+  return updateCalls.filter((c) => c.id === "seed-scratchpad" && c.patch.enabled === false).length;
 }
 
 describe("D4 — already-disabled drifted bundle is idempotent", () => {
@@ -164,12 +158,8 @@ describe("D4 — already-disabled drifted bundle is idempotent", () => {
     expect(store.get("scratchpad")?.enabled).toBe(false);
     // Audit rows written (drift + update-blocked) — the durable record
     // of the transition.
-    expect(
-      auditEntries.some((a) => a.action === "ext:manifest-drifted"),
-    ).toBe(true);
-    expect(
-      auditEntries.some((a) => a.action === "ext:update-blocked"),
-    ).toBe(true);
+    expect(auditEntries.some((a) => a.action === "ext:manifest-drifted")).toBe(true);
+    expect(auditEntries.some((a) => a.action === "ext:update-blocked")).toBe(true);
     // Exactly one enabled:false write.
     expect(scratchpadEnabledWrites()).toBe(1);
   }, 30_000);
@@ -189,9 +179,7 @@ describe("D4 — already-disabled drifted bundle is idempotent", () => {
     expect(scratchpadEnabledWrites()).toBe(0);
     // No drift re-audit on the subsequent boot (the transition already
     // recorded it; re-writing would be audit-log spam).
-    expect(
-      auditEntries.some((a) => a.action === "ext:manifest-drifted"),
-    ).toBe(false);
+    expect(auditEntries.some((a) => a.action === "ext:manifest-drifted")).toBe(false);
   }, 30_000);
 
   test("drifted-but-ENABLED still takes the full WARN + disable path", async () => {
@@ -207,9 +195,7 @@ describe("D4 — already-disabled drifted bundle is idempotent", () => {
     // not merely on drift presence).
     expect(store.get("scratchpad")?.enabled).toBe(false);
     expect(scratchpadEnabledWrites()).toBe(1);
-    expect(
-      auditEntries.some((a) => a.action === "ext:manifest-drifted"),
-    ).toBe(true);
+    expect(auditEntries.some((a) => a.action === "ext:manifest-drifted")).toBe(true);
   }, 30_000);
 });
 
@@ -237,11 +223,7 @@ describe("D3 — boot refresh syncs the denormalized description column", () => 
     expect(store.get("markdown-utils")!.description).toBe(diskDescription);
     // The refresh write carried the description column.
     expect(
-      updateCalls.some(
-        (c) =>
-          c.id === md!.id &&
-          c.patch.description === diskDescription,
-      ),
+      updateCalls.some((c) => c.id === md!.id && c.patch.description === diskDescription),
     ).toBe(true);
   }, 30_000);
 });

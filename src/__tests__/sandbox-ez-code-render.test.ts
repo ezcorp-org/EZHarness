@@ -27,10 +27,7 @@ import { test, expect, describe } from "bun:test";
 import { resolve } from "node:path";
 import { readFileSync } from "node:fs";
 
-const SANDBOX_PRELOAD_PATH = resolve(
-  import.meta.dir,
-  "../extensions/runtime/sandbox-preload.ts",
-);
+const SANDBOX_PRELOAD_PATH = resolve(import.meta.dir, "../extensions/runtime/sandbox-preload.ts");
 const EZ_CODE_ENTRYPOINT = resolve(
   import.meta.dir,
   "../../docs/extensions/examples/ez-code/index.ts",
@@ -61,25 +58,22 @@ async function renderUnderPreload(
   // shell, but we set EZCORP_SHELL_ALLOWED=1 to match production (open_pr's
   // git/gh) and prove the module loads regardless. EZCORP_PROJECT_ROOT is the
   // repo root the host injects. EZCORP_FS_ALLOWED is informational only.
-  const proc = Bun.spawn(
-    ["bun", "run", "--preload", SANDBOX_PRELOAD_PATH, EZ_CODE_ENTRYPOINT],
-    {
-      stdin: "pipe",
-      stdout: "pipe",
-      stderr: "pipe",
-      env: {
-        PATH: process.env.PATH ?? "",
-        HOME: process.env.HOME ?? "",
-        EZCORP_SHELL_ALLOWED: "1",
-        EZCORP_NETWORK_ALLOWED: "1",
-        EZCORP_PERMITTED_HOSTS: "api.github.com",
-        EZCORP_FS_ALLOWED: "1",
-        EZCORP_PROJECT_ROOT: process.cwd(),
-      },
+  const proc = Bun.spawn(["bun", "run", "--preload", SANDBOX_PRELOAD_PATH, EZ_CODE_ENTRYPOINT], {
+    stdin: "pipe",
+    stdout: "pipe",
+    stderr: "pipe",
+    env: {
+      PATH: process.env.PATH ?? "",
+      HOME: process.env.HOME ?? "",
+      EZCORP_SHELL_ALLOWED: "1",
+      EZCORP_NETWORK_ALLOWED: "1",
+      EZCORP_PERMITTED_HOSTS: "api.github.com",
+      EZCORP_FS_ALLOWED: "1",
+      EZCORP_PROJECT_ROOT: process.cwd(),
     },
-  );
+  });
 
-  const stdinWriter = (proc.stdin as { write(d: string): number; flush?(): void });
+  const stdinWriter = proc.stdin as { write(d: string): number; flush?(): void };
   let stderr = "";
   let response: JsonRpcMsg | undefined;
   let settled = false;
@@ -258,7 +252,8 @@ describe("ez-code under the REAL sandbox preload (regression: node:fs poison cra
       .join("\n");
     // Match real import/require of the poisoned builtins (with or without the
     // `node:` prefix).
-    const poisoned = /(?:import\s[^;]*from\s*|require\s*\(\s*)["'](?:node:)?(?:fs|fs\/promises|child_process)["']/;
+    const poisoned =
+      /(?:import\s[^;]*from\s*|require\s*\(\s*)["'](?:node:)?(?:fs|fs\/promises|child_process)["']/;
     expect(code).not.toMatch(poisoned);
   });
 });

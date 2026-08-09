@@ -118,7 +118,8 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   const user = requireAuth(locals);
   const executor = getExecutor();
   // Ownership before cancel — prevents cross-tenant run cancellation.
-  if (!(await callerOwnsRun(params.id, user))) return errorJson(404, "Run not found or not running");
+  if (!(await callerOwnsRun(params.id, user)))
+    return errorJson(404, "Run not found or not running");
   const cancelled = executor.cancelRun(params.id);
   if (!cancelled) return errorJson(404, "Run not found or not running");
   return json({ ok: true });

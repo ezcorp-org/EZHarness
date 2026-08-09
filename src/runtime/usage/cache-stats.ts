@@ -255,7 +255,10 @@ function isPriced(p: ModelPrices): boolean {
  * reads like a measured price. A priced model with no tokens still returns a
  * real, zeroed `SegmentCost` — that zero IS data.
  */
-export function priceSegment(seg: CacheUsageLike, prices: ModelPrices | undefined): SegmentCost | null {
+export function priceSegment(
+  seg: CacheUsageLike,
+  prices: ModelPrices | undefined,
+): SegmentCost | null {
   if (!prices || !isPriced(prices)) return null;
   // cacheWrite1h is a SUBSET of cacheWrite (see CacheUsageLike). Clamp so
   // malformed provider usage can never bill more written tokens than were
@@ -263,7 +266,10 @@ export function priceSegment(seg: CacheUsageLike, prices: ModelPrices | undefine
   // the default-retention rate.
   const writeTokens = num(seg.cacheWrite);
   const write1hTokens = Math.min(num(seg.cacheWrite1h ?? 0), writeTokens);
-  const cacheWrite1h = priceTokens(write1hTokens, num(prices.input) * CACHE_WRITE_1H_INPUT_MULTIPLIER);
+  const cacheWrite1h = priceTokens(
+    write1hTokens,
+    num(prices.input) * CACHE_WRITE_1H_INPUT_MULTIPLIER,
+  );
   const cacheWrite = priceTokens(writeTokens - write1hTokens, prices.cacheWrite) + cacheWrite1h;
   const input = priceTokens(seg.input, prices.input);
   const output = priceTokens(seg.output, prices.output);

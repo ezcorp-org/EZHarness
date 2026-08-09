@@ -65,9 +65,10 @@ beforeEach(async () => {
   const db = getTestDb();
   await db.delete(auditLog);
   // Reset member user status back to active between tests
-  await db.update(users).set({ status: "active" }).where(
-    (await import("drizzle-orm")).eq(users.id, memberDbId),
-  );
+  await db
+    .update(users)
+    .set({ status: "active" })
+    .where((await import("drizzle-orm")).eq(users.id, memberDbId));
 });
 
 // ── GET /api/users ───────────────────────────────────────────────
@@ -194,10 +195,7 @@ describe("PUT /api/users/[id]", () => {
 
     // Verify the agent is now owned by the admin
     const { eq } = await import("drizzle-orm");
-    const rows = await db
-      .select()
-      .from(agentConfigs)
-      .where(eq(agentConfigs.id, agentId));
+    const rows = await db.select().from(agentConfigs).where(eq(agentConfigs.id, agentId));
     expect(rows[0]!.userId).toBe(adminDbId);
 
     // Clean up

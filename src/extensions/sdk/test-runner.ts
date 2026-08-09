@@ -19,7 +19,9 @@ export interface TestRunnerOptions {
 /**
  * Build the spawn args for running tests with prlimit + bun test.
  */
-export function buildTestSpawnArgs(opts?: Pick<TestRunnerOptions, "filter" | "timeout" | "memoryLimit">): string[] {
+export function buildTestSpawnArgs(
+  opts?: Pick<TestRunnerOptions, "filter" | "timeout" | "memoryLimit">,
+): string[] {
   const memStr = opts?.memoryLimit ?? `${DEFAULT_MEMORY_LIMIT_MB}MB`;
   const memBytes = parseMemoryLimit(memStr);
 

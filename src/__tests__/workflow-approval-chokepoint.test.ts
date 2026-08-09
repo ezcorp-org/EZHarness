@@ -165,9 +165,7 @@ describe("every answer path routes through the one guard", () => {
     // CHOKEPOINT consults the guard but says nothing about whether the
     // route reaches the chokepoint. A route that inlined the consent
     // rules would pass them. So this drives the real handler.
-    const { POST } = await import(
-      "../../web/src/routes/api/workflows/approvals/[id]/+server"
-    );
+    const { POST } = await import("../../web/src/routes/api/workflows/approvals/[id]/+server");
     // The route resolves its executor through the live registry rather
     // than an injected dep — that indirection is the only legal route
     // from `src/` to the web layer's executor, so the test registers a
@@ -210,9 +208,7 @@ describe("every answer path routes through the one guard", () => {
     // principal) a reviewer could be let through a gate they do not hold,
     // on a run they do not own. Nothing else exercises that callback
     // against real grant rows.
-    const { POST } = await import(
-      "../../web/src/routes/api/workflows/approvals/[id]/+server"
-    );
+    const { POST } = await import("../../web/src/routes/api/workflows/approvals/[id]/+server");
     registerWorkflowRuntime(stubRuntime());
     const answerAs = async (id: string, role: "member" | "admin") =>
       (await POST({
@@ -250,9 +246,7 @@ describe("every answer path routes through the one guard", () => {
     //
     // Two DIFFERENT statuses, because a route that had quietly collapsed
     // to a single constant (or to the `?? 400` default) would satisfy one.
-    const { POST } = await import(
-      "../../web/src/routes/api/workflows/approvals/[id]/+server"
-    );
+    const { POST } = await import("../../web/src/routes/api/workflows/approvals/[id]/+server");
     const answer = async (id: string) =>
       (await POST({
         request: new Request("http://x", {

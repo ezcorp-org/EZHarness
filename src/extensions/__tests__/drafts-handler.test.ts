@@ -41,11 +41,7 @@ class MockAuthorInstallError extends Error {
     if (details) this.details = details;
   }
 }
-let installAuthoredDraftImpl: (a: {
-  draftId: string;
-  userId: string;
-  enable: boolean;
-}) => Promise<{
+let installAuthoredDraftImpl: (a: { draftId: string; userId: string; enable: boolean }) => Promise<{
   extensionId: string;
   name: string;
   redirectUrl: string;
@@ -55,8 +51,7 @@ let installAuthoredDraftImpl: (a: {
   name: "weather",
   redirectUrl: "/extensions/weather",
 });
-let lastInstallArgs: { draftId: string; userId: string; enable: boolean } | null =
-  null;
+let lastInstallArgs: { draftId: string; userId: string; enable: boolean } | null = null;
 // Snapshot the REAL module before mocking so afterAll can re-register
 // it (author-install is kept out of mock-cleanup's MODULE_PATHS — see
 // tool-executor.extensions-installed-emit.test.ts for why eager
@@ -129,18 +124,24 @@ let tmpRoot: TempProjectRoot;
 beforeAll(async () => {
   tmpRoot = useTempProjectRoot("drafts-handler-");
   await setupTestDb();
-  await getDb().insert(users).values({
-    id: USER,
-    email: `${USER}@t.local`,
-    passwordHash: "x",
-    name: USER,
-  } as never).onConflictDoNothing();
-  await getDb().insert(users).values({
-    id: OTHER_USER,
-    email: `${OTHER_USER}@t.local`,
-    passwordHash: "x",
-    name: OTHER_USER,
-  } as never).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values({
+      id: USER,
+      email: `${USER}@t.local`,
+      passwordHash: "x",
+      name: USER,
+    } as never)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values({
+      id: OTHER_USER,
+      email: `${OTHER_USER}@t.local`,
+      passwordHash: "x",
+      name: OTHER_USER,
+    } as never)
+    .onConflictDoNothing();
 });
 
 afterAll(async () => {
@@ -220,20 +221,12 @@ describe("ezcorp/drafts — custom.drafts.kinds gate", () => {
 
 describe("ezcorp/drafts — param validation", () => {
   test("missing action → -32602", async () => {
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({}),
-      makeCtx(),
-    );
+    const resp = await handleDraftsRpc(ALLOWED_NAME, rpc({}), makeCtx());
     expect(resp.error?.code).toBe(-32602);
   });
 
   test("unknown action → -32602", async () => {
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "bogus" }),
-      makeCtx(),
-    );
+    const resp = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "bogus" }), makeCtx());
     expect(resp.error?.code).toBe(-32602);
   });
 
@@ -286,7 +279,12 @@ describe("ezcorp/drafts — param validation", () => {
   test("create: ttlMs > 30-day cap → -32602", async () => {
     const resp = await handleDraftsRpc(
       ALLOWED_NAME,
-      rpc({ action: "create", kind: "extension", payload: { x: 1 }, ttlMs: 100 * 24 * 60 * 60 * 1000 }),
+      rpc({
+        action: "create",
+        kind: "extension",
+        payload: { x: 1 },
+        ttlMs: 100 * 24 * 60 * 60 * 1000,
+      }),
       makeCtx(),
     );
     expect(resp.error?.code).toBe(-32602);
@@ -300,16 +298,19 @@ describe("ezcorp/drafts — create happy path", () => {
   test("host-owned: persists row, materializes files on disk, stamps draftDir", async () => {
     const resp = await handleDraftsRpc(
       ALLOWED_NAME,
-      rpc({
-        action: "create",
-        kind: "extension",
-        payload: { name: "weather", type: "tool", mode: "author" },
-        files: {
-          "ezcorp.config.ts": "export default { name: 'weather' };\n",
-          "index.ts": "// weather entry\n",
-          "README.md": "# weather\n",
+      rpc(
+        {
+          action: "create",
+          kind: "extension",
+          payload: { name: "weather", type: "tool", mode: "author" },
+          files: {
+            "ezcorp.config.ts": "export default { name: 'weather' };\n",
+            "index.ts": "// weather entry\n",
+            "README.md": "# weather\n",
+          },
         },
-      }, "create-1"),
+        "create-1",
+      ),
       makeCtx(),
     );
     expect(resp.error).toBeUndefined();
@@ -334,12 +335,7 @@ describe("ezcorp/drafts — create happy path", () => {
     // old `toContain` into an EQUALITY and additionally proves the write
     // never reached the real checkout.
     expect(draftDir).toBe(
-      join(
-        tmpRoot.root,
-        ".ezcorp/extension-data/extension-author/drafts",
-        USER,
-        result.draftId,
-      ),
+      join(tmpRoot.root, ".ezcorp/extension-data/extension-author/drafts", USER, result.draftId),
     );
     // … and actually wrote the files there (the deterministic path —
     // the sandboxed subprocess did zero fs).
@@ -353,24 +349,23 @@ describe("ezcorp/drafts — create happy path", () => {
   test("author draft WITHOUT files → -32602 (fail fast, no row minted)", async () => {
     const resp = await handleDraftsRpc(
       ALLOWED_NAME,
-      rpc({
-        action: "create",
-        kind: "extension",
-        payload: { name: "nofiles", type: "tool", mode: "author" },
-      }, "create-nofiles"),
+      rpc(
+        {
+          action: "create",
+          kind: "extension",
+          payload: { name: "nofiles", type: "tool", mode: "author" },
+        },
+        "create-nofiles",
+      ),
       makeCtx(),
     );
     expect(resp.error?.code).toBe(-32602);
     expect(resp.error?.message).toMatch(/files/i);
     // No row leaked for this name.
-    const rows = await getDb()
-      .select()
-      .from(ezDrafts)
-      .where(eq(ezDrafts.userId, USER));
+    const rows = await getDb().select().from(ezDrafts).where(eq(ezDrafts.userId, USER));
     expect(
       rows.some(
-        (r: { payload: unknown }) =>
-          (r.payload as Record<string, unknown>)?.name === "nofiles",
+        (r: { payload: unknown }) => (r.payload as Record<string, unknown>)?.name === "nofiles",
       ),
     ).toBe(false);
   });
@@ -378,24 +373,23 @@ describe("ezcorp/drafts — create happy path", () => {
   test("bad path in files → -32603 and the row is rolled back (no orphan)", async () => {
     const resp = await handleDraftsRpc(
       ALLOWED_NAME,
-      rpc({
-        action: "create",
-        kind: "extension",
-        payload: { name: "evil", type: "tool", mode: "author" },
-        files: { "../escape.ts": "pwned" },
-      }, "create-evil"),
+      rpc(
+        {
+          action: "create",
+          kind: "extension",
+          payload: { name: "evil", type: "tool", mode: "author" },
+          files: { "../escape.ts": "pwned" },
+        },
+        "create-evil",
+      ),
       makeCtx(),
     );
     expect(resp.error?.code).toBe(-32603);
     expect(resp.error?.message).toMatch(/materialize/i);
     // Transactional: the row minted before materialization is discarded.
-    const rows = await getDb()
-      .select()
-      .from(ezDrafts)
-      .where(eq(ezDrafts.userId, USER));
+    const rows = await getDb().select().from(ezDrafts).where(eq(ezDrafts.userId, USER));
     const evil = rows.find(
-      (r: { payload: unknown }) =>
-        (r.payload as Record<string, unknown>)?.name === "evil",
+      (r: { payload: unknown }) => (r.payload as Record<string, unknown>)?.name === "evil",
     ) as { consumedAt: Date | null } | undefined;
     // discardDraftAndDir consumes the row; it must not be a live draft.
     expect(evil?.consumedAt ?? null).not.toBeNull();
@@ -406,12 +400,15 @@ describe("ezcorp/drafts — create happy path", () => {
     const before = Date.now();
     const resp = await handleDraftsRpc(
       ALLOWED_NAME,
-      rpc({
-        action: "create",
-        kind: "extension",
-        payload: { x: 1 },
-        ttlMs: customTtl,
-      }, "ttl-1"),
+      rpc(
+        {
+          action: "create",
+          kind: "extension",
+          payload: { x: 1 },
+          ttlMs: customTtl,
+        },
+        "ttl-1",
+      ),
       makeCtx(),
     );
     const after = Date.now();
@@ -441,11 +438,7 @@ describe("ezcorp/drafts — create happy path", () => {
 
 describe("ezcorp/drafts — consume", () => {
   test("consume: missing draftId → -32602", async () => {
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "consume" }),
-      makeCtx(),
-    );
+    const resp = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "consume" }), makeCtx());
     expect(resp.error?.code).toBe(-32602);
   });
 
@@ -505,11 +498,7 @@ describe("ezcorp/drafts — consume", () => {
 
 describe("ezcorp/drafts — resolveDir", () => {
   test("missing draftId → -32602", async () => {
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "resolveDir" }),
-      makeCtx(),
-    );
+    const resp = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "resolveDir" }), makeCtx());
     expect(resp.error?.code).toBe(-32602);
   });
 
@@ -579,10 +568,7 @@ describe("ezcorp/drafts — resolveDir", () => {
   test("non-author draft (e.g. agent kind) → -32603", async () => {
     const create = await handleDraftsRpc(
       ALLOWED_NAME,
-      rpc(
-        { action: "create", kind: "agent", payload: { name: "a" } },
-        "rd-5",
-      ),
+      rpc({ action: "create", kind: "agent", payload: { name: "a" } }, "rd-5"),
       makeCtx({
         userId: USER,
         grantedPermissions: makePerms(["agent"]),
@@ -646,11 +632,7 @@ describe("ezcorp/drafts — listForUser", () => {
 
 describe("ezcorp/drafts — discard", () => {
   test("missing draftId → -32602", async () => {
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "discard" }),
-      makeCtx(),
-    );
+    const resp = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "discard" }), makeCtx());
     expect(resp.error?.code).toBe(-32602);
   });
 
@@ -711,11 +693,7 @@ describe("ezcorp/drafts — discard", () => {
 
 describe("ezcorp/drafts \u2014 install", () => {
   test("missing draftId \u2192 -32602", async () => {
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "install" }),
-      makeCtx(),
-    );
+    const resp = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "install" }), makeCtx());
     expect(resp.error?.code).toBe(-32602);
   });
 
@@ -810,9 +788,7 @@ describe("ezcorp/drafts \u2014 install", () => {
       makeCtx({ userId: USER }),
     );
     expect(resp.error?.code).toBe(-32603);
-    expect(resp.error?.message).toBe(
-      'NAME_COLLISION: Extension "weather" is already installed',
-    );
+    expect(resp.error?.message).toBe('NAME_COLLISION: Extension "weather" is already installed');
     expect(resp.error?.data).toMatchObject({ code: "NAME_COLLISION" });
   });
 

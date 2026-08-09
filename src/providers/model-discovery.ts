@@ -28,10 +28,7 @@ export interface DiscoveredModel extends AnyModel {}
 const CATALOG_URL = "https://models.dev/api.json";
 
 // Provider slug on models.dev → pi-ai api + baseUrl for runtime calls
-const PROVIDER_DEFAULTS: Record<
-  string,
-  { api: string; baseUrl: string }
-> = {
+const PROVIDER_DEFAULTS: Record<string, { api: string; baseUrl: string }> = {
   openai: {
     api: "openai-responses",
     baseUrl: "https://api.openai.com/v1",
@@ -135,9 +132,7 @@ export function _resetCatalogCache(): void {
 
 /** Negative id filter — works for provider-direct ids (no metadata). */
 function isExcludedById(id: string): boolean {
-  return /embedding|whisper|tts|moderation|dall-e|image-gen|audio-preview/.test(
-    id.toLowerCase(),
-  );
+  return /embedding|whisper|tts|moderation|dall-e|image-gen|audio-preview/.test(id.toLowerCase());
 }
 
 /** Catalog-path filter: must emit text AND not be an excluded id. */
@@ -214,9 +209,7 @@ async function fetchDirect(
     if (isExcludedById(id)) continue;
     const meta =
       catalogModels?.[id] ??
-      (catalogModels
-        ? Object.values(catalogModels).find((c) => c.id === id)
-        : undefined);
+      (catalogModels ? Object.values(catalogModels).find((c) => c.id === id) : undefined);
     out.push(toModel(provider, meta ?? { id }));
   }
   return out.length > 0 ? out : null;
@@ -261,9 +254,7 @@ export async function fetchProviderModels(
   }
 
   if (!catalog) {
-    throw new Error(
-      `Could not reach ${provider} directly and models.dev is unavailable`,
-    );
+    throw new Error(`Could not reach ${provider} directly and models.dev is unavailable`);
   }
   return fetchFromCatalog(provider, catalog);
 }

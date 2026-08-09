@@ -82,7 +82,11 @@ export async function checkEndpointReachability(
     if (endpointType) {
       return { reachable: true, endpointType };
     }
-    return { reachable: false, endpointType: null, error: "Endpoint did not respond on /v1/models or /api/tags" };
+    return {
+      reachable: false,
+      endpointType: null,
+      error: "Endpoint did not respond on /v1/models or /api/tags",
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { reachable: false, endpointType: null, error: message };
@@ -104,7 +108,7 @@ export async function checkModelAvailability(
       const res = await fetch(`${url}/v1/models`, { signal: AbortSignal.timeout(5_000) });
       if (!res.ok) return { available: false, error: `GET /v1/models returned ${res.status}` };
 
-      const body = await res.json() as { data?: Array<{ id: string }> };
+      const body = (await res.json()) as { data?: Array<{ id: string }> };
       const models: ModelListEntry[] = (body.data ?? []).map((m) => ({ id: m.id }));
       const found = models.some((m) => m.id === modelId);
       return { available: found, models };
@@ -114,14 +118,17 @@ export async function checkModelAvailability(
     const res = await fetch(`${url}/api/tags`, { signal: AbortSignal.timeout(5_000) });
     if (!res.ok) return { available: false, error: `GET /api/tags returned ${res.status}` };
 
-    const body = await res.json() as { models?: Array<{ name: string }> };
+    const body = (await res.json()) as { models?: Array<{ name: string }> };
     const models: ModelListEntry[] = (body.models ?? []).map((m) => ({
       id: m.name,
       name: m.name,
     }));
     // Match exact or with/without :latest suffix
     const found = models.some(
-      (m) => m.id === modelId || m.id === `${modelId}:latest` || m.id.replace(/:latest$/, "") === modelId,
+      (m) =>
+        m.id === modelId ||
+        m.id === `${modelId}:latest` ||
+        m.id.replace(/:latest$/, "") === modelId,
     );
     return { available: found, models };
   } catch (err) {
@@ -143,9 +150,8 @@ export async function testInference(
 
   try {
     // Both OpenAI-compatible and Ollama support the /v1/chat/completions endpoint
-    const endpoint = endpointType === "ollama"
-      ? `${url}/v1/chat/completions`
-      : `${url}/v1/chat/completions`;
+    const endpoint =
+      endpointType === "ollama" ? `${url}/v1/chat/completions` : `${url}/v1/chat/completions`;
 
     const res = await fetch(endpoint, {
       method: "POST",
@@ -163,7 +169,11 @@ export async function testInference(
 
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      return { success: false, latencyMs, error: `Inference returned ${res.status}: ${text}`.trim() };
+      return {
+        success: false,
+        latencyMs,
+        error: `Inference returned ${res.status}: ${text}`.trim(),
+      };
     }
 
     // Validate we got a parseable response
@@ -195,8 +205,9 @@ export async function listModels(
         headers: opts?.headers,
         signal: AbortSignal.timeout(5_000),
       });
-      if (!res.ok) return { models: [], endpointType, error: `GET /v1/models returned ${res.status}` };
-      const body = await res.json() as { data?: Array<{ id: string }> };
+      if (!res.ok)
+        return { models: [], endpointType, error: `GET /v1/models returned ${res.status}` };
+      const body = (await res.json()) as { data?: Array<{ id: string }> };
       return { models: (body.data ?? []).map((m) => ({ id: m.id })), endpointType };
     }
 
@@ -206,7 +217,7 @@ export async function listModels(
       signal: AbortSignal.timeout(5_000),
     });
     if (!res.ok) return { models: [], endpointType, error: `GET /api/tags returned ${res.status}` };
-    const body = await res.json() as { models?: Array<{ name: string }> };
+    const body = (await res.json()) as { models?: Array<{ name: string }> };
     return {
       models: (body.models ?? []).map((m) => ({ id: m.name, name: m.name })),
       endpointType,

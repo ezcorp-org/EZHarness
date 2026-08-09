@@ -52,11 +52,15 @@ interface AgentCompleteEvent {
 function handleAgentComplete(event: AgentCompleteEvent): void {
   const { subConversationId } = event.data;
   // Mirrors the block from stores.svelte.ts:895-901
-  const parentConvId = (event.data as Record<string, unknown>).parentConversationId as string | undefined;
+  const parentConvId = (event.data as Record<string, unknown>).parentConversationId as
+    | string
+    | undefined;
   if (parentConvId && typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("ez:agent_complete", {
-      detail: { parentConversationId: parentConvId, subConversationId },
-    }));
+    window.dispatchEvent(
+      new CustomEvent("ez:agent_complete", {
+        detail: { parentConversationId: parentConvId, subConversationId },
+      }),
+    );
   }
 }
 
@@ -161,9 +165,11 @@ describe("chat page: ez:agent_complete listener", () => {
 
   test("invalidates fetch-policy cooldowns and triggers refresh when convId matches", () => {
     const listener = makeChatPageListener("main-conv-1", mock);
-    listener(new CustomEvent("ez:agent_complete", {
-      detail: { parentConversationId: "main-conv-1", subConversationId: "sub-conv-1" },
-    }));
+    listener(
+      new CustomEvent("ez:agent_complete", {
+        detail: { parentConversationId: "main-conv-1", subConversationId: "sub-conv-1" },
+      }),
+    );
 
     expect(mock.invalidatedKeys).toEqual([
       "messages-all:main-conv-1",
@@ -175,9 +181,11 @@ describe("chat page: ez:agent_complete listener", () => {
 
   test("does NOT trigger refresh when event is for a different conversation", () => {
     const listener = makeChatPageListener("main-conv-1", mock);
-    listener(new CustomEvent("ez:agent_complete", {
-      detail: { parentConversationId: "different-conv", subConversationId: "sub-conv-1" },
-    }));
+    listener(
+      new CustomEvent("ez:agent_complete", {
+        detail: { parentConversationId: "different-conv", subConversationId: "sub-conv-1" },
+      }),
+    );
 
     expect(mock.invalidatedKeys).toHaveLength(0);
     expect(mock.loadMessagesCalls).toBe(0);
@@ -195,9 +203,11 @@ describe("chat page: ez:agent_complete listener", () => {
       order.push("hydrate");
     };
 
-    listener(new CustomEvent("ez:agent_complete", {
-      detail: { parentConversationId: "main-conv-1", subConversationId: "sub-conv-1" },
-    }));
+    listener(
+      new CustomEvent("ez:agent_complete", {
+        detail: { parentConversationId: "main-conv-1", subConversationId: "sub-conv-1" },
+      }),
+    );
 
     expect(order).toEqual(["invalidate-all", "invalidate-tools", "loadMessages", "hydrate"]);
     expect(order.indexOf("invalidate-all")).toBeLessThan(order.indexOf("loadMessages"));

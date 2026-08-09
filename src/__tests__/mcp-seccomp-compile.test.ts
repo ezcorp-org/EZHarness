@@ -22,13 +22,7 @@ import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const COMPILE_C_PATH = resolve(
-  import.meta.dir,
-  "..",
-  "..",
-  "build",
-  "compile-seccomp.c",
-);
+const COMPILE_C_PATH = resolve(import.meta.dir, "..", "..", "build", "compile-seccomp.c");
 
 function loadSource(): string {
   return readFileSync(COMPILE_C_PATH, "utf8");

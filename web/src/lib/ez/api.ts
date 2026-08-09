@@ -29,7 +29,11 @@ export interface EzDraft {
 async function readJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let body: string = "";
-    try { body = await res.text(); } catch { /* keep empty */ }
+    try {
+      body = await res.text();
+    } catch {
+      /* keep empty */
+    }
     throw new Error(`HTTP ${res.status}: ${body || res.statusText}`);
   }
   return (await res.json()) as T;
@@ -67,7 +71,10 @@ export async function consumeDraft(id: string): Promise<EzDraft> {
  * is the SAME id the caller already has (callers can keep their SSE
  * subscription open).
  */
-export async function clearEzConversation(): Promise<{ conversationId: string; deletedCount: number }> {
+export async function clearEzConversation(): Promise<{
+  conversationId: string;
+  deletedCount: number;
+}> {
   const res = await fetch("/api/ez/conversation/messages", { method: "DELETE" });
   return readJson<{ ok: boolean; conversationId: string; deletedCount: number }>(res);
 }

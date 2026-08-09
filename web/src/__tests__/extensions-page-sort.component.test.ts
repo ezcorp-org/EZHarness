@@ -24,23 +24,23 @@ vi.mock("$lib/toast.svelte.js", () => ({ addToast: vi.fn() }));
 import ExtensionsPage from "../routes/(app)/extensions/+page.svelte";
 
 function makeExt(overrides: Record<string, unknown> = {}) {
-	const manifest = {
-		tools: [{ name: "t", description: "a tool" }],
-		permissions: {},
-	};
-	return {
-		id: "ext-id",
-		name: "ext",
-		version: "1.0.0",
-		description: "desc",
-		enabled: true,
-		source: "local",
-		consecutiveFailures: 0,
-		isBundled: false,
-		grantedPermissions: {},
-		...overrides,
-		manifest,
-	};
+  const manifest = {
+    tools: [{ name: "t", description: "a tool" }],
+    permissions: {},
+  };
+  return {
+    id: "ext-id",
+    name: "ext",
+    version: "1.0.0",
+    description: "desc",
+    enabled: true,
+    source: "local",
+    consecutiveFailures: 0,
+    isBundled: false,
+    grantedPermissions: {},
+    ...overrides,
+    manifest,
+  };
 }
 
 // Deliberately unsorted insertion order. Names chosen so A–Z, Z–A and
@@ -50,94 +50,94 @@ function makeExt(overrides: Record<string, unknown> = {}) {
 //   Z–A:           Charlie, Bravo, Alpha
 //   updatedAt DESC: Bravo (2026), Charlie (2024), Alpha (2020)
 const alpha = makeExt({
-	id: "id-alpha",
-	name: "Alpha",
-	createdAt: "2020-01-01T00:00:00.000Z",
-	updatedAt: "2020-01-01T00:00:00.000Z",
+  id: "id-alpha",
+  name: "Alpha",
+  createdAt: "2020-01-01T00:00:00.000Z",
+  updatedAt: "2020-01-01T00:00:00.000Z",
 });
 const bravo = makeExt({
-	id: "id-bravo",
-	name: "Bravo",
-	createdAt: "2021-01-01T00:00:00.000Z",
-	updatedAt: "2026-06-01T00:00:00.000Z",
+  id: "id-bravo",
+  name: "Bravo",
+  createdAt: "2021-01-01T00:00:00.000Z",
+  updatedAt: "2026-06-01T00:00:00.000Z",
 });
 const charlie = makeExt({
-	id: "id-charlie",
-	name: "Charlie",
-	createdAt: "2022-01-01T00:00:00.000Z",
-	updatedAt: "2024-01-01T00:00:00.000Z",
+  id: "id-charlie",
+  name: "Charlie",
+  createdAt: "2022-01-01T00:00:00.000Z",
+  updatedAt: "2024-01-01T00:00:00.000Z",
 });
 
 const unsorted = [charlie, alpha, bravo];
 
 /** URL-keyed fetch spy: the on-mount `/api/extensions` reload returns the list. */
 function listFetch(list: unknown[]) {
-	const original = globalThis.fetch;
-	const spy = vi.fn(async (input: RequestInfo | URL) => {
-		const url = typeof input === "string" ? input : input.toString();
-		const json = (body: unknown) =>
-			new Response(JSON.stringify(body), {
-				status: 200,
-				headers: { "Content-Type": "application/json" },
-			});
-		if (url === "/api/extensions") return json(list);
-		return json({});
-	});
-	globalThis.fetch = spy as unknown as typeof fetch;
-	return () => {
-		globalThis.fetch = original;
-	};
+  const original = globalThis.fetch;
+  const spy = vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const json = (body: unknown) =>
+      new Response(JSON.stringify(body), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    if (url === "/api/extensions") return json(list);
+    return json({});
+  });
+  globalThis.fetch = spy as unknown as typeof fetch;
+  return () => {
+    globalThis.fetch = original;
+  };
 }
 
 let restoreFetch: () => void;
 
 beforeEach(() => {
-	localStorage.clear();
+  localStorage.clear();
 });
 
 afterEach(() => {
-	restoreFetch?.();
-	vi.restoreAllMocks();
+  restoreFetch?.();
+  vi.restoreAllMocks();
 });
 
 /** Read the rendered card order by each card's visible `<h3>` name. */
 function cardNames(container: HTMLElement): string[] {
-	return Array.from(container.querySelectorAll('[data-testid="ext-card"] h3')).map(
-		(h) => h.textContent?.trim() ?? "",
-	);
+  return Array.from(container.querySelectorAll('[data-testid="ext-card"] h3')).map(
+    (h) => h.textContent?.trim() ?? "",
+  );
 }
 
 describe("Extensions page — sortable list", () => {
-	test("default render orders cards A–Z by name", async () => {
-		restoreFetch = listFetch(unsorted);
-		const { container, findByText } = render(ExtensionsPage, {
-			props: { data: { bundledExtensions: [], installedExtensions: unsorted } },
-		});
+  test("default render orders cards A–Z by name", async () => {
+    restoreFetch = listFetch(unsorted);
+    const { container, findByText } = render(ExtensionsPage, {
+      props: { data: { bundledExtensions: [], installedExtensions: unsorted } },
+    });
 
-		await findByText("Alpha");
-		await waitFor(() => expect(cardNames(container)).toEqual(["Alpha", "Bravo", "Charlie"]));
-	});
+    await findByText("Alpha");
+    await waitFor(() => expect(cardNames(container)).toEqual(["Alpha", "Bravo", "Charlie"]));
+  });
 
-	test("changing sort to name-desc reorders cards Z–A", async () => {
-		restoreFetch = listFetch(unsorted);
-		const { container, getByTestId, findByText } = render(ExtensionsPage, {
-			props: { data: { bundledExtensions: [], installedExtensions: unsorted } },
-		});
-		await findByText("Alpha");
+  test("changing sort to name-desc reorders cards Z–A", async () => {
+    restoreFetch = listFetch(unsorted);
+    const { container, getByTestId, findByText } = render(ExtensionsPage, {
+      props: { data: { bundledExtensions: [], installedExtensions: unsorted } },
+    });
+    await findByText("Alpha");
 
-		await fireEvent.change(getByTestId("ext-sort-select"), { target: { value: "name-desc" } });
-		await waitFor(() => expect(cardNames(container)).toEqual(["Charlie", "Bravo", "Alpha"]));
-	});
+    await fireEvent.change(getByTestId("ext-sort-select"), { target: { value: "name-desc" } });
+    await waitFor(() => expect(cardNames(container)).toEqual(["Charlie", "Bravo", "Alpha"]));
+  });
 
-	test("changing sort to recent reorders cards by updatedAt DESC", async () => {
-		restoreFetch = listFetch(unsorted);
-		const { container, getByTestId, findByText } = render(ExtensionsPage, {
-			props: { data: { bundledExtensions: [], installedExtensions: unsorted } },
-		});
-		await findByText("Alpha");
+  test("changing sort to recent reorders cards by updatedAt DESC", async () => {
+    restoreFetch = listFetch(unsorted);
+    const { container, getByTestId, findByText } = render(ExtensionsPage, {
+      props: { data: { bundledExtensions: [], installedExtensions: unsorted } },
+    });
+    await findByText("Alpha");
 
-		await fireEvent.change(getByTestId("ext-sort-select"), { target: { value: "recent" } });
-		// Bravo (2026) > Charlie (2024) > Alpha (2020)
-		await waitFor(() => expect(cardNames(container)).toEqual(["Bravo", "Charlie", "Alpha"]));
-	});
+    await fireEvent.change(getByTestId("ext-sort-select"), { target: { value: "recent" } });
+    // Bravo (2026) > Charlie (2024) > Alpha (2020)
+    await waitFor(() => expect(cardNames(container)).toEqual(["Bravo", "Charlie", "Alpha"]));
+  });
 });

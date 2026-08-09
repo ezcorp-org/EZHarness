@@ -19,7 +19,11 @@ function at<T>(arr: readonly T[], i: number, what: string): T {
 mockDbConnection();
 mockServerAlias();
 
-import { GET as sharesGET, POST as sharesPOST, DELETE as sharesDELETE } from "../../web/src/routes/api/agents/[id]/share/+server";
+import {
+  GET as sharesGET,
+  POST as sharesPOST,
+  DELETE as sharesDELETE,
+} from "../../web/src/routes/api/agents/[id]/share/+server";
 import { createUser } from "../db/queries/users";
 import { createTeam, addTeamMember } from "../db/queries/teams";
 import { createAgentConfig, deleteAgentConfig } from "../db/queries/agent-configs";
@@ -47,22 +51,37 @@ describe("Permission downgrade", () => {
   let targetId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-pd-owner@test.com", passwordHash: "h", name: "PD Owner", role: "member" });
-    const target = await createUser({ email: "asi-pd-target@test.com", passwordHash: "h", name: "PD Target", role: "member" });
+    const owner = await createUser({
+      email: "asi-pd-owner@test.com",
+      passwordHash: "h",
+      name: "PD Owner",
+      role: "member",
+    });
+    const target = await createUser({
+      email: "asi-pd-target@test.com",
+      passwordHash: "h",
+      name: "PD Target",
+      role: "member",
+    });
     ownerId = owner.id;
     targetId = target.id;
-    const agent = await createAgentConfig({ name: "PD Agent", description: "test", prompt: "test", userId: ownerId });
+    const agent = await createAgentConfig({
+      name: "PD Agent",
+      description: "test",
+      prompt: "test",
+      userId: ownerId,
+    });
     agentId = agent.id;
   });
 
   test("sharing with edit then read downgrades permission to read", async () => {
     await shareAgentWithUser(agentId, targetId, ownerId, "edit");
     let shares = await getAgentShares(agentId);
-    expect(shares.find(s => s.userId === targetId)!.permission).toBe("edit");
+    expect(shares.find((s) => s.userId === targetId)!.permission).toBe("edit");
 
     await shareAgentWithUser(agentId, targetId, ownerId, "read");
     shares = await getAgentShares(agentId);
-    const userShares = shares.filter(s => s.userId === targetId);
+    const userShares = shares.filter((s) => s.userId === targetId);
     expect(userShares).toHaveLength(1);
     expect(at(userShares, 0, "downgraded user share").permission).toBe("read");
   });
@@ -77,8 +96,18 @@ describe("Team + user dual share deduplication", () => {
   let teamId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-dup-owner@test.com", passwordHash: "h", name: "Dup Owner", role: "member" });
-    const member = await createUser({ email: "asi-dup-member@test.com", passwordHash: "h", name: "Dup Member", role: "member" });
+    const owner = await createUser({
+      email: "asi-dup-owner@test.com",
+      passwordHash: "h",
+      name: "Dup Owner",
+      role: "member",
+    });
+    const member = await createUser({
+      email: "asi-dup-member@test.com",
+      passwordHash: "h",
+      name: "Dup Member",
+      role: "member",
+    });
     ownerId = owner.id;
     memberId = member.id;
 
@@ -86,7 +115,12 @@ describe("Team + user dual share deduplication", () => {
     teamId = team.id;
     await addTeamMember(teamId, memberId, "editor");
 
-    const agent = await createAgentConfig({ name: "Dup Agent", description: "test", prompt: "test", userId: ownerId });
+    const agent = await createAgentConfig({
+      name: "Dup Agent",
+      description: "test",
+      prompt: "test",
+      userId: ownerId,
+    });
     agentId = agent.id;
   });
 
@@ -95,7 +129,7 @@ describe("Team + user dual share deduplication", () => {
     await shareAgentWithUser(agentId, memberId, ownerId, "edit");
 
     const shared = await getSharedAgentsForUser(memberId);
-    const matching = shared.filter(a => a.id === agentId);
+    const matching = shared.filter((a) => a.id === agentId);
     expect(matching).toHaveLength(1);
   });
 });
@@ -109,8 +143,18 @@ describe("Unshare team removes access", () => {
   let teamId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-ut-owner@test.com", passwordHash: "h", name: "UT Owner", role: "member" });
-    const member = await createUser({ email: "asi-ut-member@test.com", passwordHash: "h", name: "UT Member", role: "member" });
+    const owner = await createUser({
+      email: "asi-ut-owner@test.com",
+      passwordHash: "h",
+      name: "UT Owner",
+      role: "member",
+    });
+    const member = await createUser({
+      email: "asi-ut-member@test.com",
+      passwordHash: "h",
+      name: "UT Member",
+      role: "member",
+    });
     ownerId = owner.id;
     memberId = member.id;
 
@@ -118,7 +162,12 @@ describe("Unshare team removes access", () => {
     teamId = team.id;
     await addTeamMember(teamId, memberId, "editor");
 
-    const agent = await createAgentConfig({ name: "UT Agent", description: "test", prompt: "test", userId: ownerId });
+    const agent = await createAgentConfig({
+      name: "UT Agent",
+      description: "test",
+      prompt: "test",
+      userId: ownerId,
+    });
     agentId = agent.id;
   });
 
@@ -126,12 +175,12 @@ describe("Unshare team removes access", () => {
     await shareAgent(agentId, teamId, ownerId, "read");
 
     let shared = await getSharedAgentsForUser(memberId);
-    expect(shared.some(a => a.id === agentId)).toBe(true);
+    expect(shared.some((a) => a.id === agentId)).toBe(true);
 
     await unshareAgent(agentId, teamId);
 
     shared = await getSharedAgentsForUser(memberId);
-    expect(shared.some(a => a.id === agentId)).toBe(false);
+    expect(shared.some((a) => a.id === agentId)).toBe(false);
   });
 });
 
@@ -144,9 +193,24 @@ describe("Share to multiple teams", () => {
   let member2Id: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-mt-owner@test.com", passwordHash: "h", name: "MT Owner", role: "member" });
-    const m1 = await createUser({ email: "asi-mt-m1@test.com", passwordHash: "h", name: "MT Member1", role: "member" });
-    const m2 = await createUser({ email: "asi-mt-m2@test.com", passwordHash: "h", name: "MT Member2", role: "member" });
+    const owner = await createUser({
+      email: "asi-mt-owner@test.com",
+      passwordHash: "h",
+      name: "MT Owner",
+      role: "member",
+    });
+    const m1 = await createUser({
+      email: "asi-mt-m1@test.com",
+      passwordHash: "h",
+      name: "MT Member1",
+      role: "member",
+    });
+    const m2 = await createUser({
+      email: "asi-mt-m2@test.com",
+      passwordHash: "h",
+      name: "MT Member2",
+      role: "member",
+    });
     ownerId = owner.id;
     member1Id = m1.id;
     member2Id = m2.id;
@@ -156,7 +220,12 @@ describe("Share to multiple teams", () => {
     await addTeamMember(team1.id, member1Id, "editor");
     await addTeamMember(team2.id, member2Id, "editor");
 
-    const agent = await createAgentConfig({ name: "MT Agent", description: "test", prompt: "test", userId: ownerId });
+    const agent = await createAgentConfig({
+      name: "MT Agent",
+      description: "test",
+      prompt: "test",
+      userId: ownerId,
+    });
     agentId = agent.id;
 
     await shareAgent(agentId, team1.id, ownerId, "read");
@@ -165,12 +234,12 @@ describe("Share to multiple teams", () => {
 
   test("member of team1 sees the agent", async () => {
     const shared = await getSharedAgentsForUser(member1Id);
-    expect(shared.some(a => a.id === agentId)).toBe(true);
+    expect(shared.some((a) => a.id === agentId)).toBe(true);
   });
 
   test("member of team2 sees the agent", async () => {
     const shared = await getSharedAgentsForUser(member2Id);
-    expect(shared.some(a => a.id === agentId)).toBe(true);
+    expect(shared.some((a) => a.id === agentId)).toBe(true);
   });
 });
 
@@ -181,9 +250,19 @@ describe("Owner cannot share to themselves", () => {
   let OWNER: AuthUser;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-self-owner@test.com", passwordHash: "h", name: "Self Owner", role: "member" });
+    const owner = await createUser({
+      email: "asi-self-owner@test.com",
+      passwordHash: "h",
+      name: "Self Owner",
+      role: "member",
+    });
     OWNER = { id: owner.id, email: owner.email, name: owner.name, role: "member" };
-    const agent = await createAgentConfig({ name: "Self Agent", description: "test", prompt: "test", userId: owner.id });
+    const agent = await createAgentConfig({
+      name: "Self Agent",
+      description: "test",
+      prompt: "test",
+      userId: owner.id,
+    });
     agentId = agent.id;
   });
 
@@ -193,7 +272,7 @@ describe("Owner cannot share to themselves", () => {
     await shareAgentWithUser(agentId, OWNER.id, OWNER.id, "read");
 
     const shared = await getSharedAgentsForUser(OWNER.id);
-    expect(shared.some(a => a.id === agentId)).toBe(false);
+    expect(shared.some((a) => a.id === agentId)).toBe(false);
   });
 });
 
@@ -205,12 +284,27 @@ describe("Delete agent cascades shares", () => {
   let targetId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-del-owner@test.com", passwordHash: "h", name: "Del Owner", role: "member" });
-    const target = await createUser({ email: "asi-del-target@test.com", passwordHash: "h", name: "Del Target", role: "member" });
+    const owner = await createUser({
+      email: "asi-del-owner@test.com",
+      passwordHash: "h",
+      name: "Del Owner",
+      role: "member",
+    });
+    const target = await createUser({
+      email: "asi-del-target@test.com",
+      passwordHash: "h",
+      name: "Del Target",
+      role: "member",
+    });
     ownerId = owner.id;
     targetId = target.id;
 
-    const agent = await createAgentConfig({ name: "Del Agent", description: "test", prompt: "test", userId: ownerId });
+    const agent = await createAgentConfig({
+      name: "Del Agent",
+      description: "test",
+      prompt: "test",
+      userId: ownerId,
+    });
     agentId = agent.id;
 
     await shareAgentWithUser(agentId, targetId, ownerId, "read");
@@ -229,7 +323,7 @@ describe("Delete agent cascades shares", () => {
 
   test("after deleting agent, getSharedAgentsForUser no longer includes it", async () => {
     const shared = await getSharedAgentsForUser(targetId);
-    expect(shared.some(a => a.id === agentId)).toBe(false);
+    expect(shared.some((a) => a.id === agentId)).toBe(false);
   });
 });
 
@@ -240,11 +334,26 @@ describe("getAgentShares returns sharedByName", () => {
   let ownerId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-sbn-owner@test.com", passwordHash: "h", name: "Sharer NameTest", role: "member" });
-    const target = await createUser({ email: "asi-sbn-target@test.com", passwordHash: "h", name: "Recipient NameTest", role: "member" });
+    const owner = await createUser({
+      email: "asi-sbn-owner@test.com",
+      passwordHash: "h",
+      name: "Sharer NameTest",
+      role: "member",
+    });
+    const target = await createUser({
+      email: "asi-sbn-target@test.com",
+      passwordHash: "h",
+      name: "Recipient NameTest",
+      role: "member",
+    });
     ownerId = owner.id;
 
-    const agent = await createAgentConfig({ name: "SBN Agent", description: "test", prompt: "test", userId: ownerId });
+    const agent = await createAgentConfig({
+      name: "SBN Agent",
+      description: "test",
+      prompt: "test",
+      userId: ownerId,
+    });
     agentId = agent.id;
 
     await shareAgentWithUser(agentId, target.id, ownerId, "edit");
@@ -269,8 +378,18 @@ describe("Route: GET returns team and user shares", () => {
   let recipientId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-rget-owner@test.com", passwordHash: "h", name: "RGet Owner", role: "member" });
-    const recipient = await createUser({ email: "asi-rget-recip@test.com", passwordHash: "h", name: "RGet Recip", role: "member" });
+    const owner = await createUser({
+      email: "asi-rget-owner@test.com",
+      passwordHash: "h",
+      name: "RGet Owner",
+      role: "member",
+    });
+    const recipient = await createUser({
+      email: "asi-rget-recip@test.com",
+      passwordHash: "h",
+      name: "RGet Recip",
+      role: "member",
+    });
     OWNER = { id: owner.id, email: owner.email, name: owner.name, role: "member" };
     recipientId = recipient.id;
 
@@ -278,7 +397,12 @@ describe("Route: GET returns team and user shares", () => {
     teamId = team.id;
     await addTeamMember(teamId, owner.id, "editor");
 
-    const agent = await createAgentConfig({ name: "RGet Agent", description: "test", prompt: "test", userId: owner.id });
+    const agent = await createAgentConfig({
+      name: "RGet Agent",
+      description: "test",
+      prompt: "test",
+      userId: owner.id,
+    });
     agentId = agent.id;
 
     // Share to both team and user
@@ -315,21 +439,33 @@ describe("Route: DELETE team share", () => {
   let teamId: string;
 
   beforeAll(async () => {
-    const owner = await createUser({ email: "asi-rdel-owner@test.com", passwordHash: "h", name: "RDel Owner", role: "member" });
+    const owner = await createUser({
+      email: "asi-rdel-owner@test.com",
+      passwordHash: "h",
+      name: "RDel Owner",
+      role: "member",
+    });
     OWNER = { id: owner.id, email: owner.email, name: owner.name, role: "member" };
 
     const team = await createTeam("ASI RDel Team");
     teamId = team.id;
     await addTeamMember(teamId, owner.id, "editor");
 
-    const agent = await createAgentConfig({ name: "RDel Agent", description: "test", prompt: "test", userId: owner.id });
+    const agent = await createAgentConfig({
+      name: "RDel Agent",
+      description: "test",
+      prompt: "test",
+      userId: owner.id,
+    });
     agentId = agent.id;
   });
 
   test("POST share to team, DELETE with teamId, verify removed", async () => {
     // Share to team via route
     const postEvent = createMockEvent({
-      method: "POST", params: { id: agentId }, user: OWNER,
+      method: "POST",
+      params: { id: agentId },
+      user: OWNER,
       body: { teamIds: [teamId] },
     });
     const postRes = await sharesPOST(postEvent);
@@ -343,7 +479,9 @@ describe("Route: DELETE team share", () => {
 
     // Delete team share via route
     const delEvent = createMockEvent({
-      method: "DELETE", params: { id: agentId }, user: OWNER,
+      method: "DELETE",
+      params: { id: agentId },
+      user: OWNER,
       body: { teamId },
     });
     const delRes = await sharesDELETE(delEvent);

@@ -64,7 +64,10 @@ beforeEach(() => {
 });
 
 const admin = { user: { id: "a1", email: "a@x", name: "a", role: "admin" }, authMethod: "session" };
-const member = { user: { id: "u1", email: "u@x", name: "u", role: "member" }, authMethod: "session" };
+const member = {
+  user: { id: "u1", email: "u@x", name: "u", role: "member" },
+  authMethod: "session",
+};
 
 function makeEvent(
   locals: Record<string, unknown>,
@@ -191,7 +194,10 @@ describe("the write", () => {
 describe("the body is strict — every refusal writes nothing", () => {
   test.each([
     ["RULING 3 — a cents cap", { maxCostCentsPerDay: 500 }],
-    ["a cents cap smuggled ALONGSIDE the token cap", { maxTokensPerDay: 5, maxCostCentsPerDay: 500 }],
+    [
+      "a cents cap smuggled ALONGSIDE the token cap",
+      { maxTokensPerDay: 5, maxCostCentsPerDay: 500 },
+    ],
     // `enabled` belongs to the sibling route, which records a REASON when it
     // switches an account off. Accepting it here would be a second, unaudited
     // writer of the platform's own "this principal is broken" flag.

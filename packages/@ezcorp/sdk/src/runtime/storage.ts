@@ -195,11 +195,7 @@ export class Storage {
         return await getChannel().request<T>("ezcorp/storage", params);
       } catch (err) {
         const code = errorCode(err);
-        if (
-          code !== null &&
-          TRANSIENT_ERROR_CODES.has(code) &&
-          attempt < THROTTLE_MAX_RETRIES
-        ) {
+        if (code !== null && TRANSIENT_ERROR_CODES.has(code) && attempt < THROTTLE_MAX_RETRIES) {
           await sleep(delay);
           delay *= 2;
           continue;

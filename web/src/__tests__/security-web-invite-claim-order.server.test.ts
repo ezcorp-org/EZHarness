@@ -35,13 +35,9 @@ vi.mock("$server/db/queries/sessions", () => ({
   createSession: vi.fn(async () => ({ id: "sess-1" })),
 }));
 
-const { getInviteByToken, markInviteUsed } = await import(
-  "$server/db/queries/invites"
-);
+const { getInviteByToken, markInviteUsed } = await import("$server/db/queries/invites");
 const { createUser, getUserByEmail } = await import("$server/db/queries/users");
-const { POST, __rateLimiter } = await import(
-  "../routes/api/auth/invite/[token]/+server"
-);
+const { POST, __rateLimiter } = await import("../routes/api/auth/invite/[token]/+server");
 
 function makeEvent(body: unknown, ip = "127.0.0.1") {
   return {

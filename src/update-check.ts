@@ -23,9 +23,10 @@ interface CachedCheck {
 
 function cachePath(): string {
   const dbPath = getDbPath();
-  const base = dbPath === "external" || dbPath === ":memory:"
-    ? `${process.env.HOME}/ez-corp/.data`
-    : dirname(dbPath);
+  const base =
+    dbPath === "external" || dbPath === ":memory:"
+      ? `${process.env.HOME}/ez-corp/.data`
+      : dirname(dbPath);
   return `${base}/.update-check.json`;
 }
 

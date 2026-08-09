@@ -170,7 +170,9 @@ function restoreWriterConfig(snapshot: string | null): void {
 }
 
 test.describe(
-  RUN_REAL ? "file-organizer real-backend" : "file-organizer real-backend (skipped: set DOCKER_TEST=1)",
+  RUN_REAL
+    ? "file-organizer real-backend"
+    : "file-organizer real-backend (skipped: set DOCKER_TEST=1)",
   () => {
     test.skip(!RUN_REAL, "real-backend spec — requires DOCKER_TEST=1 + live container on :3000");
 
@@ -211,7 +213,9 @@ test.describe(
 
     // ── add-folder: accept + persistence oracle ──────────────────────────
 
-    test("add-folder: a TYPED ABSOLUTE path is accepted by the REAL validator and persisted", async ({ request }) => {
+    test("add-folder: a TYPED ABSOLUTE path is accepted by the REAL validator and persisted", async ({
+      request,
+    }) => {
       // POST the real add-folder event. The handler runs the real
       // `checkReachability`/`addFolder` against the real fs. We accept BOTH
       // ok:true (first add) and the idempotent "already watched" refusal
@@ -240,7 +244,9 @@ test.describe(
 
     // ── add-folder: every REAL refusal branch (exact strings) ────────────
 
-    test("add-folder: a RELATIVE path is refused by the REAL validator with the exact message", async ({ request }) => {
+    test("add-folder: a RELATIVE path is refused by the REAL validator with the exact message", async ({
+      request,
+    }) => {
       const res = await postEvent(request, "add-folder", { path: "relative/Downloads" });
       expect(res.status()).toBe(200);
       const body = (await res.json()) as { ok: boolean; message?: string };
@@ -248,20 +254,28 @@ test.describe(
       expect(body.message).toBe("Path must be an absolute, valid filesystem path.");
     });
 
-    test("add-folder: an UNREACHABLE absolute path is refused with the container-visibility message", async ({ request }) => {
+    test("add-folder: an UNREACHABLE absolute path is refused with the container-visibility message", async ({
+      request,
+    }) => {
       // An absolute path that does NOT exist inside the container — the
       // real `checkReachability` exists-probe fails and returns the
       // canonical "mount it + restart" message.
-      const res = await postEvent(request, "add-folder", { path: "/definitely/not/mounted/fo-xyz" });
+      const res = await postEvent(request, "add-folder", {
+        path: "/definitely/not/mounted/fo-xyz",
+      });
       expect(res.status()).toBe(200);
       const body = (await res.json()) as { ok: boolean; message?: string };
       expect(body.ok).toBe(false);
       expect(body.message ?? "").toMatch(/isn't visible to the EZCorp container/i);
       // Refusal must NOT have written the path to config.
-      expect(readWriterConfig().folders.some((f) => f.path === "/definitely/not/mounted/fo-xyz")).toBe(false);
+      expect(
+        readWriterConfig().folders.some((f) => f.path === "/definitely/not/mounted/fo-xyz"),
+      ).toBe(false);
     });
 
-    test("add-folder: a DESCENDANT of an already-watched folder is refused as already-covered", async ({ request }) => {
+    test("add-folder: a DESCENDANT of an already-watched folder is refused as already-covered", async ({
+      request,
+    }) => {
       // WATCH_DIR is watched (added by the first test). An EXISTING subfolder
       // of it is already covered — the real `addFolder` overlap guard refuses
       // it. The child MUST exist on disk so it passes the reachability
@@ -277,10 +291,15 @@ test.describe(
 
     // ── add-rule: the REAL DSL parser refuses a malformed rule ───────────
 
-    test("add-rule: a malformed DSL rule is refused by the REAL parser with the exact parse error", async ({ request }) => {
+    test("add-rule: a malformed DSL rule is refused by the REAL parser with the exact parse error", async ({
+      request,
+    }) => {
       // The state handler runs `parseDsl` BEFORE touching config, so a bad
       // rule is refused regardless of folderId — no valid folder needed.
-      const res = await postEvent(request, "add-rule", { folderId: "anything", rule: "no-arrow-here" });
+      const res = await postEvent(request, "add-rule", {
+        folderId: "anything",
+        rule: "no-arrow-here",
+      });
       expect(res.status()).toBe(200);
       const body = (await res.json()) as { ok: boolean; message?: string };
       expect(body.ok).toBe(false);
@@ -293,7 +312,9 @@ test.describe(
     // add-rule against it and assert the REAL persisted config reflects each
     // mutation. Finally remove-folder it and assert it's gone. (config.json
     // is fully restored from the snapshot in afterAll regardless.)
-    test("config mutations (set-mode/toggle-preset/add-ignore/set-backlog-policy/add-rule/remove-folder) persist to the REAL config", async ({ request }) => {
+    test("config mutations (set-mode/toggle-preset/add-ignore/set-backlog-policy/add-rule/remove-folder) persist to the REAL config", async ({
+      request,
+    }) => {
       // Add the throwaway watched folder.
       const add = await postEvent(request, "add-folder", { path: MUTATE_DIR });
       expect(add.status()).toBe(200);
@@ -331,15 +352,23 @@ test.describe(
       ).toContain("*.partial");
 
       // set-backlog-policy → include-existing, verify persisted policy.
-      const backlog = await postEvent(request, "set-backlog-policy", { folderId, backlogPolicy: "include-existing" });
+      const backlog = await postEvent(request, "set-backlog-policy", {
+        folderId,
+        backlogPolicy: "include-existing",
+      });
       expect(((await backlog.json()) as { ok: boolean }).ok).toBe(true);
-      expect(readWriterConfig().folders.find((f) => f.id === folderId)?.backlogPolicy).toBe("include-existing");
+      expect(readWriterConfig().folders.find((f) => f.id === folderId)?.backlogPolicy).toBe(
+        "include-existing",
+      );
 
       // add-rule (VALID DSL) → verify a customRule is persisted.
       const rule = await postEvent(request, "add-rule", { folderId, rule: "*.pdf -> Documents" });
       expect(((await rule.json()) as { ok: boolean }).ok).toBe(true);
       expect(
-        ((readWriterConfig().folders.find((f) => f.id === folderId)?.customRules as unknown[]) ?? []).length,
+        (
+          (readWriterConfig().folders.find((f) => f.id === folderId)?.customRules as unknown[]) ??
+          []
+        ).length,
       ).toBeGreaterThan(0);
 
       // remove-folder → the throwaway folder is gone from config.
@@ -350,7 +379,9 @@ test.describe(
 
     // ── Proposal lifecycle (conditional — needs a daemon-produced proposal) ──
 
-    test("proposal lifecycle: accept a REAL pending proposal moves the file on disk (skips when no proposals)", async ({ request }) => {
+    test("proposal lifecycle: accept a REAL pending proposal moves the file on disk (skips when no proposals)", async ({
+      request,
+    }) => {
       // Read the WRITER's proposals.json. The daemon owns proposal
       // production on its own clamped schedule; if it hasn't produced a
       // pending proposal we honestly skip rather than fabricate one (the
@@ -367,16 +398,25 @@ test.describe(
       }
       const parsed = (() => {
         try {
-          return JSON.parse(proposalsRaw) as { proposals?: Array<{ id: string; kind: string; status: string; dst?: string }> };
+          return JSON.parse(proposalsRaw) as {
+            proposals?: Array<{ id: string; kind: string; status: string; dst?: string }>;
+          };
         } catch {
-          return { proposals: [] as Array<{ id: string; kind: string; status: string; dst?: string }> };
+          return {
+            proposals: [] as Array<{ id: string; kind: string; status: string; dst?: string }>,
+          };
         }
       })();
       // Only DIRECTLY-APPLYABLE kinds: an `unclassified` proposal is pending
       // but accept refuses it by design ("pick a destination or teach a
       // rule"), which would fail the not-pending re-read below.
-      const pending = (parsed.proposals ?? []).find((p) => p.status === "pending" && p.kind !== "unclassified");
-      test.skip(!pending, "no daemon-produced applyable pending proposal on disk — nothing real to accept");
+      const pending = (parsed.proposals ?? []).find(
+        (p) => p.status === "pending" && p.kind !== "unclassified",
+      );
+      test.skip(
+        !pending,
+        "no daemon-produced applyable pending proposal on disk — nothing real to accept",
+      );
 
       const res = await postEvent(request, "accept", { proposalId: pending!.id }, "overview");
       expect(res.status()).toBe(200);
@@ -398,7 +438,9 @@ test.describe(
 
     // ── Picker reality: typed absolute works; Browse 403s (the jail) ─────
 
-    test("picker: Browse → real GET /api/fs/list?dir=/ is 403 (sandbox-jailed, documents the limitation)", async ({ request }) => {
+    test("picker: Browse → real GET /api/fs/list?dir=/ is 403 (sandbox-jailed, documents the limitation)", async ({
+      request,
+    }) => {
       // The picker's Browse calls /api/fs/list. Against the real backend the
       // root listing is jailed to the project root, so dir=/ is 403. This
       // is why only a TYPED ABSOLUTE path can reach an arbitrary watch dir.
@@ -419,7 +461,9 @@ test.describe(
       await page.getByTestId("hub-prompt-format").locator("input").fill("relative/Downloads");
       await page.getByTestId("hub-prompt-submit").click();
       await expect(
-        page.getByRole("alert").filter({ hasText: "Path must be an absolute, valid filesystem path." }),
+        page
+          .getByRole("alert")
+          .filter({ hasText: "Path must be an absolute, valid filesystem path." }),
       ).toBeVisible({ timeout: 5000 });
     });
 
@@ -448,7 +492,10 @@ test.describe(
 
     // A real add-folder (events route → writer dir) now surfaces in the
     // Folders Hub render (reader reads the same dir, covered by the grant).
-    test("add-folder: the added folder APPEARS in the Hub render (data dirs aligned)", async ({ page, request }) => {
+    test("add-folder: the added folder APPEARS in the Hub render (data dirs aligned)", async ({
+      page,
+      request,
+    }) => {
       const res = await postEvent(request, "add-folder", { path: WATCH_DIR });
       expect(res.status()).toBe(200);
       // Persistence oracle: the writer dir holds the entry.
@@ -464,7 +511,10 @@ test.describe(
     // REFLECTS in the Folders render — proves the render reads the
     // post-mutation config from the same dir. MUTATE_DIR is a sibling so it
     // doesn't disturb WATCH_DIR; cleaned up after.
-    test("config mutation REFLECTS in the Folders Hub render (data dirs aligned)", async ({ page, request }) => {
+    test("config mutation REFLECTS in the Folders Hub render (data dirs aligned)", async ({
+      page,
+      request,
+    }) => {
       const add = await postEvent(request, "add-folder", { path: MUTATE_DIR });
       expect(add.status()).toBe(200);
       const folder = readWriterConfig().folders.find((f) => f.path === MUTATE_DIR);
@@ -489,7 +539,9 @@ test.describe(
     // disabled). Even with no daemon-produced proposals, the render must
     // succeed (titled page). The conditional accept/move is covered by the
     // proposal-lifecycle test above.
-    test("Review Hub render loads against the live backend (data dirs aligned)", async ({ page }) => {
+    test("Review Hub render loads against the live backend (data dirs aligned)", async ({
+      page,
+    }) => {
       await page.goto(`/hub/${encodeURIComponent("ext:file-organizer:overview")}`);
       await expect(page.getByTestId("hub-page-title")).toBeVisible({ timeout: 10_000 });
     });

@@ -4,9 +4,7 @@ import { parse } from "yaml";
 import { logger } from "../logger";
 const log = logger.child("loader");
 
-export async function loadYamlAgents(
-  dir: string,
-): Promise<Map<string, AgentDefinition>> {
+export async function loadYamlAgents(dir: string): Promise<Map<string, AgentDefinition>> {
   const agents = new Map<string, AgentDefinition>();
   const glob = new Bun.Glob("*.agent.yaml");
 

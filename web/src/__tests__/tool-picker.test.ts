@@ -14,7 +14,11 @@ interface ToolDefinition {
 /**
  * Mirrors the handleKeydown logic from ToolPicker.svelte exactly.
  */
-function createPickerLogic(tools: ToolDefinition[], onselect: (t: ToolDefinition) => void, onclose: () => void) {
+function createPickerLogic(
+  tools: ToolDefinition[],
+  onselect: (t: ToolDefinition) => void,
+  onclose: () => void,
+) {
   let highlightedIndex = 0;
 
   function handleKeydown(key: string) {
@@ -62,8 +66,12 @@ describe("ToolPicker keyboard navigation logic", () => {
   beforeEach(() => {
     selected = null;
     closed = false;
-    onselect = mock((t: ToolDefinition) => { selected = t; });
-    onclose = mock(() => { closed = true; });
+    onselect = mock((t: ToolDefinition) => {
+      selected = t;
+    });
+    onclose = mock(() => {
+      closed = true;
+    });
   });
 
   test("ArrowDown advances highlight and wraps around", () => {

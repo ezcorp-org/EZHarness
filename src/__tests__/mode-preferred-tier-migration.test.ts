@@ -112,10 +112,7 @@ describe("modes.preferred_tier — existing rows keep routing as before", () => 
     for (const row of builtins) {
       expect(row.preferredTier).toBeNull();
     }
-    const unset = await db
-      .select()
-      .from(schema.modes)
-      .where(isNull(schema.modes.preferredTier));
+    const unset = await db.select().from(schema.modes).where(isNull(schema.modes.preferredTier));
     expect(unset).toHaveLength(builtins.length);
   });
 

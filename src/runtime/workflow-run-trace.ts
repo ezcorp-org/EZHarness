@@ -241,7 +241,9 @@ export async function getWorkflowRunTrace(
   };
 }
 
-function summarize(row: Awaited<ReturnType<typeof getWorkflowRunRow>> & object): WorkflowRunSummary {
+function summarize(
+  row: Awaited<ReturnType<typeof getWorkflowRunRow>> & object,
+): WorkflowRunSummary {
   return {
     id: row.id,
     workflowName: row.workflowName,

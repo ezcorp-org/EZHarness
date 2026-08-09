@@ -63,12 +63,7 @@ function deferredContract(): ResolvedContract {
 
 describe("approval states", () => {
   test("APPROVAL_STATES lists the four primitive-owned states in order", () => {
-    expect(APPROVAL_STATES).toEqual([
-      AWAITING_APPROVAL,
-      FINALIZING,
-      APPROVED,
-      DECLINED,
-    ]);
+    expect(APPROVAL_STATES).toEqual([AWAITING_APPROVAL, FINALIZING, APPROVED, DECLINED]);
   });
 
   test("APPROVAL_TERMINAL_STATES is the terminal subset (approved + declined)", () => {
@@ -132,9 +127,7 @@ describe("hasUntrustedInputTrigger", () => {
 
 describe("isUntrustedInputLoop", () => {
   test("a webhook trigger taints the loop even without a contentTrust declaration", () => {
-    expect(
-      isUntrustedInputLoop({ trigger: { kind: "webhook", slug: "s" } }),
-    ).toBe(true);
+    expect(isUntrustedInputLoop({ trigger: { kind: "webhook", slug: "s" } })).toBe(true);
   });
 
   test("an explicit contentTrust declaration taints an all-trusted-trigger loop (seo-watcher's fetch-based shape)", () => {
@@ -159,9 +152,7 @@ describe("isUntrustedInputLoop", () => {
   });
 
   test("a trusted-trigger loop with NO declaration → false", () => {
-    expect(
-      isUntrustedInputLoop({ trigger: { kind: "cron", cron: "0 9 * * *" } }),
-    ).toBe(false);
+    expect(isUntrustedInputLoop({ trigger: { kind: "cron", cron: "0 9 * * *" } })).toBe(false);
   });
 });
 
@@ -234,9 +225,9 @@ describe("resolveContract", () => {
   });
 
   test("an unknown approval.mode throws LOUDLY at construction (Phase 7/8 guard)", () => {
-    expect(() =>
-      resolveContract({ approval: { mode: "autopilot" as never } }),
-    ).toThrow(/approval\.mode "autopilot" is not supported/);
+    expect(() => resolveContract({ approval: { mode: "autopilot" as never } })).toThrow(
+      /approval\.mode "autopilot" is not supported/,
+    );
   });
 });
 
@@ -263,11 +254,7 @@ describe("status predicates", () => {
 
 describe("appendEvent", () => {
   test("prepends newest first", () => {
-    const out = appendEvent(
-      [{ at: T0, status: "a" }],
-      { at: T0, status: "b" },
-      10,
-    );
+    const out = appendEvent([{ at: T0, status: "a" }], { at: T0, status: "b" }, 10);
     expect(out.map((e) => e.status)).toEqual(["b", "a"]);
   });
 
@@ -299,11 +286,7 @@ describe("createRun", () => {
   const c = deferredContract();
 
   test("minimal terminal-loop run", () => {
-    const run = createRun(
-      { id: "r1", loopId: "distill", status: "dispatched" },
-      c,
-      T0,
-    );
+    const run = createRun({ id: "r1", loopId: "distill", status: "dispatched" }, c, T0);
     expect(run).toMatchObject({
       id: "r1",
       loopId: "distill",
@@ -351,22 +334,14 @@ describe("transition", () => {
 
   test("eventStatus records a DISTINCT event status from the run status", () => {
     // A "steered" event keeps the run at "running" but logs status "steered".
-    let run: LoopRunState = createRun(
-      { id: "r1", loopId: "ezc", status: "running" },
-      c,
-      T0,
-    );
+    let run: LoopRunState = createRun({ id: "r1", loopId: "ezc", status: "running" }, c, T0);
     run = transition(run, { status: "running", eventStatus: "steered", note: "focus" }, c, T0);
     expect(run.status).toBe("running"); // run status unchanged
     expect(run.events[0]).toEqual({ at: T0, status: "steered", note: "focus" });
   });
 
   test("eventStatus defaults to status when omitted", () => {
-    let run: LoopRunState = createRun(
-      { id: "r1", loopId: "ezc", status: "dispatched" },
-      c,
-      T0,
-    );
+    let run: LoopRunState = createRun({ id: "r1", loopId: "ezc", status: "dispatched" }, c, T0);
     run = transition(run, { status: "running" }, c, T0);
     expect(run.events[0]!.status).toBe("running");
   });
@@ -374,30 +349,17 @@ describe("transition", () => {
   test("deferred → running → completed, carrying outcome + capped log", () => {
     const t1 = "2026-06-18T00:01:00.000Z";
     const t2 = "2026-06-18T00:02:00.000Z";
-    let run: LoopRunState = createRun(
-      { id: "r1", loopId: "ezc", status: "dispatched" },
-      c,
-      T0,
-    );
+    let run: LoopRunState = createRun({ id: "r1", loopId: "ezc", status: "dispatched" }, c, T0);
     run = transition(run, { status: "running", note: "agent picked up" }, c, t1);
     expect(run.status).toBe("running");
     expect(run.updatedAt).toBe(t1);
     expect(run.events[0]).toEqual({ at: t1, status: "running", note: "agent picked up" });
 
-    run = transition(
-      run,
-      { status: "completed", outcome: { url: "pr/1" } },
-      c,
-      t2,
-    );
+    run = transition(run, { status: "completed", outcome: { url: "pr/1" } }, c, t2);
     expect(run.status).toBe("completed");
     expect(run.outcome).toEqual({ url: "pr/1" });
     // newest-first event order, 3 entries total
-    expect(run.events.map((e) => e.status)).toEqual([
-      "completed",
-      "running",
-      "dispatched",
-    ]);
+    expect(run.events.map((e) => e.status)).toEqual(["completed", "running", "dispatched"]);
   });
 
   test("each terminal sink (failed, cancelled) is reachable", () => {
@@ -507,12 +469,8 @@ describe("validateCheckResult", () => {
   });
 
   test("a non-boolean proceed is rejected (a truthy non-bool must NOT act)", () => {
-    expect(
-      validateCheckResult({ proceed: "yes" } as unknown as CheckResult),
-    ).toContain("boolean");
-    expect(
-      validateCheckResult({ reason: "x" } as unknown as CheckResult),
-    ).toContain("boolean");
+    expect(validateCheckResult({ proceed: "yes" } as unknown as CheckResult)).toContain("boolean");
+    expect(validateCheckResult({ reason: "x" } as unknown as CheckResult)).toContain("boolean");
   });
 });
 
@@ -521,11 +479,7 @@ describe("validateCheckResult", () => {
 describe("findOpenDuplicate", () => {
   const c = deferredContract();
 
-  function runWith(
-    id: string,
-    status: string,
-    idempotencyKey?: string,
-  ): LoopRunState {
+  function runWith(id: string, status: string, idempotencyKey?: string): LoopRunState {
     return createRun(
       { id, loopId: "l", status, ...(idempotencyKey ? { idempotencyKey } : {}) },
       c,
@@ -549,10 +503,7 @@ describe("findOpenDuplicate", () => {
   });
 
   test("prefers the open run when both terminal + open share a key", () => {
-    const runs = [
-      runWith("r-old", "completed", "k1"),
-      runWith("r-open", "running", "k1"),
-    ];
+    const runs = [runWith("r-old", "completed", "k1"), runWith("r-open", "running", "k1")];
     expect(findOpenDuplicate(runs, "k1", c)?.id).toBe("r-open");
   });
 });

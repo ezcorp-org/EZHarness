@@ -135,10 +135,16 @@ describe("getRequiredPermissions", () => {
       },
     });
     const items = getRequiredPermissions(manifest);
-    expect(items.find((i) => i.type === "network")!.description).toBe("Network access to api.example.com");
-    expect(items.find((i) => i.type === "filesystem")!.description).toBe("Filesystem access to /tmp");
+    expect(items.find((i) => i.type === "network")!.description).toBe(
+      "Network access to api.example.com",
+    );
+    expect(items.find((i) => i.type === "filesystem")!.description).toBe(
+      "Filesystem access to /tmp",
+    );
     expect(items.find((i) => i.type === "shell")!.description).toBe("Execute shell commands");
-    expect(items.find((i) => i.type === "env")!.description).toBe("Read environment variable MY_VAR");
+    expect(items.find((i) => i.type === "env")!.description).toBe(
+      "Read environment variable MY_VAR",
+    );
   });
 
   test("handles manifest with all permission types", () => {
@@ -290,9 +296,7 @@ describe("validateManifest (v2)", () => {
     description: "A test extension",
     author: { name: "Test" },
     entrypoint: "./index.ts",
-    tools: [
-      { name: "tool1", description: "A tool", inputSchema: { type: "object" } },
-    ],
+    tools: [{ name: "tool1", description: "A tool", inputSchema: { type: "object" } }],
     permissions: {},
   };
 
@@ -329,7 +333,9 @@ describe("validateManifest (v2)", () => {
       tools: [{ description: "A tool", inputSchema: { type: "object" } }],
     });
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e: string) => e.includes("tools[0]") && e.includes("name"))).toBe(true);
+    expect(result.errors.some((e: string) => e.includes("tools[0]") && e.includes("name"))).toBe(
+      true,
+    );
   });
 
   test("tool without description fails", () => {
@@ -338,7 +344,9 @@ describe("validateManifest (v2)", () => {
       tools: [{ name: "tool1", inputSchema: { type: "object" } }],
     });
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e: string) => e.includes("tools[0]") && e.includes("description"))).toBe(true);
+    expect(
+      result.errors.some((e: string) => e.includes("tools[0]") && e.includes("description")),
+    ).toBe(true);
   });
 
   test("tool without inputSchema fails", () => {
@@ -347,7 +355,9 @@ describe("validateManifest (v2)", () => {
       tools: [{ name: "tool1", description: "A tool" }],
     });
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e: string) => e.includes("tools[0]") && e.includes("inputSchema"))).toBe(true);
+    expect(
+      result.errors.some((e: string) => e.includes("tools[0]") && e.includes("inputSchema")),
+    ).toBe(true);
   });
 
   test("null manifest fails", () => {
@@ -374,7 +384,9 @@ describe("validateManifest (v2)", () => {
       tools: ["not an object"],
     });
     expect(result.valid).toBe(false);
-    expect(result.errors.some((e: string) => e.includes("tools[0]") && e.includes("must be an object"))).toBe(true);
+    expect(
+      result.errors.some((e: string) => e.includes("tools[0]") && e.includes("must be an object")),
+    ).toBe(true);
   });
 
   test("multiple errors accumulated", () => {
@@ -397,7 +409,10 @@ describe("installFromLocal", () => {
     const tempDir = await mkdtemp(join(tmpdir(), "ext-local-test-"));
     try {
       const manifest = makeManifest({ name: `local-install-${Date.now()}` });
-      await Bun.write(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
+      await Bun.write(
+        join(tempDir, "ezcorp.config.ts"),
+        `export default ${JSON.stringify(manifest, null, 2)};\n`,
+      );
       await Bun.write(join(tempDir, "index.ts"), "export default {}");
 
       const permissions: ExtensionPermissions = { grantedAt: {} };
@@ -417,7 +432,9 @@ describe("installFromLocal", () => {
     const tempDir = await mkdtemp(join(tmpdir(), "ext-nomanifest-"));
     try {
       const permissions: ExtensionPermissions = { grantedAt: {} };
-      await expect(installFromLocal(tempDir, permissions)).rejects.toThrow("No ezcorp.config.ts found");
+      await expect(installFromLocal(tempDir, permissions)).rejects.toThrow(
+        "No ezcorp.config.ts found",
+      );
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -427,7 +444,10 @@ describe("installFromLocal", () => {
     const tempDir = await mkdtemp(join(tmpdir(), "ext-badmanifest-"));
     try {
       // Manifest missing required fields
-      await Bun.write(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify({ description: "incomplete" })};\n`);
+      await Bun.write(
+        join(tempDir, "ezcorp.config.ts"),
+        `export default ${JSON.stringify({ description: "incomplete" })};\n`,
+      );
 
       const permissions: ExtensionPermissions = { grantedAt: {} };
       await expect(installFromLocal(tempDir, permissions)).rejects.toThrow("Invalid manifest");
@@ -440,7 +460,10 @@ describe("installFromLocal", () => {
     const tempDir = await mkdtemp(join(tmpdir(), "ext-checksum-"));
     try {
       const manifest = makeManifest({ name: `checksum-test-${Date.now()}` });
-      await Bun.write(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
+      await Bun.write(
+        join(tempDir, "ezcorp.config.ts"),
+        `export default ${JSON.stringify(manifest, null, 2)};\n`,
+      );
       await Bun.write(join(tempDir, "index.ts"), "console.log('hello')");
 
       const permissions: ExtensionPermissions = { grantedAt: {} };
@@ -460,7 +483,10 @@ describe("installFromLocal", () => {
     const tempDir = await mkdtemp(join(tmpdir(), "ext-source-"));
     try {
       const manifest = makeManifest({ name: `source-test-${Date.now()}` });
-      await Bun.write(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
+      await Bun.write(
+        join(tempDir, "ezcorp.config.ts"),
+        `export default ${JSON.stringify(manifest, null, 2)};\n`,
+      );
       await Bun.write(join(tempDir, "index.ts"), "export default {}");
 
       const permissions: ExtensionPermissions = { grantedAt: {} };
@@ -486,9 +512,10 @@ describe("installFromGitHub", () => {
     const tempDir = await mkdtemp(join(tmpdir(), "ext-gh-ok-"));
     try {
       const contentDir = join(tempDir, "ext-content");
-      await Bun.write(join(contentDir, "ezcorp.config.ts"), configContent(
-        makeManifest({ name: `gh-install-${Date.now()}` }),
-      ));
+      await Bun.write(
+        join(contentDir, "ezcorp.config.ts"),
+        configContent(makeManifest({ name: `gh-install-${Date.now()}` })),
+      );
       await Bun.write(join(contentDir, "index.ts"), "export default {}");
 
       // Create a tarball from the content
@@ -502,17 +529,27 @@ describe("installFromGitHub", () => {
       const mockFetch = async (input: any, _init?: any) => {
         const url = typeof input === "string" ? input : input.url;
         if (url.includes("api.github.com")) {
-          return new Response(JSON.stringify({
-            tag_name: "v1.0.0",
-            assets: [{ name: "release.tar.gz", browser_download_url: "https://fake.example.com/release.tar.gz" }],
-          }), { status: 200 });
+          return new Response(
+            JSON.stringify({
+              tag_name: "v1.0.0",
+              assets: [
+                {
+                  name: "release.tar.gz",
+                  browser_download_url: "https://fake.example.com/release.tar.gz",
+                },
+              ],
+            }),
+            { status: 200 },
+          );
         }
         if (url.includes("fake.example.com")) {
           return new Response(tarBytes, { status: 200 });
         }
         return originalFetch(input, _init);
       };
-      globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
+      globalThis.fetch = Object.assign(mockFetch, {
+        preconnect: originalFetch.preconnect,
+      }) as typeof fetch;
 
       try {
         const permissions: ExtensionPermissions = { grantedAt: {} };
@@ -532,9 +569,10 @@ describe("installFromGitHub", () => {
     const tempDir = await mkdtemp(join(tmpdir(), "ext-gh-tag-"));
     try {
       const contentDir = join(tempDir, "ext-content");
-      await Bun.write(join(contentDir, "ezcorp.config.ts"), configContent(
-        makeManifest({ name: `gh-tag-${Date.now()}` }),
-      ));
+      await Bun.write(
+        join(contentDir, "ezcorp.config.ts"),
+        configContent(makeManifest({ name: `gh-tag-${Date.now()}` })),
+      );
       await Bun.write(join(contentDir, "index.ts"), "export default {}");
 
       const tarPath = join(tempDir, "release.tar.gz");
@@ -547,17 +585,27 @@ describe("installFromGitHub", () => {
         const url = typeof input === "string" ? input : input.url;
         if (url.includes("api.github.com")) {
           capturedUrl = url;
-          return new Response(JSON.stringify({
-            tag_name: "v2.0.0",
-            assets: [{ name: "release.tar.gz", browser_download_url: "https://fake.example.com/release.tar.gz" }],
-          }), { status: 200 });
+          return new Response(
+            JSON.stringify({
+              tag_name: "v2.0.0",
+              assets: [
+                {
+                  name: "release.tar.gz",
+                  browser_download_url: "https://fake.example.com/release.tar.gz",
+                },
+              ],
+            }),
+            { status: 200 },
+          );
         }
         if (url.includes("fake.example.com")) {
           return new Response(tarBytes, { status: 200 });
         }
         return originalFetch(input, _init);
       };
-      globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
+      globalThis.fetch = Object.assign(mockFetch, {
+        preconnect: originalFetch.preconnect,
+      }) as typeof fetch;
 
       try {
         const permissions: ExtensionPermissions = { grantedAt: {} };
@@ -578,7 +626,8 @@ describe("installFromGitHub", () => {
       const contentDir = join(tempDir, "ext-content");
       // Manifest with a wrong checksum
       const manifest = makeManifest({ name: `gh-bad-checksum-${Date.now()}` });
-      (manifest as any).checksum = "0000000000000000000000000000000000000000000000000000000000000000";
+      (manifest as any).checksum =
+        "0000000000000000000000000000000000000000000000000000000000000000";
       await Bun.write(join(contentDir, "ezcorp.config.ts"), configContent(manifest));
       await Bun.write(join(contentDir, "index.ts"), "export default {}");
 
@@ -590,21 +639,33 @@ describe("installFromGitHub", () => {
       const mockFetch = async (input: any, _init?: any) => {
         const url = typeof input === "string" ? input : input.url;
         if (url.includes("api.github.com")) {
-          return new Response(JSON.stringify({
-            tag_name: "v1.0.0",
-            assets: [{ name: "release.tar.gz", browser_download_url: "https://fake.example.com/release.tar.gz" }],
-          }), { status: 200 });
+          return new Response(
+            JSON.stringify({
+              tag_name: "v1.0.0",
+              assets: [
+                {
+                  name: "release.tar.gz",
+                  browser_download_url: "https://fake.example.com/release.tar.gz",
+                },
+              ],
+            }),
+            { status: 200 },
+          );
         }
         if (url.includes("fake.example.com")) {
           return new Response(tarBytes, { status: 200 });
         }
         return originalFetch(input, _init);
       };
-      globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
+      globalThis.fetch = Object.assign(mockFetch, {
+        preconnect: originalFetch.preconnect,
+      }) as typeof fetch;
 
       try {
         const permissions: ExtensionPermissions = { grantedAt: {} };
-        await expect(installFromGitHub("testuser/testrepo", permissions)).rejects.toThrow("Checksum mismatch");
+        await expect(installFromGitHub("testuser/testrepo", permissions)).rejects.toThrow(
+          "Checksum mismatch",
+        );
       } finally {
         globalThis.fetch = originalFetch;
       }
@@ -618,19 +679,26 @@ describe("installFromGitHub", () => {
     const mockFetch = async (input: any, _init?: any) => {
       const url = typeof input === "string" ? input : input.url;
       if (url.includes("api.github.com")) {
-        return new Response(JSON.stringify({
-          tag_name: "v1.0.0",
-          assets: [], // no assets
-          // no tarball_url either
-        }), { status: 200 });
+        return new Response(
+          JSON.stringify({
+            tag_name: "v1.0.0",
+            assets: [], // no assets
+            // no tarball_url either
+          }),
+          { status: 200 },
+        );
       }
       return originalFetch(input, _init);
     };
-    globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
+    globalThis.fetch = Object.assign(mockFetch, {
+      preconnect: originalFetch.preconnect,
+    }) as typeof fetch;
 
     try {
       const permissions: ExtensionPermissions = { grantedAt: {} };
-      await expect(installFromGitHub("testuser/testrepo", permissions)).rejects.toThrow("No tarball found");
+      await expect(installFromGitHub("testuser/testrepo", permissions)).rejects.toThrow(
+        "No tarball found",
+      );
     } finally {
       globalThis.fetch = originalFetch;
     }
@@ -651,21 +719,33 @@ describe("installFromGitHub", () => {
       const mockFetch = async (input: any, _init?: any) => {
         const url = typeof input === "string" ? input : input.url;
         if (url.includes("api.github.com")) {
-          return new Response(JSON.stringify({
-            tag_name: "v1.0.0",
-            assets: [{ name: "release.tar.gz", browser_download_url: "https://fake.example.com/release.tar.gz" }],
-          }), { status: 200 });
+          return new Response(
+            JSON.stringify({
+              tag_name: "v1.0.0",
+              assets: [
+                {
+                  name: "release.tar.gz",
+                  browser_download_url: "https://fake.example.com/release.tar.gz",
+                },
+              ],
+            }),
+            { status: 200 },
+          );
         }
         if (url.includes("fake.example.com")) {
           return new Response(tarBytes, { status: 200 });
         }
         return originalFetch(input, _init);
       };
-      globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
+      globalThis.fetch = Object.assign(mockFetch, {
+        preconnect: originalFetch.preconnect,
+      }) as typeof fetch;
 
       try {
         const permissions: ExtensionPermissions = { grantedAt: {} };
-        await expect(installFromGitHub("testuser/testrepo", permissions)).rejects.toThrow("No ezcorp.config.ts found");
+        await expect(installFromGitHub("testuser/testrepo", permissions)).rejects.toThrow(
+          "No ezcorp.config.ts found",
+        );
       } finally {
         globalThis.fetch = originalFetch;
       }

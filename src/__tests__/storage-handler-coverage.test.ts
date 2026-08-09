@@ -44,13 +44,8 @@ mock.module("../db/connection", () => ({
 
 const { handleStorageRpc } = await import("../extensions/storage-handler");
 const { getDb } = await import("../db/connection");
-const {
-  extensions,
-  conversations,
-  projects,
-  extensionStorage,
-  conversationExtensions,
-} = await import("../db/schema");
+const { extensions, conversations, projects, extensionStorage, conversationExtensions } =
+  await import("../db/schema");
 const { eq, and } = await import("drizzle-orm");
 
 import type { JsonRpcRequest } from "../extensions/types";
@@ -93,32 +88,42 @@ function uniqueExtId(prefix = "ext"): string {
 }
 
 async function insertExtension(id: string, manifest: ExtensionManifestV2): Promise<void> {
-  await getDb().insert(extensions).values({
-    id,
-    name: id,
-    version: manifest.version,
-    description: manifest.description,
-    manifest,
-    source: `test:${id}`,
-    installPath: `/tmp/${id}`,
-    enabled: true,
-    grantedPermissions: makePerms(true),
-  } as any);
+  await getDb()
+    .insert(extensions)
+    .values({
+      id,
+      name: id,
+      version: manifest.version,
+      description: manifest.description,
+      manifest,
+      source: `test:${id}`,
+      installPath: `/tmp/${id}`,
+      enabled: true,
+      grantedPermissions: makePerms(true),
+    } as any);
 }
 
 async function insertProject(id: string): Promise<void> {
-  await getDb().insert(projects).values({ id, name: id, path: `/tmp/${id}` } as any);
+  await getDb()
+    .insert(projects)
+    .values({ id, name: id, path: `/tmp/${id}` } as any);
 }
 
 async function insertConversation(id: string, projectId: string): Promise<void> {
-  await getDb().insert(conversations).values({ id, projectId, title: "cov" } as any);
+  await getDb()
+    .insert(conversations)
+    .values({ id, projectId, title: "cov" } as any);
 }
 
 function rpcReq(params: Record<string, unknown>, id: number | string = 1): JsonRpcRequest {
   return { jsonrpc: "2.0", id, method: "ezcorp/storage", params };
 }
 
-function rpc(action: string, params: Record<string, unknown> = {}, id: number | string = 1): JsonRpcRequest {
+function rpc(
+  action: string,
+  params: Record<string, unknown> = {},
+  id: number | string = 1,
+): JsonRpcRequest {
   return rpcReq({ action, ...params }, id);
 }
 
@@ -155,9 +160,9 @@ beforeAll(async () => {
   await insertConversation(convWired, projId);
   await insertConversation(convUnwired, projId);
 
-  await getDb().insert(conversationExtensions).values([
-    { conversationId: convWired, extensionId: extWired },
-  ] as any);
+  await getDb()
+    .insert(conversationExtensions)
+    .values([{ conversationId: convWired, extensionId: extWired }] as any);
 
   // Migrations already seed the "builtin" extension row — no insert needed.
 });
@@ -196,7 +201,7 @@ describe("storage-handler permission + action + scope gates", () => {
     expect(resp.error!.message).toMatch(/scope/i);
   });
 
-  test("conversation scope unavailable (conversationId=\"unknown\") → -32602", async () => {
+  test('conversation scope unavailable (conversationId="unknown") → -32602', async () => {
     const resp = await handleStorageRpc(
       extBase,
       rpc("get", { key: "k", scope: "conversation" }),
@@ -207,7 +212,7 @@ describe("storage-handler permission + action + scope gates", () => {
     expect(resp.error!.message).toMatch(/Conversation scope unavailable/);
   });
 
-  test("user scope unavailable (userId=\"unknown\") → -32602", async () => {
+  test('user scope unavailable (userId="unknown") → -32602', async () => {
     const resp = await handleStorageRpc(
       extBase,
       rpc("get", { key: "k", scope: "user" }),
@@ -264,11 +269,7 @@ describe("storage-handler permission + action + scope gates", () => {
 describe("storage-handler builtin bypass", () => {
   test("builtin without grantedPermissions.storage still passes permission gate", async () => {
     const ctx = makeCtx(manifestBase, { grantedPermissions: makePerms(false) });
-    const resp = await handleStorageRpc(
-      "builtin",
-      rpc("set", { key: "b-key", value: "v" }),
-      ctx,
-    );
+    const resp = await handleStorageRpc("builtin", rpc("set", { key: "b-key", value: "v" }), ctx);
     expect(resp.error).toBeUndefined();
   });
 
@@ -298,7 +299,11 @@ describe("storage-handler handleGet branches", () => {
   test("get with invalid key → -32602 via validateKey", async () => {
     const ext = uniqueExtId("ext-get-bk");
     await insertExtension(ext, makeManifest(ext, "1MB"));
-    const resp = await handleStorageRpc(ext, rpc("get", { key: "has space" }), makeCtx(makeManifest(ext, "1MB")));
+    const resp = await handleStorageRpc(
+      ext,
+      rpc("get", { key: "has space" }),
+      makeCtx(makeManifest(ext, "1MB")),
+    );
     expect(resp.error).toBeDefined();
     expect(resp.error!.code).toBe(-32602);
   });
@@ -338,15 +343,17 @@ describe("storage-handler handleGet branches", () => {
 
     // Bypass the handler and insert a row claiming encrypted:true with a
     // value the decrypt() path can't parse.
-    await getDb().insert(extensionStorage).values({
-      extensionId: ext,
-      scope: "global",
-      scopeId: null,
-      key: "broken-cipher",
-      value: "not-a-valid-ciphertext-blob",
-      encrypted: true,
-      sizeBytes: 28,
-    } as any);
+    await getDb()
+      .insert(extensionStorage)
+      .values({
+        extensionId: ext,
+        scope: "global",
+        scopeId: null,
+        key: "broken-cipher",
+        value: "not-a-valid-ciphertext-blob",
+        encrypted: true,
+        sizeBytes: 28,
+      } as any);
 
     const resp = await handleStorageRpc(ext, rpc("get", { key: "broken-cipher" }), makeCtx(m));
     expect(resp.error).toBeDefined();
@@ -584,11 +591,11 @@ describe("storage-handler handleBatch branches", () => {
     const results = (resp.result as any).results;
     expect(Array.isArray(results)).toBe(true);
     expect(results.length).toBe(4);
-    expect(results[0].ok).toBe(true);             // set
-    expect(results[1].exists).toBe(true);          // get seed
+    expect(results[0].ok).toBe(true); // set
+    expect(results[1].exists).toBe(true); // get seed
     expect(results[1].value).toBe("initial");
-    expect(results[2].deleted).toBe(true);         // delete seed
-    expect(results[3].exists).toBe(true);          // get batch-k1 after set
+    expect(results[2].deleted).toBe(true); // delete seed
+    expect(results[3].exists).toBe(true); // get batch-k1 after set
     expect(results[3].value).toBe("v1");
   });
 
@@ -642,9 +649,9 @@ describe("storage-handler handleBatch branches", () => {
 
     // Absent from conversation partition — but we need wiring to avoid the
     // -32001 not-wired gate. Use a wired extension for that read.
-    await getDb().insert(conversationExtensions).values([
-      { conversationId: convWired, extensionId: ext },
-    ] as any);
+    await getDb()
+      .insert(conversationExtensions)
+      .values([{ conversationId: convWired, extensionId: ext }] as any);
     const getC = await handleStorageRpc(
       ext,
       rpc("get", { key: "scoped-key", scope: "conversation" }),
@@ -670,7 +677,9 @@ describe("storage-handler handleBatch branches", () => {
         await handleStorageRpc(ext, rpc("set", { key: `drain-${i}`, value: 1 }), ctx);
       }
       const ops = Array.from({ length: 10 }, (_, i) => ({
-        action: "set", key: `post-${i}`, value: i,
+        action: "set",
+        key: `post-${i}`,
+        value: i,
       }));
       return handleStorageRpc(ext, rpc("batch", { operations: ops }), ctx);
     });
@@ -793,11 +802,11 @@ describe("storage-handler — PDP-deny path (Phase 6)", () => {
     const ext = uniqueExtId();
     const m = makeManifest(ext);
     await insertExtension(ext, m);
-    const resp = await handleStorageRpc(
-      ext,
-      rpc("get", { key: "k" }),
-      { ...makeCtx(m), grantedPermissions: makePerms(false), engine },
-    );
+    const resp = await handleStorageRpc(ext, rpc("get", { key: "k" }), {
+      ...makeCtx(m),
+      grantedPermissions: makePerms(false),
+      engine,
+    });
     // get on missing key returns success with value:null — no error.
     expect(resp.error).toBeUndefined();
     expect(engine.calls.length).toBe(1);
@@ -823,11 +832,11 @@ describe("storage-handler — PDP-deny path (Phase 6)", () => {
         grantedPermissions: makePerms(true),
       } as never)
       .onConflictDoNothing();
-    const resp = await handleStorageRpc(
-      "builtin",
-      rpc("get", { key: "k" }),
-      { ...makeCtx(m), grantedPermissions: makePerms(false), engine },
-    );
+    const resp = await handleStorageRpc("builtin", rpc("get", { key: "k" }), {
+      ...makeCtx(m),
+      grantedPermissions: makePerms(false),
+      engine,
+    });
     // builtin → no engine.authorize call, handler proceeds.
     expect(resp.error).toBeUndefined();
     expect(engine.calls.length).toBe(0);

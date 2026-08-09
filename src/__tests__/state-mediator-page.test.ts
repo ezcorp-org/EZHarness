@@ -32,7 +32,10 @@ function makeMediator(manifest?: MediatorManifest) {
   return { mediator, pageEvents, stateEvents };
 }
 
-function notification(params: Record<string, unknown> | undefined, method = "ezcorp/page-state"): JsonRpcNotification {
+function notification(
+  params: Record<string, unknown> | undefined,
+  method = "ezcorp/page-state",
+): JsonRpcNotification {
   return { jsonrpc: "2.0", method, ...(params !== undefined ? { params } : {}) };
 }
 
@@ -66,7 +69,12 @@ describe("ezcorp/page-state", () => {
     expect(event.pageId).toBe("dashboard");
     expect(event.timestamp).toBeGreaterThan(0);
     // INVARIANT: no tree content on the bus event.
-    expect(Object.keys(event).sort()).toEqual(["extensionId", "extensionName", "pageId", "timestamp"]);
+    expect(Object.keys(event).sort()).toEqual([
+      "extensionId",
+      "extensionName",
+      "pageId",
+      "timestamp",
+    ]);
 
     const cached = getPageCache().get(EXT_ID, "dashboard");
     expect(cached).not.toBeNull();
@@ -183,7 +191,10 @@ describe("ezcorp/page-state", () => {
       EXT_ID,
       notification({
         pageId: "dashboard",
-        page: { title: "T", nodes: [{ type: "markdown", content: "x".repeat(MAX_STATE_SIZE_BYTES) }] },
+        page: {
+          title: "T",
+          nodes: [{ type: "markdown", content: "x".repeat(MAX_STATE_SIZE_BYTES) }],
+        },
       }),
     );
     expect(pageEvents).toHaveLength(0);
@@ -206,7 +217,10 @@ describe("ezcorp/page-state", () => {
   });
 
   test("eventSubscriptions absent → empty allowlist (action nodes dropped, push still lands)", () => {
-    const { mediator, pageEvents } = makeMediator({ name: "cron-dashboard", pageIds: ["dashboard"] });
+    const { mediator, pageEvents } = makeMediator({
+      name: "cron-dashboard",
+      pageIds: ["dashboard"],
+    });
     mediator.handleNotification(EXT_ID, notification({ pageId: "dashboard", page: VALID_TREE }));
     expect(pageEvents).toHaveLength(1);
     // heading survives; button (action) was dropped.
@@ -228,7 +242,10 @@ describe("ezcorp/page-state", () => {
 
   test("unrelated methods are ignored", () => {
     const { mediator, pageEvents, stateEvents } = makeMediator({ ...MANIFEST, panel: {} });
-    mediator.handleNotification(EXT_ID, notification({ pageId: "dashboard", page: VALID_TREE }, "ezcorp/other"));
+    mediator.handleNotification(
+      EXT_ID,
+      notification({ pageId: "dashboard", page: VALID_TREE }, "ezcorp/other"),
+    );
     expect(pageEvents).toHaveLength(0);
     expect(stateEvents).toHaveLength(0);
   });

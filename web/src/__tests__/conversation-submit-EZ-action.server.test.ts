@@ -75,9 +75,7 @@ vi.mock("$server/runtime/ez-actions/registry", () => ({
   getEzAction,
 }));
 
-const { POST } = await import(
-  "../routes/api/conversations/[id]/messages/+server.ts"
-);
+const { POST } = await import("../routes/api/conversations/[id]/messages/+server.ts");
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };
 
@@ -116,7 +114,8 @@ describe("POST messages — EZ action dispatch", () => {
     // First createMessage call (user message) → user-msg row.
     // Subsequent calls (EZ result rows) → assigned per-test below.
     createMessage.mockImplementation(async (_cid: string, data: any) => {
-      const id = data.role === "user" ? "user-msg-1" : `result-${Math.random().toString(36).slice(2, 8)}`;
+      const id =
+        data.role === "user" ? "user-msg-1" : `result-${Math.random().toString(36).slice(2, 8)}`;
       return { id, role: data.role, content: data.content };
     });
   });
@@ -133,9 +132,7 @@ describe("POST messages — EZ action dispatch", () => {
     });
     getEzAction.mockReturnValue({ name: "distill", description: "x", handler });
 
-    const res = await POST(
-      makeEvent({ body: { content: "![EZ:distill]" } }),
-    );
+    const res = await POST(makeEvent({ body: { content: "![EZ:distill]" } }));
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -243,9 +240,7 @@ describe("POST messages — EZ action dispatch", () => {
     // captured the unknown-name token).
     getEzAction.mockReturnValue(null);
 
-    const res = await POST(
-      makeEvent({ body: { content: "![EZ:nonsense]" } }),
-    );
+    const res = await POST(makeEvent({ body: { content: "![EZ:nonsense]" } }));
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -261,9 +256,7 @@ describe("POST messages — EZ action dispatch", () => {
     const handler = vi.fn().mockRejectedValue(new Error("kaboom"));
     getEzAction.mockReturnValue({ name: "distill", description: "x", handler });
 
-    const res = await POST(
-      makeEvent({ body: { content: "![EZ:distill]" } }),
-    );
+    const res = await POST(makeEvent({ body: { content: "![EZ:distill]" } }));
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -279,9 +272,7 @@ describe("POST messages — EZ action dispatch", () => {
   });
 
   test("no EZ tokens → behavior unchanged (regression guard)", async () => {
-    const res = await POST(
-      makeEvent({ body: { content: "just plain text" } }),
-    );
+    const res = await POST(makeEvent({ body: { content: "just plain text" } }));
 
     expect(res.status).toBe(200);
     const body = (await res.json()) as {

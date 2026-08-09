@@ -130,7 +130,7 @@ describe("sec-L2: touchSession binds throttleMs as a parameter", () => {
     await touchSession(id, distinctive);
 
     // Locate the UPDATE "sessions" query drizzle emitted.
-    const updateCall = calls.find(c => /UPDATE\s+"?sessions"?/i.test(c.sql));
+    const updateCall = calls.find((c) => /UPDATE\s+"?sessions"?/i.test(c.sql));
     expect(updateCall).toBeDefined();
 
     // The distinctive numeric value must NOT appear as a literal in the SQL text.
@@ -152,7 +152,7 @@ describe("sec-L2: touchSession binds throttleMs as a parameter", () => {
 
       await touchSession(id, v);
 
-      const updateCall = calls.find(c => /UPDATE\s+"?sessions"?/i.test(c.sql));
+      const updateCall = calls.find((c) => /UPDATE\s+"?sessions"?/i.test(c.sql));
       expect(updateCall).toBeDefined();
       expect(updateCall!.sql).not.toContain(String(v));
       expect(updateCall!.params).toContain(v);
@@ -166,7 +166,7 @@ describe("sec-L2: touchSession binds throttleMs as a parameter", () => {
 
     await touchSession(id, 42_424_242);
 
-    const updateCall = calls.find(c => /UPDATE\s+"?sessions"?/i.test(c.sql));
+    const updateCall = calls.find((c) => /UPDATE\s+"?sessions"?/i.test(c.sql));
     expect(updateCall).toBeDefined();
     // Post-fix uses make_interval(secs => $N / 1000.0). The pre-fix text was
     // `INTERVAL '<number> milliseconds'` with no positional placeholder for

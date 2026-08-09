@@ -15,10 +15,7 @@ import {
   getDraft,
   getExtensionAuthorDraftDir,
 } from "$server/db/queries/ez-drafts";
-import {
-  AUTHOR_DRAFT_FILES,
-  readAuthorDraftFiles,
-} from "$lib/server/author-draft-files";
+import { AUTHOR_DRAFT_FILES, readAuthorDraftFiles } from "$lib/server/author-draft-files";
 import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -35,7 +32,8 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
     if (!/^[a-zA-Z0-9_-]+$/.test(draftId)) return errorJson(400, "Invalid draftId");
 
     const row = await getDraft(draftId, user.id);
-    if (!row) return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
+    if (!row)
+      return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
     if (row.kind !== "extension") return errorJson(400, "Draft is not an extension draft");
 
     let body: { path?: unknown; content?: unknown };
@@ -77,7 +75,8 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
     if (!/^[a-zA-Z0-9_-]+$/.test(draftId)) return errorJson(400, "Invalid draftId");
 
     const row = await getDraft(draftId, user.id);
-    if (!row) return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
+    if (!row)
+      return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
 
     await discardDraftAndDir(draftId, user.id);
     return new Response(null, { status: 204 });

@@ -41,14 +41,9 @@ const { findModelForProviderInTier, resolveModelObject } = await import(
 const { getConfiguredTierLadder, getRoutableOverlayModels } = await import(
   "$server/providers/router"
 );
-const { POST } = await import(
-  "../routes/api/providers/[provider]/test/+server"
-);
+const { POST } = await import("../routes/api/providers/[provider]/test/+server");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  params?: { provider?: string };
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; params?: { provider?: string } }) {
   return {
     url: new URL("http://localhost/api/providers/x/test"),
     locals: opts.locals ?? {},
@@ -140,18 +135,14 @@ describe("POST /api/providers/[provider]/test", () => {
   });
 
   test("returns 400 for unknown provider", async () => {
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "bogus" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "bogus" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("Invalid provider");
   });
 
   test("returns 400 when provider is empty", async () => {
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("Invalid provider");
@@ -170,9 +161,7 @@ describe("POST /api/providers/[provider]/test", () => {
       token: "sk-...",
     } as any);
     vi.mocked(findModelForProviderInTier).mockReturnValue(null as any);
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "anthropic" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "anthropic" } }));
     // The handler maps "no model" → 200 + { success: false } body, NOT a 4xx
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean; error?: string };
@@ -196,9 +185,7 @@ describe("POST /api/providers/[provider]/test", () => {
       content: [{ type: "text", text: "ok" }],
     } as any);
 
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "anthropic" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "anthropic" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean };
     expect(body.success).toBe(true);
@@ -227,9 +214,7 @@ describe("POST /api/providers/[provider]/test", () => {
       content: [],
     } as any);
 
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "openai" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "openai" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean };
     expect(body.success).toBe(true);
@@ -257,9 +242,7 @@ describe("POST /api/providers/[provider]/test", () => {
       content: [],
     } as any);
 
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "openrouter" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "openrouter" } }));
     // openrouter is a VALID provider — not the 400 invalid-provider path.
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean };
@@ -272,12 +255,8 @@ describe("POST /api/providers/[provider]/test", () => {
   });
 
   test("auth failure: missing credential bubbles up as success=false", async () => {
-    vi.mocked(getCredential).mockRejectedValue(
-      new Error("No credential for openai"),
-    );
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "openai" } }),
-    );
+    vi.mocked(getCredential).mockRejectedValue(new Error("No credential for openai"));
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "openai" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean; error?: string };
     expect(body.success).toBe(false);
@@ -299,9 +278,7 @@ describe("POST /api/providers/[provider]/test", () => {
     } as any);
     vi.mocked(complete).mockRejectedValue(new Error("401 Unauthorized"));
 
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "google" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "google" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean; error?: string };
     expect(body.success).toBe(false);
@@ -320,9 +297,7 @@ describe("POST /api/providers/[provider]/test", () => {
     // pi-ai sometimes throws strings; handler does String(err) fallback
     vi.mocked(complete).mockRejectedValue("network blew up");
 
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "google" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "google" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean; error?: string };
     expect(body.success).toBe(false);

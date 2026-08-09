@@ -29,10 +29,7 @@ const { createAgentConfig, getAgentConfigByName } = await import(
 );
 const { POST } = await import("../routes/api/marketplace/import/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown }) {
   const href = "http://localhost/api/marketplace/import";
   return {
     url: new URL(href),
@@ -99,9 +96,7 @@ describe("POST /api/marketplace/import", () => {
       valid: false,
       errors: ["bad capability"],
     } as any);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: validManifestBody }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: validManifestBody }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string; errors?: string[] };
     expect(body.error).toBe("Invalid manifest");
@@ -134,9 +129,7 @@ describe("POST /api/marketplace/import", () => {
       id: "cfg-1",
       name: "TestAgent",
     } as any);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: validManifestBody }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: validManifestBody }));
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
       agentConfig: { id: string };
@@ -156,9 +149,7 @@ describe("POST /api/marketplace/import", () => {
       id: "cfg-2",
       name: "TestAgent (Imported)",
     } as any);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: validManifestBody }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: validManifestBody }));
     expect(res.status).toBe(201);
     const call = vi.mocked(createAgentConfig).mock.calls[0]![0];
     expect(call.name).toBe("TestAgent (Imported)");

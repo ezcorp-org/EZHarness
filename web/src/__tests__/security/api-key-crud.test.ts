@@ -16,7 +16,7 @@ mock.module("$server/db/queries/settings", () => ({
   getAllSettings: async () => ({ ...mockSettings }),
 }));
 
-import { generateApiKey, hashApiKey, verifyApiKey, } from "../../lib/server/security/api-keys";
+import { generateApiKey, hashApiKey, verifyApiKey } from "../../lib/server/security/api-keys";
 import { createApiKeySchema, deleteApiKeySchema } from "../../routes/api/settings/developer/schema";
 import { validationError } from "../../lib/server/security/validation";
 
@@ -70,13 +70,21 @@ describe("API key CRUD: schema validation", () => {
   });
 
   test("createApiKeySchema accepts role admin", () => {
-    const result = createApiKeySchema.safeParse({ name: "My Key", scopes: ["read"], role: "admin" });
+    const result = createApiKeySchema.safeParse({
+      name: "My Key",
+      scopes: ["read"],
+      role: "admin",
+    });
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.role).toBe("admin");
   });
 
   test("createApiKeySchema rejects an unknown role", () => {
-    const result = createApiKeySchema.safeParse({ name: "My Key", scopes: ["read"], role: "superuser" });
+    const result = createApiKeySchema.safeParse({
+      name: "My Key",
+      scopes: ["read"],
+      role: "superuser",
+    });
     expect(result.success).toBe(false);
   });
 
@@ -100,7 +108,13 @@ describe("API key CRUD: full lifecycle", () => {
     expect(raw.startsWith("ezk_")).toBe(true);
 
     // 2. Store (simulating POST handler logic)
-    const entry = { hash, userId, scopes: ["read", "chat"], name: "Test Key", createdAt: Date.now() };
+    const entry = {
+      hash,
+      userId,
+      scopes: ["read", "chat"],
+      name: "Test Key",
+      createdAt: Date.now(),
+    };
     mockSettings[`apikey:${userId}:${keyId}`] = entry;
 
     // 3. List (simulating GET handler logic)
@@ -109,7 +123,12 @@ describe("API key CRUD: full lifecycle", () => {
       .filter(([k]) => k.startsWith(prefix))
       .map(([k, v]) => {
         const e = v as { name: string; scopes: string[]; createdAt: number };
-        return { keyId: k.slice(prefix.length), name: e.name, scopes: e.scopes, createdAt: e.createdAt };
+        return {
+          keyId: k.slice(prefix.length),
+          name: e.name,
+          scopes: e.scopes,
+          createdAt: e.createdAt,
+        };
       });
     expect(keys).toHaveLength(1);
     expect(keys[0].name).toBe("Test Key");
@@ -134,10 +153,16 @@ describe("API key CRUD: full lifecycle", () => {
     const key2 = generateApiKey();
 
     mockSettings[`apikey:${userId}:${key1.keyId}`] = {
-      hash: key1.hash, userId, scopes: ["read"], name: "Key 1",
+      hash: key1.hash,
+      userId,
+      scopes: ["read"],
+      name: "Key 1",
     };
     mockSettings[`apikey:${userId}:${key2.keyId}`] = {
-      hash: key2.hash, userId, scopes: ["admin"], name: "Key 2",
+      hash: key2.hash,
+      userId,
+      scopes: ["admin"],
+      name: "Key 2",
     };
 
     const v1 = await verifyApiKey(key1.raw);
@@ -156,10 +181,16 @@ describe("API key CRUD: full lifecycle", () => {
     const key2 = generateApiKey();
 
     mockSettings[`apikey:user-A:${key1.keyId}`] = {
-      hash: key1.hash, userId: "user-A", scopes: ["read"], name: "A's key",
+      hash: key1.hash,
+      userId: "user-A",
+      scopes: ["read"],
+      name: "A's key",
     };
     mockSettings[`apikey:user-B:${key2.keyId}`] = {
-      hash: key2.hash, userId: "user-B", scopes: ["admin"], name: "B's key",
+      hash: key2.hash,
+      userId: "user-B",
+      scopes: ["admin"],
+      name: "B's key",
     };
 
     const v1 = await verifyApiKey(key1.raw);

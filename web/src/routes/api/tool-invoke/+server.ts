@@ -18,14 +18,16 @@ const MAX_RETRIES = 2;
 // "Missing required fields" 400 message verbatim — the test contract
 // asserts on that exact prefix. Strict mode rejects unknown top-level
 // keys.
-const postBodySchema = z.object({
-  extensionName: z.string().optional(),
-  toolName: z.string().optional(),
-  input: z.record(z.string(), z.unknown()).optional(),
-  conversationId: z.string().optional(),
-  invocationId: z.string().optional(),
-  messageId: z.string().optional(),
-}).strict();
+const postBodySchema = z
+  .object({
+    extensionName: z.string().optional(),
+    toolName: z.string().optional(),
+    input: z.record(z.string(), z.unknown()).optional(),
+    conversationId: z.string().optional(),
+    invocationId: z.string().optional(),
+    messageId: z.string().optional(),
+  })
+  .strict();
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
@@ -42,11 +44,23 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   const parsed = postBodySchema.safeParse(raw);
   if (!parsed.success) {
-    return json({ success: false, error: "Missing required fields: extensionName, toolName, conversationId, invocationId" }, { status: 400 });
+    return json(
+      {
+        success: false,
+        error: "Missing required fields: extensionName, toolName, conversationId, invocationId",
+      },
+      { status: 400 },
+    );
   }
   const { extensionName, toolName, input, conversationId, invocationId, messageId } = parsed.data;
   if (!extensionName || !toolName || !conversationId || !invocationId) {
-    return json({ success: false, error: "Missing required fields: extensionName, toolName, conversationId, invocationId" }, { status: 400 });
+    return json(
+      {
+        success: false,
+        error: "Missing required fields: extensionName, toolName, conversationId, invocationId",
+      },
+      { status: 400 },
+    );
   }
 
   const startTime = Date.now();
@@ -60,13 +74,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     try {
       await ensureTaskTrackingWired(conversationId);
     } catch (wireErr) {
-      return json({
-        success: false,
-        error: `task-tracking wiring failed: ${wireErr instanceof Error ? wireErr.message : String(wireErr)}`,
-        retryCount: 0,
-        durationMs: Date.now() - startTime,
-        toolCallId: invocationId,
-      }, { status: 500 });
+      return json(
+        {
+          success: false,
+          error: `task-tracking wiring failed: ${wireErr instanceof Error ? wireErr.message : String(wireErr)}`,
+          retryCount: 0,
+          durationMs: Date.now() - startTime,
+          toolCallId: invocationId,
+        },
+        { status: 500 },
+      );
     }
   }
 
@@ -99,21 +116,24 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // calls `executor.setCurrentUserId(userId)`. The authenticated caller is the
   // acting user, so storage is keyed to their bucket (no cross-user exposure).
   toolExecutor.setCurrentUserId(user.id);
-  const metadata = { invocationId, source: 'inline' as const };
+  const metadata = { invocationId, source: "inline" as const };
   let lastResult = { content: [{ type: "text" as const, text: "Unknown error" }], isError: true };
   let retryCount = 0;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
       const result = await toolExecutor.executeToolCall(
-        namespacedTool, input ?? {}, conversationId, messageId ?? null,
+        namespacedTool,
+        input ?? {},
+        conversationId,
+        messageId ?? null,
         { metadata },
       );
 
       if (!result.isError) {
         return json({
           success: true,
-          output: result.content.map(c => c.text).join("\n"),
+          output: result.content.map((c) => c.text).join("\n"),
           retryCount: attempt,
           durationMs: Date.now() - startTime,
           toolCallId: invocationId,
@@ -127,19 +147,22 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       if (attempt < MAX_RETRIES) {
         continue;
       }
-      return json({
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-        retryCount: attempt,
-        durationMs: Date.now() - startTime,
-        toolCallId: invocationId,
-      }, { status: 500 });
+      return json(
+        {
+          success: false,
+          error: err instanceof Error ? err.message : String(err),
+          retryCount: attempt,
+          durationMs: Date.now() - startTime,
+          toolCallId: invocationId,
+        },
+        { status: 500 },
+      );
     }
   }
 
   return json({
     success: false,
-    error: lastResult.content.map(c => c.text).join("\n"),
+    error: lastResult.content.map((c) => c.text).join("\n"),
     retryCount,
     durationMs: Date.now() - startTime,
     toolCallId: invocationId,

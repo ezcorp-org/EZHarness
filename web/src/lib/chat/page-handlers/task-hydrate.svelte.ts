@@ -22,10 +22,10 @@
 
 import { untrack } from "svelte";
 import {
-	getTaskSeq,
-	getWsReconnectCount,
-	hydrateTaskSnapshotInto,
-	taskHydrationRequests,
+  getTaskSeq,
+  getWsReconnectCount,
+  hydrateTaskSnapshotInto,
+  taskHydrationRequests,
 } from "$lib/stores.svelte.js";
 import { hydrateTaskSnapshot, type TaskHydrationHost } from "./task-hydrate.js";
 
@@ -39,40 +39,40 @@ export type { TaskHydrationHost, TaskSnapshotResponse } from "./task-hydrate.js"
  * a live store.
  */
 export function attachTaskHydration(
-	host: Pick<TaskHydrationHost, "convId"> & Partial<TaskHydrationHost>,
+  host: Pick<TaskHydrationHost, "convId"> & Partial<TaskHydrationHost>,
 ): void {
-	// Incremented per scheduled hydrate; a response is applied only while it
-	// is still the latest one. Plain closure state — a guard, not something
-	// the UI renders.
-	let generation = 0;
+  // Incremented per scheduled hydrate; a response is applied only while it
+  // is still the latest one. Plain closure state — a guard, not something
+  // the UI renders.
+  let generation = 0;
 
-	const resolved: TaskHydrationHost = {
-		convId: host.convId,
-		reconnectCount: host.reconnectCount ?? getWsReconnectCount,
-		requestCount: host.requestCount ?? taskHydrationRequests,
-		apply: host.apply ?? hydrateTaskSnapshotInto,
-		seqFor: host.seqFor ?? getTaskSeq,
-		...(host.fetchImpl !== undefined ? { fetchImpl: host.fetchImpl } : {}),
-	};
+  const resolved: TaskHydrationHost = {
+    convId: host.convId,
+    reconnectCount: host.reconnectCount ?? getWsReconnectCount,
+    requestCount: host.requestCount ?? taskHydrationRequests,
+    apply: host.apply ?? hydrateTaskSnapshotInto,
+    seqFor: host.seqFor ?? getTaskSeq,
+    ...(host.fetchImpl !== undefined ? { fetchImpl: host.fetchImpl } : {}),
+  };
 
-	$effect(() => {
-		const cid = resolved.convId();
-		// Read (and therefore track) the two resync signals.
-		resolved.reconnectCount();
-		resolved.requestCount();
-		if (!cid) return;
+  $effect(() => {
+    const cid = resolved.convId();
+    // Read (and therefore track) the two resync signals.
+    resolved.reconnectCount();
+    resolved.requestCount();
+    if (!cid) return;
 
-		const mine = ++generation;
-		// `untrack` is load-bearing: `hydrateTaskSnapshot` reads the store's
-		// live-event counter synchronously, before its fetch, and then writes
-		// the snapshot it fetched. Without this the effect would depend on the
-		// very state it updates and re-fire forever.
-		untrack(() => {
-			void hydrateTaskSnapshot(
-				resolved,
-				cid,
-				() => generation === mine && untrack(() => resolved.convId()) === cid,
-			);
-		});
-	});
+    const mine = ++generation;
+    // `untrack` is load-bearing: `hydrateTaskSnapshot` reads the store's
+    // live-event counter synchronously, before its fetch, and then writes
+    // the snapshot it fetched. Without this the effect would depend on the
+    // very state it updates and re-fire forever.
+    untrack(() => {
+      void hydrateTaskSnapshot(
+        resolved,
+        cid,
+        () => generation === mine && untrack(() => resolved.convId()) === cid,
+      );
+    });
+  });
 }

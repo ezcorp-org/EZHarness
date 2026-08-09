@@ -1,4 +1,21 @@
-import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
+import {
+  pgTable,
+  text,
+  timestamp,
+  jsonb,
+  integer,
+  numeric,
+  real,
+  serial,
+  bigserial,
+  bigint,
+  boolean,
+  index,
+  primaryKey,
+  uniqueIndex,
+  date,
+  vector,
+} from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type {
   AgentResult,
@@ -22,7 +39,9 @@ import type {
 } from "../integrations/github-projects/types";
 
 export const projects = pgTable("projects", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
   path: text("path").notNull(),
   icon: text("icon"),
@@ -71,9 +90,15 @@ export const projects = pgTable("projects", {
  * not a weaker grant, it is a meaningless one.
  */
 export const projectMembers = pgTable("project_members", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  projectId: text("project_id")
+    .notNull()
+    .references(() => projects.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   role: text("role").notNull().default("member").$type<"owner" | "member">(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -97,116 +122,149 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const runs = pgTable("runs", {
-  id: text("id").primaryKey(),
-  agentName: text("agent_name").notNull(),
-  projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
-  // Owning conversation for chat runs — used to enforce run ownership on
-  // /api/runs/[id]. Null for agent/CLI runs that have no conversation.
-  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
-  // Initiating user — the principal who started the run. Authoritative for
-  // run-ownership enforcement on /api/runs/[id] (closes the cross-tenant
-  // IDOR that NULL conversation_id left open for agent/CLI/pre-migration
-  // runs). For chat runs this is the ROOT conversation's owner (resolved at
-  // insert time, so sub-conversation runs attribute to the real owner). Null
-  // only for runs that genuinely cannot be attributed to a user — those are
-  // admin-only for non-admins (fail closed). FK SET NULL: deleting a user
-  // un-attributes their historical runs (then admin-only) rather than
-  // cascading them away.
-  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
-  status: text("status").notNull(),
-  input: jsonb("input").$type<Record<string, unknown>>(),
-  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
-  finishedAt: timestamp("finished_at", { withTimezone: true }),
-  result: jsonb("result").$type<{ success: boolean; output: unknown; error?: string | { code: string; message: string } }>(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // FK index — conversation delete fires ON DELETE SET NULL on
-  // runs.conversation_id; runs is append-only so an unindexed referential
-  // scan here is the worst offender. (The project_id / project_id+started_at /
-  // agent_name / user_id indexes remain migrate.ts-only; migrate.ts is the DDL
-  // source of truth — see idx_runs_project_started for listRuns.)
-  index("idx_runs_conversation_id").on(table.conversationId),
-]);
+export const runs = pgTable(
+  "runs",
+  {
+    id: text("id").primaryKey(),
+    agentName: text("agent_name").notNull(),
+    projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+    // Owning conversation for chat runs — used to enforce run ownership on
+    // /api/runs/[id]. Null for agent/CLI runs that have no conversation.
+    conversationId: text("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
+    // Initiating user — the principal who started the run. Authoritative for
+    // run-ownership enforcement on /api/runs/[id] (closes the cross-tenant
+    // IDOR that NULL conversation_id left open for agent/CLI/pre-migration
+    // runs). For chat runs this is the ROOT conversation's owner (resolved at
+    // insert time, so sub-conversation runs attribute to the real owner). Null
+    // only for runs that genuinely cannot be attributed to a user — those are
+    // admin-only for non-admins (fail closed). FK SET NULL: deleting a user
+    // un-attributes their historical runs (then admin-only) rather than
+    // cascading them away.
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    status: text("status").notNull(),
+    input: jsonb("input").$type<Record<string, unknown>>(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    result: jsonb("result").$type<{
+      success: boolean;
+      output: unknown;
+      error?: string | { code: string; message: string };
+    }>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // FK index — conversation delete fires ON DELETE SET NULL on
+    // runs.conversation_id; runs is append-only so an unindexed referential
+    // scan here is the worst offender. (The project_id / project_id+started_at /
+    // agent_name / user_id indexes remain migrate.ts-only; migrate.ts is the DDL
+    // source of truth — see idx_runs_project_started for listRuns.)
+    index("idx_runs_conversation_id").on(table.conversationId),
+  ],
+);
 
 export const runLogs = pgTable("run_logs", {
   id: serial("id").primaryKey(),
-  runId: text("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  runId: text("run_id")
+    .notNull()
+    .references(() => runs.id, { onDelete: "cascade" }),
   timestamp: bigint("timestamp", { mode: "number" }).notNull(),
   level: text("level").notNull(),
   message: text("message").notNull(),
 });
 
-export const conversations = pgTable("conversations", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
-  title: text("title").notNull().default("New conversation"),
-  model: text("model"),
-  provider: text("provider"),
-  systemPrompt: text("system_prompt"),
-  agentConfigId: text("agent_config_id").references(() => agentConfigs.id, { onDelete: "set null" }),
-  modeId: text("mode_id").references(() => modes.id, { onDelete: "set null" }),
-  // biome-ignore lint/suspicious/noExplicitAny: drizzle's documented self-referencing-FK workaround — the callback's return type refers to the table being declared, so annotating it any other way is a circular type reference the compiler rejects.
-  parentConversationId: text("parent_conversation_id").references((): any => conversations.id, { onDelete: "cascade" }),
-  parentMessageId: text("parent_message_id"),
-  // biome-ignore lint/suspicious/noExplicitAny: same drizzle self-referencing-FK workaround as parentConversationId above.
-  forkedFromConversationId: text("forked_from_conversation_id").references((): any => conversations.id, { onDelete: "set null" }),
-  forkedFromMessageId: text("forked_from_message_id"),
-  test: boolean("test").default(false),
-  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
-  /** Phase 2d: opaque per-conversation bag for runtime-only flags. Currently
-   *  holds `spawnDepth: number` tracked by spawn-assignment-handler.ts, plus
-   *  the `/goal` feature's `goal` key (compile-time-only, no DB DDL — D3).
-   *
-   *  `goal` shape — see {@link import("../runtime/goal-host").PersistedGoal}:
-   *    `{ condition: string; lastReason: string | null; createdAt: string }`.
-   *  KEY PRESENCE = armed; KEY DELETION = disarm (achieve / clear / cap).
-   *  There is no `armed` boolean on the persisted shape. Paused-ness lives
-   *  ONLY in the in-memory `GoalRecord.status` and is never persisted, so a
-   *  paused goal still has `metadata.goal` present and FR-13b can resume it. */
-  metadata: jsonb("metadata").$type<Record<string, unknown> & {
-    spawnDepth?: number;
-    spawnParentAuditId?: string;
-    goal?: {
-      condition: string;
-      lastReason: string | null;
-      createdAt: string;
-    };
-  }>(),
-  /** Phase 48: distinguishes regular per-project chats from the global Ez
-   *  concierge conversation (one per user, enforced by a unique partial index
-   *  `conversations_user_ez_unique` declared in migrate.ts). Mutating modeId
-   *  on a kind='ez' row is rejected at the API layer.
-   *
-   *  `ext-service` (ECF control plane): a persistent per-(project, extension)
-   *  service conversation that owns gate-push agent spawns — it carries the
-   *  REAL projectId (the spawn handler derives project from the conversation)
-   *  and the gate extension is wired into it, so a push-fired review can spawn
-   *  with a resolvable owner scope instead of failing `-32602`. Plain text
-   *  column → NO migration, no pg enum. Filtered out of `listConversations`
-   *  so it never pollutes a user's chat list; sub-conversations parent under
-   *  it so existing `/project/<id>/chat/<subConvId>` deep-links keep working. */
-  kind: text("kind").notNull().default("regular").$type<"regular" | "ez" | "ext-service">(),
-  /** Per-conversation tool scoping. Keyed by extension id; the value is the
-   *  list of selected tool names for that extension. Mirrors
-   *  modes.extensionTools / agent_configs.extensionTools: an extension absent
-   *  here (or mapped to an empty array) contributes ALL its tools, while a
-   *  non-empty array narrows. Crucially this map can only NARROW the mode's
-   *  allowlist — it never widens it (see src/runtime/executor.ts). */
-  extensionTools: jsonb("extension_tools").$type<Record<string, string[]>>(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // FK indexes — deleting an agent_config / mode fires ON DELETE SET NULL on
-  // these columns; both were previously unindexed seq-scans of conversations.
-  // (project_id / user_id / created_at composites stay migrate.ts-only.)
-  index("idx_conversations_agent_config_id").on(table.agentConfigId),
-  index("idx_conversations_mode_id").on(table.modeId),
-]);
+export const conversations = pgTable(
+  "conversations",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    title: text("title").notNull().default("New conversation"),
+    model: text("model"),
+    provider: text("provider"),
+    systemPrompt: text("system_prompt"),
+    agentConfigId: text("agent_config_id").references(() => agentConfigs.id, {
+      onDelete: "set null",
+    }),
+    modeId: text("mode_id").references(() => modes.id, { onDelete: "set null" }),
+    // biome-ignore lint/suspicious/noExplicitAny: drizzle's documented self-referencing-FK workaround — the callback's return type refers to the table being declared, so annotating it any other way is a circular type reference the compiler rejects.
+    parentConversationId: text("parent_conversation_id").references((): any => conversations.id, {
+      onDelete: "cascade",
+    }),
+    parentMessageId: text("parent_message_id"),
+    forkedFromConversationId: text("forked_from_conversation_id").references(
+      // biome-ignore lint/suspicious/noExplicitAny: same drizzle self-referencing-FK workaround as parentConversationId above.
+      (): any => conversations.id,
+      { onDelete: "set null" },
+    ),
+    forkedFromMessageId: text("forked_from_message_id"),
+    test: boolean("test").default(false),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    /** Phase 2d: opaque per-conversation bag for runtime-only flags. Currently
+     *  holds `spawnDepth: number` tracked by spawn-assignment-handler.ts, plus
+     *  the `/goal` feature's `goal` key (compile-time-only, no DB DDL — D3).
+     *
+     *  `goal` shape — see {@link import("../runtime/goal-host").PersistedGoal}:
+     *    `{ condition: string; lastReason: string | null; createdAt: string }`.
+     *  KEY PRESENCE = armed; KEY DELETION = disarm (achieve / clear / cap).
+     *  There is no `armed` boolean on the persisted shape. Paused-ness lives
+     *  ONLY in the in-memory `GoalRecord.status` and is never persisted, so a
+     *  paused goal still has `metadata.goal` present and FR-13b can resume it. */
+    metadata: jsonb("metadata").$type<
+      Record<string, unknown> & {
+        spawnDepth?: number;
+        spawnParentAuditId?: string;
+        goal?: {
+          condition: string;
+          lastReason: string | null;
+          createdAt: string;
+        };
+      }
+    >(),
+    /** Phase 48: distinguishes regular per-project chats from the global Ez
+     *  concierge conversation (one per user, enforced by a unique partial index
+     *  `conversations_user_ez_unique` declared in migrate.ts). Mutating modeId
+     *  on a kind='ez' row is rejected at the API layer.
+     *
+     *  `ext-service` (ECF control plane): a persistent per-(project, extension)
+     *  service conversation that owns gate-push agent spawns — it carries the
+     *  REAL projectId (the spawn handler derives project from the conversation)
+     *  and the gate extension is wired into it, so a push-fired review can spawn
+     *  with a resolvable owner scope instead of failing `-32602`. Plain text
+     *  column → NO migration, no pg enum. Filtered out of `listConversations`
+     *  so it never pollutes a user's chat list; sub-conversations parent under
+     *  it so existing `/project/<id>/chat/<subConvId>` deep-links keep working. */
+    kind: text("kind").notNull().default("regular").$type<"regular" | "ez" | "ext-service">(),
+    /** Per-conversation tool scoping. Keyed by extension id; the value is the
+     *  list of selected tool names for that extension. Mirrors
+     *  modes.extensionTools / agent_configs.extensionTools: an extension absent
+     *  here (or mapped to an empty array) contributes ALL its tools, while a
+     *  non-empty array narrows. Crucially this map can only NARROW the mode's
+     *  allowlist — it never widens it (see src/runtime/executor.ts). */
+    extensionTools: jsonb("extension_tools").$type<Record<string, string[]>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // FK indexes — deleting an agent_config / mode fires ON DELETE SET NULL on
+    // these columns; both were previously unindexed seq-scans of conversations.
+    // (project_id / user_id / created_at composites stay migrate.ts-only.)
+    index("idx_conversations_agent_config_id").on(table.agentConfigId),
+    index("idx_conversations_mode_id").on(table.modeId),
+  ],
+);
 
 export const messages = pgTable("messages", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  conversationId: text("conversation_id")
+    .notNull()
+    .references(() => conversations.id, { onDelete: "cascade" }),
   /**
    * Free-form role string (no enum). Known values:
    *  - "user", "assistant", "system" — standard chat turns.
@@ -310,20 +368,30 @@ export const messages = pgTable("messages", {
 
 // ── Message Attachments (multi-modal uploads) ─────────────────────
 
-export const messageAttachments = pgTable("message_attachments", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  messageId: text("message_id").notNull().references(() => messages.id, { onDelete: "cascade" }),
-  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
-  filename: text("filename").notNull(),
-  mimeType: text("mime_type").notNull(),
-  sizeBytes: integer("size_bytes").notNull(),
-  storagePath: text("storage_path").notNull(),
-  kind: text("kind").notNull().$type<"image" | "text" | "pdf" | "audio" | "extension-handle">(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_msg_attachments_message").on(table.messageId),
-  index("idx_msg_attachments_conversation").on(table.conversationId),
-]);
+export const messageAttachments = pgTable(
+  "message_attachments",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    filename: text("filename").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storagePath: text("storage_path").notNull(),
+    kind: text("kind").notNull().$type<"image" | "text" | "pdf" | "audio" | "extension-handle">(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_msg_attachments_message").on(table.messageId),
+    index("idx_msg_attachments_conversation").on(table.conversationId),
+  ],
+);
 
 export type MessageAttachment = typeof messageAttachments.$inferSelect;
 export type NewMessageAttachment = typeof messageAttachments.$inferInsert;
@@ -344,51 +412,67 @@ export type NewMessageAttachment = typeof messageAttachments.$inferInsert;
 // names/types for the query builder (parent_session_id is a soft ref
 // here, mirroring messages.parentMessageId).
 
-export const agentSessions = pgTable("agent_sessions", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
-  cwd: text("cwd"),
-  // Fork lineage (P6). Soft ref in drizzle; migrate.ts declares the
-  // self-referential FK with ON DELETE SET NULL.
-  parentSessionId: text("parent_session_id"),
-  // O(1) getLeafId cache. The leaf is still AUTHORITATIVELY recovered by
-  // replaying entries in seq order on open — this column is a convenience
-  // for readers that don't load the tree.
-  leafEntryId: text("leaf_entry_id"),
-  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  uniqueIndex("agent_sessions_conversation_unique").on(table.conversationId).where(sql`${table.conversationId} IS NOT NULL`),
-]);
+export const agentSessions = pgTable(
+  "agent_sessions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    conversationId: text("conversation_id").references(() => conversations.id, {
+      onDelete: "cascade",
+    }),
+    cwd: text("cwd"),
+    // Fork lineage (P6). Soft ref in drizzle; migrate.ts declares the
+    // self-referential FK with ON DELETE SET NULL.
+    parentSessionId: text("parent_session_id"),
+    // O(1) getLeafId cache. The leaf is still AUTHORITATIVELY recovered by
+    // replaying entries in seq order on open — this column is a convenience
+    // for readers that don't load the tree.
+    leafEntryId: text("leaf_entry_id"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("agent_sessions_conversation_unique")
+      .on(table.conversationId)
+      .where(sql`${table.conversationId} IS NOT NULL`),
+  ],
+);
 
-export const agentSessionEntries = pgTable("agent_session_entries", {
-  sessionId: text("session_id").notNull().references(() => agentSessions.id, { onDelete: "cascade" }),
-  // pi's 8-char entry id — unique only WITHIN a session (forks reuse
-  // source ids), hence the composite PK below.
-  entryId: text("entry_id").notNull(),
-  // Load-bearing INSERTION-order axis: pi ids are uuidv7 slices, NOT
-  // monotonic, so getEntries / leaf-recovery / findEntries order by seq.
-  seq: bigserial("seq", { mode: "number" }).notNull(),
-  type: text("type").notNull(),
-  // Soft tree pointer (the parent entry within this session's tree).
-  parentId: text("parent_id"),
-  // pi's ISO timestamp, round-tripped VERBATIM (TEXT, not timestamptz).
-  timestamp: text("timestamp").notNull(),
-  // Type-specific entry fields (incl. the full pi AgentMessage for
-  // `message` entries). Written ONLY via this column-mapped drizzle
-  // insert — never string-cast SQL (Bun.sql double-encode gotcha).
-  payload: jsonb("payload").notNull().$type<Record<string, unknown>>().default({}),
-  // Cross-link to the EZCorp message row (message entries only). Unset in
-  // P1; populated when the append seam is wired (P3).
-  ezMessageId: text("ez_message_id").references(() => messages.id, { onDelete: "set null" }),
-}, (table) => [
-  primaryKey({ columns: [table.sessionId, table.entryId] }),
-  index("idx_agent_session_entries_seq").on(table.sessionId, table.seq),
-  index("idx_agent_session_entries_type").on(table.sessionId, table.type),
-  index("idx_agent_session_entries_parent").on(table.sessionId, table.parentId),
-  // FK index for the ON DELETE SET NULL on ez_message_id (message delete).
-  index("idx_agent_session_entries_ez_message").on(table.ezMessageId),
-]);
+export const agentSessionEntries = pgTable(
+  "agent_session_entries",
+  {
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => agentSessions.id, { onDelete: "cascade" }),
+    // pi's 8-char entry id — unique only WITHIN a session (forks reuse
+    // source ids), hence the composite PK below.
+    entryId: text("entry_id").notNull(),
+    // Load-bearing INSERTION-order axis: pi ids are uuidv7 slices, NOT
+    // monotonic, so getEntries / leaf-recovery / findEntries order by seq.
+    seq: bigserial("seq", { mode: "number" }).notNull(),
+    type: text("type").notNull(),
+    // Soft tree pointer (the parent entry within this session's tree).
+    parentId: text("parent_id"),
+    // pi's ISO timestamp, round-tripped VERBATIM (TEXT, not timestamptz).
+    timestamp: text("timestamp").notNull(),
+    // Type-specific entry fields (incl. the full pi AgentMessage for
+    // `message` entries). Written ONLY via this column-mapped drizzle
+    // insert — never string-cast SQL (Bun.sql double-encode gotcha).
+    payload: jsonb("payload").notNull().$type<Record<string, unknown>>().default({}),
+    // Cross-link to the EZCorp message row (message entries only). Unset in
+    // P1; populated when the append seam is wired (P3).
+    ezMessageId: text("ez_message_id").references(() => messages.id, { onDelete: "set null" }),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.entryId] }),
+    index("idx_agent_session_entries_seq").on(table.sessionId, table.seq),
+    index("idx_agent_session_entries_type").on(table.sessionId, table.type),
+    index("idx_agent_session_entries_parent").on(table.sessionId, table.parentId),
+    // FK index for the ON DELETE SET NULL on ez_message_id (message delete).
+    index("idx_agent_session_entries_ez_message").on(table.ezMessageId),
+  ],
+);
 
 export type AgentSessionRow = typeof agentSessions.$inferSelect;
 export type NewAgentSessionRow = typeof agentSessions.$inferInsert;
@@ -407,19 +491,29 @@ export type NewAgentSessionEntryRow = typeof agentSessionEntries.$inferInsert;
 // the ANN CTE without a join back to messages. The dual CASCADE
 // precedent is message_attachments.
 
-export const messageChunks = pgTable("message_chunks", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  messageId: text("message_id").notNull().references(() => messages.id, { onDelete: "cascade" }),
-  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
-  content: text("content").notNull(),
-  chunkIndex: integer("chunk_index").notNull(),
-  embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }),
-  embeddingModelId: text("embedding_model_id").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_message_chunks_message").on(table.messageId),
-  index("idx_message_chunks_conversation").on(table.conversationId),
-]);
+export const messageChunks = pgTable(
+  "message_chunks",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    messageId: text("message_id")
+      .notNull()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    content: text("content").notNull(),
+    chunkIndex: integer("chunk_index").notNull(),
+    embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }),
+    embeddingModelId: text("embedding_model_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_message_chunks_message").on(table.messageId),
+    index("idx_message_chunks_conversation").on(table.conversationId),
+  ],
+);
 
 // ── Phase 63: Message Embed Outbox (one row per message) ──────────
 // LEAN per research Open Question #1: message_id PK gives the
@@ -429,30 +523,43 @@ export const messageChunks = pgTable("message_chunks", {
 // current message text at drain time). Defer any hash column to
 // Phase 64 if the worker needs it.
 
-export const messageEmbedOutbox = pgTable("message_embed_outbox", {
-  messageId: text("message_id").primaryKey().references(() => messages.id, { onDelete: "cascade" }),
-  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
-  status: text("status").notNull().$type<"pending" | "in_progress" | "failed">().default("pending"),
-  attempts: integer("attempts").notNull().default(0),
-  // Phase 64: backoff gate. NULL = eligible immediately; a future timestamp
-  // gates claimBatch until it passes. No DB default — NULL is the sentinel
-  // (raw ALTER in migrate.ts adds the column; this binding lets the typed
-  // upsert clear a stale stamp on re-enqueue).
-  nextAttemptAfter: timestamp("next_attempt_after", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // claimBatch filters `status='pending' AND (next_attempt_after IS NULL OR
-  // next_attempt_after <= NOW())` on every drain tick.
-  index("idx_message_embed_outbox_claim").on(table.status, table.nextAttemptAfter),
-]);
+export const messageEmbedOutbox = pgTable(
+  "message_embed_outbox",
+  {
+    messageId: text("message_id")
+      .primaryKey()
+      .references(() => messages.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    status: text("status")
+      .notNull()
+      .$type<"pending" | "in_progress" | "failed">()
+      .default("pending"),
+    attempts: integer("attempts").notNull().default(0),
+    // Phase 64: backoff gate. NULL = eligible immediately; a future timestamp
+    // gates claimBatch until it passes. No DB default — NULL is the sentinel
+    // (raw ALTER in migrate.ts adds the column; this binding lets the typed
+    // upsert clear a stale stamp on re-enqueue).
+    nextAttemptAfter: timestamp("next_attempt_after", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // claimBatch filters `status='pending' AND (next_attempt_after IS NULL OR
+    // next_attempt_after <= NOW())` on every drain tick.
+    index("idx_message_embed_outbox_claim").on(table.status, table.nextAttemptAfter),
+  ],
+);
 
 export type MessageChunk = typeof messageChunks.$inferSelect;
 export type NewMessageChunk = typeof messageChunks.$inferInsert;
 export type MessageEmbedOutbox = typeof messageEmbedOutbox.$inferSelect;
 
 export const agentConfigs = pgTable("agent_configs", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull().unique(),
   description: text("description").notNull().default(""),
   capabilities: jsonb("capabilities").notNull().$type<string[]>().default(["llm"]),
@@ -472,54 +579,66 @@ export const agentConfigs = pgTable("agent_configs", {
    *  execution chokepoint (ExtensionRegistry.getToolsForAgent). NULL for
    *  existing rows preserves prior all-tools behaviour. */
   extensionTools: jsonb("extension_tools").$type<Record<string, string[]>>(),
-  references: jsonb("references").$type<{ agents: string[]; extensions: string[]; members?: import("../types").TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../types").TeamToolScope }>().default({ agents: [], extensions: [] }),
+  references: jsonb("references")
+    .$type<{
+      agents: string[];
+      extensions: string[];
+      members?: import("../types").TeamMember[];
+      autoSpinUp?: boolean;
+      teamToolScope?: import("../types").TeamToolScope;
+    }>()
+    .default({ agents: [], extensions: [] }),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const workflowDefinitions = pgTable("workflow_definitions", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  // GLOBALLY unique, and deliberately NOT composite with `project_id`.
-  // The workflow cache is a flat array and every lookup is
-  // `find(w => w.name === name)`; a composite key would let two rows share
-  // a name, and the caller in project B asking for `deploy` would silently
-  // receive project A's graph. Ownership below AUTHORIZES a workflow, it
-  // never namespaces one — so the second project to want `deploy` gets a
-  // 409 and the fork flow auto-suffixes.
-  name: text("name").notNull().unique(),
-  description: text("description").notNull().default(""),
-  inputSchema: jsonb("input_schema").$type<Record<string, unknown>>(),
-  // Model binding inherited by every `agent` step that declares no `model`
-  // of its own. NULL ⇒ each step keeps its agent's own binding, which is
-  // what every pre-existing row means.
-  defaultModel: jsonb("default_model").$type<WorkflowModelBinding>(),
-  steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
+export const workflowDefinitions = pgTable(
+  "workflow_definitions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    // GLOBALLY unique, and deliberately NOT composite with `project_id`.
+    // The workflow cache is a flat array and every lookup is
+    // `find(w => w.name === name)`; a composite key would let two rows share
+    // a name, and the caller in project B asking for `deploy` would silently
+    // receive project A's graph. Ownership below AUTHORIZES a workflow, it
+    // never namespaces one — so the second project to want `deploy` gets a
+    // 409 and the fork flow auto-suffixes.
+    name: text("name").notNull().unique(),
+    description: text("description").notNull().default(""),
+    inputSchema: jsonb("input_schema").$type<Record<string, unknown>>(),
+    // Model binding inherited by every `agent` step that declares no `model`
+    // of its own. NULL ⇒ each step keeps its agent's own binding, which is
+    // what every pre-existing row means.
+    defaultModel: jsonb("default_model").$type<WorkflowModelBinding>(),
+    steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
 
-  // ── Ownership ────────────────────────────────────────────────────
-  // CASCADE: a project-scoped workflow is part of the project and dies
-  // with it. NULL for `system` and for a `private` workflow bound to no
-  // project.
-  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
-  // SET NULL, the same IDOR-guard rationale as `workflow_runs.user_id`: an
-  // orphaned private workflow becomes admin-only, it never disappears.
-  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
-  // NOT NULL DEFAULT 'system' is what makes the migration backward-safe.
-  // Every pre-existing row reads `system` with NULL owner columns — which
-  // IS what system-owned means — so `POST …/run` authorizes exactly the
-  // callers it authorized before C6. See `workflow-scope.ts` for the
-  // ladder each value selects.
-  visibility: text("visibility").notNull().default("system").$type<WorkflowVisibility>(),
-  // Provenance for a forked workflow: the source's fully qualified name as
-  // a STRING SNAPSHOT, never an FK. The source may be an extension asset
-  // with no row at all, and the extension may later be uninstalled.
-  forkedFrom: text("forked_from"),
+    // ── Ownership ────────────────────────────────────────────────────
+    // CASCADE: a project-scoped workflow is part of the project and dies
+    // with it. NULL for `system` and for a `private` workflow bound to no
+    // project.
+    projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    // SET NULL, the same IDOR-guard rationale as `workflow_runs.user_id`: an
+    // orphaned private workflow becomes admin-only, it never disappears.
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    // NOT NULL DEFAULT 'system' is what makes the migration backward-safe.
+    // Every pre-existing row reads `system` with NULL owner columns — which
+    // IS what system-owned means — so `POST …/run` authorizes exactly the
+    // callers it authorized before C6. See `workflow-scope.ts` for the
+    // ladder each value selects.
+    visibility: text("visibility").notNull().default("system").$type<WorkflowVisibility>(),
+    // Provenance for a forked workflow: the source's fully qualified name as
+    // a STRING SNAPSHOT, never an FK. The source may be an extension asset
+    // with no row at all, and the extension may later be uninstalled.
+    forkedFrom: text("forked_from"),
 
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_workflow_definitions_scope").on(table.visibility, table.projectId),
-]);
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_workflow_definitions_scope").on(table.visibility, table.projectId)],
+);
 
 /**
  * Immutable snapshot of a definition's EXECUTABLE content, minted only
@@ -537,29 +656,37 @@ export const workflowDefinitions = pgTable("workflow_definitions", {
  * CASCADE on the definition: a version snapshot without its definition is
  * dead weight, not evidence.
  */
-export const workflowDefinitionVersions = pgTable("workflow_definition_versions", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  workflowDefinitionId: text("workflow_definition_id")
-    .notNull()
-    .references(() => workflowDefinitions.id, { onDelete: "cascade" }),
-  /** Monotonic per definition, starting at 1. */
-  version: integer("version").notNull(),
-  // The name and description AT THAT VERSION, so a rename reads correctly
-  // in history even though renaming mints no version of its own.
-  name: text("name").notNull(),
-  description: text("description").notNull().default(""),
-  inputSchema: jsonb("input_schema").$type<Record<string, unknown>>(),
-  defaultModel: jsonb("default_model").$type<WorkflowModelBinding>(),
-  steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
-  /** Canonical hash of `steps` — the same function `workflow_runs.definition_hash` uses. */
-  stepsHash: text("steps_hash").notNull(),
-  createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  uniqueIndex("uniq_workflow_definition_version").on(table.workflowDefinitionId, table.version),
-  // FK index — user delete fires ON DELETE SET NULL across this column.
-  index("idx_workflow_definition_versions_author").on(table.createdByUserId),
-]);
+export const workflowDefinitionVersions = pgTable(
+  "workflow_definition_versions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workflowDefinitionId: text("workflow_definition_id")
+      .notNull()
+      .references(() => workflowDefinitions.id, { onDelete: "cascade" }),
+    /** Monotonic per definition, starting at 1. */
+    version: integer("version").notNull(),
+    // The name and description AT THAT VERSION, so a rename reads correctly
+    // in history even though renaming mints no version of its own.
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    inputSchema: jsonb("input_schema").$type<Record<string, unknown>>(),
+    defaultModel: jsonb("default_model").$type<WorkflowModelBinding>(),
+    steps: jsonb("steps").notNull().$type<WorkflowStep[]>(),
+    /** Canonical hash of `steps` — the same function `workflow_runs.definition_hash` uses. */
+    stepsHash: text("steps_hash").notNull(),
+    createdByUserId: text("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uniq_workflow_definition_version").on(table.workflowDefinitionId, table.version),
+    // FK index — user delete fires ON DELETE SET NULL across this column.
+    index("idx_workflow_definition_versions_author").on(table.createdByUserId),
+  ],
+);
 
 export type WorkflowDefinitionVersionRow = typeof workflowDefinitionVersions.$inferSelect;
 export type NewWorkflowDefinitionVersionRow = typeof workflowDefinitionVersions.$inferInsert;
@@ -581,48 +708,56 @@ export type NewWorkflowDefinitionVersionRow = typeof workflowDefinitionVersions.
 // `authorizeWorkflow`). A forked workflow is stamped `project`, so a
 // service account cannot run one. The consent route refuses that
 // combination up front rather than letting it fail at fire time.
-export const serviceAccounts = pgTable("service_accounts", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  // Globally unique — this is the human-facing handle an admin picks the
-  // account by, and two accounts sharing a name would make the picker
-  // ambiguous exactly where authority is being assigned.
-  name: text("name").notNull(),
-  description: text("description").notNull().default(""),
-  // RESTRICT, and it is the same choice `sdk_capability_calls.on_behalf_of`
-  // makes for the same reason: this column names the accountable human, so
-  // there must exist NO state in which the account is live and names
-  // nobody. Deleting an admin who still has service accounts is refused
-  // until those accounts are removed — a loud, explicit act rather than a
-  // silent orphaning. (SET NULL is impossible here anyway: the column is
-  // NOT NULL, and `NOT NULL` + `ON DELETE SET NULL` is accepted at DDL
-  // time and then fails every delete with a 23502 — verified by execution.
-  // `sdk_capability_calls.on_behalf_of` was originally specified with that
-  // exact pairing; the guarded FK swap in migrate.ts exists to repair the
-  // databases it produced.)
-  createdByUserId: text("created_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
-  // CASCADE: a project-scoped account is part of the project and dies with
-  // it, so it can never outlive its scope and reach another project.
-  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
-  // Clamped to the CREATING ADMIN's scopes at creation — the bound that
-  // closes "an admin mints a principal broader than themselves". Admins
-  // hold every extension RBAC scope today, so this bites only once
-  // narrower roles exist; it is written now rather than later.
-  scopes: jsonb("scopes").notNull().$type<string[]>().default([]),
-  // TOKENS, not cents. Cost is derived at read time, displayed, and
-  // ADVISORY — an unpriced model (OAuth-subscription) reports a null price
-  // and would silently spend without bound under a cost cap. Tokens have
-  // no such case. Mandatory: there is deliberately no "unlimited" value.
-  maxTokensPerDay: integer("max_tokens_per_day").notNull(),
-  enabled: boolean("enabled").notNull().default(true),
-  disabledReason: text("disabled_reason"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  uniqueIndex("uniq_service_account_name").on(table.name),
-  // FK index — ON DELETE RESTRICT scans this column on EVERY user delete
-  // to decide whether to refuse, so it is required, not nice-to-have.
-  index("idx_service_accounts_created_by").on(table.createdByUserId),
-]);
+export const serviceAccounts = pgTable(
+  "service_accounts",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    // Globally unique — this is the human-facing handle an admin picks the
+    // account by, and two accounts sharing a name would make the picker
+    // ambiguous exactly where authority is being assigned.
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    // RESTRICT, and it is the same choice `sdk_capability_calls.on_behalf_of`
+    // makes for the same reason: this column names the accountable human, so
+    // there must exist NO state in which the account is live and names
+    // nobody. Deleting an admin who still has service accounts is refused
+    // until those accounts are removed — a loud, explicit act rather than a
+    // silent orphaning. (SET NULL is impossible here anyway: the column is
+    // NOT NULL, and `NOT NULL` + `ON DELETE SET NULL` is accepted at DDL
+    // time and then fails every delete with a 23502 — verified by execution.
+    // `sdk_capability_calls.on_behalf_of` was originally specified with that
+    // exact pairing; the guarded FK swap in migrate.ts exists to repair the
+    // databases it produced.)
+    createdByUserId: text("created_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    // CASCADE: a project-scoped account is part of the project and dies with
+    // it, so it can never outlive its scope and reach another project.
+    projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    // Clamped to the CREATING ADMIN's scopes at creation — the bound that
+    // closes "an admin mints a principal broader than themselves". Admins
+    // hold every extension RBAC scope today, so this bites only once
+    // narrower roles exist; it is written now rather than later.
+    scopes: jsonb("scopes").notNull().$type<string[]>().default([]),
+    // TOKENS, not cents. Cost is derived at read time, displayed, and
+    // ADVISORY — an unpriced model (OAuth-subscription) reports a null price
+    // and would silently spend without bound under a cost cap. Tokens have
+    // no such case. Mandatory: there is deliberately no "unlimited" value.
+    maxTokensPerDay: integer("max_tokens_per_day").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    disabledReason: text("disabled_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uniq_service_account_name").on(table.name),
+    // FK index — ON DELETE RESTRICT scans this column on EVERY user delete
+    // to decide whether to refuse, so it is required, not nice-to-have.
+    index("idx_service_accounts_created_by").on(table.createdByUserId),
+  ],
+);
 
 export type ServiceAccountRow = typeof serviceAccounts.$inferSelect;
 export type NewServiceAccountRow = typeof serviceAccounts.$inferInsert;
@@ -658,154 +793,172 @@ export const DELEGATION_OWNER_COLUMN = {
 // and NEVER a principal, so "invent an owner" is not denied, it is
 // INEXPRESSIBLE — the owner is resolved host-side from this table, keyed
 // on the registry-resolved `extension_id`. A forged ref matches zero rows.
-export const workflowDelegations = pgTable("workflow_delegations", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  // CASCADE: uninstalling the extension destroys every authority granted
-  // to it. A delegation naming a dead extension is a latent grant waiting
-  // for a same-named reinstall to pick it up.
-  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
-  // The extension-supplied job handle. Jobs live in extension `Storage`,
-  // not in a table, so there is deliberately no FK — same rationale as
-  // `workflow_runs.job_ref`.
-  jobRef: text("job_ref").notNull(),
-  ownerKind: text("owner_kind").notNull().$type<DelegationOwnerKind>(),
-  // CASCADE, and this is the whole §2.1 argument: SET NULL on the column
-  // that IS the authority would leave a row that is `enabled`, carries a
-  // valid `consent_hash`, and names NOBODY — a latent ownerless grant,
-  // precisely the state `-32106` exists to prevent. Deleting the user
-  // deletes the authority; the job's next fire finds no delegation and is
-  // refused. NULL for `owner_kind = 'service'`.
-  ownerUserId: text("owner_user_id").references(() => users.id, { onDelete: "cascade" }),
-  // Same argument, other arm. NULL for `owner_kind = 'user'`.
-  ownerServiceAccountId: text("owner_service_account_id").references(() => serviceAccounts.id, { onDelete: "cascade" }),
-  // Taken from THIS ROW at fire time, never from the wire — a delegation
-  // for workflow A cannot be presented to run workflow B, because the
-  // value has no wire representation to disagree with.
-  workflowName: text("workflow_name").notNull(),
-  // RESTRICT, and it is the ONLY restrict-on-delete among the workflow
-  // tables: the consent record pins the exact snapshot the human agreed
-  // to, so the retention sweep must not be able to reap it out from under
-  // a live delegation and leave the hash referencing a snapshot that no
-  // longer exists. The sweep honours this through
-  // `VersionSweepOptions.pinnedVersionIds`, which is REQUIRED (not
-  // optional) so omitting it is a compile error rather than a log line.
-  // NULL for a YAML/extension workflow, which has no definition row to
-  // version in the first place.
-  definitionVersionId: text("definition_version_id").references(() => workflowDefinitionVersions.id, { onDelete: "restrict" }),
-  // CASCADE: a project-scoped delegation is part of the project. The run's
-  // project comes from HERE and never from params — the same
-  // confused-deputy fix the github-projects handler documents.
-  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
-  // How the job fires (`cron` / `webhook` / `event`). Part of what was
-  // authorized — "runs on every push to main" is a consent input, so both
-  // this and the canonical `trigger_spec` feed the hash.
-  triggerKind: text("trigger_kind").notNull(),
-  triggerSpec: jsonb("trigger_spec").$type<Record<string, unknown>>(),
-  // What the human actually saw, hashed — the SEMANTIC surface only:
-  // the delegation facts, the flat capability closure, and the walk's
-  // bounds. Recomputed from live state on EVERY fire and compared — never
-  // read back and compared to itself.
-  consentHash: text("consent_hash").notNull(),
-  // The graph as WRITTEN, hashed — names, version identities, default
-  // model bindings and step lists. ADVISORY: it is recorded and compared,
-  // and a change to it ALONE never parks a run. It used to be folded into
-  // `consent_hash`, which made every release of a BUNDLED extension (whose
-  // workflows ship inside the app image) park every delegation on it.
-  // What re-asks now is a genuine WIDENING of `capability_set`
-  // (`runtime/workflow-consent-reconcile.ts`).
-  //
-  // NULLABLE with no backfill, deliberately: a row written before the
-  // split has no honest value here — we cannot reconstruct the graph it
-  // was consented against — and NULL reads as "the definition changed",
-  // which routes that row through the widening test on its first fire and
-  // heals it there.
-  definitionHash: text("definition_hash"),
-  // The capability set as consented, kept alongside the hash so the
-  // re-consent dialog can render a DIFF rather than "something changed" —
-  // and so the fire-time widening test has something to compare against.
-  // A carry-forward REWRITES it: leaving a narrowed set stale would let
-  // the release that put the capability back re-grant it with no human.
-  capabilitySet: jsonb("capability_set").notNull().$type<Array<{ kind: string; value: string | null }>>().default([]),
-  // TOKENS, not cents — see `serviceAccounts.maxTokensPerDay`. This is the
-  // ENFORCED bound, checked at dispatch and again at every step boundary.
-  // It covers LLM spend and NOT `tool` steps: tokens reach a step row from
-  // exactly one place (the agent-attempt path), so a `tool` step — the one
-  // kind that reaches an external side effect — contributes nothing. The
-  // consent dialog must say so in plain words.
-  maxTokensPerRun: integer("max_tokens_per_run").notNull(),
-  maxRunsPerDay: integer("max_runs_per_day").notNull(),
-  consecutiveFailures: integer("consecutive_failures").notNull().default(0),
-  enabled: boolean("enabled").notNull().default(true),
-  disabledReason: text("disabled_reason"),
-  consentedAt: timestamp("consented_at", { withTimezone: true }).notNull().defaultNow(),
-  // The ANSWERING HUMAN, and the reason this column is NOT NULL.
-  //
-  // A service account has no `users` row, so a run it owns writes
-  // `workflow_runs.user_id = NULL` and the approval path's ownership test
-  // collapses to admin-only while the inbox hides the row entirely. The
-  // resolution is that the *account* owns the run and the *human who
-  // consented* answers for it: a `delegation` approval actor is minted
-  // only for a session whose user is this column, and the approvals inbox
-  // gains the matching disjunct. Without a value here that authority
-  // exists and can never be exercised.
-  //
-  // RESTRICT, NOT the `SET NULL` the original spec table named: this
-  // column is NOT NULL, and `NOT NULL` + `ON DELETE SET NULL` is a
-  // constraint Postgres accepts at DDL time and then fails on every parent
-  // delete with a 23502 — verified by execution, not by reading. This repo
-  // specified that exact pairing once already, on
-  // `sdk_capability_calls.on_behalf_of`, and carries a guarded FK swap in
-  // migrate.ts to repair the databases it produced.
-  //
-  // RESTRICT rather than CASCADE, deliberately, and the discriminator is
-  // the `service` arm: CASCADE would mean a service-account delegation
-  // dies when the admin who consented to it is deleted, which destroys the
-  // exact durability property service accounts exist to provide ("an owner
-  // who should not be a person who might leave"). RESTRICT instead refuses
-  // the delete until the delegation is revoked or re-consented. It does
-  // NOT deadlock with the `owner_user_id` CASCADE arm above when both name
-  // the same user: Postgres runs the CASCADE first and the RESTRICT check
-  // then finds no referencing row, so deleting a user still removes their
-  // own user-kind delegations. Verified by execution.
-  consentedByUserId: text("consented_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
-  // Revocation is a TOMBSTONE, not a delete: the row stays as history and
-  // drops out of every live index below. A revoked or expired delegation
-  // is therefore representable, and every live lookup is filtered on
-  // `revoked_at IS NULL`, so the default for a row that fell out of the
-  // partial indexes is "no authority".
-  revokedAt: timestamp("revoked_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // PARTIAL unique: exactly one LIVE delegation per (extension, job), while
-  // revoked rows accumulate freely as history. A total unique index would
-  // make re-consenting a revoked job impossible.
-  uniqueIndex("uniq_workflow_delegation")
-    .on(table.extensionId, table.jobRef)
-    .where(sql`revoked_at IS NULL`),
-  // FK index — ON DELETE CASCADE scans this on every user delete.
-  index("idx_workflow_delegations_owner_user").on(table.ownerUserId),
-  // FK index — ON DELETE CASCADE scans this on every service-account delete.
-  index("idx_workflow_delegations_owner_service").on(table.ownerServiceAccountId),
-  // The delegation lookup on a fire, narrowed to live rows.
-  index("idx_workflow_delegations_enabled")
-    .on(table.extensionId, table.enabled)
-    .where(sql`revoked_at IS NULL`),
-  // NOT in the original spec's index list, and required twice over:
-  // ON DELETE RESTRICT scans this column on every user delete to decide
-  // whether to refuse, and it is the driving predicate of the approvals
-  // inbox disjunct ("runs whose delegation names ME as the consenting
-  // human"). Without it both are sequential scans of a table that grows
-  // with every revocation.
-  index("idx_workflow_delegations_consented_by").on(table.consentedByUserId),
-  // Also not in the original list, and required by the RESTRICT above:
-  // the version retention sweep asks "is this version pinned by a live
-  // delegation?" on every reap, and the FK itself scans this column to
-  // decide whether to refuse the delete. The same argument already
-  // justifies `idx_workflow_runs_definition_version`, where the action is
-  // only SET NULL.
-  index("idx_workflow_delegations_version").on(table.definitionVersionId),
-]);
+export const workflowDelegations = pgTable(
+  "workflow_delegations",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    // CASCADE: uninstalling the extension destroys every authority granted
+    // to it. A delegation naming a dead extension is a latent grant waiting
+    // for a same-named reinstall to pick it up.
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.id, { onDelete: "cascade" }),
+    // The extension-supplied job handle. Jobs live in extension `Storage`,
+    // not in a table, so there is deliberately no FK — same rationale as
+    // `workflow_runs.job_ref`.
+    jobRef: text("job_ref").notNull(),
+    ownerKind: text("owner_kind").notNull().$type<DelegationOwnerKind>(),
+    // CASCADE, and this is the whole §2.1 argument: SET NULL on the column
+    // that IS the authority would leave a row that is `enabled`, carries a
+    // valid `consent_hash`, and names NOBODY — a latent ownerless grant,
+    // precisely the state `-32106` exists to prevent. Deleting the user
+    // deletes the authority; the job's next fire finds no delegation and is
+    // refused. NULL for `owner_kind = 'service'`.
+    ownerUserId: text("owner_user_id").references(() => users.id, { onDelete: "cascade" }),
+    // Same argument, other arm. NULL for `owner_kind = 'user'`.
+    ownerServiceAccountId: text("owner_service_account_id").references(() => serviceAccounts.id, {
+      onDelete: "cascade",
+    }),
+    // Taken from THIS ROW at fire time, never from the wire — a delegation
+    // for workflow A cannot be presented to run workflow B, because the
+    // value has no wire representation to disagree with.
+    workflowName: text("workflow_name").notNull(),
+    // RESTRICT, and it is the ONLY restrict-on-delete among the workflow
+    // tables: the consent record pins the exact snapshot the human agreed
+    // to, so the retention sweep must not be able to reap it out from under
+    // a live delegation and leave the hash referencing a snapshot that no
+    // longer exists. The sweep honours this through
+    // `VersionSweepOptions.pinnedVersionIds`, which is REQUIRED (not
+    // optional) so omitting it is a compile error rather than a log line.
+    // NULL for a YAML/extension workflow, which has no definition row to
+    // version in the first place.
+    definitionVersionId: text("definition_version_id").references(
+      () => workflowDefinitionVersions.id,
+      { onDelete: "restrict" },
+    ),
+    // CASCADE: a project-scoped delegation is part of the project. The run's
+    // project comes from HERE and never from params — the same
+    // confused-deputy fix the github-projects handler documents.
+    projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    // How the job fires (`cron` / `webhook` / `event`). Part of what was
+    // authorized — "runs on every push to main" is a consent input, so both
+    // this and the canonical `trigger_spec` feed the hash.
+    triggerKind: text("trigger_kind").notNull(),
+    triggerSpec: jsonb("trigger_spec").$type<Record<string, unknown>>(),
+    // What the human actually saw, hashed — the SEMANTIC surface only:
+    // the delegation facts, the flat capability closure, and the walk's
+    // bounds. Recomputed from live state on EVERY fire and compared — never
+    // read back and compared to itself.
+    consentHash: text("consent_hash").notNull(),
+    // The graph as WRITTEN, hashed — names, version identities, default
+    // model bindings and step lists. ADVISORY: it is recorded and compared,
+    // and a change to it ALONE never parks a run. It used to be folded into
+    // `consent_hash`, which made every release of a BUNDLED extension (whose
+    // workflows ship inside the app image) park every delegation on it.
+    // What re-asks now is a genuine WIDENING of `capability_set`
+    // (`runtime/workflow-consent-reconcile.ts`).
+    //
+    // NULLABLE with no backfill, deliberately: a row written before the
+    // split has no honest value here — we cannot reconstruct the graph it
+    // was consented against — and NULL reads as "the definition changed",
+    // which routes that row through the widening test on its first fire and
+    // heals it there.
+    definitionHash: text("definition_hash"),
+    // The capability set as consented, kept alongside the hash so the
+    // re-consent dialog can render a DIFF rather than "something changed" —
+    // and so the fire-time widening test has something to compare against.
+    // A carry-forward REWRITES it: leaving a narrowed set stale would let
+    // the release that put the capability back re-grant it with no human.
+    capabilitySet: jsonb("capability_set")
+      .notNull()
+      .$type<Array<{ kind: string; value: string | null }>>()
+      .default([]),
+    // TOKENS, not cents — see `serviceAccounts.maxTokensPerDay`. This is the
+    // ENFORCED bound, checked at dispatch and again at every step boundary.
+    // It covers LLM spend and NOT `tool` steps: tokens reach a step row from
+    // exactly one place (the agent-attempt path), so a `tool` step — the one
+    // kind that reaches an external side effect — contributes nothing. The
+    // consent dialog must say so in plain words.
+    maxTokensPerRun: integer("max_tokens_per_run").notNull(),
+    maxRunsPerDay: integer("max_runs_per_day").notNull(),
+    consecutiveFailures: integer("consecutive_failures").notNull().default(0),
+    enabled: boolean("enabled").notNull().default(true),
+    disabledReason: text("disabled_reason"),
+    consentedAt: timestamp("consented_at", { withTimezone: true }).notNull().defaultNow(),
+    // The ANSWERING HUMAN, and the reason this column is NOT NULL.
+    //
+    // A service account has no `users` row, so a run it owns writes
+    // `workflow_runs.user_id = NULL` and the approval path's ownership test
+    // collapses to admin-only while the inbox hides the row entirely. The
+    // resolution is that the *account* owns the run and the *human who
+    // consented* answers for it: a `delegation` approval actor is minted
+    // only for a session whose user is this column, and the approvals inbox
+    // gains the matching disjunct. Without a value here that authority
+    // exists and can never be exercised.
+    //
+    // RESTRICT, NOT the `SET NULL` the original spec table named: this
+    // column is NOT NULL, and `NOT NULL` + `ON DELETE SET NULL` is a
+    // constraint Postgres accepts at DDL time and then fails on every parent
+    // delete with a 23502 — verified by execution, not by reading. This repo
+    // specified that exact pairing once already, on
+    // `sdk_capability_calls.on_behalf_of`, and carries a guarded FK swap in
+    // migrate.ts to repair the databases it produced.
+    //
+    // RESTRICT rather than CASCADE, deliberately, and the discriminator is
+    // the `service` arm: CASCADE would mean a service-account delegation
+    // dies when the admin who consented to it is deleted, which destroys the
+    // exact durability property service accounts exist to provide ("an owner
+    // who should not be a person who might leave"). RESTRICT instead refuses
+    // the delete until the delegation is revoked or re-consented. It does
+    // NOT deadlock with the `owner_user_id` CASCADE arm above when both name
+    // the same user: Postgres runs the CASCADE first and the RESTRICT check
+    // then finds no referencing row, so deleting a user still removes their
+    // own user-kind delegations. Verified by execution.
+    consentedByUserId: text("consented_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    // Revocation is a TOMBSTONE, not a delete: the row stays as history and
+    // drops out of every live index below. A revoked or expired delegation
+    // is therefore representable, and every live lookup is filtered on
+    // `revoked_at IS NULL`, so the default for a row that fell out of the
+    // partial indexes is "no authority".
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // PARTIAL unique: exactly one LIVE delegation per (extension, job), while
+    // revoked rows accumulate freely as history. A total unique index would
+    // make re-consenting a revoked job impossible.
+    uniqueIndex("uniq_workflow_delegation")
+      .on(table.extensionId, table.jobRef)
+      .where(sql`revoked_at IS NULL`),
+    // FK index — ON DELETE CASCADE scans this on every user delete.
+    index("idx_workflow_delegations_owner_user").on(table.ownerUserId),
+    // FK index — ON DELETE CASCADE scans this on every service-account delete.
+    index("idx_workflow_delegations_owner_service").on(table.ownerServiceAccountId),
+    // The delegation lookup on a fire, narrowed to live rows.
+    index("idx_workflow_delegations_enabled")
+      .on(table.extensionId, table.enabled)
+      .where(sql`revoked_at IS NULL`),
+    // NOT in the original spec's index list, and required twice over:
+    // ON DELETE RESTRICT scans this column on every user delete to decide
+    // whether to refuse, and it is the driving predicate of the approvals
+    // inbox disjunct ("runs whose delegation names ME as the consenting
+    // human"). Without it both are sequential scans of a table that grows
+    // with every revocation.
+    index("idx_workflow_delegations_consented_by").on(table.consentedByUserId),
+    // Also not in the original list, and required by the RESTRICT above:
+    // the version retention sweep asks "is this version pinned by a live
+    // delegation?" on every reap, and the FK itself scans this column to
+    // decide whether to refuse the delete. The same argument already
+    // justifies `idx_workflow_runs_definition_version`, where the action is
+    // only SET NULL.
+    index("idx_workflow_delegations_version").on(table.definitionVersionId),
+  ],
+);
 
 export type WorkflowDelegationRow = typeof workflowDelegations.$inferSelect;
 export type NewWorkflowDelegationRow = typeof workflowDelegations.$inferInsert;
@@ -816,297 +969,310 @@ export type NewWorkflowDelegationRow = typeof workflowDelegations.$inferInsert;
 // and it lived only in the browser store until the next reload. These
 // two tables are the durable mirror — the workflow-side twin of
 // `runs` / `run_logs`.
-export const workflowRuns = pgTable("workflow_runs", {
-  // NOT `$defaultFn` — the executor mints the id (`crypto.randomUUID()`)
-  // BEFORE the row is written, because it is already baked into the
-  // `workflow:start` SSE payload, the `$prev`/`$steps` bookkeeping and
-  // the synthetic non-interactive scope key. A column default here would
-  // silently produce a SECOND id for the same run and orphan every step
-  // row that referenced the first.
-  id: text("id").primaryKey(),
-  // Nullable on purpose: a YAML workflow (`*.workflow.yaml`) has no
-  // `workflow_definitions` row at all, so there is nothing to point at.
-  // SET NULL rather than CASCADE so deleting a DB workflow definition
-  // keeps its run history (the audit value is in the history, not the
-  // definition).
-  workflowDefinitionId: text("workflow_definition_id").references(
-    () => workflowDefinitions.id,
-    { onDelete: "set null" },
-  ),
-  // Denormalized so the history stays readable after the definition is
-  // deleted or renamed — the FK above can go NULL, this never does.
-  workflowName: text("workflow_name").notNull(),
-  projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
-  // Initiating user — the principal who fired the run. Authoritative for
-  // ownership enforcement on any future per-run read route. Null only for
-  // runs that genuinely cannot be attributed to a user (CLI / scheduled
-  // fires), which are admin-only for non-admins (fail closed). FK SET
-  // NULL: deleting a user un-attributes their historical workflow runs
-  // (then admin-only) rather than cascading them away.
-  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
-  // `WorkflowRunStatus` — the AgentStatus union plus `awaiting_approval`
-  // and `suspended` (the one non-terminal, non-`running` state).
-  status: text("status").notNull().$type<WorkflowRunStatus>(),
-  input: jsonb("input").$type<Record<string, unknown>>(),
-  result: jsonb("result").$type<AgentResult>(),
-  startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
-  finishedAt: timestamp("finished_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+export const workflowRuns = pgTable(
+  "workflow_runs",
+  {
+    // NOT `$defaultFn` — the executor mints the id (`crypto.randomUUID()`)
+    // BEFORE the row is written, because it is already baked into the
+    // `workflow:start` SSE payload, the `$prev`/`$steps` bookkeeping and
+    // the synthetic non-interactive scope key. A column default here would
+    // silently produce a SECOND id for the same run and orphan every step
+    // row that referenced the first.
+    id: text("id").primaryKey(),
+    // Nullable on purpose: a YAML workflow (`*.workflow.yaml`) has no
+    // `workflow_definitions` row at all, so there is nothing to point at.
+    // SET NULL rather than CASCADE so deleting a DB workflow definition
+    // keeps its run history (the audit value is in the history, not the
+    // definition).
+    workflowDefinitionId: text("workflow_definition_id").references(() => workflowDefinitions.id, {
+      onDelete: "set null",
+    }),
+    // Denormalized so the history stays readable after the definition is
+    // deleted or renamed — the FK above can go NULL, this never does.
+    workflowName: text("workflow_name").notNull(),
+    projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+    // Initiating user — the principal who fired the run. Authoritative for
+    // ownership enforcement on any future per-run read route. Null only for
+    // runs that genuinely cannot be attributed to a user (CLI / scheduled
+    // fires), which are admin-only for non-admins (fail closed). FK SET
+    // NULL: deleting a user un-attributes their historical workflow runs
+    // (then admin-only) rather than cascading them away.
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    // `WorkflowRunStatus` — the AgentStatus union plus `awaiting_approval`
+    // and `suspended` (the one non-terminal, non-`running` state).
+    status: text("status").notNull().$type<WorkflowRunStatus>(),
+    input: jsonb("input").$type<Record<string, unknown>>(),
+    result: jsonb("result").$type<AgentResult>(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 
-  // ── Durable resume state ─────────────────────────────────────────
-  // Where the run picks up. NULL for a run that never reached a
-  // boundary (and for every row written before this column existed).
-  cursor: jsonb("cursor").$type<WorkflowCursor>(),
-  // Which side of a step boundary the executor was last on. NOT NULL
-  // DEFAULT 'boundary' is what makes the migration backward-safe: every
-  // pre-existing row reads as "at a boundary", and they are all already
-  // terminal or drained by the existing sweep, so nothing is
-  // misclassified.
-  runPhase: text("run_phase").notNull().default("boundary").$type<WorkflowRunPhase>(),
-  // Why the run parked (`approval`, `orphaned-resumable`,
-  // `approval-timeout`, …). Free text for the trace, never branched on.
-  suspendedReason: text("suspended_reason"),
-  // Written by the recovery SWEEP, not the executor. At suspend time the
-  // executor is at a boundary by construction, so the flag would always
-  // be `true` and carry no information; the interesting case is a crash,
-  // which only the sweep can classify (from `run_phase`).
-  resumable: boolean("resumable").notNull().default(false),
-  // Lease held by the daemon instance executing this run. A dead process
-  // stops renewing, which is how recovery detects it. Claim is a CAS on
-  // (status, claimed_by, lease_expires_at) — never FOR UPDATE SKIP
-  // LOCKED, which PGlite does not honor identically.
-  claimedBy: text("claimed_by"),
-  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
-  // The exact snapshot this run executed — written only when the graph the
-  // run was HANDED matches this version's `steps_hash`, so it can never
-  // name a snapshot the run did not execute. Intended to be authoritative
-  // over `definition_hash` below; that precedence is a contract nothing
-  // implements yet (stated once in `workflow-versions.ts`).
-  // SET NULL (not CASCADE) matches the `workflow_definition_id` treatment:
-  // the run row survives a reaped version, the pointer goes NULL.
-  //
-  // NULL means one of three different things, and the difference matters:
-  // a run created BEFORE C6 (never versioned — the trace renders "version
-  // unknown"); a run of a YAML/extension workflow, which has no
-  // `workflow_definitions` row to version in the first place; or a run
-  // whose graph did not match the row's newest version — a YAML/extension
-  // entry shadowing the row's NAME, or a row left ahead of its newest
-  // version by a torn `updateWorkflow`/`ensureWorkflowVersion` pair. All
-  // three are the same honest answer: we cannot name the snapshot that ran.
-  definitionVersionId: text("definition_version_id").references(
-    () => workflowDefinitionVersions.id,
-    { onDelete: "set null" },
-  ),
-  // Hash of the graph this run STARTED against, always — the drift guard
-  // that actually FIRES: C4's resume compares this unconditionally and
-  // never reads `definition_version_id`. When a version was claimed above
-  // it is that version's own `steps_hash`, so the two cannot disagree with
-  // each other. Reading the version id first and this only when it is NULL
-  // is the intended precedence and is not implemented — see
-  // `workflow-versions.ts`, which states it once. Hash function:
-  // `workflow-definition-hash.ts`.
-  definitionHash: text("definition_hash"),
-  // Caller-supplied correlation handles. No FK on `job_ref`: jobs live in
-  // extension `Storage`, not a table.
-  jobRef: text("job_ref"),
-  // Also the re-entrancy handle for a nested run: a `kind: "workflow"`
-  // step derives `nested:<parentRunId>:<stepName>#<iteration>` for its
-  // child, so a parent that parks and later resumes FINDS the child it
-  // already dispatched instead of starting a second one. The partial
-  // unique index below is what makes that an invariant rather than a
-  // convention. See `nestedRunKey` in `runtime/workflow-executor.ts`.
-  idempotencyKey: text("idempotency_key"),
-  // The run whose `kind: "workflow"` step dispatched this one; NULL for
-  // every top-level run (and for every row written before C7).
-  //
-  // Declared as PLAIN TEXT with no drizzle self-reference — the real FK
-  // (ON DELETE SET NULL) is added in `migrate.ts`, mirroring
-  // `sdkCapabilityCalls.parentCallId` above, which took this route for the
-  // same same-table-reference ergonomics.
-  //
-  // SET NULL, never CASCADE: a child run's history is independently
-  // valuable — it records what a nested attempt cost and why it failed —
-  // and deleting a parent must not erase it.
-  parentRunId: text("parent_run_id"),
+    // ── Durable resume state ─────────────────────────────────────────
+    // Where the run picks up. NULL for a run that never reached a
+    // boundary (and for every row written before this column existed).
+    cursor: jsonb("cursor").$type<WorkflowCursor>(),
+    // Which side of a step boundary the executor was last on. NOT NULL
+    // DEFAULT 'boundary' is what makes the migration backward-safe: every
+    // pre-existing row reads as "at a boundary", and they are all already
+    // terminal or drained by the existing sweep, so nothing is
+    // misclassified.
+    runPhase: text("run_phase").notNull().default("boundary").$type<WorkflowRunPhase>(),
+    // Why the run parked (`approval`, `orphaned-resumable`,
+    // `approval-timeout`, …). Free text for the trace, never branched on.
+    suspendedReason: text("suspended_reason"),
+    // Written by the recovery SWEEP, not the executor. At suspend time the
+    // executor is at a boundary by construction, so the flag would always
+    // be `true` and carry no information; the interesting case is a crash,
+    // which only the sweep can classify (from `run_phase`).
+    resumable: boolean("resumable").notNull().default(false),
+    // Lease held by the daemon instance executing this run. A dead process
+    // stops renewing, which is how recovery detects it. Claim is a CAS on
+    // (status, claimed_by, lease_expires_at) — never FOR UPDATE SKIP
+    // LOCKED, which PGlite does not honor identically.
+    claimedBy: text("claimed_by"),
+    leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+    // The exact snapshot this run executed — written only when the graph the
+    // run was HANDED matches this version's `steps_hash`, so it can never
+    // name a snapshot the run did not execute. Intended to be authoritative
+    // over `definition_hash` below; that precedence is a contract nothing
+    // implements yet (stated once in `workflow-versions.ts`).
+    // SET NULL (not CASCADE) matches the `workflow_definition_id` treatment:
+    // the run row survives a reaped version, the pointer goes NULL.
+    //
+    // NULL means one of three different things, and the difference matters:
+    // a run created BEFORE C6 (never versioned — the trace renders "version
+    // unknown"); a run of a YAML/extension workflow, which has no
+    // `workflow_definitions` row to version in the first place; or a run
+    // whose graph did not match the row's newest version — a YAML/extension
+    // entry shadowing the row's NAME, or a row left ahead of its newest
+    // version by a torn `updateWorkflow`/`ensureWorkflowVersion` pair. All
+    // three are the same honest answer: we cannot name the snapshot that ran.
+    definitionVersionId: text("definition_version_id").references(
+      () => workflowDefinitionVersions.id,
+      { onDelete: "set null" },
+    ),
+    // Hash of the graph this run STARTED against, always — the drift guard
+    // that actually FIRES: C4's resume compares this unconditionally and
+    // never reads `definition_version_id`. When a version was claimed above
+    // it is that version's own `steps_hash`, so the two cannot disagree with
+    // each other. Reading the version id first and this only when it is NULL
+    // is the intended precedence and is not implemented — see
+    // `workflow-versions.ts`, which states it once. Hash function:
+    // `workflow-definition-hash.ts`.
+    definitionHash: text("definition_hash"),
+    // Caller-supplied correlation handles. No FK on `job_ref`: jobs live in
+    // extension `Storage`, not a table.
+    jobRef: text("job_ref"),
+    // Also the re-entrancy handle for a nested run: a `kind: "workflow"`
+    // step derives `nested:<parentRunId>:<stepName>#<iteration>` for its
+    // child, so a parent that parks and later resumes FINDS the child it
+    // already dispatched instead of starting a second one. The partial
+    // unique index below is what makes that an invariant rather than a
+    // convention. See `nestedRunKey` in `runtime/workflow-executor.ts`.
+    idempotencyKey: text("idempotency_key"),
+    // The run whose `kind: "workflow"` step dispatched this one; NULL for
+    // every top-level run (and for every row written before C7).
+    //
+    // Declared as PLAIN TEXT with no drizzle self-reference — the real FK
+    // (ON DELETE SET NULL) is added in `migrate.ts`, mirroring
+    // `sdkCapabilityCalls.parentCallId` above, which took this route for the
+    // same same-table-reference ergonomics.
+    //
+    // SET NULL, never CASCADE: a child run's history is independently
+    // valuable — it records what a nested attempt cost and why it failed —
+    // and deleting a parent must not erase it.
+    parentRunId: text("parent_run_id"),
 
-  // ── C3: which principal this run executed as ─────────────────────
-  //
-  // `run_as_kind` + `run_as` are a PLAIN TEXT SNAPSHOT with NO FK, and
-  // that is deliberate: this pair is the audit record of who a run
-  // executed as, and it must survive both revocation of the delegation
-  // and deletion of the owner. `delegation_id` below carries the live FK
-  // and goes NULL; these two never do. Same denormalization rationale as
-  // `workflow_name` above.
-  //
-  // NULL on every non-delegated run — which is every run that exists
-  // today — and NULL is the honest value, not a gap: those runs executed
-  // as their initiating `user_id`.
-  runAsKind: text("run_as_kind").$type<DelegationOwnerKind>(),
-  runAs: text("run_as"),
-  // SET NULL, not CASCADE: deleting a delegation must not erase the
-  // history of what it ran, exactly as `user_id` above is SET NULL rather
-  // than cascading a user's run history away. The `run_as` snapshot is
-  // what keeps the row readable afterwards.
-  //
-  // This column is also the C3 scope gate: the step-boundary token check
-  // fires ONLY for runs where it is non-null, so a run with no delegation
-  // takes zero extra queries.
-  delegationId: text("delegation_id").references(() => workflowDelegations.id, { onDelete: "set null" }),
-}, (table) => [
-  index("idx_workflow_runs_name_started").on(table.workflowName, table.startedAt),
-  // FK index — user delete fires ON DELETE SET NULL across this column.
-  index("idx_workflow_runs_user").on(table.userId),
-  // The retention sweep's "is this version still referenced by a run?"
-  // probe, and the FK's own SET NULL scan when a version is reaped.
-  index("idx_workflow_runs_definition_version").on(table.definitionVersionId),
-  // The daemon's claim scan and the recovery sweep share this one.
-  index("idx_workflow_runs_claimable")
-    .on(table.status, table.leaseExpiresAt)
-    .where(sql`status IN ('running','suspended')`),
-  // PARTIAL unique: a NULL idempotency key must never collide with
-  // another NULL (in SQL it would not, but the partial index also keeps
-  // the index off every non-idempotent run).
-  uniqueIndex("uniq_workflow_runs_idem")
-    .on(table.workflowName, table.idempotencyKey)
-    .where(sql`idempotency_key IS NOT NULL`),
-  // Required, not optional: ON DELETE SET NULL scans this column on every
-  // parent delete, and the trace view reads a run's children by it.
-  index("idx_workflow_runs_parent").on(table.parentRunId),
-  // C3 — backs the "jobs running as me" page. Composite so the page can
-  // page a single principal's runs newest-first without a sort.
-  index("idx_workflow_runs_run_as").on(table.runAsKind, table.runAs, table.startedAt),
-  // C3 — required, not optional, for the same reason `idx_workflow_runs_parent`
-  // is: ON DELETE SET NULL scans this column on every delegation delete.
-  // Composite with `started_at` because the per-job daily quota counts
-  // `delegation_id = $1 AND started_at >= startOfUtcDay(now())`, so one
-  // index serves the FK scan (leading column) and the quota range.
-  index("idx_workflow_runs_delegation").on(table.delegationId, table.startedAt),
-]);
+    // ── C3: which principal this run executed as ─────────────────────
+    //
+    // `run_as_kind` + `run_as` are a PLAIN TEXT SNAPSHOT with NO FK, and
+    // that is deliberate: this pair is the audit record of who a run
+    // executed as, and it must survive both revocation of the delegation
+    // and deletion of the owner. `delegation_id` below carries the live FK
+    // and goes NULL; these two never do. Same denormalization rationale as
+    // `workflow_name` above.
+    //
+    // NULL on every non-delegated run — which is every run that exists
+    // today — and NULL is the honest value, not a gap: those runs executed
+    // as their initiating `user_id`.
+    runAsKind: text("run_as_kind").$type<DelegationOwnerKind>(),
+    runAs: text("run_as"),
+    // SET NULL, not CASCADE: deleting a delegation must not erase the
+    // history of what it ran, exactly as `user_id` above is SET NULL rather
+    // than cascading a user's run history away. The `run_as` snapshot is
+    // what keeps the row readable afterwards.
+    //
+    // This column is also the C3 scope gate: the step-boundary token check
+    // fires ONLY for runs where it is non-null, so a run with no delegation
+    // takes zero extra queries.
+    delegationId: text("delegation_id").references(() => workflowDelegations.id, {
+      onDelete: "set null",
+    }),
+  },
+  (table) => [
+    index("idx_workflow_runs_name_started").on(table.workflowName, table.startedAt),
+    // FK index — user delete fires ON DELETE SET NULL across this column.
+    index("idx_workflow_runs_user").on(table.userId),
+    // The retention sweep's "is this version still referenced by a run?"
+    // probe, and the FK's own SET NULL scan when a version is reaped.
+    index("idx_workflow_runs_definition_version").on(table.definitionVersionId),
+    // The daemon's claim scan and the recovery sweep share this one.
+    index("idx_workflow_runs_claimable")
+      .on(table.status, table.leaseExpiresAt)
+      .where(sql`status IN ('running','suspended')`),
+    // PARTIAL unique: a NULL idempotency key must never collide with
+    // another NULL (in SQL it would not, but the partial index also keeps
+    // the index off every non-idempotent run).
+    uniqueIndex("uniq_workflow_runs_idem")
+      .on(table.workflowName, table.idempotencyKey)
+      .where(sql`idempotency_key IS NOT NULL`),
+    // Required, not optional: ON DELETE SET NULL scans this column on every
+    // parent delete, and the trace view reads a run's children by it.
+    index("idx_workflow_runs_parent").on(table.parentRunId),
+    // C3 — backs the "jobs running as me" page. Composite so the page can
+    // page a single principal's runs newest-first without a sort.
+    index("idx_workflow_runs_run_as").on(table.runAsKind, table.runAs, table.startedAt),
+    // C3 — required, not optional, for the same reason `idx_workflow_runs_parent`
+    // is: ON DELETE SET NULL scans this column on every delegation delete.
+    // Composite with `started_at` because the per-job daily quota counts
+    // `delegation_id = $1 AND started_at >= startOfUtcDay(now())`, so one
+    // index serves the FK scan (leading column) and the quota range.
+    index("idx_workflow_runs_delegation").on(table.delegationId, table.startedAt),
+  ],
+);
 
 export type WorkflowRunRow = typeof workflowRuns.$inferSelect;
 export type NewWorkflowRunRow = typeof workflowRuns.$inferInsert;
 
-export const workflowStepRuns = pgTable("workflow_step_runs", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  workflowRunId: text("workflow_run_id").notNull().references(() => workflowRuns.id, { onDelete: "cascade" }),
-  stepName: text("step_name").notNull(),
-  // Nullable FK: ONLY an `agent` step mints a real `runs` row. transform /
-  // gate / tool steps carry `runId = ""` in memory — the query layer
-  // normalizes that empty string to SQL NULL, because writing `''` would
-  // fail the FK (and storing a sentinel that looks like an id is how you
-  // get a join that silently matches nothing).
-  runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
-  status: text("status").notNull().$type<WorkflowRunStatus>(),
-  /** Final iteration count for a looped step; NULL for non-loop steps. */
-  iterations: integer("iterations"),
-  // The binding the step's LLM call RESOLVED to — a per-step `model`
-  // override, the agent config's own binding and the router's pick all
-  // land here identically, because they are recorded after resolution.
-  // Both NULL for a step that ran no LLM (transform / gate / tool) and for
-  // the "running" write, which happens before the agent has resolved
-  // anything. Denormalized text, not an FK: the model catalog is not a
-  // table, and history must survive a model being retired.
-  provider: text("provider"),
-  model: text("model"),
-  // The step's `AgentResult`, size-capped and secret-redacted.
-  //
-  // This is a RESUME PREREQUISITE, not telemetry: `stepResults` is an
-  // in-memory map that ANY later step can address via `$steps.<name>`, so
-  // a resumed run must rehydrate the whole map — and before this column
-  // there was nowhere to read a completed step's result from.
-  //
-  // On overflow the value is replaced by `{ __truncated: true, bytes }`
-  // and a resume against it fails closed, rather than resuming with a
-  // silently-different `$steps` value.
-  output: jsonb("output").$type<AgentResult | TruncatedStepOutput>(),
+export const workflowStepRuns = pgTable(
+  "workflow_step_runs",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workflowRunId: text("workflow_run_id")
+      .notNull()
+      .references(() => workflowRuns.id, { onDelete: "cascade" }),
+    stepName: text("step_name").notNull(),
+    // Nullable FK: ONLY an `agent` step mints a real `runs` row. transform /
+    // gate / tool steps carry `runId = ""` in memory — the query layer
+    // normalizes that empty string to SQL NULL, because writing `''` would
+    // fail the FK (and storing a sentinel that looks like an id is how you
+    // get a join that silently matches nothing).
+    runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
+    status: text("status").notNull().$type<WorkflowRunStatus>(),
+    /** Final iteration count for a looped step; NULL for non-loop steps. */
+    iterations: integer("iterations"),
+    // The binding the step's LLM call RESOLVED to — a per-step `model`
+    // override, the agent config's own binding and the router's pick all
+    // land here identically, because they are recorded after resolution.
+    // Both NULL for a step that ran no LLM (transform / gate / tool) and for
+    // the "running" write, which happens before the agent has resolved
+    // anything. Denormalized text, not an FK: the model catalog is not a
+    // table, and history must survive a model being retired.
+    provider: text("provider"),
+    model: text("model"),
+    // The step's `AgentResult`, size-capped and secret-redacted.
+    //
+    // This is a RESUME PREREQUISITE, not telemetry: `stepResults` is an
+    // in-memory map that ANY later step can address via `$steps.<name>`, so
+    // a resumed run must rehydrate the whole map — and before this column
+    // there was nowhere to read a completed step's result from.
+    //
+    // On overflow the value is replaced by `{ __truncated: true, bytes }`
+    // and a resume against it fails closed, rather than resuming with a
+    // silently-different `$steps` value.
+    output: jsonb("output").$type<AgentResult | TruncatedStepOutput>(),
 
-  // ── Telemetry (C5) ───────────────────────────────────────────────
-  // Every column nullable with no default. "Absent" is a real answer
-  // here and it is the honest one for every row written before this
-  // migration — a zero would be a CLAIM ("this step made no LLM call
-  // and cost nothing") that silently deflates the first aggregate
-  // anyone runs over the table.
-  //
-  /** Attempts the step consumed, 1-based: 1 means it succeeded first try.
-   *  NULL for a step that runs no retry loop (transform / gate / tool). */
-  attempt: integer("attempt"),
-  /** Tokens the step's LLM call(s) reported, summed across retries and
-   *  loop iterations. NULL — never 0 — when the step ran no LLM, or when
-   *  the provider reported no usage (a cached response, a stream that
-   *  errored mid-flight). NULL is "not reported" and every SQL aggregate
-   *  already ignores it; 0 would be a lie that SUM believes. */
-  inputTokens: integer("input_tokens"),
-  outputTokens: integer("output_tokens"),
-  /** `NUMERIC`, not `DOUBLE PRECISION`: a cost dashboard that sums floats
-   *  accumulates error, and this column is summed for display.
-   *
-   *  **Advisory, not an enforcement bound.** Delegated execution enforces
-   *  on TOKENS; cost is derived from them for display and analysis. Do not
-   *  build a limit that refuses work on `SUM(cost_usd)` — the reasons are
-   *  in the NULL paragraph below, and they are structural.
-   *
-   *  Written by `upsertWorkflowStepRun` via `stepCostUsd`
-   *  (`runtime/workflow-step-cost.ts`), which composes the rates
-   *  `modelPrices` (`providers/registry.ts`) already resolves with the
-   *  arithmetic `priceSegment` (`runtime/usage/cache-stats.ts`) already
-   *  owns — the same pair `db/queries/analytics.ts` composes.
-   *
-   *  **NULL means the cost could not be MEASURED. It never means free.**
-   *  A `tool` / `transform` / `gate` step reports no tokens, so it stays
-   *  NULL while its real-world cost is merely unmeasured; a provider that
-   *  reported no usage stays NULL; and an unpriced OAuth-subscription
-   *  model stays NULL because no per-token price exists for it. A PRICED
-   *  model that consumed zero tokens records `0.000000` instead — that
-   *  zero is a measurement.
-   *
-   *  Tokens only ever reach a step row from an `agentRun`
-   *  (`runtime/workflow-executor.ts:1747-1764`), so `SUM(cost_usd)`
-   *  describes LLM spend and NOTHING else — least of all `tool` steps,
-   *  the one kind that reaches an external side effect with a real bill. */
-  costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
-  /** Wall-clock for the whole step INCLUDING its retries and loop
-   *  iterations — the number an operator asking "why was this run slow"
-   *  wants. Per-iteration timings live on the child table. */
-  durationMs: integer("duration_ms"),
-  /** The typed reason a step failed, not its message: `error`,
-   *  `cancelled`, `approval-required`, `suspended`. Stable enough to
-   *  GROUP BY, which a message is not. */
-  errorCode: text("error_code"),
-  /** What the ref language actually resolved the step's `input` mapping
-   *  to — the single most useful thing when a run did something
-   *  unexpected, because it is the difference between "the graph is
-   *  wrong" and "the graph got the wrong data".
-   *
-   *  Redacted then size-capped by `prepareResolvedInput`, sharing
-   *  `output`'s redactor and sentinel shape. Not needed for resume (a
-   *  resume recomputes it from `cursor` + `stepResults`), so a truncated
-   *  value here costs an operator detail and costs correctness nothing. */
-  resolvedInput: jsonb("resolved_input").$type<Record<string, unknown> | TruncatedStepOutput>(),
-  /** Why a step did not run at all — its own `when`, or the name of the
-   *  skipped dependency that suppressed it. Written by
-   *  `upsertWorkflowStepRun` from the value C7's skip path produces, and
-   *  read back by `loadStepResults` so a resumed run reports the SAME
-   *  reason the first process did. NULL means "this step was not
-   *  skipped" — or that the row predates the writer, which
-   *  `REHYDRATED_SKIP_REASON` covers. */
-  skippedReason: text("skipped_reason"),
+    // ── Telemetry (C5) ───────────────────────────────────────────────
+    // Every column nullable with no default. "Absent" is a real answer
+    // here and it is the honest one for every row written before this
+    // migration — a zero would be a CLAIM ("this step made no LLM call
+    // and cost nothing") that silently deflates the first aggregate
+    // anyone runs over the table.
+    //
+    /** Attempts the step consumed, 1-based: 1 means it succeeded first try.
+     *  NULL for a step that runs no retry loop (transform / gate / tool). */
+    attempt: integer("attempt"),
+    /** Tokens the step's LLM call(s) reported, summed across retries and
+     *  loop iterations. NULL — never 0 — when the step ran no LLM, or when
+     *  the provider reported no usage (a cached response, a stream that
+     *  errored mid-flight). NULL is "not reported" and every SQL aggregate
+     *  already ignores it; 0 would be a lie that SUM believes. */
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    /** `NUMERIC`, not `DOUBLE PRECISION`: a cost dashboard that sums floats
+     *  accumulates error, and this column is summed for display.
+     *
+     *  **Advisory, not an enforcement bound.** Delegated execution enforces
+     *  on TOKENS; cost is derived from them for display and analysis. Do not
+     *  build a limit that refuses work on `SUM(cost_usd)` — the reasons are
+     *  in the NULL paragraph below, and they are structural.
+     *
+     *  Written by `upsertWorkflowStepRun` via `stepCostUsd`
+     *  (`runtime/workflow-step-cost.ts`), which composes the rates
+     *  `modelPrices` (`providers/registry.ts`) already resolves with the
+     *  arithmetic `priceSegment` (`runtime/usage/cache-stats.ts`) already
+     *  owns — the same pair `db/queries/analytics.ts` composes.
+     *
+     *  **NULL means the cost could not be MEASURED. It never means free.**
+     *  A `tool` / `transform` / `gate` step reports no tokens, so it stays
+     *  NULL while its real-world cost is merely unmeasured; a provider that
+     *  reported no usage stays NULL; and an unpriced OAuth-subscription
+     *  model stays NULL because no per-token price exists for it. A PRICED
+     *  model that consumed zero tokens records `0.000000` instead — that
+     *  zero is a measurement.
+     *
+     *  Tokens only ever reach a step row from an `agentRun`
+     *  (`runtime/workflow-executor.ts:1747-1764`), so `SUM(cost_usd)`
+     *  describes LLM spend and NOTHING else — least of all `tool` steps,
+     *  the one kind that reaches an external side effect with a real bill. */
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+    /** Wall-clock for the whole step INCLUDING its retries and loop
+     *  iterations — the number an operator asking "why was this run slow"
+     *  wants. Per-iteration timings live on the child table. */
+    durationMs: integer("duration_ms"),
+    /** The typed reason a step failed, not its message: `error`,
+     *  `cancelled`, `approval-required`, `suspended`. Stable enough to
+     *  GROUP BY, which a message is not. */
+    errorCode: text("error_code"),
+    /** What the ref language actually resolved the step's `input` mapping
+     *  to — the single most useful thing when a run did something
+     *  unexpected, because it is the difference between "the graph is
+     *  wrong" and "the graph got the wrong data".
+     *
+     *  Redacted then size-capped by `prepareResolvedInput`, sharing
+     *  `output`'s redactor and sentinel shape. Not needed for resume (a
+     *  resume recomputes it from `cursor` + `stepResults`), so a truncated
+     *  value here costs an operator detail and costs correctness nothing. */
+    resolvedInput: jsonb("resolved_input").$type<Record<string, unknown> | TruncatedStepOutput>(),
+    /** Why a step did not run at all — its own `when`, or the name of the
+     *  skipped dependency that suppressed it. Written by
+     *  `upsertWorkflowStepRun` from the value C7's skip path produces, and
+     *  read back by `loadStepResults` so a resumed run reports the SAME
+     *  reason the first process did. NULL means "this step was not
+     *  skipped" — or that the row predates the writer, which
+     *  `REHYDRATED_SKIP_REASON` covers. */
+    skippedReason: text("skipped_reason"),
 
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // Step names are unique within a workflow definition (the validator
-  // rejects duplicates), so this is a valid ON CONFLICT arbiter for the
-  // "a step is written once at start, then updated on every status /
-  // iteration change" upsert.
-  //
-  // DO NOT widen this to include `iteration` to make room for per-loop
-  // rows. That is a DROP INDEX plus a backfill against live history, to
-  // serve a purely additive need — and narrowing a live unique index can
-  // silently remove a constraint that was doing useful work. Per-iteration
-  // facts go in `workflow_step_iterations` instead, which costs one join
-  // and risks nothing.
-  uniqueIndex("uniq_workflow_step_run").on(table.workflowRunId, table.stepName),
-]);
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Step names are unique within a workflow definition (the validator
+    // rejects duplicates), so this is a valid ON CONFLICT arbiter for the
+    // "a step is written once at start, then updated on every status /
+    // iteration change" upsert.
+    //
+    // DO NOT widen this to include `iteration` to make room for per-loop
+    // rows. That is a DROP INDEX plus a backfill against live history, to
+    // serve a purely additive need — and narrowing a live unique index can
+    // silently remove a constraint that was doing useful work. Per-iteration
+    // facts go in `workflow_step_iterations` instead, which costs one join
+    // and risks nothing.
+    uniqueIndex("uniq_workflow_step_run").on(table.workflowRunId, table.stepName),
+  ],
+);
 
 export type WorkflowStepRunRow = typeof workflowStepRuns.$inferSelect;
 export type NewWorkflowStepRunRow = typeof workflowStepRuns.$inferInsert;
@@ -1146,49 +1312,55 @@ export interface TruncatedStepOutput {
  * step — an iteration without its step is meaningless. Contrast run
  * HISTORY, which is deliberately preserved via SET NULL.
  */
-export const workflowStepIterations = pgTable("workflow_step_iterations", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  workflowStepRunId: text("workflow_step_run_id")
-    .notNull()
-    .references(() => workflowStepRuns.id, { onDelete: "cascade" }),
-  /** 1-based, matching what `$loop.iteration` sees inside the step. */
-  iteration: integer("iteration").notNull(),
-  /** Retry attempt within this iteration; 0 for the first try. */
-  attempt: integer("attempt").notNull(),
-  status: text("status").notNull().$type<WorkflowRunStatus>(),
-  /** The `AgentRun` this iteration minted. NULL for a `transform` loop,
-   *  which mints none, and SET NULL so reaping a run does not erase the
-   *  record that an iteration happened. */
-  runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
-  /** May legitimately DIFFER per iteration: a `$loop.*` model binding is
-   *  re-resolved each pass, so a workflow can escalate cheap → strong on
-   *  the retry. Recording only the parent's last value would hide that. */
-  provider: text("provider"),
-  model: text("model"),
-  inputTokens: integer("input_tokens"),
-  outputTokens: integer("output_tokens"),
-  /** Priced from THIS row's own `provider`/`model`, not the parent's — a
-   *  `$loop.*` binding re-resolves each pass, so an escalate-on-retry
-   *  iteration is priced at what actually served it. NULL means "not
-   *  measurable", never "free" — see `workflowStepRuns.costUsd`. */
-  costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
-  durationMs: integer("duration_ms"),
-  errorCode: text("error_code"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // The upsert arbiter. `attempt` is in the key because a retried
-  // iteration is a distinct event, not an overwrite of the try that
-  // failed — collapsing them would hide exactly the retry an operator is
-  // reading the trace to find.
-  uniqueIndex("uniq_workflow_step_iteration").on(
-    table.workflowStepRunId,
-    table.iteration,
-    table.attempt,
-  ),
-  // Serves the trace query, and the FK's own delete scan when a step row
-  // cascades away.
-  index("idx_workflow_step_iterations_step").on(table.workflowStepRunId),
-]);
+export const workflowStepIterations = pgTable(
+  "workflow_step_iterations",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workflowStepRunId: text("workflow_step_run_id")
+      .notNull()
+      .references(() => workflowStepRuns.id, { onDelete: "cascade" }),
+    /** 1-based, matching what `$loop.iteration` sees inside the step. */
+    iteration: integer("iteration").notNull(),
+    /** Retry attempt within this iteration; 0 for the first try. */
+    attempt: integer("attempt").notNull(),
+    status: text("status").notNull().$type<WorkflowRunStatus>(),
+    /** The `AgentRun` this iteration minted. NULL for a `transform` loop,
+     *  which mints none, and SET NULL so reaping a run does not erase the
+     *  record that an iteration happened. */
+    runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
+    /** May legitimately DIFFER per iteration: a `$loop.*` model binding is
+     *  re-resolved each pass, so a workflow can escalate cheap → strong on
+     *  the retry. Recording only the parent's last value would hide that. */
+    provider: text("provider"),
+    model: text("model"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    /** Priced from THIS row's own `provider`/`model`, not the parent's — a
+     *  `$loop.*` binding re-resolves each pass, so an escalate-on-retry
+     *  iteration is priced at what actually served it. NULL means "not
+     *  measurable", never "free" — see `workflowStepRuns.costUsd`. */
+    costUsd: numeric("cost_usd", { precision: 12, scale: 6 }),
+    durationMs: integer("duration_ms"),
+    errorCode: text("error_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // The upsert arbiter. `attempt` is in the key because a retried
+    // iteration is a distinct event, not an overwrite of the try that
+    // failed — collapsing them would hide exactly the retry an operator is
+    // reading the trace to find.
+    uniqueIndex("uniq_workflow_step_iteration").on(
+      table.workflowStepRunId,
+      table.iteration,
+      table.attempt,
+    ),
+    // Serves the trace query, and the FK's own delete scan when a step row
+    // cascades away.
+    index("idx_workflow_step_iterations_step").on(table.workflowStepRunId),
+  ],
+);
 
 export type WorkflowStepIterationRow = typeof workflowStepIterations.$inferSelect;
 export type NewWorkflowStepIterationRow = typeof workflowStepIterations.$inferInsert;
@@ -1201,49 +1373,55 @@ export type NewWorkflowStepIterationRow = typeof workflowStepIterations.$inferIn
  * because an approval without its run is meaningless; contrast run
  * HISTORY, which is deliberately preserved via SET NULL.
  */
-export const workflowApprovals = pgTable("workflow_approvals", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  workflowRunId: text("workflow_run_id")
-    .notNull()
-    .references(() => workflowRuns.id, { onDelete: "cascade" }),
-  stepName: text("step_name").notNull(),
-  prompt: text("prompt").notNull().default(""),
-  /** The declared answer set. An answer outside it is rejected, never
-   *  coerced — validated at definition time AND at answer time. */
-  choices: jsonb("choices").notNull().$type<string[]>(),
-  /** Optional RBAC scope gating who may answer. Absent ⇒ project members.
-   *  The check is fail-closed: a throw is a DENY. */
-  rbacScope: text("rbac_scope"),
-  formSchema: jsonb("form_schema").$type<Record<string, unknown>>(),
-  /** When true, an ids-free approve over a non-empty `item_ids` is
-   *  refused — the ported no-blanket-approval guard. */
-  requireItemConsent: boolean("require_item_consent").notNull().default(false),
-  /** The items this answer is accountable for, resolved AT SUSPEND TIME
-   *  from the step's declared ref — so the answer is checked against what
-   *  the run actually produced, not what the definition hoped for. */
-  itemIds: jsonb("item_ids").$type<string[]>(),
-  status: text("status").notNull().default("pending").$type<WorkflowApprovalStatus>(),
-  // SET NULL mirrors `runs.user_id` / `workflow_runs.user_id`: deleting a
-  // user un-attributes the answer, it never erases that one happened.
-  answeredBy: text("answered_by").references(() => users.id, { onDelete: "set null" }),
-  answerChoice: text("answer_choice"),
-  answerForm: jsonb("answer_form").$type<Record<string, unknown>>(),
-  answeredItemIds: jsonb("answered_item_ids").$type<string[]>(),
-  /** Audit marker for an ids-free bulk clear. A blanket clear is allowed
-   *  but NEVER silent. */
-  consentAllUsed: boolean("consent_all_used").notNull().default(false),
-  expiresAt: timestamp("expires_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  uniqueIndex("uniq_workflow_approval").on(table.workflowRunId, table.stepName),
-  // The inbox and the timeout sweep both scan pending rows by expiry.
-  index("idx_workflow_approvals_pending")
-    .on(table.status, table.expiresAt)
-    .where(sql`status = 'pending'`),
-  // FK index — user delete fires ON DELETE SET NULL across this column.
-  index("idx_workflow_approvals_answered_by").on(table.answeredBy),
-]);
+export const workflowApprovals = pgTable(
+  "workflow_approvals",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    workflowRunId: text("workflow_run_id")
+      .notNull()
+      .references(() => workflowRuns.id, { onDelete: "cascade" }),
+    stepName: text("step_name").notNull(),
+    prompt: text("prompt").notNull().default(""),
+    /** The declared answer set. An answer outside it is rejected, never
+     *  coerced — validated at definition time AND at answer time. */
+    choices: jsonb("choices").notNull().$type<string[]>(),
+    /** Optional RBAC scope gating who may answer. Absent ⇒ project members.
+     *  The check is fail-closed: a throw is a DENY. */
+    rbacScope: text("rbac_scope"),
+    formSchema: jsonb("form_schema").$type<Record<string, unknown>>(),
+    /** When true, an ids-free approve over a non-empty `item_ids` is
+     *  refused — the ported no-blanket-approval guard. */
+    requireItemConsent: boolean("require_item_consent").notNull().default(false),
+    /** The items this answer is accountable for, resolved AT SUSPEND TIME
+     *  from the step's declared ref — so the answer is checked against what
+     *  the run actually produced, not what the definition hoped for. */
+    itemIds: jsonb("item_ids").$type<string[]>(),
+    status: text("status").notNull().default("pending").$type<WorkflowApprovalStatus>(),
+    // SET NULL mirrors `runs.user_id` / `workflow_runs.user_id`: deleting a
+    // user un-attributes the answer, it never erases that one happened.
+    answeredBy: text("answered_by").references(() => users.id, { onDelete: "set null" }),
+    answerChoice: text("answer_choice"),
+    answerForm: jsonb("answer_form").$type<Record<string, unknown>>(),
+    answeredItemIds: jsonb("answered_item_ids").$type<string[]>(),
+    /** Audit marker for an ids-free bulk clear. A blanket clear is allowed
+     *  but NEVER silent. */
+    consentAllUsed: boolean("consent_all_used").notNull().default(false),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("uniq_workflow_approval").on(table.workflowRunId, table.stepName),
+    // The inbox and the timeout sweep both scan pending rows by expiry.
+    index("idx_workflow_approvals_pending")
+      .on(table.status, table.expiresAt)
+      .where(sql`status = 'pending'`),
+    // FK index — user delete fires ON DELETE SET NULL across this column.
+    index("idx_workflow_approvals_answered_by").on(table.answeredBy),
+  ],
+);
 
 /** Lifecycle of a `workflow_approvals` row. `expired` is distinct from
  *  `answered` so the trace shows whether a human decided or the clock
@@ -1255,60 +1433,86 @@ export type NewWorkflowApprovalRow = typeof workflowApprovals.$inferInsert;
 
 // ── Memory System ──────────────────────────────────────────────────
 
-export const memories = pgTable("memories", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  content: text("content").notNull(),
-  category: text("category").notNull().$type<"preferences" | "biographical" | "technical" | "decisions_goals">(),
-  projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
-  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
-  messageIds: jsonb("message_ids").$type<string[]>(),
-  confidence: text("confidence").notNull().default("medium").$type<"high" | "medium" | "low">(),
-  status: text("status").notNull().default("active").$type<"active" | "stale" | "archived">(),
-  lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }).notNull().defaultNow(),
-  embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }),
-  provenance: jsonb("provenance").$type<MemoryProvenance>(),
-  // Phase 51: extension-authored memories default `false` so they do
-  // NOT auto-inject into LLM system prompts; host-extracted memories
-  // default `true` (preserves current behavior; existing rows
-  // backfilled to true via migration). Reads filter on this when
-  // building system-prompt context. Column type is boolean NOT NULL
-  // with a server default; the migration below handles legacy rows.
-  injectionEligible: boolean("injection_eligible").notNull().default(true),
-  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_memories_project_id").on(table.projectId),
-  index("idx_memories_category").on(table.category),
-  // FK index for the ON DELETE SET NULL on conversation_id (conversation delete).
-  index("idx_memories_conversation_id").on(table.conversationId),
-]);
+export const memories = pgTable(
+  "memories",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    content: text("content").notNull(),
+    category: text("category")
+      .notNull()
+      .$type<"preferences" | "biographical" | "technical" | "decisions_goals">(),
+    projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+    conversationId: text("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
+    messageIds: jsonb("message_ids").$type<string[]>(),
+    confidence: text("confidence").notNull().default("medium").$type<"high" | "medium" | "low">(),
+    status: text("status").notNull().default("active").$type<"active" | "stale" | "archived">(),
+    lastAccessedAt: timestamp("last_accessed_at", { withTimezone: true }).notNull().defaultNow(),
+    embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }),
+    provenance: jsonb("provenance").$type<MemoryProvenance>(),
+    // Phase 51: extension-authored memories default `false` so they do
+    // NOT auto-inject into LLM system prompts; host-extracted memories
+    // default `true` (preserves current behavior; existing rows
+    // backfilled to true via migration). Reads filter on this when
+    // building system-prompt context. Column type is boolean NOT NULL
+    // with a server default; the migration below handles legacy rows.
+    injectionEligible: boolean("injection_eligible").notNull().default(true),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_memories_project_id").on(table.projectId),
+    index("idx_memories_category").on(table.category),
+    // FK index for the ON DELETE SET NULL on conversation_id (conversation delete).
+    index("idx_memories_conversation_id").on(table.conversationId),
+  ],
+);
 
-export const memoryAuditLog = pgTable("memory_audit_log", {
-  id: serial("id").primaryKey(),
-  memoryId: text("memory_id").notNull().references(() => memories.id, { onDelete: "cascade" }),
-  action: text("action").notNull().$type<"created" | "updated" | "merged" | "deleted" | "status_change">(),
-  previousContent: text("previous_content"),
-  newContent: text("new_content"),
-  reason: text("reason"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // memory delete cascades on memory_id (was an unindexed seq-scan); audit-merge
-  // reads by `reason = ext:<id>` ordered by created_at DESC.
-  index("idx_memory_audit_memory_created").on(table.memoryId, table.createdAt),
-  index("idx_memory_audit_reason_created").on(table.reason, table.createdAt),
-]);
+export const memoryAuditLog = pgTable(
+  "memory_audit_log",
+  {
+    id: serial("id").primaryKey(),
+    memoryId: text("memory_id")
+      .notNull()
+      .references(() => memories.id, { onDelete: "cascade" }),
+    action: text("action")
+      .notNull()
+      .$type<"created" | "updated" | "merged" | "deleted" | "status_change">(),
+    previousContent: text("previous_content"),
+    newContent: text("new_content"),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // memory delete cascades on memory_id (was an unindexed seq-scan); audit-merge
+    // reads by `reason = ext:<id>` ordered by created_at DESC.
+    index("idx_memory_audit_memory_created").on(table.memoryId, table.createdAt),
+    index("idx_memory_audit_reason_created").on(table.reason, table.createdAt),
+  ],
+);
 
 // ── Memory ↔ Project junction (many-to-many) ──────────────────────
 
-export const memoryProjects = pgTable("memory_projects", {
-  memoryId: text("memory_id").notNull().references(() => memories.id, { onDelete: "cascade" }),
-  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_memory_projects_memory").on(table.memoryId),
-  index("idx_memory_projects_project").on(table.projectId),
-]);
+export const memoryProjects = pgTable(
+  "memory_projects",
+  {
+    memoryId: text("memory_id")
+      .notNull()
+      .references(() => memories.id, { onDelete: "cascade" }),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_memory_projects_memory").on(table.memoryId),
+    index("idx_memory_projects_project").on(table.projectId),
+  ],
+);
 
 export type MemoryProject = typeof memoryProjects.$inferSelect;
 export type NewMemoryProject = typeof memoryProjects.$inferInsert;
@@ -1320,7 +1524,9 @@ export type NewMemory = typeof memories.$inferInsert;
 // ── Knowledge Base ───────────────────────────────────────────────
 
 export const knowledgeBaseFiles = pgTable("knowledge_base_files", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
   orgScoped: boolean("org_scoped").notNull().default(false),
   filename: text("filename").notNull(),
@@ -1351,8 +1557,12 @@ export const knowledgeBaseFiles = pgTable("knowledge_base_files", {
 });
 
 export const knowledgeBaseChunks = pgTable("knowledge_base_chunks", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  fileId: text("file_id").notNull().references(() => knowledgeBaseFiles.id, { onDelete: "cascade" }),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  fileId: text("file_id")
+    .notNull()
+    .references(() => knowledgeBaseFiles.id, { onDelete: "cascade" }),
   content: text("content").notNull(),
   chunkIndex: integer("chunk_index").notNull(),
   embedding: vector("embedding", { dimensions: EMBEDDING_DIMENSIONS }),
@@ -1367,7 +1577,9 @@ export type NewKBChunk = typeof knowledgeBaseChunks.$inferInsert;
 // ── Extensions ────────────────────────────────────────────────────
 
 export const extensions = pgTable("extensions", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull().unique(),
   version: text("version").notNull(),
   description: text("description").notNull().default(""),
@@ -1375,8 +1587,11 @@ export const extensions = pgTable("extensions", {
   source: text("source").notNull(),
   installPath: text("install_path"),
   enabled: boolean("enabled").notNull().default(true),
-  // biome-ignore lint/suspicious/noExplicitAny: the column default is the EMPTY permission set, but `ExtensionPermissions` requires `grantedAt`, so `{}` cannot be spelled as that type; it is the correct at-rest default and every reader treats a missing key as ungranted.
-  grantedPermissions: jsonb("granted_permissions").notNull().$type<import("../extensions/types").ExtensionPermissions>().default({} as any),
+  grantedPermissions: jsonb("granted_permissions")
+    .notNull()
+    .$type<import("../extensions/types").ExtensionPermissions>()
+    // biome-ignore lint/suspicious/noExplicitAny: the column default is the EMPTY permission set, but `ExtensionPermissions` requires `grantedAt`, so `{}` cannot be spelled as that type; it is the correct at-rest default and every reader treats a missing key as ungranted.
+    .default({} as any),
   /**
    * v1.3 release-readiness security review HIGH 2 — install-time NARROWED choice.
    *
@@ -1393,7 +1608,8 @@ export const extensions = pgTable("extensions", {
    * existed are NULL and fall back to clamping against the manifest, which
    * is the pre-fix behavior. See `tasks/v1.3-security-review.md` HIGH 2.
    */
-  installedPermissions: jsonb("installed_permissions").$type<import("../extensions/types").ExtensionPermissions>(),
+  installedPermissions:
+    jsonb("installed_permissions").$type<import("../extensions/types").ExtensionPermissions>(),
   checksumVerified: boolean("checksum_verified").notNull().default(false),
   // Provenance flag: true ONLY when this row was created by bundled.ts's
   // ensureBundledExtensions path. Authorizes skipping the runtime checksum
@@ -1417,40 +1633,52 @@ export const extensions = pgTable("extensions", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const toolCalls = pgTable("tool_calls", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
-  messageId: text("message_id").references(() => messages.id, { onDelete: "set null" }),
-  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
-  toolName: text("tool_name").notNull(),
-  input: jsonb("input").$type<Record<string, unknown>>(),
-  output: jsonb("output").$type<Record<string, unknown>>(),
-  success: boolean("success").notNull(),
-  durationMs: integer("duration_ms").notNull(),
-  cardType: text("card_type"),
-  // "inline" | "dock" | NULL. Drives the chat UI's DockHost auto-open.
-  // NULL is treated as "inline" by the host — see web/src/lib/components/tool-cards/utils.ts:shouldRenderInDock.
-  cardLayout: text("card_layout"),
-  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
-  agentConfigId: text("agent_config_id").references(() => agentConfigs.id, { onDelete: "set null" }),
-  model: text("model"),
-  provider: text("provider"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // Plain created_at index powers every analytics query's date-range filter.
-  // A (tool_name, created_at) index would be dead weight for getToolUsageByTool —
-  // that query has no tool_name predicate, and Postgres doesn't skip-scan.
-  index("idx_tool_calls_created_at").on(table.createdAt),
-  // Dimension-leading composites are used by the by-user/by-agent/by-model
-  // queries which DO filter on the leading column (isNotNull(dim)).
-  index("idx_tool_calls_user_created").on(table.userId, table.createdAt),
-  index("idx_tool_calls_agent_created").on(table.agentConfigId, table.createdAt),
-  index("idx_tool_calls_model_created").on(table.model, table.createdAt),
-  // message_id — hot-path filter (listToolCallExtensionIdsForMessage) AND the
-  // ON DELETE SET NULL FK target (message delete). (extension_id /
-  // conversation_id indexes stay migrate.ts-only.)
-  index("idx_tool_calls_message").on(table.messageId),
-]);
+export const toolCalls = pgTable(
+  "tool_calls",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    conversationId: text("conversation_id").references(() => conversations.id, {
+      onDelete: "cascade",
+    }),
+    messageId: text("message_id").references(() => messages.id, { onDelete: "set null" }),
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.id, { onDelete: "cascade" }),
+    toolName: text("tool_name").notNull(),
+    input: jsonb("input").$type<Record<string, unknown>>(),
+    output: jsonb("output").$type<Record<string, unknown>>(),
+    success: boolean("success").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    cardType: text("card_type"),
+    // "inline" | "dock" | NULL. Drives the chat UI's DockHost auto-open.
+    // NULL is treated as "inline" by the host — see web/src/lib/components/tool-cards/utils.ts:shouldRenderInDock.
+    cardLayout: text("card_layout"),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    agentConfigId: text("agent_config_id").references(() => agentConfigs.id, {
+      onDelete: "set null",
+    }),
+    model: text("model"),
+    provider: text("provider"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Plain created_at index powers every analytics query's date-range filter.
+    // A (tool_name, created_at) index would be dead weight for getToolUsageByTool —
+    // that query has no tool_name predicate, and Postgres doesn't skip-scan.
+    index("idx_tool_calls_created_at").on(table.createdAt),
+    // Dimension-leading composites are used by the by-user/by-agent/by-model
+    // queries which DO filter on the leading column (isNotNull(dim)).
+    index("idx_tool_calls_user_created").on(table.userId, table.createdAt),
+    index("idx_tool_calls_agent_created").on(table.agentConfigId, table.createdAt),
+    index("idx_tool_calls_model_created").on(table.model, table.createdAt),
+    // message_id — hot-path filter (listToolCallExtensionIdsForMessage) AND the
+    // ON DELETE SET NULL FK target (message delete). (extension_id /
+    // conversation_id indexes stay migrate.ts-only.)
+    index("idx_tool_calls_message").on(table.messageId),
+  ],
+);
 
 // ── Composer suggestion telemetry ─────────────────────────────────
 // Impression/acceptance events for composer suggestions (tool chips +
@@ -1460,77 +1688,101 @@ export const toolCalls = pgTable("tool_calls", {
 // measurement that decides whether the enhancement half keeps earning
 // its sidecar.
 
-export const suggestionFeedback = pgTable("suggestion_feedback", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
-  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
-  kind: text("kind").notNull().$type<"tool" | "enhance" | "extension">(),
-  action: text("action").notNull().$type<"shown" | "accepted" | "dismissed">(),
-  toolName: text("tool_name"),
-  latencyMs: integer("latency_ms"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_suggestion_feedback_created").on(table.createdAt),
-  index("idx_suggestion_feedback_kind_action").on(table.kind, table.action, table.createdAt),
-  // FK index for the ON DELETE SET NULL on conversation_id (conversation delete).
-  index("idx_suggestion_feedback_conversation").on(table.conversationId),
-]);
+export const suggestionFeedback = pgTable(
+  "suggestion_feedback",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
+    kind: text("kind").notNull().$type<"tool" | "enhance" | "extension">(),
+    action: text("action").notNull().$type<"shown" | "accepted" | "dismissed">(),
+    toolName: text("tool_name"),
+    latencyMs: integer("latency_ms"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_suggestion_feedback_created").on(table.createdAt),
+    index("idx_suggestion_feedback_kind_action").on(table.kind, table.action, table.createdAt),
+    // FK index for the ON DELETE SET NULL on conversation_id (conversation delete).
+    index("idx_suggestion_feedback_conversation").on(table.conversationId),
+  ],
+);
 
 export type SuggestionFeedbackRow = typeof suggestionFeedback.$inferSelect;
 export type NewSuggestionFeedbackRow = typeof suggestionFeedback.$inferInsert;
 
 // ── Observability ─────────────────────────────────────────────────
 
-export const observabilityEvents = pgTable("observability_events", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  // NULLABLE since the workflow-observability fix. It was NOT NULL, which
-  // made a tool call made from inside a WORKFLOW impossible to record at
-  // all: a workflow step runs under the synthetic `workflow-run:<id>`
-  // scope key, that matches no `conversations` row, and the FK rejected
-  // every insert — so the collector logged `Failed to persist
-  // tool:complete` once per tool call and the call itself went unrecorded
-  // anywhere. NULL is the honest value for an event with no conversation;
-  // the run it DOES belong to travels in `data.workflowRunId`.
-  //
-  // No reader regresses: `getConversationObservability` /
-  // `getConversationStats` filter with `conversation_id = $1`, which never
-  // matches NULL, so the per-conversation panel is byte-identical. The
-  // global aggregates group by extension and gain the rows they were
-  // silently missing.
-  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "cascade" }),
-  messageId: text("message_id").references(() => messages.id, { onDelete: "set null" }),
-  eventType: text("event_type").notNull(),
-  data: jsonb("data").notNull(),
-  durationMs: integer("duration_ms"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // FK index for the ON DELETE SET NULL on message_id (message delete). The
-  // conversation_id / event_type indexes stay migrate.ts-only.
-  index("idx_obs_events_message").on(table.messageId),
-]);
+export const observabilityEvents = pgTable(
+  "observability_events",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    // NULLABLE since the workflow-observability fix. It was NOT NULL, which
+    // made a tool call made from inside a WORKFLOW impossible to record at
+    // all: a workflow step runs under the synthetic `workflow-run:<id>`
+    // scope key, that matches no `conversations` row, and the FK rejected
+    // every insert — so the collector logged `Failed to persist
+    // tool:complete` once per tool call and the call itself went unrecorded
+    // anywhere. NULL is the honest value for an event with no conversation;
+    // the run it DOES belong to travels in `data.workflowRunId`.
+    //
+    // No reader regresses: `getConversationObservability` /
+    // `getConversationStats` filter with `conversation_id = $1`, which never
+    // matches NULL, so the per-conversation panel is byte-identical. The
+    // global aggregates group by extension and gain the rows they were
+    // silently missing.
+    conversationId: text("conversation_id").references(() => conversations.id, {
+      onDelete: "cascade",
+    }),
+    messageId: text("message_id").references(() => messages.id, { onDelete: "set null" }),
+    eventType: text("event_type").notNull(),
+    data: jsonb("data").notNull(),
+    durationMs: integer("duration_ms"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // FK index for the ON DELETE SET NULL on message_id (message delete). The
+    // conversation_id / event_type indexes stay migrate.ts-only.
+    index("idx_obs_events_message").on(table.messageId),
+  ],
+);
 
 export type ObservabilityEvent = typeof observabilityEvents.$inferSelect;
 export type NewObservabilityEvent = typeof observabilityEvents.$inferInsert;
 
 // ── Extension Storage (isolated per-extension KV) ────────────────
 
-export const extensionStorage = pgTable("extension_storage", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
-  scope: text("scope").notNull().$type<"global" | "conversation" | "user">(),
-  scopeId: text("scope_id"), // null for global, conversationId or userId for scoped
-  key: text("key").notNull(),
-  value: jsonb("value").notNull().$type<unknown>(),
-  encrypted: boolean("encrypted").notNull().default(false),
-  sizeBytes: integer("size_bytes").notNull(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_ext_storage_lookup").on(table.extensionId, table.scope, table.scopeId, table.key),
-  index("idx_ext_storage_extension").on(table.extensionId),
-  index("idx_ext_storage_expires").on(table.expiresAt),
-]);
+export const extensionStorage = pgTable(
+  "extension_storage",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.id, { onDelete: "cascade" }),
+    scope: text("scope").notNull().$type<"global" | "conversation" | "user">(),
+    scopeId: text("scope_id"), // null for global, conversationId or userId for scoped
+    key: text("key").notNull(),
+    value: jsonb("value").notNull().$type<unknown>(),
+    encrypted: boolean("encrypted").notNull().default(false),
+    sizeBytes: integer("size_bytes").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_ext_storage_lookup").on(table.extensionId, table.scope, table.scopeId, table.key),
+    index("idx_ext_storage_extension").on(table.extensionId),
+    index("idx_ext_storage_expires").on(table.expiresAt),
+  ],
+);
 
 export type ExtensionStorageRow = typeof extensionStorage.$inferSelect;
 export type NewExtensionStorageRow = typeof extensionStorage.$inferInsert;
@@ -1540,14 +1792,20 @@ export type NewExtensionStorageRow = typeof extensionStorage.$inferInsert;
 // are merged at read time as `declared defaults < user override` by
 // `resolveExtensionSettings()` in src/db/queries/extension-settings.ts.
 
-export const extensionSettingsUser = pgTable("extension_settings_user", {
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
-  values: jsonb("values").notNull().$type<Record<string, unknown>>().default({}),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  primaryKey({ columns: [table.userId, table.extensionId] }),
-]);
+export const extensionSettingsUser = pgTable(
+  "extension_settings_user",
+  {
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.id, { onDelete: "cascade" }),
+    values: jsonb("values").notNull().$type<Record<string, unknown>>().default({}),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.userId, table.extensionId] })],
+);
 
 export type ExtensionSettingsUserRow = typeof extensionSettingsUser.$inferSelect;
 
@@ -1558,13 +1816,18 @@ export type ToolCall = typeof toolCalls.$inferSelect;
 // ── Modes ─────────────────────────────────────────────────────────
 
 export const modes = pgTable("modes", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   icon: text("icon"),
   description: text("description").notNull().default(""),
   systemPromptInstruction: text("system_prompt_instruction").notNull(),
-  instructionPosition: text("instruction_position").notNull().default("prepend").$type<"prepend" | "append" | "replace">(),
+  instructionPosition: text("instruction_position")
+    .notNull()
+    .default("prepend")
+    .$type<"prepend" | "append" | "replace">(),
   preferredModel: text("preferred_model"),
   preferredProvider: text("preferred_provider"),
   /** WS3b: the routing TIER this kind of task wants, when the mode has no
@@ -1577,9 +1840,14 @@ export const modes = pgTable("modes", {
    *  here), and `mode-binding.ts` re-validates the value at read time so a
    *  hand-edited row degrades instead of routing on garbage. */
   preferredTier: text("preferred_tier").$type<RoutingTier>(),
-  preferredThinkingLevel: text("preferred_thinking_level").$type<"off" | "minimal" | "low" | "medium" | "high" | "xhigh">(),
+  preferredThinkingLevel: text("preferred_thinking_level").$type<
+    "off" | "minimal" | "low" | "medium" | "high" | "xhigh"
+  >(),
   temperature: real("temperature"),
-  toolRestriction: text("tool_restriction").notNull().default("all").$type<"all" | "read-only" | "none" | "allowlist">(),
+  toolRestriction: text("tool_restriction")
+    .notNull()
+    .default("all")
+    .$type<"all" | "read-only" | "none" | "allowlist">(),
   /** Phase 48: when toolRestriction === 'allowlist', this column carries the
    *  exact set of tool names that survive filtering (orchestration tools are
    *  always preserved; see ORCHESTRATION_TOOLS in src/runtime/tools/filter.ts).
@@ -1608,36 +1876,49 @@ export type NewMode = typeof modes.$inferInsert;
 
 // ── Phase 37: Conversation Extensions (dynamic tool wiring) ─────
 
-export const conversationExtensions = pgTable("conversation_extensions", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  conversationId: text("conversation_id").notNull()
-    .references(() => conversations.id, { onDelete: "cascade" }),
-  extensionId: text("extension_id").notNull()
-    .references(() => extensions.id, { onDelete: "cascade" }),
-  addedByMessageId: text("added_by_message_id")
-    .references(() => messages.id, { onDelete: "set null" }),
-  /**
-   * Phase 4: per-conversation effective grant override. When set,
-   * the PDP consults THIS blob in place of `extensions.grantedPermissions`
-   * for tool calls in this conversation. Only populated by spawn
-   * assignment when the parent's caps need to clip the child — the
-   * top-level conversation always leaves it null and falls back to
-   * the extension's installed grants.
-   */
-  effectiveGrantedPermissions: jsonb("effective_granted_permissions")
-    .$type<import("../extensions/types").ExtensionPermissions | null>(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // FK index for the ON DELETE SET NULL on added_by_message_id (message delete).
-  index("idx_conv_ext_added_by_message").on(table.addedByMessageId),
-  // MIRROR of migrate.ts's `UNIQUE(conversation_id, extension_id)` — a plain
-  // composite unique drizzle can own directly. Kept in sync so a
-  // `drizzle-kit push` doesn't silently drop the constraint that stops an
-  // extension being double-attached to a conversation. migrate.ts stays the
-  // DDL source of truth. (conversation_id / extension_id lookup indexes remain
-  // migrate.ts-only.)
-  uniqueIndex("conversation_extensions_conversation_id_extension_id_key").on(table.conversationId, table.extensionId),
-]);
+export const conversationExtensions = pgTable(
+  "conversation_extensions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.id, { onDelete: "cascade" }),
+    addedByMessageId: text("added_by_message_id").references(() => messages.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * Phase 4: per-conversation effective grant override. When set,
+     * the PDP consults THIS blob in place of `extensions.grantedPermissions`
+     * for tool calls in this conversation. Only populated by spawn
+     * assignment when the parent's caps need to clip the child — the
+     * top-level conversation always leaves it null and falls back to
+     * the extension's installed grants.
+     */
+    effectiveGrantedPermissions: jsonb("effective_granted_permissions").$type<
+      import("../extensions/types").ExtensionPermissions | null
+    >(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // FK index for the ON DELETE SET NULL on added_by_message_id (message delete).
+    index("idx_conv_ext_added_by_message").on(table.addedByMessageId),
+    // MIRROR of migrate.ts's `UNIQUE(conversation_id, extension_id)` — a plain
+    // composite unique drizzle can own directly. Kept in sync so a
+    // `drizzle-kit push` doesn't silently drop the constraint that stops an
+    // extension being double-attached to a conversation. migrate.ts stays the
+    // DDL source of truth. (conversation_id / extension_id lookup indexes remain
+    // migrate.ts-only.)
+    uniqueIndex("conversation_extensions_conversation_id_extension_id_key").on(
+      table.conversationId,
+      table.extensionId,
+    ),
+  ],
+);
 
 export type ConversationExtension = typeof conversationExtensions.$inferSelect;
 
@@ -1645,8 +1926,13 @@ export type ConversationExtension = typeof conversationExtensions.$inferSelect;
 
 export const activeRuns = pgTable("active_runs", {
   id: text("id").primaryKey(),
-  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
-  status: text("status").notNull().default("running").$type<"running" | "interrupted" | "completed">(),
+  conversationId: text("conversation_id")
+    .notNull()
+    .references(() => conversations.id, { onDelete: "cascade" }),
+  status: text("status")
+    .notNull()
+    .default("running")
+    .$type<"running" | "interrupted" | "completed">(),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
   lastHeartbeat: timestamp("last_heartbeat", { withTimezone: true }).notNull().defaultNow(),
   partialResponse: text("partial_response"),
@@ -1658,7 +1944,9 @@ export type NewActiveRun = typeof activeRuns.$inferInsert;
 // ── Phase 8: Users & Auth ────────────────────────────────────────
 
 export const users = pgTable("users", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
   name: text("name").notNull(),
@@ -1669,18 +1957,26 @@ export const users = pgTable("users", {
 });
 
 export const invites = pgTable("invites", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   email: text("email"),
   token: text("token").notNull().unique(),
   role: text("role").notNull().default("member").$type<"admin" | "member">(),
-  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  createdBy: text("created_by")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   usedAt: timestamp("used_at", { withTimezone: true }),
 });
 
 export const passwordResetTokens = pgTable("password_reset_tokens", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   token: text("token").notNull().unique(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   usedAt: timestamp("used_at", { withTimezone: true }),
@@ -1696,8 +1992,12 @@ export type NewPasswordResetToken = typeof passwordResetTokens.$inferInsert;
 // ── Phase 43: Sessions ──────────────────────────────────────────────
 
 export const sessions = pgTable("sessions", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   tokenHash: text("token_hash").notNull().unique(),
   // Sliding-refresh grace: when the token is rotated we move the previous
   // hash here for a few seconds so concurrent in-flight requests carrying
@@ -1718,7 +2018,9 @@ export type NewSession = typeof sessions.$inferInsert;
 // ── Phase 43: Error Logs ────────────────────────────────────────────
 
 export const errorLogs = pgTable("error_logs", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   level: text("level").notNull(),
   message: text("message").notNull(),
   stack: text("stack"),
@@ -1732,15 +2034,23 @@ export type NewErrorLog = typeof errorLogs.$inferInsert;
 // ── Phase 8: Teams ──────────────────────────────────────────────────
 
 export const teams = pgTable("teams", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const teamMembers = pgTable("team_members", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  teamId: text("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  teamId: text("team_id")
+    .notNull()
+    .references(() => teams.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   role: text("role").notNull().default("viewer").$type<"owner" | "editor" | "viewer">(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1753,11 +2063,17 @@ export type NewTeamMember = typeof teamMembers.$inferInsert;
 // ── Phase 8: Agent Shares ────────────────────────────────────────
 
 export const agentShares = pgTable("agent_shares", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  agentId: text("agent_id").notNull().references(() => agentConfigs.id, { onDelete: "cascade" }),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  agentId: text("agent_id")
+    .notNull()
+    .references(() => agentConfigs.id, { onDelete: "cascade" }),
   teamId: text("team_id").references(() => teams.id, { onDelete: "cascade" }),
   userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
-  sharedBy: text("shared_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  sharedBy: text("shared_by")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   permission: text("permission").notNull().default("read").$type<"read" | "edit">(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -1767,18 +2083,24 @@ export type NewAgentShare = typeof agentShares.$inferInsert;
 
 // ── Phase 8: Audit Log ──────────────────────────────────────────
 
-export const auditLog = pgTable("audit_log", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
-  action: text("action").notNull(),
-  target: text("target"),
-  metadata: jsonb("metadata").$type<Record<string, unknown>>(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // audit-global.ts filters governance rows by `target = <extensionId>`. The
-  // action / created_at / user_id indexes stay migrate.ts-only.
-  index("idx_audit_log_target").on(table.target),
-]);
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    action: text("action").notNull(),
+    target: text("target"),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // audit-global.ts filters governance rows by `target = <extensionId>`. The
+    // action / created_at / user_id indexes stay migrate.ts-only.
+    index("idx_audit_log_target").on(table.target),
+  ],
+);
 
 export type AuditEntry = typeof auditLog.$inferSelect;
 export type NewAuditEntry = typeof auditLog.$inferInsert;
@@ -1788,9 +2110,15 @@ export type NewAuditEntry = typeof auditLog.$inferInsert;
 import type { ExtensionManifestV2 } from "../extensions/types";
 
 export const marketplaceListings = pgTable("marketplace_listings", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  authorId: text("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  agentConfigId: text("agent_config_id").references(() => agentConfigs.id, { onDelete: "set null" }),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  authorId: text("author_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  agentConfigId: text("agent_config_id").references(() => agentConfigs.id, {
+    onDelete: "set null",
+  }),
   name: text("name").notNull(),
   description: text("description").notNull(),
   slug: text("slug").notNull().unique(),
@@ -1807,41 +2135,68 @@ export const marketplaceListings = pgTable("marketplace_listings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const marketplaceVersions = pgTable("marketplace_versions", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  listingId: text("listing_id").notNull().references(() => marketplaceListings.id, { onDelete: "cascade" }),
-  version: text("version").notNull(),
-  manifest: jsonb("manifest").notNull().$type<ExtensionManifestV2>(),
-  changelog: text("changelog"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // MIRROR of migrate.ts's inline `UNIQUE(listing_id, version)` so a
-  // `drizzle-kit push` can't drop it. migrate.ts is the DDL source of truth.
-  uniqueIndex("marketplace_versions_listing_id_version_key").on(table.listingId, table.version),
-]);
+export const marketplaceVersions = pgTable(
+  "marketplace_versions",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    listingId: text("listing_id")
+      .notNull()
+      .references(() => marketplaceListings.id, { onDelete: "cascade" }),
+    version: text("version").notNull(),
+    manifest: jsonb("manifest").notNull().$type<ExtensionManifestV2>(),
+    changelog: text("changelog"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // MIRROR of migrate.ts's inline `UNIQUE(listing_id, version)` so a
+    // `drizzle-kit push` can't drop it. migrate.ts is the DDL source of truth.
+    uniqueIndex("marketplace_versions_listing_id_version_key").on(table.listingId, table.version),
+  ],
+);
 
-export const marketplaceRatings = pgTable("marketplace_ratings", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  listingId: text("listing_id").notNull().references(() => marketplaceListings.id, { onDelete: "cascade" }),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  thumbsUp: boolean("thumbs_up").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // MIRROR of migrate.ts's inline `UNIQUE(listing_id, user_id)`. This is the
-  // constraint upsertRating (src/db/queries/marketplace-ratings.ts) relies on
-  // to stop duplicate ratings inflating the recomputed listing counters — a
-  // `drizzle-kit push` that dropped it would corrupt the stats. migrate.ts is
-  // the DDL source of truth.
-  uniqueIndex("marketplace_ratings_listing_id_user_id_key").on(table.listingId, table.userId),
-]);
+export const marketplaceRatings = pgTable(
+  "marketplace_ratings",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    listingId: text("listing_id")
+      .notNull()
+      .references(() => marketplaceListings.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    thumbsUp: boolean("thumbs_up").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // MIRROR of migrate.ts's inline `UNIQUE(listing_id, user_id)`. This is the
+    // constraint upsertRating (src/db/queries/marketplace-ratings.ts) relies on
+    // to stop duplicate ratings inflating the recomputed listing counters — a
+    // `drizzle-kit push` that dropped it would corrupt the stats. migrate.ts is
+    // the DDL source of truth.
+    uniqueIndex("marketplace_ratings_listing_id_user_id_key").on(table.listingId, table.userId),
+  ],
+);
 
 export const marketplaceFlags = pgTable("marketplace_flags", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  listingId: text("listing_id").notNull().references(() => marketplaceListings.id, { onDelete: "cascade" }),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID()),
+  listingId: text("listing_id")
+    .notNull()
+    .references(() => marketplaceListings.id, { onDelete: "cascade" }),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
   reason: text("reason").notNull(),
-  category: text("category").notNull().default("other").$type<"spam" | "malicious" | "misleading" | "inappropriate" | "other">(),
+  category: text("category")
+    .notNull()
+    .default("other")
+    .$type<"spam" | "malicious" | "misleading" | "inappropriate" | "other">(),
   status: text("status").notNull().default("pending").$type<"pending" | "dismissed" | "removed">(),
   reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "set null" }),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
@@ -1860,22 +2215,30 @@ export type MarketplaceFlag = typeof marketplaceFlags.$inferSelect;
 // (.claude/, .codex/, agents/) are NOT mirrored here — this table is the
 // "DB-backed" source only, for commands the user creates through the app.
 
-export const userCommands = pgTable("user_commands", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  description: text("description").notNull().default(""),
-  body: text("body").notNull().default(""),
-  frontmatter: jsonb("frontmatter").notNull().$type<Record<string, string>>().default({}),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  // MIRROR of migrate.ts's `UNIQUE(user_id, name)` (the inline CREATE TABLE
-  // constraint + the idempotent uq_user_commands_user_name index from
-  // add-user-commands-unique-name.ts) so a `drizzle-kit push` can't drop it.
-  // migrate.ts is the DDL source of truth.
-  uniqueIndex("user_commands_user_id_name_key").on(table.userId, table.name),
-]);
+export const userCommands = pgTable(
+  "user_commands",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    body: text("body").notNull().default(""),
+    frontmatter: jsonb("frontmatter").notNull().$type<Record<string, string>>().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    // MIRROR of migrate.ts's `UNIQUE(user_id, name)` (the inline CREATE TABLE
+    // constraint + the idempotent uq_user_commands_user_name index from
+    // add-user-commands-unique-name.ts) so a `drizzle-kit push` can't drop it.
+    // migrate.ts is the DDL source of truth.
+    uniqueIndex("user_commands_user_id_name_key").on(table.userId, table.name),
+  ],
+);
 
 export type UserCommand = typeof userCommands.$inferSelect;
 export type NewUserCommand = typeof userCommands.$inferInsert;
@@ -1889,18 +2252,26 @@ export type NewUserCommand = typeof userCommands.$inferInsert;
 // `createdAt` regardless of consumption — sweepExpired() in
 // src/db/queries/ez-drafts.ts is the GC.
 
-export const ezDrafts = pgTable("ez_drafts", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  kind: text("kind").notNull().$type<"project" | "agent" | "extension">(),
-  payload: jsonb("payload").notNull().$type<Record<string, unknown>>(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  consumedAt: timestamp("consumed_at", { withTimezone: true }),
-}, (table) => [
-  index("idx_ez_drafts_user").on(table.userId),
-  index("idx_ez_drafts_expires").on(table.expiresAt),
-]);
+export const ezDrafts = pgTable(
+  "ez_drafts",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().$type<"project" | "agent" | "extension">(),
+    payload: jsonb("payload").notNull().$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("idx_ez_drafts_user").on(table.userId),
+    index("idx_ez_drafts_expires").on(table.expiresAt),
+  ],
+);
 
 export type EzDraft = typeof ezDrafts.$inferSelect;
 export type NewEzDraft = typeof ezDrafts.$inferInsert;
@@ -1921,41 +2292,55 @@ export type NewEzDraft = typeof ezDrafts.$inferInsert;
 //
 // See docs/plans/2026-05-01-feature-index-design.md.
 
-export const features = pgTable("features", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  description: text("description").notNull().default(""),
-  source: text("source").notNull().default("user").$type<"user" | "agent">(),
-  // Project-relative directory path the agent scanner derived this
-  // feature from (e.g. `src/chat/attachments`). Survives renames so
-  // that a user-renamed feature stays linked to its source dir on the
-  // next rescan, instead of the rescan creating a fresh duplicate
-  // under the original slug. Null for hand-created (user-source) rows
-  // that have no scanner origin, and null on rows created before this
-  // column existed (back-compat).
-  originPath: text("origin_path"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_features_project").on(table.projectId),
-  index("idx_features_origin_path").on(table.projectId, table.originPath),
-  // Slug uniqueness is per-project. MIRROR of migrate.ts's inline
-  // `UNIQUE(project_id, name)` so a `drizzle-kit push` can't drop it —
-  // migrate.ts stays the DDL source of truth (PGlite + external Postgres
-  // both accept the constraint there).
-  uniqueIndex("features_project_id_name_key").on(table.projectId, table.name),
-]);
+export const features = pgTable(
+  "features",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    source: text("source").notNull().default("user").$type<"user" | "agent">(),
+    // Project-relative directory path the agent scanner derived this
+    // feature from (e.g. `src/chat/attachments`). Survives renames so
+    // that a user-renamed feature stays linked to its source dir on the
+    // next rescan, instead of the rescan creating a fresh duplicate
+    // under the original slug. Null for hand-created (user-source) rows
+    // that have no scanner origin, and null on rows created before this
+    // column existed (back-compat).
+    originPath: text("origin_path"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_features_project").on(table.projectId),
+    index("idx_features_origin_path").on(table.projectId, table.originPath),
+    // Slug uniqueness is per-project. MIRROR of migrate.ts's inline
+    // `UNIQUE(project_id, name)` so a `drizzle-kit push` can't drop it —
+    // migrate.ts stays the DDL source of truth (PGlite + external Postgres
+    // both accept the constraint there).
+    uniqueIndex("features_project_id_name_key").on(table.projectId, table.name),
+  ],
+);
 
-export const featureFiles = pgTable("feature_files", {
-  featureId: text("feature_id").notNull().references(() => features.id, { onDelete: "cascade" }),
-  relpath: text("relpath").notNull(),
-  source: text("source").notNull().default("scan").$type<"user" | "scan">(),
-  addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  primaryKey({ columns: [table.featureId, table.relpath] }),
-  index("idx_feature_files_feature").on(table.featureId),
-]);
+export const featureFiles = pgTable(
+  "feature_files",
+  {
+    featureId: text("feature_id")
+      .notNull()
+      .references(() => features.id, { onDelete: "cascade" }),
+    relpath: text("relpath").notNull(),
+    source: text("source").notNull().default("scan").$type<"user" | "scan">(),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.featureId, table.relpath] }),
+    index("idx_feature_files_feature").on(table.featureId),
+  ],
+);
 
 export type Feature = typeof features.$inferSelect;
 export type NewFeature = typeof features.$inferInsert;
@@ -1988,16 +2373,22 @@ export interface SurfaceVerdicts {
   mcp: SurfaceVerdict;
 }
 
-export const featureClassifications = pgTable("feature_classifications", {
-  featureId: text("feature_id").notNull().references(() => features.id, { onDelete: "cascade" }),
-  contentHash: text("content_hash").notNull(),
-  surfaces: jsonb("surfaces").$type<SurfaceVerdicts>().notNull(),
-  rationale: text("rationale").notNull().default(""),
-  classifiedAt: timestamp("classified_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  primaryKey({ columns: [table.featureId, table.contentHash] }),
-  index("idx_feature_classifications_feature").on(table.featureId),
-]);
+export const featureClassifications = pgTable(
+  "feature_classifications",
+  {
+    featureId: text("feature_id")
+      .notNull()
+      .references(() => features.id, { onDelete: "cascade" }),
+    contentHash: text("content_hash").notNull(),
+    surfaces: jsonb("surfaces").$type<SurfaceVerdicts>().notNull(),
+    rationale: text("rationale").notNull().default(""),
+    classifiedAt: timestamp("classified_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.featureId, table.contentHash] }),
+    index("idx_feature_classifications_feature").on(table.featureId),
+  ],
+);
 
 export type FeatureClassification = typeof featureClassifications.$inferSelect;
 export type NewFeatureClassification = typeof featureClassifications.$inferInsert;
@@ -2027,39 +2418,54 @@ export type NewFeatureClassification = typeof featureClassifications.$inferInser
 //
 // See tasks/lessons-keeper-v1.md for the full design.
 
-export const lessons = pgTable("lessons", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
-  ownerId: text("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  visibility: text("visibility").notNull().default("user").$type<"user" | "project" | "global">(),
-  slug: text("slug").notNull(),
-  title: text("title").notNull(),
-  body: text("body").notNull(),
-  frontmatter: jsonb("frontmatter").$type<Record<string, unknown>>(),
-  // Phase 51 extends the source enum to include "extension" — the
-  // ctx.lessons handler stamps this on writes.
-  source: text("source").notNull().default("distiller").$type<"distiller" | "user" | "extension">(),
-  sourceSha256: text("source_sha256"),
-  // Phase 50: which extension authored this lesson, if any. NULL for
-  // legacy host-distilled rows; populated by Phase 51's `ctx.lessons`
-  // handler so the per-extension audit drill-down can attribute lessons
-  // back to their source. ON DELETE SET NULL — uninstalling an extension
-  // doesn't lose the lesson body, just the attribution.
-  authorExtensionId: text("author_extension_id").references(() => extensions.id, { onDelete: "set null" }),
-  firedCount: integer("fired_count").notNull().default(0),
-  lastFiredAt: timestamp("last_fired_at", { withTimezone: true }),
-  dismissedCount: integer("dismissed_count").notNull().default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_lessons_project_owner").on(table.projectId, table.ownerId),
-  index("idx_lessons_visibility").on(table.projectId, table.visibility),
-  // Slug uniqueness is enforced by two partial unique indexes declared
-  // in migrate.ts (PGlite supports `CREATE UNIQUE INDEX … WHERE`).
-  // drizzle-orm has no first-class partial-unique helper, so we follow
-  // the same migration-only pattern that `features.UNIQUE(project_id,
-  // name)` and `agent_shares_agent_user_unique` use.
-]);
+export const lessons = pgTable(
+  "lessons",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    visibility: text("visibility").notNull().default("user").$type<"user" | "project" | "global">(),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    frontmatter: jsonb("frontmatter").$type<Record<string, unknown>>(),
+    // Phase 51 extends the source enum to include "extension" — the
+    // ctx.lessons handler stamps this on writes.
+    source: text("source")
+      .notNull()
+      .default("distiller")
+      .$type<"distiller" | "user" | "extension">(),
+    sourceSha256: text("source_sha256"),
+    // Phase 50: which extension authored this lesson, if any. NULL for
+    // legacy host-distilled rows; populated by Phase 51's `ctx.lessons`
+    // handler so the per-extension audit drill-down can attribute lessons
+    // back to their source. ON DELETE SET NULL — uninstalling an extension
+    // doesn't lose the lesson body, just the attribution.
+    authorExtensionId: text("author_extension_id").references(() => extensions.id, {
+      onDelete: "set null",
+    }),
+    firedCount: integer("fired_count").notNull().default(0),
+    lastFiredAt: timestamp("last_fired_at", { withTimezone: true }),
+    dismissedCount: integer("dismissed_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_lessons_project_owner").on(table.projectId, table.ownerId),
+    index("idx_lessons_visibility").on(table.projectId, table.visibility),
+    // Slug uniqueness is enforced by two partial unique indexes declared
+    // in migrate.ts (PGlite supports `CREATE UNIQUE INDEX … WHERE`).
+    // drizzle-orm has no first-class partial-unique helper, so we follow
+    // the same migration-only pattern that `features.UNIQUE(project_id,
+    // name)` and `agent_shares_agent_user_unique` use.
+  ],
+);
 
 export type Lesson = typeof lessons.$inferSelect;
 export type NewLesson = typeof lessons.$inferInsert;
@@ -2084,57 +2490,78 @@ export type NewLesson = typeof lessons.$inferInsert;
 // during initial schema build, and the integrity constraint isn't
 // load-bearing; orphan parent_call_ids are tolerable for audit-only
 // data).
-export const sdkCapabilityCalls = pgTable("sdk_capability_calls", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
-  // FK semantics: ON DELETE RESTRICT (NOT SET NULL).
-  // The column is NOT NULL — pairing it with SET NULL was internally
-  // inconsistent; user-delete would FK-violate. RESTRICT is the
-  // defensible audit-trail semantic: a user with capability-call rows
-  // cannot be hard-deleted; an admin must scrub PII separately
-  // (Phase 52 admin tools) before the user row goes. Per validator
-  // CR-2 in Phase 50.
-  onBehalfOf: text("on_behalf_of").notNull().references(() => users.id, { onDelete: "restrict" }),
-  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
-  /** Self-FK to chain scheduled-fire → its child LLM call etc.
-   *  Declared as plain text to avoid Drizzle's same-table-reference
-   *  ergonomics; orphans tolerated (audit-only). */
-  parentCallId: text("parent_call_id"),
-  /** 'llm' | 'memory' | 'lessons' | 'schedule' | 'events' | 'search' | 'workflows'
-   *  MUST stay in sync with `SdkCapability` in
-   *  `src/extensions/recordCapabilityCall.ts` (the column is plain text, so
-   *  drift is silent). */
-  capability: text("capability").notNull().$type<"llm" | "memory" | "lessons" | "schedule" | "events" | "search" | "workflows" | "triggers">(),
-  /** 'complete' | 'read' | 'write' | 'update' | 'delete' | 'fire' | 'register' | 'subscribe' | 'run' */
-  action: text("action").notNull(),
-  resourceType: text("resource_type"),
-  resourceId: text("resource_id"),
-  before: jsonb("before").$type<unknown>(),
-  after: jsonb("after").$type<unknown>(),
-  success: boolean("success").notNull(),
-  durationMs: integer("duration_ms").notNull(),
-  errorCode: text("error_code"),
-  errorMessage: text("error_message"),
-  tokensUsed: integer("tokens_used"),
-  costUsd: real("cost_usd"),
-  provider: text("provider"),
-  model: text("model"),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_sdk_cap_ext_created").on(table.extensionId, table.createdAt.desc()),
-  // Partial index — most rows are conversation-scoped, but `register`
-  // and some `fire` rows from scheduled handlers are not. Predicate
-  // via raw SQL since Drizzle's `.where()` on indexes is the standard
-  // pattern for this in the codebase.
-  index("idx_sdk_cap_conv_created").on(table.conversationId, table.createdAt.desc())
-    .where(sql`conversation_id IS NOT NULL`),
-  index("idx_sdk_cap_user_capability_created").on(table.onBehalfOf, table.capability, table.createdAt.desc()),
-  index("idx_sdk_cap_created").on(table.createdAt.desc()),
-  // NOTE: GIN pg_trgm indexes on resource_id / error_message / model (serving
-  // admin audit-global `LIKE '%term%'`) live in migrate.ts only — the same
-  // migrate.ts-only convention the marketplace trigram index uses (drizzle's
-  // functional-GIN helper is awkward and migrate.ts is the DDL source of truth).
-]);
+export const sdkCapabilityCalls = pgTable(
+  "sdk_capability_calls",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.id, { onDelete: "cascade" }),
+    // FK semantics: ON DELETE RESTRICT (NOT SET NULL).
+    // The column is NOT NULL — pairing it with SET NULL was internally
+    // inconsistent; user-delete would FK-violate. RESTRICT is the
+    // defensible audit-trail semantic: a user with capability-call rows
+    // cannot be hard-deleted; an admin must scrub PII separately
+    // (Phase 52 admin tools) before the user row goes. Per validator
+    // CR-2 in Phase 50.
+    onBehalfOf: text("on_behalf_of")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    conversationId: text("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
+    /** Self-FK to chain scheduled-fire → its child LLM call etc.
+     *  Declared as plain text to avoid Drizzle's same-table-reference
+     *  ergonomics; orphans tolerated (audit-only). */
+    parentCallId: text("parent_call_id"),
+    /** 'llm' | 'memory' | 'lessons' | 'schedule' | 'events' | 'search' | 'workflows'
+     *  MUST stay in sync with `SdkCapability` in
+     *  `src/extensions/recordCapabilityCall.ts` (the column is plain text, so
+     *  drift is silent). */
+    capability: text("capability")
+      .notNull()
+      .$type<
+        "llm" | "memory" | "lessons" | "schedule" | "events" | "search" | "workflows" | "triggers"
+      >(),
+    /** 'complete' | 'read' | 'write' | 'update' | 'delete' | 'fire' | 'register' | 'subscribe' | 'run' */
+    action: text("action").notNull(),
+    resourceType: text("resource_type"),
+    resourceId: text("resource_id"),
+    before: jsonb("before").$type<unknown>(),
+    after: jsonb("after").$type<unknown>(),
+    success: boolean("success").notNull(),
+    durationMs: integer("duration_ms").notNull(),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    tokensUsed: integer("tokens_used"),
+    costUsd: real("cost_usd"),
+    provider: text("provider"),
+    model: text("model"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_sdk_cap_ext_created").on(table.extensionId, table.createdAt.desc()),
+    // Partial index — most rows are conversation-scoped, but `register`
+    // and some `fire` rows from scheduled handlers are not. Predicate
+    // via raw SQL since Drizzle's `.where()` on indexes is the standard
+    // pattern for this in the codebase.
+    index("idx_sdk_cap_conv_created")
+      .on(table.conversationId, table.createdAt.desc())
+      .where(sql`conversation_id IS NOT NULL`),
+    index("idx_sdk_cap_user_capability_created").on(
+      table.onBehalfOf,
+      table.capability,
+      table.createdAt.desc(),
+    ),
+    index("idx_sdk_cap_created").on(table.createdAt.desc()),
+    // NOTE: GIN pg_trgm indexes on resource_id / error_message / model (serving
+    // admin audit-global `LIKE '%term%'`) live in migrate.ts only — the same
+    // migrate.ts-only convention the marketplace trigram index uses (drizzle's
+    // functional-GIN helper is awkward and migrate.ts is the DDL source of truth).
+  ],
+);
 
 export type SdkCapabilityCall = typeof sdkCapabilityCalls.$inferSelect;
 export type NewSdkCapabilityCall = typeof sdkCapabilityCalls.$inferInsert;
@@ -2145,23 +2572,31 @@ export type NewSdkCapabilityCall = typeof sdkCapabilityCalls.$inferInsert;
 // + frontmatter on every lesson mutation so admins have a forensic
 // trail (forever retention — small table, debugging gold). Cascade
 // delete: removing the lesson removes its audit history.
-export const lessonsAuditLog = pgTable("lessons_audit_log", {
-  id: serial("id").primaryKey(),
-  lessonId: text("lesson_id").notNull().references(() => lessons.id, { onDelete: "cascade" }),
-  /** 'created' | 'updated' | 'deleted' */
-  action: text("action").notNull().$type<"created" | "updated" | "deleted">(),
-  previousBody: text("previous_body"),
-  newBody: text("new_body"),
-  previousFrontmatter: jsonb("previous_frontmatter").$type<Record<string, unknown> | null>(),
-  newFrontmatter: jsonb("new_frontmatter").$type<Record<string, unknown> | null>(),
-  actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
-  actorExtensionId: text("actor_extension_id").references(() => extensions.id, { onDelete: "set null" }),
-  reason: text("reason"),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_lessons_audit_lesson_created").on(table.lessonId, table.createdAt.desc()),
-  index("idx_lessons_audit_actor_ext_created").on(table.actorExtensionId, table.createdAt.desc()),
-]);
+export const lessonsAuditLog = pgTable(
+  "lessons_audit_log",
+  {
+    id: serial("id").primaryKey(),
+    lessonId: text("lesson_id")
+      .notNull()
+      .references(() => lessons.id, { onDelete: "cascade" }),
+    /** 'created' | 'updated' | 'deleted' */
+    action: text("action").notNull().$type<"created" | "updated" | "deleted">(),
+    previousBody: text("previous_body"),
+    newBody: text("new_body"),
+    previousFrontmatter: jsonb("previous_frontmatter").$type<Record<string, unknown> | null>(),
+    newFrontmatter: jsonb("new_frontmatter").$type<Record<string, unknown> | null>(),
+    actorUserId: text("actor_user_id").references(() => users.id, { onDelete: "set null" }),
+    actorExtensionId: text("actor_extension_id").references(() => extensions.id, {
+      onDelete: "set null",
+    }),
+    reason: text("reason"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_lessons_audit_lesson_created").on(table.lessonId, table.createdAt.desc()),
+    index("idx_lessons_audit_actor_ext_created").on(table.actorExtensionId, table.createdAt.desc()),
+  ],
+);
 
 export type LessonAuditEntry = typeof lessonsAuditLog.$inferSelect;
 export type NewLessonAuditEntry = typeof lessonsAuditLog.$inferInsert;
@@ -2172,45 +2607,57 @@ export type NewLessonAuditEntry = typeof lessonsAuditLog.$inferInsert;
 // durable record so a crash-restart doesn't reset the day's usage.
 // Composite primary key on (extension_id, day) — one row per
 // extension per UTC calendar day.
-export const extensionLlmUsage = pgTable("extension_llm_usage", {
-  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
-  day: date("day").notNull(),
-  calls: integer("calls").notNull().default(0),
-  // TOTAL tokens (input + output) counted toward `maxTokensPerDay`.
-  // DB column stays `output_tokens` for historical compat — it predates
-  // input-token accounting; the field name reflects the real meaning.
-  totalTokens: integer("output_tokens").notNull().default(0),
-  // Cumulative cost in cents for the day — enforces `maxCostCentsPerDay`.
-  costCents: integer("cost_cents").notNull().default(0),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
-  primaryKey({ columns: [table.extensionId, table.day] }),
-]);
+export const extensionLlmUsage = pgTable(
+  "extension_llm_usage",
+  {
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    calls: integer("calls").notNull().default(0),
+    // TOTAL tokens (input + output) counted toward `maxTokensPerDay`.
+    // DB column stays `output_tokens` for historical compat — it predates
+    // input-token accounting; the field name reflects the real meaning.
+    totalTokens: integer("output_tokens").notNull().default(0),
+    // Cumulative cost in cents for the day — enforces `maxCostCentsPerDay`.
+    costCents: integer("cost_cents").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.extensionId, table.day] })],
+);
 
 export type ExtensionLlmUsage = typeof extensionLlmUsage.$inferSelect;
 export type NewExtensionLlmUsage = typeof extensionLlmUsage.$inferInsert;
 
 // ── Phase 51: ctx.memory — per-extension daily write rollup ───────
-export const extensionMemoryWritesDaily = pgTable("extension_memory_writes_daily", {
-  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
-  day: date("day").notNull(),
-  writes: integer("writes").notNull().default(0),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
-  primaryKey({ columns: [table.extensionId, table.day] }),
-]);
+export const extensionMemoryWritesDaily = pgTable(
+  "extension_memory_writes_daily",
+  {
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    writes: integer("writes").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.extensionId, table.day] })],
+);
 
 export type ExtensionMemoryWritesDaily = typeof extensionMemoryWritesDaily.$inferSelect;
 
 // ── Phase 51: ctx.lessons — per-extension daily write rollup ──────
-export const extensionLessonsWritesDaily = pgTable("extension_lessons_writes_daily", {
-  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
-  day: date("day").notNull(),
-  writes: integer("writes").notNull().default(0),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
-  primaryKey({ columns: [table.extensionId, table.day] }),
-]);
+export const extensionLessonsWritesDaily = pgTable(
+  "extension_lessons_writes_daily",
+  {
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    writes: integer("writes").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.extensionId, table.day] })],
+);
 
 export type ExtensionLessonsWritesDaily = typeof extensionLessonsWritesDaily.$inferSelect;
 
@@ -2219,77 +2666,97 @@ export type ExtensionLessonsWritesDaily = typeof extensionLessonsWritesDaily.$in
 // authoritative for the live process; this table is the durable record
 // (60s flush + hydrate) so a crash-restart doesn't reset the day's
 // search-call count to zero. Enforces `resolveSearchPolicy().quota`.
-export const extensionSearchCallsDaily = pgTable("extension_search_calls_daily", {
-  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
-  day: date("day").notNull(),
-  calls: integer("calls").notNull().default(0),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
-  primaryKey({ columns: [table.extensionId, table.day] }),
-]);
+export const extensionSearchCallsDaily = pgTable(
+  "extension_search_calls_daily",
+  {
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    calls: integer("calls").notNull().default(0),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.extensionId, table.day] })],
+);
 
 export type ExtensionSearchCallsDaily = typeof extensionSearchCallsDaily.$inferSelect;
 
 // ── Phase 51: ctx.schedule — persistent cron registrations ─────────
-export const extensionSchedules = pgTable("extension_schedules", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  extensionId: text("extension_id").notNull().references(() => extensions.id, { onDelete: "cascade" }),
-  cron: text("cron").notNull(),
-  nextFireAt: timestamp("next_fire_at", { withTimezone: true, mode: "date" }).notNull(),
-  lastFireAt: timestamp("last_fire_at", { withTimezone: true, mode: "date" }),
-  lastFireStatus: text("last_fire_status").$type<"ok" | "error" | "timeout" | null>(),
-  lastFireId: text("last_fire_id"),
-  enabled: boolean("enabled").notNull().default(true),
-  consecutiveErrors: integer("consecutive_errors").notNull().default(0),
-  // ── C2: dynamic triggers ─────────────────────────────────────────
-  // `false` = manifest-declared (every row that predates C2, via the
-  // column default). `true` = user-created through `ctx.triggers`. The
-  // reconcilers key on this: they own manifest rows and must leave dynamic
-  // rows completely alone, or every install/update silently disables every
-  // user-created job.
-  dynamic: boolean("dynamic").notNull().default(false),
-  // Extension-supplied trigger identity; NULL on manifest rows. This — not
-  // the cron expression — is a dynamic row's identity, which is what lets
-  // two jobs share `0 9 * * 1` and stay distinguishable at dispatch.
-  key: text("key"),
-  // IANA zone for a dynamic row's cron. Manifest rows read their zone from
-  // the grant (`schedule.tz`) instead.
-  timezone: text("timezone"),
-  // Per-key daily fire cap. NULL = fall back to the extension-wide
-  // envelope. Without this, one busy dynamic job starves every sibling.
-  maxRunsPerDay: integer("max_runs_per_day"),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
-  // Two partials replace the old total `(extension_id, cron)` unique. The
-  // manifest partial preserves that constraint exactly for every row that
-  // predates C2; the dynamic partial moves identity to `key` so a cron
-  // expression may repeat across user-created jobs. See migrate.ts for why
-  // the DROP INDEX is safe.
-  uniqueIndex("uniq_ext_schedule_manifest").on(table.extensionId, table.cron)
-    .where(sql`dynamic = FALSE`),
-  uniqueIndex("uniq_ext_schedule_dynamic").on(table.extensionId, table.key)
-    .where(sql`key IS NOT NULL`),
-  index("idx_schedule_ready").on(table.enabled, table.nextFireAt),
-]);
+export const extensionSchedules = pgTable(
+  "extension_schedules",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.id, { onDelete: "cascade" }),
+    cron: text("cron").notNull(),
+    nextFireAt: timestamp("next_fire_at", { withTimezone: true, mode: "date" }).notNull(),
+    lastFireAt: timestamp("last_fire_at", { withTimezone: true, mode: "date" }),
+    lastFireStatus: text("last_fire_status").$type<"ok" | "error" | "timeout" | null>(),
+    lastFireId: text("last_fire_id"),
+    enabled: boolean("enabled").notNull().default(true),
+    consecutiveErrors: integer("consecutive_errors").notNull().default(0),
+    // ── C2: dynamic triggers ─────────────────────────────────────────
+    // `false` = manifest-declared (every row that predates C2, via the
+    // column default). `true` = user-created through `ctx.triggers`. The
+    // reconcilers key on this: they own manifest rows and must leave dynamic
+    // rows completely alone, or every install/update silently disables every
+    // user-created job.
+    dynamic: boolean("dynamic").notNull().default(false),
+    // Extension-supplied trigger identity; NULL on manifest rows. This — not
+    // the cron expression — is a dynamic row's identity, which is what lets
+    // two jobs share `0 9 * * 1` and stay distinguishable at dispatch.
+    key: text("key"),
+    // IANA zone for a dynamic row's cron. Manifest rows read their zone from
+    // the grant (`schedule.tz`) instead.
+    timezone: text("timezone"),
+    // Per-key daily fire cap. NULL = fall back to the extension-wide
+    // envelope. Without this, one busy dynamic job starves every sibling.
+    maxRunsPerDay: integer("max_runs_per_day"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    // Two partials replace the old total `(extension_id, cron)` unique. The
+    // manifest partial preserves that constraint exactly for every row that
+    // predates C2; the dynamic partial moves identity to `key` so a cron
+    // expression may repeat across user-created jobs. See migrate.ts for why
+    // the DROP INDEX is safe.
+    uniqueIndex("uniq_ext_schedule_manifest")
+      .on(table.extensionId, table.cron)
+      .where(sql`dynamic = FALSE`),
+    uniqueIndex("uniq_ext_schedule_dynamic")
+      .on(table.extensionId, table.key)
+      .where(sql`key IS NOT NULL`),
+    index("idx_schedule_ready").on(table.enabled, table.nextFireAt),
+  ],
+);
 
 export type ExtensionSchedule = typeof extensionSchedules.$inferSelect;
 export type NewExtensionSchedule = typeof extensionSchedules.$inferInsert;
 
 // ── Phase 51: ctx.schedule — per-fire history ──────────────────────
-export const extensionScheduleFires = pgTable("extension_schedule_fires", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  scheduleId: text("schedule_id").notNull().references(() => extensionSchedules.id, { onDelete: "cascade" }),
-  scheduledAt: timestamp("scheduled_at", { withTimezone: true, mode: "date" }).notNull(),
-  firedAt: timestamp("fired_at", { withTimezone: true, mode: "date" }).notNull(),
-  attempt: integer("attempt").notNull().default(0),
-  status: text("status").notNull().$type<"pending" | "running" | "ok" | "error" | "timeout">(),
-  durationMs: integer("duration_ms"),
-  error: text("error"),
-  catchUp: boolean("catch_up").notNull().default(false),
-}, (table) => [
-  index("idx_schedule_fires_pending").on(table.status, table.scheduledAt),
-]);
+export const extensionScheduleFires = pgTable(
+  "extension_schedule_fires",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    scheduleId: text("schedule_id")
+      .notNull()
+      .references(() => extensionSchedules.id, { onDelete: "cascade" }),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true, mode: "date" }).notNull(),
+    firedAt: timestamp("fired_at", { withTimezone: true, mode: "date" }).notNull(),
+    attempt: integer("attempt").notNull().default(0),
+    status: text("status").notNull().$type<"pending" | "running" | "ok" | "error" | "timeout">(),
+    durationMs: integer("duration_ms"),
+    error: text("error"),
+    catchUp: boolean("catch_up").notNull().default(false),
+  },
+  (table) => [index("idx_schedule_fires_pending").on(table.status, table.scheduledAt)],
+);
 
 export type ExtensionScheduleFire = typeof extensionScheduleFires.$inferSelect;
 export type NewExtensionScheduleFire = typeof extensionScheduleFires.$inferInsert;
@@ -2308,37 +2775,46 @@ export type NewExtensionScheduleFire = typeof extensionScheduleFires.$inferInser
 // by the SAME key it looks the registry up with) and the `/api/extensions/:name`
 // routing convention. The public route path's `:extensionId` segment is this
 // name; extension names are URL-safe (`/^[a-z0-9][a-z0-9-_.]{0,63}$/`).
-export const extensionWebhooks = pgTable("extension_webhooks", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  extensionId: text("extension_id").notNull().references(() => extensions.name, { onDelete: "cascade" }),
-  slug: text("slug").notNull(),
-  enabled: boolean("enabled").notNull().default(true),
-  lastDeliveryAt: timestamp("last_delivery_at", { withTimezone: true, mode: "date" }),
-  lastDeliveryStatus: text("last_delivery_status").$type<"ok" | "error" | null>(),
-  // ── C2: dynamic triggers ─────────────────────────────────────────
-  // See `extensionSchedules` above — same discriminator, same reason. A
-  // dynamic slug is HOST-MINTED under the manifest's declared prefix, so it
-  // is by construction absent from the clamped grant; without the
-  // reconciler's `dynamic = false` filter every enable would disable it.
-  dynamic: boolean("dynamic").notNull().default(false),
-  // Extension-supplied trigger identity; NULL on manifest rows. Unregister
-  // clears it (soft-delete) to free the dynamic partial unique index while
-  // preserving the row and its delivery history.
-  key: text("key"),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
-  // TOTAL, deliberately — not partial like the schedule twin. A dynamic slug
-  // is host-minted from `hash(extensionName, key)` and keys are unique per
-  // extension, so two dynamic rows cannot collide by construction; the only
-  // collision this ever blocked is manifest-vs-dynamic, which `getEnabledWebhook`
-  // (`rows[0] ?? null`, no ORDER BY) would otherwise resolve non-deterministically
-  // on a public inbound route. See the matching note in `migrate.ts`.
-  uniqueIndex("uniq_ext_webhook").on(table.extensionId, table.slug),
-  uniqueIndex("uniq_ext_webhook_dynamic").on(table.extensionId, table.key)
-    .where(sql`key IS NOT NULL`),
-  index("idx_webhook_enabled").on(table.enabled),
-]);
+export const extensionWebhooks = pgTable(
+  "extension_webhooks",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.name, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    lastDeliveryAt: timestamp("last_delivery_at", { withTimezone: true, mode: "date" }),
+    lastDeliveryStatus: text("last_delivery_status").$type<"ok" | "error" | null>(),
+    // ── C2: dynamic triggers ─────────────────────────────────────────
+    // See `extensionSchedules` above — same discriminator, same reason. A
+    // dynamic slug is HOST-MINTED under the manifest's declared prefix, so it
+    // is by construction absent from the clamped grant; without the
+    // reconciler's `dynamic = false` filter every enable would disable it.
+    dynamic: boolean("dynamic").notNull().default(false),
+    // Extension-supplied trigger identity; NULL on manifest rows. Unregister
+    // clears it (soft-delete) to free the dynamic partial unique index while
+    // preserving the row and its delivery history.
+    key: text("key"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    // TOTAL, deliberately — not partial like the schedule twin. A dynamic slug
+    // is host-minted from `hash(extensionName, key)` and keys are unique per
+    // extension, so two dynamic rows cannot collide by construction; the only
+    // collision this ever blocked is manifest-vs-dynamic, which `getEnabledWebhook`
+    // (`rows[0] ?? null`, no ORDER BY) would otherwise resolve non-deterministically
+    // on a public inbound route. See the matching note in `migrate.ts`.
+    uniqueIndex("uniq_ext_webhook").on(table.extensionId, table.slug),
+    uniqueIndex("uniq_ext_webhook_dynamic")
+      .on(table.extensionId, table.key)
+      .where(sql`key IS NOT NULL`),
+    index("idx_webhook_enabled").on(table.enabled),
+  ],
+);
 
 export type ExtensionWebhook = typeof extensionWebhooks.$inferSelect;
 export type NewExtensionWebhook = typeof extensionWebhooks.$inferInsert;
@@ -2351,39 +2827,47 @@ export type NewExtensionWebhook = typeof extensionWebhooks.$inferInsert;
 // fire-and-forget). `extension_id` (the extension NAME) + `slug` are
 // denormalized so the daemon can dispatch + count the daily budget without a
 // join. The row IS the idempotency handle: its `id` becomes the loop fire id.
-export const webhookDeliveries = pgTable("webhook_deliveries", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  webhookId: text("webhook_id").notNull().references(() => extensionWebhooks.id, { onDelete: "cascade" }),
-  // NAME-vs-UUID: `extension_id` here holds the extension NAME (manifest slug),
-  // NOT the UUID `extensions.id`, and carries NO FK — it is denormalized from
-  // extension_webhooks (which FKs extensions.name) so the daemon dispatches +
-  // counts the daily budget without a join. This is the THIRD extension_id
-  // variant in the schema (extension_webhooks/_secrets/_rbac_grants store the
-  // NAME with an FK; extension_storage/sdk_capability_calls/etc. store the
-  // UUID). Never join this column to extensions.id — it silently returns zero
-  // rows. Do NOT introduce a fourth variant.
-  extensionId: text("extension_id").notNull(),
-  slug: text("slug").notNull(),
-  status: text("status").notNull().$type<"pending" | "running" | "ok" | "error">(),
-  contentType: text("content_type"),
-  /** The size-capped raw request body (UTF-8 text, exact bytes the sender
-   *  posted). Stored so a delivery survives a subprocess restart. */
-  body: text("body").notNull(),
-  receivedAt: timestamp("received_at", { withTimezone: true, mode: "date" }).notNull(),
-  claimedAt: timestamp("claimed_at", { withTimezone: true, mode: "date" }),
-  deliveredAt: timestamp("delivered_at", { withTimezone: true, mode: "date" }),
-  error: text("error"),
-  /** Failed-dispatch counter. A delivery reverts to `pending` + increments this
-   *  on each failure; at `MAX_DELIVERY_ATTEMPTS` it dead-letters to `status:
-   *  "error"` (with `error` set) instead of retrying forever — the poison-
-   *  delivery bound. */
-  attempts: integer("attempts").notNull().default(0),
-  catchUp: boolean("catch_up").notNull().default(false),
-}, (table) => [
-  index("idx_webhook_deliveries_pending").on(table.status, table.receivedAt),
-  index("idx_webhook_deliveries_hook").on(table.webhookId),
-  index("idx_webhook_deliveries_ext_received").on(table.extensionId, table.receivedAt),
-]);
+export const webhookDeliveries = pgTable(
+  "webhook_deliveries",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    webhookId: text("webhook_id")
+      .notNull()
+      .references(() => extensionWebhooks.id, { onDelete: "cascade" }),
+    // NAME-vs-UUID: `extension_id` here holds the extension NAME (manifest slug),
+    // NOT the UUID `extensions.id`, and carries NO FK — it is denormalized from
+    // extension_webhooks (which FKs extensions.name) so the daemon dispatches +
+    // counts the daily budget without a join. This is the THIRD extension_id
+    // variant in the schema (extension_webhooks/_secrets/_rbac_grants store the
+    // NAME with an FK; extension_storage/sdk_capability_calls/etc. store the
+    // UUID). Never join this column to extensions.id — it silently returns zero
+    // rows. Do NOT introduce a fourth variant.
+    extensionId: text("extension_id").notNull(),
+    slug: text("slug").notNull(),
+    status: text("status").notNull().$type<"pending" | "running" | "ok" | "error">(),
+    contentType: text("content_type"),
+    /** The size-capped raw request body (UTF-8 text, exact bytes the sender
+     *  posted). Stored so a delivery survives a subprocess restart. */
+    body: text("body").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true, mode: "date" }).notNull(),
+    claimedAt: timestamp("claimed_at", { withTimezone: true, mode: "date" }),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true, mode: "date" }),
+    error: text("error"),
+    /** Failed-dispatch counter. A delivery reverts to `pending` + increments this
+     *  on each failure; at `MAX_DELIVERY_ATTEMPTS` it dead-letters to `status:
+     *  "error"` (with `error` set) instead of retrying forever — the poison-
+     *  delivery bound. */
+    attempts: integer("attempts").notNull().default(0),
+    catchUp: boolean("catch_up").notNull().default(false),
+  },
+  (table) => [
+    index("idx_webhook_deliveries_pending").on(table.status, table.receivedAt),
+    index("idx_webhook_deliveries_hook").on(table.webhookId),
+    index("idx_webhook_deliveries_ext_received").on(table.extensionId, table.receivedAt),
+  ],
+);
 
 export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
 export type NewWebhookDelivery = typeof webhookDeliveries.$inferInsert;
@@ -2417,29 +2901,35 @@ export type NewWebhookDelivery = typeof webhookDeliveries.$inferInsert;
 // deleted user/conversation orphans-but-keeps the row for audit; the
 // proxy's access check then fails closed (userId mismatch).
 
-export const previewSessions = pgTable("preview_sessions", {
-  id: text("id").primaryKey(),
-  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
-  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
-  /** The per-conversation network namespace id this preview's dynamic
-   *  server lives in (Phase 3). NULL for static previews. */
-  netnsId: text("netns_id"),
-  kind: text("kind").notNull().$type<"static" | "dynamic">(),
-  /** Dynamic only — the port the dev server listens on inside the netns. */
-  targetPort: integer("target_port"),
-  /** Static only — absolute path to the served site root
-   *  (`.ezcorp/sites/<id>/`). Stored so the proxy doesn't have to
-   *  re-derive it; still re-validated against the realpath jail. */
-  staticPath: text("static_path"),
-  status: text("status").notNull().default("active").$type<"active" | "revoked" | "expired">(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-  lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
-  revokedAt: timestamp("revoked_at", { withTimezone: true }),
-}, (table) => [
-  index("idx_preview_sessions_user").on(table.userId),
-  index("idx_preview_sessions_conversation").on(table.conversationId),
-]);
+export const previewSessions = pgTable(
+  "preview_sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+    conversationId: text("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
+    /** The per-conversation network namespace id this preview's dynamic
+     *  server lives in (Phase 3). NULL for static previews. */
+    netnsId: text("netns_id"),
+    kind: text("kind").notNull().$type<"static" | "dynamic">(),
+    /** Dynamic only — the port the dev server listens on inside the netns. */
+    targetPort: integer("target_port"),
+    /** Static only — absolute path to the served site root
+     *  (`.ezcorp/sites/<id>/`). Stored so the proxy doesn't have to
+     *  re-derive it; still re-validated against the realpath jail. */
+    staticPath: text("static_path"),
+    status: text("status").notNull().default("active").$type<"active" | "revoked" | "expired">(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    index("idx_preview_sessions_user").on(table.userId),
+    index("idx_preview_sessions_conversation").on(table.conversationId),
+  ],
+);
 
 export type PreviewSession = typeof previewSessions.$inferSelect;
 export type NewPreviewSession = typeof previewSessions.$inferInsert;
@@ -2457,35 +2947,42 @@ export type NewPreviewSession = typeof previewSessions.$inferInsert;
 // stable, but the run pipeline only consumes it in Phase 3 (web-search
 // section).
 
-export const briefingConfigs = pgTable("briefing_configs", {
-  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
-  enabled: boolean("enabled").notNull().default(false),
-  /** 5-field cron, validated by `parseCron` (incl. its 5-minute-interval
-   *  gate). Default 7am daily; the settings UI writes time-of-day +
-   *  weekday presets as cron strings. */
-  cron: text("cron").notNull().default("0 7 * * *"),
-  /** IANA timezone, validated via Intl at the API layer. */
-  timezone: text("timezone").notNull().default("UTC"),
-  /** Where briefing conversations land. Nullable — the pipeline falls
-   *  back to the user's most recently active project, else skips. */
-  projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
-  /** Free-text user instructions — appended verbatim to the briefing
-   *  conversation's system prompt. The instructions ARE the prompt. */
-  instructions: text("instructions").notNull().default(""),
-  watchlist: jsonb("watchlist").notNull().$type<Array<{ topic: string; addedAt: string }>>().default([]),
-  /** NULL → instance default model resolution (resolveModel(undefined)). */
-  model: text("model"),
-  provider: text("provider"),
-  lastFireAt: timestamp("last_fire_at", { withTimezone: true, mode: "date" }),
-  lastFireStatus: text("last_fire_status").$type<"ok" | "error" | "skipped" | null>(),
-  consecutiveErrors: integer("consecutive_errors").notNull().default(0),
-  /** Precomputed next fire instant — THE claim target. NULL while disabled. */
-  nextFireAt: timestamp("next_fire_at", { withTimezone: true, mode: "date" }),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_briefing_ready").on(table.enabled, table.nextFireAt),
-]);
+export const briefingConfigs = pgTable(
+  "briefing_configs",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    enabled: boolean("enabled").notNull().default(false),
+    /** 5-field cron, validated by `parseCron` (incl. its 5-minute-interval
+     *  gate). Default 7am daily; the settings UI writes time-of-day +
+     *  weekday presets as cron strings. */
+    cron: text("cron").notNull().default("0 7 * * *"),
+    /** IANA timezone, validated via Intl at the API layer. */
+    timezone: text("timezone").notNull().default("UTC"),
+    /** Where briefing conversations land. Nullable — the pipeline falls
+     *  back to the user's most recently active project, else skips. */
+    projectId: text("project_id").references(() => projects.id, { onDelete: "set null" }),
+    /** Free-text user instructions — appended verbatim to the briefing
+     *  conversation's system prompt. The instructions ARE the prompt. */
+    instructions: text("instructions").notNull().default(""),
+    watchlist: jsonb("watchlist")
+      .notNull()
+      .$type<Array<{ topic: string; addedAt: string }>>()
+      .default([]),
+    /** NULL → instance default model resolution (resolveModel(undefined)). */
+    model: text("model"),
+    provider: text("provider"),
+    lastFireAt: timestamp("last_fire_at", { withTimezone: true, mode: "date" }),
+    lastFireStatus: text("last_fire_status").$type<"ok" | "error" | "skipped" | null>(),
+    consecutiveErrors: integer("consecutive_errors").notNull().default(0),
+    /** Precomputed next fire instant — THE claim target. NULL while disabled. */
+    nextFireAt: timestamp("next_fire_at", { withTimezone: true, mode: "date" }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [index("idx_briefing_ready").on(table.enabled, table.nextFireAt)],
+);
 
 export type BriefingConfig = typeof briefingConfigs.$inferSelect;
 export type NewBriefingConfig = typeof briefingConfigs.$inferInsert;
@@ -2499,51 +2996,64 @@ export type NewBriefingConfig = typeof briefingConfigs.$inferInsert;
 // (a per-board override). `enabled=false` = "pause polling" (board + token
 // retained; daemon skips disabled links). See
 // src/db/migrations/add-github-projects.ts and src/integrations/github-projects/.
-export const githubProjectsLinks = pgTable("github_projects_links", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
-  /** GitHub Projects v2 node id (`PVT_…`), resolved from the pasted board URL. */
-  boardNodeId: text("board_node_id").notNull(),
-  boardUrl: text("board_url").notNull(),
-  boardTitle: text("board_title").notNull().default(""),
-  ownerLogin: text("owner_login").notNull().default(""),
-  /** Node id of the single-select "Status" field whose options are the columns. */
-  statusFieldId: text("status_field_id"),
-  /** The board's Status-field options (id+name) captured at connect time. The
-   *  connect response carries these transiently; persisting them lets the
-   *  column-mapping editor render FULL, NAMED columns after a page reload
-   *  (instead of falling back to the saved map's bare option-id keys, which
-   *  shows ids and drops unmapped columns). Refreshed on every (re)connect. */
-  statusOptions: jsonb("status_options").notNull().$type<GithubStatusOption[]>().default([]),
-  /** Default model for spawned runs, stored as "<provider>:<model>". Null/empty
-   *  → keep the instance default (the executor's provider preference order). The
-   *  spawn bridge splits on the FIRST ':' and threads provider+model into
-   *  streamChat so an instance without anthropic creds can pick a working model. */
-  defaultModel: text("default_model"),
-  /** Default permission mode for spawned runs — a runtime PermissionMode string
-   *  ("ask" | "auto-edit" | "yolo"). Null/invalid → the spawn bridge falls back
-   *  to "yolo" (auto-approve everything), matching the platform-wide default. An
-   *  explicit per-column permissionMode override (still never yolo) takes
-   *  precedence when set; this board-level value covers every other card move. */
-  defaultPermissionMode: text("default_permission_mode"),
-  authMode: text("auth_mode").notNull().$type<"pat" | "gh">().default("pat"),
-  /** statusOptionId → action mapping. The daemon reads this every poll. */
-  columnActionMap: jsonb("column_action_map").notNull().$type<GithubColumnActionMap>().default({}),
-  /** Per-item updatedAt high-water marks so polls only diff what changed. */
-  pollCursor: jsonb("poll_cursor").$type<Record<string, string>>(),
-  pollIntervalSec: integer("poll_interval_sec").notNull().default(60),
-  /** false = paused (board kept, polling + spawns stopped). */
-  enabled: boolean("enabled").notNull().default(true),
-  lastPolledAt: timestamp("last_polled_at", { withTimezone: true, mode: "date" }),
-  lastError: text("last_error"),
-  lastErrorAt: timestamp("last_error_at", { withTimezone: true, mode: "date" }),
-  createdByUserId: text("created_by_user_id").references(() => users.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
-  // A project connects to MANY boards, each board only once per project.
-  uniqueIndex("idx_gh_links_project_board").on(table.projectId, table.boardNodeId),
-]);
+export const githubProjectsLinks = pgTable(
+  "github_projects_links",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** GitHub Projects v2 node id (`PVT_…`), resolved from the pasted board URL. */
+    boardNodeId: text("board_node_id").notNull(),
+    boardUrl: text("board_url").notNull(),
+    boardTitle: text("board_title").notNull().default(""),
+    ownerLogin: text("owner_login").notNull().default(""),
+    /** Node id of the single-select "Status" field whose options are the columns. */
+    statusFieldId: text("status_field_id"),
+    /** The board's Status-field options (id+name) captured at connect time. The
+     *  connect response carries these transiently; persisting them lets the
+     *  column-mapping editor render FULL, NAMED columns after a page reload
+     *  (instead of falling back to the saved map's bare option-id keys, which
+     *  shows ids and drops unmapped columns). Refreshed on every (re)connect. */
+    statusOptions: jsonb("status_options").notNull().$type<GithubStatusOption[]>().default([]),
+    /** Default model for spawned runs, stored as "<provider>:<model>". Null/empty
+     *  → keep the instance default (the executor's provider preference order). The
+     *  spawn bridge splits on the FIRST ':' and threads provider+model into
+     *  streamChat so an instance without anthropic creds can pick a working model. */
+    defaultModel: text("default_model"),
+    /** Default permission mode for spawned runs — a runtime PermissionMode string
+     *  ("ask" | "auto-edit" | "yolo"). Null/invalid → the spawn bridge falls back
+     *  to "yolo" (auto-approve everything), matching the platform-wide default. An
+     *  explicit per-column permissionMode override (still never yolo) takes
+     *  precedence when set; this board-level value covers every other card move. */
+    defaultPermissionMode: text("default_permission_mode"),
+    authMode: text("auth_mode").notNull().$type<"pat" | "gh">().default("pat"),
+    /** statusOptionId → action mapping. The daemon reads this every poll. */
+    columnActionMap: jsonb("column_action_map")
+      .notNull()
+      .$type<GithubColumnActionMap>()
+      .default({}),
+    /** Per-item updatedAt high-water marks so polls only diff what changed. */
+    pollCursor: jsonb("poll_cursor").$type<Record<string, string>>(),
+    pollIntervalSec: integer("poll_interval_sec").notNull().default(60),
+    /** false = paused (board kept, polling + spawns stopped). */
+    enabled: boolean("enabled").notNull().default(true),
+    lastPolledAt: timestamp("last_polled_at", { withTimezone: true, mode: "date" }),
+    lastError: text("last_error"),
+    lastErrorAt: timestamp("last_error_at", { withTimezone: true, mode: "date" }),
+    createdByUserId: text("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    // A project connects to MANY boards, each board only once per project.
+    uniqueIndex("idx_gh_links_project_board").on(table.projectId, table.boardNodeId),
+  ],
+);
 
 export type GithubProjectsLink = typeof githubProjectsLinks.$inferSelect;
 export type NewGithubProjectsLink = typeof githubProjectsLinks.$inferInsert;
@@ -2552,47 +3062,63 @@ export type NewGithubProjectsLink = typeof githubProjectsLinks.$inferInsert;
 // projectId:itemNodeId:statusOptionId:action) is stamped for PROVENANCE only —
 // anti-double-spawn is the partial single-active-per-card unique index
 // `idx_gh_proposals_active_item` (see the mirror warning in the index list).
-export const githubProjectsProposals = pgTable("github_projects_proposals", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
-  linkId: text("link_id").notNull().references(() => githubProjectsLinks.id, { onDelete: "cascade" }),
-  itemNodeId: text("item_node_id").notNull(),
-  contentNodeId: text("content_node_id"),
-  statusOptionId: text("status_option_id").notNull(),
-  statusName: text("status_name").notNull().default(""),
-  action: text("action").notNull().$type<GithubProposalAction>(),
-  title: text("title").notNull().default(""),
-  ticketUrl: text("ticket_url"),
-  dedupeKey: text("dedupe_key").notNull(),
-  status: text("status").notNull().$type<GithubProposalStatus>().default("pending"),
-  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
-  agentRunId: text("agent_run_id"),
-  proposedAt: timestamp("proposed_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-  decidedAt: timestamp("decided_at", { withTimezone: true, mode: "date" }),
-  decidedByUserId: text("decided_by_user_id").references(() => users.id, { onDelete: "set null" }),
-  finishedAt: timestamp("finished_at", { withTimezone: true, mode: "date" }),
-  error: text("error"),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
-  // WARNING — drizzle-side MIRROR only (the extension_secrets pattern). The
-  // REAL index is the PARTIAL unique in src/db/migrate.ts:
-  //   CREATE UNIQUE INDEX idx_gh_proposals_active_item
-  //     ON github_projects_proposals(link_id, item_node_id)
-  //     WHERE status IN ('pending','approved','spawned','running')
-  // ≤1 ACTIVE proposal per card; terminal rows (done/failed/dismissed/
-  // cancelled) free the card so column re-entry re-triggers. Never push this
-  // table's DDL from drizzle-kit; migrate.ts is the source of truth (a
-  // drifted push that lost the WHERE would block re-triggers forever).
-  uniqueIndex("idx_gh_proposals_active_item")
-    .on(table.linkId, table.itemNodeId)
-    .where(sql`${table.status} IN ('pending','approved','spawned','running')`),
-  index("idx_gh_proposals_project_status").on(table.projectId, table.status),
-  index("idx_gh_proposals_link").on(table.linkId),
-  // Point lookups: findProposalByAgentRunId / findProposalByConversationId —
-  // previously unindexed seq-scans.
-  index("idx_gh_proposals_agent_run").on(table.agentRunId),
-  index("idx_gh_proposals_conversation").on(table.conversationId),
-]);
+export const githubProjectsProposals = pgTable(
+  "github_projects_proposals",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    projectId: text("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    linkId: text("link_id")
+      .notNull()
+      .references(() => githubProjectsLinks.id, { onDelete: "cascade" }),
+    itemNodeId: text("item_node_id").notNull(),
+    contentNodeId: text("content_node_id"),
+    statusOptionId: text("status_option_id").notNull(),
+    statusName: text("status_name").notNull().default(""),
+    action: text("action").notNull().$type<GithubProposalAction>(),
+    title: text("title").notNull().default(""),
+    ticketUrl: text("ticket_url"),
+    dedupeKey: text("dedupe_key").notNull(),
+    status: text("status").notNull().$type<GithubProposalStatus>().default("pending"),
+    conversationId: text("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
+    agentRunId: text("agent_run_id"),
+    proposedAt: timestamp("proposed_at", { withTimezone: true, mode: "date" })
+      .notNull()
+      .defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true, mode: "date" }),
+    decidedByUserId: text("decided_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    finishedAt: timestamp("finished_at", { withTimezone: true, mode: "date" }),
+    error: text("error"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    // WARNING — drizzle-side MIRROR only (the extension_secrets pattern). The
+    // REAL index is the PARTIAL unique in src/db/migrate.ts:
+    //   CREATE UNIQUE INDEX idx_gh_proposals_active_item
+    //     ON github_projects_proposals(link_id, item_node_id)
+    //     WHERE status IN ('pending','approved','spawned','running')
+    // ≤1 ACTIVE proposal per card; terminal rows (done/failed/dismissed/
+    // cancelled) free the card so column re-entry re-triggers. Never push this
+    // table's DDL from drizzle-kit; migrate.ts is the source of truth (a
+    // drifted push that lost the WHERE would block re-triggers forever).
+    uniqueIndex("idx_gh_proposals_active_item")
+      .on(table.linkId, table.itemNodeId)
+      .where(sql`${table.status} IN ('pending','approved','spawned','running')`),
+    index("idx_gh_proposals_project_status").on(table.projectId, table.status),
+    index("idx_gh_proposals_link").on(table.linkId),
+    // Point lookups: findProposalByAgentRunId / findProposalByConversationId —
+    // previously unindexed seq-scans.
+    index("idx_gh_proposals_agent_run").on(table.agentRunId),
+    index("idx_gh_proposals_conversation").on(table.conversationId),
+  ],
+);
 
 export type GithubProjectsProposal = typeof githubProjectsProposals.$inferSelect;
 export type NewGithubProjectsProposal = typeof githubProjectsProposals.$inferInsert;
@@ -2613,26 +3139,39 @@ export type NewGithubProjectsProposal = typeof githubProjectsProposals.$inferIns
 // (extension_id, project_id, user_id, name) is UNIQUE — the COALESCE-unique
 // form lives in the raw migration (src/db/migrations/add-extension-secrets.ts),
 // which is the source of truth for the FK + index.
-export const extensionSecrets = pgTable("extension_secrets", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  extensionId: text("extension_id").notNull().references(() => extensions.name, { onDelete: "cascade" }), // stores the stable slug, NOT the UUID id
-  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
-  userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  ciphertext: text("ciphertext").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-  lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
-  rotatedAt: timestamp("rotated_at", { withTimezone: true, mode: "date" }),
-}, (table) => [
-  // WARNING — drizzle-side MIRROR only. The REAL index is the COALESCE form
-  // in src/db/migrate.ts (`… ON extension_secrets (extension_id,
-  // COALESCE(project_id,''), COALESCE(user_id,''), name)`): a plain UNIQUE
-  // over nullable columns treats every NULL as distinct, so a `drizzle-kit
-  // push` from this definition would install a WEAKER index that allows
-  // duplicate global / project-scoped secrets. Never push this table's DDL
-  // from drizzle-kit; migrate.ts is the source of truth.
-  uniqueIndex("idx_extension_secrets_scope").on(table.extensionId, table.projectId, table.userId, table.name),
-]);
+export const extensionSecrets = pgTable(
+  "extension_secrets",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    extensionId: text("extension_id")
+      .notNull()
+      .references(() => extensions.name, { onDelete: "cascade" }), // stores the stable slug, NOT the UUID id
+    projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    ciphertext: text("ciphertext").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true, mode: "date" }),
+    rotatedAt: timestamp("rotated_at", { withTimezone: true, mode: "date" }),
+  },
+  (table) => [
+    // WARNING — drizzle-side MIRROR only. The REAL index is the COALESCE form
+    // in src/db/migrate.ts (`… ON extension_secrets (extension_id,
+    // COALESCE(project_id,''), COALESCE(user_id,''), name)`): a plain UNIQUE
+    // over nullable columns treats every NULL as distinct, so a `drizzle-kit
+    // push` from this definition would install a WEAKER index that allows
+    // duplicate global / project-scoped secrets. Never push this table's DDL
+    // from drizzle-kit; migrate.ts is the source of truth.
+    uniqueIndex("idx_extension_secrets_scope").on(
+      table.extensionId,
+      table.projectId,
+      table.userId,
+      table.name,
+    ),
+  ],
+);
 
 export type ExtensionSecret = typeof extensionSecrets.$inferSelect;
 export type NewExtensionSecret = typeof extensionSecrets.$inferInsert;
@@ -2650,26 +3189,40 @@ export type NewExtensionSecret = typeof extensionSecrets.$inferInsert;
 // `extensions.id` — the extension_secrets precedent. Admins hold every
 // scope implicitly and need no rows here; non-admin members are
 // deny-by-default (see src/auth/extension-rbac.ts).
-export const extensionRbacGrants = pgTable("extension_rbac_grants", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
-  extensionId: text("extension_id").references(() => extensions.name, { onDelete: "cascade" }), // stores the stable slug, NOT the UUID id
-  scopes: jsonb("scopes").notNull().$type<string[]>(),
-  grantedByUserId: text("granted_by_user_id").references(() => users.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
-}, (table) => [
-  // WARNING — drizzle-side MIRROR only. The REAL index is the COALESCE form
-  // in src/db/migrate.ts (`… ON extension_rbac_grants (user_id,
-  // COALESCE(project_id,''), COALESCE(extension_id,''))`): a plain UNIQUE
-  // over nullable columns treats every NULL as distinct, so a `drizzle-kit
-  // push` from this definition would install a WEAKER index that allows
-  // duplicate all-projects / all-extensions grant rows for the same user.
-  // Never push this table's DDL from drizzle-kit; migrate.ts is the source
-  // of truth.
-  uniqueIndex("idx_extension_rbac_grants_scope").on(table.userId, table.projectId, table.extensionId),
-]);
+export const extensionRbacGrants = pgTable(
+  "extension_rbac_grants",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    extensionId: text("extension_id").references(() => extensions.name, { onDelete: "cascade" }), // stores the stable slug, NOT the UUID id
+    scopes: jsonb("scopes").notNull().$type<string[]>(),
+    grantedByUserId: text("granted_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+  },
+  (table) => [
+    // WARNING — drizzle-side MIRROR only. The REAL index is the COALESCE form
+    // in src/db/migrate.ts (`… ON extension_rbac_grants (user_id,
+    // COALESCE(project_id,''), COALESCE(extension_id,''))`): a plain UNIQUE
+    // over nullable columns treats every NULL as distinct, so a `drizzle-kit
+    // push` from this definition would install a WEAKER index that allows
+    // duplicate all-projects / all-extensions grant rows for the same user.
+    // Never push this table's DDL from drizzle-kit; migrate.ts is the source
+    // of truth.
+    uniqueIndex("idx_extension_rbac_grants_scope").on(
+      table.userId,
+      table.projectId,
+      table.extensionId,
+    ),
+  ],
+);
 
 export type ExtensionRbacGrant = typeof extensionRbacGrants.$inferSelect;
 export type NewExtensionRbacGrant = typeof extensionRbacGrants.$inferInsert;
@@ -2712,21 +3265,31 @@ export type NewContextType = typeof contextTypes.$inferInsert;
  * (stable pill ids), missing labels are deleted, new labels are inserted.
  * The `(conversation_id, lower(label))` unique index lives in migrate.ts.
  */
-export const conversationTopics = pgTable("conversation_topics", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  conversationId: text("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
-  label: text("label").notNull(),
-  typeId: text("type_id").notNull().references(() => contextTypes.id, { onDelete: "restrict" }),
-  /** Anchor message ids this topic is relevant to (subset of the
-   *  conversation's real message ids, validated server-side). */
-  messageIds: jsonb("message_ids").notNull().$type<string[]>().default([]),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_conversation_topics_conversation").on(table.conversationId),
-  // The `(conversation_id, lower(label))` UNIQUE index is declared in
-  // migrate.ts — drizzle has no portable functional-index helper.
-]);
+export const conversationTopics = pgTable(
+  "conversation_topics",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    conversationId: text("conversation_id")
+      .notNull()
+      .references(() => conversations.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    typeId: text("type_id")
+      .notNull()
+      .references(() => contextTypes.id, { onDelete: "restrict" }),
+    /** Anchor message ids this topic is relevant to (subset of the
+     *  conversation's real message ids, validated server-side). */
+    messageIds: jsonb("message_ids").notNull().$type<string[]>().default([]),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_conversation_topics_conversation").on(table.conversationId),
+    // The `(conversation_id, lower(label))` UNIQUE index is declared in
+    // migrate.ts — drizzle has no portable functional-index helper.
+  ],
+);
 
 export type ConversationTopic = typeof conversationTopics.$inferSelect;
 export type NewConversationTopic = typeof conversationTopics.$inferInsert;
@@ -2737,7 +3300,9 @@ export type NewConversationTopic = typeof conversationTopics.$inferInsert;
  * refresh label without re-running detection.
  */
 export const conversationTopicState = pgTable("conversation_topic_state", {
-  conversationId: text("conversation_id").primaryKey().references(() => conversations.id, { onDelete: "cascade" }),
+  conversationId: text("conversation_id")
+    .primaryKey()
+    .references(() => conversations.id, { onDelete: "cascade" }),
   lastMessageId: text("last_message_id"),
   messageCount: integer("message_count").notNull().default(0),
   model: text("model"),
@@ -2757,30 +3322,46 @@ export type NewConversationTopicState = typeof conversationTopicState.$inferInse
  * `conversation_id` is ON DELETE SET NULL so deleting a conversation keeps
  * the saved snapshot but severs the (now-dangling) back-reference.
  */
-export const savedContexts = pgTable("saved_contexts", {
-  id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
-  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
-  conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
-  topicLabel: text("topic_label").notNull(),
-  typeId: text("type_id").notNull().references(() => contextTypes.id, { onDelete: "restrict" }),
-  title: text("title").notNull(),
-  content: text("content").notNull(),
-  model: text("model"),
-  messageCount: integer("message_count").notNull().default(0),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("idx_saved_contexts_user_created").on(table.userId, table.createdAt.desc()),
-  index("idx_saved_contexts_project").on(table.projectId),
-  index("idx_saved_contexts_type").on(table.typeId),
-  // Plain composite UNIQUE (all columns NOT NULL at insert time — extract
-  // always runs on a real conversation), so drizzle can own it directly
-  // and `upsertSavedContext` can target it with onConflictDoUpdate. The
-  // conversation_id → NULL transition only happens on conversation delete,
-  // long after the upsert window.
-  uniqueIndex("idx_saved_contexts_unique").on(table.userId, table.conversationId, table.topicLabel),
-]);
+export const savedContexts = pgTable(
+  "saved_contexts",
+  {
+    id: text("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    projectId: text("project_id").references(() => projects.id, { onDelete: "cascade" }),
+    conversationId: text("conversation_id").references(() => conversations.id, {
+      onDelete: "set null",
+    }),
+    topicLabel: text("topic_label").notNull(),
+    typeId: text("type_id")
+      .notNull()
+      .references(() => contextTypes.id, { onDelete: "restrict" }),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    model: text("model"),
+    messageCount: integer("message_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("idx_saved_contexts_user_created").on(table.userId, table.createdAt.desc()),
+    index("idx_saved_contexts_project").on(table.projectId),
+    index("idx_saved_contexts_type").on(table.typeId),
+    // Plain composite UNIQUE (all columns NOT NULL at insert time — extract
+    // always runs on a real conversation), so drizzle can own it directly
+    // and `upsertSavedContext` can target it with onConflictDoUpdate. The
+    // conversation_id → NULL transition only happens on conversation delete,
+    // long after the upsert window.
+    uniqueIndex("idx_saved_contexts_unique").on(
+      table.userId,
+      table.conversationId,
+      table.topicLabel,
+    ),
+  ],
+);
 
 export type SavedContext = typeof savedContexts.$inferSelect;
 export type NewSavedContext = typeof savedContexts.$inferInsert;

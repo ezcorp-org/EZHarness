@@ -174,10 +174,7 @@ export async function createPreviewSession(data: {
  */
 export async function getPreviewByIdRaw(id: string): Promise<PreviewSession | undefined> {
   if (!id || !isValidPreviewId(id)) return undefined;
-  const rows = await getDb()
-    .select()
-    .from(previewSessions)
-    .where(eq(previewSessions.id, id));
+  const rows = await getDb().select().from(previewSessions).where(eq(previewSessions.id, id));
   return rows[0];
 }
 
@@ -224,11 +221,13 @@ export async function touchPreview(
   const rows = await getDb()
     .update(previewSessions)
     .set({ lastSeenAt: now })
-    .where(and(
-      eq(previewSessions.id, id),
-      eq(previewSessions.userId, userId),
-      eq(previewSessions.status, "active"),
-    ))
+    .where(
+      and(
+        eq(previewSessions.id, id),
+        eq(previewSessions.userId, userId),
+        eq(previewSessions.status, "active"),
+      ),
+    )
     .returning();
   return rows[0];
 }
@@ -279,10 +278,7 @@ export async function sweepExpiredPreviews(now: Date = new Date()): Promise<numb
   const rows = await getDb()
     .update(previewSessions)
     .set({ status: "expired" })
-    .where(and(
-      eq(previewSessions.status, "active"),
-      lt(previewSessions.expiresAt, now),
-    ))
+    .where(and(eq(previewSessions.status, "active"), lt(previewSessions.expiresAt, now)))
     .returning({ id: previewSessions.id });
   return rows.length;
 }
@@ -314,10 +310,9 @@ export async function reapPreviewIdsForConversation(
   const rows = await getDb()
     .update(previewSessions)
     .set({ status: "revoked", revokedAt: now })
-    .where(and(
-      eq(previewSessions.conversationId, conversationId),
-      eq(previewSessions.status, "active"),
-    ))
+    .where(
+      and(eq(previewSessions.conversationId, conversationId), eq(previewSessions.status, "active")),
+    )
     .returning({ id: previewSessions.id });
   return rows.map((r: { id: string }) => r.id);
 }
@@ -334,10 +329,12 @@ export async function countActivePreviewsForUser(
   const rows = await getDb()
     .select({ id: previewSessions.id })
     .from(previewSessions)
-    .where(and(
-      eq(previewSessions.userId, userId),
-      eq(previewSessions.status, "active"),
-      gt(previewSessions.expiresAt, now),
-    ));
+    .where(
+      and(
+        eq(previewSessions.userId, userId),
+        eq(previewSessions.status, "active"),
+        gt(previewSessions.expiresAt, now),
+      ),
+    );
   return rows.length;
 }

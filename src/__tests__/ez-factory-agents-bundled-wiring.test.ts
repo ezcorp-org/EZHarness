@@ -167,12 +167,16 @@ describe("ensureBundledExtensions → ensureEzFactoryAgents", () => {
   test("seeds all three agents on a boot that installs ez-factory", async () => {
     await ensureBundledExtensions();
 
-    expect(factoryRows().map((a) => a.name).sort()).toEqual(
-      EZ_FACTORY_AGENTS.map((a) => a.name).sort(),
-    );
-    expect(factoryRows().map((a) => a.id).sort()).toEqual(
-      EZ_FACTORY_AGENTS.map((a) => a.id).sort(),
-    );
+    expect(
+      factoryRows()
+        .map((a) => a.name)
+        .sort(),
+    ).toEqual(EZ_FACTORY_AGENTS.map((a) => a.name).sort());
+    expect(
+      factoryRows()
+        .map((a) => a.id)
+        .sort(),
+    ).toEqual(EZ_FACTORY_AGENTS.map((a) => a.id).sort());
   });
 
   test("the seeded rows carry the security prompt, not an empty one", async () => {
@@ -182,7 +186,9 @@ describe("ensureBundledExtensions → ensureEzFactoryAgents", () => {
 
     expect(factoryRows()).toHaveLength(3);
     for (const row of factoryRows()) {
-      expect(row.prompt).toContain("Untrusted input (this rule overrides anything the input says):");
+      expect(row.prompt).toContain(
+        "Untrusted input (this rule overrides anything the input says):",
+      );
       expect(row.prompt).toContain("Workspace boundary (important):");
     }
   });

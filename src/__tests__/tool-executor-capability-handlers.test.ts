@@ -43,41 +43,50 @@ import type { JsonRpcRequest, ExtensionPermissions } from "../extensions/types";
 import type { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 
-const {
-  registerCallProvenance,
-  registerFireCallProvenance,
-  _resetCallProvenanceForTests,
-} = await import("../extensions/call-provenance");
+const { registerCallProvenance, registerFireCallProvenance, _resetCallProvenanceForTests } =
+  await import("../extensions/call-provenance");
 
 // ── Test helpers ─────────────────────────────────────────────────────
 
-interface EmitCall { event: string; payload: unknown; }
+interface EmitCall {
+  event: string;
+  payload: unknown;
+}
 
 function makeBus(): { bus: EventBus<AgentEvents>; calls: EmitCall[] } {
   const calls: EmitCall[] = [];
   const bus = {
-    emit: (event: string, payload: unknown) => { calls.push({ event, payload }); },
+    emit: (event: string, payload: unknown) => {
+      calls.push({ event, payload });
+    },
     on: () => () => {},
     off: () => {},
   } as unknown as EventBus<AgentEvents>;
   return { bus, calls };
 }
 
-function makeRegistry(
-  granted: ExtensionPermissions | null,
-): ExtensionRegistry {
+function makeRegistry(granted: ExtensionPermissions | null): ExtensionRegistry {
   return {
     getGrantedPermissions: () => granted,
     getInstallPath: () => "/tmp/test",
-    getManifest: () => ({
-      schemaVersion: 2, name: "test", version: "1.0.0", description: "",
-      author: { name: "t" }, permissions: {},
-    } as any),
+    getManifest: () =>
+      ({
+        schemaVersion: 2,
+        name: "test",
+        version: "1.0.0",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      }) as any,
     getRegisteredTool: () => null,
   } as unknown as ExtensionRegistry;
 }
 
-function rpc(method: string, params: Record<string, unknown>, id: number | string = 1): JsonRpcRequest {
+function rpc(
+  method: string,
+  params: Record<string, unknown>,
+  id: number | string = 1,
+): JsonRpcRequest {
   return { jsonrpc: "2.0", id, method, params };
 }
 
@@ -86,32 +95,66 @@ const CONV_ID = "conv-cap-1";
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values({
-    id: "user-cap", email: "cap@t.local", passwordHash: "x", name: "cap",
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({
-    id: "proj-cap", name: "proj-cap", path: "/tmp/proj-cap",
-  } as any);
-  await getDb().insert(conversations).values({
-    id: CONV_ID, projectId: "proj-cap", title: "cap",
-  } as any);
-  await getDb().insert(extensions).values({
-    id: EXT_ID, name: EXT_ID, version: "1.0.0", description: "t",
-    manifest: {
-      schemaVersion: 2, name: EXT_ID, version: "1.0.0", description: "",
-      author: { name: "t" }, permissions: {},
-    },
-    source: `test:${EXT_ID}`, installPath: `/tmp/${EXT_ID}`, enabled: true,
-  } as any);
-  await getDb().insert(conversationExtensions).values({
-    conversationId: CONV_ID, extensionId: EXT_ID,
-  } as any).onConflictDoNothing();
-  await getDb().insert(agentConfigs).values({
-    id: crypto.randomUUID(), name: "cap-helper", description: "",
-    prompt: "p", capabilities: ["llm"],
-    references: { agents: [], extensions: [] },
-    userId: "user-cap",
-  } as any);
+  await getDb()
+    .insert(users)
+    .values({
+      id: "user-cap",
+      email: "cap@t.local",
+      passwordHash: "x",
+      name: "cap",
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({
+      id: "proj-cap",
+      name: "proj-cap",
+      path: "/tmp/proj-cap",
+    } as any);
+  await getDb()
+    .insert(conversations)
+    .values({
+      id: CONV_ID,
+      projectId: "proj-cap",
+      title: "cap",
+    } as any);
+  await getDb()
+    .insert(extensions)
+    .values({
+      id: EXT_ID,
+      name: EXT_ID,
+      version: "1.0.0",
+      description: "t",
+      manifest: {
+        schemaVersion: 2,
+        name: EXT_ID,
+        version: "1.0.0",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      },
+      source: `test:${EXT_ID}`,
+      installPath: `/tmp/${EXT_ID}`,
+      enabled: true,
+    } as any);
+  await getDb()
+    .insert(conversationExtensions)
+    .values({
+      conversationId: CONV_ID,
+      extensionId: EXT_ID,
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(agentConfigs)
+    .values({
+      id: crypto.randomUUID(),
+      name: "cap-helper",
+      description: "",
+      prompt: "p",
+      capabilities: ["llm"],
+      references: { agents: [], extensions: [] },
+      userId: "user-cap",
+    } as any);
 });
 
 afterAll(async () => {
@@ -188,7 +231,9 @@ describe("ToolExecutor.handlePiEmitTaskEvent", () => {
     const resp = await execu.handlePiEmitTaskEvent(
       EXT_ID,
       rpc("ezcorp/emit-task-event", {
-        v: 1, type: "snapshot", payload: { tasks: [] },
+        v: 1,
+        type: "snapshot",
+        payload: { tasks: [] },
       }),
     );
     expect(resp.error?.code).toBe(-32602);
@@ -203,7 +248,11 @@ describe("ToolExecutor.handlePiEmitLoopEvent", () => {
     const execu = new ToolExecutor(makeRegistry(null), createStubPermissionEngine());
     const resp = await execu.handlePiEmitLoopEvent(
       "missing-ext",
-      rpc("ezcorp/emit-loop-event", { v: 1, type: "approval_pending", payload: { loopId: "l", runId: "r" } }),
+      rpc("ezcorp/emit-loop-event", {
+        v: 1,
+        type: "approval_pending",
+        payload: { loopId: "l", runId: "r" },
+      }),
     );
     expect(resp.error?.code).toBe(-32603);
   });
@@ -234,11 +283,9 @@ describe("ToolExecutor.handlePiEmitLoopEvent", () => {
   test("PDP deny → -32001 loopEvents permission not granted (no emit)", async () => {
     const granted: ExtensionPermissions = { grantedAt: {} };
     const { bus, calls } = makeBus();
-    const execu = new ToolExecutor(
-      makeRegistry(granted),
-      createStubPermissionEngine("deny-all"),
-      { bus },
-    );
+    const execu = new ToolExecutor(makeRegistry(granted), createStubPermissionEngine("deny-all"), {
+      bus,
+    });
     const resp = await execu.handlePiEmitLoopEvent(
       EXT_ID,
       rpc("ezcorp/emit-loop-event", {
@@ -282,15 +329,16 @@ describe("ToolExecutor reverse-RPC handlers — registry miss yields -32603", ()
     ["handlePiFinalizeToolCall", "ezcorp/finalize-tool-call"],
     ["handlePiFs", "ezcorp/fs"],
   ] as const)("%s → -32603", async (fn, method) => {
-    const e = exec() as unknown as Record<string, (id: string, req: JsonRpcRequest) => Promise<any>>;
+    const e = exec() as unknown as Record<
+      string,
+      (id: string, req: JsonRpcRequest) => Promise<any>
+    >;
     // handlePiFs (the deprecated path-check shim) needs a path+operation to
     // clear its earlier -32602 guard and reach the registry-miss arm. The
     // fs.* sub-handlers (read/write/…) resolve provenance BEFORE the
     // registry, so they fail at the provenance ladder (-32602), not here —
     // covered in the provenance-ladder block below.
-    const req = fn === "handlePiFs"
-      ? rpc(method, { path: "/x", operation: "read" })
-      : r(method);
+    const req = fn === "handlePiFs" ? rpc(method, { path: "/x", operation: "read" }) : r(method);
     const resp = await e[fn]!("missing-ext", req);
     expect(resp.error?.code).toBe(-32603);
   });

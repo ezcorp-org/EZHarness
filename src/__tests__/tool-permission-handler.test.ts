@@ -57,9 +57,7 @@ const resolvePermissionCalls: Array<{
   scope: unknown;
   options: unknown;
 }> = [];
-const getPendingApprovalConversationMock = mock(
-  (_toolCallId: string): string | null => null,
-);
+const getPendingApprovalConversationMock = mock((_toolCallId: string): string | null => null);
 
 mock.module("../runtime/tools/permissions", () => ({
   resolvePermission: (

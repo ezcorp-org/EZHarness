@@ -37,9 +37,7 @@
  */
 import { logger } from "../logger";
 import { getDb } from "../db/connection";
-import {
-  extensionSchedules, extensionScheduleFires, extensions,
-} from "../db/schema";
+import { extensionSchedules, extensionScheduleFires, extensions } from "../db/schema";
 import { eq, and, lte, gte } from "drizzle-orm";
 import { parseCron } from "./cron";
 import type { ExtensionRegistry } from "./registry";
@@ -159,7 +157,9 @@ function envelopeFrom(
 }
 
 export class ScheduleDaemon {
-  private readonly opts: Required<Omit<ScheduleDaemonOptions, "registry" | "now" | "skipLockfile" | "lockfilePath" | "random">> & {
+  private readonly opts: Required<
+    Omit<ScheduleDaemonOptions, "registry" | "now" | "skipLockfile" | "lockfilePath" | "random">
+  > & {
     now: () => Date;
     skipLockfile: boolean;
     lockfilePath: string;
@@ -235,13 +235,15 @@ export class ScheduleDaemon {
     // against a sibling daemon that exited mid-tick — those rows count
     // toward the cap until they get reaped on a later cycle).
     try {
-      const live = await getDb().select({
-        scheduleId: extensionScheduleFires.scheduleId,
-      })
+      const live = await getDb()
+        .select({
+          scheduleId: extensionScheduleFires.scheduleId,
+        })
         .from(extensionScheduleFires)
         .where(eq(extensionScheduleFires.status, "running"));
       for (const row of live) {
-        const sched = await getDb().select({ extensionId: extensionSchedules.extensionId })
+        const sched = await getDb()
+          .select({ extensionId: extensionSchedules.extensionId })
           .from(extensionSchedules)
           .where(eq(extensionSchedules.id, row.scheduleId));
         const extId = sched[0]?.extensionId;
@@ -293,10 +295,11 @@ export class ScheduleDaemon {
     // instances sharing one external Postgres — it replaces `FOR UPDATE
     // SKIP LOCKED` (which PGlite doesn't honor identically) with a form
     // that is correct on both drivers.
-    const due = await db.select().from(extensionSchedules).where(and(
-      eq(extensionSchedules.enabled, true),
-      lte(extensionSchedules.nextFireAt, now),
-    )).limit(100);
+    const due = await db
+      .select()
+      .from(extensionSchedules)
+      .where(and(eq(extensionSchedules.enabled, true), lte(extensionSchedules.nextFireAt, now)))
+      .limit(100);
 
     let claimed = 0;
     let dispatched = 0;
@@ -312,8 +315,8 @@ export class ScheduleDaemon {
       // (cross-tick) AND the per-tick claim counters (intra-tick).
       const liveHost = this.inFlightHost + tickClaimsHost;
       if (liveHost >= this.opts.maxConcurrentHost) break;
-      const liveExt = (this.inFlight.get(row.extensionId) ?? 0)
-        + (tickClaimsByExt.get(row.extensionId) ?? 0);
+      const liveExt =
+        (this.inFlight.get(row.extensionId) ?? 0) + (tickClaimsByExt.get(row.extensionId) ?? 0);
       if (liveExt >= this.opts.maxConcurrentPerExt) continue;
 
       const grant = await this.readGrant(row.extensionId);
@@ -337,7 +340,11 @@ export class ScheduleDaemon {
         const keyCount = await todaysFireCountForSchedule(row.id, now);
         if (keyCount >= row.maxRunsPerDay) {
           await this.auditQuotaExceeded(
-            row.extensionId, row.id, keyCount, row.maxRunsPerDay, row.key,
+            row.extensionId,
+            row.id,
+            keyCount,
+            row.maxRunsPerDay,
+            row.key,
           );
           this.advancePastQuota(row, tz, now);
           continue;
@@ -351,7 +358,11 @@ export class ScheduleDaemon {
         // Name the KEY on a dynamic row, so the job that was refused is
         // identifiable rather than just "something under this extension".
         await this.auditQuotaExceeded(
-          row.extensionId, row.id, dailyCount, grant.maxRunsPerDay, row.key,
+          row.extensionId,
+          row.id,
+          dailyCount,
+          grant.maxRunsPerDay,
+          row.key,
         );
         this.advancePastQuota(row, tz, now);
         continue;
@@ -361,9 +372,7 @@ export class ScheduleDaemon {
         const nextNext = parseCron(row.cron, tz).next(now);
         // Determine catch-up (and apply jitter).
         const isCatchUp = row.nextFireAt.getTime() < now.getTime() - 60_000;
-        const jitterMs = isCatchUp
-          ? Math.floor(this.opts.random() * this.opts.catchUpJitterMs)
-          : 0;
+        const jitterMs = isCatchUp ? Math.floor(this.opts.random() * this.opts.catchUpJitterMs) : 0;
         const firedAt = jitterMs > 0 ? new Date(now.getTime() + jitterMs) : now;
 
         // Compare-and-swap claim (the multi-instance double-fire guard the
@@ -374,25 +383,32 @@ export class ScheduleDaemon {
         // BOTH drivers (no `FOR UPDATE SKIP LOCKED`, which PGlite doesn't honor
         // the same way) and is the claim boundary: only after winning do we
         // insert the fire row and dispatch, so a lost race never double-fires.
-        const claimedRows = await db.update(extensionSchedules)
+        const claimedRows = await db
+          .update(extensionSchedules)
           .set({ nextFireAt: nextNext, updatedAt: now })
-          .where(and(
-            eq(extensionSchedules.id, row.id),
-            eq(extensionSchedules.nextFireAt, row.nextFireAt),
-          ))
+          .where(
+            and(
+              eq(extensionSchedules.id, row.id),
+              eq(extensionSchedules.nextFireAt, row.nextFireAt),
+            ),
+          )
           .returning({ id: extensionSchedules.id });
         if (claimedRows.length === 0) continue; // lost the race — another instance claimed it
 
         // Won the claim: record the fire row (status=running) + backfill the
         // schedule's last-fire pointer (next_fire_at already advanced above).
-        const [fire] = await db.insert(extensionScheduleFires).values({
-          scheduleId: row.id,
-          scheduledAt: row.nextFireAt,
-          firedAt,
-          status: "running",
-          catchUp: isCatchUp,
-        }).returning();
-        await db.update(extensionSchedules)
+        const [fire] = await db
+          .insert(extensionScheduleFires)
+          .values({
+            scheduleId: row.id,
+            scheduledAt: row.nextFireAt,
+            firedAt,
+            status: "running",
+            catchUp: isCatchUp,
+          })
+          .returning();
+        await db
+          .update(extensionSchedules)
           .set({ lastFireAt: firedAt, lastFireId: fire!.id })
           .where(eq(extensionSchedules.id, row.id));
         claimed++;
@@ -429,7 +445,10 @@ export class ScheduleDaemon {
   /** Drive a `Schedule.fireNow()` from the host handler. Counts
    *  against `maxRunsPerDay`. Returns `{ ok, fireId? }` or
    *  `{ ok: false, reason }`. */
-  async fireNow(extensionId: string, cron: string): Promise<{ ok: true; fireId: string } | { ok: false; reason: string }> {
+  async fireNow(
+    extensionId: string,
+    cron: string,
+  ): Promise<{ ok: true; fireId: string } | { ok: false; reason: string }> {
     // Global loops kill switch: refuse manual cron-fire triggers too.
     if (await loopsKillSwitchEngaged()) {
       return { ok: false, reason: "loops-suspended" };
@@ -439,10 +458,12 @@ export class ScheduleDaemon {
     // Manifest validation: cron must be in the extension's
     // `extension_schedules` registrations (the reconciler has
     // already pushed these from the manifest).
-    const sched = await db.select().from(extensionSchedules).where(and(
-      eq(extensionSchedules.extensionId, extensionId),
-      eq(extensionSchedules.cron, cron),
-    ));
+    const sched = await db
+      .select()
+      .from(extensionSchedules)
+      .where(
+        and(eq(extensionSchedules.extensionId, extensionId), eq(extensionSchedules.cron, cron)),
+      );
     if (sched.length === 0) return { ok: false, reason: "cron-not-declared" };
     const row = sched[0]!;
     if (!row.enabled) return { ok: false, reason: "schedule-disabled" };
@@ -454,18 +475,29 @@ export class ScheduleDaemon {
     }
 
     // Insert pending fire row + dispatch immediately.
-    const [fire] = await db.insert(extensionScheduleFires).values({
-      scheduleId: row.id,
-      scheduledAt: now,
-      firedAt: now,
-      status: "running",
-      catchUp: false,
-    }).returning();
+    const [fire] = await db
+      .insert(extensionScheduleFires)
+      .values({
+        scheduleId: row.id,
+        scheduledAt: now,
+        firedAt: now,
+        status: "running",
+        catchUp: false,
+      })
+      .returning();
 
     this.inFlightHost++;
     this.inFlight.set(extensionId, (this.inFlight.get(extensionId) ?? 0) + 1);
 
-    await this.dispatchFire(row, fire!.id, now, false, 0, grant.maxRunDurationMs, /* fireNow */ true);
+    await this.dispatchFire(
+      row,
+      fire!.id,
+      now,
+      false,
+      0,
+      grant.maxRunDurationMs,
+      /* fireNow */ true,
+    );
     return { ok: true, fireId: fire!.id };
   }
 
@@ -500,15 +532,18 @@ export class ScheduleDaemon {
         // that runs immediately after this fire-and-forget send, so releasing
         // there would reap the token BEFORE the subprocess's reverse-RPC
         // arrives — re-introducing the exact `-32602` this phase fixes.
-        const ezCallId = registerFireCallProvenance({
-          onBehalfOf: null,
-          conversationId: null,
-          runId: null,
-          parentCallId: null,
-          actorExtensionId: schedule.extensionId,
-          kind: "schedule",
-          ownerless: true,
-        }, { autoReleaseMs: maxRunDurationMs });
+        const ezCallId = registerFireCallProvenance(
+          {
+            onBehalfOf: null,
+            conversationId: null,
+            runId: null,
+            parentCallId: null,
+            actorExtensionId: schedule.extensionId,
+            kind: "schedule",
+            ownerless: true,
+          },
+          { autoReleaseMs: maxRunDurationMs },
+        );
         log.info(
           "scheduled cron fire has no resolvable owner — owner-scoped capability calls will be skipped (clean soft-fail); global-scope storage still resolves",
           { extensionId: schedule.extensionId, cron: schedule.cron, fireId },
@@ -555,7 +590,13 @@ export class ScheduleDaemon {
             null,
             EXT_AUDIT_ACTIONS.SDK_SCHEDULE_FIRE_NOW,
             schedule.extensionId,
-            { capability: "schedule", oldValue: undefined, newValue: schedule.cron, actor: "system", reason: "fire-now invocation" },
+            {
+              capability: "schedule",
+              oldValue: undefined,
+              newValue: schedule.cron,
+              actor: "system",
+              reason: "fire-now invocation",
+            },
           ).catch(() => {});
         }
         await completion("ok");
@@ -597,7 +638,8 @@ export class ScheduleDaemon {
     );
     const db = getDb();
     const durationMs = this.opts.now().getTime() - firedAt.getTime();
-    await db.update(extensionScheduleFires)
+    await db
+      .update(extensionScheduleFires)
       .set({ status: "error", durationMs, error: `undispatched: ${reason}` })
       .where(eq(extensionScheduleFires.id, fireId));
     const cur = this.inFlight.get(schedule.extensionId) ?? 0;
@@ -614,11 +656,13 @@ export class ScheduleDaemon {
   ): Promise<void> {
     const db = getDb();
     const durationMs = this.opts.now().getTime() - firedAt.getTime();
-    await db.update(extensionScheduleFires)
+    await db
+      .update(extensionScheduleFires)
       .set({ status, durationMs, ...(error !== undefined ? { error } : {}) })
       .where(eq(extensionScheduleFires.id, fireId));
     if (status === "ok") {
-      await db.update(extensionSchedules)
+      await db
+        .update(extensionSchedules)
         .set({ lastFireStatus: "ok", consecutiveErrors: 0 })
         .where(eq(extensionSchedules.id, schedule.id));
     }
@@ -641,7 +685,8 @@ export class ScheduleDaemon {
     if (attempt < grant.maxRetries) {
       // Schedule a retry — leave the existing fire as `error` and
       // synthesize a new attempt row.
-      await db.update(extensionScheduleFires)
+      await db
+        .update(extensionScheduleFires)
         .set({ status: "error", error: errMsg })
         .where(eq(extensionScheduleFires.id, fireId));
       // Decrement counters before the retry so the cap doesn't double-count.
@@ -650,22 +695,33 @@ export class ScheduleDaemon {
       if (this.inFlightHost > 0) this.inFlightHost--;
 
       const retryFiredAt = this.opts.now();
-      const [retryFire] = await db.insert(extensionScheduleFires).values({
-        scheduleId: schedule.id,
-        scheduledAt: schedule.nextFireAt,
-        firedAt: retryFiredAt,
-        status: "running",
-        attempt: attempt + 1,
-        catchUp: false,
-      }).returning();
+      const [retryFire] = await db
+        .insert(extensionScheduleFires)
+        .values({
+          scheduleId: schedule.id,
+          scheduledAt: schedule.nextFireAt,
+          firedAt: retryFiredAt,
+          status: "running",
+          attempt: attempt + 1,
+          catchUp: false,
+        })
+        .returning();
       this.inFlightHost++;
       this.inFlight.set(schedule.extensionId, (this.inFlight.get(schedule.extensionId) ?? 0) + 1);
-      await this.dispatchFire(schedule, retryFire!.id, retryFiredAt, false, attempt + 1, grant.maxRunDurationMs);
+      await this.dispatchFire(
+        schedule,
+        retryFire!.id,
+        retryFiredAt,
+        false,
+        attempt + 1,
+        grant.maxRunDurationMs,
+      );
       return;
     }
 
     // No more retries — mark error + bump consecutive count.
-    await db.update(extensionScheduleFires)
+    await db
+      .update(extensionScheduleFires)
       .set({ status: "error", error: errMsg })
       .where(eq(extensionScheduleFires.id, fireId));
 
@@ -674,7 +730,8 @@ export class ScheduleDaemon {
     if (this.inFlightHost > 0) this.inFlightHost--;
 
     const newCount = (schedule.consecutiveErrors ?? 0) + 1;
-    await db.update(extensionSchedules)
+    await db
+      .update(extensionSchedules)
       .set({
         consecutiveErrors: newCount,
         lastFireStatus: "error",
@@ -683,18 +740,13 @@ export class ScheduleDaemon {
       .where(eq(extensionSchedules.id, schedule.id));
 
     if (newCount >= AUTO_DISABLE_AFTER) {
-      await insertAuditEntry(
-        null,
-        EXT_AUDIT_ACTIONS.SDK_SCHEDULE_DISABLED,
-        schedule.extensionId,
-        {
-          capability: "schedule",
-          oldValue: { enabled: true },
-          newValue: { enabled: false, consecutiveErrors: newCount },
-          actor: "system",
-          reason: `Auto-disabled after ${newCount} consecutive errors`,
-        },
-      ).catch(() => {});
+      await insertAuditEntry(null, EXT_AUDIT_ACTIONS.SDK_SCHEDULE_DISABLED, schedule.extensionId, {
+        capability: "schedule",
+        oldValue: { enabled: true },
+        newValue: { enabled: false, consecutiveErrors: newCount },
+        actor: "system",
+        reason: `Auto-disabled after ${newCount} consecutive errors`,
+      }).catch(() => {});
     }
   }
 
@@ -726,7 +778,8 @@ export class ScheduleDaemon {
     // host can still enforce per-extension caps even in daemon-only
     // configurations (e.g. background reconciler).
     try {
-      const rows = await getDb().select({ granted: extensions.grantedPermissions })
+      const rows = await getDb()
+        .select({ granted: extensions.grantedPermissions })
         .from(extensions)
         .where(eq(extensions.id, extensionId));
       const granted = rows[0]?.granted as StoredScheduleGrant | undefined;
@@ -755,13 +808,16 @@ export class ScheduleDaemon {
   private async todaysFireCount(extensionId: string): Promise<number> {
     const startOfDay = new Date(this.opts.now());
     startOfDay.setUTCHours(0, 0, 0, 0);
-    const rows = await getDb().select({ id: extensionScheduleFires.id })
+    const rows = await getDb()
+      .select({ id: extensionScheduleFires.id })
       .from(extensionScheduleFires)
       .innerJoin(extensionSchedules, eq(extensionScheduleFires.scheduleId, extensionSchedules.id))
-      .where(and(
-        eq(extensionSchedules.extensionId, extensionId),
-        gte(extensionScheduleFires.firedAt, startOfDay),
-      ));
+      .where(
+        and(
+          eq(extensionSchedules.extensionId, extensionId),
+          gte(extensionScheduleFires.firedAt, startOfDay),
+        ),
+      );
     return rows.length;
   }
 
@@ -772,21 +828,16 @@ export class ScheduleDaemon {
     cap: number,
     key?: string | null,
   ): Promise<void> {
-    await insertAuditEntry(
-      null,
-      EXT_AUDIT_ACTIONS.SDK_SCHEDULE_QUOTA_EXCEEDED,
-      extensionId,
-      {
-        capability: "schedule",
-        oldValue: { used },
-        // The KEY is what makes a starved dynamic job diagnosable — without
-        // it the operator sees only that "something under this extension"
-        // hit the cap.
-        newValue: { cap, scheduleId, ...(key ? { key } : {}) },
-        actor: "system",
-        reason: `maxRunsPerDay exceeded (${used}/${cap})`,
-      },
-    ).catch(() => {});
+    await insertAuditEntry(null, EXT_AUDIT_ACTIONS.SDK_SCHEDULE_QUOTA_EXCEEDED, extensionId, {
+      capability: "schedule",
+      oldValue: { used },
+      // The KEY is what makes a starved dynamic job diagnosable — without
+      // it the operator sees only that "something under this extension"
+      // hit the cap.
+      newValue: { cap, scheduleId, ...(key ? { key } : {}) },
+      actor: "system",
+      reason: `maxRunsPerDay exceeded (${used}/${cap})`,
+    }).catch(() => {});
   }
 
   /** Advance `next_fire_at` past a quota-refused slot so the row is not
@@ -799,7 +850,8 @@ export class ScheduleDaemon {
   ): void {
     try {
       const next = parseCron(row.cron, tz).next(now);
-      void getDb().update(extensionSchedules)
+      void getDb()
+        .update(extensionSchedules)
         .set({ nextFireAt: next, updatedAt: now })
         .where(eq(extensionSchedules.id, row.id))
         .catch((err: unknown) => {
@@ -818,16 +870,19 @@ export class ScheduleDaemon {
   private async reapCrashedFires(): Promise<void> {
     const db = getDb();
     const now = this.opts.now();
-    const live = await db.select({
-      fireId: extensionScheduleFires.id,
-      scheduleId: extensionScheduleFires.scheduleId,
-      firedAt: extensionScheduleFires.firedAt,
-    })
+    const live = await db
+      .select({
+        fireId: extensionScheduleFires.id,
+        scheduleId: extensionScheduleFires.scheduleId,
+        firedAt: extensionScheduleFires.firedAt,
+      })
       .from(extensionScheduleFires)
       .where(eq(extensionScheduleFires.status, "running"));
 
     for (const f of live) {
-      const sched = await db.select().from(extensionSchedules)
+      const sched = await db
+        .select()
+        .from(extensionSchedules)
         .where(eq(extensionSchedules.id, f.scheduleId));
       if (sched.length === 0) continue;
       const row = sched[0]!;
@@ -836,40 +891,32 @@ export class ScheduleDaemon {
       if (ageMs < grant.maxRunDurationMs * 2) continue; // Still might be live.
 
       if (grant.maxRetries > 0) {
-        await db.update(extensionScheduleFires)
+        await db
+          .update(extensionScheduleFires)
           .set({ status: "error", error: "reaped: crash mid-fire" })
           .where(eq(extensionScheduleFires.id, f.fireId));
         // Reset next_fire_at so the wake loop picks it back up.
-        await db.update(extensionSchedules)
+        await db
+          .update(extensionSchedules)
           .set({ nextFireAt: now, lastFireStatus: "error" })
           .where(eq(extensionSchedules.id, row.id));
-        await insertAuditEntry(
-          null,
-          EXT_AUDIT_ACTIONS.SDK_SCHEDULE_REAPED,
-          row.extensionId,
-          {
-            capability: "schedule",
-            oldValue: { fireId: f.fireId, status: "running" },
-            newValue: { status: "error", action: "retry-scheduled" },
-            actor: "system",
-            reason: `Reaped crashed fire (age=${ageMs}ms, maxRetries=${grant.maxRetries})`,
-          },
-        ).catch(() => {});
+        await insertAuditEntry(null, EXT_AUDIT_ACTIONS.SDK_SCHEDULE_REAPED, row.extensionId, {
+          capability: "schedule",
+          oldValue: { fireId: f.fireId, status: "running" },
+          newValue: { status: "error", action: "retry-scheduled" },
+          actor: "system",
+          reason: `Reaped crashed fire (age=${ageMs}ms, maxRetries=${grant.maxRetries})`,
+        }).catch(() => {});
       } else {
         // At-most-once: leave status=running indefinitely. Audit the
         // observation so an admin can investigate.
-        await insertAuditEntry(
-          null,
-          EXT_AUDIT_ACTIONS.SDK_SCHEDULE_REAPED,
-          row.extensionId,
-          {
-            capability: "schedule",
-            oldValue: { fireId: f.fireId, status: "running" },
-            newValue: { status: "running", action: "left-as-is" },
-            actor: "system",
-            reason: `Detected stale running fire (age=${ageMs}ms, maxRetries=0 → at-most-once)`,
-          },
-        ).catch(() => {});
+        await insertAuditEntry(null, EXT_AUDIT_ACTIONS.SDK_SCHEDULE_REAPED, row.extensionId, {
+          capability: "schedule",
+          oldValue: { fireId: f.fireId, status: "running" },
+          newValue: { status: "running", action: "left-as-is" },
+          actor: "system",
+          reason: `Detected stale running fire (age=${ageMs}ms, maxRetries=0 → at-most-once)`,
+        }).catch(() => {});
       }
     }
   }
@@ -879,10 +926,10 @@ export class ScheduleDaemon {
   private async applyMissedRunPolicies(): Promise<void> {
     const db = getDb();
     const now = this.opts.now();
-    const overdue = await db.select().from(extensionSchedules).where(and(
-      eq(extensionSchedules.enabled, true),
-      lte(extensionSchedules.nextFireAt, now),
-    ));
+    const overdue = await db
+      .select()
+      .from(extensionSchedules)
+      .where(and(eq(extensionSchedules.enabled, true), lte(extensionSchedules.nextFireAt, now)));
     for (const row of overdue) {
       const grant = await this.readGrant(row.extensionId);
       // A dynamic row's own zone; a manifest row's grant zone (unchanged).
@@ -891,7 +938,8 @@ export class ScheduleDaemon {
         if (grant.missedRunPolicy === "skip") {
           // Bump next_fire_at to the next slot from now.
           const next = parseCron(row.cron, tz).next(now);
-          await db.update(extensionSchedules)
+          await db
+            .update(extensionSchedules)
             .set({ nextFireAt: next, lastFireStatus: "ok", updatedAt: now })
             .where(eq(extensionSchedules.id, row.id));
         } else if (grant.missedRunPolicy === "fire-all") {
@@ -908,13 +956,16 @@ export class ScheduleDaemon {
           while (cursor.getTime() <= now.getTime() && usedToday < grant.maxRunsPerDay) {
             const jitterMs = Math.floor(this.opts.random() * this.opts.catchUpJitterMs);
             const fa = new Date(now.getTime() + jitterMs);
-            const [fire] = await db.insert(extensionScheduleFires).values({
-              scheduleId: row.id,
-              scheduledAt: cursor,
-              firedAt: fa,
-              status: "running",
-              catchUp: true,
-            }).returning();
+            const [fire] = await db
+              .insert(extensionScheduleFires)
+              .values({
+                scheduleId: row.id,
+                scheduledAt: cursor,
+                firedAt: fa,
+                status: "running",
+                catchUp: true,
+              })
+              .returning();
             this.inFlightHost++;
             this.inFlight.set(row.extensionId, (this.inFlight.get(row.extensionId) ?? 0) + 1);
             await this.dispatchFire(row, fire!.id, fa, true, 0, grant.maxRunDurationMs);
@@ -924,25 +975,30 @@ export class ScheduleDaemon {
           }
           // Advance schedule.next_fire_at past all enumerated slots.
           const next = parseCron(row.cron, tz).next(now);
-          await db.update(extensionSchedules)
+          await db
+            .update(extensionSchedules)
             .set({ nextFireAt: next, ...(firedAny ? { lastFireAt: now } : {}), updatedAt: now })
             .where(eq(extensionSchedules.id, row.id));
         } else {
           // "fire-once" (default) — fire ONE catch-up, advance.
           const jitterMs = Math.floor(this.opts.random() * this.opts.catchUpJitterMs);
           const fa = new Date(now.getTime() + jitterMs);
-          const [fire] = await db.insert(extensionScheduleFires).values({
-            scheduleId: row.id,
-            scheduledAt: row.nextFireAt,
-            firedAt: fa,
-            status: "running",
-            catchUp: true,
-          }).returning();
+          const [fire] = await db
+            .insert(extensionScheduleFires)
+            .values({
+              scheduleId: row.id,
+              scheduledAt: row.nextFireAt,
+              firedAt: fa,
+              status: "running",
+              catchUp: true,
+            })
+            .returning();
           this.inFlightHost++;
           this.inFlight.set(row.extensionId, (this.inFlight.get(row.extensionId) ?? 0) + 1);
           await this.dispatchFire(row, fire!.id, fa, true, 0, grant.maxRunDurationMs);
           const next = parseCron(row.cron, tz).next(now);
-          await db.update(extensionSchedules)
+          await db
+            .update(extensionSchedules)
             .set({ nextFireAt: next, lastFireAt: fa, lastFireId: fire!.id, updatedAt: now })
             .where(eq(extensionSchedules.id, row.id));
         }

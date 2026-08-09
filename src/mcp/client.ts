@@ -20,10 +20,7 @@ import type { McpServerDefinition, ToolDefinition, ToolCallResult } from "../ext
  * that uses the spawned process's stdin handle. This isolates the
  * SDK-internal `_process` access to a single private subclass scope.
  */
-type ChildSpawnedHook = (
-  pid: number,
-  writeByte: (b: number) => Promise<void>,
-) => Promise<void>;
+type ChildSpawnedHook = (pid: number, writeByte: (b: number) => Promise<void>) => Promise<void>;
 
 class HookedStdioClientTransport extends StdioClientTransport {
   constructor(
@@ -41,12 +38,14 @@ class HookedStdioClientTransport extends StdioClientTransport {
     // McpClient.getChildProcess() (Plan 01 escape hatch). The transport
     // may have already exited (start() resolves on 'spawn' but the
     // child can die before our hook runs); we degrade-soft.
-    const proc = (this as unknown as {
-      _process?: {
-        pid?: number;
-        stdin?: { write?: (chunk: Buffer | Uint8Array, cb?: (err?: Error) => void) => boolean };
-      };
-    })._process;
+    const proc = (
+      this as unknown as {
+        _process?: {
+          pid?: number;
+          stdin?: { write?: (chunk: Buffer | Uint8Array, cb?: (err?: Error) => void) => boolean };
+        };
+      }
+    )._process;
     const pid = proc?.pid;
     if (typeof pid !== "number" || !proc?.stdin?.write) return;
 
@@ -110,7 +109,12 @@ export class McpClient {
     const content = Array.isArray(res.content) ? res.content : [];
     return {
       content: content.map((c) => {
-        if (typeof c === "object" && c !== null && "type" in c && (c as { type: unknown }).type === "text") {
+        if (
+          typeof c === "object" &&
+          c !== null &&
+          "type" in c &&
+          (c as { type: unknown }).type === "text"
+        ) {
           return { type: "text", text: String((c as { text?: unknown }).text ?? "") };
         }
         return { type: "text", text: JSON.stringify(c) };
@@ -142,9 +146,11 @@ export class McpClient {
    * audit signal goes quiet but nothing in production breaks).
    */
   getChildProcess(): { pid: number; exited: Promise<unknown> } | null {
-    const transport = (this.client as {
-      transport?: { _process?: { pid?: number; exited?: Promise<unknown> } };
-    }).transport;
+    const transport = (
+      this.client as {
+        transport?: { _process?: { pid?: number; exited?: Promise<unknown> } };
+      }
+    ).transport;
     const proc = transport?._process;
     if (!proc || typeof proc.pid !== "number" || !proc.exited) return null;
     return { pid: proc.pid, exited: proc.exited };
@@ -175,7 +181,10 @@ export class McpClient {
     const url = new URL(this.spec.url);
     const headers = this.spec.headers;
     if (this.spec.transport === "http") {
-      return new StreamableHTTPClientTransport(url, headers ? { requestInit: { headers } } : undefined);
+      return new StreamableHTTPClientTransport(
+        url,
+        headers ? { requestInit: { headers } } : undefined,
+      );
     }
     return new SSEClientTransport(url, headers ? { requestInit: { headers } } : undefined);
   }

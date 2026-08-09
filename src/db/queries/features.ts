@@ -1,12 +1,6 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "../connection";
-import {
-  features,
-  featureFiles,
-  type Feature,
-  type FeatureFile,
-  type NewFeature,
-} from "../schema";
+import { features, featureFiles, type Feature, type FeatureFile, type NewFeature } from "../schema";
 
 /**
  * Project-scoped Feature Index queries.
@@ -104,9 +98,7 @@ export async function getFeatureById(
   const rows = (await db
     .select()
     .from(features)
-    .where(
-      and(eq(features.projectId, projectId), eq(features.id, featureId)),
-    )) as Feature[];
+    .where(and(eq(features.projectId, projectId), eq(features.id, featureId)))) as Feature[];
   const feature = rows[0];
   if (!feature) return undefined;
 
@@ -147,10 +139,7 @@ export async function createFeature(input: CreateFeatureInput): Promise<Feature>
     createdAt: now,
     updatedAt: now,
   };
-  const inserted = (await getDb()
-    .insert(features)
-    .values(row)
-    .returning()) as Feature[];
+  const inserted = (await getDb().insert(features).values(row).returning()) as Feature[];
   return inserted[0]!;
 }
 
@@ -168,7 +157,9 @@ export async function getFeatureByOriginPath(
   const rows = (await getDb()
     .select()
     .from(features)
-    .where(and(eq(features.projectId, projectId), eq(features.originPath, originPath)))) as Feature[];
+    .where(
+      and(eq(features.projectId, projectId), eq(features.originPath, originPath)),
+    )) as Feature[];
   return rows[0];
 }
 
@@ -263,8 +254,8 @@ export async function replaceAgentFiles(
     .select({ relpath: featureFiles.relpath })
     .from(featureFiles)
     .where(and(eq(featureFiles.featureId, featureId), eq(featureFiles.source, "user")))) as Array<{
-      relpath: string;
-    }>;
+    relpath: string;
+  }>;
   const pinnedSet = new Set(pinned.map((p) => p.relpath));
 
   const unique = [...new Set(relpaths)].filter((p) => !pinnedSet.has(p));

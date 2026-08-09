@@ -139,8 +139,18 @@ describe("github-projects queries", () => {
   test("listEnabledLinks returns only enabled (paused) links", async () => {
     const p1 = await seedProject("A");
     const p2 = await seedProject("B");
-    const enabled = await upsertLink({ projectId: p1, boardNodeId: "PVT_1", boardUrl: "u", enabled: true });
-    const paused = await upsertLink({ projectId: p2, boardNodeId: "PVT_2", boardUrl: "u", enabled: false });
+    const enabled = await upsertLink({
+      projectId: p1,
+      boardNodeId: "PVT_1",
+      boardUrl: "u",
+      enabled: true,
+    });
+    const paused = await upsertLink({
+      projectId: p2,
+      boardNodeId: "PVT_2",
+      boardUrl: "u",
+      enabled: false,
+    });
 
     const ids = (await listEnabledLinks()).map((l) => l.id);
     expect(ids).toContain(enabled.id);
@@ -266,11 +276,15 @@ describe("github-projects queries", () => {
     const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
     for (const status of GITHUB_ACTIVE_STATUSES) {
       const item = `card-${status}`;
-      const held = await insertProposalIfNew(proposalInput(projectId, link.id, item, "opt-x", "plan"));
+      const held = await insertProposalIfNew(
+        proposalInput(projectId, link.id, item, "opt-x", "plan"),
+      );
       expect(held).not.toBeNull();
       if (status !== "pending") await updateProposal(held!.id, { status });
       // Re-detection of the same card while a proposal is in-flight → no-op.
-      expect(await insertProposalIfNew(proposalInput(projectId, link.id, item, "opt-x", "plan"))).toBeNull();
+      expect(
+        await insertProposalIfNew(proposalInput(projectId, link.id, item, "opt-x", "plan")),
+      ).toBeNull();
       expect((await getProposalById(held!.id))?.status).toBe(status); // untouched
     }
     // Exactly one row per card survived.
@@ -282,11 +296,15 @@ describe("github-projects queries", () => {
     const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
     for (const status of ["done", "failed", "dismissed", "cancelled"] as const) {
       const item = `card-${status}`;
-      const finished = await insertProposalIfNew(proposalInput(projectId, link.id, item, "opt-x", "plan"));
+      const finished = await insertProposalIfNew(
+        proposalInput(projectId, link.id, item, "opt-x", "plan"),
+      );
       expect(finished).not.toBeNull();
       await updateProposal(finished!.id, { status, finishedAt: new Date() });
       // Terminal row no longer occupies the card → the re-trigger lands.
-      const fresh = await insertProposalIfNew(proposalInput(projectId, link.id, item, "opt-x", "plan"));
+      const fresh = await insertProposalIfNew(
+        proposalInput(projectId, link.id, item, "opt-x", "plan"),
+      );
       expect(fresh).not.toBeNull();
       expect(fresh!.id).not.toBe(finished!.id);
       expect(fresh!.status).toBe("pending");
@@ -299,13 +317,17 @@ describe("github-projects queries", () => {
   test("insertProposalIfNew: an active proposal in column X blocks column Y for the SAME card (cross-column move mid-run)", async () => {
     const projectId = await seedProject();
     const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
-    const inX = await insertProposalIfNew(proposalInput(projectId, link.id, "card-1", "opt-x", "plan"));
+    const inX = await insertProposalIfNew(
+      proposalInput(projectId, link.id, "card-1", "opt-x", "plan"),
+    );
     expect(inX).not.toBeNull();
     await updateProposal(inX!.id, { status: "running" });
     // Different column AND different action ⇒ a different dedupeKey — under
     // the legacy key this would have double-spawned; the card-scoped guard
     // blocks it.
-    expect(await insertProposalIfNew(proposalInput(projectId, link.id, "card-1", "opt-y", "execute"))).toBeNull();
+    expect(
+      await insertProposalIfNew(proposalInput(projectId, link.id, "card-1", "opt-y", "execute")),
+    ).toBeNull();
     expect(await listProposalsByProject(projectId)).toHaveLength(1);
   });
 
@@ -326,8 +348,12 @@ describe("github-projects queries", () => {
   test("insertProposalIfNew: different cards on the same link are independent", async () => {
     const projectId = await seedProject();
     const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
-    const a = await insertProposalIfNew(proposalInput(projectId, link.id, "card-a", "opt-x", "plan"));
-    const b = await insertProposalIfNew(proposalInput(projectId, link.id, "card-b", "opt-x", "plan"));
+    const a = await insertProposalIfNew(
+      proposalInput(projectId, link.id, "card-a", "opt-x", "plan"),
+    );
+    const b = await insertProposalIfNew(
+      proposalInput(projectId, link.id, "card-b", "opt-x", "plan"),
+    );
     expect(a).not.toBeNull();
     expect(b).not.toBeNull();
     expect(await listProposalsByProject(projectId)).toHaveLength(2);
@@ -337,11 +363,15 @@ describe("github-projects queries", () => {
     const projectId = await seedProject();
     const linkA = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u1" });
     const linkB = await upsertLink({ projectId, boardNodeId: "PVT_b", boardUrl: "u2" });
-    const onA = await insertProposalIfNew(proposalInput(projectId, linkA.id, "card-shared", "opt-x", "plan"));
+    const onA = await insertProposalIfNew(
+      proposalInput(projectId, linkA.id, "card-shared", "opt-x", "plan"),
+    );
     expect(onA).not.toBeNull();
     await updateProposal(onA!.id, { status: "running" });
     // The other board's view of the "same" card is a separate identity.
-    const onB = await insertProposalIfNew(proposalInput(projectId, linkB.id, "card-shared", "opt-x", "plan"));
+    const onB = await insertProposalIfNew(
+      proposalInput(projectId, linkB.id, "card-shared", "opt-x", "plan"),
+    );
     expect(onB).not.toBeNull();
     expect(onB!.linkId).toBe(linkB.id);
     expect(await listProposalsByProject(projectId)).toHaveLength(2);
@@ -375,8 +405,12 @@ describe("github-projects queries", () => {
   test("countActiveProposalsForProject excludes pending + terminal", async () => {
     const projectId = await seedProject();
     const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
-    const pending = await insertProposalIfNew(proposalInput(projectId, link.id, "i1", "opt", "plan"));
-    const running = await insertProposalIfNew(proposalInput(projectId, link.id, "i2", "opt", "plan"));
+    const pending = await insertProposalIfNew(
+      proposalInput(projectId, link.id, "i1", "opt", "plan"),
+    );
+    const running = await insertProposalIfNew(
+      proposalInput(projectId, link.id, "i2", "opt", "plan"),
+    );
     await updateProposal(running!.id, { status: "running" });
     void pending;
     expect(await countActiveProposalsForProject(projectId)).toBe(1); // running only
@@ -428,7 +462,9 @@ describe("github-projects queries", () => {
     expect(await claimProposal(p!.id, ["pending"], { status: "spawned" })).toBeNull();
 
     // spawned → running; then an active → terminal claim; then terminal is FINAL.
-    expect((await claimProposal(p!.id, ["spawned"], { status: "running" }))?.status).toBe("running");
+    expect((await claimProposal(p!.id, ["spawned"], { status: "running" }))?.status).toBe(
+      "running",
+    );
     const done = await claimProposal(p!.id, GITHUB_ACTIVE_STATUSES, {
       status: "done",
       finishedAt: new Date(),
@@ -457,7 +493,9 @@ describe("github-projects queries", () => {
   test("cancelActiveProposalsForLink flips active rows to cancelled and returns the count", async () => {
     const projectId = await seedProject();
     const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
-    const active = await insertProposalIfNew(proposalInput(projectId, link.id, "i1", "opt", "plan"));
+    const active = await insertProposalIfNew(
+      proposalInput(projectId, link.id, "i1", "opt", "plan"),
+    );
     const done = await insertProposalIfNew(proposalInput(projectId, link.id, "i2", "opt", "plan"));
     await updateProposal(done!.id, { status: "done" });
 
@@ -515,7 +553,14 @@ describe("github-projects queries", () => {
     // pending/approved (no run attached) + every terminal status: untouched —
     // status unchanged AND no error/finishedAt stamped (the pre-existing
     // `failed` row proves the WHERE excluded it: its error stays null).
-    for (const untouched of ["pending", "approved", "done", "failed", "dismissed", "cancelled"] as const) {
+    for (const untouched of [
+      "pending",
+      "approved",
+      "done",
+      "failed",
+      "dismissed",
+      "cancelled",
+    ] as const) {
       const reread = await getProposalById(byStatus.get(untouched)!);
       expect(reread?.status).toBe(untouched);
       expect(reread?.error).toBeNull();
@@ -528,7 +573,9 @@ describe("github-projects queries", () => {
     // A pending-only table is equally a no-op.
     const projectId = await seedProject();
     const link = await upsertLink({ projectId, boardNodeId: "PVT_a", boardUrl: "u" });
-    const pending = await insertProposalIfNew(proposalInput(projectId, link.id, "i1", "opt", "plan"));
+    const pending = await insertProposalIfNew(
+      proposalInput(projectId, link.id, "i1", "opt", "plan"),
+    );
     expect(await failInterruptedProposals()).toEqual([]);
     expect((await getProposalById(pending!.id))?.status).toBe("pending");
   });
@@ -550,7 +597,14 @@ describe("github-projects queries", () => {
     // index only restricts ACTIVE rows). The NEWEST terminal must win.
     await seedProposalRow(projectId, link.id, "card-1", "opt-x", "done", "2026-06-01T00:00:00Z");
     await seedProposalRow(projectId, link.id, "card-1", "opt-x", "failed", "2026-06-02T00:00:00Z");
-    await seedProposalRow(projectId, link.id, "card-1", "opt-x", "cancelled", "2026-06-03T00:00:00Z");
+    await seedProposalRow(
+      projectId,
+      link.id,
+      "card-1",
+      "opt-x",
+      "cancelled",
+      "2026-06-03T00:00:00Z",
+    );
     expect(await mostRecentTerminalProposalStatus(link.id, "card-1", "opt-x")).toBe("cancelled");
 
     // A NEWER active (pending) row is IGNORED — only terminal outcomes count,

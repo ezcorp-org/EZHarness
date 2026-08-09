@@ -50,8 +50,7 @@ export function encodeKnobValue(
   // Range "0" is meaningful (borderRadius=0px, spacingScale=0%). Every
   // other knob with an empty value means "no override" — drop it so
   // existing draft defaults aren't overwritten.
-  const isMeaningfulZero =
-    descriptor.kind === "range" && trimmed !== "" && Number(trimmed) === 0;
+  const isMeaningfulZero = descriptor.kind === "range" && trimmed !== "" && Number(trimmed) === 0;
   if (!isMeaningfulZero && trimmed === "") return null;
 
   if (descriptor.kind !== "range") return s;

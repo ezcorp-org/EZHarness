@@ -24,7 +24,9 @@ const mockSettings = new Map<string, unknown>();
 
 mock.module("../db/queries/settings", () => ({
   getSetting: async (key: string) => mockSettings.get(key) ?? null,
-  upsertSetting: async (key: string, value: unknown) => { mockSettings.set(key, value); },
+  upsertSetting: async (key: string, value: unknown) => {
+    mockSettings.set(key, value);
+  },
   getAllSettings: async () => Object.fromEntries(mockSettings),
   deleteSetting: async (key: string) => mockSettings.delete(key),
   isListingInstalled: async () => false,
@@ -34,7 +36,12 @@ afterAll(() => restoreModuleMocks());
 
 // ── Imports (after mock) ─────────────────────────────────────────
 
-import { denyAndDisable, hasSecurityViolation, getSecurityViolations, clearSecurityViolations } from "../extensions/security";
+import {
+  denyAndDisable,
+  hasSecurityViolation,
+  getSecurityViolations,
+  clearSecurityViolations,
+} from "../extensions/security";
 import { checkFilesystemPermission } from "../extensions/permissions";
 import { buildAllowedEnv, cleanupExtTmpDir } from "../extensions/registry";
 
@@ -201,7 +208,11 @@ describe("filesystem permission - non-existent paths", () => {
       filesystem: [allowedDir],
       grantedAt: {},
     };
-    const result = await checkFilesystemPermission("/nonexistent/path/file.txt", granted, installDir);
+    const result = await checkFilesystemPermission(
+      "/nonexistent/path/file.txt",
+      granted,
+      installDir,
+    );
     expect(result.allowed).toBe(false);
     expect(result.resolvedPath).toBe("/nonexistent/path/file.txt");
   });
@@ -237,7 +248,11 @@ describe("filesystem permission - realpath failure on installDir", () => {
       grantedAt: {},
     };
     // Request a valid path in allowedDir -- should still be allowed via granted prefix
-    const result = await checkFilesystemPermission(join(allowedDir, "ok.txt"), granted, nonExistentInstallDir);
+    const result = await checkFilesystemPermission(
+      join(allowedDir, "ok.txt"),
+      granted,
+      nonExistentInstallDir,
+    );
     expect(result.allowed).toBe(true);
   });
 
@@ -248,7 +263,11 @@ describe("filesystem permission - realpath failure on installDir", () => {
       grantedAt: {},
     };
     // Request a valid path outside any grant -- should be denied
-    const result = await checkFilesystemPermission(join(allowedDir, "ok.txt"), granted, nonExistentInstallDir);
+    const result = await checkFilesystemPermission(
+      join(allowedDir, "ok.txt"),
+      granted,
+      nonExistentInstallDir,
+    );
     expect(result.allowed).toBe(false);
   });
 });
@@ -291,11 +310,7 @@ describe("filesystem permission - explicit mode parameter", () => {
       filesystem: [allowedDir],
       grantedAt: {},
     };
-    const result = await checkFilesystemPermission(
-      join(allowedDir, "ok.txt"),
-      granted,
-      installDir,
-    );
+    const result = await checkFilesystemPermission(join(allowedDir, "ok.txt"), granted, installDir);
     expect(result.allowed).toBe(true);
     expect(result.mode).toBe("read");
   });
@@ -357,7 +372,12 @@ describe("env isolation - buildAllowedEnv", () => {
     author: { name: "Test" },
     entrypoint: "index.ts",
     tools: [],
-    permissions: {} as { network?: string[]; filesystem?: string[]; shell?: boolean; env?: string[] },
+    permissions: {} as {
+      network?: string[];
+      filesystem?: string[];
+      shell?: boolean;
+      env?: string[];
+    },
   };
 
   test("includes only PATH, HOME, TMPDIR, NODE_ENV, EZCORP_PROJECT_ROOT, EZCORP_EXTENSION_DATA_ROOT by default", () => {
@@ -464,7 +484,12 @@ describe("env isolation - buildAllowedEnv TMPDIR idempotency", () => {
     author: { name: "Test" },
     entrypoint: "index.ts",
     tools: [],
-    permissions: {} as { network?: string[]; filesystem?: string[]; shell?: boolean; env?: string[] },
+    permissions: {} as {
+      network?: string[];
+      filesystem?: string[];
+      shell?: boolean;
+      env?: string[];
+    },
   };
 
   test("calling buildAllowedEnv twice with same extensionId does not throw (mkdirSync recursive)", () => {

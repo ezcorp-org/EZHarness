@@ -22,29 +22,44 @@ import { migrate } from "../db/migrate";
  */
 
 async function schemaFingerprint(db: any): Promise<string> {
-  const tables = (await db.execute(sql`
+  const tables = (
+    await db.execute(sql`
     SELECT table_name
     FROM information_schema.tables
     WHERE table_schema = 'public'
     ORDER BY table_name
-  `)).rows as Array<{ table_name: string }>;
+  `)
+  ).rows as Array<{ table_name: string }>;
 
   const parts: string[] = [];
   for (const { table_name } of tables) {
-    const cols = (await db.execute(sql.raw(`
+    const cols = (
+      await db.execute(
+        sql.raw(`
       SELECT column_name, data_type, is_nullable, column_default
       FROM information_schema.columns
       WHERE table_schema = 'public' AND table_name = '${table_name}'
       ORDER BY ordinal_position
-    `))).rows as Array<{ column_name: string; data_type: string; is_nullable: string; column_default: string | null }>;
+    `),
+      )
+    ).rows as Array<{
+      column_name: string;
+      data_type: string;
+      is_nullable: string;
+      column_default: string | null;
+    }>;
     parts.push(`${table_name}:${JSON.stringify(cols)}`);
 
-    const idx = (await db.execute(sql.raw(`
+    const idx = (
+      await db.execute(
+        sql.raw(`
       SELECT indexname, indexdef
       FROM pg_indexes
       WHERE schemaname = 'public' AND tablename = '${table_name}'
       ORDER BY indexname
-    `))).rows as Array<{ indexname: string; indexdef: string }>;
+    `),
+      )
+    ).rows as Array<{ indexname: string; indexdef: string }>;
     parts.push(`${table_name}.idx:${JSON.stringify(idx)}`);
   }
 
@@ -89,12 +104,16 @@ describe("migrate() is idempotent", () => {
         INSERT INTO settings (key, value)
         VALUES ('idempotency-probe', '"hello"'::jsonb)
       `);
-      const beforeRows = (await db.execute(sql`SELECT value FROM settings WHERE key = 'idempotency-probe'`)).rows;
+      const beforeRows = (
+        await db.execute(sql`SELECT value FROM settings WHERE key = 'idempotency-probe'`)
+      ).rows;
       expect(beforeRows).toHaveLength(1);
 
       await migrate(db);
 
-      const afterRows = (await db.execute(sql`SELECT value FROM settings WHERE key = 'idempotency-probe'`)).rows;
+      const afterRows = (
+        await db.execute(sql`SELECT value FROM settings WHERE key = 'idempotency-probe'`)
+      ).rows;
       expect(afterRows).toHaveLength(1);
       expect(afterRows[0]).toEqual(beforeRows[0]);
     } finally {

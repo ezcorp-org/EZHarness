@@ -12,26 +12,26 @@
  */
 
 export type FileTreeFile = {
-	type: "file";
-	/** basename — `bar.ts` for `src/foo/bar.ts` */
-	name: string;
-	/** full project-relative path — what the LLM / scanner sees */
-	path: string;
+  type: "file";
+  /** basename — `bar.ts` for `src/foo/bar.ts` */
+  name: string;
+  /** full project-relative path — what the LLM / scanner sees */
+  path: string;
 };
 
 export type FileTreeDir = {
-	type: "dir";
-	name: string;
-	path: string;
-	children: FileTreeNode[];
+  type: "dir";
+  name: string;
+  path: string;
+  children: FileTreeNode[];
 };
 
 export type FileTreeNode = FileTreeFile | FileTreeDir;
 
 type DirAccum = {
-	path: string;
-	children: Map<string, DirAccum>;
-	files: string[];
+  path: string;
+  children: Map<string, DirAccum>;
+  files: string[];
 };
 
 /**
@@ -44,55 +44,55 @@ type DirAccum = {
  *   produce a phantom top-level "/" directory.
  */
 export function buildFileTree(relpaths: readonly string[]): FileTreeNode[] {
-	const root: DirAccum = { path: "", children: new Map(), files: [] };
-	const seen = new Set<string>();
+  const root: DirAccum = { path: "", children: new Map(), files: [] };
+  const seen = new Set<string>();
 
-	for (const raw of relpaths) {
-		if (!raw) continue;
-		// Drop leading `./` or `/` so the path starts at a real segment.
-		const normalised = raw.replace(/^\.?\//, "");
-		if (!normalised || seen.has(normalised)) continue;
-		seen.add(normalised);
+  for (const raw of relpaths) {
+    if (!raw) continue;
+    // Drop leading `./` or `/` so the path starts at a real segment.
+    const normalised = raw.replace(/^\.?\//, "");
+    if (!normalised || seen.has(normalised)) continue;
+    seen.add(normalised);
 
-		const parts = normalised.split("/").filter((p) => p.length > 0);
-		if (parts.length === 0) continue;
+    const parts = normalised.split("/").filter((p) => p.length > 0);
+    if (parts.length === 0) continue;
 
-		let cur = root;
-		for (let i = 0; i < parts.length - 1; i++) {
-			const segment = parts[i]!;
-			let next = cur.children.get(segment);
-			if (!next) {
-				const nextPath = cur.path ? `${cur.path}/${segment}` : segment;
-				next = { path: nextPath, children: new Map(), files: [] };
-				cur.children.set(segment, next);
-			}
-			cur = next;
-		}
-		cur.files.push(parts[parts.length - 1]!);
-	}
+    let cur = root;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const segment = parts[i]!;
+      let next = cur.children.get(segment);
+      if (!next) {
+        const nextPath = cur.path ? `${cur.path}/${segment}` : segment;
+        next = { path: nextPath, children: new Map(), files: [] };
+        cur.children.set(segment, next);
+      }
+      cur = next;
+    }
+    cur.files.push(parts[parts.length - 1]!);
+  }
 
-	return materialise(root);
+  return materialise(root);
 }
 
 function materialise(acc: DirAccum): FileTreeNode[] {
-	const dirs: FileTreeDir[] = [];
-	for (const [name, sub] of acc.children) {
-		dirs.push({
-			type: "dir",
-			name,
-			path: sub.path,
-			children: materialise(sub),
-		});
-	}
-	dirs.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  const dirs: FileTreeDir[] = [];
+  for (const [name, sub] of acc.children) {
+    dirs.push({
+      type: "dir",
+      name,
+      path: sub.path,
+      children: materialise(sub),
+    });
+  }
+  dirs.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 
-	const files: FileTreeFile[] = acc.files
-		.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
-		.map((name) => ({
-			type: "file",
-			name,
-			path: acc.path ? `${acc.path}/${name}` : name,
-		}));
+  const files: FileTreeFile[] = acc.files
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+    .map((name) => ({
+      type: "file",
+      name,
+      path: acc.path ? `${acc.path}/${name}` : name,
+    }));
 
-	return [...dirs, ...files];
+  return [...dirs, ...files];
 }

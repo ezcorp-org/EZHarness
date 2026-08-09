@@ -25,9 +25,7 @@ vi.mock("$lib/server/conversation-ownership", () => ({
   resolveRootConversationForOwnership: vi.fn(),
 }));
 
-const { resolveRootConversationForOwnership } = await import(
-  "$lib/server/conversation-ownership"
-);
+const { resolveRootConversationForOwnership } = await import("$lib/server/conversation-ownership");
 const { GET } = await import("../routes/api/tool-calls/[id]/output/+server");
 
 function makeEvent(opts: { id?: string; locals?: Record<string, unknown> }) {
@@ -56,7 +54,9 @@ describe("IDOR: GET /api/tool-calls/[id]/output — conversation-bound rows", ()
 
   test("non-owner → 404, output never disclosed", async () => {
     selectMock.mockReturnValue(
-      chainReturning([{ userId: "owner-1", conversationId: "conv-a", output: { secret: "shell-out" } }]),
+      chainReturning([
+        { userId: "owner-1", conversationId: "conv-a", output: { secret: "shell-out" } },
+      ]),
     );
     vi.mocked(resolveRootConversationForOwnership).mockResolvedValue(null);
 
@@ -94,7 +94,9 @@ describe("IDOR: GET /api/tool-calls/[id]/output — conversation-less rows", () 
 
   test("non-owner with null conversationId → 404 (userId fallback), root walk not used", async () => {
     selectMock.mockReturnValue(
-      chainReturning([{ userId: "owner-1", conversationId: null, output: { secret: "file-read" } }]),
+      chainReturning([
+        { userId: "owner-1", conversationId: null, output: { secret: "file-read" } },
+      ]),
     );
 
     const res = await GET(makeEvent({ locals: ATTACKER }));

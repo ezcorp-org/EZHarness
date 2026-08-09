@@ -92,9 +92,7 @@ describe("GET /api/user-commands", () => {
     // requireScope returns 403 BEFORE requireAuth, so the DB layer is
     // never hit. apiKeyScopes present (so cookie-auth bypass doesn't
     // apply) but missing the required `read` scope.
-    const res = await collection.GET(
-      makeEvent({ locals: { user, apiKeyScopes: [] } }),
-    );
+    const res = await collection.GET(makeEvent({ locals: { user, apiKeyScopes: [] } }));
     expect(res.status).toBe(403);
     expect(listUserCommands).not.toHaveBeenCalled();
     expect(invalidateUser).not.toHaveBeenCalled();
@@ -189,9 +187,7 @@ describe("POST /api/user-commands", () => {
 
   test("400 when request body is not valid JSON object", async () => {
     // Passing `null` triggers the catch-then-null branch.
-    const res = await collection.POST(
-      makeEvent({ method: "POST", locals: { user }, body: null }),
-    );
+    const res = await collection.POST(makeEvent({ method: "POST", locals: { user }, body: null }));
     expect(res.status).toBe(400);
   });
 
@@ -329,9 +325,7 @@ describe("GET /api/user-commands/[name]", () => {
 
   test("404 when command does not exist", async () => {
     vi.mocked(getUserCommand).mockResolvedValue(undefined);
-    const res = await item.GET(
-      makeEvent({ locals: { user }, params: { name: "missing" } }),
-    );
+    const res = await item.GET(makeEvent({ locals: { user }, params: { name: "missing" } }));
     expect(res.status).toBe(404);
   });
 
@@ -346,9 +340,7 @@ describe("GET /api/user-commands/[name]", () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     } as never);
-    const res = await item.GET(
-      makeEvent({ locals: { user }, params: { name: "review" } }),
-    );
+    const res = await item.GET(makeEvent({ locals: { user }, params: { name: "review" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.name).toBe("review");
@@ -516,9 +508,7 @@ describe("DELETE /api/user-commands/[name]", () => {
   test("401 when unauthenticated", async () => {
     let res: Response | undefined;
     try {
-      await item.DELETE(
-        makeEvent({ method: "DELETE", locals: {}, params: { name: "r" } }),
-      );
+      await item.DELETE(makeEvent({ method: "DELETE", locals: {}, params: { name: "r" } }));
       expect.fail("should have thrown");
     } catch (thrown) {
       res = thrown as Response;

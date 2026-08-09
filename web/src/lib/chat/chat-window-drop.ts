@@ -15,21 +15,21 @@
  * normally.
  */
 export function shouldHandleChatWindowDragOver(
-	dataTransfer: DataTransfer | null,
-	hasStager: boolean,
+  dataTransfer: DataTransfer | null,
+  hasStager: boolean,
 ): boolean {
-	if (!hasStager) return false;
-	const types = dataTransfer?.types;
-	if (!types) return false;
-	// DataTransferItemList exposes `includes` via the DOMStringList-like API,
-	// but some test environments hand back a plain array. Support both.
-	if (typeof (types as unknown as string[]).includes === "function") {
-		return (types as unknown as string[]).includes("Files");
-	}
-	for (let i = 0; i < types.length; i++) {
-		if (types[i] === "Files") return true;
-	}
-	return false;
+  if (!hasStager) return false;
+  const types = dataTransfer?.types;
+  if (!types) return false;
+  // DataTransferItemList exposes `includes` via the DOMStringList-like API,
+  // but some test environments hand back a plain array. Support both.
+  if (typeof (types as unknown as string[]).includes === "function") {
+    return (types as unknown as string[]).includes("Files");
+  }
+  for (let i = 0; i < types.length; i++) {
+    if (types[i] === "Files") return true;
+  }
+  return false;
 }
 
 /**
@@ -37,11 +37,11 @@ export function shouldHandleChatWindowDragOver(
  * should be ignored (no stager wired, or no files present).
  */
 export function filesFromChatWindowDrop(
-	dataTransfer: DataTransfer | null,
-	hasStager: boolean,
+  dataTransfer: DataTransfer | null,
+  hasStager: boolean,
 ): FileList | null {
-	if (!hasStager) return null;
-	const files = dataTransfer?.files;
-	if (!files || files.length === 0) return null;
-	return files;
+  if (!hasStager) return null;
+  const files = dataTransfer?.files;
+  if (!files || files.length === 0) return null;
+  return files;
 }

@@ -19,7 +19,7 @@
  * via {@link runEzClientTool}.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import type { BuiltinToolDef } from "../types";
 import { runEzClientTool, type ClientToolContext } from "./client-tool";
 import type { ToolParams } from "../validate";
 
@@ -28,7 +28,7 @@ export function createReadPageTool(ctx: ClientToolContext): BuiltinToolDef {
     name: "read_page",
     label: "read_page",
     description:
-      "Read the page the user is currently looking at. Returns its route, title, headings, a visible-text excerpt of the main content (what the user is actually reading — e.g. the messages of an open chat), and any forms (with their field names/labels/types). Call this whenever a request references \"this page\", \"here\", or an on-screen form — it's how you discover a form's id before calling fill_form. Pass detail:\"full\" to also include current field values (passwords are always masked); the default detail:\"summary\" returns structure and content text only.",
+      'Read the page the user is currently looking at. Returns its route, title, headings, a visible-text excerpt of the main content (what the user is actually reading — e.g. the messages of an open chat), and any forms (with their field names/labels/types). Call this whenever a request references "this page", "here", or an on-screen form — it\'s how you discover a form\'s id before calling fill_form. Pass detail:"full" to also include current field values (passwords are always masked); the default detail:"summary" returns structure and content text only.',
     category: "ez",
     cardType: "default",
     clientSide: true,
@@ -38,7 +38,8 @@ export function createReadPageTool(ctx: ClientToolContext): BuiltinToolDef {
         detail: {
           type: "string",
           enum: ["summary", "full"],
-          description: "\"summary\" (default) = structure only; \"full\" = include current field values (masked passwords).",
+          description:
+            '"summary" (default) = structure only; "full" = include current field values (masked passwords).',
         },
       },
       required: [],

@@ -16,11 +16,7 @@
  * client/UI boundary.
  */
 import { test, expect } from "./fixtures/test-base.js";
-import {
-  makeProject,
-  makeConversation,
-  makeAgent,
-} from "./fixtures/data.js";
+import { makeProject, makeConversation, makeAgent } from "./fixtures/data.js";
 
 const PROJECT_ID = "proj-feat-mention";
 const CONV_ID = "conv-feat-mention";

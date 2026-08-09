@@ -24,13 +24,9 @@ vi.mock("$server/db/queries/audit-log", () => ({
   insertAuditEntry: vi.fn(async () => undefined),
 }));
 
-const { getExtension, updateExtension } = await import(
-  "$server/db/queries/extensions"
-);
+const { getExtension, updateExtension } = await import("$server/db/queries/extensions");
 const { insertAuditEntry } = await import("$server/db/queries/audit-log");
-const { GET, PUT } = await import(
-  "../routes/api/extensions/[id]/permissions/+server.ts"
-);
+const { GET, PUT } = await import("../routes/api/extensions/[id]/permissions/+server.ts");
 
 function makeEvent(opts: {
   id?: string;

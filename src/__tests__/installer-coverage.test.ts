@@ -196,7 +196,10 @@ describe("installFromGitHub", () => {
   /**
    * Helper: create a real tarball from a temp dir to use in mocked fetch responses.
    */
-  async function createTarball(manifest: ExtensionManifestV2, entrypointContent: string): Promise<string> {
+  async function createTarball(
+    manifest: ExtensionManifestV2,
+    entrypointContent: string,
+  ): Promise<string> {
     const srcDir = join(tempBase, "tar-src", manifest.name);
     await mkdir(srcDir, { recursive: true });
     await writeConfig(srcDir, manifest);
@@ -205,7 +208,14 @@ describe("installFromGitHub", () => {
     }
 
     const tarPath = join(tempBase, "release.tar.gz");
-    const result = Bun.spawnSync(["tar", "-czf", tarPath, "-C", join(tempBase, "tar-src"), manifest.name]);
+    const result = Bun.spawnSync([
+      "tar",
+      "-czf",
+      tarPath,
+      "-C",
+      join(tempBase, "tar-src"),
+      manifest.name,
+    ]);
     if (result.exitCode !== 0) throw new Error("Failed to create test tarball");
     return tarPath;
   }
@@ -263,7 +273,9 @@ describe("installFromGitHub", () => {
     mockFetchForGitHub({
       releaseBody: {
         tag_name: "v1.0.0",
-        assets: [{ name: "release.tar.gz", browser_download_url: "https://example.com/release.tar.gz" }],
+        assets: [
+          { name: "release.tar.gz", browser_download_url: "https://example.com/release.tar.gz" },
+        ],
         tarball_url: "https://example.com/tarball",
       },
       tarballPath: tarPath,
@@ -311,7 +323,9 @@ describe("installFromGitHub", () => {
     mockFetchForGitHub({
       releaseBody: {
         tag_name: "v1.0.0",
-        assets: [{ name: "something.zip", browser_download_url: "https://example.com/something.zip" }],
+        assets: [
+          { name: "something.zip", browser_download_url: "https://example.com/something.zip" },
+        ],
         // No tarball_url either
       },
     });
@@ -506,8 +520,7 @@ describe("installFromGitHub", () => {
 
 describe("installFromGit (additional branches)", () => {
   const env = { ...process.env };
-  const spawn = (cmd: string[], opts?: { cwd?: string }) =>
-    Bun.spawnSync(cmd, { ...opts, env });
+  const spawn = (cmd: string[], opts?: { cwd?: string }) => Bun.spawnSync(cmd, { ...opts, env });
 
   test("extension without entrypoint: checksum is undefined", async () => {
     const bareDir = join(tempBase, "no-ep.git");
@@ -544,8 +557,7 @@ describe("installFromGit (additional branches)", () => {
 
 describe("updateExtension (additional branches)", () => {
   const env = { ...process.env };
-  const spawn = (cmd: string[], opts?: { cwd?: string }) =>
-    Bun.spawnSync(cmd, { ...opts, env });
+  const spawn = (cmd: string[], opts?: { cwd?: string }) => Bun.spawnSync(cmd, { ...opts, env });
 
   test("throws when no semver tags found", async () => {
     // Create a repo with no tags
@@ -780,8 +792,7 @@ describe("removeExtension (path safety)", () => {
 
 describe("checkForUpdates (additional branches)", () => {
   const env = { ...process.env };
-  const spawn = (cmd: string[], opts?: { cwd?: string }) =>
-    Bun.spawnSync(cmd, { ...opts, env });
+  const spawn = (cmd: string[], opts?: { cwd?: string }) => Bun.spawnSync(cmd, { ...opts, env });
 
   test("no semver tags in remote returns { available: false }", async () => {
     // Repo with no tags at all

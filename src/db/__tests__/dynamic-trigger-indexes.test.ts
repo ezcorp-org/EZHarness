@@ -18,15 +18,26 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -40,14 +51,25 @@ let extId2: string;
 let extName2: string;
 
 async function ensureExtension(name: string): Promise<string> {
-  const [row] = await getTestDb().insert(extensions).values({
-    name, version: "0.0.1", description: "",
-    manifest: {
-      schemaVersion: 2, name, version: "0.0.1", description: "",
-      author: { name: "t" }, permissions: {},
-    } as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name,
+      version: "0.0.1",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    })
+    .returning({ id: extensions.id });
   return row!.id;
 }
 
@@ -82,15 +104,23 @@ describe("uniq_ext_schedule partials", () => {
   test("two DYNAMIC jobs may share one cron expression (the C2 unblock)", async () => {
     const db = getTestDb();
     await db.insert(extensionSchedules).values({
-      extensionId: extId, cron: SHARED_CRON, nextFireAt: new Date(),
-      dynamic: true, key: "job:alpha",
+      extensionId: extId,
+      cron: SHARED_CRON,
+      nextFireAt: new Date(),
+      dynamic: true,
+      key: "job:alpha",
     });
     await db.insert(extensionSchedules).values({
-      extensionId: extId, cron: SHARED_CRON, nextFireAt: new Date(),
-      dynamic: true, key: "job:beta",
+      extensionId: extId,
+      cron: SHARED_CRON,
+      nextFireAt: new Date(),
+      dynamic: true,
+      key: "job:beta",
     });
 
-    const rows = await db.select().from(extensionSchedules)
+    const rows = await db
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.extensionId, extId));
     expect(rows).toHaveLength(2);
     expect(rows.map((r) => r.key).sort()).toEqual(["job:alpha", "job:beta"]);
@@ -101,27 +131,40 @@ describe("uniq_ext_schedule partials", () => {
   test("the MANIFEST partial still rejects a duplicate (extension, cron)", async () => {
     const db = getTestDb();
     await db.insert(extensionSchedules).values({
-      extensionId: extId, cron: SHARED_CRON, nextFireAt: new Date(),
+      extensionId: extId,
+      cron: SHARED_CRON,
+      nextFireAt: new Date(),
     });
     // dynamic defaults to FALSE, so this row falls under the manifest
     // partial and must collide exactly as it did before C2.
-    await expect(insert(
-      db.insert(extensionSchedules).values({
-        extensionId: extId, cron: SHARED_CRON, nextFireAt: new Date(),
-      }),
-    )).rejects.toThrow();
+    await expect(
+      insert(
+        db.insert(extensionSchedules).values({
+          extensionId: extId,
+          cron: SHARED_CRON,
+          nextFireAt: new Date(),
+        }),
+      ),
+    ).rejects.toThrow();
   });
 
   test("a manifest row and a dynamic row may share a cron", async () => {
     const db = getTestDb();
     await db.insert(extensionSchedules).values({
-      extensionId: extId, cron: SHARED_CRON, nextFireAt: new Date(),
+      extensionId: extId,
+      cron: SHARED_CRON,
+      nextFireAt: new Date(),
     });
     await db.insert(extensionSchedules).values({
-      extensionId: extId, cron: SHARED_CRON, nextFireAt: new Date(),
-      dynamic: true, key: "job:gamma",
+      extensionId: extId,
+      cron: SHARED_CRON,
+      nextFireAt: new Date(),
+      dynamic: true,
+      key: "job:gamma",
     });
-    const rows = await db.select().from(extensionSchedules)
+    const rows = await db
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.extensionId, extId));
     expect(rows).toHaveLength(2);
     expect(rows.filter((r) => r.dynamic)).toHaveLength(1);
@@ -130,27 +173,41 @@ describe("uniq_ext_schedule partials", () => {
   test("the DYNAMIC partial rejects a duplicate key for one extension", async () => {
     const db = getTestDb();
     await db.insert(extensionSchedules).values({
-      extensionId: extId, cron: "0 9 * * 1", nextFireAt: new Date(),
-      dynamic: true, key: "job:dup",
+      extensionId: extId,
+      cron: "0 9 * * 1",
+      nextFireAt: new Date(),
+      dynamic: true,
+      key: "job:dup",
     });
-    await expect(insert(
-      db.insert(extensionSchedules).values({
-        // Different cron — key alone is the dynamic identity.
-        extensionId: extId, cron: "0 10 * * 1", nextFireAt: new Date(),
-        dynamic: true, key: "job:dup",
-      }),
-    )).rejects.toThrow();
+    await expect(
+      insert(
+        db.insert(extensionSchedules).values({
+          // Different cron — key alone is the dynamic identity.
+          extensionId: extId,
+          cron: "0 10 * * 1",
+          nextFireAt: new Date(),
+          dynamic: true,
+          key: "job:dup",
+        }),
+      ),
+    ).rejects.toThrow();
   });
 
   test("the same key under a DIFFERENT extension is allowed", async () => {
     const db = getTestDb();
     await db.insert(extensionSchedules).values({
-      extensionId: extId, cron: SHARED_CRON, nextFireAt: new Date(),
-      dynamic: true, key: "job:shared-name",
+      extensionId: extId,
+      cron: SHARED_CRON,
+      nextFireAt: new Date(),
+      dynamic: true,
+      key: "job:shared-name",
     });
     await db.insert(extensionSchedules).values({
-      extensionId: extId2, cron: SHARED_CRON, nextFireAt: new Date(),
-      dynamic: true, key: "job:shared-name",
+      extensionId: extId2,
+      cron: SHARED_CRON,
+      nextFireAt: new Date(),
+      dynamic: true,
+      key: "job:shared-name",
     });
     const rows = await db.select().from(extensionSchedules);
     expect(rows).toHaveLength(2);
@@ -162,12 +219,18 @@ describe("uniq_ext_schedule partials", () => {
     // the migration would break every existing install.
     const db = getTestDb();
     await db.insert(extensionSchedules).values({
-      extensionId: extId, cron: "0 1 * * *", nextFireAt: new Date(),
+      extensionId: extId,
+      cron: "0 1 * * *",
+      nextFireAt: new Date(),
     });
     await db.insert(extensionSchedules).values({
-      extensionId: extId, cron: "0 2 * * *", nextFireAt: new Date(),
+      extensionId: extId,
+      cron: "0 2 * * *",
+      nextFireAt: new Date(),
     });
-    const rows = await db.select().from(extensionSchedules)
+    const rows = await db
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.extensionId, extId));
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.key === null)).toBe(true);
@@ -182,47 +245,70 @@ describe("uniq_ext_webhook — total slug index + dynamic key partial", () => {
   // rows would let a public inbound route resolve non-deterministically.
   test("a DYNAMIC row cannot take a slug a MANIFEST row already holds", async () => {
     const db = getTestDb();
-    await db.insert(extensionWebhooks).values({ extensionId: extName, slug: "factory-eeeeeeeeeeee" });
-    await expect(insert(
-      db.insert(extensionWebhooks).values({
-        extensionId: extName, slug: "factory-eeeeeeeeeeee", dynamic: true, key: "job:collide",
-      }),
-    )).rejects.toThrow();
+    await db
+      .insert(extensionWebhooks)
+      .values({ extensionId: extName, slug: "factory-eeeeeeeeeeee" });
+    await expect(
+      insert(
+        db.insert(extensionWebhooks).values({
+          extensionId: extName,
+          slug: "factory-eeeeeeeeeeee",
+          dynamic: true,
+          key: "job:collide",
+        }),
+      ),
+    ).rejects.toThrow();
   });
 
   test("a MANIFEST row cannot take a slug a DYNAMIC row already holds", async () => {
     const db = getTestDb();
     await db.insert(extensionWebhooks).values({
-      extensionId: extName, slug: "factory-ffffffffffff", dynamic: true, key: "job:first",
+      extensionId: extName,
+      slug: "factory-ffffffffffff",
+      dynamic: true,
+      key: "job:first",
     });
-    await expect(insert(
-      db.insert(extensionWebhooks).values({ extensionId: extName, slug: "factory-ffffffffffff" }),
-    )).rejects.toThrow();
+    await expect(
+      insert(
+        db.insert(extensionWebhooks).values({ extensionId: extName, slug: "factory-ffffffffffff" }),
+      ),
+    ).rejects.toThrow();
   });
 
   test("the total slug index still rejects a duplicate (extension, slug)", async () => {
     const db = getTestDb();
     await db.insert(extensionWebhooks).values({ extensionId: extName, slug: "tickets" });
-    await expect(insert(
-      db.insert(extensionWebhooks).values({ extensionId: extName, slug: "tickets" }),
-    )).rejects.toThrow();
+    await expect(
+      insert(db.insert(extensionWebhooks).values({ extensionId: extName, slug: "tickets" })),
+    ).rejects.toThrow();
   });
 
   test("the DYNAMIC partial rejects a duplicate key and admits distinct ones", async () => {
     const db = getTestDb();
     await db.insert(extensionWebhooks).values({
-      extensionId: extName, slug: "factory-aaaaaaaaaaaa", dynamic: true, key: "job:alpha",
+      extensionId: extName,
+      slug: "factory-aaaaaaaaaaaa",
+      dynamic: true,
+      key: "job:alpha",
     });
     await db.insert(extensionWebhooks).values({
-      extensionId: extName, slug: "factory-bbbbbbbbbbbb", dynamic: true, key: "job:beta",
+      extensionId: extName,
+      slug: "factory-bbbbbbbbbbbb",
+      dynamic: true,
+      key: "job:beta",
     });
     expect(await db.select().from(extensionWebhooks)).toHaveLength(2);
 
-    await expect(insert(
-      db.insert(extensionWebhooks).values({
-        extensionId: extName, slug: "factory-cccccccccccc", dynamic: true, key: "job:alpha",
-      }),
-    )).rejects.toThrow();
+    await expect(
+      insert(
+        db.insert(extensionWebhooks).values({
+          extensionId: extName,
+          slug: "factory-cccccccccccc",
+          dynamic: true,
+          key: "job:alpha",
+        }),
+      ),
+    ).rejects.toThrow();
   });
 
   test("unregister frees the key so the same key can be re-registered", async () => {
@@ -230,17 +316,29 @@ describe("uniq_ext_webhook — total slug index + dynamic key partial", () => {
     // dynamic partial. Without that, a re-register after an unregister
     // would collide with the tombstone forever.
     const db = getTestDb();
-    const [row] = await db.insert(extensionWebhooks).values({
-      extensionId: extName, slug: "factory-dddddddddddd", dynamic: true, key: "job:recycle",
-    }).returning();
-    await db.update(extensionWebhooks)
+    const [row] = await db
+      .insert(extensionWebhooks)
+      .values({
+        extensionId: extName,
+        slug: "factory-dddddddddddd",
+        dynamic: true,
+        key: "job:recycle",
+      })
+      .returning();
+    await db
+      .update(extensionWebhooks)
       .set({ enabled: false, key: null })
       .where(eq(extensionWebhooks.id, row!.id));
 
     await db.insert(extensionWebhooks).values({
-      extensionId: extName, slug: "factory-eeeeeeeeeeee", dynamic: true, key: "job:recycle",
+      extensionId: extName,
+      slug: "factory-eeeeeeeeeeee",
+      dynamic: true,
+      key: "job:recycle",
     });
-    const rows = await db.select().from(extensionWebhooks)
+    const rows = await db
+      .select()
+      .from(extensionWebhooks)
       .where(eq(extensionWebhooks.extensionId, extName));
     expect(rows).toHaveLength(2);
     // The tombstone survives with its delivery history intact.

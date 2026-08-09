@@ -18,7 +18,10 @@
  * in the UI, not an error state.
  */
 
-import { getMessagesWithToolCalls, type MessageWithToolCalls } from "../../db/queries/conversations";
+import {
+  getMessagesWithToolCalls,
+  type MessageWithToolCalls,
+} from "../../db/queries/conversations";
 import { getConversationObservability } from "../../db/queries/observability";
 import { computeSessionTree, isSessionHistoryProducerEnabled } from "../../db/session-sync";
 import { logger } from "../../logger";
@@ -108,7 +111,10 @@ export async function loadConversationGraph(conversationId: string): Promise<Cha
  * conversation's rows are ever fetched, so a foreign id simply is not
  * found.
  */
-export async function loadTurnGraph(conversationId: string, turnMessageId: string): Promise<ChatGraph | null> {
+export async function loadTurnGraph(
+  conversationId: string,
+  turnMessageId: string,
+): Promise<ChatGraph | null> {
   const [{ messages, subConversations }, observability] = await Promise.all([
     getMessagesWithToolCalls(conversationId),
     getConversationObservability(conversationId),

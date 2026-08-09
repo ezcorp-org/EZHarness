@@ -53,9 +53,7 @@ export const AUTO_WIRE_BUNDLED_EXTENSION_NAMES: readonly string[] = [
  * Errors are logged + swallowed — the caller cannot fail conversation
  * creation on a wiring miss.
  */
-export async function autoWireBundledExtensions(
-  conversationId: string,
-): Promise<number> {
+export async function autoWireBundledExtensions(conversationId: string): Promise<number> {
   let wired = 0;
   for (const name of AUTO_WIRE_BUNDLED_EXTENSION_NAMES) {
     try {
@@ -71,9 +69,7 @@ export async function autoWireBundledExtensions(
         // Operator disabled the extension; respect the choice.
         continue;
       }
-      await addConversationExtensions(conversationId, [
-        { extensionId: ext.id },
-      ]);
+      await addConversationExtensions(conversationId, [{ extensionId: ext.id }]);
       wired += 1;
     } catch (err) {
       // Wiring failure is non-fatal — the conversation must persist.

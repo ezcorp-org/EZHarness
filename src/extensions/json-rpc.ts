@@ -57,10 +57,13 @@ interface StreamingState {
 
 export class JsonRpcTransport {
   private buffer = "";
-  private responseCallbacks = new Map<number | string, {
-    resolve: (response: JsonRpcResponse) => void;
-    reject: (error: Error) => void;
-  }>();
+  private responseCallbacks = new Map<
+    number | string,
+    {
+      resolve: (response: JsonRpcResponse) => void;
+      reject: (error: Error) => void;
+    }
+  >();
   private streams = new Map<number | string, StreamingState>();
   private reading = false;
 
@@ -216,11 +219,7 @@ export class JsonRpcTransport {
       const cb = this.responseCallbacks.get(id);
       if (cb) {
         this.responseCallbacks.delete(id);
-        cb.reject(
-          new Error(
-            `Streaming response exceeds 100MB cap (announced ${total} chunks)`,
-          ),
-        );
+        cb.reject(new Error(`Streaming response exceeds 100MB cap (announced ${total} chunks)`));
       }
       return;
     }
@@ -256,16 +255,12 @@ export class JsonRpcTransport {
 
     // Reject oversized chunks BEFORE base64-decoding to avoid the
     // cost of large inputs from a misbehaving extension.
-    if (b64.length > CHUNK_MAX_BYTES * 4 / 3 + 4) {
+    if (b64.length > (CHUNK_MAX_BYTES * 4) / 3 + 4) {
       this.streams.delete(id);
       const cb = this.responseCallbacks.get(id);
       if (cb) {
         this.responseCallbacks.delete(id);
-        cb.reject(
-          new Error(
-            `Chunk payload exceeds 256KB cap (id=${id}, seq=${seq})`,
-          ),
-        );
+        cb.reject(new Error(`Chunk payload exceeds 256KB cap (id=${id}, seq=${seq})`));
       }
       return;
     }
@@ -291,9 +286,7 @@ export class JsonRpcTransport {
       if (cb) {
         this.responseCallbacks.delete(id);
         cb.reject(
-          new Error(
-            `Streaming chunk seq=${seq} exceeds announced total=${state.total} (id=${id})`,
-          ),
+          new Error(`Streaming chunk seq=${seq} exceeds announced total=${state.total} (id=${id})`),
         );
       }
       return;

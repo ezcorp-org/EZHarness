@@ -64,7 +64,12 @@ export async function dispatchFileOrganizerEvent(
     settings: deps.settings,
   };
 
-  const wrap = (r: HandlerResult): DispatchResult => ({ handled: true, changed: r.changed, message: r.message, ok: r.ok });
+  const wrap = (r: HandlerResult): DispatchResult => ({
+    handled: true,
+    changed: r.changed,
+    message: r.message,
+    ok: r.ok,
+  });
 
   try {
     switch (event) {
@@ -82,7 +87,12 @@ export async function dispatchFileOrganizerEvent(
       // filesystem scan. Invalidating the cache is the real effect, so
       // `changed:true` is accurate for the page re-render.
       case "scan-now":
-        return { handled: true, changed: true, ok: true, message: "View refreshed (daemon scans on its own schedule)" };
+        return {
+          handled: true,
+          changed: true,
+          ok: true,
+          message: "View refreshed (daemon scans on its own schedule)",
+        };
 
       // ── Proposal lifecycle ──────────────────────────────────────────
       case "accept": {
@@ -115,10 +125,16 @@ export async function dispatchFileOrganizerEvent(
 
       // ── Quarantine ──────────────────────────────────────────────────
       case "restore":
-        return wrap(await state.restore(stateDeps, { quarantineId: str(payload, "quarantineId"), all: bool(payload, "all") }));
+        return wrap(
+          await state.restore(stateDeps, {
+            quarantineId: str(payload, "quarantineId"),
+            all: bool(payload, "all"),
+          }),
+        );
       case "purge": {
         const id = str(payload, "quarantineId");
-        if (!id) return { handled: true, ok: false, changed: false, message: "Missing quarantineId" };
+        if (!id)
+          return { handled: true, ok: false, changed: false, message: "Missing quarantineId" };
         return wrap(await state.purge(stateDeps, id));
       }
       case "empty-quarantine":
@@ -130,41 +146,52 @@ export async function dispatchFileOrganizerEvent(
       case "set-mode": {
         const folderId = str(payload, "folderId");
         const mode = str(payload, "mode") as Mode | undefined;
-        if (!folderId || !mode) return { handled: true, ok: false, changed: false, message: "Missing folderId/mode" };
+        if (!folderId || !mode)
+          return { handled: true, ok: false, changed: false, message: "Missing folderId/mode" };
         return wrap(await state.setMode(stateDeps, folderId, mode));
       }
       case "toggle-preset": {
         const folderId = str(payload, "folderId");
         const preset = str(payload, "preset");
-        if (!folderId || !preset) return { handled: true, ok: false, changed: false, message: "Missing folderId/preset" };
+        if (!folderId || !preset)
+          return { handled: true, ok: false, changed: false, message: "Missing folderId/preset" };
         return wrap(await state.togglePreset(stateDeps, folderId, preset));
       }
       case "add-folder": {
         const path = str(payload, "path");
         if (!path) return { handled: true, ok: false, changed: false, message: "Missing path" };
-        return wrap(await state.addWatchedFolder(stateDeps, { path, backlogPolicy: str(payload, "backlogPolicy") as BacklogPolicy | undefined }));
+        return wrap(
+          await state.addWatchedFolder(stateDeps, {
+            path,
+            backlogPolicy: str(payload, "backlogPolicy") as BacklogPolicy | undefined,
+          }),
+        );
       }
       case "set-backlog-policy": {
         const folderId = str(payload, "folderId");
         const policy = str(payload, "backlogPolicy") as BacklogPolicy | undefined;
-        if (!folderId || !policy) return { handled: true, ok: false, changed: false, message: "Missing folderId/policy" };
+        if (!folderId || !policy)
+          return { handled: true, ok: false, changed: false, message: "Missing folderId/policy" };
         return wrap(await state.setFolderBacklog(stateDeps, folderId, policy));
       }
       case "remove-folder": {
         const folderId = str(payload, "folderId");
-        if (!folderId) return { handled: true, ok: false, changed: false, message: "Missing folderId" };
+        if (!folderId)
+          return { handled: true, ok: false, changed: false, message: "Missing folderId" };
         return wrap(await state.removeWatchedFolder(stateDeps, folderId));
       }
       case "add-ignore": {
         const folderId = str(payload, "folderId");
         const path = str(payload, "path");
-        if (!folderId || !path) return { handled: true, ok: false, changed: false, message: "Missing folderId/path" };
+        if (!folderId || !path)
+          return { handled: true, ok: false, changed: false, message: "Missing folderId/path" };
         return wrap(await state.addIgnore(stateDeps, folderId, path));
       }
       case "add-rule": {
         const folderId = str(payload, "folderId");
         const rule = str(payload, "rule");
-        if (!folderId || !rule) return { handled: true, ok: false, changed: false, message: "Missing folderId/rule" };
+        if (!folderId || !rule)
+          return { handled: true, ok: false, changed: false, message: "Missing folderId/rule" };
         return wrap(await state.addRule(stateDeps, folderId, rule));
       }
 
@@ -184,9 +211,27 @@ export async function dispatchFileOrganizerEvent(
 /** The bare event names this module handles in-process (for tests + the
  *  route's quick membership check). */
 export const IN_PROCESS_EVENTS = new Set<string>([
-  "select-segment", "page-window", "focus", "reload-config", "scan-now",
-  "accept", "reject", "reject-segment", "confirm-deletes", "undo-batch",
-  "dismiss-stale", "retry-failed", "restore", "purge", "empty-quarantine",
-  "purge-expired", "set-mode", "toggle-preset", "add-folder",
-  "set-backlog-policy", "remove-folder", "add-ignore", "add-rule",
+  "select-segment",
+  "page-window",
+  "focus",
+  "reload-config",
+  "scan-now",
+  "accept",
+  "reject",
+  "reject-segment",
+  "confirm-deletes",
+  "undo-batch",
+  "dismiss-stale",
+  "retry-failed",
+  "restore",
+  "purge",
+  "empty-quarantine",
+  "purge-expired",
+  "set-mode",
+  "toggle-preset",
+  "add-folder",
+  "set-backlog-policy",
+  "remove-folder",
+  "add-ignore",
+  "add-rule",
 ]);

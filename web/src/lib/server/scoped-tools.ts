@@ -141,7 +141,15 @@ export async function resolveScopedTools(
     // UI shows. Strip them before sizing, then carry them separately.
     const { suggestExamples, ...billable } = t;
     const tokenEstimate = Math.ceil(JSON.stringify(billable).length / 4);
-    return { name, description: t.description, extension, extensionType, extensionDescription, suggestExamples, tokenEstimate };
+    return {
+      name,
+      description: t.description,
+      extension,
+      extensionType,
+      extensionDescription,
+      suggestExamples,
+      tokenEstimate,
+    };
   });
 
   // Built-in tools (task tracking, orchestration, scratchpad)
@@ -176,7 +184,9 @@ export async function resolveScopedTools(
  * namespaced for extension tools, bare for built-ins (mirrors how
  * tool_calls.tool_name is recorded).
  */
-export function scopedToolKey(tool: Pick<ScopedToolRow, "name" | "extension" | "extensionType">): string {
+export function scopedToolKey(
+  tool: Pick<ScopedToolRow, "name" | "extension" | "extensionType">,
+): string {
   return tool.extensionType === "built-in" ? tool.name : `${tool.extension}__${tool.name}`;
 }
 

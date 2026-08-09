@@ -50,12 +50,15 @@ mock.module("../runtime/start-assignment", () => ({
     // Seed the sub-conv row so copyConversationExtensions / spawn-depth writes succeed.
     const { getDb } = await import("../db/connection");
     const { conversations } = await import("../db/schema");
-    await getDb().insert(conversations).values({
-      id: subConversationId,
-      projectId: opts.projectId as string,
-      parentConversationId: opts.conversationId as string,
-      title: "sub",
-    } as any).onConflictDoNothing();
+    await getDb()
+      .insert(conversations)
+      .values({
+        id: subConversationId,
+        projectId: opts.projectId as string,
+        parentConversationId: opts.conversationId as string,
+        title: "sub",
+      } as any)
+      .onConflictDoNothing();
     return { subConversationId, agentRunId: runId };
   },
 }));
@@ -108,9 +111,10 @@ const EXT_A = "ext-cr-a";
 const EXT_B = "ext-cr-b";
 const CONV = "conv-cr";
 
-function makePerms(
-  spawnAgents?: { maxPerHour: number; maxConcurrent?: number },
-): ExtensionPermissions {
+function makePerms(spawnAgents?: {
+  maxPerHour: number;
+  maxConcurrent?: number;
+}): ExtensionPermissions {
   return { ...(spawnAgents ? { spawnAgents } : {}), grantedAt: {} };
 }
 
@@ -188,9 +192,7 @@ async function wireConversation(convId: string, extId: string): Promise<void> {
     .onConflictDoNothing();
 }
 
-async function lastCancelAudit(
-  extId: string,
-): Promise<Record<string, unknown> | undefined> {
+async function lastCancelAudit(extId: string): Promise<Record<string, unknown> | undefined> {
   const { and, eq, desc } = await import("drizzle-orm");
   const rows = await getDb()
     .select()
@@ -382,9 +384,13 @@ describe("cancel-run — slot release under concurrent cap (§5.3)", () => {
     // the module-level rate-limit bucket with the permission-gate cases.
     const ext = `cr-cap-${crypto.randomUUID().slice(0, 8)}`;
     const convId = `conv-cr-cap-${crypto.randomUUID().slice(0, 8)}`;
-    await getDb().insert(conversations).values({
-      id: convId, projectId: "proj-cr", title: "cap",
-    } as any);
+    await getDb()
+      .insert(conversations)
+      .values({
+        id: convId,
+        projectId: "proj-cr",
+        title: "cap",
+      } as any);
     await wireConversation(convId, ext);
 
     const bus = new EventBus<AgentEvents>();

@@ -72,7 +72,10 @@ describe("detectDevServerCommand — POSITIVE (recognized dev servers)", () => {
 
   test("strips an npx/bunx runner prefix", () => {
     expect(detectDevServerCommand("npx vite")).toEqual({ command: "vite", args: [] });
-    expect(detectDevServerCommand("bunx vite --host")).toEqual({ command: "vite", args: ["--host"] });
+    expect(detectDevServerCommand("bunx vite --host")).toEqual({
+      command: "vite",
+      args: ["--host"],
+    });
     expect(detectDevServerCommand("pnpm dlx vite")).toEqual({ command: "vite", args: [] });
   });
 

@@ -31,9 +31,5 @@ export async function invoke<T = unknown>(
   opts?: InvokeOptions,
 ): Promise<T> {
   const timeoutMs = opts?.timeoutMs;
-  return getChannel().request<T>(
-    "ezcorp/invoke",
-    { tool: toolName, arguments: args },
-    timeoutMs,
-  );
+  return getChannel().request<T>("ezcorp/invoke", { tool: toolName, arguments: args }, timeoutMs);
 }

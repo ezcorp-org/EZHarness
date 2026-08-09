@@ -13,7 +13,9 @@ mock.module("@earendil-works/pi-ai/compat", () => ({
     if (mockCompleteError) throw mockCompleteError;
     return stubAssistantMessage(mockCompleteText);
   },
-  stream: () => { throw new Error("not used"); },
+  stream: () => {
+    throw new Error("not used");
+  },
   getModel: () => ({ id: "test-model", provider: "anthropic" }),
   getModels: () => [],
   getProviders: () => ["anthropic", "openai", "google"],
@@ -24,10 +26,25 @@ mock.module("../providers/router", () => ({
   resolveModel: async () => ({
     provider: "anthropic",
     model: "test-model",
-    piModel: { id: "test-model", provider: "anthropic", api: "anthropic-messages", baseUrl: "", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 4096 },
+    piModel: {
+      id: "test-model",
+      provider: "anthropic",
+      api: "anthropic-messages",
+      baseUrl: "",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200000,
+      maxTokens: 4096,
+    },
   }),
   ProviderUnavailableError: class ProviderUnavailableError extends Error {
-    constructor(message: string, public readonly failedProvider: string, public readonly failedModel: string, public readonly suggestion: unknown) {
+    constructor(
+      message: string,
+      public readonly failedProvider: string,
+      public readonly failedModel: string,
+      public readonly suggestion: unknown,
+    ) {
       super(message);
       this.name = "ProviderUnavailableError";
     }
@@ -75,14 +92,18 @@ async function simulateGenerateEndpoint(body: unknown): Promise<{ status: number
     const resolved = await resolveModel();
     const cred = await getCredential(resolved.provider);
 
-    const response = await complete(resolved.piModel, {
-      systemPrompt: "meta-agent-system-prompt",
-      messages: messages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-        timestamp: Date.now(),
-      })) as Message[],
-    }, { apiKey: cred.token });
+    const response = await complete(
+      resolved.piModel,
+      {
+        systemPrompt: "meta-agent-system-prompt",
+        messages: messages.map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+          timestamp: Date.now(),
+        })) as Message[],
+      },
+      { apiKey: cred.token },
+    );
 
     // Extract text from AssistantMessage content
     const text = response.content

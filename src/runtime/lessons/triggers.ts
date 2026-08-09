@@ -67,14 +67,14 @@ export function shouldDistill(input: DistillTriggerInput): boolean {
 // distiller can still over-fire and the LLM can still return null;
 // false negatives just mean a missed lesson, never a bad one.
 const USER_CORRECTION_PATTERNS: RegExp[] = [
-  /\bno,/i,                  // "no, that's wrong"
-  /\bnot quite\b/i,          // "not quite — try …"
-  /\bactually\b/i,           // "actually, the file is …"
-  /\bwait,/i,                // "wait, you missed …"
+  /\bno,/i, // "no, that's wrong"
+  /\bnot quite\b/i, // "not quite — try …"
+  /\bactually\b/i, // "actually, the file is …"
+  /\bwait,/i, // "wait, you missed …"
   /\bdon't\s+(?:do|run|use|change|touch|edit|delete|modify)\b/i, // imperative don't
-  /\bstop\b/i,               // "stop"
-  /\bredo\b/i,               // "redo this"
-  /\binstead\b/i,            // "do X instead"
+  /\bstop\b/i, // "stop"
+  /\bredo\b/i, // "redo this"
+  /\binstead\b/i, // "do X instead"
 ];
 
 export function detectUserCorrection(userMessages: readonly string[]): boolean {
@@ -94,9 +94,7 @@ export function detectUserCorrection(userMessages: readonly string[]): boolean {
 // one `ok` event after it in the sequence. We don't try to correlate
 // to a specific tool — same-task semantics in a single run is a
 // reasonable proxy.
-export function detectErrorRecovery(
-  toolEvents: readonly { status: "ok" | "error" }[],
-): boolean {
+export function detectErrorRecovery(toolEvents: readonly { status: "ok" | "error" }[]): boolean {
   let sawError = false;
   for (const ev of toolEvents) {
     if (ev.status === "error") sawError = true;

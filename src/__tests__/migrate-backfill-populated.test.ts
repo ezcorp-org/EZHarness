@@ -55,7 +55,11 @@ async function freshMigratedDb(): Promise<{ pglite: PGlite; db: Db }> {
 }
 
 // Convenience: single-column scalar read.
-async function scalar<T = string | null>(pglite: PGlite, text: string, params: unknown[] = []): Promise<T> {
+async function scalar<T = string | null>(
+  pglite: PGlite,
+  text: string,
+  params: unknown[] = [],
+): Promise<T> {
   const { rows } = await pglite.query<Record<string, T>>(text, params as (string | null)[]);
   const row = rows[0];
   if (!row) throw new Error(`no row for: ${text}`);
@@ -77,13 +81,29 @@ describe("migrate(): backfills against POPULATED old-schema data (admin present)
   beforeAll(async () => {
     ({ pglite, db } = await freshMigratedDb());
 
-    await pglite.query("INSERT INTO projects (id, name, path) VALUES ($1, $2, $3)", [PROJECT, "BF", "/tmp/bf"]);
+    await pglite.query("INSERT INTO projects (id, name, path) VALUES ($1, $2, $3)", [
+      PROJECT,
+      "BF",
+      "/tmp/bf",
+    ]);
 
     // Two admins with distinct created_at → prove "first admin by created_at".
     const insUser =
       "INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES ($1, $2, 'x', $3, $4, $5)";
-    await pglite.query(insUser, [ADMIN_EARLY, "ae@x.com", "AdminEarly", "admin", "2020-01-01T00:00:00Z"]);
-    await pglite.query(insUser, [ADMIN_LATE, "al@x.com", "AdminLate", "admin", "2021-01-01T00:00:00Z"]);
+    await pglite.query(insUser, [
+      ADMIN_EARLY,
+      "ae@x.com",
+      "AdminEarly",
+      "admin",
+      "2020-01-01T00:00:00Z",
+    ]);
+    await pglite.query(insUser, [
+      ADMIN_LATE,
+      "al@x.com",
+      "AdminLate",
+      "admin",
+      "2021-01-01T00:00:00Z",
+    ]);
     await pglite.query(insUser, [USER_A, "alice@x.com", "Alice", "member", "2022-01-01T00:00:00Z"]);
     await pglite.query(insUser, [USER_B, "bob@x.com", "Bob", "member", "2022-06-01T00:00:00Z"]);
 
@@ -143,8 +163,10 @@ describe("migrate(): backfills against POPULATED old-schema data (admin present)
   });
 
   const runOwner = (id: string) => scalar(pglite, "SELECT user_id FROM runs WHERE id = $1", [id]);
-  const convOwner = (id: string) => scalar(pglite, "SELECT user_id FROM conversations WHERE id = $1", [id]);
-  const msgParent = (id: string) => scalar(pglite, "SELECT parent_message_id FROM messages WHERE id = $1", [id]);
+  const convOwner = (id: string) =>
+    scalar(pglite, "SELECT user_id FROM conversations WHERE id = $1", [id]);
+  const msgParent = (id: string) =>
+    scalar(pglite, "SELECT parent_message_id FROM messages WHERE id = $1", [id]);
 
   // ── Run-ownership recursive-CTE walk ──────────────────────────────
   test("deep chain run inherits the ROOT owner, not the ownerless child's admin fallback", async () => {
@@ -229,7 +251,11 @@ describe("migrate(): backfills with NO admin present (fail-closed)", () => {
   beforeAll(async () => {
     ({ pglite, db } = await freshMigratedDb());
 
-    await pglite.query("INSERT INTO projects (id, name, path) VALUES ($1, $2, $3)", [PROJECT, "NoAdmin", "/tmp/na"]);
+    await pglite.query("INSERT INTO projects (id, name, path) VALUES ($1, $2, $3)", [
+      PROJECT,
+      "NoAdmin",
+      "/tmp/na",
+    ]);
     // Only a member — there is NO admin to fall back to.
     await pglite.query(
       "INSERT INTO users (id, email, password_hash, name, role) VALUES ($1, 'm@x.com', 'x', 'M', 'member')",
@@ -252,7 +278,9 @@ describe("migrate(): backfills with NO admin present (fail-closed)", () => {
   });
 
   test("ownerless conversation stays NULL when no admin exists", async () => {
-    expect(await scalar(pglite, "SELECT user_id FROM conversations WHERE id = 'convX-root'")).toBeNull();
+    expect(
+      await scalar(pglite, "SELECT user_id FROM conversations WHERE id = 'convX-root'"),
+    ).toBeNull();
   });
 
   test("run on an ownerless (no-admin) chain stays NULL → admin-only, fail-closed", async () => {

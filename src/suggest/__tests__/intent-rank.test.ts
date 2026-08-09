@@ -99,7 +99,12 @@ describe("rankCandidates", () => {
   });
 
   test("blended score formula: relevance*(1-w) + prior*w", () => {
-    const [c] = rankCandidates(draft, [{ key: "k", embedding: [1, 0, 0] }], { k: 0.5 }, { priorWeight: 0.4 });
+    const [c] = rankCandidates(
+      draft,
+      [{ key: "k", embedding: [1, 0, 0] }],
+      { k: 0.5 },
+      { priorWeight: 0.4 },
+    );
     expect(c!.score).toBeCloseTo(1 * 0.6 + 0.5 * 0.4);
   });
 });
@@ -213,7 +218,9 @@ describe("rankCandidates — hybrid relevance (live regression 2026-07-10)", () 
     key: "web-search__search-web",
     embedding: [0.19, Math.sqrt(1 - 0.19 ** 2), 0], // cosine ≈ 0.19
     nameTokens: contentTokens("web-search search-web"),
-    descTokens: contentTokens("Search the web for a query. Returns a ranked markdown list of results."),
+    descTokens: contentTokens(
+      "Search the web for a query. Returns a ranked markdown list of results.",
+    ),
   };
   const briefing = {
     key: "cash-recovery-agent__generate-morning-briefing",
@@ -239,7 +246,12 @@ describe("rankCandidates — hybrid relevance (live regression 2026-07-10)", () 
   });
 
   test("lexical cannot drag DOWN a strong cosine (relevance is the max)", () => {
-    const strong = { key: "k", embedding: [1, 0, 0], nameTokens: new Set<string>(), descTokens: new Set<string>() };
+    const strong = {
+      key: "k",
+      embedding: [1, 0, 0],
+      nameTokens: new Set<string>(),
+      descTokens: new Set<string>(),
+    };
     const [c] = rankCandidates(draft, [strong], {}, undefined, draftTokens);
     expect(c!.relevance).toBeCloseTo(1);
     expect(c!.lexical).toBe(0);

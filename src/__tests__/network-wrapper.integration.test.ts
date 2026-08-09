@@ -19,17 +19,11 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { resolve } from "node:path";
 
-const SANDBOX_PRELOAD_PATH = resolve(
-  import.meta.dir,
-  "../extensions/runtime/sandbox-preload.ts",
-);
+const SANDBOX_PRELOAD_PATH = resolve(import.meta.dir, "../extensions/runtime/sandbox-preload.ts");
 
 type ProbeResult = { stdout: string; stderr: string; exitCode: number };
 
-async function runUnderPreload(
-  code: string,
-  env: Record<string, string>,
-): Promise<ProbeResult> {
+async function runUnderPreload(code: string, env: Record<string, string>): Promise<ProbeResult> {
   const fullEnv: Record<string, string> = {
     PATH: process.env.PATH ?? "",
     HOME: process.env.HOME ?? "",
@@ -125,8 +119,8 @@ describe("Phase 2 fetch wrapper — integration smoke (subprocess + preload)", (
   test("allowlist miss (evil.com NOT in PERMITTED_HOSTS) → wrapper throws with per-host error", async () => {
     const out = await runUnderPreload(
       `await fetch('https://evil.com/x').catch((e) => { ` +
-      `  console.log('caught:' + e.message); ` +
-      `})`,
+        `  console.log('caught:' + e.message); ` +
+        `})`,
       { EZCORP_PERMITTED_HOSTS: "api.foo.com" },
     );
     expect(out.stdout).toMatch(

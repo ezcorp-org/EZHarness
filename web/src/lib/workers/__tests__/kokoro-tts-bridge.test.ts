@@ -158,12 +158,8 @@ describe("kokoro-tts-bridge", () => {
     });
 
     const [aBlob, bBlob] = await Promise.all([a, b]);
-    expect(new Uint8Array(await aBlob.arrayBuffer())).toEqual(
-      new Uint8Array([0xa]),
-    );
-    expect(new Uint8Array(await bBlob.arrayBuffer())).toEqual(
-      new Uint8Array([0xb]),
-    );
+    expect(new Uint8Array(await aBlob.arrayBuffer())).toEqual(new Uint8Array([0xa]));
+    expect(new Uint8Array(await bBlob.arrayBuffer())).toEqual(new Uint8Array([0xb]));
   });
 
   test("worker error response rejects only the matching promise", async () => {

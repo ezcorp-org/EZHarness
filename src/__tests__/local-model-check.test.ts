@@ -121,24 +121,36 @@ describe("checkEndpointReachability", () => {
 describe("checkModelAvailability", () => {
   test("openai-compatible: finds model in data array", async () => {
     mockFetch.mockImplementation(() =>
-      Promise.resolve(jsonResponse({
-        data: [{ id: "llama3" }, { id: "codellama" }],
-      })),
+      Promise.resolve(
+        jsonResponse({
+          data: [{ id: "llama3" }, { id: "codellama" }],
+        }),
+      ),
     );
 
-    const result = await checkModelAvailability("http://localhost:11434", "llama3", "openai-compatible");
+    const result = await checkModelAvailability(
+      "http://localhost:11434",
+      "llama3",
+      "openai-compatible",
+    );
     expect(result.available).toBe(true);
     expect(result.models).toHaveLength(2);
   });
 
   test("openai-compatible: model not found", async () => {
     mockFetch.mockImplementation(() =>
-      Promise.resolve(jsonResponse({
-        data: [{ id: "llama3" }],
-      })),
+      Promise.resolve(
+        jsonResponse({
+          data: [{ id: "llama3" }],
+        }),
+      ),
     );
 
-    const result = await checkModelAvailability("http://localhost:11434", "mistral", "openai-compatible");
+    const result = await checkModelAvailability(
+      "http://localhost:11434",
+      "mistral",
+      "openai-compatible",
+    );
     expect(result.available).toBe(false);
     expect(result.models).toHaveLength(1);
   });
@@ -146,27 +158,39 @@ describe("checkModelAvailability", () => {
   test("openai-compatible: handles non-200 response", async () => {
     mockFetch.mockImplementation(() => Promise.resolve(errorResponse(500)));
 
-    const result = await checkModelAvailability("http://localhost:11434", "llama3", "openai-compatible");
+    const result = await checkModelAvailability(
+      "http://localhost:11434",
+      "llama3",
+      "openai-compatible",
+    );
     expect(result.available).toBe(false);
     expect(result.error).toContain("500");
   });
 
   test("ollama: finds model by exact name", async () => {
     mockFetch.mockImplementation(() =>
-      Promise.resolve(jsonResponse({
-        models: [{ name: "llama3:latest" }, { name: "codellama:7b" }],
-      })),
+      Promise.resolve(
+        jsonResponse({
+          models: [{ name: "llama3:latest" }, { name: "codellama:7b" }],
+        }),
+      ),
     );
 
-    const result = await checkModelAvailability("http://localhost:11434", "llama3:latest", "ollama");
+    const result = await checkModelAvailability(
+      "http://localhost:11434",
+      "llama3:latest",
+      "ollama",
+    );
     expect(result.available).toBe(true);
   });
 
   test("ollama: matches model without :latest suffix", async () => {
     mockFetch.mockImplementation(() =>
-      Promise.resolve(jsonResponse({
-        models: [{ name: "llama3:latest" }],
-      })),
+      Promise.resolve(
+        jsonResponse({
+          models: [{ name: "llama3:latest" }],
+        }),
+      ),
     );
 
     const result = await checkModelAvailability("http://localhost:11434", "llama3", "ollama");
@@ -175,9 +199,11 @@ describe("checkModelAvailability", () => {
 
   test("ollama: matches when query has :latest but stored doesn't", async () => {
     mockFetch.mockImplementation(() =>
-      Promise.resolve(jsonResponse({
-        models: [{ name: "llama3" }],
-      })),
+      Promise.resolve(
+        jsonResponse({
+          models: [{ name: "llama3" }],
+        }),
+      ),
     );
 
     // The model list has "llama3", query is "llama3:latest"
@@ -188,9 +214,11 @@ describe("checkModelAvailability", () => {
 
   test("ollama: model not found", async () => {
     mockFetch.mockImplementation(() =>
-      Promise.resolve(jsonResponse({
-        models: [{ name: "llama3:latest" }],
-      })),
+      Promise.resolve(
+        jsonResponse({
+          models: [{ name: "llama3:latest" }],
+        }),
+      ),
     );
 
     const result = await checkModelAvailability("http://localhost:11434", "mistral", "ollama");
@@ -208,7 +236,11 @@ describe("checkModelAvailability", () => {
   test("handles network error", async () => {
     mockFetch.mockImplementation(() => Promise.reject(new Error("connection refused")));
 
-    const result = await checkModelAvailability("http://localhost:11434", "llama3", "openai-compatible");
+    const result = await checkModelAvailability(
+      "http://localhost:11434",
+      "llama3",
+      "openai-compatible",
+    );
     expect(result.available).toBe(false);
     expect(result.error).toContain("connection refused");
   });
@@ -219,9 +251,11 @@ describe("checkModelAvailability", () => {
 describe("testInference", () => {
   test("success returns latency", async () => {
     mockFetch.mockImplementation(() =>
-      Promise.resolve(jsonResponse({
-        choices: [{ message: { content: "ok" } }],
-      })),
+      Promise.resolve(
+        jsonResponse({
+          choices: [{ message: { content: "ok" } }],
+        }),
+      ),
     );
 
     const result = await testInference("http://localhost:11434", "llama3", "openai-compatible");

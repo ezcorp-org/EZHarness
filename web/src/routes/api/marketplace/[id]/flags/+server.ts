@@ -11,10 +11,12 @@ import type { RequestHandler } from "./$types";
 // required non-empty string, `action` is a literal union. Both
 // failures collapse to the same 400 message the existing test
 // asserts on, so the contract is preserved verbatim.
-const flagsPatchSchema = z.object({
-  flagId: z.string().min(1),
-  action: z.enum(["dismissed", "removed"]),
-}).passthrough();
+const flagsPatchSchema = z
+  .object({
+    flagId: z.string().min(1),
+    action: z.enum(["dismissed", "removed"]),
+  })
+  .passthrough();
 
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "admin");

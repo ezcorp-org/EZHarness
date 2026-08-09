@@ -61,12 +61,9 @@ describe.skipIf(SKIP_REASON !== null)("RC#1: raw-socket bypass closed at kernel 
   // Full end-to-end proof requires a Stage 2 netns up (Task 2 launcher
   // veth setup + Plan 03 bridge boot). Until both land, mark as todo
   // so the file compiles cleanly on Linux+CAP_NET_ADMIN dev hosts.
-  test.todo(
-    "[Task 2 + Plan 03] Bun.connect({hostname: '127.0.0.1', port: 22}) inside Stage 2 netns rejects with ENETUNREACH (NOT ECONNREFUSED)",
-    () => {
-      // Will spawn `bun tests/fixtures/raw-socket-probe/index.ts` inside
-      // a Stage 2 netns and assert stdout contains "ENETUNREACH".
-      // Gated on Task 2 launcher work + Plan 03 bridge boot.
-    },
-  );
+  test.todo("[Task 2 + Plan 03] Bun.connect({hostname: '127.0.0.1', port: 22}) inside Stage 2 netns rejects with ENETUNREACH (NOT ECONNREFUSED)", () => {
+    // Will spawn `bun tests/fixtures/raw-socket-probe/index.ts` inside
+    // a Stage 2 netns and assert stdout contains "ENETUNREACH".
+    // Gated on Task 2 launcher work + Plan 03 bridge boot.
+  });
 });

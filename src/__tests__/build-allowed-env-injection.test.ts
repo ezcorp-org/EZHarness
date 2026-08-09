@@ -20,9 +20,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { ExtensionRegistry, buildAllowedEnv } from "../extensions/registry";
 import type { ExtensionManifestV2 } from "../extensions/types";
 
-function makeManifest(
-  overrides: Partial<ExtensionManifestV2> = {},
-): ExtensionManifestV2 {
+function makeManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionManifestV2 {
   return {
     schemaVersion: 2,
     name: "sample",
@@ -120,12 +118,9 @@ describe("buildAllowedEnv — injectedEnv gating", () => {
   });
 
   test("extensions that never declared env.permissions get zero injected values", () => {
-    const out = buildAllowedEnv(
-      makeManifest({ permissions: {} }),
-      { grantedAt: {} },
-      "ext-1",
-      { EZCORP_API_KEY: "ezkint_x" },
-    );
+    const out = buildAllowedEnv(makeManifest({ permissions: {} }), { grantedAt: {} }, "ext-1", {
+      EZCORP_API_KEY: "ezkint_x",
+    });
     expect(out["EZCORP_API_KEY"]).toBeUndefined();
   });
 });
@@ -245,9 +240,7 @@ describe("ExtensionRegistry — injected env lifecycle", () => {
 //     manifest.resources.callTimeoutMs > 0
 //       ? manifest.resources.callTimeoutMs
 //       : undefined;
-function deriveCallTimeoutMs(
-  manifest: ExtensionManifestV2,
-): number | undefined {
+function deriveCallTimeoutMs(manifest: ExtensionManifestV2): number | undefined {
   return typeof manifest.resources?.callTimeoutMs === "number" &&
     manifest.resources.callTimeoutMs > 0
     ? manifest.resources.callTimeoutMs

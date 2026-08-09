@@ -48,11 +48,7 @@ import {
   claimProposal,
   insertProposalIfNew,
 } from "../../db/queries/github-projects";
-import {
-  GITHUB_ACTIVE_STATUSES,
-  GITHUB_TERMINAL_STATUSES,
-  githubProposalDedupeKey,
-} from "./types";
+import { GITHUB_ACTIVE_STATUSES, GITHUB_TERMINAL_STATUSES, githubProposalDedupeKey } from "./types";
 import { createConversation, createMessage } from "../../db/queries/conversations";
 import { addConversationExtensions } from "../../db/queries/conversation-extensions";
 import { getExtensionByName } from "../../db/queries/extensions";
@@ -186,9 +182,7 @@ const SPAWN_PERMISSION_MODES: readonly PermissionMode[] = ["ask", "auto-edit", "
  * Returns the value iff it is one of "ask" | "auto-edit" | "yolo"; null/empty or
  * any unrecognized value → null so the spawn falls back to its 'yolo' default.
  */
-export function parseSpawnPermissionMode(
-  raw: string | null | undefined,
-): PermissionMode | null {
+export function parseSpawnPermissionMode(raw: string | null | undefined): PermissionMode | null {
   if (!raw) return null;
   return SPAWN_PERMISSION_MODES.includes(raw as PermissionMode) ? (raw as PermissionMode) : null;
 }
@@ -261,9 +255,7 @@ export function buildRunPrompt(proposal: GithubProjectsProposal): string {
 function resolveRuntime(): SpawnRuntime {
   const runtime = getBriefingRuntime();
   if (!runtime) {
-    throw new Error(
-      "github-projects: runtime (executor + bus) not registered — cannot spawn",
-    );
+    throw new Error("github-projects: runtime (executor + bus) not registered — cannot spawn");
   }
   const { executor, bus } = runtime;
   // Bind directly — no wrapper closures. The bus/executor surfaces are
@@ -323,7 +315,7 @@ export async function approveProposal(
   const column = link.columnActionMap?.[proposal.statusOptionId];
   const permissionMode: PermissionMode = column?.permissionMode
     ? toRuntimePermissionMode(column.permissionMode)
-    : parseSpawnPermissionMode(link.defaultPermissionMode) ?? "yolo";
+    : (parseSpawnPermissionMode(link.defaultPermissionMode) ?? "yolo");
   const agentConfigId = await resolveAgentConfigId(column?.agentName);
 
   // Per-board default model ("<provider>:<model>"). Null/empty → omit both and
@@ -581,7 +573,7 @@ function subscribeRunLifecycle(
         status === "failed"
           ? typeof run.result?.error === "string"
             ? run.result.error
-            : run.result?.error?.message ?? "run errored"
+            : (run.result?.error?.message ?? "run errored")
           : undefined;
 
       // Conditional claim: only an active proposal moves to terminal. A null

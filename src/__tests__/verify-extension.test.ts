@@ -77,9 +77,7 @@ describe("verifyExtension — FAIL paths", () => {
       expect(failStep!.detail).toContain("not a declared tool");
       // No subprocess should have been spawned (we never reached
       // smoke-test-roundtrip).
-      expect(r.steps.some((s) => s.name === "smoke-test-roundtrip")).toBe(
-        false,
-      );
+      expect(r.steps.some((s) => s.name === "smoke-test-roundtrip")).toBe(false);
     } finally {
       fx.cleanup();
     }

@@ -27,123 +27,121 @@ import BottomSheet from "$lib/components/BottomSheet.svelte";
  * component file.
  */
 function makeChildrenSnippet() {
-	return createRawSnippet(() => ({
-		render: () => `<div data-testid="sheet-content">hi</div>`,
-	}));
+  return createRawSnippet(() => ({
+    render: () => `<div data-testid="sheet-content">hi</div>`,
+  }));
 }
 
 describe("BottomSheet", () => {
-	test("renders panel when open=true and aria-modal=true", () => {
-		render(BottomSheet, {
-			open: true,
-			onclose: vi.fn(),
-			children: makeChildrenSnippet(),
-		});
-		const sheet = screen.getByTestId("bottom-sheet");
-		expect(sheet).toBeInTheDocument();
-		expect(sheet).toHaveAttribute("aria-modal", "true");
-		expect(sheet).toHaveAttribute("role", "dialog");
-	});
+  test("renders panel when open=true and aria-modal=true", () => {
+    render(BottomSheet, {
+      open: true,
+      onclose: vi.fn(),
+      children: makeChildrenSnippet(),
+    });
+    const sheet = screen.getByTestId("bottom-sheet");
+    expect(sheet).toBeInTheDocument();
+    expect(sheet).toHaveAttribute("aria-modal", "true");
+    expect(sheet).toHaveAttribute("role", "dialog");
+  });
 
-	test("does NOT render panel when open=false", () => {
-		render(BottomSheet, {
-			open: false,
-			onclose: vi.fn(),
-			children: makeChildrenSnippet(),
-		});
-		expect(screen.queryByTestId("bottom-sheet")).toBeNull();
-	});
+  test("does NOT render panel when open=false", () => {
+    render(BottomSheet, {
+      open: false,
+      onclose: vi.fn(),
+      children: makeChildrenSnippet(),
+    });
+    expect(screen.queryByTestId("bottom-sheet")).toBeNull();
+  });
 
-	test("× button click invokes onclose", async () => {
-		const onclose = vi.fn();
-		render(BottomSheet, {
-			open: true,
-			onclose,
-			children: makeChildrenSnippet(),
-		});
-		const closeBtn = screen.getByLabelText("Close");
-		await fireEvent.click(closeBtn);
-		expect(onclose).toHaveBeenCalledTimes(1);
-	});
+  test("× button click invokes onclose", async () => {
+    const onclose = vi.fn();
+    render(BottomSheet, {
+      open: true,
+      onclose,
+      children: makeChildrenSnippet(),
+    });
+    const closeBtn = screen.getByLabelText("Close");
+    await fireEvent.click(closeBtn);
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
 
-	test("Escape key invokes onclose", async () => {
-		const onclose = vi.fn();
-		render(BottomSheet, {
-			open: true,
-			onclose,
-			children: makeChildrenSnippet(),
-		});
-		await fireEvent.keyDown(window, { key: "Escape" });
-		expect(onclose).toHaveBeenCalled();
-	});
+  test("Escape key invokes onclose", async () => {
+    const onclose = vi.fn();
+    render(BottomSheet, {
+      open: true,
+      onclose,
+      children: makeChildrenSnippet(),
+    });
+    await fireEvent.keyDown(window, { key: "Escape" });
+    expect(onclose).toHaveBeenCalled();
+  });
 
-	test("backdrop click invokes onclose (after the enter frame)", async () => {
-		const onclose = vi.fn();
-		const { container } = render(BottomSheet, {
-			open: true,
-			onclose,
-			children: makeChildrenSnippet(),
-		});
-		// The backdrop only acts once `entering` flips on the first rAF
-		// after mount — wait that frame out before clicking.
-		await new Promise((r) => requestAnimationFrame(() => r(null)));
-		// Backdrop is the element painted with the bg-black/50 overlay.
-		const backdrop = container.querySelector(".bg-black\\/50");
-		expect(backdrop).not.toBeNull();
-		await fireEvent.click(backdrop as Element);
-		expect(onclose).toHaveBeenCalled();
-	});
+  test("backdrop click invokes onclose (after the enter frame)", async () => {
+    const onclose = vi.fn();
+    const { container } = render(BottomSheet, {
+      open: true,
+      onclose,
+      children: makeChildrenSnippet(),
+    });
+    // The backdrop only acts once `entering` flips on the first rAF
+    // after mount — wait that frame out before clicking.
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    // Backdrop is the element painted with the bg-black/50 overlay.
+    const backdrop = container.querySelector(".bg-black\\/50");
+    expect(backdrop).not.toBeNull();
+    await fireEvent.click(backdrop as Element);
+    expect(onclose).toHaveBeenCalled();
+  });
 
-	test("backdrop click during the mount frame is ignored (backdrop still invisible)", async () => {
-		// When a sheet opens on an input's focus, the tail of that same tap
-		// lands on the not-yet-faded-in backdrop; acting on it would dismiss
-		// the sheet before the user ever sees it (modes-extensions mobile).
-		const onclose = vi.fn();
-		const { container } = render(BottomSheet, {
-			open: true,
-			onclose,
-			children: makeChildrenSnippet(),
-		});
-		const backdrop = container.querySelector(".bg-black\\/50");
-		expect(backdrop).not.toBeNull();
-		await fireEvent.click(backdrop as Element);
-		expect(onclose).not.toHaveBeenCalled();
-	});
+  test("backdrop click during the mount frame is ignored (backdrop still invisible)", async () => {
+    // When a sheet opens on an input's focus, the tail of that same tap
+    // lands on the not-yet-faded-in backdrop; acting on it would dismiss
+    // the sheet before the user ever sees it (modes-extensions mobile).
+    const onclose = vi.fn();
+    const { container } = render(BottomSheet, {
+      open: true,
+      onclose,
+      children: makeChildrenSnippet(),
+    });
+    const backdrop = container.querySelector(".bg-black\\/50");
+    expect(backdrop).not.toBeNull();
+    await fireEvent.click(backdrop as Element);
+    expect(onclose).not.toHaveBeenCalled();
+  });
 
-	test("applies padding-bottom: env(safe-area-inset-bottom, 0px) on the panel", () => {
-		render(BottomSheet, {
-			open: true,
-			onclose: vi.fn(),
-			children: makeChildrenSnippet(),
-		});
-		const panel = screen.getByTestId("bottom-sheet-panel");
-		// Inline style must include env(safe-area-inset-bottom — verifies
-		// the iOS home-indicator clearance per CONTEXT.md UX-01.
-		expect(panel.getAttribute("style") ?? "").toContain(
-			"env(safe-area-inset-bottom",
-		);
-	});
+  test("applies padding-bottom: env(safe-area-inset-bottom, 0px) on the panel", () => {
+    render(BottomSheet, {
+      open: true,
+      onclose: vi.fn(),
+      children: makeChildrenSnippet(),
+    });
+    const panel = screen.getByTestId("bottom-sheet-panel");
+    // Inline style must include env(safe-area-inset-bottom — verifies
+    // the iOS home-indicator clearance per CONTEXT.md UX-01.
+    expect(panel.getAttribute("style") ?? "").toContain("env(safe-area-inset-bottom");
+  });
 
-	test("renders ariaLabel as the dialog aria-label", () => {
-		render(BottomSheet, {
-			open: true,
-			onclose: vi.fn(),
-			ariaLabel: "Agent picker",
-			children: makeChildrenSnippet(),
-		});
-		const sheet = screen.getByTestId("bottom-sheet");
-		expect(sheet).toHaveAttribute("aria-label", "Agent picker");
-	});
+  test("renders ariaLabel as the dialog aria-label", () => {
+    render(BottomSheet, {
+      open: true,
+      onclose: vi.fn(),
+      ariaLabel: "Agent picker",
+      children: makeChildrenSnippet(),
+    });
+    const sheet = screen.getByTestId("bottom-sheet");
+    expect(sheet).toHaveAttribute("aria-label", "Agent picker");
+  });
 
-	test("close button has min 44x44 touch target (WCAG 2.5.5)", () => {
-		render(BottomSheet, {
-			open: true,
-			onclose: vi.fn(),
-			children: makeChildrenSnippet(),
-		});
-		const closeBtn = screen.getByLabelText("Close");
-		const style = closeBtn.getAttribute("style") ?? "";
-		expect(style).toContain("min-width: 44px");
-		expect(style).toContain("min-height: 44px");
-	});
+  test("close button has min 44x44 touch target (WCAG 2.5.5)", () => {
+    render(BottomSheet, {
+      open: true,
+      onclose: vi.fn(),
+      children: makeChildrenSnippet(),
+    });
+    const closeBtn = screen.getByLabelText("Close");
+    const style = closeBtn.getAttribute("style") ?? "";
+    expect(style).toContain("min-width: 44px");
+    expect(style).toContain("min-height: 44px");
+  });
 });

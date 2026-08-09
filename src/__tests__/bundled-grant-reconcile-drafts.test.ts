@@ -27,20 +27,9 @@
  * row, drive the real `ensureBundledExtensions`). The DB-backed
  * integration test mirrors `src/extensions/__tests__/drafts-handler.test.ts`.
  */
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import type {
-  ExtensionPermissions,
-  ExtensionManifestV2,
-} from "../extensions/types";
+import type { ExtensionPermissions, ExtensionManifestV2 } from "../extensions/types";
 
 // ── Mock the DB-queries module so ensureBundledExtensions sees a
 // pre-seeded "extension-author" row whose grant lacks custom.drafts.
@@ -147,9 +136,7 @@ beforeEach(() => {
  *  - grant has the declared filesystem path but is MISSING
  *    `custom.drafts.kinds` (the bug).
  */
-function seedStaleAuthor(
-  overrides: Partial<StoredExtension> = {},
-): StoredExtension {
+function seedStaleAuthor(overrides: Partial<StoredExtension> = {}): StoredExtension {
   const row: StoredExtension = {
     id: "ext-stale-author",
     name: "extension-author",
@@ -157,9 +144,7 @@ function seedStaleAuthor(
     enabled: true,
     isBundled: true,
     version: DISK_AUTHOR_MANIFEST.version,
-    manifest: JSON.parse(
-      JSON.stringify(DISK_AUTHOR_MANIFEST),
-    ) as StoredExtension["manifest"],
+    manifest: JSON.parse(JSON.stringify(DISK_AUTHOR_MANIFEST)) as StoredExtension["manifest"],
     grantedPermissions: {
       filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
       // custom.drafts.kinds intentionally MISSING — the bug.
@@ -183,9 +168,7 @@ function authorUpdateCalls(): Array<{
   id: string;
   patch: Partial<StoredExtension>;
 }> {
-  return updateCalls.filter(
-    (u) => u.id === "ext-stale-author" && "grantedPermissions" in u.patch,
-  );
+  return updateCalls.filter((u) => u.id === "ext-stale-author" && "grantedPermissions" in u.patch);
 }
 
 // ── 1. Stale ENABLED row → backfilled + audited ──────────────────────
@@ -246,9 +229,9 @@ describe("ensureBundledExtensions — extension-author custom.drafts.kinds self-
     expect(authorUpdateCalls()).toHaveLength(0);
     expect(reconcileAudits()).toHaveLength(0);
     // Grant unchanged.
-    expect(
-      store.get("extension-author")!.grantedPermissions.custom?.drafts?.kinds,
-    ).toEqual(["extension"]);
+    expect(store.get("extension-author")!.grantedPermissions.custom?.drafts?.kinds).toEqual([
+      "extension",
+    ]);
   }, 30_000);
 
   test("a row that already satisfies the declared set → no write, no audit on first boot", async () => {
@@ -291,9 +274,7 @@ describe("ensureBundledExtensions — extension-author custom.drafts.kinds self-
     // — the bogus "agent" kind is NOT preserved.
     expect(g.custom?.drafts?.kinds).toEqual(["extension"]);
     // The legitimate within-ceiling filesystem grant survives.
-    expect(g.filesystem).toEqual([
-      "$CWD/.ezcorp/extension-data/extension-author/drafts/$USER",
-    ]);
+    expect(g.filesystem).toEqual(["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"]);
   }, 30_000);
 
   // ── 5. Regression: S9 still disables a version-bump+perms-change ───
@@ -338,8 +319,7 @@ describe("ensureBundledExtensions — extension-author custom.drafts.kinds self-
     const scratchpadReconAudits = auditCalls.filter(
       (c) =>
         c.target === "ext-stale-scratchpad" &&
-        (c.metadata as { permission?: string })?.permission ===
-          "grant-reconcile",
+        (c.metadata as { permission?: string })?.permission === "grant-reconcile",
     );
     expect(scratchpadReconAudits).toHaveLength(0);
     // The grant was NOT silently healed behind the S9 disable.
@@ -380,9 +360,7 @@ describe("ensureBundledExtensions — extension-author custom.drafts.kinds self-
     expect(criticalAudits.length).toBeGreaterThanOrEqual(1);
 
     // The bug is fixed: the grant was reconciled on that path.
-    expect(row.grantedPermissions.custom?.drafts?.kinds).toEqual([
-      "extension",
-    ]);
+    expect(row.grantedPermissions.custom?.drafts?.kinds).toEqual(["extension"]);
     expect(row.grantedPermissions.filesystem).toEqual([
       "$CWD/.ezcorp/extension-data/extension-author/drafts/$USER",
     ]);
@@ -424,11 +402,7 @@ mock.module("../db/connection", () => ({
   closeDb: async () => {},
 }));
 
-import {
-  setupTestDb,
-  closeTestDb,
-  getTestPglite,
-} from "./helpers/test-pglite";
+import { setupTestDb, closeTestDb, getTestPglite } from "./helpers/test-pglite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -458,8 +432,18 @@ describe("integration — reconciled grant unblocks ezcorp/drafts create", () =>
 
   afterAll(async () => {
     await closeTestDb();
-    if (_prevCwd) try { process.chdir(_prevCwd); } catch { /* */ }
-    if (_tmpRoot) try { rmSync(_tmpRoot, { recursive: true, force: true }); } catch { /* */ }
+    if (_prevCwd)
+      try {
+        process.chdir(_prevCwd);
+      } catch {
+        /* */
+      }
+    if (_tmpRoot)
+      try {
+        rmSync(_tmpRoot, { recursive: true, force: true });
+      } catch {
+        /* */
+      }
   });
 
   test("PRE-fix grant (no custom.drafts.kinds) → -32603 'custom.drafts.kinds not granted'", async () => {
@@ -491,9 +475,7 @@ describe("integration — reconciled grant unblocks ezcorp/drafts create", () =>
   test("POST-reconcile grant → create succeeds (no 'not granted' error, draftId returned)", async () => {
     // Build the reconciled grant exactly as reconcileBundledGrant
     // would: declared-within-ceiling backfill of the broken grant.
-    const { clampToBundledCeiling } = await import(
-      "../extensions/bundled-ceiling"
-    );
+    const { clampToBundledCeiling } = await import("../extensions/bundled-ceiling");
     const stored: ExtensionPermissions = {
       filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
       grantedAt: { filesystem: 1 },
@@ -512,10 +494,7 @@ describe("integration — reconciled grant unblocks ezcorp/drafts create", () =>
         ...(declared.grantedAt ?? {}),
       },
     };
-    const { effective: reconciled } = clampToBundledCeiling(
-      "extension-author",
-      merged,
-    );
+    const { effective: reconciled } = clampToBundledCeiling("extension-author", merged);
     // Sanity: the reconciled grant carries the gate-passing field.
     expect(reconciled.custom?.drafts?.kinds).toEqual(["extension"]);
 

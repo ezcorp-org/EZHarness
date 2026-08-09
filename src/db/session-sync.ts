@@ -7,7 +7,12 @@ import { getMessages, getLatestLeaf } from "./queries/conversations";
 import { getSetting } from "./queries/settings";
 import { agentSessionEntries, agentSessions } from "./schema";
 import { entryToRow, type DbSessionMetadata, type DbSessionStorage } from "./session-storage";
-import { backfillSessionForConversation, isLlmTurn, rowToEntry, rowToPiMessage } from "./session-backfill";
+import {
+  backfillSessionForConversation,
+  isLlmTurn,
+  rowToEntry,
+  rowToPiMessage,
+} from "./session-backfill";
 
 /**
  * P3 of the Postgres SessionStorage design
@@ -129,9 +134,15 @@ const convLocks = new Map<string, Promise<unknown>>();
  * falls open to the legacy CTE). If horizontal scaling is ever supported,
  * replace this Map with a Postgres advisory lock keyed on the conversation id.
  */
-export async function withConvSessionLock<T>(conversationId: string, fn: () => Promise<T>): Promise<T> {
+export async function withConvSessionLock<T>(
+  conversationId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
   const prev = convLocks.get(conversationId) ?? Promise.resolve();
-  const run = prev.then(() => fn(), () => fn());
+  const run = prev.then(
+    () => fn(),
+    () => fn(),
+  );
   convLocks.set(conversationId, run);
   try {
     return await run;
@@ -171,9 +182,16 @@ function readSyncCursor(meta: DbSessionMetadata): number {
 
 /** Persist the advanced append cursor, preserving any other metadata keys.
  *  Serialized under {@link withConvSessionLock} with every other session op. */
-async function writeSyncCursor(sessionId: string, meta: DbSessionMetadata, ms: number): Promise<void> {
+async function writeSyncCursor(
+  sessionId: string,
+  meta: DbSessionMetadata,
+  ms: number,
+): Promise<void> {
   const nextMeta = { ...(meta.metadata ?? {}), [SYNC_CURSOR_META_KEY]: ms };
-  await getDb().update(agentSessions).set({ metadata: nextMeta }).where(eq(agentSessions.id, sessionId));
+  await getDb()
+    .update(agentSessions)
+    .set({ metadata: nextMeta })
+    .where(eq(agentSessions.id, sessionId));
 }
 
 /**
@@ -204,7 +222,9 @@ async function writeSyncCursor(sessionId: string, meta: DbSessionMetadata, ms: n
  * than the cursor — a full sweep is the only correct detection (see the header
  * PERF NOTE). It is write-free unless a live parent actually diverged.
  */
-export async function syncSessionForConversation(conversationId: string): Promise<SessionSyncResult> {
+export async function syncSessionForConversation(
+  conversationId: string,
+): Promise<SessionSyncResult> {
   const storage = await backfillSessionForConversation(conversationId);
   const meta = await storage.getMetadata();
   const cursor = readSyncCursor(meta);
@@ -248,7 +268,8 @@ export async function syncSessionForConversation(conversationId: string): Promis
   for (const [id, entry] of existing) {
     const row = rowsById.get(id);
     if (!row) continue;
-    const desiredParent = row.parentMessageId && knownIds.has(row.parentMessageId) ? row.parentMessageId : null;
+    const desiredParent =
+      row.parentMessageId && knownIds.has(row.parentMessageId) ? row.parentMessageId : null;
     if (entry.parentId !== desiredParent) await storage.reparentEntry(id, desiredParent);
   }
 
@@ -343,18 +364,25 @@ export async function appendSavedMessageEntry(
       // rowToPiMessage reads only role/content/createdAt — the fields
       // SavedMessageRow carries. Cast through its param type (a full
       // conversation row) rather than widening the proven backfill signature.
-      message: rowToPiMessage(row as unknown as Parameters<typeof rowToPiMessage>[0]) as AgentMessage,
+      message: rowToPiMessage(
+        row as unknown as Parameters<typeof rowToPiMessage>[0],
+      ) as AgentMessage,
     };
     await db
       .insert(agentSessionEntries)
       .values(entryToRow(session.id, entry, row.id))
       .onConflictDoNothing();
-    await db.update(agentSessions).set({ leafEntryId: row.id }).where(eq(agentSessions.id, session.id));
-  }).catch((err) => log.warn("live session append failed (catch-up will heal)", {
-    conversationId,
-    id: row.id,
-    error: String(err),
-  }));
+    await db
+      .update(agentSessions)
+      .set({ leafEntryId: row.id })
+      .where(eq(agentSessions.id, session.id));
+  }).catch((err) =>
+    log.warn("live session append failed (catch-up will heal)", {
+      conversationId,
+      id: row.id,
+      error: String(err),
+    }),
+  );
 }
 
 // ── TREE VIEW + REWIND (P4) ─────────────────────────────────────────
@@ -450,7 +478,13 @@ function buildTreeView(
   for (const entry of entries) {
     const row = rowsById.get(entry.id);
     if (!row) continue;
-    nodes.push({ id: row.id, parentId: entry.parentId, role: row.role, excluded: row.excluded, createdAt: row.createdAt.toISOString() });
+    nodes.push({
+      id: row.id,
+      parentId: entry.parentId,
+      role: row.role,
+      excluded: row.excluded,
+      createdAt: row.createdAt.toISOString(),
+    });
   }
   return { conversationId, currentLeaf: resolveConversationalLeaf(currentLeaf, rowsById), nodes };
 }
@@ -463,7 +497,12 @@ function buildTreeView(
 export async function computeSessionTree(conversationId: string): Promise<SessionTreeView> {
   return withConvSessionLock(conversationId, async () => {
     const { storage, rowsById } = await syncSessionForConversation(conversationId);
-    return buildTreeView(conversationId, await storage.getLeafId(), await storage.getEntries(), rowsById);
+    return buildTreeView(
+      conversationId,
+      await storage.getLeafId(),
+      await storage.getEntries(),
+      rowsById,
+    );
   });
 }
 
@@ -508,7 +547,12 @@ export async function rewindSession(
       await storage.appendEntry(entry);
     }
     await storage.setLeafId(targetMessageId);
-    const tree = buildTreeView(conversationId, targetMessageId, await storage.getEntries(), rowsById);
+    const tree = buildTreeView(
+      conversationId,
+      targetMessageId,
+      await storage.getEntries(),
+      rowsById,
+    );
     return { ok: true, tree };
   });
 }

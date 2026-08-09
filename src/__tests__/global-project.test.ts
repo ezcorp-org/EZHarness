@@ -39,7 +39,9 @@ mock.module("../db/queries/settings", () => {
       await getDb().delete(tbl).where(eq(tbl.key, key));
       return true;
     },
-    async isListingInstalled() { return false; },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -260,7 +262,9 @@ describe("settings API with scoped keys", () => {
 
     // Cleanup
     await fetch(`${baseUrl}/api/settings/global:systemPrompt`, { method: "DELETE" });
-    await fetch(`${baseUrl}/api/settings/project:${userProjectId}:systemPrompt`, { method: "DELETE" });
+    await fetch(`${baseUrl}/api/settings/project:${userProjectId}:systemPrompt`, {
+      method: "DELETE",
+    });
   });
 
   test("DELETE project setting falls back to global", async () => {
@@ -371,7 +375,10 @@ describe("E2E: global project conversation lifecycle", () => {
 
 describe("E2E: settings override full lifecycle", () => {
   test("complete override chain lifecycle: set, verify, remove, verify fallback", async () => {
-    const project = await createProject({ name: "Lifecycle Override", path: "/tmp/lifecycle-override" });
+    const project = await createProject({
+      name: "Lifecycle Override",
+      path: "/tmp/lifecycle-override",
+    });
     const conv = await createConversation(project.id, { title: "Lifecycle" });
 
     // 1. No settings — undefined

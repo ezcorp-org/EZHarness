@@ -24,9 +24,7 @@ mock.module("../db/connection", () => ({
   closeDb: async () => {},
 }));
 
-const { handleFinalizeToolCallRpc } = await import(
-  "../extensions/finalize-tool-call-handler"
-);
+const { handleFinalizeToolCallRpc } = await import("../extensions/finalize-tool-call-handler");
 const { getDb } = await import("../db/connection");
 const { conversations, projects, messages, toolCalls, users, extensions } = await import(
   "../db/schema"
@@ -52,9 +50,7 @@ function makePerms(append = true): ExtensionPermissions {
   };
 }
 
-function makeCtx(
-  overrides: Partial<FinalizeToolCallContext> = {},
-): FinalizeToolCallContext {
+function makeCtx(overrides: Partial<FinalizeToolCallContext> = {}): FinalizeToolCallContext {
   return {
     conversationId: overrides.conversationId ?? CONV_ID,
     userId: overrides.userId ?? USER_ID,

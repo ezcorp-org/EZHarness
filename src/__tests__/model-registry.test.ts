@@ -99,7 +99,9 @@ test("an unknown model resolves to all-zero rates, which price as UNPRICED not $
   expect(p.input).toBe(0);
   expect(p.output).toBe(0);
   // priceSegment must refuse to fabricate a dollar figure for it.
-  expect(priceSegment({ input: 500_000, output: 500_000, cacheRead: 0, cacheWrite: 0 }, p)).toBeNull();
+  expect(
+    priceSegment({ input: 500_000, output: 500_000, cacheRead: 0, cacheWrite: 0 }, p),
+  ).toBeNull();
 });
 
 test("findModelForProviderInTier prefers openrouter/auto over the alphabetical scan", () => {

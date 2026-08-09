@@ -183,22 +183,27 @@ describe("manifest-drift detection (S6)", () => {
   // misses the instance bundled.ts captured at module-load time.
   function captureWarns(run: () => Promise<void>): Promise<string[]> {
     const captured: string[] = [];
-    const spy = spyOn(process.stderr, "write").mockImplementation(
-      (chunk: unknown) => {
-        try {
-          const s = typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk as Uint8Array);
-          for (const line of s.split("\n")) {
-            if (!line.trim()) continue;
-            try {
-              const parsed = JSON.parse(line) as { level?: string; msg?: string };
-              if (parsed.level === "warn") captured.push(parsed.msg ?? "");
-            } catch { /* non-JSON lines: ignore */ }
+    const spy = spyOn(process.stderr, "write").mockImplementation((chunk: unknown) => {
+      try {
+        const s = typeof chunk === "string" ? chunk : new TextDecoder().decode(chunk as Uint8Array);
+        for (const line of s.split("\n")) {
+          if (!line.trim()) continue;
+          try {
+            const parsed = JSON.parse(line) as { level?: string; msg?: string };
+            if (parsed.level === "warn") captured.push(parsed.msg ?? "");
+          } catch {
+            /* non-JSON lines: ignore */
           }
-        } catch { /* decoding error: ignore */ }
-        return true;
-      },
-    );
-    return run().then(() => { spy.mockRestore(); return captured; });
+        }
+      } catch {
+        /* decoding error: ignore */
+      }
+      return true;
+    });
+    return run().then(() => {
+      spy.mockRestore();
+      return captured;
+    });
   }
 
   test("no drift → no warning, no mutation", async () => {
@@ -273,8 +278,8 @@ describe("version-bump re-approval gate (S9)", () => {
     // `ensureBundledExtensions()` runs again, the on-disk manifest's
     // newer version AND wider permissions will trip the gate.
     const manifest = row.manifest as ExtensionManifestV2;
-    (manifest as { version: string }).version = "0.0.1";  // older than disk 1.0.0
-    (manifest as { permissions?: unknown }).permissions = {};  // no storage originally
+    (manifest as { version: string }).version = "0.0.1"; // older than disk 1.0.0
+    (manifest as { permissions?: unknown }).permissions = {}; // no storage originally
     row.manifest = manifest;
 
     await ensureBundledExtensions();

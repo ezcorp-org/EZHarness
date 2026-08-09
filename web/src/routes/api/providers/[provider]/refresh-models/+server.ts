@@ -14,57 +14,55 @@ const log = logger.child("api.refresh-models");
 const VALID_PROVIDERS = new Set<string>(LLM_PROVIDER_IDS);
 
 export const POST: RequestHandler = async ({ params, locals }) => {
-	// Refreshing models USES instance provider credentials and overwrites the
-	// discovered-models setting — admin-only on BOTH axes. requireScope("admin")
-	// alone is a no-op for cookie sessions; requireAdmin gates on role so a
-	// non-admin member gets 403. Mirrors providers/[provider]/test (FINDING A).
-	//
-	// F6: the scope half of "BOTH axes" was missing — an admin-role key minted
-	// `--scopes read` could overwrite `provider:discoveredModels:*` (the model
-	// list every routing decision reads) while spending the instance BYOK
-	// credential. `requireAuth` is gone: it THREW its 401 (rendered as a 500 by
-	// SvelteKit) and `requireAdmin` already refuses a caller with no
-	// `locals.user`, returning its denial.
-	const adminErr = requireAdmin(locals);
-	if (adminErr) return adminErr;
-	const scopeErr = requireScope(locals, "admin");
-	if (scopeErr) return scopeErr;
+  // Refreshing models USES instance provider credentials and overwrites the
+  // discovered-models setting — admin-only on BOTH axes. requireScope("admin")
+  // alone is a no-op for cookie sessions; requireAdmin gates on role so a
+  // non-admin member gets 403. Mirrors providers/[provider]/test (FINDING A).
+  //
+  // F6: the scope half of "BOTH axes" was missing — an admin-role key minted
+  // `--scopes read` could overwrite `provider:discoveredModels:*` (the model
+  // list every routing decision reads) while spending the instance BYOK
+  // credential. `requireAuth` is gone: it THREW its 401 (rendered as a 500 by
+  // SvelteKit) and `requireAdmin` already refuses a caller with no
+  // `locals.user`, returning its denial.
+  const adminErr = requireAdmin(locals);
+  if (adminErr) return adminErr;
+  const scopeErr = requireScope(locals, "admin");
+  if (scopeErr) return scopeErr;
 
-	const { provider } = params;
-	if (!provider || !VALID_PROVIDERS.has(provider)) {
-		return errorJson(400, `Invalid provider. Must be one of: ${providerListMessage()}`);
-	}
+  const { provider } = params;
+  if (!provider || !VALID_PROVIDERS.has(provider)) {
+    return errorJson(400, `Invalid provider. Must be one of: ${providerListMessage()}`);
+  }
 
-	try {
-		// Best-effort credential: lets us hit the provider's own /v1/models
-		// (authoritative + key-scoped). Missing creds → catalog fallback.
-		let credential: ProviderCredential | undefined;
-		try {
-			credential = await getCredential(provider);
-		} catch {
-			credential = undefined;
-		}
+  try {
+    // Best-effort credential: lets us hit the provider's own /v1/models
+    // (authoritative + key-scoped). Missing creds → catalog fallback.
+    let credential: ProviderCredential | undefined;
+    try {
+      credential = await getCredential(provider);
+    } catch {
+      credential = undefined;
+    }
 
-		const models = await fetchProviderModels(provider, credential);
-		await upsertSetting(`provider:discoveredModels:${provider}`, models);
-		// How many of these the deployment can call with NO key. Only a
-		// keyless-free provider (Kilo) marks models `free`, so this is 0
-		// everywhere else and the UI shows it only where it means something.
-		// Without it a keyless refresh reports "Loaded 347 models" while the
-		// picker shows 12 — technically true, actively misleading.
-		const freeCount = models.filter(
-			(m) => (m as { free?: boolean }).free === true,
-		).length;
-		return json({
-			success: true,
-			count: models.length,
-			freeCount,
-			ids: models.map((m) => m.id),
-			fetchedAt: new Date().toISOString(),
-		});
-	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
-		log.error("provider model fetch failed", { provider, error: message });
-		return json({ success: false, error: message });
-	}
+    const models = await fetchProviderModels(provider, credential);
+    await upsertSetting(`provider:discoveredModels:${provider}`, models);
+    // How many of these the deployment can call with NO key. Only a
+    // keyless-free provider (Kilo) marks models `free`, so this is 0
+    // everywhere else and the UI shows it only where it means something.
+    // Without it a keyless refresh reports "Loaded 347 models" while the
+    // picker shows 12 — technically true, actively misleading.
+    const freeCount = models.filter((m) => (m as { free?: boolean }).free === true).length;
+    return json({
+      success: true,
+      count: models.length,
+      freeCount,
+      ids: models.map((m) => m.id),
+      fetchedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error("provider model fetch failed", { provider, error: message });
+    return json({ success: false, error: message });
+  }
 };

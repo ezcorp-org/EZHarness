@@ -9,10 +9,14 @@ function at<T>(arr: readonly T[], i: number, what: string): T {
   return v;
 }
 
-const { shareAgent, unshareAgent, getAgentShares, getSharedAgentsForUser } = await import("../db/queries/agent-shares");
+const { shareAgent, unshareAgent, getAgentShares, getSharedAgentsForUser } = await import(
+  "../db/queries/agent-shares"
+);
 const { createUser } = await import("../db/queries/users");
 const { createTeam, addTeamMember } = await import("../db/queries/teams");
-const { createAgentConfig, listAgentConfigs, updateAgentConfig } = await import("../db/queries/agent-configs");
+const { createAgentConfig, listAgentConfigs, updateAgentConfig } = await import(
+  "../db/queries/agent-configs"
+);
 const { insertAuditEntry, listAuditLog } = await import("../db/queries/audit-log");
 
 let ownerId: string;
@@ -23,10 +27,20 @@ let agentId: string;
 beforeAll(async () => {
   await setupTestDb();
 
-  const owner = await createUser({ email: "owner@test.com", passwordHash: "hash", name: "Owner User", role: "admin" });
+  const owner = await createUser({
+    email: "owner@test.com",
+    passwordHash: "hash",
+    name: "Owner User",
+    role: "admin",
+  });
   ownerId = owner.id;
 
-  const member = await createUser({ email: "member@test.com", passwordHash: "hash", name: "Member User", role: "member" });
+  const member = await createUser({
+    email: "member@test.com",
+    passwordHash: "hash",
+    name: "Member User",
+    role: "member",
+  });
   memberId = member.id;
 
   const team = await createTeam("Test Team");

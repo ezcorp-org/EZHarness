@@ -180,10 +180,7 @@ mock.module("../extensions/bundled-ceiling", () => {
     "claude-design": {
       filesystem: ["$CWD"],
       storage: true,
-      eventSubscriptions: [
-        "claude-design:knob-change",
-        "claude-design:brief-answer",
-      ],
+      eventSubscriptions: ["claude-design:knob-change", "claude-design:brief-answer"],
       network: ["cdn.jsdelivr.net"],
       grantedAt: {},
     },
@@ -195,8 +192,7 @@ mock.module("../extensions/bundled-ceiling", () => {
     },
   };
 
-  const getCeiling = (name: string): ExtensionPermissions | null =>
-    NARROW[name] ?? null;
+  const getCeiling = (name: string): ExtensionPermissions | null => NARROW[name] ?? null;
 
   // Inline, deterministic clamp: deep-equality on canonical JSON. For
   // the production helper we'd reuse `intersectPermissions`, but the
@@ -215,7 +211,8 @@ mock.module("../extensions/bundled-ceiling", () => {
     // BUNDLED_CEILING, so the legitimate manifest grants pass
     // through unchanged.
     if (name === "scratchpad") {
-      const clamped = JSON.stringify(requested) !== JSON.stringify({ grantedAt: requested.grantedAt ?? {} });
+      const clamped =
+        JSON.stringify(requested) !== JSON.stringify({ grantedAt: requested.grantedAt ?? {} });
       return { effective: { grantedAt: {} }, clamped };
     }
     // Pass-through for every other bundled name.
@@ -258,18 +255,14 @@ describe("M2 — narrowed scratchpad ceiling drives the production clamp + audit
 
     // Audit row must exist with the right action + metadata fields.
     const clampRows = auditEntries.filter(
-      (r) =>
-        r.action === EXT_AUDIT_ACTIONS.BUNDLED_CEILING_CLAMP &&
-        r.target === scratchpad!.id,
+      (r) => r.action === EXT_AUDIT_ACTIONS.BUNDLED_CEILING_CLAMP && r.target === scratchpad!.id,
     );
     expect(clampRows.length).toBe(1);
     const meta = clampRows[0]!.metadata!;
     expect(meta.permission).toBe("ceiling-clamp");
     expect(meta.actor).toBe("system");
     expect(meta.extensionName).toBe("scratchpad");
-    expect(meta.requested).toEqual(
-      expect.objectContaining({ storage: true }),
-    );
+    expect(meta.requested).toEqual(expect.objectContaining({ storage: true }));
     expect(meta.effective).toBeDefined();
     // The effective grant must NOT include storage (clamped to {}).
     expect((meta.effective as ExtensionPermissions).storage).toBeUndefined();
@@ -291,9 +284,7 @@ describe("M2 — narrowed scratchpad ceiling drives the production clamp + audit
 
     // No clamp audit rows for task-tracking.
     const clampRows = auditEntries.filter(
-      (r) =>
-        r.action === EXT_AUDIT_ACTIONS.BUNDLED_CEILING_CLAMP &&
-        r.target === taskTracking!.id,
+      (r) => r.action === EXT_AUDIT_ACTIONS.BUNDLED_CEILING_CLAMP && r.target === taskTracking!.id,
     );
     expect(clampRows).toEqual([]);
   });

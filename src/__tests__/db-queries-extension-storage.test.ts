@@ -129,8 +129,26 @@ describe("extension-storage queries", () => {
 
   test("deleteExpiredStorage purges only expired rows", async () => {
     await setStorageValue(EXT, "global", null, "stay", "x", false, 1);
-    await setStorageValue(EXT, "global", null, "gone-1", "x", false, 1, new Date(Date.now() - 1000));
-    await setStorageValue(EXT, "global", null, "gone-2", "x", false, 1, new Date(Date.now() - 2000));
+    await setStorageValue(
+      EXT,
+      "global",
+      null,
+      "gone-1",
+      "x",
+      false,
+      1,
+      new Date(Date.now() - 1000),
+    );
+    await setStorageValue(
+      EXT,
+      "global",
+      null,
+      "gone-2",
+      "x",
+      false,
+      1,
+      new Date(Date.now() - 2000),
+    );
 
     const deleted = await deleteExpiredStorage();
     expect(deleted).toBe(2);

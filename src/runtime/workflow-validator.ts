@@ -64,15 +64,9 @@ export const VALID_CONDITION_OPS: readonly WorkflowConditionOp[] = [
  * this a `condition: {}` passes create and then dies at run with a raw
  * `TypeError` inside the ref resolver.
  */
-export function validateCondition(
-  cond: unknown,
-  label: string,
-  depth = 0,
-): string[] {
+export function validateCondition(cond: unknown, label: string, depth = 0): string[] {
   if (depth > MAX_CONDITION_DEPTH) {
-    return [
-      `${label} exceeds the maximum condition nesting depth of ${MAX_CONDITION_DEPTH}`,
-    ];
+    return [`${label} exceeds the maximum condition nesting depth of ${MAX_CONDITION_DEPTH}`];
   }
   if (cond === null || typeof cond !== "object") {
     return [`${label} must be an object`];
@@ -85,9 +79,7 @@ export function validateCondition(
     if (!Array.isArray(arr) || arr.length === 0) {
       return [`${label} "${key}" must be a non-empty array`];
     }
-    return arr.flatMap((child, i) =>
-      validateCondition(child, `${label} ${key}[${i}]`, depth + 1),
-    );
+    return arr.flatMap((child, i) => validateCondition(child, `${label} ${key}[${i}]`, depth + 1));
   }
 
   if ("not" in c) {
@@ -99,10 +91,7 @@ export function validateCondition(
   if (typeof c.ref !== "string" || c.ref.trim() === "") {
     errors.push(`${label} leaf requires a non-empty string "ref"`);
   }
-  if (
-    typeof c.op !== "string" ||
-    !VALID_CONDITION_OPS.includes(c.op as WorkflowConditionOp)
-  ) {
+  if (typeof c.op !== "string" || !VALID_CONDITION_OPS.includes(c.op as WorkflowConditionOp)) {
     errors.push(
       `${label} leaf has an invalid or missing "op" (expected one of: ${VALID_CONDITION_OPS.join(", ")})`,
     );
@@ -284,9 +273,7 @@ export function validateWorkflow(
     return errors;
   }
   if (def.steps.length > MAX_STEPS_PER_WORKFLOW) {
-    errors.push(
-      `Workflow has ${def.steps.length} steps (maximum ${MAX_STEPS_PER_WORKFLOW})`,
-    );
+    errors.push(`Workflow has ${def.steps.length} steps (maximum ${MAX_STEPS_PER_WORKFLOW})`);
     return errors;
   }
 
@@ -346,9 +333,7 @@ export function validateWorkflow(
       errors.push(`Step "${name}" (kind "workflow") requires a "workflow"`);
     }
     if (kind === "workflow" && (step.agent || step.tool)) {
-      errors.push(
-        `Step "${name}" (kind "workflow") cannot also specify an "agent" or "tool"`,
-      );
+      errors.push(`Step "${name}" (kind "workflow") cannot also specify an "agent" or "tool"`);
     }
     // ── The nested target is a LITERAL name, never a ref ──
     //
@@ -418,7 +403,10 @@ export function validateWorkflow(
             `with no items to consent to the requirement would silently pass`,
         );
       }
-      if (step.timeoutMs !== undefined && (!Number.isInteger(step.timeoutMs) || step.timeoutMs <= 0)) {
+      if (
+        step.timeoutMs !== undefined &&
+        (!Number.isInteger(step.timeoutMs) || step.timeoutMs <= 0)
+      ) {
         errors.push(`Step "${name}" (kind "approval") "timeoutMs" must be a positive integer`);
       }
       if (step.onTimeout !== undefined && !["abort", "approve", "skip"].includes(step.onTimeout)) {
@@ -571,9 +559,7 @@ export function validateWorkflow(
         errors.push(`Step "${name}" loop requires an integer "maxIterations"`);
       }
       if (step.loop.until) {
-        errors.push(
-          ...validateCondition(step.loop.until, `Step "${name}" loop until`),
-        );
+        errors.push(...validateCondition(step.loop.until, `Step "${name}" loop until`));
       }
     }
   }

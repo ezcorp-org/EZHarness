@@ -52,15 +52,9 @@ mock.module("../db/queries/audit-log", () => ({
   insertAuditEntry: async () => {},
 }));
 
-import {
-  ToolExecutor,
-  _resetFsDeprecationWarningsForTests,
-} from "../extensions/tool-executor";
+import { ToolExecutor, _resetFsDeprecationWarningsForTests } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
-import type {
-  ExtensionPermissions,
-  JsonRpcRequest,
-} from "../extensions/types";
+import type { ExtensionPermissions, JsonRpcRequest } from "../extensions/types";
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -94,11 +88,7 @@ function makeMockRegistry(opts: {
   };
 }
 
-function makeRequest(
-  method: string,
-  params: Record<string, unknown>,
-  id = 1,
-): JsonRpcRequest {
+function makeRequest(method: string, params: Record<string, unknown>, id = 1): JsonRpcRequest {
   return { jsonrpc: "2.0", id, method, params };
 }
 
@@ -269,8 +259,7 @@ describe("ezcorp/fs deprecation shim — one-time console.warn per extension", (
         }
         return null;
       },
-      getInstallPath: (id: string) =>
-        id === "ext-1" || id === "ext-2" ? installDir : null,
+      getInstallPath: (id: string) => (id === "ext-1" || id === "ext-2" ? installDir : null),
     };
     const executor = new ToolExecutor(
       dualReg as unknown as ConstructorParameters<typeof ToolExecutor>[0],

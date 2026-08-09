@@ -98,7 +98,10 @@ function makeRegistry(proc: ReturnType<typeof makeProc>): ExtensionRegistry {
   } as unknown as ExtensionRegistry;
 }
 
-function makeBus(): { bus: EventBus<AgentEvents>; events: Array<{ event: string; payload: Record<string, unknown> }> } {
+function makeBus(): {
+  bus: EventBus<AgentEvents>;
+  events: Array<{ event: string; payload: Record<string, unknown> }>;
+} {
   const events: Array<{ event: string; payload: Record<string, unknown> }> = [];
   const bus = {
     emit: (event: string, payload: Record<string, unknown>) => {

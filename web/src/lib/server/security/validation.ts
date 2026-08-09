@@ -1,7 +1,8 @@
 import { z, type ZodError } from "zod";
 
 /** Shared password complexity schema: min 8 chars, upper, lower, digit. */
-export const passwordSchema = z.string()
+export const passwordSchema = z
+  .string()
   .min(8, "Password must be at least 8 characters")
   .max(256, "Password must be at most 256 characters")
   .regex(/[A-Z]/, "Password must contain at least one uppercase letter")
@@ -34,7 +35,8 @@ export const passwordSchema = z.string()
  * the seeded `global` (`/`), `self` (`/repo`) and test-fixture projects
  * legitimately live elsewhere.
  */
-export const projectPathSchema = z.string()
+export const projectPathSchema = z
+  .string()
   .min(1, "Project path is required")
   .refine((p) => p.startsWith("/"), {
     message: "Project path must be absolute (start with /)",

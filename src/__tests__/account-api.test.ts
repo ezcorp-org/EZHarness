@@ -24,12 +24,15 @@ beforeEach(async () => {
 
   // Seed a test user
   const hash = await hashPassword("password123");
-  const [user] = await db.insert(users).values({
-    email: "user@example.com",
-    passwordHash: hash,
-    name: "Test User",
-    role: "member",
-  }).returning();
+  const [user] = await db
+    .insert(users)
+    .values({
+      email: "user@example.com",
+      passwordHash: hash,
+      name: "Test User",
+      role: "member",
+    })
+    .returning();
   testUserId = user!.id;
 });
 

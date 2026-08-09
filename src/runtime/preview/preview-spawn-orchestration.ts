@@ -67,9 +67,11 @@ function trackProcess(conversationId: string, proc: PreviewProcess): void {
   }
   set.add(proc);
   // Drop it from the registry when it exits on its own.
-  void proc.exited.then(() => {
-    conversationProcesses.get(conversationId)?.delete(proc);
-  }).catch(() => {});
+  void proc.exited
+    .then(() => {
+      conversationProcesses.get(conversationId)?.delete(proc);
+    })
+    .catch(() => {});
 }
 
 /** Number of live processes tracked for a conversation (test/observability). */
@@ -153,7 +155,12 @@ export interface LaunchPreviewDeps {
   /** Injected uid allocator (defaults to the live uid pool). */
   allocUid?: (conversationId: string) => { uid: number } | null;
   /** Injected spawner (defaults to spawnPreviewServer). */
-  spawn?: (input: { uid: number; workDir: string; command: string; args?: readonly string[] }) => PreviewProcess;
+  spawn?: (input: {
+    uid: number;
+    workDir: string;
+    command: string;
+    args?: readonly string[];
+  }) => PreviewProcess;
 }
 
 /**
@@ -186,7 +193,12 @@ export function launchPreviewDevServer(
 
   let proc: PreviewProcess;
   try {
-    proc = (deps.spawn ?? ((i) => spawnPreviewServer(i)))({ uid: alloc.uid, workDir, command, args });
+    proc = (deps.spawn ?? ((i) => spawnPreviewServer(i)))({
+      uid: alloc.uid,
+      workDir,
+      command,
+      args,
+    });
   } catch (err) {
     // Spawn failed (bad argv, missing helper) — release the uid so it isn't
     // leaked, and report the failure.

@@ -264,9 +264,10 @@ export function registerFireCallProvenance(
   opts?: { autoReleaseMs?: number },
 ): string {
   const autoReleaseMs = opts?.autoReleaseMs ?? FIRE_TOKEN_AUTO_RELEASE_MS;
-  const id = opts?.autoReleaseMs !== undefined
-    ? registerCallProvenance(prov, { expiresAt: Date.now() + autoReleaseMs })
-    : registerCallProvenance(prov);
+  const id =
+    opts?.autoReleaseMs !== undefined
+      ? registerCallProvenance(prov, { expiresAt: Date.now() + autoReleaseMs })
+      : registerCallProvenance(prov);
   const t = setTimeout(() => releaseCallProvenance(id), autoReleaseMs);
   (t as { unref?: () => void }).unref?.();
   return id;

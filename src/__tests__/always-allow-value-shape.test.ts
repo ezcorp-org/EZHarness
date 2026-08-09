@@ -64,21 +64,17 @@ describe("parseAlwaysAllowValue", () => {
   });
 
   test('new {allowed: true, grantedAt} → "allowed"', () => {
-    expect(parseAlwaysAllowValue({ allowed: true, grantedAt: 1_700_000_000_000 })).toBe(
-      "allowed",
-    );
+    expect(parseAlwaysAllowValue({ allowed: true, grantedAt: 1_700_000_000_000 })).toBe("allowed");
   });
 
   test('new {allowed: false, grantedAt} → "needs_confirmation"', () => {
-    expect(
-      parseAlwaysAllowValue({ allowed: false, grantedAt: 1_700_000_000_000 }),
-    ).toBe("needs_confirmation");
+    expect(parseAlwaysAllowValue({ allowed: false, grantedAt: 1_700_000_000_000 })).toBe(
+      "needs_confirmation",
+    );
   });
 
   test('malformed {allowed: "yes"} → "needs_confirmation" (fail-closed)', () => {
-    expect(parseAlwaysAllowValue({ allowed: "yes", grantedAt: 1 })).toBe(
-      "needs_confirmation",
-    );
+    expect(parseAlwaysAllowValue({ allowed: "yes", grantedAt: 1 })).toBe("needs_confirmation");
   });
 
   test('missing grantedAt → "needs_confirmation"', () => {
@@ -86,9 +82,9 @@ describe("parseAlwaysAllowValue", () => {
   });
 
   test('grantedAt as string → "needs_confirmation"', () => {
-    expect(
-      parseAlwaysAllowValue({ allowed: true, grantedAt: "2024-01-01" }),
-    ).toBe("needs_confirmation");
+    expect(parseAlwaysAllowValue({ allowed: true, grantedAt: "2024-01-01" })).toBe(
+      "needs_confirmation",
+    );
   });
 
   test('undefined → "needs_confirmation"', () => {
@@ -213,16 +209,14 @@ describe("checkSensitiveConfirmation — read path accepts both shapes", () => {
   test('legacy `true` value → "allowed" (treated as never-expires)', async () => {
     // Simulate a pre-Phase-1 row that hasn't been rewritten yet.
     mockSettings.set("ext:ext-legacy-true:always_allow:shell", true);
-    expect(await checkSensitiveConfirmation("ext-legacy-true", "shell")).toBe(
-      "allowed",
-    );
+    expect(await checkSensitiveConfirmation("ext-legacy-true", "shell")).toBe("allowed");
   });
 
   test('legacy `false` value → "needs_confirmation"', async () => {
     mockSettings.set("ext:ext-legacy-false:always_allow:filesystem", false);
-    expect(
-      await checkSensitiveConfirmation("ext-legacy-false", "filesystem"),
-    ).toBe("needs_confirmation");
+    expect(await checkSensitiveConfirmation("ext-legacy-false", "filesystem")).toBe(
+      "needs_confirmation",
+    );
   });
 
   test('new {allowed: true, grantedAt} → "allowed"', async () => {
@@ -230,9 +224,7 @@ describe("checkSensitiveConfirmation — read path accepts both shapes", () => {
       allowed: true,
       grantedAt: Date.now(),
     });
-    expect(await checkSensitiveConfirmation("ext-new-true", "shell")).toBe(
-      "allowed",
-    );
+    expect(await checkSensitiveConfirmation("ext-new-true", "shell")).toBe("allowed");
   });
 
   test('new {allowed: false, grantedAt} → "needs_confirmation"', async () => {
@@ -240,22 +232,18 @@ describe("checkSensitiveConfirmation — read path accepts both shapes", () => {
       allowed: false,
       grantedAt: Date.now(),
     });
-    expect(
-      await checkSensitiveConfirmation("ext-new-false", "filesystem"),
-    ).toBe("needs_confirmation");
+    expect(await checkSensitiveConfirmation("ext-new-false", "filesystem")).toBe(
+      "needs_confirmation",
+    );
   });
 
   test('malformed {allowed: "yes"} → "needs_confirmation" (fail-closed)', async () => {
     mockSettings.set("ext:ext-bad:always_allow:shell", { allowed: "yes" });
-    expect(await checkSensitiveConfirmation("ext-bad", "shell")).toBe(
-      "needs_confirmation",
-    );
+    expect(await checkSensitiveConfirmation("ext-bad", "shell")).toBe("needs_confirmation");
   });
 
   test('missing key → "needs_confirmation"', async () => {
-    expect(await checkSensitiveConfirmation("ext-absent", "shell")).toBe(
-      "needs_confirmation",
-    );
+    expect(await checkSensitiveConfirmation("ext-absent", "shell")).toBe("needs_confirmation");
   });
 
   test("scoped read path also accepts both shapes (legacy true)", async () => {
@@ -272,9 +260,7 @@ describe("checkSensitiveConfirmation — read path accepts both shapes", () => {
       capability: "shell",
     });
     mockSettings.set(key, true);
-    expect(
-      await checkSensitiveConfirmation("ext-scoped-legacy", "shell", SCOPE),
-    ).toBe("allowed");
+    expect(await checkSensitiveConfirmation("ext-scoped-legacy", "shell", SCOPE)).toBe("allowed");
   });
 
   test("scoped read path accepts new shape", async () => {
@@ -291,9 +277,7 @@ describe("checkSensitiveConfirmation — read path accepts both shapes", () => {
       capability: "fs.write",
     });
     mockSettings.set(key, { allowed: true, grantedAt: Date.now() });
-    expect(
-      await checkSensitiveConfirmation("ext-scoped-new", "filesystem", SCOPE),
-    ).toBe("allowed");
+    expect(await checkSensitiveConfirmation("ext-scoped-new", "filesystem", SCOPE)).toBe("allowed");
   });
 });
 
@@ -302,24 +286,18 @@ describe("checkSensitiveConfirmation — read path accepts both shapes", () => {
 describe("write-then-read round trip", () => {
   test("setSensitiveAlwaysAllow(true) then checkSensitiveConfirmation → 'allowed'", async () => {
     await setSensitiveAlwaysAllow("ext-rt-1", "shell", true);
-    expect(await checkSensitiveConfirmation("ext-rt-1", "shell")).toBe(
-      "allowed",
-    );
+    expect(await checkSensitiveConfirmation("ext-rt-1", "shell")).toBe("allowed");
   });
 
   test("setSensitiveAlwaysAllow(false) then checkSensitiveConfirmation → 'needs_confirmation'", async () => {
     await setSensitiveAlwaysAllow("ext-rt-2", "filesystem", false);
-    expect(await checkSensitiveConfirmation("ext-rt-2", "filesystem")).toBe(
-      "needs_confirmation",
-    );
+    expect(await checkSensitiveConfirmation("ext-rt-2", "filesystem")).toBe("needs_confirmation");
   });
 
   test("set true → set false: second write overwrites and reads as 'needs_confirmation'", async () => {
     await setSensitiveAlwaysAllow("ext-rt-3", "shell", true);
     await setSensitiveAlwaysAllow("ext-rt-3", "shell", false);
-    expect(await checkSensitiveConfirmation("ext-rt-3", "shell")).toBe(
-      "needs_confirmation",
-    );
+    expect(await checkSensitiveConfirmation("ext-rt-3", "shell")).toBe("needs_confirmation");
   });
 });
 
@@ -390,17 +368,13 @@ describe("Phase 56 — ttlOverrideMs additive shape", () => {
     });
 
     test('legacy row {allowed, grantedAt} (no Phase 56 fields) → "allowed" (REGRESSION)', () => {
-      expect(parseAlwaysAllowValue({ allowed: true, grantedAt: 1 })).toBe(
-        "allowed",
-      );
+      expect(parseAlwaysAllowValue({ allowed: true, grantedAt: 1 })).toBe("allowed");
     });
   });
 
   describe("readTtlOverrideMs branches", () => {
     test("ttlOverrideMs: null → null (Never sentinel)", () => {
-      expect(
-        readTtlOverrideMs({ allowed: true, grantedAt: 1, ttlOverrideMs: null }),
-      ).toBeNull();
+      expect(readTtlOverrideMs({ allowed: true, grantedAt: 1, ttlOverrideMs: null })).toBeNull();
     });
 
     test("ttlOverrideMs: positive number → that number", () => {
@@ -418,15 +392,11 @@ describe("Phase 56 — ttlOverrideMs additive shape", () => {
     });
 
     test("ttlOverrideMs: 0 → undefined (Pitfall 2 — 0 is malformed, NOT Never)", () => {
-      expect(
-        readTtlOverrideMs({ allowed: true, grantedAt: 1, ttlOverrideMs: 0 }),
-      ).toBeUndefined();
+      expect(readTtlOverrideMs({ allowed: true, grantedAt: 1, ttlOverrideMs: 0 })).toBeUndefined();
     });
 
     test("ttlOverrideMs: negative → undefined (malformed)", () => {
-      expect(
-        readTtlOverrideMs({ allowed: true, grantedAt: 1, ttlOverrideMs: -5 }),
-      ).toBeUndefined();
+      expect(readTtlOverrideMs({ allowed: true, grantedAt: 1, ttlOverrideMs: -5 })).toBeUndefined();
     });
 
     test("ttlOverrideMs: NaN → undefined", () => {

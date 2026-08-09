@@ -25,23 +25,41 @@ import { classifyProviderError } from "../runtime/stream-chat/provider-error-cla
 // raw `throw new Error(...)` sites across dist/api/*.js.
 const TRANSIENT: Array<[label: string, message: string]> = [
   // openai-completions.js:370 — no-prefix "<status>: <body>", 429 rate limit.
-  ["openai 429 rate limit", '429: {"error":{"message":"Rate limit reached for requests","type":"requests","code":"rate_limit_exceeded"}}'],
+  [
+    "openai 429 rate limit",
+    '429: {"error":{"message":"Rate limit reached for requests","type":"requests","code":"rate_limit_exceeded"}}',
+  ],
   // openai-responses.js:55 — prefixed "OpenAI API error (<status>): <message>".
   ["openai responses 503", "OpenAI API error (503): Service Unavailable"],
   // openai-completions.js:370 — 500 internal server error body.
-  ["openai 500 server error", '500: {"error":{"message":"The server had an error while processing your request","type":"server_error"}}'],
+  [
+    "openai 500 server error",
+    '500: {"error":{"message":"The server had an error while processing your request","type":"server_error"}}',
+  ],
   // google-generative-ai.js:214 — errorMessage = formatProviderError(...); the
   // "<status>: <body>" shape from error-body.js for a Google 429 rate limit
   // (a transient throttle, NOT a quota-exhaustion body).
-  ["google 429 (formatProviderError <status>: <body>)", '429: {"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"The service is temporarily rate limited, please retry."}}'],
+  [
+    "google 429 (formatProviderError <status>: <body>)",
+    '429: {"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"The service is temporarily rate limited, please retry."}}',
+  ],
   // retry.js "ResourceExhausted" — gRPC providers e.g. NVIDIA NIM (no HTTP number).
   ["grpc ResourceExhausted (nvidia nim)", "14 ResourceExhausted: model server queue is full"],
   // anthropic-messages.js:555 — SDK APIError message, 529 carries overloaded_error.
-  ["anthropic 529 overloaded", '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'],
+  [
+    "anthropic 529 overloaded",
+    '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+  ],
   // anthropic-messages.js:555 — SDK APIError message, 429 rate_limit_error.
-  ["anthropic 429 rate_limit_error", '429 {"type":"error","error":{"type":"rate_limit_error","message":"Number of request tokens has exceeded your per-minute rate limit"}}'],
+  [
+    "anthropic 429 rate_limit_error",
+    '429 {"type":"error","error":{"type":"rate_limit_error","message":"Number of request tokens has exceeded your per-minute rate limit"}}',
+  ],
   // anthropic-messages.js:275 — mid-stream SSE error event data (bare, no status).
-  ["anthropic sse overloaded (no status)", '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}'],
+  [
+    "anthropic sse overloaded (no status)",
+    '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}',
+  ],
   // anthropic-messages.js:296 — premature stream end.
   ["anthropic stream ended before message_stop", "Anthropic stream ended before message_stop"],
   // openai-completions.js:357 — premature stream end.
@@ -51,7 +69,10 @@ const TRANSIENT: Array<[label: string, message: string]> = [
   // retry.js "upstream.?connect" + "reset before headers" — Codex raw-fetch
   // transport failure text (#733), matched by codex's own isRetryableError
   // regex (openai-codex-responses.js:56) and pi's retry.js.
-  ["codex upstream connect / reset before headers", "upstream connect error or disconnect/reset before headers"],
+  [
+    "codex upstream connect / reset before headers",
+    "upstream connect error or disconnect/reset before headers",
+  ],
   // retry.js "provider.?returned.?error" — OpenRouter wrapper text (#2264).
   ["openrouter provider returned error", "Provider returned error"],
   // retry.js "524" — Cloudflare origin timeout in front of a provider.
@@ -59,7 +80,10 @@ const TRANSIENT: Array<[label: string, message: string]> = [
   // retry.js "http2 request did not get a response" — Bedrock/Smithy HTTP2 (#3594).
   ["bedrock http2 no response", "http2 request did not get a response"],
   // retry.js explicit retry-guidance (#6019) — OpenAI Responses / Bedrock stream.
-  ["retry guidance you can retry", "The server had an error processing your request. You can retry your request."],
+  [
+    "retry guidance you can retry",
+    "The server had an error processing your request. You can retry your request.",
+  ],
   // retry.js transport patterns pi covers but our old connection regex did not.
   ["undici socket hang up", "socket hang up"],
   ["undici terminated", "terminated"],
@@ -90,22 +114,40 @@ describe("classifyProviderError — transient → retry-then-failover (grounded 
 const ACCOUNT_LIMITS: Array<[label: string, message: string]> = [
   // THE headline case: OpenAI 429 insufficient_quota (billing). Old regex →
   // fully retryable (matched "429"); this classifier → failover-only.
-  ["openai 429 insufficient_quota", '429: {"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","code":"insufficient_quota"}}'],
+  [
+    "openai 429 insufficient_quota",
+    '429: {"error":{"message":"You exceeded your current quota, please check your plan and billing details.","type":"insufficient_quota","code":"insufficient_quota"}}',
+  ],
   ["quota exceeded", "Your quota exceeded the allowed limit"],
   ["out of budget", "Request rejected: out of budget"],
-  ["openrouter billing", "402: {\"error\":{\"message\":\"Insufficient credits. Add funds via billing.\"}}"],
+  [
+    "openrouter billing",
+    '402: {"error":{"message":"Insufficient credits. Add funds via billing."}}',
+  ],
   // opencode-go zen API subscription limits returned as 429 JSON error types.
-  ["opencode GoUsageLimitError 429", '429: {"type":"GoUsageLimitError","message":"Monthly usage limit reached, enable available balance usage"}'],
+  [
+    "opencode GoUsageLimitError 429",
+    '429: {"type":"GoUsageLimitError","message":"Monthly usage limit reached, enable available balance usage"}',
+  ],
   ["opencode FreeUsageLimitError", "FreeUsageLimitError: free tier limit hit"],
   // Adversarial (validator-proven): account-limit bodies that ALSO carry a
   // "529" or a connection token. These MUST stay failover-only — the
   // account-limit check runs BEFORE the bare-529 / connection supplements, so a
   // hard billing state is never misrouted to a same-provider retry.
-  ["adversarial insufficient_quota + 529 retry-after", 'error: {"type":"insufficient_quota","message":"You exceeded your quota"}; retry after 529 seconds'],
-  ["adversarial monthly-limit + 529 credits + billing", "Monthly usage limit reached: used 529/1000 credits; billing suspended"],
+  [
+    "adversarial insufficient_quota + 529 retry-after",
+    'error: {"type":"insufficient_quota","message":"You exceeded your quota"}; retry after 529 seconds',
+  ],
+  [
+    "adversarial monthly-limit + 529 credits + billing",
+    "Monthly usage limit reached: used 529/1000 credits; billing suspended",
+  ],
   ["adversarial billing + 529 plan cap", "billing error - plan cap 529/mo exceeded"],
   ["adversarial out-of-budget + 529 code", "Request rejected: out of budget (code 529)"],
-  ["adversarial insufficient_quota + ECONNREFUSED", "insufficient_quota; connect ECONNREFUSED 10.0.0.1:443"],
+  [
+    "adversarial insufficient_quota + ECONNREFUSED",
+    "insufficient_quota; connect ECONNREFUSED 10.0.0.1:443",
+  ],
 ];
 
 describe("classifyProviderError — account limits → failover-only (excluded from same-provider retry)", () => {

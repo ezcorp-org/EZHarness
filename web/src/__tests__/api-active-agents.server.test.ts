@@ -26,15 +26,10 @@ vi.mock("$lib/server/conversation-ownership", () => ({
 }));
 
 const { getConversation } = await import("$server/db/queries/conversations");
-const { resolveRootConversationForOwnership } = await import(
-  "$lib/server/conversation-ownership"
-);
+const { resolveRootConversationForOwnership } = await import("$lib/server/conversation-ownership");
 const { GET } = await import("../routes/api/active-agents/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  href?: string;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; href?: string }) {
   const href = opts.href ?? "http://localhost/api/active-agents";
   return {
     url: new URL(href),
@@ -124,7 +119,10 @@ describe("GET /api/active-agents", () => {
 
   test("non-admin: filters out active runs in conversations they don't own (IDOR guard)", async () => {
     listActiveAgentRuns.mockReturnValue([
-      { run: { id: "run-x", agentName: "a1", startedAt: 1, projectId: null }, conversationId: "c-other" },
+      {
+        run: { id: "run-x", agentName: "a1", startedAt: 1, projectId: null },
+        conversationId: "c-other",
+      },
     ]);
     vi.mocked(getConversation).mockResolvedValue({ id: "c-other", projectId: null } as any);
     // Caller does NOT own the conversation.
@@ -137,7 +135,10 @@ describe("GET /api/active-agents", () => {
 
   test("admin: sees all active runs without an ownership check", async () => {
     listActiveAgentRuns.mockReturnValue([
-      { run: { id: "run-a", agentName: "a1", startedAt: 1, projectId: null }, conversationId: "c-anyone" },
+      {
+        run: { id: "run-a", agentName: "a1", startedAt: 1, projectId: null },
+        conversationId: "c-anyone",
+      },
     ]);
     vi.mocked(getConversation).mockResolvedValue({ id: "c-anyone", projectId: null } as any);
     // Even if ownership would deny, admin bypasses it entirely.

@@ -42,8 +42,12 @@ mock.module("../db/queries/settings", () => {
       return rows[0]?.value;
     },
     async upsertSetting() {},
-    async deleteSetting() { return false; },
-    async isListingInstalled() { return false; },
+    async deleteSetting() {
+      return false;
+    },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -68,12 +72,24 @@ beforeAll(async () => {
   await setupTestDb();
   tmpRoot = await mkdtemp(join(tmpdir(), "ezcorp-xuser-"));
 
-  const [a] = await getDb().insert(users).values({
-    email: "a@test.local", passwordHash: "x", name: "A", role: "member",
-  }).returning();
-  const [b] = await getDb().insert(users).values({
-    email: "b@test.local", passwordHash: "x", name: "B", role: "member",
-  }).returning();
+  const [a] = await getDb()
+    .insert(users)
+    .values({
+      email: "a@test.local",
+      passwordHash: "x",
+      name: "A",
+      role: "member",
+    })
+    .returning();
+  const [b] = await getDb()
+    .insert(users)
+    .values({
+      email: "b@test.local",
+      passwordHash: "x",
+      name: "B",
+      role: "member",
+    })
+    .returning();
   userAId = a!.id;
   userBId = b!.id;
 
@@ -88,9 +104,13 @@ beforeAll(async () => {
   const filePathA = join(dirA, "secret.png");
   await writeFile(filePathA, BYTES);
   const rowA = await insertAttachment({
-    messageId: msgA.id, conversationId: convA.id,
-    filename: "secret.png", mimeType: "image/png",
-    sizeBytes: BYTES.byteLength, storagePath: filePathA, kind: "image",
+    messageId: msgA.id,
+    conversationId: convA.id,
+    filename: "secret.png",
+    mimeType: "image/png",
+    sizeBytes: BYTES.byteLength,
+    storagePath: filePathA,
+    kind: "image",
   });
   attachmentId = rowA.id;
 
@@ -106,9 +126,13 @@ beforeAll(async () => {
   const filePathU = join(dirU, "u.png");
   await writeFile(filePathU, BYTES);
   const rowU = await insertAttachment({
-    messageId: msgU.id, conversationId: convUnowned.id,
-    filename: "u.png", mimeType: "image/png",
-    sizeBytes: BYTES.byteLength, storagePath: filePathU, kind: "image",
+    messageId: msgU.id,
+    conversationId: convUnowned.id,
+    filename: "u.png",
+    mimeType: "image/png",
+    sizeBytes: BYTES.byteLength,
+    storagePath: filePathU,
+    kind: "image",
   });
   unownedAttId = rowU.id;
 });
@@ -153,7 +177,9 @@ describe("cross-user attachment access", () => {
   test("A's messages hydrate attachments; B's messages do not leak A's attachment ids", async () => {
     // Positive: A's conversation hydrates correctly.
     const aMsgs = await getMessages(convAId);
-    const aHasAttachment = aMsgs.some((m) => (m.attachments ?? []).some((x) => x.id === attachmentId));
+    const aHasAttachment = aMsgs.some((m) =>
+      (m.attachments ?? []).some((x) => x.id === attachmentId),
+    );
     expect(aHasAttachment).toBe(true);
 
     // Negative: B's own conversation obviously doesn't contain A's attachment.

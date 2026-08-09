@@ -18,7 +18,12 @@ import {
   getChannel,
   JsonRpcError,
 } from "../src/runtime/channel";
-import { _setDispatcherRegister, createToolDispatcher, toolError, toolResult } from "../src/runtime/rpc";
+import {
+  _setDispatcherRegister,
+  createToolDispatcher,
+  toolError,
+  toolResult,
+} from "../src/runtime/rpc";
 import { getToolContext, withToolContext } from "../src/runtime/tool-context";
 import { spyOnStdoutWriter } from "./_stdout-writer-spy";
 
@@ -216,7 +221,11 @@ describe("notify", () => {
     ch.notify("log", { level: "info", text: "hello" });
     expect(writes).toHaveLength(1);
     const frame = JSON.parse(writes[0] ?? "") as Record<string, unknown>;
-    expect(frame).toEqual({ jsonrpc: "2.0", method: "log", params: { level: "info", text: "hello" } });
+    expect(frame).toEqual({
+      jsonrpc: "2.0",
+      method: "log",
+      params: { level: "info", text: "hello" },
+    });
     expect("id" in frame).toBe(false);
     stdin.close();
   });
@@ -480,7 +489,9 @@ describe("__resetChannelForTests", () => {
         // never enqueues, never closes
       },
     });
-    const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(() => fakeStream as ReturnType<typeof Bun.stdin.stream>);
+    const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
+      () => fakeStream as ReturnType<typeof Bun.stdin.stream>,
+    );
     const stdout = spyOnStdoutWriter();
 
     try {
@@ -535,7 +546,9 @@ describe("production channel wiring", () => {
         controller = c;
       },
     });
-    const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(() => stream as ReturnType<typeof Bun.stdin.stream>);
+    const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
+      () => stream as ReturnType<typeof Bun.stdin.stream>,
+    );
 
     const stdout = spyOnStdoutWriter();
     const stdoutWrites = stdout.writes;
@@ -572,17 +585,29 @@ describe("production channel wiring", () => {
       );
 
       const enc = new TextEncoder();
-      const send = (frame: unknown) =>
-        controller.enqueue(enc.encode(JSON.stringify(frame) + "\n"));
+      const send = (frame: unknown) => controller.enqueue(enc.encode(JSON.stringify(frame) + "\n"));
 
       // 1) Happy-path tool dispatch.
-      send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "echo", arguments: { x: "hi" } } });
+      send({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "echo", arguments: { x: "hi" } },
+      });
       await waitFor(() => stdoutWrites.length >= 1);
       const r1 = JSON.parse(stdoutWrites[0] ?? "");
-      expect(r1).toMatchObject({ id: 1, result: { content: [{ type: "text", text: "echo:hi" }], isError: false } });
+      expect(r1).toMatchObject({
+        id: 1,
+        result: { content: [{ type: "text", text: "echo:hi" }], isError: false },
+      });
 
       // 2) Async handler awaited correctly.
-      send({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "asyncOk", arguments: {} } });
+      send({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "asyncOk", arguments: {} },
+      });
       await waitFor(() => stdoutWrites.length >= 2);
       const r2 = JSON.parse(stdoutWrites[1] ?? "");
       expect(r2.result.content[0].text).toBe("async-done");
@@ -591,14 +616,24 @@ describe("production channel wiring", () => {
       // error), NOT a toolError isError-result. The dispatcher throws
       // JsonRpcError for unknown tools so HostChannel emits the proper
       // {error:{code,message}} envelope on the wire (Ruling 1).
-      send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "missing", arguments: {} } });
+      send({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "missing", arguments: {} },
+      });
       await waitFor(() => stdoutWrites.length >= 3);
       const r3 = JSON.parse(stdoutWrites[2] ?? "");
       expect(r3.result).toBeUndefined();
       expect(r3.error).toEqual({ code: -32601, message: "Tool not found: missing" });
 
       // 4) Handler throws → opts.onError invoked.
-      send({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "throwsErr", arguments: {} } });
+      send({
+        jsonrpc: "2.0",
+        id: 4,
+        method: "tools/call",
+        params: { name: "throwsErr", arguments: {} },
+      });
       await waitFor(() => stdoutWrites.length >= 4);
       const r4 = JSON.parse(stdoutWrites[3] ?? "");
       expect(r4.result.code).toBe("X");
@@ -651,7 +686,9 @@ describe("production channel wiring", () => {
         controller = c;
       },
     });
-    const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(() => stream as ReturnType<typeof Bun.stdin.stream>);
+    const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
+      () => stream as ReturnType<typeof Bun.stdin.stream>,
+    );
     const stdout = spyOnStdoutWriter();
     const stdoutWrites = stdout.writes;
     __rearmDispatcherForTests();
@@ -663,7 +700,10 @@ describe("production channel wiring", () => {
         probe: () => {
           const ctx = getToolContext();
           return toolResult(
-            JSON.stringify({ projectRoot: ctx?.projectRoot ?? null, conversationId: ctx?.conversationId ?? null }),
+            JSON.stringify({
+              projectRoot: ctx?.projectRoot ?? null,
+              conversationId: ctx?.conversationId ?? null,
+            }),
           );
         },
       });
@@ -676,7 +716,11 @@ describe("production channel wiring", () => {
         jsonrpc: "2.0",
         id: 1,
         method: "tools/call",
-        params: { name: "probe", arguments: {}, _meta: { ezConversationId: "conv-1", ezProjectRoot: "/app/projects/ecf-demo" } },
+        params: {
+          name: "probe",
+          arguments: {},
+          _meta: { ezConversationId: "conv-1", ezProjectRoot: "/app/projects/ecf-demo" },
+        },
       });
       await waitFor(() => stdoutWrites.length >= 1);
       expect(JSON.parse(JSON.parse(stdoutWrites[0] ?? "").result.content[0].text)).toEqual({
@@ -690,7 +734,11 @@ describe("production channel wiring", () => {
         jsonrpc: "2.0",
         id: 2,
         method: "tools/call",
-        params: { name: "probe", arguments: {}, _meta: { ezConversationId: "conv-2", ezProjectRoot: "" } },
+        params: {
+          name: "probe",
+          arguments: {},
+          _meta: { ezConversationId: "conv-2", ezProjectRoot: "" },
+        },
       });
       await waitFor(() => stdoutWrites.length >= 2);
       expect(JSON.parse(JSON.parse(stdoutWrites[1] ?? "").result.content[0].text)).toEqual({
@@ -699,7 +747,12 @@ describe("production channel wiring", () => {
       });
 
       // 3) No _meta at all → projectRoot undefined, conversationId defaults to "".
-      send({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "probe", arguments: {} } });
+      send({
+        jsonrpc: "2.0",
+        id: 3,
+        method: "tools/call",
+        params: { name: "probe", arguments: {} },
+      });
       await waitFor(() => stdoutWrites.length >= 3);
       expect(JSON.parse(JSON.parse(stdoutWrites[2] ?? "").result.content[0].text)).toEqual({
         projectRoot: null,
@@ -780,11 +833,25 @@ describe("production channel wiring", () => {
       },
     });
 
-    stdin.push(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "bad", arguments: {} } }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name: "bad", arguments: {} },
+      }),
+    );
     await waitFor(() => writes.length >= 1);
     expect(JSON.parse(writes[0] ?? "").result.content[0].text).toBe("plain-fail");
 
-    stdin.push(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "stringy", arguments: {} } }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "stringy", arguments: {} },
+      }),
+    );
     await waitFor(() => writes.length >= 2);
     expect(JSON.parse(writes[1] ?? "").result.content[0].text).toBe("string-fail");
 
@@ -834,18 +901,15 @@ describe("tools/call dispatcher — _meta.invocationMetadata → ctx round-trip"
         if (!handler) throw new JsonRpcError(-32601, `Tool not found: ${name}`);
         const ezConversationId =
           typeof rawMeta.ezConversationId === "string" ? rawMeta.ezConversationId : "";
-        return withToolContext(
-          { toolName: name, conversationId: ezConversationId },
-          async () => {
-            try {
-              return await handler(args, ctx);
-            } catch (err) {
-              if (opts?.onError) return opts.onError(err, name);
-              const message = err instanceof Error ? err.message : String(err);
-              return toolError(message);
-            }
-          },
-        );
+        return withToolContext({ toolName: name, conversationId: ezConversationId }, async () => {
+          try {
+            return await handler(args, ctx);
+          } catch (err) {
+            if (opts?.onError) return opts.onError(err, name);
+            const message = err instanceof Error ? err.message : String(err);
+            return toolError(message);
+          }
+        });
       });
     });
 
@@ -865,16 +929,18 @@ describe("tools/call dispatcher — _meta.invocationMetadata → ctx round-trip"
       teamToolScope: { allowedTools: ["read"] },
       parentMessageId: "msg-anchor",
     };
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 101,
-      method: "tools/call",
-      params: {
-        name: "probe",
-        arguments: { a: 1 },
-        _meta: { invocationMetadata },
-      },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 101,
+        method: "tools/call",
+        params: {
+          name: "probe",
+          arguments: { a: 1 },
+          _meta: { invocationMetadata },
+        },
+      }),
+    );
     await waitFor(() => writes.length >= 1);
     expect(capturedArgs[0]).toEqual({ a: 1 });
     expect(capturedCtxs[0]).toEqual({ invocationMetadata });
@@ -882,43 +948,49 @@ describe("tools/call dispatcher — _meta.invocationMetadata → ctx round-trip"
     // 2) No `_meta` at all → ctx is an empty object (not missing / not
     //    partially populated). Covers the `rawMeta.invocationMetadata
     //    && typeof === object` false branch.
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 102,
-      method: "tools/call",
-      params: { name: "probe", arguments: {} },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 102,
+        method: "tools/call",
+        params: { name: "probe", arguments: {} },
+      }),
+    );
     await waitFor(() => writes.length >= 2);
     expect(capturedCtxs[1]).toEqual({});
 
     // 3) `_meta` present but `invocationMetadata` is a non-object (string)
     //    → type-gate drops it; ctx stays empty. Covers the
     //    `typeof rawMeta.invocationMetadata === "object"` false branch.
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 103,
-      method: "tools/call",
-      params: {
-        name: "probe",
-        arguments: {},
-        _meta: { invocationMetadata: "nope-just-a-string" },
-      },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 103,
+        method: "tools/call",
+        params: {
+          name: "probe",
+          arguments: {},
+          _meta: { invocationMetadata: "nope-just-a-string" },
+        },
+      }),
+    );
     await waitFor(() => writes.length >= 3);
     expect(capturedCtxs[2]).toEqual({});
 
     // 4) Sibling `_meta` keys (e.g. ezOnBehalfOf) don't leak into ctx —
     //    only the invocationMetadata slot is surfaced.
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 104,
-      method: "tools/call",
-      params: {
-        name: "probe",
-        arguments: {},
-        _meta: { ezOnBehalfOf: "user-1", invocationMetadata: { k: "v" } },
-      },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 104,
+        method: "tools/call",
+        params: {
+          name: "probe",
+          arguments: {},
+          _meta: { ezOnBehalfOf: "user-1", invocationMetadata: { k: "v" } },
+        },
+      }),
+    );
     await waitFor(() => writes.length >= 4);
     expect(capturedCtxs[3]).toEqual({ invocationMetadata: { k: "v" } });
 
@@ -982,12 +1054,14 @@ describe("runLoop does not block on concurrent in-flight handler requests", () =
     });
 
     // Drive it as the host would.
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 100,
-      method: "tools/call",
-      params: { name: "write", arguments: {} },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 100,
+        method: "tools/call",
+        params: { name: "write", arguments: {} },
+      }),
+    );
 
     // The ext must now have written out an `ezcorp/storage` request. We
     // inspect the outbound buffer and reply — if the loop were blocked
@@ -1000,27 +1074,37 @@ describe("runLoop does not block on concurrent in-flight handler requests", () =
     // still reading, this response is processed and resolves the pending
     // `ch.request(...)` inside the handler, which then returns its
     // tools/call response frame.
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: storageId,
-      result: { ok: true },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: storageId,
+        result: { ok: true },
+      }),
+    );
 
     // The handler's response for the original tools/call (id=100) must
     // now appear on stdout. If the fix regresses, this wait times out.
-    await waitFor(() => writes.some((w) => {
-      try {
-        const msg = JSON.parse(w) as { id?: number };
-        return msg.id === 100;
-      } catch { return false; }
-    }), 500);
+    await waitFor(
+      () =>
+        writes.some((w) => {
+          try {
+            const msg = JSON.parse(w) as { id?: number };
+            return msg.id === 100;
+          } catch {
+            return false;
+          }
+        }),
+      500,
+    );
 
     const finalResponse = writes
       .map((w) => JSON.parse(w) as Record<string, unknown>)
       .find((m) => m.id === 100);
     expect(finalResponse).toBeDefined();
-    expect((finalResponse as { result?: { content?: Array<{ text: string }> } }).result?.content?.[0]?.text)
-      .toBe("storage returned true");
+    expect(
+      (finalResponse as { result?: { content?: Array<{ text: string }> } }).result?.content?.[0]
+        ?.text,
+    ).toBe("storage returned true");
 
     stdin.close();
   });
@@ -1036,7 +1120,9 @@ describe("runLoop does not block on concurrent in-flight handler requests", () =
     ch.start();
 
     let released: (() => void) | null = null;
-    const gate = new Promise<void>((r) => { released = r; });
+    const gate = new Promise<void>((r) => {
+      released = r;
+    });
     ch.onRequest("slow", async () => {
       await gate;
       return { content: [{ type: "text", text: "slow done" }] };
@@ -1050,9 +1136,17 @@ describe("runLoop does not block on concurrent in-flight handler requests", () =
     stdin.push(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "fast", params: {} }));
 
     // Fast should complete even while slow is pending.
-    await waitFor(() => writes.some((w) => {
-      try { return (JSON.parse(w) as { id?: number }).id === 2; } catch { return false; }
-    }), 300);
+    await waitFor(
+      () =>
+        writes.some((w) => {
+          try {
+            return (JSON.parse(w) as { id?: number }).id === 2;
+          } catch {
+            return false;
+          }
+        }),
+      300,
+    );
 
     const fastResp = writes
       .map((w) => JSON.parse(w) as Record<string, unknown>)
@@ -1061,9 +1155,17 @@ describe("runLoop does not block on concurrent in-flight handler requests", () =
 
     // Now release slow and confirm it too completes.
     released!();
-    await waitFor(() => writes.some((w) => {
-      try { return (JSON.parse(w) as { id?: number }).id === 1; } catch { return false; }
-    }), 300);
+    await waitFor(
+      () =>
+        writes.some((w) => {
+          try {
+            return (JSON.parse(w) as { id?: number }).id === 1;
+          } catch {
+            return false;
+          }
+        }),
+      300,
+    );
 
     stdin.close();
   });
@@ -1096,18 +1198,15 @@ describe("tools/call dispatcher — withToolContext ALS binding", () => {
         if (!handler) throw new JsonRpcError(-32601, `Tool not found: ${name}`);
         const ezConversationId =
           typeof rawMeta.ezConversationId === "string" ? rawMeta.ezConversationId : "";
-        return withToolContext(
-          { toolName: name, conversationId: ezConversationId },
-          async () => {
-            try {
-              return await handler(args);
-            } catch (err) {
-              if (opts?.onError) return opts.onError(err, name);
-              const message = err instanceof Error ? err.message : String(err);
-              return toolError(message);
-            }
-          },
-        );
+        return withToolContext({ toolName: name, conversationId: ezConversationId }, async () => {
+          try {
+            return await handler(args);
+          } catch (err) {
+            if (opts?.onError) return opts.onError(err, name);
+            const message = err instanceof Error ? err.message : String(err);
+            return toolError(message);
+          }
+        });
       });
     });
 
@@ -1124,26 +1223,30 @@ describe("tools/call dispatcher — withToolContext ALS binding", () => {
     });
 
     // 1) `_meta.ezConversationId` is forwarded into ctx.
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 1,
-      method: "tools/call",
-      params: {
-        name: "probe",
-        arguments: {},
-        _meta: { ezConversationId: "conv-abc" },
-      },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "probe",
+          arguments: {},
+          _meta: { ezConversationId: "conv-abc" },
+        },
+      }),
+    );
     await waitFor(() => writes.length >= 1);
     expect(seen[0]).toEqual({ toolName: "probe", conversationId: "conv-abc" });
 
     // 2) Missing `_meta` → conversationId defaults to "".
-    stdin.push(JSON.stringify({
-      jsonrpc: "2.0",
-      id: 2,
-      method: "tools/call",
-      params: { name: "probe", arguments: {} },
-    }));
+    stdin.push(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "probe", arguments: {} },
+      }),
+    );
     await waitFor(() => writes.length >= 2);
     expect(seen[1]).toEqual({ toolName: "probe", conversationId: "" });
 
@@ -1200,18 +1303,15 @@ describe("tools/call dispatcher — ALS smoke through production getChannel()", 
           if (!handler) throw new JsonRpcError(-32601, `Tool not found: ${name}`);
           const ezConversationId =
             typeof rawMeta.ezConversationId === "string" ? rawMeta.ezConversationId : "";
-          return withToolContext(
-            { toolName: name, conversationId: ezConversationId },
-            async () => {
-              try {
-                return await handler(args);
-              } catch (err) {
-                if (opts?.onError) return opts.onError(err, name);
-                const message = err instanceof Error ? err.message : String(err);
-                return toolError(message);
-              }
-            },
-          );
+          return withToolContext({ toolName: name, conversationId: ezConversationId }, async () => {
+            try {
+              return await handler(args);
+            } catch (err) {
+              if (opts?.onError) return opts.onError(err, name);
+              const message = err instanceof Error ? err.message : String(err);
+              return toolError(message);
+            }
+          });
         });
       });
 
@@ -1390,18 +1490,22 @@ function handlerProbeRace(stdin: ControlledStdin) {
   return {
     captured,
     async driveTwoConcurrent() {
-      stdin.push(JSON.stringify({
-        jsonrpc: "2.0",
-        id: 90,
-        method: "tools/call",
-        params: { name: "p_a", arguments: {}, _meta: { ezConversationId: "ca" } },
-      }));
-      stdin.push(JSON.stringify({
-        jsonrpc: "2.0",
-        id: 91,
-        method: "tools/call",
-        params: { name: "p_b", arguments: {}, _meta: { ezConversationId: "cb" } },
-      }));
+      stdin.push(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 90,
+          method: "tools/call",
+          params: { name: "p_a", arguments: {}, _meta: { ezConversationId: "ca" } },
+        }),
+      );
+      stdin.push(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: 91,
+          method: "tools/call",
+          params: { name: "p_b", arguments: {}, _meta: { ezConversationId: "cb" } },
+        }),
+      );
       // Wait for both to finish.
       await new Promise((r) => setTimeout(r, 40));
     },

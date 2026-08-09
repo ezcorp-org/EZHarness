@@ -34,10 +34,7 @@ export async function addTeamMember(
   userId: string,
   role: "owner" | "editor" | "viewer",
 ): Promise<TeamMember> {
-  const rows = await getDb()
-    .insert(teamMembers)
-    .values({ teamId, userId, role })
-    .returning();
+  const rows = await getDb().insert(teamMembers).values({ teamId, userId, role }).returning();
   return rows[0]!;
 }
 
@@ -125,12 +122,7 @@ export async function getTeamMembershipsByTeams(
   const rows = await getDb()
     .select()
     .from(teamMembers)
-    .where(
-      and(
-        eq(teamMembers.userId, userId),
-        inArray(teamMembers.teamId, uniqueIds),
-      ),
-    );
+    .where(and(eq(teamMembers.userId, userId), inArray(teamMembers.teamId, uniqueIds)));
   const byTeam = new Map<string, TeamMember>();
   for (const row of rows) byTeam.set(row.teamId, row);
   for (const id of teamIds) {

@@ -23,10 +23,7 @@
  *     request.
  */
 
-import {
-  isWebSocketUpgrade,
-  decideWebSocketUpgrade,
-} from "$server/runtime/preview/preview-ws";
+import { isWebSocketUpgrade, decideWebSocketUpgrade } from "$server/runtime/preview/preview-ws";
 import { verifyPreviewToken, PREVIEW_COOKIE_NAME } from "$server/runtime/preview/preview-token";
 import { getServablePreview, isValidPreviewId } from "$server/db/queries/preview-sessions";
 
@@ -63,7 +60,9 @@ export async function tryBridgePreviewWebSocket(
   request: Request,
   previewId: string,
   appHost: string | null,
-  platform: { server?: { upgrade(req: unknown, opts?: { data?: unknown }): boolean }; request?: unknown } | undefined,
+  platform:
+    | { server?: { upgrade(req: unknown, opts?: { data?: unknown }): boolean }; request?: unknown }
+    | undefined,
 ): Promise<Response | null> {
   if (!isWebSocketUpgrade(request)) return null;
 
@@ -161,7 +160,11 @@ export function createPreviewWebSocketHandler(
   >();
 
   return {
-    open(ws: { data?: unknown; close(code?: number, reason?: string): void; send(msg: string | ArrayBufferLike): void }) {
+    open(ws: {
+      data?: unknown;
+      close(code?: number, reason?: string): void;
+      send(msg: string | ArrayBufferLike): void;
+    }) {
       const data = ws.data as PreviewWsData | undefined;
       if (!data || data.__preview !== true) {
         ws.close(1008, "not a preview socket");
@@ -198,7 +201,10 @@ export function createPreviewWebSocketHandler(
       });
     },
 
-    message(ws: { data?: unknown; close(code?: number, reason?: string): void }, message: string | ArrayBufferLike) {
+    message(
+      ws: { data?: unknown; close(code?: number, reason?: string): void },
+      message: string | ArrayBufferLike,
+    ) {
       const state = upstreams.get(ws as object);
       if (!state) return;
       if (state.ready) {

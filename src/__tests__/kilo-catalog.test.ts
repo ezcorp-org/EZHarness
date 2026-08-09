@@ -236,7 +236,9 @@ describe("T2 tolerance — a bad payload costs models, never a turn", () => {
   });
 
   test("context_length falls back to top_provider.context_length", () => {
-    expect(normalizeKiloModel({ id: "v/x", top_provider: { context_length: 999 } })!.contextWindow).toBe(999);
+    expect(
+      normalizeKiloModel({ id: "v/x", top_provider: { context_length: 999 } })!.contextWindow,
+    ).toBe(999);
   });
 
   test("non-string entries in a modality array are ignored", () => {
@@ -248,7 +250,9 @@ describe("T2 tolerance — a bad payload costs models, never a turn", () => {
   });
 
   test("include_reasoning alone marks the model as reasoning-capable", () => {
-    expect(normalizeKiloModel({ id: "v/x", supported_parameters: ["include_reasoning"] })!.reasoning).toBe(true);
+    expect(
+      normalizeKiloModel({ id: "v/x", supported_parameters: ["include_reasoning"] })!.reasoning,
+    ).toBe(true);
   });
 
   test("a duplicate id is kept once, first occurrence winning", () => {
@@ -271,7 +275,9 @@ describe("T2 tolerance — a bad payload costs models, never a turn", () => {
   test("a row with an empty output_modalities list is still treated as chat-capable", () => {
     // Kilo omits the field on some rows; refusing them would silently shrink
     // the catalog on a shape change upstream.
-    expect(normalizeKiloModel({ id: "v/x", architecture: { output_modalities: [] } })).not.toBeNull();
+    expect(
+      normalizeKiloModel({ id: "v/x", architecture: { output_modalities: [] } }),
+    ).not.toBeNull();
   });
 });
 

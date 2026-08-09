@@ -15,10 +15,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { ToolExecutor } from "../tool-executor";
 import { createStubPermissionEngine } from "../../__tests__/helpers/permission-engine-stub";
-import {
-  registerCallProvenance,
-  _resetCallProvenanceForTests,
-} from "../call-provenance";
+import { registerCallProvenance, _resetCallProvenanceForTests } from "../call-provenance";
 import type { ExtensionRegistry } from "../registry";
 import type { JsonRpcRequest, JsonRpcResponse } from "../types";
 
@@ -32,7 +29,12 @@ function makeRegistry(): ExtensionRegistry {
 }
 
 type ResolveResult =
-  | { ok: true; onBehalfOf: string; conversationId: string | null; rpcMeta: Record<string, unknown> }
+  | {
+      ok: true;
+      onBehalfOf: string;
+      conversationId: string | null;
+      rpcMeta: Record<string, unknown>;
+    }
   | { ok: false; errorResponse: JsonRpcResponse };
 
 function resolve(

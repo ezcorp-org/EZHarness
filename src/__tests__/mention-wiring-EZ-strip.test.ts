@@ -18,10 +18,7 @@
  * Pure logic; no DB / pi-ai mock needed.
  */
 import { test, expect, describe } from "bun:test";
-import {
-  stripEzActionTokens,
-  EZ_ACTION_TOKEN_RE,
-} from "../runtime/mention-wiring";
+import { stripEzActionTokens, EZ_ACTION_TOKEN_RE } from "../runtime/mention-wiring";
 
 describe("stripEzActionTokens — basic cases", () => {
   test("zero tokens → returns input verbatim, empty actions list", () => {
@@ -33,15 +30,11 @@ describe("stripEzActionTokens — basic cases", () => {
   test("single token in mid-text → stripped, name captured", () => {
     const out = stripEzActionTokens("trigger ![EZ:distill] now");
     expect(out.stripped).toBe("trigger now");
-    expect(out.actions).toEqual([
-      { name: "distill", start: 8, end: 21 },
-    ]);
+    expect(out.actions).toEqual([{ name: "distill", start: 8, end: 21 }]);
   });
 
   test("multiple tokens → all stripped, names in source order", () => {
-    const out = stripEzActionTokens(
-      "do ![EZ:distill] then ![EZ:summarize] please",
-    );
+    const out = stripEzActionTokens("do ![EZ:distill] then ![EZ:summarize] please");
     // Each token-strip consumes one trailing whitespace, so we end
     // up with `do then please` (no double-spaces).
     expect(out.stripped).toBe("do then please");
@@ -77,9 +70,7 @@ describe("stripEzActionTokens — silent unknown-action strip", () => {
   });
 
   test("known + unknown mixed → both stripped, both captured", () => {
-    const out = stripEzActionTokens(
-      "![EZ:distill] then ![EZ:fakeaction] done",
-    );
+    const out = stripEzActionTokens("![EZ:distill] then ![EZ:fakeaction] done");
     expect(out.stripped).toBe("then done");
     expect(out.actions.map((a) => a.name)).toEqual(["distill", "fakeaction"]);
   });
@@ -87,14 +78,10 @@ describe("stripEzActionTokens — silent unknown-action strip", () => {
 
 describe("stripEzActionTokens — coexistence with other sigils", () => {
   test("agent / ext / team mentions (other `!` kinds) are NOT stripped", () => {
-    const out = stripEzActionTokens(
-      "![agent:scout] ![EZ:distill] ![ext:fs] ![team:reviewers]",
-    );
+    const out = stripEzActionTokens("![agent:scout] ![EZ:distill] ![ext:fs] ![team:reviewers]");
     // Only the `EZ` token is removed; the other ! kinds stay so they
     // can be wired into the conversation downstream.
-    expect(out.stripped).toBe(
-      "![agent:scout] ![ext:fs] ![team:reviewers]",
-    );
+    expect(out.stripped).toBe("![agent:scout] ![ext:fs] ![team:reviewers]");
     expect(out.actions.map((a) => a.name)).toEqual(["distill"]);
   });
 
@@ -126,9 +113,7 @@ describe("stripEzActionTokens — coexistence with other sigils", () => {
     const out = stripEzActionTokens(
       "go ![EZ:distill] @[file:a.ts] /[cmd:b] $[feature:c] %[lesson:d]",
     );
-    expect(out.stripped).toBe(
-      "go @[file:a.ts] /[cmd:b] $[feature:c] %[lesson:d]",
-    );
+    expect(out.stripped).toBe("go @[file:a.ts] /[cmd:b] $[feature:c] %[lesson:d]");
     expect(out.actions.map((a) => a.name)).toEqual(["distill"]);
   });
 });

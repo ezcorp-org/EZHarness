@@ -1,6 +1,11 @@
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER } from "./helpers/mock-request";
+import {
+  mockServerAlias,
+  createMockEvent,
+  jsonFromResponse,
+  ADMIN_USER,
+} from "./helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
 
@@ -220,7 +225,11 @@ describe("GET /api/providers - mixed states in single response", () => {
 
     // openai: OAuth connected (not expired)
     const futureExpires = Date.now() + 7200_000;
-    const openaiToken = JSON.stringify({ expires: futureExpires, access: "oai-tok", refresh: "oai-ref" });
+    const openaiToken = JSON.stringify({
+      expires: futureExpires,
+      access: "oai-tok",
+      refresh: "oai-ref",
+    });
     settingsStore["provider:oauth:openai"] = `enc:${openaiToken}`;
 
     // google: env only

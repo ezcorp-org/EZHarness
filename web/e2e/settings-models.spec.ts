@@ -12,62 +12,73 @@ const proj = makeProject({ id: "proj-1", name: "Test Project" });
 // Models & Providers is admin-only: its reads and writes both require the
 // admin role, so driving it as a member exercised a state that cannot exist.
 const adminMe = {
-	user: { id: "admin-1", email: "admin@test.local", name: "Admin", role: "admin" },
+  user: { id: "admin-1", email: "admin@test.local", name: "Admin", role: "admin" },
 };
 
 const mixedSettings = {
-	"provider:defaultTier": "balanced",
-	"provider:preferenceOrder": ["anthropic", "openai", "google"],
-	"provider:ollamaUrl": "http://localhost:11434",
-	"provider:customModels": [
-		{ modelId: "llama3-local", provider: "ollama", tier: "balanced", baseUrl: "http://localhost:11434" },
-		{ modelId: "gpt-4-custom", provider: "openai", tier: "powerful" },
-	],
+  "provider:defaultTier": "balanced",
+  "provider:preferenceOrder": ["anthropic", "openai", "google"],
+  "provider:ollamaUrl": "http://localhost:11434",
+  "provider:customModels": [
+    {
+      modelId: "llama3-local",
+      provider: "ollama",
+      tier: "balanced",
+      baseUrl: "http://localhost:11434",
+    },
+    { modelId: "gpt-4-custom", provider: "openai", tier: "powerful" },
+  ],
 };
 
 test.describe("merged models page", () => {
-	test("ollama model renders exactly once (provider card only)", async ({ page, mockApi }) => {
-		await mockApi({
-			projects: [proj],
-			settings: mixedSettings,
-			routes: { "/api/auth/me": () => adminMe },
-		});
-		await page.goto("/settings/models");
+  test("ollama model renders exactly once (provider card only)", async ({ page, mockApi }) => {
+    await mockApi({
+      projects: [proj],
+      settings: mixedSettings,
+      routes: { "/api/auth/me": () => adminMe },
+    });
+    await page.goto("/settings/models");
 
-		await expect(page.locator("#custom-models")).toBeVisible();
+    await expect(page.locator("#custom-models")).toBeVisible();
 
-		// The ollama model id appears exactly once on the entire page —
-		// inside the Ollama card's "Active models" list.
-		await expect(page.getByText("llama3-local", { exact: true })).toHaveCount(1);
-		await expect(page.locator("#providers").getByText("llama3-local", { exact: true })).toBeVisible();
-		await expect(page.locator("#custom-models").getByText("llama3-local", { exact: true })).toHaveCount(0);
+    // The ollama model id appears exactly once on the entire page —
+    // inside the Ollama card's "Active models" list.
+    await expect(page.getByText("llama3-local", { exact: true })).toHaveCount(1);
+    await expect(
+      page.locator("#providers").getByText("llama3-local", { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.locator("#custom-models").getByText("llama3-local", { exact: true }),
+    ).toHaveCount(0);
 
-		// The registry notes where the hidden entries live.
-		await expect(page.getByTestId("ollama-managed-note")).toHaveText(
-			"1 Ollama model is managed in the Ollama provider card above.",
-		);
+    // The registry notes where the hidden entries live.
+    await expect(page.getByTestId("ollama-managed-note")).toHaveText(
+      "1 Ollama model is managed in the Ollama provider card above.",
+    );
 
-		// Non-ollama custom model renders once, in the registry.
-		await expect(page.getByText("gpt-4-custom", { exact: true })).toHaveCount(1);
-		await expect(page.locator("#custom-models").getByText("gpt-4-custom", { exact: true })).toBeVisible();
-	});
+    // Non-ollama custom model renders once, in the registry.
+    await expect(page.getByText("gpt-4-custom", { exact: true })).toHaveCount(1);
+    await expect(
+      page.locator("#custom-models").getByText("gpt-4-custom", { exact: true }),
+    ).toBeVisible();
+  });
 
-	test("adding a custom model does not produce a duplicate row", async ({ page, mockApi }) => {
-		await mockApi({
-			projects: [proj],
-			settings: mixedSettings,
-			routes: { "/api/auth/me": () => adminMe },
-		});
-		await page.goto("/settings/models");
+  test("adding a custom model does not produce a duplicate row", async ({ page, mockApi }) => {
+    await mockApi({
+      projects: [proj],
+      settings: mixedSettings,
+      routes: { "/api/auth/me": () => adminMe },
+    });
+    await page.goto("/settings/models");
 
-		await page.getByLabel("Model ID").fill("brand-new-model");
-		await page.locator("#custom-models").getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByLabel("Model ID").fill("brand-new-model");
+    await page.locator("#custom-models").getByRole("button", { name: "Add", exact: true }).click();
 
-		await expect(page.getByText("brand-new-model", { exact: true })).toHaveCount(1);
+    await expect(page.getByText("brand-new-model", { exact: true })).toHaveCount(1);
 
-		// Adding again is a client-side no-op (id already registered).
-		await page.getByLabel("Model ID").fill("brand-new-model");
-		await page.locator("#custom-models").getByRole("button", { name: "Add", exact: true }).click();
-		await expect(page.getByText("brand-new-model", { exact: true })).toHaveCount(1);
-	});
+    // Adding again is a client-side no-op (id already registered).
+    await page.getByLabel("Model ID").fill("brand-new-model");
+    await page.locator("#custom-models").getByRole("button", { name: "Add", exact: true }).click();
+    await expect(page.getByText("brand-new-model", { exact: true })).toHaveCount(1);
+  });
 });

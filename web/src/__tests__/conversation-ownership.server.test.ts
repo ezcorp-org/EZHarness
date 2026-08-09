@@ -45,19 +45,14 @@ vi.mock("$server/db/queries/conversations", () => ({
 }));
 
 const ownershipModule = await import("../lib/server/conversation-ownership");
-const { resolveRootConversationForOwnership, MAX_PARENT_DEPTH } =
-  ownershipModule;
+const { resolveRootConversationForOwnership, MAX_PARENT_DEPTH } = ownershipModule;
 
 type Role = "admin" | "member";
 const owner = { id: "owner-1", email: "o@x", name: "O", role: "member" as Role };
 const admin = { id: "admin-1", email: "a@x", name: "A", role: "admin" as Role };
 const stranger = { id: "stranger-1", email: "s@x", name: "S", role: "member" as Role };
 
-function conv(
-  id: string,
-  parentConversationId: string | null,
-  userId: string | null,
-) {
+function conv(id: string, parentConversationId: string | null, userId: string | null) {
   return { id, parentConversationId, userId, projectId: "p", model: null, provider: null };
 }
 
@@ -79,19 +74,14 @@ describe("instruments the REAL conversation-ownership module", () => {
     // async function does not. This proves the behaviour tests below
     // execute (and therefore v8-cover) the real source file.
     expect(
-      (resolveRootConversationForOwnership as unknown as { mock?: unknown })
-        .mock,
+      (resolveRootConversationForOwnership as unknown as { mock?: unknown }).mock,
     ).toBeUndefined();
     expect(typeof resolveRootConversationForOwnership).toBe("function");
-    expect(resolveRootConversationForOwnership.name).toBe(
-      "resolveRootConversationForOwnership",
-    );
+    expect(resolveRootConversationForOwnership.name).toBe("resolveRootConversationForOwnership");
     // The real module re-exports the bound from its own source.
     expect(MAX_PARENT_DEPTH).toBe(9);
     // The ONLY mocked surface is the DB dependency.
-    expect(
-      (getConversation as unknown as { mock?: unknown }).mock,
-    ).toBeDefined();
+    expect((getConversation as unknown as { mock?: unknown }).mock).toBeDefined();
   });
 
   test("real walk executes against the mocked DB (not a stubbed return)", async () => {
@@ -118,9 +108,7 @@ describe("instruments the REAL conversation-ownership module", () => {
 describe("top-level conversation (parentless → root === self)", () => {
   test("owner: returns { conv:self, root:self }", async () => {
     const top = conv("top-1", null, owner.id);
-    getConversation.mockImplementation(async (id: string) =>
-      id === "top-1" ? top : null,
-    );
+    getConversation.mockImplementation(async (id: string) => (id === "top-1" ? top : null));
 
     const res = await resolveRootConversationForOwnership("top-1", owner);
     expect(res).not.toBeNull();

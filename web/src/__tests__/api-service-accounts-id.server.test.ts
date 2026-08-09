@@ -63,7 +63,10 @@ beforeEach(() => {
 });
 
 const admin = { user: { id: "a1", email: "a@x", name: "a", role: "admin" }, authMethod: "session" };
-const member = { user: { id: "u1", email: "u@x", name: "u", role: "member" }, authMethod: "session" };
+const member = {
+  user: { id: "u1", email: "u@x", name: "u", role: "member" },
+  authMethod: "session",
+};
 
 function makeEvent(
   locals: Record<string, unknown>,
@@ -86,7 +89,11 @@ function makeEvent(
 describe("gates — both methods, both axes", () => {
   const denied: Array<[string, Record<string, unknown>, number]> = [
     ["no principal at all", {}, 401],
-    ["an admin-role API KEY", { user: admin.user, authMethod: "api-key", apiKeyScopes: ["admin"] }, 403],
+    [
+      "an admin-role API KEY",
+      { user: admin.user, authMethod: "api-key", apiKeyScopes: ["admin"] },
+      403,
+    ],
     ["a loopback INTERNAL key", { user: admin.user, authMethod: "internal" }, 403],
     // The row that kills `apiKeyScopes === undefined`: no apiKeyScopes, so the
     // negative inference would read this as a session and ALLOW it.
@@ -128,7 +135,11 @@ describe("PATCH — enable / disable", () => {
   });
 
   test("enabling forwards no reason", async () => {
-    queries.setServiceAccountEnabled.mockResolvedValue({ ...ROW, enabled: true, disabledReason: null });
+    queries.setServiceAccountEnabled.mockResolvedValue({
+      ...ROW,
+      enabled: true,
+      disabledReason: null,
+    });
     await PATCH(makeEvent(admin, { enabled: true }));
     expect(queries.setServiceAccountEnabled).toHaveBeenCalledWith("sa-1", true, undefined);
   });
@@ -137,7 +148,11 @@ describe("PATCH — enable / disable", () => {
     await PATCH(makeEvent(admin, { enabled: false }));
     expect(audit.insertAuditEntry.mock.calls.at(-1)![1]).toBe("service-account:disabled");
 
-    queries.setServiceAccountEnabled.mockResolvedValue({ ...ROW, enabled: true, disabledReason: null });
+    queries.setServiceAccountEnabled.mockResolvedValue({
+      ...ROW,
+      enabled: true,
+      disabledReason: null,
+    });
     await PATCH(makeEvent(admin, { enabled: true }));
     expect(audit.insertAuditEntry.mock.calls.at(-1)![1]).toBe("service-account:enabled");
   });

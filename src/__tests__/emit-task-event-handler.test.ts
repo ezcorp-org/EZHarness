@@ -36,7 +36,8 @@ mock.module("../db/connection", () => ({
 
 const { handleEmitTaskEventRpc } = await import("../extensions/task-events-handler");
 const { getDb } = await import("../db/connection");
-const { conversations, projects, conversationExtensions, users, auditLog, extensions } = await import("../db/schema");
+const { conversations, projects, conversationExtensions, users, auditLog, extensions } =
+  await import("../db/schema");
 const { eq, desc, and } = await import("drizzle-orm");
 
 import type { JsonRpcRequest } from "../extensions/types";
@@ -47,9 +48,12 @@ import type { AgentEvents } from "../types";
 
 // ── Fixtures ─────────────────────────────────────────────────────────
 
-interface EmitCall { event: string; payload: unknown; }
+interface EmitCall {
+  event: string;
+  payload: unknown;
+}
 
-function makeBus(): { bus: EventBus<AgentEvents>; calls: EmitCall[]; } {
+function makeBus(): { bus: EventBus<AgentEvents>; calls: EmitCall[] } {
   const calls: EmitCall[] = [];
   const bus = {
     emit: (event: string, payload: unknown) => {
@@ -85,40 +89,61 @@ function rpc(params: Record<string, unknown>, id: number | string = 1): JsonRpcR
 }
 
 async function insertUser(id: string): Promise<void> {
-  await getDb().insert(users).values({
-    id,
-    email: `${id}@t.local`,
-    passwordHash: "x",
-    name: id,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values({
+      id,
+      email: `${id}@t.local`,
+      passwordHash: "x",
+      name: id,
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function insertProject(id: string): Promise<void> {
-  await getDb().insert(projects).values({ id, name: id, path: `/tmp/${id}` } as any);
+  await getDb()
+    .insert(projects)
+    .values({ id, name: id, path: `/tmp/${id}` } as any);
 }
 
 async function insertConversation(id: string, projectId: string): Promise<void> {
-  await getDb().insert(conversations).values({ id, projectId, title: id } as any);
+  await getDb()
+    .insert(conversations)
+    .values({ id, projectId, title: id } as any);
 }
 
 async function ensureExtensionRow(id: string): Promise<void> {
-  await getDb().insert(extensions).values({
-    id,
-    name: id,
-    version: "1.0.0",
-    description: "test",
-    manifest: { schemaVersion: 2, name: id, version: "1.0.0", description: "t", author: { name: "t" }, permissions: {} },
-    source: `test:${id}`,
-    installPath: `/tmp/${id}`,
-    enabled: true,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(extensions)
+    .values({
+      id,
+      name: id,
+      version: "1.0.0",
+      description: "test",
+      manifest: {
+        schemaVersion: 2,
+        name: id,
+        version: "1.0.0",
+        description: "t",
+        author: { name: "t" },
+        permissions: {},
+      },
+      source: `test:${id}`,
+      installPath: `/tmp/${id}`,
+      enabled: true,
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function wireConversation(conversationId: string, extensionId: string): Promise<void> {
   await ensureExtensionRow(extensionId);
-  await getDb().insert(conversationExtensions).values({
-    conversationId, extensionId,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(conversationExtensions)
+    .values({
+      conversationId,
+      extensionId,
+    } as any)
+    .onConflictDoNothing();
 }
 
 function snapshotTask(id: string, title = "t"): unknown {
@@ -171,7 +196,9 @@ afterEach(() => {
   delete process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"];
 });
 
-async function lastAuditForExt(extensionId: string): Promise<{ action: string; metadata: any } | undefined> {
+async function lastAuditForExt(
+  extensionId: string,
+): Promise<{ action: string; metadata: any } | undefined> {
   const rows = await getDb()
     .select()
     .from(auditLog)
@@ -254,7 +281,11 @@ describe("emit-task-event — snapshot emit", () => {
     expect((resp.result as { ok: boolean }).ok).toBe(true);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.event).toBe("task:snapshot");
-    const emitted = calls[0]?.payload as { conversationId: string; tasks: unknown[]; activeTaskId?: string };
+    const emitted = calls[0]?.payload as {
+      conversationId: string;
+      tasks: unknown[];
+      activeTaskId?: string;
+    };
     expect(emitted.conversationId).toBe(CONV_WIRED);
     expect(emitted.tasks).toHaveLength(1);
     expect(emitted.activeTaskId).toBe("task-1");
@@ -275,12 +306,15 @@ describe("emit-task-event — snapshot emit", () => {
     const { bus, calls } = makeBus();
     await handleEmitTaskEventRpc(
       EXT_WIRED,
-      rpc({
-        v: 1,
-        type: "snapshot",
-        payload: { tasks: [snapshotTask("t-x")] },
-        conversationId: "attacker-controlled-conv",
-      }, "forge-1"),
+      rpc(
+        {
+          v: 1,
+          type: "snapshot",
+          payload: { tasks: [snapshotTask("t-x")] },
+          conversationId: "attacker-controlled-conv",
+        },
+        "forge-1",
+      ),
       makeCtx(bus, { conversationId: CONV_WIRED }),
     );
     expect(calls).toHaveLength(1);
@@ -299,7 +333,11 @@ describe("emit-task-event — assignment_update emit", () => {
     );
     expect(calls).toHaveLength(1);
     expect(calls[0]?.event).toBe("task:assignment_update");
-    const emitted = calls[0]?.payload as { conversationId: string; taskId: string; assignment: unknown };
+    const emitted = calls[0]?.payload as {
+      conversationId: string;
+      taskId: string;
+      assignment: unknown;
+    };
     expect(emitted.conversationId).toBe(CONV_WIRED);
     expect(emitted.taskId).toBe("task-1");
     expect(emitted.assignment).toEqual(a as any);
@@ -334,11 +372,14 @@ describe("emit-task-event — payload validation", () => {
     const { bus, calls } = makeBus();
     const resp = await handleEmitTaskEventRpc(
       EXT_WIRED,
-      rpc({
-        v: 1,
-        type: "snapshot",
-        payload: { tasks: [{ id: "t", title: "hi" }] }, // missing status, priority, etc.
-      }, "bad-task"),
+      rpc(
+        {
+          v: 1,
+          type: "snapshot",
+          payload: { tasks: [{ id: "t", title: "hi" }] }, // missing status, priority, etc.
+        },
+        "bad-task",
+      ),
       makeCtx(bus, { conversationId: CONV_WIRED }),
     );
     expect(resp.error?.code).toBe(-32602);
@@ -352,11 +393,23 @@ describe("emit-task-event — payload validation", () => {
     const { bus, calls } = makeBus();
     const resp = await handleEmitTaskEventRpc(
       EXT_WIRED,
-      rpc({
-        v: 1,
-        type: "assignment_update",
-        payload: { taskId: "t", assignment: { agentConfigId: "a", agentName: "x", isTeam: false, status: "assigned", assignedAt: "now" } },
-      }, "bad-asn"),
+      rpc(
+        {
+          v: 1,
+          type: "assignment_update",
+          payload: {
+            taskId: "t",
+            assignment: {
+              agentConfigId: "a",
+              agentName: "x",
+              isTeam: false,
+              status: "assigned",
+              assignedAt: "now",
+            },
+          },
+        },
+        "bad-asn",
+      ),
       makeCtx(bus, { conversationId: CONV_WIRED }),
     );
     expect(resp.error?.code).toBe(-32602);
@@ -367,14 +420,24 @@ describe("emit-task-event — payload validation", () => {
     const { bus, calls } = makeBus();
     const resp = await handleEmitTaskEventRpc(
       EXT_WIRED,
-      rpc({
-        v: 1,
-        type: "assignment_update",
-        payload: {
-          taskId: "t",
-          assignment: { id: "a", agentConfigId: "ac", agentName: "n", isTeam: false, status: "cancelled", assignedAt: "now" },
+      rpc(
+        {
+          v: 1,
+          type: "assignment_update",
+          payload: {
+            taskId: "t",
+            assignment: {
+              id: "a",
+              agentConfigId: "ac",
+              agentName: "n",
+              isTeam: false,
+              status: "cancelled",
+              assignedAt: "now",
+            },
+          },
         },
-      }, "bad-status"),
+        "bad-status",
+      ),
       makeCtx(bus, { conversationId: CONV_WIRED }),
     );
     expect(resp.error?.code).toBe(-32602);
@@ -396,11 +459,14 @@ describe("emit-task-event — payload validation", () => {
     const { bus, calls } = makeBus();
     const resp = await handleEmitTaskEventRpc(
       EXT_WIRED,
-      rpc({
-        v: 1,
-        type: "snapshot",
-        payload: { tasks: [null] },
-      }, "null-task"),
+      rpc(
+        {
+          v: 1,
+          type: "snapshot",
+          payload: { tasks: [null] },
+        },
+        "null-task",
+      ),
       makeCtx(bus, { conversationId: CONV_WIRED }),
     );
     expect(resp.error?.code).toBe(-32602);
@@ -411,11 +477,14 @@ describe("emit-task-event — payload validation", () => {
     const { bus, calls } = makeBus();
     const resp = await handleEmitTaskEventRpc(
       EXT_WIRED,
-      rpc({
-        v: 1,
-        type: "snapshot",
-        payload: { tasks: [], activeTaskId: 42 },
-      }, "bad-active"),
+      rpc(
+        {
+          v: 1,
+          type: "snapshot",
+          payload: { tasks: [], activeTaskId: 42 },
+        },
+        "bad-active",
+      ),
       makeCtx(bus, { conversationId: CONV_WIRED }),
     );
     expect(resp.error?.code).toBe(-32602);
@@ -426,11 +495,14 @@ describe("emit-task-event — payload validation", () => {
     const { bus, calls } = makeBus();
     const resp = await handleEmitTaskEventRpc(
       EXT_WIRED,
-      rpc({
-        v: 1,
-        type: "snapshot",
-        payload: { tasks: [{ ...snapshotTask("t-1") as any, status: "archived" }] },
-      }, "bad-task-status"),
+      rpc(
+        {
+          v: 1,
+          type: "snapshot",
+          payload: { tasks: [{ ...(snapshotTask("t-1") as any), status: "archived" }] },
+        },
+        "bad-task-status",
+      ),
       makeCtx(bus, { conversationId: CONV_WIRED }),
     );
     expect(resp.error?.code).toBe(-32602);
@@ -439,7 +511,7 @@ describe("emit-task-event — payload validation", () => {
 
   test("task with non-object assignment entry → -32602", async () => {
     const { bus, calls } = makeBus();
-    const task = { ...snapshotTask("t-1") as any, assignments: ["not-an-object"] };
+    const task = { ...(snapshotTask("t-1") as any), assignments: ["not-an-object"] };
     const resp = await handleEmitTaskEventRpc(
       EXT_WIRED,
       rpc({ v: 1, type: "snapshot", payload: { tasks: [task] } }, "asn-nonobj"),

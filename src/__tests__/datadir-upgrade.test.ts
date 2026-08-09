@@ -15,7 +15,15 @@
  * removed.
  */
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -162,7 +170,9 @@ describe("an operator with EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE=1 is refused, nev
     const out = new TextDecoder().decode(proc.stdout);
     const body = out.split("__BEGIN__")[1]?.split("__END__")[0];
     if (!body) {
-      throw new Error(`child produced no result. stderr: ${new TextDecoder().decode(proc.stderr).slice(-2000)}`);
+      throw new Error(
+        `child produced no result. stderr: ${new TextDecoder().decode(proc.stderr).slice(-2000)}`,
+      );
     }
     child = JSON.parse(body);
   });

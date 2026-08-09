@@ -31,9 +31,7 @@ import {
 describe("parseMentions — ![EZ:…] tokens", () => {
   test("single token → one EZ mention with correct offsets", () => {
     const result = parseMentions("![EZ:distill]");
-    expect(result).toEqual([
-      { kind: "EZ", name: "distill", start: 0, end: 13 },
-    ]);
+    expect(result).toEqual([{ kind: "EZ", name: "distill", start: 0, end: 13 }]);
   });
 
   test("token in mid-text → captures correct start/end", () => {
@@ -50,38 +48,14 @@ describe("parseMentions — ![EZ:…] tokens", () => {
       "![EZ:distill] @[file:bar.ts] /[cmd:baz] $[feature:qux] %[lesson:wat]",
     );
     expect(result).toHaveLength(5);
-    expect(result.map((m) => m.kind)).toEqual([
-      "EZ",
-      "file",
-      "cmd",
-      "feature",
-      "lesson",
-    ]);
-    expect(result.map((m) => m.name)).toEqual([
-      "distill",
-      "bar.ts",
-      "baz",
-      "qux",
-      "wat",
-    ]);
+    expect(result.map((m) => m.kind)).toEqual(["EZ", "file", "cmd", "feature", "lesson"]);
+    expect(result.map((m) => m.name)).toEqual(["distill", "bar.ts", "baz", "qux", "wat"]);
   });
 
   test("EZ coexists with agent/ext/team in the same `!` sigil family", () => {
-    const result = parseMentions(
-      "![agent:scout] ![EZ:distill] ![ext:fs] ![team:reviewers]",
-    );
-    expect(result.map((m) => m.kind)).toEqual([
-      "agent",
-      "EZ",
-      "ext",
-      "team",
-    ]);
-    expect(result.map((m) => m.name)).toEqual([
-      "scout",
-      "distill",
-      "fs",
-      "reviewers",
-    ]);
+    const result = parseMentions("![agent:scout] ![EZ:distill] ![ext:fs] ![team:reviewers]");
+    expect(result.map((m) => m.kind)).toEqual(["agent", "EZ", "ext", "team"]);
+    expect(result.map((m) => m.name)).toEqual(["scout", "distill", "fs", "reviewers"]);
   });
 
   test("multiple EZ tokens are extracted independently", () => {
@@ -232,61 +206,37 @@ describe("detectMentionTrigger — !EZ: prefix", () => {
 
 describe("insertMentionToken — EZ kind", () => {
   test("inserts ![EZ:name] replacing the !EZ: trigger span", () => {
-    const result = insertMentionToken(
-      "hi !EZ:dist",
-      11,
-      { kind: "EZ", name: "distill" },
-    );
+    const result = insertMentionToken("hi !EZ:dist", 11, { kind: "EZ", name: "distill" });
     expect(result.text).toBe("hi ![EZ:distill] ");
     expect(result.cursor).toBe(result.text.length);
   });
 
   test("inserts ![EZ:name] from a plain `!` trigger (no kind prefix typed)", () => {
-    const result = insertMentionToken(
-      "go !d",
-      5,
-      { kind: "EZ", name: "distill" },
-    );
+    const result = insertMentionToken("go !d", 5, { kind: "EZ", name: "distill" });
     expect(result.text).toBe("go ![EZ:distill] ");
     expect(result.cursor).toBe("go ![EZ:distill] ".length);
   });
 
   test("inserts at start of string when no leading whitespace", () => {
-    const result = insertMentionToken(
-      "!EZ:dis",
-      7,
-      { kind: "EZ", name: "distill" },
-    );
+    const result = insertMentionToken("!EZ:dis", 7, { kind: "EZ", name: "distill" });
     expect(result.text).toBe("![EZ:distill] ");
     expect(result.cursor).toBe("![EZ:distill] ".length);
   });
 
   test("preserves trailing text (after the cursor)", () => {
-    const result = insertMentionToken(
-      "hi !EZ: please",
-      7,
-      { kind: "EZ", name: "distill" },
-    );
+    const result = insertMentionToken("hi !EZ: please", 7, { kind: "EZ", name: "distill" });
     expect(result.text).toBe("hi ![EZ:distill]  please");
     expect(result.cursor).toBe("hi ![EZ:distill] ".length);
   });
 
   test("no-op when there is no active `!` trigger span", () => {
-    const result = insertMentionToken(
-      "foo bar",
-      7,
-      { kind: "EZ", name: "distill" },
-    );
+    const result = insertMentionToken("foo bar", 7, { kind: "EZ", name: "distill" });
     expect(result.text).toBe("foo bar");
     expect(result.cursor).toBe(7);
   });
 
   test("inserting kind=EZ on a `%` trigger → no-op (sigil mismatch)", () => {
-    const result = insertMentionToken(
-      "hi %les",
-      7,
-      { kind: "EZ", name: "x" },
-    );
+    const result = insertMentionToken("hi %les", 7, { kind: "EZ", name: "x" });
     expect(result.text).toBe("hi %les");
     expect(result.cursor).toBe(7);
   });
@@ -296,11 +246,7 @@ describe("insertMentionToken — EZ kind", () => {
 
 describe("EZ kind round-trip — insert → parse → getSegments", () => {
   test("inserted token is recognized by parseMentions and getSegments", () => {
-    const inserted = insertMentionToken(
-      "go !",
-      4,
-      { kind: "EZ", name: "distill" },
-    );
+    const inserted = insertMentionToken("go !", 4, { kind: "EZ", name: "distill" });
     expect(inserted.text).toContain("![EZ:distill]");
 
     const tokens = parseMentions(inserted.text);

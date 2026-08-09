@@ -2,11 +2,7 @@ import type { RequestHandler } from "./$types";
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { requireAuth } from "$server/auth/middleware";
-import {
-  hashToken,
-  listSessionsByUser,
-  revokeSession,
-} from "$server/db/queries/sessions";
+import { hashToken, listSessionsByUser, revokeSession } from "$server/db/queries/sessions";
 import { validationError } from "$lib/server/security/validation";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";

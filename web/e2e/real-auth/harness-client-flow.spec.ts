@@ -19,7 +19,10 @@ import { test, expect } from "../fixtures/hydration.js";
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
 
 test.describe("external harness — remote control end-to-end", () => {
-  test("mint key → seed → deterministic scripted run via the client", async ({ request, baseURL }) => {
+  test("mint key → seed → deterministic scripted run via the client", async ({
+    request,
+    baseURL,
+  }) => {
     // 1. Mint a key with the admin session cookie (storageState).
     const keyRes = await request.post("/api/settings/developer/api-keys", {
       data: { name: "e2e-harness", scopes: ["read", "chat", "admin"] },

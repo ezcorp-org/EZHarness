@@ -105,9 +105,7 @@ const { handleWorkflowsRpc, DELEGATED_OP, DELEGATED_WORKFLOWS_METHOD } = await i
 const { registerWorkflowRuntime, _resetWorkflowRuntimeForTests } = await import(
   "../runtime/workflow/runtime-registry"
 );
-const { computeDelegationConsentRecord } = await import(
-  "../runtime/workflow-delegation-record"
-);
+const { computeDelegationConsentRecord } = await import("../runtime/workflow-delegation-record");
 const { delegationPrincipal } = await import("../runtime/workflow-delegation-consent");
 const { sumWorkflowRunTokens, sumServiceAccountTokensSince } = await import(
   "../db/queries/workflow-runs"
@@ -116,9 +114,7 @@ const { getWorkflowRuntime } = await import("../runtime/workflow/runtime-registr
 // The REAL route handler, not a call to the query function it wraps: the
 // thing under test is that a human with a session can unblock a parked
 // run, and the auth gate plus the strict body schema are half of that.
-const { PATCH } = await import(
-  "../../web/src/routes/api/workflows/delegations/[id]/+server"
-);
+const { PATCH } = await import("../../web/src/routes/api/workflows/delegations/[id]/+server");
 
 const EXT_NAME = "ceiling-ext";
 const EXT_ID = "e-ceiling";

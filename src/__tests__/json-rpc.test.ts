@@ -11,13 +11,18 @@ function at<T>(arr: readonly T[], i: number, what: string): T {
 function createMockTransport() {
   const written: string[] = [];
   const stdin = {
-    write(data: string) { written.push(data); return data.length; },
+    write(data: string) {
+      written.push(data);
+      return data.length;
+    },
     flush() {},
   };
 
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   const stdout = new ReadableStream<Uint8Array>({
-    start(c) { controller = c; },
+    start(c) {
+      controller = c;
+    },
   });
 
   const transport = new JsonRpcTransport(stdin, stdout);
@@ -26,8 +31,12 @@ function createMockTransport() {
   return {
     transport,
     written,
-    push(data: string) { controller.enqueue(encoder.encode(data)); },
-    close() { controller.close(); },
+    push(data: string) {
+      controller.enqueue(encoder.encode(data));
+    },
+    close() {
+      controller.close();
+    },
   };
 }
 
@@ -181,12 +190,16 @@ describe("JsonRpcTransport", () => {
       // Deliberately DO NOT set transport.onRequest.
       transport.startReading();
 
-      push('{"jsonrpc":"2.0","id":42,"method":"ezcorp/drafts","params":{"action":"listForUser"}}\n');
+      push(
+        '{"jsonrpc":"2.0","id":42,"method":"ezcorp/drafts","params":{"action":"listForUser"}}\n',
+      );
       await new Promise((r) => setTimeout(r, 10));
 
       expect(written).toHaveLength(1);
       const reply = JSON.parse(at(written, 0, "reply")) as {
-        jsonrpc: string; id: unknown; error?: { code: number; message: string };
+        jsonrpc: string;
+        id: unknown;
+        error?: { code: number; message: string };
       };
       expect(reply.jsonrpc).toBe("2.0");
       expect(reply.id).toBe(42);

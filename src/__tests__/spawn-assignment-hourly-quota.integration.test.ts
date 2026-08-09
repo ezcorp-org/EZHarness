@@ -56,7 +56,8 @@ mock.module("../runtime/start-assignment", () => ({
     const runId = `run-hq-${nextRunId++}`;
     const subConversationId = `sub-${runId}`;
     const assignment = opts.assignment as {
-      id: string; status: string;
+      id: string;
+      status: string;
       agentRunId?: string;
       subConversationId?: string;
       startedAt?: string;
@@ -67,12 +68,15 @@ mock.module("../runtime/start-assignment", () => ({
     assignment.startedAt = new Date().toISOString();
     const { getDb } = await import("../db/connection");
     const { conversations } = await import("../db/schema");
-    await getDb().insert(conversations).values({
-      id: subConversationId,
-      projectId: opts.projectId as string,
-      parentConversationId: opts.conversationId as string,
-      title: "hq-sub",
-    } as any).onConflictDoNothing();
+    await getDb()
+      .insert(conversations)
+      .values({
+        id: subConversationId,
+        projectId: opts.projectId as string,
+        parentConversationId: opts.conversationId as string,
+        title: "hq-sub",
+      } as any)
+      .onConflictDoNothing();
     return { subConversationId, agentRunId: runId };
   },
 }));
@@ -158,10 +162,7 @@ function clampToManifestReimpl(
       const sm = submitted.spawnAgents;
       const mm = manifest.spawnAgents;
       const hourly = Math.min(sm.maxPerHour, mm.maxPerHour);
-      const concurrent = Math.min(
-        sm.maxConcurrent ?? mm.maxConcurrent ?? 3,
-        mm.maxConcurrent ?? 3,
-      );
+      const concurrent = Math.min(sm.maxConcurrent ?? mm.maxConcurrent ?? 3, mm.maxConcurrent ?? 3);
       if (hourly > 0 && concurrent > 0) {
         clamped.spawnAgents = { maxPerHour: hourly, maxConcurrent: concurrent };
       }
@@ -172,9 +173,8 @@ function clampToManifestReimpl(
     if (Array.isArray(submitted.eventSubscriptions) && Array.isArray(manifest.eventSubscriptions)) {
       const manifestSet = new Set(manifest.eventSubscriptions);
       const allowed = submitted.eventSubscriptions.filter(
-        (e) => typeof e === "string"
-          && manifestSet.has(e)
-          && DIRECT_CARRIER_EVENT_TYPES.has(e as never),
+        (e) =>
+          typeof e === "string" && manifestSet.has(e) && DIRECT_CARRIER_EVENT_TYPES.has(e as never),
       );
       if (allowed.length > 0) clamped.eventSubscriptions = allowed;
     }
@@ -199,15 +199,29 @@ beforeAll(async () => {
   delete process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"];
 
   // Seed parent rows.
-  await getDb().insert(users).values({
-    id: USER_ID, email: "hq@t.local", passwordHash: "x", name: "HQ",
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({
-    id: PROJ_ID, name: PROJ_ID, path: "/tmp/" + PROJ_ID,
-  } as any);
-  await getDb().insert(conversations).values({
-    id: CONV_ID, projectId: PROJ_ID, title: "hq-int",
-  } as any);
+  await getDb()
+    .insert(users)
+    .values({
+      id: USER_ID,
+      email: "hq@t.local",
+      passwordHash: "x",
+      name: "HQ",
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({
+      id: PROJ_ID,
+      name: PROJ_ID,
+      path: "/tmp/" + PROJ_ID,
+    } as any);
+  await getDb()
+    .insert(conversations)
+    .values({
+      id: CONV_ID,
+      projectId: PROJ_ID,
+      title: "hq-int",
+    } as any);
 
   // Build the manifest an admin sees at install time.
   const manifest: ExtensionManifestV2 = {
@@ -233,17 +247,19 @@ beforeAll(async () => {
   // before the handler/quota logic gets blamed for the failure.
   expect(clampedPermissions.spawnAgents).toEqual({ maxPerHour: 1, maxConcurrent: 2 });
 
-  await getDb().insert(extensionsTable).values({
-    id: EXT_ID,
-    name: EXT_ID,
-    version: "1.0.0",
-    description: "hourly-quota smoke",
-    manifest,
-    source: `test:${EXT_ID}`,
-    installPath: `/tmp/${EXT_ID}`,
-    enabled: true,
-    grantedPermissions: clampedPermissions,
-  } as any);
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id: EXT_ID,
+      name: EXT_ID,
+      version: "1.0.0",
+      description: "hourly-quota smoke",
+      manifest,
+      source: `test:${EXT_ID}`,
+      installPath: `/tmp/${EXT_ID}`,
+      enabled: true,
+      grantedPermissions: clampedPermissions,
+    } as any);
 
   await addConversationExtensions(CONV_ID, [{ extensionId: EXT_ID }]);
 });
@@ -309,10 +325,7 @@ describe("spawn-assignment integration: hourly quota (Phase 2d §9)", () => {
     const rows = await getDb()
       .select()
       .from(auditLog)
-      .where(and(
-        eq(auditLog.action, "ext:spawn-quota-exceeded"),
-        eq(auditLog.target, EXT_ID),
-      ))
+      .where(and(eq(auditLog.action, "ext:spawn-quota-exceeded"), eq(auditLog.target, EXT_ID)))
       .orderBy(desc(auditLog.createdAt))
       .limit(1);
     expect(rows.length).toBeGreaterThan(0);

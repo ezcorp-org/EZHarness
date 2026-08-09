@@ -16,10 +16,12 @@ type FlagCategory = (typeof VALID_CATEGORIES)[number];
 // post-parse fallback to "other" still runs for unknown values — that
 // preserves the existing "be permissive" behaviour. Required-reason
 // 400 message is preserved exactly.
-const flagPostSchema = z.object({
-  reason: z.string().trim().min(1, "reason is required and must be a non-empty string"),
-  category: z.string().optional(),
-}).passthrough();
+const flagPostSchema = z
+  .object({
+    reason: z.string().trim().min(1, "reason is required and must be a non-empty string"),
+    category: z.string().optional(),
+  })
+  .passthrough();
 
 export const POST: RequestHandler = async ({ params, request, locals }) => {
   const scopeErr = requireScope(locals, "extensions");
@@ -37,12 +39,16 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     return errorJson(429, "Rate limit exceeded: max 5 flags per hour");
   }
 
-  const validCategory: FlagCategory = category && VALID_CATEGORIES.includes(category as FlagCategory)
-    ? (category as FlagCategory)
-    : "other";
+  const validCategory: FlagCategory =
+    category && VALID_CATEGORIES.includes(category as FlagCategory)
+      ? (category as FlagCategory)
+      : "other";
 
   await createFlag(params.id, user.id, reason.trim(), validCategory);
-  await insertAuditEntry(user.id, "marketplace:flag", params.id, { reason: reason.trim(), category: validCategory });
+  await insertAuditEntry(user.id, "marketplace:flag", params.id, {
+    reason: reason.trim(),
+    category: validCategory,
+  });
 
   return json({ ok: true });
 };

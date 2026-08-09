@@ -41,11 +41,7 @@ mock.module("../db/queries/extensions", () => ({
 }));
 
 mock.module("../db/queries/audit-log", () => ({
-  insertAuditEntry: async (
-    _u: string | null,
-    action: string,
-    target?: string,
-  ) => {
+  insertAuditEntry: async (_u: string | null, action: string, target?: string) => {
     auditEntries.push({ action, target });
     return "a";
   },
@@ -53,9 +49,7 @@ mock.module("../db/queries/audit-log", () => ({
   listAuditForExtension: async () => [],
 }));
 
-const { assertCriticalExtensions } = await import(
-  "../startup/assert-critical-extensions"
-);
+const { assertCriticalExtensions } = await import("../startup/assert-critical-extensions");
 const { getCriticalBundledExtensions } = await import("../extensions/bundled");
 
 afterAll(() => restoreModuleMocks());
@@ -101,16 +95,10 @@ describe("assertCriticalExtensions", () => {
     expect(r.violations).toContain("ask-user");
     expect(r.remediated).toContain("ask-user");
     expect(rows.get("ask-user")!.enabled).toBe(true);
-    expect(
-      updateCalls.some(
-        (c) => c.id === "id-ask-user" && c.patch.enabled === true,
-      ),
-    ).toBe(true);
+    expect(updateCalls.some((c) => c.id === "id-ask-user" && c.patch.enabled === true)).toBe(true);
     expect(
       auditEntries.some(
-        (a) =>
-          a.action === "ext:bundled:critical-auto-reapproved" &&
-          a.target === "id-ask-user",
+        (a) => a.action === "ext:bundled:critical-auto-reapproved" && a.target === "id-ask-user",
       ),
     ).toBe(true);
   }, 20_000);

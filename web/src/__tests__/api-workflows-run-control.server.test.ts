@@ -35,7 +35,10 @@ beforeEach(() => {
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
 const authedAdmin = { user: { id: "a1", email: "a@x", name: "a", role: "admin" } };
 
-function makeEvent(kind: "resume" | "cancel", opts: { id?: string; locals?: Record<string, unknown> }) {
+function makeEvent(
+  kind: "resume" | "cancel",
+  opts: { id?: string; locals?: Record<string, unknown> },
+) {
   const id = opts.id ?? "r1";
   return {
     url: new URL(`http://localhost/api/workflows/runs/${id}/${kind}`),

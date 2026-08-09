@@ -59,7 +59,11 @@ const BROKEN_MANIFEST = `export default ${JSON.stringify({
   permissions: {},
 })} as const;\n`;
 
-function makeDraftDir(initial: string): { dir: string; write: (src: string) => void; cleanup: () => void } {
+function makeDraftDir(initial: string): {
+  dir: string;
+  write: (src: string) => void;
+  cleanup: () => void;
+} {
   const dir = mkdtempSync(join(tmpdir(), "revalidate-"));
   const cfg = join(dir, "ezcorp.config.ts");
   writeFileSync(cfg, initial);

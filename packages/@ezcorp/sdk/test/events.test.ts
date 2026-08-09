@@ -33,12 +33,17 @@ function harness(): {
   const writes: string[] = [];
   const stdin = {
     queue: [] as string[],
-    push(s: string) { this.queue.push(s); this.resolve?.(); },
+    push(s: string) {
+      this.queue.push(s);
+      this.resolve?.();
+    },
     resolve: undefined as (() => void) | undefined,
     async *[Symbol.asyncIterator]() {
       while (true) {
         if (this.queue.length === 0) {
-          await new Promise<void>((r) => { this.resolve = r; });
+          await new Promise<void>((r) => {
+            this.resolve = r;
+          });
           this.resolve = undefined;
         }
         yield this.queue.shift()!;
@@ -47,14 +52,20 @@ function harness(): {
   };
   const channel = createHostChannelForTests({
     stdin,
-    stdout: { write: (s: string): void => { writes.push(s); } },
+    stdout: {
+      write: (s: string): void => {
+        writes.push(s);
+      },
+    },
   });
   channel.start();
   return {
     channel,
     feed: (frame: unknown) => stdin.push(JSON.stringify(frame) + "\n"),
     writes,
-    drain: async () => { await new Promise((r) => setTimeout(r, 20)); },
+    drain: async () => {
+      await new Promise((r) => setTimeout(r, 20));
+    },
   };
 }
 

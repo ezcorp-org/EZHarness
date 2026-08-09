@@ -11,21 +11,13 @@
 // branched into the SDK path.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import {
-  closeTestDb,
-  getTestDb,
-  mockDbConnection,
-  setupTestDb,
-} from "./helpers/test-pglite";
+import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 
 import { eq } from "drizzle-orm";
 import { extensions, extensionStorage, users } from "../db/schema";
-import {
-  _resetToolCallsCounterForTests,
-  ToolExecutor,
-} from "../extensions/tool-executor";
+import { _resetToolCallsCounterForTests, ToolExecutor } from "../extensions/tool-executor";
 import { ExtensionRegistry } from "../extensions/registry";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 
@@ -114,9 +106,7 @@ async function buildExecutor() {
   // private method for the test boundary.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (registry as any).getProcess = () => {
-    throw new Error(
-      "subprocess MUST NOT be spawned for SDK-served entity tools",
-    );
+    throw new Error("subprocess MUST NOT be spawned for SDK-served entity tools");
   };
   const engine = createStubPermissionEngine("allow-all");
   const executor = new ToolExecutor(registry, engine);
@@ -150,9 +140,7 @@ describe("ToolExecutor — entity tools dispatch SDK-served", () => {
       .from(extensionStorage)
       .where(eq(extensionStorage.extensionId, extId));
     const keys = rows.map((r) => r.key).sort();
-    expect(keys).toEqual(
-      ["__entity-index:post-type", "__entity:post-type:weekly"].sort(),
-    );
+    expect(keys).toEqual(["__entity-index:post-type", "__entity:post-type:weekly"].sort());
   });
 
   test("list_post_types returns the items array after create", async () => {
@@ -169,19 +157,12 @@ describe("ToolExecutor — entity tools dispatch SDK-served", () => {
       "conv-1",
       "msg-2",
     );
-    const res = await executor.executeToolCall(
-      "test-ext__list_post_types",
-      {},
-      "conv-1",
-      "msg-3",
-    );
+    const res = await executor.executeToolCall("test-ext__list_post_types", {}, "conv-1", "msg-3");
     expect(res.isError).toBe(false);
     const out = parseToolResult(res.content[0]!.text) as {
       items: Array<{ slug: string }>;
     };
-    expect(out.items.map((r) => r.slug).sort()).toEqual(
-      ["monthly", "weekly"].sort(),
-    );
+    expect(out.items.map((r) => r.slug).sort()).toEqual(["monthly", "weekly"].sort());
   });
 
   test("get_post_type returns the record and update mutates it", async () => {

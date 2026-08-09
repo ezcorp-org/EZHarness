@@ -55,10 +55,7 @@ import {
 import { REPO_ROOT } from "../coverage-config.ts";
 
 /** Outcome of {@link selectEvidenceSpecs}: skip all, run all, or run a subset. */
-export type SelectResult =
-  | { mode: "none" }
-  | { mode: "all" }
-  | { mode: "some"; specs: string[] };
+export type SelectResult = { mode: "none" } | { mode: "all" } | { mode: "some"; specs: string[] };
 
 /**
  * Convert a repo-relative spec path (`web/e2e/x.spec.ts`) to the

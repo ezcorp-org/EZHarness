@@ -6,7 +6,9 @@ let failureCount = 0;
 mock.module("../db/queries/extensions", () => ({
   incrementFailures: async () => ++failureCount,
   disableExtension: async () => {},
-  resetFailures: async () => { failureCount = 0; },
+  resetFailures: async () => {
+    failureCount = 0;
+  },
 }));
 
 afterAll(() => restoreModuleMocks());
@@ -51,9 +53,7 @@ ExtensionProcess.prototype.ensureRunning = function (this: any) {
     this.proc = null;
     this.transport = null;
     try {
-      const { incrementFailures, disableExtension } = await import(
-        "../db/queries/extensions"
-      );
+      const { incrementFailures, disableExtension } = await import("../db/queries/extensions");
       const count = await incrementFailures(this.extensionId);
       if (count >= 3) await disableExtension(this.extensionId);
     } catch {}
@@ -199,7 +199,10 @@ main();
     // skip-timeout opt-out failed, callPromise would reject within 50ms.
     const sentinel = Symbol("not-timed-out");
     const winner = await Promise.race([
-      callPromise.then(() => "resolved" as const, () => "rejected" as const),
+      callPromise.then(
+        () => "resolved" as const,
+        () => "rejected" as const,
+      ),
       new Promise<typeof sentinel>((r) => setTimeout(() => r(sentinel), 200)),
     ]);
     expect(winner).toBe(sentinel);

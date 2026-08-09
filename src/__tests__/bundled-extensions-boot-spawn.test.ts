@@ -83,9 +83,7 @@ interface ProcStub {
   ensureRunning(): void;
 }
 
-function makeRegistry(opts: {
-  failOn?: Set<string>;
-} = {}): {
+function makeRegistry(opts: { failOn?: Set<string> } = {}): {
   spawnCalls: SpawnCall[];
   procStubs: Map<string, ProcStub>;
   registry: ExtensionRegistry;
@@ -109,7 +107,9 @@ function makeRegistry(opts: {
         extensionId,
         isRunning: true,
         ensureRunningCalls: 0,
-        ensureRunning() { this.ensureRunningCalls++; },
+        ensureRunning() {
+          this.ensureRunningCalls++;
+        },
       };
       procStubs.set(extensionId, proc);
       return proc as unknown as ExtensionProcess;
@@ -224,10 +224,7 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
 
     const ids = spawnCalls.map((c) => c.extensionId).sort();
     expect(ids).toEqual(["ext-lessons", "ext-memory"]);
-    expect(result.spawned.sort()).toEqual([
-      "lessons-distiller",
-      "memory-extractor",
-    ]);
+    expect(result.spawned.sort()).toEqual(["lessons-distiller", "memory-extractor"]);
   });
 
   test("does NOT spawn bundled extensions WITHOUT bootSpawn (regression guard)", async () => {
@@ -267,10 +264,7 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
     // Only the two flagged extensions should have been spawned.
     const spawnedIds = spawnCalls.map((c) => c.extensionId).sort();
     expect(spawnedIds).toEqual(["ext-lessons-distiller", "ext-memory-extractor"]);
-    expect(result.spawned.sort()).toEqual([
-      "lessons-distiller",
-      "memory-extractor",
-    ]);
+    expect(result.spawned.sort()).toEqual(["lessons-distiller", "memory-extractor"]);
     // Specifically: scratchpad / task-tracking / orchestration / ai-kit
     // must NOT be in the spawn list. They have explicit manual triggers
     // or wire-on-first-use semantics; auto-spawning them at boot would
@@ -326,11 +320,7 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
       "ext-memory",
       "ext-ping",
     ]);
-    expect(result.spawned.sort()).toEqual([
-      "github-projects",
-      "memory-extractor",
-      "ping-loop",
-    ]);
+    expect(result.spawned.sort()).toEqual(["github-projects", "memory-extractor", "ping-loop"]);
     expect(result.failed).toEqual(["lessons-distiller"]);
   });
 
@@ -369,11 +359,7 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
       "ext-memory",
       "ext-ping",
     ]);
-    expect(result.spawned.sort()).toEqual([
-      "github-projects",
-      "memory-extractor",
-      "ping-loop",
-    ]);
+    expect(result.spawned.sort()).toEqual(["github-projects", "memory-extractor", "ping-loop"]);
     // Disabled is not a failure — operator opt-out is respected.
     // Only the missing/spawn-error paths populate `failed[]`. A
     // disabled row produces no entry on either list.
@@ -418,7 +404,9 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
         return {
           extensionId,
           isRunning: true,
-          ensureRunning() { order.push(`ensureRunning:${extensionId}`); },
+          ensureRunning() {
+            order.push(`ensureRunning:${extensionId}`);
+          },
         } as unknown as ExtensionProcess;
       },
     } as unknown as ExtensionRegistry;
@@ -432,11 +420,7 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
     // before ensureRunning() (actually spawns the subprocess), which
     // MUST run before wireRpc() (installs reverse-RPC handlers).
     // Spawn-then-wire is intentional — see bundled.ts JSDoc.
-    expect(order).toEqual([
-      "spawn:ext-lessons",
-      "ensureRunning:ext-lessons",
-      "wire:ext-lessons",
-    ]);
+    expect(order).toEqual(["spawn:ext-lessons", "ensureRunning:ext-lessons", "wire:ext-lessons"]);
   });
 
   // ── Phase 53.6 — explicit `ensureRunning` coverage ──────────────────
@@ -517,12 +501,10 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
   // start returning null again, and we'd be back to the silent-drop
   // scenario this whole milestone exists to fix. Lock the flag in.
   test("lessons-distiller + memory-extractor manifests declare persistent:true (regression guard for 70f1d5c)", async () => {
-    const distillerManifest = (await import(
-      "../../extensions/lessons-distiller/ezcorp.config.ts"
-    )).default;
-    const extractorManifest = (await import(
-      "../../extensions/memory-extractor/ezcorp.config.ts"
-    )).default;
+    const distillerManifest = (await import("../../extensions/lessons-distiller/ezcorp.config.ts"))
+      .default;
+    const extractorManifest = (await import("../../extensions/memory-extractor/ezcorp.config.ts"))
+      .default;
     expect((distillerManifest as { persistent?: boolean }).persistent).toBe(true);
     expect((extractorManifest as { persistent?: boolean }).persistent).toBe(true);
   });
@@ -544,7 +526,9 @@ describe("bootSpawnFlaggedBundledExtensions", () => {
       async getProcess(_extensionId: string): Promise<ExtensionProcess> {
         return {
           isRunning: false,
-          ensureRunning() { throw new Error("spawn ENOENT"); },
+          ensureRunning() {
+            throw new Error("spawn ENOENT");
+          },
         } as unknown as ExtensionProcess;
       },
     } as unknown as ExtensionRegistry;

@@ -18,7 +18,13 @@ let mockParentConv: Conversation | null = null;
 let mockLatestLeaf: { id: string } | null = null;
 let mockScopeResponse: Response | null = null;
 const mockUser = { id: "user-1", email: "test@test.com", name: "Test", role: "member" };
-let mockAgentConfig: { id: string; name: string; prompt: string; model?: string; provider?: string } | null = null;
+let mockAgentConfig: {
+  id: string;
+  name: string;
+  prompt: string;
+  model?: string;
+  provider?: string;
+} | null = null;
 
 // ── Mock db/query layer ─────────────────────────────────────────────
 
@@ -100,22 +106,17 @@ mock.module("$server/types", () => ({ CURRENT_MODEL_SENTINEL: "__current__" }));
 
 // ── Import handler AFTER mocks ─────────────────────────────────────
 
-const { POST } = await import(
-  "../routes/api/conversations/[id]/agent-chat/+server"
-);
+const { POST } = await import("../routes/api/conversations/[id]/agent-chat/+server");
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function makeEvent(subConvId: string, body?: Record<string, unknown>) {
   return {
-    request: new Request(
-      `http://localhost/api/conversations/${subConvId}/agent-chat`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body ?? { content: "hello agent" }),
-      },
-    ),
+    request: new Request(`http://localhost/api/conversations/${subConvId}/agent-chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body ?? { content: "hello agent" }),
+    }),
     params: { id: subConvId },
     locals: { user: mockUser },
   } as any;
@@ -276,10 +277,13 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
     expect(body.status).toBe("queued");
     expect(body.messageId).toBe("msg-new");
     expect(mockEnqueue).toHaveBeenCalledTimes(1);
-    expect(mockEnqueue).toHaveBeenCalledWith("sub-conv-1", expect.objectContaining({
-      messageId: "msg-new",
-      content: "hello agent",
-    }));
+    expect(mockEnqueue).toHaveBeenCalledWith(
+      "sub-conv-1",
+      expect.objectContaining({
+        messageId: "msg-new",
+        content: "hello agent",
+      }),
+    );
   });
 
   test("when agent is running but steer is GUARDED (autonomous/schema): enqueues (queued)", async () => {
@@ -287,7 +291,11 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
     // P4: steerConversation refuses an autonomous / structured-output child so
     // the message takes the run-boundary drain path (pending-messages) instead
     // of a mid-run steer — the pre-P2 behavior, preserved for those children.
-    mockSteerConversation.mockImplementation(() => ({ status: "guarded", runId: "run-active", reason: "schema" }));
+    mockSteerConversation.mockImplementation(() => ({
+      status: "guarded",
+      runId: "run-active",
+      reason: "schema",
+    }));
 
     const res = await POST(makeEvent("sub-conv-1"));
     expect(res.status).toBe(200);
@@ -296,10 +304,13 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
     expect(body.status).toBe("queued");
     expect(body.messageId).toBe("msg-new");
     expect(mockEnqueue).toHaveBeenCalledTimes(1);
-    expect(mockEnqueue).toHaveBeenCalledWith("sub-conv-1", expect.objectContaining({
-      messageId: "msg-new",
-      content: "hello agent",
-    }));
+    expect(mockEnqueue).toHaveBeenCalledWith(
+      "sub-conv-1",
+      expect.objectContaining({
+        messageId: "msg-new",
+        content: "hello agent",
+      }),
+    );
   });
 
   test("when agent is running: does NOT call executor.streamChat", async () => {
@@ -426,7 +437,9 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
   test("emits agent:complete with parentConversationId after streamChat resolves", async () => {
     mockGetActiveRunResult = null;
     // Reply leaf the handler reads to build the result preview
-    mockGetLatestLeaf.mockImplementation(async () => ({ id: "leaf-after", content: "agent reply text" } as any));
+    mockGetLatestLeaf.mockImplementation(
+      async () => ({ id: "leaf-after", content: "agent reply text" }) as any,
+    );
 
     await POST(makeEvent("sub-conv-1"));
     await flushMicrotasks();
@@ -473,7 +486,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
 
   test("agent:complete carries the same runId as agent:spawn", async () => {
     mockGetActiveRunResult = null;
-    mockGetLatestLeaf.mockImplementation(async () => ({ id: "leaf-after", content: "ok" } as any));
+    mockGetLatestLeaf.mockImplementation(async () => ({ id: "leaf-after", content: "ok" }) as any);
 
     await POST(makeEvent("sub-conv-1"));
     await flushMicrotasks();
@@ -577,13 +590,34 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
     test("auth FAILS when the root is not owned by the user (and user is not admin)", async () => {
       mockGetConversation.mockImplementation(async (id: string) => {
         if (id === "member-sub-conv") {
-          return { id: "member-sub-conv", userId: null, projectId: "p", parentConversationId: "orchestrator-sub-conv", agentConfigId: "x", systemPrompt: null } as any;
+          return {
+            id: "member-sub-conv",
+            userId: null,
+            projectId: "p",
+            parentConversationId: "orchestrator-sub-conv",
+            agentConfigId: "x",
+            systemPrompt: null,
+          } as any;
         }
         if (id === "orchestrator-sub-conv") {
-          return { id: "orchestrator-sub-conv", userId: null, projectId: "p", parentConversationId: "main-conv", agentConfigId: null, systemPrompt: null } as any;
+          return {
+            id: "orchestrator-sub-conv",
+            userId: null,
+            projectId: "p",
+            parentConversationId: "main-conv",
+            agentConfigId: null,
+            systemPrompt: null,
+          } as any;
         }
         if (id === "main-conv") {
-          return { id: "main-conv", userId: "different-user", projectId: "p", parentConversationId: null, agentConfigId: null, systemPrompt: null } as any;
+          return {
+            id: "main-conv",
+            userId: "different-user",
+            projectId: "p",
+            parentConversationId: null,
+            agentConfigId: null,
+            systemPrompt: null,
+          } as any;
         }
         return null;
       });
@@ -598,10 +632,24 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       // The bounded loop should give up and check whatever it found.
       mockGetConversation.mockImplementation(async (id: string) => {
         if (id === "cycle-a") {
-          return { id: "cycle-a", userId: "user-1", projectId: "p", parentConversationId: "cycle-b", agentConfigId: "x", systemPrompt: null } as any;
+          return {
+            id: "cycle-a",
+            userId: "user-1",
+            projectId: "p",
+            parentConversationId: "cycle-b",
+            agentConfigId: "x",
+            systemPrompt: null,
+          } as any;
         }
         if (id === "cycle-b") {
-          return { id: "cycle-b", userId: "user-1", projectId: "p", parentConversationId: "cycle-a", agentConfigId: null, systemPrompt: null } as any;
+          return {
+            id: "cycle-b",
+            userId: "user-1",
+            projectId: "p",
+            parentConversationId: "cycle-a",
+            agentConfigId: null,
+            systemPrompt: null,
+          } as any;
         }
         return null;
       });
@@ -873,7 +921,9 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
         }
         return {};
       });
-      mockGetLatestLeaf.mockImplementation(async () => ({ id: "leaf-ok", content: "all good" } as any));
+      mockGetLatestLeaf.mockImplementation(
+        async () => ({ id: "leaf-ok", content: "all good" }) as any,
+      );
 
       // The picker fix: user-selected provider/model in the POST body.
       await POST(
@@ -898,9 +948,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
         parentConversationId: "parent-conv-1",
         success: true,
       });
-      expect((completeCall![1] as any).resultPreview).not.toContain(
-        "No credentials available",
-      );
+      expect((completeCall![1] as any).resultPreview).not.toContain("No credentials available");
     });
   });
 });

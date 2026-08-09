@@ -63,9 +63,7 @@ interface ConversationEntry {
  * the number of assignments transitioned to `failed`. Best-effort: a
  * not-yet-installed extension (very early boot) is a quiet no-op.
  */
-export async function reconcileInterruptedAssignments(
-  bus: EventBus<AgentEvents>,
-): Promise<number> {
+export async function reconcileInterruptedAssignments(bus: EventBus<AgentEvents>): Promise<number> {
   let extId: string;
   try {
     extId = await getTaskTrackingExtensionId();
@@ -84,9 +82,7 @@ export async function reconcileInterruptedAssignments(
   for (const row of rows) {
     const conversationId = row.scopeId;
     if (!conversationId) continue; // conversation scope always carries an id
-    const value = row.value as
-      | { tasks?: TrackedTask[]; activeTaskId?: string }
-      | null;
+    const value = row.value as { tasks?: TrackedTask[]; activeTaskId?: string } | null;
     const tasks = Array.isArray(value?.tasks) ? value!.tasks : [];
     const running: DanglingTarget[] = [];
     for (const task of tasks) {
@@ -99,9 +95,7 @@ export async function reconcileInterruptedAssignments(
     perConversation.set(conversationId, {
       snapshot: {
         tasks,
-        ...(value?.activeTaskId !== undefined
-          ? { activeTaskId: value.activeTaskId }
-          : {}),
+        ...(value?.activeTaskId !== undefined ? { activeTaskId: value.activeTaskId } : {}),
       },
       running,
     });

@@ -24,9 +24,8 @@ let mostRecentTerminalProposalStatusMock = mock(
   (_linkId: string, _itemNodeId: string, _statusOptionId: string) =>
     Promise.resolve<string | null>(null),
 );
-let getSecretMock = mock(
-  (_extensionId: string, _projectId: string | null, _name: string) =>
-    Promise.resolve<string | null>(null),
+let getSecretMock = mock((_extensionId: string, _projectId: string | null, _name: string) =>
+  Promise.resolve<string | null>(null),
 );
 let approveProposalMock = mock((_id: string, _actor: unknown) => Promise.resolve<unknown>({}));
 
@@ -56,8 +55,11 @@ function installMocks(): void {
     countActiveProposalsForProject: () => Promise.resolve(0),
     updateProposal: () => Promise.resolve(null),
     failInterruptedProposals: (...a: unknown[]) => failInterruptedProposalsMock(...(a as [])),
-    mostRecentTerminalProposalStatus: (linkId: string, itemNodeId: string, statusOptionId: string) =>
-      mostRecentTerminalProposalStatusMock(linkId, itemNodeId, statusOptionId),
+    mostRecentTerminalProposalStatus: (
+      linkId: string,
+      itemNodeId: string,
+      statusOptionId: string,
+    ) => mostRecentTerminalProposalStatusMock(linkId, itemNodeId, statusOptionId),
   }));
   mock.module("../../../extensions/secrets-store", () => ({
     getSecret: (extensionId: string, projectId: string | null, name: string) =>
@@ -80,11 +82,7 @@ const {
   reconcileOrphanedProposals,
   _resetGithubProjectsDaemonForTests,
 } = await import("../daemon");
-const {
-  GithubAuthError,
-  GithubNotFoundError,
-  GithubRateLimitError,
-} = await import("../types");
+const { GithubAuthError, GithubNotFoundError, GithubRateLimitError } = await import("../types");
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -95,7 +93,10 @@ type Link = {
   authMode: "pat" | "gh";
   enabled: boolean;
   defaultModel: string | null;
-  columnActionMap: Record<string, { action: "plan" | "execute"; autoSpawn: boolean; permissionMode?: string; agentName?: string }>;
+  columnActionMap: Record<
+    string,
+    { action: "plan" | "execute"; autoSpawn: boolean; permissionMode?: string; agentName?: string }
+  >;
   pollCursor: Record<string, string> | null;
   pollIntervalSec: number;
   lastPolledAt: Date | null;
@@ -117,10 +118,17 @@ function makeLink(over: Partial<Link> = {}): Link {
   };
 }
 
-function makeItem(over: Partial<{
-  itemNodeId: string; contentNodeId: string | null; title: string; url: string | null;
-  statusOptionId: string | null; statusName: string | null; updatedAt: string;
-}> = {}) {
+function makeItem(
+  over: Partial<{
+    itemNodeId: string;
+    contentNodeId: string | null;
+    title: string;
+    url: string | null;
+    statusOptionId: string | null;
+    statusName: string | null;
+    updatedAt: string;
+  }> = {},
+) {
   return {
     itemNodeId: "item-1",
     contentNodeId: "content-1",
@@ -134,10 +142,15 @@ function makeItem(over: Partial<{
 }
 
 /** A flipped orphan row as `failInterruptedProposals` RETURNING * yields it. */
-function makeOrphan(over: Partial<{
-  id: string; linkId: string; itemNodeId: string; contentNodeId: string | null;
-  agentRunId: string | null;
-}> = {}) {
+function makeOrphan(
+  over: Partial<{
+    id: string;
+    linkId: string;
+    itemNodeId: string;
+    contentNodeId: string | null;
+    agentRunId: string | null;
+  }> = {},
+) {
   return {
     id: "prop-orphan-1",
     projectId: "proj-1",
@@ -178,9 +191,8 @@ beforeEach(() => {
     (_linkId: string, _itemNodeId: string, _statusOptionId: string) =>
       Promise.resolve<string | null>(null),
   );
-  getSecretMock = mock(
-    (_extensionId: string, _projectId: string | null, _name: string) =>
-      Promise.resolve<string | null>("ghp_token"),
+  getSecretMock = mock((_extensionId: string, _projectId: string | null, _name: string) =>
+    Promise.resolve<string | null>("ghp_token"),
   );
   approveProposalMock = mock((_id: string, _actor: unknown) => Promise.resolve<unknown>({}));
   installMocks();
@@ -260,7 +272,10 @@ describe("GithubProjectsDaemon — observability", () => {
     out = [];
     origStdout = process.stdout.write;
     origStderr = process.stderr.write;
-    const cap = (chunk: string) => { out.push(chunk); return true; };
+    const cap = (chunk: string) => {
+      out.push(chunk);
+      return true;
+    };
     process.stdout.write = cap as typeof process.stdout.write;
     process.stderr.write = cap as typeof process.stderr.write;
   });
@@ -271,7 +286,13 @@ describe("GithubProjectsDaemon — observability", () => {
   });
   function logLines(): Array<Record<string, unknown>> {
     return out
-      .map((c) => { try { return JSON.parse(c) as Record<string, unknown>; } catch { return null; } })
+      .map((c) => {
+        try {
+          return JSON.parse(c) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
       .filter((l): l is Record<string, unknown> => l !== null);
   }
 
@@ -279,7 +300,10 @@ describe("GithubProjectsDaemon — observability", () => {
     listEnabledLinksMock = mock(() => Promise.resolve([makeLink()]));
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-1" }));
     installMocks();
-    const client = makeClient({ items: [makeItem()], cursor: { "item-1": "2026-06-01T00:00:00Z" } });
+    const client = makeClient({
+      items: [makeItem()],
+      cursor: { "item-1": "2026-06-01T00:00:00Z" },
+    });
     await new GithubProjectsDaemon({ client }).pollOnce();
 
     const sweep = logLines().find((l) => l.msg === "github-projects poll sweep");
@@ -301,11 +325,19 @@ describe("GithubProjectsDaemon — observability", () => {
     listEnabledLinksMock = mock(() => Promise.resolve([makeLink()]));
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-1" }));
     installMocks();
-    const client = makeClient({ items: [makeItem()], cursor: { "item-1": "2026-06-01T00:00:00Z" } });
+    const client = makeClient({
+      items: [makeItem()],
+      cursor: { "item-1": "2026-06-01T00:00:00Z" },
+    });
     await new GithubProjectsDaemon({ client }).pollOnce();
 
     const trig = logLines().find((l) => l.msg === "github-projects trigger");
-    expect(trig).toMatchObject({ level: "debug", itemNodeId: "item-1", action: "plan", deduped: false });
+    expect(trig).toMatchObject({
+      level: "debug",
+      itemNodeId: "item-1",
+      action: "plan",
+      deduped: false,
+    });
   });
 
   test("an idle host (no enabled links) stays silent — no sweep summary", async () => {
@@ -330,9 +362,7 @@ describe("GithubProjectsDaemon — observability", () => {
       postComment: (() => Promise.resolve(true)) as never,
     });
     expect(
-      logLines().find(
-        (l) => typeof l.msg === "string" && l.msg.includes("orphaned proposals"),
-      ),
+      logLines().find((l) => typeof l.msg === "string" && l.msg.includes("orphaned proposals")),
     ).toBeUndefined();
 
     // Two orphans → exactly one default-visible INFO summary naming the count.
@@ -381,7 +411,10 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
     insertProposalIfNewMock = mock(() => Promise.resolve(created));
     installMocks();
 
-    const client = makeClient({ items: [makeItem()], cursor: { "item-1": "2026-06-01T00:00:00Z" } });
+    const client = makeClient({
+      items: [makeItem()],
+      cursor: { "item-1": "2026-06-01T00:00:00Z" },
+    });
     const d = new GithubProjectsDaemon({ client });
     await d.pollOnce();
 
@@ -452,9 +485,13 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
   });
 
   test("dedupe: insertProposalIfNew returning null → no spawn, no event", async () => {
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-      columnActionMap: { "opt-doing": { action: "plan", autoSpawn: true } },
-    })]));
+    listEnabledLinksMock = mock(() =>
+      Promise.resolve([
+        makeLink({
+          columnActionMap: { "opt-doing": { action: "plan", autoSpawn: true } },
+        }),
+      ]),
+    );
     insertProposalIfNewMock = mock(() => Promise.resolve(null)); // conflict
     const emit = makeEmitMock();
     installMocks();
@@ -467,9 +504,13 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
   });
 
   test("autoSpawn=true → approveProposal({kind:'auto'}) on a NEW proposal + Hub event", async () => {
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
-    })]));
+    listEnabledLinksMock = mock(() =>
+      Promise.resolve([
+        makeLink({
+          columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+        }),
+      ]),
+    );
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-3" }));
     const emit = makeEmitMock();
     installMocks();
@@ -486,9 +527,13 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
   });
 
   test("autoSpawn failure is swallowed — the sweep still advances the cursor", async () => {
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-      columnActionMap: { "opt-doing": { action: "plan", autoSpawn: true } },
-    })]));
+    listEnabledLinksMock = mock(() =>
+      Promise.resolve([
+        makeLink({
+          columnActionMap: { "opt-doing": { action: "plan", autoSpawn: true } },
+        }),
+      ]),
+    );
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-4" }));
     approveProposalMock = mock(() => Promise.reject(new Error("cap exceeded")));
     installMocks();
@@ -501,9 +546,13 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
   });
 
   test("autoSpawn with NO injected approve falls back to the real bridge (default path)", async () => {
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-      columnActionMap: { "opt-doing": { action: "plan", autoSpawn: true } },
-    })]));
+    listEnabledLinksMock = mock(() =>
+      Promise.resolve([
+        makeLink({
+          columnActionMap: { "opt-doing": { action: "plan", autoSpawn: true } },
+        }),
+      ]),
+    );
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-5" }));
     installMocks();
     const client = makeClient({ items: [makeItem()], cursor: { "item-1": "x" } });
@@ -519,9 +568,13 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
   // ── auto-spawn fail-loop suppression (self-retrigger guard) ────────────────
 
   test("autoSpawn FIRST trigger (no prior terminal → null) auto-spawns as today", async () => {
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
-    })]));
+    listEnabledLinksMock = mock(() =>
+      Promise.resolve([
+        makeLink({
+          columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+        }),
+      ]),
+    );
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-first" }));
     // Default mock already returns null, but be explicit for the first-time path.
     mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>(null));
@@ -530,15 +583,23 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
     const d = new GithubProjectsDaemon({ client, approve: approveProposalMock });
     await d.pollOnce();
     // The card+column's most-recent terminal was queried with the real coords.
-    expect(mostRecentTerminalProposalStatusMock).toHaveBeenCalledWith("link-1", "item-1", "opt-doing");
+    expect(mostRecentTerminalProposalStatusMock).toHaveBeenCalledWith(
+      "link-1",
+      "item-1",
+      "opt-doing",
+    );
     expect(approveProposalMock).toHaveBeenCalledTimes(1);
     expect(approveProposalMock.mock.calls[0]![0]).toBe("prop-first");
   });
 
   test("autoSpawn re-trigger after a DONE terminal auto-spawns (a successful prior run resumes auto-spawn)", async () => {
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
-    })]));
+    listEnabledLinksMock = mock(() =>
+      Promise.resolve([
+        makeLink({
+          columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+        }),
+      ]),
+    );
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-after-done" }));
     mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>("done"));
     installMocks();
@@ -550,9 +611,13 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
   });
 
   test("autoSpawn re-trigger after a FAILED terminal creates the proposal but SUPPRESSES the spawn (awaits manual approval)", async () => {
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
-    })]));
+    listEnabledLinksMock = mock(() =>
+      Promise.resolve([
+        makeLink({
+          columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+        }),
+      ]),
+    );
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-after-fail" }));
     mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>("failed"));
     const emit = makeEmitMock();
@@ -571,9 +636,13 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
   });
 
   test("autoSpawn re-trigger after a CANCELLED terminal is SUPPRESSED too", async () => {
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
-    })]));
+    listEnabledLinksMock = mock(() =>
+      Promise.resolve([
+        makeLink({
+          columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+        }),
+      ]),
+    );
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-after-cancel" }));
     mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>("cancelled"));
     installMocks();
@@ -588,9 +657,13 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
     // `dismissed` is a human's explicit "no" on a proposal, not a run failure —
     // the guard is narrow (failed/cancelled only) so a later card move still
     // auto-spawns.
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-      columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
-    })]));
+    listEnabledLinksMock = mock(() =>
+      Promise.resolve([
+        makeLink({
+          columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+        }),
+      ]),
+    );
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-after-dismiss" }));
     mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>("dismissed"));
     installMocks();
@@ -603,9 +676,13 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
   test("MANUAL (autoSpawn:false) columns never consult the guard and never spawn", async () => {
     // The suppression is an AUTO-spawn concern only; a manual column always
     // leaves a pending proposal for a human, guard or not.
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-      columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
-    })]));
+    listEnabledLinksMock = mock(() =>
+      Promise.resolve([
+        makeLink({
+          columnActionMap: { "opt-doing": { action: "plan", autoSpawn: false } },
+        }),
+      ]),
+    );
     insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-manual" }));
     // Even if a prior run failed, a manual column is unaffected.
     mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>("failed"));
@@ -624,12 +701,19 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
     process.env.EZCORP_DEBUG = "ext.github-projects";
     const out: string[] = [];
     const origStdout = process.stdout.write;
-    const cap = (chunk: string) => { out.push(chunk); return true; };
+    const cap = (chunk: string) => {
+      out.push(chunk);
+      return true;
+    };
     process.stdout.write = cap as typeof process.stdout.write;
     try {
-      listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-        columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
-      })]));
+      listEnabledLinksMock = mock(() =>
+        Promise.resolve([
+          makeLink({
+            columnActionMap: { "opt-doing": { action: "execute", autoSpawn: true } },
+          }),
+        ]),
+      );
       insertProposalIfNewMock = mock(() => Promise.resolve({ id: "prop-dbg" }));
       mostRecentTerminalProposalStatusMock = mock(() => Promise.resolve<string | null>("failed"));
       installMocks();
@@ -641,8 +725,18 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
       else process.env.EZCORP_DEBUG = prior;
     }
     const line = out
-      .map((c) => { try { return JSON.parse(c) as Record<string, unknown>; } catch { return null; } })
-      .find((l) => l?.msg === "github-projects auto-spawn suppressed after prior failure — awaiting manual approval");
+      .map((c) => {
+        try {
+          return JSON.parse(c) as Record<string, unknown>;
+        } catch {
+          return null;
+        }
+      })
+      .find(
+        (l) =>
+          l?.msg ===
+          "github-projects auto-spawn suppressed after prior failure — awaiting manual approval",
+      );
     expect(line).toMatchObject({ level: "debug", priorTerminal: "failed", itemNodeId: "item-1" });
     expect(approveProposalMock).not.toHaveBeenCalled();
   });
@@ -653,36 +747,53 @@ describe("GithubProjectsDaemon.pollOnce — triggers", () => {
 describe("GithubProjectsDaemon.pollOnce — scheduling", () => {
   test("a link not yet due (interval not elapsed) is skipped", async () => {
     const now = 1_000_000;
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-      lastPolledAt: new Date(now - 10_000), // 10s ago
-      pollIntervalSec: 60, // needs 60s
-    })]));
+    listEnabledLinksMock = mock(() =>
+      Promise.resolve([
+        makeLink({
+          lastPolledAt: new Date(now - 10_000), // 10s ago
+          pollIntervalSec: 60, // needs 60s
+        }),
+      ]),
+    );
     installMocks();
     const client = makeClient({ items: [], cursor: {} });
     const d = new GithubProjectsDaemon({ client, now: () => now });
     await d.pollOnce();
     // Not due → never fetched, never persisted.
-    expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems).not.toHaveBeenCalled();
+    expect(
+      (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems,
+    ).not.toHaveBeenCalled();
     expect(updateLinkPollStateMock).not.toHaveBeenCalled();
   });
 
   test("a link past its interval IS polled", async () => {
     const now = 1_000_000;
-    listEnabledLinksMock = mock(() => Promise.resolve([makeLink({
-      lastPolledAt: new Date(now - 120_000), // 120s ago
-      pollIntervalSec: 60,
-    })]));
+    listEnabledLinksMock = mock(() =>
+      Promise.resolve([
+        makeLink({
+          lastPolledAt: new Date(now - 120_000), // 120s ago
+          pollIntervalSec: 60,
+        }),
+      ]),
+    );
     installMocks();
     const client = makeClient({ items: [], cursor: {} });
     const d = new GithubProjectsDaemon({ client, now: () => now });
     await d.pollOnce();
-    expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems).toHaveBeenCalledTimes(1);
+    expect(
+      (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems,
+    ).toHaveBeenCalledTimes(1);
   });
 
   test("a re-entrant pollOnce (already ticking) returns immediately", async () => {
     let release!: () => void;
-    const gate = new Promise<void>((r) => { release = r; });
-    listEnabledLinksMock = mock(async () => { await gate; return []; });
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    listEnabledLinksMock = mock(async () => {
+      await gate;
+      return [];
+    });
     installMocks();
     const d = new GithubProjectsDaemon({ client: makeClient({ items: [], cursor: {} }) });
     const first = d.pollOnce(); // starts, blocks on the gate
@@ -710,12 +821,18 @@ describe("GithubProjectsDaemon.pollLinkNow", () => {
 
     // The caller passes the resolved link directly (multi-board: it owns the
     // resolution + ownership check before forcing a poll).
-    const link = makeLink({ enabled: true, lastPolledAt: new Date(now - 10_000), pollIntervalSec: 60 });
+    const link = makeLink({
+      enabled: true,
+      lastPolledAt: new Date(now - 10_000),
+      pollIntervalSec: 60,
+    });
     const result = await d.pollLinkNow(link as never);
 
     expect(result).toEqual({ polled: true });
     // The full poll body ran despite the link not being due.
-    expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems).toHaveBeenCalledTimes(1);
+    expect(
+      (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems,
+    ).toHaveBeenCalledTimes(1);
     expect(insertProposalIfNewMock).toHaveBeenCalledTimes(1);
     expect(updateLinkPollStateMock).toHaveBeenCalledTimes(1);
     expect(emit).toHaveBeenCalledTimes(1);
@@ -730,7 +847,9 @@ describe("GithubProjectsDaemon.pollLinkNow", () => {
     const result = await d.pollLinkNow(makeLink({ enabled: false }) as never);
 
     expect(result).toEqual({ polled: false, reason: "paused" });
-    expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems).not.toHaveBeenCalled();
+    expect(
+      (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems,
+    ).not.toHaveBeenCalled();
   });
 });
 
@@ -751,7 +870,8 @@ describe("GithubProjectsDaemon.pollOnce — auth", () => {
     // first, then falls back to the shared token.
     expect(getSecretMock).toHaveBeenCalledWith("github-projects", "proj-1", "apiToken:link-1");
     expect(getSecretMock).toHaveBeenCalledWith("github-projects", "proj-1", "apiToken");
-    const auth = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock.calls[0]![1] as { mode: string; token: string };
+    const auth = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock
+      .calls[0]![1] as { mode: string; token: string };
     expect(auth).toEqual({ mode: "pat", token: "ghp_secret" });
   });
 
@@ -764,7 +884,8 @@ describe("GithubProjectsDaemon.pollOnce — auth", () => {
     const client = makeClient({ items: [], cursor: {} });
     const d = new GithubProjectsDaemon({ client });
     await d.pollOnce();
-    const auth = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock.calls[0]![1] as { mode: string; token: string };
+    const auth = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock
+      .calls[0]![1] as { mode: string; token: string };
     expect(auth).toEqual({ mode: "pat", token: "ghp_board" });
     expect(getSecretMock).not.toHaveBeenCalledWith("github-projects", "proj-1", "apiToken");
   });
@@ -778,7 +899,9 @@ describe("GithubProjectsDaemon.pollOnce — auth", () => {
     const client = makeClient({ items: [], cursor: {} });
     const d = new GithubProjectsDaemon({ client });
     await d.pollOnce();
-    expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems).not.toHaveBeenCalled();
+    expect(
+      (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems,
+    ).not.toHaveBeenCalled();
     // degrade → lastError persisted.
     expect(updateLinkPollStateMock).toHaveBeenCalledTimes(1);
     const state = updateLinkPollStateMock.mock.calls[0]![1] as Record<string, unknown>;
@@ -793,7 +916,8 @@ describe("GithubProjectsDaemon.pollOnce — auth", () => {
     const d = new GithubProjectsDaemon({ client, ghAuthToken });
     await d.pollOnce();
     expect(ghAuthToken).toHaveBeenCalledTimes(1);
-    const auth = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock.calls[0]![1] as { mode: string; token: string };
+    const auth = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock
+      .calls[0]![1] as { mode: string; token: string };
     expect(auth).toEqual({ mode: "gh", token: "gho_token" }); // trimmed
   });
 
@@ -804,7 +928,9 @@ describe("GithubProjectsDaemon.pollOnce — auth", () => {
     const ghAuthToken = mock(() => Promise.resolve("   \n"));
     const d = new GithubProjectsDaemon({ client, ghAuthToken });
     await d.pollOnce();
-    expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems).not.toHaveBeenCalled();
+    expect(
+      (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems,
+    ).not.toHaveBeenCalled();
     const state = updateLinkPollStateMock.mock.calls[0]![1] as Record<string, unknown>;
     expect(state.lastError).toContain("empty output");
   });
@@ -816,7 +942,9 @@ describe("GithubProjectsDaemon.pollOnce — degradation", () => {
   test("GithubAuthError degrades the link (lastError set), loop survives", async () => {
     listEnabledLinksMock = mock(() => Promise.resolve([makeLink()]));
     installMocks();
-    const client = makeClient(() => { throw new GithubAuthError("401 revoked"); });
+    const client = makeClient(() => {
+      throw new GithubAuthError("401 revoked");
+    });
     const d = new GithubProjectsDaemon({ client });
     await d.pollOnce();
     const state = updateLinkPollStateMock.mock.calls[0]![1] as Record<string, unknown>;
@@ -827,7 +955,9 @@ describe("GithubProjectsDaemon.pollOnce — degradation", () => {
   test("GithubNotFoundError degrades the link", async () => {
     listEnabledLinksMock = mock(() => Promise.resolve([makeLink()]));
     installMocks();
-    const client = makeClient(() => { throw new GithubNotFoundError("404 board gone"); });
+    const client = makeClient(() => {
+      throw new GithubNotFoundError("404 board gone");
+    });
     const d = new GithubProjectsDaemon({ client });
     await d.pollOnce();
     const state = updateLinkPollStateMock.mock.calls[0]![1] as Record<string, unknown>;
@@ -837,7 +967,9 @@ describe("GithubProjectsDaemon.pollOnce — degradation", () => {
   test("a non-GitHub (unexpected) error still degrades the link, never throws out", async () => {
     listEnabledLinksMock = mock(() => Promise.resolve([makeLink()]));
     installMocks();
-    const client = makeClient(() => { throw new Error("socket hang up"); });
+    const client = makeClient(() => {
+      throw new Error("socket hang up");
+    });
     const d = new GithubProjectsDaemon({ client });
     await d.pollOnce(); // must resolve
     const state = updateLinkPollStateMock.mock.calls[0]![1] as Record<string, unknown>;
@@ -847,7 +979,9 @@ describe("GithubProjectsDaemon.pollOnce — degradation", () => {
   test("a non-Error throw is stringified into lastError", async () => {
     listEnabledLinksMock = mock(() => Promise.resolve([makeLink()]));
     installMocks();
-    const client = makeClient(() => { throw "plain string failure"; });
+    const client = makeClient(() => {
+      throw "plain string failure";
+    });
     const d = new GithubProjectsDaemon({ client });
     await d.pollOnce();
     const state = updateLinkPollStateMock.mock.calls[0]![1] as Record<string, unknown>;
@@ -860,16 +994,20 @@ describe("GithubProjectsDaemon.pollOnce — degradation", () => {
     installMocks();
     const rl = new GithubRateLimitError("secondary rate limit");
     rl.retryAfterMs = 30_000;
-    const client = makeClient(() => { throw rl; });
+    const client = makeClient(() => {
+      throw rl;
+    });
     const d = new GithubProjectsDaemon({ client, now: () => now });
     await d.pollOnce();
     const state = updateLinkPollStateMock.mock.calls[0]![1] as Record<string, unknown>;
     expect(state.lastError).toBe("secondary rate limit");
 
     // Second sweep within the back-off window: link is skipped (no new fetch).
-    const callsBefore = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock.calls.length;
+    const callsBefore = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems
+      .mock.calls.length;
     await d.pollOnce();
-    const callsAfter = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock.calls.length;
+    const callsAfter = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock
+      .calls.length;
     expect(callsAfter).toBe(callsBefore); // skipped — still backing off
   });
 
@@ -877,13 +1015,18 @@ describe("GithubProjectsDaemon.pollOnce — degradation", () => {
     const now = 5_000_000;
     listEnabledLinksMock = mock(() => Promise.resolve([makeLink()]));
     installMocks();
-    const client = makeClient(() => { throw new GithubRateLimitError("limited"); });
+    const client = makeClient(() => {
+      throw new GithubRateLimitError("limited");
+    });
     const d = new GithubProjectsDaemon({ client, now: () => now });
     await d.pollOnce();
     // Still backing off at now+1ms (default floor is 60s).
-    const callsBefore = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock.calls.length;
+    const callsBefore = (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems
+      .mock.calls.length;
     await d.pollOnce();
-    expect((client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock.calls.length).toBe(callsBefore);
+    expect(
+      (client as { fetchBoardItems: ReturnType<typeof mock> }).fetchBoardItems.mock.calls.length,
+    ).toBe(callsBefore);
   });
 
   test("back-off expires: once the cool-down passes the link is polled again", async () => {
@@ -894,7 +1037,10 @@ describe("GithubProjectsDaemon.pollOnce — degradation", () => {
     rl.retryAfterMs = 1_000;
     let throwIt = true;
     const fetchBoardItems = mock((_b: string, _a: unknown, _c: unknown) => {
-      if (throwIt) { throwIt = false; throw rl; }
+      if (throwIt) {
+        throwIt = false;
+        throw rl;
+      }
       return Promise.resolve({ items: [], cursor: {} });
     });
     const client = { fetchBoardItems } as never;
@@ -918,9 +1064,9 @@ describe("GithubProjectsDaemon.pollOnce — degradation", () => {
       return Promise.resolve({ items: [], cursor: {} });
     });
     const d = new GithubProjectsDaemon({ client: { fetchBoardItems } as never, now: () => now });
-    await d.pollOnce();           // rate-limited
+    await d.pollOnce(); // rate-limited
     now += 2_000;
-    await d.pollOnce();           // clean poll → clears back-off
+    await d.pollOnce(); // clean poll → clears back-off
     // A THIRD immediate poll is still due (back-off cleared, lastPolledAt is
     // not persisted in these mocks so isDue stays true) and fetches again.
     await d.pollOnce();
@@ -1004,9 +1150,7 @@ describe("reconcileOrphanedProposals", () => {
     let call = 0;
     const postComment = mock((_l: unknown, _p: unknown, _b: string) => {
       call += 1;
-      return call === 1
-        ? Promise.reject(new Error("comment api down"))
-        : Promise.resolve(true);
+      return call === 1 ? Promise.reject(new Error("comment api down")) : Promise.resolve(true);
     });
 
     // MUST resolve — the first row's rejection is swallowed per-row.

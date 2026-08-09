@@ -16,14 +16,9 @@ vi.mock("$server/extensions/security", () => ({
 const { getSecurityViolations, clearSecurityViolations } = await import(
   "$server/extensions/security"
 );
-const { GET, DELETE } = await import(
-  "../routes/api/extensions/[id]/violations/+server.ts"
-);
+const { GET, DELETE } = await import("../routes/api/extensions/[id]/violations/+server.ts");
 
-function makeEvent(opts: {
-  id?: string;
-  locals?: Record<string, unknown>;
-}) {
+function makeEvent(opts: { id?: string; locals?: Record<string, unknown> }) {
   const id = opts.id ?? "ext-1";
   return {
     url: new URL(`http://localhost/api/extensions/${id}/violations`),
@@ -72,9 +67,7 @@ describe("GET /api/extensions/[id]/violations", () => {
   });
 
   test("happy path: returns violations array", async () => {
-    vi.mocked(getSecurityViolations).mockResolvedValue([
-      { id: "v1", reason: "test" },
-    ] as any);
+    vi.mocked(getSecurityViolations).mockResolvedValue([{ id: "v1", reason: "test" }] as any);
     const res = await GET(makeEvent({ locals: { user: adminUser } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { violations: unknown[] };

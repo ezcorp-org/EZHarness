@@ -18,9 +18,7 @@ vi.mock("$server/db/queries/sessions", () => ({
 const { listAllSessions, revokeSession, revokeAllUserSessions } = await import(
   "$server/db/queries/sessions"
 );
-const { GET, DELETE } = await import(
-  "../routes/api/admin/sessions/+server"
-);
+const { GET, DELETE } = await import("../routes/api/admin/sessions/+server");
 
 function makeEvent(opts: {
   locals?: Record<string, unknown>;
@@ -28,9 +26,7 @@ function makeEvent(opts: {
   method?: "GET" | "DELETE";
   query?: Record<string, string>;
 }) {
-  const qs = opts.query
-    ? "?" + new URLSearchParams(opts.query).toString()
-    : "";
+  const qs = opts.query ? "?" + new URLSearchParams(opts.query).toString() : "";
   const url = `http://localhost/api/admin/sessions${qs}`;
   const init: RequestInit = { method: opts.method ?? "GET" };
   if (opts.body !== undefined) {
@@ -68,9 +64,7 @@ describe("GET /api/admin/sessions", () => {
   });
 
   test("rejects 403 when API-key lacks 'admin' scope", async () => {
-    const res = await GET(
-      makeEvent({ locals: { ...adminLocals, apiKeyScopes: ["read"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { ...adminLocals, apiKeyScopes: ["read"] } }));
     expect(res.status).toBe(403);
     const body = (await res.json()) as { required?: string };
     expect(body.required).toBe("admin");
@@ -105,9 +99,7 @@ describe("GET /api/admin/sessions", () => {
       { id: "s1", userId: "u1", tokenHash: "x" } as any,
       { id: "s2", userId: "u2", tokenHash: "x" } as any,
     ] as any);
-    const res = await GET(
-      makeEvent({ locals: adminLocals, query: { userId: "u2" } }),
-    );
+    const res = await GET(makeEvent({ locals: adminLocals, query: { userId: "u2" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { sessions?: Array<{ id: string }> };
     expect(body.sessions).toHaveLength(1);
@@ -122,9 +114,7 @@ describe("DELETE /api/admin/sessions", () => {
   });
 
   test("returns 401 when locals.user is missing", async () => {
-    const res = await DELETE(
-      makeEvent({ method: "DELETE", body: { sessionId: "s1" } }),
-    );
+    const res = await DELETE(makeEvent({ method: "DELETE", body: { sessionId: "s1" } }));
     expect(res.status).toBe(401);
   });
 
@@ -140,9 +130,7 @@ describe("DELETE /api/admin/sessions", () => {
   });
 
   test("rejects 400 when neither userId nor sessionId is provided", async () => {
-    const res = await DELETE(
-      makeEvent({ method: "DELETE", locals: adminLocals, body: {} }),
-    );
+    const res = await DELETE(makeEvent({ method: "DELETE", locals: adminLocals, body: {} }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Validation failed");

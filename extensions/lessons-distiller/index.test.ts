@@ -136,19 +136,35 @@ function makeFakeRuntime(overrides: Partial<DistillerRuntimeApi> = {}): {
     calls,
     api,
     state,
-    setMessages(msgs) { state.messages = msgs; },
-    setProjectId(projectId) { state.projectId = projectId; },
-    setEnvelopeThrow(err) { state.envelopeThrow = err; },
-    setLlmContent(text) { state.llmContent = text; },
+    setMessages(msgs) {
+      state.messages = msgs;
+    },
+    setProjectId(projectId) {
+      state.projectId = projectId;
+    },
+    setEnvelopeThrow(err) {
+      state.envelopeThrow = err;
+    },
+    setLlmContent(text) {
+      state.llmContent = text;
+    },
     setTriggerGate(result) {
       // Normalize optional `reason` to satisfy the strict shape on
       // state.triggerGate (always-present `reason: string`).
       state.triggerGate = { shouldDistill: result.shouldDistill, reason: result.reason ?? "" };
     },
-    setTriggerGateThrow(err) { state.triggerGateThrow = err; },
-    setLessonsWriteResult(result) { state.lessonsWriteResult = result; },
-    setLessonsWriteThrow(err) { state.lessonsWriteThrow = err; },
-    setLlmThrow(err) { state.llmThrow = err; },
+    setTriggerGateThrow(err) {
+      state.triggerGateThrow = err;
+    },
+    setLessonsWriteResult(result) {
+      state.lessonsWriteResult = result;
+    },
+    setLessonsWriteThrow(err) {
+      state.lessonsWriteThrow = err;
+    },
+    setLlmThrow(err) {
+      state.llmThrow = err;
+    },
   };
 }
 
@@ -177,7 +193,11 @@ describe("distill — happy path", () => {
     _setRuntimeApiForTests(fake.api);
 
     const outcome = await distill(
-      distillArgs({ conversationId: "conv-1", settings: { provider: "google" }, projectId: "proj-1" }),
+      distillArgs({
+        conversationId: "conv-1",
+        settings: { provider: "google" },
+        projectId: "proj-1",
+      }),
     );
     expect(outcome.kind).toBe("success");
     if (outcome.kind === "success") {
@@ -250,7 +270,10 @@ describe("distill — happy path", () => {
 
     await distill(distillArgs({ settings: { provider: "anthropic", model: "" } }));
     const llmCall = fake.calls.find((c) => c.api === "llmComplete");
-    expect(llmCall?.args).toMatchObject({ provider: "anthropic", model: "claude-haiku-4-5-20250514" });
+    expect(llmCall?.args).toMatchObject({
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20250514",
+    });
   });
 
   test("unknown provider falls back to google", async () => {
@@ -391,9 +414,7 @@ describe("distill — malformed JSON → decline llm_malformed", () => {
 
   test("frontmatter rides through to lessons.write", async () => {
     const fake = makeFakeRuntime();
-    fake.setLlmContent(
-      '{"slug":"a","title":"b","body":"c","frontmatter":{"confidence":"high"}}',
-    );
+    fake.setLlmContent('{"slug":"a","title":"b","body":"c","frontmatter":{"confidence":"high"}}');
     _setRuntimeApiForTests(fake.api);
 
     await distill(distillArgs());
@@ -596,7 +617,12 @@ describe("distillRunComplete — fail-soft on unavailable model", () => {
     console.warn = (...args: unknown[]) => {
       warnings.push(args.map(String).join(" "));
     };
-    return { warnings, restore: () => { console.warn = original; } };
+    return {
+      warnings,
+      restore: () => {
+        console.warn = original;
+      },
+    };
   }
 
   test("credential-missing LLM failure warns exactly once, never error-spams", async () => {
@@ -607,7 +633,9 @@ describe("distillRunComplete — fail-soft on unavailable model", () => {
 
     const errorSpy: string[] = [];
     const originalError = console.error;
-    console.error = (...args: unknown[]) => { errorSpy.push(args.map(String).join(" ")); };
+    console.error = (...args: unknown[]) => {
+      errorSpy.push(args.map(String).join(" "));
+    };
     const cap = withCapturedWarn();
     try {
       // Three back-to-back fires — the credential is still missing each
@@ -634,7 +662,10 @@ describe("distillRunComplete — fail-soft on unavailable model", () => {
 
     const cap = withCapturedWarn();
     try {
-      await distillRunComplete({ ...RUN, conversationId: "c1" }, { enabled: true, provider: "google", model: "" });
+      await distillRunComplete(
+        { ...RUN, conversationId: "c1" },
+        { enabled: true, provider: "google", model: "" },
+      );
     } finally {
       cap.restore();
     }
@@ -648,8 +679,14 @@ describe("distillRunComplete — fail-soft on unavailable model", () => {
 
     const cap = withCapturedWarn();
     try {
-      await distillRunComplete({ ...RUN, conversationId: "c1" }, { enabled: true, provider: "google", model: "" });
-      await distillRunComplete({ ...RUN, conversationId: "c2" }, { enabled: true, provider: "openai", model: "" });
+      await distillRunComplete(
+        { ...RUN, conversationId: "c1" },
+        { enabled: true, provider: "google", model: "" },
+      );
+      await distillRunComplete(
+        { ...RUN, conversationId: "c2" },
+        { enabled: true, provider: "openai", model: "" },
+      );
     } finally {
       cap.restore();
     }
@@ -863,7 +900,10 @@ describe("distillRunComplete — shared settings-injected core", () => {
     const fake = makeFakeRuntime();
     _setRuntimeApiForTests(fake.api);
     await distillRunComplete(
-      { run: { id: "run-42", agentName: "chat", status: "success", startedAt: 1234567890 }, conversationId: "c1" },
+      {
+        run: { id: "run-42", agentName: "chat", status: "success", startedAt: 1234567890 },
+        conversationId: "c1",
+      },
       { enabled: true },
     );
     expect(fake.calls.find((c) => c.api === "triggerGate")?.args).toEqual({
@@ -902,7 +942,9 @@ describe("distillRunComplete — shared settings-injected core", () => {
 
     const warnings: string[] = [];
     const original = console.warn;
-    console.warn = (...args: unknown[]) => { warnings.push(args.map(String).join(" ")); };
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "));
+    };
     try {
       expect(
         await distillRunComplete({ run: CHAT_RUN, conversationId: "c1" }, { enabled: true }),

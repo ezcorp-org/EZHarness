@@ -14,7 +14,8 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 mockDbConnection();
 
 // Capture the (rehydrated) server definition handed to the connect path.
-let capturedServer: { headers?: Record<string, string>; env?: Record<string, string> } | null = null;
+let capturedServer: { headers?: Record<string, string>; env?: Record<string, string> } | null =
+  null;
 mock.module("../extensions/mcp-sandbox", () => ({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   buildSandboxedMcpSpec: async (server: any) => {
@@ -56,7 +57,9 @@ describe("getMcpClient rehydrates blanked MCP secrets before connecting", () => 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fakeClient: any = {
       isConnected: false,
-      connect: async function () { this.isConnected = true; },
+      connect: async function () {
+        this.isConnected = true;
+      },
       close: async () => {},
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

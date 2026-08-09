@@ -49,8 +49,7 @@ mock.module("../db/connection", () => ({
   getDb: () => ({
     select: () => ({
       from: () => ({
-        where: () =>
-          Object.assign(Promise.resolve([existingRow]), { limit: async () => [] }),
+        where: () => Object.assign(Promise.resolve([existingRow]), { limit: async () => [] }),
       }),
     }),
     insert: () => ({

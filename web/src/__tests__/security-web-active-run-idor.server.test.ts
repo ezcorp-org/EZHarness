@@ -43,18 +43,10 @@ vi.mock("$lib/server/conversation-ownership", () => ({
 }));
 
 const { getActiveRun } = await import("$server/db/queries/active-runs");
-const { resolveRootConversationForOwnership } = await import(
-  "$lib/server/conversation-ownership"
-);
-const { GET, POST } = await import(
-  "../routes/api/conversations/[id]/active-run/+server.ts"
-);
+const { resolveRootConversationForOwnership } = await import("$lib/server/conversation-ownership");
+const { GET, POST } = await import("../routes/api/conversations/[id]/active-run/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-  method?: string;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown; method?: string }) {
   const method = opts.method ?? "GET";
   return {
     url: new URL("http://localhost/api/conversations/c1/active-run"),
@@ -89,10 +81,7 @@ describe("IDOR: GET /api/conversations/[id]/active-run", () => {
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Not found");
     expect(getActiveRunForConversation).not.toHaveBeenCalled();
-    expect(vi.mocked(resolveRootConversationForOwnership)).toHaveBeenCalledWith(
-      "c1",
-      attacker,
-    );
+    expect(vi.mocked(resolveRootConversationForOwnership)).toHaveBeenCalledWith("c1", attacker);
   });
 
   test("owner → ownership passes and run logic runs (200)", async () => {

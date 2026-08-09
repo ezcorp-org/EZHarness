@@ -43,8 +43,12 @@ mock.module("../db/queries/settings", () => {
       return rows[0]?.value;
     },
     async upsertSetting() {},
-    async deleteSetting() { return false; },
-    async isListingInstalled() { return false; },
+    async deleteSetting() {
+      return false;
+    },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -70,15 +74,33 @@ beforeAll(async () => {
   await setupTestDb();
   tmpRoot = await mkdtemp(join(tmpdir(), "ezcorp-audit-"));
 
-  const [owner] = await getDb().insert(users).values({
-    email: "owner@audit.local", passwordHash: "x", name: "Owner", role: "member",
-  }).returning();
-  const [member] = await getDb().insert(users).values({
-    email: "member@audit.local", passwordHash: "x", name: "Member", role: "member",
-  }).returning();
-  const [admin] = await getDb().insert(users).values({
-    email: "admin@audit.local", passwordHash: "x", name: "Admin", role: "admin",
-  }).returning();
+  const [owner] = await getDb()
+    .insert(users)
+    .values({
+      email: "owner@audit.local",
+      passwordHash: "x",
+      name: "Owner",
+      role: "member",
+    })
+    .returning();
+  const [member] = await getDb()
+    .insert(users)
+    .values({
+      email: "member@audit.local",
+      passwordHash: "x",
+      name: "Member",
+      role: "member",
+    })
+    .returning();
+  const [admin] = await getDb()
+    .insert(users)
+    .values({
+      email: "admin@audit.local",
+      passwordHash: "x",
+      name: "Admin",
+      role: "admin",
+    })
+    .returning();
   ownerId = owner!.id;
   memberId = member!.id;
   adminId = admin!.id;
@@ -94,9 +116,13 @@ beforeAll(async () => {
   const ownerPath = join(ownerDir, "owner.png");
   await writeFile(ownerPath, BYTES);
   const ownerRow = await insertAttachment({
-    messageId: ownerMsg.id, conversationId: ownerConv.id,
-    filename: "owner.png", mimeType: "image/png",
-    sizeBytes: BYTES.byteLength, storagePath: ownerPath, kind: "image",
+    messageId: ownerMsg.id,
+    conversationId: ownerConv.id,
+    filename: "owner.png",
+    mimeType: "image/png",
+    sizeBytes: BYTES.byteLength,
+    storagePath: ownerPath,
+    kind: "image",
   });
   ownerAttId = ownerRow.id;
 
@@ -108,9 +134,13 @@ beforeAll(async () => {
   const adminPath = join(adminDir, "admin.png");
   await writeFile(adminPath, BYTES);
   const adminRow = await insertAttachment({
-    messageId: adminMsg.id, conversationId: adminConv.id,
-    filename: "admin.png", mimeType: "image/png",
-    sizeBytes: BYTES.byteLength, storagePath: adminPath, kind: "image",
+    messageId: adminMsg.id,
+    conversationId: adminConv.id,
+    filename: "admin.png",
+    mimeType: "image/png",
+    sizeBytes: BYTES.byteLength,
+    storagePath: adminPath,
+    kind: "image",
   });
   adminAttId = adminRow.id;
 });
@@ -125,9 +155,7 @@ function mkEvent(id: string, user: { id: string; role: "member" | "admin" } | un
   return createMockEvent({
     url: `http://localhost/api/attachments/${id}`,
     params: { id },
-    user: user
-      ? { id: user.id, email: `${user.id}@x`, name: user.id, role: user.role }
-      : undefined,
+    user: user ? { id: user.id, email: `${user.id}@x`, name: user.id, role: user.role } : undefined,
   });
 }
 

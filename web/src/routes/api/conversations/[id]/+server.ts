@@ -76,7 +76,9 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   try {
     const { reapPreviewConversation } = await import("$server/runtime/preview/preview-reaper");
     const { getPreviewPortWatcher } = await import("$server/startup/background-timers");
-    await reapPreviewConversation(params.id, { unwatch: (c) => getPreviewPortWatcher()?.unwatch(c) });
+    await reapPreviewConversation(params.id, {
+      unwatch: (c) => getPreviewPortWatcher()?.unwatch(c),
+    });
   } catch (err) {
     log.warn("preview reap on conversation delete failed", {
       conversationId: params.id,
@@ -88,8 +90,13 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   if (!deleted) return errorJson(404, "Not found");
 
   if (project?.path) {
-    await deleteAttachmentsFromDisk({ projectRoot: project.path, conversationId: params.id })
-      .catch((err) => log.warn("attachment GC failed", { error: err instanceof Error ? err.message : String(err), conversationId: params.id }));
+    await deleteAttachmentsFromDisk({ projectRoot: project.path, conversationId: params.id }).catch(
+      (err) =>
+        log.warn("attachment GC failed", {
+          error: err instanceof Error ? err.message : String(err),
+          conversationId: params.id,
+        }),
+    );
   }
 
   return new Response(null, { status: 204 });

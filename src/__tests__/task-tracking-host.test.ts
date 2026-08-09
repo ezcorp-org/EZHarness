@@ -57,45 +57,59 @@ const {
 } = await import("../db/schema");
 
 async function seedFixtures(): Promise<void> {
-  await getDb().insert(users).values({
-    id: "user-host-t",
-    email: "host-test@t.local",
-    passwordHash: "x",
-    name: "HostTest",
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({
-    id: "proj-host-t",
-    name: "proj-host-t",
-    path: "/tmp/proj-host-t",
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values({
+      id: "user-host-t",
+      email: "host-test@t.local",
+      passwordHash: "x",
+      name: "HostTest",
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({
+      id: "proj-host-t",
+      name: "proj-host-t",
+      path: "/tmp/proj-host-t",
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function seedTaskTrackingExtension(): Promise<string> {
   const id = "ext-tt-real";
-  await getDb().insert(extensionsTable).values({
-    id,
-    name: "task-tracking",
-    version: "1.0.0",
-    description: "t",
-    manifest: {
-      schemaVersion: 2,
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id,
       name: "task-tracking",
       version: "1.0.0",
       description: "t",
-      author: { name: "t" },
-      permissions: {},
-    },
-    source: "test:tt",
-    installPath: "/tmp/tt",
-    enabled: true,
-  } as any).onConflictDoNothing();
+      manifest: {
+        schemaVersion: 2,
+        name: "task-tracking",
+        version: "1.0.0",
+        description: "t",
+        author: { name: "t" },
+        permissions: {},
+      },
+      source: "test:tt",
+      installPath: "/tmp/tt",
+      enabled: true,
+    } as any)
+    .onConflictDoNothing();
   return id;
 }
 
 async function seedConversation(id: string): Promise<void> {
-  await getDb().insert(conversations).values({
-    id, projectId: "proj-host-t", title: id,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(conversations)
+    .values({
+      id,
+      projectId: "proj-host-t",
+      title: id,
+    } as any)
+    .onConflictDoNothing();
 }
 
 beforeAll(async () => {
@@ -130,9 +144,9 @@ describe("getTaskTrackingExtensionId", () => {
     const first = await getTaskTrackingExtensionId();
     // Delete the row behind the cache's back; the next call must still
     // return the cached value.
-    await getDb().delete(extensionsTable).where(
-      (await import("drizzle-orm")).eq(extensionsTable.id, first),
-    );
+    await getDb()
+      .delete(extensionsTable)
+      .where((await import("drizzle-orm")).eq(extensionsTable.id, first));
     const second = await getTaskTrackingExtensionId();
     expect(second).toBe(first);
     // Restore the row for subsequent tests.
@@ -177,15 +191,17 @@ describe("getTaskSnapshotForConversation", () => {
       activeTaskId: "t1",
       schemaVersion: 1,
     };
-    await getDb().insert(extensionStorage).values({
-      extensionId: extId,
-      scope: "conversation",
-      scopeId: "conv-new",
-      key: "tasks",
-      value,
-      encrypted: false,
-      sizeBytes: Buffer.byteLength(JSON.stringify(value), "utf-8"),
-    } as any);
+    await getDb()
+      .insert(extensionStorage)
+      .values({
+        extensionId: extId,
+        scope: "conversation",
+        scopeId: "conv-new",
+        key: "tasks",
+        value,
+        encrypted: false,
+        sizeBytes: Buffer.byteLength(JSON.stringify(value), "utf-8"),
+      } as any);
 
     const snap = await getTaskSnapshotForConversation("conv-new");
     expect(snap).toBeDefined();
@@ -213,15 +229,17 @@ describe("getTaskSnapshotForConversation", () => {
       ],
       // activeTaskId omitted
     };
-    await getDb().insert(extensionStorage).values({
-      extensionId: extId,
-      scope: "conversation",
-      scopeId: "conv-legacy",
-      key: "tasks",
-      value,
-      encrypted: false,
-      sizeBytes: 0,
-    } as any);
+    await getDb()
+      .insert(extensionStorage)
+      .values({
+        extensionId: extId,
+        scope: "conversation",
+        scopeId: "conv-legacy",
+        key: "tasks",
+        value,
+        encrypted: false,
+        sizeBytes: 0,
+      } as any);
 
     const snap = await getTaskSnapshotForConversation("conv-legacy");
     expect(snap).toBeDefined();
@@ -233,15 +251,17 @@ describe("getTaskSnapshotForConversation", () => {
     await seedTaskTrackingExtension();
     await seedConversation("conv-zero");
     const extId = await getTaskTrackingExtensionId();
-    await getDb().insert(extensionStorage).values({
-      extensionId: extId,
-      scope: "conversation",
-      scopeId: "conv-zero",
-      key: "tasks",
-      value: { tasks: [], schemaVersion: 1 },
-      encrypted: false,
-      sizeBytes: 0,
-    } as any);
+    await getDb()
+      .insert(extensionStorage)
+      .values({
+        extensionId: extId,
+        scope: "conversation",
+        scopeId: "conv-zero",
+        key: "tasks",
+        value: { tasks: [], schemaVersion: 1 },
+        encrypted: false,
+        sizeBytes: 0,
+      } as any);
 
     const snap = await getTaskSnapshotForConversation("conv-zero");
     expect(snap).toBeDefined();
@@ -287,12 +307,30 @@ describe("writeTaskSnapshotForConversation", () => {
     await seedConversation("conv-ov");
     await writeTaskSnapshotForConversation("conv-ov", {
       tasks: [
-        { id: "a", title: "A", description: "", status: "pending", assignments: [], subtasks: [], priority: 0, createdAt: new Date().toISOString() },
+        {
+          id: "a",
+          title: "A",
+          description: "",
+          status: "pending",
+          assignments: [],
+          subtasks: [],
+          priority: 0,
+          createdAt: new Date().toISOString(),
+        },
       ],
     });
     await writeTaskSnapshotForConversation("conv-ov", {
       tasks: [
-        { id: "b", title: "B", description: "", status: "pending", assignments: [], subtasks: [], priority: 0, createdAt: new Date().toISOString() },
+        {
+          id: "b",
+          title: "B",
+          description: "",
+          status: "pending",
+          assignments: [],
+          subtasks: [],
+          priority: 0,
+          createdAt: new Date().toISOString(),
+        },
       ],
     });
     const snap = await getTaskSnapshotForConversation("conv-ov");

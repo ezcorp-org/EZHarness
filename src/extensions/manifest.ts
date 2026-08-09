@@ -16,10 +16,7 @@ import { CORE_RBAC_SCOPES, validateRbacScopeDeclarations } from "./rbac-scopes";
 // PURE import (constants + regex only, no DB / no fs / no yaml) — the ONE
 // definition of the extension-shipped workflow-name grammar, shared with the
 // asset loader and the `ezcorp/workflows` handler so they cannot drift.
-import {
-  EXTENSION_WORKFLOW_SEPARATOR,
-  WORKFLOW_NAME_RE,
-} from "../runtime/workflow-name";
+import { EXTENSION_WORKFLOW_SEPARATOR, WORKFLOW_NAME_RE } from "../runtime/workflow-name";
 export { inferPackageType };
 
 const SEMVER_REGEX = /^\d+\.\d+\.\d+$/;
@@ -54,8 +51,7 @@ function validateToolsArray(tools: unknown, errors: string[]): void {
       errors.push(`tools[${i}] must be an object`);
       continue;
     }
-    if (!t.name || typeof t.name !== "string")
-      errors.push(`tools[${i}].name is required`);
+    if (!t.name || typeof t.name !== "string") errors.push(`tools[${i}].name is required`);
     if (!t.description || typeof t.description !== "string")
       errors.push(`tools[${i}].description is required`);
     if (!t.inputSchema || typeof t.inputSchema !== "object")
@@ -92,15 +88,10 @@ function validateToolsArray(tools: unknown, errors: string[]): void {
  * scope no grant could ever hold (an authoring bug — rejected at admit
  * time instead of silently denying every non-admin caller at runtime).
  */
-function validateToolRbacScopes(
-  tools: unknown,
-  permissions: unknown,
-  errors: string[],
-): void {
+function validateToolRbacScopes(tools: unknown, permissions: unknown, errors: string[]): void {
   if (!Array.isArray(tools)) return;
   const checkable = new Set<string>(CORE_RBAC_SCOPES);
-  const declared = (permissions as { rbacScopes?: unknown } | null | undefined)
-    ?.rbacScopes;
+  const declared = (permissions as { rbacScopes?: unknown } | null | undefined)?.rbacScopes;
   if (Array.isArray(declared)) {
     for (const s of declared) {
       const name = (s as { name?: unknown })?.name;
@@ -129,11 +120,7 @@ function validateToolRbacScopes(
  * filesystem?, shell?, env?, storage?, custom?}` — see
  * `CapabilityDeclaration` in `./types.ts`.
  */
-function validateToolCapabilities(
-  path: string,
-  caps: unknown,
-  errors: string[],
-): void {
+function validateToolCapabilities(path: string, caps: unknown, errors: string[]): void {
   if (!caps || typeof caps !== "object" || Array.isArray(caps)) {
     errors.push(`${path} must be an object`);
     return;
@@ -164,9 +151,7 @@ function validateToolCapabilities(
       !Array.isArray((c.filesystem as Record<string, unknown>).paths) ||
       !Array.isArray((c.filesystem as Record<string, unknown>).mode)
     ) {
-      errors.push(
-        `${path}.filesystem must be { paths: string[], mode: ("read"|"write")[] }`,
-      );
+      errors.push(`${path}.filesystem must be { paths: string[], mode: ("read"|"write")[] }`);
     } else {
       const fs = c.filesystem as { paths: unknown[]; mode: unknown[] };
       for (const p of fs.paths) {
@@ -225,8 +210,7 @@ function validateSkillsArray(skills: unknown, errors: string[]): void {
       errors.push(`skills[${i}] must be an object`);
       continue;
     }
-    if (!s.name || typeof s.name !== "string")
-      errors.push(`skills[${i}].name is required`);
+    if (!s.name || typeof s.name !== "string") errors.push(`skills[${i}].name is required`);
     if (!s.description || typeof s.description !== "string")
       errors.push(`skills[${i}].description is required`);
   }
@@ -234,10 +218,7 @@ function validateSkillsArray(skills: unknown, errors: string[]): void {
 
 const MCP_TRANSPORTS = new Set(["stdio", "http", "sse"]);
 
-function validateMcpServersArray(
-  mcpServers: unknown,
-  errors: string[],
-): void {
+function validateMcpServersArray(mcpServers: unknown, errors: string[]): void {
   if (!Array.isArray(mcpServers)) {
     errors.push("mcpServers must be an array");
     return;
@@ -248,8 +229,7 @@ function validateMcpServersArray(
       errors.push(`mcpServers[${i}] must be an object`);
       continue;
     }
-    if (!m.name || typeof m.name !== "string")
-      errors.push(`mcpServers[${i}].name is required`);
+    if (!m.name || typeof m.name !== "string") errors.push(`mcpServers[${i}].name is required`);
     if (typeof m.transport !== "string" || !MCP_TRANSPORTS.has(m.transport)) {
       errors.push(`mcpServers[${i}].transport must be one of stdio|http|sse`);
       continue;
@@ -275,9 +255,7 @@ function validateMcpServersArray(
  * server entry, no packaged entrypoint, and no subprocess-style permission
  * claims that make no sense for a connection-based extension.
  */
-export function validateMcpManifest(
-  data: unknown,
-): { valid: boolean; errors: string[] } {
+export function validateMcpManifest(data: unknown): { valid: boolean; errors: string[] } {
   const base = validateManifestV2(data);
   if (!data || typeof data !== "object") return base;
   const m = data as Record<string, unknown>;
@@ -295,8 +273,7 @@ function validateAgentComponent(agent: unknown, errors: string[]): void {
     return;
   }
   const a = agent as Record<string, unknown>;
-  if (!a.prompt || typeof a.prompt !== "string")
-    errors.push("agent.prompt is required");
+  if (!a.prompt || typeof a.prompt !== "string") errors.push("agent.prompt is required");
 }
 
 function validateScriptsBlock(scripts: unknown, errors: string[]): void {
@@ -332,9 +309,7 @@ function validateMessageToolbarArray(
       continue;
     }
     if (typeof it.id !== "string" || !MSG_TOOLBAR_ID_REGEX.test(it.id)) {
-      errors.push(
-        `messageToolbar[${i}].id must match /^[a-z0-9][a-z0-9-]{0,31}$/`,
-      );
+      errors.push(`messageToolbar[${i}].id must match /^[a-z0-9][a-z0-9-]{0,31}$/`);
     } else if (seenIds.has(it.id)) {
       errors.push(`messageToolbar[${i}].id "${it.id}" is duplicated`);
     } else {
@@ -343,26 +318,19 @@ function validateMessageToolbarArray(
     if (!it.icon || typeof it.icon !== "string")
       errors.push(`messageToolbar[${i}].icon is required and must be a string`);
     if (!it.tooltip || typeof it.tooltip !== "string")
-      errors.push(
-        `messageToolbar[${i}].tooltip is required and must be a string`,
-      );
+      errors.push(`messageToolbar[${i}].tooltip is required and must be a string`);
     if (
       it.appliesTo !== undefined &&
-      (typeof it.appliesTo !== "string" ||
-        !MSG_TOOLBAR_APPLIES_TO.has(it.appliesTo))
+      (typeof it.appliesTo !== "string" || !MSG_TOOLBAR_APPLIES_TO.has(it.appliesTo))
     ) {
-      errors.push(
-        `messageToolbar[${i}].appliesTo must be one of "user"|"assistant"|"both"`,
-      );
+      errors.push(`messageToolbar[${i}].appliesTo must be one of "user"|"assistant"|"both"`);
     }
     if (
       it.appliesToSelection !== undefined &&
       (typeof it.appliesToSelection !== "string" ||
         !MSG_TOOLBAR_APPLIES_TO_SELECTION.has(it.appliesToSelection))
     ) {
-      errors.push(
-        `messageToolbar[${i}].appliesToSelection must be one of "single"|"bulk"|"both"`,
-      );
+      errors.push(`messageToolbar[${i}].appliesToSelection must be one of "single"|"bulk"|"both"`);
     }
     if (typeof it.event !== "string" || it.event.length === 0) {
       errors.push(`messageToolbar[${i}].event is required and must be a string`);
@@ -428,9 +396,7 @@ export function validatePagesArray(items: unknown, errors: string[]): void {
       if (typeof it.description !== "string") {
         errors.push(`pages[${i}].description must be a string`);
       } else if (it.description.length > MAX_PAGE_DESCRIPTION) {
-        errors.push(
-          `pages[${i}].description must be at most ${MAX_PAGE_DESCRIPTION} characters`,
-        );
+        errors.push(`pages[${i}].description must be at most ${MAX_PAGE_DESCRIPTION} characters`);
       }
     }
     // Per-project toggle: the page renders with project context on
@@ -474,10 +440,7 @@ function isNonNegativeInt(v: unknown): v is number {
 // emission) and clamp-time (`isValidForField` → drop on false) consume
 // them, so the validity rule set lives in exactly one place.
 
-function selectValueAccepted(
-  options: readonly { value: string }[],
-  value: unknown,
-): boolean {
+function selectValueAccepted(options: readonly { value: string }[], value: unknown): boolean {
   return typeof value === "string" && options.some((o) => o.value === value);
 }
 
@@ -548,18 +511,12 @@ export function isValidForField(field: SettingsField, value: unknown): boolean {
       // value itself is NEVER persisted in the settings JSON blob —
       // `clampSettings` drops secret fields unconditionally.
       return (
-        typeof value === "string" &&
-        value.length > 0 &&
-        value.length <= SECRET_SETTING_MAX_LENGTH
+        typeof value === "string" && value.length > 0 && value.length <= SECRET_SETTING_MAX_LENGTH
       );
   }
 }
 
-function validateSelectField(
-  path: string,
-  field: Record<string, unknown>,
-  errors: string[],
-): void {
+function validateSelectField(path: string, field: Record<string, unknown>, errors: string[]): void {
   if (!Array.isArray(field.options) || field.options.length === 0) {
     errors.push(`${path}.options must be a non-empty array`);
     return;
@@ -590,19 +547,13 @@ function validateSelectField(
         (o) => o && typeof o.value === "string",
       );
       if (!selectValueAccepted(optionsTyped, field.default)) {
-        errors.push(
-          `${path}.default "${field.default}" must be one of the option values`,
-        );
+        errors.push(`${path}.default "${field.default}" must be one of the option values`);
       }
     }
   }
 }
 
-function validateTextField(
-  path: string,
-  field: Record<string, unknown>,
-  errors: string[],
-): void {
+function validateTextField(path: string, field: Record<string, unknown>, errors: string[]): void {
   if (field.default !== undefined && typeof field.default !== "string") {
     errors.push(`${path}.default must be a string`);
   }
@@ -631,9 +582,7 @@ function validateTextField(
       try {
         compiledPattern = new RegExp(field.pattern);
       } catch (e) {
-        errors.push(
-          `${path}.pattern is not a valid regex: ${(e as Error).message}`,
-        );
+        errors.push(`${path}.pattern is not a valid regex: ${(e as Error).message}`);
       }
     }
   }
@@ -655,11 +604,7 @@ function validateTextField(
   }
 }
 
-function validateNumberField(
-  path: string,
-  field: Record<string, unknown>,
-  errors: string[],
-): void {
+function validateNumberField(path: string, field: Record<string, unknown>, errors: string[]): void {
   for (const key of ["default", "min", "max", "step"] as const) {
     if (field[key] !== undefined && !isFiniteNumber(field[key])) {
       errors.push(`${path}.${key} must be a finite number`);
@@ -704,15 +649,8 @@ function validateBooleanField(
   }
 }
 
-function validateSecretField(
-  path: string,
-  field: Record<string, unknown>,
-  errors: string[],
-): void {
-  if (
-    typeof field.storageKey !== "string" ||
-    !SECRET_STORAGE_KEY_REGEX.test(field.storageKey)
-  ) {
+function validateSecretField(path: string, field: Record<string, unknown>, errors: string[]): void {
+  if (typeof field.storageKey !== "string" || !SECRET_STORAGE_KEY_REGEX.test(field.storageKey)) {
     errors.push(
       `${path}.storageKey is required on secret fields and must match /^[a-z0-9][a-z0-9_.-]{0,63}$/ with no trailing dot`,
     );
@@ -724,10 +662,7 @@ function validateSecretField(
   }
 }
 
-export function validateSettingsSchema(
-  settings: unknown,
-  errors: string[],
-): void {
+export function validateSettingsSchema(settings: unknown, errors: string[]): void {
   if (!settings || typeof settings !== "object" || Array.isArray(settings)) {
     errors.push("settings must be a plain object");
     return;
@@ -746,9 +681,7 @@ export function validateSettingsSchema(
     }
     const field = raw as Record<string, unknown>;
     if (typeof field.type !== "string" || !SETTINGS_FIELD_TYPES.has(field.type)) {
-      errors.push(
-        `${path}.type must be one of "select"|"text"|"number"|"boolean"|"secret"`,
-      );
+      errors.push(`${path}.type must be one of "select"|"text"|"number"|"boolean"|"secret"`);
       continue;
     }
     if (typeof field.label !== "string" || field.label.length === 0) {
@@ -820,11 +753,7 @@ export const WEBHOOK_SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
  *  17 chars so `prefix + 12-hex digest` always satisfies `WEBHOOK_SLUG_RE`. */
 export const WEBHOOK_PREFIX_RE = /^[a-z0-9][a-z0-9-]{0,15}-$/;
 
-function validateStringArrayPerm(
-  field: string,
-  value: unknown,
-  errors: string[],
-): void {
+function validateStringArrayPerm(field: string, value: unknown, errors: string[]): void {
   if (!Array.isArray(value)) {
     errors.push(`permissions.${field} must be an array of non-empty strings`);
     return;
@@ -853,9 +782,7 @@ function validatePermissionsBlock(perms: unknown, errors: string[]): void {
     } else {
       const a = p.appendMessages as Record<string, unknown>;
       if (typeof a.excludedDefault !== "boolean") {
-        errors.push(
-          "permissions.appendMessages.excludedDefault must be a boolean",
-        );
+        errors.push("permissions.appendMessages.excludedDefault must be a boolean");
       }
     }
   }
@@ -1015,12 +942,18 @@ function validatePermissionsBlock(perms: unknown, errors: string[]): void {
       errors.push("permissions.spawnAgents must be an object {maxPerHour, maxConcurrent?}");
     } else {
       const sa = p.spawnAgents as Record<string, unknown>;
-      if (typeof sa.maxPerHour !== "number" || !Number.isFinite(sa.maxPerHour) || sa.maxPerHour <= 0) {
+      if (
+        typeof sa.maxPerHour !== "number" ||
+        !Number.isFinite(sa.maxPerHour) ||
+        sa.maxPerHour <= 0
+      ) {
         errors.push("permissions.spawnAgents.maxPerHour must be a positive number");
       }
       if (
         sa.maxConcurrent !== undefined &&
-        (typeof sa.maxConcurrent !== "number" || !Number.isFinite(sa.maxConcurrent) || sa.maxConcurrent <= 0)
+        (typeof sa.maxConcurrent !== "number" ||
+          !Number.isFinite(sa.maxConcurrent) ||
+          sa.maxConcurrent <= 0)
       ) {
         errors.push("permissions.spawnAgents.maxConcurrent must be a positive number");
       }
@@ -1067,9 +1000,7 @@ export function validatePreprocessorsArray(
       continue;
     }
     if (typeof p.tool !== "string" || p.tool.length === 0) {
-      errors.push(
-        `preprocessors[${i}].tool is required and must be a non-empty string`,
-      );
+      errors.push(`preprocessors[${i}].tool is required and must be a non-empty string`);
     } else if (!declaredToolNames.includes(p.tool)) {
       // Hoisted out of the template literal: mid-template continuation
       // lines lose DA attribution under bun's sharded coverage (same
@@ -1081,16 +1012,11 @@ export function validatePreprocessorsArray(
       );
     }
     if (!Array.isArray(p.accepts) || p.accepts.length === 0) {
-      errors.push(
-        `preprocessors[${i}].accepts must be a non-empty array of MIME types`,
-      );
+      errors.push(`preprocessors[${i}].accepts must be a non-empty array of MIME types`);
     } else {
       for (let j = 0; j < p.accepts.length; j++) {
         const a = p.accepts[j];
-        if (
-          typeof a !== "string" ||
-          !(MIME_REGEX.test(a) || MIME_GLOB_REGEX.test(a))
-        ) {
+        if (typeof a !== "string" || !(MIME_REGEX.test(a) || MIME_GLOB_REGEX.test(a))) {
           errors.push(
             `preprocessors[${i}].accepts[${j}] must be an exact MIME ("type/subtype") or a type glob ("type/*")`,
           );
@@ -1126,10 +1052,7 @@ const NPM_PKG_NAME_MAX_LENGTH = 214;
  * the range grammar itself is validated at resolve time by
  * `Bun.semver.satisfies`, not here).
  */
-export function validateNpmDependenciesBlock(
-  value: unknown,
-  errors: string[],
-): void {
+export function validateNpmDependenciesBlock(value: unknown, errors: string[]): void {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     errors.push("npmDependencies must be a plain object");
     return;
@@ -1141,9 +1064,7 @@ export function validateNpmDependenciesBlock(
       );
     }
     if (typeof range !== "string" || range.length === 0) {
-      errors.push(
-        `npmDependencies.${name} must be a non-empty version-range string`,
-      );
+      errors.push(`npmDependencies.${name} must be a non-empty version-range string`);
     }
   }
 }
@@ -1164,11 +1085,7 @@ export const MAX_SUGGEST_EXAMPLES = 5;
 /** Max length (chars, after trimming) of a single example phrasing. */
 export const MAX_SUGGEST_EXAMPLE_LENGTH = 120;
 
-export function validateSuggestExamples(
-  path: string,
-  value: unknown,
-  errors: string[],
-): void {
+export function validateSuggestExamples(path: string, value: unknown, errors: string[]): void {
   if (!Array.isArray(value)) {
     errors.push(`${path} must be an array of strings`);
     return;
@@ -1189,9 +1106,7 @@ export function validateSuggestExamples(
       continue;
     }
     if (trimmed.length > MAX_SUGGEST_EXAMPLE_LENGTH) {
-      errors.push(
-        `${path}[${i}] must be at most ${MAX_SUGGEST_EXAMPLE_LENGTH} characters`,
-      );
+      errors.push(`${path}[${i}] must be at most ${MAX_SUGGEST_EXAMPLE_LENGTH} characters`);
       continue;
     }
     // Control characters (incl. NUL) are rejected so an authored example can
@@ -1227,11 +1142,7 @@ export function validateSmokeTest(
   declaredToolNames: string[],
   errors: string[],
 ): void {
-  if (
-    !smokeTest ||
-    typeof smokeTest !== "object" ||
-    Array.isArray(smokeTest)
-  ) {
+  if (!smokeTest || typeof smokeTest !== "object" || Array.isArray(smokeTest)) {
     errors.push("smokeTest must be an object");
     return;
   }
@@ -1247,19 +1158,11 @@ export function validateSmokeTest(
     );
   }
 
-  if (
-    !st.input ||
-    typeof st.input !== "object" ||
-    Array.isArray(st.input)
-  ) {
+  if (!st.input || typeof st.input !== "object" || Array.isArray(st.input)) {
     errors.push("smokeTest.input is required and must be an object");
   }
 
-  if (
-    !st.expect ||
-    typeof st.expect !== "object" ||
-    Array.isArray(st.expect)
-  ) {
+  if (!st.expect || typeof st.expect !== "object" || Array.isArray(st.expect)) {
     errors.push("smokeTest.expect is required and must be an object");
   } else {
     const ex = st.expect as Record<string, unknown>;
@@ -1270,18 +1173,14 @@ export function validateSmokeTest(
       errors.push("smokeTest.expect.textIncludes must be a string when set");
     }
     if (ex.isError === undefined && ex.textIncludes === undefined) {
-      errors.push(
-        "smokeTest.expect must declare at least one of `isError` or `textIncludes`",
-      );
+      errors.push("smokeTest.expect must declare at least one of `isError` or `textIncludes`");
     }
   }
 }
 
 // ── Main Validator ───────────────────────────────────────────────
 
-export function validateManifestV2(
-  data: unknown,
-): { valid: boolean; errors: string[] } {
+export function validateManifestV2(data: unknown): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
   if (!data || typeof data !== "object") {
@@ -1301,10 +1200,7 @@ export function validateManifestV2(
       "name must match /^[a-z0-9][a-z0-9-_.]{0,63}$/ and must not contain '..' (filesystem-safe, no path separators)",
     );
   }
-  if (
-    typeof m.version !== "string" ||
-    !SEMVER_REGEX.test(m.version)
-  )
+  if (typeof m.version !== "string" || !SEMVER_REGEX.test(m.version))
     errors.push("version must be valid semver (e.g., 1.0.0)");
   if (!m.description || typeof m.description !== "string")
     errors.push("description is required and must be a non-empty string");
@@ -1312,9 +1208,10 @@ export function validateManifestV2(
   // Narrow `author` to its record form before reading `.name`. The outer
   // `typeof === "object"` guard already rules out null + primitives but
   // doesn't give TS access to a `name` field.
-  const author = typeof m.author === "object" && m.author !== null
-    ? (m.author as Record<string, unknown>)
-    : null;
+  const author =
+    typeof m.author === "object" && m.author !== null
+      ? (m.author as Record<string, unknown>)
+      : null;
   if (!author?.name || typeof author.name !== "string")
     errors.push("author.name is required and must be a non-empty string");
 
@@ -1329,14 +1226,12 @@ export function validateManifestV2(
   if (m.mcpServers !== undefined) validateMcpServersArray(m.mcpServers, errors);
   if (m.agent !== undefined) validateAgentComponent(m.agent, errors);
   if (m.scripts !== undefined) validateScriptsBlock(m.scripts, errors);
-  if (m.permissions !== undefined)
-    validatePermissionsBlock(m.permissions, errors);
+  if (m.permissions !== undefined) validatePermissionsBlock(m.permissions, errors);
   if (m.messageToolbar !== undefined) {
     const declaredEventSubs = Array.isArray(
       (m.permissions as Record<string, unknown>)?.eventSubscriptions,
     )
-      ? ((m.permissions as Record<string, unknown>)
-          .eventSubscriptions as string[])
+      ? ((m.permissions as Record<string, unknown>).eventSubscriptions as string[])
       : [];
     validateMessageToolbarArray(
       typeof m.name === "string" ? m.name : "",
@@ -1374,12 +1269,7 @@ export function validateManifestV2(
 
   // Entrypoint required if tools are declared -- except for MCP-kind manifests,
   // whose tools[] is a cache of the remote server's tools/list.
-  if (
-    Array.isArray(m.tools) &&
-    m.tools.length > 0 &&
-    !m.entrypoint &&
-    m.kind !== "mcp"
-  )
+  if (Array.isArray(m.tools) && m.tools.length > 0 && !m.entrypoint && m.kind !== "mcp")
     errors.push("entrypoint is required when tools are declared");
 
   // Entrypoint must stay inside the extension install directory: reject
@@ -1391,8 +1281,7 @@ export function validateManifestV2(
       errors.push("entrypoint must be a string");
     } else {
       const ep = m.entrypoint;
-      if (ep.startsWith("/"))
-        errors.push("entrypoint must be a relative path, not absolute");
+      if (ep.startsWith("/")) errors.push("entrypoint must be a relative path, not absolute");
       else if (ep.split(/[\\/]/).includes(".."))
         errors.push("entrypoint must not contain '..' path segments");
     }
@@ -1476,9 +1365,7 @@ export function satisfiesRange(version: string, range: string): boolean {
 
 const VALID_VERSION_REGEX = /^(\^)?\d+\.\d+\.\d+$/;
 
-export function validateDependencies(
-  deps: unknown,
-): { valid: boolean; errors: string[] } {
+export function validateDependencies(deps: unknown): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
   if (!deps || typeof deps !== "object" || Array.isArray(deps)) {
@@ -1563,9 +1450,7 @@ export function generateSlug(name: string): string {
  * declarations. v3 manifests pass through with `_inheritedFromV2`
  * unset.
  */
-export function migrateManifestV2ToV3(
-  m: ExtensionManifest,
-): ExtensionManifestInternal {
+export function migrateManifestV2ToV3(m: ExtensionManifest): ExtensionManifestInternal {
   if (m.schemaVersion === 3) return m as ExtensionManifestInternal;
 
   const inherited = deriveCapsFromExtensionPerms(m.permissions);

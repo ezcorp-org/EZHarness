@@ -30,10 +30,7 @@ describe("deriveHandlerContext — happy paths", () => {
   });
 
   test("conversationId/runId/parentCallId default to null when meta omits them", () => {
-    const ctx = deriveHandlerContext(
-      { ezOnBehalfOf: "user-1" },
-      { extensionId: "ext-1" },
-    );
+    const ctx = deriveHandlerContext({ ezOnBehalfOf: "user-1" }, { extensionId: "ext-1" });
     expect(ctx.conversationId).toBeNull();
     expect(ctx.runId).toBeNull();
     expect(ctx.parentCallId).toBeNull();
@@ -54,40 +51,45 @@ describe("deriveHandlerContext — happy paths", () => {
 
 describe("deriveHandlerContext — refuses missing onBehalfOf", () => {
   test("undefined rpcMeta throws", () => {
-    expect(() => deriveHandlerContext(undefined, { extensionId: "ext-1" }))
-      .toThrow("handler-context: missing onBehalfOf");
+    expect(() => deriveHandlerContext(undefined, { extensionId: "ext-1" })).toThrow(
+      "handler-context: missing onBehalfOf",
+    );
   });
 
   test("rpcMeta without ezOnBehalfOf throws", () => {
-    expect(() => deriveHandlerContext({ ezConversationId: "conv-1" }, { extensionId: "ext-1" }))
-      .toThrow("handler-context: missing onBehalfOf");
+    expect(() =>
+      deriveHandlerContext({ ezConversationId: "conv-1" }, { extensionId: "ext-1" }),
+    ).toThrow("handler-context: missing onBehalfOf");
   });
 
   test("non-string ezOnBehalfOf throws (defensive)", () => {
-    expect(() => deriveHandlerContext({ ezOnBehalfOf: 42 }, { extensionId: "ext-1" }))
-      .toThrow("handler-context: missing onBehalfOf");
+    expect(() => deriveHandlerContext({ ezOnBehalfOf: 42 }, { extensionId: "ext-1" })).toThrow(
+      "handler-context: missing onBehalfOf",
+    );
   });
 
   test("empty-string ezOnBehalfOf throws", () => {
-    expect(() => deriveHandlerContext({ ezOnBehalfOf: "" }, { extensionId: "ext-1" }))
-      .toThrow("handler-context: missing onBehalfOf");
+    expect(() => deriveHandlerContext({ ezOnBehalfOf: "" }, { extensionId: "ext-1" })).toThrow(
+      "handler-context: missing onBehalfOf",
+    );
   });
 });
 
 describe("deriveHandlerContext — refuses missing extensionId", () => {
   test("missing registeredTool throws", () => {
-    expect(() => deriveHandlerContext(
-      { ezOnBehalfOf: "user-1" },
-      // @ts-expect-error — intentionally violating the type
-      undefined,
-    )).toThrow("handler-context: missing registeredTool.extensionId");
+    expect(() =>
+      deriveHandlerContext(
+        { ezOnBehalfOf: "user-1" },
+        // @ts-expect-error — intentionally violating the type
+        undefined,
+      ),
+    ).toThrow("handler-context: missing registeredTool.extensionId");
   });
 
   test("registeredTool with empty extensionId throws", () => {
-    expect(() => deriveHandlerContext(
-      { ezOnBehalfOf: "user-1" },
-      { extensionId: "" },
-    )).toThrow("handler-context: missing registeredTool.extensionId");
+    expect(() => deriveHandlerContext({ ezOnBehalfOf: "user-1" }, { extensionId: "" })).toThrow(
+      "handler-context: missing registeredTool.extensionId",
+    );
   });
 });
 

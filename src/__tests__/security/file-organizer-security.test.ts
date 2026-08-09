@@ -17,25 +17,44 @@ import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { FileOrganizerDaemon, DEFAULT_SETTINGS } from "../../extensions/file-organizer-daemon";
-import { applyProposal, type ApplierContext, type ApplierProposal } from "../../extensions/file-organizer-applier";
+import {
+  applyProposal,
+  type ApplierContext,
+  type ApplierProposal,
+} from "../../extensions/file-organizer-applier";
 import type { PermissionEngine } from "../../extensions/permission-engine";
 
-const SANDBOX_PRELOAD_PATH = resolve(import.meta.dir, "../../extensions/runtime/sandbox-preload.ts");
+const SANDBOX_PRELOAD_PATH = resolve(
+  import.meta.dir,
+  "../../extensions/runtime/sandbox-preload.ts",
+);
 const NETWORK_DENY = /requires 'network' permission/;
 
 function fakeEngine(decision: "allow" | "deny" = "allow"): PermissionEngine {
   return {
     authorize: async () =>
-      decision === "allow" ? { decision: "allow", auditId: "a" } : { decision: "deny", reason: "deny", auditId: "ad" },
+      decision === "allow"
+        ? { decision: "allow", auditId: "a" }
+        : { decision: "deny", reason: "deny", auditId: "ad" },
   } as unknown as PermissionEngine;
 }
 
 // ── 1. No calls home (no network grant) ─────────────────────────────
 
-async function runUnderPreload(code: string, networkAllowed = false): Promise<{ stdout: string; exitCode: number }> {
-  const env: Record<string, string> = { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" };
+async function runUnderPreload(
+  code: string,
+  networkAllowed = false,
+): Promise<{ stdout: string; exitCode: number }> {
+  const env: Record<string, string> = {
+    PATH: process.env.PATH ?? "",
+    HOME: process.env.HOME ?? "",
+  };
   if (networkAllowed) env.EZCORP_NETWORK_ALLOWED = "1";
-  const proc = Bun.spawn(["bun", "--preload", SANDBOX_PRELOAD_PATH, "-e", code], { stdout: "pipe", stderr: "pipe", env });
+  const proc = Bun.spawn(["bun", "--preload", SANDBOX_PRELOAD_PATH, "-e", code], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env,
+  });
   const stdout = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
   return { stdout, exitCode };
@@ -98,7 +117,13 @@ describe("host applier: destination containment (only the host touches host fold
     await writeFile(src, "x");
     // dst is OUTSIDE the watched root — an attempt to write a host folder
     // the extension was never granted.
-    const p: ApplierProposal = { id: "p", kind: "move", src, dst: join(root, "escape", "a.txt"), snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 } };
+    const p: ApplierProposal = {
+      id: "p",
+      kind: "move",
+      src,
+      dst: join(root, "escape", "a.txt"),
+      snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 },
+    };
     const outcome = await applyProposal(p, ctx(watched));
     expect(outcome.status).toBe("blocked");
     expect(await Bun.file(src).exists()).toBe(true); // original intact
@@ -107,7 +132,13 @@ describe("host applier: destination containment (only the host touches host fold
   test("a move targeting .ezcorp/data is BLOCKED (never write the DB/JWT dir)", async () => {
     const src = join(watched, "a.txt");
     await writeFile(src, "x");
-    const p: ApplierProposal = { id: "p", kind: "move", src, dst: join(watched, ".ezcorp", "data", "a.txt"), snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 } };
+    const p: ApplierProposal = {
+      id: "p",
+      kind: "move",
+      src,
+      dst: join(watched, ".ezcorp", "data", "a.txt"),
+      snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 },
+    };
     const outcome = await applyProposal(p, ctx(watched));
     expect(outcome.status).toBe("blocked");
   });
@@ -115,7 +146,13 @@ describe("host applier: destination containment (only the host touches host fold
   test("engine deny ⇒ blocked (every apply re-authorizes; no stale-auth write)", async () => {
     const src = join(watched, "a.txt");
     await writeFile(src, "x");
-    const p: ApplierProposal = { id: "p", kind: "move", src, dst: join(watched, "sub", "a.txt"), snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 } };
+    const p: ApplierProposal = {
+      id: "p",
+      kind: "move",
+      src,
+      dst: join(watched, "sub", "a.txt"),
+      snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 },
+    };
     const outcome = await applyProposal(p, ctx(watched, fakeEngine("deny")));
     expect(outcome.status).toBe("blocked");
     expect(await Bun.file(src).exists()).toBe(true);
@@ -127,7 +164,16 @@ describe("daemon: fail-closed (degraded mount never mass-quarantines)", () => {
     await writeFile(
       join(dataDir, "config.json"),
       JSON.stringify({
-        folders: [{ id: "f1", path: watched, presets: ["junk-sweep"], customRules: [], ignore: [], backlogPolicy: "include-existing" }],
+        folders: [
+          {
+            id: "f1",
+            path: watched,
+            presets: ["junk-sweep"],
+            customRules: [],
+            ignore: [],
+            backlogPolicy: "include-existing",
+          },
+        ],
         globalIgnore: [".ezcorp/data", ".git", "node_modules"],
         schemaVersion: 1,
       }),
@@ -174,7 +220,13 @@ describe("daemon: fail-closed (degraded mount never mass-quarantines)", () => {
     // Simulate the quarantine being unreachable by denying the write.
     const src = join(watched, "junk.tmp");
     await writeFile(src, "j");
-    const p: ApplierProposal = { id: "p", kind: "delete-quarantine", src, dst: null, snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 } };
+    const p: ApplierProposal = {
+      id: "p",
+      kind: "delete-quarantine",
+      src,
+      dst: null,
+      snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 },
+    };
     const outcome = await applyProposal(p, ctx(watched, fakeEngine("deny")));
     expect(outcome.status).toBe("blocked");
     expect(await Bun.file(src).exists()).toBe(true);

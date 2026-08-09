@@ -10,10 +10,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import {
-  isProviderConnectionError,
-  friendlyProviderError,
-} from "../providers/provider-error";
+import { isProviderConnectionError, friendlyProviderError } from "../providers/provider-error";
 
 // The exact strings the runtime surfaces. The "typo in the url or port"
 // variant is the one the user actually saw (Bun 1.3.x ConnectionRefused).
@@ -75,10 +72,11 @@ describe("friendlyProviderError", () => {
   });
 
   test("rewrites the raw Bun message and never echoes it back", () => {
-    const out = friendlyProviderError(
-      new Error("Was there a typo in the url or port?"),
-      { provider: "ollama", model: "gemma4:31b", baseUrl: "http://localhost:11434/v1" },
-    );
+    const out = friendlyProviderError(new Error("Was there a typo in the url or port?"), {
+      provider: "ollama",
+      model: "gemma4:31b",
+      baseUrl: "http://localhost:11434/v1",
+    });
     expect(out).not.toBeNull();
     expect(out).not.toContain("typo in the url");
     expect(out).toContain("ollama");

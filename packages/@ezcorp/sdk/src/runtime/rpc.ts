@@ -14,10 +14,7 @@ import type { ToolCallResult } from "../types";
  * `meta` keys are merged onto the top-level object (e.g. to attach
  * `cardType` or override `isError`).
  */
-export function toolResult(
-  text: string,
-  meta?: Record<string, unknown>,
-): ToolCallResult {
+export function toolResult(text: string, meta?: Record<string, unknown>): ToolCallResult {
   const base = {
     content: [{ type: "text" as const, text }],
     isError: false,

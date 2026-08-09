@@ -45,18 +45,24 @@ type FkInfo = {
 };
 
 async function getColumn(db: any, table: string, column: string): Promise<ColumnInfo | null> {
-  const rows = (await db.execute(sql.raw(`
+  const rows = (
+    await db.execute(
+      sql.raw(`
     SELECT column_name, data_type, is_nullable, column_default
     FROM information_schema.columns
     WHERE table_schema = 'public'
       AND table_name = '${table}'
       AND column_name = '${column}'
-  `))).rows as ColumnInfo[];
+  `),
+    )
+  ).rows as ColumnInfo[];
   return rows[0] ?? null;
 }
 
 async function getFk(db: any, table: string, column: string): Promise<FkInfo | null> {
-  const rows = (await db.execute(sql.raw(`
+  const rows = (
+    await db.execute(
+      sql.raw(`
     SELECT
       tc.constraint_name,
       tc.table_name,
@@ -78,7 +84,9 @@ async function getFk(db: any, table: string, column: string): Promise<FkInfo | n
       AND tc.table_schema = 'public'
       AND tc.table_name = '${table}'
       AND kcu.column_name = '${column}'
-  `))).rows as FkInfo[];
+  `),
+    )
+  ).rows as FkInfo[];
   return rows[0] ?? null;
 }
 
@@ -159,9 +167,11 @@ describe("Phase 6 schema columns — agent_configs.category + conversations.agen
       `);
 
       // Verify pre-delete: agent_config_id is 'cfg-x'
-      const preRows = (await db.execute(sql`
+      const preRows = (
+        await db.execute(sql`
         SELECT agent_config_id FROM conversations WHERE id = 'conv-x'
-      `)).rows as Array<{ agent_config_id: string | null }>;
+      `)
+      ).rows as Array<{ agent_config_id: string | null }>;
       expect(preRows).toHaveLength(1);
       expect(preRows[0]!.agent_config_id).toBe("cfg-x");
 
@@ -170,9 +180,11 @@ describe("Phase 6 schema columns — agent_configs.category + conversations.agen
 
       // Assert the conversation row still exists (not cascaded away) and
       // its agent_config_id is now NULL
-      const postRows = (await db.execute(sql`
+      const postRows = (
+        await db.execute(sql`
         SELECT agent_config_id FROM conversations WHERE id = 'conv-x'
-      `)).rows as Array<{ agent_config_id: string | null }>;
+      `)
+      ).rows as Array<{ agent_config_id: string | null }>;
       expect(postRows).toHaveLength(1);
       expect(postRows[0]!.agent_config_id).toBeNull();
     } finally {

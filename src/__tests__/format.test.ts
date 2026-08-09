@@ -112,10 +112,7 @@ describe("formatAgentList", () => {
   });
 
   test("pads columns to align", () => {
-    const agents = [
-      makeAgent("short", "A"),
-      makeAgent("a-much-longer-name", "B"),
-    ];
+    const agents = [makeAgent("short", "A"), makeAgent("a-much-longer-name", "B")];
     const lines = formatAgentList(agents).split("\n");
     // Both data rows should have the same position for the second column
     // The header is line 0, data rows are 1 and 2

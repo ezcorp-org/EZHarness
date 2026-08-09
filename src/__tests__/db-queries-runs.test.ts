@@ -139,8 +139,20 @@ describe("runs queries", () => {
 
   test("listRuns filters by userId (per-user IDOR scope for the list endpoint)", async () => {
     // runs.user_id FK-references users(id), so the principals must exist.
-    await createUser({ id: "user-a", email: "user-a@x.com", passwordHash: "h", name: "a", role: "member" } as any);
-    await createUser({ id: "user-b", email: "user-b@x.com", passwordHash: "h", name: "b", role: "member" } as any);
+    await createUser({
+      id: "user-a",
+      email: "user-a@x.com",
+      passwordHash: "h",
+      name: "a",
+      role: "member",
+    } as any);
+    await createUser({
+      id: "user-b",
+      email: "user-b@x.com",
+      passwordHash: "h",
+      name: "b",
+      role: "member",
+    } as any);
     const r1 = makeRun();
     const r2 = makeRun();
     const r3 = makeRun();
@@ -192,7 +204,13 @@ describe("run ownership attribution (IDOR fix)", () => {
   afterAll(async () => await closeTestDb());
 
   async function seedUser(id: string) {
-    return createUser({ id, email: `${id}@x.com`, passwordHash: "h", name: id, role: "member" } as any);
+    return createUser({
+      id,
+      email: `${id}@x.com`,
+      passwordHash: "h",
+      name: id,
+      role: "member",
+    } as any);
   }
 
   test("insertRun with explicit userId stores it; getRunOwnership reads it back", async () => {

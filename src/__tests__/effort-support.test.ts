@@ -9,10 +9,7 @@
  * true — so "we cannot tell" must never be reported as "it works".
  */
 import { test, expect, describe } from "bun:test";
-import {
-  effortIgnoredNotice,
-  modelHonoursEffort,
-} from "../runtime/routing/effort-support";
+import { effortIgnoredNotice, modelHonoursEffort } from "../runtime/routing/effort-support";
 
 describe("modelHonoursEffort", () => {
   test("a model flagged reasoning:true honours the effort", () => {

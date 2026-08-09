@@ -41,7 +41,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   if (!ownership) return errorJson(404, "Not found");
 
   if (!(await isSessionHistoryProducerEnabled())) {
-    return errorJson(409, "Session history producer is disabled", { code: "session_producer_disabled" });
+    return errorJson(409, "Session history producer is disabled", {
+      code: "session_producer_disabled",
+    });
   }
 
   // Never mutate the tree under a live run. Check the in-memory controller
@@ -55,16 +57,28 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   const parsed = rewindConversationSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return validationError(parsed.error);
 
-  const outcome = await rewindSession(conversationId, parsed.data.targetMessageId, parsed.data.summary);
+  const outcome = await rewindSession(
+    conversationId,
+    parsed.data.targetMessageId,
+    parsed.data.summary,
+  );
   if (!outcome.ok) {
-    return errorJson(400, "targetMessageId does not belong to this conversation", { code: "target_not_found" });
+    return errorJson(400, "targetMessageId does not belong to this conversation", {
+      code: "target_not_found",
+    });
   }
 
   // Best-effort nudge to other tabs/subscribers — the tree is already durable.
   try {
-    getBus().emit("conversation:tree-changed", { conversationId, currentLeaf: outcome.tree.currentLeaf });
+    getBus().emit("conversation:tree-changed", {
+      conversationId,
+      currentLeaf: outcome.tree.currentLeaf,
+    });
   } catch (err) {
-    log.warn("tree-changed emit failed (rewind already persisted)", { conversationId, error: String(err) });
+    log.warn("tree-changed emit failed (rewind already persisted)", {
+      conversationId,
+      error: String(err),
+    });
   }
 
   return json(outcome.tree);

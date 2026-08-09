@@ -34,13 +34,18 @@ import type { JsonRpcRequest } from "../extensions/types";
 
 // ── Module mocks (must precede the import-under-test) ─────────────────
 
-const mockGetConversation = mock(async (_id: string) => null as { id: string; projectId: string | null } | null);
-const mockGetMessages = mock(async (_id: string) => [] as { id: string; role: string; content: string }[]);
+const mockGetConversation = mock(
+  async (_id: string) => null as { id: string; projectId: string | null } | null,
+);
+const mockGetMessages = mock(
+  async (_id: string) => [] as { id: string; role: string; content: string }[],
+);
 const mockListToolCallsByConversation = mock(
   async (_id: string, _sinceMs?: number) => [] as { success: boolean }[],
 );
 const mockResolveExtensionSettings = mock(
-  async (_extId: string, _userId: string | null, _schema: unknown) => ({}) as Record<string, unknown>,
+  async (_extId: string, _userId: string | null, _schema: unknown) =>
+    ({}) as Record<string, unknown>,
 );
 const mockShouldDistill = mock((_input: unknown) => false);
 const mockDetectErrorRecovery = mock((_rows: unknown) => false);
@@ -82,7 +87,12 @@ afterAll(() => {
 // ── Fixtures ──────────────────────────────────────────────────────────
 
 function makeReq(method: string, params: Record<string, unknown> = {}): JsonRpcRequest {
-  return { jsonrpc: "2.0", id: 1, method: "ezcorp/invoke", params: { tool: method, arguments: params } };
+  return {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "ezcorp/invoke",
+    params: { tool: method, arguments: params },
+  };
 }
 
 function makeCtx(overrides: Partial<RuntimeInvokeContext> = {}): RuntimeInvokeContext {
@@ -650,7 +660,9 @@ describe("handleRuntimeInvoke — runtime.lessons.triggerGate run scoping", () =
     for (const bad of ["1753876800000", Number.NaN, Number.POSITIVE_INFINITY, -1, {}]) {
       const res = await gate({ runStartedAtMs: bad });
       expect(res.error?.code).toBe(-32602);
-      expect(res.error?.message).toMatch(/runstartedatms must be a non-negative finite epoch-ms number/i);
+      expect(res.error?.message).toMatch(
+        /runstartedatms must be a non-negative finite epoch-ms number/i,
+      );
     }
     expect(mockListToolCallsByConversation).not.toHaveBeenCalled();
   });
@@ -661,7 +673,9 @@ describe("handleRuntimeInvoke — runtime.lessons.triggerGate run scoping", () =
     const res = await gate(scoped);
 
     const { reason } = res.result as { reason: string };
-    expect(reason).toMatch(/^no-signal \(toolCalls=0, errorRecovery=false, userCorrection=false, tagged=false, /);
+    expect(reason).toMatch(
+      /^no-signal \(toolCalls=0, errorRecovery=false, userCorrection=false, tagged=false, /,
+    );
     expect(reason).toContain(`window=run:run-9@${new Date(RUN_STARTED_MS).toISOString()}`);
   });
 
@@ -688,7 +702,10 @@ describe("handleRuntimeInvoke — runtime.lessons.triggerGate run scoping", () =
 
 describe("handleRuntimeInvoke — runtime.settings.getMine", () => {
   test("happy path — passes ctx.extensionId/userId/schema to resolver and returns the resolved settings", async () => {
-    mockResolveExtensionSettings.mockImplementation(async () => ({ enabled: true, provider: "google" }));
+    mockResolveExtensionSettings.mockImplementation(async () => ({
+      enabled: true,
+      provider: "google",
+    }));
     const ctx = makeCtx({
       extensionId: "ext-caller",
       userId: "u1",
@@ -707,11 +724,9 @@ describe("handleRuntimeInvoke — runtime.settings.getMine", () => {
     // value pulled from caller-supplied args. This is what makes
     // `settings.getMine` structurally immune to the [C1]/[C2] family
     // of bugs — the auth identity comes from the host, not the wire.
-    expect(mockResolveExtensionSettings).toHaveBeenCalledWith(
-      "ext-caller",
-      "u1",
-      { enabled: { type: "boolean", default: true } },
-    );
+    expect(mockResolveExtensionSettings).toHaveBeenCalledWith("ext-caller", "u1", {
+      enabled: { type: "boolean", default: true },
+    });
   });
 
   test("resolveExtensionSettings throws → -32603", async () => {

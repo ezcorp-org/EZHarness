@@ -97,15 +97,9 @@ describe("snakeCaseToolSegment", () => {
   });
 
   test("throws on empty result", () => {
-    expect(() => snakeCaseToolSegment("")).toThrow(
-      /Cannot derive tool name/,
-    );
-    expect(() => snakeCaseToolSegment("   ")).toThrow(
-      /Cannot derive tool name/,
-    );
-    expect(() => snakeCaseToolSegment("!@#$")).toThrow(
-      /Cannot derive tool name/,
-    );
+    expect(() => snakeCaseToolSegment("")).toThrow(/Cannot derive tool name/);
+    expect(() => snakeCaseToolSegment("   ")).toThrow(/Cannot derive tool name/);
+    expect(() => snakeCaseToolSegment("!@#$")).toThrow(/Cannot derive tool name/);
   });
 });
 
@@ -123,15 +117,11 @@ describe("assertValidToolName", () => {
   });
 
   test("throws when the name contains an illegal character", () => {
-    expect(() => assertValidToolName("create", "create-post")).toThrow(
-      /is not a valid tool name/,
-    );
+    expect(() => assertValidToolName("create", "create-post")).toThrow(/is not a valid tool name/);
   });
 
   test("throws on an empty name", () => {
-    expect(() => assertValidToolName("delete", "")).toThrow(
-      /is not a valid tool name/,
-    );
+    expect(() => assertValidToolName("delete", "")).toThrow(/is not a valid tool name/);
   });
 });
 
@@ -341,9 +331,7 @@ describe("get handler", () => {
     const { get } = buildEntityToolHandlers(POST_TYPE_DECL, store);
     const res = await get({ slug: "ghost" });
     expect(res.isError).toBe(true);
-    expect((res as ToolCallResult & { code?: string }).code).toBe(
-      "NOT_FOUND",
-    );
+    expect((res as ToolCallResult & { code?: string }).code).toBe("NOT_FOUND");
   });
 
   test("non-string slug rejected before storage", async () => {
@@ -444,9 +432,7 @@ describe("create handler", () => {
       data: { name: "Other", systemPrompt: "y" },
     });
     expect(res.isError).toBe(true);
-    expect((res as ToolCallResult & { code?: string }).code).toBe(
-      "ALREADY_EXISTS",
-    );
+    expect((res as ToolCallResult & { code?: string }).code).toBe("ALREADY_EXISTS");
   });
 
   test("dup slug detected via direct record read when index is empty", async () => {
@@ -459,9 +445,7 @@ describe("create handler", () => {
       data: { name: "Other", systemPrompt: "y" },
     });
     expect(res.isError).toBe(true);
-    expect((res as ToolCallResult & { code?: string }).code).toBe(
-      "ALREADY_EXISTS",
-    );
+    expect((res as ToolCallResult & { code?: string }).code).toBe("ALREADY_EXISTS");
   });
 
   test("validation failure → VALIDATION_FAILED", async () => {
@@ -472,9 +456,7 @@ describe("create handler", () => {
       data: { name: "Weekly" }, // missing systemPrompt
     });
     expect(res.isError).toBe(true);
-    expect((res as ToolCallResult & { code?: string }).code).toBe(
-      "VALIDATION_FAILED",
-    );
+    expect((res as ToolCallResult & { code?: string }).code).toBe("VALIDATION_FAILED");
     expect(res.content[0]?.text).toContain("systemPrompt");
   });
 
@@ -562,9 +544,7 @@ describe("update handler", () => {
       patch: { slug: "renamed" },
     });
     expect(res.isError).toBe(true);
-    expect((res as ToolCallResult & { code?: string }).code).toBe(
-      "SLUG_IMMUTABLE",
-    );
+    expect((res as ToolCallResult & { code?: string }).code).toBe("SLUG_IMMUTABLE");
   });
 
   test("missing slug → NOT_FOUND", async () => {
@@ -572,9 +552,7 @@ describe("update handler", () => {
     const { update } = buildEntityToolHandlers(POST_TYPE_DECL, store);
     const res = await update({ slug: "ghost", patch: { name: "x" } });
     expect(res.isError).toBe(true);
-    expect((res as ToolCallResult & { code?: string }).code).toBe(
-      "NOT_FOUND",
-    );
+    expect((res as ToolCallResult & { code?: string }).code).toBe("NOT_FOUND");
   });
 
   test("invalid patch (validation fails on merged result)", async () => {
@@ -588,9 +566,7 @@ describe("update handler", () => {
       patch: { cadence: "biweekly" }, // not in enum
     });
     expect(res.isError).toBe(true);
-    expect((res as ToolCallResult & { code?: string }).code).toBe(
-      "VALIDATION_FAILED",
-    );
+    expect((res as ToolCallResult & { code?: string }).code).toBe("VALIDATION_FAILED");
   });
 
   test("non-object patch", async () => {
@@ -695,10 +671,7 @@ describe("delete handler", () => {
         return { deleted: false };
       },
     };
-    const { delete: del } = buildEntityToolHandlers(
-      POST_TYPE_DECL,
-      failingStore,
-    );
+    const { delete: del } = buildEntityToolHandlers(POST_TYPE_DECL, failingStore);
     const res = await del({ slug: "weekly" });
     expect(res.isError).toBe(true);
     expect(res.content[0]?.text).toContain("storage offline");

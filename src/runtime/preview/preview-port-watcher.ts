@@ -163,7 +163,10 @@ export class PreviewPortWatcher {
     this.source = options.source;
     this.onDetected = options.onDetected;
     this.wakeIntervalMs = Math.max(MIN_POLL_MS, options.wakeIntervalMs ?? getPollIntervalMs());
-    this.stabilizeTicks = Math.max(MIN_STABILIZE_TICKS, options.stabilizeTicks ?? DEFAULT_STABILIZE_TICKS);
+    this.stabilizeTicks = Math.max(
+      MIN_STABILIZE_TICKS,
+      options.stabilizeTicks ?? DEFAULT_STABILIZE_TICKS,
+    );
     this.infraPorts = new Set<number>([...DEFAULT_INFRA_PORTS, ...(options.infraPorts ?? [])]);
     this.skipLockfile = options.skipLockfile ?? false;
     this.lockfilePath = options.lockfilePath ?? DEFAULT_LOCKFILE_PATH;

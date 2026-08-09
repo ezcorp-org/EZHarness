@@ -15,22 +15,19 @@ import "@testing-library/jest-dom/vitest";
 import { render, fireEvent, waitFor } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach } from "vitest";
 
-const {
-  browseMarketplaceMock,
-  fetchMarketplaceCategoriesMock,
-  importManifestMock,
-} = vi.hoisted(() => ({
-  browseMarketplaceMock: vi.fn(),
-  fetchMarketplaceCategoriesMock: vi.fn(),
-  importManifestMock: vi.fn(),
-}));
+const { browseMarketplaceMock, fetchMarketplaceCategoriesMock, importManifestMock } = vi.hoisted(
+  () => ({
+    browseMarketplaceMock: vi.fn(),
+    fetchMarketplaceCategoriesMock: vi.fn(),
+    importManifestMock: vi.fn(),
+  }),
+);
 
 vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
 
 vi.mock("$lib/api.js", () => ({
   browseMarketplace: (...args: unknown[]) => browseMarketplaceMock(...args),
-  fetchMarketplaceCategories: (...args: unknown[]) =>
-    fetchMarketplaceCategoriesMock(...args),
+  fetchMarketplaceCategories: (...args: unknown[]) => fetchMarketplaceCategoriesMock(...args),
   importManifest: (...args: unknown[]) => importManifestMock(...args),
 }));
 
@@ -162,9 +159,7 @@ describe("/marketplace — Phase 49.3 tag sidebar", () => {
 
     // Now type into the search box. The page debounces (300ms) before
     // calling browseMarketplace; wait for the debounce to flush.
-    const searchInput = (await findByPlaceholderText(
-      "Search agents...",
-    )) as HTMLInputElement;
+    const searchInput = (await findByPlaceholderText("Search agents...")) as HTMLInputElement;
     await fireEvent.input(searchInput, { target: { value: "foo" } });
 
     await waitFor(

@@ -41,301 +41,275 @@ const conv = makeConversation({ id: "conv-1", projectId: "proj-1" });
  * different surface with its own spec.
  */
 function thread(page: Page) {
-	return page.getByTestId("chat-messages-container");
+  return page.getByTestId("chat-messages-container");
 }
 
 test.describe("Main-chat parity baseline (Phase 0 pin)", () => {
-	test("branched tree renders the latest sibling branch by default @evidence", async ({
-		page,
-		mockApi,
-	}, testInfo) => {
-		// u1 has two assistant children; the newer (a1b) branch is default.
-		const u1 = makeMessage({
-			id: "u1",
-			conversationId: "conv-1",
-			role: "user",
-			content: "Question one",
-			parentMessageId: null,
-			createdAt: "2026-01-01T00:00:01.000Z",
-		});
-		const a1 = makeMessage({
-			id: "a1",
-			conversationId: "conv-1",
-			role: "assistant",
-			content: "Older answer A",
-			parentMessageId: "u1",
-			createdAt: "2026-01-01T00:00:02.000Z",
-		});
-		const a1b = makeMessage({
-			id: "a1b",
-			conversationId: "conv-1",
-			role: "assistant",
-			content: "Newer answer B",
-			parentMessageId: "u1",
-			createdAt: "2026-01-01T00:00:03.000Z",
-		});
+  test("branched tree renders the latest sibling branch by default @evidence", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    // u1 has two assistant children; the newer (a1b) branch is default.
+    const u1 = makeMessage({
+      id: "u1",
+      conversationId: "conv-1",
+      role: "user",
+      content: "Question one",
+      parentMessageId: null,
+      createdAt: "2026-01-01T00:00:01.000Z",
+    });
+    const a1 = makeMessage({
+      id: "a1",
+      conversationId: "conv-1",
+      role: "assistant",
+      content: "Older answer A",
+      parentMessageId: "u1",
+      createdAt: "2026-01-01T00:00:02.000Z",
+    });
+    const a1b = makeMessage({
+      id: "a1b",
+      conversationId: "conv-1",
+      role: "assistant",
+      content: "Newer answer B",
+      parentMessageId: "u1",
+      createdAt: "2026-01-01T00:00:03.000Z",
+    });
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [u1, a1, a1b],
-		});
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [u1, a1, a1b],
+    });
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		// Default leaf walk lands on the newest sibling branch.
-		await expect(page.getByText("Newer answer B")).toBeVisible();
-		await expect(page.getByText("Older answer A")).not.toBeVisible();
-		await expect(page.getByText("Question one")).toBeVisible();
+    // Default leaf walk lands on the newest sibling branch.
+    await expect(page.getByText("Newer answer B")).toBeVisible();
+    await expect(page.getByText("Older answer A")).not.toBeVisible();
+    await expect(page.getByText("Question one")).toBeVisible();
 
-		// The whole thread, rendered: user + assistant bubbles, the branch
-		// switcher, and the composer beneath them.
-		await captureEvidence(page, testInfo, "chat-thread-branched-render");
-	});
+    // The whole thread, rendered: user + assistant bubbles, the branch
+    // switcher, and the composer beneath them.
+    await captureEvidence(page, testInfo, "chat-thread-branched-render");
+  });
 
-	test("send message renders the user turn (optimistic → server)", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-		});
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		// NB: the empty-state text is in the SSR payload, so it is NOT a
-		// readiness signal — sendComposerMessage owns the real wait.
-		await expect(
-			page.getByText("Send a message to start the conversation"),
-		).toBeVisible();
+  test("send message renders the user turn (optimistic → server)", async ({ page, mockApi }) => {
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [],
+    });
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+    // NB: the empty-state text is in the SSR payload, so it is NOT a
+    // readiness signal — sendComposerMessage owns the real wait.
+    await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		await sendComposerMessage(page, "Pinned hello");
+    await sendComposerMessage(page, "Pinned hello");
 
-		await expect(thread(page).getByText("Pinned hello")).toBeVisible({
-			timeout: 5000,
-		});
-	});
+    await expect(thread(page).getByText("Pinned hello")).toBeVisible({
+      timeout: 5000,
+    });
+  });
 
-	test("active WS run binds the streaming UI (stop control appears) @evidence", async ({
-		page,
-		mockApi,
-		emitWs,
-	}, testInfo) => {
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-		});
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await expect(
-			page.getByText("Send a message to start the conversation"),
-		).toBeVisible();
+  test("active WS run binds the streaming UI (stop control appears) @evidence", async ({
+    page,
+    mockApi,
+    emitWs,
+  }, testInfo) => {
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [],
+    });
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+    await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		await sendComposerMessage(page, "Stream please");
+    await sendComposerMessage(page, "Stream please");
 
-		// Wait for the user turn so the POST has resolved and the page has
-		// called startStreaming("run-stream", convId) for the assistant
-		// placeholder it just appended.
-		await expect(thread(page).getByText("Stream please")).toBeVisible({
-			timeout: 5000,
-		});
+    // Wait for the user turn so the POST has resolved and the page has
+    // called startStreaming("run-stream", convId) for the assistant
+    // placeholder it just appended.
+    await expect(thread(page).getByText("Stream please")).toBeVisible({
+      timeout: 5000,
+    });
 
-		// The messages POST mock returns runId "run-stream". Emitting a
-		// token on that run flips the page's `isStreaming` $derived
-		// (keyed on `store.streamingMessages[runId]`) which is the
-		// runId↔conversation binding contract the Phase-3/4 extraction
-		// must preserve. We assert via the Stop control (NOT the token
-		// text) so this pin is independent of the markdown render path
-		// — that path is mid-refactor in unrelated uncommitted WIP and
-		// is intentionally out of scope for this baseline.
-		await emitWs({
-			type: "run:token",
-			data: { runId: "run-stream", token: "streaming…" },
-		});
+    // The messages POST mock returns runId "run-stream". Emitting a
+    // token on that run flips the page's `isStreaming` $derived
+    // (keyed on `store.streamingMessages[runId]`) which is the
+    // runId↔conversation binding contract the Phase-3/4 extraction
+    // must preserve. We assert via the Stop control (NOT the token
+    // text) so this pin is independent of the markdown render path
+    // — that path is mid-refactor in unrelated uncommitted WIP and
+    // is intentionally out of scope for this baseline.
+    await emitWs({
+      type: "run:token",
+      data: { runId: "run-stream", token: "streaming…" },
+    });
 
-		await expect(
-			page.getByRole("button", { name: /stop/i }),
-		).toBeVisible({ timeout: 8000 });
+    await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({ timeout: 8000 });
 
-		// The thread's streaming state: the pending-turn skeleton +
-		// "Thinking…" placeholder and the Stop control the streaming
-		// binding drives. (Rendered token text is a separate surface —
-		// this shot is the pre-first-token state.)
-		await captureEvidence(page, testInfo, "chat-thread-streaming");
-	});
+    // The thread's streaming state: the pending-turn skeleton +
+    // "Thinking…" placeholder and the Stop control the streaming
+    // binding drives. (Rendered token text is a separate surface —
+    // this shot is the pre-first-token state.)
+    await captureEvidence(page, testInfo, "chat-thread-streaming");
+  });
 
-	test("assistant turn exposes regenerate; user turn exposes edit", async ({
-		page,
-		mockApi,
-	}) => {
-		const userMsg = makeMessage({
-			id: "m1",
-			conversationId: "conv-1",
-			role: "user",
-			content: "Edit me",
-		});
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-1",
-			role: "assistant",
-			content: "Regenerate me",
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
+  test("assistant turn exposes regenerate; user turn exposes edit", async ({ page, mockApi }) => {
+    const userMsg = makeMessage({
+      id: "m1",
+      conversationId: "conv-1",
+      role: "user",
+      content: "Edit me",
+    });
+    const assistantMsg = makeMessage({
+      id: "m2",
+      conversationId: "conv-1",
+      role: "assistant",
+      content: "Regenerate me",
+      parentMessageId: "m1",
+      createdAt: "2026-01-01T00:01:00.000Z",
+    });
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [userMsg, assistantMsg],
-		});
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [userMsg, assistantMsg],
+    });
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		await expect(page.getByText("Regenerate me")).toBeVisible();
+    await expect(page.getByText("Regenerate me")).toBeVisible();
 
-		// Hover the assistant bubble → Regenerate toolbar action present.
-		await page.getByText("Regenerate me").locator("..").hover();
-		await expect(
-			page.getByRole("button", { name: "Regenerate response" }).first(),
-		).toBeVisible();
+    // Hover the assistant bubble → Regenerate toolbar action present.
+    await page.getByText("Regenerate me").locator("..").hover();
+    await expect(page.getByRole("button", { name: "Regenerate response" }).first()).toBeVisible();
 
-		// Hover the user bubble → Edit toolbar action present.
-		await page.getByText("Edit me").locator("..").hover();
-		await expect(
-			page.getByRole("button", { name: "Edit message" }).first(),
-		).toBeVisible();
-	});
+    // Hover the user bubble → Edit toolbar action present.
+    await page.getByText("Edit me").locator("..").hover();
+    await expect(page.getByRole("button", { name: "Edit message" }).first()).toBeVisible();
+  });
 
-	test("edit-text (no-regenerate) action is available on a saved turn", async ({
-		page,
-		mockApi,
-	}) => {
-		const userMsg = makeMessage({
-			id: "m1",
-			conversationId: "conv-1",
-			role: "user",
-			content: "Saved user text",
-		});
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-1",
-			role: "assistant",
-			content: "Saved assistant text",
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
+  test("edit-text (no-regenerate) action is available on a saved turn", async ({
+    page,
+    mockApi,
+  }) => {
+    const userMsg = makeMessage({
+      id: "m1",
+      conversationId: "conv-1",
+      role: "user",
+      content: "Saved user text",
+    });
+    const assistantMsg = makeMessage({
+      id: "m2",
+      conversationId: "conv-1",
+      role: "assistant",
+      content: "Saved assistant text",
+      parentMessageId: "m1",
+      createdAt: "2026-01-01T00:01:00.000Z",
+    });
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [userMsg, assistantMsg],
-		});
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [userMsg, assistantMsg],
+    });
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		await expect(page.getByText("Saved assistant text")).toBeVisible();
-		await page.getByText("Saved assistant text").locator("..").hover();
-		// edit-text-btn is the page's `data-testid` for the "Edit saved
-		// text (no regenerate)" toolbar action.
-		await expect(
-			page.getByTestId("edit-text-btn").first(),
-		).toBeVisible();
-	});
+    await expect(page.getByText("Saved assistant text")).toBeVisible();
+    await page.getByText("Saved assistant text").locator("..").hover();
+    // edit-text-btn is the page's `data-testid` for the "Edit saved
+    // text (no regenerate)" toolbar action.
+    await expect(page.getByTestId("edit-text-btn").first()).toBeVisible();
+  });
 
-	test("URL leaf param survives a reload (branch deep-link)", async ({
-		page,
-		mockApi,
-	}) => {
-		const u1 = makeMessage({
-			id: "u1",
-			conversationId: "conv-1",
-			role: "user",
-			content: "Deep-link question",
-			parentMessageId: null,
-			createdAt: "2026-01-01T00:00:01.000Z",
-		});
-		const a1 = makeMessage({
-			id: "a1",
-			conversationId: "conv-1",
-			role: "assistant",
-			content: "Deep-link branch A",
-			parentMessageId: "u1",
-			createdAt: "2026-01-01T00:00:02.000Z",
-		});
-		const a1b = makeMessage({
-			id: "a1b",
-			conversationId: "conv-1",
-			role: "assistant",
-			content: "Deep-link branch B",
-			parentMessageId: "u1",
-			createdAt: "2026-01-01T00:00:03.000Z",
-		});
+  test("URL leaf param survives a reload (branch deep-link)", async ({ page, mockApi }) => {
+    const u1 = makeMessage({
+      id: "u1",
+      conversationId: "conv-1",
+      role: "user",
+      content: "Deep-link question",
+      parentMessageId: null,
+      createdAt: "2026-01-01T00:00:01.000Z",
+    });
+    const a1 = makeMessage({
+      id: "a1",
+      conversationId: "conv-1",
+      role: "assistant",
+      content: "Deep-link branch A",
+      parentMessageId: "u1",
+      createdAt: "2026-01-01T00:00:02.000Z",
+    });
+    const a1b = makeMessage({
+      id: "a1b",
+      conversationId: "conv-1",
+      role: "assistant",
+      content: "Deep-link branch B",
+      parentMessageId: "u1",
+      createdAt: "2026-01-01T00:00:03.000Z",
+    });
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [u1, a1, a1b],
-		});
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [u1, a1, a1b],
+    });
 
-		// Deep-link straight to the OLDER branch via ?leafMessageId — the
-		// page's leaf param drives `getConversationPath(leaf)`.
-		await page.goto(
-			`/project/${proj.id}/chat/${conv.id}?leafMessageId=a1`,
-		);
-		await expect(page.getByText("Deep-link question")).toBeVisible();
+    // Deep-link straight to the OLDER branch via ?leafMessageId — the
+    // page's leaf param drives `getConversationPath(leaf)`.
+    await page.goto(`/project/${proj.id}/chat/${conv.id}?leafMessageId=a1`);
+    await expect(page.getByText("Deep-link question")).toBeVisible();
 
-		// Reload — the deep-linked conversation still resolves (the page
-		// must not crash / lose the conversation on the leaf param).
-		await page.reload();
-		await expect(page.getByText("Deep-link question")).toBeVisible();
-	});
+    // Reload — the deep-linked conversation still resolves (the page
+    // must not crash / lose the conversation on the leaf param).
+    await page.reload();
+    await expect(page.getByText("Deep-link question")).toBeVisible();
+  });
 
-	test("select-mode entry surfaces a bulk action bar", async ({
-		page,
-		mockApi,
-	}) => {
-		const userMsg = makeMessage({
-			id: "m1",
-			conversationId: "conv-1",
-			role: "user",
-			content: "Selectable one",
-		});
-		const assistantMsg = makeMessage({
-			id: "m2",
-			conversationId: "conv-1",
-			role: "assistant",
-			content: "Selectable two",
-			parentMessageId: "m1",
-			createdAt: "2026-01-01T00:01:00.000Z",
-		});
+  test("select-mode entry surfaces a bulk action bar", async ({ page, mockApi }) => {
+    const userMsg = makeMessage({
+      id: "m1",
+      conversationId: "conv-1",
+      role: "user",
+      content: "Selectable one",
+    });
+    const assistantMsg = makeMessage({
+      id: "m2",
+      conversationId: "conv-1",
+      role: "assistant",
+      content: "Selectable two",
+      parentMessageId: "m1",
+      createdAt: "2026-01-01T00:01:00.000Z",
+    });
 
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [userMsg, assistantMsg],
-		});
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await expect(page.getByText("Selectable one")).toBeVisible();
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [userMsg, assistantMsg],
+    });
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+    await expect(page.getByText("Selectable one")).toBeVisible();
 
-		// NEGATIVE CONTROL first: without it the positive assertion below
-		// cannot distinguish "select-mode engaged" from "the bar was
-		// always there".
-		await expect(page.getByTestId("select-action-bar")).toHaveCount(0);
+    // NEGATIVE CONTROL first: without it the positive assertion below
+    // cannot distinguish "select-mode engaged" from "the bar was
+    // always there".
+    await expect(page.getByTestId("select-action-bar")).toHaveCount(0);
 
-		// Long-press the message ROW to enter select-mode (the page's
-		// long-press → useSelectMode.toggleSelectMode trigger). It has to
-		// be a TOUCH-typed pointer: `use:longPress` excludes mouse by
-		// default, so the old `page.mouse.down()` hold never armed the
-		// action's timer and this case entered select-mode zero times.
-		await longPressTouch(page.locator('[data-message-id="m1"]'));
+    // Long-press the message ROW to enter select-mode (the page's
+    // long-press → useSelectMode.toggleSelectMode trigger). It has to
+    // be a TOUCH-typed pointer: `use:longPress` excludes mouse by
+    // default, so the old `page.mouse.down()` hold never armed the
+    // action's timer and this case entered select-mode zero times.
+    await longPressTouch(page.locator('[data-message-id="m1"]'));
 
-		// Select-mode is active → SelectModeActionBar replaces the
-		// composer, reporting exactly the one pressed turn. Pinned by
-		// testid: the previous `getByText(/selected|Cancel|Select/i)`
-		// matched the FIXTURE's own "Selectable one" bubble (unanchored
-		// `/Select/i`), which the assertion four lines up had already
-		// proven visible — so it passed with select-mode deleted.
-		await expect(page.getByTestId("select-action-bar")).toBeVisible({
-			timeout: 5000,
-		});
-		await expect(page.getByTestId("selected-count")).toHaveText("1");
-		await expect(page.getByTestId("select-checkbox-m1")).toBeVisible();
-	});
+    // Select-mode is active → SelectModeActionBar replaces the
+    // composer, reporting exactly the one pressed turn. Pinned by
+    // testid: the previous `getByText(/selected|Cancel|Select/i)`
+    // matched the FIXTURE's own "Selectable one" bubble (unanchored
+    // `/Select/i`), which the assertion four lines up had already
+    // proven visible — so it passed with select-mode deleted.
+    await expect(page.getByTestId("select-action-bar")).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.getByTestId("selected-count")).toHaveText("1");
+    await expect(page.getByTestId("select-checkbox-m1")).toBeVisible();
+  });
 });

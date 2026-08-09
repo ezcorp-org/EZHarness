@@ -16,7 +16,9 @@ afterEach(() => {
   globalThis.fetch = originalFetch;
 });
 
-function mockToolsResponse(tools: Array<{ name: string; description: string; extension: string; extensionType?: string }>) {
+function mockToolsResponse(
+  tools: Array<{ name: string; description: string; extension: string; extensionType?: string }>,
+) {
   return new Response(JSON.stringify({ tools, count: tools.length }), {
     status: 200,
     headers: { "Content-Type": "application/json" },
@@ -24,9 +26,27 @@ function mockToolsResponse(tools: Array<{ name: string; description: string; ext
 }
 
 const sampleTools = [
-  { name: "scan", description: "Scan code", extension: "analyzer", extensionType: "extension", tokenEstimate: 25 },
-  { name: "lint", description: "Lint files", extension: "analyzer", extensionType: "extension", tokenEstimate: 22 },
-  { name: "summarize", description: "Summarize text", extension: "markdown-utils", extensionType: "mcp", tokenEstimate: 30 },
+  {
+    name: "scan",
+    description: "Scan code",
+    extension: "analyzer",
+    extensionType: "extension",
+    tokenEstimate: 25,
+  },
+  {
+    name: "lint",
+    description: "Lint files",
+    extension: "analyzer",
+    extensionType: "extension",
+    tokenEstimate: 22,
+  },
+  {
+    name: "summarize",
+    description: "Summarize text",
+    extension: "markdown-utils",
+    extensionType: "mcp",
+    tokenEstimate: 30,
+  },
 ];
 
 describe("GET /api/tools contract", () => {
@@ -86,7 +106,9 @@ describe("GET /api/tools contract", () => {
 });
 
 describe("tools grouping by extension (client-side logic)", () => {
-  function groupByExtension(tools: Array<{ name: string; description: string; extension: string }>) {
+  function groupByExtension(
+    tools: Array<{ name: string; description: string; extension: string }>,
+  ) {
     return tools.reduce((map, t) => {
       const arr = map.get(t.extension) ?? [];
       arr.push(t);

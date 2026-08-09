@@ -24,10 +24,10 @@ export const DEFAULT_SORT_MODE: ExtensionSortMode = "name-asc";
  * intentional (typographic dash, not a hyphen).
  */
 export const SORT_OPTIONS: ReadonlyArray<{ value: ExtensionSortMode; label: string }> = [
-	{ value: "name-asc", label: "Name (A–Z)" },
-	{ value: "name-desc", label: "Name (Z–A)" },
-	{ value: "recent", label: "Recently updated" },
-	{ value: "oldest", label: "Oldest first" },
+  { value: "name-asc", label: "Name (A–Z)" },
+  { value: "name-desc", label: "Name (Z–A)" },
+  { value: "recent", label: "Recently updated" },
+  { value: "oldest", label: "Oldest first" },
 ] as const;
 
 /**
@@ -35,9 +35,9 @@ export const SORT_OPTIONS: ReadonlyArray<{ value: ExtensionSortMode; label: stri
  * far more, but the comparator only reads `name` + the two timestamps.
  */
 export interface SortableExtension {
-	name: string;
-	createdAt?: string | Date | null;
-	updatedAt?: string | Date | null;
+  name: string;
+  createdAt?: string | Date | null;
+  updatedAt?: string | Date | null;
 }
 
 /**
@@ -47,14 +47,14 @@ export interface SortableExtension {
  * matching how an undated row should rank.
  */
 function toMillis(value: string | Date | null | undefined): number {
-	if (value === null || value === undefined) return 0;
-	const ms = new Date(value).getTime();
-	return Number.isNaN(ms) ? 0 : ms;
+  if (value === null || value === undefined) return 0;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? 0 : ms;
 }
 
 /** Case-insensitive name compare (A–Z). */
 function compareName(a: SortableExtension, b: SortableExtension): number {
-	return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+  return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
 }
 
 /**
@@ -62,26 +62,26 @@ function compareName(a: SortableExtension, b: SortableExtension): number {
  * modes tie-break by name A–Z so equal/undated rows have a stable order.
  */
 export function sortExtensions<T extends SortableExtension>(
-	list: readonly T[],
-	mode: ExtensionSortMode,
+  list: readonly T[],
+  mode: ExtensionSortMode,
 ): T[] {
-	const copy = [...list];
-	switch (mode) {
-		case "name-desc":
-			return copy.sort((a, b) => compareName(b, a));
-		case "recent":
-			return copy.sort(
-				(a, b) => toMillis(b.updatedAt) - toMillis(a.updatedAt) || compareName(a, b),
-			);
-		case "oldest":
-			return copy.sort(
-				(a, b) => toMillis(a.createdAt) - toMillis(b.createdAt) || compareName(a, b),
-			);
-		// "name-asc" (the default) and any unexpected value both fall through
-		// to the case-insensitive A–Z sort. Kept as the `default` branch so
-		// biome's no-useless-switch-case rule stays clean and there are no
-		// unreachable lines.
-		default:
-			return copy.sort(compareName);
-	}
+  const copy = [...list];
+  switch (mode) {
+    case "name-desc":
+      return copy.sort((a, b) => compareName(b, a));
+    case "recent":
+      return copy.sort(
+        (a, b) => toMillis(b.updatedAt) - toMillis(a.updatedAt) || compareName(a, b),
+      );
+    case "oldest":
+      return copy.sort(
+        (a, b) => toMillis(a.createdAt) - toMillis(b.createdAt) || compareName(a, b),
+      );
+    // "name-asc" (the default) and any unexpected value both fall through
+    // to the case-insensitive A–Z sort. Kept as the `default` branch so
+    // biome's no-useless-switch-case rule stays clean and there are no
+    // unreachable lines.
+    default:
+      return copy.sort(compareName);
+  }
 }

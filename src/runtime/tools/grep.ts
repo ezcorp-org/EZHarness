@@ -1,6 +1,6 @@
 import { Type } from "@earendil-works/pi-ai";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef  } from "./types";
+import type { BuiltinToolDef } from "./types";
 import { getToolOutputLimit, truncateText } from "./output-limits";
 import type { ToolParams } from "./validate";
 
@@ -52,10 +52,7 @@ export type SearchBackend = "rg" | "grep";
  * unit-testable: callers pass the resolved `rg` path so this never touches
  * the filesystem.
  */
-export function resolveBackend(
-  rgPath: string | null,
-  override: string | undefined,
-): SearchBackend {
+export function resolveBackend(rgPath: string | null, override: string | undefined): SearchBackend {
   if (override === "grep") return "grep";
   if (override === "rg") return "rg";
   return rgPath ? "rg" : "grep";
@@ -165,12 +162,32 @@ export function createGrepTool(projectPath: string): BuiltinToolDef {
       type: "object",
       properties: {
         pattern: { type: "string", description: "Search pattern (regex)" },
-        path: { type: "string", description: "Relative path to search in (default: project root)", default: "." },
+        path: {
+          type: "string",
+          description: "Relative path to search in (default: project root)",
+          default: ".",
+        },
         include: { type: "string", description: "Glob pattern to filter files (e.g. '*.ts')" },
-        caseSensitive: { type: "boolean", description: "Case sensitive search (default: true)", default: true },
-        contextLines: { type: "number", description: "Lines of context around matches (0-5, default: 0)", default: 0 },
-        maxResults: { type: "number", description: "Maximum matches per file (default: 100)", default: 100 },
-        noIgnore: { type: "boolean", description: "Also search .gitignored files (node_modules, build output). Default: false", default: false },
+        caseSensitive: {
+          type: "boolean",
+          description: "Case sensitive search (default: true)",
+          default: true,
+        },
+        contextLines: {
+          type: "number",
+          description: "Lines of context around matches (0-5, default: 0)",
+          default: 0,
+        },
+        maxResults: {
+          type: "number",
+          description: "Maximum matches per file (default: 100)",
+          default: 100,
+        },
+        noIgnore: {
+          type: "boolean",
+          description: "Also search .gitignored files (node_modules, build output). Default: false",
+          default: false,
+        },
       },
       required: ["pattern"],
     }),
@@ -272,7 +289,9 @@ export function createGrepTool(projectPath: string): BuiltinToolDef {
         };
       } catch (e) {
         return {
-          content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }],
+          content: [
+            { type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` },
+          ],
           details: { isError: true, matchCount: 0 },
         };
       }

@@ -55,9 +55,7 @@ export class ObservabilityCollector {
             // Present only for a workflow tool step — this is the run the
             // call belongs to, and the reason the row no longer has to
             // lie about having a conversation.
-            ...(scope.workflowRunId !== null
-              ? { workflowRunId: scope.workflowRunId }
-              : {}),
+            ...(scope.workflowRunId !== null ? { workflowRunId: scope.workflowRunId } : {}),
           },
           durationMs: data.duration,
         }).catch((err) => log.error("Failed to persist tool:complete", { error: String(err) }));
@@ -73,9 +71,7 @@ export class ObservabilityCollector {
             extensionId: data.extensionId,
             error: data.error,
             duration: data.duration,
-            ...(scope.workflowRunId !== null
-              ? { workflowRunId: scope.workflowRunId }
-              : {}),
+            ...(scope.workflowRunId !== null ? { workflowRunId: scope.workflowRunId } : {}),
           },
           durationMs: data.duration,
         }).catch((err) => log.error("Failed to persist tool:error", { error: String(err) }));

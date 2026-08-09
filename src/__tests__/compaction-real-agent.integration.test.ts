@@ -147,7 +147,14 @@ function buildRealAgent(piModel: any, history: any[], agentTools: any[] = []) {
     resolved: { provider: MOCK_PROVIDER, model: piModel.id, piModel },
     initialCred: { type: "apikey", token: "no-key-needed" },
   } as any;
-  return buildPiAgent(ctx, history, { compaction: COMPACTION, thinkingLevel: "off" } as any, resolvedModel, "conv-real", "conv-real");
+  return buildPiAgent(
+    ctx,
+    history,
+    { compaction: COMPACTION, thinkingLevel: "off" } as any,
+    resolvedModel,
+    "conv-real",
+    "conv-real",
+  );
 }
 
 /**
@@ -159,13 +166,17 @@ function buildRealAgent(piModel: any, history: any[], agentTools: any[] = []) {
 function contentText(content: unknown): string {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    return content.map((p) => (p && (p as any).type === "text" ? String((p as any).text ?? "") : "")).join("");
+    return content
+      .map((p) => (p && (p as any).type === "text" ? String((p as any).text ?? "") : ""))
+      .join("");
   }
   return "";
 }
 
 function hasMarker(req: RecordedRequest): boolean {
-  return req.messages.some((m) => m.role === "user" && contentText(m.content).startsWith(MARKER_PREFIX));
+  return req.messages.some(
+    (m) => m.role === "user" && contentText(m.content).startsWith(MARKER_PREFIX),
+  );
 }
 
 function userTexts(req: RecordedRequest): string[] {

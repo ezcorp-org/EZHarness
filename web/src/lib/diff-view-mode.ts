@@ -25,12 +25,12 @@ export const DEFAULT_DIFF_VIEW_MODE: DiffViewMode = "side-by-side";
 const VALID_MODES: readonly DiffViewMode[] = ["side-by-side", "line-by-line"];
 
 function isDiffViewMode(value: unknown): value is DiffViewMode {
-	return typeof value === "string" && (VALID_MODES as readonly string[]).includes(value);
+  return typeof value === "string" && (VALID_MODES as readonly string[]).includes(value);
 }
 
 /** True when the mode is the unified (single-column) view. */
 export function isUnified(mode: DiffViewMode): boolean {
-	return mode === "line-by-line";
+  return mode === "line-by-line";
 }
 
 /**
@@ -40,13 +40,13 @@ export function isUnified(mode: DiffViewMode): boolean {
  * `loadSearchMode` in `search-mode.ts`.
  */
 export function loadDiffViewMode(): DiffViewMode {
-	if (typeof localStorage === "undefined") return DEFAULT_DIFF_VIEW_MODE;
-	try {
-		const raw = localStorage.getItem(DIFF_VIEW_MODE_KEY);
-		return isDiffViewMode(raw) ? raw : DEFAULT_DIFF_VIEW_MODE;
-	} catch {
-		return DEFAULT_DIFF_VIEW_MODE;
-	}
+  if (typeof localStorage === "undefined") return DEFAULT_DIFF_VIEW_MODE;
+  try {
+    const raw = localStorage.getItem(DIFF_VIEW_MODE_KEY);
+    return isDiffViewMode(raw) ? raw : DEFAULT_DIFF_VIEW_MODE;
+  } catch {
+    return DEFAULT_DIFF_VIEW_MODE;
+  }
 }
 
 /**
@@ -54,10 +54,10 @@ export function loadDiffViewMode(): DiffViewMode {
  * so a storage failure (SSR / private mode / quota) is a silent no-op.
  */
 export function persistDiffViewMode(mode: DiffViewMode): void {
-	if (typeof localStorage === "undefined") return;
-	try {
-		localStorage.setItem(DIFF_VIEW_MODE_KEY, mode);
-	} catch {
-		/* non-critical — preference simply won't survive reload */
-	}
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(DIFF_VIEW_MODE_KEY, mode);
+  } catch {
+    /* non-critical — preference simply won't survive reload */
+  }
 }

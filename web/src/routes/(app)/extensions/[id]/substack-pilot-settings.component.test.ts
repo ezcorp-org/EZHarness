@@ -43,8 +43,7 @@ const substackPilotSettingsSchema = {
   substack_session_token: {
     type: "text",
     label: "Session token",
-    description:
-      "From the substack-mcp creator guide (kept locally, never logged).",
+    description: "From the substack-mcp creator guide (kept locally, never logged).",
     pattern: "^.+$",
   },
   substack_user_id: {
@@ -196,14 +195,8 @@ describe("Extension detail — substack-pilot settings panel", () => {
   test("each credential field renders inside a schema-field wrapper keyed by manifest field name", async () => {
     const { findByTestId } = render(ExtensionDetailPage);
 
-    expect(
-      await findByTestId("schema-field-substack_publication_url"),
-    ).toBeInTheDocument();
-    expect(
-      await findByTestId("schema-field-substack_session_token"),
-    ).toBeInTheDocument();
-    expect(
-      await findByTestId("schema-field-substack_user_id"),
-    ).toBeInTheDocument();
+    expect(await findByTestId("schema-field-substack_publication_url")).toBeInTheDocument();
+    expect(await findByTestId("schema-field-substack_session_token")).toBeInTheDocument();
+    expect(await findByTestId("schema-field-substack_user_id")).toBeInTheDocument();
   });
 });

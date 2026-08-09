@@ -89,9 +89,7 @@ describe("check-visual-evidence: visualEvidenceViolation", () => {
   });
 
   test("passes when no visual file changed (even with random other files)", () => {
-    expect(
-      visualEvidenceViolation(["src/runtime/foo.ts", "README.md", "scripts/x.ts"]),
-    ).toBeNull();
+    expect(visualEvidenceViolation(["src/runtime/foo.ts", "README.md", "scripts/x.ts"])).toBeNull();
   });
 
   test("passes on an empty changed-file list", () => {
@@ -100,10 +98,7 @@ describe("check-visual-evidence: visualEvidenceViolation", () => {
 
   test("passes a component .svelte change accompanied by a changed spec", () => {
     expect(
-      visualEvidenceViolation([
-        "web/src/lib/components/Foo.svelte",
-        "web/e2e/foo.spec.ts",
-      ]),
+      visualEvidenceViolation(["web/src/lib/components/Foo.svelte", "web/e2e/foo.spec.ts"]),
     ).toBeNull();
   });
 });
@@ -148,7 +143,9 @@ describe("check-visual-evidence: coveringSpecsForFile", () => {
 // ── visualEvidenceViolationWithCovers ────────────────────────────────────────
 describe("check-visual-evidence: visualEvidenceViolationWithCovers", () => {
   test("no visual file changed → pass", () => {
-    expect(visualEvidenceViolationWithCovers(["src/x.ts", "web/e2e/chat.spec.ts"], COVERS)).toBeNull();
+    expect(
+      visualEvidenceViolationWithCovers(["src/x.ts", "web/e2e/chat.spec.ts"], COVERS),
+    ).toBeNull();
   });
 
   test("visual change with NO spec → coarse violation (same as map-less gate)", () => {

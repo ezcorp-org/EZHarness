@@ -11,7 +11,10 @@ describe("detectCycle", () => {
   });
 
   test("no cycles in simple chain A->B->C", () => {
-    const allRefs = new Map([["B", ["C"]], ["C", []]]);
+    const allRefs = new Map([
+      ["B", ["C"]],
+      ["C", []],
+    ]);
     expect(detectCycle("A", ["B"], allRefs)).toBeNull();
   });
 
@@ -31,7 +34,10 @@ describe("detectCycle", () => {
   });
 
   test("three-node cycle A->B->C->A", () => {
-    const allRefs = new Map([["B", ["C"]], ["C", ["A"]]]);
+    const allRefs = new Map([
+      ["B", ["C"]],
+      ["C", ["A"]],
+    ]);
     const cycle = detectCycle("A", ["B"], allRefs);
     expect(cycle).not.toBeNull();
     expect(cycle![0]).toBe("A");
@@ -39,12 +45,20 @@ describe("detectCycle", () => {
   });
 
   test("disconnected graph — no false positives", () => {
-    const allRefs = new Map([["B", ["C"]], ["C", []], ["D", ["E"]], ["E", []]]);
+    const allRefs = new Map([
+      ["B", ["C"]],
+      ["C", []],
+      ["D", ["E"]],
+      ["E", []],
+    ]);
     expect(detectCycle("A", ["B"], allRefs)).toBeNull();
   });
 
   test("restores original map state after check", () => {
-    const allRefs = new Map([["A", ["X"]], ["B", []]]);
+    const allRefs = new Map([
+      ["A", ["X"]],
+      ["B", []],
+    ]);
     detectCycle("A", ["B"], allRefs);
     expect(allRefs.get("A")).toEqual(["X"]);
   });
@@ -56,7 +70,10 @@ describe("detectCycle", () => {
   });
 
   test("empty references array — no cycle", () => {
-    const allRefs = new Map([["A", ["B"]], ["B", []]]);
+    const allRefs = new Map([
+      ["A", ["B"]],
+      ["B", []],
+    ]);
     expect(detectCycle("A", [], allRefs)).toBeNull();
   });
 });
@@ -64,7 +81,12 @@ describe("detectCycle", () => {
 // ── composeAgent ────────────────────────────────────────────────────
 
 describe("composeAgent", () => {
-  const baseConfig = { name: "test", description: "d", capabilities: ["llm" as const], prompt: "p" };
+  const baseConfig = {
+    name: "test",
+    description: "d",
+    capabilities: ["llm" as const],
+    prompt: "p",
+  };
 
   test("returns agent at depth 0 (default)", () => {
     const result = composeAgent(baseConfig);

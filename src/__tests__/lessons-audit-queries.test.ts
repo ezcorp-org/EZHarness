@@ -15,11 +15,19 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 mock.module("../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -45,7 +53,14 @@ async function ensureExtension(name: string): Promise<string> {
       name,
       version: "0.0.1",
       description: "",
-      manifest: { schemaVersion: 2, name, version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as any,
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as any,
       source: "test",
       enabled: true,
       grantedPermissions: {} as any,

@@ -71,7 +71,9 @@ describe("isCatalogGap", () => {
     // and an explicit baseUrl. Either one alone must suppress the report, or
     // every local-model deployment reports its whole model list as broken.
     expect(isCatalogGap({ provider: "ollama", modelId: "qwen3:1.7b" }, isKnown)).toBe(false);
-    expect(isCatalogGap({ provider: "openai", modelId: "my-proxy-model" }, isKnown, true)).toBe(false);
+    expect(isCatalogGap({ provider: "openai", modelId: "my-proxy-model" }, isKnown, true)).toBe(
+      false,
+    );
   });
 
   test("CATALOG_PROVIDERS is exactly the four EZCorp ships", () => {
@@ -92,7 +94,12 @@ describe("findCatalogGaps", () => {
       { provider: "ollama", modelId: "qwen3:1.7b" },
     ];
     expect(findCatalogGaps(refs, isKnown)).toEqual([
-      { provider: "openai", modelId: "gpt-5.1-codex", source: "conversations.model", reason: "not-in-catalog" },
+      {
+        provider: "openai",
+        modelId: "gpt-5.1-codex",
+        source: "conversations.model",
+        reason: "not-in-catalog",
+      },
       { provider: "openrouter", modelId: "poolside/laguna-m.1", reason: "not-in-catalog" },
     ]);
   });
@@ -125,17 +132,29 @@ describe("reportCatalogGapOnce", () => {
 
   test("a DIFFERENT retired pin still gets its own report", () => {
     const seen = new Set<string>();
-    expect(reportCatalogGapOnce({ provider: "openai", modelId: "gpt-5-codex" }, isKnown, seen)).not.toBeNull();
     expect(
-      reportCatalogGapOnce({ provider: "openrouter", modelId: "poolside/laguna-m.1" }, isKnown, seen),
+      reportCatalogGapOnce({ provider: "openai", modelId: "gpt-5-codex" }, isKnown, seen),
+    ).not.toBeNull();
+    expect(
+      reportCatalogGapOnce(
+        { provider: "openrouter", modelId: "poolside/laguna-m.1" },
+        isKnown,
+        seen,
+      ),
     ).not.toBeNull();
   });
 
   test("null for a live model, a custom baseUrl pin, and a non-catalog provider", () => {
     const seen = new Set<string>();
-    expect(reportCatalogGapOnce({ provider: "openai", modelId: "gpt-5.5" }, isKnown, seen)).toBeNull();
-    expect(reportCatalogGapOnce({ provider: "openai", modelId: "proxied" }, isKnown, seen, true)).toBeNull();
-    expect(reportCatalogGapOnce({ provider: "ollama", modelId: "qwen3:1.7b" }, isKnown, seen)).toBeNull();
+    expect(
+      reportCatalogGapOnce({ provider: "openai", modelId: "gpt-5.5" }, isKnown, seen),
+    ).toBeNull();
+    expect(
+      reportCatalogGapOnce({ provider: "openai", modelId: "proxied" }, isKnown, seen, true),
+    ).toBeNull();
+    expect(
+      reportCatalogGapOnce({ provider: "ollama", modelId: "qwen3:1.7b" }, isKnown, seen),
+    ).toBeNull();
     // Nothing was memoised, so a later genuine gap on those keys still reports.
     expect(seen.size).toBe(0);
   });

@@ -16,9 +16,11 @@ import type { RequestHandler } from "./$types";
 // through to getLatestVersion). Schema requires non-empty when
 // present so a `{version: ""}` payload doesn't sneak past as
 // "requested but blank".
-const installPostSchema = z.object({
-  version: z.string().min(1).optional(),
-}).passthrough();
+const installPostSchema = z
+  .object({
+    version: z.string().min(1).optional(),
+  })
+  .passthrough();
 
 export const POST: RequestHandler = async ({ params, request, locals }) => {
   const scopeErr = requireScope(locals, "extensions");

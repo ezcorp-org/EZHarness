@@ -64,9 +64,7 @@ export class LoopEvents {
       payload: {
         loopId: payload.loopId,
         runId: payload.runId,
-        ...(payload.conversationId !== undefined
-          ? { conversationId: payload.conversationId }
-          : {}),
+        ...(payload.conversationId !== undefined ? { conversationId: payload.conversationId } : {}),
       },
     } satisfies EmitLoopEventParams);
   }
@@ -84,9 +82,7 @@ export class LoopEvents {
         loopId: payload.loopId,
         runId: payload.runId,
         decision: payload.decision,
-        ...(payload.conversationId !== undefined
-          ? { conversationId: payload.conversationId }
-          : {}),
+        ...(payload.conversationId !== undefined ? { conversationId: payload.conversationId } : {}),
       },
     } satisfies EmitLoopEventParams);
   }
@@ -104,9 +100,7 @@ export class LoopEvents {
       payload: {
         loopId: payload.loopId,
         consecutiveErrors: payload.consecutiveErrors,
-        ...(payload.conversationId !== undefined
-          ? { conversationId: payload.conversationId }
-          : {}),
+        ...(payload.conversationId !== undefined ? { conversationId: payload.conversationId } : {}),
       },
     } satisfies EmitLoopEventParams);
   }

@@ -101,22 +101,19 @@ export const GET: RequestHandler = async ({ locals, params, url }) => {
   // extension render — the host does not resolve runs; the extension owns that
   // lookup. Bounded like the project param so junk never reaches the render.
   const runParam = url.searchParams.get("run");
-  const run =
-    runParam && runParam.length <= MAX_RUN_PARAM_LENGTH ? runParam : undefined;
+  const run = runParam && runParam.length <= MAX_RUN_PARAM_LENGTH ? runParam : undefined;
 
   // Optional step-detail sub-variant (`?step=<name>`). Meaningful only
   // alongside `?run=` (hub-render-pull drops a stray step); still extracted +
   // bounded here so an oversized value never reaches the render or the key.
   const stepParam = url.searchParams.get("step");
-  const step =
-    stepParam && stepParam.length <= MAX_STEP_PARAM_LENGTH ? stepParam : undefined;
+  const step = stepParam && stepParam.length <= MAX_STEP_PARAM_LENGTH ? stepParam : undefined;
 
   // Optional render-variant selector (`?view=<value>`). Passed opaquely to the
   // extension (compound values parsed page-side). Independent of `?run=`;
   // bounded so an oversized value never reaches the render or the key.
   const viewParam = url.searchParams.get("view");
-  const view =
-    viewParam && viewParam.length <= MAX_VIEW_PARAM_LENGTH ? viewParam : undefined;
+  const view = viewParam && viewParam.length <= MAX_VIEW_PARAM_LENGTH ? viewParam : undefined;
 
   // The project + run + step + view variants are part of the limiter key: each
   // project view AND each run/step/view detail of a page is a distinct render

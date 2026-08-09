@@ -41,20 +41,26 @@ beforeEach(async () => {
   await db.delete(users);
 
   const hash = await hashPassword("password123");
-  const [admin] = await db.insert(users).values({
-    email: "admin@test.local",
-    passwordHash: hash,
-    name: "Test Admin",
-    role: "admin",
-  }).returning();
+  const [admin] = await db
+    .insert(users)
+    .values({
+      email: "admin@test.local",
+      passwordHash: hash,
+      name: "Test Admin",
+      role: "admin",
+    })
+    .returning();
   adminId = admin!.id;
 
-  const [member] = await db.insert(users).values({
-    email: "member@test.local",
-    passwordHash: hash,
-    name: "Test Member",
-    role: "member",
-  }).returning();
+  const [member] = await db
+    .insert(users)
+    .values({
+      email: "member@test.local",
+      passwordHash: hash,
+      name: "Test Member",
+      role: "member",
+    })
+    .returning();
   memberId = member!.id;
 });
 
@@ -153,7 +159,7 @@ describe("POST /api/auth/reset-password", () => {
 
     const db = getTestDb();
     const logs = await db.select().from(auditLog);
-    const resetLog = logs.find(l => l.action === "auth:password_reset_generated");
+    const resetLog = logs.find((l) => l.action === "auth:password_reset_generated");
     expect(resetLog).toBeDefined();
     expect(resetLog!.userId).toBe(adminId);
   });
@@ -175,9 +181,7 @@ describe("POST /api/auth/reset-password/[token]", () => {
     // via the audit log's metadata.resetUrl field.
     const db = getTestDb();
     const logs = await db.select().from(auditLog);
-    const log = logs
-      .filter(l => l.action === "auth:password_reset_generated")
-      .at(-1);
+    const log = logs.filter((l) => l.action === "auth:password_reset_generated").at(-1);
     const meta = (log?.metadata ?? {}) as { resetUrl?: string };
     const match = meta.resetUrl?.match(/\/reset-password\/([0-9a-f]{64})$/);
     if (!match) throw new Error("reset token not found in audit log metadata");
@@ -288,7 +292,7 @@ describe("POST /api/auth/reset-password/[token]", () => {
     await consumePost(event);
 
     const logs = await db.select().from(auditLog);
-    const resetLog = logs.find(l => l.action === "auth:password_reset");
+    const resetLog = logs.find((l) => l.action === "auth:password_reset");
     expect(resetLog).toBeDefined();
     expect(resetLog!.userId).toBe(memberId);
   });

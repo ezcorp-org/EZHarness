@@ -15,12 +15,7 @@
 // `entities-installer-migrate.test.ts`.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import {
-  closeTestDb,
-  getTestDb,
-  mockDbConnection,
-  setupTestDb,
-} from "./helpers/test-pglite";
+import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 
@@ -145,43 +140,31 @@ describe("substack-pilot legacy namespace migration", () => {
     });
     expect(result.scopesMigrated).toBe(1);
     expect(result.recordsRenamed).toBe(3);
-    expect(result.slugsByType["post-type"]?.sort()).toEqual(
-      ["ad-hoc", "monthly", "weekly"].sort(),
-    );
+    expect(result.slugsByType["post-type"]?.sort()).toEqual(["ad-hoc", "monthly", "weekly"].sort());
 
     const db = getTestDb();
     const rows = await db
       .select()
       .from(extensionStorage)
-      .where(
-        and(
-          eq(extensionStorage.extensionId, extId),
-          eq(extensionStorage.scopeId, userId),
-        ),
-      );
+      .where(and(eq(extensionStorage.extensionId, extId), eq(extensionStorage.scopeId, userId)));
 
     // Legacy keys are gone.
-    const legacyRemaining = rows.filter((r) =>
-      r.key.startsWith("post-type:") || r.key === "post-type-index",
+    const legacyRemaining = rows.filter(
+      (r) => r.key.startsWith("post-type:") || r.key === "post-type-index",
     );
     expect(legacyRemaining.length).toBe(0);
 
     // Managed records + index now exist with the SAME values the user
     // had under the legacy keys (no data mutation during rename).
-    const managedRows = rows.filter((r) =>
-      r.key.startsWith("__entity:post-type:") ||
-      r.key === "__entity-index:post-type",
+    const managedRows = rows.filter(
+      (r) => r.key.startsWith("__entity:post-type:") || r.key === "__entity-index:post-type",
     );
     expect(managedRows.length).toBe(4);
-    const weekly = managedRows.find(
-      (r) => r.key === "__entity:post-type:weekly",
-    );
+    const weekly = managedRows.find((r) => r.key === "__entity:post-type:weekly");
     expect((weekly?.value as { systemPrompt?: string })?.systemPrompt).toBe(
       "USER-EDITED weekly prompt",
     );
-    const index = managedRows.find(
-      (r) => r.key === "__entity-index:post-type",
-    );
+    const index = managedRows.find((r) => r.key === "__entity-index:post-type");
     expect(index?.value).toEqual(["ad-hoc", "monthly", "weekly"]);
   });
 
@@ -210,8 +193,8 @@ describe("substack-pilot legacy namespace migration", () => {
       );
     // The system prompt is still the user's edited value, NOT the
     // default seed text the manifest would otherwise insert.
-    expect(
-      (weekly[0]?.value as { systemPrompt?: string })?.systemPrompt,
-    ).toBe("USER-EDITED weekly prompt");
+    expect((weekly[0]?.value as { systemPrompt?: string })?.systemPrompt).toBe(
+      "USER-EDITED weekly prompt",
+    );
   });
 });

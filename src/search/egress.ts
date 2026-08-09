@@ -270,10 +270,7 @@ export const defaultResolveHost: ResolveHost = async (hostname) => {
  * all-must-be-public rule is what makes failing over to a later address
  * safe: every candidate has already cleared the block-list.
  */
-async function resolveAndValidate(
-  hostname: string,
-  resolve: ResolveHost,
-): Promise<string[]> {
+async function resolveAndValidate(hostname: string, resolve: ResolveHost): Promise<string[]> {
   let ips: string[];
   try {
     ips = await resolve(hostname);
@@ -477,9 +474,7 @@ async function connectPinned(args: {
   deadline: number;
 }): Promise<Response> {
   const { parsed, pinnedIps, init, headers, fetchImpl, deadline } = args;
-  const candidates = isReplayableBody(init.body)
-    ? pinnedIps
-    : pinnedIps.slice(0, 1);
+  const candidates = isReplayableBody(init.body) ? pinnedIps : pinnedIps.slice(0, 1);
 
   let lastErr: unknown;
   for (let i = 0; i < candidates.length; i++) {

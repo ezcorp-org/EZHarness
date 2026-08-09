@@ -19,17 +19,10 @@ vi.mock("$server/db/queries/settings", () => ({
   deleteSetting: vi.fn(async () => true),
 }));
 
-const { getSetting, upsertSetting, deleteSetting } = await import(
-  "$server/db/queries/settings"
-);
-const { GET, POST, DELETE } = await import(
-  "../routes/api/settings/developer/+server"
-);
+const { getSetting, upsertSetting, deleteSetting } = await import("$server/db/queries/settings");
+const { GET, POST, DELETE } = await import("../routes/api/settings/developer/+server");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  method?: "GET" | "POST" | "DELETE";
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; method?: "GET" | "POST" | "DELETE" }) {
   const method = opts.method ?? "GET";
   return {
     url: new URL("http://localhost/api/settings/developer"),
@@ -65,9 +58,7 @@ describe("GET /api/settings/developer", () => {
   });
 
   test("rejects 403 when API-key lacks 'read' scope", async () => {
-    const res = await GET(
-      makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }));
     expect(res.status).toBe(403);
     const body = (await res.json()) as { required?: string };
     expect(body.required).toBe("read");
@@ -131,10 +122,7 @@ describe("POST /api/settings/developer", () => {
     const body = (await res.json()) as { token?: string };
     expect(typeof body.token).toBe("string");
     expect(body.token!).toMatch(/^[0-9a-f]{64}$/);
-    const expectedHash = crypto
-      .createHash("sha256")
-      .update(body.token!)
-      .digest("hex");
+    const expectedHash = crypto.createHash("sha256").update(body.token!).digest("hex");
     expect(upsertSetting).toHaveBeenCalledWith(
       "publish:token:u1",
       expect.objectContaining({ tokenHash: expectedHash }),
@@ -166,9 +154,7 @@ describe("DELETE /api/settings/developer", () => {
   });
 
   test("returns 204 on successful revoke", async () => {
-    const res = await DELETE(
-      makeEvent({ method: "DELETE", locals: authedUser }),
-    );
+    const res = await DELETE(makeEvent({ method: "DELETE", locals: authedUser }));
     expect(res.status).toBe(204);
     expect(deleteSetting).toHaveBeenCalledWith("publish:token:u1");
   });

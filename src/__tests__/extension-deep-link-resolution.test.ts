@@ -77,10 +77,7 @@ mock.module("../extensions/author-gate", () => ({
 // table, not a map.
 const { createExtension } = await import("../db/queries/extensions");
 mock.module("../extensions/installer", () => ({
-  installFromLocal: async (
-    installedPath: string,
-    granted: Record<string, unknown>,
-  ) =>
+  installFromLocal: async (installedPath: string, granted: Record<string, unknown>) =>
     createExtension({
       name: manifestName,
       version: "1.0.0",
@@ -140,10 +137,7 @@ beforeEach(async () => {
   // pipeline walks up exactly 6 segments to find the project root, so the
   // depth here is load-bearing.
   TMP_ROOT = join(tmpdir(), `ez-deeplink-${crypto.randomUUID()}`);
-  DRAFT_DIR = join(
-    TMP_ROOT,
-    ".ezcorp/extension-data/extension-author/drafts/user-1/draft-1",
-  );
+  DRAFT_DIR = join(TMP_ROOT, ".ezcorp/extension-data/extension-author/drafts/user-1/draft-1");
   mkdirSync(DRAFT_DIR, { recursive: true });
   writeFileSync(join(DRAFT_DIR, "index.ts"), "export default {};\n");
 });
@@ -173,9 +167,7 @@ describe("every deep-link the server mints resolves to the installed row", () =>
     for (const [label, link] of deepLinks) {
       const resolved = await getExtensionByRef(routeParamOf(link));
       expect(resolved, `${label} (${link}) does not resolve to any extension`).not.toBeNull();
-      expect(resolved!.id, `${label} resolved to the WRONG extension`).toBe(
-        result.extensionId,
-      );
+      expect(resolved!.id, `${label} resolved to the WRONG extension`).toBe(result.extensionId);
       expect(resolved!.name).toBe(result.name);
     }
   });
@@ -204,7 +196,14 @@ describe("getExtensionByRef", () => {
       name,
       version: "1.0.0",
       description: "",
-      manifest: { schemaVersion: 2, name, version: "1.0.0", description: "", author: { name: "t" }, permissions: {} } as never,
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "1.0.0",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
       source: "local:/tmp/x",
       installPath: "/tmp/x",
       enabled: false,

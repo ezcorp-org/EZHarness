@@ -115,10 +115,7 @@ import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { getConversationExtensionIds } from "../db/queries/conversation-extensions";
 import { getConversation } from "../db/queries/conversations";
-import {
-  getWorkflowRuntime,
-  type WorkflowRuntime,
-} from "../runtime/workflow/runtime-registry";
+import { getWorkflowRuntime, type WorkflowRuntime } from "../runtime/workflow/runtime-registry";
 import type { WorkflowDefinition, WorkflowRunStatus } from "../types";
 import { isValidWorkflowName, namespacedWorkflowName } from "../runtime/workflow-name";
 import { canRunWorkflow, workflowExtensionLiveness } from "../runtime/workflow-authz";
@@ -199,11 +196,7 @@ export const JOB_REF_RE = /^[A-Za-z0-9][A-Za-z0-9_.:-]*$/;
 
 /** True when `value` is a legal `jobRef`. */
 export function isValidJobRef(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.length <= MAX_JOB_REF_LEN &&
-    JOB_REF_RE.test(value)
-  );
+  return typeof value === "string" && value.length <= MAX_JOB_REF_LEN && JOB_REF_RE.test(value);
 }
 
 /**
@@ -227,9 +220,7 @@ export const DELEGATED_OP = "runFor";
  * workflow triggers to get it. Unset ⇒ no behaviour change, which is the
  * same contract `capabilityToolsDisabled` carries.
  */
-export function delegatedWorkflowsDisabled(
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
+export function delegatedWorkflowsDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
   return env["EZCORP_DISABLE_DELEGATED_WORKFLOWS"] === "1";
 }
 
@@ -272,7 +263,6 @@ const DELEGATION_AUDIT_LOG_ACTION = {
   user: EXT_AUDIT_ACTIONS.WORKFLOW_DELEGATION_NO_OWNER,
   service: EXT_AUDIT_ACTIONS.WORKFLOW_DELEGATION_SERVICE,
 } as const satisfies Record<DelegationOwnerKind, string>;
-
 
 /** Typed rejection reasons — the `errorCode` on the audit row, so analytics
  *  can tell "not granted" from "quota exhausted" from "no such workflow". */
@@ -574,7 +564,12 @@ export async function handleWorkflowsRpc(
   //     rather than a wire claim.
   const op = params.op === undefined ? "run" : params.op;
   const delegatedMethod = req.method === DELEGATED_WORKFLOWS_METHOD;
-  if (op !== "run" && op !== "approvals" && op !== "runs" && !(op === DELEGATED_OP && delegatedMethod)) {
+  if (
+    op !== "run" &&
+    op !== "approvals" &&
+    op !== "runs" &&
+    !(op === DELEGATED_OP && delegatedMethod)
+  ) {
     return deny("WORKFLOWS_BAD_OP", `Unknown 'op': ${String(op)}`, -32602);
   }
   if (op === "approvals") {
@@ -719,12 +714,10 @@ export async function handleWorkflowsRpc(
   // 11. Hourly quota — the real spend bound on this capability.
   const quota = checkHourlyQuota(ctx.extensionId, granted.maxRunsPerHour);
   if (!quota.ok) {
-    return deny(
-      "WORKFLOWS_QUOTA_EXCEEDED",
-      "workflow trigger quota exceeded",
-      -32103,
-      { used: quota.used, maxRunsPerHour: granted.maxRunsPerHour },
-    );
+    return deny("WORKFLOWS_QUOTA_EXCEEDED", "workflow trigger quota exceeded", -32103, {
+      used: quota.used,
+      maxRunsPerHour: granted.maxRunsPerHour,
+    });
   }
 
   // 12. Resolve against the LIVE merged cache. The namespace prefix is
@@ -897,9 +890,7 @@ async function readApprovals(
     return deny("WORKFLOWS_RATE_LIMITED", "Rate limited", -32029);
   }
 
-  const mine = new Set(
-    grantedNames.map((n) => namespacedWorkflowName(ctx.extensionName, n)),
-  );
+  const mine = new Set(grantedNames.map((n) => namespacedWorkflowName(ctx.extensionName, n)));
   const pending = await listPendingWorkflowApprovalsForUser(ctx.userId);
   const approvals = pending
     .filter((p) => mine.has(p.workflowName))
@@ -1138,9 +1129,7 @@ interface ProvenDelegation {
  * such column on `users`, and inventing a default here would be a number
  * nobody chose.
  */
-type OwnerResolution =
-  | { ok: true; dailyTokenCap: number | null }
-  | { ok: false; message: string };
+type OwnerResolution = { ok: true; dailyTokenCap: number | null } | { ok: false; message: string };
 
 /**
  * Rung D4, per owner kind — is the principal this row names still live?
@@ -1433,10 +1422,7 @@ async function runForDelegation(
   //     phase 4 reserved a distinct code for the re-tiering case
   //     precisely so this message is not generic.
   if (!row.enabled) {
-    return denyAs(
-      "DELEGATION_DISABLED_ROW",
-      row.disabledReason ?? "this delegation is disabled",
-    );
+    return denyAs("DELEGATION_DISABLED_ROW", row.disabledReason ?? "this delegation is disabled");
   }
 
   // D7. THE replacement bound for rungs 4–5. Asked as the principal the
@@ -1545,7 +1531,15 @@ async function runForDelegation(
   );
   if (verdict.kind === "park") {
     return parkConsentStaleRun(
-      req, ctx, startedAt, deps, proven, definition, input, denyAs, verdict.added,
+      req,
+      ctx,
+      startedAt,
+      deps,
+      proven,
+      definition,
+      input,
+      denyAs,
+      verdict.added,
     );
   }
   if (verdict.kind === "carry") {
@@ -2080,9 +2074,7 @@ function cachedEntryFor(
   fullName: string,
   definition: WorkflowDefinition,
 ): CachedWorkflow {
-  const cached = runtime.getCachedWorkflows?.().find(
-    (w) => w.definition.name === fullName,
-  );
+  const cached = runtime.getCachedWorkflows?.().find((w) => w.definition.name === fullName);
   return cached ?? systemCachedWorkflow(definition, "extension");
 }
 
@@ -2171,18 +2163,13 @@ async function auditOwnerless(
   action: string = EXT_AUDIT_ACTIONS.WORKFLOW_TRIGGER_NO_OWNER,
 ): Promise<void> {
   try {
-    await insertAuditEntry(
-      null,
-      action,
-      extensionId,
-      {
-        permission: "workflows",
-        oldValue: undefined,
-        newValue: typeof workflowName === "string" ? workflowName : undefined,
-        actor: "system",
-        reason,
-      },
-    );
+    await insertAuditEntry(null, action, extensionId, {
+      permission: "workflows",
+      oldValue: undefined,
+      newValue: typeof workflowName === "string" ? workflowName : undefined,
+      actor: "system",
+      reason,
+    });
   } catch {
     // Audit failure must never change the response.
   }

@@ -17,11 +17,7 @@
  * wiring to `modelPrices` is itself part of what is under test.
  */
 import { test, expect, describe } from "bun:test";
-import {
-  stepCostUsd,
-  STEP_COST_SCALE,
-  type PriceLookup,
-} from "../runtime/workflow-step-cost";
+import { stepCostUsd, STEP_COST_SCALE, type PriceLookup } from "../runtime/workflow-step-cost";
 
 /** $3/1M input, $15/1M output — the shape of a real priced model. */
 const PRICED: PriceLookup = () => ({
@@ -92,7 +88,10 @@ describe("a cost is only produced when one could be measured", () => {
     // `SUM(cost_usd)` read as total spend when it is only LLM spend.
     expect(stepCostUsd({ provider: "anthropic", model: "m" }, PRICED)).toBeNull();
     expect(
-      stepCostUsd({ provider: "anthropic", model: "m", inputTokens: null, outputTokens: null }, PRICED),
+      stepCostUsd(
+        { provider: "anthropic", model: "m", inputTokens: null, outputTokens: null },
+        PRICED,
+      ),
     ).toBeNull();
   });
 
@@ -100,9 +99,9 @@ describe("a cost is only produced when one could be measured", () => {
     // A partial report is still a report. Refusing to price it would
     // discard a real measurement; treating the missing side as zero is
     // the only reading that does not invent tokens.
-    expect(
-      stepCostUsd({ provider: "anthropic", model: "m", inputTokens: 1_000_000 }, PRICED),
-    ).toBe("3.000000");
+    expect(stepCostUsd({ provider: "anthropic", model: "m", inputTokens: 1_000_000 }, PRICED)).toBe(
+      "3.000000",
+    );
     expect(
       stepCostUsd({ provider: "anthropic", model: "m", outputTokens: 1_000_000 }, PRICED),
     ).toBe("15.000000");
@@ -112,7 +111,9 @@ describe("a cost is only produced when one could be measured", () => {
     // The first write for a step happens before the agent has resolved
     // anything, so there is no binding to look a price up with.
     expect(stepCostUsd({ model: "m", inputTokens: 10, outputTokens: 10 }, PRICED)).toBeNull();
-    expect(stepCostUsd({ provider: "anthropic", inputTokens: 10, outputTokens: 10 }, PRICED)).toBeNull();
+    expect(
+      stepCostUsd({ provider: "anthropic", inputTokens: 10, outputTokens: 10 }, PRICED),
+    ).toBeNull();
     expect(
       stepCostUsd({ provider: "", model: "", inputTokens: 10, outputTokens: 10 }, PRICED),
     ).toBeNull();
@@ -121,7 +122,10 @@ describe("a cost is only produced when one could be measured", () => {
 
   test("a lookup that knows nothing yields null rather than throwing", () => {
     expect(
-      stepCostUsd({ provider: "p", model: "m", inputTokens: 10, outputTokens: 10 }, () => undefined),
+      stepCostUsd(
+        { provider: "p", model: "m", inputTokens: 10, outputTokens: 10 },
+        () => undefined,
+      ),
     ).toBeNull();
   });
 });

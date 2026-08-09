@@ -28,147 +28,149 @@ describe("extension audit action constants", () => {
 
   test("constant set is exhaustive — covers every audit-emit site through Phase 7 + SDK Phase 50/51", () => {
     const keys = new Set(Object.keys(EXT_AUDIT_ACTIONS));
-    expect(keys).toEqual(new Set([
-      // Original Phase 1 (admin-driven grant/revoke + bundled lifecycle)
-      "PERMISSION_GRANTED",
-      "PERMISSION_REVOKED",
-      // Phase 54 SEC-04 — distinct action for user-driven reapprove
-      // (separate from PERMISSION_GRANTED so SOC 2 / SIEM dashboards
-      // can filter the two operationally-different consent events).
-      "PERMISSION_REAPPROVED",
-      "PERMISSION_REJECTED",
-      "BUNDLED_INSTALLED",
-      "BUNDLED_REGRANTED",
-      "MANIFEST_DRIFTED",
-      "UPDATE_BLOCKED",
-      // Phase 2a-lite / 2b (capability tier)
-      "CAPABILITY_GRANTED",
-      "CAPABILITY_REVOKED",
-      // Shared-search residual #2 — typed capability-POLICY change row
-      "CAPABILITY_POLICY_WRITE",
-      "SPAWN_QUOTA_EXCEEDED",
-      "EMIT_EVENT_REJECTED",
-      // W2 — `ezcorp/workflows` refused an OWNERLESS (cron/webhook) trigger.
-      // Lives here rather than on `sdk_capability_calls` because that
-      // table's `on_behalf_of` is NOT NULL + FK; `audit_log.user_id` is
-      // nullable, so it is the only table that can hold this row.
-      "WORKFLOW_TRIGGER_NO_OWNER",
-      // C3 phase 6 — the two `audit_log` destinations the delegated
-      // ladder needs. They are SEPARATE from the trigger action above
-      // because the three facts differ and so do their remedies: "a
-      // background fire has no owner at all", "this delegation's owner no
-      // longer resolves", and "this outcome belongs to a service account,
-      // which has no `users` row to attribute it to".
-      "WORKFLOW_DELEGATION_NO_OWNER",
-      "WORKFLOW_DELEGATION_SERVICE",
-      // C3 rung D6 — the platform carried a delegation's consent forward
-      // across a release that did not widen its capability closure.
-      "WORKFLOW_DELEGATION_REAUTHORIZED",
-      // Loops Phase 2 — host emit-loop-event reverse RPC (approval nudges
-      // on the bus): the accepted emit + the policy/quota rejection.
-      "LOOP_EVENT_EMITTED",
-      "LOOP_EVENT_REJECTED",
-      // Phase 2c — server→extension subscription delivery
-      "EVENT_SUBSCRIPTION_DENIED",
-      // Phase 4 — ezcorp/cancel-run RPC + spawn-assignment chain
-      "SPAWN_CANCELLED",
-      "SPAWN_AUTHORIZED",
-      // Bundled-grant backfill for eventSubscriptions (auto-heal policy)
-      "BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED",
-      // Per-extension settings (lazy-foraging-hammock)
-      "SETTINGS_USER_UPDATED",
-      "SETTINGS_USER_RESET",
-      // Phase 1 PDP — every authorize() decision lands here
-      "PERM_ALLOWED",
-      "PERM_DENIED",
-      "PERM_PROMPTED",
-      // Cap-expiry Phase 1 — sweep emits this when a grant ages past TTL
-      "PERM_GRANT_EXPIRED",
-      // Phase 5 — bundled cap-ceiling clamp + manifest tamper detection
-      "BUNDLED_CEILING_CLAMP",
-      "BUNDLED_MANIFEST_TAMPER",
-      // Phase 7 — MCP isolation (forward proxy + Linux netns)
-      "MCP_NETNS_CREATED",
-      "MCP_NETNS_FALLBACK",
-      "MCP_HOST_BLOCKED",
-      // Phase 55+ — MCP Stage 1/2 hardening (seccomp + veth-pair)
-      "MCP_SECCOMP_VIOLATION",
-      "MCP_VETH_CREATED",
-      "MCP_VETH_ORPHAN_SWEPT",
-      "MCP_CONNTRACK_HIGH",
-      "MCP_SANDBOX_REQUIRED_REFUSAL",
-      // Phase 50 — SDK capability tier (audit-actions for Phase 51 handlers)
-      "SDK_LLM_CALL",
-      "SDK_LLM_REJECTED",
-      "SDK_MEMORY_READ",
-      "SDK_MEMORY_WRITE",
-      "SDK_MEMORY_REJECTED",
-      "SDK_LESSONS_READ",
-      "SDK_LESSONS_WRITE",
-      "SDK_LESSONS_REJECTED",
-      "SDK_SCHEDULE_REGISTERED",
-      "SDK_SCHEDULE_FIRE",
-      "SDK_SCHEDULE_REJECTED",
-      "SDK_EVENT_SUBSCRIBED",
-      "SDK_EVENT_DELIVERY_REJECTED",
-      // Phase 51 — sampled delivery, daemon self-heal, env-key migration
-      "SDK_EVENT_DELIVERED",
-      "SDK_SCHEDULE_DISABLED",
-      "ENV_KEY_LEAK_WARNING",
-      // v1.4 — hard `*_API_KEY` install gate (regression guard against
-      // last week's miss: this test went red because the build agent
-      // forgot to add the new key here).
-      "ENV_KEY_LEAK_INSTALL_BLOCKED",
-      "ENV_KEY_LEAK_BUNDLED_ESCAPE_HATCH_USED",
-      "SDK_LLM_DENIED_AND_DISABLED",
-      "SDK_LESSONS_VISIBILITY_CLAMPED",
-      "SDK_SCHEDULE_FIRE_NOW",
-      "SDK_SCHEDULE_QUOTA_EXCEEDED",
-      "SDK_SCHEDULE_REAPED",
-      // Loops EZ Mode Phase 4 — inbound webhook trigger
-      "SDK_WEBHOOK_ACCEPTED",
-      "SDK_WEBHOOK_REJECTED",
-      "SDK_WEBHOOK_DISPATCHED",
-      "SDK_WEBHOOK_SECRET_ROTATED",
-      // v1.4 — memory injection-eligibility admin UI
-      "MEMORY_INJECTION_ELIGIBILITY_CHANGED",
-      // v1.4 — entity-namespace migration audit emit
-      "ENTITY_NAMESPACE_MIGRATION",
-      // Per-extension user-modifiable settings toggle
-      "MODIFIABLE_TOGGLED",
-      // Bundled critical-extension auto-reapprove (post-manifest-drift)
-      "BUNDLED_CRITICAL_AUTO_REAPPROVED",
-      // Bundled drift reapprove (admin POST /reapprove-drift)
-      "BUNDLED_DRIFT_REAPPROVED",
-      // Shared-search Phase 1 — ctx.search host capability
-      "SDK_SEARCH_QUERY",
-      "SDK_SEARCH_EGRESS_BLOCKED",
-      // Shared-search Phase 2 — policy resolver quota / provider denial
-      "SDK_SEARCH_QUOTA_EXCEEDED",
-      // C2 — dynamic cron/webhook triggers (ctx.triggers). The last two are
-      // OWNERLESS sweeps, which is why they exist as audit_log actions at
-      // all: sdk_capability_calls.on_behalf_of is NOT NULL.
-      "SDK_TRIGGER_REGISTERED",
-      "SDK_TRIGGER_UNREGISTERED",
-      "SDK_TRIGGER_REJECTED",
-      "SDK_TRIGGER_ORPHANED",
-      "SDK_TRIGGER_CAPABILITY_REVOKED",
-      // Loops EZ Mode — gated emit-loop-event (audit-mirror + rejection)
-      "LOOP_EVENT_EMITTED",
-      "LOOP_EVENT_REJECTED",
-      // Loops Phase 4 — webhook ingress/dispatch/secret lifecycle
-      "SDK_WEBHOOK_ACCEPTED",
-      "SDK_WEBHOOK_REJECTED",
-      "SDK_WEBHOOK_DISPATCHED",
-      "SDK_WEBHOOK_SECRET_ROTATED",
-      // Extension secrets (Phase 0) — scope-isolated, AAD-bound cred store
-      "SECRET_SET",
-      "SECRET_USED",
-      "SECRET_DELETED",
-      // Extension RBAC grants (per-project / per-extension user scopes)
-      "RBAC_GRANTED",
-      "RBAC_REVOKED",
-    ]));
+    expect(keys).toEqual(
+      new Set([
+        // Original Phase 1 (admin-driven grant/revoke + bundled lifecycle)
+        "PERMISSION_GRANTED",
+        "PERMISSION_REVOKED",
+        // Phase 54 SEC-04 — distinct action for user-driven reapprove
+        // (separate from PERMISSION_GRANTED so SOC 2 / SIEM dashboards
+        // can filter the two operationally-different consent events).
+        "PERMISSION_REAPPROVED",
+        "PERMISSION_REJECTED",
+        "BUNDLED_INSTALLED",
+        "BUNDLED_REGRANTED",
+        "MANIFEST_DRIFTED",
+        "UPDATE_BLOCKED",
+        // Phase 2a-lite / 2b (capability tier)
+        "CAPABILITY_GRANTED",
+        "CAPABILITY_REVOKED",
+        // Shared-search residual #2 — typed capability-POLICY change row
+        "CAPABILITY_POLICY_WRITE",
+        "SPAWN_QUOTA_EXCEEDED",
+        "EMIT_EVENT_REJECTED",
+        // W2 — `ezcorp/workflows` refused an OWNERLESS (cron/webhook) trigger.
+        // Lives here rather than on `sdk_capability_calls` because that
+        // table's `on_behalf_of` is NOT NULL + FK; `audit_log.user_id` is
+        // nullable, so it is the only table that can hold this row.
+        "WORKFLOW_TRIGGER_NO_OWNER",
+        // C3 phase 6 — the two `audit_log` destinations the delegated
+        // ladder needs. They are SEPARATE from the trigger action above
+        // because the three facts differ and so do their remedies: "a
+        // background fire has no owner at all", "this delegation's owner no
+        // longer resolves", and "this outcome belongs to a service account,
+        // which has no `users` row to attribute it to".
+        "WORKFLOW_DELEGATION_NO_OWNER",
+        "WORKFLOW_DELEGATION_SERVICE",
+        // C3 rung D6 — the platform carried a delegation's consent forward
+        // across a release that did not widen its capability closure.
+        "WORKFLOW_DELEGATION_REAUTHORIZED",
+        // Loops Phase 2 — host emit-loop-event reverse RPC (approval nudges
+        // on the bus): the accepted emit + the policy/quota rejection.
+        "LOOP_EVENT_EMITTED",
+        "LOOP_EVENT_REJECTED",
+        // Phase 2c — server→extension subscription delivery
+        "EVENT_SUBSCRIPTION_DENIED",
+        // Phase 4 — ezcorp/cancel-run RPC + spawn-assignment chain
+        "SPAWN_CANCELLED",
+        "SPAWN_AUTHORIZED",
+        // Bundled-grant backfill for eventSubscriptions (auto-heal policy)
+        "BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED",
+        // Per-extension settings (lazy-foraging-hammock)
+        "SETTINGS_USER_UPDATED",
+        "SETTINGS_USER_RESET",
+        // Phase 1 PDP — every authorize() decision lands here
+        "PERM_ALLOWED",
+        "PERM_DENIED",
+        "PERM_PROMPTED",
+        // Cap-expiry Phase 1 — sweep emits this when a grant ages past TTL
+        "PERM_GRANT_EXPIRED",
+        // Phase 5 — bundled cap-ceiling clamp + manifest tamper detection
+        "BUNDLED_CEILING_CLAMP",
+        "BUNDLED_MANIFEST_TAMPER",
+        // Phase 7 — MCP isolation (forward proxy + Linux netns)
+        "MCP_NETNS_CREATED",
+        "MCP_NETNS_FALLBACK",
+        "MCP_HOST_BLOCKED",
+        // Phase 55+ — MCP Stage 1/2 hardening (seccomp + veth-pair)
+        "MCP_SECCOMP_VIOLATION",
+        "MCP_VETH_CREATED",
+        "MCP_VETH_ORPHAN_SWEPT",
+        "MCP_CONNTRACK_HIGH",
+        "MCP_SANDBOX_REQUIRED_REFUSAL",
+        // Phase 50 — SDK capability tier (audit-actions for Phase 51 handlers)
+        "SDK_LLM_CALL",
+        "SDK_LLM_REJECTED",
+        "SDK_MEMORY_READ",
+        "SDK_MEMORY_WRITE",
+        "SDK_MEMORY_REJECTED",
+        "SDK_LESSONS_READ",
+        "SDK_LESSONS_WRITE",
+        "SDK_LESSONS_REJECTED",
+        "SDK_SCHEDULE_REGISTERED",
+        "SDK_SCHEDULE_FIRE",
+        "SDK_SCHEDULE_REJECTED",
+        "SDK_EVENT_SUBSCRIBED",
+        "SDK_EVENT_DELIVERY_REJECTED",
+        // Phase 51 — sampled delivery, daemon self-heal, env-key migration
+        "SDK_EVENT_DELIVERED",
+        "SDK_SCHEDULE_DISABLED",
+        "ENV_KEY_LEAK_WARNING",
+        // v1.4 — hard `*_API_KEY` install gate (regression guard against
+        // last week's miss: this test went red because the build agent
+        // forgot to add the new key here).
+        "ENV_KEY_LEAK_INSTALL_BLOCKED",
+        "ENV_KEY_LEAK_BUNDLED_ESCAPE_HATCH_USED",
+        "SDK_LLM_DENIED_AND_DISABLED",
+        "SDK_LESSONS_VISIBILITY_CLAMPED",
+        "SDK_SCHEDULE_FIRE_NOW",
+        "SDK_SCHEDULE_QUOTA_EXCEEDED",
+        "SDK_SCHEDULE_REAPED",
+        // Loops EZ Mode Phase 4 — inbound webhook trigger
+        "SDK_WEBHOOK_ACCEPTED",
+        "SDK_WEBHOOK_REJECTED",
+        "SDK_WEBHOOK_DISPATCHED",
+        "SDK_WEBHOOK_SECRET_ROTATED",
+        // v1.4 — memory injection-eligibility admin UI
+        "MEMORY_INJECTION_ELIGIBILITY_CHANGED",
+        // v1.4 — entity-namespace migration audit emit
+        "ENTITY_NAMESPACE_MIGRATION",
+        // Per-extension user-modifiable settings toggle
+        "MODIFIABLE_TOGGLED",
+        // Bundled critical-extension auto-reapprove (post-manifest-drift)
+        "BUNDLED_CRITICAL_AUTO_REAPPROVED",
+        // Bundled drift reapprove (admin POST /reapprove-drift)
+        "BUNDLED_DRIFT_REAPPROVED",
+        // Shared-search Phase 1 — ctx.search host capability
+        "SDK_SEARCH_QUERY",
+        "SDK_SEARCH_EGRESS_BLOCKED",
+        // Shared-search Phase 2 — policy resolver quota / provider denial
+        "SDK_SEARCH_QUOTA_EXCEEDED",
+        // C2 — dynamic cron/webhook triggers (ctx.triggers). The last two are
+        // OWNERLESS sweeps, which is why they exist as audit_log actions at
+        // all: sdk_capability_calls.on_behalf_of is NOT NULL.
+        "SDK_TRIGGER_REGISTERED",
+        "SDK_TRIGGER_UNREGISTERED",
+        "SDK_TRIGGER_REJECTED",
+        "SDK_TRIGGER_ORPHANED",
+        "SDK_TRIGGER_CAPABILITY_REVOKED",
+        // Loops EZ Mode — gated emit-loop-event (audit-mirror + rejection)
+        "LOOP_EVENT_EMITTED",
+        "LOOP_EVENT_REJECTED",
+        // Loops Phase 4 — webhook ingress/dispatch/secret lifecycle
+        "SDK_WEBHOOK_ACCEPTED",
+        "SDK_WEBHOOK_REJECTED",
+        "SDK_WEBHOOK_DISPATCHED",
+        "SDK_WEBHOOK_SECRET_ROTATED",
+        // Extension secrets (Phase 0) — scope-isolated, AAD-bound cred store
+        "SECRET_SET",
+        "SECRET_USED",
+        "SECRET_DELETED",
+        // Extension RBAC grants (per-project / per-extension user scopes)
+        "RBAC_GRANTED",
+        "RBAC_REVOKED",
+      ]),
+    );
   });
 
   test("capability-tier actions are distinguishable from permission-tier (different wire values)", () => {
@@ -181,8 +183,12 @@ describe("extension audit action constants", () => {
 
   test("CAPABILITY_POLICY_WRITE wire value is locked + distinct from the boolean-ish capability rows", () => {
     expect(EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE).toBe("ext:capability-policy-write");
-    expect(EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE).not.toBe(EXT_AUDIT_ACTIONS.CAPABILITY_GRANTED);
-    expect(EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE).not.toBe(EXT_AUDIT_ACTIONS.CAPABILITY_REVOKED);
+    expect(EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE).not.toBe(
+      EXT_AUDIT_ACTIONS.CAPABILITY_GRANTED,
+    );
+    expect(EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE).not.toBe(
+      EXT_AUDIT_ACTIONS.CAPABILITY_REVOKED,
+    );
   });
 
   test("PERM_GRANT_EXPIRED wire value is locked — Phase 2 sweep + downstream consumers depend on it", () => {
@@ -260,16 +266,9 @@ describe("listAuditForExtension", () => {
     // userId is null — the audit_log.user_id FK requires a real users row;
     // these tests don't seed one (mirrors the other insertAuditEntry(null,…)
     // calls in this file). The admin identity is carried in metadata.actor.
-    await insertAuditEntry(
-      null,
-      EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE,
-      EXT_B,
-      meta,
-    );
+    await insertAuditEntry(null, EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE, EXT_B, meta);
     const rows = await listAuditForExtension(EXT_B);
-    const policyRow = rows.find(
-      (r) => r.action === EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE,
-    );
+    const policyRow = rows.find((r) => r.action === EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE);
     expect(policyRow).toBeDefined();
     // Metadata persisted as a jsonb OBJECT (not a double-encoded string).
     const m = policyRow!.metadata as Record<string, unknown>;

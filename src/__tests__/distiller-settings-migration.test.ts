@@ -23,13 +23,8 @@ const { migrateDistillerEnabledSetting } = await import(
   "../extensions/migrations/distiller-enabled"
 );
 const { createUser } = await import("../db/queries/users");
-const { upsertSetting, deleteSetting, getSetting } = await import(
-  "../db/queries/settings"
-);
-const {
-  getUserSettings,
-  setUserSettings,
-} = await import("../db/queries/extension-settings");
+const { upsertSetting, deleteSetting, getSetting } = await import("../db/queries/settings");
+const { getUserSettings, setUserSettings } = await import("../db/queries/extension-settings");
 const { createExtension } = await import("../db/queries/extensions");
 
 let extensionId: string;

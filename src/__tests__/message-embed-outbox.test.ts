@@ -72,7 +72,10 @@ async function seedConversation() {
 }
 
 async function outboxRowsFor(messageId: string) {
-  return getTestDb().select().from(messageEmbedOutbox).where(eq(messageEmbedOutbox.messageId, messageId));
+  return getTestDb()
+    .select()
+    .from(messageEmbedOutbox)
+    .where(eq(messageEmbedOutbox.messageId, messageId));
 }
 
 async function messageRowsIn(conversationId: string) {

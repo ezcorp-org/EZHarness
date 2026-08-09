@@ -155,10 +155,7 @@ export function scopesOverCeiling(
  * escalation check can never drift from the storage layer. The CLI mint path
  * is operator-trusted (shell access) and does not run this gate.
  */
-export function canMintRole(
-  actorRole: string | undefined,
-  requestedRole: ApiKeyRole,
-): boolean {
+export function canMintRole(actorRole: string | undefined, requestedRole: ApiKeyRole): boolean {
   if (requestedRole !== "admin") return true;
   return actorRole === "admin";
 }

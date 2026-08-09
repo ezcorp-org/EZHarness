@@ -3,7 +3,10 @@ import { parseMentions, STRUCTURED_NAME_CHAR_CLASS } from "../../web/src/lib/men
 import type { InputField, InputSchema } from "../types";
 import { getExtensionsByNames } from "../db/queries/extensions";
 import { getAgentConfigsByNames, getAgentConfigsByIds } from "../db/queries/agent-configs";
-import { getConversationExtensionIds, addConversationExtensions } from "../db/queries/conversation-extensions";
+import {
+  getConversationExtensionIds,
+  addConversationExtensions,
+} from "../db/queries/conversation-extensions";
 import { validatePath } from "./tools/validate";
 import { realpathInsideRoot } from "./fs/scan-fs";
 
@@ -37,12 +40,10 @@ function substituteArgs(body: string, args: string): string {
   const ltrimmed = args.replace(/^\s+/, "");
   const trimmed = ltrimmed.trimEnd();
   const positional = trimmed.length > 0 ? trimmed.split(/\s+/) : [];
-  return body
-    .replace(/\$ARGUMENTS/g, ltrimmed)
-    .replace(/\$(\d+)/g, (_m, idx: string) => {
-      const i = parseInt(idx, 10);
-      return i >= 1 && i <= positional.length ? positional[i - 1]! : "";
-    });
+  return body.replace(/\$ARGUMENTS/g, ltrimmed).replace(/\$(\d+)/g, (_m, idx: string) => {
+    const i = parseInt(idx, 10);
+    return i >= 1 && i <= positional.length ? positional[i - 1]! : "";
+  });
 }
 
 /**
@@ -90,9 +91,7 @@ export async function expandCommandMentions(
 
     const resolved = await resolver(mention.name);
     if (!resolved) {
-      systemNotes.push(
-        `Unknown slash command: /${mention.name} — token left as literal text.`,
-      );
+      systemNotes.push(`Unknown slash command: /${mention.name} — token left as literal text.`);
       // Leave token + args intact so the user sees what they typed.
       segments.push(content.slice(mention.start, argsEnd));
       cursor = argsEnd;
@@ -141,10 +140,7 @@ export async function applyCommandExpansion(
   userMessage: string,
   resolver: CommandResolver,
 ): Promise<string> {
-  const { expanded, systemNotes } = await expandCommandMentions(
-    userMessage,
-    resolver,
-  );
+  const { expanded, systemNotes } = await expandCommandMentions(userMessage, resolver);
   // Short-circuit only when *nothing* needed to change — same text AND
   // no advisory notes to surface. Otherwise an unknown-command message
   // (which leaves `expanded === userMessage` but still carries a
@@ -288,10 +284,7 @@ export type FeatureResolver = (
  * whitespace and skips empty names. The `g` flag is ON via the local
  * copy in the loop — the exported `source` is reusable.
  */
-export const FEATURE_TOKEN_RE = new RegExp(
-  `\\$\\[feature:(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
-  "g",
-);
+export const FEATURE_TOKEN_RE = new RegExp(`\\$\\[feature:(${STRUCTURED_NAME_CHAR_CLASS})\\]`, "g");
 
 /**
  * Expand `$[feature:<name>]` tokens in `userMessage` into a system-note
@@ -355,10 +348,7 @@ export async function applyFeatureExpansion(
  * The `g` flag is ON; consumers should re-instantiate the regex
  * locally (or copy `.source`) if they need a fresh `lastIndex`.
  */
-export const EZ_ACTION_TOKEN_RE = new RegExp(
-  `!\\[EZ:(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
-  "g",
-);
+export const EZ_ACTION_TOKEN_RE = new RegExp(`!\\[EZ:(${STRUCTURED_NAME_CHAR_CLASS})\\]`, "g");
 
 /**
  * Result of stripping `![EZ:*]` tokens from a user message.
@@ -461,10 +451,7 @@ export type LessonResolver = (
  * mention-logic.ts so this module's expansion never drifts from the
  * front-end picker regex.
  */
-export const LESSON_TOKEN_RE = new RegExp(
-  `\\%\\[lesson:(${STRUCTURED_NAME_CHAR_CLASS})\\]`,
-  "g",
-);
+export const LESSON_TOKEN_RE = new RegExp(`\\%\\[lesson:(${STRUCTURED_NAME_CHAR_CLASS})\\]`, "g");
 
 /**
  * Hard caps on lesson expansion within a single user turn.
@@ -872,10 +859,7 @@ function formatWorkflowSection(blocks: readonly string[]): string {
  *     — keeping the rationale up here in the doc comment sidesteps it without
  *     an EXCLUDES entry.
  */
-export function applyWorkflowExpansion(
-  userMessage: string,
-  resolver: WorkflowResolver,
-): string {
+export function applyWorkflowExpansion(userMessage: string, resolver: WorkflowResolver): string {
   const orderedNames = orderedUniqueNames(
     parseMentions(userMessage)
       .filter((m) => m.kind === "workflow")
@@ -927,9 +911,19 @@ export async function resolveMentionedAgents(
 /**
  * Resolve `![team:Name]` mentions to the team's agent config and its member agents.
  */
-export async function resolveMentionedTeams(
-  messageContent: string,
-): Promise<Array<{ team: { id: string; name: string; description: string; prompt: string; autoSpinUp?: boolean; teamToolScope?: import("../types").TeamToolScope }; members: Array<{ id: string; name: string; description: string }> }>> {
+export async function resolveMentionedTeams(messageContent: string): Promise<
+  Array<{
+    team: {
+      id: string;
+      name: string;
+      description: string;
+      prompt: string;
+      autoSpinUp?: boolean;
+      teamToolScope?: import("../types").TeamToolScope;
+    };
+    members: Array<{ id: string; name: string; description: string }>;
+  }>
+> {
   const mentions = parseMentions(messageContent);
   const teamNames = mentions.filter((m) => m.kind === "team").map((m) => m.name);
   if (teamNames.length === 0) return [];
@@ -943,7 +937,12 @@ export async function resolveMentionedTeams(
   const seenTeamIds = new Set<string>();
   const teamRecords: Array<{
     config: typeof teamConfigByName extends Map<string, infer V> ? V : never;
-    refs: { agents?: string[]; extensions?: string[]; autoSpinUp?: boolean; teamToolScope?: import("../types").TeamToolScope } | null;
+    refs: {
+      agents?: string[];
+      extensions?: string[];
+      autoSpinUp?: boolean;
+      teamToolScope?: import("../types").TeamToolScope;
+    } | null;
   }> = [];
   const allMemberIds: string[] = [];
   for (const mention of mentions) {
@@ -951,7 +950,12 @@ export async function resolveMentionedTeams(
     const config = teamConfigByName.get(mention.name);
     if (!config || config.category !== "team" || seenTeamIds.has(config.id)) continue;
     seenTeamIds.add(config.id);
-    const refs = config.references as { agents?: string[]; extensions?: string[]; autoSpinUp?: boolean; teamToolScope?: import("../types").TeamToolScope } | null;
+    const refs = config.references as {
+      agents?: string[];
+      extensions?: string[];
+      autoSpinUp?: boolean;
+      teamToolScope?: import("../types").TeamToolScope;
+    } | null;
     teamRecords.push({ config, refs });
     for (const id of refs?.agents ?? []) allMemberIds.push(id);
   }
@@ -960,7 +964,17 @@ export async function resolveMentionedTeams(
   // one query. Empty input short-circuits to an empty map.
   const memberById = await getAgentConfigsByIds(allMemberIds);
 
-  const results: Array<{ team: { id: string; name: string; description: string; prompt: string; autoSpinUp?: boolean; teamToolScope?: import("../types").TeamToolScope }; members: Array<{ id: string; name: string; description: string }> }> = [];
+  const results: Array<{
+    team: {
+      id: string;
+      name: string;
+      description: string;
+      prompt: string;
+      autoSpinUp?: boolean;
+      teamToolScope?: import("../types").TeamToolScope;
+    };
+    members: Array<{ id: string; name: string; description: string }>;
+  }> = [];
   for (const { config, refs } of teamRecords) {
     const members: Array<{ id: string; name: string; description: string }> = [];
     for (const agentId of refs?.agents ?? []) {
@@ -970,7 +984,14 @@ export async function resolveMentionedTeams(
       }
     }
     results.push({
-      team: { id: config.id, name: config.name, description: config.description, prompt: config.prompt, autoSpinUp: refs?.autoSpinUp ?? false, teamToolScope: refs?.teamToolScope },
+      team: {
+        id: config.id,
+        name: config.name,
+        description: config.description,
+        prompt: config.prompt,
+        autoSpinUp: refs?.autoSpinUp ?? false,
+        teamToolScope: refs?.teamToolScope,
+      },
       members,
     });
   }
@@ -1018,13 +1039,13 @@ export async function wireMentionedExtensions(
   if (extensionIds.size === 0) return [];
 
   const existing = new Set(await getConversationExtensionIds(conversationId));
-  const newIds = [...extensionIds].filter(id => !existing.has(id));
+  const newIds = [...extensionIds].filter((id) => !existing.has(id));
 
   if (newIds.length === 0) return [];
 
   await addConversationExtensions(
     conversationId,
-    newIds.map(extensionId => ({ extensionId, messageId })),
+    newIds.map((extensionId) => ({ extensionId, messageId })),
   );
 
   return newIds;
@@ -1047,10 +1068,7 @@ export interface ResolvedFileMention {
   exists: boolean;
 }
 
-async function pathExistsAsKind(
-  absPath: string,
-  kind: "file" | "dir",
-): Promise<boolean> {
+async function pathExistsAsKind(absPath: string, kind: "file" | "dir"): Promise<boolean> {
   // Bun.file(x).exists() returns true only for regular files. For directories
   // we use Bun's statSync-equivalent via node:fs/promises — per project policy
   // we prefer Bun.file for file existence, but directory detection isn't in
@@ -1089,9 +1107,7 @@ export async function resolveFileMentions(
   if (!projectPath) return [];
 
   const mentions = parseMentions(messageContent);
-  const pathMentions = mentions.filter(
-    (m) => m.kind === "file" || m.kind === "dir",
-  );
+  const pathMentions = mentions.filter((m) => m.kind === "file" || m.kind === "dir");
   if (pathMentions.length === 0) return [];
 
   // Resolve project root once via realpath so symlink-escape confinement
@@ -1152,9 +1168,7 @@ export async function resolveFileMentions(
  * Returns an empty string when there are no mentions, so callers can
  * unconditionally concatenate the result.
  */
-export function formatFileMentionSystemNotes(
-  mentions: ResolvedFileMention[],
-): string {
+export function formatFileMentionSystemNotes(mentions: ResolvedFileMention[]): string {
   if (mentions.length === 0) return "";
   return mentions
     .map((m) => {

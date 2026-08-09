@@ -1,6 +1,11 @@
 import { json } from "@sveltejs/kit";
 import { requireAuth } from "$server/auth/middleware";
-import { browseMarketplace, createListing, getFeaturedListings, getListingsByAuthor } from "$server/db/queries/marketplace";
+import {
+  browseMarketplace,
+  createListing,
+  getFeaturedListings,
+  getListingsByAuthor,
+} from "$server/db/queries/marketplace";
 import { createVersion, getLatestVersion } from "$server/db/queries/marketplace-versions";
 import { getAgentConfig } from "$server/db/queries/agent-configs";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
@@ -94,10 +99,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     // Republish: validate version is higher
     const latestVer = await getLatestVersion(existingListing.id);
     if (latestVer && compareVersions(version, latestVer.version) <= 0) {
-      return errorJson(
-        400,
-        `Version ${version} must be higher than current ${latestVer.version}`,
-      );
+      return errorJson(400, `Version ${version} must be higher than current ${latestVer.version}`);
     }
 
     const newVersion = await createVersion(existingListing.id, version, manifest, changelog);

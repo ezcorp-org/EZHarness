@@ -4,20 +4,54 @@ import type { ModelEntry } from "../providers/registry";
 
 // ── Mock state ────────────────────────────────────────────────────────
 
-const mockGetSetting = mock<(key: string) => Promise<unknown>>(
-  () => Promise.resolve(undefined),
-);
-const mockGetCredential = mock<(provider: string) => Promise<{ type: string; token: string }>>(
-  () => Promise.resolve({ type: "apikey", token: "test-key" }),
+const mockGetSetting = mock<(key: string) => Promise<unknown>>(() => Promise.resolve(undefined));
+const mockGetCredential = mock<(provider: string) => Promise<{ type: string; token: string }>>(() =>
+  Promise.resolve({ type: "apikey", token: "test-key" }),
 );
 
 // ── Mock models ──────────────────────────────────────────────────────
 
 const MOCK_MODELS: ModelEntry[] = [
-  { id: "claude-sonnet-4-20250514", provider: "anthropic", tier: "balanced", contextWindow: 200_000, vision: true, costTier: "medium", displayName: "Claude Sonnet 4", reasoning: false },
-  { id: "gpt-4o", provider: "openai", tier: "balanced", contextWindow: 128_000, vision: true, costTier: "medium", displayName: "GPT-4o", reasoning: false },
-  { id: "gemini-2.0-flash", provider: "google", tier: "fast", contextWindow: 1_000_000, vision: true, costTier: "low", displayName: "Gemini 2.0 Flash", reasoning: false },
-  { id: "openrouter/auto", provider: "openrouter", tier: "balanced", contextWindow: 200_000, vision: false, costTier: "medium", displayName: "OpenRouter Auto", reasoning: false },
+  {
+    id: "claude-sonnet-4-20250514",
+    provider: "anthropic",
+    tier: "balanced",
+    contextWindow: 200_000,
+    vision: true,
+    costTier: "medium",
+    displayName: "Claude Sonnet 4",
+    reasoning: false,
+  },
+  {
+    id: "gpt-4o",
+    provider: "openai",
+    tier: "balanced",
+    contextWindow: 128_000,
+    vision: true,
+    costTier: "medium",
+    displayName: "GPT-4o",
+    reasoning: false,
+  },
+  {
+    id: "gemini-2.0-flash",
+    provider: "google",
+    tier: "fast",
+    contextWindow: 1_000_000,
+    vision: true,
+    costTier: "low",
+    displayName: "Gemini 2.0 Flash",
+    reasoning: false,
+  },
+  {
+    id: "openrouter/auto",
+    provider: "openrouter",
+    tier: "balanced",
+    contextWindow: 200_000,
+    vision: false,
+    costTier: "medium",
+    displayName: "OpenRouter Auto",
+    reasoning: false,
+  },
 ];
 
 function at<T>(arr: readonly T[], i: number, what: string): T {
@@ -105,9 +139,7 @@ function mapResult(m: any) {
 
 /** Configure getSetting to return a value for specific keys. */
 function configureSetting(overrides: Record<string, unknown>) {
-  mockGetSetting.mockImplementation((key: string) =>
-    Promise.resolve(overrides[key] ?? undefined),
-  );
+  mockGetSetting.mockImplementation((key: string) => Promise.resolve(overrides[key] ?? undefined));
 }
 
 // ── Setup ─────────────────────────────────────────────────────────────
@@ -124,7 +156,12 @@ beforeEach(() => {
   );
 
   // Clear env vars
-  for (const envKey of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY"]) {
+  for (const envKey of [
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "GOOGLE_API_KEY",
+    "OPENROUTER_API_KEY",
+  ]) {
     savedEnv[envKey] = process.env[envKey];
     delete process.env[envKey];
   }
@@ -177,9 +214,7 @@ describe("availability logic", () => {
 
   test("provider with no credentials marks models as unavailable", async () => {
     // getCredential throws when no creds available
-    mockGetCredential.mockImplementation(() =>
-      Promise.reject(new Error("No credentials")),
-    );
+    mockGetCredential.mockImplementation(() => Promise.reject(new Error("No credentials")));
 
     const result = await callEndpoint();
     const allModels = result;
@@ -309,9 +344,7 @@ describe("openrouter availability", () => {
   });
 
   test("openrouter model marked unavailable with no credentials", async () => {
-    mockGetCredential.mockImplementation(() =>
-      Promise.reject(new Error("No credentials")),
-    );
+    mockGetCredential.mockImplementation(() => Promise.reject(new Error("No credentials")));
 
     const result = await callEndpoint();
     const openrouterModels = result.filter((m) => m.provider === "openrouter");

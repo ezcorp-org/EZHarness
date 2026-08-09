@@ -22,7 +22,7 @@ const sample = (): AgentTool[] => [
   tool("grep"),
   tool("write_file"),
   tool("bash_execute"),
-  tool("invoke_agent"),     // always-preserved orchestration tool
+  tool("invoke_agent"), // always-preserved orchestration tool
   tool("extension_widget"), // not in builtinDefs
 ];
 
@@ -298,7 +298,9 @@ describe("applyToolFilters — carve-out matches namespaced task-tracking tools"
   ];
 
   test("toolRestriction 'none' preserves namespaced task-tracking tools (were previously stripped)", () => {
-    const out = names(applyToolFilters(withTaskTracking(), builtinDefs, { toolRestriction: "none" }));
+    const out = names(
+      applyToolFilters(withTaskTracking(), builtinDefs, { toolRestriction: "none" }),
+    );
     // Preserved: the namespaced task tools + the namespaced ask-user tool.
     expect(out).toContain("task-tracking__task_plan");
     expect(out).toContain("task-tracking__task_complete");

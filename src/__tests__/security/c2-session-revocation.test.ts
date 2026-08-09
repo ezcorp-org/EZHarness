@@ -23,9 +23,7 @@ import { restoreModuleMocks } from "../helpers/mock-cleanup";
 // Safer to mock every specifier hooks.server.ts touches ourselves.
 
 // ── Spies / mock state ────────────────────────────────────────────
-let storedSession:
-  | { id: string; userId: string; tokenHash: string }
-  | null = null;
+let storedSession: { id: string; userId: string; tokenHash: string } | null = null;
 let createSessionCalls: Array<Record<string, unknown>> = [];
 let touchSessionCalls: string[] = [];
 
@@ -197,10 +195,8 @@ function makeEvent({
       cookieStore.delete(name);
       deleted.add(name);
     },
-    getAll: () =>
-      [...cookieStore.entries()].map(([name, value]) => ({ name, value })),
-    serialize: () =>
-      [...cookieStore.entries()].map(([n, v]) => `${n}=${v}`).join("; "),
+    getAll: () => [...cookieStore.entries()].map(([name, value]) => ({ name, value })),
+    serialize: () => [...cookieStore.entries()].map(([n, v]) => `${n}=${v}`).join("; "),
   };
 
   const request = new Request(url, {

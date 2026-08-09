@@ -27,7 +27,10 @@ describe("config", () => {
 
   test("readConfig returns parsed config when file exists", async () => {
     mkdirSync(tempDir, { recursive: true });
-    writeFileSync(join(tempDir, "config.json"), JSON.stringify({ publishToken: "tok123", foo: "bar" }));
+    writeFileSync(
+      join(tempDir, "config.json"),
+      JSON.stringify({ publishToken: "tok123", foo: "bar" }),
+    );
 
     const config = await readConfig(tempDir);
     expect(config.publishToken).toBe("tok123");
@@ -87,12 +90,17 @@ mock.module("../extensions/manifest", () => ({
     if (!data || typeof data !== "object") return { valid: false, errors: ["not an object"] };
     const m = data as Record<string, unknown>;
     if (m.schemaVersion !== 2) errors.push("schemaVersion must be 2");
-    if (typeof m.version !== "string" || !SEMVER_RE.test(m.version)) errors.push("version must be valid semver");
+    if (typeof m.version !== "string" || !SEMVER_RE.test(m.version))
+      errors.push("version must be valid semver");
     if (!m.description || typeof m.description !== "string") errors.push("description required");
     if (!m.author || typeof m.author !== "object") errors.push("author.name required");
     return { valid: errors.length === 0, errors };
   },
-  generateSlug: (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+  generateSlug: (name: string) =>
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, ""),
   inferPackageType: () => "tool",
 }));
 
@@ -100,7 +108,9 @@ mock.module("../extensions/manifest", () => ({
 const mockGetSetting = mock(() => Promise.resolve(undefined));
 const mockGetAllSettings = mock(() => Promise.resolve({}));
 const mockUpsertSetting = mock(() => Promise.resolve());
-const mockCreateListing = mock(() => Promise.resolve({ id: "listing-1", name: "test-ext", slug: "test-ext" }));
+const mockCreateListing = mock(() =>
+  Promise.resolve({ id: "listing-1", name: "test-ext", slug: "test-ext" }),
+);
 const mockGetListingBySlug = mock(() => Promise.resolve(undefined));
 const mockCreateVersion = mock(() => Promise.resolve({ id: "ver-1" }));
 const mockGetVersion = mock(() => Promise.resolve(undefined));
@@ -171,13 +181,18 @@ describe("ezcorp ext publish", () => {
 
     // Default happy-path mocks
     mockGetSetting.mockImplementation(((key: string) => {
-      if (key === "publish:token:user-1") return Promise.resolve({ tokenHash: sha256("valid-token-abc"), createdAt: 1 });
+      if (key === "publish:token:user-1")
+        return Promise.resolve({ tokenHash: sha256("valid-token-abc"), createdAt: 1 });
       return Promise.resolve(undefined);
     }) as any);
-    mockGetAllSettings.mockImplementation(() => Promise.resolve({
-      "publish:token:user-1": { tokenHash: sha256("valid-token-abc"), createdAt: 1 },
-    }));
-    mockCreateListing.mockImplementation(() => Promise.resolve({ id: "listing-1", name: "test-ext", slug: "test-ext" }));
+    mockGetAllSettings.mockImplementation(() =>
+      Promise.resolve({
+        "publish:token:user-1": { tokenHash: sha256("valid-token-abc"), createdAt: 1 },
+      }),
+    );
+    mockCreateListing.mockImplementation(() =>
+      Promise.resolve({ id: "listing-1", name: "test-ext", slug: "test-ext" }),
+    );
     mockGetListingBySlug.mockImplementation(() => Promise.resolve(undefined));
     mockCreateVersion.mockImplementation(() => Promise.resolve({ id: "ver-1" }));
     mockGetVersion.mockImplementation(() => Promise.resolve(undefined));
@@ -191,7 +206,10 @@ describe("ezcorp ext publish", () => {
   });
 
   function writeManifest(manifest: object = VALID_MANIFEST) {
-    writeFileSync(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
+    writeFileSync(
+      join(tempDir, "ezcorp.config.ts"),
+      `export default ${JSON.stringify(manifest, null, 2)};\n`,
+    );
   }
 
   function writeEntrypoint(name = "index.ts") {
@@ -203,8 +221,9 @@ describe("ezcorp ext publish", () => {
     writeManifest();
     writeEntrypoint();
 
-    await expect(publishExtension({ extDir: tempDir, skipTests: true }))
-      .rejects.toThrow("No publish token found");
+    await expect(publishExtension({ extDir: tempDir, skipTests: true })).rejects.toThrow(
+      "No publish token found",
+    );
   });
 
   test("rejects if the provided token matches no stored token (Invalid publish token)", async () => {
@@ -213,14 +232,17 @@ describe("ezcorp ext publish", () => {
     writeEntrypoint();
     // Stored token hashes exist (one publish:token:* entry) but NONE match the
     // token we pass — verifyToken hash-compares each, finds no match, and throws.
-    mockGetAllSettings.mockImplementation(() => Promise.resolve({
-      "publish:token:user-1": { tokenHash: sha256("some-other-token"), createdAt: 1 },
-      // a non-token setting is skipped by the `publish:token:` prefix guard
-      "unrelated:setting": { foo: "bar" },
-    }));
+    mockGetAllSettings.mockImplementation(() =>
+      Promise.resolve({
+        "publish:token:user-1": { tokenHash: sha256("some-other-token"), createdAt: 1 },
+        // a non-token setting is skipped by the `publish:token:` prefix guard
+        "unrelated:setting": { foo: "bar" },
+      }),
+    );
 
-    await expect(publishExtension({ extDir: tempDir, token: "no-such-token", skipTests: true }))
-      .rejects.toThrow("Invalid publish token");
+    await expect(
+      publishExtension({ extDir: tempDir, token: "no-such-token", skipTests: true }),
+    ).rejects.toThrow("Invalid publish token");
   });
 
   test("rejects legacy plaintext rows even when the raw token matches (forces re-issue)", async () => {
@@ -229,12 +251,15 @@ describe("ezcorp ext publish", () => {
     writeEntrypoint();
     // Pre-hash row shape ({ token }) — there is no plaintext-acceptance
     // fallback; the row is invalid until the user re-issues a token.
-    mockGetAllSettings.mockImplementation(() => Promise.resolve({
-      "publish:token:user-1": { token: "valid-token-abc", createdAt: 1 },
-    }));
+    mockGetAllSettings.mockImplementation(() =>
+      Promise.resolve({
+        "publish:token:user-1": { token: "valid-token-abc", createdAt: 1 },
+      }),
+    );
 
-    await expect(publishExtension({ extDir: tempDir, token: "valid-token-abc", skipTests: true }))
-      .rejects.toThrow("Invalid publish token");
+    await expect(
+      publishExtension({ extDir: tempDir, token: "valid-token-abc", skipTests: true }),
+    ).rejects.toThrow("Invalid publish token");
   });
 
   test("rejects a malformed stored hash via the length guard (no timingSafeEqual throw)", async () => {
@@ -243,28 +268,36 @@ describe("ezcorp ext publish", () => {
     writeEntrypoint();
     // timingSafeEqual throws on unequal buffer lengths; the length guard must
     // skip this row instead, so we get the clean "Invalid publish token" error.
-    mockGetAllSettings.mockImplementation(() => Promise.resolve({
-      "publish:token:user-1": { tokenHash: "abc123", createdAt: 1 },
-    }));
+    mockGetAllSettings.mockImplementation(() =>
+      Promise.resolve({
+        "publish:token:user-1": { tokenHash: "abc123", createdAt: 1 },
+      }),
+    );
 
-    await expect(publishExtension({ extDir: tempDir, token: "valid-token-abc", skipTests: true }))
-      .rejects.toThrow("Invalid publish token");
+    await expect(
+      publishExtension({ extDir: tempDir, token: "valid-token-abc", skipTests: true }),
+    ).rejects.toThrow("Invalid publish token");
   });
 
   test("rejects if manifest invalid", async () => {
     const { publishExtension } = await import("../extensions/sdk/publish");
-    writeFileSync(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify({ name: "bad" })};\n`);
+    writeFileSync(
+      join(tempDir, "ezcorp.config.ts"),
+      `export default ${JSON.stringify({ name: "bad" })};\n`,
+    );
 
-    await expect(publishExtension({ extDir: tempDir, token: "valid-token-abc", skipTests: true }))
-      .rejects.toThrow("Invalid manifest");
+    await expect(
+      publishExtension({ extDir: tempDir, token: "valid-token-abc", skipTests: true }),
+    ).rejects.toThrow("Invalid manifest");
   });
 
   test("rejects if entrypoint file missing", async () => {
     const { publishExtension } = await import("../extensions/sdk/publish");
     writeManifest(); // has entrypoint: "index.ts" but file doesn't exist
 
-    await expect(publishExtension({ extDir: tempDir, token: "valid-token-abc", skipTests: true }))
-      .rejects.toThrow("Entrypoint file not found");
+    await expect(
+      publishExtension({ extDir: tempDir, token: "valid-token-abc", skipTests: true }),
+    ).rejects.toThrow("Entrypoint file not found");
   });
 
   test("rejects if tests fail", async () => {
@@ -273,8 +306,9 @@ describe("ezcorp ext publish", () => {
     writeEntrypoint();
     mockRunExtensionTests.mockImplementation(() => Promise.resolve(1));
 
-    await expect(publishExtension({ extDir: tempDir, token: "valid-token-abc" }))
-      .rejects.toThrow("Tests failed");
+    await expect(publishExtension({ extDir: tempDir, token: "valid-token-abc" })).rejects.toThrow(
+      "Tests failed",
+    );
   });
 
   test("rejects if version already published", async () => {
@@ -284,8 +318,9 @@ describe("ezcorp ext publish", () => {
     mockGetListingBySlug.mockImplementation((() => Promise.resolve({ id: "listing-1" })) as any);
     mockGetVersion.mockImplementation((() => Promise.resolve({ id: "ver-1" })) as any);
 
-    await expect(publishExtension({ extDir: tempDir, token: "valid-token-abc", skipTests: true }))
-      .rejects.toThrow("already published");
+    await expect(
+      publishExtension({ extDir: tempDir, token: "valid-token-abc", skipTests: true }),
+    ).rejects.toThrow("already published");
   });
 
   test("creates listing and version on success", async () => {
@@ -298,7 +333,10 @@ describe("ezcorp ext publish", () => {
     expect(mockCreateListing).toHaveBeenCalledTimes(1);
     expect(mockCreateVersion).toHaveBeenCalledTimes(1);
     // The hash-only stored row (no raw token) resolved the owning userId.
-    const listingArg = (mockCreateListing.mock.calls[0] as unknown as any[])[0] as Record<string, unknown>;
+    const listingArg = (mockCreateListing.mock.calls[0] as unknown as any[])[0] as Record<
+      string,
+      unknown
+    >;
     expect(listingArg.authorId).toBe("user-1");
   });
 

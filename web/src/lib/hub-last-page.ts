@@ -19,7 +19,7 @@ const HUB_LAST_PAGE_KEY_PREFIX = "ezcorp-hub-last-page:";
 
 /** The full per-project key. Exported for tests / callers that assert it. */
 export function hubLastPageKey(projectId: string): string {
-	return `${HUB_LAST_PAGE_KEY_PREFIX}${projectId}`;
+  return `${HUB_LAST_PAGE_KEY_PREFIX}${projectId}`;
 }
 
 /**
@@ -30,12 +30,12 @@ export function hubLastPageKey(projectId: string): string {
  * caller re-checks the id against the live listing).
  */
 export function loadLastHubPage(projectId: string): string | null {
-	if (typeof localStorage === "undefined") return null;
-	try {
-		return localStorage.getItem(hubLastPageKey(projectId));
-	} catch {
-		return null;
-	}
+  if (typeof localStorage === "undefined") return null;
+  try {
+    return localStorage.getItem(hubLastPageKey(projectId));
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -43,10 +43,10 @@ export function loadLastHubPage(projectId: string): string | null {
  * storage failure (SSR / private mode / quota) is a silent no-op.
  */
 export function persistLastHubPage(projectId: string, pageId: string): void {
-	if (typeof localStorage === "undefined") return;
-	try {
-		localStorage.setItem(hubLastPageKey(projectId), pageId);
-	} catch {
-		/* non-critical — the last-page memory simply won't survive reload */
-	}
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(hubLastPageKey(projectId), pageId);
+  } catch {
+    /* non-critical — the last-page memory simply won't survive reload */
+  }
 }

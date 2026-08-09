@@ -56,7 +56,9 @@ function installFetch(): void {
     const next = queue.shift();
     if (!next) return Promise.reject(new Error(`unmocked fetch to ${url}`));
     const headers = new Headers(next.headers ?? {});
-    return Promise.resolve(new Response(JSON.stringify(next.body ?? {}), { status: next.status ?? 200, headers }));
+    return Promise.resolve(
+      new Response(JSON.stringify(next.body ?? {}), { status: next.status ?? 200, headers }),
+    );
   });
   globalThis.fetch = stub as unknown as typeof fetch;
 }
@@ -168,7 +170,11 @@ const FETCH_ITEMS_FIXTURE = {
           {
             id: "PVTI_lADOABCDEF4A0aBczgFaaa3",
             updatedAt: "2026-06-10T08:00:00Z",
-            content: { __typename: "DraftIssue", id: "DI_lADOABCDEF4A0aBc3", title: "Spike: auth rework" },
+            content: {
+              __typename: "DraftIssue",
+              id: "DI_lADOABCDEF4A0aBc3",
+              title: "Spike: auth rework",
+            },
             fieldValues: { nodes: [{}] },
           },
           {

@@ -9,12 +9,7 @@ import { TOOLS as AGENT_TOOLS } from "../../src/mcp/tools/agents.js";
 import { TOOLS as ORCHESTRATE_TOOLS } from "../../src/mcp/tools/orchestrate.js";
 import { startStubServer, type StubServer } from "../fixtures/stub-server.js";
 
-const ALL_TOOLS = [
-  ...DISCOVER_TOOLS,
-  ...CHAT_TOOLS,
-  ...AGENT_TOOLS,
-  ...ORCHESTRATE_TOOLS,
-];
+const ALL_TOOLS = [...DISCOVER_TOOLS, ...CHAT_TOOLS, ...AGENT_TOOLS, ...ORCHESTRATE_TOOLS];
 
 describe("mcp-server (in-memory transport)", () => {
   let stub: StubServer;

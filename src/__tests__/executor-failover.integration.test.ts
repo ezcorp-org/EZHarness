@@ -138,7 +138,11 @@ mock.module("@earendil-works/pi-agent-core", () => ({
           role: "assistant",
           content: [{ type: "text", text: "served by fallback" }],
           usage: {
-            input: 5, output: 3, cacheRead: 0, cacheWrite: 0, totalTokens: 8,
+            input: 5,
+            output: 3,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 8,
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
           },
         },

@@ -9,14 +9,7 @@
 // (the LOCKED eval signal) + agent-unreadability, and the resolution
 // guard rails.
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  spyOn,
-  test,
-} from "bun:test";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
 import {
   defineLoop,
@@ -35,11 +28,7 @@ import {
 } from "../src/runtime/loop";
 import { AWAITING_APPROVAL, FINALIZING } from "../src/runtime/loop-core";
 import { createLoopRunStore } from "../src/runtime/loop-store";
-import {
-  __resetChannelForTests,
-  getChannel,
-  type HostChannel,
-} from "../src/runtime/channel";
+import { __resetChannelForTests, getChannel, type HostChannel } from "../src/runtime/channel";
 import type { LoopEvents } from "../src/runtime/loop-events";
 import type { StorageScope } from "../src/runtime/storage";
 import type { TaskAssignmentUpdateEvent } from "../src/runtime/host-event-types";
@@ -98,7 +87,11 @@ function recordingEvents(opts: { throwOn?: "pending" | "resolved" } = {}): {
       if (opts.throwOn === "resolved") throw new Error("emit boom");
       calls.push({ type: "resolved", ...p });
     },
-    async emitAutoDisabled(p: { loopId: string; consecutiveErrors: number; conversationId?: string }) {
+    async emitAutoDisabled(p: {
+      loopId: string;
+      consecutiveErrors: number;
+      conversationId?: string;
+    }) {
       calls.push({ type: "auto_disabled", ...p });
     },
   } as unknown as LoopEvents;
@@ -114,14 +107,11 @@ beforeEach(() => {
   __resetChannelForTests();
   captured = new Map();
   const ch: HostChannel = getChannel();
-  spyOn(ch, "onRequest").mockImplementation(((
-    method: string,
-    handler: (p: unknown) => unknown,
-  ) => {
+  spyOn(ch, "onRequest").mockImplementation(((method: string, handler: (p: unknown) => unknown) => {
     captured.set(method, handler);
   }) as HostChannel["onRequest"]);
   _setSettingsResolverForTests(async () => ({}));
-  _setStoreFactoryForTests((<O,>(loopId: string, contract: unknown) =>
+  _setStoreFactoryForTests((<O>(loopId: string, contract: unknown) =>
     createLoopRunStore<O>(loopId, contract as never, makeKv())) as never);
 });
 
@@ -139,18 +129,25 @@ async function fireEvent(event: string, payload: unknown): Promise<void> {
   await handler(payload);
 }
 
-const PROPOSAL: LoopProposal = { title: "Draft PR", summary: "update docs", kind: "pr", ref: "pr/1" };
+const PROPOSAL: LoopProposal = {
+  title: "Draft PR",
+  summary: "update docs",
+  kind: "pr",
+  ref: "pr/1",
+};
 
 /** Define a proactive-approval loop whose event-triggered act returns a
  *  proposal. `finalize`/`discard` record their invocations. */
-function defineApprovalLoop(opts: {
-  id?: string;
-  finalize?: () => Promise<unknown>;
-  discard?: () => Promise<void>;
-  staleAfterDays?: number;
-  configVersion?: string;
-  artifact?: boolean;
-} = {}) {
+function defineApprovalLoop(
+  opts: {
+    id?: string;
+    finalize?: () => Promise<unknown>;
+    discard?: () => Promise<void>;
+    staleAfterDays?: number;
+    configVersion?: string;
+    artifact?: boolean;
+  } = {},
+) {
   const finalizeCalls: number[] = [];
   const discardCalls: number[] = [];
   const artifacts: unknown[] = [];
@@ -161,7 +158,10 @@ function defineApprovalLoop(opts: {
     contract: {
       states: ["reviewed"],
       terminal: ["reviewed"],
-      approval: { mode: "proactive", ...(opts.staleAfterDays !== undefined ? { staleAfterDays: opts.staleAfterDays } : {}) },
+      approval: {
+        mode: "proactive",
+        ...(opts.staleAfterDays !== undefined ? { staleAfterDays: opts.staleAfterDays } : {}),
+      },
       ...(opts.configVersion ? { configVersion: opts.configVersion } : {}),
     },
     act: async (): Promise<ActResult> => ({
@@ -284,7 +284,12 @@ describe("finalize exactly-once fail-safe", () => {
     const runId = (await reg.store.list())[0]!.id;
 
     const res = await approveRun("docs", runId, "alice");
-    expect(res).toMatchObject({ ok: true, decision: "approved", finalized: false, verifyManually: true });
+    expect(res).toMatchObject({
+      ok: true,
+      decision: "approved",
+      finalized: false,
+      verifyManually: true,
+    });
     const run = await reg.store.get(runId);
     expect(run?.status).toBe(FINALIZING);
     expect(run?.verifyManually).toBe(true);
@@ -411,8 +416,14 @@ describe("resolution guard rails", () => {
     const reg = _getRegisteredLoop("docs")!;
     const runId = (await reg.store.list())[0]!.id;
     await declineRun("docs", runId, "alice");
-    expect(await approveRun("docs", runId, "bob")).toEqual({ ok: false, reason: "already_resolved" });
-    expect(await declineRun("docs", runId, "bob")).toEqual({ ok: false, reason: "already_resolved" });
+    expect(await approveRun("docs", runId, "bob")).toEqual({
+      ok: false,
+      reason: "already_resolved",
+    });
+    expect(await declineRun("docs", runId, "bob")).toEqual({
+      ok: false,
+      reason: "already_resolved",
+    });
   });
 });
 
@@ -468,11 +479,14 @@ describe("staleness auto-decline", () => {
 // ── deferred → proposal composition (onComplete) ────────────────────
 
 describe("deferred → proposal composition", () => {
-  function defineDeferred(onComplete: (ctx: {
-    run: unknown;
-    status: string;
-    resultPreview?: string;
-  }) => Promise<ActResult>, id = "dd") {
+  function defineDeferred(
+    onComplete: (ctx: {
+      run: unknown;
+      status: string;
+      resultPreview?: string;
+    }) => Promise<ActResult>,
+    id = "dd",
+  ) {
     defineLoop({
       id,
       trigger: { kind: "event", event: "run:complete" },
@@ -598,7 +612,9 @@ describe("auto-disable emits a user-visible notice", () => {
         failure: {
           classify: () => "permanent",
           autoDisableAfter: 2,
-          onAutoDisable: (ctx) => { onDisable.push(ctx.consecutiveErrors); },
+          onAutoDisable: (ctx) => {
+            onDisable.push(ctx.consecutiveErrors);
+          },
         },
       },
       act: async () => {
@@ -652,7 +668,11 @@ describe("dispatchAssignmentUpdate — parked / closed guard", () => {
   };
 
   function defineDeferredApproval(
-    onComplete: (ctx: { run: unknown; status: string; resultPreview?: string }) => Promise<ActResult>,
+    onComplete: (ctx: {
+      run: unknown;
+      status: string;
+      resultPreview?: string;
+    }) => Promise<ActResult>,
     id = "dg",
   ) {
     defineLoop({
@@ -679,7 +699,12 @@ describe("dispatchAssignmentUpdate — parked / closed guard", () => {
     let onCompleteCalls = 0;
     defineDeferredApproval(async () => {
       onCompleteCalls++;
-      return { kind: "proposal", status: "pr", proposal: PROPOSAL, finalize: async () => ({ ok: true }) };
+      return {
+        kind: "proposal",
+        status: "pr",
+        proposal: PROPOSAL,
+        finalize: async () => ({ ok: true }),
+      };
     });
     await fireEvent("run:complete", {});
     await dispatchAssignmentUpdate(completeEvt); // parks
@@ -706,7 +731,10 @@ describe("dispatchAssignmentUpdate — parked / closed guard", () => {
     const reg = _getRegisteredLoop("dg")!;
     const runId = (await reg.store.list())[0]!.id;
     // Simulate an in-flight approve: move the run to `finalizing`.
-    await reg.store.transitionIf(runId, AWAITING_APPROVAL, { status: FINALIZING, eventStatus: FINALIZING });
+    await reg.store.transitionIf(runId, AWAITING_APPROVAL, {
+      status: FINALIZING,
+      eventStatus: FINALIZING,
+    });
 
     await dispatchAssignmentUpdate(completeEvt); // LATE event during finalizing
     expect((await reg.store.get(runId))!.status).toBe(FINALIZING); // unchanged
@@ -718,7 +746,10 @@ describe("dispatchAssignmentUpdate — parked / closed guard", () => {
     defineLoop({
       id: "dt",
       trigger: { kind: "event", event: "run:complete" },
-      contract: { states: ["dispatched", "completed", "failed"], terminal: ["completed", "failed"] },
+      contract: {
+        states: ["dispatched", "completed", "failed"],
+        terminal: ["completed", "failed"],
+      },
       act: async (): Promise<ActResult> => ({
         kind: "deferred",
         runId: "agent-1",
@@ -744,14 +775,17 @@ describe("dispatchAssignmentUpdate — parked / closed guard", () => {
     // Wrap the store so the terminalize's compare-and-set always loses,
     // simulating a concurrent resolver that advanced the run between the
     // guard read and the transition.
-    _setStoreFactoryForTests((<O,>(loopId: string, contract: unknown) => {
+    _setStoreFactoryForTests((<O>(loopId: string, contract: unknown) => {
       const base = createLoopRunStore<O>(loopId, contract as never, makeKv());
       return { ...base, transitionIf: async () => null };
     }) as never);
     defineLoop({
       id: "cas",
       trigger: { kind: "event", event: "run:complete" },
-      contract: { states: ["dispatched", "completed", "failed"], terminal: ["completed", "failed"] },
+      contract: {
+        states: ["dispatched", "completed", "failed"],
+        terminal: ["completed", "failed"],
+      },
       act: async (): Promise<ActResult> => ({
         kind: "deferred",
         runId: "agent-1",
@@ -819,7 +853,7 @@ describe("approve — label-append failure never wedges the run in finalizing", 
     // A store whose FIRST appendLabel throws (a transient store blip), then
     // recovers — the approve's label write fails, the later decline's succeeds.
     let labelCalls = 0;
-    _setStoreFactoryForTests((<O,>(loopId: string, contract: unknown) => {
+    _setStoreFactoryForTests((<O>(loopId: string, contract: unknown) => {
       const base = createLoopRunStore<O>(loopId, contract as never, makeKv());
       return {
         ...base,
@@ -857,7 +891,10 @@ describe("approve — label-append failure never wedges the run in finalizing", 
     const runId = (await reg.store.list())[0]!.id;
     // Move to finalizing WITHOUT the verifyManually flag (a legitimate
     // in-flight finalize).
-    await reg.store.transitionIf(runId, AWAITING_APPROVAL, { status: FINALIZING, eventStatus: FINALIZING });
+    await reg.store.transitionIf(runId, AWAITING_APPROVAL, {
+      status: FINALIZING,
+      eventStatus: FINALIZING,
+    });
     expect(await declineRun("docs", runId, "bob")).toEqual({ ok: false, reason: "finalizing" });
   });
 });
@@ -871,8 +908,18 @@ describe("sweepAllStaleProposals — reaps every registered loop", () => {
     defineApprovalLoop({ id: "sb", staleAfterDays: 7 });
     const regA = _getRegisteredLoop("sa")!;
     const regB = _getRegisteredLoop("sb")!;
-    await regA.store.claim({ id: "ra", loopId: "sa", status: AWAITING_APPROVAL, proposal: PROPOSAL });
-    await regB.store.claim({ id: "rb", loopId: "sb", status: AWAITING_APPROVAL, proposal: PROPOSAL });
+    await regA.store.claim({
+      id: "ra",
+      loopId: "sa",
+      status: AWAITING_APPROVAL,
+      proposal: PROPOSAL,
+    });
+    await regB.store.claim({
+      id: "rb",
+      loopId: "sb",
+      status: AWAITING_APPROVAL,
+      proposal: PROPOSAL,
+    });
 
     // A clock 8 days ahead crosses the 7-day horizon for both.
     const future = Date.now() + 8 * 24 * 60 * 60 * 1000;

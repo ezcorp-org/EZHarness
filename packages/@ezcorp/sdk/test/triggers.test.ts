@@ -21,11 +21,7 @@ import {
   __resetTriggersForTests,
   type TriggerFireContext,
 } from "../src/runtime/triggers";
-import {
-  __resetChannelForTests,
-  getChannel,
-  type HostChannel,
-} from "../src/runtime/channel";
+import { __resetChannelForTests, getChannel, type HostChannel } from "../src/runtime/channel";
 
 afterEach(() => {
   __resetTriggersForTests();
@@ -55,8 +51,13 @@ function captureReceiver() {
   return {
     fire: (ctx: Partial<TriggerFireContext> & { key: string }) =>
       received?.({
-        v: 1, kind: "cron", firedAt: "2026-07-29T09:00:00.000Z",
-        fireId: "f1", catchUp: false, attempt: 0, ...ctx,
+        v: 1,
+        kind: "cron",
+        firedAt: "2026-07-29T09:00:00.000Z",
+        fireId: "f1",
+        catchUp: false,
+        attempt: 0,
+        ...ctx,
       }),
     installed: () => received !== undefined,
   };
@@ -70,14 +71,21 @@ describe("register", () => {
 
     expect(calls[0]?.method).toBe("ezcorp/triggers");
     expect(calls[0]?.params).toEqual({
-      v: 1, action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1",
+      v: 1,
+      action: "register",
+      kind: "cron",
+      key: "job:1",
+      cron: "0 9 * * 1",
     });
   });
 
   test("passes an explicit timezone through", async () => {
     const { calls } = spyRequest();
     await new Triggers().register({
-      kind: "cron", key: "job:1", cron: "0 9 * * 1", timezone: "America/New_York",
+      kind: "cron",
+      key: "job:1",
+      cron: "0 9 * * 1",
+      timezone: "America/New_York",
     });
     expect(calls[0]?.params.timezone).toBe("America/New_York");
   });
@@ -86,8 +94,11 @@ describe("register", () => {
     // The structural bound: with no slug on the wire there is no field in
     // which to name another extension's hook.
     const { calls } = spyRequest({
-      v: 1, key: "job:1", kind: "webhook",
-      slug: "factory-abc123abc123", url: "/api/hooks/ext/factory-abc123abc123",
+      v: 1,
+      key: "job:1",
+      kind: "webhook",
+      slug: "factory-abc123abc123",
+      url: "/api/hooks/ext/factory-abc123abc123",
     });
 
     await new Triggers().register({ kind: "webhook", key: "job:1" });
@@ -98,8 +109,11 @@ describe("register", () => {
 
   test("returns the host's registered trigger verbatim", async () => {
     const reg = {
-      v: 1, key: "job:1", kind: "webhook",
-      slug: "factory-abc123abc123", url: "/api/hooks/ext/factory-abc123abc123",
+      v: 1,
+      key: "job:1",
+      kind: "webhook",
+      slug: "factory-abc123abc123",
+      url: "/api/hooks/ext/factory-abc123abc123",
     };
     spyRequest(reg);
     const out = await new Triggers().register({ kind: "webhook", key: "job:1" });
@@ -126,7 +140,10 @@ describe("unregister", () => {
     const { calls } = spyRequest({ removed: true });
     const out = await new Triggers().unregister("webhook", "job:1");
     expect(calls[0]?.params).toEqual({
-      v: 1, action: "unregister", kind: "webhook", key: "job:1",
+      v: 1,
+      action: "unregister",
+      kind: "webhook",
+      key: "job:1",
     });
     expect(out).toEqual({ removed: true });
   });
@@ -199,8 +216,12 @@ describe("fire dispatch — keyed on `key`", () => {
     const rx = captureReceiver();
     const t = new Triggers();
     const seen: string[] = [];
-    t.on("job:a", (c) => { seen.push(`a:${c.key}`); });
-    t.on("job:b", (c) => { seen.push(`b:${c.key}`); });
+    t.on("job:a", (c) => {
+      seen.push(`a:${c.key}`);
+    });
+    t.on("job:b", (c) => {
+      seen.push(`b:${c.key}`);
+    });
 
     await rx.fire({ key: "job:a", cron: "0 9 * * 1" });
     await rx.fire({ key: "job:b", cron: "0 9 * * 1" });
@@ -211,16 +232,27 @@ describe("fire dispatch — keyed on `key`", () => {
   test("the handler receives the full fire context", async () => {
     const rx = captureReceiver();
     let got: TriggerFireContext | undefined;
-    new Triggers().on("job:1", (c) => { got = c; });
+    new Triggers().on("job:1", (c) => {
+      got = c;
+    });
 
     await rx.fire({
-      key: "job:1", kind: "webhook", fireId: "f9",
-      catchUp: true, attempt: 2, payload: { hello: "world" },
+      key: "job:1",
+      kind: "webhook",
+      fireId: "f9",
+      catchUp: true,
+      attempt: 2,
+      payload: { hello: "world" },
     });
 
     expect(got).toMatchObject({
-      v: 1, key: "job:1", kind: "webhook", fireId: "f9",
-      catchUp: true, attempt: 2, payload: { hello: "world" },
+      v: 1,
+      key: "job:1",
+      kind: "webhook",
+      fireId: "f9",
+      catchUp: true,
+      attempt: 2,
+      payload: { hello: "world" },
     });
   });
 
@@ -228,7 +260,9 @@ describe("fire dispatch — keyed on `key`", () => {
     // Happens when a row outlives the job that made it, or when the
     // extension restarts and re-registers rows before wiring handlers.
     const rx = captureReceiver();
-    new Triggers().on("job:1", () => { throw new Error("must not run"); });
+    new Triggers().on("job:1", () => {
+      throw new Error("must not run");
+    });
     await expect(rx.fire({ key: "job:unknown" })).resolves.toBeUndefined();
   });
 
@@ -247,7 +281,9 @@ describe("fire dispatch — keyed on `key`", () => {
     const rx = captureReceiver();
     let ran = 0;
     const t = new Triggers();
-    t.on("job:1", () => { ran++; });
+    t.on("job:1", () => {
+      ran++;
+    });
     await rx.fire({ key: "job:1" });
     t.off("job:1");
     await rx.fire({ key: "job:1" });
@@ -258,8 +294,12 @@ describe("fire dispatch — keyed on `key`", () => {
     const rx = captureReceiver();
     const seen: string[] = [];
     const t = new Triggers();
-    t.on("job:1", () => { seen.push("first"); });
-    t.on("job:1", () => { seen.push("second"); });
+    t.on("job:1", () => {
+      seen.push("first");
+    });
+    t.on("job:1", () => {
+      seen.push("second");
+    });
     await rx.fire({ key: "job:1" });
     expect(seen).toEqual(["second"]);
   });

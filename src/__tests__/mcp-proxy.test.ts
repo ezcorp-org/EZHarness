@@ -52,7 +52,8 @@ mock.module("../db/queries/audit-log", () => ({
 // i.e. drive a rebind from a public hostname to a private IP.
 let MOCK_INTERNAL_HOST_PREDICATE: (h: string) => boolean = () => false;
 mock.module("../extensions/runtime/internal-host", () => ({
-  INTERNAL_HOST_RE: /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|fc00:|fd00:|fe80:|::1$)/i,
+  INTERNAL_HOST_RE:
+    /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|fc00:|fd00:|fe80:|::1$)/i,
   normalizeHostname: (raw: string) => {
     let h = raw.toLowerCase();
     if (h.length >= 2 && h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1);
@@ -122,7 +123,9 @@ async function startUpstream(): Promise<UpstreamServer> {
   });
   return {
     port: listener.port,
-    get bytesReceived() { return bytesReceived; },
+    get bytesReceived() {
+      return bytesReceived;
+    },
     stop: () => listener.stop(true),
   };
 }
@@ -145,13 +148,23 @@ async function rawClient(
     hostname: proxyHost,
     port: proxyPort,
     socket: {
-      open(s) { s.write(requestText); },
-      data(_s, chunk: Buffer) { buf = Buffer.concat([buf, chunk]); },
-      close() { closed = true; },
+      open(s) {
+        s.write(requestText);
+      },
+      data(_s, chunk: Buffer) {
+        buf = Buffer.concat([buf, chunk]);
+      },
+      close() {
+        closed = true;
+      },
     },
   });
   await new Promise((r) => setTimeout(r, collectMs));
-  try { sock.end(); } catch { /* already torn */ }
+  try {
+    sock.end();
+  } catch {
+    /* already torn */
+  }
   return { responseBytes: buf, responseStr: buf.toString("utf8"), closed };
 }
 
@@ -160,9 +173,10 @@ function basicAuthHeader(token: string): string {
   return `Proxy-Authorization: Basic ${b64}`;
 }
 
-function makeProxy(
-  overrides: Partial<McpProxyConfig> = {},
-): { proxy: ReturnType<typeof createMcpProxy>; engine: ReturnType<typeof createStubPermissionEngine> } {
+function makeProxy(overrides: Partial<McpProxyConfig> = {}): {
+  proxy: ReturnType<typeof createMcpProxy>;
+  engine: ReturnType<typeof createStubPermissionEngine>;
+} {
   const engine = createStubPermissionEngine("allow-all");
   const proxy = createMcpProxy({
     extensionId: "ext-test",
@@ -268,9 +282,7 @@ describe("createMcpProxy — auth + token", () => {
   // `crypto.timingSafeEqual`. The "test" is the static contract: any
   // future refactor that drops the import will fail this assertion.
   test("token comparison uses node:crypto timingSafeEqual (no plain !==)", async () => {
-    const proxySrc = await Bun.file(
-      `${import.meta.dir}/../extensions/mcp-proxy.ts`,
-    ).text();
+    const proxySrc = await Bun.file(`${import.meta.dir}/../extensions/mcp-proxy.ts`).text();
     expect(proxySrc).toContain('import { timingSafeEqual } from "node:crypto"');
     expect(proxySrc).toContain("timingSafeEqual(providedBytes, tokenBytes)");
     // The old `providedToken !== token` comparison must be gone — any
@@ -345,8 +357,7 @@ describe("createMcpProxy — internal-host hard deny", () => {
       expect(r.responseStr).toContain("Internal host blocked");
       await new Promise((res) => setTimeout(res, 50));
       const internal = auditCalls.find(
-        (c) => c.action === "ext:mcp:host-blocked" &&
-               c.metadata?.reason === "internal",
+        (c) => c.action === "ext:mcp:host-blocked" && c.metadata?.reason === "internal",
       );
       expect(internal).toBeDefined();
     } finally {
@@ -394,7 +405,9 @@ describe("createMcpProxy — PDP + tunneling", () => {
               `CONNECT 127.0.0.1:${upstream.port} HTTP/1.1\r\n${basicAuthHeader(realToken)}\r\n\r\n`,
             );
           },
-          data(_s, chunk: Buffer) { buf = Buffer.concat([buf, chunk]); },
+          data(_s, chunk: Buffer) {
+            buf = Buffer.concat([buf, chunk]);
+          },
         },
       });
 
@@ -418,7 +431,11 @@ describe("createMcpProxy — PDP + tunneling", () => {
       expect(counters.rx).toBeGreaterThanOrEqual(5);
       expect(counters.tx).toBeGreaterThanOrEqual(5);
 
-      try { sock.end(); } catch { /* race */ }
+      try {
+        sock.end();
+      } catch {
+        /* race */
+      }
     } finally {
       upstream.stop();
       await proxy.stop();
@@ -447,9 +464,11 @@ describe("createMcpProxy — PDP + tunneling", () => {
       );
       expect(r.responseStr).toContain("403");
       await new Promise((res) => setTimeout(res, 50));
-      expect(auditCalls.some(
-        (c) => c.action === "ext:mcp:host-blocked" && c.metadata?.reason === "host",
-      )).toBe(true);
+      expect(
+        auditCalls.some(
+          (c) => c.action === "ext:mcp:host-blocked" && c.metadata?.reason === "host",
+        ),
+      ).toBe(true);
     } finally {
       upstream.stop();
       await denyProxy.stop();
@@ -494,14 +513,21 @@ describe("createMcpProxy — quota", () => {
                 `CONNECT 127.0.0.1:${upstream.port} HTTP/1.1\r\n${basicAuthHeader(url.password)}\r\n\r\n`,
               );
             },
-            data() { /* drop */ },
+            data() {
+              /* drop */
+            },
           },
         });
         sockets.push(s);
       }
       await new Promise((r) => setTimeout(r, 150));
       expect(proxy.connectionsCount()).toBe(N);
-      for (const s of sockets) try { s.end(); } catch { /* race */ }
+      for (const s of sockets)
+        try {
+          s.end();
+        } catch {
+          /* race */
+        }
     } finally {
       upstream.stop();
       await proxy.stop();
@@ -525,7 +551,9 @@ describe("createMcpProxy — quota", () => {
                 `CONNECT 127.0.0.1:${upstream.port} HTTP/1.1\r\n${basicAuthHeader(url.password)}\r\n\r\n`,
               );
             },
-            data() { /* drop */ },
+            data() {
+              /* drop */
+            },
           },
         });
         sockets.push(s);
@@ -539,12 +567,18 @@ describe("createMcpProxy — quota", () => {
       );
       expect(r.responseStr).toContain("503");
       await new Promise((res) => setTimeout(res, 50));
-      expect(auditCalls.some(
-        (c) => c.action === "ext:mcp:host-blocked" &&
-               c.metadata?.reason === "quota:concurrent",
-      )).toBe(true);
+      expect(
+        auditCalls.some(
+          (c) => c.action === "ext:mcp:host-blocked" && c.metadata?.reason === "quota:concurrent",
+        ),
+      ).toBe(true);
 
-      for (const s of sockets) try { s.end(); } catch { /* race */ }
+      for (const s of sockets)
+        try {
+          s.end();
+        } catch {
+          /* race */
+        }
     } finally {
       upstream.stop();
       await proxy.stop();
@@ -573,7 +607,9 @@ describe("createMcpProxy — quota", () => {
               `CONNECT 127.0.0.1:${upstream.port} HTTP/1.1\r\n${basicAuthHeader(url.password)}\r\n\r\n`,
             );
           },
-          data(_s, chunk: Buffer) { buf = Buffer.concat([buf, chunk]); },
+          data(_s, chunk: Buffer) {
+            buf = Buffer.concat([buf, chunk]);
+          },
         },
       });
 
@@ -601,12 +637,15 @@ describe("createMcpProxy — quota", () => {
       // status line and close.
       const got429 = buf.toString().includes("429 Too Many Requests");
       const auditedQuota = auditCalls.some(
-        (c) => c.action === "ext:mcp:host-blocked" &&
-               c.metadata?.reason === "quota:bytes",
+        (c) => c.action === "ext:mcp:host-blocked" && c.metadata?.reason === "quota:bytes",
       );
       expect(got429 || auditedQuota).toBe(true);
 
-      try { sock.end(); } catch { /* race */ }
+      try {
+        sock.end();
+      } catch {
+        /* race */
+      }
     } finally {
       upstream.stop();
       await proxy.stop();
@@ -659,7 +698,9 @@ describe("createMcpProxy — lifecycle", () => {
               `CONNECT 127.0.0.1:${upstream.port} HTTP/1.1\r\n${basicAuthHeader(url.password)}\r\n\r\n`,
             );
           },
-          data() { /* drop */ },
+          data() {
+            /* drop */
+          },
         },
       });
       await new Promise((r) => setTimeout(r, 80));
@@ -667,7 +708,11 @@ describe("createMcpProxy — lifecycle", () => {
 
       proxy._resetCountersForTests();
       expect(proxy.connectionsCount()).toBe(0);
-      try { s1.end(); } catch { /* race */ }
+      try {
+        s1.end();
+      } catch {
+        /* race */
+      }
     } finally {
       upstream.stop();
       await proxy.stop();
@@ -717,8 +762,7 @@ describe("DNS rebind recheck", () => {
       expect(r.responseStr).toContain("Internal IP blocked");
       await new Promise((res) => setTimeout(res, 50));
       const rebind = auditCalls.find(
-        (c) => c.action === "ext:mcp:host-blocked" &&
-               c.metadata?.reason === "rebind",
+        (c) => c.action === "ext:mcp:host-blocked" && c.metadata?.reason === "rebind",
       );
       expect(rebind).toBeDefined();
     } finally {
@@ -743,8 +787,7 @@ describe("DNS rebind recheck", () => {
       expect(r.responseStr).toContain("Internal IP blocked");
       await new Promise((res) => setTimeout(res, 50));
       const rebind = auditCalls.find(
-        (c) => c.action === "ext:mcp:host-blocked" &&
-               c.metadata?.reason === "rebind",
+        (c) => c.action === "ext:mcp:host-blocked" && c.metadata?.reason === "rebind",
       );
       expect(rebind).toBeDefined();
     } finally {
@@ -796,8 +839,7 @@ describe("DNS rebind recheck", () => {
       expect(r.responseStr).toContain("DNS resolution failed");
       await new Promise((res) => setTimeout(res, 50));
       const rebind = auditCalls.find(
-        (c) => c.action === "ext:mcp:host-blocked" &&
-               c.metadata?.reason === "rebind",
+        (c) => c.action === "ext:mcp:host-blocked" && c.metadata?.reason === "rebind",
       );
       expect(rebind).toBeDefined();
       // PDP MUST NOT be consulted on DNS failure — fail-closed.
@@ -826,8 +868,7 @@ describe("DNS rebind recheck", () => {
       expect(r.responseStr).toContain("Internal host blocked");
       await new Promise((res) => setTimeout(res, 50));
       const internal = auditCalls.find(
-        (c) => c.action === "ext:mcp:host-blocked" &&
-               c.metadata?.reason === "internal",
+        (c) => c.action === "ext:mcp:host-blocked" && c.metadata?.reason === "internal",
       );
       expect(internal).toBeDefined();
       // DNS recheck MUST NOT have been consulted.
@@ -891,8 +932,9 @@ describe("DNS rebind recheck", () => {
       await new Promise((res) => setTimeout(res, 80));
 
       const fallbackRows = auditCalls.filter(
-        (c) => c.action === "ext:mcp:netns-fallback" &&
-               c.metadata?.reason === "kill-switch: dns-recheck disabled",
+        (c) =>
+          c.action === "ext:mcp:netns-fallback" &&
+          c.metadata?.reason === "kill-switch: dns-recheck disabled",
       );
       expect(fallbackRows.length).toBe(1);
       expect(engine.calls.length).toBe(2);

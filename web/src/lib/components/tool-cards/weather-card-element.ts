@@ -1,83 +1,87 @@
-import { formatLocation, formatTemp, type WeatherCardPayload } from './weather-card-logic';
+import { formatLocation, formatTemp, type WeatherCardPayload } from "./weather-card-logic";
 
-const TAG_NAME = 'weather-display-card';
+const TAG_NAME = "weather-display-card";
 
 function escapeHtml(text: string): string {
-	return text
-		.replaceAll('&', '&amp;')
-		.replaceAll('<', '&lt;')
-		.replaceAll('>', '&gt;')
-		.replaceAll('"', '&quot;')
-		.replaceAll("'", '&#39;');
+  return text
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
 let registered = false;
 
 function gradientFor(payload: WeatherCardPayload): string {
-	const condition = payload.current.condition.toLowerCase();
-	if (!payload.current.isDay) {
-		return 'linear-gradient(160deg, #07111f 0%, #172554 48%, #312e81 100%)';
-	}
-	if (condition.includes('rain') || condition.includes('shower') || condition.includes('drizzle')) {
-		return 'linear-gradient(160deg, #334155 0%, #2563eb 48%, #0f172a 100%)';
-	}
-	if (condition.includes('snow')) {
-		return 'linear-gradient(160deg, #dbeafe 0%, #93c5fd 45%, #64748b 100%)';
-	}
-	if (condition.includes('cloud') || condition.includes('overcast')) {
-		return 'linear-gradient(160deg, #60a5fa 0%, #64748b 52%, #334155 100%)';
-	}
-	return 'linear-gradient(160deg, #0ea5e9 0%, #2563eb 46%, #7c3aed 100%)';
+  const condition = payload.current.condition.toLowerCase();
+  if (!payload.current.isDay) {
+    return "linear-gradient(160deg, #07111f 0%, #172554 48%, #312e81 100%)";
+  }
+  if (condition.includes("rain") || condition.includes("shower") || condition.includes("drizzle")) {
+    return "linear-gradient(160deg, #334155 0%, #2563eb 48%, #0f172a 100%)";
+  }
+  if (condition.includes("snow")) {
+    return "linear-gradient(160deg, #dbeafe 0%, #93c5fd 45%, #64748b 100%)";
+  }
+  if (condition.includes("cloud") || condition.includes("overcast")) {
+    return "linear-gradient(160deg, #60a5fa 0%, #64748b 52%, #334155 100%)";
+  }
+  return "linear-gradient(160deg, #0ea5e9 0%, #2563eb 46%, #7c3aed 100%)";
 }
 
 function defineWeatherDisplayElement(): void {
-	class WeatherDisplayCardElement extends HTMLElement {
-		private _payload: WeatherCardPayload | null = null;
+  class WeatherDisplayCardElement extends HTMLElement {
+    private _payload: WeatherCardPayload | null = null;
 
-		set payload(value: WeatherCardPayload | null) {
-			this._payload = value;
-			this.render();
-		}
+    set payload(value: WeatherCardPayload | null) {
+      this._payload = value;
+      this.render();
+    }
 
-		get payload(): WeatherCardPayload | null {
-			return this._payload;
-		}
+    get payload(): WeatherCardPayload | null {
+      return this._payload;
+    }
 
-		connectedCallback(): void {
-			this.render();
-		}
+    connectedCallback(): void {
+      this.render();
+    }
 
-		private render(): void {
-			const payload = this._payload;
-			if (!payload) {
-				this.innerHTML = '';
-				return;
-			}
+    private render(): void {
+      const payload = this._payload;
+      if (!payload) {
+        this.innerHTML = "";
+        return;
+      }
 
-			const current = payload.current;
-			const daily = payload.daily
-				.map((day) => `
+      const current = payload.current;
+      const daily = payload.daily
+        .map(
+          (day) => `
 					<li class="wx-day">
 						<div class="wx-day-main">
 							<span class="wx-day-label">${escapeHtml(day.dayLabel)}</span>
 							<span class="wx-day-cond">${escapeHtml(day.emoji)} ${escapeHtml(day.condition)}</span>
 						</div>
-						<div class="wx-rain">${day.precipitationChance > 0 ? `💧 ${day.precipitationChance}%` : '—'}</div>
+						<div class="wx-rain">${day.precipitationChance > 0 ? `💧 ${day.precipitationChance}%` : "—"}</div>
 						<div class="wx-day-temp"><strong>${escapeHtml(formatTemp(day.tempMax, payload.units.temperature))}</strong><span>${escapeHtml(formatTemp(day.tempMin, payload.units.temperature))}</span></div>
 					</li>
-				`)
-				.join('');
-			const hourly = payload.hourly
-				.map((hour) => `
+				`,
+        )
+        .join("");
+      const hourly = payload.hourly
+        .map(
+          (hour) => `
 					<li class="wx-hour">
 						<span class="wx-hour-label">${escapeHtml(hour.label)}</span>
 						<span class="wx-hour-icon">${escapeHtml(hour.emoji)}</span>
 						<span class="wx-hour-temp">${escapeHtml(formatTemp(hour.temperature, payload.units.temperature))}</span>
 					</li>
-				`)
-				.join('');
+				`,
+        )
+        .join("");
 
-			this.innerHTML = `
+      this.innerHTML = `
 				<section class="wx-card" data-testid="weather-display-card" style="--wx-bg: ${gradientFor(payload)}">
 					<style>
 						weather-display-card, .wx-card {
@@ -152,7 +156,7 @@ function defineWeatherDisplayElement(): void {
 					<div class="wx-hero">
 						<div>
 							<div class="wx-place">${escapeHtml(formatLocation(payload))}</div>
-							<div class="wx-meta">${escapeHtml(payload.location.timezone ?? 'Local time')}</div>
+							<div class="wx-meta">${escapeHtml(payload.location.timezone ?? "Local time")}</div>
 						</div>
 						<div class="wx-temp-wrap">
 							<div class="wx-temp">${escapeHtml(formatTemp(current.temperature, payload.units.temperature))}</div>
@@ -175,17 +179,17 @@ function defineWeatherDisplayElement(): void {
 					</div>
 				</section>
 			`;
-		}
-	}
+    }
+  }
 
-	if (!customElements.get(TAG_NAME)) {
-		customElements.define(TAG_NAME, WeatherDisplayCardElement);
-	}
+  if (!customElements.get(TAG_NAME)) {
+    customElements.define(TAG_NAME, WeatherDisplayCardElement);
+  }
 }
 
 export function registerWeatherDisplayElement(): void {
-	if (registered) return;
-	if (typeof window === 'undefined' || !globalThis.customElements) return;
-	defineWeatherDisplayElement();
-	registered = true;
+  if (registered) return;
+  if (typeof window === "undefined" || !globalThis.customElements) return;
+  defineWeatherDisplayElement();
+  registered = true;
 }

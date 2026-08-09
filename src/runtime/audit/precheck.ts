@@ -25,9 +25,27 @@ const PRECHECK_MAX_FILE_BYTES = 64_000;
 
 /** Filename extensions that are never worth grepping. */
 const BINARY_EXTENSIONS = new Set([
-  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".ico", ".svg",
-  ".pdf", ".zip", ".tar", ".gz", ".bin", ".lock", ".woff", ".woff2",
-  ".ttf", ".otf", ".eot", ".mp3", ".mp4", ".mov",
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".gif",
+  ".webp",
+  ".ico",
+  ".svg",
+  ".pdf",
+  ".zip",
+  ".tar",
+  ".gz",
+  ".bin",
+  ".lock",
+  ".woff",
+  ".woff2",
+  ".ttf",
+  ".otf",
+  ".eot",
+  ".mp3",
+  ".mp4",
+  ".mov",
 ]);
 
 function getExt(path: string): string {
@@ -141,7 +159,11 @@ export function asFullVerdict(partial: PartialVerdict): {
 } {
   return {
     sdk: partial.sdk ?? { exposed: false, via: "precheck", evidence: "no precheck signal" },
-    ezbutton: partial.ezbutton ?? { exposed: false, via: "precheck", evidence: "no precheck signal" },
+    ezbutton: partial.ezbutton ?? {
+      exposed: false,
+      via: "precheck",
+      evidence: "no precheck signal",
+    },
     mcp: partial.mcp ?? { exposed: false, via: "precheck", evidence: "no precheck signal" },
   };
 }

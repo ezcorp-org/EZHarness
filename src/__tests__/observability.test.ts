@@ -34,14 +34,20 @@ beforeEach(async () => {
   // Seed conversations
   const cid1 = crypto.randomUUID();
   const cid2 = crypto.randomUUID();
-  await db.execute(sql`INSERT INTO conversations (id, project_id, title) VALUES (${cid1}, 'obs-proj', 'Conv 1')`);
-  await db.execute(sql`INSERT INTO conversations (id, project_id, title) VALUES (${cid2}, 'obs-proj', 'Conv 2')`);
+  await db.execute(
+    sql`INSERT INTO conversations (id, project_id, title) VALUES (${cid1}, 'obs-proj', 'Conv 1')`,
+  );
+  await db.execute(
+    sql`INSERT INTO conversations (id, project_id, title) VALUES (${cid2}, 'obs-proj', 'Conv 2')`,
+  );
   conversationId = cid1;
   conversationId2 = cid2;
 
   // Seed a message
   const mid = crypto.randomUUID();
-  await db.execute(sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${mid}, ${cid1}, 'user', 'hello')`);
+  await db.execute(
+    sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${mid}, ${cid1}, 'user', 'hello')`,
+  );
   messageId = mid;
 
   // Seed an extension
@@ -110,8 +116,12 @@ describe("observability queries", () => {
     // Tokens come from messages.usage (authoritative); durations come from
     // observability_events turn_summary rows.
     const db = getTestDb();
-    await db.execute(sql`INSERT INTO messages (id, conversation_id, role, content, usage) VALUES (${crypto.randomUUID()}, ${conversationId}, 'assistant', 'turn1', '{"inputTokens":100,"outputTokens":200}'::jsonb)`);
-    await db.execute(sql`INSERT INTO messages (id, conversation_id, role, content, usage) VALUES (${crypto.randomUUID()}, ${conversationId}, 'assistant', 'turn2', '{"inputTokens":50,"outputTokens":100}'::jsonb)`);
+    await db.execute(
+      sql`INSERT INTO messages (id, conversation_id, role, content, usage) VALUES (${crypto.randomUUID()}, ${conversationId}, 'assistant', 'turn1', '{"inputTokens":100,"outputTokens":200}'::jsonb)`,
+    );
+    await db.execute(
+      sql`INSERT INTO messages (id, conversation_id, role, content, usage) VALUES (${crypto.randomUUID()}, ${conversationId}, 'assistant', 'turn2', '{"inputTokens":50,"outputTokens":100}'::jsonb)`,
+    );
 
     await insertObservabilityEvent({
       conversationId,
@@ -135,8 +145,12 @@ describe("observability queries", () => {
 
   test("getGlobalStats aggregates across all conversations", async () => {
     const db = getTestDb();
-    await db.execute(sql`INSERT INTO messages (id, conversation_id, role, content, usage) VALUES (${crypto.randomUUID()}, ${conversationId}, 'assistant', 'turn1', '{"inputTokens":100,"outputTokens":200}'::jsonb)`);
-    await db.execute(sql`INSERT INTO messages (id, conversation_id, role, content, usage) VALUES (${crypto.randomUUID()}, ${conversationId2}, 'assistant', 'turn2', '{"inputTokens":200,"outputTokens":300}'::jsonb)`);
+    await db.execute(
+      sql`INSERT INTO messages (id, conversation_id, role, content, usage) VALUES (${crypto.randomUUID()}, ${conversationId}, 'assistant', 'turn1', '{"inputTokens":100,"outputTokens":200}'::jsonb)`,
+    );
+    await db.execute(
+      sql`INSERT INTO messages (id, conversation_id, role, content, usage) VALUES (${crypto.randomUUID()}, ${conversationId2}, 'assistant', 'turn2', '{"inputTokens":200,"outputTokens":300}'::jsonb)`,
+    );
 
     const stats = await getGlobalStats();
     expect(stats.totalInputTokens).toBe(300);

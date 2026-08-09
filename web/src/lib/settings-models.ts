@@ -10,28 +10,28 @@
  */
 
 export interface CustomModelEntry {
-	modelId: string;
-	provider: string;
-	tier: string;
-	baseUrl?: string;
+  modelId: string;
+  provider: string;
+  tier: string;
+  baseUrl?: string;
 }
 
 export interface PartitionedCustomModels<T extends CustomModelEntry = CustomModelEntry> {
-	/** Rendered in the Ollama provider card only. */
-	ollama: T[];
-	/** Rendered in the Custom Models registry list only. */
-	registry: T[];
+  /** Rendered in the Ollama provider card only. */
+  ollama: T[];
+  /** Rendered in the Custom Models registry list only. */
+  registry: T[];
 }
 
 export function partitionCustomModels<T extends CustomModelEntry>(
-	models: T[],
+  models: T[],
 ): PartitionedCustomModels<T> {
-	const ollama: T[] = [];
-	const registry: T[] = [];
-	for (const m of models) {
-		(m.provider === "ollama" ? ollama : registry).push(m);
-	}
-	return { ollama, registry };
+  const ollama: T[] = [];
+  const registry: T[] = [];
+  for (const m of models) {
+    (m.provider === "ollama" ? ollama : registry).push(m);
+  }
+  return { ollama, registry };
 }
 
 /**
@@ -41,7 +41,7 @@ export function partitionCustomModels<T extends CustomModelEntry>(
  * page, so "llama3 via openai" blocks adding "llama3 via ollama" too.
  */
 export function hasModelId(models: CustomModelEntry[], modelId: string): boolean {
-	return models.some((m) => m.modelId === modelId);
+  return models.some((m) => m.modelId === modelId);
 }
 
 /**
@@ -68,8 +68,8 @@ export const DEFAULT_PREFERENCE_ORDER = ["anthropic", "openai", "google", "openr
  * order verbatim, then append any default providers missing from it.
  */
 export function mergePreferenceOrder(
-	stored: string[],
-	defaults: readonly string[] = DEFAULT_PREFERENCE_ORDER,
+  stored: string[],
+  defaults: readonly string[] = DEFAULT_PREFERENCE_ORDER,
 ): string[] {
-	return [...stored, ...defaults.filter((p) => !stored.includes(p))];
+  return [...stored, ...defaults.filter((p) => !stored.includes(p))];
 }

@@ -48,7 +48,10 @@ type FkRow = { col: string; reftable: string; confdeltype: string };
  * Read from the catalog rather than from the migration text so a constraint
  * that failed to apply cannot pass by looking right in the source.
  */
-async function foreignKeys(db: Db, table: string): Promise<Record<string, { action: string; references: string }>> {
+async function foreignKeys(
+  db: Db,
+  table: string,
+): Promise<Record<string, { action: string; references: string }>> {
   const res = (await db.execute(sql`
     SELECT a.attname AS col, cl.relname AS reftable, c.confdeltype
     FROM pg_constraint c
@@ -71,7 +74,12 @@ async function indexDefs(db: Db): Promise<Map<string, string>> {
   return new Map(res.rows.map((r) => [r.indexname, r.indexdef]));
 }
 
-type ColRow = { column_name: string; data_type: string; is_nullable: string; column_default: string | null };
+type ColRow = {
+  column_name: string;
+  data_type: string;
+  is_nullable: string;
+  column_default: string | null;
+};
 
 async function columns(db: Db, table: string): Promise<ColRow[]> {
   const res = (await db.execute(sql`
@@ -153,7 +161,9 @@ async function seedFixtures(db: Db, suffix: string) {
       (${id("u-consent")}, ${`consent-${suffix}@x.test`}, 'h', 'Consent', 'admin',  'active'),
       (${id("u-other")},   ${`other-${suffix}@x.test`},   'h', 'Other',   'member', 'active')
   `);
-  await db.execute(sql`INSERT INTO projects (id, name, path) VALUES (${id("p")}, ${`Proj ${suffix}`}, '/tmp/x')`);
+  await db.execute(
+    sql`INSERT INTO projects (id, name, path) VALUES (${id("p")}, ${`Proj ${suffix}`}, '/tmp/x')`,
+  );
   await db.execute(sql`
     INSERT INTO extensions (id, name, version, manifest, source)
     VALUES (${id("e")}, ${`ext-${suffix}`}, '1.0.0', '{}'::jsonb, 'local')
@@ -204,7 +214,13 @@ async function insertDelegation(db: Db, o: DelegationOpts) {
   `);
 }
 
-async function insertServiceAccount(db: Db, id: string, name: string, createdBy: string, project?: string | null) {
+async function insertServiceAccount(
+  db: Db,
+  id: string,
+  name: string,
+  createdBy: string,
+  project?: string | null,
+) {
   await db.execute(sql`
     INSERT INTO service_accounts (id, name, created_by_user_id, project_id, max_tokens_per_day)
     VALUES (${id}, ${name}, ${createdBy}, ${project ?? null}, 500000)
@@ -214,7 +230,13 @@ async function insertServiceAccount(db: Db, id: string, name: string, createdBy:
 /** A run as it is written by a delegated fire: `user_id` NULL for the service arm. */
 async function insertRun(
   db: Db,
-  o: { id: string; userId?: string | null; runAsKind?: string | null; runAs?: string | null; delegation?: string | null },
+  o: {
+    id: string;
+    userId?: string | null;
+    runAsKind?: string | null;
+    runAs?: string | null;
+    delegation?: string | null;
+  },
 ) {
   await db.execute(sql`
     INSERT INTO workflow_runs (id, workflow_name, user_id, status, started_at, run_as_kind, run_as, delegation_id)
@@ -229,8 +251,12 @@ describe("C3 schema — shape after migrate()", () => {
   let pg: PGlite;
   let db: Db;
 
-  beforeAll(async () => { ({ pg, db } = await freshMigrated()); });
-  afterAll(async () => { await pg?.close().catch(() => {}); });
+  beforeAll(async () => {
+    ({ pg, db } = await freshMigrated());
+  });
+  afterAll(async () => {
+    await pg?.close().catch(() => {});
+  });
 
   test("both C3 tables exist", async () => {
     const res = (await db.execute(sql`
@@ -261,7 +287,9 @@ describe("C3 schema — shape after migrate()", () => {
     // hint. Both owner columns are nullable because exactly one is
     // populated per kind — a service account has no `users` row and a user
     // owner has no `service_accounts` row.
-    const cols = new Map((await columns(db, "workflow_delegations")).map((c) => [c.column_name, c.is_nullable]));
+    const cols = new Map(
+      (await columns(db, "workflow_delegations")).map((c) => [c.column_name, c.is_nullable]),
+    );
     expect(cols.get("owner_kind")).toBe("NO");
     expect(cols.get("consented_by_user_id")).toBe("NO");
     expect(cols.get("owner_user_id")).toBe("YES");
@@ -275,7 +303,9 @@ describe("C3 schema — shape after migrate()", () => {
     // a row written before the split — its graph cannot be reconstructed
     // — and it reads as "the definition changed", which routes that row
     // through the fire-time widening test and heals it there.
-    const cols = new Map((await columns(db, "workflow_delegations")).map((c) => [c.column_name, c]));
+    const cols = new Map(
+      (await columns(db, "workflow_delegations")).map((c) => [c.column_name, c]),
+    );
     expect(cols.get("definition_hash")?.is_nullable).toBe("YES");
     expect(cols.get("definition_hash")?.column_default).toBeNull();
     // …while `consent_hash` stays NOT NULL. The two are not interchangeable.
@@ -371,7 +401,9 @@ describe("C3 schema — shape after migrate()", () => {
   test("FK direction is runs → delegations, never delegations → runs", async () => {
     const fromDelegations = await foreignKeys(db, "workflow_delegations");
     expect(Object.values(fromDelegations).map((f) => f.references)).not.toContain("workflow_runs");
-    expect((await foreignKeys(db, "workflow_runs")).delegation_id?.references).toBe("workflow_delegations");
+    expect((await foreignKeys(db, "workflow_runs")).delegation_id?.references).toBe(
+      "workflow_delegations",
+    );
   });
 
   test("DELEGATION_OWNER_COLUMN maps each kind to the column whose FK matches that kind", async () => {
@@ -389,7 +421,9 @@ describe("C3 schema — shape after migrate()", () => {
     const expectedTarget: Record<string, string> = { user: "users", service: "service_accounts" };
     const seen = new Set<string>();
     for (const [kind, prop] of Object.entries(DELEGATION_OWNER_COLUMN)) {
-      const column = workflowDelegations[prop as keyof typeof workflowDelegations] as { name?: string } | undefined;
+      const column = workflowDelegations[prop as keyof typeof workflowDelegations] as
+        | { name?: string }
+        | undefined;
       expect(typeof column?.name).toBe("string");
       expect(fks[column?.name ?? ""]?.references).toBe(expectedTarget[kind] as string);
       seen.add(prop);
@@ -408,31 +442,73 @@ describe("C3 schema — FK delete behaviour, executed", () => {
   let n = 0;
   let f: Awaited<ReturnType<typeof seedFixtures>>;
 
-  beforeAll(async () => { ({ pg, db } = await freshMigrated()); });
-  afterAll(async () => { await pg?.close().catch(() => {}); });
+  beforeAll(async () => {
+    ({ pg, db } = await freshMigrated());
+  });
+  afterAll(async () => {
+    await pg?.close().catch(() => {});
+  });
   // A fresh fixture graph per test — every test here DELETES part of it.
-  beforeEach(async () => { f = await seedFixtures(db, `fk${n++}`); });
+  beforeEach(async () => {
+    f = await seedFixtures(db, `fk${n++}`);
+  });
 
   test("deleting the extension deletes its delegations (CASCADE)", async () => {
-    await insertDelegation(db, { id: `d-${f.extension}`, extension: f.extension, jobRef: "j1", kind: "user", ownerUser: f.owner, consentedBy: f.owner });
+    await insertDelegation(db, {
+      id: `d-${f.extension}`,
+      extension: f.extension,
+      jobRef: "j1",
+      kind: "user",
+      ownerUser: f.owner,
+      consentedBy: f.owner,
+    });
     await db.execute(sql`DELETE FROM extensions WHERE id = ${f.extension}`);
-    expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-${f.extension}`}`)).toBe(0);
+    expect(
+      await count(
+        db,
+        sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-${f.extension}`}`,
+      ),
+    ).toBe(0);
   });
 
   test("deleting a user-kind owner deletes the delegation (CASCADE, not SET NULL)", async () => {
     // SET NULL here would leave an `enabled` row carrying a valid consent
     // hash and naming NOBODY — the latent ownerless grant `-32106` exists
     // to prevent.
-    await insertDelegation(db, { id: `d-${f.owner}`, extension: f.extension, jobRef: "j2", kind: "user", ownerUser: f.owner, consentedBy: f.owner });
+    await insertDelegation(db, {
+      id: `d-${f.owner}`,
+      extension: f.extension,
+      jobRef: "j2",
+      kind: "user",
+      ownerUser: f.owner,
+      consentedBy: f.owner,
+    });
     await db.execute(sql`DELETE FROM users WHERE id = ${f.owner}`);
-    expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-${f.owner}`}`)).toBe(0);
+    expect(
+      await count(
+        db,
+        sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-${f.owner}`}`,
+      ),
+    ).toBe(0);
   });
 
   test("deleting a service account deletes its delegations (CASCADE)", async () => {
     await insertServiceAccount(db, `sa-${f.extension}`, `sa-${f.extension}`, f.consent);
-    await insertDelegation(db, { id: `d-sa-${f.extension}`, extension: f.extension, jobRef: "j3", kind: "service", ownerService: `sa-${f.extension}`, consentedBy: f.consent });
+    await insertDelegation(db, {
+      id: `d-sa-${f.extension}`,
+      extension: f.extension,
+      jobRef: "j3",
+      kind: "service",
+      ownerService: `sa-${f.extension}`,
+      consentedBy: f.consent,
+    });
     await db.execute(sql`DELETE FROM service_accounts WHERE id = ${`sa-${f.extension}`}`);
-    expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-sa-${f.extension}`}`)).toBe(0);
+    expect(
+      await count(
+        db,
+        sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-sa-${f.extension}`}`,
+      ),
+    ).toBe(0);
   });
 
   test("deleting the consenting human of a SERVICE delegation is REFUSED (RESTRICT)", async () => {
@@ -441,9 +517,23 @@ describe("C3 schema — FK delete behaviour, executed", () => {
     // to it leaves, destroying the durability property service accounts
     // exist to provide.
     await insertServiceAccount(db, `sa2-${f.extension}`, `sa2-${f.extension}`, f.other);
-    await insertDelegation(db, { id: `d-r-${f.extension}`, extension: f.extension, jobRef: "j4", kind: "service", ownerService: `sa2-${f.extension}`, consentedBy: f.consent });
-    expect(await errCode(() => db.execute(sql`DELETE FROM users WHERE id = ${f.consent}`))).toBe(await restrictViolationCode(db));
-    expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-r-${f.extension}`}`)).toBe(1);
+    await insertDelegation(db, {
+      id: `d-r-${f.extension}`,
+      extension: f.extension,
+      jobRef: "j4",
+      kind: "service",
+      ownerService: `sa2-${f.extension}`,
+      consentedBy: f.consent,
+    });
+    expect(await errCode(() => db.execute(sql`DELETE FROM users WHERE id = ${f.consent}`))).toBe(
+      await restrictViolationCode(db),
+    );
+    expect(
+      await count(
+        db,
+        sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-r-${f.extension}`}`,
+      ),
+    ).toBe(1);
   });
 
   test("a user-kind delegation whose owner IS the consenter still deletes with the user", async () => {
@@ -451,54 +541,134 @@ describe("C3 schema — FK delete behaviour, executed", () => {
     // with a CASCADE arm and a RESTRICT arm both naming the same users row,
     // Postgres runs the CASCADE first and the RESTRICT check then finds no
     // referencing row. Predicting a deadlock here is the natural mistake.
-    await insertDelegation(db, { id: `d-both-${f.owner}`, extension: f.extension, jobRef: "j5", kind: "user", ownerUser: f.owner, consentedBy: f.owner });
-    expect(await errCode(() => db.execute(sql`DELETE FROM users WHERE id = ${f.owner}`))).toBeNull();
-    expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-both-${f.owner}`}`)).toBe(0);
+    await insertDelegation(db, {
+      id: `d-both-${f.owner}`,
+      extension: f.extension,
+      jobRef: "j5",
+      kind: "user",
+      ownerUser: f.owner,
+      consentedBy: f.owner,
+    });
+    expect(
+      await errCode(() => db.execute(sql`DELETE FROM users WHERE id = ${f.owner}`)),
+    ).toBeNull();
+    expect(
+      await count(
+        db,
+        sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-both-${f.owner}`}`,
+      ),
+    ).toBe(0);
   });
 
   test("deleting a version pinned by a delegation is REFUSED (RESTRICT)", async () => {
     // The consent hash names this exact snapshot; reaping it would leave
     // the record referencing something that no longer exists.
-    await insertDelegation(db, { id: `d-v-${f.version}`, extension: f.extension, jobRef: "j6", kind: "user", ownerUser: f.owner, consentedBy: f.owner, version: f.version });
-    expect(await errCode(() => db.execute(sql`DELETE FROM workflow_definition_versions WHERE id = ${f.version}`))).toBe(await restrictViolationCode(db));
-    expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-v-${f.version}`}`)).toBe(1);
+    await insertDelegation(db, {
+      id: `d-v-${f.version}`,
+      extension: f.extension,
+      jobRef: "j6",
+      kind: "user",
+      ownerUser: f.owner,
+      consentedBy: f.owner,
+      version: f.version,
+    });
+    expect(
+      await errCode(() =>
+        db.execute(sql`DELETE FROM workflow_definition_versions WHERE id = ${f.version}`),
+      ),
+    ).toBe(await restrictViolationCode(db));
+    expect(
+      await count(
+        db,
+        sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-v-${f.version}`}`,
+      ),
+    ).toBe(1);
   });
 
   test("deleting the project deletes its delegations (CASCADE)", async () => {
-    await insertDelegation(db, { id: `d-p-${f.project}`, extension: f.extension, jobRef: "j7", kind: "user", ownerUser: f.owner, consentedBy: f.owner, project: f.project });
+    await insertDelegation(db, {
+      id: `d-p-${f.project}`,
+      extension: f.extension,
+      jobRef: "j7",
+      kind: "user",
+      ownerUser: f.owner,
+      consentedBy: f.owner,
+      project: f.project,
+    });
     await db.execute(sql`DELETE FROM projects WHERE id = ${f.project}`);
-    expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-p-${f.project}`}`)).toBe(0);
+    expect(
+      await count(
+        db,
+        sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`d-p-${f.project}`}`,
+      ),
+    ).toBe(0);
   });
 
   test("deleting the admin who created a service account is REFUSED (RESTRICT)", async () => {
     await insertServiceAccount(db, `sa3-${f.extension}`, `sa3-${f.extension}`, f.consent);
-    expect(await errCode(() => db.execute(sql`DELETE FROM users WHERE id = ${f.consent}`))).toBe(await restrictViolationCode(db));
-    expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM service_accounts WHERE id = ${`sa3-${f.extension}`}`)).toBe(1);
+    expect(await errCode(() => db.execute(sql`DELETE FROM users WHERE id = ${f.consent}`))).toBe(
+      await restrictViolationCode(db),
+    );
+    expect(
+      await count(
+        db,
+        sql`SELECT COUNT(*)::int AS n FROM service_accounts WHERE id = ${`sa3-${f.extension}`}`,
+      ),
+    ).toBe(1);
   });
 
   test("deleting a project deletes its service accounts (CASCADE)", async () => {
     await insertServiceAccount(db, `sa4-${f.extension}`, `sa4-${f.extension}`, f.other, f.project);
     await db.execute(sql`DELETE FROM projects WHERE id = ${f.project}`);
-    expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM service_accounts WHERE id = ${`sa4-${f.extension}`}`)).toBe(0);
+    expect(
+      await count(
+        db,
+        sql`SELECT COUNT(*)::int AS n FROM service_accounts WHERE id = ${`sa4-${f.extension}`}`,
+      ),
+    ).toBe(0);
   });
 
   test("deleting a delegation keeps the run and nulls only delegation_id (SET NULL)", async () => {
     // The run's `run_as` snapshot is what keeps history readable after the
     // authority is gone. CASCADE here would erase the record of what a
     // revoked delegation actually ran.
-    await insertDelegation(db, { id: `d-run-${f.owner}`, extension: f.extension, jobRef: "j8", kind: "user", ownerUser: f.owner, consentedBy: f.owner });
-    await insertRun(db, { id: `r-${f.owner}`, userId: f.owner, runAsKind: "user", runAs: f.owner, delegation: `d-run-${f.owner}` });
+    await insertDelegation(db, {
+      id: `d-run-${f.owner}`,
+      extension: f.extension,
+      jobRef: "j8",
+      kind: "user",
+      ownerUser: f.owner,
+      consentedBy: f.owner,
+    });
+    await insertRun(db, {
+      id: `r-${f.owner}`,
+      userId: f.owner,
+      runAsKind: "user",
+      runAs: f.owner,
+      delegation: `d-run-${f.owner}`,
+    });
     await db.execute(sql`DELETE FROM workflow_delegations WHERE id = ${`d-run-${f.owner}`}`);
     const res = (await db.execute(sql`
       SELECT delegation_id, run_as_kind, run_as FROM workflow_runs WHERE id = ${`r-${f.owner}`}
-    `)) as { rows: Array<{ delegation_id: string | null; run_as_kind: string | null; run_as: string | null }> };
+    `)) as {
+      rows: Array<{
+        delegation_id: string | null;
+        run_as_kind: string | null;
+        run_as: string | null;
+      }>;
+    };
     expect(res.rows).toEqual([{ delegation_id: null, run_as_kind: "user", run_as: f.owner }]);
   });
 
   test("run_as survives deletion of the user it names (no FK to fire)", async () => {
     // Proves the absence of the FK by effect: a snapshot naming a deleted
     // principal is exactly what the audit record is for.
-    await insertRun(db, { id: `r-snap-${f.owner}`, userId: f.owner, runAsKind: "user", runAs: f.owner });
+    await insertRun(db, {
+      id: `r-snap-${f.owner}`,
+      userId: f.owner,
+      runAsKind: "user",
+      runAs: f.owner,
+    });
     await db.execute(sql`DELETE FROM users WHERE id = ${f.owner}`);
     const res = (await db.execute(sql`
       SELECT user_id, run_as FROM workflow_runs WHERE id = ${`r-snap-${f.owner}`}
@@ -507,13 +677,25 @@ describe("C3 schema — FK delete behaviour, executed", () => {
   });
 
   test("run_as may name a principal that never existed (no FK to reject it)", async () => {
-    expect(await errCode(() => insertRun(db, { id: `r-ghost-${f.owner}`, runAsKind: "service", runAs: "no-such-principal" }))).toBeNull();
+    expect(
+      await errCode(() =>
+        insertRun(db, {
+          id: `r-ghost-${f.owner}`,
+          runAsKind: "service",
+          runAs: "no-such-principal",
+        }),
+      ),
+    ).toBeNull();
   });
 
   test("delegation_id naming no delegation IS rejected (the FK that does exist)", async () => {
     // Discriminates the previous test: the snapshot is unconstrained, the
     // live pointer is not.
-    expect(await errCode(() => insertRun(db, { id: `r-bad-${f.owner}`, delegation: "no-such-delegation" }))).toBe("23503");
+    expect(
+      await errCode(() =>
+        insertRun(db, { id: `r-bad-${f.owner}`, delegation: "no-such-delegation" }),
+      ),
+    ).toBe("23503");
   });
 });
 
@@ -526,18 +708,44 @@ describe("C3 schema — both owner kinds and revocation", () => {
   let n = 0;
   let f: Awaited<ReturnType<typeof seedFixtures>>;
 
-  beforeAll(async () => { ({ pg, db } = await freshMigrated()); });
-  afterAll(async () => { await pg?.close().catch(() => {}); });
-  beforeEach(async () => { f = await seedFixtures(db, `ok${n++}`); });
+  beforeAll(async () => {
+    ({ pg, db } = await freshMigrated());
+  });
+  afterAll(async () => {
+    await pg?.close().catch(() => {});
+  });
+  beforeEach(async () => {
+    f = await seedFixtures(db, `ok${n++}`);
+  });
 
   test("both kinds are representable and distinguishable at the row level", async () => {
     await insertServiceAccount(db, `sa-${f.extension}`, `sa-${f.extension}`, f.consent);
-    await insertDelegation(db, { id: `du-${f.extension}`, extension: f.extension, jobRef: "ju", kind: "user", ownerUser: f.owner, consentedBy: f.owner });
-    await insertDelegation(db, { id: `ds-${f.extension}`, extension: f.extension, jobRef: "js", kind: "service", ownerService: `sa-${f.extension}`, consentedBy: f.consent });
+    await insertDelegation(db, {
+      id: `du-${f.extension}`,
+      extension: f.extension,
+      jobRef: "ju",
+      kind: "user",
+      ownerUser: f.owner,
+      consentedBy: f.owner,
+    });
+    await insertDelegation(db, {
+      id: `ds-${f.extension}`,
+      extension: f.extension,
+      jobRef: "js",
+      kind: "service",
+      ownerService: `sa-${f.extension}`,
+      consentedBy: f.consent,
+    });
     const res = (await db.execute(sql`
       SELECT owner_kind, owner_user_id, owner_service_account_id
       FROM workflow_delegations WHERE extension_id = ${f.extension} ORDER BY owner_kind
-    `)) as { rows: Array<{ owner_kind: string; owner_user_id: string | null; owner_service_account_id: string | null }> };
+    `)) as {
+      rows: Array<{
+        owner_kind: string;
+        owner_user_id: string | null;
+        owner_service_account_id: string | null;
+      }>;
+    };
     expect(res.rows).toEqual([
       { owner_kind: "service", owner_user_id: null, owner_service_account_id: `sa-${f.extension}` },
       { owner_kind: "user", owner_user_id: f.owner, owner_service_account_id: null },
@@ -551,8 +759,21 @@ describe("C3 schema — both owner kinds and revocation", () => {
     // `delegation_id`, is the answering human — and the join proves the
     // schema can express it.
     await insertServiceAccount(db, `sa2-${f.extension}`, `sa2-${f.extension}`, f.consent);
-    await insertDelegation(db, { id: `ds2-${f.extension}`, extension: f.extension, jobRef: "js2", kind: "service", ownerService: `sa2-${f.extension}`, consentedBy: f.consent });
-    await insertRun(db, { id: `rs-${f.extension}`, userId: null, runAsKind: "service", runAs: `sa2-${f.extension}`, delegation: `ds2-${f.extension}` });
+    await insertDelegation(db, {
+      id: `ds2-${f.extension}`,
+      extension: f.extension,
+      jobRef: "js2",
+      kind: "service",
+      ownerService: `sa2-${f.extension}`,
+      consentedBy: f.consent,
+    });
+    await insertRun(db, {
+      id: `rs-${f.extension}`,
+      userId: null,
+      runAsKind: "service",
+      runAs: `sa2-${f.extension}`,
+      delegation: `ds2-${f.extension}`,
+    });
     const res = (await db.execute(sql`
       SELECT r.user_id, u.id AS answerer, u.email
       FROM workflow_runs r
@@ -566,60 +787,135 @@ describe("C3 schema — both owner kinds and revocation", () => {
   });
 
   test("a revoked delegation drops out of the live lookup — fails closed by default", async () => {
-    await insertDelegation(db, { id: `dr-${f.extension}`, extension: f.extension, jobRef: "jr", kind: "user", ownerUser: f.owner, consentedBy: f.owner, revokedAt: "2026-01-01T00:00:00Z" });
+    await insertDelegation(db, {
+      id: `dr-${f.extension}`,
+      extension: f.extension,
+      jobRef: "jr",
+      kind: "user",
+      ownerUser: f.owner,
+      consentedBy: f.owner,
+      revokedAt: "2026-01-01T00:00:00Z",
+    });
     // The row is still there as history …
-    expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`dr-${f.extension}`}`)).toBe(1);
+    expect(
+      await count(
+        db,
+        sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = ${`dr-${f.extension}`}`,
+      ),
+    ).toBe(1);
     // … and invisible to the fire-time lookup, which is the only lookup.
-    expect(await count(db, sql`
+    expect(
+      await count(
+        db,
+        sql`
       SELECT COUNT(*)::int AS n FROM workflow_delegations
       WHERE extension_id = ${f.extension} AND job_ref = 'jr' AND revoked_at IS NULL AND enabled
-    `)).toBe(0);
+    `,
+      ),
+    ).toBe(0);
   });
 
   test("a revoked row does not block re-consenting the same job", async () => {
     // What the PARTIAL unique index buys. A total unique index would make
     // revocation permanent and un-redoable.
-    await insertDelegation(db, { id: `dr1-${f.extension}`, extension: f.extension, jobRef: "jsame", kind: "user", ownerUser: f.owner, consentedBy: f.owner, revokedAt: "2026-01-01T00:00:00Z" });
-    expect(await errCode(() => insertDelegation(db, { id: `dr2-${f.extension}`, extension: f.extension, jobRef: "jsame", kind: "user", ownerUser: f.owner, consentedBy: f.owner }))).toBeNull();
+    await insertDelegation(db, {
+      id: `dr1-${f.extension}`,
+      extension: f.extension,
+      jobRef: "jsame",
+      kind: "user",
+      ownerUser: f.owner,
+      consentedBy: f.owner,
+      revokedAt: "2026-01-01T00:00:00Z",
+    });
+    expect(
+      await errCode(() =>
+        insertDelegation(db, {
+          id: `dr2-${f.extension}`,
+          extension: f.extension,
+          jobRef: "jsame",
+          kind: "user",
+          ownerUser: f.owner,
+          consentedBy: f.owner,
+        }),
+      ),
+    ).toBeNull();
   });
 
   test("two LIVE delegations for the same (extension, job_ref) are rejected", async () => {
     // Discriminates the previous test: the partial index still enforces
     // one live authority per job.
-    await insertDelegation(db, { id: `dl1-${f.extension}`, extension: f.extension, jobRef: "jlive", kind: "user", ownerUser: f.owner, consentedBy: f.owner });
-    expect(await errCode(() => insertDelegation(db, { id: `dl2-${f.extension}`, extension: f.extension, jobRef: "jlive", kind: "user", ownerUser: f.owner, consentedBy: f.owner }))).toBe("23505");
+    await insertDelegation(db, {
+      id: `dl1-${f.extension}`,
+      extension: f.extension,
+      jobRef: "jlive",
+      kind: "user",
+      ownerUser: f.owner,
+      consentedBy: f.owner,
+    });
+    expect(
+      await errCode(() =>
+        insertDelegation(db, {
+          id: `dl2-${f.extension}`,
+          extension: f.extension,
+          jobRef: "jlive",
+          kind: "user",
+          ownerUser: f.owner,
+          consentedBy: f.owner,
+        }),
+      ),
+    ).toBe("23505");
   });
 
   test("a delegation with no owner_kind is rejected", async () => {
-    expect(await errCode(() => db.execute(sql`
+    expect(
+      await errCode(() =>
+        db.execute(sql`
       INSERT INTO workflow_delegations (id, extension_id, job_ref, workflow_name, trigger_kind, consent_hash, max_tokens_per_run, max_runs_per_day, consented_by_user_id)
       VALUES (${`dn-${f.extension}`}, ${f.extension}, 'jn', 'nightly', 'cron', 'h', 1, 1, ${f.owner})
-    `))).toBe("23502");
+    `),
+      ),
+    ).toBe("23502");
   });
 
   test("a delegation with no consenting human is rejected", async () => {
-    expect(await errCode(() => db.execute(sql`
+    expect(
+      await errCode(() =>
+        db.execute(sql`
       INSERT INTO workflow_delegations (id, extension_id, job_ref, owner_kind, owner_user_id, workflow_name, trigger_kind, consent_hash, max_tokens_per_run, max_runs_per_day)
       VALUES (${`dc-${f.extension}`}, ${f.extension}, 'jc', 'user', ${f.owner}, 'nightly', 'cron', 'h', 1, 1)
-    `))).toBe("23502");
+    `),
+      ),
+    ).toBe("23502");
   });
 
   test("a delegation with no token bound is rejected — there is no unlimited value", async () => {
-    expect(await errCode(() => db.execute(sql`
+    expect(
+      await errCode(() =>
+        db.execute(sql`
       INSERT INTO workflow_delegations (id, extension_id, job_ref, owner_kind, owner_user_id, workflow_name, trigger_kind, consent_hash, max_runs_per_day, consented_by_user_id)
       VALUES (${`dt-${f.extension}`}, ${f.extension}, 'jt', 'user', ${f.owner}, 'nightly', 'cron', 'h', 1, ${f.owner})
-    `))).toBe("23502");
+    `),
+      ),
+    ).toBe("23502");
   });
 
   test("a service account with no daily token bound is rejected", async () => {
-    expect(await errCode(() => db.execute(sql`
+    expect(
+      await errCode(() =>
+        db.execute(sql`
       INSERT INTO service_accounts (id, name, created_by_user_id) VALUES (${`sat-${f.extension}`}, ${`sat-${f.extension}`}, ${f.consent})
-    `))).toBe("23502");
+    `),
+      ),
+    ).toBe("23502");
   });
 
   test("two service accounts cannot share a name", async () => {
     await insertServiceAccount(db, `san1-${f.extension}`, `dup-${f.extension}`, f.consent);
-    expect(await errCode(() => insertServiceAccount(db, `san2-${f.extension}`, `dup-${f.extension}`, f.consent))).toBe("23505");
+    expect(
+      await errCode(() =>
+        insertServiceAccount(db, `san2-${f.extension}`, `dup-${f.extension}`, f.consent),
+      ),
+    ).toBe("23505");
   });
 });
 
@@ -635,7 +931,9 @@ describe("C3 migration — idempotence, executed twice", () => {
       parts.push(`${t}.fks:${JSON.stringify(await foreignKeys(db, t))}`);
     }
     const idx = [...(await indexDefs(db))]
-      .filter(([n]) => n.includes("delegation") || n.includes("service_account") || n.includes("run_as"))
+      .filter(
+        ([n]) => n.includes("delegation") || n.includes("service_account") || n.includes("run_as"),
+      )
       .sort(([a], [b]) => a.localeCompare(b));
     parts.push(`idx:${JSON.stringify(idx)}`);
     return parts.join("\n");
@@ -659,19 +957,40 @@ describe("C3 migration — idempotence, executed twice", () => {
     try {
       const f = await seedFixtures(db, "idem");
       await insertServiceAccount(db, "sa-idem", "sa-idem", f.consent);
-      await insertDelegation(db, { id: "d-idem", extension: f.extension, jobRef: "j-idem", kind: "service", ownerService: "sa-idem", consentedBy: f.consent, version: f.version });
-      await insertRun(db, { id: "r-idem", userId: null, runAsKind: "service", runAs: "sa-idem", delegation: "d-idem" });
+      await insertDelegation(db, {
+        id: "d-idem",
+        extension: f.extension,
+        jobRef: "j-idem",
+        kind: "service",
+        ownerService: "sa-idem",
+        consentedBy: f.consent,
+        version: f.version,
+      });
+      await insertRun(db, {
+        id: "r-idem",
+        userId: null,
+        runAsKind: "service",
+        runAs: "sa-idem",
+        delegation: "d-idem",
+      });
 
       await migrate(db);
 
-      expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM service_accounts WHERE id = 'sa-idem'`)).toBe(1);
+      expect(
+        await count(db, sql`SELECT COUNT(*)::int AS n FROM service_accounts WHERE id = 'sa-idem'`),
+      ).toBe(1);
       const res = (await db.execute(sql`
         SELECT d.owner_kind, d.consented_by_user_id, r.delegation_id, r.run_as
         FROM workflow_delegations d JOIN workflow_runs r ON r.delegation_id = d.id
         WHERE d.id = 'd-idem'
       `)) as { rows: Array<Record<string, unknown>> };
       expect(res.rows).toEqual([
-        { owner_kind: "service", consented_by_user_id: f.consent, delegation_id: "d-idem", run_as: "sa-idem" },
+        {
+          owner_kind: "service",
+          consented_by_user_id: f.consent,
+          delegation_id: "d-idem",
+          run_as: "sa-idem",
+        },
       ]);
     } finally {
       await pg.close();
@@ -738,19 +1057,49 @@ describe("C3 migration — worst realistic pre-state", () => {
       expect(rows.rows).toEqual([
         { id: "old-anon", status: "error", run_as_kind: null, run_as: null, delegation_id: null },
         { id: "old-ok", status: "success", run_as_kind: null, run_as: null, delegation_id: null },
-        { id: "old-park", status: "suspended", run_as_kind: null, run_as: null, delegation_id: null },
+        {
+          id: "old-park",
+          status: "suspended",
+          run_as_kind: null,
+          run_as: null,
+          delegation_id: null,
+        },
       ]);
-      expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_step_runs WHERE id = 'old-step'`)).toBe(1);
-      expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_approvals WHERE id = 'old-appr'`)).toBe(1);
+      expect(
+        await count(
+          db,
+          sql`SELECT COUNT(*)::int AS n FROM workflow_step_runs WHERE id = 'old-step'`,
+        ),
+      ).toBe(1);
+      expect(
+        await count(
+          db,
+          sql`SELECT COUNT(*)::int AS n FROM workflow_approvals WHERE id = 'old-appr'`,
+        ),
+      ).toBe(1);
 
       // And the upgraded database is fully usable: the FKs applied on the
       // ALTER path, not just on the CREATE path.
-      expect((await foreignKeys(db, "workflow_runs")).delegation_id).toEqual({ action: "SET NULL", references: "workflow_delegations" });
+      expect((await foreignKeys(db, "workflow_runs")).delegation_id).toEqual({
+        action: "SET NULL",
+        references: "workflow_delegations",
+      });
       await insertServiceAccount(db, "sa-pre", "sa-pre", f.consent);
-      await insertDelegation(db, { id: "d-pre", extension: f.extension, jobRef: "j-pre", kind: "service", ownerService: "sa-pre", consentedBy: f.consent });
-      await db.execute(sql`UPDATE workflow_runs SET delegation_id = 'd-pre', run_as_kind = 'service', run_as = 'sa-pre' WHERE id = 'old-ok'`);
+      await insertDelegation(db, {
+        id: "d-pre",
+        extension: f.extension,
+        jobRef: "j-pre",
+        kind: "service",
+        ownerService: "sa-pre",
+        consentedBy: f.consent,
+      });
+      await db.execute(
+        sql`UPDATE workflow_runs SET delegation_id = 'd-pre', run_as_kind = 'service', run_as = 'sa-pre' WHERE id = 'old-ok'`,
+      );
       await db.execute(sql`DELETE FROM workflow_delegations WHERE id = 'd-pre'`);
-      const healed = (await db.execute(sql`SELECT delegation_id, run_as FROM workflow_runs WHERE id = 'old-ok'`)) as { rows: Array<Record<string, unknown>> };
+      const healed = (await db.execute(
+        sql`SELECT delegation_id, run_as FROM workflow_runs WHERE id = 'old-ok'`,
+      )) as { rows: Array<Record<string, unknown>> };
       expect(healed.rows).toEqual([{ delegation_id: null, run_as: "sa-pre" }]);
     } finally {
       await pg.close();
@@ -766,8 +1115,12 @@ describe("C3 migration — worst realistic pre-state", () => {
       const f = await seedFixtures(db, "split");
       await db.execute(sql`ALTER TABLE workflow_delegations DROP COLUMN IF EXISTS definition_hash`);
       await insertDelegation(db, {
-        id: "d-presplit", extension: f.extension, jobRef: "j-presplit",
-        kind: "user", ownerUser: f.owner, consentedBy: f.consent,
+        id: "d-presplit",
+        extension: f.extension,
+        jobRef: "j-presplit",
+        kind: "user",
+        ownerUser: f.owner,
+        consentedBy: f.consent,
       });
 
       await migrate(db);
@@ -816,7 +1169,9 @@ describe("C3 migration — worst realistic pre-state", () => {
       await migrate(db);
 
       // The pre-existing row survived the CREATE TABLE IF NOT EXISTS …
-      expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM service_accounts WHERE id = 'sa-torn'`)).toBe(1);
+      expect(
+        await count(db, sql`SELECT COUNT(*)::int AS n FROM service_accounts WHERE id = 'sa-torn'`),
+      ).toBe(1);
       // … the missing index was created on the second pass …
       expect((await indexDefs(db)).has("idx_service_accounts_created_by")).toBe(true);
       // … and the tail of the migration applied.
@@ -828,8 +1183,20 @@ describe("C3 migration — worst realistic pre-state", () => {
         definition_version_id: { action: "RESTRICT", references: "workflow_definition_versions" },
         project_id: { action: "CASCADE", references: "projects" },
       });
-      await insertDelegation(db, { id: "d-torn", extension: f.extension, jobRef: "j-torn", kind: "service", ownerService: "sa-torn", consentedBy: f.consent });
-      expect(await count(db, sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = 'd-torn'`)).toBe(1);
+      await insertDelegation(db, {
+        id: "d-torn",
+        extension: f.extension,
+        jobRef: "j-torn",
+        kind: "service",
+        ownerService: "sa-torn",
+        consentedBy: f.consent,
+      });
+      expect(
+        await count(
+          db,
+          sql`SELECT COUNT(*)::int AS n FROM workflow_delegations WHERE id = 'd-torn'`,
+        ),
+      ).toBe(1);
     } finally {
       await pg.close();
     }

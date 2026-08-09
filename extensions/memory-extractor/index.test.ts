@@ -105,16 +105,28 @@ function makeFakeRuntime(overrides: Partial<MemoryExtractorRuntimeApi> = {}): {
     calls,
     api,
     state,
-    setMessages(msgs) { state.messages = msgs; },
-    setLlmContent(text) { state.llmContent = text; },
-    setSettings(values) { state.settings = values; },
-    setLlmThrow(err) { state.llmThrow = err; },
-    setDedupResult(result) { state.dedupResult = result; },
+    setMessages(msgs) {
+      state.messages = msgs;
+    },
+    setLlmContent(text) {
+      state.llmContent = text;
+    },
+    setSettings(values) {
+      state.settings = values;
+    },
+    setLlmThrow(err) {
+      state.llmThrow = err;
+    },
+    setDedupResult(result) {
+      state.dedupResult = result;
+    },
     setDedupSequence(results) {
       state.dedupSequence = results;
       state.dedupCallIndex = 0;
     },
-    setCompactResult(result) { state.compactResult = result; },
+    setCompactResult(result) {
+      state.compactResult = result;
+    },
   };
 }
 
@@ -234,7 +246,9 @@ describe("extract — decline branches", () => {
     _setRuntimeApiForTests(fake.api);
 
     const outcome = await extract({
-      conversationId: "c", settings: {}, projectId: "p",
+      conversationId: "c",
+      settings: {},
+      projectId: "p",
     });
     expect(outcome).toEqual({ kind: "decline", reason: "empty_conversation" });
     expect(fake.calls.find((c) => c.api === "llmComplete")).toBeUndefined();
@@ -246,7 +260,9 @@ describe("extract — decline branches", () => {
     _setRuntimeApiForTests(fake.api);
 
     const outcome = await extract({
-      conversationId: "c", settings: {}, projectId: "p",
+      conversationId: "c",
+      settings: {},
+      projectId: "p",
     });
     expect(outcome.kind).toBe("success");
     if (outcome.kind === "success") {
@@ -261,7 +277,9 @@ describe("extract — decline branches", () => {
     _setRuntimeApiForTests(fake.api);
 
     const outcome = await extract({
-      conversationId: "c", settings: {}, projectId: "p",
+      conversationId: "c",
+      settings: {},
+      projectId: "p",
     });
     expect(outcome).toEqual({ kind: "decline", reason: "llm_empty" });
   });
@@ -272,7 +290,9 @@ describe("extract — decline branches", () => {
     _setRuntimeApiForTests(fake.api);
 
     const outcome = await extract({
-      conversationId: "c", settings: {}, projectId: "p",
+      conversationId: "c",
+      settings: {},
+      projectId: "p",
     });
     expect(outcome.kind).toBe("decline");
     if (outcome.kind === "decline") {
@@ -286,7 +306,9 @@ describe("extract — decline branches", () => {
     _setRuntimeApiForTests(fake.api);
 
     const outcome = await extract({
-      conversationId: "c", settings: {}, projectId: "p",
+      conversationId: "c",
+      settings: {},
+      projectId: "p",
     });
     expect(outcome.kind).toBe("decline");
     if (outcome.kind === "decline") {
@@ -304,7 +326,9 @@ describe("extract — decline branches", () => {
     _setRuntimeApiForTests(fake.api);
 
     const outcome = await extract({
-      conversationId: "c", settings: {}, projectId: "p",
+      conversationId: "c",
+      settings: {},
+      projectId: "p",
     });
     expect(outcome.kind).toBe("success");
     if (outcome.kind === "success") {
@@ -321,7 +345,9 @@ describe("extract — decline branches", () => {
     _setRuntimeApiForTests(fake.api);
 
     const outcome = await extract({
-      conversationId: "c", settings: {}, projectId: "p",
+      conversationId: "c",
+      settings: {},
+      projectId: "p",
     });
     expect(outcome.kind).toBe("success");
     if (outcome.kind === "success") {
@@ -342,7 +368,9 @@ describe("extract — error branches", () => {
     _setRuntimeApiForTests(fake.api);
 
     const outcome = await extract({
-      conversationId: "c", settings: {}, projectId: "p",
+      conversationId: "c",
+      settings: {},
+      projectId: "p",
     });
     expect(outcome.kind).toBe("error");
     if (outcome.kind === "error") {
@@ -360,7 +388,9 @@ describe("extract — error branches", () => {
     _setRuntimeApiForTests(fake.api);
 
     const outcome = await extract({
-      conversationId: "c", settings: {}, projectId: "p",
+      conversationId: "c",
+      settings: {},
+      projectId: "p",
     });
     expect(outcome.kind).toBe("error");
     if (outcome.kind === "error") {
@@ -383,7 +413,9 @@ describe("extract — error branches", () => {
     _setRuntimeApiForTests(fake.api);
 
     const outcome = await extract({
-      conversationId: "c", settings: {}, projectId: "p",
+      conversationId: "c",
+      settings: {},
+      projectId: "p",
     });
     expect(outcome.kind).toBe("success");
     if (outcome.kind === "success") {
@@ -659,9 +691,7 @@ describe("SUPPORTED_COMPACTION_CRONS — manifest parity", () => {
     expect(compactionSetting).toBeDefined();
     expect(compactionSetting?.type).toBe("select");
     const optionValues = (compactionSetting?.options ?? []).map((o) => o.value);
-    expect(optionValues.sort()).toEqual(
-      Object.keys(SUPPORTED_COMPACTION_CRONS).sort(),
-    );
+    expect(optionValues.sort()).toEqual(Object.keys(SUPPORTED_COMPACTION_CRONS).sort());
   });
 });
 

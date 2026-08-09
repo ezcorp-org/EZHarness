@@ -288,7 +288,10 @@ describe("sanitizeNulDeep — cycles and shared references", () => {
 
   test("a clean shared subtree keeps its original identity", () => {
     const shared = { v: "clean" };
-    const out = sanitizeNulDeep({ x: shared, y: shared, dirty: `d${NUL}` }) as Record<string, unknown>;
+    const out = sanitizeNulDeep({ x: shared, y: shared, dirty: `d${NUL}` }) as Record<
+      string,
+      unknown
+    >;
     expect(out.x).toBe(shared);
     expect(out.y).toBe(shared);
   });

@@ -60,11 +60,7 @@ describe("ez-factory manifest — identity", () => {
     // FILE exists, since the install path checksums it. Declaring tools
     // without it fails the bundled install closed at boot.
     expect(config.entrypoint).toBe("./index.ts");
-    expect(config.tools?.map((t) => t.name)).toEqual([
-      "read_files",
-      "write_file",
-      "emit_artifact",
-    ]);
+    expect(config.tools?.map((t) => t.name)).toEqual(["read_files", "write_file", "emit_artifact"]);
   });
 
   test("no tool declares an rbacScope", () => {
@@ -104,14 +100,9 @@ describe("ez-factory manifest — the exact permission key set", () => {
     // finished, and cannot be written to. 8.1 dropped the key on the
     // strength of the `workflow:*` reasoning below, which is correct about
     // platform events and does not apply to Hub page actions.
-    expect(Object.keys(perms).sort()).toEqual([
-      "eventSubscriptions",
-      "filesystem",
-      "rbacScopes",
-      "storage",
-      "triggers",
-      "workflows",
-    ].sort());
+    expect(Object.keys(perms).sort()).toEqual(
+      ["eventSubscriptions", "filesystem", "rbacScopes", "storage", "triggers", "workflows"].sort(),
+    );
   });
 
   test("storage is granted", () => {
@@ -155,9 +146,7 @@ describe("ez-factory manifest — the exact permission key set", () => {
     // `allowDelegated` refuses `runFor` and logs nothing on the job).
     const workflows = perms.workflows as Record<string, unknown>;
     expect(workflows.allowDelegated).toBe(true);
-    expect(Object.keys(workflows).sort()).toEqual(
-      ["allowDelegated", "maxRunsPerHour", "names"],
-    );
+    expect(Object.keys(workflows).sort()).toEqual(["allowDelegated", "maxRunsPerHour", "names"]);
   });
 
   test("filesystem is $CWD only — never $USER", () => {

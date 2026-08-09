@@ -17,7 +17,7 @@
  * The suspend/abort/emit machinery is shared via {@link runEzClientTool}.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import type { BuiltinToolDef } from "../types";
 import { runEzClientTool, type ClientToolContext } from "./client-tool";
 import type { ToolParams } from "../validate";
 
@@ -46,7 +46,8 @@ export function createNavigateToTool(ctx: ClientToolContext): BuiltinToolDef {
         path: {
           type: "string",
           minLength: 1,
-          description: "Relative in-app path starting with '/'. External URLs (with ://) are rejected.",
+          description:
+            "Relative in-app path starting with '/'. External URLs (with ://) are rejected.",
         },
       },
       required: ["path"],
@@ -55,7 +56,12 @@ export function createNavigateToTool(ctx: ClientToolContext): BuiltinToolDef {
       const path = params?.path;
       if (!isValidInAppPath(path)) {
         return {
-          content: [{ type: "text" as const, text: "Error: path must be a relative in-app path starting with '/'. External URLs are rejected." }],
+          content: [
+            {
+              type: "text" as const,
+              text: "Error: path must be a relative in-app path starting with '/'. External URLs are rejected.",
+            },
+          ],
           details: { isError: true },
         };
       }

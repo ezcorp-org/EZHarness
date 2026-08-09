@@ -65,9 +65,7 @@ export const LANDLOCK_ACCESS_FS = {
 
 /** Read-only access subset we grant to read-only allowlisted paths. */
 export const READ_ACCESS =
-  LANDLOCK_ACCESS_FS.EXECUTE |
-  LANDLOCK_ACCESS_FS.READ_FILE |
-  LANDLOCK_ACCESS_FS.READ_DIR;
+  LANDLOCK_ACCESS_FS.EXECUTE | LANDLOCK_ACCESS_FS.READ_FILE | LANDLOCK_ACCESS_FS.READ_DIR;
 
 /**
  * TRAVERSE-only access: just `READ_DIR` (open + enumerate directories), with
@@ -106,7 +104,6 @@ export const FILE_ACCESS_MASK =
   LANDLOCK_ACCESS_FS.WRITE_FILE |
   LANDLOCK_ACCESS_FS.TRUNCATE;
 
-
 /**
  * Write-inclusive access subset granted to READ-WRITE allowlisted paths
  * (e.g. a run's workspace). It is READ_ACCESS plus the full set of
@@ -139,14 +136,7 @@ const FFI_SYMBOLS = {
   // so we MUST declare all five (a short binding silently drops them and
   // the kernel reads garbage from the missing registers → EINVAL).
   syscall: {
-    args: [
-      FFIType.i64,
-      FFIType.i64,
-      FFIType.i64,
-      FFIType.i64,
-      FFIType.i64,
-      FFIType.i64,
-    ],
+    args: [FFIType.i64, FFIType.i64, FFIType.i64, FFIType.i64, FFIType.i64, FFIType.i64],
     returns: FFIType.i64,
   },
   open: {
@@ -232,14 +222,7 @@ export function landlockAbiVersion(): number {
 
 /** prctl(PR_SET_NO_NEW_PRIVS, 1). Required before restrict_self. */
 export function setNoNewPrivs(): number {
-  const r = libc().symbols.syscall(
-    SYS_prctl,
-    PR_SET_NO_NEW_PRIVS,
-    1n,
-    0n,
-    0n,
-    0n,
-  );
+  const r = libc().symbols.syscall(SYS_prctl, PR_SET_NO_NEW_PRIVS, 1n, 0n, 0n, 0n);
   return Number(r);
 }
 
@@ -269,11 +252,7 @@ export function createRuleset(handledAccessFs: bigint): number {
  * kernel reads it field-by-field; we lay out 16 bytes with the fd at +8).
  * Returns 0 on success, -1 on error. Opens (and closes) `path` O_PATH.
  */
-export function addPathBeneathRule(
-  rulesetFd: number,
-  path: string,
-  allowedAccess: bigint,
-): number {
+export function addPathBeneathRule(rulesetFd: number, path: string, allowedAccess: bigint): number {
   const O_PATH = 0x200000;
   const O_CLOEXEC = 0x80000;
   const cpath = Buffer.from(path + "\0", "utf8");
@@ -432,10 +411,7 @@ function applyJail(
  * Strips access bits unsupported by the probed ABI so the create call does
  * not EINVAL on older kernels.
  */
-export function applyReadOnlyJail(
-  allowedReadPaths: readonly string[],
-  abiVersion: number,
-): void {
+export function applyReadOnlyJail(allowedReadPaths: readonly string[], abiVersion: number): void {
   applyJail([], allowedReadPaths, abiVersion);
 }
 

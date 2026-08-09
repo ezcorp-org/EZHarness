@@ -8,12 +8,14 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 
-const { busOn, getConversationMock, getRunConversationIdMock, getRunOwnershipMock } = vi.hoisted(() => ({
-  busOn: vi.fn((_event: string, _handler: (data: unknown) => void) => () => undefined),
-  getConversationMock: vi.fn(async (_id: string): Promise<unknown> => undefined),
-  getRunConversationIdMock: vi.fn(async (_id: string): Promise<string | undefined> => undefined),
-  getRunOwnershipMock: vi.fn(async (_id: string) => ({ userId: null, conversationId: null })),
-}));
+const { busOn, getConversationMock, getRunConversationIdMock, getRunOwnershipMock } = vi.hoisted(
+  () => ({
+    busOn: vi.fn((_event: string, _handler: (data: unknown) => void) => () => undefined),
+    getConversationMock: vi.fn(async (_id: string): Promise<unknown> => undefined),
+    getRunConversationIdMock: vi.fn(async (_id: string): Promise<string | undefined> => undefined),
+    getRunOwnershipMock: vi.fn(async (_id: string) => ({ userId: null, conversationId: null })),
+  }),
+);
 
 vi.mock("$lib/server/context", () => ({
   getBus: () => ({
@@ -32,9 +34,7 @@ vi.mock("$server/db/queries/conversations", () => ({
 
 const { GET } = await import("../routes/api/runtime-events/+server");
 const { BUS_EVENTS } = await import("../routes/api/runtime-events/bus-events");
-const { __resetSseResumeBufferForTests } = await import(
-  "$lib/server/sse-resume-buffer"
-);
+const { __resetSseResumeBufferForTests } = await import("$lib/server/sse-resume-buffer");
 
 // The resume buffer is a process singleton (one lazy bus subscription that
 // survives connect/disconnect). Reset it before each test so every GET is a
@@ -58,13 +58,8 @@ async function readChunks(res: Response, n: number): Promise<string> {
   return out;
 }
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  query?: Record<string, string>;
-}) {
-  const qs = opts.query
-    ? "?" + new URLSearchParams(opts.query).toString()
-    : "";
+function makeEvent(opts: { locals?: Record<string, unknown>; query?: Record<string, string> }) {
+  const qs = opts.query ? "?" + new URLSearchParams(opts.query).toString() : "";
   const url = "http://localhost/api/runtime-events" + qs;
   return {
     url: new URL(url),
@@ -96,9 +91,7 @@ describe("GET /api/runtime-events", () => {
   });
 
   test("rejects 403 when API-key lacks 'read' scope", async () => {
-    const res = await GET(
-      makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }));
     expect(res.status).toBe(403);
   });
 
@@ -155,7 +148,11 @@ describe("GET /api/runtime-events", () => {
       runId === "run-owned" ? "conv-owned" : runId === "run-foreign" ? "conv-foreign" : undefined,
     );
     getConversationMock.mockImplementation(async (id: string) =>
-      id === "conv-owned" ? { userId: "u1" } : id === "conv-foreign" ? { userId: "someone-else" } : null,
+      id === "conv-owned"
+        ? { userId: "u1" }
+        : id === "conv-foreign"
+          ? { userId: "someone-else" }
+          : null,
     );
 
     busOn.mockClear();
@@ -198,24 +195,17 @@ describe("GET /api/runtime-events", () => {
 // Last-Event-ID, through the SAME per-subscriber filter as live delivery.
 describe("GET /api/runtime-events — Last-Event-ID resume (C3)", () => {
   test("replays buffered events to the OWNER on reconnect and drops them for a non-owner", async () => {
-    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } =
-      await import("$server/runtime/sse-conversation-filter");
+    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } = await import(
+      "$server/runtime/sse-conversation-filter"
+    );
     __clearMembershipCacheForTests();
     __clearRunScopeCacheForTests();
 
     getRunConversationIdMock.mockImplementation(async (runId: string) =>
-      runId === "run-owned"
-        ? "conv-owned"
-        : runId === "run-u2"
-          ? "conv-u2"
-          : undefined,
+      runId === "run-owned" ? "conv-owned" : runId === "run-u2" ? "conv-u2" : undefined,
     );
     getConversationMock.mockImplementation(async (id: string) =>
-      id === "conv-owned"
-        ? { userId: "u1" }
-        : id === "conv-u2"
-          ? { userId: "u2" }
-          : null,
+      id === "conv-owned" ? { userId: "u1" } : id === "conv-u2" ? { userId: "u2" } : null,
     );
 
     busOn.mockClear();
@@ -233,9 +223,7 @@ describe("GET /api/runtime-events — Last-Event-ID resume (C3)", () => {
     await res1.body!.cancel();
 
     // Owner u1 reconnects from cursor 0 → both replayed, each carrying its id.
-    const res2 = await GET(
-      makeEvent({ locals: authedUser, query: { lastEventId: "0" } }),
-    );
+    const res2 = await GET(makeEvent({ locals: authedUser, query: { lastEventId: "0" } }));
     const owned = await readChunks(res2, 3); // priming + 2 replayed frames
     expect(owned).toContain("gap-token-1");
     expect(owned).toContain("gap-token-2");
@@ -247,9 +235,7 @@ describe("GET /api/runtime-events — Last-Event-ID resume (C3)", () => {
     // scheduled, and it is the first frame after priming — the replayed u1
     // events never reach u2.
     const u2 = { user: { id: "u2", email: "u2@x", name: "u2", role: "user" } };
-    const res3 = await GET(
-      makeEvent({ locals: u2, query: { lastEventId: "0" } }),
-    );
+    const res3 = await GET(makeEvent({ locals: u2, query: { lastEventId: "0" } }));
     emit!({ runId: "run-u2", token: "u2-live-token", kind: "text" });
     const foreign = await readChunks(res3, 2); // priming + the live u2 frame
     expect(foreign).toContain("u2-live-token");
@@ -261,8 +247,9 @@ describe("GET /api/runtime-events — Last-Event-ID resume (C3)", () => {
   });
 
   test("no cursor → no replay (a fresh connection only sees live events)", async () => {
-    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } =
-      await import("$server/runtime/sse-conversation-filter");
+    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } = await import(
+      "$server/runtime/sse-conversation-filter"
+    );
     __clearMembershipCacheForTests();
     __clearRunScopeCacheForTests();
 
@@ -308,8 +295,9 @@ describe("GET /api/runtime-events — per-scope id numbering (Wave5 0.5)", () =>
   }
 
   test("a foreign (dropped) event does NOT bump this subscriber's id (side-channel closed)", async () => {
-    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } =
-      await import("$server/runtime/sse-conversation-filter");
+    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } = await import(
+      "$server/runtime/sse-conversation-filter"
+    );
     __clearMembershipCacheForTests();
     __clearRunScopeCacheForTests();
 
@@ -354,8 +342,9 @@ describe("GET /api/runtime-events — per-scope id numbering (Wave5 0.5)", () =>
   });
 
   test("Last-Event-ID resume still works across an interleaved foreign event", async () => {
-    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } =
-      await import("$server/runtime/sse-conversation-filter");
+    const { __clearMembershipCacheForTests, __clearRunScopeCacheForTests } = await import(
+      "$server/runtime/sse-conversation-filter"
+    );
     __clearMembershipCacheForTests();
     __clearRunScopeCacheForTests();
 
@@ -389,9 +378,7 @@ describe("GET /api/runtime-events — per-scope id numbering (Wave5 0.5)", () =>
     // u1 reconnects presenting its per-scope cursor 2 → translated to global 3
     // → only global 4 (own-c-missed) is replayed, as the NEXT dense id (3).
     // The already-seen own-a/own-b are NOT re-delivered.
-    const res2 = await GET(
-      makeEvent({ locals: authedUser, query: { lastEventId: "2" } }),
-    );
+    const res2 = await GET(makeEvent({ locals: authedUser, query: { lastEventId: "2" } }));
     const resumed = await readChunks(res2, 2); // priming + the one missed frame
     expect(resumed).toContain("own-c-missed");
     expect(resumed).toContain("id: 3");

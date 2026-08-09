@@ -77,11 +77,29 @@ export const KILO_PROVIDER = "kilo";
  * every existing stored order (via `mergePreferenceOrder`) safe.
  */
 export const LLM_PROVIDERS: readonly LlmProviderSpec[] = [
-  { id: "anthropic", envKey: "ANTHROPIC_API_KEY", oauth: false, byokOnly: true, keylessFreeTier: false },
+  {
+    id: "anthropic",
+    envKey: "ANTHROPIC_API_KEY",
+    oauth: false,
+    byokOnly: true,
+    keylessFreeTier: false,
+  },
   { id: "openai", envKey: "OPENAI_API_KEY", oauth: true, byokOnly: false, keylessFreeTier: false },
   { id: "google", envKey: "GOOGLE_API_KEY", oauth: true, byokOnly: false, keylessFreeTier: false },
-  { id: "openrouter", envKey: "OPENROUTER_API_KEY", oauth: false, byokOnly: true, keylessFreeTier: false },
-  { id: KILO_PROVIDER, envKey: "KILO_API_KEY", oauth: false, byokOnly: true, keylessFreeTier: true },
+  {
+    id: "openrouter",
+    envKey: "OPENROUTER_API_KEY",
+    oauth: false,
+    byokOnly: true,
+    keylessFreeTier: false,
+  },
+  {
+    id: KILO_PROVIDER,
+    envKey: "KILO_API_KEY",
+    oauth: false,
+    byokOnly: true,
+    keylessFreeTier: true,
+  },
 ];
 
 /** Provider ids, in preference order. */
@@ -94,9 +112,9 @@ export const PROVIDER_ENV_KEYS: Readonly<Record<string, string>> = Object.fromEn
 );
 
 /** Providers with a pi-managed OAuth login flow. */
-export const OAUTH_SUPPORTED_PROVIDERS: readonly string[] = LLM_PROVIDERS.filter((p) => p.oauth).map(
-  (p) => p.id,
-);
+export const OAUTH_SUPPORTED_PROVIDERS: readonly string[] = LLM_PROVIDERS.filter(
+  (p) => p.oauth,
+).map((p) => p.id);
 
 /** Providers whose credential chain skips the DB-OAuth attempt entirely. */
 export const BYOK_ONLY_PROVIDERS: readonly string[] = LLM_PROVIDERS.filter((p) => p.byokOnly).map(

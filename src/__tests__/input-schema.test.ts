@@ -99,7 +99,7 @@ describe("promptForInput", () => {
 
   // Restore stdout after all tests in this describe
   afterAll(() => {
-  restoreModuleMocks();
+    restoreModuleMocks();
     process.stdout.write = originalStdoutWrite;
   });
 
@@ -200,7 +200,12 @@ describe("promptForInput", () => {
   test("select field returns default on empty", async () => {
     answers = [""];
     const result = await prompt({
-      provider: { type: "select", label: "Provider", options: ["anthropic", "google"], default: "google" },
+      provider: {
+        type: "select",
+        label: "Provider",
+        options: ["anthropic", "google"],
+        default: "google",
+      },
     });
     expect(result.provider).toBe("google");
   });

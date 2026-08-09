@@ -52,12 +52,8 @@ mock.module("$lib/server/context", () => ({
 // off `tool_calls` SELECT (the row doesn't exist while the gate is
 // open — see ask-user-registry.ts).
 
-let mockPending:
-  | { conversationId: string; userId: string | null }
-  | undefined = undefined;
-const mockGetPendingAskUser = mock(
-  (_toolCallId: string) => mockPending,
-);
+let mockPending: { conversationId: string; userId: string | null } | undefined = undefined;
+const mockGetPendingAskUser = mock((_toolCallId: string) => mockPending);
 
 mock.module("$server/runtime/ask-user-registry", () => ({
   getPendingAskUser: mockGetPendingAskUser,
@@ -120,9 +116,7 @@ describe("POST /api/ask-user/answer", () => {
   test("scope rejection short-circuits before registry and bus are touched", async () => {
     mockScopeResponse = new Response("forbidden", { status: 403 });
 
-    const res = await POST(
-      makeEvent({ toolCallId: "tc-1", answer: "blue" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc-1", answer: "blue" }) as never);
 
     expect(res.status).toBe(403);
     expect(mockGetPendingAskUser).not.toHaveBeenCalled();
@@ -145,9 +139,7 @@ describe("POST /api/ask-user/answer", () => {
   });
 
   test("empty answer → 400 (zod min(1))", async () => {
-    const res = await POST(
-      makeEvent({ toolCallId: "tc-1", answer: "" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc-1", answer: "" }) as never);
     expect(res.status).toBe(400);
     expect(mockBusEmit).not.toHaveBeenCalled();
   });
@@ -169,9 +161,7 @@ describe("POST /api/ask-user/answer", () => {
   test("toolCallId not in registry (late POST) → 200 ok, no emit", async () => {
     mockPending = undefined;
 
-    const res = await POST(
-      makeEvent({ toolCallId: "tc-gone", answer: "stale" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc-gone", answer: "stale" }) as never);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(mockBusEmit).not.toHaveBeenCalled();
@@ -180,9 +170,7 @@ describe("POST /api/ask-user/answer", () => {
   test("registry entry with null userId → 404, no emit (no anonymous answers)", async () => {
     mockPending = { conversationId: "conv-A", userId: null };
 
-    const res = await POST(
-      makeEvent({ toolCallId: "tc-orphan", answer: "x" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc-orphan", answer: "x" }) as never);
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Not found");
@@ -192,9 +180,7 @@ describe("POST /api/ask-user/answer", () => {
   test("toolCallId belongs to a different user → 404, no emit (auth boundary)", async () => {
     mockPending = { conversationId: "conv-A", userId: "someone-else" };
 
-    const res = await POST(
-      makeEvent({ toolCallId: "tc-stranger", answer: "intruder" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc-stranger", answer: "intruder" }) as never);
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Not found");
@@ -204,9 +190,7 @@ describe("POST /api/ask-user/answer", () => {
   test("happy path → 200 + emits exactly one ask-user:answer with correct shape", async () => {
     mockPending = { conversationId: "conv-A", userId: "user-1" };
 
-    const res = await POST(
-      makeEvent({ toolCallId: "tc-live", answer: "blue" }) as never,
-    );
+    const res = await POST(makeEvent({ toolCallId: "tc-live", answer: "blue" }) as never);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
 

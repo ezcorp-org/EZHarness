@@ -119,7 +119,9 @@ describe("POST /api/workflows/[name]/claim", () => {
     });
     queries.claimWorkflow.mockResolvedValue({ id: "wf-1", visibility: "project", userId: "u1" });
 
-    const res = await CLAIM(makeEvent({ locals: admin, body: { userId: "u1", projectId: "proj-1" } }));
+    const res = await CLAIM(
+      makeEvent({ locals: admin, body: { userId: "u1", projectId: "proj-1" } }),
+    );
     expect(res.status).toBe(200);
     expect(queries.claimWorkflow).toHaveBeenCalledWith("wf-1", "u1", "proj-1");
     expect(audit.insertAuditEntry).toHaveBeenCalledWith(
@@ -164,7 +166,9 @@ describe("GET /api/workflows/[name]/versions", () => {
   test("history is gated by the same ladder — an unauthorized read is a 404", async () => {
     // History is as sensitive as the definition it describes, and a list
     // that confirmed existence would rebuild the oracle the 404 closes.
-    ctx.getCachedWorkflows.mockReturnValue([entry({ visibility: "private", userId: "someone-else" })]);
+    ctx.getCachedWorkflows.mockReturnValue([
+      entry({ visibility: "private", userId: "someone-else" }),
+    ]);
     const res = await VERSIONS(makeEvent({ locals: member }));
     expect(res.status).toBe(404);
     expect(versions.listWorkflowVersions).not.toHaveBeenCalled();

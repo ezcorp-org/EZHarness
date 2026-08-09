@@ -25,15 +25,20 @@ import {
   _resetHubPageProvidersForTests,
 } from "../runtime/hub-pages";
 import { validatePageTree } from "../extensions/page-schema";
-import type {
-  PageButton,
-  PageEmptyState,
-  PageTable,
-  PageStats,
-} from "../extensions/page-schema";
+import type { PageButton, PageEmptyState, PageTable, PageStats } from "../extensions/page-schema";
 import type { PanelKV } from "../extensions/types";
-import { _resetBriefingAgentCacheForTests, BRIEFING_AGENT_NAME } from "../runtime/briefing/agent-config";
-import { users, projects, conversations, agentConfigs, briefingConfigs, messages } from "../db/schema";
+import {
+  _resetBriefingAgentCacheForTests,
+  BRIEFING_AGENT_NAME,
+} from "../runtime/briefing/agent-config";
+import {
+  users,
+  projects,
+  conversations,
+  agentConfigs,
+  briefingConfigs,
+  messages,
+} from "../db/schema";
 
 let userId: string;
 let projectId: string;
@@ -64,7 +69,10 @@ beforeEach(async () => {
   await db.delete(projects);
   await db.delete(users);
 
-  const [u] = await db.insert(users).values({ email: "a@t.local", passwordHash: "x", name: "A" }).returning();
+  const [u] = await db
+    .insert(users)
+    .values({ email: "a@t.local", passwordHash: "x", name: "A" })
+    .returning();
   userId = u!.id;
   const [p] = await db.insert(projects).values({ name: "P", path: "/tmp/p" }).returning();
   projectId = p!.id;
@@ -103,7 +111,8 @@ describe("render", () => {
 
     // The "Add to watchlist" button is ALWAYS present (even when empty).
     const addBtn = tree.nodes.find(
-      (n) => n.type === "button" && (n as PageButton).action.event === BRIEFING_ADD_WATCHLIST_ACTION,
+      (n) =>
+        n.type === "button" && (n as PageButton).action.event === BRIEFING_ADD_WATCHLIST_ACTION,
     ) as PageButton;
     expect(addBtn).toBeDefined();
     expect(addBtn.action.prompt!.field).toBe("topic");
@@ -160,7 +169,8 @@ describe("render", () => {
 
     // The always-present "Add to watchlist" button carries a prompt.
     const addBtn = tree.nodes.find(
-      (n) => n.type === "button" && (n as PageButton).action.event === BRIEFING_ADD_WATCHLIST_ACTION,
+      (n) =>
+        n.type === "button" && (n as PageButton).action.event === BRIEFING_ADD_WATCHLIST_ACTION,
     ) as PageButton;
     expect(addBtn.label).toBe("Add to watchlist");
     expect(addBtn.action.prompt).toMatchObject({ field: "topic", maxLength: 120 });
@@ -184,10 +194,15 @@ describe("render", () => {
   test("skipped + enabled-but-never-ran statuses", async () => {
     const db = getTestDb();
     await db.insert(briefingConfigs).values({
-      userId, enabled: true, lastFireStatus: "skipped", watchlist: [],
+      userId,
+      enabled: true,
+      lastFireStatus: "skipped",
+      watchlist: [],
     });
     let tree = await createBriefingHubPageProvider(deps()).render({ userId });
-    expect((tree.nodes.find((n) => n.type === "status") as { state: string }).state).toBe("warning");
+    expect((tree.nodes.find((n) => n.type === "status") as { state: string }).state).toBe(
+      "warning",
+    );
 
     await db.update(briefingConfigs).set({ lastFireStatus: null });
     tree = await createBriefingHubPageProvider(deps()).render({ userId });
@@ -197,19 +212,37 @@ describe("render", () => {
   test("recent briefing conversations table: agent-config filtered, own-user only, deep-linked", async () => {
     const db = getTestDb();
     const agentId = await seedBriefingAgent();
-    const [other] = await db.insert(users).values({ email: "b@t.local", passwordHash: "x", name: "B" }).returning();
+    const [other] = await db
+      .insert(users)
+      .values({ email: "b@t.local", passwordHash: "x", name: "B" })
+      .returning();
 
     // Mine: 2 briefing conversations + 1 regular (different agent config = null)
-    const [mine1] = await db.insert(conversations).values({
-      projectId, userId, title: "Briefing Mon", agentConfigId: agentId,
-    }).returning();
-    const [mine2] = await db.insert(conversations).values({
-      projectId, userId, title: "", agentConfigId: agentId,
-    }).returning();
+    const [mine1] = await db
+      .insert(conversations)
+      .values({
+        projectId,
+        userId,
+        title: "Briefing Mon",
+        agentConfigId: agentId,
+      })
+      .returning();
+    const [mine2] = await db
+      .insert(conversations)
+      .values({
+        projectId,
+        userId,
+        title: "",
+        agentConfigId: agentId,
+      })
+      .returning();
     await db.insert(conversations).values({ projectId, userId, title: "Regular chat" });
     // Another user's briefing must not leak.
     await db.insert(conversations).values({
-      projectId, userId: other!.id, title: "Other user briefing", agentConfigId: agentId,
+      projectId,
+      userId: other!.id,
+      title: "Other user briefing",
+      agentConfigId: agentId,
     });
 
     const tree = await createBriefingHubPageProvider(deps()).render({ userId });
@@ -234,7 +267,9 @@ describe("render", () => {
     // non-"null" segment.
     const db = getTestDb();
     const agentId = await seedBriefingAgent();
-    await db.insert(conversations).values({ projectId, userId, title: "B", agentConfigId: agentId });
+    await db
+      .insert(conversations)
+      .values({ projectId, userId, title: "B", agentConfigId: agentId });
 
     const tree = await createBriefingHubPageProvider(deps()).render({ userId });
     const table = tree.nodes.find((n) => n.type === "table") as PageTable;
@@ -249,9 +284,13 @@ describe("render", () => {
     const db = getTestDb();
     const agentId = await seedBriefingAgent();
     await db.insert(briefingConfigs).values({
-      userId, enabled: true, watchlist: [{ topic: "<b>x</b>", addedAt: "2026-06-01T00:00:00Z" }],
+      userId,
+      enabled: true,
+      watchlist: [{ topic: "<b>x</b>", addedAt: "2026-06-01T00:00:00Z" }],
     });
-    await db.insert(conversations).values({ projectId, userId, title: "B1", agentConfigId: agentId });
+    await db
+      .insert(conversations)
+      .values({ projectId, userId, title: "B1", agentConfigId: agentId });
 
     const provider = createBriefingHubPageProvider(deps());
     const tree = await provider.render({ userId });
@@ -275,7 +314,8 @@ describe("render", () => {
     // The malicious-looking <b>x</b> topic is <>-stripped in the cell.
     expect(watchTable.rows[0]!.cells[0]).toBe("bx/b");
     const addBtn = validated!.nodes.find(
-      (n) => n.type === "button" && (n as PageButton).action.event === BRIEFING_ADD_WATCHLIST_ACTION,
+      (n) =>
+        n.type === "button" && (n as PageButton).action.event === BRIEFING_ADD_WATCHLIST_ACTION,
     ) as PageButton;
     expect(addBtn.action.prompt).toBeDefined();
   });
@@ -333,7 +373,11 @@ describe("registerBriefingHubPage", () => {
     expect(provider).toBeDefined();
     expect(provider!.title).toBe("Daily Briefing");
     expect(Object.keys(provider!.actions!).sort()).toEqual(
-      [BRIEFING_RUN_NOW_ACTION, BRIEFING_ADD_WATCHLIST_ACTION, BRIEFING_REMOVE_WATCHLIST_ACTION].sort(),
+      [
+        BRIEFING_RUN_NOW_ACTION,
+        BRIEFING_ADD_WATCHLIST_ACTION,
+        BRIEFING_REMOVE_WATCHLIST_ACTION,
+      ].sort(),
     );
   });
 });
@@ -350,13 +394,18 @@ describe("add-watchlist action", () => {
       (n) => n.type === "table" && (n as PageTable).columns[0] === "Topic",
     ) as PageTable;
     expect(watchTable.rows.map((r) => r.cells[0])).toContain("Bun 2.0 release");
-    expect((await getBriefingConfig(userId))!.watchlist.map((w) => w.topic)).toContain("Bun 2.0 release");
+    expect((await getBriefingConfig(userId))!.watchlist.map((w) => w.topic)).toContain(
+      "Bun 2.0 release",
+    );
   });
 
   test("a duplicate topic is a no-op success (re-renders, no second row)", async () => {
     const provider = createBriefingHubPageProvider(deps());
     await provider.actions![BRIEFING_ADD_WATCHLIST_ACTION]!({ userId }, { topic: "dup" });
-    const tree = await provider.actions![BRIEFING_ADD_WATCHLIST_ACTION]!({ userId }, { topic: "DUP" });
+    const tree = await provider.actions![BRIEFING_ADD_WATCHLIST_ACTION]!(
+      { userId },
+      { topic: "DUP" },
+    );
     expect(tree).toBeDefined();
     expect((await getBriefingConfig(userId))!.watchlist).toHaveLength(1);
   });
@@ -375,7 +424,10 @@ describe("add-watchlist action", () => {
     const db = getTestDb();
     await db.insert(briefingConfigs).values({
       userId,
-      watchlist: Array.from({ length: 25 }, (_, i) => ({ topic: `t-${i}`, addedAt: "2026-06-01T00:00:00Z" })),
+      watchlist: Array.from({ length: 25 }, (_, i) => ({
+        topic: `t-${i}`,
+        addedAt: "2026-06-01T00:00:00Z",
+      })),
     });
     const provider = createBriefingHubPageProvider(deps());
     await expect(
@@ -395,7 +447,10 @@ describe("remove-watchlist action", () => {
       ],
     });
     const provider = createBriefingHubPageProvider(deps());
-    const tree = await provider.actions![BRIEFING_REMOVE_WATCHLIST_ACTION]!({ userId }, { topic: "drop" });
+    const tree = await provider.actions![BRIEFING_REMOVE_WATCHLIST_ACTION]!(
+      { userId },
+      { topic: "drop" },
+    );
     const watchTable = tree!.nodes.find(
       (n) => n.type === "table" && (n as PageTable).columns[0] === "Topic",
     ) as PageTable;
@@ -410,7 +465,10 @@ describe("remove-watchlist action", () => {
       watchlist: [{ topic: "keep", addedAt: "2026-06-01T00:00:00Z" }],
     });
     const provider = createBriefingHubPageProvider(deps());
-    const tree = await provider.actions![BRIEFING_REMOVE_WATCHLIST_ACTION]!({ userId }, { topic: "ghost" });
+    const tree = await provider.actions![BRIEFING_REMOVE_WATCHLIST_ACTION]!(
+      { userId },
+      { topic: "ghost" },
+    );
     expect(tree).toBeDefined();
     expect((await getBriefingConfig(userId))!.watchlist).toHaveLength(1);
   });

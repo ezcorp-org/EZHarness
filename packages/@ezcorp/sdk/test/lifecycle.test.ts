@@ -9,15 +9,8 @@
 
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
-import {
-  registerLifecycleHook,
-  type LifecycleEvent,
-} from "../src/runtime/lifecycle";
-import {
-  __resetChannelForTests,
-  getChannel,
-  type HostChannel,
-} from "../src/runtime/channel";
+import { registerLifecycleHook, type LifecycleEvent } from "../src/runtime/lifecycle";
+import { __resetChannelForTests, getChannel, type HostChannel } from "../src/runtime/channel";
 
 afterEach(() => {
   __resetChannelForTests();

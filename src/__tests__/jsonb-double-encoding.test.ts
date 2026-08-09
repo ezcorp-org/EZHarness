@@ -54,7 +54,9 @@ describe("repairDoubleEncodedJsonb — real function, one sweep", () => {
 
   test("unwraps double-encoded object AND leaves scalar strings untouched", async () => {
     const convId = crypto.randomUUID();
-    await db.execute(sql`INSERT INTO conversations (id, project_id, title) VALUES (${convId}, 'rp', 'c')`);
+    await db.execute(
+      sql`INSERT INTO conversations (id, project_id, title) VALUES (${convId}, 'rp', 'c')`,
+    );
     const msgId = crypto.randomUUID();
 
     // Broken shape: object already JSON-stringified then cast to jsonb — a
@@ -65,10 +67,16 @@ describe("repairDoubleEncodedJsonb — real function, one sweep", () => {
       VALUES (${msgId}, ${convId}, 'assistant', 'probe', to_jsonb(${stringified}::text))
     `);
     // Legitimate scalar strings that MUST survive the repair.
-    await db.execute(sql`INSERT INTO settings (key, value) VALUES ('probe:mode', to_jsonb('yolo'::text)) ON CONFLICT (key) DO NOTHING`);
-    await db.execute(sql`INSERT INTO settings (key, value) VALUES ('probe:blob', to_jsonb('v1:abcdef0123456789'::text)) ON CONFLICT (key) DO NOTHING`);
+    await db.execute(
+      sql`INSERT INTO settings (key, value) VALUES ('probe:mode', to_jsonb('yolo'::text)) ON CONFLICT (key) DO NOTHING`,
+    );
+    await db.execute(
+      sql`INSERT INTO settings (key, value) VALUES ('probe:blob', to_jsonb('v1:abcdef0123456789'::text)) ON CONFLICT (key) DO NOTHING`,
+    );
 
-    const before = await db.execute(sql`SELECT jsonb_typeof(usage) as t FROM messages WHERE id = ${msgId}`);
+    const before = await db.execute(
+      sql`SELECT jsonb_typeof(usage) as t FROM messages WHERE id = ${msgId}`,
+    );
     expect((before.rows[0] as { t: string }).t).toBe("string");
 
     // Drive the REAL production repair.
@@ -123,7 +131,9 @@ describe("repairDoubleEncodedJsonb — one-shot marker skips later boots", () =>
 
     // Now introduce a broken row (as if written by an old build) and re-run.
     const convId = crypto.randomUUID();
-    await db.execute(sql`INSERT INTO conversations (id, project_id, title) VALUES (${convId}, 'rp', 'c')`);
+    await db.execute(
+      sql`INSERT INTO conversations (id, project_id, title) VALUES (${convId}, 'rp', 'c')`,
+    );
     const msgId = crypto.randomUUID();
     const stringified = JSON.stringify({ inputTokens: 9, outputTokens: 9 });
     await db.execute(sql`
@@ -135,7 +145,9 @@ describe("repairDoubleEncodedJsonb — one-shot marker skips later boots", () =>
 
     // Because the marker is present, the sweep is skipped — the row stays a
     // string scalar (proving we did NOT full-scan again).
-    const after = await db.execute(sql`SELECT jsonb_typeof(usage) as t FROM messages WHERE id = ${msgId}`);
+    const after = await db.execute(
+      sql`SELECT jsonb_typeof(usage) as t FROM messages WHERE id = ${msgId}`,
+    );
     expect((after.rows[0] as { t: string }).t).toBe("string");
   });
 });

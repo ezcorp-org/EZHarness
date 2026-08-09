@@ -24,7 +24,8 @@ export const POST: RequestHandler = async ({ params, locals }) => {
     if (!draftId) return errorJson(400, "Draft id is required");
 
     const updated = await consumeDraft(draftId, user.id);
-    if (!updated) return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
+    if (!updated)
+      return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
     return json({
       id: updated.id,
       kind: updated.kind,

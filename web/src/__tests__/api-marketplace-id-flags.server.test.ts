@@ -11,165 +11,155 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
 
 vi.mock("$server/db/queries/marketplace-ratings", () => ({
-	getFlagHistory: vi.fn(),
-	resolveFlag: vi.fn(async () => undefined),
+  getFlagHistory: vi.fn(),
+  resolveFlag: vi.fn(async () => undefined),
 }));
 
 vi.mock("$server/db/queries/audit-log", () => ({
-	insertAuditEntry: vi.fn(async () => undefined),
+  insertAuditEntry: vi.fn(async () => undefined),
 }));
 
-const { getFlagHistory, resolveFlag } = await import(
-	"$server/db/queries/marketplace-ratings"
-);
+const { getFlagHistory, resolveFlag } = await import("$server/db/queries/marketplace-ratings");
 const { insertAuditEntry } = await import("$server/db/queries/audit-log");
-const { GET, PATCH } = await import(
-	"../routes/api/marketplace/[id]/flags/+server.ts"
-);
+const { GET, PATCH } = await import("../routes/api/marketplace/[id]/flags/+server.ts");
 
 function makeEvent(opts: {
-	method?: "GET" | "PATCH";
-	body?: unknown;
-	locals?: Record<string, unknown>;
-	id?: string;
+  method?: "GET" | "PATCH";
+  body?: unknown;
+  locals?: Record<string, unknown>;
+  id?: string;
 }) {
-	const id = opts.id ?? "abc";
-	const method = opts.method ?? "GET";
-	return {
-		url: new URL(`http://localhost/api/marketplace/${id}/flags`),
-		locals: opts.locals ?? {},
-		params: { id },
-		request: new Request(`http://localhost/api/marketplace/${id}/flags`, {
-			method,
-			headers: { "Content-Type": "application/json" },
-			body: method === "GET" ? undefined : JSON.stringify(opts.body ?? {}),
-		}),
-	} as any;
+  const id = opts.id ?? "abc";
+  const method = opts.method ?? "GET";
+  return {
+    url: new URL(`http://localhost/api/marketplace/${id}/flags`),
+    locals: opts.locals ?? {},
+    params: { id },
+    request: new Request(`http://localhost/api/marketplace/${id}/flags`, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: method === "GET" ? undefined : JSON.stringify(opts.body ?? {}),
+    }),
+  } as any;
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };
 const adminUser = { id: "admin-1", email: "a@x", name: "a", role: "admin" };
 
 describe("GET /api/marketplace/[id]/flags", () => {
-	beforeEach(() => {
-		vi.mocked(getFlagHistory).mockReset();
-	});
+  beforeEach(() => {
+    vi.mocked(getFlagHistory).mockReset();
+  });
 
-	test("unauthenticated request RETURNS 401 (not thrown → no 500)", async () => {
-		const res = await expectDenied(() => GET(makeEvent({ locals: {} })), 401);
-		expect(res.status).toBe(401);
-	});
+  test("unauthenticated request RETURNS 401 (not thrown → no 500)", async () => {
+    const res = await expectDenied(() => GET(makeEvent({ locals: {} })), 401);
+    expect(res.status).toBe(401);
+  });
 
-	test("non-admin authenticated request RETURNS 403 (not thrown → no 500)", async () => {
-		const res = await expectDenied(() => GET(makeEvent({ locals: { user } })), 403);
-		expect(res.status).toBe(403);
-		const body = (await res!.json()) as { error?: string };
-		expect(body.error).toBe("Insufficient permissions");
-	});
+  test("non-admin authenticated request RETURNS 403 (not thrown → no 500)", async () => {
+    const res = await expectDenied(() => GET(makeEvent({ locals: { user } })), 403);
+    expect(res.status).toBe(403);
+    const body = (await res!.json()) as { error?: string };
+    expect(body.error).toBe("Insufficient permissions");
+  });
 
-	test("API-key scope check returns 403 when 'admin' missing", async () => {
-		const res = await GET(
-			makeEvent({
-				locals: { user: adminUser, apiKeyScopes: ["read"] },
-			}),
-		);
-		expect(res.status).toBe(403);
-		const body = (await res.json()) as { error?: string; required?: string };
-		expect(body.required).toBe("admin");
-	});
+  test("API-key scope check returns 403 when 'admin' missing", async () => {
+    const res = await GET(
+      makeEvent({
+        locals: { user: adminUser, apiKeyScopes: ["read"] },
+      }),
+    );
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error?: string; required?: string };
+    expect(body.required).toBe("admin");
+  });
 
-	test("happy path: returns flag history wrapped in { flags }", async () => {
-		const flagRows = [
-			{ id: "f1", reason: "spam", createdAt: new Date() },
-			{ id: "f2", reason: "abuse", createdAt: new Date() },
-		];
-		vi.mocked(getFlagHistory).mockResolvedValue(flagRows as any);
-		const res = await GET(makeEvent({ locals: { user: adminUser } }));
-		expect(res.status).toBe(200);
-		const body = (await res.json()) as { flags: unknown[] };
-		expect(body.flags).toHaveLength(2);
-		expect(vi.mocked(getFlagHistory)).toHaveBeenCalledWith("abc");
-	});
+  test("happy path: returns flag history wrapped in { flags }", async () => {
+    const flagRows = [
+      { id: "f1", reason: "spam", createdAt: new Date() },
+      { id: "f2", reason: "abuse", createdAt: new Date() },
+    ];
+    vi.mocked(getFlagHistory).mockResolvedValue(flagRows as any);
+    const res = await GET(makeEvent({ locals: { user: adminUser } }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { flags: unknown[] };
+    expect(body.flags).toHaveLength(2);
+    expect(vi.mocked(getFlagHistory)).toHaveBeenCalledWith("abc");
+  });
 });
 
 describe("PATCH /api/marketplace/[id]/flags", () => {
-	beforeEach(() => {
-		vi.mocked(resolveFlag).mockReset();
-		vi.mocked(insertAuditEntry).mockReset();
-	});
+  beforeEach(() => {
+    vi.mocked(resolveFlag).mockReset();
+    vi.mocked(insertAuditEntry).mockReset();
+  });
 
-	test("admin + invalid body returns 400 via errorJson", async () => {
-		const res = await PATCH(
-			makeEvent({
-				method: "PATCH",
-				body: { flagId: "", action: "bogus" },
-				locals: { user: adminUser },
-			}),
-		);
-		expect(res).toBeInstanceOf(Response);
-		expect(res.status).toBe(400);
-		const body = (await res.json()) as { error?: string };
-		expect(body.error).toBe(
-			"flagId and action ('dismissed' | 'removed') are required",
-		);
-		expect(vi.mocked(resolveFlag)).not.toHaveBeenCalled();
-	});
+  test("admin + invalid body returns 400 via errorJson", async () => {
+    const res = await PATCH(
+      makeEvent({
+        method: "PATCH",
+        body: { flagId: "", action: "bogus" },
+        locals: { user: adminUser },
+      }),
+    );
+    expect(res).toBeInstanceOf(Response);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error?: string };
+    expect(body.error).toBe("flagId and action ('dismissed' | 'removed') are required");
+    expect(vi.mocked(resolveFlag)).not.toHaveBeenCalled();
+  });
 
-	test("non-admin PATCH RETURNS 403 (not thrown → no 500)", async () => {
-		const res = await expectDenied(() => PATCH(
-						makeEvent({
-							method: "PATCH",
-							body: { flagId: "f1", action: "dismissed" },
-							locals: { user },
-						}),
-					), 403);
-		expect(res.status).toBe(403);
-	});
+  test("non-admin PATCH RETURNS 403 (not thrown → no 500)", async () => {
+    const res = await expectDenied(
+      () =>
+        PATCH(
+          makeEvent({
+            method: "PATCH",
+            body: { flagId: "f1", action: "dismissed" },
+            locals: { user },
+          }),
+        ),
+      403,
+    );
+    expect(res.status).toBe(403);
+  });
 
-	test("happy path action=dismissed: resolves flag and writes audit entry", async () => {
-		const res = await PATCH(
-			makeEvent({
-				method: "PATCH",
-				body: { flagId: "f1", action: "dismissed" },
-				locals: { user: adminUser },
-			}),
-		);
-		expect(res.status).toBe(200);
-		const body = (await res.json()) as { ok?: boolean };
-		expect(body.ok).toBe(true);
-		// Side-effects
-		expect(vi.mocked(resolveFlag)).toHaveBeenCalledWith(
-			"f1",
-			adminUser.id,
-			"dismissed",
-		);
-		expect(vi.mocked(insertAuditEntry)).toHaveBeenCalledWith(
-			adminUser.id,
-			"marketplace:flag:dismissed",
-			"abc",
-			{ flagId: "f1" },
-		);
-	});
+  test("happy path action=dismissed: resolves flag and writes audit entry", async () => {
+    const res = await PATCH(
+      makeEvent({
+        method: "PATCH",
+        body: { flagId: "f1", action: "dismissed" },
+        locals: { user: adminUser },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { ok?: boolean };
+    expect(body.ok).toBe(true);
+    // Side-effects
+    expect(vi.mocked(resolveFlag)).toHaveBeenCalledWith("f1", adminUser.id, "dismissed");
+    expect(vi.mocked(insertAuditEntry)).toHaveBeenCalledWith(
+      adminUser.id,
+      "marketplace:flag:dismissed",
+      "abc",
+      { flagId: "f1" },
+    );
+  });
 
-	test("happy path action=removed: audit suffix matches action", async () => {
-		const res = await PATCH(
-			makeEvent({
-				method: "PATCH",
-				body: { flagId: "f2", action: "removed" },
-				locals: { user: adminUser },
-			}),
-		);
-		expect(res.status).toBe(200);
-		expect(vi.mocked(resolveFlag)).toHaveBeenCalledWith(
-			"f2",
-			adminUser.id,
-			"removed",
-		);
-		expect(vi.mocked(insertAuditEntry)).toHaveBeenCalledWith(
-			adminUser.id,
-			"marketplace:flag:removed",
-			"abc",
-			{ flagId: "f2" },
-		);
-	});
+  test("happy path action=removed: audit suffix matches action", async () => {
+    const res = await PATCH(
+      makeEvent({
+        method: "PATCH",
+        body: { flagId: "f2", action: "removed" },
+        locals: { user: adminUser },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(vi.mocked(resolveFlag)).toHaveBeenCalledWith("f2", adminUser.id, "removed");
+    expect(vi.mocked(insertAuditEntry)).toHaveBeenCalledWith(
+      adminUser.id,
+      "marketplace:flag:removed",
+      "abc",
+      { flagId: "f2" },
+    );
+  });
 });

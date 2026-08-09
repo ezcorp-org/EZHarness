@@ -18,7 +18,9 @@ import { conversations, messages, projects } from "../db/schema";
 
 mockDbConnection();
 
-const { getConversationPath, MAX_CONVERSATION_PATH_DEPTH } = await import("../db/queries/conversations");
+const { getConversationPath, MAX_CONVERSATION_PATH_DEPTH } = await import(
+  "../db/queries/conversations"
+);
 
 const PROJECT_ID = "p-depthcap";
 let convSeq = 0;
@@ -27,26 +29,40 @@ const at = (i: number): Date => new Date(BASE + i * 1000);
 
 async function newConversation(): Promise<string> {
   const db = getTestDb();
-  await db.insert(projects).values({ id: PROJECT_ID, name: "P", path: "/tmp/p" }).onConflictDoNothing();
+  await db
+    .insert(projects)
+    .values({ id: PROJECT_ID, name: "P", path: "/tmp/p" })
+    .onConflictDoNothing();
   const convId = `depthcap-conv-${++convSeq}`;
   await db.insert(conversations).values({ id: convId, projectId: PROJECT_ID, title: "C" });
   return convId;
 }
 
-async function seedMsg(convId: string, id: string, parentId: string | null, i: number): Promise<void> {
-  await getTestDb().insert(messages).values({
-    id,
-    conversationId: convId,
-    role: i % 2 === 0 ? "user" : "assistant",
-    content: id,
-    parentMessageId: parentId,
-    createdAt: at(i),
-  });
+async function seedMsg(
+  convId: string,
+  id: string,
+  parentId: string | null,
+  i: number,
+): Promise<void> {
+  await getTestDb()
+    .insert(messages)
+    .values({
+      id,
+      conversationId: convId,
+      role: i % 2 === 0 ? "user" : "assistant",
+      content: id,
+      parentMessageId: parentId,
+      createdAt: at(i),
+    });
 }
 
 describe("getConversationPath — recursive-CTE depth cap", () => {
-  beforeEach(async () => { await setupTestDb(); }, 30_000);
-  afterAll(async () => { await closeTestDb(); });
+  beforeEach(async () => {
+    await setupTestDb();
+  }, 30_000);
+  afterAll(async () => {
+    await closeTestDb();
+  });
 
   test("a parent_message_id cycle terminates and returns a bounded path", async () => {
     const c = await newConversation();

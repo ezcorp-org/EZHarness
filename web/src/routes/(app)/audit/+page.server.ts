@@ -1,5 +1,9 @@
 import { error } from "@sveltejs/kit";
-import { listGlobalAudit, globalStats, listExtensionsForFacets } from "$server/db/queries/audit-global";
+import {
+  listGlobalAudit,
+  globalStats,
+  listExtensionsForFacets,
+} from "$server/db/queries/audit-global";
 import { requireAuth, requireRole } from "$server/auth/middleware";
 import type { PageServerLoad } from "./$types";
 

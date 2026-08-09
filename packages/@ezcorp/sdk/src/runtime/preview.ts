@@ -86,9 +86,7 @@ export function extensionDataUrl(extName: string, relativePath: string): string 
     throw new Error("[@ezcorp/sdk] extensionDataUrl: relativePath must be non-empty");
   }
   if (relativePath.startsWith("/") || relativePath.startsWith("\\")) {
-    throw new Error(
-      "[@ezcorp/sdk] extensionDataUrl: relativePath must be relative, not absolute",
-    );
+    throw new Error("[@ezcorp/sdk] extensionDataUrl: relativePath must be relative, not absolute");
   }
   // Split on either separator, normalize, and check for traversal.
   // We don't allow `..` even when followed by a same-named directory
@@ -97,9 +95,7 @@ export function extensionDataUrl(extName: string, relativePath: string): string 
   const segments = relativePath.split(/[\\/]+/).filter((s) => s.length > 0);
   for (const seg of segments) {
     if (seg === "..") {
-      throw new Error(
-        '[@ezcorp/sdk] extensionDataUrl: ".." segment forbidden in relativePath',
-      );
+      throw new Error('[@ezcorp/sdk] extensionDataUrl: ".." segment forbidden in relativePath');
     }
   }
   const encoded = segments.map((s) => encodeURIComponent(s)).join("/");
@@ -158,9 +154,7 @@ export function assertContentType(path: string, expected: string): void {
     throw new Error("[@ezcorp/sdk] assertContentType: path must be a non-empty string");
   }
   if (typeof expected !== "string" || expected.length === 0) {
-    throw new Error(
-      "[@ezcorp/sdk] assertContentType: expected must be a non-empty string",
-    );
+    throw new Error("[@ezcorp/sdk] assertContentType: expected must be a non-empty string");
   }
   const actual = contentTypeForPath(path);
   if (!actual) {
@@ -171,8 +165,7 @@ export function assertContentType(path: string, expected: string): void {
   }
   if (actual !== expected) {
     throw new Error(
-      `[@ezcorp/sdk] assertContentType: "${path}" resolves to ${actual}, ` +
-        `expected ${expected}`,
+      `[@ezcorp/sdk] assertContentType: "${path}" resolves to ${actual}, ` + `expected ${expected}`,
     );
   }
 }

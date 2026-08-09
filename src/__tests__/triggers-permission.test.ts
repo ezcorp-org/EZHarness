@@ -34,11 +34,17 @@ function manifest(perms: Record<string, unknown>): ExtensionManifestV2 {
 }
 
 const DECL = {
-  maxCron: 25, maxWebhooks: 10, webhookPrefix: "factory-", maxRunsPerDay: 500,
+  maxCron: 25,
+  maxWebhooks: 10,
+  webhookPrefix: "factory-",
+  maxRunsPerDay: 500,
 };
 
 const GRANT: NonNullable<ExtensionPermissions["triggers"]> = {
-  maxCron: 25, maxWebhooks: 10, webhookPrefix: "factory-", maxRunsPerDay: 500,
+  maxCron: 25,
+  maxWebhooks: 10,
+  webhookPrefix: "factory-",
+  maxRunsPerDay: 500,
 };
 
 describe("manifest validation", () => {
@@ -66,15 +72,19 @@ describe("manifest validation", () => {
 
   test("rejects negative or non-numeric caps", () => {
     for (const field of ["maxCron", "maxWebhooks", "maxRunsPerDay"]) {
-      const res = validateManifestV2(manifest({
-        triggers: { webhookPrefix: "factory-", [field]: -1 },
-      }));
+      const res = validateManifestV2(
+        manifest({
+          triggers: { webhookPrefix: "factory-", [field]: -1 },
+        }),
+      );
       expect(res.valid).toBe(false);
       expect(res.errors.join("\n")).toContain(`permissions.triggers.${field}`);
     }
-    const res = validateManifestV2(manifest({
-      triggers: { webhookPrefix: "factory-", maxCron: "lots" },
-    }));
+    const res = validateManifestV2(
+      manifest({
+        triggers: { webhookPrefix: "factory-", maxCron: "lots" },
+      }),
+    );
     expect(res.valid).toBe(false);
     expect(res.errors.join("\n")).toContain("permissions.triggers.maxCron");
   });
@@ -103,7 +113,10 @@ describe("clamp integration", () => {
     );
     // Narrowed by the submitted side; prefix still the manifest's.
     expect(clamped.triggers).toEqual({
-      maxCron: 5, maxWebhooks: 5, webhookPrefix: "factory-", maxRunsPerDay: 50,
+      maxCron: 5,
+      maxWebhooks: 5,
+      webhookPrefix: "factory-",
+      maxRunsPerDay: 50,
     });
   });
 
@@ -134,7 +147,10 @@ describe("capability translation (the PDP's view)", () => {
   test("a zero cap emits NO cap for that kind", () => {
     // Otherwise the PDP would allow a registration the handler's own cap
     // check rejects — one decision split across two layers that disagree.
-    const cronOnly = grantsToCapabilitySet({ triggers: { ...GRANT, maxWebhooks: 0 }, grantedAt: {} });
+    const cronOnly = grantsToCapabilitySet({
+      triggers: { ...GRANT, maxWebhooks: 0 },
+      grantedAt: {},
+    });
     expect(cronOnly).toContainEqual({ kind: "ezcorp:triggers:register", value: "cron" });
     expect(cronOnly).not.toContainEqual({ kind: "ezcorp:triggers:register", value: "webhook" });
 
@@ -166,15 +182,20 @@ describe("ceiling intersection", () => {
       },
     );
     expect(out.triggers).toEqual({
-      maxCron: 5, maxWebhooks: 10, webhookPrefix: "factory-", maxRunsPerDay: 100,
+      maxCron: 5,
+      maxWebhooks: 10,
+      webhookPrefix: "factory-",
+      maxRunsPerDay: 100,
     });
   });
 
   test("survives only when BOTH sides declare it", () => {
-    expect(intersectPermissions({ triggers: GRANT, grantedAt: {} }, { grantedAt: {} })
-      .triggers).toBeUndefined();
-    expect(intersectPermissions({ grantedAt: {} }, { triggers: GRANT, grantedAt: {} })
-      .triggers).toBeUndefined();
+    expect(
+      intersectPermissions({ triggers: GRANT, grantedAt: {} }, { grantedAt: {} }).triggers,
+    ).toBeUndefined();
+    expect(
+      intersectPermissions({ grantedAt: {} }, { triggers: GRANT, grantedAt: {} }).triggers,
+    ).toBeUndefined();
   });
 
   test("DROPS the grant when the two prefixes disagree", () => {

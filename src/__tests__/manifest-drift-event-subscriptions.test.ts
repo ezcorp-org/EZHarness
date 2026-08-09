@@ -22,7 +22,12 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 interface StoredExtension {
   id: string;
   name: string;
-  manifest: { schemaVersion: 2; name: string; version: string; permissions?: Record<string, unknown> } & Record<string, unknown>;
+  manifest: {
+    schemaVersion: 2;
+    name: string;
+    version: string;
+    permissions?: Record<string, unknown>;
+  } & Record<string, unknown>;
   installPath: string;
   enabled: boolean;
   isBundled?: boolean;
@@ -188,8 +193,7 @@ describe("detectAndLogManifestDrift — eventSubscriptions decision matrix", () 
       },
     });
     await ensureBundledExtensions();
-    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0)
-      .toBe(1);
+    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0).toBe(1);
     expect(store.get("claude-design")!.grantedPermissions.eventSubscriptions).toEqual([
       "claude-design:knob-change",
     ]);
@@ -227,8 +231,7 @@ describe("detectAndLogManifestDrift — eventSubscriptions decision matrix", () 
       },
     });
     await ensureBundledExtensions();
-    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0)
-      .toBe(0);
+    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0).toBe(0);
   });
 
   test("disk omits an entry the grant has → grant entry is preserved (additions-only)", async () => {
@@ -265,8 +268,7 @@ describe("detectAndLogManifestDrift — eventSubscriptions decision matrix", () 
       },
     });
     await ensureBundledExtensions();
-    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0)
-      .toBe(0);
+    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0).toBe(0);
     expect(store.get("claude-design")!.grantedPermissions.eventSubscriptions).toEqual([
       "legacy:event",
     ]);
@@ -311,8 +313,7 @@ describe("detectAndLogManifestDrift — eventSubscriptions decision matrix", () 
       "claude-design:knob-change",
       "claude-design:close",
     ]);
-    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0)
-      .toBe(1);
+    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0).toBe(1);
   });
 
   test("validation: brief-answer addition triggers self-heal on a stale grant carrying only knob-change", async () => {
@@ -330,10 +331,7 @@ describe("detectAndLogManifestDrift — eventSubscriptions decision matrix", () 
       entrypoint: "./index.ts",
       tools: [],
       permissions: {
-        eventSubscriptions: [
-          "claude-design:knob-change",
-          "claude-design:brief-answer",
-        ],
+        eventSubscriptions: ["claude-design:knob-change", "claude-design:brief-answer"],
       },
     };
     seedAll({
@@ -359,17 +357,11 @@ describe("detectAndLogManifestDrift — eventSubscriptions decision matrix", () 
       },
     });
     await ensureBundledExtensions();
-    const granted =
-      (store.get("claude-design")!.grantedPermissions.eventSubscriptions ?? [])
-        .slice()
-        .sort();
-    expect(granted).toEqual([
-      "claude-design:brief-answer",
-      "claude-design:knob-change",
-    ]);
-    expect(
-      auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0,
-    ).toBe(1);
+    const granted = (store.get("claude-design")!.grantedPermissions.eventSubscriptions ?? [])
+      .slice()
+      .sort();
+    expect(granted).toEqual(["claude-design:brief-answer", "claude-design:knob-change"]);
+    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0).toBe(1);
   });
 
   test("disk has eventSubscriptions but grant.eventSubscriptions is undefined → backfilled to [diskValues]", async () => {
@@ -405,11 +397,8 @@ describe("detectAndLogManifestDrift — eventSubscriptions decision matrix", () 
     });
     await ensureBundledExtensions();
     const row = store.get("claude-design")!;
-    expect(row.grantedPermissions.eventSubscriptions).toEqual([
-      "claude-design:knob-change",
-    ]);
-    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0)
-      .toBe(1);
+    expect(row.grantedPermissions.eventSubscriptions).toEqual(["claude-design:knob-change"]);
+    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0).toBe(1);
   });
 
   test("appendMessages: disk declares config, grant column is empty → grant is backfilled", async () => {
@@ -458,12 +447,12 @@ describe("detectAndLogManifestDrift — eventSubscriptions decision matrix", () 
     });
     await ensureBundledExtensions();
     const row = store.get("claude-design")!;
-    expect(
-      (row.grantedPermissions as { appendMessages?: unknown }).appendMessages,
-    ).toEqual({ excludedDefault: true });
-    expect(
-      ((row.manifest.permissions as { appendMessages?: unknown })?.appendMessages),
-    ).toEqual({ excludedDefault: true });
+    expect((row.grantedPermissions as { appendMessages?: unknown }).appendMessages).toEqual({
+      excludedDefault: true,
+    });
+    expect((row.manifest.permissions as { appendMessages?: unknown })?.appendMessages).toEqual({
+      excludedDefault: true,
+    });
   });
 
   test("intra-row drift: manifest column has the events but grant column is empty → grant is backfilled", async () => {
@@ -511,10 +500,7 @@ describe("detectAndLogManifestDrift — eventSubscriptions decision matrix", () 
     });
     await ensureBundledExtensions();
     const row = store.get("claude-design")!;
-    expect(row.grantedPermissions.eventSubscriptions).toEqual([
-      "claude-design:knob-change",
-    ]);
-    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0)
-      .toBe(1);
+    expect(row.grantedPermissions.eventSubscriptions).toEqual(["claude-design:knob-change"]);
+    expect(auditCounts.get(EXT_AUDIT_ACTIONS.BUNDLED_EVENT_SUBSCRIPTIONS_BACKFILLED) ?? 0).toBe(1);
   });
 });

@@ -10,7 +10,7 @@
  */
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import { mkdtemp, rm, writeFile, stat, } from "fs/promises";
+import { mkdtemp, rm, writeFile, stat } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { existsSync } from "fs";
@@ -242,9 +242,14 @@ describe("subprocess", () => {
     });
 
     test("uses custom memoryLimitBytes", () => {
-      const ep = new ExtensionProcess("test-id", "/path/to/ext.ts", {}, {
-        memoryLimitBytes: 1024 * 1024 * 1024,
-      });
+      const ep = new ExtensionProcess(
+        "test-id",
+        "/path/to/ext.ts",
+        {},
+        {
+          memoryLimitBytes: 1024 * 1024 * 1024,
+        },
+      );
       const args = ep.getSpawnArgs();
       expect(args[1]).toBe(`--rss=${1024 * 1024 * 1024}`);
     });
@@ -253,17 +258,27 @@ describe("subprocess", () => {
   describe("ExtensionProcess.memoryLimitBytes", () => {
     test("enforces MIN_MEMORY_LIMIT_MB floor", () => {
       const tooSmall = 64 * 1024 * 1024; // 64MB, below 512MB floor
-      const ep = new ExtensionProcess("test-id", "/path/to/ext.ts", {}, {
-        memoryLimitBytes: tooSmall,
-      });
+      const ep = new ExtensionProcess(
+        "test-id",
+        "/path/to/ext.ts",
+        {},
+        {
+          memoryLimitBytes: tooSmall,
+        },
+      );
       expect(ep.memoryLimitBytes).toBe(MIN_MEMORY_LIMIT_MB * 1024 * 1024);
     });
 
     test("allows value above the floor", () => {
       const bigLimit = 2 * 1024 * 1024 * 1024; // 2GB
-      const ep = new ExtensionProcess("test-id", "/path/to/ext.ts", {}, {
-        memoryLimitBytes: bigLimit,
-      });
+      const ep = new ExtensionProcess(
+        "test-id",
+        "/path/to/ext.ts",
+        {},
+        {
+          memoryLimitBytes: bigLimit,
+        },
+      );
       expect(ep.memoryLimitBytes).toBe(bigLimit);
     });
 

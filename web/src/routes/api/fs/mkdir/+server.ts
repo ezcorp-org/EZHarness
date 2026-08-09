@@ -11,9 +11,11 @@ import type { RequestHandler } from "./$types";
 // non-empty + sandbox-containment checks downstream still drive the
 // "path required" 400 message verbatim so the existing test contract
 // holds. Strict mode rejects unknown keys.
-const postBodySchema = z.object({
-  path: z.string().optional(),
-}).strict();
+const postBodySchema = z
+  .object({
+    path: z.string().optional(),
+  })
+  .strict();
 
 export const POST: RequestHandler = async ({ request, locals }) => {
   const scopeErr = requireScope(locals, "admin");

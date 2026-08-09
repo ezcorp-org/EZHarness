@@ -14,14 +14,7 @@
 // handlePiWorkflows's ctx build + its two fail-closed guards (unknown
 // extension, ownerless background fire).
 
-import {
-  test,
-  expect,
-  describe,
-  beforeEach,
-  afterAll,
-  mock,
-} from "bun:test";
+import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 
 // Snapshot the real modules before mocking so afterAll can re-register them.
@@ -43,7 +36,8 @@ mock.module("../schedule-handler", () => ({
   handlePiSchedule: async (req: { id: number | string }) => okResponse(req.id),
 }));
 mock.module("../github-projects-handler", () => ({
-  handleGithubProjectsRpc: async (_verb: string, req: { id: number | string }) => okResponse(req.id),
+  handleGithubProjectsRpc: async (_verb: string, req: { id: number | string }) =>
+    okResponse(req.id),
 }));
 mock.module("../finalize-tool-call-handler", () => ({
   handleFinalizeToolCallRpc: async (_e: string, req: { id: number | string }) => okResponse(req.id),
@@ -71,10 +65,7 @@ mock.module("../drafts-handler", () => ({
 // its own suite in workflows-handler.test.ts.
 let triggersCtx: Record<string, unknown> | undefined;
 mock.module("../triggers-handler", () => ({
-  handleTriggersRpc: async (
-    req: { id: number | string },
-    ctx: Record<string, unknown>,
-  ) => {
+  handleTriggersRpc: async (req: { id: number | string }, ctx: Record<string, unknown>) => {
     triggersCtx = ctx;
     return { jsonrpc: "2.0", id: req.id, result: { v: 1, ok: true } };
   },
@@ -83,10 +74,7 @@ mock.module("../triggers-handler", () => ({
 
 let workflowsCtx: Record<string, unknown> | undefined;
 mock.module("../workflows-handler", () => ({
-  handleWorkflowsRpc: async (
-    req: { id: number | string },
-    ctx: Record<string, unknown>,
-  ) => {
+  handleWorkflowsRpc: async (req: { id: number | string }, ctx: Record<string, unknown>) => {
     workflowsCtx = ctx;
     return { jsonrpc: "2.0", id: req.id, result: { v: 1, started: true } };
   },
@@ -344,10 +332,7 @@ describe("reverse-RPC delegate bodies (downstream handlers mocked)", () => {
       getManifest: () => null,
       getRegisteredTool: () => null,
     } as unknown as ExtensionRegistry;
-    const exec: ExecLike = new ToolExecutor(
-      emptyRegistry,
-      createStubPermissionEngine("allow-all"),
-    );
+    const exec: ExecLike = new ToolExecutor(emptyRegistry, createStubPermissionEngine("allow-all"));
     workflowsCtx = undefined;
     const tok = tokenFor("ext-1");
     try {

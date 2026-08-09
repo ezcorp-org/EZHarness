@@ -60,17 +60,20 @@ async function insertConversation(data: {
   id?: string;
 }): Promise<string> {
   const db = getTestDb();
-  const [row] = await db.insert(conversations).values({
-    ...(data.id ? { id: data.id } : {}),
-    projectId,
-    title: data.title,
-    userId: data.owner === undefined ? userId : data.owner,
-    kind: data.kind ?? "regular",
-    parentConversationId: data.parentConversationId ?? null,
-    agentConfigId: data.agentConfigId ?? null,
-    test: data.test ?? false,
-    ...(data.updatedAt ? { updatedAt: data.updatedAt } : {}),
-  }).returning();
+  const [row] = await db
+    .insert(conversations)
+    .values({
+      ...(data.id ? { id: data.id } : {}),
+      projectId,
+      title: data.title,
+      userId: data.owner === undefined ? userId : data.owner,
+      kind: data.kind ?? "regular",
+      parentConversationId: data.parentConversationId ?? null,
+      agentConfigId: data.agentConfigId ?? null,
+      test: data.test ?? false,
+      ...(data.updatedAt ? { updatedAt: data.updatedAt } : {}),
+    })
+    .returning();
   return row!.id;
 }
 
@@ -92,17 +95,26 @@ beforeEach(async () => {
   await db.delete(projects);
   await db.delete(users);
 
-  const [u1] = await db.insert(users).values({ email: "a@t.local", passwordHash: "x", name: "A" }).returning();
-  const [u2] = await db.insert(users).values({ email: "b@t.local", passwordHash: "x", name: "B" }).returning();
+  const [u1] = await db
+    .insert(users)
+    .values({ email: "a@t.local", passwordHash: "x", name: "A" })
+    .returning();
+  const [u2] = await db
+    .insert(users)
+    .values({ email: "b@t.local", passwordHash: "x", name: "B" })
+    .returning();
   userId = u1!.id;
   otherUserId = u2!.id;
   const [p] = await db.insert(projects).values({ name: "P", path: "/tmp/p" }).returning();
   projectId = p!.id;
-  const [agent] = await db.insert(agentConfigs).values({
-    name: "Daily Briefing",
-    description: "d",
-    prompt: "p",
-  }).returning();
+  const [agent] = await db
+    .insert(agentConfigs)
+    .values({
+      name: "Daily Briefing",
+      description: "d",
+      prompt: "p",
+    })
+    .returning();
   briefingAgentId = agent!.id;
 });
 
@@ -131,7 +143,11 @@ describe("list_recent_conversations", () => {
     await insertConversation({ title: "Sub", parentConversationId: parent, owner: null });
     await insertConversation({ title: "Test conv", test: true });
     await insertConversation({ title: "Yesterday's briefing", agentConfigId: briefingAgentId });
-    await insertConversation({ title: "Current briefing", id: "current-briefing-conv", agentConfigId: briefingAgentId });
+    await insertConversation({
+      title: "Current briefing",
+      id: "current-briefing-conv",
+      agentConfigId: briefingAgentId,
+    });
 
     const tool = createListRecentConversationsTool(ctx());
     const res = await tool.execute("tc-1", {});
@@ -174,7 +190,7 @@ describe("get_conversation_summary", () => {
     const convId = await insertConversation({ title: "SSL setup" });
     await addMessage(convId, "user", "set up SSL for the api host");
     await addMessage(convId, "assistant", "Working on it — generated the CSR.");
-    await addMessage(convId, "ez-action-result", "{\"kind\":\"card\"}");
+    await addMessage(convId, "ez-action-result", '{"kind":"card"}');
     await addMessage(convId, "capability-event", "{}");
     await addMessage(convId, "assistant", "   "); // empty — skipped
 
@@ -275,7 +291,10 @@ describe("get_task_snapshots", () => {
 
   test("silently skips non-owned + missing conversations", async () => {
     const theirs = await insertConversation({ title: "Theirs", owner: otherUserId });
-    snapshotImpl = async () => ({ conversationId: "x", tasks: [{ id: "t", title: "T", status: "pending" }] });
+    snapshotImpl = async () => ({
+      conversationId: "x",
+      tasks: [{ id: "t", title: "T", status: "pending" }],
+    });
     const tool = createGetTaskSnapshotsTool(ctx());
     const res = await tool.execute("tc", { conversationIds: [theirs, "missing"] });
     const details = res.details as { counts: { open: number }; conversations: unknown[] };
@@ -305,7 +324,12 @@ describe("get_task_snapshots", () => {
 
   test("conversationIds is required and must be non-empty / well-typed", async () => {
     const tool = createGetTaskSnapshotsTool(ctx());
-    for (const params of [{}, { conversationIds: [] }, { conversationIds: [1, 2] }, { conversationIds: "x" }]) {
+    for (const params of [
+      {},
+      { conversationIds: [] },
+      { conversationIds: [1, 2] },
+      { conversationIds: "x" },
+    ]) {
       const res = await tool.execute("tc", params);
       expect((res.content[0] as { text: string }).text).toMatch(/conversationIds is required/);
     }

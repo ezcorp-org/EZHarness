@@ -23,7 +23,11 @@
 import { sql } from "drizzle-orm";
 import { getDb, initDb } from "../src/db/connection";
 import { isKnownCatalogModel } from "../src/providers/registry";
-import { findCatalogGaps, isCatalogGap, type PinnedModelRef } from "../src/runtime/routing/dropped-models";
+import {
+  findCatalogGaps,
+  isCatalogGap,
+  type PinnedModelRef,
+} from "../src/runtime/routing/dropped-models";
 
 /**
  * Every column that pins a provider+model pair. `conversations` is the one the
@@ -64,13 +68,15 @@ export async function collectPins(): Promise<PinRow[]> {
          GROUP BY 1, 2
       `);
       // PGlite returns `{rows: [...]}`; Bun.sql returns the array directly.
-      rows = (Array.isArray(result) ? result : ((result as { rows?: unknown[] })?.rows ?? [])) as Array<
-        Record<string, unknown>
-      >;
+      rows = (
+        Array.isArray(result) ? result : ((result as { rows?: unknown[] })?.rows ?? [])
+      ) as Array<Record<string, unknown>>;
     } catch (err) {
       // A column this deployment's schema does not have (older install, or a
       // table added since). Skip it rather than failing the whole report.
-      console.warn(`  ! skipped ${src.table}.${src.modelCol}: ${err instanceof Error ? err.message : String(err)}`);
+      console.warn(
+        `  ! skipped ${src.table}.${src.modelCol}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       continue;
     }
     for (const row of rows ?? []) {
@@ -101,24 +107,34 @@ export async function main(): Promise<void> {
     .filter((p) => isCatalogGap(p, isKnownCatalogModel))
     .reduce((sum, p) => sum + p.rows, 0);
 
-  console.log(`Scanned ${pins.length} distinct model pin(s) across ${PIN_SOURCES.length} table(s).`);
+  console.log(
+    `Scanned ${pins.length} distinct model pin(s) across ${PIN_SOURCES.length} table(s).`,
+  );
   if (gaps.length === 0) {
     console.log("No catalog gaps: every pinned model is listed by the installed pi-ai catalog.");
     return;
   }
 
-  console.log(`\n${gaps.length} retired model id(s) still pinned, covering ${affectedRows} row(s):\n`);
+  console.log(
+    `\n${gaps.length} retired model id(s) still pinned, covering ${affectedRows} row(s):\n`,
+  );
   for (const gap of gaps) {
     const rows = pins
       .filter((p) => p.provider === gap.provider && p.modelId === gap.modelId)
       .reduce((sum, p) => sum + p.rows, 0);
-    const where = [...new Set(pins.filter((p) => p.provider === gap.provider && p.modelId === gap.modelId).map((p) => p.source))];
+    const where = [
+      ...new Set(
+        pins
+          .filter((p) => p.provider === gap.provider && p.modelId === gap.modelId)
+          .map((p) => p.source),
+      ),
+    ];
     console.log(`  ${gap.provider}/${gap.modelId} — ${rows} row(s) in ${where.join(", ")}`);
   }
   console.log(
     "\nThese still REACH the provider; what is lost is an accurate context window " +
-    "and pricing. Re-pin them to a listed model, or run refresh-models if the " +
-    "provider still serves the id.",
+      "and pricing. Re-pin them to a listed model, or run refresh-models if the " +
+      "provider still serves the id.",
   );
 }
 

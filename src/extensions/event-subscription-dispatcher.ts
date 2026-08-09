@@ -344,18 +344,25 @@ export class EventSubscriptionDispatcher {
     }
     const runId =
       typeof (payload as { run?: { id?: unknown } } | null)?.run?.id === "string"
-        ? ((payload as { run: { id: string } }).run.id)
+        ? (payload as { run: { id: string } }).run.id
         : typeof (payload as { runId?: unknown } | null)?.runId === "string"
-          ? ((payload as { runId: string }).runId)
+          ? (payload as { runId: string }).runId
           : null;
 
     for (const extId of subscribers) {
       if (!wired.has(extId)) {
-        if (traced) log.info("assignment_update: subscriber not wired to conversation — dropped", { extensionId: extId, conversationId: convId });
+        if (traced)
+          log.info("assignment_update: subscriber not wired to conversation — dropped", {
+            extensionId: extId,
+            conversationId: convId,
+          });
         continue;
       }
       if (!this.consume(extId, 1)) {
-        if (traced) log.info("assignment_update: subscriber over rate budget — dropped", { extensionId: extId });
+        if (traced)
+          log.info("assignment_update: subscriber over rate budget — dropped", {
+            extensionId: extId,
+          });
         this.maybeAuditOverflow(extId, eventType);
         continue;
       }
@@ -371,11 +378,13 @@ export class EventSubscriptionDispatcher {
         continue;
       }
       if (!proc) {
-        if (traced) log.info("assignment_update: subprocess not running — dropped", { extensionId: extId });
+        if (traced)
+          log.info("assignment_update: subprocess not running — dropped", { extensionId: extId });
         continue;
       }
       if (traced) {
-        const a = (payload as { assignment?: { id?: unknown; status?: unknown } } | null)?.assignment;
+        const a = (payload as { assignment?: { id?: unknown; status?: unknown } } | null)
+          ?.assignment;
         log.info("assignment_update: delivering", {
           extensionId: extId,
           conversationId: convId,
@@ -427,18 +436,13 @@ export class EventSubscriptionDispatcher {
       }
       if ((h >>> 0) % this.auditSampleN !== 0) return;
     }
-    insertAuditEntry(
-      null,
-      EXT_AUDIT_ACTIONS.SDK_EVENT_DELIVERED,
-      extensionId,
-      {
-        capability: "events",
-        oldValue: undefined,
-        newValue: eventType,
-        actor: "system",
-        reason: `sampled-1-in-${this.auditSampleN}`,
-      },
-    ).catch(() => {});
+    insertAuditEntry(null, EXT_AUDIT_ACTIONS.SDK_EVENT_DELIVERED, extensionId, {
+      capability: "events",
+      oldValue: undefined,
+      newValue: eventType,
+      actor: "system",
+      reason: `sampled-1-in-${this.auditSampleN}`,
+    }).catch(() => {});
   }
 
   private maybeAuditOverflow(extensionId: string, eventType: string): void {
@@ -447,18 +451,13 @@ export class EventSubscriptionDispatcher {
     if (now - last < this.overflowAuditMs) return;
     this.lastOverflowAudit.set(extensionId, now);
     // Fire-and-forget; a DB hiccup shouldn't wedge the dispatch loop.
-    insertAuditEntry(
-      null,
-      EXT_AUDIT_ACTIONS.EVENT_SUBSCRIPTION_DENIED,
-      extensionId,
-      {
-        permission: "eventSubscriptions",
-        oldValue: eventType,
-        newValue: eventType,
-        actor: "system",
-        reason: "rate-limited",
-      },
-    ).catch(() => {});
+    insertAuditEntry(null, EXT_AUDIT_ACTIONS.EVENT_SUBSCRIPTION_DENIED, extensionId, {
+      permission: "eventSubscriptions",
+      oldValue: eventType,
+      newValue: eventType,
+      actor: "system",
+      reason: "rate-limited",
+    }).catch(() => {});
   }
 }
 
@@ -488,6 +487,7 @@ function sanitize(
   // Strip the heavy blobs but keep everything else (id, conversationId,
   // toolName, status, etc.).
   const { input, output, ...rest } = obj;
-  void input; void output;
+  void input;
+  void output;
   return rest;
 }

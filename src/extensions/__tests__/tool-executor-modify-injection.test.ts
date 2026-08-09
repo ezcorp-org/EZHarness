@@ -43,11 +43,10 @@ interface Cap {
   value?: string;
 }
 
-function makeExecutor(opts: {
-  toolName: string;
-  manifestName: string;
-  bundled: boolean;
-}): { run: () => Promise<unknown>; captured: () => Cap[] } {
+function makeExecutor(opts: { toolName: string; manifestName: string; bundled: boolean }): {
+  run: () => Promise<unknown>;
+  captured: () => Cap[];
+} {
   let captured: Cap[] = [];
   const registry = {
     getRegisteredTool: (toolName: string) => ({
@@ -100,10 +99,8 @@ async function neededFor(opts: {
   return captured();
 }
 
-const hasModify = (c: Cap[]) =>
-  c.some((x) => x.kind === "ezcorp:extension:modify");
-const hasInstall = (c: Cap[]) =>
-  c.some((x) => x.kind === "ezcorp:extension:install");
+const hasModify = (c: Cap[]) => c.some((x) => x.kind === "ezcorp:extension:modify");
+const hasInstall = (c: Cap[]) => c.some((x) => x.kind === "ezcorp:extension:install");
 
 describe("ToolExecutor — ezcorp:extension:modify injection", () => {
   test("injected for modify_extension on the bundled extension-author", async () => {

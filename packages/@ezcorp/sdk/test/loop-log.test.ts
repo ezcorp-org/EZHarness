@@ -31,11 +31,7 @@ import {
 } from "../src/runtime/loop-log";
 import { createLoopRunStore } from "../src/runtime/loop-store";
 import { PageBuilder } from "../src/runtime/page";
-import {
-  __resetChannelForTests,
-  getChannel,
-  type HostChannel,
-} from "../src/runtime/channel";
+import { __resetChannelForTests, getChannel, type HostChannel } from "../src/runtime/channel";
 import { spyOn } from "bun:test";
 import type { StorageScope } from "../src/runtime/storage";
 import type { LoopRunState } from "../src/runtime/loop-types";
@@ -106,7 +102,7 @@ beforeEach(() => {
     captured.set(m, h);
   }) as HostChannel["onRequest"]);
   _setSettingsResolverForTests(async () => ({}));
-  _setStoreFactoryForTests((<O,>(loopId: string, contract: unknown) =>
+  _setStoreFactoryForTests((<O>(loopId: string, contract: unknown) =>
     createLoopRunStore<O>(loopId, contract as never, makeKv())) as never);
 
   fs = { mkdirs: [], writes: [] };
@@ -289,8 +285,7 @@ describe("dashboard", () => {
       log: {
         dashboard: {
           pageId: "board",
-          render: (runs) =>
-            new PageBuilder("dash").markdownBlock(`${runs.length} runs`),
+          render: (runs) => new PageBuilder("dash").markdownBlock(`${runs.length} runs`),
           rowActions: { "dash:cancel": cancel },
         },
       },
@@ -444,7 +439,7 @@ describe("PRIVACY — user-scope runs never reach the shared dashboard", () => {
       global: new Map(),
       conversation: new Map(),
     };
-    return <O,>(loopId: string, contract: { scope?: StorageScope }) => {
+    return <O>(loopId: string, contract: { scope?: StorageScope }) => {
       const scope = contract.scope ?? "global";
       const map = maps[scope]!;
       const kv = (_s: StorageScope) => ({

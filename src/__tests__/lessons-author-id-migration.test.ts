@@ -12,15 +12,11 @@
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import {
-  setupTestDb, getTestDb, closeTestDb, mockDbConnection,
-} from "./helpers/test-pglite";
+import { setupTestDb, getTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
 mockDbConnection();
 
-import {
-  users, projects, extensions, lessons,
-} from "../db/schema";
+import { users, projects, extensions, lessons } from "../db/schema";
 import { eq, and } from "drizzle-orm";
 
 beforeAll(async () => {
@@ -37,12 +33,22 @@ describe("lessons.author_extension_id migration", () => {
     const db = getTestDb();
 
     // Seed a baseline graph.
-    const [u] = await db.insert(users).values({
-      email: "less-mig-1@example.com", passwordHash: "x", name: "U", role: "member",
-    }).returning();
-    const [p] = await db.insert(projects).values({
-      name: "less-mig-proj", path: "/tmp/less-mig",
-    }).returning();
+    const [u] = await db
+      .insert(users)
+      .values({
+        email: "less-mig-1@example.com",
+        passwordHash: "x",
+        name: "U",
+        role: "member",
+      })
+      .returning();
+    const [p] = await db
+      .insert(projects)
+      .values({
+        name: "less-mig-proj",
+        path: "/tmp/less-mig",
+      })
+      .returning();
 
     // Insert a lesson using direct SQL to mimic the pre-migration shape
     // (no author_extension_id column at write time). The migration has
@@ -65,40 +71,93 @@ describe("lessons.author_extension_id migration", () => {
 
   test("composite slug uniqueness — extension-A and extension-B share a slug for the same user", async () => {
     const db = getTestDb();
-    const [u] = await db.insert(users).values({
-      email: "less-mig-2@example.com", passwordHash: "x", name: "U2", role: "member",
-    }).returning();
-    const [p] = await db.insert(projects).values({
-      name: "less-mig-proj-2", path: "/tmp/less-mig-2",
-    }).returning();
-    const [eA] = await db.insert(extensions).values({
-      name: "lessons-mig-ext-A", version: "0.0.1", description: "",
-      manifest: { schemaVersion: 2, name: "lessons-mig-ext-A", version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as never,
-      source: "test", enabled: true, grantedPermissions: {} as never,
-    }).returning({ id: extensions.id });
-    const [eB] = await db.insert(extensions).values({
-      name: "lessons-mig-ext-B", version: "0.0.1", description: "",
-      manifest: { schemaVersion: 2, name: "lessons-mig-ext-B", version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as never,
-      source: "test", enabled: true, grantedPermissions: {} as never,
-    }).returning({ id: extensions.id });
+    const [u] = await db
+      .insert(users)
+      .values({
+        email: "less-mig-2@example.com",
+        passwordHash: "x",
+        name: "U2",
+        role: "member",
+      })
+      .returning();
+    const [p] = await db
+      .insert(projects)
+      .values({
+        name: "less-mig-proj-2",
+        path: "/tmp/less-mig-2",
+      })
+      .returning();
+    const [eA] = await db
+      .insert(extensions)
+      .values({
+        name: "lessons-mig-ext-A",
+        version: "0.0.1",
+        description: "",
+        manifest: {
+          schemaVersion: 2,
+          name: "lessons-mig-ext-A",
+          version: "0.0.1",
+          description: "",
+          author: { name: "t" },
+          permissions: {},
+        } as never,
+        source: "test",
+        enabled: true,
+        grantedPermissions: {} as never,
+      })
+      .returning({ id: extensions.id });
+    const [eB] = await db
+      .insert(extensions)
+      .values({
+        name: "lessons-mig-ext-B",
+        version: "0.0.1",
+        description: "",
+        manifest: {
+          schemaVersion: 2,
+          name: "lessons-mig-ext-B",
+          version: "0.0.1",
+          description: "",
+          author: { name: "t" },
+          permissions: {},
+        } as never,
+        source: "test",
+        enabled: true,
+        grantedPermissions: {} as never,
+      })
+      .returning({ id: extensions.id });
 
     // Both extensions write a lesson with the SAME slug for the SAME user.
     await db.insert(lessons).values({
-      projectId: p!.id, ownerId: u!.id, visibility: "user",
-      slug: "code-review-best-practices", title: "T-A", body: "B-A",
-      source: "extension" as never, authorExtensionId: eA!.id,
+      projectId: p!.id,
+      ownerId: u!.id,
+      visibility: "user",
+      slug: "code-review-best-practices",
+      title: "T-A",
+      body: "B-A",
+      source: "extension" as never,
+      authorExtensionId: eA!.id,
     });
     await db.insert(lessons).values({
-      projectId: p!.id, ownerId: u!.id, visibility: "user",
-      slug: "code-review-best-practices", title: "T-B", body: "B-B",
-      source: "extension" as never, authorExtensionId: eB!.id,
+      projectId: p!.id,
+      ownerId: u!.id,
+      visibility: "user",
+      slug: "code-review-best-practices",
+      title: "T-B",
+      body: "B-B",
+      source: "extension" as never,
+      authorExtensionId: eB!.id,
     });
 
-    const rows = await db.select().from(lessons).where(and(
-      eq(lessons.slug, "code-review-best-practices"),
-      eq(lessons.projectId, p!.id),
-      eq(lessons.ownerId, u!.id),
-    ));
+    const rows = await db
+      .select()
+      .from(lessons)
+      .where(
+        and(
+          eq(lessons.slug, "code-review-best-practices"),
+          eq(lessons.projectId, p!.id),
+          eq(lessons.ownerId, u!.id),
+        ),
+      );
     expect(rows.length).toBe(2);
     const authors = rows.map((r) => r.authorExtensionId).sort();
     expect(authors).toEqual([eA!.id, eB!.id].sort());
@@ -106,36 +165,74 @@ describe("lessons.author_extension_id migration", () => {
 
   test("user-authored lesson coexists with extension-authored lessons sharing the same slug", async () => {
     const db = getTestDb();
-    const [u] = await db.insert(users).values({
-      email: "less-mig-3@example.com", passwordHash: "x", name: "U3", role: "member",
-    }).returning();
-    const [p] = await db.insert(projects).values({
-      name: "less-mig-proj-3", path: "/tmp/less-mig-3",
-    }).returning();
-    const [eC] = await db.insert(extensions).values({
-      name: "lessons-mig-ext-C", version: "0.0.1", description: "",
-      manifest: { schemaVersion: 2, name: "lessons-mig-ext-C", version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as never,
-      source: "test", enabled: true, grantedPermissions: {} as never,
-    }).returning({ id: extensions.id });
+    const [u] = await db
+      .insert(users)
+      .values({
+        email: "less-mig-3@example.com",
+        passwordHash: "x",
+        name: "U3",
+        role: "member",
+      })
+      .returning();
+    const [p] = await db
+      .insert(projects)
+      .values({
+        name: "less-mig-proj-3",
+        path: "/tmp/less-mig-3",
+      })
+      .returning();
+    const [eC] = await db
+      .insert(extensions)
+      .values({
+        name: "lessons-mig-ext-C",
+        version: "0.0.1",
+        description: "",
+        manifest: {
+          schemaVersion: 2,
+          name: "lessons-mig-ext-C",
+          version: "0.0.1",
+          description: "",
+          author: { name: "t" },
+          permissions: {},
+        } as never,
+        source: "test",
+        enabled: true,
+        grantedPermissions: {} as never,
+      })
+      .returning({ id: extensions.id });
 
     // 1. User-authored row (NULL author_extension_id).
     await db.insert(lessons).values({
-      projectId: p!.id, ownerId: u!.id, visibility: "user",
-      slug: "shared-slug", title: "T-user", body: "B-user",
+      projectId: p!.id,
+      ownerId: u!.id,
+      visibility: "user",
+      slug: "shared-slug",
+      title: "T-user",
+      body: "B-user",
       source: "user",
     });
     // 2. Extension-authored row with SAME slug.
     await db.insert(lessons).values({
-      projectId: p!.id, ownerId: u!.id, visibility: "user",
-      slug: "shared-slug", title: "T-ext", body: "B-ext",
-      source: "extension" as never, authorExtensionId: eC!.id,
+      projectId: p!.id,
+      ownerId: u!.id,
+      visibility: "user",
+      slug: "shared-slug",
+      title: "T-ext",
+      body: "B-ext",
+      source: "extension" as never,
+      authorExtensionId: eC!.id,
     });
 
-    const rows = await db.select().from(lessons).where(and(
-      eq(lessons.slug, "shared-slug"),
-      eq(lessons.projectId, p!.id),
-      eq(lessons.ownerId, u!.id),
-    ));
+    const rows = await db
+      .select()
+      .from(lessons)
+      .where(
+        and(
+          eq(lessons.slug, "shared-slug"),
+          eq(lessons.projectId, p!.id),
+          eq(lessons.ownerId, u!.id),
+        ),
+      );
     expect(rows.length).toBe(2);
     expect(rows.find((r) => r.authorExtensionId === null)).toBeDefined();
     expect(rows.find((r) => r.authorExtensionId === eC!.id)).toBeDefined();
@@ -143,22 +240,42 @@ describe("lessons.author_extension_id migration", () => {
 
   test("two user-authored rows with the same slug for the same user collide (sanity)", async () => {
     const db = getTestDb();
-    const [u] = await db.insert(users).values({
-      email: "less-mig-4@example.com", passwordHash: "x", name: "U4", role: "member",
-    }).returning();
-    const [p] = await db.insert(projects).values({
-      name: "less-mig-proj-4", path: "/tmp/less-mig-4",
-    }).returning();
+    const [u] = await db
+      .insert(users)
+      .values({
+        email: "less-mig-4@example.com",
+        passwordHash: "x",
+        name: "U4",
+        role: "member",
+      })
+      .returning();
+    const [p] = await db
+      .insert(projects)
+      .values({
+        name: "less-mig-proj-4",
+        path: "/tmp/less-mig-4",
+      })
+      .returning();
 
     await db.insert(lessons).values({
-      projectId: p!.id, ownerId: u!.id, visibility: "user",
-      slug: "must-collide", title: "T1", body: "B1", source: "user",
+      projectId: p!.id,
+      ownerId: u!.id,
+      visibility: "user",
+      slug: "must-collide",
+      title: "T1",
+      body: "B1",
+      source: "user",
     });
     let collided = false;
     try {
       await db.insert(lessons).values({
-        projectId: p!.id, ownerId: u!.id, visibility: "user",
-        slug: "must-collide", title: "T2", body: "B2", source: "user",
+        projectId: p!.id,
+        ownerId: u!.id,
+        visibility: "user",
+        slug: "must-collide",
+        title: "T2",
+        body: "B2",
+        source: "user",
       });
     } catch (err) {
       // Drizzle wraps DB errors in a DrizzleQueryError with `cause`

@@ -149,7 +149,10 @@ describe("_setDispatcherRegister + createToolDispatcher", () => {
     createToolDispatcher({}, { onError });
     const opts = recorded[0]?.opts;
     if (!opts?.onError) throw new Error("expected onError to be recorded");
-    const result = opts.onError(new Error("boom"), "demo") as { code?: string; content: { text: string }[] };
+    const result = opts.onError(new Error("boom"), "demo") as {
+      code?: string;
+      content: { text: string }[];
+    };
     expect(result.code).toBe("WRAPPED");
     expect(result.content[0]?.text).toBe("demo: boom");
   });

@@ -8,10 +8,7 @@
  * friends.
  */
 import { test, expect, describe } from "bun:test";
-import {
-  resolveBundledExtensions,
-  isBundledExtensionName,
-} from "../extensions/bundled";
+import { resolveBundledExtensions, isBundledExtensionName } from "../extensions/bundled";
 
 describe("resolveBundledExtensions", () => {
   test("returns the full list when no opt-out flags are set", () => {

@@ -71,7 +71,11 @@ export function deriveHandlerContext(
   rpcMeta: Record<string, unknown> | undefined,
   registeredTool: RegisteredToolStub,
 ): HandlerContext {
-  if (!registeredTool || typeof registeredTool.extensionId !== "string" || !registeredTool.extensionId) {
+  if (
+    !registeredTool ||
+    typeof registeredTool.extensionId !== "string" ||
+    !registeredTool.extensionId
+  ) {
     throw new Error("handler-context: missing registeredTool.extensionId");
   }
 
@@ -80,17 +84,19 @@ export function deriveHandlerContext(
     throw new Error("handler-context: missing onBehalfOf");
   }
 
-  const conversationId = rpcMeta && typeof rpcMeta.ezConversationId === "string"
-    ? rpcMeta.ezConversationId
-    : null;
+  const conversationId =
+    rpcMeta && typeof rpcMeta.ezConversationId === "string" ? rpcMeta.ezConversationId : null;
 
-  const invocationMetadata = (rpcMeta?.invocationMetadata as InvocationMetadata | undefined) ?? undefined;
-  const runId = invocationMetadata && typeof invocationMetadata.runId === "string"
-    ? invocationMetadata.runId
-    : null;
-  const parentCallId = invocationMetadata && typeof invocationMetadata.parentCallId === "string"
-    ? invocationMetadata.parentCallId
-    : null;
+  const invocationMetadata =
+    (rpcMeta?.invocationMetadata as InvocationMetadata | undefined) ?? undefined;
+  const runId =
+    invocationMetadata && typeof invocationMetadata.runId === "string"
+      ? invocationMetadata.runId
+      : null;
+  const parentCallId =
+    invocationMetadata && typeof invocationMetadata.parentCallId === "string"
+      ? invocationMetadata.parentCallId
+      : null;
 
   return {
     // Sourced from the host's registered-tool record — not RPC meta.

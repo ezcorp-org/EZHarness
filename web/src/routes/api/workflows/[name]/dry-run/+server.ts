@@ -50,7 +50,9 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // A draft replaces the saved graph but NOT the authorization: the
   // caller still had to be allowed to run the workflow they are editing.
   const definition = (
-    draft ? { ...draft, name: draft.name ?? params.name, description: draft.description ?? "" } : resolved.entry.definition
+    draft
+      ? { ...draft, name: draft.name ?? params.name, description: draft.description ?? "" }
+      : resolved.entry.definition
   ) as WorkflowDefinition;
 
   // The same shared validator the create/update routes use — a draft that

@@ -33,139 +33,175 @@ const proj = makeProject({ id: "proj-sda", name: "Sub Agent Diff" });
 const conv = makeConversation({ id: "conv-sda", projectId: "proj-sda", title: "Team Chat" });
 
 function makeSubToolCall(overrides: {
-	id: string;
-	filePath: string;
-	oldString?: string;
-	newString?: string;
+  id: string;
+  filePath: string;
+  oldString?: string;
+  newString?: string;
 }) {
-	return {
-		id: overrides.id,
-		extensionId: "builtin",
-		toolName: "edit_file",
-		input: {
-			file_path: overrides.filePath,
-			old_string: overrides.oldString ?? "old",
-			new_string: overrides.newString ?? "new",
-		},
-		outputSummary: "ok",
-		success: true,
-		durationMs: 12,
-		status: "success" as const,
-	};
+  return {
+    id: overrides.id,
+    extensionId: "builtin",
+    toolName: "edit_file",
+    input: {
+      file_path: overrides.filePath,
+      old_string: overrides.oldString ?? "old",
+      new_string: overrides.newString ?? "new",
+    },
+    outputSummary: "ok",
+    success: true,
+    durationMs: 12,
+    status: "success" as const,
+  };
 }
 
 test.describe("Diff Summary Panel — sub-agent edits", () => {
-	test("sub-agent edit to a file renders as a file card in the parent's review panel", async ({ page, mockApi }) => {
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			subConversations: [
-				{
-					id: "sub-coder",
-					agentName: "Coder",
-					agentConfigId: "agent-coder",
-					parentMessageId: "",
-					parentConversationId: conv.id,
-				},
-			],
-			subConversationToolCalls: {
-				"sub-coder": [
-					makeSubToolCall({
-						id: "sub-edit-1",
-						filePath: "src/feature-from-sub.ts",
-						oldString: "return false",
-						newString: "return true",
-					}),
-				],
-			},
-		});
+  test("sub-agent edit to a file renders as a file card in the parent's review panel", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [],
+      subConversations: [
+        {
+          id: "sub-coder",
+          agentName: "Coder",
+          agentConfigId: "agent-coder",
+          parentMessageId: "",
+          parentConversationId: conv.id,
+        },
+      ],
+      subConversationToolCalls: {
+        "sub-coder": [
+          makeSubToolCall({
+            id: "sub-edit-1",
+            filePath: "src/feature-from-sub.ts",
+            oldString: "return false",
+            newString: "return true",
+          }),
+        ],
+      },
+    });
 
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-		const btn = page.locator('[data-testid="diff-panel-btn"]');
-		await expect(btn).toBeVisible({ timeout: 5000 });
-		await btn.click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
+    const btn = page.locator('[data-testid="diff-panel-btn"]');
+    await expect(btn).toBeVisible({ timeout: 5000 });
+    await btn.click();
+    await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
 
-		// The sub-agent's edited file should show up as a review file card.
-		const fileSections = page.locator('[data-testid="diff-file-card"]');
-		await expect(fileSections).toHaveCount(1);
-		await expect(fileSections.first()).toContainText("src/feature-from-sub.ts");
-	});
+    // The sub-agent's edited file should show up as a review file card.
+    const fileSections = page.locator('[data-testid="diff-file-card"]');
+    await expect(fileSections).toHaveCount(1);
+    await expect(fileSections.first()).toContainText("src/feature-from-sub.ts");
+  });
 
-	test("edits from multiple sub-agents on different files produce multiple file cards", async ({ page, mockApi }) => {
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			subConversations: [
-				{ id: "sub-a", agentName: "A", agentConfigId: "a", parentMessageId: "", parentConversationId: conv.id },
-				{ id: "sub-b", agentName: "B", agentConfigId: "b", parentMessageId: "", parentConversationId: conv.id },
-			],
-			subConversationToolCalls: {
-				"sub-a": [makeSubToolCall({ id: "a-1", filePath: "src/a.ts" })],
-				"sub-b": [makeSubToolCall({ id: "b-1", filePath: "src/b.ts" })],
-			},
-		});
+  test("edits from multiple sub-agents on different files produce multiple file cards", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [],
+      subConversations: [
+        {
+          id: "sub-a",
+          agentName: "A",
+          agentConfigId: "a",
+          parentMessageId: "",
+          parentConversationId: conv.id,
+        },
+        {
+          id: "sub-b",
+          agentName: "B",
+          agentConfigId: "b",
+          parentMessageId: "",
+          parentConversationId: conv.id,
+        },
+      ],
+      subConversationToolCalls: {
+        "sub-a": [makeSubToolCall({ id: "a-1", filePath: "src/a.ts" })],
+        "sub-b": [makeSubToolCall({ id: "b-1", filePath: "src/b.ts" })],
+      },
+    });
 
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+    await page.locator('[data-testid="diff-panel-btn"]').click();
+    await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
 
-		const fileSections = page.locator('[data-testid="diff-file-card"]');
-		await expect(fileSections).toHaveCount(2);
-		const paths = await fileSections.allTextContents();
-		expect(paths.some((p) => p.includes("src/a.ts"))).toBe(true);
-		expect(paths.some((p) => p.includes("src/b.ts"))).toBe(true);
-	});
+    const fileSections = page.locator('[data-testid="diff-file-card"]');
+    await expect(fileSections).toHaveCount(2);
+    const paths = await fileSections.allTextContents();
+    expect(paths.some((p) => p.includes("src/a.ts"))).toBe(true);
+    expect(paths.some((p) => p.includes("src/b.ts"))).toBe(true);
+  });
 
-	test("sub-agent edit content renders inside the expanded file card", async ({ page, mockApi }) => {
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			subConversations: [
-				{ id: "sub-coder", agentName: "Coder", agentConfigId: "agent-coder", parentMessageId: "", parentConversationId: conv.id },
-			],
-			subConversationToolCalls: {
-				"sub-coder": [
-					makeSubToolCall({
-						id: "diff-with-content",
-						filePath: "src/show-me.ts",
-						oldString: "const x = 1",
-						newString: "const x = 2",
-					}),
-				],
-			},
-		});
+  test("sub-agent edit content renders inside the expanded file card", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [],
+      subConversations: [
+        {
+          id: "sub-coder",
+          agentName: "Coder",
+          agentConfigId: "agent-coder",
+          parentMessageId: "",
+          parentConversationId: conv.id,
+        },
+      ],
+      subConversationToolCalls: {
+        "sub-coder": [
+          makeSubToolCall({
+            id: "diff-with-content",
+            filePath: "src/show-me.ts",
+            oldString: "const x = 1",
+            newString: "const x = 2",
+          }),
+        ],
+      },
+    });
 
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-		await page.locator('[data-testid="diff-panel-btn"]').click();
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+    await page.locator('[data-testid="diff-panel-btn"]').click();
 
-		const section = page.locator('[data-testid="diff-file-card"]').first();
-		await expect(section).toBeVisible();
-		// Files open expanded (GitHub behaviour) so the diff body is in the DOM.
-		await expect(section).toHaveAttribute("data-expanded", "true");
-	});
+    const section = page.locator('[data-testid="diff-file-card"]').first();
+    await expect(section).toBeVisible();
+    // Files open expanded (GitHub behaviour) so the diff body is in the DOM.
+    await expect(section).toHaveAttribute("data-expanded", "true");
+  });
 
-	test("empty state when there are NO parent edits AND no sub-agent edits", async ({ page, mockApi }) => {
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [],
-			subConversations: [
-				{ id: "sub-idle", agentName: "Idle", agentConfigId: "idle", parentMessageId: "", parentConversationId: conv.id },
-			],
-			subConversationToolCalls: {
-				"sub-idle": [], // sub exists but made no edits
-			},
-		});
+  test("empty state when there are NO parent edits AND no sub-agent edits", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [],
+      subConversations: [
+        {
+          id: "sub-idle",
+          agentName: "Idle",
+          agentConfigId: "idle",
+          parentMessageId: "",
+          parentConversationId: conv.id,
+        },
+      ],
+      subConversationToolCalls: {
+        "sub-idle": [], // sub exists but made no edits
+      },
+    });
 
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
-		await page.locator('[data-testid="diff-panel-btn"]').click();
-		await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
-		await expect(page.locator('[data-testid="diff-panel-empty"]')).toBeVisible();
-		await expect(page.locator('[data-testid="diff-panel-empty"]')).toContainText("No file changes");
-	});
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
+    await page.locator('[data-testid="diff-panel-btn"]').click();
+    await expect(page.locator('[data-testid="diff-summary-panel"]')).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-testid="diff-panel-empty"]')).toBeVisible();
+    await expect(page.locator('[data-testid="diff-panel-empty"]')).toContainText("No file changes");
+  });
 });

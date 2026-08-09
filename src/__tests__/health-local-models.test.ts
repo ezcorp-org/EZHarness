@@ -5,10 +5,13 @@ import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 let mockDbUp = true;
 let mockEmbeddingReady = false;
 let mockSettings: Record<string, unknown> = {};
-let mockReachabilityResults: Record<string, { reachable: boolean; endpointType: string | null; error?: string }> = {};
+let mockReachabilityResults: Record<
+  string,
+  { reachable: boolean; endpointType: string | null; error?: string }
+> = {};
 
 mock.module("../db/connection", () => ({
-  getPglite: () => mockDbUp ? { query: async () => ({}) } : null,
+  getPglite: () => (mockDbUp ? { query: async () => ({}) } : null),
 }));
 
 mock.module("../memory/embeddings", () => ({
@@ -17,7 +20,13 @@ mock.module("../memory/embeddings", () => ({
 
 mock.module("../providers/local-model-check", () => ({
   checkEndpointReachability: async (baseUrl: string) => {
-    return mockReachabilityResults[baseUrl] ?? { reachable: false, endpointType: null, error: "Not mocked" };
+    return (
+      mockReachabilityResults[baseUrl] ?? {
+        reachable: false,
+        endpointType: null,
+        error: "Not mocked",
+      }
+    );
   },
 }));
 
@@ -41,7 +50,12 @@ describe("buildHealthResponse - localModels", () => {
   test("detail response includes localModels when custom models with baseUrl exist", async () => {
     mockSettings = {
       "provider:customModels": [
-        { modelId: "llama3", provider: "ollama", tier: "balanced", baseUrl: "http://localhost:11434" },
+        {
+          modelId: "llama3",
+          provider: "ollama",
+          tier: "balanced",
+          baseUrl: "http://localhost:11434",
+        },
       ],
     };
     mockReachabilityResults = {
@@ -56,11 +70,20 @@ describe("buildHealthResponse - localModels", () => {
   test("localModels shows unreachable status for unreachable endpoints", async () => {
     mockSettings = {
       "provider:customModels": [
-        { modelId: "llama3", provider: "ollama", tier: "balanced", baseUrl: "http://localhost:99999" },
+        {
+          modelId: "llama3",
+          provider: "ollama",
+          tier: "balanced",
+          baseUrl: "http://localhost:99999",
+        },
       ],
     };
     mockReachabilityResults = {
-      "http://localhost:99999": { reachable: false, endpointType: null, error: "Connection refused" },
+      "http://localhost:99999": {
+        reachable: false,
+        endpointType: null,
+        error: "Connection refused",
+      },
     };
 
     const result = await buildHealthResponse(true);
@@ -70,9 +93,7 @@ describe("buildHealthResponse - localModels", () => {
 
   test("localModels not included when no custom models with baseUrl", async () => {
     mockSettings = {
-      "provider:customModels": [
-        { modelId: "gpt-4-turbo", provider: "openai", tier: "powerful" },
-      ],
+      "provider:customModels": [{ modelId: "gpt-4-turbo", provider: "openai", tier: "powerful" }],
     };
 
     const result = await buildHealthResponse(true);
@@ -89,7 +110,12 @@ describe("buildHealthResponse - localModels", () => {
   test("non-detail response does not include localModels", async () => {
     mockSettings = {
       "provider:customModels": [
-        { modelId: "llama3", provider: "ollama", tier: "balanced", baseUrl: "http://localhost:11434" },
+        {
+          modelId: "llama3",
+          provider: "ollama",
+          tier: "balanced",
+          baseUrl: "http://localhost:11434",
+        },
       ],
     };
 
@@ -101,8 +127,18 @@ describe("buildHealthResponse - localModels", () => {
   test("multiple local models checked in parallel", async () => {
     mockSettings = {
       "provider:customModels": [
-        { modelId: "llama3", provider: "ollama", tier: "balanced", baseUrl: "http://localhost:11434" },
-        { modelId: "codellama", provider: "ollama", tier: "fast", baseUrl: "http://localhost:11435" },
+        {
+          modelId: "llama3",
+          provider: "ollama",
+          tier: "balanced",
+          baseUrl: "http://localhost:11434",
+        },
+        {
+          modelId: "codellama",
+          provider: "ollama",
+          tier: "fast",
+          baseUrl: "http://localhost:11435",
+        },
       ],
     };
     mockReachabilityResults = {

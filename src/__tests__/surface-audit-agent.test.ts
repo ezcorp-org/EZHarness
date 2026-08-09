@@ -5,16 +5,30 @@ import type { AgentContext } from "../types";
 function makeCtx(input: Record<string, unknown>): AgentContext {
   return {
     input,
-    llm: { async complete() { return { text: "{}" }; } },
-    shell: { async run() { return { stdout: "", stderr: "", exitCode: 0 }; } },
+    llm: {
+      async complete() {
+        return { text: "{}" };
+      },
+    },
+    shell: {
+      async run() {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    },
     file: {
-      async read() { return ""; },
+      async read() {
+        return "";
+      },
       async write() {},
-      async exists() { return false; },
+      async exists() {
+        return false;
+      },
     },
     log() {},
     signal: new AbortController().signal,
-    async run() { return { success: true, output: null }; },
+    async run() {
+      return { success: true, output: null };
+    },
   };
 }
 

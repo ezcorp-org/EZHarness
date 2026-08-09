@@ -132,10 +132,11 @@ describe("migrate() — fresh DB + idempotent re-run", () => {
     // active proposals (one per column) — which the new unique index must not
     // choke on at boot — plus a terminal row and a second, single-active card
     // that must both survive untouched.
-    await pglite.query(
-      "INSERT INTO projects (id, name, path) VALUES ($1, $2, $3)",
-      ["proj-legacy", "Legacy", "/tmp/legacy"],
-    );
+    await pglite.query("INSERT INTO projects (id, name, path) VALUES ($1, $2, $3)", [
+      "proj-legacy",
+      "Legacy",
+      "/tmp/legacy",
+    ]);
     await pglite.query(
       "INSERT INTO github_projects_links (id, project_id, board_node_id, board_url) VALUES ($1, $2, $3, $4)",
       ["link-legacy", "proj-legacy", "PVT_legacy", "https://github.com/orgs/x/projects/1"],
@@ -144,19 +145,43 @@ describe("migrate() — fresh DB + idempotent re-run", () => {
       "INSERT INTO github_projects_proposals (id, project_id, link_id, item_node_id, status_option_id, action, dedupe_key, status, proposed_at, finished_at) VALUES ($1, 'proj-legacy', 'link-legacy', $2, $3, 'plan', $4, $5, $6, $7)";
     // item-dup: an older RUNNING proposal in column X…
     await pglite.query(insertProposal, [
-      "prop-old", "item-dup", "opt-x", "proj-legacy:item-dup:opt-x:plan", "running", "2026-01-01T00:00:00Z", null,
+      "prop-old",
+      "item-dup",
+      "opt-x",
+      "proj-legacy:item-dup:opt-x:plan",
+      "running",
+      "2026-01-01T00:00:00Z",
+      null,
     ]);
     // …and a newer PENDING one in column Y (distinct dedupe key → old index OK).
     await pglite.query(insertProposal, [
-      "prop-new", "item-dup", "opt-y", "proj-legacy:item-dup:opt-y:plan", "pending", "2026-02-01T00:00:00Z", null,
+      "prop-new",
+      "item-dup",
+      "opt-y",
+      "proj-legacy:item-dup:opt-y:plan",
+      "pending",
+      "2026-02-01T00:00:00Z",
+      null,
     ]);
     // A terminal row for the same card — never part of the active conflict.
     await pglite.query(insertProposal, [
-      "prop-done", "item-dup", "opt-x", "proj-legacy:item-dup:opt-x:execute", "done", "2025-12-01T00:00:00Z", "2025-12-02T00:00:00Z",
+      "prop-done",
+      "item-dup",
+      "opt-x",
+      "proj-legacy:item-dup:opt-x:execute",
+      "done",
+      "2025-12-01T00:00:00Z",
+      "2025-12-02T00:00:00Z",
     ]);
     // A different card with a single active proposal — must be left alone.
     await pglite.query(insertProposal, [
-      "prop-solo", "item-solo", "opt-x", "proj-legacy:item-solo:opt-x:plan", "approved", "2026-01-15T00:00:00Z", null,
+      "prop-solo",
+      "item-solo",
+      "opt-x",
+      "proj-legacy:item-solo:opt-x:plan",
+      "approved",
+      "2026-01-15T00:00:00Z",
+      null,
     ]);
 
     await migrate(db);
@@ -181,15 +206,33 @@ describe("migrate() — fresh DB + idempotent re-run", () => {
     // guarded card is rejected at the DB…
     await expect(
       pglite.query(insertProposal, [
-        "prop-dup2", "item-solo", "opt-y", "proj-legacy:item-solo:opt-y:plan", "pending", "2026-03-01T00:00:00Z", null,
+        "prop-dup2",
+        "item-solo",
+        "opt-y",
+        "proj-legacy:item-solo:opt-y:plan",
+        "pending",
+        "2026-03-01T00:00:00Z",
+        null,
       ]),
     ).rejects.toThrow(/idx_gh_proposals_active_item|duplicate key/);
     // …while a terminal card is free again (re-trigger semantics).
     await pglite.query(insertProposal, [
-      "prop-rerun", "item-done-only", "opt-x", "proj-legacy:item-done-only:opt-x:plan", "done", "2026-01-01T00:00:00Z", "2026-01-02T00:00:00Z",
+      "prop-rerun",
+      "item-done-only",
+      "opt-x",
+      "proj-legacy:item-done-only:opt-x:plan",
+      "done",
+      "2026-01-01T00:00:00Z",
+      "2026-01-02T00:00:00Z",
     ]);
     await pglite.query(insertProposal, [
-      "prop-rerun2", "item-done-only", "opt-x", "proj-legacy:item-done-only:opt-x:plan", "pending", "2026-03-02T00:00:00Z", null,
+      "prop-rerun2",
+      "item-done-only",
+      "opt-x",
+      "proj-legacy:item-done-only:opt-x:plan",
+      "pending",
+      "2026-03-02T00:00:00Z",
+      null,
     ]);
     const rerun = await pglite.query<{ n: string }>(
       "SELECT count(*) AS n FROM github_projects_proposals WHERE item_node_id = 'item-done-only'",

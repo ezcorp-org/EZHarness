@@ -23,17 +23,23 @@ function ensurePdfjsGlobals(): void {
   const g = globalThis as unknown as Record<string, unknown>;
   if (typeof g.DOMMatrix === "undefined") {
     g.DOMMatrix = class DOMMatrix {
-      constructor(_init?: unknown) { /* no-op stub */ }
+      constructor(_init?: unknown) {
+        /* no-op stub */
+      }
     };
   }
   if (typeof g.ImageData === "undefined") {
     g.ImageData = class ImageData {
-      constructor(_w?: unknown, _h?: unknown) { /* no-op stub */ }
+      constructor(_w?: unknown, _h?: unknown) {
+        /* no-op stub */
+      }
     };
   }
   if (typeof g.Path2D === "undefined") {
     g.Path2D = class Path2D {
-      constructor(_path?: unknown) { /* no-op stub */ }
+      constructor(_path?: unknown) {
+        /* no-op stub */
+      }
     };
   }
 }

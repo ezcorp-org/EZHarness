@@ -66,9 +66,10 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
   // (treat as undefined) on unknown values so tampered query strings
   // don't surface as 500s — the empty-result page is the safe default.
   const KNOWN_CAPS = new Set(["llm", "memory", "lessons", "schedule", "events"]);
-  const capabilityFilter = capability && KNOWN_CAPS.has(capability)
-    ? (capability as "llm" | "memory" | "lessons" | "schedule" | "events")
-    : undefined;
+  const capabilityFilter =
+    capability && KNOWN_CAPS.has(capability)
+      ? (capability as "llm" | "memory" | "lessons" | "schedule" | "events")
+      : undefined;
   const statusFilter = status === "denial" ? "denial" : undefined;
   const sinceDate = since ? new Date(since) : undefined;
   const untilDate = until ? new Date(until) : undefined;

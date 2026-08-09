@@ -76,12 +76,17 @@ export class NetnsPortSource implements PreviewPortSource {
   constructor(
     /** Injected for tests: override the capability probe. Defaults to the
      *  real `previewCapabilities()`. */
-    private readonly capabilities: () => { dynamic: boolean; reason: string | null } = previewCapabilities,
+    private readonly capabilities: () => {
+      dynamic: boolean;
+      reason: string | null;
+    } = previewCapabilities,
     /** Injected for tests: override the live netns read. Defaults to the
      *  PHASE3_STUB (always empty). Production wires the real reader in
      *  Phase 3 — until then dynamic is fail-closed-disabled anyway, so the
      *  stub is never reached on a capability-available host that lacks it. */
-    private readonly readNetnsListeners: (conversationId: string) => PreviewListener[] = NetnsPortSource.phase3StubReader,
+    private readonly readNetnsListeners: (
+      conversationId: string,
+    ) => PreviewListener[] = NetnsPortSource.phase3StubReader,
   ) {}
 
   listListeners(conversationId: string): PreviewListener[] {
@@ -129,7 +134,10 @@ export class StaticPortSource implements PreviewPortSource {
   private readonly map = new Map<string, PreviewListener[]>();
 
   set(conversationId: string, ports: number[]): void {
-    this.map.set(conversationId, ports.map((port) => ({ port })));
+    this.map.set(
+      conversationId,
+      ports.map((port) => ({ port })),
+    );
   }
 
   clear(conversationId?: string): void {
@@ -244,7 +252,9 @@ export class ProcPortSource implements PreviewPortSource {
     private readonly readProc: () => string = defaultProcReader,
     /** Injected for tests: resolve an owning uid to its conversation.
      *  Defaults to the live uid pool. */
-    private readonly uidToConversation: (uid: number) => string | undefined = conversationForPreviewUid,
+    private readonly uidToConversation: (
+      uid: number,
+    ) => string | undefined = conversationForPreviewUid,
   ) {}
 
   listListeners(conversationId: string): PreviewListener[] {
@@ -253,7 +263,9 @@ export class ProcPortSource implements PreviewPortSource {
     try {
       content = this.readProc();
     } catch (err) {
-      log.warn("ProcPortSource: /proc read failed", { error: String((err as Error)?.message ?? err) });
+      log.warn("ProcPortSource: /proc read failed", {
+        error: String((err as Error)?.message ?? err),
+      });
       return [];
     }
     const sockets = parseProcNetTcp(content);

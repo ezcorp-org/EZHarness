@@ -12,10 +12,7 @@ import {
   PREVIEW_COOKIE_NAME,
   PREVIEW_TOKEN_TTL_SECONDS,
 } from "$server/runtime/preview/preview-token";
-import {
-  getServablePreview,
-  touchPreview,
-} from "$server/db/queries/preview-sessions";
+import { getServablePreview, touchPreview } from "$server/db/queries/preview-sessions";
 import { tryBridgePreviewWebSocket } from "./ws-bridge";
 import { getPreviewQuota } from "$server/runtime/preview/preview-rate-limit";
 
@@ -75,7 +72,10 @@ export function matchPreviewOrigin(request: Request): ParsedPreviewHost | null {
 export async function servePreviewRequest(
   request: Request,
   parsed: ParsedPreviewHost,
-  platform?: { server?: { upgrade(req: unknown, opts?: { data?: unknown }): boolean }; request?: unknown },
+  platform?: {
+    server?: { upgrade(req: unknown, opts?: { data?: unknown }): boolean };
+    request?: unknown;
+  },
 ): Promise<Response> {
   const url = new URL(request.url);
   const previewId = parsed.previewId;

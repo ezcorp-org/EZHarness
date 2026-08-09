@@ -71,9 +71,7 @@ const NO_MODEL_MESSAGE =
  * ids can themselves contain slashes, e.g. `openrouter/meta-llama/…`).
  * Returns null for a non-string, empty, or slash-less / empty-part value.
  */
-export function parseModelSetting(
-  value: unknown,
-): { provider: string; modelId: string } | null {
+export function parseModelSetting(value: unknown): { provider: string; modelId: string } | null {
   if (typeof value !== "string") return null;
   const slash = value.indexOf("/");
   if (slash <= 0) return null;
@@ -107,7 +105,12 @@ const DEFAULT_DEPS: ResolveContextsDeps = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 // biome-ignore lint/suspicious/noExplicitAny: mirrors the `piModel` field on ContextsTarget above — same pi-ai HKT concession, restated because this is the constructor for that field.
 function piTarget(resolved: { provider: string; model: string; piModel: any }): ContextsTarget {
-  return { kind: "pi", provider: resolved.provider, modelId: resolved.model, piModel: resolved.piModel };
+  return {
+    kind: "pi",
+    provider: resolved.provider,
+    modelId: resolved.model,
+    piModel: resolved.piModel,
+  };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

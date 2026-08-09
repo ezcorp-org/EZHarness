@@ -36,14 +36,8 @@ import { SCAFFOLD_DRAFT_FILES } from "../db/queries/ez-drafts";
 import { scaffoldExtension } from "@ezcorp/sdk/scaffold";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
-const EXT_INDEX = join(
-  REPO_ROOT,
-  "docs/extensions/examples/extension-author/index.ts",
-);
-const WEB_ALLOWLIST = join(
-  REPO_ROOT,
-  "web/src/lib/server/author-draft-files.ts",
-);
+const EXT_INDEX = join(REPO_ROOT, "docs/extensions/examples/extension-author/index.ts");
+const WEB_ALLOWLIST = join(REPO_ROOT, "web/src/lib/server/author-draft-files.ts");
 
 /**
  * Read a `const <NAME> … = new Set([ "a", "b" ]);` declaration's literal

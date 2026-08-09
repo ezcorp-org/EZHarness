@@ -23,7 +23,9 @@ function runPayload(id: string): AgentEvents["run:complete"] {
 
 describe("SpawnQuota — basic reservation + release", () => {
   let bus: EventBus<AgentEvents>;
-  beforeEach(() => { bus = new EventBus<AgentEvents>(); });
+  beforeEach(() => {
+    bus = new EventBus<AgentEvents>();
+  });
 
   test("check+reserve lets up to maxConcurrent through; the next rejects", () => {
     const q = createSpawnQuota(bus);
@@ -174,7 +176,7 @@ describe("SpawnQuota — swapReservation", () => {
     const bus = new EventBus<AgentEvents>();
     const q = createSpawnQuota(bus);
     q.reserve("ext-a", "tok");
-    q.swapReservation("ext-b", "tok", "new");    // wrong ext
+    q.swapReservation("ext-b", "tok", "new"); // wrong ext
     // Swap ignored — old token still under ext-a.
     expect(q._concurrentCount("ext-a")).toBe(1);
     expect(q._concurrentCount("ext-b")).toBe(0);

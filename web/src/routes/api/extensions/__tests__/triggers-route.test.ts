@@ -21,10 +21,7 @@ import {
 
 mockServerAlias();
 
-mock.module(
-  "../../../../../../web/src/routes/api/extensions/[id]/triggers/$types",
-  () => ({}),
-);
+mock.module("../../../../../../web/src/routes/api/extensions/[id]/triggers/$types", () => ({}));
 
 import * as httpErrorsActual from "../../../../lib/server/http-errors";
 mock.module("$lib/server/http-errors", () => httpErrorsActual);
@@ -161,18 +158,20 @@ describe("shape", () => {
   test("serializes a cron row with its dates as ISO strings", async () => {
     crons = [cronRow()];
     const body = await (await call(ADMIN_USER)).json();
-    expect(body.triggers).toEqual([{
-      kind: "cron",
-      key: "job:1",
-      cron: "0 9 * * 1",
-      timezone: "America/New_York",
-      enabled: true,
-      maxRunsPerDay: 20,
-      nextFireAt: "2026-08-03T13:00:00.000Z",
-      lastFireAt: "2026-07-27T13:00:00.000Z",
-      lastFireStatus: "ok",
-      consecutiveErrors: 0,
-    }]);
+    expect(body.triggers).toEqual([
+      {
+        kind: "cron",
+        key: "job:1",
+        cron: "0 9 * * 1",
+        timezone: "America/New_York",
+        enabled: true,
+        maxRunsPerDay: 20,
+        nextFireAt: "2026-08-03T13:00:00.000Z",
+        lastFireAt: "2026-07-27T13:00:00.000Z",
+        lastFireStatus: "ok",
+        consecutiveErrors: 0,
+      },
+    ]);
   });
 
   test("a never-fired cron reports nulls, not undefined", async () => {
@@ -185,15 +184,17 @@ describe("shape", () => {
   test("serializes a webhook row with its resolved public URL", async () => {
     hooks = [hookRow()];
     const body = await (await call(ADMIN_USER)).json();
-    expect(body.triggers).toEqual([{
-      kind: "webhook",
-      key: "hook:1",
-      slug: "factory-abc123abc123",
-      url: "/api/hooks/ez-factory/factory-abc123abc123",
-      enabled: true,
-      lastDeliveryAt: "2026-07-28T10:00:00.000Z",
-      lastDeliveryStatus: "ok",
-    }]);
+    expect(body.triggers).toEqual([
+      {
+        kind: "webhook",
+        key: "hook:1",
+        slug: "factory-abc123abc123",
+        url: "/api/hooks/ez-factory/factory-abc123abc123",
+        enabled: true,
+        lastDeliveryAt: "2026-07-28T10:00:00.000Z",
+        lastDeliveryStatus: "ok",
+      },
+    ]);
   });
 
   test("a never-delivered hook reports nulls", async () => {

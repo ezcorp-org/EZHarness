@@ -69,7 +69,8 @@ describe("buildTeamOrchestratorPrompt", () => {
   const { buildTeamOrchestratorPrompt } = require("../runtime/orchestrator-prompt");
 
   const teamName = "QA Squad";
-  const teamPrompt = "Coordinate testing across all members. Run unit tests first, then integration.";
+  const teamPrompt =
+    "Coordinate testing across all members. Run unit tests first, then integration.";
   const members = [
     { name: "unit-tester", id: "mem-1", description: "Runs unit tests" },
     { name: "integration-tester", id: "mem-2", description: "Runs integration tests" },

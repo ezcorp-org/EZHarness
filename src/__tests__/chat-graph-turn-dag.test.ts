@@ -85,10 +85,7 @@ function build(input: Partial<TurnDagInput> & Pick<TurnDagInput, "messages" | "t
 }
 
 /** A prompt + one assistant reply, the baseline every case extends. */
-const SIMPLE_TURN: TurnDagMessage[] = [
-  msg("u1", "user", 0, null),
-  msg("a1", "assistant", 5, "u1"),
-];
+const SIMPLE_TURN: TurnDagMessage[] = [msg("u1", "user", 0, null), msg("a1", "assistant", 5, "u1")];
 
 describe("buildTurnDag — turn selection", () => {
   test("an unknown turn id yields null (the route's 404)", () => {
@@ -147,7 +144,10 @@ describe("buildTurnDag — turn selection", () => {
 
 describe("buildTurnDag — reconstruction order", () => {
   test("thinking → tool calls by createdAt → assistant text", () => {
-    const messages = [msg("u1", "user", 0, null), msg("a1", "assistant", 9, "u1", { thinkingContent: "let me check" })];
+    const messages = [
+      msg("u1", "user", 0, null),
+      msg("a1", "assistant", 9, "u1", { thinkingContent: "let me check" }),
+    ];
     const toolCalls = [call("tc-2", "a1", "write", 4), call("tc-1", "a1", "read", 2)];
     const graph = build({ messages, turnMessageId: "u1", toolCalls })!;
     expect(graph.nodes.map((n) => n.id)).toEqual(["u1", "thinking:a1", "tc-1", "tc-2", "a1"]);
@@ -161,7 +161,10 @@ describe("buildTurnDag — reconstruction order", () => {
 
   test("no thinking node when thinkingContent is absent or whitespace", () => {
     const blank = build({
-      messages: [msg("u1", "user", 0, null), msg("a1", "assistant", 1, "u1", { thinkingContent: "   \n " })],
+      messages: [
+        msg("u1", "user", 0, null),
+        msg("a1", "assistant", 1, "u1", { thinkingContent: "   \n " }),
+      ],
       turnMessageId: "u1",
     })!;
     expect(blank.nodes.some((n) => n.kind === "thinking")).toBe(false);
@@ -223,7 +226,9 @@ describe("buildTurnDag — reconstruction order", () => {
   });
 
   test("a tool node carries its extension id and status", () => {
-    const toolCalls = [call("tc-1", "a1", "search", 1, { extensionId: "ext-web", status: "error" })];
+    const toolCalls = [
+      call("tc-1", "a1", "search", 1, { extensionId: "ext-web", status: "error" }),
+    ];
     const graph = build({ messages: SIMPLE_TURN, turnMessageId: "u1", toolCalls })!;
     const tool = graph.nodes.find((n) => n.id === "tc-1")!;
     expect(tool.extensionId).toBe("ext-web");

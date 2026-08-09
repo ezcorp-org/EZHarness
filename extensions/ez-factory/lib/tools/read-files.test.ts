@@ -53,9 +53,7 @@ describe("read_files — the sanitizer boundary", () => {
   test("every returned content is framed in the untrusted-data markers", async () => {
     const out = await read({ [p("a.md")]: "hello" }, { globs: ["**/*.md"] });
     expect(out.files).toHaveLength(1);
-    expect(out.files[0]?.content).toBe(
-      `${UNTRUSTED_BEGIN_MARKER}\nhello\n${UNTRUSTED_END_MARKER}`,
-    );
+    expect(out.files[0]?.content).toBe(`${UNTRUSTED_BEGIN_MARKER}\nhello\n${UNTRUSTED_END_MARKER}`);
   });
 
   test("a secret in a source file never leaves this tool", async () => {
@@ -90,10 +88,7 @@ describe("read_files — the sanitizer boundary", () => {
 
 describe("read_files — glob and root selection", () => {
   test("returns only files matching a glob", async () => {
-    const out = await read(
-      { [p("a.md")]: "m", [p("b.ts")]: "t" },
-      { globs: ["**/*.md"] },
-    );
+    const out = await read({ [p("a.md")]: "m", [p("b.ts")]: "t" }, { globs: ["**/*.md"] });
     expect(out.files.map((f) => f.path)).toEqual(["a.md"]);
   });
 
@@ -182,7 +177,8 @@ describe("read_files — one test per bound", () => {
   test("total budget: the remainder lands in skipped[], the call still succeeds", async () => {
     const files: Record<string, string> = {};
     // Twenty 16KB files = 320KB of content against a 128KB default.
-    for (let i = 0; i < 20; i += 1) files[p(`f${String(i).padStart(2, "0")}.md`)] = "a".repeat(16 * 1024);
+    for (let i = 0; i < 20; i += 1)
+      files[p(`f${String(i).padStart(2, "0")}.md`)] = "a".repeat(16 * 1024);
 
     const out = await read(files, { globs: ["**/*.md"] });
 
@@ -287,10 +283,7 @@ describe("read_files — the world misbehaving is never a throw", () => {
       // would silently narrow every scan that has a `src/data/` — which is
       // ordinary source, not a host-reserved path. This is the assertion
       // that keeps the anchor from being "simplified" away.
-      const out = await read(
-        { [p(`src/${excluded}/b.md`)]: "yes" },
-        { globs: ["**/*.md"] },
-      );
+      const out = await read({ [p(`src/${excluded}/b.md`)]: "yes" }, { globs: ["**/*.md"] });
       expect(out.files.map((f) => f.path)).toEqual([`src/${excluded}/b.md`]);
     },
   );
@@ -506,7 +499,8 @@ describe("read_files — the resume-failure guard", () => {
 
   test("the tool's own text is never over its ceiling", async () => {
     const files: Record<string, string> = {};
-    for (let i = 0; i < MAX_FILES; i += 1) files[p(`f${String(i).padStart(3, "0")}.md`)] = "z".repeat(8192);
+    for (let i = 0; i < MAX_FILES; i += 1)
+      files[p(`f${String(i).padStart(3, "0")}.md`)] = "z".repeat(8192);
 
     const { deps } = makeFakeFs(files);
     const outcome = await createReadFiles(deps)({

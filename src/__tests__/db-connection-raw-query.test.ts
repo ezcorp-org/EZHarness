@@ -19,12 +19,8 @@ describe("rawQuery — PGlite path (real bind params)", () => {
     // avoids the full-schema migrate + vector WASM load.
     pglite = new PGlite();
     await pglite.waitReady;
-    await pglite.exec(
-      "CREATE TABLE rq_probe (id TEXT PRIMARY KEY, name TEXT)",
-    );
-    await pglite.exec(
-      "INSERT INTO rq_probe (id, name) VALUES ('p1', 'plain')",
-    );
+    await pglite.exec("CREATE TABLE rq_probe (id TEXT PRIMARY KEY, name TEXT)");
+    await pglite.exec("INSERT INTO rq_probe (id, name) VALUES ('p1', 'plain')");
     __test.setState(null, pglite);
   }, 30_000);
 

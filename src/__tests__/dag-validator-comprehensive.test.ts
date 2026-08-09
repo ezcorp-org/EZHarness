@@ -76,7 +76,11 @@ describe("detectCycle", () => {
       allRefs.set("editor", []);
       allRefs.set("summarizer", []);
 
-      const result = detectCycle("researcher", ["writer", "reviewer", "editor", "summarizer"], allRefs);
+      const result = detectCycle(
+        "researcher",
+        ["writer", "reviewer", "editor", "summarizer"],
+        allRefs,
+      );
       expect(result).toBeNull();
     });
   });

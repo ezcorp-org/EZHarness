@@ -58,7 +58,12 @@ describe("GET /api/ez/conversation", () => {
     vi.mocked(getOrCreateEzConversation).mockResolvedValue(ezConv as any);
     const res = (await GET(makeEvent({ locals: { user } }))) as Response;
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { conversationId: string; kind: string; modeId: string; title: string };
+    const body = (await res.json()) as {
+      conversationId: string;
+      kind: string;
+      modeId: string;
+      title: string;
+    };
     expect(body.conversationId).toBe("ez-conv-id");
     expect(body.kind).toBe("ez");
     expect(body.modeId).toBe("builtin-ez");

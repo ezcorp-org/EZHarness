@@ -77,8 +77,8 @@ test.describe("workflows — a private row hides its existence from every verb",
     // The accept response sets the new user's session cookie. Forwarding it
     // by hand (rather than reusing Playwright's `request`) keeps the admin's
     // cookie provably absent from every probe below.
-    const cookie = accepted
-      .headers.getSetCookie()
+    const cookie = accepted.headers
+      .getSetCookie()
       .map((c) => c.split(";")[0])
       .join("; ");
     expect(cookie.length).toBeGreaterThan(0);

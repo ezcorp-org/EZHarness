@@ -26,10 +26,7 @@
 import { test, expect, describe } from "bun:test";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import {
-  resolveBundledExtensions,
-  getProjectRoot,
-} from "../extensions/bundled";
+import { resolveBundledExtensions, getProjectRoot } from "../extensions/bundled";
 import { loadManifest } from "../extensions/loader";
 
 const projectRoot = getProjectRoot();

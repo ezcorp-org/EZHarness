@@ -14,31 +14,31 @@ import type { InlineToolCall } from "$lib/inline-tool-store.svelte.js";
 afterEach(() => cleanup());
 
 function makeDockedCall(): InlineToolCall {
-	return {
-		id: "tc-inline-dock-1",
-		extensionName: "claude-design",
-		toolName: "claude-design__open-canvas",
-		input: { draftId: "d-1" },
-		status: "complete",
-		retryCount: 0,
-		conversationId: "conv-1",
-		duration: 100,
-		cardType: "design-canvas",
-		cardLayout: "dock",
-	};
+  return {
+    id: "tc-inline-dock-1",
+    extensionName: "claude-design",
+    toolName: "claude-design__open-canvas",
+    input: { draftId: "d-1" },
+    status: "complete",
+    retryCount: 0,
+    conversationId: "conv-1",
+    duration: 100,
+    cardType: "design-canvas",
+    cardLayout: "dock",
+  };
 }
 
 describe("InlineToolCard — dock routing", () => {
-	test('cardLayout="dock" + status="complete" → renders DockOpenPill, not the full card', () => {
-		const { getByTestId, queryByText } = render(InlineToolCard, {
-			call: makeDockedCall(),
-			onretry: () => {},
-			oneditretry: () => {},
-			oncancel: () => {},
-		});
-		expect(getByTestId("dock-open-pill")).toBeInTheDocument();
-		// The full-card "Running..." / "Failed" text shouldn't appear since
-		// the pill replaces the entire card body.
-		expect(queryByText(/Running\.\.\./)).toBeNull();
-	});
+  test('cardLayout="dock" + status="complete" → renders DockOpenPill, not the full card', () => {
+    const { getByTestId, queryByText } = render(InlineToolCard, {
+      call: makeDockedCall(),
+      onretry: () => {},
+      oneditretry: () => {},
+      oncancel: () => {},
+    });
+    expect(getByTestId("dock-open-pill")).toBeInTheDocument();
+    // The full-card "Running..." / "Failed" text shouldn't appear since
+    // the pill replaces the entire card body.
+    expect(queryByText(/Running\.\.\./)).toBeNull();
+  });
 });

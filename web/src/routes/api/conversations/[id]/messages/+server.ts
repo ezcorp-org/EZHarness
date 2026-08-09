@@ -11,7 +11,10 @@ import { createMessageSchema } from "./schema";
 import { validationError } from "$lib/server/security/validation";
 import { checkTokenBudget } from "$lib/server/security/resource-quotas";
 import { requireScope } from "$lib/server/security/api-keys";
-import { getCapabilitiesWithExtensions, classifyMimeWithCaps } from "$server/providers/model-capabilities";
+import {
+  getCapabilitiesWithExtensions,
+  classifyMimeWithCaps,
+} from "$server/providers/model-capabilities";
 import {
   getConversationExtensionMimes,
   getExtensionMimesByNames,
@@ -100,17 +103,24 @@ interface ParsedBody {
 }
 
 function coerceEnum<T extends string>(raw: unknown, allowed: readonly T[]): T | undefined {
-  return typeof raw === "string" && (allowed as readonly string[]).includes(raw) ? (raw as T) : undefined;
+  return typeof raw === "string" && (allowed as readonly string[]).includes(raw)
+    ? (raw as T)
+    : undefined;
 }
 
-async function parseMultipart(request: Request): Promise<{ ok: true; body: ParsedBody } | { ok: false; error: string }> {
+async function parseMultipart(
+  request: Request,
+): Promise<{ ok: true; body: ParsedBody } | { ok: false; error: string }> {
   const form = await request.formData();
   const content = form.get("content");
   if (typeof content !== "string" || content.length === 0 || content.length > 100_000) {
     return { ok: false, error: "content is required and must be 1-100000 chars" };
   }
   const files = form.getAll("files").filter((v): v is File => v instanceof File);
-  const str = (k: string) => { const v = form.get(k); return typeof v === "string" && v.length > 0 ? v : undefined; };
+  const str = (k: string) => {
+    const v = form.get(k);
+    return typeof v === "string" && v.length > 0 ? v : undefined;
+  };
   return {
     ok: true,
     body: {
@@ -120,7 +130,14 @@ async function parseMultipart(request: Request): Promise<{ ok: true; body: Parse
       parentMessageId: str("parentMessageId"),
       editOf: str("editOf"),
       permissionMode: coerceEnum(form.get("permissionMode"), ["ask", "auto-edit", "yolo"] as const),
-      thinkingLevel: coerceEnum(form.get("thinkingLevel"), ["off", "minimal", "low", "medium", "high", "xhigh"] as const),
+      thinkingLevel: coerceEnum(form.get("thinkingLevel"), [
+        "off",
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+      ] as const),
       files,
     },
   };
@@ -219,8 +236,8 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // routed turn is served, the route-once block below pins the SERVED
   // identity onto the conversation so subsequent turns are cache-stable.
   const autoRouting = body.model === null;
-  const provider = autoRouting ? undefined : body.provider ?? conv.provider ?? undefined;
-  const model = autoRouting ? undefined : body.model ?? conv.model ?? undefined;
+  const provider = autoRouting ? undefined : (body.provider ?? conv.provider ?? undefined);
+  const model = autoRouting ? undefined : (body.model ?? conv.model ?? undefined);
 
   // ── Attachment pipeline ──────────────────────────────────────────
   const stagedAttachments: StagedAttachment[] = [];
@@ -240,18 +257,24 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     const mimeSet = new Set<string>();
     try {
       for (const m of await getConversationExtensionMimes(conversationId)) mimeSet.add(m);
-    } catch { /* non-fatal: fall back to static caps */ }
+    } catch {
+      /* non-fatal: fall back to static caps */
+    }
     const pendingExtNames = parseMentions(body.content)
       .filter((m) => m.kind === "ext")
       .map((m) => m.name);
     if (pendingExtNames.length > 0) {
       try {
         for (const m of getExtensionMimesByNames(pendingExtNames)) mimeSet.add(m);
-      } catch { /* non-fatal */ }
+      } catch {
+        /* non-fatal */
+      }
     }
     const caps = getCapabilitiesWithExtensions(provider, model, [...mimeSet]);
     if (body.files.length > caps.maxFilesPerMessage) {
-      return errorJson(400, `Too many files (max ${caps.maxFilesPerMessage})`, { code: "TOO_MANY_FILES" });
+      return errorJson(400, `Too many files (max ${caps.maxFilesPerMessage})`, {
+        code: "TOO_MANY_FILES",
+      });
     }
 
     const project = await getProject(conv.projectId);
@@ -270,7 +293,11 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       const res = await validateAttachment(bytes, claimedMime, caps);
       if (!res.ok) {
         const status = res.code === "TOO_LARGE" ? 413 : 400;
-        return errorJson(status, `File "${file.name}" rejected: ${res.code}`, { code: res.code, file: file.name, detail: res });
+        return errorJson(status, `File "${file.name}" rejected: ${res.code}`, {
+          code: res.code,
+          file: file.name,
+          detail: res,
+        });
       }
       validated.push({ bytes, canonicalMime: res.canonicalMime, file });
     }
@@ -319,7 +346,11 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       }
     } catch (err) {
       // Best-effort rollback: remove disk files + attachment rows for this msg.
-      await deleteForMessage({ projectRoot: project.path, conversationId, messageId: userMessage.id }).catch(() => {});
+      await deleteForMessage({
+        projectRoot: project.path,
+        conversationId,
+        messageId: userMessage.id,
+      }).catch(() => {});
       await attachmentsDb.deleteAttachmentsForMessage(userMessage.id).catch(() => {});
       return errorJson(500, "Failed to persist attachments", { detail: String(err) });
     }
@@ -397,9 +428,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
         parentMessageId: userMessage.id,
       });
       return json({
-        userMessage: attachmentSummaries.length > 0
-          ? { ...userMessage, attachments: attachmentSummaries }
-          : userMessage,
+        userMessage:
+          attachmentSummaries.length > 0
+            ? { ...userMessage, attachments: attachmentSummaries }
+            : userMessage,
         runId: null,
         attachments: attachmentSummaries,
         ezActionResults: [{ id: row.id, role: row.role, content: row.content }],
@@ -426,9 +458,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       };
       goalResultMessages.push(echo);
       return json({
-        userMessage: attachmentSummaries.length > 0
-          ? { ...userMessage, attachments: attachmentSummaries }
-          : userMessage,
+        userMessage:
+          attachmentSummaries.length > 0
+            ? { ...userMessage, attachments: attachmentSummaries }
+            : userMessage,
         runId: null,
         attachments: attachmentSummaries,
         ezActionResults: goalResultMessages,

@@ -1,5 +1,10 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { mockEmbedding, mockEmbeddingsModule } from "./helpers/mock-vectors";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { MemoryProvenance } from "../memory/types";
@@ -11,9 +16,14 @@ mockEmbeddingsModule();
 
 // Dynamic imports AFTER mocks
 const {
-  insertMemory, searchMemories, deleteMemory,
-  assignMemoryToProjects, removeMemoryFromProjects, setMemoryProjects,
-  getMemoryProjectIds, getProjectIdsForMemories,
+  insertMemory,
+  searchMemories,
+  deleteMemory,
+  assignMemoryToProjects,
+  removeMemoryFromProjects,
+  setMemoryProjects,
+  getMemoryProjectIds,
+  getProjectIdsForMemories,
 } = await import("../db/queries/memories");
 const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
@@ -24,7 +34,10 @@ let projectB: string;
 let projectC: string;
 let conversationId: string;
 
-async function insertTestMemory(content: string, opts?: { projectId?: string | null; category?: string; status?: string }) {
+async function insertTestMemory(
+  content: string,
+  opts?: { projectId?: string | null; category?: string; status?: string },
+) {
   const embedding = mockEmbedding();
   const provenance: MemoryProvenance = {
     sourceConversationId: conversationId,
@@ -47,7 +60,10 @@ async function insertTestMemory(content: string, opts?: { projectId?: string | n
     const db = getDb();
     const { memories } = await import("../db/schema");
     const { eq } = await import("drizzle-orm");
-    await db.update(memories).set({ status: opts.status } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ status: opts.status } as any)
+      .where(eq(memories.id, mem.id));
   }
   return mem;
 }
@@ -156,7 +172,9 @@ describe("multi-project assignment operations", () => {
 
     // Junction rows should be gone — verify via raw SQL
     const { sql } = await import("drizzle-orm");
-    const rows = await getDb().execute(sql`SELECT * FROM memory_projects WHERE memory_id = ${mem.id}`);
+    const rows = await getDb().execute(
+      sql`SELECT * FROM memory_projects WHERE memory_id = ${mem.id}`,
+    );
     expect(rows.rows).toHaveLength(0);
   });
 });

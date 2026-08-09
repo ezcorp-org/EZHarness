@@ -122,7 +122,9 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
   // Manifest must declare `appendMessages`. Without the matching
   // permission the upload would never be linked into a turn (the
   // append-message handler would refuse), so we fail fast here.
-  const grantedPerms = ext.grantedPermissions as { appendMessages?: { excludedDefault: boolean } } | null;
+  const grantedPerms = ext.grantedPermissions as {
+    appendMessages?: { excludedDefault: boolean };
+  } | null;
   if (!grantedPerms?.appendMessages) {
     return errorJson(403, "Extension lacks appendMessages permission");
   }
@@ -159,7 +161,9 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
   // validator path as messages/+server.ts.
   const claimedMime = (file.type || "application/octet-stream").split(";")[0]!.trim();
   if (!ALLOWED_MIMES.has(claimedMime)) {
-    return errorJson(400, `MIME ${claimedMime} not allowed (audio/wav, audio/mpeg only)`, { code: "UNSUPPORTED_MIME" });
+    return errorJson(400, `MIME ${claimedMime} not allowed (audio/wav, audio/mpeg only)`, {
+      code: "UNSUPPORTED_MIME",
+    });
   }
 
   // Size cap. Read the file into a buffer once — we need the bytes

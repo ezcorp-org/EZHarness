@@ -33,9 +33,7 @@ describe("markdownToSpeech", () => {
     expect(markdownToSpeech("_em_")).toBe("em");
     expect(markdownToSpeech("~~struck~~")).toBe("struck");
     expect(markdownToSpeech("**_nested_**")).toBe("nested");
-    expect(markdownToSpeech("say **this** and *that*")).toBe(
-      "say this and that",
-    );
+    expect(markdownToSpeech("say **this** and *that*")).toBe("say this and that");
   });
 
   test("headings: hashes gone, text kept, separated from body", () => {
@@ -46,18 +44,14 @@ describe("markdownToSpeech", () => {
 
   test("inline code kept; fenced code blocks dropped", () => {
     expect(markdownToSpeech("run `npm test` now")).toBe("run npm test now");
-    expect(
-      markdownToSpeech("before\n\n```js\nconst x = 1;\n```\n\nafter"),
-    ).toBe("before\nafter");
+    expect(markdownToSpeech("before\n\n```js\nconst x = 1;\n```\n\nafter")).toBe("before\nafter");
   });
 
   test("links speak the label, never the URL", () => {
-    expect(markdownToSpeech("[Anthropic](https://anthropic.com)")).toBe(
-      "Anthropic",
+    expect(markdownToSpeech("[Anthropic](https://anthropic.com)")).toBe("Anthropic");
+    expect(markdownToSpeech("see [the docs](https://example.com/a/b?c=d) please")).toBe(
+      "see the docs please",
     );
-    expect(
-      markdownToSpeech("see [the docs](https://example.com/a/b?c=d) please"),
-    ).toBe("see the docs please");
   });
 
   test("images are dropped entirely", () => {
@@ -68,9 +62,7 @@ describe("markdownToSpeech", () => {
   test("lists: bullets/numbers gone, items become separate lines", () => {
     expect(markdownToSpeech("- a\n- b\n- c")).toBe("a\nb\nc");
     expect(markdownToSpeech("1. one\n2. two")).toBe("one\ntwo");
-    expect(markdownToSpeech("* first item\n* second item")).toBe(
-      "first item\nsecond item",
-    );
+    expect(markdownToSpeech("* first item\n* second item")).toBe("first item\nsecond item");
   });
 
   test("blockquotes: marker gone, quoted text kept", () => {
@@ -83,12 +75,9 @@ describe("markdownToSpeech", () => {
   });
 
   test("tables: pipes and separator row gone, cells readable", () => {
-    const md = [
-      "| Name | Role |",
-      "|------|------|",
-      "| Ada  | Eng  |",
-      "| Bob  | PM   |",
-    ].join("\n");
+    const md = ["| Name | Role |", "|------|------|", "| Ada  | Eng  |", "| Bob  | PM   |"].join(
+      "\n",
+    );
     expect(markdownToSpeech(md)).toBe("Name, Role\nAda, Eng\nBob, PM");
   });
 
@@ -100,16 +89,12 @@ describe("markdownToSpeech", () => {
   test("unbalanced / standalone markers don't get spoken", () => {
     expect(markdownToSpeech("para\n\n**\n\nmore")).toBe("para\nmore");
     expect(markdownToSpeech("a ** b")).toBe("a b");
-    expect(markdownToSpeech("## Heading -- with **emphasis**")).toBe(
-      "Heading, with emphasis",
-    );
+    expect(markdownToSpeech("## Heading -- with **emphasis**")).toBe("Heading, with emphasis");
   });
 
   test("hyphenated words and snake_case survive (no over-stripping)", () => {
     expect(markdownToSpeech("a well-known fact")).toBe("a well-known fact");
-    expect(markdownToSpeech("call snake_case_fn here")).toBe(
-      "call snake_case_fn here",
-    );
+    expect(markdownToSpeech("call snake_case_fn here")).toBe("call snake_case_fn here");
   });
 
   test("kitchen-sink: no markdown control chars remain", () => {

@@ -134,7 +134,7 @@ export function getEzToolMetadata(): BuiltInToolMeta[] {
     name: d.name,
     description: d.description,
     category: "ez",
-    inputSchema: (d.parameters as unknown) as Record<string, unknown>,
+    inputSchema: d.parameters as unknown as Record<string, unknown>,
     mentionable: false,
   }));
 }

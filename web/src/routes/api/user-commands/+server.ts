@@ -1,8 +1,5 @@
 import { json } from "@sveltejs/kit";
-import {
-  listUserCommands,
-  createUserCommand,
-} from "$server/db/queries/user-commands";
+import { listUserCommands, createUserCommand } from "$server/db/queries/user-commands";
 import type { UserCommand } from "$server/db/schema";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";

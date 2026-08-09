@@ -48,23 +48,32 @@ beforeEach(async () => {
   await db.delete(projects);
   await db.delete(users);
 
-  const [u1] = await db.insert(users).values({
-    email: "a@test.local",
-    passwordHash: "x",
-    name: "A",
-  }).returning();
-  const [u2] = await db.insert(users).values({
-    email: "b@test.local",
-    passwordHash: "x",
-    name: "B",
-  }).returning();
+  const [u1] = await db
+    .insert(users)
+    .values({
+      email: "a@test.local",
+      passwordHash: "x",
+      name: "A",
+    })
+    .returning();
+  const [u2] = await db
+    .insert(users)
+    .values({
+      email: "b@test.local",
+      passwordHash: "x",
+      name: "B",
+    })
+    .returning();
   userId = u1!.id;
   otherUserId = u2!.id;
 
-  const [p] = await db.insert(projects).values({
-    name: "Test Project",
-    path: "/tmp/briefing-test",
-  }).returning();
+  const [p] = await db
+    .insert(projects)
+    .values({
+      name: "Test Project",
+      path: "/tmp/briefing-test",
+    })
+    .returning();
   projectId = p!.id;
 });
 
@@ -88,7 +97,11 @@ describe("upsertBriefingConfig", () => {
   });
 
   test("enabled config gets nextFireAt = next cron slot strictly after now", async () => {
-    const row = await upsertBriefingConfig(userId, { enabled: true, cron: "0 7 * * *", timezone: "UTC" }, NOW);
+    const row = await upsertBriefingConfig(
+      userId,
+      { enabled: true, cron: "0 7 * * *", timezone: "UTC" },
+      NOW,
+    );
     // NOW is 12:00 UTC → next 7am is tomorrow 07:00 UTC.
     expect(row.nextFireAt).toEqual(new Date("2026-06-11T07:00:00.000Z"));
   });
@@ -106,14 +119,18 @@ describe("upsertBriefingConfig", () => {
   });
 
   test("partial update preserves untouched fields", async () => {
-    await upsertBriefingConfig(userId, {
-      enabled: true,
-      instructions: "focus on work",
-      projectId,
-      model: "gpt-x",
-      provider: "openai",
-      watchlist: [{ topic: "bun 2.0", addedAt: NOW.toISOString() }],
-    }, NOW);
+    await upsertBriefingConfig(
+      userId,
+      {
+        enabled: true,
+        instructions: "focus on work",
+        projectId,
+        model: "gpt-x",
+        provider: "openai",
+        watchlist: [{ topic: "bun 2.0", addedAt: NOW.toISOString() }],
+      },
+      NOW,
+    );
 
     const row = await upsertBriefingConfig(userId, { instructions: "new focus" }, NOW);
     expect(row.instructions).toBe("new focus");
@@ -126,7 +143,11 @@ describe("upsertBriefingConfig", () => {
 
   test("explicit nulls clear projectId / model / provider", async () => {
     await upsertBriefingConfig(userId, { projectId, model: "m", provider: "p" }, NOW);
-    const row = await upsertBriefingConfig(userId, { projectId: null, model: null, provider: null }, NOW);
+    const row = await upsertBriefingConfig(
+      userId,
+      { projectId: null, model: null, provider: null },
+      NOW,
+    );
     expect(row.projectId).toBeNull();
     expect(row.model).toBeNull();
     expect(row.provider).toBeNull();
@@ -156,7 +177,9 @@ describe("upsertBriefingConfig", () => {
   });
 
   test("throws on an invalid cron (defense-in-depth; API validates first)", async () => {
-    expect(upsertBriefingConfig(userId, { enabled: true, cron: "* * * * *" }, NOW)).rejects.toThrow(/invalid cron/);
+    expect(upsertBriefingConfig(userId, { enabled: true, cron: "* * * * *" }, NOW)).rejects.toThrow(
+      /invalid cron/,
+    );
   });
 
   test("throws on empty userId", async () => {

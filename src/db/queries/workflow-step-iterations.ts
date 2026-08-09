@@ -107,7 +107,14 @@ export async function upsertWorkflowStepIteration(
       iteration: row.iteration,
       attempt: row.attempt,
       status: row.status,
-      runId, provider, model, inputTokens, outputTokens, costUsd, durationMs, errorCode,
+      runId,
+      provider,
+      model,
+      inputTokens,
+      outputTokens,
+      costUsd,
+      durationMs,
+      errorCode,
     })
     .onConflictDoUpdate({
       target: [
@@ -116,8 +123,15 @@ export async function upsertWorkflowStepIteration(
         workflowStepIterations.attempt,
       ],
       set: {
-        status: row.status, runId, provider, model, inputTokens, outputTokens,
-        costUsd, durationMs, errorCode,
+        status: row.status,
+        runId,
+        provider,
+        model,
+        inputTokens,
+        outputTokens,
+        costUsd,
+        durationMs,
+        errorCode,
       },
     });
   return true;
@@ -133,17 +147,21 @@ export async function upsertWorkflowStepIteration(
  */
 export async function listWorkflowStepIterations(
   workflowRunId: string,
-): Promise<
-  Array<typeof workflowStepIterations.$inferSelect & { stepName: string }>
-> {
+): Promise<Array<typeof workflowStepIterations.$inferSelect & { stepName: string }>> {
   const rows = await getDb()
     .select({ iteration: workflowStepIterations, stepName: workflowStepRuns.stepName })
     .from(workflowStepIterations)
     .innerJoin(workflowStepRuns, eq(workflowStepIterations.workflowStepRunId, workflowStepRuns.id))
     .where(eq(workflowStepRuns.workflowRunId, workflowRunId))
-    .orderBy(workflowStepRuns.stepName, workflowStepIterations.iteration, workflowStepIterations.attempt);
-  return rows.map((r: { iteration: typeof workflowStepIterations.$inferSelect; stepName: string }) => ({
-    ...r.iteration,
-    stepName: r.stepName,
-  }));
+    .orderBy(
+      workflowStepRuns.stepName,
+      workflowStepIterations.iteration,
+      workflowStepIterations.attempt,
+    );
+  return rows.map(
+    (r: { iteration: typeof workflowStepIterations.$inferSelect; stepName: string }) => ({
+      ...r.iteration,
+      stepName: r.stepName,
+    }),
+  );
 }

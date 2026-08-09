@@ -11,10 +11,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
-import type {
-  GithubClient,
-  GithubFetchPage,
-} from "../../integrations/github-projects/types";
+import type { GithubClient, GithubFetchPage } from "../../integrations/github-projects/types";
 import type { GithubProjectsProposal } from "../../db/schema";
 
 // ── db/connection → test PGlite (the REAL queries read through this) ──
@@ -370,9 +367,7 @@ describe("github-projects handler — integration (real DB)", () => {
     expect(data.boards.map((b) => b.linkId)).toEqual([myLink.id]);
     // Exactly once, under MY board's title; the other user's proposal in the
     // SAME project never leaks in.
-    expect(data.proposals.map((p) => [p.id, p.boardTitle])).toEqual([
-      [myProposal.id, "My Board"],
-    ]);
+    expect(data.proposals.map((p) => [p.id, p.boardTitle])).toEqual([[myProposal.id, "My Board"]]);
   });
 
   test("approve spawns + is owner-gated on the real proposal row", async () => {

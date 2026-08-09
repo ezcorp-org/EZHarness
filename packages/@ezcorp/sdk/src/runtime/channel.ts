@@ -97,12 +97,13 @@ class HostChannelImpl implements HostChannel {
     this.idCounter += 1;
     const id = this.idCounter;
     return new Promise<T>((resolve, reject) => {
-      const timer = timeoutMs > 0
-        ? setTimeout(() => {
-            this.pending.delete(id);
-            reject(new Error(`[@ezcorp/sdk] request timeout after ${timeoutMs}ms: ${method}`));
-          }, timeoutMs)
-        : null;
+      const timer =
+        timeoutMs > 0
+          ? setTimeout(() => {
+              this.pending.delete(id);
+              reject(new Error(`[@ezcorp/sdk] request timeout after ${timeoutMs}ms: ${method}`));
+            }, timeoutMs)
+          : null;
       this.pending.set(id, {
         resolve: resolve as (v: unknown) => void,
         reject,
@@ -118,9 +119,7 @@ class HostChannelImpl implements HostChannel {
       let outParams = params;
       if (typeof callId === "string" && callId.length > 0) {
         const base =
-          params && typeof params === "object"
-            ? (params as Record<string, unknown>)
-            : {};
+          params && typeof params === "object" ? (params as Record<string, unknown>) : {};
         const existingMeta =
           base._meta && typeof base._meta === "object"
             ? (base._meta as Record<string, unknown>)
@@ -146,10 +145,7 @@ class HostChannelImpl implements HostChannel {
     this.write(frame);
   }
 
-  onRequest(
-    method: string,
-    handler: (params: unknown) => Promise<unknown> | unknown,
-  ): void {
+  onRequest(method: string, handler: (params: unknown) => Promise<unknown> | unknown): void {
     this.handlers.set(method, handler);
   }
 
@@ -191,6 +187,7 @@ class HostChannelImpl implements HostChannel {
   //     upper bound for a 256KB raw chunk).
   //   • assembled bytes ≤ 100MB hard cap.
   //   • seq must equal nextSeq AND seq < total.
+  // biome-ignore format: kept on one line because bun's coverage emitter puts zero-hit DA records on the TYPE-ARGUMENT lines of a split generic, which no test can ever reach — splitting this drops the file below its 100% threshold for a purely cosmetic reason.
   private streams = new Map<number | string, { total: number; pieces: string[]; nextSeq: number; assembledBytes: number }>();
 
   private async runLoop(): Promise<void> {
@@ -350,7 +347,9 @@ class HostChannelImpl implements HostChannel {
       if (entry) {
         if (entry.timer) clearTimeout(entry.timer);
         this.pending.delete(id);
-        entry.reject(new Error(`[@ezcorp/sdk] streaming chunk invalid base64 (id=${id}, seq=${seq})`));
+        entry.reject(
+          new Error(`[@ezcorp/sdk] streaming chunk invalid base64 (id=${id}, seq=${seq})`),
+        );
       }
       return;
     }
@@ -459,7 +458,9 @@ class HostChannelImpl implements HostChannel {
       if (handler) {
         try {
           await withToolContext({ callId }, () => handler(params));
-        } catch { /* swallow — notifications are fire-and-forget */ }
+        } catch {
+          /* swallow — notifications are fire-and-forget */
+        }
       }
       return;
     }
@@ -555,7 +556,11 @@ async function* bunStdinLines(): AsyncGenerator<string> {
       }
     }
   } finally {
-    try { reader.releaseLock(); } catch { /* reader may already be released */ }
+    try {
+      reader.releaseLock();
+    } catch {
+      /* reader may already be released */
+    }
   }
 }
 

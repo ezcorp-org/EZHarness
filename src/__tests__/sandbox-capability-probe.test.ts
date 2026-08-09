@@ -62,9 +62,7 @@ describe("selectTier — pure tier selection", () => {
     // The setuid bwrap can't run our jail (rejects --size; runtime lives
     // behind /run symlinks the bind-set misses), so we drop to landlock
     // even though userns is available — real fs confinement is preserved.
-    const r = selectTier(
-      outcomes({ landlockAbi: 5, userns: true, bwrapSetuid: true }),
-    );
+    const r = selectTier(outcomes({ landlockAbi: 5, userns: true, bwrapSetuid: true }));
     expect(r).toEqual({ tier: "landlock", landlockUsable: true });
   });
 
@@ -75,9 +73,7 @@ describe("selectTier — pure tier selection", () => {
     // argv (`["bwrap", ...]`) that dies with "Executable not found in
     // $PATH". Docker masked it by blocking userns; rootless Podman allows
     // userns, so the dev stack hit it the moment it moved runtimes.
-    const r = selectTier(
-      outcomes({ landlockAbi: 5, userns: true, bwrapPresent: false }),
-    );
+    const r = selectTier(outcomes({ landlockAbi: 5, userns: true, bwrapPresent: false }));
     expect(r).toEqual({ tier: "landlock", landlockUsable: true });
   });
 

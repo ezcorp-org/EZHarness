@@ -36,9 +36,7 @@ describe("probeLandlockAbi — FFI throws → null (fail-closed)", () => {
         throw new Error("ffi exploded");
       },
     }));
-    const { probeLandlockAbi } = await import(
-      "../extensions/sandbox/capability-probe"
-    );
+    const { probeLandlockAbi } = await import("../extensions/sandbox/capability-probe");
     expect(probeLandlockAbi()).toBeNull();
   });
 

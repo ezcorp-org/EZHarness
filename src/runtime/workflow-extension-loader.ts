@@ -48,11 +48,7 @@ import { parse } from "yaml";
 import type { WorkflowDefinition } from "../types";
 import type { ExtensionRegistry } from "../extensions/registry";
 import { validateWorkflow } from "./workflow-validator";
-import {
-  WORKFLOW_NAME_RE,
-  isValidWorkflowName,
-  namespacedWorkflowName,
-} from "./workflow-name";
+import { WORKFLOW_NAME_RE, isValidWorkflowName, namespacedWorkflowName } from "./workflow-name";
 import { logger } from "../logger";
 
 const log = logger.child("workflow");
@@ -100,10 +96,7 @@ export async function loadExtensionWorkflows(
   return out;
 }
 
-async function loadOne(
-  source: ExtensionWorkflowSource,
-  out: WorkflowDefinition[],
-): Promise<void> {
+async function loadOne(source: ExtensionWorkflowSource, out: WorkflowDefinition[]): Promise<void> {
   const { extensionName, installPath } = source;
   // Names already taken by THIS extension. Cross-extension collision is
   // structurally impossible (different prefixes); two files inside one

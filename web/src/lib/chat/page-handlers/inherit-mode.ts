@@ -20,39 +20,36 @@
 import type { Conversation, Mode } from "$lib/api";
 
 export interface InheritModeInput {
-	/** The conversation surfaced from <ChatThread>, or null before load. */
-	currentConversation: Conversation | null;
-	/** Modes fetched by the shell; empty until `fetchModes()` settles. */
-	availableModes: Mode[];
-	/** The active route conversation id (`page.params.convId`). */
-	convId: string;
-	/** The conversation id we last synced `selectedMode` for, or null. */
-	lastSyncedConvId: string | null;
+  /** The conversation surfaced from <ChatThread>, or null before load. */
+  currentConversation: Conversation | null;
+  /** Modes fetched by the shell; empty until `fetchModes()` settles. */
+  availableModes: Mode[];
+  /** The active route conversation id (`page.params.convId`). */
+  convId: string;
+  /** The conversation id we last synced `selectedMode` for, or null. */
+  lastSyncedConvId: string | null;
 }
 
 export type InheritModeDecision =
-	| { sync: false }
-	| { sync: true; mode: Mode | null; syncedConvId: string };
+  | { sync: false }
+  | { sync: true; mode: Mode | null; syncedConvId: string };
 
-export function decideInheritedMode(
-	input: InheritModeInput,
-): InheritModeDecision {
-	const { currentConversation, availableModes, convId, lastSyncedConvId } =
-		input;
+export function decideInheritedMode(input: InheritModeInput): InheritModeDecision {
+  const { currentConversation, availableModes, convId, lastSyncedConvId } = input;
 
-	// Not enough loaded yet to make a decision.
-	if (!currentConversation || availableModes.length === 0) return { sync: false };
-	// The conversation we hold belongs to a different route — don't inherit from
-	// a stale conversation while navigation is in flight.
-	if (currentConversation.id !== convId) return { sync: false };
-	// Already synced (or an explicit in-session pick already stamped) this id.
-	if (lastSyncedConvId === convId) return { sync: false };
+  // Not enough loaded yet to make a decision.
+  if (!currentConversation || availableModes.length === 0) return { sync: false };
+  // The conversation we hold belongs to a different route — don't inherit from
+  // a stale conversation while navigation is in flight.
+  if (currentConversation.id !== convId) return { sync: false };
+  // Already synced (or an explicit in-session pick already stamped) this id.
+  if (lastSyncedConvId === convId) return { sync: false };
 
-	// A `modeId` that matches no fetched mode resolves to `null` (Default)
-	// intentionally — re-inherit on conversation switch self-heals it; this
-	// is NOT a load-order bug (the mode list is already settled by line 44).
-	const mode = currentConversation.modeId
-		? (availableModes.find((m) => m.id === currentConversation.modeId) ?? null)
-		: null;
-	return { sync: true, mode, syncedConvId: convId };
+  // A `modeId` that matches no fetched mode resolves to `null` (Default)
+  // intentionally — re-inherit on conversation switch self-heals it; this
+  // is NOT a load-order bug (the mode list is already settled by line 44).
+  const mode = currentConversation.modeId
+    ? (availableModes.find((m) => m.id === currentConversation.modeId) ?? null)
+    : null;
+  return { sync: true, mode, syncedConvId: convId };
 }

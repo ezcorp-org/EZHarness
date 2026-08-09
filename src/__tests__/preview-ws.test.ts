@@ -22,7 +22,9 @@ describe("isWebSocketUpgrade", () => {
   });
 
   test("true with a multi-value Connection header (keep-alive, Upgrade)", () => {
-    expect(isWebSocketUpgrade(hdr({ Upgrade: "WebSocket", Connection: "keep-alive, Upgrade" }))).toBe(true);
+    expect(
+      isWebSocketUpgrade(hdr({ Upgrade: "WebSocket", Connection: "keep-alive, Upgrade" })),
+    ).toBe(true);
   });
 
   test("false when not a websocket upgrade", () => {
@@ -34,10 +36,20 @@ describe("isWebSocketUpgrade", () => {
 
 describe("isAllowedPreviewOrigin (CSWSH defense)", () => {
   test("accepts the matching preview origin (http + https, any port)", () => {
-    expect(isAllowedPreviewOrigin(`https://${VALID_ID}.preview.${APP_HOST}`, VALID_ID, APP_HOST)).toBe(true);
-    expect(isAllowedPreviewOrigin(`http://${VALID_ID}.preview.localhost:5173`, VALID_ID, "localhost")).toBe(true);
+    expect(
+      isAllowedPreviewOrigin(`https://${VALID_ID}.preview.${APP_HOST}`, VALID_ID, APP_HOST),
+    ).toBe(true);
+    expect(
+      isAllowedPreviewOrigin(`http://${VALID_ID}.preview.localhost:5173`, VALID_ID, "localhost"),
+    ).toBe(true);
     // Case-insensitive host matching.
-    expect(isAllowedPreviewOrigin(`https://${VALID_ID.toUpperCase()}.PREVIEW.${APP_HOST}`, VALID_ID, APP_HOST)).toBe(true);
+    expect(
+      isAllowedPreviewOrigin(
+        `https://${VALID_ID.toUpperCase()}.PREVIEW.${APP_HOST}`,
+        VALID_ID,
+        APP_HOST,
+      ),
+    ).toBe(true);
   });
 
   test("rejects a missing / malformed Origin", () => {
@@ -51,25 +63,37 @@ describe("isAllowedPreviewOrigin (CSWSH defense)", () => {
   });
 
   test("rejects a DIFFERENT preview id (sibling cookie-tossing)", () => {
-    expect(isAllowedPreviewOrigin(`https://${OTHER_ID}.preview.${APP_HOST}`, VALID_ID, APP_HOST)).toBe(false);
+    expect(
+      isAllowedPreviewOrigin(`https://${OTHER_ID}.preview.${APP_HOST}`, VALID_ID, APP_HOST),
+    ).toBe(false);
   });
 
   test("rejects a wrong app host (attacker domain)", () => {
-    expect(isAllowedPreviewOrigin(`https://${VALID_ID}.preview.evil.com`, VALID_ID, APP_HOST)).toBe(false);
+    expect(isAllowedPreviewOrigin(`https://${VALID_ID}.preview.evil.com`, VALID_ID, APP_HOST)).toBe(
+      false,
+    );
   });
 
   test("rejects a non-http(s) scheme", () => {
-    expect(isAllowedPreviewOrigin(`ftp://${VALID_ID}.preview.${APP_HOST}`, VALID_ID, APP_HOST)).toBe(false);
+    expect(
+      isAllowedPreviewOrigin(`ftp://${VALID_ID}.preview.${APP_HOST}`, VALID_ID, APP_HOST),
+    ).toBe(false);
   });
 
   test("fails closed when appHost is null", () => {
-    expect(isAllowedPreviewOrigin(`https://${VALID_ID}.preview.${APP_HOST}`, VALID_ID, null)).toBe(false);
+    expect(isAllowedPreviewOrigin(`https://${VALID_ID}.preview.${APP_HOST}`, VALID_ID, null)).toBe(
+      false,
+    );
   });
 });
 
 describe("decideWebSocketUpgrade — same access gates as HTTP + port pin + CSWSH", () => {
   const dynRow: PreviewRegistryRow = {
-    id: VALID_ID, userId: "u1", kind: "dynamic", staticPath: null, targetPort: 5173,
+    id: VALID_ID,
+    userId: "u1",
+    kind: "dynamic",
+    staticPath: null,
+    targetPort: 5173,
   };
   const GOOD_ORIGIN = `https://${VALID_ID}.preview.${APP_HOST}`;
 
@@ -98,7 +122,11 @@ describe("decideWebSocketUpgrade — same access gates as HTTP + port pin + CSWS
       input({ requestPath: "/__vite_hmr", search: "?token=x" }),
       deps(),
     );
-    expect(d).toEqual({ accept: true, port: 5173, upstreamUrl: "ws://127.0.0.1:5173/__vite_hmr?token=x" });
+    expect(d).toEqual({
+      accept: true,
+      port: 5173,
+      upstreamUrl: "ws://127.0.0.1:5173/__vite_hmr?token=x",
+    });
   });
 
   test("rejects a malformed id", async () => {
@@ -110,7 +138,12 @@ describe("decideWebSocketUpgrade — same access gates as HTTP + port pin + CSWS
     let tokenChecked = false;
     const d = await decideWebSocketUpgrade(
       input({ origin: `https://${OTHER_ID}.preview.${APP_HOST}` }),
-      deps({ verifyToken: async () => { tokenChecked = true; return { previewId: VALID_ID, userId: "u1" }; } }),
+      deps({
+        verifyToken: async () => {
+          tokenChecked = true;
+          return { previewId: VALID_ID, userId: "u1" };
+        },
+      }),
     );
     expect(d.accept).toBe(false);
     if (!d.accept) expect(d.reason).toBe("cross-site origin");
@@ -146,13 +179,21 @@ describe("decideWebSocketUpgrade — same access gates as HTTP + port pin + CSWS
   });
 
   test("rejects a static row (only dynamic upgrades)", async () => {
-    const staticRow: PreviewRegistryRow = { ...dynRow, kind: "static", targetPort: null, staticPath: "/x" };
+    const staticRow: PreviewRegistryRow = {
+      ...dynRow,
+      kind: "static",
+      targetPort: null,
+      staticPath: "/x",
+    };
     const d = await decideWebSocketUpgrade(input(), deps({ getServable: async () => staticRow }));
     expect(d.accept).toBe(false);
   });
 
   test("rejects a dynamic row with no target port", async () => {
-    const d = await decideWebSocketUpgrade(input(), deps({ getServable: async () => ({ ...dynRow, targetPort: 0 }) }));
+    const d = await decideWebSocketUpgrade(
+      input(),
+      deps({ getServable: async () => ({ ...dynRow, targetPort: 0 }) }),
+    );
     expect(d.accept).toBe(false);
   });
 });

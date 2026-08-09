@@ -180,11 +180,15 @@ describe("requireStringList — invariant E", () => {
   });
 
   test("REJECTS over the count cap in the STRING form too", () => {
-    expect(rejectionCode(() => requireStringList({ g: "a\nb\nc\nd" }, "g", 3, 10))).toBe("over-cap");
+    expect(rejectionCode(() => requireStringList({ g: "a\nb\nc\nd" }, "g", 3, 10))).toBe(
+      "over-cap",
+    );
   });
 
   test("REJECTS over the count cap rather than slicing to it", () => {
-    expect(rejectionCode(() => requireStringList({ g: ["a", "b", "c", "d"] }, "g", 3, 10))).toBe("over-cap");
+    expect(rejectionCode(() => requireStringList({ g: ["a", "b", "c", "d"] }, "g", 3, 10))).toBe(
+      "over-cap",
+    );
   });
 
   test.each([
@@ -195,7 +199,9 @@ describe("requireStringList — invariant E", () => {
   });
 
   test("REJECTS an over-long entry rather than truncating it", () => {
-    expect(rejectionCode(() => requireStringList({ g: ["x".repeat(11)] }, "g", 3, 10))).toBe("over-cap");
+    expect(rejectionCode(() => requireStringList({ g: ["x".repeat(11)] }, "g", 3, 10))).toBe(
+      "over-cap",
+    );
   });
 
   test("the read_files bounds are the ones the manifest advertises", () => {
@@ -239,7 +245,9 @@ describe("requireContent — invariant E", () => {
   });
 
   test("REJECTS one byte over the 4MB cap rather than truncating", () => {
-    expect(rejectionCode(() => requireContent({ c: "a".repeat(MAX_WRITE_BYTES + 1) }, "c"))).toBe("over-cap");
+    expect(rejectionCode(() => requireContent({ c: "a".repeat(MAX_WRITE_BYTES + 1) }, "c"))).toBe(
+      "over-cap",
+    );
   });
 
   test("measures UTF-8 BYTES, not UTF-16 code units", () => {
@@ -307,7 +315,9 @@ describe("requireSlug — the traversal-proof name", () => {
     ["a leading dot", ".ssh"],
     ["a shell metacharacter", "a;rm -rf b"],
   ])("rejects %s", (_label, value) => {
-    expect(rejectionCode(() => requireSlug({ n: value }, "n", MAX_ARTIFACT_NAME_LEN))).toBe("invalid-name");
+    expect(rejectionCode(() => requireSlug({ n: value }, "n", MAX_ARTIFACT_NAME_LEN))).toBe(
+      "invalid-name",
+    );
   });
 });
 

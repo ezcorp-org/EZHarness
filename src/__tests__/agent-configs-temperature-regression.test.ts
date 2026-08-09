@@ -19,8 +19,12 @@ mockDbConnection();
 import { createAgentConfig, getAgentConfig, updateAgentConfig } from "../db/queries/agent-configs";
 import { createMode, getMode, updateMode } from "../db/queries/modes";
 
-beforeAll(async () => { await setupTestDb(); });
-afterAll(async () => { await closeTestDb(); });
+beforeAll(async () => {
+  await setupTestDb();
+});
+afterAll(async () => {
+  await closeTestDb();
+});
 
 describe("agent_configs.temperature — accepts floats (regression)", () => {
   test("creating with temperature = 0.5 round-trips", async () => {

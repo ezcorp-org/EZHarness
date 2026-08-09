@@ -47,7 +47,9 @@ describe("isKBFileShared — reading the one access signal", () => {
     // A row selected without the column, or a partial fixture, must not be
     // silently treated as owned-by-nobody-in-particular. `undefined` and `null`
     // are the same state here.
-    expect(isKBFileShared({ sharedBy: null, projectId: "p1" } as unknown as ShareableKBFile)).toBe(true);
+    expect(isKBFileShared({ sharedBy: null, projectId: "p1" } as unknown as ShareableKBFile)).toBe(
+      true,
+    );
   });
 
   test("an empty-string owner is NOT shared — it is a corrupt owner, not a null one", () => {
@@ -122,34 +124,52 @@ describe("canUnshareKBFile — the sharer, or an admin", () => {
 describe("describeKBFileSharing — what the list route tells the UI", () => {
   test("an owned file offers Share to its owner and nothing to anyone else", () => {
     expect(describeKBFileSharing(owned, OWNER, true)).toEqual({
-      shared: false, sharedByYou: false, canShare: true, canUnshare: false,
+      shared: false,
+      sharedByYou: false,
+      canShare: true,
+      canUnshare: false,
     });
     expect(describeKBFileSharing(owned, OTHER, true)).toEqual({
-      shared: false, sharedByYou: false, canShare: false, canUnshare: false,
+      shared: false,
+      sharedByYou: false,
+      canShare: false,
+      canUnshare: false,
     });
   });
 
   test("a file you shared is attributed to you and offers Unshare", () => {
     expect(describeKBFileSharing(shared, OWNER, true)).toEqual({
-      shared: true, sharedByYou: true, canShare: false, canUnshare: true,
+      shared: true,
+      sharedByYou: true,
+      canShare: false,
+      canUnshare: true,
     });
   });
 
   test("someone else's shared file is visible as shared, but not YOURS to undo", () => {
     expect(describeKBFileSharing(shared, OTHER, true)).toEqual({
-      shared: true, sharedByYou: false, canShare: false, canUnshare: false,
+      shared: true,
+      sharedByYou: false,
+      canShare: false,
+      canUnshare: false,
     });
   });
 
   test("an admin sees it as shared-by-someone-else and may still undo it", () => {
     expect(describeKBFileSharing(shared, ADMIN, true)).toEqual({
-      shared: true, sharedByYou: false, canShare: false, canUnshare: true,
+      shared: true,
+      sharedByYou: false,
+      canShare: false,
+      canUnshare: true,
     });
   });
 
   test("a legacy ownerless row reads as shared with no attribution and no actions", () => {
     expect(describeKBFileSharing(legacyOwnerless, ADMIN, true)).toEqual({
-      shared: true, sharedByYou: false, canShare: false, canUnshare: false,
+      shared: true,
+      sharedByYou: false,
+      canShare: false,
+      canUnshare: false,
     });
   });
 });

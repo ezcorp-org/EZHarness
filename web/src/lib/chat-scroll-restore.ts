@@ -37,38 +37,38 @@
  */
 
 export function hasActiveStreamForConversation(
-	convId: string,
-	streamingRunToConversation: Record<string, string>,
+  convId: string,
+  streamingRunToConversation: Record<string, string>,
 ): boolean {
-	for (const c of Object.values(streamingRunToConversation)) {
-		if (c === convId) return true;
-	}
-	return false;
+  for (const c of Object.values(streamingRunToConversation)) {
+    if (c === convId) return true;
+  }
+  return false;
 }
 
 export type OpenScrollDecision =
-	| { kind: "scroll-to-bottom"; reason: "active-stream" | "first-visit" }
-	| { kind: "restore"; scrollTop: number };
+  | { kind: "scroll-to-bottom"; reason: "active-stream" | "first-visit" }
+  | { kind: "restore"; scrollTop: number };
 
 export function decideOpenScroll(args: {
-	convId: string;
-	streamingRunToConversation: Record<string, string>;
-	cachedScrollTop: number | undefined;
+  convId: string;
+  streamingRunToConversation: Record<string, string>;
+  cachedScrollTop: number | undefined;
 }): OpenScrollDecision {
-	if (hasActiveStreamForConversation(args.convId, args.streamingRunToConversation)) {
-		return { kind: "scroll-to-bottom", reason: "active-stream" };
-	}
-	if (args.cachedScrollTop === undefined) {
-		return { kind: "scroll-to-bottom", reason: "first-visit" };
-	}
-	return { kind: "restore", scrollTop: args.cachedScrollTop };
+  if (hasActiveStreamForConversation(args.convId, args.streamingRunToConversation)) {
+    return { kind: "scroll-to-bottom", reason: "active-stream" };
+  }
+  if (args.cachedScrollTop === undefined) {
+    return { kind: "scroll-to-bottom", reason: "first-visit" };
+  }
+  return { kind: "restore", scrollTop: args.cachedScrollTop };
 }
 
 export interface ScrollState {
-	scrollTop?: number;
-	windowSize?: number;
-	anchorMessageId?: string;
-	anchorOffset?: number;
+  scrollTop?: number;
+  windowSize?: number;
+  anchorMessageId?: string;
+  anchorOffset?: number;
 }
 
 /** DOM attribute written by ChatMessage.svelte on every message wrapper. */
@@ -86,30 +86,30 @@ export const MESSAGE_ANCHOR_ATTR = "data-message-id";
  * its positive offset.
  */
 export function computeAnchor(
-	container: HTMLElement,
+  container: HTMLElement,
 ): { messageId: string; offset: number } | null {
-	const containerTop = container.getBoundingClientRect().top;
-	const wrappers = container.querySelectorAll<HTMLElement>(`[${MESSAGE_ANCHOR_ATTR}]`);
-	if (wrappers.length === 0) return null;
+  const containerTop = container.getBoundingClientRect().top;
+  const wrappers = container.querySelectorAll<HTMLElement>(`[${MESSAGE_ANCHOR_ATTR}]`);
+  if (wrappers.length === 0) return null;
 
-	let firstBelow: { el: HTMLElement; offset: number } | null = null;
-	for (const el of wrappers) {
-		const rect = el.getBoundingClientRect();
-		const offset = rect.top - containerTop;
-		if (offset <= 0 && rect.bottom - containerTop > 0) {
-			// Straddling the top — best anchor.
-			const id = el.getAttribute(MESSAGE_ANCHOR_ATTR);
-			if (id) return { messageId: id, offset };
-		}
-		if (offset > 0 && firstBelow === null) {
-			firstBelow = { el, offset };
-		}
-	}
-	if (firstBelow) {
-		const id = firstBelow.el.getAttribute(MESSAGE_ANCHOR_ATTR);
-		if (id) return { messageId: id, offset: firstBelow.offset };
-	}
-	return null;
+  let firstBelow: { el: HTMLElement; offset: number } | null = null;
+  for (const el of wrappers) {
+    const rect = el.getBoundingClientRect();
+    const offset = rect.top - containerTop;
+    if (offset <= 0 && rect.bottom - containerTop > 0) {
+      // Straddling the top — best anchor.
+      const id = el.getAttribute(MESSAGE_ANCHOR_ATTR);
+      if (id) return { messageId: id, offset };
+    }
+    if (offset > 0 && firstBelow === null) {
+      firstBelow = { el, offset };
+    }
+  }
+  if (firstBelow) {
+    const id = firstBelow.el.getAttribute(MESSAGE_ANCHOR_ATTR);
+    if (id) return { messageId: id, offset: firstBelow.offset };
+  }
+  return null;
 }
 
 /**
@@ -118,101 +118,101 @@ export function computeAnchor(
  * currently in the DOM (e.g. pagination window collapsed).
  */
 export function scrollTopForAnchor(
-	container: HTMLElement,
-	messageId: string,
-	offset: number,
+  container: HTMLElement,
+  messageId: string,
+  offset: number,
 ): number | null {
-	const el = container.querySelector<HTMLElement>(
-		`[${MESSAGE_ANCHOR_ATTR}="${CSS.escape(messageId)}"]`,
-	);
-	if (!el) return null;
-	const containerTop = container.getBoundingClientRect().top;
-	const elTop = el.getBoundingClientRect().top;
-	// elTop - containerTop is the message's current offset from the fold.
-	// We want it to equal `offset`, so adjust scrollTop by the difference.
-	return container.scrollTop + (elTop - containerTop) - offset;
+  const el = container.querySelector<HTMLElement>(
+    `[${MESSAGE_ANCHOR_ATTR}="${CSS.escape(messageId)}"]`,
+  );
+  if (!el) return null;
+  const containerTop = container.getBoundingClientRect().top;
+  const elTop = el.getBoundingClientRect().top;
+  // elTop - containerTop is the message's current offset from the fold.
+  // We want it to equal `offset`, so adjust scrollTop by the difference.
+  return container.scrollTop + (elTop - containerTop) - offset;
 }
 
 const STORAGE_PREFIX = "ezcorp:chat-scroll:";
 const stateByConv = new Map<string, ScrollState>();
 
 function getStorage(): Storage | undefined {
-	try {
-		return typeof sessionStorage !== "undefined" ? sessionStorage : undefined;
-	} catch {
-		return undefined;
-	}
+  try {
+    return typeof sessionStorage !== "undefined" ? sessionStorage : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function readStored(convId: string): ScrollState | undefined {
-	const storage = getStorage();
-	if (!storage) return undefined;
-	try {
-		const raw = storage.getItem(STORAGE_PREFIX + convId);
-		if (!raw) return undefined;
-		const parsed = JSON.parse(raw) as ScrollState;
-		// Defensive: ignore non-numeric / wrong-type values that could land
-		// us in a bad scroll.
-		const out: ScrollState = {};
-		if (typeof parsed.scrollTop === "number" && Number.isFinite(parsed.scrollTop)) {
-			out.scrollTop = parsed.scrollTop;
-		}
-		if (typeof parsed.windowSize === "number" && Number.isFinite(parsed.windowSize)) {
-			out.windowSize = parsed.windowSize;
-		}
-		if (typeof parsed.anchorMessageId === "string" && parsed.anchorMessageId.length > 0) {
-			out.anchorMessageId = parsed.anchorMessageId;
-		}
-		if (typeof parsed.anchorOffset === "number" && Number.isFinite(parsed.anchorOffset)) {
-			out.anchorOffset = parsed.anchorOffset;
-		}
-		return Object.keys(out).length === 0 ? undefined : out;
-	} catch {
-		return undefined;
-	}
+  const storage = getStorage();
+  if (!storage) return undefined;
+  try {
+    const raw = storage.getItem(STORAGE_PREFIX + convId);
+    if (!raw) return undefined;
+    const parsed = JSON.parse(raw) as ScrollState;
+    // Defensive: ignore non-numeric / wrong-type values that could land
+    // us in a bad scroll.
+    const out: ScrollState = {};
+    if (typeof parsed.scrollTop === "number" && Number.isFinite(parsed.scrollTop)) {
+      out.scrollTop = parsed.scrollTop;
+    }
+    if (typeof parsed.windowSize === "number" && Number.isFinite(parsed.windowSize)) {
+      out.windowSize = parsed.windowSize;
+    }
+    if (typeof parsed.anchorMessageId === "string" && parsed.anchorMessageId.length > 0) {
+      out.anchorMessageId = parsed.anchorMessageId;
+    }
+    if (typeof parsed.anchorOffset === "number" && Number.isFinite(parsed.anchorOffset)) {
+      out.anchorOffset = parsed.anchorOffset;
+    }
+    return Object.keys(out).length === 0 ? undefined : out;
+  } catch {
+    return undefined;
+  }
 }
 
 function writeStored(convId: string, state: ScrollState): void {
-	const storage = getStorage();
-	if (!storage) return;
-	try {
-		storage.setItem(STORAGE_PREFIX + convId, JSON.stringify(state));
-	} catch {
-		// Quota exceeded or storage denied — keep the in-memory copy and move on.
-	}
+  const storage = getStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(STORAGE_PREFIX + convId, JSON.stringify(state));
+  } catch {
+    // Quota exceeded or storage denied — keep the in-memory copy and move on.
+  }
 }
 
 export function getCachedScrollState(convId: string): ScrollState | undefined {
-	const mem = stateByConv.get(convId);
-	if (mem) return mem;
-	const stored = readStored(convId);
-	if (stored) stateByConv.set(convId, stored);
-	return stored;
+  const mem = stateByConv.get(convId);
+  if (mem) return mem;
+  const stored = readStored(convId);
+  if (stored) stateByConv.set(convId, stored);
+  return stored;
 }
 
 /** Merge a partial update into the conversation's cached state. */
 export function updateCachedScrollState(convId: string, partial: ScrollState): void {
-	const existing = getCachedScrollState(convId) ?? {};
-	const merged = { ...existing, ...partial };
-	stateByConv.set(convId, merged);
-	writeStored(convId, merged);
+  const existing = getCachedScrollState(convId) ?? {};
+  const merged = { ...existing, ...partial };
+  stateByConv.set(convId, merged);
+  writeStored(convId, merged);
 }
 
 /** Test-only — clear the in-memory cache and any persisted entries. */
 export function _resetScrollCache(): void {
-	stateByConv.clear();
-	const storage = getStorage();
-	if (!storage) return;
-	const toRemove: string[] = [];
-	for (let i = 0; i < storage.length; i++) {
-		const key = storage.key(i);
-		if (key && key.startsWith(STORAGE_PREFIX)) toRemove.push(key);
-	}
-	for (const key of toRemove) {
-		try {
-			storage.removeItem(key);
-		} catch {
-			// ignore — best-effort cleanup
-		}
-	}
+  stateByConv.clear();
+  const storage = getStorage();
+  if (!storage) return;
+  const toRemove: string[] = [];
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i);
+    if (key && key.startsWith(STORAGE_PREFIX)) toRemove.push(key);
+  }
+  for (const key of toRemove) {
+    try {
+      storage.removeItem(key);
+    } catch {
+      // ignore — best-effort cleanup
+    }
+  }
 }

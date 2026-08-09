@@ -34,10 +34,7 @@ const snapshotLocks = new Map<string, Promise<unknown>>();
  * A rejection does not poison the queue: the next waiter still runs, and the
  * original error propagates to the caller that scheduled it.
  */
-export function withTaskSnapshotLock<T>(
-  conversationId: string,
-  fn: () => Promise<T>,
-): Promise<T> {
+export function withTaskSnapshotLock<T>(conversationId: string, fn: () => Promise<T>): Promise<T> {
   const prev = snapshotLocks.get(conversationId) ?? Promise.resolve();
   const run = prev.then(() => fn());
   // The published tail never rejects, so a failed critical section can't

@@ -27,8 +27,12 @@ mock.module("../db/queries/settings", () => {
       return rows[0]?.value;
     },
     async upsertSetting() {},
-    async deleteSetting() { return false; },
-    async isListingInstalled() { return false; },
+    async deleteSetting() {
+      return false;
+    },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -155,7 +159,9 @@ describe("getSubConversationToolCalls", () => {
   test("does not include tool calls from unrelated conversations", async () => {
     // Another parent + its own sub with a tool call — must not leak into the query.
     const otherParent = await createConversation(projectId);
-    const otherSub = await createSubConversation(projectId, { parentConversationId: otherParent.id });
+    const otherSub = await createSubConversation(projectId, {
+      parentConversationId: otherParent.id,
+    });
     await insertToolCall({ conversationId: otherSub.id, toolName: "edit_file" });
 
     // The parent under test also has a sub with a tool call.

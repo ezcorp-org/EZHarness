@@ -93,13 +93,7 @@ describe("coverage-config helpers", () => {
   });
 
   test("parseLcov derives totals + missed lines from DA records", () => {
-    const lcov = [
-      "SF:/repo/src/a.ts",
-      "DA:1,1",
-      "DA:2,0",
-      "DA:3,5",
-      "end_of_record",
-    ].join("\n");
+    const lcov = ["SF:/repo/src/a.ts", "DA:1,1", "DA:2,0", "DA:3,5", "end_of_record"].join("\n");
     // Use a relative key the parser produces; assert structure regardless of root.
     const map = parseLcov(lcov);
     const rec = [...map.values()][0] as FileCov;
@@ -342,9 +336,9 @@ describe("gate-integrity: forbidden test additions", () => {
     // A line that merely MENTIONS the pattern inside a quoted string (e.g. this
     // gate's own test fixtures) is not an executable cheat — stripNoise drops the
     // string before matching, so it must not be flagged.
-    expect(forbiddenTestAdditions(['  expect(forbiddenTestAdditions(["it.skip(1)"])).toBe(1)'])).toEqual(
-      [],
-    );
+    expect(
+      forbiddenTestAdditions(['  expect(forbiddenTestAdditions(["it.skip(1)"])).toBe(1)']),
+    ).toEqual([]);
     expect(forbiddenTestAdditions(['  const sql = "describe.only(x)";'])).toEqual([]);
     expect(forbiddenTestAdditions(['  const code = "try { x() } catch {}";'])).toEqual([]);
     // …but a REAL skip whose keyword is outside any string is still caught.
@@ -356,7 +350,9 @@ describe("gate-integrity: forbidden test additions", () => {
     expect(forbiddenTestAdditions(["  test.skip(!pending, 'nothing real to accept')"])).toEqual([]);
     expect(forbiddenTestAdditions(["  it.skip(process.env.CI == null)"])).toEqual([]);
     // FORBIDDEN — static named skip, unconditional no-arg skip, static suite skip.
-    expect(forbiddenTestAdditions(['  test.skip("permanently disabled", () => {})']).length).toBe(1);
+    expect(forbiddenTestAdditions(['  test.skip("permanently disabled", () => {})']).length).toBe(
+      1,
+    );
     expect(forbiddenTestAdditions(["  it.skip()"]).length).toBe(1);
     expect(forbiddenTestAdditions(["  test.describe.skip('suite', () => {})"]).length).toBe(1);
   });
@@ -422,12 +418,7 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
 // ── gate-integrity: stripBlockComments ──────────────────────────────────────
 describe("gate-integrity: stripBlockComments", () => {
   test("blanks a JSDoc block, preserves line count, keeps following code", () => {
-    const src = [
-      "/**",
-      " * e2e self-test (mockApi, no Docker).",
-      " */",
-      "const x = 1;",
-    ].join("\n");
+    const src = ["/**", " * e2e self-test (mockApi, no Docker).", " */", "const x = 1;"].join("\n");
     const out = stripBlockComments(src);
     expect(out.split("\n").length).toBe(4); // newlines preserved
     expect(out).not.toContain("self-test"); // prose blanked
@@ -547,9 +538,7 @@ describe("gate-integrity: deletedOrRenamedTests", () => {
 // ── gate-integrity: fail-closed git-show classification ─────────────────────
 describe("gate-integrity: isPathAbsentAtRev", () => {
   test("recognises git's two path-absent messages", () => {
-    expect(
-      isPathAbsentAtRev("fatal: path 'scripts/new.ts' does not exist in 'abc123'"),
-    ).toBe(true);
+    expect(isPathAbsentAtRev("fatal: path 'scripts/new.ts' does not exist in 'abc123'")).toBe(true);
     expect(
       isPathAbsentAtRev("fatal: path 'scripts/new.ts' exists on disk, but not in 'abc123'"),
     ).toBe(true);
@@ -644,7 +633,11 @@ describe("check-patch-coverage: shouldFailOnLcovAbsence", () => {
 
 // ── typecheck-tests: ratchet validation (subset-of-baseline) ────────────────
 describe("typecheck-tests: ratchetViolation", () => {
-  const baseline = ["src/__tests__/a.test.ts", "src/__tests__/b.test.ts", "src/__tests__/c.test.ts"];
+  const baseline = [
+    "src/__tests__/a.test.ts",
+    "src/__tests__/b.test.ts",
+    "src/__tests__/c.test.ts",
+  ];
 
   test("subset of the baseline within the ceiling passes", () => {
     expect(ratchetViolation("k", ["src/__tests__/a.test.ts"], 3, baseline)).toBeNull();
@@ -677,7 +670,12 @@ describe("typecheck-tests: ratchetViolation", () => {
       join(import.meta.dir, "..", "..", "scripts/typecheck-tests-ratchet.json"),
     ).json()) as { backendTests: string[]; e2eSpecs: string[] };
     expect(
-      ratchetViolation("backendTests", raw.backendTests, BACKEND_RATCHET_CEILING, BACKEND_RATCHET_BASELINE),
+      ratchetViolation(
+        "backendTests",
+        raw.backendTests,
+        BACKEND_RATCHET_CEILING,
+        BACKEND_RATCHET_BASELINE,
+      ),
     ).toBeNull();
     expect(
       ratchetViolation("e2eSpecs", raw.e2eSpecs, E2E_RATCHET_CEILING, E2E_RATCHET_BASELINE),
@@ -883,8 +881,18 @@ describe("audit-deps: parseAuditJson", () => {
     // brace-expansion: GHSA-mh99-v99m-4gvg twice, ids 1130588 + 1130589).
     const raw = JSON.stringify({
       "brace-expansion": [
-        { id: 1, url: ".../GHSA-mh99-v99m-4gvg", severity: "moderate", vulnerable_versions: "<1.1.17" },
-        { id: 2, url: ".../GHSA-mh99-v99m-4gvg", severity: "high", vulnerable_versions: ">=2.0.0 <2.1.3" },
+        {
+          id: 1,
+          url: ".../GHSA-mh99-v99m-4gvg",
+          severity: "moderate",
+          vulnerable_versions: "<1.1.17",
+        },
+        {
+          id: 2,
+          url: ".../GHSA-mh99-v99m-4gvg",
+          severity: "high",
+          vulnerable_versions: ">=2.0.0 <2.1.3",
+        },
       ],
     });
     const findings = parseAuditJson(raw, ".");
@@ -902,7 +910,9 @@ describe("audit-deps: parseAuditJson", () => {
   });
 
   test("falls back to the numeric npm id when the url carries no GHSA", () => {
-    const raw = JSON.stringify({ foo: [{ id: 42, url: "https://example.com/x", severity: "high" }] });
+    const raw = JSON.stringify({
+      foo: [{ id: 42, url: "https://example.com/x", severity: "high" }],
+    });
     expect(parseAuditJson(raw, ".")[0]?.ghsa).toBe("npm-42");
   });
 
@@ -913,10 +923,11 @@ describe("audit-deps: parseAuditJson", () => {
       hasNulls: [null, { url: ".../GHSA-ok11-ok11-ok11", severity: "low" }],
       noId: [{ severity: "critical" }],
     });
-    expect(parseAuditJson(raw, ".").map((f) => f.ghsa).sort()).toEqual([
-      "GHSA-good-good-good",
-      "GHSA-ok11-ok11-ok11",
-    ]);
+    expect(
+      parseAuditJson(raw, ".")
+        .map((f) => f.ghsa)
+        .sort(),
+    ).toEqual(["GHSA-good-good-good", "GHSA-ok11-ok11-ok11"]);
   });
 
   test("empty stdout is UNAVAILABLE, not a clean audit", () => {

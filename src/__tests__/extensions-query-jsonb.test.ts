@@ -11,12 +11,7 @@
  * the real PGlite driver — same runtime characteristics as the prod write.
  */
 import { test, expect, beforeAll, afterAll, mock, afterEach } from "bun:test";
-import {
-  setupTestDb,
-  closeTestDb,
-  mockDbConnection,
-  getTestPglite,
-} from "./helpers/test-pglite";
+import { setupTestDb, closeTestDb, mockDbConnection, getTestPglite } from "./helpers/test-pglite";
 
 mockDbConnection();
 

@@ -11,8 +11,8 @@ import type { ExtensionManifestV2, ToolDefinition, SkillDefinition } from "./typ
 type WithFunctions<T> = T & { [key: string]: unknown };
 
 type ExtensionConfig = Omit<ExtensionManifestV2, "tools" | "skills" | "agent"> & {
-  tools?: (WithFunctions<ToolDefinition>)[];
-  skills?: (WithFunctions<SkillDefinition>)[];
+  tools?: WithFunctions<ToolDefinition>[];
+  skills?: WithFunctions<SkillDefinition>[];
   agent?: WithFunctions<NonNullable<ExtensionManifestV2["agent"]>>;
 };
 

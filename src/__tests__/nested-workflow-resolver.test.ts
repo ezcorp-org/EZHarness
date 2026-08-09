@@ -98,7 +98,7 @@ describe("makeNestedWorkflowResolver", () => {
     expect(await resolve("secret", { userId: "u-in" })).toBeUndefined();
   });
 
-  test("`role: \"member\"` is conservative — no run is ever treated as an admin", async () => {
+  test('`role: "member"` is conservative — no run is ever treated as an admin', async () => {
     // A run carries a principal id, not a role, so there is no input that
     // could make this resolver hand over someone else's `private` row. The
     // admin exemption in the ladder is reachable only through a route.

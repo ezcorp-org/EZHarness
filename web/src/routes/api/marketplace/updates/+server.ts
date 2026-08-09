@@ -22,11 +22,16 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   }
 
   const ids = idsParam.split(",").filter(Boolean);
-  const result: Record<string, { hasUpdate: boolean; currentVersion: string; latestVersion: string; listingId: string }> = {};
+  const result: Record<
+    string,
+    { hasUpdate: boolean; currentVersion: string; latestVersion: string; listingId: string }
+  > = {};
 
   await Promise.all(
     ids.map(async (agentConfigId) => {
-      const installed = (await getSetting(`marketplace:installed:${agentConfigId}`)) as InstalledInfo | undefined;
+      const installed = (await getSetting(`marketplace:installed:${agentConfigId}`)) as
+        | InstalledInfo
+        | undefined;
       if (!installed?.listingId) return;
 
       const listing = await getListingById(installed.listingId);

@@ -33,7 +33,8 @@ export const POST: RequestHandler = async ({ params, locals }) => {
     if (!/^[a-zA-Z0-9_-]+$/.test(draftId)) return errorJson(400, "Invalid draftId");
 
     const row = await getDraft(draftId, user.id);
-    if (!row) return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
+    if (!row)
+      return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
     if (row.kind !== "extension") return errorJson(400, "Draft is not an extension draft");
 
     // The scaffold type on the draft row selects whether the sandboxed

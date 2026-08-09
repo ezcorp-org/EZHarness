@@ -20,13 +20,8 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 
 mockDbConnection();
 
-const {
-  createConversation,
-  createMessage,
-  getMessages,
-  getConversationPath,
-  reparentMessage,
-} = await import("../db/queries/conversations");
+const { createConversation, createMessage, getMessages, getConversationPath, reparentMessage } =
+  await import("../db/queries/conversations");
 const { createProject } = await import("../db/queries/projects");
 
 describe("reparentMessage", () => {
@@ -44,8 +39,16 @@ describe("reparentMessage", () => {
 
   test("moves the parent pointer and returns the updated row", async () => {
     const u1 = await createMessage(convId, { role: "user", content: "u1" });
-    const a1 = await createMessage(convId, { role: "assistant", content: "a1", parentMessageId: u1.id });
-    const stray = await createMessage(convId, { role: "user", content: "stray", parentMessageId: u1.id });
+    const a1 = await createMessage(convId, {
+      role: "assistant",
+      content: "a1",
+      parentMessageId: u1.id,
+    });
+    const stray = await createMessage(convId, {
+      role: "user",
+      content: "stray",
+      parentMessageId: u1.id,
+    });
 
     const updated = await reparentMessage(convId, stray.id, a1.id);
     expect(updated).not.toBeNull();
@@ -62,16 +65,31 @@ describe("reparentMessage", () => {
     // route persists the steer U with parent=u1. The run then produces turn B
     // (parented on u1) — so U dangles off u1, OFF the assistant branch.
     const u1 = await createMessage(convId, { role: "user", content: "u1" });
-    const steerU = await createMessage(convId, { role: "user", content: "steer", parentMessageId: u1.id });
-    const turnB = await createMessage(convId, { role: "assistant", content: "B", parentMessageId: u1.id });
+    const steerU = await createMessage(convId, {
+      role: "user",
+      content: "steer",
+      parentMessageId: u1.id,
+    });
+    const turnB = await createMessage(convId, {
+      role: "assistant",
+      content: "B",
+      parentMessageId: u1.id,
+    });
 
     // Before reconciliation the assistant branch (u1 → B) excludes the steer.
-    expect((await getConversationPath(turnB.id, convId)).map((m) => m.content)).toEqual(["u1", "B"]);
+    expect((await getConversationPath(turnB.id, convId)).map((m) => m.content)).toEqual([
+      "u1",
+      "B",
+    ]);
 
     // Delivery reconciliation re-parents the steer onto the injection leaf (B),
     // then the next turn (C) parents onto the steer.
     await reparentMessage(convId, steerU.id, turnB.id);
-    const turnC = await createMessage(convId, { role: "assistant", content: "C", parentMessageId: steerU.id });
+    const turnC = await createMessage(convId, {
+      role: "assistant",
+      content: "C",
+      parentMessageId: steerU.id,
+    });
 
     // The next run's loadHistory walks from the leaf and rebuilds EXACTLY the
     // sequence the LLM saw: u1 → B → steer → C.
@@ -85,7 +103,11 @@ describe("reparentMessage", () => {
 
   test("re-parent to null re-roots the row", async () => {
     const u1 = await createMessage(convId, { role: "user", content: "u1" });
-    const a1 = await createMessage(convId, { role: "assistant", content: "a1", parentMessageId: u1.id });
+    const a1 = await createMessage(convId, {
+      role: "assistant",
+      content: "a1",
+      parentMessageId: u1.id,
+    });
 
     const updated = await reparentMessage(convId, a1.id, null);
     expect(updated!.parentMessageId).toBeNull();

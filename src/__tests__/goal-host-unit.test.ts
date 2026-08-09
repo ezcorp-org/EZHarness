@@ -106,7 +106,13 @@ function makeFakeExecutor(): { executor: AgentExecutor; calls: FakeExecutorCall[
 
 interface FakeStore {
   persisted: Map<string, PersistedGoal>;
-  rows: Array<{ id: string; role: string; content: string; conversationId: string; parentMessageId?: string }>;
+  rows: Array<{
+    id: string;
+    role: string;
+    content: string;
+    conversationId: string;
+    parentMessageId?: string;
+  }>;
 }
 
 function makeStore(): FakeStore {
@@ -129,17 +135,25 @@ interface HostHarness {
   getMessagesByConv: Map<string, Array<{ role: string; content: string; excluded?: boolean }>>;
 }
 
-function makeHost(opts: {
-  enabled?: boolean;
-  maxGoalTurns?: number;
-  initialPersisted?: Record<string, PersistedGoal>;
-  initialMessages?: Record<string, Array<{ role: string; content: string; excluded?: boolean }>>;
-  completeFn?: (...args: unknown[]) => Promise<unknown>;
-  resolveModelImpl?: (provider?: string, model?: string) => Promise<{ provider: string; model: string; piModel: unknown }>;
-  getCredentialImpl?: (provider: string, conversationId?: string) => Promise<{ type: string; token: string }>;
-  scanReturn?: Array<{ id: string; persisted: PersistedGoal }>;
-  computeSpend?: number;
-} = {}): HostHarness {
+function makeHost(
+  opts: {
+    enabled?: boolean;
+    maxGoalTurns?: number;
+    initialPersisted?: Record<string, PersistedGoal>;
+    initialMessages?: Record<string, Array<{ role: string; content: string; excluded?: boolean }>>;
+    completeFn?: (...args: unknown[]) => Promise<unknown>;
+    resolveModelImpl?: (
+      provider?: string,
+      model?: string,
+    ) => Promise<{ provider: string; model: string; piModel: unknown }>;
+    getCredentialImpl?: (
+      provider: string,
+      conversationId?: string,
+    ) => Promise<{ type: string; token: string }>;
+    scanReturn?: Array<{ id: string; persisted: PersistedGoal }>;
+    computeSpend?: number;
+  } = {},
+): HostHarness {
   const store = makeStore();
   if (opts.initialPersisted) {
     for (const [convId, g] of Object.entries(opts.initialPersisted)) {
@@ -152,34 +166,34 @@ function makeHost(opts: {
   const { executor, calls } = makeFakeExecutor();
   const pendingByConv = new Map<string, unknown>();
   const scanReturn = { value: opts.scanReturn ?? [] };
-  const completeMock =
-    opts.completeFn
-      ? mock(opts.completeFn)
-      : mock(async () => ({
-          content: [{ type: "text", text: '{"achieved":false,"reason":"keep going"}' }],
-          usage: { input: 10, output: 5 },
-          stopReason: "stop",
-        }));
+  const completeMock = opts.completeFn
+    ? mock(opts.completeFn)
+    : mock(async () => ({
+        content: [{ type: "text", text: '{"achieved":false,"reason":"keep going"}' }],
+        usage: { input: 10, output: 5 },
+        stopReason: "stop",
+      }));
   const computeSpendValue = { value: opts.computeSpend ?? 0 };
   const nowValue = { value: 1_700_000_000_000 };
 
-  const resolveModelMock =
-    opts.resolveModelImpl
-      ? mock(opts.resolveModelImpl)
-      : mock(async (provider?: string, model?: string) => ({
-          provider: provider ?? "anthropic",
-          model: model ?? "claude-haiku-4-5-20250514",
-          piModel: { __fake: true },
-        }));
-  const getCredentialMock =
-    opts.getCredentialImpl
-      ? mock(opts.getCredentialImpl)
-      : mock(async (_provider: string, _conversationId?: string) => ({
-          type: "apikey",
-          token: "fake-token",
-        }));
+  const resolveModelMock = opts.resolveModelImpl
+    ? mock(opts.resolveModelImpl)
+    : mock(async (provider?: string, model?: string) => ({
+        provider: provider ?? "anthropic",
+        model: model ?? "claude-haiku-4-5-20250514",
+        piModel: { __fake: true },
+      }));
+  const getCredentialMock = opts.getCredentialImpl
+    ? mock(opts.getCredentialImpl)
+    : mock(async (_provider: string, _conversationId?: string) => ({
+        type: "apikey",
+        token: "fake-token",
+      }));
 
-  const getMessagesByConv = new Map<string, Array<{ role: string; content: string; excluded?: boolean }>>();
+  const getMessagesByConv = new Map<
+    string,
+    Array<{ role: string; content: string; excluded?: boolean }>
+  >();
   if (opts.initialMessages) {
     for (const [k, v] of Object.entries(opts.initialMessages)) {
       getMessagesByConv.set(k, v);
@@ -193,7 +207,9 @@ function makeHost(opts: {
     maxGoalTurns: opts.maxGoalTurns ?? 50,
     now: () => nowValue.value,
     resolveModel: resolveModelMock as unknown as Parameters<typeof initGoalHost>[0]["resolveModel"],
-    getCredential: getCredentialMock as unknown as Parameters<typeof initGoalHost>[0]["getCredential"],
+    getCredential: getCredentialMock as unknown as Parameters<
+      typeof initGoalHost
+    >[0]["getCredential"],
     complete: completeMock as unknown as Parameters<typeof initGoalHost>[0]["complete"],
     readGoal: async (id: string) => store.persisted.get(id),
     writeGoal: async (id: string, goal: PersistedGoal) => {
@@ -219,9 +235,14 @@ function makeHost(opts: {
         parentMessageId: null,
         excluded: m.excluded ?? false,
         createdAt: new Date(),
-      })) as unknown as Awaited<ReturnType<typeof import("../db/queries/conversations").getMessages>>;
+      })) as unknown as Awaited<
+        ReturnType<typeof import("../db/queries/conversations").getMessages>
+      >;
     },
-    createMessage: async (conversationId: string, data: { role: string; content: string; parentMessageId?: string }) => {
+    createMessage: async (
+      conversationId: string,
+      data: { role: string; content: string; parentMessageId?: string },
+    ) => {
       const id = `row-${store.rows.length + 1}`;
       const row = {
         id,
@@ -244,7 +265,9 @@ function makeHost(opts: {
         parentMessageId: data.parentMessageId ?? null,
         excluded: false,
         createdAt: new Date(),
-      } as unknown as Awaited<ReturnType<typeof import("../db/queries/conversations").createMessage>>;
+      } as unknown as Awaited<
+        ReturnType<typeof import("../db/queries/conversations").createMessage>
+      >;
     },
     dequeuePending: (conversationId: string) => pendingByConv.get(conversationId),
   });
@@ -315,9 +338,12 @@ describe("U1 — slash-prefix parser (isGoalCommand + parseGoalCommand)", () => 
     expect(parseGoalCommand(`/goal ${alias}`)).toEqual({ subcommand: "clear" });
   });
 
-  test.each([...CLEAR_ALIASES])("`/goal %s` (uppercase) → clear (case-insensitive)", (alias: string) => {
-    expect(parseGoalCommand(`/goal ${alias.toUpperCase()}`)).toEqual({ subcommand: "clear" });
-  });
+  test.each([...CLEAR_ALIASES])(
+    "`/goal %s` (uppercase) → clear (case-insensitive)",
+    (alias: string) => {
+      expect(parseGoalCommand(`/goal ${alias.toUpperCase()}`)).toEqual({ subcommand: "clear" });
+    },
+  );
 
   test.each([...CLEAR_ALIASES])("`/goal %s   ` (trailing whitespace) → clear", (alias: string) => {
     expect(parseGoalCommand(`/goal ${alias}   `)).toEqual({ subcommand: "clear" });
@@ -917,9 +943,7 @@ describe("GoalHost.start lifecycle", () => {
         c1: { condition: "x", lastReason: null, createdAt: new Date().toISOString() },
       },
     });
-    h.scanReturn.value = [
-      { id: "c1", persisted: h.store.persisted.get("c1")! },
-    ];
+    h.scanReturn.value = [{ id: "c1", persisted: h.store.persisted.get("c1")! }];
     await h.host.start();
     expect(h.host.getRecord("c1")?.status).toBe("active");
     h.host.stop();
@@ -953,9 +977,7 @@ describe("FR-13b ensureGoalRecordRehydrated", () => {
       },
     });
     // Pre-seed a paused record.
-    h.scanReturn.value = [
-      { id: "c1", persisted: h.store.persisted.get("c1")! },
-    ];
+    h.scanReturn.value = [{ id: "c1", persisted: h.store.persisted.get("c1")! }];
     await h.host.bootSweep();
     h.host.getRecord("c1")!.status = "paused";
     h.emitted.length = 0;
@@ -975,9 +997,7 @@ describe("FR-13b ensureGoalRecordRehydrated", () => {
         c1: { condition: "x", lastReason: null, createdAt: "2026" },
       },
     });
-    h.scanReturn.value = [
-      { id: "c1", persisted: h.store.persisted.get("c1")! },
-    ];
+    h.scanReturn.value = [{ id: "c1", persisted: h.store.persisted.get("c1")! }];
     await h.host.bootSweep();
     const rec = h.host.getRecord("c1")!;
     rec.status = "paused";
@@ -1075,9 +1095,7 @@ describe("run:complete handler (loop core)", () => {
     expect(h.store.persisted.has("c1")).toBe(false);
     expect(h.host.getRecord("c1")).toBeUndefined();
     expect(h.emitted.some((e) => e.state === "off")).toBe(true);
-    const achievedRow = h.store.rows.find((r) =>
-      r.content.includes("Goal achieved"),
-    );
+    const achievedRow = h.store.rows.find((r) => r.content.includes("Goal achieved"));
     expect(achievedRow).not.toBeUndefined();
   });
 
@@ -1294,7 +1312,13 @@ describe("run:complete handler (loop core)", () => {
     arm(h, "c1");
     await h.host.start();
     h.bus.emit("run:error", {
-      run: { id: "init-run", agentName: "chat", status: "error", startedAt: 0, logs: [] } as unknown as AgentRun,
+      run: {
+        id: "init-run",
+        agentName: "chat",
+        status: "error",
+        startedAt: 0,
+        logs: [],
+      } as unknown as AgentRun,
       conversationId: "c1",
       error: "boom",
     });
@@ -1311,7 +1335,13 @@ describe("run:complete handler (loop core)", () => {
     arm(h, "c1");
     await h.host.start();
     h.bus.emit("run:cancel", {
-      run: { id: "init-run", agentName: "chat", status: "cancelled", startedAt: 0, logs: [] } as unknown as AgentRun,
+      run: {
+        id: "init-run",
+        agentName: "chat",
+        status: "cancelled",
+        startedAt: 0,
+        logs: [],
+      } as unknown as AgentRun,
       conversationId: "c1",
     });
     await new Promise((r) => setTimeout(r, 20));
@@ -1327,7 +1357,13 @@ describe("run:complete handler (loop core)", () => {
     arm(h, "c1");
     await h.host.start();
     h.bus.emit("run:error", {
-      run: { id: "init-run", agentName: "chat", status: "error", startedAt: 0, logs: [] } as unknown as AgentRun,
+      run: {
+        id: "init-run",
+        agentName: "chat",
+        status: "error",
+        startedAt: 0,
+        logs: [],
+      } as unknown as AgentRun,
       conversationId: "c1",
       error: "idle for 90s",
     });
@@ -1346,7 +1382,13 @@ describe("run:complete handler (loop core)", () => {
     arm(h, "c1");
     await h.host.start();
     h.bus.emit("run:complete", {
-      run: { id: "x", agentName: "chat", status: "success", startedAt: 0, logs: [] } as unknown as AgentRun,
+      run: {
+        id: "x",
+        agentName: "chat",
+        status: "success",
+        startedAt: 0,
+        logs: [],
+      } as unknown as AgentRun,
       // no conversationId
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -1433,7 +1475,7 @@ describe("pure helpers", () => {
       { role: "assistant", content: "ok" },
     ]);
     expect(t).toHaveLength(4);
-    expect(t.every((m) => m.role !== "ez-action-result" as never)).toBe(true);
+    expect(t.every((m) => m.role !== ("ez-action-result" as never))).toBe(true);
   });
 
   test("buildEvaluatorTranscript strips preprocess-result rows (raw tool JSON never reaches the evaluator)", () => {
@@ -1484,9 +1526,7 @@ describe("pure helpers", () => {
         lastReason: "ok",
       }).card.title,
     ).toBe("Goal active");
-    expect(buildStatusCard({ state: "paused", condition: "x" }).card.title).toBe(
-      "Goal paused",
-    );
+    expect(buildStatusCard({ state: "paused", condition: "x" }).card.title).toBe("Goal paused");
     expect(buildStatusCard({ state: "active" }).card.body).toContain("(unknown)");
     expect(buildClearedCard("x").card.title).toBe("Goal cleared");
     expect(buildClearedCard(undefined).card.title).toBe("Goal cleared");
@@ -1500,9 +1540,17 @@ describe("pure helpers", () => {
   });
 
   test("status card formats elapsed hours / minutes / seconds", () => {
-    const longH = buildStatusCard({ state: "active", condition: "x", elapsedMs: 3 * 3600_000 + 5 * 60_000 + 7_000 });
+    const longH = buildStatusCard({
+      state: "active",
+      condition: "x",
+      elapsedMs: 3 * 3600_000 + 5 * 60_000 + 7_000,
+    });
     expect(longH.card.body).toContain("3h5m7s");
-    const longM = buildStatusCard({ state: "active", condition: "x", elapsedMs: 6 * 60_000 + 2_000 });
+    const longM = buildStatusCard({
+      state: "active",
+      condition: "x",
+      elapsedMs: 6 * 60_000 + 2_000,
+    });
     expect(longM.card.body).toContain("6m2s");
     const justS = buildStatusCard({ state: "active", condition: "x", elapsedMs: 42_000 });
     expect(justS.card.body).toContain("42s");
@@ -1841,9 +1889,7 @@ describe("I-numbers — R3: lazy rebuild then later boot sweep does not duplicat
     // Now wire up the scan to point at the same conv and run the boot
     // sweep separately (mirrors "boot sweep finishes AFTER a lazy
     // rebuild already happened" race).
-    h.scanReturn.value = [
-      { id: "c1", persisted: h.store.persisted.get("c1")! },
-    ];
+    h.scanReturn.value = [{ id: "c1", persisted: h.store.persisted.get("c1")! }];
     h.nowValue.value += 1000; // distinct armedAt if bootSweep wrote one
     await h.host.bootSweep();
 
@@ -1971,9 +2017,7 @@ describe("I-numbers — uncovered branch: getMessages throws → pause", () => {
       deleteGoal: async (id: string) => {
         store.persisted.delete(id);
       },
-      scanGoalConversations: async () => [
-        { id: "c1", persisted: store.persisted.get("c1")! },
-      ],
+      scanGoalConversations: async () => [{ id: "c1", persisted: store.persisted.get("c1")! }],
       computeTokenSpend: async () => 0,
       getMessages: async () => {
         throw new Error("transcript fetch boom");
@@ -2003,7 +2047,9 @@ describe("I-numbers — uncovered branch: getMessages throws → pause", () => {
           parentMessageId: data.parentMessageId ?? null,
           excluded: false,
           createdAt: new Date(),
-        } as unknown as Awaited<ReturnType<typeof import("../db/queries/conversations").createMessage>>;
+        } as unknown as Awaited<
+          ReturnType<typeof import("../db/queries/conversations").createMessage>
+        >;
       },
       dequeuePending: () => undefined,
     });
@@ -2042,19 +2088,13 @@ describe("parseGoalEnabled — EZCORP_GOAL_ENABLED parsing", () => {
     expect(parseGoalEnabled(undefined)).toBe(true);
   });
 
-  test.each(["0", "false", "off", "no"])(
-    'explicit disable value "%s" → false',
-    (v) => {
-      expect(parseGoalEnabled(v)).toBe(false);
-    },
-  );
+  test.each(["0", "false", "off", "no"])('explicit disable value "%s" → false', (v) => {
+    expect(parseGoalEnabled(v)).toBe(false);
+  });
 
-  test.each(["FALSE", "Off", "NO", "0"])(
-    'case-insensitive disable value "%s" → false',
-    (v) => {
-      expect(parseGoalEnabled(v)).toBe(false);
-    },
-  );
+  test.each(["FALSE", "Off", "NO", "0"])('case-insensitive disable value "%s" → false', (v) => {
+    expect(parseGoalEnabled(v)).toBe(false);
+  });
 
   test('value with whitespace " off " → false (trimmed)', () => {
     expect(parseGoalEnabled(" off ")).toBe(false);

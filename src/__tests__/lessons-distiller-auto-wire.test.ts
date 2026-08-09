@@ -67,7 +67,9 @@ mock.module("../db/queries/settings", () => {
       await getDb().delete(tbl).where(eq(tbl.key, key));
       return true;
     },
-    async isListingInstalled() { return false; },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -79,19 +81,14 @@ const { migrateLessonsDistillerConversationWiring } = await import(
 const { migrateMemoryExtractorConversationWiring } = await import(
   "../extensions/migrations/memory-extractor-conversation-wiring"
 );
-const { autoWireBundledExtensions } = await import(
-  "../extensions/auto-wire-bundled"
+const { autoWireBundledExtensions } = await import("../extensions/auto-wire-bundled");
+const { getConversationExtensionIds, addConversationExtensions } = await import(
+  "../db/queries/conversation-extensions"
 );
-const {
-  getConversationExtensionIds,
-  addConversationExtensions,
-} = await import("../db/queries/conversation-extensions");
 const { createConversation } = await import("../db/queries/conversations");
 const { createProject } = await import("../db/queries/projects");
 const { createExtension } = await import("../db/queries/extensions");
-const { getSetting, deleteSetting, upsertSetting } = await import(
-  "../db/queries/settings"
-);
+const { getSetting, deleteSetting, upsertSetting } = await import("../db/queries/settings");
 const { getDb } = await import("../db/connection");
 const { conversationExtensions } = await import("../db/schema");
 const { eq, and } = await import("drizzle-orm");
@@ -221,9 +218,7 @@ describe("migrateLessonsDistillerConversationWiring — backfill", () => {
     await getDb()
       .delete(conversationExtensions)
       .where(eq(conversationExtensions.extensionId, lessonsDistillerExtId));
-    await addConversationExtensions(conv.id, [
-      { extensionId: lessonsDistillerExtId },
-    ]);
+    await addConversationExtensions(conv.id, [{ extensionId: lessonsDistillerExtId }]);
     await deleteSetting(SENTINEL_KEY);
 
     await migrateLessonsDistillerConversationWiring(lessonsDistillerExtId);

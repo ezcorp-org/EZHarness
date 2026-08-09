@@ -9,14 +9,7 @@
  */
 
 import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
-import {
-  mkdirSync,
-  writeFileSync,
-  existsSync,
-  rmSync,
-  readFileSync,
-  readdirSync,
-} from "node:fs";
+import { mkdirSync, writeFileSync, existsSync, rmSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -30,8 +23,7 @@ let verifyImpl: () => Promise<{
   pass: boolean;
   steps: Array<{ name: string; ok: boolean; detail: string }>;
 }> = async () => ({ pass: true, steps: [{ name: "x", ok: true, detail: "ok" }] });
-let getByNameImpl: (n: string) => Promise<{ id: string } | null> = async () =>
-  null;
+let getByNameImpl: (n: string) => Promise<{ id: string } | null> = async () => null;
 let installImpl: () => Promise<{ id: string; name: string }> = async () => ({
   id: "ext-1",
   name: "weather",
@@ -69,9 +61,7 @@ mock.module("../extensions/loader", () => ({
   // modules by path. `loadManifest` throws so a regression to the
   // cached reader fails this suite instead of installing stale bytes.
   loadManifest: () => {
-    throw new Error(
-      "author-install must call loadManifestFresh, not loadManifest",
-    );
+    throw new Error("author-install must call loadManifestFresh, not loadManifest");
   },
   loadManifestFresh: (dir: string) => manifestImpl(dir),
 }));
@@ -116,28 +106,16 @@ mock.module("node:fs/promises", () => ({
   },
 }));
 
-const { installAuthoredDraft, AuthorInstallError } = await import(
-  "../extensions/author-install"
-);
+const { installAuthoredDraft, AuthorInstallError } = await import("../extensions/author-install");
 
 let TMP = "";
 
 /** Build `<tmp>/.ezcorp/extension-data/extension-author/drafts/<u>/<d>`
  *  so dirname^6 resolves the project root to `<tmp>`. */
-function seed(opts: {
-  kind?: string;
-  type?: string;
-  withCfg?: boolean;
-  makeDir?: boolean;
-}): void {
+function seed(opts: { kind?: string; type?: string; withCfg?: boolean; makeDir?: boolean }): void {
   const uid = "user-a";
   const did = "draft-1";
-  DRAFT_DIR = join(
-    TMP,
-    ".ezcorp/extension-data/extension-author/drafts",
-    uid,
-    did,
-  );
+  DRAFT_DIR = join(TMP, ".ezcorp/extension-data/extension-author/drafts", uid, did);
   draftRow = {
     id: did,
     userId: uid,
@@ -169,7 +147,11 @@ beforeEach(() => {
   failBackupCleanup = false;
 });
 afterEach(() => {
-  try { rmSync(TMP, { recursive: true, force: true }); } catch { /* */ }
+  try {
+    rmSync(TMP, { recursive: true, force: true });
+  } catch {
+    /* */
+  }
 });
 
 async function code(p: Promise<unknown>): Promise<string> {
@@ -184,9 +166,9 @@ async function code(p: Promise<unknown>): Promise<string> {
 describe("installAuthoredDraft — typed-error branches", () => {
   test("DRAFT_NOT_FOUND when getDraft returns undefined", async () => {
     draftRow = undefined;
-    expect(
-      await code(installAuthoredDraft({ draftId: "x", userId: "u", enable: false })),
-    ).toBe("DRAFT_NOT_FOUND");
+    expect(await code(installAuthoredDraft({ draftId: "x", userId: "u", enable: false }))).toBe(
+      "DRAFT_NOT_FOUND",
+    );
   });
 
   test("NOT_EXTENSION_DRAFT for non-extension kind", async () => {
@@ -292,9 +274,7 @@ describe("installAuthoredDraft — typed-error branches", () => {
 describe("installAuthoredDraft — sanctioned in-place modify", () => {
   const installedDir = () => join(TMP, ".ezcorp/extensions", "weather");
   const baks = () =>
-    readdirSync(join(TMP, ".ezcorp/extensions")).filter((n) =>
-      n.includes(".modify-bak-"),
-    );
+    readdirSync(join(TMP, ".ezcorp/extensions")).filter((n) => n.includes(".modify-bak-"));
 
   function asModifyDraft(modifyOf = "ext-target"): void {
     (draftRow!.payload as Record<string, unknown>).modifyOf = modifyOf;
@@ -323,9 +303,7 @@ describe("installAuthoredDraft — sanctioned in-place modify", () => {
       enable: false,
     });
     expect(r.extensionId).toBe("ext-1");
-    expect(readFileSync(join(installedDir(), "ezcorp.config.ts"), "utf8")).toBe(
-      "NEW\n",
-    );
+    expect(readFileSync(join(installedDir(), "ezcorp.config.ts"), "utf8")).toBe("NEW\n");
     expect(existsSync(DRAFT_DIR)).toBe(false); // moved into place
     expect(baks()).toEqual([]); // backup cleaned on success
   });
@@ -341,13 +319,9 @@ describe("installAuthoredDraft — sanctioned in-place modify", () => {
     };
 
     expect(
-      await code(
-        installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false }),
-      ),
+      await code(installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false })),
     ).toBe("INSTALL_FAILED");
-    expect(readFileSync(join(installedDir(), "ezcorp.config.ts"), "utf8")).toBe(
-      "ORIGINAL\n",
-    );
+    expect(readFileSync(join(installedDir(), "ezcorp.config.ts"), "utf8")).toBe("ORIGINAL\n");
     expect(baks()).toEqual([]);
   });
 
@@ -363,9 +337,7 @@ describe("installAuthoredDraft — sanctioned in-place modify", () => {
       }) as unknown as { id: string };
     mkdirSync(installedDir(), { recursive: true });
     expect(
-      await code(
-        installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false }),
-      ),
+      await code(installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false })),
     ).toBe("NAME_COLLISION");
   });
 
@@ -380,9 +352,7 @@ describe("installAuthoredDraft — sanctioned in-place modify", () => {
         isBundled: false,
       }) as unknown as { id: string };
     expect(
-      await code(
-        installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false }),
-      ),
+      await code(installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false })),
     ).toBe("NAME_COLLISION");
   });
 
@@ -397,9 +367,7 @@ describe("installAuthoredDraft — sanctioned in-place modify", () => {
         isBundled: true,
       }) as unknown as { id: string };
     expect(
-      await code(
-        installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false }),
-      ),
+      await code(installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false })),
     ).toBe("NAME_COLLISION");
   });
 
@@ -414,9 +382,7 @@ describe("installAuthoredDraft — sanctioned in-place modify", () => {
         isBundled: false,
       }) as unknown as { id: string };
     expect(
-      await code(
-        installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false }),
-      ),
+      await code(installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false })),
     ).toBe("NAME_COLLISION");
   });
 
@@ -442,9 +408,9 @@ describe("installAuthoredDraft — sanctioned in-place modify", () => {
     // The draft's own file wins…
     expect(readFileSync(join(installedDir(), "ezcorp.config.ts"), "utf8")).toBe("NEW\n");
     // …and everything the draft could not carry survives.
-    expect(
-      readFileSync(join(installedDir(), "node_modules/left-pad/index.js"), "utf8"),
-    ).toBe("dep\n");
+    expect(readFileSync(join(installedDir(), "node_modules/left-pad/index.js"), "utf8")).toBe(
+      "dep\n",
+    );
     expect(readFileSync(join(installedDir(), "assets.bin"), "utf8")).toBe("blob\n");
     expect(baks()).toEqual([]);
   });
@@ -500,9 +466,7 @@ describe("installAuthoredDraft — sanctioned in-place modify", () => {
         isBundled: false,
       }) as unknown as { id: string };
     expect(
-      await code(
-        installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false }),
-      ),
+      await code(installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false })),
     ).toBe("NAME_COLLISION");
   });
 });
@@ -603,9 +567,7 @@ describe("installAuthoredDraft — happy path + enable", () => {
       throw new Error("registry boom");
     };
     expect(
-      await code(
-        installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: true }),
-      ),
+      await code(installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: true })),
     ).toBe("ENABLE_FAILED");
   });
 
@@ -843,9 +805,7 @@ describe("installAuthoredDraft — granted-permission fold (item A)", () => {
       throw new FakeLeak();
     };
     expect(
-      await code(
-        installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false }),
-      ),
+      await code(installAuthoredDraft({ draftId: "draft-1", userId: "user-a", enable: false })),
     ).toBe("ENV_KEY_LEAK");
     // Folding perms does NOT bypass the env-key-leak gate / rollback.
     expect(existsSync(DRAFT_DIR)).toBe(true);

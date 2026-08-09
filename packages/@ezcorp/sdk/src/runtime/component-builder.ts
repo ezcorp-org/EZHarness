@@ -13,28 +13,13 @@
 // — the wire protocol accepts forward-compat additions that aren't yet
 // in the host's typed vocabulary; the host validator is the authority.
 
-export type PanelColor =
-  | "blue"
-  | "green"
-  | "red"
-  | "yellow"
-  | "purple"
-  | "gray";
+export type PanelColor = "blue" | "green" | "red" | "yellow" | "purple" | "gray";
 
 export type PanelTextVariant = "muted" | "default" | "emphasis";
 
-export type PanelStatusState =
-  | "idle"
-  | "running"
-  | "success"
-  | "error"
-  | "warning";
+export type PanelStatusState = "idle" | "running" | "success" | "error" | "warning";
 
-export type PanelListItemStatus =
-  | "pending"
-  | "active"
-  | "completed"
-  | "failed";
+export type PanelListItemStatus = "pending" | "active" | "completed" | "failed";
 
 export interface PanelBuilderListItem {
   label: string;
@@ -62,18 +47,14 @@ export class ComponentListBuilder {
   title(title: string, subtitle?: string): this {
     if (this.firstTitle === undefined) this.firstTitle = title;
     this.components.push(
-      subtitle !== undefined
-        ? { type: "header", title, subtitle }
-        : { type: "header", title },
+      subtitle !== undefined ? { type: "header", title, subtitle } : { type: "header", title },
     );
     return this;
   }
 
   markdown(content: string, variant?: PanelTextVariant): this {
     this.components.push(
-      variant !== undefined
-        ? { type: "text", content, variant }
-        : { type: "text", content },
+      variant !== undefined ? { type: "text", content, variant } : { type: "text", content },
     );
     return this;
   }
@@ -99,9 +80,7 @@ export class ComponentListBuilder {
 
   badge(label: string, color?: PanelColor): this {
     this.components.push(
-      color !== undefined
-        ? { type: "badge", label, color }
-        : { type: "badge", label },
+      color !== undefined ? { type: "badge", label, color } : { type: "badge", label },
     );
     return this;
   }
@@ -122,9 +101,7 @@ export class ComponentListBuilder {
 
   progress(value: number, label?: string): this {
     this.components.push(
-      label !== undefined
-        ? { type: "progress", value, label }
-        : { type: "progress", value },
+      label !== undefined ? { type: "progress", value, label } : { type: "progress", value },
     );
     return this;
   }

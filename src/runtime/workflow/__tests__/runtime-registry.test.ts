@@ -35,7 +35,7 @@ function stubRuntime(
       // resumes. Throws rather than returning a value so an accidental
       // call fails loudly instead of silently passing.
       async resumeWorkflow() {
-      throw new Error("resumeWorkflow is not exercised by this double");
+        throw new Error("resumeWorkflow is not exercised by this double");
       },
       async runWorkflow(workflow) {
         onRun?.(workflow.name);
@@ -92,10 +92,14 @@ describe("workflow runtime-registry", () => {
     let cache: WorkflowDefinition[] = [DEF];
     registerWorkflowRuntime({
       workflowExecutor: {
-        async runWorkflow(w) { return stubRun(w.name); },
+        async runWorkflow(w) {
+          return stubRun(w.name);
+        },
         // Type-only — this double never resumes; throwing keeps an
         // accidental call loud.
-        async resumeWorkflow() { throw new Error("not exercised"); },
+        async resumeWorkflow() {
+          throw new Error("not exercised");
+        },
       },
       getWorkflows: () => cache,
     });

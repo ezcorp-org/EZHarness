@@ -79,7 +79,9 @@ function seedRegistry(opts: { originalName?: string; bundled?: boolean } = {}): 
   } as never);
   registry.setGrantedPermsForTest(EXT_ID, { grantedAt: {} });
   // isBundled is set at reload; drive it explicitly for the skipTimeout gate.
-  spyOn(registry, "isBundled").mockImplementation((id: string) => opts.bundled === true && id === EXT_ID);
+  spyOn(registry, "isBundled").mockImplementation(
+    (id: string) => opts.bundled === true && id === EXT_ID,
+  );
 
   // Mock ONLY the subprocess boundary: a fake process that records the tool
   // name + the per-call options ({ skipTimeout }) it was dispatched with.
@@ -116,8 +118,12 @@ describe("orchestration dispatch-key (real registry keying)", () => {
   test("real registry keys toolMap by the NAMESPACED name; the bare name does NOT resolve", () => {
     const registry = ExtensionRegistry.getInstance();
     registry.registerToolForTest(NS_NAME, {
-      name: NS_NAME, originalName: BARE_NAME, extensionId: EXT_ID,
-      extensionName: "orchestration", description: "", inputSchema: {},
+      name: NS_NAME,
+      originalName: BARE_NAME,
+      extensionId: EXT_ID,
+      extensionName: "orchestration",
+      description: "",
+      inputSchema: {},
     } as RegisteredTool);
     expect(registry.getRegisteredTool(NS_NAME)).not.toBeNull();
     expect(registry.getRegisteredTool(BARE_NAME)).toBeNull();
@@ -131,9 +137,15 @@ describe("orchestration dispatch-key (real registry keying)", () => {
     // name is bare, dispatchName is the namespaced registry key.
     const agentTool = extensionToAgentTool(
       { name: BARE_NAME, description: "", inputSchema: {}, dispatchName: NS_NAME },
-      exec, "conv-1", "msg-1",
+      exec,
+      "conv-1",
+      "msg-1",
     );
-    const result = await agentTool.execute("call-1", { agentConfigId: "a1", task: "t" }, new AbortController().signal);
+    const result = await agentTool.execute(
+      "call-1",
+      { agentConfigId: "a1", task: "t" },
+      new AbortController().signal,
+    );
 
     const text = (result.content?.[0] as { text?: string })?.text ?? "";
     expect(text).not.toContain("Unknown tool");
@@ -152,7 +164,9 @@ describe("orchestration dispatch-key (real registry keying)", () => {
     // getRegisteredTool(bare) → null.
     const agentTool = extensionToAgentTool(
       { name: BARE_NAME, description: "", inputSchema: {} },
-      exec, "conv-1", "msg-1",
+      exec,
+      "conv-1",
+      "msg-1",
     );
     const result = await agentTool.execute("call-1", {}, new AbortController().signal);
 
@@ -182,26 +196,45 @@ describe("long-blocking subprocess skipTimeout (F2)", () => {
         inputSchema: {},
         dispatchName: `orchestration__${originalName}`,
       },
-      exec, "conv-1", "msg-1",
+      exec,
+      "conv-1",
+      "msg-1",
     );
   }
 
   test("bundled invoke_agent → dispatched with { skipTimeout: true }", async () => {
-    const { registry, callToolOptions } = seedRegistry({ originalName: "invoke_agent", bundled: true });
+    const { registry, callToolOptions } = seedRegistry({
+      originalName: "invoke_agent",
+      bundled: true,
+    });
     const exec = new ToolExecutor(registry, createStubPermissionEngine("allow-all"));
-    await wire(exec, "invoke_agent").execute("c1", { agentConfigId: "a1", task: "t" }, new AbortController().signal);
+    await wire(exec, "invoke_agent").execute(
+      "c1",
+      { agentConfigId: "a1", task: "t" },
+      new AbortController().signal,
+    );
     expect(callToolOptions[0]?.skipTimeout).toBe(true);
   });
 
   test("bundled collect_agent_result → dispatched with { skipTimeout: true }", async () => {
-    const { registry, callToolOptions } = seedRegistry({ originalName: "collect_agent_result", bundled: true });
+    const { registry, callToolOptions } = seedRegistry({
+      originalName: "collect_agent_result",
+      bundled: true,
+    });
     const exec = new ToolExecutor(registry, createStubPermissionEngine("allow-all"));
-    await wire(exec, "collect_agent_result").execute("c1", { assignmentId: "a1" }, new AbortController().signal);
+    await wire(exec, "collect_agent_result").execute(
+      "c1",
+      { assignmentId: "a1" },
+      new AbortController().signal,
+    );
     expect(callToolOptions[0]?.skipTimeout).toBe(true);
   });
 
   test("SELF-GRANT PROTECTION: a NON-bundled ext with the same tool name does NOT get skipTimeout", async () => {
-    const { registry, callToolOptions } = seedRegistry({ originalName: "invoke_agent", bundled: false });
+    const { registry, callToolOptions } = seedRegistry({
+      originalName: "invoke_agent",
+      bundled: false,
+    });
     const exec = new ToolExecutor(registry, createStubPermissionEngine("allow-all"));
     await wire(exec, "invoke_agent").execute("c1", {}, new AbortController().signal);
     // Normal 3-arg dispatch → no options object → subject to the 30s kill.
@@ -209,7 +242,10 @@ describe("long-blocking subprocess skipTimeout (F2)", () => {
   });
 
   test("a BUNDLED tool NOT in the long-blocking set → no skipTimeout", async () => {
-    const { registry, callToolOptions } = seedRegistry({ originalName: "some_other_tool", bundled: true });
+    const { registry, callToolOptions } = seedRegistry({
+      originalName: "some_other_tool",
+      bundled: true,
+    });
     const exec = new ToolExecutor(registry, createStubPermissionEngine("allow-all"));
     await wire(exec, "some_other_tool").execute("c1", {}, new AbortController().signal);
     expect(callToolOptions[0]).toBeUndefined();

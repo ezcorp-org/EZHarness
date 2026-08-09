@@ -210,9 +210,7 @@ export async function sweepOrphanVeths(
       error: `ip link show failed: ${stderrStr}`,
     };
   }
-  const stdoutStr = list.stdout
-    ? new TextDecoder().decode(list.stdout as Uint8Array)
-    : "";
+  const stdoutStr = list.stdout ? new TextDecoder().decode(list.stdout as Uint8Array) : "";
   const names: string[] = [];
   for (const line of stdoutStr.split("\n")) {
     if (!line.trim()) continue;

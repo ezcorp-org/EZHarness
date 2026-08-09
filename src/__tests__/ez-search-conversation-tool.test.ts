@@ -60,13 +60,18 @@ describe("search_conversation (injectable seam)", () => {
           role: "assistant",
           snippet: "we discussed <mark>pineapple</mark> imports",
         }),
-        makeHit({ conversationId: "conv-b", conversationTitle: "Budget", role: "user", snippet: "second hit" }),
+        makeHit({
+          conversationId: "conv-b",
+          conversationTitle: "Budget",
+          role: "user",
+          snippet: "second hit",
+        }),
       ],
     });
     const result = await tool.execute("q-1", { query: "pineapple" });
     const text = expectText(result);
-    expect(text).toContain("Found 2 messages matching \"pineapple\"");
-    expect(text).toContain("[assistant] \"Trip planning\"");
+    expect(text).toContain('Found 2 messages matching "pineapple"');
+    expect(text).toContain('[assistant] "Trip planning"');
     expect(text).toContain("conversationId: conv-a");
     expect(text).toContain("2026-01-02T03:04:05.000Z");
     // <mark> wrappers stripped to plain text.
@@ -117,7 +122,12 @@ describe("search_conversation (injectable seam)", () => {
         return [
           makeHit({ conversationId: "keep", conversationTitle: "Keep" }),
           makeHit({ conversationId: "drop", conversationTitle: "Drop" }),
-          makeHit({ conversationId: "keep", conversationTitle: "Keep", messageId: "m-2", snippet: "second keep" }),
+          makeHit({
+            conversationId: "keep",
+            conversationTitle: "Keep",
+            messageId: "m-2",
+            snippet: "second keep",
+          }),
         ];
       },
     });
@@ -135,7 +145,7 @@ describe("search_conversation (injectable seam)", () => {
     const tool = createSearchConversationTool({ userId: "u-1", search: async () => [] });
     const result = await tool.execute("q-5", { query: "nothingmatches" });
     const text = expectText(result);
-    expect(text).toContain("No messages matching \"nothingmatches\" were found.");
+    expect(text).toContain('No messages matching "nothingmatches" were found.');
     const details = expectDetails<SearchDetails>(result);
     expect(details.count).toBe(0);
     expect(details.conversationId).toBeUndefined();
@@ -153,7 +163,10 @@ describe("search_conversation (injectable seam)", () => {
   });
 
   test("empty query returns an error result, not a throw", async () => {
-    const tool = createSearchConversationTool({ userId: "u-1", search: async () => [makeHit({ conversationId: "x" })] });
+    const tool = createSearchConversationTool({
+      userId: "u-1",
+      search: async () => [makeHit({ conversationId: "x" })],
+    });
     const result = await tool.execute("q-7", { query: "   " });
     expect(expectDetails<SearchDetails>(result).isError).toBe(true);
     expectText(result, "query is required");
@@ -186,13 +199,25 @@ describe("search_conversation (real PGlite, keyword mode)", () => {
     user2 = u2.id;
     await getDb()
       .insert(projects)
-      .values({ id: "search-proj", name: "search", path: "/tmp/search", description: "", userId: user1 })
+      .values({
+        id: "search-proj",
+        name: "search",
+        path: "/tmp/search",
+        description: "",
+        userId: user1,
+      })
       .onConflictDoNothing();
 
     const c1 = await createConversation("search-proj", { title: "User1 chat", userId: user1 });
     conv1Id = c1.id;
-    await createMessage(conv1Id, { role: "user", content: "I want to talk about pineapple farming techniques." });
-    await createMessage(conv1Id, { role: "assistant", content: "Sure — bananas grow differently than apples." });
+    await createMessage(conv1Id, {
+      role: "user",
+      content: "I want to talk about pineapple farming techniques.",
+    });
+    await createMessage(conv1Id, {
+      role: "assistant",
+      content: "Sure — bananas grow differently than apples.",
+    });
 
     // A second user's conversation that ALSO mentions the search term — the
     // tenant scope must exclude it from user1's results.
@@ -210,7 +235,7 @@ describe("search_conversation (real PGlite, keyword mode)", () => {
     const result = await tool.execute("int-1", { query: "pineapple" });
     const text = expectText(result);
     // Singular noun proves exactly one hit for user1.
-    expect(text).toContain("Found 1 message matching \"pineapple\"");
+    expect(text).toContain('Found 1 message matching "pineapple"');
     expect(text).toContain(`conversationId: ${conv1Id}`);
     expect(text).toContain("pineapple");
     expect(text).not.toContain("<mark>");
@@ -229,7 +254,7 @@ describe("search_conversation (real PGlite, keyword mode)", () => {
     const tool = createSearchConversationTool({ userId: user2 });
     // user2 mentions pineapple but not this term.
     const result = await tool.execute("int-3", { query: "quantum" });
-    expect(expectText(result)).toContain("No messages matching \"quantum\" were found.");
+    expect(expectText(result)).toContain('No messages matching "quantum" were found.');
     expect(expectDetails<SearchDetails>(result).count).toBe(0);
   });
 });

@@ -96,12 +96,19 @@ beforeAll(async () => {
   const db = getTestDb();
 
   await db.insert(users).values({
-    id: USER_ID, email: "t@x.com", passwordHash: "x", name: "T", role: "admin",
+    id: USER_ID,
+    email: "t@x.com",
+    passwordHash: "x",
+    name: "T",
+    role: "admin",
   } as any);
   await db.insert(projects).values({ id: PROJECT_ID, name: "t", path: "/tmp/t" } as any);
   await db.insert(conversations).values({
-    id: CONV, projectId: PROJECT_ID, userId: USER_ID,
-    model: "claude-opus-4-5", provider: "anthropic",
+    id: CONV,
+    projectId: PROJECT_ID,
+    userId: USER_ID,
+    model: "claude-opus-4-5",
+    provider: "anthropic",
   } as any);
 
   const rows: Record<string, unknown>[] = [];
@@ -159,7 +166,10 @@ describe("getRoutingStats — spend totals vs the display cap", () => {
     expect(TOTAL_GROUPS).toBeGreaterThan(CAP);
     for (const [provider, model] of MODELS) {
       const p = modelPrices(provider, model);
-      expect(p, `${provider}/${model} must be priced for this fixture to mean anything`).toBeTruthy();
+      expect(
+        p,
+        `${provider}/${model} must be priced for this fixture to mean anything`,
+      ).toBeTruthy();
       expect(p!.input).toBeGreaterThan(0);
     }
   });
@@ -174,7 +184,9 @@ describe("getRoutingStats — spend totals vs the display cap", () => {
     const s = await getRoutingStats(30);
     const [provider, model] = MODELS[MODELS.length - 1]!;
     const shown = s.spend.segments.some((seg) => seg.provider === provider && seg.model === model);
-    expect(shown, `${model} is the lowest-volume group; it must fall outside the top ${CAP}`).toBe(false);
+    expect(shown, `${model} is the lowest-volume group; it must fall outside the top ${CAP}`).toBe(
+      false,
+    );
   });
 
   test("totalUsd covers ALL groups, including the ones the table drops", async () => {

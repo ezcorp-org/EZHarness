@@ -28,10 +28,12 @@ function makeAssignment(id: string): TaskAssignment {
   };
 }
 
-function makeTask(opts: {
-  assignments?: TaskAssignment[];
-  subtaskAssignments?: (TaskAssignment[] | undefined)[];
-} = {}): TrackedTask {
+function makeTask(
+  opts: {
+    assignments?: TaskAssignment[];
+    subtaskAssignments?: (TaskAssignment[] | undefined)[];
+  } = {},
+): TrackedTask {
   return {
     id: "t1",
     title: "Task",

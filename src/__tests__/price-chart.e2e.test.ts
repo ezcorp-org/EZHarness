@@ -24,10 +24,7 @@ import { join } from "node:path";
 import { ExtensionProcess } from "../extensions/subprocess";
 import { ExtensionRegistry } from "../extensions/registry";
 import { extensionToAgentTool, ToolExecutor } from "../extensions/tool-executor";
-import type {
-  ExtensionManifestV2,
-  ExtensionPermissions,
-} from "../extensions/types";
+import type { ExtensionManifestV2, ExtensionPermissions } from "../extensions/types";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -107,12 +104,10 @@ async function runRawToolCall(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<{ result: unknown; error: unknown }> {
-  const proc = new ExtensionProcess(
-    "price-chart-test",
-    EXT_ENTRY,
-    buildEnv(),
-    { idleTimeoutMs: 60_000, callTimeoutMs: 25_000 },
-  );
+  const proc = new ExtensionProcess("price-chart-test", EXT_ENTRY, buildEnv(), {
+    idleTimeoutMs: 60_000,
+    callTimeoutMs: 25_000,
+  });
   try {
     const response = await proc.call("tools/call", { name: toolName, arguments: args });
     return { result: response.result, error: response.error };
@@ -146,48 +141,91 @@ const NETWORK = process.env.EZCORP_E2E_NETWORK === "1";
 const describeNetwork = NETWORK ? describe : describe.skip;
 
 describeNetwork("price-chart e2e — live subprocess + network", () => {
-  test(
-    "get_stock_chart(AAPL) returns JSON with points + no iframeSrc",
-    async () => {
-      const { result } = await runRawToolCall("get_stock_chart", { ticker: "AAPL" });
-      const payload = parsePayload(result as { content?: Array<{ text?: string }> });
-      expect(payload.iframeSrc).toBeUndefined();
-      expect(payload.symbol).toBe("AAPL");
-      expect(payload.kind).toBe("stock");
-      expect(payload.currency).toBe("USD");
-      expect(typeof payload.lastPrice).toBe("number");
-      expect(typeof payload.prevClose).toBe("number");
-      expect(Array.isArray(payload.points)).toBe(true);
-      expect(payload.points!.length).toBeGreaterThan(100);
-      expect(typeof payload.points![0]!.t).toBe("number");
-      expect(typeof payload.points![0]!.v).toBe("number");
-      expect(payload._assistant_note).toMatch(/do NOT call this tool again/);
-    },
-    25_000,
-  );
+  test("get_stock_chart(AAPL) returns JSON with points + no iframeSrc", async () => {
+    const { result } = await runRawToolCall("get_stock_chart", { ticker: "AAPL" });
+    const payload = parsePayload(result as { content?: Array<{ text?: string }> });
+    expect(payload.iframeSrc).toBeUndefined();
+    expect(payload.symbol).toBe("AAPL");
+    expect(payload.kind).toBe("stock");
+    expect(payload.currency).toBe("USD");
+    expect(typeof payload.lastPrice).toBe("number");
+    expect(typeof payload.prevClose).toBe("number");
+    expect(Array.isArray(payload.points)).toBe(true);
+    expect(payload.points!.length).toBeGreaterThan(100);
+    expect(typeof payload.points![0]!.t).toBe("number");
+    expect(typeof payload.points![0]!.v).toBe("number");
+    expect(payload._assistant_note).toMatch(/do NOT call this tool again/);
+  }, 25_000);
 
-  test(
-    "get_crypto_chart(BTC) returns JSON with points + Bitcoin name",
-    async () => {
-      const { result } = await runRawToolCall("get_crypto_chart", { symbol: "BTC" });
-      const payload = parsePayload(result as { content?: Array<{ text?: string }> });
-      expect(payload.iframeSrc).toBeUndefined();
-      expect(payload.kind).toBe("crypto");
-      expect(payload.name).toBe("Bitcoin");
-      expect(Array.isArray(payload.points)).toBe(true);
-      expect(payload.points!.length).toBeGreaterThan(100);
-      expect(typeof payload.logoUrl).toBe("string");
-      expect(payload.logoUrl!.length).toBeGreaterThan(0);
-    },
-    25_000,
-  );
+  test("get_crypto_chart(BTC) returns JSON with points + Bitcoin name", async () => {
+    const { result } = await runRawToolCall("get_crypto_chart", { symbol: "BTC" });
+    const payload = parsePayload(result as { content?: Array<{ text?: string }> });
+    expect(payload.iframeSrc).toBeUndefined();
+    expect(payload.kind).toBe("crypto");
+    expect(payload.name).toBe("Bitcoin");
+    expect(Array.isArray(payload.points)).toBe(true);
+    expect(payload.points!.length).toBeGreaterThan(100);
+    expect(typeof payload.logoUrl).toBe("string");
+    expect(payload.logoUrl!.length).toBeGreaterThan(0);
+  }, 25_000);
 });
 
 describeNetwork("price-chart e2e — through ToolExecutor (stub PDP)", () => {
-  test(
-    "ToolExecutor.executeToolCall returns JSON payload",
-    async () => {
-      const EXT_ID = "price-chart-test-exec";
+  test("ToolExecutor.executeToolCall returns JSON payload", async () => {
+    const EXT_ID = "price-chart-test-exec";
+    const manifest = makeManifest();
+    const granted = makeGrant();
+
+    const registry = ExtensionRegistry.getInstance();
+    registry.setManifestForTest(EXT_ID, manifest);
+    registry.setInstallPathForTest(
+      EXT_ID,
+      join(ROOT, "docs", "extensions", "examples", "price-chart"),
+    );
+    registry.setGrantedPermsForTest(EXT_ID, granted);
+    registry.registerToolForTest("price-chart__get_stock_chart", {
+      name: "price-chart__get_stock_chart",
+      originalName: "get_stock_chart",
+      description: "fetch stock chart",
+      inputSchema: manifest.tools![0]!.inputSchema,
+      extensionId: EXT_ID,
+      extensionName: "price-chart",
+    });
+
+    const executor = new ToolExecutor(registry, createStubPermissionEngine());
+
+    const result = await executor.executeToolCall(
+      "price-chart__get_stock_chart",
+      { ticker: "AAPL" },
+      "test-conv-id",
+      "test-msg-id",
+    );
+
+    expect(result.isError).toBe(false);
+    const payload = parsePayload(result);
+    expect(payload.symbol).toBe("AAPL");
+    expect(payload.kind).toBe("stock");
+    expect(Array.isArray(payload.points)).toBe(true);
+    expect(payload.iframeSrc).toBeUndefined();
+  }, 30_000);
+});
+
+// Drives the same path the chat flow uses (extensionToAgentTool +
+// real DB-backed PermissionEngine). Requires `DATABASE_URL` pointing
+// at a writable PG.
+const REAL_PDP = process.env.EZCORP_E2E_REAL_PDP === "1" && NETWORK;
+const describeRealPdp = REAL_PDP ? describe : describe.skip;
+
+describeRealPdp("price-chart e2e — chat-flow path (real PDP)", () => {
+  test("extensionToAgentTool.execute returns JSON payload (no sensitive-cap prompt)", async () => {
+    const { initDb, closeDb } = await import("../db/connection");
+    const { createPermissionEngine } = await import("../extensions/permission-engine");
+    const { EventBus } = await import("../runtime/events");
+    type AgentEventsType = import("../types").AgentEvents;
+
+    await initDb();
+    try {
+      const EXT_ID = "price-chart-test-real";
       const manifest = makeManifest();
       const granted = makeGrant();
 
@@ -207,98 +245,39 @@ describeNetwork("price-chart e2e — through ToolExecutor (stub PDP)", () => {
         extensionName: "price-chart",
       });
 
-      const executor = new ToolExecutor(registry, createStubPermissionEngine());
+      const bus = new EventBus<AgentEventsType>();
+      const engine = createPermissionEngine({ registry, bus, db: {} });
+      const executor = new ToolExecutor(registry, engine, { bus });
 
-      const result = await executor.executeToolCall(
-        "price-chart__get_stock_chart",
-        { ticker: "AAPL" },
-        "test-conv-id",
-        "test-msg-id",
-      );
-
-      expect(result.isError).toBe(false);
-      const payload = parsePayload(result);
-      expect(payload.symbol).toBe("AAPL");
-      expect(payload.kind).toBe("stock");
-      expect(Array.isArray(payload.points)).toBe(true);
-      expect(payload.iframeSrc).toBeUndefined();
-    },
-    30_000,
-  );
-});
-
-// Drives the same path the chat flow uses (extensionToAgentTool +
-// real DB-backed PermissionEngine). Requires `DATABASE_URL` pointing
-// at a writable PG.
-const REAL_PDP = process.env.EZCORP_E2E_REAL_PDP === "1" && NETWORK;
-const describeRealPdp = REAL_PDP ? describe : describe.skip;
-
-describeRealPdp("price-chart e2e — chat-flow path (real PDP)", () => {
-  test(
-    "extensionToAgentTool.execute returns JSON payload (no sensitive-cap prompt)",
-    async () => {
-      const { initDb, closeDb } = await import("../db/connection");
-      const { createPermissionEngine } = await import("../extensions/permission-engine");
-      const { EventBus } = await import("../runtime/events");
-      type AgentEventsType = import("../types").AgentEvents;
-
-      await initDb();
-      try {
-        const EXT_ID = "price-chart-test-real";
-        const manifest = makeManifest();
-        const granted = makeGrant();
-
-        const registry = ExtensionRegistry.getInstance();
-        registry.setManifestForTest(EXT_ID, manifest);
-        registry.setInstallPathForTest(
-          EXT_ID,
-          join(ROOT, "docs", "extensions", "examples", "price-chart"),
-        );
-        registry.setGrantedPermsForTest(EXT_ID, granted);
-        registry.registerToolForTest("price-chart__get_stock_chart", {
+      const agentTool = extensionToAgentTool(
+        {
           name: "price-chart__get_stock_chart",
-          originalName: "get_stock_chart",
           description: "fetch stock chart",
           inputSchema: manifest.tools![0]!.inputSchema,
-          extensionId: EXT_ID,
-          extensionName: "price-chart",
-        });
+        },
+        executor,
+        "00000000-0000-0000-0000-0000000000a1",
+        "00000000-0000-0000-0000-0000000000a2",
+      );
 
-        const bus = new EventBus<AgentEventsType>();
-        const engine = createPermissionEngine({ registry, bus, db: {} });
-        const executor = new ToolExecutor(registry, engine, { bus });
+      const t0 = Date.now();
+      const result = await agentTool.execute(
+        "tc-test-001",
+        { ticker: "AAPL" },
+        new AbortController().signal,
+      );
+      const elapsed = Date.now() - t0;
+      // The chat flow used to hang 90s on a `fs.write` sensitive-cap
+      // prompt. Post-refactor the extension has no filesystem grant
+      // → PDP returns `allow` directly → no prompt → completes fast.
+      expect(elapsed).toBeLessThan(10_000);
 
-        const agentTool = extensionToAgentTool(
-          {
-            name: "price-chart__get_stock_chart",
-            description: "fetch stock chart",
-            inputSchema: manifest.tools![0]!.inputSchema,
-          },
-          executor,
-          "00000000-0000-0000-0000-0000000000a1",
-          "00000000-0000-0000-0000-0000000000a2",
-        );
-
-        const t0 = Date.now();
-        const result = await agentTool.execute(
-          "tc-test-001",
-          { ticker: "AAPL" },
-          new AbortController().signal,
-        );
-        const elapsed = Date.now() - t0;
-        // The chat flow used to hang 90s on a `fs.write` sensitive-cap
-        // prompt. Post-refactor the extension has no filesystem grant
-        // → PDP returns `allow` directly → no prompt → completes fast.
-        expect(elapsed).toBeLessThan(10_000);
-
-        const payload = parsePayload(result as { content?: Array<{ text?: string }> });
-        expect(payload.iframeSrc).toBeUndefined();
-        expect(payload.symbol).toBe("AAPL");
-        expect(Array.isArray(payload.points)).toBe(true);
-      } finally {
-        await closeDb();
-      }
-    },
-    35_000,
-  );
+      const payload = parsePayload(result as { content?: Array<{ text?: string }> });
+      expect(payload.iframeSrc).toBeUndefined();
+      expect(payload.symbol).toBe("AAPL");
+      expect(Array.isArray(payload.points)).toBe(true);
+    } finally {
+      await closeDb();
+    }
+  }, 35_000);
 });

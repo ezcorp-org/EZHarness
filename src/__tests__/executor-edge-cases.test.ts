@@ -4,10 +4,7 @@ import { EventBus } from "../runtime/events";
 import { loadAgentsStatic } from "../runtime/loader";
 import type { AgentDefinition, AgentEvents, AgentRun } from "../types";
 
-function makeAgent(
-  name: string,
-  fn: AgentDefinition["execute"],
-): AgentDefinition {
+function makeAgent(name: string, fn: AgentDefinition["execute"]): AgentDefinition {
   return {
     name,
     description: `${name} agent`,
@@ -315,11 +312,22 @@ describe("AgentExecutor edge cases", () => {
 
       const warnLines = stderrChunks
         .map((c) => {
-          try { return JSON.parse(c) as { level?: string; msg?: string; subsystem?: string; agentName?: string }; }
-          catch { return null; }
+          try {
+            return JSON.parse(c) as {
+              level?: string;
+              msg?: string;
+              subsystem?: string;
+              agentName?: string;
+            };
+          } catch {
+            return null;
+          }
         })
-        .filter((p): p is { level: string; msg: string; subsystem?: string; agentName?: string } =>
-          p !== null && p.level === "warn" && p.msg === "agent resolved after cancel was requested",
+        .filter(
+          (p): p is { level: string; msg: string; subsystem?: string; agentName?: string } =>
+            p !== null &&
+            p.level === "warn" &&
+            p.msg === "agent resolved after cancel was requested",
         );
       expect(warnLines.length).toBe(1);
       expect(warnLines[0]!.subsystem).toBe("executor");

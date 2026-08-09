@@ -68,7 +68,10 @@ export function validateBriefingConfigInput(raw: unknown): ValidationResult {
   }
 
   if (body.projectId !== undefined) {
-    if (body.projectId !== null && (typeof body.projectId !== "string" || body.projectId.length === 0)) {
+    if (
+      body.projectId !== null &&
+      (typeof body.projectId !== "string" || body.projectId.length === 0)
+    ) {
       return fail("projectId must be a non-empty string or null");
     }
     input.projectId = body.projectId as string | null;
@@ -104,9 +107,10 @@ export function validateBriefingConfigInput(raw: unknown): ValidationResult {
       const key = topic.toLowerCase();
       if (seen.has(key)) continue; // dedupe silently
       seen.add(key);
-      const addedAt = typeof e.addedAt === "string" && !Number.isNaN(Date.parse(e.addedAt))
-        ? e.addedAt
-        : new Date().toISOString();
+      const addedAt =
+        typeof e.addedAt === "string" && !Number.isNaN(Date.parse(e.addedAt))
+          ? e.addedAt
+          : new Date().toISOString();
       normalized.push({ topic, addedAt });
     }
     input.watchlist = normalized;
@@ -114,7 +118,10 @@ export function validateBriefingConfigInput(raw: unknown): ValidationResult {
 
   for (const key of ["model", "provider"] as const) {
     if (body[key] !== undefined) {
-      if (body[key] !== null && (typeof body[key] !== "string" || (body[key] as string).trim().length === 0)) {
+      if (
+        body[key] !== null &&
+        (typeof body[key] !== "string" || (body[key] as string).trim().length === 0)
+      ) {
         return fail(`${key} must be a non-empty string or null`);
       }
       input[key] = body[key] === null ? null : (body[key] as string).trim();

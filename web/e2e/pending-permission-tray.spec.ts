@@ -26,151 +26,151 @@ import { expectReadable, expectWarningTinted, useLightTheme } from "./fixtures/r
 const PROMPT_ID = "prompt-init-gate-e2e";
 
 const PERMISSION_EVENT = {
-	type: "tool:permission_request",
-	data: {
-		conversationId: "conv-no-run-e2e",
-		toolCallId: PROMPT_ID,
-		toolName: "ez-code-factory__init_gate",
-		input: { projectRoot: "/app/projects/ecf-demo" },
-		extensionId: "ez-code-factory",
-		capabilityKind: "shell",
-	},
+  type: "tool:permission_request",
+  data: {
+    conversationId: "conv-no-run-e2e",
+    toolCallId: PROMPT_ID,
+    toolName: "ez-code-factory__init_gate",
+    input: { projectRoot: "/app/projects/ecf-demo" },
+    extensionId: "ez-code-factory",
+    capabilityKind: "shell",
+  },
 };
 
 /** Capture the permission-decision POST so approve/deny resolves cleanly. */
 async function installPermissionMock(page: Page) {
-	const posts: unknown[] = [];
-	await page.route("**/api/tool-calls/*/permission", (route) => {
-		if (route.request().method() !== "POST") return route.fallback();
-		posts.push(route.request().postDataJSON());
-		return route.fulfill({ json: { ok: true } });
-	});
-	return posts;
+  const posts: unknown[] = [];
+  await page.route("**/api/tool-calls/*/permission", (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    posts.push(route.request().postDataJSON());
+    return route.fulfill({ json: { ok: true } });
+  });
+  return posts;
 }
 
 /** Wait until the store's SSE stream exists, then emit the run-less prompt. */
 async function emitRunlessPrompt(
-	page: Page,
-	emitSse: (e: { type: string; data: unknown }, urlMatch?: string) => Promise<void>,
+  page: Page,
+  emitSse: (e: { type: string; data: unknown }, urlMatch?: string) => Promise<void>,
 ) {
-	await page.waitForFunction(() => {
-		const es = (window as unknown as { __fakeEventSources?: unknown[] }).__fakeEventSources;
-		return Array.isArray(es) && es.length > 0;
-	});
-	await emitSse(PERMISSION_EVENT, "runtime-events");
+  await page.waitForFunction(() => {
+    const es = (window as unknown as { __fakeEventSources?: unknown[] }).__fakeEventSources;
+    return Array.isArray(es) && es.length > 0;
+  });
+  await emitSse(PERMISSION_EVENT, "runtime-events");
 }
 
 test.describe("Fallback pending-permission tray", () => {
-	const proj = makeProject({ id: "proj-1" });
+  const proj = makeProject({ id: "proj-1" });
 
-	test("run-less permission prompt renders on the tray and approving clears it", async ({
-		page,
-		mockApi,
-		emitSse,
-	}) => {
-		await mockApi({ projects: [proj] });
-		const posts = await installPermissionMock(page);
+  test("run-less permission prompt renders on the tray and approving clears it", async ({
+    page,
+    mockApi,
+    emitSse,
+  }) => {
+    await mockApi({ projects: [proj] });
+    const posts = await installPermissionMock(page);
 
-		await page.goto("/extensions");
-		await emitRunlessPrompt(page, emitSse);
+    await page.goto("/extensions");
+    await emitRunlessPrompt(page, emitSse);
 
-		// The prompt renders on the global fallback tray (four-scope chooser
-		// because it's an extension-scoped capability).
-		const tray = page.getByTestId("pending-permission-tray");
-		await expect(tray).toBeVisible();
-		await expect(page.getByTestId("permission-extension-badge")).toHaveText("ez-code-factory");
-		await expect(page.getByTestId("permission-allow-session")).toBeVisible();
+    // The prompt renders on the global fallback tray (four-scope chooser
+    // because it's an extension-scoped capability).
+    const tray = page.getByTestId("pending-permission-tray");
+    await expect(tray).toBeVisible();
+    await expect(page.getByTestId("permission-extension-badge")).toHaveText("ez-code-factory");
+    await expect(page.getByTestId("permission-allow-session")).toBeVisible();
 
-		// Approve → POST the decision, then the card is removed.
-		await page.getByTestId("permission-allow-session").click();
-		await expect(tray).toHaveCount(0);
-		expect(posts).toEqual([{ approved: true, scope: "session" }]);
-	});
+    // Approve → POST the decision, then the card is removed.
+    await page.getByTestId("permission-allow-session").click();
+    await expect(tray).toHaveCount(0);
+    expect(posts).toEqual([{ approved: true, scope: "session" }]);
+  });
 
-	test("renders the fallback tray and captures evidence @evidence", async ({
-		page,
-		mockApi,
-		emitSse,
-	}, testInfo) => {
-		await mockApi({ projects: [proj] });
-		await installPermissionMock(page);
+  test("renders the fallback tray and captures evidence @evidence", async ({
+    page,
+    mockApi,
+    emitSse,
+  }, testInfo) => {
+    await mockApi({ projects: [proj] });
+    await installPermissionMock(page);
 
-		await page.goto("/extensions");
-		await emitRunlessPrompt(page, emitSse);
+    await page.goto("/extensions");
+    await emitRunlessPrompt(page, emitSse);
 
-		const tray = page.getByTestId("pending-permission-tray");
-		await expect(tray).toBeVisible();
-		await captureEvidence(page, testInfo, "pending-permission-tray");
+    const tray = page.getByTestId("pending-permission-tray");
+    await expect(tray).toBeVisible();
+    await captureEvidence(page, testInfo, "pending-permission-tray");
 
-		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
-			expect(
-				testInfo.attachments.some(
-					(a) => a.name === "pending-permission-tray" && a.contentType === "image/png",
-				),
-			).toBe(true);
-		} else {
-			expect(testInfo.attachments.some((a) => a.name === "pending-permission-tray")).toBe(false);
-		}
-	});
+    if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+      expect(
+        testInfo.attachments.some(
+          (a) => a.name === "pending-permission-tray" && a.contentType === "image/png",
+        ),
+      ).toBe(true);
+    } else {
+      expect(testInfo.attachments.some((a) => a.name === "pending-permission-tray")).toBe(false);
+    }
+  });
 
-	/**
-	 * The consent prompt's SECURITY NOTE has to be readable.
-	 *
-	 * `PermissionGate` is the per-tool-call consent prompt: the note under
-	 * the tool name is the sentence telling the user what they are about to
-	 * authorise ("This tool will run a shell command"). It was
-	 * `text-amber-300/80` inside a `bg-amber-900/10` container — a pairing
-	 * tuned for a dark surface. On the default light theme that renders pale
-	 * amber at 80% opacity over a near-white wash, so the one line that makes
-	 * the consent INFORMED was effectively invisible. An unreadable security
-	 * note is precisely the failure mode this gate exists to prevent, which
-	 * is why it is asserted numerically here rather than left to a reviewer
-	 * noticing a washed-out screenshot.
-	 */
-	test("the consent prompt's security note is legible on the light theme @evidence", async ({
-		page,
-		mockApi,
-		emitSse,
-	}, testInfo) => {
-		await useLightTheme(page);
-		await mockApi({ projects: [proj] });
-		await installPermissionMock(page);
+  /**
+   * The consent prompt's SECURITY NOTE has to be readable.
+   *
+   * `PermissionGate` is the per-tool-call consent prompt: the note under
+   * the tool name is the sentence telling the user what they are about to
+   * authorise ("This tool will run a shell command"). It was
+   * `text-amber-300/80` inside a `bg-amber-900/10` container — a pairing
+   * tuned for a dark surface. On the default light theme that renders pale
+   * amber at 80% opacity over a near-white wash, so the one line that makes
+   * the consent INFORMED was effectively invisible. An unreadable security
+   * note is precisely the failure mode this gate exists to prevent, which
+   * is why it is asserted numerically here rather than left to a reviewer
+   * noticing a washed-out screenshot.
+   */
+  test("the consent prompt's security note is legible on the light theme @evidence", async ({
+    page,
+    mockApi,
+    emitSse,
+  }, testInfo) => {
+    await useLightTheme(page);
+    await mockApi({ projects: [proj] });
+    await installPermissionMock(page);
 
-		await page.goto("/extensions");
-		await page.waitForFunction(() => {
-			const es = (window as unknown as { __fakeEventSources?: unknown[] }).__fakeEventSources;
-			return Array.isArray(es) && es.length > 0;
-		});
-		// `category: "execute"` is what makes `getSecurityNote` produce the
-		// note; the tray's other cases don't need it, so it is set here
-		// rather than on the shared event.
-		await emitSse(
-			{
-				type: "tool:permission_request",
-				data: { ...PERMISSION_EVENT.data, category: "execute" },
-			},
-			"runtime-events",
-		);
+    await page.goto("/extensions");
+    await page.waitForFunction(() => {
+      const es = (window as unknown as { __fakeEventSources?: unknown[] }).__fakeEventSources;
+      return Array.isArray(es) && es.length > 0;
+    });
+    // `category: "execute"` is what makes `getSecurityNote` produce the
+    // note; the tray's other cases don't need it, so it is set here
+    // rather than on the shared event.
+    await emitSse(
+      {
+        type: "tool:permission_request",
+        data: { ...PERMISSION_EVENT.data, category: "execute" },
+      },
+      "runtime-events",
+    );
 
-		const card = page.getByTestId("tool-card-permission");
-		await expect(card).toBeVisible({ timeout: 5000 });
+    const card = page.getByTestId("tool-card-permission");
+    await expect(card).toBeVisible({ timeout: 5000 });
 
-		const note = card.getByText("This tool will run a shell command");
-		await expect(note).toBeVisible();
-		const m = await expectReadable(note, "PermissionGate security note");
-		expect(m.dark, "the regression only shows on light surfaces").toBe(false);
+    const note = card.getByText("This tool will run a shell command");
+    await expect(note).toBeVisible();
+    const m = await expectReadable(note, "PermissionGate security note");
+    expect(m.dark, "the regression only shows on light surfaces").toBe(false);
 
-		// The capability chip carries the same risk signal and had the same
-		// amber-on-pale problem.
-		await expectReadable(
-			card.getByText("execute", { exact: true }),
-			"PermissionGate category chip",
-		);
+    // The capability chip carries the same risk signal and had the same
+    // amber-on-pale problem.
+    await expectReadable(
+      card.getByText("execute", { exact: true }),
+      "PermissionGate category chip",
+    );
 
-		// The card must still READ as a caution surface — legibility achieved
-		// by deleting the tint would be a different bug with a green test.
-		await expectWarningTinted(card, "PermissionGate container");
+    // The card must still READ as a caution surface — legibility achieved
+    // by deleting the tint would be a different bug with a green test.
+    await expectWarningTinted(card, "PermissionGate container");
 
-		await captureEvidence(page, testInfo, "permission-gate-security-note");
-	});
+    await captureEvidence(page, testInfo, "permission-gate-security-note");
+  });
 });

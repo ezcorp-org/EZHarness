@@ -132,10 +132,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // the picker's `Never` selection (ttlOverrideMs: null) on a non-
   // forever scope is allowed for any authenticated user — see
   // CONTEXT.md §"Never availability".
-  if (
-    scope !== undefined &&
-    !VALID_REAPPROVE_SCOPES.has(scope as AlwaysAllowScope)
-  ) {
+  if (scope !== undefined && !VALID_REAPPROVE_SCOPES.has(scope as AlwaysAllowScope)) {
     return errorJson(
       400,
       `scope must be one of: ${[...VALID_REAPPROVE_SCOPES].join(", ")} (or unset)`,
@@ -217,14 +214,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   if (isBundledExtensionName(ext.name)) {
     const bundledCeiling = getCeiling(ext.name);
     if (bundledCeiling) {
-      clamped = clampExtensionPermissions(
-        clamped,
-        bundledCeiling,
-        {
-          acceptsCallerCaps: ext.manifest?.acceptsCallerCaps,
-          escalateChildCaps: ext.manifest?.escalateChildCaps,
-        },
-      );
+      clamped = clampExtensionPermissions(clamped, bundledCeiling, {
+        acceptsCallerCaps: ext.manifest?.acceptsCallerCaps,
+        escalateChildCaps: ext.manifest?.escalateChildCaps,
+      });
     }
   }
 
@@ -271,11 +264,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   //                                   TTL_CONFIG[kind] / foreverTtlMs).
   const now = Date.now();
   const expiresAt =
-    ttlOverrideMs === null
-      ? null
-      : ttlOverrideMs !== undefined
-        ? now + ttlOverrideMs
-        : undefined;
+    ttlOverrideMs === null ? null : ttlOverrideMs !== undefined ? now + ttlOverrideMs : undefined;
   // Pass the options object regardless of branch — buildAlwaysAllowValue
   // treats `undefined` fields as ABSENT (byte-identical to the legacy
   // 2-arg call) and writes positive/null values when present (Plan 56-01
@@ -291,8 +280,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
   // tied to a specific conversation/session/project). When the picker
   // lands on Never (ttlOverrideMs: null), the same row gets written
   // with the null sentinel and the sweep skips it forever.
-  const effectiveScope: AlwaysAllowScope =
-    (scope as AlwaysAllowScope | undefined) ?? "forever";
+  const effectiveScope: AlwaysAllowScope = (scope as AlwaysAllowScope | undefined) ?? "forever";
   const scopeId = "*"; // settings-side reapprove is scope-broad
   const alwaysAllowKey = alwaysAllowSettingKey({
     extensionId: params.id,
@@ -334,10 +322,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     // converge on the same key shape for shared kinds.
     const expiryKind = mapAlwaysAllowCapabilityToExpiryKind(capability) ?? capability;
     try {
-      await upsertSetting(
-        `user:${user.id}:reapprove:lastTtl:${expiryKind}`,
-        ttlOverrideMs,
-      );
+      await upsertSetting(`user:${user.id}:reapprove:lastTtl:${expiryKind}`, ttlOverrideMs);
     } catch {
       /* swallow — failure to record sticky is recoverable; the
          re-grant still landed above. */

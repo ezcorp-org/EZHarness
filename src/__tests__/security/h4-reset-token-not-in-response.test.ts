@@ -143,10 +143,7 @@ import {
 } from "../../../web/src/routes/api/auth/reset-password/[token]/+server";
 
 // SvelteKit handlers may throw a Response on auth failure; unwrap.
-async function call(
-  handler: (ev: any) => unknown,
-  event: any,
-): Promise<Response> {
+async function call(handler: (ev: any) => unknown, event: any): Promise<Response> {
   try {
     return (await handler(event)) as Response;
   } catch (e) {
@@ -237,9 +234,7 @@ describe("sec-H4: POST /api/auth/reset-password response body", () => {
     // drop the URL on the floor (which would break admin workflows).
     const { rawToken } = await issueToken();
 
-    const auditEntry = auditCalls.find(
-      (c) => c.action === "auth:password_reset_generated",
-    );
+    const auditEntry = auditCalls.find((c) => c.action === "auth:password_reset_generated");
     expect(auditEntry).toBeDefined();
     expect(auditEntry!.userId).toBe(ADMIN_USER.id);
     expect(auditEntry!.target).toBe(VICTIM.id);

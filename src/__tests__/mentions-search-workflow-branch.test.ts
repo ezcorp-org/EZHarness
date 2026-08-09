@@ -82,9 +82,7 @@ mock.module("$server/runtime/tools/builtin-registry", () => ({
 }));
 
 // Import AFTER mocks.
-const { GET } = await import(
-  "../../web/src/routes/api/mentions/search/+server"
-);
+const { GET } = await import("../../web/src/routes/api/mentions/search/+server");
 
 interface SearchResult {
   name: string;

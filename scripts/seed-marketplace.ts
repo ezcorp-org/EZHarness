@@ -12,7 +12,14 @@
  * (issue #142).
  */
 import { initDb, getDb } from "../src/db/connection";
-import { users, projects, conversations, agentConfigs, memories, memoryAuditLog } from "../src/db/schema";
+import {
+  users,
+  projects,
+  conversations,
+  agentConfigs,
+  memories,
+  memoryAuditLog,
+} from "../src/db/schema";
 import { createAgentConfig } from "../src/db/queries/agent-configs";
 import { createListing } from "../src/db/queries/marketplace";
 import { createVersion } from "../src/db/queries/marketplace-versions";
@@ -28,8 +35,10 @@ const log = logger.child("seed");
 const SEED_AGENTS = [
   {
     name: "Code Reviewer",
-    description: "Analyzes pull requests for bugs, style issues, and security vulnerabilities. Provides actionable feedback with line-specific suggestions.",
-    prompt: "You are a senior code reviewer. Analyze the provided code diff for bugs, security issues, performance problems, and style violations. Provide specific, actionable feedback.",
+    description:
+      "Analyzes pull requests for bugs, style issues, and security vulnerabilities. Provides actionable feedback with line-specific suggestions.",
+    prompt:
+      "You are a senior code reviewer. Analyze the provided code diff for bugs, security issues, performance problems, and style violations. Provide specific, actionable feedback.",
     category: "Development",
     capabilities: ["llm"],
     tags: ["code-review", "security", "best-practices"],
@@ -37,8 +46,10 @@ const SEED_AGENTS = [
   },
   {
     name: "Meeting Summarizer",
-    description: "Transforms meeting transcripts into structured summaries with action items, decisions, and key discussion points.",
-    prompt: "You are a meeting summarizer. Given a meeting transcript, extract: 1) Key decisions made, 2) Action items with owners, 3) Discussion highlights, 4) Follow-up questions.",
+    description:
+      "Transforms meeting transcripts into structured summaries with action items, decisions, and key discussion points.",
+    prompt:
+      "You are a meeting summarizer. Given a meeting transcript, extract: 1) Key decisions made, 2) Action items with owners, 3) Discussion highlights, 4) Follow-up questions.",
     category: "Productivity",
     capabilities: ["llm"],
     tags: ["meetings", "summaries", "productivity"],
@@ -46,8 +57,10 @@ const SEED_AGENTS = [
   },
   {
     name: "SQL Query Builder",
-    description: "Generates optimized SQL queries from natural language descriptions. Supports PostgreSQL, MySQL, and SQLite dialects.",
-    prompt: "You are a SQL expert. Convert the user's natural language request into an optimized SQL query. Ask clarifying questions about the schema if needed. Always explain the query.",
+    description:
+      "Generates optimized SQL queries from natural language descriptions. Supports PostgreSQL, MySQL, and SQLite dialects.",
+    prompt:
+      "You are a SQL expert. Convert the user's natural language request into an optimized SQL query. Ask clarifying questions about the schema if needed. Always explain the query.",
     category: "Data & Analysis",
     capabilities: ["llm"],
     tags: ["sql", "database", "queries"],
@@ -55,88 +68,110 @@ const SEED_AGENTS = [
   },
   {
     name: "Blog Post Writer",
-    description: "Drafts engaging blog posts with SEO-optimized titles, structured headings, and a compelling narrative arc.",
-    prompt: "You are a professional blog writer. Create well-structured blog posts with compelling titles, clear headings, engaging introductions, and actionable conclusions. Optimize for readability.",
+    description:
+      "Drafts engaging blog posts with SEO-optimized titles, structured headings, and a compelling narrative arc.",
+    prompt:
+      "You are a professional blog writer. Create well-structured blog posts with compelling titles, clear headings, engaging introductions, and actionable conclusions. Optimize for readability.",
     category: "Writing",
     capabilities: ["llm"],
     tags: ["blog", "writing", "seo", "content"],
   },
   {
     name: "Research Assistant",
-    description: "Helps synthesize information from multiple sources, identifies knowledge gaps, and generates structured research briefs.",
-    prompt: "You are a research assistant. Help the user explore topics by synthesizing information, identifying key themes, noting contradictions, and suggesting further areas to investigate.",
+    description:
+      "Helps synthesize information from multiple sources, identifies knowledge gaps, and generates structured research briefs.",
+    prompt:
+      "You are a research assistant. Help the user explore topics by synthesizing information, identifying key themes, noting contradictions, and suggesting further areas to investigate.",
     category: "Research",
     capabilities: ["llm"],
     tags: ["research", "analysis", "synthesis"],
   },
   {
     name: "Flashcard Generator",
-    description: "Creates spaced-repetition flashcards from study material. Supports Anki-compatible format with cloze deletions.",
-    prompt: "You are an education specialist. Convert the provided study material into effective flashcards using active recall principles. Use cloze deletions for key terms. Output in Q/A format.",
+    description:
+      "Creates spaced-repetition flashcards from study material. Supports Anki-compatible format with cloze deletions.",
+    prompt:
+      "You are an education specialist. Convert the provided study material into effective flashcards using active recall principles. Use cloze deletions for key terms. Output in Q/A format.",
     category: "Education",
     capabilities: ["llm"],
     tags: ["flashcards", "study", "spaced-repetition"],
   },
   {
     name: "Poem Composer",
-    description: "Writes poetry in various styles — haiku, sonnet, free verse, limerick. Can match tone and theme to any subject.",
-    prompt: "You are a poet. Compose poems in the requested style, paying careful attention to meter, rhyme scheme, imagery, and emotional resonance. Default to free verse if no style is specified.",
+    description:
+      "Writes poetry in various styles — haiku, sonnet, free verse, limerick. Can match tone and theme to any subject.",
+    prompt:
+      "You are a poet. Compose poems in the requested style, paying careful attention to meter, rhyme scheme, imagery, and emotional resonance. Default to free verse if no style is specified.",
     category: "Creative",
     capabilities: ["llm"],
     tags: ["poetry", "creative-writing", "art"],
   },
   {
     name: "Email Drafter",
-    description: "Composes professional emails with appropriate tone, clear structure, and effective calls to action.",
-    prompt: "You are an email communication expert. Draft professional emails that are concise, clear, and appropriately toned. Include a subject line, greeting, body, and sign-off.",
+    description:
+      "Composes professional emails with appropriate tone, clear structure, and effective calls to action.",
+    prompt:
+      "You are an email communication expert. Draft professional emails that are concise, clear, and appropriately toned. Include a subject line, greeting, body, and sign-off.",
     category: "Communication",
     capabilities: ["llm"],
     tags: ["email", "professional", "communication"],
   },
   {
     name: "API Doc Generator",
-    description: "Generates OpenAPI/Swagger documentation from code. Infers schemas, documents endpoints, and adds usage examples.",
-    prompt: "You are an API documentation specialist. Analyze the provided code and generate comprehensive API documentation including endpoints, request/response schemas, authentication, and usage examples.",
+    description:
+      "Generates OpenAPI/Swagger documentation from code. Infers schemas, documents endpoints, and adds usage examples.",
+    prompt:
+      "You are an API documentation specialist. Analyze the provided code and generate comprehensive API documentation including endpoints, request/response schemas, authentication, and usage examples.",
     category: "Development",
     capabilities: ["llm"],
     tags: ["api", "documentation", "openapi", "swagger"],
   },
   {
     name: "Data Visualizer",
-    description: "Suggests and generates chart configurations for datasets. Recommends the best visualization type for the data.",
-    prompt: "You are a data visualization expert. Analyze the provided data and recommend the most effective chart type. Generate chart configurations (Chart.js or D3 format) with proper labels, colors, and scales.",
+    description:
+      "Suggests and generates chart configurations for datasets. Recommends the best visualization type for the data.",
+    prompt:
+      "You are a data visualization expert. Analyze the provided data and recommend the most effective chart type. Generate chart configurations (Chart.js or D3 format) with proper labels, colors, and scales.",
     category: "Data & Analysis",
     capabilities: ["llm"],
     tags: ["charts", "visualization", "data"],
   },
   {
     name: "Unit Test Writer",
-    description: "Generates comprehensive unit tests with edge cases, mocks, and assertions. Supports Jest, Vitest, and Bun test.",
-    prompt: "You are a testing expert. Write thorough unit tests for the provided code. Cover happy paths, edge cases, error conditions, and boundary values. Use descriptive test names.",
+    description:
+      "Generates comprehensive unit tests with edge cases, mocks, and assertions. Supports Jest, Vitest, and Bun test.",
+    prompt:
+      "You are a testing expert. Write thorough unit tests for the provided code. Cover happy paths, edge cases, error conditions, and boundary values. Use descriptive test names.",
     category: "Development",
     capabilities: ["llm"],
     tags: ["testing", "unit-tests", "tdd"],
   },
   {
     name: "Changelog Writer",
-    description: "Generates user-friendly changelogs from git commits or PR descriptions. Groups by type (features, fixes, breaking changes).",
-    prompt: "You are a changelog writer. Convert the provided commits/PRs into a well-organized changelog grouped by: Added, Changed, Fixed, Removed, Breaking Changes. Write for end-users, not developers.",
+    description:
+      "Generates user-friendly changelogs from git commits or PR descriptions. Groups by type (features, fixes, breaking changes).",
+    prompt:
+      "You are a changelog writer. Convert the provided commits/PRs into a well-organized changelog grouped by: Added, Changed, Fixed, Removed, Breaking Changes. Write for end-users, not developers.",
     category: "Productivity",
     capabilities: ["llm"],
     tags: ["changelog", "releases", "documentation"],
   },
   {
     name: "Memory Validator",
-    description: "Validates Claude Code auto-memory file structure, frontmatter, and index consistency.",
-    prompt: "You are a memory system validator. Read all .md files in the Claude Code memory directory. For each file (except MEMORY.md), verify: 1) Valid YAML frontmatter with name, description, and type fields, 2) Type is one of: user, feedback, project, reference, 3) Description is under 150 characters, 4) MEMORY.md is a proper index with links to all memory files. Report any violations found.",
+    description:
+      "Validates Claude Code auto-memory file structure, frontmatter, and index consistency.",
+    prompt:
+      "You are a memory system validator. Read all .md files in the Claude Code memory directory. For each file (except MEMORY.md), verify: 1) Valid YAML frontmatter with name, description, and type fields, 2) Type is one of: user, feedback, project, reference, 3) Description is under 150 characters, 4) MEMORY.md is a proper index with links to all memory files. Report any violations found.",
     category: "Productivity",
     capabilities: ["llm"],
     tags: ["memory", "validation", "automation"],
   },
   {
     name: "Memory Organizer",
-    description: "Restructures and maintains Claude Code auto-memory files with proper frontmatter and indexing.",
-    prompt: "You are a memory system organizer. Given memory content, restructure it into individual files with proper YAML frontmatter (name, description, type). Ensure MEMORY.md is a concise index with one-line pointers. Handle merging duplicates and splitting oversized files. Each memory file should have a clear, specific description under 150 characters.",
+    description:
+      "Restructures and maintains Claude Code auto-memory files with proper frontmatter and indexing.",
+    prompt:
+      "You are a memory system organizer. Given memory content, restructure it into individual files with proper YAML frontmatter (name, description, type). Ensure MEMORY.md is a concise index with one-line pointers. Handle merging duplicates and splitting oversized files. Each memory file should have a clear, specific description under 150 characters.",
     category: "Productivity",
     capabilities: ["llm"],
     tags: ["memory", "organization", "automation"],
@@ -144,7 +179,8 @@ const SEED_AGENTS = [
   {
     name: "Memory Tester",
     description: "Runs the memory validation test suite and reports pass/fail results.",
-    prompt: "You are a test runner for the memory validation system. Run `bun test src/__tests__/memory-validation.test.ts` and interpret the results. Report the pass/fail status of each test case. If any tests fail, explain what is wrong and suggest fixes.",
+    prompt:
+      "You are a test runner for the memory validation system. Run `bun test src/__tests__/memory-validation.test.ts` and interpret the results. Report the pass/fail status of each test case. If any tests fail, explain what is wrong and suggest fixes.",
     category: "Productivity",
     capabilities: ["llm"],
     tags: ["memory", "testing", "automation"],
@@ -160,10 +196,7 @@ async function seed() {
   const testPassword = "Test123!";
   const { hashPassword } = await import("../src/auth/password");
 
-  const [existingUser] = await db
-    .select()
-    .from(users)
-    .where(eq(users.email, testEmail));
+  const [existingUser] = await db.select().from(users).where(eq(users.email, testEmail));
 
   let userId: string;
   if (existingUser) {
@@ -228,7 +261,8 @@ async function seed() {
     await createVersion(listing.id, "1.0.0", manifest);
 
     if (agent.featured) {
-      await db.update(marketplaceListings)
+      await db
+        .update(marketplaceListings)
         .set({ featured: true })
         .where(eq(marketplaceListings.id, listing.id));
     }
@@ -249,7 +283,11 @@ async function seed() {
       await upsertRating(listing.id, voterId, Math.random() > 0.2); // 80% positive
     }
 
-    log.info("Created listing", { name: agent.name, category: agent.category, ratings: positiveCount });
+    log.info("Created listing", {
+      name: agent.name,
+      category: agent.category,
+      ratings: positiveCount,
+    });
   }
 
   log.info("Seeded marketplace listings", { count: SEED_AGENTS.length });
@@ -262,43 +300,51 @@ async function seed() {
   // instead of casting each callback parameter.
   type AgentConfigRow = typeof agentConfigs.$inferSelect;
   const allConfigs = (await db.select().from(agentConfigs)) as AgentConfigRow[];
-  const configByName = new Map<string, AgentConfigRow>(
-    allConfigs.map((c) => [c.name, c]),
-  );
+  const configByName = new Map<string, AgentConfigRow>(allConfigs.map((c) => [c.name, c]));
 
   const SEED_TEAMS = [
     {
       name: "Full-Stack Dev Team",
-      description: "A coordinated team with a Code Reviewer, Unit Test Writer, and API Doc Generator working together on code changes.",
-      prompt: "You are a tech lead orchestrating a full-stack development team. Delegate code review to the Code Reviewer, test generation to the Unit Test Writer, and documentation to the API Doc Generator. Synthesize their outputs into a cohesive deliverable.",
+      description:
+        "A coordinated team with a Code Reviewer, Unit Test Writer, and API Doc Generator working together on code changes.",
+      prompt:
+        "You are a tech lead orchestrating a full-stack development team. Delegate code review to the Code Reviewer, test generation to the Unit Test Writer, and documentation to the API Doc Generator. Synthesize their outputs into a cohesive deliverable.",
       memberNames: ["Code Reviewer", "Unit Test Writer", "API Doc Generator"],
       autoSpinUp: true,
     },
     {
       name: "Content Pipeline",
-      description: "A content production team: the Research Assistant gathers info, the Blog Post Writer drafts the article, and the Email Drafter creates a distribution email.",
-      prompt: "You are a content manager orchestrating a production pipeline. First have the Research Assistant gather background material, then pass findings to the Blog Post Writer for drafting, and finally have the Email Drafter create a newsletter email with the article summary.",
+      description:
+        "A content production team: the Research Assistant gathers info, the Blog Post Writer drafts the article, and the Email Drafter creates a distribution email.",
+      prompt:
+        "You are a content manager orchestrating a production pipeline. First have the Research Assistant gather background material, then pass findings to the Blog Post Writer for drafting, and finally have the Email Drafter create a newsletter email with the article summary.",
       memberNames: ["Research Assistant", "Blog Post Writer", "Email Drafter"],
       autoSpinUp: false,
     },
     {
       name: "Data Analysis Squad",
-      description: "A data team combining SQL Query Builder for data extraction, Data Visualizer for charts, and Meeting Summarizer for presenting findings.",
-      prompt: "You are a data analytics lead. Use the SQL Query Builder to extract data, the Data Visualizer to create charts, and the Meeting Summarizer to format findings into a clear executive brief. Coordinate the workflow end-to-end.",
+      description:
+        "A data team combining SQL Query Builder for data extraction, Data Visualizer for charts, and Meeting Summarizer for presenting findings.",
+      prompt:
+        "You are a data analytics lead. Use the SQL Query Builder to extract data, the Data Visualizer to create charts, and the Meeting Summarizer to format findings into a clear executive brief. Coordinate the workflow end-to-end.",
       memberNames: ["SQL Query Builder", "Data Visualizer", "Meeting Summarizer"],
       autoSpinUp: true,
     },
     {
       name: "Study Buddy Team",
-      description: "An education team: Research Assistant finds materials, Flashcard Generator creates study cards, and Changelog Writer tracks what was learned.",
-      prompt: "You are a study coach. Have the Research Assistant find and synthesize learning materials on the given topic, then pass key concepts to the Flashcard Generator for spaced-repetition cards, and use the Changelog Writer to create a learning log of topics covered.",
+      description:
+        "An education team: Research Assistant finds materials, Flashcard Generator creates study cards, and Changelog Writer tracks what was learned.",
+      prompt:
+        "You are a study coach. Have the Research Assistant find and synthesize learning materials on the given topic, then pass key concepts to the Flashcard Generator for spaced-repetition cards, and use the Changelog Writer to create a learning log of topics covered.",
       memberNames: ["Research Assistant", "Flashcard Generator", "Changelog Writer"],
       autoSpinUp: false,
     },
     {
       name: "Memory Management Team",
-      description: "Validates, organizes, and tests the Claude Code auto-memory system. Runs a validate → fix → test workflow.",
-      prompt: "You coordinate memory system maintenance. Workflow: 1) Invoke Memory Validator to check the current state of memory files for structural issues, 2) If violations are found, invoke Memory Organizer to fix them, 3) After fixes, invoke Memory Tester to run the validation test suite, 4) Report final status with any remaining issues. Only proceed to the next step if the previous one indicates action is needed.",
+      description:
+        "Validates, organizes, and tests the Claude Code auto-memory system. Runs a validate → fix → test workflow.",
+      prompt:
+        "You coordinate memory system maintenance. Workflow: 1) Invoke Memory Validator to check the current state of memory files for structural issues, 2) If violations are found, invoke Memory Organizer to fix them, 3) After fixes, invoke Memory Tester to run the validation test suite, 4) Report final status with any remaining issues. Only proceed to the next step if the previous one indicates action is needed.",
       memberNames: ["Memory Validator", "Memory Organizer", "Memory Tester"],
       autoSpinUp: false,
     },
@@ -313,7 +359,7 @@ async function seed() {
 
     // Resolve member agent config IDs
     const members = team.memberNames
-      .map(name => configByName.get(name))
+      .map((name) => configByName.get(name))
       .filter((cfg): cfg is AgentConfigRow => cfg !== undefined)
       .map((cfg) => ({ agentConfigId: cfg.id }));
 
@@ -322,7 +368,7 @@ async function seed() {
       continue;
     }
 
-    const agentIds = members.map(m => m.agentConfigId);
+    const agentIds = members.map((m) => m.agentConfigId);
     await createAgentConfig({
       name: team.name,
       description: team.description,
@@ -372,10 +418,7 @@ async function seed() {
   }
 
   // ── Seed TESTENV project & conversation ────────────────────────────
-  const [existingTestEnv] = await db
-    .select()
-    .from(projects)
-    .where(eq(projects.name, "TESTENV"));
+  const [existingTestEnv] = await db.select().from(projects).where(eq(projects.name, "TESTENV"));
 
   if (!existingTestEnv) {
     const testEnvId = crypto.randomUUID();
@@ -421,14 +464,16 @@ async function seed() {
         userId,
       },
       {
-        content: "The project uses Bun runtime instead of Node.js. Always use bun commands for running scripts, tests, and package management.",
+        content:
+          "The project uses Bun runtime instead of Node.js. Always use bun commands for running scripts, tests, and package management.",
         category: "technical" as const,
         confidence: "high" as const,
         projectId: testProjectId,
         userId,
       },
       {
-        content: "User follows DRY (Don't Repeat Yourself) principle strictly. Refactor repeated code into shared utilities.",
+        content:
+          "User follows DRY (Don't Repeat Yourself) principle strictly. Refactor repeated code into shared utilities.",
         category: "preferences" as const,
         confidence: "high" as const,
         projectId: testProjectId,
@@ -442,35 +487,40 @@ async function seed() {
         userId,
       },
       {
-        content: "Frontend is built with SvelteKit and Tailwind CSS. Components are in web/src/lib/components/.",
+        content:
+          "Frontend is built with SvelteKit and Tailwind CSS. Components are in web/src/lib/components/.",
         category: "technical" as const,
         confidence: "high" as const,
         projectId: testProjectId,
         userId,
       },
       {
-        content: "User wants comprehensive test coverage for all new features — unit, integration, and e2e tests.",
+        content:
+          "User wants comprehensive test coverage for all new features — unit, integration, and e2e tests.",
         category: "decisions_goals" as const,
         confidence: "high" as const,
         projectId: testProjectId,
         userId,
       },
       {
-        content: "The team is working toward a v1.0 launch with multi-agent orchestration as the flagship feature.",
+        content:
+          "The team is working toward a v1.0 launch with multi-agent orchestration as the flagship feature.",
         category: "decisions_goals" as const,
         confidence: "medium" as const,
         projectId: testProjectId,
         userId,
       },
       {
-        content: "User prefers concise responses without trailing summaries. Skip filler words and preamble.",
+        content:
+          "User prefers concise responses without trailing summaries. Skip filler words and preamble.",
         category: "preferences" as const,
         confidence: "high" as const,
         projectId: testProjectId,
         userId,
       },
       {
-        content: "Bun's mock.module() is permanent per-process. All test files using it must call restoreModuleMocks() in afterAll.",
+        content:
+          "Bun's mock.module() is permanent per-process. All test files using it must call restoreModuleMocks() in afterAll.",
         category: "technical" as const,
         confidence: "high" as const,
         projectId: testProjectId,
@@ -484,7 +534,8 @@ async function seed() {
         userId,
       },
       {
-        content: "API authentication uses session cookies with name 'ezcorp_session'. Do not use 'pi_session'.",
+        content:
+          "API authentication uses session cookies with name 'ezcorp_session'. Do not use 'pi_session'.",
         category: "technical" as const,
         confidence: "high" as const,
         projectId: testProjectId,
@@ -536,9 +587,7 @@ async function seed() {
   // has no escape hatch (the harness-smoke-test incident). Non-fatal
   // but loud; one-time re-enables a within-ceiling disabled critical
   // extension.
-  const { assertCriticalExtensions } = await import(
-    "../src/startup/assert-critical-extensions"
-  );
+  const { assertCriticalExtensions } = await import("../src/startup/assert-critical-extensions");
   await assertCriticalExtensions();
 
   // ── Seed LLM credentials from .env.seed ────────────────────────

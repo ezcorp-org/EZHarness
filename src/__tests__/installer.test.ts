@@ -121,9 +121,7 @@ describe("installFromLocal — manifest.name traversal rejection (SEC-5)", () =>
     test(`rejects name=${JSON.stringify(name)} (${label})`, async () => {
       const pkg = makeLocalPackage({ name });
       try {
-        await expect(installFromLocal(pkg.path, defaultPerms)).rejects.toThrow(
-          EXPECTED,
-        );
+        await expect(installFromLocal(pkg.path, defaultPerms)).rejects.toThrow(EXPECTED);
         // And no DB row was created for the attempted install.
         expect(mockExtensions.size).toBe(0);
       } finally {
@@ -135,9 +133,7 @@ describe("installFromLocal — manifest.name traversal rejection (SEC-5)", () =>
   test("rejects name longer than 64 chars", async () => {
     const pkg = makeLocalPackage({ name: "a".repeat(65) });
     try {
-      await expect(installFromLocal(pkg.path, defaultPerms)).rejects.toThrow(
-        EXPECTED,
-      );
+      await expect(installFromLocal(pkg.path, defaultPerms)).rejects.toThrow(EXPECTED);
       expect(mockExtensions.size).toBe(0);
     } finally {
       pkg.cleanup();
@@ -250,7 +246,8 @@ describe("installFromGitHub — cp -r failure surfaces loud error (#9)", () => {
       // Intercept the SECOND cp invocation (the final copy into
       // data/extensions/<name>). The first spawnSync call is `tar -xzf` for
       // extraction — we let that pass through. Any cp call we force to fail.
-      const SPAWN_FAIL_STDERR = "cp: cannot create directory 'data/extensions/cp-fail-ext': Permission denied";
+      const SPAWN_FAIL_STDERR =
+        "cp: cannot create directory 'data/extensions/cp-fail-ext': Permission denied";
       (Bun as any).spawnSync = ((argv: string[], opts?: any) => {
         if (Array.isArray(argv) && argv[0] === "cp") {
           return {
@@ -263,9 +260,7 @@ describe("installFromGitHub — cp -r failure surfaces loud error (#9)", () => {
         return realSpawnSync(argv, opts);
       }) as typeof Bun.spawnSync;
 
-      await expect(
-        installFromGitHub("testuser/testrepo@v1.0.0", defaultPerms),
-      ).rejects.toThrow(
+      await expect(installFromGitHub("testuser/testrepo@v1.0.0", defaultPerms)).rejects.toThrow(
         /Failed to copy extension from .+ to .+: cp: cannot create directory.+Permission denied/,
       );
 
@@ -303,9 +298,9 @@ describe("installFromGitHub — cp -r failure surfaces loud error (#9)", () => {
         return realSpawnSync(argv, opts);
       }) as typeof Bun.spawnSync;
 
-      await expect(
-        installFromGitHub("testuser/testrepo@v1.0.0", defaultPerms),
-      ).rejects.toThrow(/Failed to copy extension.*cp exited non-zero/);
+      await expect(installFromGitHub("testuser/testrepo@v1.0.0", defaultPerms)).rejects.toThrow(
+        /Failed to copy extension.*cp exited non-zero/,
+      );
       expect(mockExtensions.size).toBe(0);
     } finally {
       tgz.cleanup();

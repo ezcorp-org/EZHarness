@@ -21,21 +21,9 @@
  *      `Bun.spawn`).
  */
 
-import {
-  classifyFetch,
-  parsePermittedHosts,
-  parseToolCaps,
-} from "./network-wrapper";
+import { classifyFetch, parsePermittedHosts, parseToolCaps } from "./network-wrapper";
 
-const NETWORK_MODULES = [
-  "http",
-  "https",
-  "net",
-  "tls",
-  "dgram",
-  "dns",
-  "dns/promises",
-] as const;
+const NETWORK_MODULES = ["http", "https", "net", "tls", "dgram", "dns", "dns/promises"] as const;
 
 const SHELL_MODULES = ["child_process"] as const;
 
@@ -135,10 +123,7 @@ if (!networkAllowed) {
     registerBlockedRequire(mod, "network");
   }
   // fetch is a global alias for http/https client capability
-  (globalThis as unknown as { fetch: unknown }).fetch = makeDenier(
-    "network",
-    "fetch()",
-  );
+  (globalThis as unknown as { fetch: unknown }).fetch = makeDenier("network", "fetch()");
   // Phase 2: Bun's native socket / server primitives bypass Node's
   // network modules entirely. An extension granted nothing must not
   // be able to dial out by reaching for Bun.connect / Bun.listen /
@@ -221,14 +206,8 @@ for (const mod of FS_MODULES) {
 }
 if (typeof (globalThis as { Bun?: unknown }).Bun !== "undefined") {
   const BunNs = (globalThis as unknown as { Bun: Record<string, unknown> }).Bun;
-  BunNs.file = makeDenier(
-    "filesystem",
-    "Bun.file — use @ezcorp/sdk/runtime fsRead / fsExists",
-  );
-  BunNs.write = makeDenier(
-    "filesystem",
-    "Bun.write — use @ezcorp/sdk/runtime fsWrite",
-  );
+  BunNs.file = makeDenier("filesystem", "Bun.file — use @ezcorp/sdk/runtime fsRead / fsExists");
+  BunNs.write = makeDenier("filesystem", "Bun.write — use @ezcorp/sdk/runtime fsWrite");
   // Glob is a CLASS (`new Bun.Glob(pattern)`), not a `Bun.glob()` function.
   // This used to assign a denier to `BunNs.glob` — a property Bun has never
   // had — which merely CREATED a phantom and left the real class untouched,
@@ -375,9 +354,7 @@ function installFetchWrapper(): void {
     if (!toolContextLoaded) {
       toolContextLoaded = true;
       try {
-        cachedToolContextMod = (await import(
-          "@ezcorp/sdk/runtime"
-        )) as unknown as ToolContextMod;
+        cachedToolContextMod = (await import("@ezcorp/sdk/runtime")) as unknown as ToolContextMod;
       } catch {
         // SDK not installed (e.g. a test extension that bypasses the
         // SDK). Treat as ALS-unset — fall back to extension-wide ceiling.
@@ -393,10 +370,7 @@ function installFetchWrapper(): void {
    * `{status, headers, body}` JSON the host returns. The body is
    * base64-encoded — the host caps response size at 10MB.
    */
-  async function internalFetchViaRpc(
-    urlStr: string,
-    init?: RequestInit,
-  ): Promise<Response> {
+  async function internalFetchViaRpc(urlStr: string, init?: RequestInit): Promise<Response> {
     const sdk = (await import("@ezcorp/sdk/runtime")) as {
       getChannel?: () => {
         request<T>(method: string, params: unknown, timeoutMs?: number): Promise<T>;
@@ -510,10 +484,7 @@ try {
   }
 
   const originalRequire = Module.prototype.require;
-  Module.prototype.require = function patchedRequire(
-    this: unknown,
-    id: string,
-  ): unknown {
+  Module.prototype.require = function patchedRequire(this: unknown, id: string): unknown {
     checkBlockedId(id);
     return originalRequire.apply(this, [id]);
   };

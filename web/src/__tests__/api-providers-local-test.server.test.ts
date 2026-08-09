@@ -46,13 +46,8 @@ vi.mock("$server/providers/local-model-check", () => ({
 const { checkLocalModel } = await import("$server/providers/local-model-check");
 const { POST } = await import("../routes/api/providers/local/test/+server");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-  rawBody?: string;
-}) {
-  const body =
-    opts.rawBody ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined);
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown; rawBody?: string }) {
+  const body = opts.rawBody ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined);
   return {
     url: new URL("http://localhost/api/providers/local/test"),
     locals: opts.locals ?? {},
@@ -89,17 +84,24 @@ describe("POST /api/providers/local/test", () => {
   // missing principal is not an admin either. Unreachable in production
   // regardless: hooks.server.ts 401s unauthenticated /api/* before the handler.
   test("rejects 403 when locals.user is missing", async () => {
-    const res = await expectDenied(() => POST(makeEvent({ body: { baseUrl: "https://api.example.com", modelId: "m" } })), 403);
+    const res = await expectDenied(
+      () => POST(makeEvent({ body: { baseUrl: "https://api.example.com", modelId: "m" } })),
+      403,
+    );
     expect(res.status).toBe(403);
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    const res = await expectDenied(() => POST(
-            makeEvent({
-              locals: memberUser,
-              body: { baseUrl: "https://api.example.com", modelId: "m" },
-            }),
-          ), 403);
+    const res = await expectDenied(
+      () =>
+        POST(
+          makeEvent({
+            locals: memberUser,
+            body: { baseUrl: "https://api.example.com", modelId: "m" },
+          }),
+        ),
+      403,
+    );
     expect(res.status).toBe(403);
   });
 
@@ -118,9 +120,7 @@ describe("POST /api/providers/local/test", () => {
   });
 
   test("rejects 400 when baseUrl is missing", async () => {
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: { modelId: "m" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, body: { modelId: "m" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("baseUrl is required");
@@ -290,10 +290,7 @@ describe("POST /api/providers/local/test", () => {
     expect(body.reachable).toBe(true);
     expect(body.endpointType).toBe("openai-compatible");
     expect(body.modelAvailable).toBe(true);
-    expect(checkLocalModel).toHaveBeenCalledWith(
-      "https://api.example.com",
-      "gpt-ok",
-    );
+    expect(checkLocalModel).toHaveBeenCalledWith("https://api.example.com", "gpt-ok");
   });
 
   test("returns 500 when checkLocalModel throws", async () => {

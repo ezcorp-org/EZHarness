@@ -4,9 +4,17 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 mockDbConnection();
 
 import {
-  createTeam, getTeam, listTeams, updateTeamName, deleteTeam,
-  addTeamMember, getTeamMembers, getUserTeams, getTeamMembership,
-  updateTeamMemberRole, removeTeamMember,
+  createTeam,
+  getTeam,
+  listTeams,
+  updateTeamName,
+  deleteTeam,
+  addTeamMember,
+  getTeamMembers,
+  getUserTeams,
+  getTeamMembership,
+  updateTeamMemberRole,
+  removeTeamMember,
 } from "../db/queries/teams";
 import { createUser, listUsers, updateUserStatus, getUserCount } from "../db/queries/users";
 import { createInvite, listInvites, deleteInvite } from "../db/queries/invites";
@@ -24,17 +32,34 @@ let userBId: string;
 beforeAll(async () => {
   await setupTestDb();
 
-  const admin = await createUser({ email: "admin@teams.test", passwordHash: "hash", name: "Admin", role: "admin" });
+  const admin = await createUser({
+    email: "admin@teams.test",
+    passwordHash: "hash",
+    name: "Admin",
+    role: "admin",
+  });
   adminId = admin.id;
 
-  const userA = await createUser({ email: "a@teams.test", passwordHash: "hash", name: "User A", role: "member" });
+  const userA = await createUser({
+    email: "a@teams.test",
+    passwordHash: "hash",
+    name: "User A",
+    role: "member",
+  });
   userAId = userA.id;
 
-  const userB = await createUser({ email: "b@teams.test", passwordHash: "hash", name: "User B", role: "member" });
+  const userB = await createUser({
+    email: "b@teams.test",
+    passwordHash: "hash",
+    name: "User B",
+    role: "member",
+  });
   userBId = userB.id;
 });
 
-afterAll(async () => { await closeTestDb(); });
+afterAll(async () => {
+  await closeTestDb();
+});
 
 describe("Team Sharing API", () => {
   describe("Teams CRUD", () => {
@@ -57,7 +82,7 @@ describe("Team Sharing API", () => {
       await createTeam("Design");
       const teams = await listTeams();
       expect(teams.length).toBeGreaterThanOrEqual(2);
-      const names = teams.map(t => t.name);
+      const names = teams.map((t) => t.name);
       expect(names).toContain("Engineering");
       expect(names).toContain("Design");
     });
@@ -112,7 +137,7 @@ describe("Team Sharing API", () => {
 
     test("getUserTeams returns teams with role", async () => {
       const teams = await getUserTeams(userAId);
-      const found = teams.find(t => t.id === memTeamId);
+      const found = teams.find((t) => t.id === memTeamId);
       expect(found).toBeDefined();
       expect(found!.role).toBe("editor");
     });
@@ -159,27 +184,42 @@ describe("Team Sharing API", () => {
 
   describe("User management", () => {
     test("createUser with admin role creates admin", async () => {
-      const admin2 = await createUser({ email: "admin2@teams.test", passwordHash: "hash", name: "Admin2", role: "admin" });
+      const admin2 = await createUser({
+        email: "admin2@teams.test",
+        passwordHash: "hash",
+        name: "Admin2",
+        role: "admin",
+      });
       expect(admin2.role).toBe("admin");
     });
 
     test("listUsers returns all users", async () => {
       const users = await listUsers();
       expect(users.length).toBeGreaterThanOrEqual(4);
-      const emails = users.map(u => u.email);
+      const emails = users.map((u) => u.email);
       expect(emails).toContain("admin@teams.test");
       expect(emails).toContain("a@teams.test");
     });
 
     test("updateUserStatus deactivates user", async () => {
-      const tempUser = await createUser({ email: "deactivate@teams.test", passwordHash: "hash", name: "Deactivate Me", role: "member" });
+      const tempUser = await createUser({
+        email: "deactivate@teams.test",
+        passwordHash: "hash",
+        name: "Deactivate Me",
+        role: "member",
+      });
       const success = await updateUserStatus(tempUser.id, "inactive");
       expect(success).toBe(true);
     });
 
     test("getUserCount returns correct count", async () => {
       const countBefore = await getUserCount();
-      await createUser({ email: "counter@teams.test", passwordHash: "hash", name: "Counter", role: "member" });
+      await createUser({
+        email: "counter@teams.test",
+        passwordHash: "hash",
+        name: "Counter",
+        role: "member",
+      });
       const countAfter = await getUserCount();
       expect(countAfter).toBe(countBefore + 1);
     });
@@ -200,7 +240,7 @@ describe("Team Sharing API", () => {
     test("listInvites returns all invites", async () => {
       const invites = await listInvites();
       expect(invites.length).toBeGreaterThanOrEqual(1);
-      expect(invites.some(i => i.id === inviteId)).toBe(true);
+      expect(invites.some((i) => i.id === inviteId)).toBe(true);
     });
 
     test("deleteInvite removes invite", async () => {
@@ -209,7 +249,7 @@ describe("Team Sharing API", () => {
       expect(removed).toBe(true);
 
       const invites = await listInvites();
-      expect(invites.some(i => i.id === invite2.id)).toBe(false);
+      expect(invites.some((i) => i.id === invite2.id)).toBe(false);
     });
 
     test("deleteInvite returns false for non-existent id", async () => {

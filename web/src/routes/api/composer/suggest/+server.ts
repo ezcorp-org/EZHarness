@@ -14,7 +14,11 @@ import {
 import { generateEmbedding, isEmbeddingReady, warmupEmbeddings } from "$server/memory/embeddings";
 import { getToolEmbedding, getRawTextEmbedding } from "$server/suggest/embedding-cache";
 import { getUserToolPriors, deriveExtensionPriors } from "$server/suggest/user-tool-priors";
-import { contentTokens, rankCandidates, EXTENSION_SUGGEST_DEFAULTS } from "$server/suggest/intent-rank";
+import {
+  contentTokens,
+  rankCandidates,
+  EXTENSION_SUGGEST_DEFAULTS,
+} from "$server/suggest/intent-rank";
 import { getSuggestConfig, isSuggestEnabledForProject } from "$server/suggest/config";
 import { enhancePrompt, isEnhanceAvailable } from "$server/suggest/enhance";
 import { suggestRequestSchema } from "./schema";
@@ -88,16 +92,18 @@ async function rankScopedTools(
     priorForCandidates[key] = priors[key] ?? priors[t.name] ?? 0;
   }
 
-  return rankCandidates(draftEmbedding, embedded, priorForCandidates, undefined, draftTokens).map((r) => {
-    const tool = byKey.get(r.key)!;
-    return {
-      name: tool.name,
-      extension: tool.extension,
-      extensionType: tool.extensionType,
-      description: tool.description,
-      score: Number(r.score.toFixed(4)),
-    };
-  });
+  return rankCandidates(draftEmbedding, embedded, priorForCandidates, undefined, draftTokens).map(
+    (r) => {
+      const tool = byKey.get(r.key)!;
+      return {
+        name: tool.name,
+        extension: tool.extension,
+        extensionType: tool.extensionType,
+        description: tool.description,
+        score: Number(r.score.toFixed(4)),
+      };
+    },
+  );
 }
 
 /**
@@ -142,14 +148,21 @@ async function rankScopedExtensions(
     }),
   );
 
-  const extPriors = deriveExtensionPriors(priors, usable.map((c) => c.name));
-
-  return rankCandidates(draftEmbedding, embedded, extPriors, EXTENSION_SUGGEST_DEFAULTS, draftTokens).map(
-    (r) => {
-      const ext = byName.get(r.key)!;
-      return { name: ext.name, description: ext.description, score: Number(r.score.toFixed(4)) };
-    },
+  const extPriors = deriveExtensionPriors(
+    priors,
+    usable.map((c) => c.name),
   );
+
+  return rankCandidates(
+    draftEmbedding,
+    embedded,
+    extPriors,
+    EXTENSION_SUGGEST_DEFAULTS,
+    draftTokens,
+  ).map((r) => {
+    const ext = byName.get(r.key)!;
+    return { name: ext.name, description: ext.description, score: Number(r.score.toFixed(4)) };
+  });
 }
 
 export const POST: RequestHandler = async ({ locals, request }) => {

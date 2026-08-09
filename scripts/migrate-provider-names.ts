@@ -32,9 +32,14 @@ async function migrate() {
         // Upsert new key
         const existing = await db.select().from(settings).where(eq(settings.key, newKey));
         if (existing.length > 0) {
-          await db.update(settings).set({ value: rows[0]!.value, updatedAt: new Date() }).where(eq(settings.key, newKey));
+          await db
+            .update(settings)
+            .set({ value: rows[0]!.value, updatedAt: new Date() })
+            .where(eq(settings.key, newKey));
         } else {
-          await db.insert(settings).values({ key: newKey, value: rows[0]!.value, updatedAt: new Date() });
+          await db
+            .insert(settings)
+            .values({ key: newKey, value: rows[0]!.value, updatedAt: new Date() });
         }
         await db.delete(settings).where(eq(settings.key, oldKey));
         console.log(`  Renamed setting: ${oldKey} -> ${newKey}`);
@@ -42,12 +47,18 @@ async function migrate() {
     }
 
     // Conversation-level access modes: conversation:*:accessMode:{old}
-    const convSettings = await db.select().from(settings).where(like(settings.key, `%:accessMode:${old}`));
+    const convSettings = await db
+      .select()
+      .from(settings)
+      .where(like(settings.key, `%:accessMode:${old}`));
     for (const row of convSettings) {
       const newKey = row.key.replace(`:accessMode:${old}`, `:accessMode:${newName}`);
       const existing = await db.select().from(settings).where(eq(settings.key, newKey));
       if (existing.length > 0) {
-        await db.update(settings).set({ value: row.value, updatedAt: new Date() }).where(eq(settings.key, newKey));
+        await db
+          .update(settings)
+          .set({ value: row.value, updatedAt: new Date() })
+          .where(eq(settings.key, newKey));
       } else {
         await db.insert(settings).values({ key: newKey, value: row.value, updatedAt: new Date() });
       }
@@ -58,7 +69,8 @@ async function migrate() {
 
   // 2. Agent configs: provider column "claude" -> "anthropic", "gemini" -> "google"
   for (const [old, newName] of Object.entries(RENAMES)) {
-    const updated = await db.update(agentConfigs)
+    const updated = await db
+      .update(agentConfigs)
       .set({ provider: newName })
       .where(eq(agentConfigs.provider, old))
       .returning({ id: agentConfigs.id });
@@ -80,12 +92,18 @@ async function migrate() {
   }
 
   // 5. Preference order setting
-  const prefRows = await db.select().from(settings).where(eq(settings.key, "provider:preferenceOrder"));
+  const prefRows = await db
+    .select()
+    .from(settings)
+    .where(eq(settings.key, "provider:preferenceOrder"));
   if (prefRows.length > 0) {
     let order = prefRows[0]!.value;
     if (Array.isArray(order)) {
       order = order.map((p: string) => RENAMES[p] ?? p);
-      await db.update(settings).set({ value: order, updatedAt: new Date() }).where(eq(settings.key, "provider:preferenceOrder"));
+      await db
+        .update(settings)
+        .set({ value: order, updatedAt: new Date() })
+        .where(eq(settings.key, "provider:preferenceOrder"));
       console.log(`  Updated preferenceOrder: ${JSON.stringify(order)}`);
     }
   }
@@ -95,7 +113,10 @@ async function migrate() {
   if (globalRows.length > 0) {
     const val = globalRows[0]!.value;
     if (typeof val === "string" && RENAMES[val]) {
-      await db.update(settings).set({ value: RENAMES[val], updatedAt: new Date() }).where(eq(settings.key, "global:provider"));
+      await db
+        .update(settings)
+        .set({ value: RENAMES[val], updatedAt: new Date() })
+        .where(eq(settings.key, "global:provider"));
       console.log(`  Updated global:provider: ${val} -> ${RENAMES[val]}`);
     }
   }

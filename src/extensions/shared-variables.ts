@@ -20,9 +20,7 @@ export function resolveSharedVariables(
   inputSchema: Record<string, unknown>,
   args: Record<string, unknown>,
 ): Record<string, unknown> {
-  const properties = inputSchema.properties as
-    | Record<string, Record<string, unknown>>
-    | undefined;
+  const properties = inputSchema.properties as Record<string, Record<string, unknown>> | undefined;
   if (!properties) return args;
 
   const result = { ...args };
@@ -47,12 +45,8 @@ export function resolveSharedVariables(
  * Get default values for all x-shared fields in a schema.
  * Used client-side to pre-fill form fields.
  */
-export function getSharedDefaults(
-  inputSchema: Record<string, unknown>,
-): Record<string, string> {
-  const properties = inputSchema.properties as
-    | Record<string, Record<string, unknown>>
-    | undefined;
+export function getSharedDefaults(inputSchema: Record<string, unknown>): Record<string, string> {
+  const properties = inputSchema.properties as Record<string, Record<string, unknown>> | undefined;
   if (!properties) return {};
 
   const defaults: Record<string, string> = {};

@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeAll, afterAll, } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { setupPiAiMocks } from "./helpers/mock-pi-ai";
 
 // Set up pi-ai mocks BEFORE any imports that trigger executor module loading
@@ -8,7 +8,12 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgents } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { createProject } from "../db/queries/projects";
 import * as convQueries from "../db/queries/conversations";
 import type { AgentEvents } from "../types";
@@ -53,7 +58,11 @@ async function createConv(opts?: { title?: string; model?: string; provider?: st
   return (await res.json()) as any;
 }
 
-async function sendMsg(convId: string, content: string, opts?: { provider?: string; model?: string; parentMessageId?: string; editOf?: string }) {
+async function sendMsg(
+  convId: string,
+  content: string,
+  opts?: { provider?: string; model?: string; parentMessageId?: string; editOf?: string },
+) {
   const res = await fetch(`${baseUrl}/api/conversations/${convId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -175,7 +184,10 @@ describe("Model persistence on conversations", () => {
 describe("Message sending with model/provider", () => {
   test("POST message with provider/model returns userMessage and runId", async () => {
     const conv = await createConv({ title: "Send With Model" });
-    const { res, data } = await sendMsg(conv.id, "Hello", { provider: "google", model: "gemini-2.0-flash" });
+    const { res, data } = await sendMsg(conv.id, "Hello", {
+      provider: "google",
+      model: "gemini-2.0-flash",
+    });
 
     expect(res.status).toBe(200);
     expect(data.userMessage).toBeDefined();
@@ -215,7 +227,10 @@ describe("Message sending with model/provider", () => {
 
   test("request model overrides conversation model", async () => {
     const conv = await createConv({ title: "Override Model", model: "gpt-4", provider: "openai" });
-    const { data } = await sendMsg(conv.id, "Override test", { provider: "google", model: "gemini-2.0-flash" });
+    const { data } = await sendMsg(conv.id, "Override test", {
+      provider: "google",
+      model: "gemini-2.0-flash",
+    });
     expect(data.runId).toBeDefined();
 
     await waitForStreamComplete(data.runId);
@@ -237,8 +252,12 @@ describe("Streaming lifecycle events", () => {
     let usage: any = null;
 
     const offToken = bus.on("run:token", ({ token }) => tokens.push(token));
-    const offComplete = bus.on("run:complete", () => { completed = true; });
-    const offUsage = bus.on("run:usage", (data) => { usage = data.usage; });
+    const offComplete = bus.on("run:complete", () => {
+      completed = true;
+    });
+    const offUsage = bus.on("run:usage", (data) => {
+      usage = data.usage;
+    });
 
     const conv = await createConv({ title: "Events Test" });
     const { data } = await sendMsg(conv.id, "trigger events");
@@ -264,7 +283,9 @@ describe("Streaming lifecycle events", () => {
     // The error path is thoroughly tested in executor-streamchat.test.ts.
     // We verify the basic event emission here by checking run:complete.
     let completeEmitted = false;
-    const off = bus.on("run:complete", () => { completeEmitted = true; });
+    const off = bus.on("run:complete", () => {
+      completeEmitted = true;
+    });
 
     const conv = await createConv({ title: "Error Events" });
     const { data } = await sendMsg(conv.id, "trigger check");
@@ -328,8 +349,16 @@ describe("Branching and editing", () => {
   test("all=true returns flat list including all branches", async () => {
     const conv = await createConv({ title: "All Messages" });
     const root = await convQueries.createMessage(conv.id, { role: "user", content: "root" });
-    await convQueries.createMessage(conv.id, { role: "assistant", content: "branch A", parentMessageId: root.id });
-    await convQueries.createMessage(conv.id, { role: "assistant", content: "branch B", parentMessageId: root.id });
+    await convQueries.createMessage(conv.id, {
+      role: "assistant",
+      content: "branch A",
+      parentMessageId: root.id,
+    });
+    await convQueries.createMessage(conv.id, {
+      role: "assistant",
+      content: "branch B",
+      parentMessageId: root.id,
+    });
 
     const msgs = await getMessages(conv.id, { all: true });
     expect(msgs.length).toBe(3);
@@ -340,8 +369,16 @@ describe("Branching and editing", () => {
     const root = await convQueries.createMessage(conv.id, { role: "user", content: "root" });
     // Small delay to ensure distinct timestamps for stable ordering
     await new Promise((r) => setTimeout(r, 10));
-    const child = await convQueries.createMessage(conv.id, { role: "assistant", content: "child", parentMessageId: root.id });
-    await convQueries.createMessage(conv.id, { role: "assistant", content: "other branch", parentMessageId: root.id });
+    const child = await convQueries.createMessage(conv.id, {
+      role: "assistant",
+      content: "child",
+      parentMessageId: root.id,
+    });
+    await convQueries.createMessage(conv.id, {
+      role: "assistant",
+      content: "other branch",
+      parentMessageId: root.id,
+    });
 
     const path = await getMessages(conv.id, { leafMessageId: child.id });
     expect(path.length).toBe(2);
@@ -366,7 +403,9 @@ describe("Multi-turn conversation flow", () => {
     expect(firstAssistant).toBeDefined();
 
     // Second message chained to first assistant
-    const { data: d2 } = await sendMsg(conv.id, "Follow up", { parentMessageId: firstAssistant!.id });
+    const { data: d2 } = await sendMsg(conv.id, "Follow up", {
+      parentMessageId: firstAssistant!.id,
+    });
     await waitForStreamComplete(d2.runId);
 
     msgs = await getMessages(conv.id, { all: true });
@@ -471,7 +510,10 @@ describe("Export functionality", () => {
 describe("Conversation search", () => {
   beforeAll(async () => {
     const conv = await createConv({ title: "Quantum Physics Discussion" });
-    await convQueries.createMessage(conv.id, { role: "user", content: "Tell me about quantum entanglement" });
+    await convQueries.createMessage(conv.id, {
+      role: "user",
+      content: "Tell me about quantum entanglement",
+    });
   });
 
   test("search finds matching conversations", async () => {
@@ -482,7 +524,9 @@ describe("Conversation search", () => {
   });
 
   test("search with no matches returns empty", async () => {
-    const res = await fetch(`${baseUrl}/api/conversations?projectId=${projectId}&search=xyznonexistent999`);
+    const res = await fetch(
+      `${baseUrl}/api/conversations?projectId=${projectId}&search=xyznonexistent999`,
+    );
     expect(res.status).toBe(200);
     expect((await res.json()) as any[]).toEqual([]);
   });
@@ -507,7 +551,9 @@ describe("run:status events via WebSocket", () => {
     ws.onmessage = (event) => {
       try {
         wsEvents.push(JSON.parse(event.data));
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     };
 
     // Send a message to trigger streamChat
@@ -522,7 +568,9 @@ describe("run:status events via WebSocket", () => {
     ws.close();
 
     // Verify run:status events were forwarded via WebSocket
-    const statusEvents = wsEvents.filter((e) => e.type === "run:status" && e.data?.runId === data.runId);
+    const statusEvents = wsEvents.filter(
+      (e) => e.type === "run:status" && e.data?.runId === data.runId,
+    );
     expect(statusEvents.length).toBeGreaterThanOrEqual(3);
 
     const statuses = statusEvents.map((e) => e.data.status);

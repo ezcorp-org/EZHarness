@@ -21,15 +21,29 @@
  */
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { setupTestDb, closeTestDb, mockDbConnection, getTestDb, getTestPglite } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
+  getTestPglite,
+} from "./helpers/test-pglite";
 import { sql } from "drizzle-orm";
 
 mock.module("../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -37,9 +51,7 @@ mockDbConnection();
 import { migrate } from "../db/migrate";
 import { insertAuditEntry, listAuditLog } from "../db/queries/audit-log";
 import { recordCapabilityCall } from "../extensions/recordCapabilityCall";
-import {
-  listSdkCapabilityCallsForExtension,
-} from "../db/queries/sdk-capability-calls";
+import { listSdkCapabilityCallsForExtension } from "../db/queries/sdk-capability-calls";
 import { createUser } from "../db/queries/users";
 import { extensions, projects, conversations, sdkCapabilityCalls } from "../db/schema";
 
@@ -60,14 +72,29 @@ describe("Phase 50 — schema artifacts present after migration", () => {
       FROM information_schema.columns
       WHERE table_name = 'sdk_capability_calls'
     `);
-    const rows = ((cols as unknown) as { rows: { column_name: string; is_nullable: string }[] }).rows;
+    const rows = (cols as unknown as { rows: { column_name: string; is_nullable: string }[] }).rows;
     const names = new Set(rows.map((r) => r.column_name));
     for (const expected of [
-      "id", "extension_id", "on_behalf_of", "conversation_id", "parent_call_id",
-      "capability", "action", "resource_type", "resource_id",
-      "before", "after", "success", "duration_ms",
-      "error_code", "error_message",
-      "tokens_used", "cost_usd", "provider", "model", "created_at",
+      "id",
+      "extension_id",
+      "on_behalf_of",
+      "conversation_id",
+      "parent_call_id",
+      "capability",
+      "action",
+      "resource_type",
+      "resource_id",
+      "before",
+      "after",
+      "success",
+      "duration_ms",
+      "error_code",
+      "error_message",
+      "tokens_used",
+      "cost_usd",
+      "provider",
+      "model",
+      "created_at",
     ]) {
       expect(names.has(expected)).toBe(true);
     }
@@ -80,7 +107,7 @@ describe("Phase 50 — schema artifacts present after migration", () => {
     const result = await getTestDb().execute(sql`
       SELECT indexname FROM pg_indexes WHERE tablename = 'sdk_capability_calls'
     `);
-    const rows = ((result as unknown) as { rows: { indexname: string }[] }).rows;
+    const rows = (result as unknown as { rows: { indexname: string }[] }).rows;
     const names = rows.map((r) => r.indexname);
     expect(names).toContain("idx_sdk_cap_ext_created");
     expect(names).toContain("idx_sdk_cap_conv_created");
@@ -93,14 +120,20 @@ describe("Phase 50 — schema artifacts present after migration", () => {
       SELECT column_name FROM information_schema.columns
       WHERE table_name = 'lessons_audit_log'
     `);
-    const rows = ((cols as unknown) as { rows: { column_name: string }[] }).rows;
+    const rows = (cols as unknown as { rows: { column_name: string }[] }).rows;
     const names = new Set(rows.map((r) => r.column_name));
     for (const expected of [
-      "id", "lesson_id", "action",
-      "previous_body", "new_body",
-      "previous_frontmatter", "new_frontmatter",
-      "actor_user_id", "actor_extension_id",
-      "reason", "created_at",
+      "id",
+      "lesson_id",
+      "action",
+      "previous_body",
+      "new_body",
+      "previous_frontmatter",
+      "new_frontmatter",
+      "actor_user_id",
+      "actor_extension_id",
+      "reason",
+      "created_at",
     ]) {
       expect(names.has(expected)).toBe(true);
     }
@@ -110,7 +143,7 @@ describe("Phase 50 — schema artifacts present after migration", () => {
     const result = await getTestDb().execute(sql`
       SELECT indexname FROM pg_indexes WHERE tablename = 'lessons_audit_log'
     `);
-    const rows = ((result as unknown) as { rows: { indexname: string }[] }).rows;
+    const rows = (result as unknown as { rows: { indexname: string }[] }).rows;
     const names = rows.map((r) => r.indexname);
     expect(names).toContain("idx_lessons_audit_lesson_created");
     expect(names).toContain("idx_lessons_audit_actor_ext_created");
@@ -121,7 +154,7 @@ describe("Phase 50 — schema artifacts present after migration", () => {
       SELECT column_name FROM information_schema.columns
       WHERE table_name = 'lessons' AND column_name = 'author_extension_id'
     `);
-    const rows = ((cols as unknown) as { rows: { column_name: string }[] }).rows;
+    const rows = (cols as unknown as { rows: { column_name: string }[] }).rows;
     expect(rows.length).toBe(1);
   });
 });
@@ -134,7 +167,7 @@ describe("Phase 50 — migration idempotency", () => {
     const before = await db.execute(sql`
       SELECT COUNT(*)::int as n FROM information_schema.columns WHERE table_name = 'sdk_capability_calls'
     `);
-    const beforeN = ((before as unknown) as { rows: { n: number }[] }).rows[0]?.n ?? 0;
+    const beforeN = (before as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0;
 
     // Re-run migrate. Must not throw.
     await (expect(migrate(db)).resolves.toBeUndefined() as unknown as Promise<void>);
@@ -142,7 +175,7 @@ describe("Phase 50 — migration idempotency", () => {
     const after = await db.execute(sql`
       SELECT COUNT(*)::int as n FROM information_schema.columns WHERE table_name = 'sdk_capability_calls'
     `);
-    const afterN = ((after as unknown) as { rows: { n: number }[] }).rows[0]?.n ?? 0;
+    const afterN = (after as unknown as { rows: { n: number }[] }).rows[0]?.n ?? 0;
     expect(afterN).toBe(beforeN);
   });
 });
@@ -160,7 +193,8 @@ describe("Phase 50 — chokepoint invariant", () => {
       for (const e of entries) {
         const full = path.join(dir, e.name);
         if (e.isDirectory()) {
-          if (e.name === "node_modules" || e.name === "__tests__" || e.name === "migrations") continue;
+          if (e.name === "node_modules" || e.name === "__tests__" || e.name === "migrations")
+            continue;
           out.push(...(await walk(full)));
         } else if (e.isFile() && (full.endsWith(".ts") || full.endsWith(".tsx"))) {
           out.push(full);
@@ -218,7 +252,14 @@ describe("Phase 50 — end-to-end integration smoke", () => {
         name: `smoke-ext-${Date.now()}`,
         version: "0.0.1",
         description: "",
-        manifest: { schemaVersion: 2, name: "x", version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as any,
+        manifest: {
+          schemaVersion: 2,
+          name: "x",
+          version: "0.0.1",
+          description: "",
+          author: { name: "t" },
+          permissions: {},
+        } as any,
         source: "test",
         enabled: true,
         grantedPermissions: {} as any,

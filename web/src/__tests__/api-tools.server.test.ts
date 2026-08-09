@@ -26,8 +26,7 @@ vi.mock("$lib/server/context", () => ({
 }));
 
 const getBuiltInToolMetadata = vi.fn(
-  () =>
-    [] as Array<{ name: string; description: string; category: string }>,
+  () => [] as Array<{ name: string; description: string; category: string }>,
 );
 const getBuiltInCategoryDescription = vi.fn((_cat: string): string | undefined => undefined);
 vi.mock("$server/runtime/tools/builtin-registry", () => ({
@@ -76,9 +75,7 @@ describe("GET /api/tools", () => {
   });
 
   test("rejects 403 when API-key lacks 'read' scope", async () => {
-    const res = await GET(
-      makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }));
     expect(res.status).toBe(403);
   });
 

@@ -65,10 +65,7 @@ test.describe("Mobile navigation", () => {
     await expect(drawer).toBeVisible({ timeout: 3000 });
   });
 
-  test("mobile drawer contains Chat and Settings nav links", async ({
-    page,
-    mockApi,
-  }) => {
+  test("mobile drawer contains Chat and Settings nav links", async ({ page, mockApi }) => {
     const proj = makeProject();
     await mockApi({ projects: [proj] });
     await page.goto(`/agents`);
@@ -92,10 +89,7 @@ test.describe("Mobile navigation", () => {
   // the lg breakpoint per the `flex lg:hidden` gate in
   // (app)/+layout.svelte:361. Semantically equivalent to the original
   // "tab bar hidden on desktop" assertion.
-  test("mobile tab bar is hidden on desktop viewport", async ({
-    page,
-    mockApi,
-  }) => {
+  test("mobile tab bar is hidden on desktop viewport", async ({ page, mockApi }) => {
     const proj = makeProject();
     await mockApi({ projects: [proj] });
 
@@ -113,10 +107,7 @@ test.describe("Mobile navigation", () => {
     await expect(hamburger).not.toBeVisible();
   });
 
-  test("mobile drawer Settings link navigates to /settings", async ({
-    page,
-    mockApi,
-  }) => {
+  test("mobile drawer Settings link navigates to /settings", async ({ page, mockApi }) => {
     const proj = makeProject();
     await mockApi({ projects: [proj] });
     await page.goto(`/agents`);
@@ -141,10 +132,7 @@ test.describe("Mobile navigation", () => {
   // Reference: .planning/phases/59-test-debt-repair/deferred-items.md
   //            § Out-of-scope spec files - #1 mobile-navigation.spec.ts
   // Filed-on: 2026-05-13 (Phase 61-03)
-  test.fixme("conversation list is visible on mobile chat page", async ({
-    page,
-    mockApi,
-  }) => {
+  test.fixme("conversation list is visible on mobile chat page", async ({ page, mockApi }) => {
     const proj = makeProject();
     const conv = makeConversation({ projectId: proj.id });
     await mockApi({ projects: [proj], conversations: [conv] });
@@ -159,10 +147,7 @@ test.describe("Mobile navigation", () => {
   // Reference: .planning/phases/59-test-debt-repair/deferred-items.md
   //            § Out-of-scope spec files - #1 mobile-navigation.spec.ts
   // Filed-on: 2026-05-13 (Phase 61-03)
-  test.fixme("conversation list fills viewport width on mobile", async ({
-    page,
-    mockApi,
-  }) => {
+  test.fixme("conversation list fills viewport width on mobile", async ({ page, mockApi }) => {
     const proj = makeProject();
     const conv = makeConversation({ projectId: proj.id });
     await mockApi({ projects: [proj], conversations: [conv] });
@@ -175,10 +160,7 @@ test.describe("Mobile navigation", () => {
     expect(box!.width).toBeGreaterThanOrEqual(MOBILE_WIDTH - 20);
   });
 
-  test("mobile drawer closes when backdrop is clicked", async ({
-    page,
-    mockApi,
-  }) => {
+  test("mobile drawer closes when backdrop is clicked", async ({ page, mockApi }) => {
     const proj = makeProject();
     await mockApi({ projects: [proj] });
     await page.goto(`/agents`);
@@ -191,10 +173,7 @@ test.describe("Mobile navigation", () => {
     await expect(drawer).toBeHidden({ timeout: 3000 });
   });
 
-  test("pull to refresh indicator is hidden by default", async ({
-    page,
-    mockApi,
-  }) => {
+  test("pull to refresh indicator is hidden by default", async ({ page, mockApi }) => {
     const proj = makeProject();
     await mockApi({ projects: [proj] });
     await page.goto(`/project/${proj.id}`);

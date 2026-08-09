@@ -46,8 +46,12 @@ mock.module("../db/queries/settings", () => {
       return rows[0]?.value;
     },
     async upsertSetting() {},
-    async deleteSetting() { return false; },
-    async isListingInstalled() { return false; },
+    async deleteSetting() {
+      return false;
+    },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -67,12 +71,15 @@ let storagePath: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  const [owner] = await getDb().insert(users).values({
-    email: "owner@test.local",
-    passwordHash: "x",
-    name: "Owner",
-    role: "member",
-  }).returning();
+  const [owner] = await getDb()
+    .insert(users)
+    .values({
+      email: "owner@test.local",
+      passwordHash: "x",
+      name: "Owner",
+      role: "member",
+    })
+    .returning();
   OWNER_ID = owner!.id;
 });
 
@@ -132,7 +139,9 @@ describe("GET /api/attachments/[id]", () => {
   });
 
   test("returns 404 for an unknown attachment id", async () => {
-    const res = await GET(mkEvent("00000000-0000-0000-0000-000000000000", { ...MEMBER_USER, id: OWNER_ID }));
+    const res = await GET(
+      mkEvent("00000000-0000-0000-0000-000000000000", { ...MEMBER_USER, id: OWNER_ID }),
+    );
     expect(res.status).toBe(404);
   });
 
@@ -141,7 +150,7 @@ describe("GET /api/attachments/[id]", () => {
     expect(inline.headers.get("Content-Disposition")).toBe("inline");
     const dl = await GET(mkEvent(attachmentId, { ...MEMBER_USER, id: OWNER_ID }, "?download=1"));
     const cd = dl.headers.get("Content-Disposition") ?? "";
-    expect(cd).toContain('attachment');
+    expect(cd).toContain("attachment");
     expect(cd).toContain('filename="cat.png"');
   });
 

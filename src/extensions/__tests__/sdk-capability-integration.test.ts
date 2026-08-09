@@ -15,15 +15,26 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -37,9 +48,17 @@ import { reconcileSchedules, _wipeSchedulesForTests } from "../schedule-reconcil
 import { ScheduleDaemon } from "../schedule-daemon";
 import { createUser } from "../../db/queries/users";
 import {
-  extensions, conversations, projects,
-  sdkCapabilityCalls, messages, errorLogs, auditLog,
-  lessons, lessonsAuditLog, memories, memoryAuditLog,
+  extensions,
+  conversations,
+  projects,
+  sdkCapabilityCalls,
+  messages,
+  errorLogs,
+  auditLog,
+  lessons,
+  lessonsAuditLog,
+  memories,
+  memoryAuditLog,
   extensionScheduleFires,
 } from "../../db/schema";
 import { eq } from "drizzle-orm";
@@ -53,22 +72,48 @@ let conversationId: string;
 const FAKE_API_TOKEN = "sk-integration-NEVER-LEAKS-987654";
 
 async function ensureExtension(name: string): Promise<string> {
-  const [row] = await getTestDb().insert(extensions).values({
-    name, version: "0.0.1", description: "",
-    manifest: { schemaVersion: 2, name, version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as any,
-    source: "test", enabled: true, grantedPermissions: {} as any,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name,
+      version: "0.0.1",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as any,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as any,
+    })
+    .returning({ id: extensions.id });
   return row!.id;
 }
 
 beforeAll(async () => {
   await setupTestDb();
-  const u = await createUser({ email: "integ@example.com", passwordHash: "h", name: "U", role: "admin", status: "active" });
+  const u = await createUser({
+    email: "integ@example.com",
+    passwordHash: "h",
+    name: "U",
+    role: "admin",
+    status: "active",
+  });
   userId = u.id;
   extensionId = await ensureExtension("integ-test-ext");
-  const [proj] = await getTestDb().insert(projects).values({ name: "integ-proj", path: "/tmp/integ" }).returning({ id: projects.id });
+  const [proj] = await getTestDb()
+    .insert(projects)
+    .values({ name: "integ-proj", path: "/tmp/integ" })
+    .returning({ id: projects.id });
   projectId = proj!.id;
-  const [conv] = await getTestDb().insert(conversations).values({ projectId, userId, title: "t", kind: "regular" }).returning({ id: conversations.id });
+  const [conv] = await getTestDb()
+    .insert(conversations)
+    .values({ projectId, userId, title: "t", kind: "regular" })
+    .returning({ id: conversations.id });
   conversationId = conv!.id;
 });
 
@@ -115,7 +160,8 @@ const grantedAll = (): ExtensionPermissions => ({
 });
 
 const rpcMeta = (): Record<string, unknown> => ({
-  ezOnBehalfOf: userId, ezConversationId: conversationId,
+  ezOnBehalfOf: userId,
+  ezConversationId: conversationId,
 });
 
 describe("cross-capability integration", () => {
@@ -125,17 +171,29 @@ describe("cross-capability integration", () => {
     // 1. ctx.llm.complete()
     const llmResp = await handlePiLlmComplete(
       {
-        jsonrpc: "2.0", id: 1, method: "ezcorp/llm-complete",
-        params: { provider: "anthropic", model: "claude-sonnet-4",
-                  messages: [{ role: "user", content: "hi" }], maxTokens: 100 },
+        jsonrpc: "2.0",
+        id: 1,
+        method: "ezcorp/llm-complete",
+        params: {
+          provider: "anthropic",
+          model: "claude-sonnet-4",
+          messages: [{ role: "user", content: "hi" }],
+          maxTokens: 100,
+        },
       },
       {
-        granted, registeredTool: { extensionId },
+        granted,
+        registeredTool: { extensionId },
         resolveModelFn: async (provider, model) => ({ provider, model, piModel: {} as unknown }),
         getCredentialFn: async () => ({ type: "apikey", token: FAKE_API_TOKEN }),
         completeFn: async (_pm, _b, opts) => {
           expect(opts.apiKey).toBe(FAKE_API_TOKEN);
-          return { content: [{ type: "text", text: "ok" }], usage: { input: 5, output: 7 }, stopReason: "stop", model: "claude-sonnet-4" };
+          return {
+            content: [{ type: "text", text: "ok" }],
+            usage: { input: 5, output: 7 },
+            stopReason: "stop",
+            model: "claude-sonnet-4",
+          };
         },
       },
       rpcMeta(),
@@ -144,10 +202,15 @@ describe("cross-capability integration", () => {
 
     // 2. ctx.memory.write()
     const memResp = await handlePiMemory(
-      { jsonrpc: "2.0", id: 2, method: "ezcorp/memory",
-        params: { action: "write", input: { content: "remember me", category: "technical" } } },
       {
-        granted, registeredTool: { extensionId },
+        jsonrpc: "2.0",
+        id: 2,
+        method: "ezcorp/memory",
+        params: { action: "write", input: { content: "remember me", category: "technical" } },
+      },
+      {
+        granted,
+        registeredTool: { extensionId },
         embedFn: async () => new Array<number>(384).fill(0.5),
       },
       rpcMeta(),
@@ -156,8 +219,15 @@ describe("cross-capability integration", () => {
 
     // 3. ctx.lessons.write()
     const lessonResp = await handlePiLessons(
-      { jsonrpc: "2.0", id: 3, method: "ezcorp/lessons",
-        params: { action: "write", input: { slug: "integ-lesson", title: "T", body: "B", projectId } } },
+      {
+        jsonrpc: "2.0",
+        id: 3,
+        method: "ezcorp/lessons",
+        params: {
+          action: "write",
+          input: { slug: "integ-lesson", title: "T", body: "B", projectId },
+        },
+      },
       { granted, registeredTool: { extensionId } },
       rpcMeta(),
     );
@@ -172,8 +242,12 @@ describe("cross-capability integration", () => {
     await reconcileSchedules(extensionId, granted.schedule!.crons);
     const daemon = new ScheduleDaemon({ skipLockfile: true });
     const schedResp = await handlePiSchedule(
-      { jsonrpc: "2.0", id: 4, method: "ezcorp/schedule",
-        params: { action: "fire-now", cron: "*/5 * * * *" } },
+      {
+        jsonrpc: "2.0",
+        id: 4,
+        method: "ezcorp/schedule",
+        params: { action: "fire-now", cron: "*/5 * * * *" },
+      },
       { granted, registeredTool: { extensionId }, daemon },
       rpcMeta(),
     );
@@ -189,7 +263,10 @@ describe("cross-capability integration", () => {
     );
 
     // ── Audit row counts ──
-    const sdkRows = await getTestDb().select().from(sdkCapabilityCalls).where(eq(sdkCapabilityCalls.extensionId, extensionId));
+    const sdkRows = await getTestDb()
+      .select()
+      .from(sdkCapabilityCalls)
+      .where(eq(sdkCapabilityCalls.extensionId, extensionId));
     // 1 LLM + 2 memory (write + list) + 1 lesson + 1 schedule.fire-now
     // = 5 rows in sdk_capability_calls (one per capability invocation).
     // Spec § 51.6.1 mandates 5.

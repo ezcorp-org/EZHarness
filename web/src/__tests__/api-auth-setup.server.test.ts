@@ -115,25 +115,19 @@ describe("POST /api/auth/setup", () => {
 
   test("returns 400 when name is empty", async () => {
     vi.mocked(getUserCount).mockResolvedValue(0);
-    const res = await POST(
-      makeEvent({ body: { ...validBody, name: "" } }),
-    );
+    const res = await POST(makeEvent({ body: { ...validBody, name: "" } }));
     expect(res.status).toBe(400);
   });
 
   test("returns 400 when email is malformed", async () => {
     vi.mocked(getUserCount).mockResolvedValue(0);
-    const res = await POST(
-      makeEvent({ body: { ...validBody, email: "nope" } }),
-    );
+    const res = await POST(makeEvent({ body: { ...validBody, email: "nope" } }));
     expect(res.status).toBe(400);
   });
 
   test("returns 400 when password is too weak", async () => {
     vi.mocked(getUserCount).mockResolvedValue(0);
-    const res = await POST(
-      makeEvent({ body: { ...validBody, password: "abc" } }),
-    );
+    const res = await POST(makeEvent({ body: { ...validBody, password: "abc" } }));
     expect(res.status).toBe(400);
   });
 

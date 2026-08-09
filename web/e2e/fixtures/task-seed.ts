@@ -13,9 +13,9 @@ const RUNTIME_EVENTS_URL = "/api/runtime-events";
 
 /** Minimal shape the task panel needs; specs pass their own richer tasks. */
 export interface TaskSnapshotSeed {
-	conversationId: string;
-	tasks: unknown[];
-	activeTaskId?: string;
+  conversationId: string;
+  tasks: unknown[];
+  activeTaskId?: string;
 }
 
 /**
@@ -38,24 +38,24 @@ export interface TaskSnapshotSeed {
  * snapshot renders nothing by design, so there is nothing to wait for.
  */
 export async function seedTaskSnapshot(page: Page, snapshot: TaskSnapshotSeed): Promise<void> {
-	// The store attaches its handler when it opens the stream. Emitting before
-	// that lands drops the frame on the floor, so wait for a live consumer.
-	await page.waitForFunction((url) => {
-		const sources = (
-			window as Window & {
-				__fakeEventSources?: Array<{ url: string; instance?: { onmessage?: unknown } }>;
-			}
-		).__fakeEventSources;
-		return !!sources?.some((es) => es.url.includes(url) && !!es.instance?.onmessage);
-	}, RUNTIME_EVENTS_URL);
+  // The store attaches its handler when it opens the stream. Emitting before
+  // that lands drops the frame on the floor, so wait for a live consumer.
+  await page.waitForFunction((url) => {
+    const sources = (
+      window as Window & {
+        __fakeEventSources?: Array<{ url: string; instance?: { onmessage?: unknown } }>;
+      }
+    ).__fakeEventSources;
+    return !!sources?.some((es) => es.url.includes(url) && !!es.instance?.onmessage);
+  }, RUNTIME_EVENTS_URL);
 
-	await emitSseEvent(page, { type: "task:snapshot", data: snapshot }, RUNTIME_EVENTS_URL);
+  await emitSseEvent(page, { type: "task:snapshot", data: snapshot }, RUNTIME_EVENTS_URL);
 
-	if (snapshot.tasks.length > 0) {
-		await expect(
-			page.getByRole("button", { name: /Collapse task panel|Expand task panel/ }),
-		).toBeVisible();
-	}
+  if (snapshot.tasks.length > 0) {
+    await expect(
+      page.getByRole("button", { name: /Collapse task panel|Expand task panel/ }),
+    ).toBeVisible();
+  }
 }
 
 /**
@@ -63,21 +63,21 @@ export async function seedTaskSnapshot(page: Page, snapshot: TaskSnapshotSeed): 
  * three steps every task-panel spec needs before it can assert anything.
  */
 export async function openChatWithTasks(
-	page: Page,
-	mockApi: (overrides?: MockOverrides) => Promise<void>,
-	opts: {
-		project: Project;
-		conversation: Conversation;
-		snapshot: TaskSnapshotSeed;
-	},
+  page: Page,
+  mockApi: (overrides?: MockOverrides) => Promise<void>,
+  opts: {
+    project: Project;
+    conversation: Conversation;
+    snapshot: TaskSnapshotSeed;
+  },
 ): Promise<void> {
-	await mockApi({
-		projects: [opts.project],
-		conversations: [opts.conversation],
-		messages: [],
-	});
+  await mockApi({
+    projects: [opts.project],
+    conversations: [opts.conversation],
+    messages: [],
+  });
 
-	await page.goto(`/project/${opts.project.id}/chat/${opts.conversation.id}`);
+  await page.goto(`/project/${opts.project.id}/chat/${opts.conversation.id}`);
 
-	await seedTaskSnapshot(page, opts.snapshot);
+  await seedTaskSnapshot(page, opts.snapshot);
 }

@@ -62,203 +62,195 @@ const proj = makeProject({ id: "proj-cmds", name: "Commands Project" });
 const conv = makeConversation({ id: "conv-cmds", projectId: "proj-cmds" });
 
 async function setupAndFocus(page: any, mockApi: any, userCommands: any[]) {
-	await mockApi({
-		projects: [proj],
-		conversations: [conv],
-		messages: [],
-		agents: [],
-		extensions: [],
-		// Seed the user-DB row that should surface in the popover.
-		userCommands,
-	});
-	await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-	await expect(
-		page.getByText("Send a message to start the conversation"),
-	).toBeVisible();
+  await mockApi({
+    projects: [proj],
+    conversations: [conv],
+    messages: [],
+    agents: [],
+    extensions: [],
+    // Seed the user-DB row that should surface in the popover.
+    userCommands,
+  });
+  await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+  await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-	const textarea = page.locator("textarea");
+  const textarea = page.locator("textarea");
 
-	// Wait for WS + textarea enabled — mirrors slash-commands.spec.ts.
-	await page.waitForFunction(
-		() => {
-			const listeners = (window as any).__fakeWsListeners;
-			if (listeners?.open) {
-				for (const fn of listeners.open) {
-					try {
-						fn(new Event("open"));
-					} catch {}
-				}
-			}
-			const ta = document.querySelector("textarea");
-			return ta && !ta.disabled;
-		},
-		{ timeout: 5000 },
-	);
+  // Wait for WS + textarea enabled — mirrors slash-commands.spec.ts.
+  await page.waitForFunction(
+    () => {
+      const listeners = (window as any).__fakeWsListeners;
+      if (listeners?.open) {
+        for (const fn of listeners.open) {
+          try {
+            fn(new Event("open"));
+          } catch {}
+        }
+      }
+      const ta = document.querySelector("textarea");
+      return ta && !ta.disabled;
+    },
+    { timeout: 5000 },
+  );
 
-	await expect(textarea).toBeEnabled({ timeout: 5000 });
-	await page.waitForTimeout(100);
-	await textarea.click();
-	return textarea;
+  await expect(textarea).toBeEnabled({ timeout: 5000 });
+  await page.waitForTimeout(100);
+  await textarea.click();
+  return textarea;
 }
 
 async function typeInto(page: any, textarea: any, text: string) {
-	await textarea.focus();
-	await textarea.pressSequentially(text, { delay: 50 });
-	await page.waitForTimeout(350); // debounce (200) + reactivity
+  await textarea.focus();
+  await textarea.pressSequentially(text, { delay: 50 });
+  await page.waitForTimeout(350); // debounce (200) + reactivity
 }
 
 async function waitForPopover(page: any) {
-	await expect(page.locator("#mention-listbox")).toBeVisible({
-		timeout: 5000,
-	});
+  await expect(page.locator("#mention-listbox")).toBeVisible({
+    timeout: 5000,
+  });
 }
 
 test.describe("User-DB commands · chat popover round-trip", () => {
-	test("typing `/myc` surfaces the user-DB command with the Saved badge", async ({
-		page,
-		mockApi,
-	}) => {
-		const textarea = await setupAndFocus(page, mockApi, [
-			{
-				name: "mycmd-e2e",
-				body: "Review: $ARGUMENTS",
-				description: "Review staged changes",
-			},
-		]);
+  test("typing `/myc` surfaces the user-DB command with the Saved badge", async ({
+    page,
+    mockApi,
+  }) => {
+    const textarea = await setupAndFocus(page, mockApi, [
+      {
+        name: "mycmd-e2e",
+        body: "Review: $ARGUMENTS",
+        description: "Review staged changes",
+      },
+    ]);
 
-		await typeInto(page, textarea, "/myc");
-		await waitForPopover(page);
+    await typeInto(page, textarea, "/myc");
+    await waitForPopover(page);
 
-		const listbox = page.locator("#mention-listbox");
-		await expect(listbox).toContainText("Slash commands");
-		await expect(listbox).toContainText("/mycmd-e2e");
+    const listbox = page.locator("#mention-listbox");
+    await expect(listbox).toContainText("Slash commands");
+    await expect(listbox).toContainText("/mycmd-e2e");
 
-		// `data-source="user:db"` is the production-shape marker the
-		// MentionPopover sets on each command row; the CommandCard on
-		// /commands asserts the SAME attribute (user-commands.spec.ts).
-		const row = listbox
-			.locator("[data-source='user:db']")
-			.filter({ hasText: "mycmd-e2e" })
-			.first();
-		await expect(row).toBeVisible();
-		// commandSourceLabel("user:db") renders "Global · Saved".
-		await expect(row).toContainText("Global");
-		await expect(row).toContainText("Saved");
-	});
+    // `data-source="user:db"` is the production-shape marker the
+    // MentionPopover sets on each command row; the CommandCard on
+    // /commands asserts the SAME attribute (user-commands.spec.ts).
+    const row = listbox.locator("[data-source='user:db']").filter({ hasText: "mycmd-e2e" }).first();
+    await expect(row).toBeVisible();
+    // commandSourceLabel("user:db") renders "Global · Saved".
+    await expect(row).toContainText("Global");
+    await expect(row).toContainText("Saved");
+  });
 
-	test("selecting the command and submitting posts the raw `/[cmd:…]` token + args", async ({
-		page,
-		mockApi,
-	}) => {
-		const textarea = await setupAndFocus(page, mockApi, [
-			{
-				name: "mycmd-e2e",
-				body: "Review: $ARGUMENTS",
-				description: "Review staged changes",
-			},
-		]);
+  test("selecting the command and submitting posts the raw `/[cmd:…]` token + args", async ({
+    page,
+    mockApi,
+  }) => {
+    const textarea = await setupAndFocus(page, mockApi, [
+      {
+        name: "mycmd-e2e",
+        body: "Review: $ARGUMENTS",
+        description: "Review staged changes",
+      },
+    ]);
 
-		const requestPromise = page.waitForRequest(
-			(req: any) =>
-				req.url().includes(`/api/conversations/${conv.id}/messages`) &&
-				req.method() === "POST",
-		);
+    const requestPromise = page.waitForRequest(
+      (req: any) =>
+        req.url().includes(`/api/conversations/${conv.id}/messages`) && req.method() === "POST",
+    );
 
-		await typeInto(page, textarea, "/myc");
-		await waitForPopover(page);
-		// Enter selects the highlighted (first) match → commits the
-		// `/[cmd:mycmd-e2e]` wire token, which the textarea lays out as the
-		// COMPACT label `/mycmd-e2e ` (the full token still travels on the
-		// wire — see the submit assertion below).
-		await page.keyboard.press("Enter");
-		await page.waitForTimeout(100);
-		await expect(textarea).toHaveValue(/^\/mycmd-e2e\s+$/);
+    await typeInto(page, textarea, "/myc");
+    await waitForPopover(page);
+    // Enter selects the highlighted (first) match → commits the
+    // `/[cmd:mycmd-e2e]` wire token, which the textarea lays out as the
+    // COMPACT label `/mycmd-e2e ` (the full token still travels on the
+    // wire — see the submit assertion below).
+    await page.keyboard.press("Enter");
+    await page.waitForTimeout(100);
+    await expect(textarea).toHaveValue(/^\/mycmd-e2e\s+$/);
 
-		// Type the arg payload and submit.
-		await textarea.pressSequentially("the auth middleware", { delay: 30 });
-		await page.waitForTimeout(150);
-		await page.keyboard.press("Enter");
+    // Type the arg payload and submit.
+    await textarea.pressSequentially("the auth middleware", { delay: 30 });
+    await page.waitForTimeout(150);
+    await page.keyboard.press("Enter");
 
-		const req = await requestPromise;
-		const body = req.postDataJSON() as { content: string };
-		// Server-side `applyCommandExpansion`
-		// (src/runtime/mention-wiring.ts) substitutes `$ARGUMENTS` →
-		// `the auth middleware` at stream time; the wire format the
-		// client posts is intentionally the raw token. The full
-		// expansion (`Review: the auth middleware`) is unit-tested at
-		// web/src/__tests__/expand-command-mentions.test.ts; here we
-		// assert the contract the runtime depends on.
-		expect(body.content).toBe("/[cmd:mycmd-e2e] the auth middleware");
-	});
+    const req = await requestPromise;
+    const body = req.postDataJSON() as { content: string };
+    // Server-side `applyCommandExpansion`
+    // (src/runtime/mention-wiring.ts) substitutes `$ARGUMENTS` →
+    // `the auth middleware` at stream time; the wire format the
+    // client posts is intentionally the raw token. The full
+    // expansion (`Review: the auth middleware`) is unit-tested at
+    // web/src/__tests__/expand-command-mentions.test.ts; here we
+    // assert the contract the runtime depends on.
+    expect(body.content).toBe("/[cmd:mycmd-e2e] the auth middleware");
+  });
 
-	test("chip in chat history hovers to reveal the user-DB command body", async ({
-		page,
-		mockApi,
-	}) => {
-		// This is the strongest in-process e2e signal that the
-		// user-DB row reaches the same registry surface
-		// `applyCommandExpansion` consumes on the server: the chip
-		// hover popover calls `fetchCommandBody`, which goes through
-		// `/api/mentions/search?type=cmd` — the exact path the
-		// registry feeds. If the row weren't routed through the
-		// registry, the chip's lazy popover would render
-		// "(body not available)" instead of the template.
-		const textarea = await setupAndFocus(page, mockApi, [
-			{
-				name: "mycmd-e2e",
-				body: "Review: $ARGUMENTS",
-				description: "Review staged changes",
-			},
-		]);
+  test("chip in chat history hovers to reveal the user-DB command body", async ({
+    page,
+    mockApi,
+  }) => {
+    // This is the strongest in-process e2e signal that the
+    // user-DB row reaches the same registry surface
+    // `applyCommandExpansion` consumes on the server: the chip
+    // hover popover calls `fetchCommandBody`, which goes through
+    // `/api/mentions/search?type=cmd` — the exact path the
+    // registry feeds. If the row weren't routed through the
+    // registry, the chip's lazy popover would render
+    // "(body not available)" instead of the template.
+    const textarea = await setupAndFocus(page, mockApi, [
+      {
+        name: "mycmd-e2e",
+        body: "Review: $ARGUMENTS",
+        description: "Review staged changes",
+      },
+    ]);
 
-		await typeInto(page, textarea, "/myc");
-		await waitForPopover(page);
-		await page.keyboard.press("Enter"); // insert token
-		await page.waitForTimeout(100);
-		await textarea.pressSequentially("the auth middleware", { delay: 30 });
-		await page.waitForTimeout(150);
-		await page.keyboard.press("Enter"); // submit
-		await page.waitForTimeout(400);
+    await typeInto(page, textarea, "/myc");
+    await waitForPopover(page);
+    await page.keyboard.press("Enter"); // insert token
+    await page.waitForTimeout(100);
+    await textarea.pressSequentially("the auth middleware", { delay: 30 });
+    await page.waitForTimeout(150);
+    await page.keyboard.press("Enter"); // submit
+    await page.waitForTimeout(400);
 
-		// After submit the composer resets; the chip we want is the
-		// `/mycmd-e2e` token rendered inside the chat-history bubble.
-		const chip = page
-			.locator(
-				"[data-mention-kind='command'][data-mention-name='mycmd-e2e']",
-			)
-			.first();
-		await expect(chip).toBeVisible({ timeout: 5000 });
+    // After submit the composer resets; the chip we want is the
+    // `/mycmd-e2e` token rendered inside the chat-history bubble.
+    const chip = page
+      .locator("[data-mention-kind='command'][data-mention-name='mycmd-e2e']")
+      .first();
+    await expect(chip).toBeVisible({ timeout: 5000 });
 
-		await chip.hover();
-		const popover = page.locator("[data-command-popover='mycmd-e2e']");
-		await expect(popover).toBeVisible({ timeout: 3000 });
-		// The chip shows the raw body template (pre-substitution) so
-		// readers can see what shape the LLM saw. The runtime
-		// substitution itself is covered by the applyCommandExpansion
-		// unit tests — this assertion is the e2e proof that the
-		// user-DB body actually reaches the chip's resolver.
-		await expect(popover).toContainText("Review: $ARGUMENTS");
-		await expect(popover).toContainText("Prompt sent for /mycmd-e2e");
-	});
+    await chip.hover();
+    const popover = page.locator("[data-command-popover='mycmd-e2e']");
+    await expect(popover).toBeVisible({ timeout: 3000 });
+    // The chip shows the raw body template (pre-substitution) so
+    // readers can see what shape the LLM saw. The runtime
+    // substitution itself is covered by the applyCommandExpansion
+    // unit tests — this assertion is the e2e proof that the
+    // user-DB body actually reaches the chip's resolver.
+    await expect(popover).toContainText("Review: $ARGUMENTS");
+    await expect(popover).toContainText("Prompt sent for /mycmd-e2e");
+  });
 
-	test("fuzzy filter narrows the popover to the user-DB command alone", async ({
-		page,
-		mockApi,
-	}) => {
-		// Seed two user-DB rows + ensure the fuzzy filter on `mycmd`
-		// excludes the unrelated one. Mirrors the existing
-		// slash-commands.spec.ts "type-ahead filters results fuzzily"
-		// case, but for the DB-backed source.
-		const textarea = await setupAndFocus(page, mockApi, [
-			{ name: "mycmd-e2e", body: "Review: $ARGUMENTS" },
-			{ name: "audit-trail", body: "Audit: $ARGUMENTS" },
-		]);
+  test("fuzzy filter narrows the popover to the user-DB command alone", async ({
+    page,
+    mockApi,
+  }) => {
+    // Seed two user-DB rows + ensure the fuzzy filter on `mycmd`
+    // excludes the unrelated one. Mirrors the existing
+    // slash-commands.spec.ts "type-ahead filters results fuzzily"
+    // case, but for the DB-backed source.
+    const textarea = await setupAndFocus(page, mockApi, [
+      { name: "mycmd-e2e", body: "Review: $ARGUMENTS" },
+      { name: "audit-trail", body: "Audit: $ARGUMENTS" },
+    ]);
 
-		await typeInto(page, textarea, "/myc");
-		await waitForPopover(page);
+    await typeInto(page, textarea, "/myc");
+    await waitForPopover(page);
 
-		const listbox = page.locator("#mention-listbox");
-		await expect(listbox).toContainText("/mycmd-e2e");
-		await expect(listbox).not.toContainText("/audit-trail");
-	});
+    const listbox = page.locator("#mention-listbox");
+    await expect(listbox).toContainText("/mycmd-e2e");
+    await expect(listbox).not.toContainText("/audit-trail");
+  });
 });

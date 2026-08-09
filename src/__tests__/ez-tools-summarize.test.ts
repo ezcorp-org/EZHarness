@@ -40,7 +40,11 @@ const resolveModelCalls: Array<[unknown, unknown]> = [];
 let resolveModelImpl: (provider?: unknown, model?: unknown) => Promise<unknown> = async (
   provider,
   model,
-) => ({ provider: provider ?? "anthropic", model: model ?? "claude-default", piModel: { _stub: true } });
+) => ({
+  provider: provider ?? "anthropic",
+  model: model ?? "claude-default",
+  piModel: { _stub: true },
+});
 
 mock.module("../providers/router", () => ({
   resolveModel: async (provider?: unknown, model?: unknown) => {
@@ -67,7 +71,9 @@ mock.module("../providers/llm", () => ({
 
 const { createUser } = await import("../db/queries/users");
 const { createConversation, createMessage } = await import("../db/queries/conversations");
-const { createSummarizeConversationTool } = await import("../runtime/tools/ez/summarize-conversation");
+const { createSummarizeConversationTool } = await import(
+  "../runtime/tools/ez/summarize-conversation"
+);
 const { getDb } = await import("../db/connection");
 const { projects } = await import("../db/schema");
 
@@ -80,7 +86,10 @@ beforeAll(async () => {
   const u = await createUser({ email: "ez-summ@test.com", passwordHash: "h", name: "S" });
   userId = u.id;
   // The conversations FK requires a project — use the migrated 'global' row.
-  await getDb().insert(projects).values({ id: "summ-proj", name: "summ", path: "/tmp/summ", description: "", userId }).onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({ id: "summ-proj", name: "summ", path: "/tmp/summ", description: "", userId })
+    .onConflictDoNothing();
   const conv = await createConversation("summ-proj", { title: "T", userId });
   conversationId = conv.id;
   await createMessage(conversationId, { role: "user", content: "What's the weather?" });
@@ -177,7 +186,11 @@ describe("summarize_conversation", () => {
         return "* discussed weather";
       },
     });
-    const result = await tool.execute("s-q2", { conversationId, style: "standup", question: "   " });
+    const result = await tool.execute("s-q2", {
+      conversationId,
+      style: "standup",
+      question: "   ",
+    });
     // Falls back to the style prompt — no answer-this-question framing.
     expect(calls[0]!.system).toContain("daily-standup");
     expect(calls[0]!.system).not.toContain("Answer the following question");
@@ -296,7 +309,11 @@ describe("summarize_conversation", () => {
         // try the legacy default-tier path.
         throw new Error("simulated picked-model failure");
       }
-      return { provider: provider ?? "anthropic", model: model ?? "claude-default", piModel: { _stub: true } };
+      return {
+        provider: provider ?? "anthropic",
+        model: model ?? "claude-default",
+        piModel: { _stub: true },
+      };
     };
 
     const tool = createSummarizeConversationTool({ provider: "openai", model: "gpt-5.5" });

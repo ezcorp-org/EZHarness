@@ -60,7 +60,10 @@ export interface LlmQuota {
    *  calls add nothing. Negative input clamps the counter at zero. */
   addCost(extensionId: string, cents: number): void;
   /** Read-only snapshot for `getBudget()`. */
-  budget(extensionId: string, cfg: LlmQuotaConfig): {
+  budget(
+    extensionId: string,
+    cfg: LlmQuotaConfig,
+  ): {
     callsRemaining: { hour: number; day: number };
     tokensRemaining: { day: number };
     costCentsRemaining: { day: number };
@@ -105,7 +108,14 @@ export function createLlmQuota(): LlmQuota {
     let entry = counters.get(extensionId);
     if (!entry || entry.day !== today) {
       // Day rollover (or first call). New buckets.
-      entry = { hourly: [], dailyCalls: 0, dailyTokens: 0, dailyCostCents: 0, day: today, dirty: false };
+      entry = {
+        hourly: [],
+        dailyCalls: 0,
+        dailyTokens: 0,
+        dailyCostCents: 0,
+        day: today,
+        dirty: false,
+      };
       counters.set(extensionId, entry);
     }
     return entry;
@@ -118,18 +128,31 @@ export function createLlmQuota(): LlmQuota {
   async function hydrateImpl(extensionId: string): Promise<void> {
     const today = todayUtcString();
     let entry = counters.get(extensionId);
-    if (entry && entry.day === today && (entry.dailyCalls > 0 || entry.dailyTokens > 0 || entry.dailyCostCents > 0)) {
+    if (
+      entry &&
+      entry.day === today &&
+      (entry.dailyCalls > 0 || entry.dailyTokens > 0 || entry.dailyCostCents > 0)
+    ) {
       // Already populated for today — don't clobber.
       return;
     }
     try {
-      const rows = await getDb().select().from(extensionLlmUsage).where(and(
-        eq(extensionLlmUsage.extensionId, extensionId),
-        eq(extensionLlmUsage.day, today),
-      ));
+      const rows = await getDb()
+        .select()
+        .from(extensionLlmUsage)
+        .where(
+          and(eq(extensionLlmUsage.extensionId, extensionId), eq(extensionLlmUsage.day, today)),
+        );
       const seed = rows[0];
       if (!entry || entry.day !== today) {
-        entry = { hourly: [], dailyCalls: 0, dailyTokens: 0, dailyCostCents: 0, day: today, dirty: false };
+        entry = {
+          hourly: [],
+          dailyCalls: 0,
+          dailyTokens: 0,
+          dailyCostCents: 0,
+          day: today,
+          dirty: false,
+        };
         counters.set(extensionId, entry);
       }
       if (seed) {
@@ -200,7 +223,7 @@ export function createLlmQuota(): LlmQuota {
 
       if (e.hourly.length >= cfg.maxCallsPerHour) {
         // Time until the oldest entry ages out.
-        const retryAfterMs = (e.hourly[0]! + HOUR_MS) - now;
+        const retryAfterMs = e.hourly[0]! + HOUR_MS - now;
         return { ok: false, reason: "calls-per-hour", retryAfterMs: Math.max(0, retryAfterMs) };
       }
       if (e.dailyCalls >= cfg.maxCallsPerDay) {
@@ -249,12 +272,14 @@ export function createLlmQuota(): LlmQuota {
     budget(extensionId, cfg) {
       const e = getOrInit(extensionId);
       pruneHourly(e, Date.now());
-      const day = cfg.maxTokensPerDay !== undefined
-        ? Math.max(0, cfg.maxTokensPerDay - e.dailyTokens)
-        : Number.MAX_SAFE_INTEGER;
-      const costDay = cfg.maxCostCentsPerDay !== undefined
-        ? Math.max(0, cfg.maxCostCentsPerDay - e.dailyCostCents)
-        : Number.MAX_SAFE_INTEGER;
+      const day =
+        cfg.maxTokensPerDay !== undefined
+          ? Math.max(0, cfg.maxTokensPerDay - e.dailyTokens)
+          : Number.MAX_SAFE_INTEGER;
+      const costDay =
+        cfg.maxCostCentsPerDay !== undefined
+          ? Math.max(0, cfg.maxCostCentsPerDay - e.dailyCostCents)
+          : Number.MAX_SAFE_INTEGER;
       return {
         callsRemaining: {
           hour: Math.max(0, cfg.maxCallsPerHour - e.hourly.length),

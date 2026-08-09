@@ -24,7 +24,7 @@ import { render, waitFor } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach } from "vitest";
 
 const { fetchSettingsMock } = vi.hoisted(() => ({
-	fetchSettingsMock: vi.fn(),
+  fetchSettingsMock: vi.fn(),
 }));
 
 vi.mock("$lib/api.js", () => ({ fetchSettings: fetchSettingsMock }));
@@ -33,54 +33,54 @@ vi.mock("$lib/scroll-to-hash.js", () => ({ scrollToLocationHash: vi.fn() }));
 
 // SearchBackendSection fetches /api/search/backend on mount — empty stub.
 vi.mock("$lib/components/settings/SearchBackendSection.svelte", async () => {
-	const stub = await import("../../../../../__tests__/stubs/empty-component.js");
-	return { default: stub.default };
+  const stub = await import("../../../../../__tests__/stubs/empty-component.js");
+  return { default: stub.default };
 });
 // SearchDefaultsSection auto-saves on change — recording stub so we can
 // read back the `defaults` the page resolved + passed down.
 vi.mock("$lib/components/settings/SearchDefaultsSection.svelte", async () => {
-	const stub = await import("./SearchDefaultsStub.svelte");
-	return { default: stub.default };
+  const stub = await import("./SearchDefaultsStub.svelte");
+  return { default: stub.default };
 });
 
 import SearchPage from "../+page.svelte";
 
 beforeEach(() => {
-	fetchSettingsMock.mockReset();
+  fetchSettingsMock.mockReset();
 });
 
 describe("settings/search page load", () => {
-	test("happy path: resolves defaults from fetched settings and mounts the sections", async () => {
-		fetchSettingsMock.mockResolvedValue({
-			"global:search:allowedByDefault": false,
-			"global:search:defaultQuota": 250,
-			"global:search:defaultMaxResults": 9,
-			"global:search:defaultProviders": ["searxng", "brave"],
-		});
-		const { getByTestId } = render(SearchPage);
+  test("happy path: resolves defaults from fetched settings and mounts the sections", async () => {
+    fetchSettingsMock.mockResolvedValue({
+      "global:search:allowedByDefault": false,
+      "global:search:defaultQuota": 250,
+      "global:search:defaultMaxResults": 9,
+      "global:search:defaultProviders": ["searxng", "brave"],
+    });
+    const { getByTestId } = render(SearchPage);
 
-		await waitFor(() => expect(getByTestId("search-defaults-stub")).toBeInTheDocument());
-		const stub = getByTestId("search-defaults-stub");
-		expect(stub.getAttribute("data-allowed")).toBe("false");
-		expect(stub.getAttribute("data-quota")).toBe("250");
-		expect(stub.getAttribute("data-maxresults")).toBe("9");
-		expect(stub.getAttribute("data-providers")).toBe("searxng, brave");
-	});
+    await waitFor(() => expect(getByTestId("search-defaults-stub")).toBeInTheDocument());
+    const stub = getByTestId("search-defaults-stub");
+    expect(stub.getAttribute("data-allowed")).toBe("false");
+    expect(stub.getAttribute("data-quota")).toBe("250");
+    expect(stub.getAttribute("data-maxresults")).toBe("9");
+    expect(stub.getAttribute("data-providers")).toBe("searxng, brave");
+  });
 
-	test("load REJECT (member-403): swallows the error and mounts over the hard-default fallback", async () => {
-		fetchSettingsMock.mockRejectedValue(new Error("403 Forbidden"));
-		const { getByTestId } = render(SearchPage);
+  test("load REJECT (member-403): swallows the error and mounts over the hard-default fallback", async () => {
+    fetchSettingsMock.mockRejectedValue(new Error("403 Forbidden"));
+    const { getByTestId } = render(SearchPage);
 
-		// The page must leave the skeleton and mount the sections — the
-		// catch branch sets pageLoading = false even on failure.
-		await waitFor(() => expect(getByTestId("search-defaults-stub")).toBeInTheDocument());
+    // The page must leave the skeleton and mount the sections — the
+    // catch branch sets pageLoading = false even on failure.
+    await waitFor(() => expect(getByTestId("search-defaults-stub")).toBeInTheDocument());
 
-		// Defaults are the `readSearchDefaults({})` hard defaults
-		// (quota 100 / maxResults 5 / providers "all" / allowed true).
-		const stub = getByTestId("search-defaults-stub");
-		expect(stub.getAttribute("data-allowed")).toBe("true");
-		expect(stub.getAttribute("data-quota")).toBe("100");
-		expect(stub.getAttribute("data-maxresults")).toBe("5");
-		expect(stub.getAttribute("data-providers")).toBe("all");
-	});
+    // Defaults are the `readSearchDefaults({})` hard defaults
+    // (quota 100 / maxResults 5 / providers "all" / allowed true).
+    const stub = getByTestId("search-defaults-stub");
+    expect(stub.getAttribute("data-allowed")).toBe("true");
+    expect(stub.getAttribute("data-quota")).toBe("100");
+    expect(stub.getAttribute("data-maxresults")).toBe("5");
+    expect(stub.getAttribute("data-providers")).toBe("all");
+  });
 });

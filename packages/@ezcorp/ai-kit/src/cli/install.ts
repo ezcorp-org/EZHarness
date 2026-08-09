@@ -45,11 +45,7 @@ async function readJsonFile(filePath: string): Promise<Record<string, unknown>> 
   }
 }
 
-async function writeJsonFile(
-  filePath: string,
-  data: unknown,
-  dryRun: boolean,
-): Promise<void> {
+async function writeJsonFile(filePath: string, data: unknown, dryRun: boolean): Promise<void> {
   const text = JSON.stringify(data, null, 2) + "\n";
   if (dryRun) {
     console.log(`[dry-run] Would write ${filePath}:\n${text}`);
@@ -75,10 +71,7 @@ function deepMerge(
       target[k] !== null &&
       !Array.isArray(target[k])
     ) {
-      result[k] = deepMerge(
-        target[k] as Record<string, unknown>,
-        v as Record<string, unknown>,
-      );
+      result[k] = deepMerge(target[k] as Record<string, unknown>, v as Record<string, unknown>);
     } else {
       result[k] = v;
     }
@@ -135,7 +128,9 @@ function findProjectRoot(startDir: string): string | null {
 
 // ── targets ───────────────────────────────────────────────────────────────────
 
-async function installClaudeCode(opts: Required<Pick<InstallOptions, "home" | "dryRun">> & { project?: boolean; cwd?: string }): Promise<void> {
+async function installClaudeCode(
+  opts: Required<Pick<InstallOptions, "home" | "dryRun">> & { project?: boolean; cwd?: string },
+): Promise<void> {
   const entry = mcpEntry();
 
   if (opts.project) {
@@ -170,7 +165,9 @@ async function installClaudeCode(opts: Required<Pick<InstallOptions, "home" | "d
   console.log("Installed: claude-code MCP config written.");
 }
 
-async function installCursor(opts: Required<Pick<InstallOptions, "home" | "dryRun">>): Promise<void> {
+async function installCursor(
+  opts: Required<Pick<InstallOptions, "home" | "dryRun">>,
+): Promise<void> {
   const configPath = nodePath.join(opts.home, ".cursor", "mcp.json");
   const existing = await readJsonFile(configPath);
   const merged = deepMerge(existing, {
@@ -194,7 +191,9 @@ async function installZed(opts: Required<Pick<InstallOptions, "home" | "dryRun">
   console.log("Installed: zed context_servers config written.");
 }
 
-async function installWindsurf(opts: Required<Pick<InstallOptions, "home" | "dryRun">>): Promise<void> {
+async function installWindsurf(
+  opts: Required<Pick<InstallOptions, "home" | "dryRun">>,
+): Promise<void> {
   const configPath = nodePath.join(opts.home, ".codeium", "windsurf", "mcp_config.json");
   const existing = await readJsonFile(configPath);
   const merged = deepMerge(existing, {
@@ -206,7 +205,9 @@ async function installWindsurf(opts: Required<Pick<InstallOptions, "home" | "dry
   console.log("Installed: windsurf MCP config written.");
 }
 
-async function installEzcorp(opts: Required<Pick<InstallOptions, "home" | "dryRun" | "cwd">> & { projectPath?: string }): Promise<void> {
+async function installEzcorp(
+  opts: Required<Pick<InstallOptions, "home" | "dryRun" | "cwd">> & { projectPath?: string },
+): Promise<void> {
   const root = opts.projectPath ?? findProjectRoot(opts.cwd);
   if (!root) {
     throw new Error(
@@ -254,10 +255,7 @@ async function installEzcorp(opts: Required<Pick<InstallOptions, "home" | "dryRu
 
 // ── main export ───────────────────────────────────────────────────────────────
 
-export async function install(
-  target: string,
-  opts: InstallOptions = {},
-): Promise<void> {
+export async function install(target: string, opts: InstallOptions = {}): Promise<void> {
   const home = opts.home ?? process.env.HOME ?? process.env.USERPROFILE ?? "/tmp";
   const cwd = opts.cwd ?? process.cwd();
   const dryRun = opts.dryRun ?? false;

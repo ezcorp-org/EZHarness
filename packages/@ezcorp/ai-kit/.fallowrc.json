@@ -1,10 +1,5 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
-  "dynamicallyLoaded": [
-    "test/**",
-    "scripts/**"
-  ],
-  "ignoreDependencies": [
-    "drizzle-orm"
-  ]
+  "dynamicallyLoaded": ["test/**", "scripts/**"],
+  "ignoreDependencies": ["drizzle-orm"]
 }

@@ -107,14 +107,7 @@ export { CHEAP_MODEL_BY_PROVIDER };
 /** Clear-subcommand aliases (PRD §5.3, FR-2). Case-insensitive,
  *  trimmed. The `/goal` token followed by EOS or whitespace, then EXACTLY
  *  one of these tokens. */
-export const CLEAR_ALIASES: readonly string[] = [
-  "clear",
-  "stop",
-  "off",
-  "reset",
-  "none",
-  "cancel",
-];
+export const CLEAR_ALIASES: readonly string[] = ["clear", "stop", "off", "reset", "none", "cancel"];
 
 // ── Persisted shape (D3 — rides in `conversations.metadata.goal`) ───
 
@@ -159,11 +152,7 @@ export function isGoalArmed(
   persisted: PersistedGoal | undefined,
   record: GoalRecord | undefined,
 ): boolean {
-  return (
-    persisted !== undefined &&
-    record !== undefined &&
-    record.status === "active"
-  );
+  return persisted !== undefined && record !== undefined && record.status === "active";
 }
 
 // ── Persistence helpers (read / write / delete `metadata.goal`) ─────
@@ -199,9 +188,7 @@ export async function writePersistedGoal(
 /** DELETE `metadata.goal` — the canonical disarm op (R11). Preserves
  *  other metadata keys. No-op when the conversation is missing or the
  *  key is already absent. */
-export async function deletePersistedGoal(
-  conversationId: string,
-): Promise<void> {
+export async function deletePersistedGoal(conversationId: string): Promise<void> {
   const conv = await convQueries.getConversation(conversationId);
   if (!conv) return;
   const meta = { ...((conv.metadata ?? {}) as Record<string, unknown>) };
@@ -346,9 +333,7 @@ export function parseEvaluatorResponse(raw: string): EvaluatorResponse {
  *     is surfaced)
  *   - `null` when no sentinel present (caller should run the evaluator).
  */
-export function detectSentinel(
-  text: string,
-): EvaluatorResponse | null {
+export function detectSentinel(text: string): EvaluatorResponse | null {
   if (TASK_DONE_RE.test(text)) {
     return { achieved: true, reason: "task done sentinel", parseFailed: false };
   }
@@ -584,9 +569,7 @@ export function buildEvaluatorTranscript(
   const now = Date.now();
   return sliced.map((m) => {
     const role: "system" | "user" | "assistant" =
-      m.role === "system" ? "system"
-      : m.role === "assistant" ? "assistant"
-      : "user";
+      m.role === "system" ? "system" : m.role === "assistant" ? "assistant" : "user";
     return { role, content: m.content, timestamp: now };
   });
 }
@@ -607,7 +590,11 @@ export interface EvaluatorInvokeResult {
 export async function invokeEvaluator(
   resolved: ResolvedEvaluatorModel,
   condition: string,
-  transcript: ReadonlyArray<{ role: "system" | "user" | "assistant"; content: string; timestamp: number }>,
+  transcript: ReadonlyArray<{
+    role: "system" | "user" | "assistant";
+    content: string;
+    timestamp: number;
+  }>,
   opts: {
     timeoutMs?: number;
     maxTokens?: number;
@@ -617,9 +604,7 @@ export async function invokeEvaluator(
   const completeFn = opts.complete ?? piComplete;
   const userTurn = {
     role: "user" as const,
-    content:
-      `Goal condition:\n${condition}\n\n` +
-      "Transcript follows. Judge ONLY from it.",
+    content: `Goal condition:\n${condition}\n\n` + "Transcript follows. Judge ONLY from it.",
     timestamp: Date.now(),
   };
   try {
@@ -867,10 +852,7 @@ export interface GoalHostOptions {
   /** Override for tests — defaults to the live `convQueries`. */
   createMessage?: typeof convQueries.createMessage;
   /** Override for tests — defaults to the live SQL aggregator. */
-  computeTokenSpend?: (
-    conversationId: string,
-    armedAt: number,
-  ) => Promise<number>;
+  computeTokenSpend?: (conversationId: string, armedAt: number) => Promise<number>;
   /** Override for tests — defaults to live read of `metadata.goal`. */
   readGoal?: (conversationId: string) => Promise<PersistedGoal | undefined>;
   /** Override for tests — defaults to live write/delete. */
@@ -904,13 +886,8 @@ export class GoalHost {
     conversationId: string,
     armedAt: number,
   ) => Promise<number>;
-  private readonly readGoalFn: (
-    conversationId: string,
-  ) => Promise<PersistedGoal | undefined>;
-  private readonly writeGoalFn: (
-    conversationId: string,
-    goal: PersistedGoal,
-  ) => Promise<void>;
+  private readonly readGoalFn: (conversationId: string) => Promise<PersistedGoal | undefined>;
+  private readonly writeGoalFn: (conversationId: string, goal: PersistedGoal) => Promise<void>;
   private readonly deleteGoalFn: (conversationId: string) => Promise<void>;
   private readonly scanGoalConversationsFn: () => Promise<
     Array<{ id: string; persisted: PersistedGoal }>
@@ -932,8 +909,7 @@ export class GoalHost {
     this.readGoalFn = opts.readGoal ?? readPersistedGoal;
     this.writeGoalFn = opts.writeGoal ?? writePersistedGoal;
     this.deleteGoalFn = opts.deleteGoal ?? deletePersistedGoal;
-    this.scanGoalConversationsFn =
-      opts.scanGoalConversations ?? defaultScanGoalConversations;
+    this.scanGoalConversationsFn = opts.scanGoalConversations ?? defaultScanGoalConversations;
     this.nowFn = opts.now ?? (() => Date.now());
     // Live wiring via a static import (not a lazy `require`): a relative
     // `require("./pending-messages")` is emitted verbatim by the production
@@ -976,13 +952,11 @@ export class GoalHost {
     );
     this.unsubs.push(
       this.bus.on("run:error", (data) => {
-        this.onRunTerminal(data.run, data.conversationId, "error", data.error).catch(
-          (err) => {
-            log.error("onRunTerminal(error) failed", {
-              error: String((err as Error)?.message ?? err),
-            });
-          },
-        );
+        this.onRunTerminal(data.run, data.conversationId, "error", data.error).catch((err) => {
+          log.error("onRunTerminal(error) failed", {
+            error: String((err as Error)?.message ?? err),
+          });
+        });
       }),
     );
     this.unsubs.push(
@@ -1008,7 +982,11 @@ export class GoalHost {
    *  tests + future shutdown wiring. */
   stop(): void {
     for (const off of this.unsubs) {
-      try { off(); } catch { /* ignore */ }
+      try {
+        off();
+      } catch {
+        /* ignore */
+      }
     }
     this.unsubs = [];
     this.records.clear();
@@ -1043,10 +1021,7 @@ export class GoalHost {
    *  caller (via {@link isGoalCommand}) — when true, the helper rebuilds
    *  the record in its persisted state without flipping paused→active
    *  (the subcommand owns that decision). */
-  async ensureGoalRecordRehydrated(
-    conversationId: string,
-    isGoalCmd: boolean,
-  ): Promise<void> {
+  async ensureGoalRecordRehydrated(conversationId: string, isGoalCmd: boolean): Promise<void> {
     const persisted = await this.readGoalFn(conversationId);
     if (!persisted) return; // nothing to rehydrate; no goal armed
     let record = this.records.get(conversationId);
@@ -1148,7 +1123,12 @@ export class GoalHost {
       status: "active",
       inFlightRunId: null,
     });
-    this.emitUpdate(input.conversationId, "active", this.records.get(input.conversationId)!, persisted);
+    this.emitUpdate(
+      input.conversationId,
+      "active",
+      this.records.get(input.conversationId)!,
+      persisted,
+    );
     return {
       kind: "start-turn",
       turnMessage: condition, // not used by the route — body.content is the turn input
@@ -1186,8 +1166,7 @@ export class GoalHost {
     // Status NEVER auto-resumes a paused goal (I5d / FR-13b). The
     // helper at the route boundary suppresses the flip when the post
     // is a /goal command; here we just report whatever state we have.
-    const state: "active" | "paused" =
-      record?.status === "paused" ? "paused" : "active";
+    const state: "active" | "paused" = record?.status === "paused" ? "paused" : "active";
     let elapsedMs = 0;
     let turnsEvaluated = 0;
     let tokenSpendSinceArmed = 0;
@@ -1308,18 +1287,12 @@ export class GoalHost {
       evalResult = sentinel;
       usedSentinel = true;
     } else {
-      const resolved = await resolveEvaluatorModel(
-        data.run.provider,
-        conversationId,
-        { resolveModel: this.resolveModelFn, getCredential: this.getCredentialFn },
-      );
+      const resolved = await resolveEvaluatorModel(data.run.provider, conversationId, {
+        resolveModel: this.resolveModelFn,
+        getCredential: this.getCredentialFn,
+      });
       if (!resolved) {
-        await this.pauseRecord(
-          conversationId,
-          "No evaluator model available",
-          record!,
-          persisted!,
-        );
+        await this.pauseRecord(conversationId, "No evaluator model available", record!, persisted!);
         return;
       }
       const shaped = buildEvaluatorTranscript(transcript);
@@ -1436,19 +1409,13 @@ export class GoalHost {
       lastReason: reason,
     });
     this.emitUpdate(conversationId, "paused", record, persisted);
-    await this.persistResultRowBare(
-      conversationId,
-      buildPausedCard(reason, persisted.condition),
-    );
+    await this.persistResultRowBare(conversationId, buildPausedCard(reason, persisted.condition));
   }
 
   /** Persist a card row WITHOUT a userMessageId parent — used by the
    *  loop's own "achieved" / "paused" / "turn cap" transcript entries.
    *  Best-effort; logs on failure but never throws. */
-  private async persistResultRowBare(
-    conversationId: string,
-    card: EzActionResult,
-  ): Promise<void> {
+  private async persistResultRowBare(conversationId: string, card: EzActionResult): Promise<void> {
     try {
       await this.createMessageFn(conversationId, {
         role: "ez-action-result",

@@ -171,9 +171,7 @@ describe("concurrency: many interleaved tokens each keep their OWN snapshot", ()
       // proving no cross-talk while many entries coexist.
       const sibling = (i + 1) % N;
       if (!released.has(sibling)) {
-        expect(resolveCallProvenance(ids[sibling])?.onBehalfOf).toBe(
-          `user-${sibling}`,
-        );
+        expect(resolveCallProvenance(ids[sibling])?.onBehalfOf).toBe(`user-${sibling}`);
       }
       releaseCallProvenance(ids[i]);
       released.add(i);

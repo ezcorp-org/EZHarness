@@ -24,14 +24,7 @@ import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import type { ExtensionRegistry } from "../extensions/registry";
 import type { ToolCallResult } from "../extensions/types";
 import { persistToolCall } from "../db/queries/tool-calls";
-import {
-  users,
-  projects,
-  agentConfigs,
-  extensions,
-  conversations,
-  toolCalls,
-} from "../db/schema";
+import { users, projects, agentConfigs, extensions, conversations, toolCalls } from "../db/schema";
 
 const USER_ID = "u-telemetry-1";
 const PROJECT_ID = "p-telemetry-1";
@@ -41,7 +34,11 @@ const CONV_ID = "conv-telemetry-1";
 
 function makeFakeRegistry(): ExtensionRegistry {
   const fakeProc = {
-    callTool: async (_name: string, _args: Record<string, unknown>, _meta?: Record<string, unknown>): Promise<ToolCallResult> => {
+    callTool: async (
+      _name: string,
+      _args: Record<string, unknown>,
+      _meta?: Record<string, unknown>,
+    ): Promise<ToolCallResult> => {
       return { content: [{ type: "text", text: "ok" }], isError: false };
     },
     setNotificationHandler: () => {},
@@ -67,15 +64,25 @@ function makeFakeRegistry(): ExtensionRegistry {
       tools: [{ name: "my_tool", description: "", inputSchema: { type: "object" } }],
     }),
     getProcess: async () => fakeProc,
-    getMcpClient: async () => { throw new Error("not mcp"); },
+    getMcpClient: async () => {
+      throw new Error("not mcp");
+    },
   } as unknown as ExtensionRegistry;
 }
 
 async function seedFixtures() {
   const db = getTestDb();
-  await db.insert(users).values({ id: USER_ID, email: "t@x.com", passwordHash: "x", name: "Telemetry", role: "member" } as any);
+  await db.insert(users).values({
+    id: USER_ID,
+    email: "t@x.com",
+    passwordHash: "x",
+    name: "Telemetry",
+    role: "member",
+  } as any);
   await db.insert(projects).values({ id: PROJECT_ID, name: "p", path: "/tmp/p" } as any);
-  await db.insert(agentConfigs).values({ id: AGENT_ID, name: "TelemetryAgent", prompt: "test", userId: USER_ID } as any);
+  await db
+    .insert(agentConfigs)
+    .values({ id: AGENT_ID, name: "TelemetryAgent", prompt: "test", userId: USER_ID } as any);
   await db.insert(extensions).values({
     id: EXT_ID,
     name: "test-ext",
@@ -85,8 +92,12 @@ async function seedFixtures() {
     isBundled: false,
   } as any);
   await db.insert(conversations).values({
-    id: CONV_ID, projectId: PROJECT_ID, userId: USER_ID, agentConfigId: AGENT_ID,
-    model: "claude-opus-4-7", provider: "anthropic",
+    id: CONV_ID,
+    projectId: PROJECT_ID,
+    userId: USER_ID,
+    agentConfigId: AGENT_ID,
+    model: "claude-opus-4-7",
+    provider: "anthropic",
   } as any);
   // The 'builtin' extensions row is already seeded by migrate.ts (see the
   // INSERT ... ON CONFLICT DO NOTHING block around line 496) so native
@@ -161,20 +172,33 @@ describe("tool_calls write path — extension tools (ToolExecutor.recordToolCall
   test("still records on tool error — failure path carries the dimensions too", async () => {
     const erroringRegistry: ExtensionRegistry = {
       getRegisteredTool: () => ({
-        extensionId: EXT_ID, extensionName: "test-ext", originalName: "my_tool",
-        name: "my_tool", description: "", inputSchema: { type: "object" },
+        extensionId: EXT_ID,
+        extensionName: "test-ext",
+        originalName: "my_tool",
+        name: "my_tool",
+        description: "",
+        inputSchema: { type: "object" },
       }),
       getManifest: () => ({
-        schemaVersion: 2, name: "test-ext", version: "0.0.1", description: "",
-        author: { name: "t" }, permissions: {}, entrypoint: "./e.ts",
+        schemaVersion: 2,
+        name: "test-ext",
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+        entrypoint: "./e.ts",
         tools: [{ name: "my_tool", description: "", inputSchema: { type: "object" } }],
       }),
       getProcess: async () => ({
-        callTool: async () => { throw new Error("boom"); },
+        callTool: async () => {
+          throw new Error("boom");
+        },
         setNotificationHandler: () => {},
         setRequestHandler: () => {},
       }),
-      getMcpClient: async () => { throw new Error("not mcp"); },
+      getMcpClient: async () => {
+        throw new Error("not mcp");
+      },
     } as unknown as ExtensionRegistry;
 
     const execu = new ToolExecutor(erroringRegistry, createStubPermissionEngine());
@@ -259,15 +283,17 @@ describe("tool_calls write path — shared persistToolCall helper (single-source
 
   test("persistToolCall swallows DB errors (tool execution must not be blocked)", async () => {
     // FK violation: conversation_id doesn't exist. Helper must NOT throw.
-    await expect(persistToolCall({
-      conversationId: "conv-does-not-exist",
-      messageId: null,
-      extensionId: "builtin",
-      toolName: "read_file",
-      input: {},
-      output: { content: [] },
-      success: true,
-      durationMs: 0,
-    })).resolves.toBeUndefined();
+    await expect(
+      persistToolCall({
+        conversationId: "conv-does-not-exist",
+        messageId: null,
+        extensionId: "builtin",
+        toolName: "read_file",
+        input: {},
+        output: { content: [] },
+        success: true,
+        durationMs: 0,
+      }),
+    ).resolves.toBeUndefined();
   });
 });

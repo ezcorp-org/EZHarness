@@ -88,9 +88,7 @@ export function resolveProviderModel(
   modelSetting: string | undefined,
 ): { provider: string; model: string } {
   const provider =
-    providerSetting && PROVIDER_DEFAULT_MODEL[providerSetting]
-      ? providerSetting
-      : DEFAULT_PROVIDER;
+    providerSetting && PROVIDER_DEFAULT_MODEL[providerSetting] ? providerSetting : DEFAULT_PROVIDER;
   const model =
     modelSetting && modelSetting.length > 0
       ? modelSetting
@@ -141,10 +139,7 @@ export function formatMessages(messages: LoopMessage[]): string {
 /** Generic run-store constructor — the production default and the
  *  test seam share this exact shape, so name it once (a value-free type
  *  alias, erased at compile time). */
-type StoreFactory = <O>(
-  loopId: string,
-  contract: ResolvedContract,
-) => LoopRunStore<O>;
+type StoreFactory = <O>(loopId: string, contract: ResolvedContract) => LoopRunStore<O>;
 
 let settingsResolverImpl: SettingsResolver = defaultSettingsResolver;
 let messagesResolverImpl: MessagesResolver = defaultMessagesResolver;
@@ -298,9 +293,7 @@ export function defineLoop<Input = unknown, Outcome = unknown>(
   def: LoopDefinition<Input, Outcome>,
 ): void {
   if (registry.has(def.id)) {
-    throw new Error(
-      `[@ezcorp/sdk] defineLoop: duplicate loop id "${def.id}" in this extension`,
-    );
+    throw new Error(`[@ezcorp/sdk] defineLoop: duplicate loop id "${def.id}" in this extension`);
   }
   const contract = resolveContract<Input>(def.contract);
   const store: LoopRunStore<Outcome> = storeFactory
@@ -355,9 +348,7 @@ function ensureStaleSweepInterval(): void {
  * whole pass never throws. Returns the total number auto-declined. Exported for
  * the interval + tests.
  */
-export async function sweepAllStaleProposals(
-  nowMs: number = Date.now(),
-): Promise<number> {
+export async function sweepAllStaleProposals(nowMs: number = Date.now()): Promise<number> {
   let total = 0;
   for (const reg of registry.values()) {
     if (!reg.contract.approval) continue;
@@ -578,8 +569,8 @@ async function runFire(
       settings,
       fire,
       cursor: {
-        get: <T,>() => reg.store.getCursor<T>(),
-        set: <T,>(value: T) => reg.store.setCursor<T>(value),
+        get: <T>() => reg.store.getCursor<T>(),
+        set: <T>(value: T) => reg.store.setCursor<T>(value),
       },
       fetch: checkFetchImpl,
       log,
@@ -735,10 +726,7 @@ async function resetErrorsIfNeeded(
 /** Apply the failure policy: classify, increment the consecutive counter,
  *  and auto-disable + notify when the threshold trips. Returns an error
  *  FireResult. */
-async function handleFailure(
-  reg: RegisteredLoop,
-  err: unknown,
-): Promise<FireResult> {
+async function handleFailure(reg: RegisteredLoop, err: unknown): Promise<FireResult> {
   const meta = await reg.store.getMeta();
   const decision = classifyFailure(err, meta.consecutiveErrors, reg.contract);
   const nextMeta = {
@@ -759,9 +747,7 @@ async function handleFailure(
     }
     if (reg.contract.onAutoDisable) {
       try {
-        await reg.contract.onAutoDisable(
-          autoDisableContext(reg.id, decision, err),
-        );
+        await reg.contract.onAutoDisable(autoDisableContext(reg.id, decision, err));
       } catch {
         // Notification failure must not mask the original error.
       }
@@ -803,10 +789,7 @@ function storeClosures(
 
 /** Emit the content-free approval-pending nudge (best-effort — an emit
  *  failure must never fail the fire or leave the run unparked). */
-async function emitApprovalPending(
-  reg: RegisteredLoop,
-  run: LoopRunState,
-): Promise<void> {
+async function emitApprovalPending(reg: RegisteredLoop, run: LoopRunState): Promise<void> {
   try {
     await loopEventsImpl.emitApprovalPending({
       loopId: reg.id,
@@ -1104,9 +1087,7 @@ function ensureAssignmentHandler(): void {
 /** Fan an inbound assignment update to whichever registered loop owns the
  *  matching OPEN run, then transition it. Idempotent — a late/duplicate
  *  event for a closed run is a no-op. */
-export async function dispatchAssignmentUpdate(
-  evt: TaskAssignmentUpdateEvent,
-): Promise<void> {
+export async function dispatchAssignmentUpdate(evt: TaskAssignmentUpdateEvent): Promise<void> {
   const a = evt.assignment;
   for (const reg of registry.values()) {
     const runs = await reg.store.list();
@@ -1142,11 +1123,7 @@ export async function dispatchAssignmentUpdate(
     // host status AND the loop declares `onComplete` + `approval`, let
     // `onComplete` turn the spawned agent's completion into a proposal (park)
     // or a terminal result — instead of terminalizing directly.
-    if (
-      isTerminalStatus(nextStatus, reg.contract) &&
-      reg.def.onComplete &&
-      reg.contract.approval
-    ) {
+    if (isTerminalStatus(nextStatus, reg.contract) && reg.def.onComplete && reg.contract.approval) {
       const handled = await runOnComplete(reg, match, nextStatus, expected, a.resultPreview);
       if (handled) return;
       // Fall through to the default terminalize when onComplete opted out.
@@ -1254,10 +1231,7 @@ async function runOnComplete(
  * construction (`resolveContract` guarantees ≥1 state and a terminal
  * subset), so the lookups always resolve. Pure.
  */
-function mapAssignmentStatus(
-  status: string,
-  contract: ResolvedContract,
-): string {
+function mapAssignmentStatus(status: string, contract: ResolvedContract): string {
   if (contract.states.includes(status)) return status;
   if (status === "failed" || status === "cancelled" || status === "completed") {
     return contract.terminal[0]!;

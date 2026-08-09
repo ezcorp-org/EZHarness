@@ -65,8 +65,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
       } catch {
         raw = undefined;
       }
-      const stickyTtlMs =
-        typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
+      const stickyTtlMs = typeof raw === "number" && Number.isFinite(raw) && raw > 0 ? raw : null;
       // `capabilityKind` is the field name the front-end + the Wave 0
       // sticky-pick test consume. The query helper exposes `capability`;
       // we mirror it onto `capabilityKind` for forward compatibility

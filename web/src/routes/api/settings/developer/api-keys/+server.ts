@@ -33,7 +33,13 @@ export const GET: RequestHandler = async ({ locals }) => {
       const entry = v as ApiKeyEntry;
       const keyId = k.slice(prefix.length);
       // `role` is optional on-disk (legacy rows) → surface the member default.
-      return { keyId, name: entry.name, scopes: entry.scopes, role: entry.role ?? "member", createdAt: entry.createdAt };
+      return {
+        keyId,
+        name: entry.name,
+        scopes: entry.scopes,
+        role: entry.role ?? "member",
+        createdAt: entry.createdAt,
+      };
     });
   return json({ keys });
 };

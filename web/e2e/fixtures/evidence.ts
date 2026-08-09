@@ -16,20 +16,20 @@ import type { Page, TestInfo, Locator } from "@playwright/test";
  * and `opts.fullPage` captures beyond the viewport.
  */
 export async function captureEvidence(
-	page: Page,
-	testInfo: TestInfo,
-	label: string,
-	opts: { fullPage?: boolean; mask?: Locator[] } = {},
+  page: Page,
+  testInfo: TestInfo,
+  label: string,
+  opts: { fullPage?: boolean; mask?: Locator[] } = {},
 ): Promise<void> {
-	if (process.env.EZCORP_E2E_EVIDENCE !== "1") return; // hard no-op
-	await page.evaluate(() => document.fonts?.ready);
-	await page.waitForLoadState("networkidle").catch(() => {});
-	const body = await page.screenshot({
-		fullPage: opts.fullPage ?? false,
-		animations: "disabled",
-		caret: "hide",
-		scale: "css",
-		mask: opts.mask ?? [],
-	});
-	await testInfo.attach(label, { body, contentType: "image/png" });
+  if (process.env.EZCORP_E2E_EVIDENCE !== "1") return; // hard no-op
+  await page.evaluate(() => document.fonts?.ready);
+  await page.waitForLoadState("networkidle").catch(() => {});
+  const body = await page.screenshot({
+    fullPage: opts.fullPage ?? false,
+    animations: "disabled",
+    caret: "hide",
+    scale: "css",
+    mask: opts.mask ?? [],
+  });
+  await testInfo.attach(label, { body, contentType: "image/png" });
 }

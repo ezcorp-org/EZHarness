@@ -13,9 +13,7 @@ const log = logger.child("workflow");
  * with a warning (warn-and-continue, never throws) — the same posture as
  * the historical loader, now backed by the full validator.
  */
-export async function loadYamlWorkflows(
-  dir: string,
-): Promise<WorkflowDefinition[]> {
+export async function loadYamlWorkflows(dir: string): Promise<WorkflowDefinition[]> {
   const workflows: WorkflowDefinition[] = [];
 
   await scanGlob(dir, "*.workflow.yaml", false, workflows);

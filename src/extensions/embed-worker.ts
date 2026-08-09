@@ -211,8 +211,8 @@ export async function runBacklogRecovery(
     WHERE status = 'in_progress' AND updated_at < ${cutoff}
     RETURNING message_id
   `);
-  const rows = (result as { rows: { message_id: string }[] }).rows
-    ?? (result as { message_id: string }[]);
+  const rows =
+    (result as { rows: { message_id: string }[] }).rows ?? (result as { message_id: string }[]);
   const recovered = rows.length;
   if (recovered > 0) {
     log.info("embed-worker: boot recovery — reset stale in-flight jobs", { recovered });
@@ -398,8 +398,9 @@ export class EmbedWorker {
           const msgResult = await db.execute(sql`
             SELECT id, role, content FROM messages WHERE id = ${row.messageId}
           `);
-          const msgRows = (msgResult as { rows: { id: string; role: string; content: string }[] }).rows
-            ?? (msgResult as { id: string; role: string; content: string }[]);
+          const msgRows =
+            (msgResult as { rows: { id: string; role: string; content: string }[] }).rows ??
+            (msgResult as { id: string; role: string; content: string }[]);
           const msg = msgRows[0];
 
           // If message not found or not embed-eligible, mark done and skip
@@ -467,8 +468,8 @@ export class EmbedWorker {
         WHERE status = 'pending'
           AND (next_attempt_after IS NULL OR next_attempt_after <= NOW())
       `);
-      const backlogRows = (backlogResult as { rows: { n: number }[] }).rows
-        ?? (backlogResult as { n: number }[]);
+      const backlogRows =
+        (backlogResult as { rows: { n: number }[] }).rows ?? (backlogResult as { n: number }[]);
       const remaining = backlogRows[0]?.n ?? 0;
       if (remaining === 0) {
         try {

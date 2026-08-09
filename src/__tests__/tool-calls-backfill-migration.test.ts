@@ -11,7 +11,13 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { sql } from "drizzle-orm";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { setupTestDb, getTestDb, getTestPglite, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  getTestDb,
+  getTestPglite,
+  closeTestDb,
+  mockDbConnection,
+} from "./helpers/test-pglite";
 
 mockDbConnection();
 
@@ -48,20 +54,40 @@ describe("migrate(): tool_calls analytics backfill", () => {
     const MSG_ID = "msg-backfill-1";
     const TC_ID = "tc-backfill-1";
 
-    await db.insert(users).values({ id: USER_ID, email: "b@x.com", passwordHash: "x", name: "B", role: "member" } as any);
+    await db.insert(users).values({
+      id: USER_ID,
+      email: "b@x.com",
+      passwordHash: "x",
+      name: "B",
+      role: "member",
+    } as any);
     await db.insert(projects).values({ id: PROJECT_ID, name: "b", path: "/tmp/b" } as any);
-    await db.insert(agentConfigs).values({ id: AGENT_ID, name: "BA", prompt: "t", userId: USER_ID } as any);
+    await db
+      .insert(agentConfigs)
+      .values({ id: AGENT_ID, name: "BA", prompt: "t", userId: USER_ID } as any);
     await db.insert(extensions).values({
-      id: EXT_ID, name: "bx", version: "0.0.1", source: "local",
-      manifest: {} as any, isBundled: false,
+      id: EXT_ID,
+      name: "bx",
+      version: "0.0.1",
+      source: "local",
+      manifest: {} as any,
+      isBundled: false,
     } as any);
     await db.insert(conversations).values({
-      id: CONV_ID, projectId: PROJECT_ID, userId: USER_ID, agentConfigId: AGENT_ID,
-      model: "claude-opus-4-7", provider: "anthropic",
+      id: CONV_ID,
+      projectId: PROJECT_ID,
+      userId: USER_ID,
+      agentConfigId: AGENT_ID,
+      model: "claude-opus-4-7",
+      provider: "anthropic",
     } as any);
     await db.insert(messages).values({
-      id: MSG_ID, conversationId: CONV_ID, role: "assistant",
-      content: "", model: "claude-opus-4-7", provider: "anthropic",
+      id: MSG_ID,
+      conversationId: CONV_ID,
+      role: "assistant",
+      content: "",
+      model: "claude-opus-4-7",
+      provider: "anthropic",
     } as any);
 
     // Insert a tool_calls row with the new columns explicitly NULL, as if
@@ -112,15 +138,28 @@ describe("migrate(): tool_calls analytics backfill", () => {
     const CONV_ID = "conv-backfill-2";
     const TC_ID = "tc-backfill-2";
 
-    await db.insert(users).values({ id: USER_ID, email: "c@x.com", passwordHash: "x", name: "C", role: "member" } as any);
+    await db.insert(users).values({
+      id: USER_ID,
+      email: "c@x.com",
+      passwordHash: "x",
+      name: "C",
+      role: "member",
+    } as any);
     await db.insert(projects).values({ id: PROJECT_ID, name: "c", path: "/tmp/c" } as any);
     await db.insert(extensions).values({
-      id: EXT_ID, name: "cx", version: "0.0.1", source: "local",
-      manifest: {} as any, isBundled: false,
+      id: EXT_ID,
+      name: "cx",
+      version: "0.0.1",
+      source: "local",
+      manifest: {} as any,
+      isBundled: false,
     } as any);
     await db.insert(conversations).values({
-      id: CONV_ID, projectId: PROJECT_ID, userId: USER_ID,
-      model: "claude-sonnet-4-6", provider: "anthropic",
+      id: CONV_ID,
+      projectId: PROJECT_ID,
+      userId: USER_ID,
+      model: "claude-sonnet-4-6",
+      provider: "anthropic",
     } as any);
     await db.insert(toolCalls).values({
       id: TC_ID,
@@ -142,7 +181,8 @@ describe("migrate(): tool_calls analytics backfill", () => {
     await migrate(db);
 
     const { rows } = await getTestPglite().query<{ model: string | null; user_id: string | null }>(
-      `SELECT model, user_id FROM tool_calls WHERE id = $1`, [TC_ID],
+      `SELECT model, user_id FROM tool_calls WHERE id = $1`,
+      [TC_ID],
     );
     expect(rows[0]!.model).toBe("claude-opus-4-7"); // NOT "claude-sonnet-4-6"
     expect(rows[0]!.user_id).toBe(USER_ID);

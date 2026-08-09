@@ -25,10 +25,9 @@ export const __rateLimiter = new RateLimiter(5, 15 * 60_000);
 let dummyHashPromise: Promise<string> | null = null;
 function getDummyPasswordHash(): Promise<string> {
   if (!dummyHashPromise) {
-    dummyHashPromise = Bun.password.hash(
-      "dummy-password-for-constant-time-check",
-      { algorithm: "argon2id" },
-    );
+    dummyHashPromise = Bun.password.hash("dummy-password-for-constant-time-check", {
+      algorithm: "argon2id",
+    });
   }
   return dummyHashPromise;
 }
@@ -37,7 +36,11 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
   // Rate-limit BEFORE body parse so we don't burn cycles on attackers
   // we're already throttling.
   let ip = "unknown";
-  try { ip = getClientAddress(); } catch { /* proxy not configured */ }
+  try {
+    ip = getClientAddress();
+  } catch {
+    /* proxy not configured */
+  }
   const rl = __rateLimiter.check(ip);
   if (!rl.allowed) {
     // sec-L1 (Option C): emit a single `auth:rate_limited` audit row
@@ -49,9 +52,14 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
     if (rl.firstBlock) {
       await insertAuditEntry(null, "auth:rate_limited", undefined, { ip });
     }
-    return errorJson(429, "Too many requests", { retryAfter: rl.retryAfter }, {
-      "Retry-After": String(rl.retryAfter ?? 1),
-    });
+    return errorJson(
+      429,
+      "Too many requests",
+      { retryAfter: rl.retryAfter },
+      {
+        "Retry-After": String(rl.retryAfter ?? 1),
+      },
+    );
   }
 
   const result = loginSchema.safeParse(await request.json());
@@ -89,7 +97,11 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
   const expiresAt = new Date(Date.now() + cfg.lifetimeSeconds * 1000);
   const userAgent = request.headers.get("user-agent");
   let ipAddress: string | null = null;
-  try { ipAddress = getClientAddress(); } catch { /* proxy not configured */ }
+  try {
+    ipAddress = getClientAddress();
+  } catch {
+    /* proxy not configured */
+  }
   await createSession({ userId: user.id, tokenHash, userAgent, ipAddress, expiresAt });
 
   // setSessionCookie centralizes the FORCE_SECURE_COOKIES handling. We can't

@@ -19,8 +19,16 @@ for (const path of [
 
 // ── Handler imports ──────────────────────────────────────────────
 import { GET as teamsGet, POST as teamsPost } from "../../web/src/routes/api/teams/+server";
-import { GET as teamGet, PUT as teamPut, DELETE as teamDelete } from "../../web/src/routes/api/teams/[id]/+server";
-import { GET as membersGet, POST as membersPost, DELETE as membersDelete } from "../../web/src/routes/api/teams/[id]/members/+server";
+import {
+  GET as teamGet,
+  PUT as teamPut,
+  DELETE as teamDelete,
+} from "../../web/src/routes/api/teams/[id]/+server";
+import {
+  GET as membersGet,
+  POST as membersPost,
+  DELETE as membersDelete,
+} from "../../web/src/routes/api/teams/[id]/members/+server";
 
 // ── Query helpers for test setup ─────────────────────────────────
 import { createUser } from "../db/queries/users";

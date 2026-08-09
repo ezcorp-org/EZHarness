@@ -35,33 +35,41 @@ function generateTsconfig(): string {
   // Standalone tsconfig — no workspace-root `extends`. Scaffolded
   // extensions resolve `@ezcorp/sdk` via `bun add @ezcorp/sdk` from
   // the npm registry, identical to any third-party consumer.
-  return JSON.stringify({
-    compilerOptions: {
-      module: "ESNext",
-      moduleResolution: "bundler",
-      target: "ESNext",
-      strict: true,
-      types: ["bun"],
-      skipLibCheck: true,
-      esModuleInterop: true,
-      resolveJsonModule: true,
+  return JSON.stringify(
+    {
+      compilerOptions: {
+        module: "ESNext",
+        moduleResolution: "bundler",
+        target: "ESNext",
+        strict: true,
+        types: ["bun"],
+        skipLibCheck: true,
+        esModuleInterop: true,
+        resolveJsonModule: true,
+      },
+      include: ["*.ts"],
+      exclude: ["node_modules", "dist"],
     },
-    include: ["*.ts"],
-    exclude: ["node_modules", "dist"],
-  }, null, 2);
+    null,
+    2,
+  );
 }
 
 function generatePackageJson(name: string, description: string): string {
-  return JSON.stringify({
-    name,
-    version: "0.1.0",
-    description,
-    type: "module",
-    private: true,
-    dependencies: {
-      "@ezcorp/sdk": "^0.1.0",
+  return JSON.stringify(
+    {
+      name,
+      version: "0.1.0",
+      description,
+      type: "module",
+      private: true,
+      dependencies: {
+        "@ezcorp/sdk": "^0.1.0",
+      },
     },
-  }, null, 2);
+    null,
+    2,
+  );
 }
 
 export interface ScaffoldOptions {

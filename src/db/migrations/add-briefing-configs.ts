@@ -50,5 +50,7 @@ export async function up(db: MigrationDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_briefing_ready ON briefing_configs(enabled, next_fire_at)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_briefing_ready ON briefing_configs(enabled, next_fire_at)`,
+  );
 }

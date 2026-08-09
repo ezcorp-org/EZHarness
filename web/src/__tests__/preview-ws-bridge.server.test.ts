@@ -53,7 +53,11 @@ beforeEach(() => {
   getServablePreview.mockReset();
   verifyPreviewToken.mockResolvedValue({ previewId: VALID_ID, userId: "u1" });
   getServablePreview.mockResolvedValue({
-    id: VALID_ID, userId: "u1", kind: "dynamic", staticPath: null, targetPort: 5173,
+    id: VALID_ID,
+    userId: "u1",
+    kind: "dynamic",
+    staticPath: null,
+    targetPort: 5173,
   });
 });
 
@@ -65,7 +69,10 @@ describe("tryBridgePreviewWebSocket", () => {
 
   test("a rejected gate (bad token) → 403", async () => {
     verifyPreviewToken.mockResolvedValue(null);
-    const res = await tryBridgePreviewWebSocket(wsRequest(), VALID_ID, APP_HOST, { server: { upgrade: () => true }, request: {} });
+    const res = await tryBridgePreviewWebSocket(wsRequest(), VALID_ID, APP_HOST, {
+      server: { upgrade: () => true },
+      request: {},
+    });
     expect(res!.status).toBe(403);
   });
 
@@ -86,7 +93,12 @@ describe("tryBridgePreviewWebSocket", () => {
 
   test("accepted with a live server → upgrade() with pinned upstream data", async () => {
     let upgradeArg: any = null;
-    const server = { upgrade: (_req: unknown, opts?: { data?: unknown }) => { upgradeArg = opts?.data; return true; } };
+    const server = {
+      upgrade: (_req: unknown, opts?: { data?: unknown }) => {
+        upgradeArg = opts?.data;
+        return true;
+      },
+    };
     // NOTE: the function returns `new Response(null, {status:101})` — valid in
     // the live Bun runtime (the README pattern) but rejected by node/undici's
     // stricter Response ctor under vitest. We assert the load-bearing behavior
@@ -94,7 +106,10 @@ describe("tryBridgePreviewWebSocket", () => {
     // exercised live in Docker.
     let res: Response | null = null;
     try {
-      res = await tryBridgePreviewWebSocket(wsRequest(), VALID_ID, APP_HOST, { server, request: { raw: true } });
+      res = await tryBridgePreviewWebSocket(wsRequest(), VALID_ID, APP_HOST, {
+        server,
+        request: { raw: true },
+      });
     } catch (e) {
       // undici 101 ctor rejection — tolerated; upgrade data is still captured.
       expect(String(e)).toContain("status");
@@ -108,12 +123,10 @@ describe("tryBridgePreviewWebSocket", () => {
   });
 
   test("upgrade() returning false → 400", async () => {
-    const res = await tryBridgePreviewWebSocket(
-      wsRequest(),
-      VALID_ID,
-      APP_HOST,
-      { server: { upgrade: () => false }, request: {} },
-    );
+    const res = await tryBridgePreviewWebSocket(wsRequest(), VALID_ID, APP_HOST, {
+      server: { upgrade: () => false },
+      request: {},
+    });
     expect(res!.status).toBe(400);
   });
 
@@ -137,7 +150,13 @@ describe("createPreviewWebSocketHandler — frame relay decisions", () => {
   test("open closes a socket without __preview data (1008)", () => {
     const handler = createPreviewWebSocketHandler();
     let closed: { code?: number } | null = null;
-    const ws = { data: undefined, close: (code?: number) => { closed = { code }; }, send: () => {} };
+    const ws = {
+      data: undefined,
+      close: (code?: number) => {
+        closed = { code };
+      },
+      send: () => {},
+    };
     handler.open(ws);
     expect(closed).toEqual({ code: 1008 });
   });
@@ -159,7 +178,9 @@ describe("createPreviewWebSocketHandler — frame relay decisions", () => {
     let closed: { code?: number } | null = null;
     const ws = {
       data: { __preview: true, upstreamUrl: "::::not-a-valid-ws-url::::", previewId: "p" } as any,
-      close: (code?: number) => { closed = { code }; },
+      close: (code?: number) => {
+        closed = { code };
+      },
       send: () => {},
     };
     handler.open(ws);
@@ -172,7 +193,12 @@ describe("createPreviewWebSocketHandler — frame relay decisions", () => {
 // open → buffer-before-ready → upstream open (flush) → upstream message
 // (→ client send) → upstream close (→ client close 1000), plus the nits
 // (sync ctor throw → 1011; pre-ready queue cap → 1011).
-type Listeners = { open?: () => void; message?: (ev: MessageEvent) => void; close?: () => void; error?: () => void };
+type Listeners = {
+  open?: () => void;
+  message?: (ev: MessageEvent) => void;
+  close?: () => void;
+  error?: () => void;
+};
 function makeFakeUpstream() {
   const sent: (string | ArrayBufferLike)[] = [];
   const l: Listeners = {};
@@ -180,14 +206,22 @@ function makeFakeUpstream() {
   const ws = {
     binaryType: "",
     url: "",
-    send: (d: string | ArrayBufferLike) => { sent.push(d); },
-    close: (code?: number) => { closedWith = { code }; },
-    addEventListener: (type: keyof Listeners, cb: any) => { l[type] = cb; },
+    send: (d: string | ArrayBufferLike) => {
+      sent.push(d);
+    },
+    close: (code?: number) => {
+      closedWith = { code };
+    },
+    addEventListener: (type: keyof Listeners, cb: any) => {
+      l[type] = cb;
+    },
   };
   return {
     ws,
     sent,
-    get closedWith() { return closedWith; },
+    get closedWith() {
+      return closedWith;
+    },
     fireOpen: () => l.open?.(),
     fireMessage: (data: unknown) => l.message?.({ data } as MessageEvent),
     fireClose: () => l.close?.(),
@@ -200,9 +234,13 @@ function makeClient() {
   return {
     data: { __preview: true, upstreamUrl: "ws://127.0.0.1:5173/x", previewId: "p" } as any,
     send: (d: string | ArrayBufferLike) => sent.push(d),
-    close: (code?: number, reason?: string) => { closedWith = { code, reason }; },
+    close: (code?: number, reason?: string) => {
+      closedWith = { code, reason };
+    },
     sent,
-    get closedWith() { return closedWith; },
+    get closedWith() {
+      return closedWith;
+    },
   };
 }
 

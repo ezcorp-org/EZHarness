@@ -17,14 +17,23 @@ mock.module("../db/queries/settings", () => {
       return rows[0]?.value;
     },
     async upsertSetting() {},
-    async deleteSetting() { return false; },
-    async isListingInstalled() { return false; },
+    async deleteSetting() {
+      return false;
+    },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
 mockDbConnection();
 
-import { createConversation, createMessage, getMessages, getConversationPath } from "../db/queries/conversations";
+import {
+  createConversation,
+  createMessage,
+  getMessages,
+  getConversationPath,
+} from "../db/queries/conversations";
 import { insertAttachment } from "../db/queries/attachments";
 import { createProject } from "../db/queries/projects";
 
@@ -39,19 +48,31 @@ beforeAll(async () => {
   conversationId = conv.id;
 
   const a = await createMessage(conversationId, { role: "user", content: "msg A" });
-  const b = await createMessage(conversationId, { role: "user", content: "msg B", parentMessageId: a.id });
+  const b = await createMessage(conversationId, {
+    role: "user",
+    content: "msg B",
+    parentMessageId: a.id,
+  });
   msgA = a.id;
   msgB = b.id;
 
   await insertAttachment({
-    messageId: msgA, conversationId,
-    filename: "cat.png", mimeType: "image/png", sizeBytes: 12,
-    storagePath: "/tmp/hydr/cat.png", kind: "image",
+    messageId: msgA,
+    conversationId,
+    filename: "cat.png",
+    mimeType: "image/png",
+    sizeBytes: 12,
+    storagePath: "/tmp/hydr/cat.png",
+    kind: "image",
   });
   await insertAttachment({
-    messageId: msgA, conversationId,
-    filename: "notes.txt", mimeType: "text/plain", sizeBytes: 34,
-    storagePath: "/tmp/hydr/notes.txt", kind: "text",
+    messageId: msgA,
+    conversationId,
+    filename: "notes.txt",
+    mimeType: "text/plain",
+    sizeBytes: 34,
+    storagePath: "/tmp/hydr/notes.txt",
+    kind: "text",
   });
   // msgB intentionally has no attachments.
 });
@@ -95,7 +116,10 @@ describe("message attachment hydration", () => {
   });
 
   test("empty attachment set leaves messages unchanged", async () => {
-    const tempConv = await createConversation((await createProject({ name: "empty", path: "/tmp/empty" })).id, { title: "e" });
+    const tempConv = await createConversation(
+      (await createProject({ name: "empty", path: "/tmp/empty" })).id,
+      { title: "e" },
+    );
     const m = await createMessage(tempConv.id, { role: "user", content: "no-att" });
     const msgs = await getMessages(tempConv.id);
     expect(msgs.find((x) => x.id === m.id)?.attachments).toBeUndefined();

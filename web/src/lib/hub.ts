@@ -23,16 +23,55 @@ export type StatusState = "idle" | "running" | "success" | "error" | "warning";
 export type ListItemStatus = "pending" | "active" | "completed" | "failed";
 export type TextVariant = "muted" | "default" | "emphasis";
 
-export interface PanelHeaderNode { type: "header"; title: string; subtitle?: string }
-export interface PanelTextNode { type: "text"; content: string; variant?: TextVariant }
-export interface PanelBadgeNode { type: "badge"; label: string; color?: BadgeColor }
-export interface PanelProgressNode { type: "progress"; value: number; label?: string }
-export interface PanelStatusNode { type: "status"; label: string; state: StatusState }
-export interface PanelListItem { label: string; status?: ListItemStatus; detail?: string; badge?: string; badgeColor?: BadgeColor }
-export interface PanelListNode { type: "list"; items: PanelListItem[] }
-export interface PanelKVNode { type: "kv"; pairs: { key: string; value: string }[] }
-export interface PanelCounterNode { type: "counter"; label: string; value: number; total?: number }
-export interface PanelDividerNode { type: "divider" }
+export interface PanelHeaderNode {
+  type: "header";
+  title: string;
+  subtitle?: string;
+}
+export interface PanelTextNode {
+  type: "text";
+  content: string;
+  variant?: TextVariant;
+}
+export interface PanelBadgeNode {
+  type: "badge";
+  label: string;
+  color?: BadgeColor;
+}
+export interface PanelProgressNode {
+  type: "progress";
+  value: number;
+  label?: string;
+}
+export interface PanelStatusNode {
+  type: "status";
+  label: string;
+  state: StatusState;
+}
+export interface PanelListItem {
+  label: string;
+  status?: ListItemStatus;
+  detail?: string;
+  badge?: string;
+  badgeColor?: BadgeColor;
+}
+export interface PanelListNode {
+  type: "list";
+  items: PanelListItem[];
+}
+export interface PanelKVNode {
+  type: "kv";
+  pairs: { key: string; value: string }[];
+}
+export interface PanelCounterNode {
+  type: "counter";
+  label: string;
+  value: number;
+  total?: number;
+}
+export interface PanelDividerNode {
+  type: "divider";
+}
 
 /** Host-rendered single-field text prompt. Mirror of page-schema's
  *  `PagePrompt` (source of truth) — keep aligned. */
@@ -89,28 +128,71 @@ export interface PageAction {
    *  are present (form wins) — the validator drops the prompt server-side. */
   form?: PageForm;
 }
-export interface PageSectionNode { type: "section"; title?: string; nodes: PageNode[] }
-export interface PageHeadingNode { type: "heading"; level: 1 | 2 | 3; text: string }
-export interface PageMarkdownNode { type: "markdown"; content: string }
-export interface PageStatsNode { type: "stats"; items: { label: string; value: string; hint?: string }[] }
+export interface PageSectionNode {
+  type: "section";
+  title?: string;
+  nodes: PageNode[];
+}
+export interface PageHeadingNode {
+  type: "heading";
+  level: 1 | 2 | 3;
+  text: string;
+}
+export interface PageMarkdownNode {
+  type: "markdown";
+  content: string;
+}
+export interface PageStatsNode {
+  type: "stats";
+  items: { label: string; value: string; hint?: string }[];
+}
 /** A table cell's semantic tone. Mirror of page-schema's `CellTone`
  *  (source of truth). `neutral` is normalised away server-side, so a toned
  *  cell reaching the renderer only ever carries success/danger/warning. */
 export type CellTone = "success" | "danger" | "warning" | "neutral";
 /** Object cell form — mirror of page-schema's `PageTableCell`. */
-export interface PageTableCell { text: string; tone?: CellTone }
+export interface PageTableCell {
+  text: string;
+  tone?: CellTone;
+}
 /** A table cell: a plain string (neutral) or a toned object. */
 export type PageCell = string | PageTableCell;
-export interface PageTableRow { cells: PageCell[]; action?: PageAction; href?: string }
-export interface PageTableNode { type: "table"; columns: string[]; rows: PageTableRow[] }
-export interface PageButtonNode { type: "button"; label: string; action: PageAction; style?: "primary" | "secondary" | "danger" }
-export interface PageLinkNode { type: "link"; label: string; href: string }
-export interface PageEmptyStateNode { type: "empty-state"; title: string; detail?: string }
+export interface PageTableRow {
+  cells: PageCell[];
+  action?: PageAction;
+  href?: string;
+}
+export interface PageTableNode {
+  type: "table";
+  columns: string[];
+  rows: PageTableRow[];
+}
+export interface PageButtonNode {
+  type: "button";
+  label: string;
+  action: PageAction;
+  style?: "primary" | "secondary" | "danger";
+}
+export interface PageLinkNode {
+  type: "link";
+  label: string;
+  href: string;
+}
+export interface PageEmptyStateNode {
+  type: "empty-state";
+  title: string;
+  detail?: string;
+}
 /** INLINE on-page form — mirror of page-schema's `PageFormNode` (source of
  *  truth). Fields render in the page flow; Save merges EVERY field value
  *  into `action.payload[field]` and dispatches (the validator strips any
  *  `prompt`/`form` off the action — a submit never opens a dialog). */
-export interface PageFormNode { type: "form"; action: PageAction; fields: PageFormField[]; submitLabel?: string }
+export interface PageFormNode {
+  type: "form";
+  action: PageAction;
+  fields: PageFormField[];
+  submitLabel?: string;
+}
 
 export type PageNode =
   | PanelHeaderNode

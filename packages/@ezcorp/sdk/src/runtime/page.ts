@@ -388,8 +388,7 @@ function installRenderHandler(): void {
   if (renderHandlerInstalled) return;
   renderHandlerInstalled = true;
   getChannel().onRequest("ezcorp/page.render", async (params: unknown) => {
-    const record =
-      params && typeof params === "object" ? (params as Record<string, unknown>) : {};
+    const record = params && typeof params === "object" ? (params as Record<string, unknown>) : {};
     const pageId = record.pageId;
     const def = typeof pageId === "string" ? pages.get(pageId) : undefined;
     if (!def) {

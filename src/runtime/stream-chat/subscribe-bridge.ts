@@ -35,14 +35,12 @@ const log = logger.child("executor.streamChat.subscribe");
  * to a non-string truthy or a string that doesn't match the enum —
  * undefined/null are silent (the common no-op path).
  */
-function normalizeCardLayout(
-  raw: unknown,
-  toolName: string,
-): "inline" | "dock" | undefined {
+function normalizeCardLayout(raw: unknown, toolName: string): "inline" | "dock" | undefined {
   if (raw === undefined || raw === null) return undefined;
   if (raw === "inline" || raw === "dock") return raw;
   log.warn("ignoring unknown cardLayout — defaulting to inline", {
-    toolName, value: String(raw),
+    toolName,
+    value: String(raw),
   });
   return undefined;
 }
@@ -127,7 +125,9 @@ export function subscribeBridge(
   // Serialize async DB operations from the sync subscribe callback.
   // Closure over `ctx.dbQueue` so the success/cancel paths can `await ctx.dbQueue`.
   const queueDb = (fn: () => Promise<void>) => {
-    ctx.dbQueue = ctx.dbQueue.then(fn).catch((err) => log.error("DB error", { error: String(err) }));
+    ctx.dbQueue = ctx.dbQueue
+      .then(fn)
+      .catch((err) => log.error("DB error", { error: String(err) }));
   };
 
   // Subscribe to AgentEvents and bridge to local EventBus
@@ -226,15 +226,20 @@ export function subscribeBridge(
         // invoke_agent has its own agent:spawn/agent:complete events — skip tool:start
         if (event.toolName === "invoke_agent") break;
         // Build descriptive status from tool name + primary arg
-        const primaryArg = args.file_path ?? args.path ?? args.pattern ?? args.command ?? args.query ?? args.url;
-        const statusDetail = primaryArg ? `: ${String(primaryArg).slice(0, 60)}` : '';
-        host.bus.emit("run:status", { runId: run.id, status: `Running ${event.toolName}${statusDetail}...` });
+        const primaryArg =
+          args.file_path ?? args.path ?? args.pattern ?? args.command ?? args.query ?? args.url;
+        const statusDetail = primaryArg ? `: ${String(primaryArg).slice(0, 60)}` : "";
+        host.bus.emit("run:status", {
+          runId: run.id,
+          status: `Running ${event.toolName}${statusDetail}...`,
+        });
         const toolDef = ctx.builtinToolDefsMap.get(event.toolName);
         // Extension tools live in the registry under `<ext>__<tool>`;
         // built-ins are bare names. Same lookup logic as tool_execution_end.
-        const startRegistered = !toolDef && event.toolName.includes("__")
-          ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)
-          : undefined;
+        const startRegistered =
+          !toolDef && event.toolName.includes("__")
+            ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)
+            : undefined;
         // cardLayout fan-out: normalize unknown values to "inline" (fail-open)
         // and only emit when explicitly declared. Mirrors cardType resolution.
         const startCardLayout = normalizeCardLayout(
@@ -243,8 +248,11 @@ export function subscribeBridge(
         );
         const startCardType = toolDef?.cardType ?? startRegistered?.cardType;
         host.bus.emit("tool:start", {
-          conversationId, extensionId: "", toolName: event.toolName,
-          input: event.args, timestamp: Date.now(),
+          conversationId,
+          extensionId: "",
+          toolName: event.toolName,
+          input: event.args,
+          timestamp: Date.now(),
           cardType: startCardType,
           ...(startCardLayout ? { cardLayout: startCardLayout } : {}),
           category: toolDef?.category,
@@ -297,9 +305,7 @@ export function subscribeBridge(
           callTimeoutMs,
           ...(startCardType ? { cardType: startCardType } : {}),
           ...(startCardLayout ? { cardLayout: startCardLayout } : {}),
-          ...(startRegistered?.requiresUserInput === true
-            ? { requiresUserInput: true }
-            : {}),
+          ...(startRegistered?.requiresUserInput === true ? { requiresUserInput: true } : {}),
         });
         break;
       }
@@ -317,9 +323,10 @@ export function subscribeBridge(
         // DefaultCard for every extension tool — including custom canvas
         // cards like claude-design's design-canvas.
         const endToolDef = ctx.builtinToolDefsMap.get(event.toolName);
-        const endRegistered = !endToolDef && event.toolName.includes("__")
-          ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)
-          : undefined;
+        const endRegistered =
+          !endToolDef && event.toolName.includes("__")
+            ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)
+            : undefined;
         const endCardType = endToolDef?.cardType ?? endRegistered?.cardType;
         // Same normalization as tool:start. Only emitted when explicitly
         // "dock" — undefined keeps the wire payload identical to today.
@@ -330,16 +337,23 @@ export function subscribeBridge(
         if (event.toolName !== "invoke_agent") {
           if (event.isError) {
             host.bus.emit("tool:error", {
-              conversationId, extensionId: "", toolName: event.toolName,
-              error: typeof event.result === 'string' ? event.result : JSON.stringify(event.result), duration: 0,
+              conversationId,
+              extensionId: "",
+              toolName: event.toolName,
+              error: typeof event.result === "string" ? event.result : JSON.stringify(event.result),
+              duration: 0,
               cardType: endCardType,
               ...(endCardLayout ? { cardLayout: endCardLayout } : {}),
               invocationId: event.toolCallId,
             });
           } else {
             host.bus.emit("tool:complete", {
-              conversationId, extensionId: "", toolName: event.toolName,
-              output: event.result, duration: 0, success: true,
+              conversationId,
+              extensionId: "",
+              toolName: event.toolName,
+              output: event.result,
+              duration: 0,
+              success: true,
               cardType: endCardType,
               ...(endCardLayout ? { cardLayout: endCardLayout } : {}),
               invocationId: event.toolCallId,
@@ -357,23 +371,25 @@ export function subscribeBridge(
           // persistToolCall is the single insert site for tool_calls — keeps
           // the four analytics dimensions (user/agent/model/provider) in
           // lockstep with the extension-tool write path.
-          queueDb(() => persistToolCall({
-            id: event.toolCallId,
-            conversationId,
-            messageId: null,
-            extensionId: "builtin",
-            toolName: event.toolName,
-            input: args,
-            output: { content: event.result?.content ?? [] },
-            success: !event.isError,
-            durationMs: 0,
-            cardType: endCardType ?? null,
-            cardLayout: endCardLayout ?? null,
-            userId: convRecord?.userId ?? null,
-            agentConfigId: options.agentConfigId ?? convRecord?.agentConfigId ?? null,
-            model: options.model ?? convRecord?.model ?? null,
-            provider: options.provider ?? convRecord?.provider ?? null,
-          }));
+          queueDb(() =>
+            persistToolCall({
+              id: event.toolCallId,
+              conversationId,
+              messageId: null,
+              extensionId: "builtin",
+              toolName: event.toolName,
+              input: args,
+              output: { content: event.result?.content ?? [] },
+              success: !event.isError,
+              durationMs: 0,
+              cardType: endCardType ?? null,
+              cardLayout: endCardLayout ?? null,
+              userId: convRecord?.userId ?? null,
+              agentConfigId: options.agentConfigId ?? convRecord?.agentConfigId ?? null,
+              model: options.model ?? convRecord?.model ?? null,
+              provider: options.provider ?? convRecord?.provider ?? null,
+            }),
+          );
         }
         break;
       }
@@ -431,10 +447,15 @@ export function subscribeBridge(
           const resolvedThinking = thinkingContent || ctx.turnThinking;
 
           if (!textContent && ctx.turnText) {
-            log.warn("turn_end message missing text blocks but turnText has content", { turnTextPreview: ctx.turnText.slice(0, 100), contentTypes: am.content.map((c: { type: string }) => c.type).join(", ") });
+            log.warn("turn_end message missing text blocks but turnText has content", {
+              turnTextPreview: ctx.turnText.slice(0, 100),
+              contentTypes: am.content.map((c: { type: string }) => c.type).join(", "),
+            });
           }
           if (!resolvedText && !ctx.turnHasToolCalls) {
-            log.warn("turn_end with no text and no tool calls", { contentTypes: am.content.map((c: { type: string }) => c.type).join(", ") });
+            log.warn("turn_end with no text and no tool calls", {
+              contentTypes: am.content.map((c: { type: string }) => c.type).join(", "),
+            });
           }
 
           if (host.persist && (resolvedText || ctx.turnHasToolCalls)) {
@@ -477,16 +498,24 @@ export function subscribeBridge(
                   // subscribeBridge callers keep today's usage shape. The
                   // SERVED identity is NOT duplicated here — it lives in the
                   // message row's model/provider columns above.
-                  ...(options.requestedProvider !== undefined ? { requestedProvider: options.requestedProvider } : {}),
-                  ...(options.requestedModel !== undefined ? { requestedModel: options.requestedModel } : {}),
+                  ...(options.requestedProvider !== undefined
+                    ? { requestedProvider: options.requestedProvider }
+                    : {}),
+                  ...(options.requestedModel !== undefined
+                    ? { requestedModel: options.requestedModel }
+                    : {}),
                   ...(options.routedTier !== undefined ? { routedTier: options.routedTier } : {}),
                   ...(options.failover !== undefined ? { failover: options.failover } : {}),
                   // WS5 routing provenance — same conditional-spread contract
                   // as the fields above: a pinned turn (and any direct
                   // subscribeBridge caller) writes no key at all, so legacy
                   // rows and pinned rows stay distinguishable from routed ones.
-                  ...(options.routingSignals !== undefined ? { routingSignals: options.routingSignals } : {}),
-                  ...(options.routingConfig !== undefined ? { routingConfig: options.routingConfig } : {}),
+                  ...(options.routingSignals !== undefined
+                    ? { routingSignals: options.routingSignals }
+                    : {}),
+                  ...(options.routingConfig !== undefined
+                    ? { routingConfig: options.routingConfig }
+                    : {}),
                 },
                 runId: run.id,
                 parentMessageId: capturedParent ?? undefined,
@@ -496,27 +525,30 @@ export function subscribeBridge(
               await getDb()
                 .update(toolCalls)
                 .set({ messageId: turnMsg.id })
-                .where(and(
-                  eq(toolCalls.conversationId, conversationId),
-                  isNull(toolCalls.messageId),
-                ));
+                .where(
+                  and(eq(toolCalls.conversationId, conversationId), isNull(toolCalls.messageId)),
+                );
               // Also handle extension tools that used run.id as placeholder
               await getDb()
                 .update(toolCalls)
                 .set({ messageId: turnMsg.id })
-                .where(and(
-                  eq(toolCalls.conversationId, conversationId),
-                  eq(toolCalls.messageId, run.id),
-                ));
+                .where(
+                  and(
+                    eq(toolCalls.conversationId, conversationId),
+                    eq(toolCalls.messageId, run.id),
+                  ),
+                );
 
               // Anchor agent sub-conversations created during this turn to the assistant message
               await getDb()
                 .update(conversations)
                 .set({ parentMessageId: turnMsg.id })
-                .where(and(
-                  eq(conversations.parentConversationId, conversationId),
-                  isNull(conversations.parentMessageId),
-                ));
+                .where(
+                  and(
+                    eq(conversations.parentConversationId, conversationId),
+                    isNull(conversations.parentMessageId),
+                  ),
+                );
 
               ctx.lastSavedMessageId = turnMsg.id;
 
@@ -530,7 +562,12 @@ export function subscribeBridge(
               if (options.sessionHistoryProducer) {
                 await appendSavedMessageEntry(
                   conversationId,
-                  { id: turnMsg.id, role: "assistant", content: capturedText, createdAt: turnMsg.createdAt },
+                  {
+                    id: turnMsg.id,
+                    role: "assistant",
+                    content: capturedText,
+                    createdAt: turnMsg.createdAt,
+                  },
                   capturedParent,
                 );
               }

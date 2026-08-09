@@ -287,9 +287,7 @@ export interface UpsertSavedContextInput {
  * the same topic overwrites the prior snapshot (latest wins, no dup rows).
  * `createdAt` is preserved on update; `updatedAt` bumped to NOW.
  */
-export async function upsertSavedContext(
-  input: UpsertSavedContextInput,
-): Promise<SavedContext> {
+export async function upsertSavedContext(input: UpsertSavedContextInput): Promise<SavedContext> {
   if (!input.userId) throw new Error("userId is required");
   if (!input.conversationId) throw new Error("conversationId is required");
   const now = new Date();

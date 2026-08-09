@@ -36,7 +36,10 @@ import type { ExtensionManifestV2, ExtensionPermissions } from "../extensions/ty
 
 // ── Capture the REAL loader before the passthrough mock below ──────
 // (module body runs after hoisted imports, so this grabs the real fn).
-import { loadManifest as realLoadManifest, loadManifestFresh as realLoadManifestFresh } from "../extensions/loader";
+import {
+  loadManifest as realLoadManifest,
+  loadManifestFresh as realLoadManifestFresh,
+} from "../extensions/loader";
 const realFresh = realLoadManifestFresh;
 const realLoad = realLoadManifest;
 
@@ -302,9 +305,7 @@ describe("bundled drift re-approval", () => {
     // Phase B — a TYPED capability-policy-write row accompanies the
     // summary row (additive). The stale grant had no `search` field; the
     // heal grants `search: "inherit"`, so the policy field changed.
-    const policyRows = auditEntries.filter(
-      (a) => a.action === "ext:capability-policy-write",
-    );
+    const policyRows = auditEntries.filter((a) => a.action === "ext:capability-policy-write");
     const searchPolicyRow = policyRows.find((a) => a.metadata?.capability === "search");
     expect(searchPolicyRow).toBeDefined();
     expect(searchPolicyRow?.userId).toBe("admin-1");
@@ -397,9 +398,7 @@ describe("bundled drift re-approval", () => {
       expect(row.enabled).toBe(false);
       expect(row.version).toBe("0.9.0");
       expect((row.grantedPermissions as ExtensionPermissions).network).toEqual(OLD_NETWORK);
-      expect(
-        auditEntries.some((a) => a.action === "ext:bundled:drift-reapproved"),
-      ).toBe(false);
+      expect(auditEntries.some((a) => a.action === "ext:bundled:drift-reapproved")).toBe(false);
     } finally {
       setLockfilePathOverride(undefined);
       clearLockfileCache();
@@ -438,9 +437,7 @@ describe("bundled drift re-approval", () => {
       stripStamps(grantAfterFirst),
     );
     // No-drift heal → no typed capability-policy-write row.
-    expect(
-      auditEntries.some((a) => a.action === "ext:capability-policy-write"),
-    ).toBe(false);
+    expect(auditEntries.some((a) => a.action === "ext:capability-policy-write")).toBe(false);
   }, 30_000);
 
   test("unreadable on-disk manifest → manifest-unreadable refusal, row untouched", async () => {

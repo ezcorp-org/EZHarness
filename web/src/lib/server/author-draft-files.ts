@@ -58,9 +58,7 @@ export function readAuthorDraftFiles(dir: string): AuthorDraftFileMap {
   } catch (e) {
     return {
       files,
-      unreadable: [
-        { name: ".", error: e instanceof Error ? e.message : String(e) },
-      ],
+      unreadable: [{ name: ".", error: e instanceof Error ? e.message : String(e) }],
     };
   }
 

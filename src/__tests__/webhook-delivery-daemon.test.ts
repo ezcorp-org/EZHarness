@@ -7,9 +7,7 @@
  * settings query is mocked to toggle it per-test.
  */
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
-import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
-} from "./helpers/test-pglite";
+import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 let killSwitch = false;
 mock.module("../db/queries/settings", () => ({
@@ -17,9 +15,13 @@ mock.module("../db/queries/settings", () => ({
     if (key === "loops:kill_switch") return killSwitch;
     return undefined;
   },
-  async getAllSettings() { return {}; },
+  async getAllSettings() {
+    return {};
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
+  async deleteSetting() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -39,7 +41,10 @@ const EXT_NAME = "wh-daemon-ext";
 const EXT_ID = "ext-uuid-1";
 
 // A stub subprocess capturing the webhook-fire notification.
-interface Fire { method: string; params: Record<string, unknown> }
+interface Fire {
+  method: string;
+  params: Record<string, unknown>;
+}
 function makeRegistry(procUp: boolean, sink: Fire[]): WebhookDaemonRegistry {
   const proc = {
     sendNotification: (method: string, params?: Record<string, unknown>) => {
@@ -55,47 +60,85 @@ const resolveExtensionId = async () => EXT_ID;
 let hookId: string;
 
 async function seedHook(): Promise<void> {
-  await getTestDb().insert(extensions).values({
-    name: EXT_NAME, version: "0.0.1", description: "",
-    manifest: { schemaVersion: 2, name: EXT_NAME, version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  });
-  const [row] = await getTestDb().insert(extensionWebhooks).values({
-    extensionId: EXT_NAME, slug: "tickets", enabled: true,
-  }).returning({ id: extensionWebhooks.id });
+  await getTestDb()
+    .insert(extensions)
+    .values({
+      name: EXT_NAME,
+      version: "0.0.1",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name: EXT_NAME,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    });
+  const [row] = await getTestDb()
+    .insert(extensionWebhooks)
+    .values({
+      extensionId: EXT_NAME,
+      slug: "tickets",
+      enabled: true,
+    })
+    .returning({ id: extensionWebhooks.id });
   hookId = row!.id;
 }
 
-async function insertPending(opts: {
-  body?: string; contentType?: string | null; receivedAt?: Date; status?: "pending" | "running"; catchUp?: boolean; claimedAt?: Date;
-} = {}): Promise<string> {
-  const [row] = await getTestDb().insert(webhookDeliveries).values({
-    webhookId: hookId,
-    extensionId: EXT_NAME,
-    slug: "tickets",
-    status: opts.status ?? "pending",
-    contentType: opts.contentType ?? "application/json",
-    body: opts.body ?? '{"n":1}',
-    receivedAt: opts.receivedAt ?? new Date("2026-07-16T10:00:00.000Z"),
-    ...(opts.catchUp !== undefined ? { catchUp: opts.catchUp } : {}),
-    ...(opts.claimedAt ? { claimedAt: opts.claimedAt } : {}),
-  }).returning({ id: webhookDeliveries.id });
+async function insertPending(
+  opts: {
+    body?: string;
+    contentType?: string | null;
+    receivedAt?: Date;
+    status?: "pending" | "running";
+    catchUp?: boolean;
+    claimedAt?: Date;
+  } = {},
+): Promise<string> {
+  const [row] = await getTestDb()
+    .insert(webhookDeliveries)
+    .values({
+      webhookId: hookId,
+      extensionId: EXT_NAME,
+      slug: "tickets",
+      status: opts.status ?? "pending",
+      contentType: opts.contentType ?? "application/json",
+      body: opts.body ?? '{"n":1}',
+      receivedAt: opts.receivedAt ?? new Date("2026-07-16T10:00:00.000Z"),
+      ...(opts.catchUp !== undefined ? { catchUp: opts.catchUp } : {}),
+      ...(opts.claimedAt ? { claimedAt: opts.claimedAt } : {}),
+    })
+    .returning({ id: webhookDeliveries.id });
   return row!.id;
 }
 
 async function statusOf(id: string): Promise<string> {
-  const rows = await getTestDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, id));
+  const rows = await getTestDb()
+    .select()
+    .from(webhookDeliveries)
+    .where(eq(webhookDeliveries.id, id));
   return rows[0]!.status;
 }
 
 async function rowOf(id: string) {
-  return (await getTestDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, id)))[0]!;
+  return (
+    await getTestDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, id))
+  )[0]!;
 }
 
 /** A registry whose subprocess is present but whose `sendNotification` always
  *  throws — a genuinely poison delivery (vs. a down subprocess). */
 const throwingRegistry: WebhookDaemonRegistry = {
-  getProcessIfRunning: () => ({ sendNotification: () => { throw new Error("pipe closed"); } } as never),
+  getProcessIfRunning: () =>
+    ({
+      sendNotification: () => {
+        throw new Error("pipe closed");
+      },
+    }) as never,
 };
 
 beforeAll(async () => {
@@ -132,21 +175,33 @@ describe("tick — dispatch", () => {
     expect(input.deliveryId).toBe(id);
     expect(input.parsed).toEqual({ n: 7 });
     // The delivered row records deliveredAt.
-    const row = (await getTestDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, id)))[0]!;
+    const row = (
+      await getTestDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, id))
+    )[0]!;
     expect(row.deliveredAt).not.toBeNull();
     // A successful dispatch writes a SDK_WEBHOOK_DISPATCHED audit row (no secret).
-    const audits = await getTestDb().select().from(auditLog).where(and(
-      eq(auditLog.action, EXT_AUDIT_ACTIONS.SDK_WEBHOOK_DISPATCHED),
-      eq(auditLog.target, EXT_NAME),
-    ));
-    const dispatched = audits.find((a) => (a.metadata as { deliveryId?: string })?.deliveryId === id);
+    const audits = await getTestDb()
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, EXT_AUDIT_ACTIONS.SDK_WEBHOOK_DISPATCHED),
+          eq(auditLog.target, EXT_NAME),
+        ),
+      );
+    const dispatched = audits.find(
+      (a) => (a.metadata as { deliveryId?: string })?.deliveryId === id,
+    );
     expect(dispatched).toBeTruthy();
     expect((dispatched!.metadata as { slug: string }).slug).toBe("tickets");
   });
 
   test("subprocess down → claimed then reverted to pending (never lost)", async () => {
     const id = await insertPending();
-    const daemon = new WebhookDeliveryDaemon({ registry: makeRegistry(false, []), resolveExtensionId });
+    const daemon = new WebhookDeliveryDaemon({
+      registry: makeRegistry(false, []),
+      resolveExtensionId,
+    });
     const r = await daemon.tick();
     expect(r).toEqual({ claimed: 1, dispatched: 0 });
     expect(await statusOf(id)).toBe("pending");
@@ -163,7 +218,12 @@ describe("tick — dispatch", () => {
   test("sendNotification throws → reverted to pending (no loss)", async () => {
     const id = await insertPending();
     const throwingRegistry: WebhookDaemonRegistry = {
-      getProcessIfRunning: () => ({ sendNotification: () => { throw new Error("pipe closed"); } } as never),
+      getProcessIfRunning: () =>
+        ({
+          sendNotification: () => {
+            throw new Error("pipe closed");
+          },
+        }) as never,
     };
     const daemon = new WebhookDeliveryDaemon({ registry: throwingRegistry, resolveExtensionId });
     const r = await daemon.tick();
@@ -227,7 +287,11 @@ describe("poison-delivery bound", () => {
 
   test("subprocess-DOWN reverts do NOT consume an attempt (pure catch-up)", async () => {
     const id = await insertPending();
-    const daemon = new WebhookDeliveryDaemon({ registry: makeRegistry(false, []), resolveExtensionId, maxAttempts: 2 });
+    const daemon = new WebhookDeliveryDaemon({
+      registry: makeRegistry(false, []),
+      resolveExtensionId,
+      maxAttempts: 2,
+    });
     await daemon.tick();
     await daemon.tick();
     await daemon.tick();
@@ -241,9 +305,18 @@ describe("poison-delivery bound", () => {
     const id = await insertPending();
     const longErr = "E".repeat(2000);
     const bigThrow: WebhookDaemonRegistry = {
-      getProcessIfRunning: () => ({ sendNotification: () => { throw new Error(longErr); } } as never),
+      getProcessIfRunning: () =>
+        ({
+          sendNotification: () => {
+            throw new Error(longErr);
+          },
+        }) as never,
     };
-    const daemon = new WebhookDeliveryDaemon({ registry: bigThrow, resolveExtensionId, maxAttempts: 1 });
+    const daemon = new WebhookDeliveryDaemon({
+      registry: bigThrow,
+      resolveExtensionId,
+      maxAttempts: 1,
+    });
     await daemon.tick();
     const row = await rowOf(id);
     expect(row.status).toBe("error");
@@ -282,7 +355,9 @@ describe("catch-up marking", () => {
     });
     await daemon.tick();
     expect((sink[0]!.params as { catchUp: boolean }).catchUp).toBe(true);
-    const row = (await getTestDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, id)))[0]!;
+    const row = (
+      await getTestDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, id))
+    )[0]!;
     expect(row.catchUp).toBe(true);
   });
 
@@ -304,7 +379,10 @@ describe("kill switch", () => {
     const id = await insertPending();
     killSwitch = true;
     const sink: Fire[] = [];
-    const daemon = new WebhookDeliveryDaemon({ registry: makeRegistry(true, sink), resolveExtensionId });
+    const daemon = new WebhookDeliveryDaemon({
+      registry: makeRegistry(true, sink),
+      resolveExtensionId,
+    });
     const r = await daemon.tick();
     expect(r).toEqual({ claimed: 0, dispatched: 0 });
     expect(sink).toHaveLength(0);
@@ -352,14 +430,25 @@ describe("start / stop lifecycle", () => {
   });
 
   test("start() runs the retention sweep — an old terminal delivery is trimmed", async () => {
-    const [old] = await getTestDb().insert(webhookDeliveries).values({
-      webhookId: hookId, extensionId: EXT_NAME, slug: "tickets", status: "ok",
-      contentType: null, body: "x", receivedAt: new Date(Date.now() - 60 * 86_400_000),
-    }).returning({ id: webhookDeliveries.id });
+    const [old] = await getTestDb()
+      .insert(webhookDeliveries)
+      .values({
+        webhookId: hookId,
+        extensionId: EXT_NAME,
+        slug: "tickets",
+        status: "ok",
+        contentType: null,
+        body: "x",
+        receivedAt: new Date(Date.now() - 60 * 86_400_000),
+      })
+      .returning({ id: webhookDeliveries.id });
     const daemon = new WebhookDeliveryDaemon({ wakeIntervalMs: 60_000, resolveExtensionId });
     await daemon.start();
     daemon.stop();
-    const rows = await getTestDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, old!.id));
+    const rows = await getTestDb()
+      .select()
+      .from(webhookDeliveries)
+      .where(eq(webhookDeliveries.id, old!.id));
     expect(rows).toHaveLength(0);
   });
 
@@ -383,7 +472,12 @@ describe("drainDelivery (route best-effort)", () => {
   test("pending + proc up → dispatched", async () => {
     const id = await insertPending();
     const sink: Fire[] = [];
-    await drainDelivery(id, makeRegistry(true, sink), () => new Date("2026-07-16T10:00:01.000Z"), resolveExtensionId);
+    await drainDelivery(
+      id,
+      makeRegistry(true, sink),
+      () => new Date("2026-07-16T10:00:01.000Z"),
+      resolveExtensionId,
+    );
     expect(await statusOf(id)).toBe("ok");
     expect(sink).toHaveLength(1);
   });
@@ -430,7 +524,10 @@ describe("tryParseWebhookJson", () => {
 describe("buildFireContext", () => {
   test("non-JSON body → no parsed field; raw body preserved; untrusted always true", () => {
     const row = {
-      id: "d1", slug: "tickets", body: "raw text", contentType: "text/plain",
+      id: "d1",
+      slug: "tickets",
+      body: "raw text",
+      contentType: "text/plain",
       receivedAt: new Date("2026-07-16T10:00:00.000Z"),
     } as never;
     const ctx = buildFireContext(row, false);

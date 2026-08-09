@@ -8,7 +8,13 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgents } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings, restoreFetch } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+  restoreFetch,
+} from "./helpers/test-pglite";
 import { createProject } from "../db/queries/projects";
 import { createAgentConfig } from "../db/queries/agent-configs";
 import type { AgentEvents } from "../types";
@@ -35,7 +41,11 @@ beforeAll(async () => {
   const project = await createProject({ name: "Sandbox Test Project", path: "/tmp/sandbox-test" });
   projectId = project.id;
 
-  const agentConfig = await createAgentConfig({ name: "Test Agent", description: "test", prompt: "You are a test agent" });
+  const agentConfig = await createAgentConfig({
+    name: "Test Agent",
+    description: "test",
+    prompt: "You are a test agent",
+  });
   agentConfigId = agentConfig.id;
 });
 

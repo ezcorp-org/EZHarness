@@ -44,9 +44,9 @@ const log = logger.child("sse-filter");
  * See `.planning/phase-2a-prereqs.md` section A for the audit.
  */
 export const DIRECT_CARRIER_EVENT_TYPES: ReadonlySet<keyof AgentEvents> = new Set([
-  "run:complete",       // optional conversationId — filtered when present
-  "run:error",          // optional conversationId — filtered when present
-  "run:cancel",         // optional conversationId — filtered when present
+  "run:complete", // optional conversationId — filtered when present
+  "run:error", // optional conversationId — filtered when present
+  "run:cancel", // optional conversationId — filtered when present
   "run:turn_saved",
   "tool:start",
   "tool:complete",
@@ -313,7 +313,10 @@ export function __clearExtensionEventRegistryForTests(): void {
  * per-(userId,conversationId) with a 30s TTL. Prevents N+1 DB queries
  * when a busy conversation produces high event volume.
  */
-interface CacheEntry { authorized: boolean; expiresAt: number; }
+interface CacheEntry {
+  authorized: boolean;
+  expiresAt: number;
+}
 const CACHE_TTL_MS = 30_000;
 const membershipCache = new Map<string, CacheEntry>();
 
@@ -380,11 +383,14 @@ export async function isAuthorizedForConversation(
     // streaming events (raw tokens) fail CLOSED: re-opening the
     // cross-user token leak under DB stress is exactly the failure
     // this filter exists to prevent. Errors are never cached.
-    log.warn(`conversation-membership lookup failed, ${failMode === "open" ? "passing event through (fail-open)" : "dropping event (fail-closed)"}`, {
-      userId,
-      conversationId,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    log.warn(
+      `conversation-membership lookup failed, ${failMode === "open" ? "passing event through (fail-open)" : "dropping event (fail-closed)"}`,
+      {
+        userId,
+        conversationId,
+        error: err instanceof Error ? err.message : String(err),
+      },
+    );
     return failMode === "open";
   }
 }
@@ -413,13 +419,13 @@ export type GetRunScope = (runId: string) => Promise<RunScope | null>;
  * changes after creation, so the TTL exists only to bound memory (the
  * hot case — `run:token` — fires many times per second per run).
  */
-interface RunScopeCacheEntry { scope: RunScope | null; expiresAt: number; }
+interface RunScopeCacheEntry {
+  scope: RunScope | null;
+  expiresAt: number;
+}
 const runScopeCache = new Map<string, RunScopeCacheEntry>();
 
-async function resolveRunScope(
-  runId: string,
-  getRunScope: GetRunScope,
-): Promise<RunScope | null> {
+async function resolveRunScope(runId: string, getRunScope: GetRunScope): Promise<RunScope | null> {
   const now = Date.now();
   const hit = runScopeCache.get(runId);
   if (hit && hit.expiresAt > now) return hit.scope;
@@ -567,9 +573,7 @@ export async function shouldDeliverEvent(
   if (eventType === "extensions:installed") {
     const eventUserId = (payload as { userId?: unknown } | null | undefined)?.userId;
     return (
-      typeof eventUserId === "string" &&
-      eventUserId.length > 0 &&
-      eventUserId === subscriber.userId
+      typeof eventUserId === "string" && eventUserId.length > 0 && eventUserId === subscriber.userId
     );
   }
 
@@ -583,9 +587,7 @@ export async function shouldDeliverEvent(
   if (eventType === "conversation:created" || eventType === "briefing:delivered") {
     const eventUserId = (payload as { userId?: unknown } | null | undefined)?.userId;
     return (
-      typeof eventUserId === "string" &&
-      eventUserId.length > 0 &&
-      eventUserId === subscriber.userId
+      typeof eventUserId === "string" && eventUserId.length > 0 && eventUserId === subscriber.userId
     );
   }
 

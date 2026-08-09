@@ -67,11 +67,7 @@ Example output:
 //
 // Memory extraction produces N rows, not 1. Outcomes mirror the
 // distiller's variant model so test assertions stay shape-aligned.
-export type MemoryCategory =
-  | "preferences"
-  | "biographical"
-  | "technical"
-  | "decisions_goals";
+export type MemoryCategory = "preferences" | "biographical" | "technical" | "decisions_goals";
 
 export type MemoryConfidence = "high" | "medium" | "low";
 
@@ -202,9 +198,9 @@ export function _resetRuntimeApiForTests(): void {
 // Returns either a flat array of facts or a typed decline outcome.
 // Matches the legacy `extractMemories`'s tolerance for ```json fences
 // and "starts-with-`[`" auto-correction.
-function parseFactsJson(rawText: string):
-  | { ok: true; facts: ExtractedMemoryFact[] }
-  | { ok: false; outcome: ExtractionOutcome } {
+function parseFactsJson(
+  rawText: string,
+): { ok: true; facts: ExtractedMemoryFact[] } | { ok: false; outcome: ExtractionOutcome } {
   let jsonText = rawText.trim();
   // Tolerate ```json … ``` fences from chatty models.
   const fenced = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -433,7 +429,9 @@ export async function extractRunComplete(
 // `compactionEnabled` setting so users can disable the sweep without
 // disabling extraction. Calls into the host's `runCompaction` via the
 // `runtime.memory.compact` invoke handler.
-export async function handleCompactionTick(): Promise<{ mergedCount: number } | { skipped: true; reason: string }> {
+export async function handleCompactionTick(): Promise<
+  { mergedCount: number } | { skipped: true; reason: string }
+> {
   let settings: Record<string, unknown>;
   try {
     settings = await runtimeApi.getMySettings();
@@ -489,9 +487,11 @@ export const DEFAULT_COMPACTION_CRON = SUPPORTED_COMPACTION_CRONS["6"];
  *  or number (the SchemaForm may marshal either depending on UI
  *  flow). Out-of-range / unsupported values fall back to the
  *  default 6h cron and the caller logs a warning. */
-export function resolveCompactionCron(
-  intervalHours: unknown,
-): { cron: string; resolvedFrom: string; usedFallback: boolean } {
+export function resolveCompactionCron(intervalHours: unknown): {
+  cron: string;
+  resolvedFrom: string;
+  usedFallback: boolean;
+} {
   // Normalise to a string — `select` widgets may send the raw
   // number or its string form.
   let key: string;

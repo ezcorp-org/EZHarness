@@ -47,7 +47,11 @@ describe("setMessageExcluded", () => {
     convId = c.id;
     // 3-turn linear chain: u1 → a1 → u2
     const m1 = await createMessage(convId, { role: "user", content: "u1" });
-    const m2 = await createMessage(convId, { role: "assistant", content: "a1", parentMessageId: m1.id });
+    const m2 = await createMessage(convId, {
+      role: "assistant",
+      content: "a1",
+      parentMessageId: m1.id,
+    });
     const m3 = await createMessage(convId, { role: "user", content: "u2", parentMessageId: m2.id });
     m1Id = m1.id;
     m2Id = m2.id;

@@ -7,18 +7,32 @@ mockDbConnection();
 mockServerAlias();
 
 // NOW import handlers
-import { POST as setupPost, __rateLimiter as setupLimiter } from "../../web/src/routes/api/auth/setup/+server";
-import { POST as loginPost, __rateLimiter as loginLimiter } from "../../web/src/routes/api/auth/login/+server";
+import {
+  POST as setupPost,
+  __rateLimiter as setupLimiter,
+} from "../../web/src/routes/api/auth/setup/+server";
+import {
+  POST as loginPost,
+  __rateLimiter as loginLimiter,
+} from "../../web/src/routes/api/auth/login/+server";
 import { POST as logoutPost } from "../../web/src/routes/api/auth/logout/+server";
 import { GET as meGet } from "../../web/src/routes/api/auth/me/+server";
 import { POST as invitePost } from "../../web/src/routes/api/auth/invite/+server";
-import { GET as inviteTokenGet, POST as inviteTokenPost, __rateLimiter as inviteTokenLimiter } from "../../web/src/routes/api/auth/invite/[token]/+server";
+import {
+  GET as inviteTokenGet,
+  POST as inviteTokenPost,
+  __rateLimiter as inviteTokenLimiter,
+} from "../../web/src/routes/api/auth/invite/[token]/+server";
 
 import { users, invites, settings, auditLog, sessions } from "../db/schema";
 import { verifyJWT, getJwtSecret, _resetSecretCache } from "../auth/jwt";
 
-beforeAll(async () => { await setupTestDb(); });
-afterAll(async () => { await closeTestDb(); });
+beforeAll(async () => {
+  await setupTestDb();
+});
+afterAll(async () => {
+  await closeTestDb();
+});
 
 // Reset module-scoped rate limiters before every test. createMockEvent
 // always returns 127.0.0.1 as the client address, so setup (3/hour) and
@@ -53,7 +67,9 @@ async function userFromCookie(event: any) {
 // ── 1. Setup -> Login -> Me chain ────────────────────────────────────
 
 describe("setup -> login -> me chain", () => {
-  beforeAll(async () => { await cleanDb(); });
+  beforeAll(async () => {
+    await cleanDb();
+  });
   const ADMIN_EMAIL = "admin@e2e.com";
   const ADMIN_PASSWORD = "SecurePassword123";
   let adminId: string;
@@ -159,7 +175,9 @@ describe("setup -> login -> me chain", () => {
 // ── 2. Setup -> Invite -> Signup -> Login chain ──────────────────────
 
 describe("setup -> invite -> signup -> login chain", () => {
-  beforeAll(async () => { await cleanDb(); });
+  beforeAll(async () => {
+    await cleanDb();
+  });
   const ADMIN_EMAIL = "admin@e2e-invite.com";
   const ADMIN_PASSWORD = "Adminpass123";
   const INVITE_EMAIL = "newuser@e2e-invite.com";
@@ -306,7 +324,9 @@ describe("setup -> invite -> signup -> login chain", () => {
 // ── 3. Login -> Logout -> Me fails chain ─────────────────────────────
 
 describe("login -> logout -> me fails chain", () => {
-  beforeAll(async () => { await cleanDb(); });
+  beforeAll(async () => {
+    await cleanDb();
+  });
   const EMAIL = "session@e2e.com";
   const PASSWORD = "Sessionpass123";
 
@@ -369,7 +389,9 @@ describe("login -> logout -> me fails chain", () => {
 // ── 4. Duplicate setup blocked ───────────────────────────────────────
 
 describe("duplicate setup blocked", () => {
-  beforeAll(async () => { await cleanDb(); });
+  beforeAll(async () => {
+    await cleanDb();
+  });
   test("first setup succeeds, second setup returns 403", async () => {
     const event1 = createMockEvent({
       method: "POST",
@@ -399,7 +421,9 @@ describe("duplicate setup blocked", () => {
 // ── 5. Public path enforcement ───────────────────────────────────────
 
 describe("public path enforcement", () => {
-  beforeAll(async () => { await cleanDb(); });
+  beforeAll(async () => {
+    await cleanDb();
+  });
   test("auth endpoints work without session (public paths)", async () => {
     // Setup works without auth
     const setupEvent = createMockEvent({

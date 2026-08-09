@@ -111,8 +111,10 @@ export async function recordCapabilityCall(
 
   // ── Write 1: sdk_capability_calls row ────────────────────────────
   try {
-    const redactedBefore = spec.before !== undefined ? redactForAudit(spec.before).redacted : undefined;
-    const redactedAfter = spec.after !== undefined ? redactForAudit(spec.after).redacted : undefined;
+    const redactedBefore =
+      spec.before !== undefined ? redactForAudit(spec.before).redacted : undefined;
+    const redactedAfter =
+      spec.after !== undefined ? redactForAudit(spec.after).redacted : undefined;
     const row: NewSdkCapabilityCall = {
       extensionId: spec.ctx.actorExtensionId,
       onBehalfOf: spec.ctx.onBehalfOf,
@@ -141,7 +143,7 @@ export async function recordCapabilityCall(
     await persistError({
       level: "warn",
       message: "audit-write-failed: sdk_capability_calls",
-      stack: err instanceof Error ? err.stack ?? null : null,
+      stack: err instanceof Error ? (err.stack ?? null) : null,
       metadata: {
         actorExtensionId: spec.ctx.actorExtensionId,
         onBehalfOf: spec.ctx.onBehalfOf,
@@ -159,13 +161,15 @@ export async function recordCapabilityCall(
     try {
       const pra = spec.perResourceAudit;
       if (pra.kind === "memory" && pra.memoryId) {
-        await getDb().insert(memoryAuditLog).values({
-          memoryId: pra.memoryId,
-          action: pra.memoryAction ?? "updated",
-          previousContent: pra.previousBody ?? null,
-          newContent: pra.newBody ?? null,
-          reason: `ext:${spec.ctx.actorExtensionId}`,
-        });
+        await getDb()
+          .insert(memoryAuditLog)
+          .values({
+            memoryId: pra.memoryId,
+            action: pra.memoryAction ?? "updated",
+            previousContent: pra.previousBody ?? null,
+            newContent: pra.newBody ?? null,
+            reason: `ext:${spec.ctx.actorExtensionId}`,
+          });
       } else if (pra.kind === "lesson" && pra.lessonId) {
         await insertLessonAuditEntry({
           lessonId: pra.lessonId,
@@ -184,7 +188,7 @@ export async function recordCapabilityCall(
       await persistError({
         level: "warn",
         message: `audit-write-failed: per-resource (${spec.perResourceAudit.kind})`,
-        stack: err instanceof Error ? err.stack ?? null : null,
+        stack: err instanceof Error ? (err.stack ?? null) : null,
         metadata: {
           actorExtensionId: spec.ctx.actorExtensionId,
           kind: spec.perResourceAudit.kind,
@@ -218,30 +222,32 @@ export async function recordCapabilityCall(
       // render it as user text. The Phase 52 pill component reads it
       // via the sentinel. When `messages.metadata` lands later, this
       // can be split.
-      await getDb().insert(messages).values({
-        conversationId: spec.ctx.conversationId!,
-        role: "capability-event",
-        content: JSON.stringify({
-          __ezcorp_capability_event: true,
-          sdkCapabilityCallId,
-          capability: spec.capability,
-          action: spec.action,
-          resourceType: spec.resourceType,
-          resourceId: spec.resourceId,
-          success: spec.success,
-          durationMs: spec.durationMs,
-          costUsd: spec.costUsd,
-          model: spec.model,
-          provider: spec.provider,
-          extensionName,
-        }),
-      });
+      await getDb()
+        .insert(messages)
+        .values({
+          conversationId: spec.ctx.conversationId!,
+          role: "capability-event",
+          content: JSON.stringify({
+            __ezcorp_capability_event: true,
+            sdkCapabilityCallId,
+            capability: spec.capability,
+            action: spec.action,
+            resourceType: spec.resourceType,
+            resourceId: spec.resourceId,
+            success: spec.success,
+            durationMs: spec.durationMs,
+            costUsd: spec.costUsd,
+            model: spec.model,
+            provider: spec.provider,
+            extensionName,
+          }),
+        });
     } catch (err) {
       log.warn("audit-write-failed", { which: "chat-pill", error: String(err) });
       await persistError({
         level: "warn",
         message: "audit-write-failed: chat-pill",
-        stack: err instanceof Error ? err.stack ?? null : null,
+        stack: err instanceof Error ? (err.stack ?? null) : null,
         metadata: {
           actorExtensionId: spec.ctx.actorExtensionId,
           conversationId: spec.ctx.conversationId,

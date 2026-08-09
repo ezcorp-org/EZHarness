@@ -9,7 +9,13 @@
  *
  * Same role as `workflow-builder-logic.ts` plays for the create form.
  */
-import type { Workflow, WorkflowModelOverride, WorkflowRun, WorkflowStep, WorkflowStepKind } from "./api.js";
+import type {
+  Workflow,
+  WorkflowModelOverride,
+  WorkflowRun,
+  WorkflowStep,
+  WorkflowStepKind,
+} from "./api.js";
 
 /** Tailwind text colour per run/step status. */
 const STATUS_COLOR: Record<string, string> = {

@@ -12,7 +12,13 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
+import {
+  mockServerAlias,
+  createMockEvent,
+  jsonFromResponse,
+  ADMIN_USER,
+  MEMBER_USER,
+} from "./helpers/mock-request";
 import { makeStdioMcpServer } from "./helpers/stdio-mcp-fixture";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -55,7 +61,12 @@ describe("POST /api/mcp-servers", () => {
       user: MEMBER_USER,
       body: {
         name: "role-check",
-        server: { transport: "stdio", name: "role-check", command: fixture.command, args: fixture.args },
+        server: {
+          transport: "stdio",
+          name: "role-check",
+          command: fixture.command,
+          args: fixture.args,
+        },
       },
     });
     // RETURNED, not thrown. The old try/catch asserted a THROWN Response,
@@ -100,7 +111,12 @@ describe("POST /api/mcp-servers", () => {
       user: ADMIN_USER,
       body: {
         name: "route-502",
-        server: { transport: "stdio", name: "route-502", command: fixture.command, args: fixture.args },
+        server: {
+          transport: "stdio",
+          name: "route-502",
+          command: fixture.command,
+          args: fixture.args,
+        },
       },
     });
     const res = await installPOST(event);
@@ -126,7 +142,12 @@ describe("POST /api/mcp-servers", () => {
       body: {
         name: "route-ok",
         description: "Happy path",
-        server: { transport: "stdio", name: "route-ok", command: fixture.command, args: fixture.args },
+        server: {
+          transport: "stdio",
+          name: "route-ok",
+          command: fixture.command,
+          args: fixture.args,
+        },
       },
     });
     const res = await installPOST(event);
@@ -135,7 +156,10 @@ describe("POST /api/mcp-servers", () => {
     expect(body.name).toBe("route-ok");
     expect(body.manifest.kind).toBe("mcp");
     expect(body.manifest.tools).toHaveLength(2);
-    expect(body.manifest.tools.map((t: { name: string }) => t.name).sort()).toEqual(["ping", "pong"]);
+    expect(body.manifest.tools.map((t: { name: string }) => t.name).sort()).toEqual([
+      "ping",
+      "pong",
+    ]);
 
     const registry = ExtensionRegistry.getInstance();
     expect(registry.getToolExtension("route-ok__ping")).toBe(body.id);
@@ -153,7 +177,12 @@ describe("POST /api/mcp-servers", () => {
       user: ADMIN_USER,
       body: {
         name: "route-dup",
-        server: { transport: "stdio", name: "route-dup", command: fixture.command, args: fixture.args },
+        server: {
+          transport: "stdio",
+          name: "route-dup",
+          command: fixture.command,
+          args: fixture.args,
+        },
       },
     });
     const firstRes = await installPOST(first);
@@ -165,7 +194,12 @@ describe("POST /api/mcp-servers", () => {
       user: ADMIN_USER,
       body: {
         name: "route-dup",
-        server: { transport: "stdio", name: "route-dup", command: fixture.command, args: fixture.args },
+        server: {
+          transport: "stdio",
+          name: "route-dup",
+          command: fixture.command,
+          args: fixture.args,
+        },
       },
     });
     const secondRes = await installPOST(second);
@@ -204,15 +238,22 @@ describe("POST /api/mcp-servers/[id]/refresh", () => {
     const fixtureA = makeStdioMcpServer({
       tools: [{ name: "old", description: "old" }],
     });
-    const installRes = await installPOST(createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/mcp-servers",
-      user: ADMIN_USER,
-      body: {
-        name: "refresh-live",
-        server: { transport: "stdio", name: "refresh-live", command: fixtureA.command, args: fixtureA.args },
-      },
-    }));
+    const installRes = await installPOST(
+      createMockEvent({
+        method: "POST",
+        url: "http://localhost/api/mcp-servers",
+        user: ADMIN_USER,
+        body: {
+          name: "refresh-live",
+          server: {
+            transport: "stdio",
+            name: "refresh-live",
+            command: fixtureA.command,
+            args: fixtureA.args,
+          },
+        },
+      }),
+    );
     expect(installRes.status).toBe(201);
     const installed = await jsonFromResponse(installRes);
 
@@ -229,7 +270,14 @@ describe("POST /api/mcp-servers/[id]/refresh", () => {
     const m = registry.getManifest(installed.id)!;
     registry.setManifestForTest(installed.id, {
       ...m,
-      mcpServers: [{ transport: "stdio", name: "refresh-live", command: fixtureB.command, args: fixtureB.args }],
+      mcpServers: [
+        {
+          transport: "stdio",
+          name: "refresh-live",
+          command: fixtureB.command,
+          args: fixtureB.args,
+        },
+      ],
     });
     // Drop any cached client so the next getMcpClient spawns a new one
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

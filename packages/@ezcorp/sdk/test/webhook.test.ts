@@ -11,26 +11,11 @@
 // VERY FIRST `on()` call (spy `onRequest` before it) and reuse that closure
 // (which reads the live module-level `handlers` Map) to simulate host frames.
 
-import {
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  spyOn,
-  test,
-} from "bun:test";
+import { afterEach, beforeAll, describe, expect, spyOn, test } from "bun:test";
 
-import {
-  Webhook,
-  __resetWebhooksForTests,
-  type WebhookFireContext,
-} from "../src/runtime/webhook";
+import { Webhook, __resetWebhooksForTests, type WebhookFireContext } from "../src/runtime/webhook";
 import type { WebhookInput } from "../src/runtime/loop-types";
-import {
-  __resetChannelForTests,
-  getChannel,
-  type HostChannel,
-} from "../src/runtime/channel";
+import { __resetChannelForTests, getChannel, type HostChannel } from "../src/runtime/channel";
 
 // Captured once — the receiver closure the SDK installs for webhook-fire.
 let receiver: ((p: unknown) => Promise<unknown> | unknown) | undefined;
@@ -71,9 +56,7 @@ function makeInput(overrides: Partial<WebhookInput> = {}): WebhookInput {
   };
 }
 
-function makeCtx(
-  overrides: Partial<WebhookFireContext> = {},
-): WebhookFireContext {
+function makeCtx(overrides: Partial<WebhookFireContext> = {}): WebhookFireContext {
   return {
     slug: "tickets",
     deliveryId: "delivery-1",

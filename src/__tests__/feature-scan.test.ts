@@ -224,10 +224,7 @@ describe("scanFeatures — slug collision", () => {
     const result = await scanFeatures(projectRoot);
     expect(result.map((f) => f.name)).toEqual(["components", "web-components"]);
     const byName = new Map(result.map((f) => [f.name, f]));
-    expect(byName.get("components")!.files).toEqual([
-      "src/components/a.ts",
-      "src/components/b.ts",
-    ]);
+    expect(byName.get("components")!.files).toEqual(["src/components/a.ts", "src/components/b.ts"]);
     expect(byName.get("web-components")!.files).toEqual([
       "web/src/components/c.ts",
       "web/src/components/d.ts",
@@ -356,10 +353,7 @@ describe("scanFeatures — symlink handling", () => {
     // Outside file the symlink will point to.
     await writeFile(resolve(outsideRoot, "leak.ts"), "leak");
     // featA/escape.ts → outside/leak.ts (escape attempt)
-    await symlink(
-      resolve(outsideRoot, "leak.ts"),
-      resolve(projectRoot, "src/featA/escape.ts"),
-    );
+    await symlink(resolve(outsideRoot, "leak.ts"), resolve(projectRoot, "src/featA/escape.ts"));
 
     const result = await scanFeatures(projectRoot);
     expect(result[0]!.files).toEqual(["src/featA/a.ts", "src/featA/b.ts"]);
@@ -412,14 +406,8 @@ describe("scanFeatures — symlink-cycle resilience (D1)", () => {
       "src/featB/b2.ts": "b2",
     });
     // featA/link-to-b → src/featB; featB/link-to-a → src/featA
-    await symlink(
-      resolve(projectRoot, "src/featB"),
-      resolve(projectRoot, "src/featA/link-to-b"),
-    );
-    await symlink(
-      resolve(projectRoot, "src/featA"),
-      resolve(projectRoot, "src/featB/link-to-a"),
-    );
+    await symlink(resolve(projectRoot, "src/featB"), resolve(projectRoot, "src/featA/link-to-b"));
+    await symlink(resolve(projectRoot, "src/featA"), resolve(projectRoot, "src/featB/link-to-a"));
 
     const start = Date.now();
     const result = await scanFeatures(projectRoot);
@@ -439,10 +427,7 @@ describe("scanFeatures — symlink-cycle resilience (D1)", () => {
       "src/featA/b.ts": "b",
     });
     // sym points at the parent dir featA itself.
-    await symlink(
-      resolve(projectRoot, "src/featA"),
-      resolve(projectRoot, "src/featA/sym"),
-    );
+    await symlink(resolve(projectRoot, "src/featA"), resolve(projectRoot, "src/featA/sym"));
 
     const start = Date.now();
     const result = await scanFeatures(projectRoot);
@@ -464,10 +449,7 @@ describe("scanFeatures — symlink-cycle resilience (D1)", () => {
       "src/featA/sub/c.ts": "c",
     });
     // sub/up symlinks back up to featA → realpath same as featA → seen.
-    await symlink(
-      resolve(projectRoot, "src/featA"),
-      resolve(projectRoot, "src/featA/sub/up"),
-    );
+    await symlink(resolve(projectRoot, "src/featA"), resolve(projectRoot, "src/featA/sub/up"));
 
     const start = Date.now();
     const result = await scanFeatures(projectRoot);
@@ -518,9 +500,7 @@ describe("scanFeatures — depth + per-feature + total caps (D2)", () => {
       const writes: Array<Promise<void>> = [];
       for (let i = 0; i < batchSize; i++) {
         const idx = batch * batchSize + i;
-        writes.push(
-          writeFile(resolve(projectRoot, `src/featBig/f${idx}.ts`), `${idx}`),
-        );
+        writes.push(writeFile(resolve(projectRoot, `src/featBig/f${idx}.ts`), `${idx}`));
       }
       await Promise.all(writes);
     }
@@ -544,12 +524,7 @@ describe("scanFeatures — depth + per-feature + total caps (D2)", () => {
         const writes: Array<Promise<void>> = [];
         for (let i = 0; i < 100; i++) {
           const idx = batch * 100 + i;
-          writes.push(
-            writeFile(
-              resolve(projectRoot, `${dir}/f${idx}.ts`),
-              `${idx}`,
-            ),
-          );
+          writes.push(writeFile(resolve(projectRoot, `${dir}/f${idx}.ts`), `${idx}`));
         }
         await Promise.all(writes);
       }
@@ -608,10 +583,7 @@ describe("scan-fs shared module — anti-duplication invariant", () => {
   });
 
   test("feature scanner imports the same helpers", async () => {
-    const src = await readFile(
-      resolve(__dirname, "../runtime/scan/feature-scan.ts"),
-      "utf8",
-    );
+    const src = await readFile(resolve(__dirname, "../runtime/scan/feature-scan.ts"), "utf8");
     expect(src).toMatch(/from\s+["']\.\.\/fs\/scan-fs["']/);
     // No local fork of the symlink-escape predicate.
     expect(/const\s+EXCLUDED_DIR_NAMES\s*=/.test(src)).toBe(false);
@@ -628,11 +600,7 @@ describe("listFilteredChildren", () => {
   });
 
   test("returns empty when absDir does not exist", async () => {
-    const out = await listFilteredChildren(
-      projectRoot,
-      resolve(projectRoot, "nope"),
-      "nope",
-    );
+    const out = await listFilteredChildren(projectRoot, resolve(projectRoot, "nope"), "nope");
     expect(out).toEqual([]);
   });
 
@@ -654,15 +622,8 @@ describe("listFilteredChildren", () => {
 
   test("classifies symlinks-to-files as kind='file' (in-bounds)", async () => {
     await writeFiles({ "src/target.ts": "t" });
-    await symlink(
-      resolve(projectRoot, "src/target.ts"),
-      resolve(projectRoot, "src/alias.ts"),
-    );
-    const out = await listFilteredChildren(
-      projectRoot,
-      resolve(projectRoot, "src"),
-      "src",
-    );
+    await symlink(resolve(projectRoot, "src/target.ts"), resolve(projectRoot, "src/alias.ts"));
+    const out = await listFilteredChildren(projectRoot, resolve(projectRoot, "src"), "src");
     const alias = out.find((c) => c.name === "alias.ts");
     expect(alias).toBeDefined();
     expect(alias!.kind).toBe("file");
@@ -682,9 +643,7 @@ describe("realpathInsideRoot", () => {
 
   test("true for a descendant file", async () => {
     await writeFiles({ "src/a.ts": "a" });
-    expect(
-      await realpathInsideRoot(projectRoot, resolve(projectRoot, "src/a.ts")),
-    ).toBe(true);
+    expect(await realpathInsideRoot(projectRoot, resolve(projectRoot, "src/a.ts"))).toBe(true);
   });
 
   test("false for an external path", async () => {
@@ -692,9 +651,7 @@ describe("realpathInsideRoot", () => {
   });
 
   test("false for a non-existent path (realpath fails)", async () => {
-    expect(
-      await realpathInsideRoot(projectRoot, resolve(projectRoot, "nope")),
-    ).toBe(false);
+    expect(await realpathInsideRoot(projectRoot, resolve(projectRoot, "nope"))).toBe(false);
   });
 
   test("false for a symlink that escapes the root", async () => {

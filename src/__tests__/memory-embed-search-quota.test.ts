@@ -13,11 +13,19 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 mock.module("../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -25,7 +33,9 @@ mockDbConnection();
 const { handlePiSearch } = await import("../extensions/search-handler");
 const { consumeSearchQuota, _resetSearchQuotaForTests } = await import("../search/search-quota");
 const { createUser } = await import("../db/queries/users");
-const { extensions, conversations, projects, extensionSearchCallsDaily } = await import("../db/schema");
+const { extensions, conversations, projects, extensionSearchCallsDaily } = await import(
+  "../db/schema"
+);
 const { eq } = await import("drizzle-orm");
 import type { ExtensionPermissions, JsonRpcRequest } from "../extensions/types";
 import type { ResolvedSearchPolicy } from "../search/policy";
@@ -35,11 +45,25 @@ let extensionId: string;
 let conversationId: string;
 
 async function ensureExtension(name: string): Promise<string> {
-  const [row] = await getTestDb().insert(extensions).values({
-    name, version: "0.0.1", description: "",
-    manifest: { schemaVersion: 2, name, version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name,
+      version: "0.0.1",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    })
+    .returning({ id: extensions.id });
   return row!.id;
 }
 
@@ -48,7 +72,8 @@ function today(): string {
 }
 
 async function seedDurable(extId: string, calls: number) {
-  await getTestDb().insert(extensionSearchCallsDaily)
+  await getTestDb()
+    .insert(extensionSearchCallsDaily)
     .values({ extensionId: extId, day: today(), calls })
     .onConflictDoUpdate({
       target: [extensionSearchCallsDaily.extensionId, extensionSearchCallsDaily.day],
@@ -57,7 +82,9 @@ async function seedDurable(extId: string, calls: number) {
 }
 
 async function getDurable(extId: string): Promise<number | undefined> {
-  const rows = await getTestDb().select().from(extensionSearchCallsDaily)
+  const rows = await getTestDb()
+    .select()
+    .from(extensionSearchCallsDaily)
     .where(eq(extensionSearchCallsDaily.extensionId, extId));
   return rows[0]?.calls;
 }
@@ -73,16 +100,29 @@ function req(params: Record<string, unknown>, id = 1): JsonRpcRequest {
 }
 const okSearch = (): typeof import("../search/index").performSearch =>
   (async () => ({ markdown: "MD", providerName: "duckduckgo", cached: false })) as never;
-const policy = (quota: number): (() => Promise<ResolvedSearchPolicy>) =>
+const policy =
+  (quota: number): (() => Promise<ResolvedSearchPolicy>) =>
   async () => ({ denied: false, quota, maxResults: 5, providers: "all" });
 
 beforeAll(async () => {
   await setupTestDb();
-  const u = await createUser({ email: "sq-hydrate@example.com", passwordHash: "h", name: "U", role: "admin", status: "active" });
+  const u = await createUser({
+    email: "sq-hydrate@example.com",
+    passwordHash: "h",
+    name: "U",
+    role: "admin",
+    status: "active",
+  });
   userId = u.id;
   extensionId = await ensureExtension("sq-hydrate-ext");
-  const [proj] = await getTestDb().insert(projects).values({ name: "sq-proj", path: "/tmp/sq" }).returning({ id: projects.id });
-  const [conv] = await getTestDb().insert(conversations).values({ projectId: proj!.id, userId, title: "t", kind: "regular" }).returning({ id: conversations.id });
+  const [proj] = await getTestDb()
+    .insert(projects)
+    .values({ name: "sq-proj", path: "/tmp/sq" })
+    .returning({ id: projects.id });
+  const [conv] = await getTestDb()
+    .insert(conversations)
+    .values({ projectId: proj!.id, userId, title: "t", kind: "regular" })
+    .returning({ id: conversations.id });
   conversationId = conv!.id;
 }, 30_000);
 
@@ -104,7 +144,12 @@ describe("handlePiSearch — hydrates the day-quota before the first consume", (
 
     const resp = await handlePiSearch(
       req({ action: "web", query: "bun" }),
-      { granted: granted("inherit"), registeredTool: { extensionId }, search: okSearch(), resolvePolicy: policy(3) },
+      {
+        granted: granted("inherit"),
+        registeredTool: { extensionId },
+        search: okSearch(),
+        resolvePolicy: policy(3),
+      },
       rpcMeta(),
     );
 
@@ -119,7 +164,12 @@ describe("handlePiSearch — hydrates the day-quota before the first consume", (
 
     const resp = await handlePiSearch(
       req({ action: "web", query: "bun" }),
-      { granted: granted("inherit"), registeredTool: { extensionId }, search: okSearch(), resolvePolicy: policy(3) },
+      {
+        granted: granted("inherit"),
+        registeredTool: { extensionId },
+        search: okSearch(),
+        resolvePolicy: policy(3),
+      },
       rpcMeta(),
     );
     expect(resp.error).toBeUndefined();

@@ -19,82 +19,83 @@ import { test, expect, describe, beforeEach, afterEach } from "vitest";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	AUTHOR_DRAFT_FILES,
-	readAuthorDraftFiles,
-} from "../lib/server/author-draft-files.js";
+import { AUTHOR_DRAFT_FILES, readAuthorDraftFiles } from "../lib/server/author-draft-files.js";
 
 let DIR = "";
 
 beforeEach(() => {
-	DIR = join(tmpdir(), `draft-files-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
-	mkdirSync(DIR, { recursive: true });
+  DIR = join(tmpdir(), `draft-files-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+  mkdirSync(DIR, { recursive: true });
 });
 afterEach(() => {
-	try { rmSync(DIR, { recursive: true, force: true }); } catch { /* best effort */ }
+  try {
+    rmSync(DIR, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 describe("readAuthorDraftFiles", () => {
-	test("reads every allowlisted file and reports nothing unreadable", () => {
-		writeFileSync(join(DIR, "ezcorp.config.ts"), "export default {};\n");
-		writeFileSync(join(DIR, "index.ts"), "// entry\n");
-		writeFileSync(join(DIR, ".gitignore"), "node_modules\n");
+  test("reads every allowlisted file and reports nothing unreadable", () => {
+    writeFileSync(join(DIR, "ezcorp.config.ts"), "export default {};\n");
+    writeFileSync(join(DIR, "index.ts"), "// entry\n");
+    writeFileSync(join(DIR, ".gitignore"), "node_modules\n");
 
-		const { files, unreadable } = readAuthorDraftFiles(DIR);
-		expect(files["ezcorp.config.ts"]).toBe("export default {};\n");
-		expect(files["index.ts"]).toBe("// entry\n");
-		expect(files[".gitignore"]).toBe("node_modules\n");
-		expect(unreadable).toEqual([]);
-	});
+    const { files, unreadable } = readAuthorDraftFiles(DIR);
+    expect(files["ezcorp.config.ts"]).toBe("export default {};\n");
+    expect(files["index.ts"]).toBe("// entry\n");
+    expect(files[".gitignore"]).toBe("node_modules\n");
+    expect(unreadable).toEqual([]);
+  });
 
-	test("files outside the allowlist are ignored entirely (not reported)", () => {
-		writeFileSync(join(DIR, "ezcorp.config.ts"), "x\n");
-		writeFileSync(join(DIR, "secret.key"), "nope\n");
+  test("files outside the allowlist are ignored entirely (not reported)", () => {
+    writeFileSync(join(DIR, "ezcorp.config.ts"), "x\n");
+    writeFileSync(join(DIR, "secret.key"), "nope\n");
 
-		const { files, unreadable } = readAuthorDraftFiles(DIR);
-		expect(Object.keys(files)).toEqual(["ezcorp.config.ts"]);
-		expect(unreadable).toEqual([]);
-	});
+    const { files, unreadable } = readAuthorDraftFiles(DIR);
+    expect(Object.keys(files)).toEqual(["ezcorp.config.ts"]);
+    expect(unreadable).toEqual([]);
+  });
 
-	test("a missing directory is empty, not an error", () => {
-		expect(readAuthorDraftFiles(join(DIR, "nope"))).toEqual({
-			files: {},
-			unreadable: [],
-		});
-	});
+  test("a missing directory is empty, not an error", () => {
+    expect(readAuthorDraftFiles(join(DIR, "nope"))).toEqual({
+      files: {},
+      unreadable: [],
+    });
+  });
 
-	test("an unreadable allowlisted entry is REPORTED, and the rest still load", () => {
-		writeFileSync(join(DIR, "ezcorp.config.ts"), "good\n");
-		// A directory where a file is expected — readFileSync throws EISDIR
-		// for every user, root included.
-		mkdirSync(join(DIR, "README.md"));
+  test("an unreadable allowlisted entry is REPORTED, and the rest still load", () => {
+    writeFileSync(join(DIR, "ezcorp.config.ts"), "good\n");
+    // A directory where a file is expected — readFileSync throws EISDIR
+    // for every user, root included.
+    mkdirSync(join(DIR, "README.md"));
 
-		const { files, unreadable } = readAuthorDraftFiles(DIR);
-		expect(files["ezcorp.config.ts"]).toBe("good\n");
-		expect(files["README.md"]).toBeUndefined();
-		expect(unreadable.length).toBe(1);
-		expect(unreadable[0]!.name).toBe("README.md");
-		expect(unreadable[0]!.error.length).toBeGreaterThan(0);
-	});
+    const { files, unreadable } = readAuthorDraftFiles(DIR);
+    expect(files["ezcorp.config.ts"]).toBe("good\n");
+    expect(files["README.md"]).toBeUndefined();
+    expect(unreadable.length).toBe(1);
+    expect(unreadable[0]!.name).toBe("README.md");
+    expect(unreadable[0]!.error.length).toBeGreaterThan(0);
+  });
 
-	test("a draft path that is not a directory is reported, not thrown", () => {
-		const asFile = join(DIR, "not-a-dir");
-		writeFileSync(asFile, "x");
-		const { files, unreadable } = readAuthorDraftFiles(asFile);
-		expect(files).toEqual({});
-		expect(unreadable.length).toBe(1);
-		expect(unreadable[0]!.name).toBe(".");
-	});
+  test("a draft path that is not a directory is reported, not thrown", () => {
+    const asFile = join(DIR, "not-a-dir");
+    writeFileSync(asFile, "x");
+    const { files, unreadable } = readAuthorDraftFiles(asFile);
+    expect(files).toEqual({});
+    expect(unreadable.length).toBe(1);
+    expect(unreadable[0]!.name).toBe(".");
+  });
 
-	test("the allowlist is the scaffolder's seven keys", () => {
-		expect([...AUTHOR_DRAFT_FILES].sort()).toEqual([
-			".gitignore",
-			"README.md",
-			"ezcorp.config.ts",
-			"index.test.ts",
-			"index.ts",
-			"package.json",
-			"tsconfig.json",
-		]);
-	});
+  test("the allowlist is the scaffolder's seven keys", () => {
+    expect([...AUTHOR_DRAFT_FILES].sort()).toEqual([
+      ".gitignore",
+      "README.md",
+      "ezcorp.config.ts",
+      "index.test.ts",
+      "index.ts",
+      "package.json",
+      "tsconfig.json",
+    ]);
+  });
 });

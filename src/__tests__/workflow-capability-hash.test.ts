@@ -104,9 +104,7 @@ function fixture(): World {
       ["ext__deploy", [{ kind: "shell" }]],
       ["ext__rm", [{ kind: "fs.write", value: "/tmp" }]],
     ]),
-    agentCaps: new Map<string, ConsentCapability[]>([
-      ["writer", [{ kind: "storage" }]],
-    ]),
+    agentCaps: new Map<string, ConsentCapability[]>([["writer", [{ kind: "storage" }]]]),
     delegation: {
       extensionName: "deploy-bot",
       workflowName: "root",
@@ -182,8 +180,9 @@ describe("determinism", () => {
       // Same definition, keys written in a different order — a YAML loader
       // and a jsonb round-trip do not agree on insertion order.
       w.defs[w.defs.indexOf(root)] = {
-        steps: root.steps.map((s) => ({ ...Object.fromEntries(Object.entries(s).reverse()) })) as
-          typeof root.steps,
+        steps: root.steps.map((s) => ({
+          ...Object.fromEntries(Object.entries(s).reverse()),
+        })) as typeof root.steps,
         defaultModel: { model: "sonnet", provider: "anthropic" },
         description: root.description,
         name: root.name,
@@ -226,65 +225,104 @@ describe("determinism", () => {
  *  SEMANTIC digest different from `BASELINE` AND from every other row. */
 const SEMANTIC_INVALIDATING: Array<[string, (w: World) => void]> = [
   // #1 extension name — a delegation presented by another extension.
-  ["1. extensionName", (w) => { w.delegation.extensionName = "other-bot"; }],
+  [
+    "1. extensionName",
+    (w) => {
+      w.delegation.extensionName = "other-bot";
+    },
+  ],
 
   // #2 fully-qualified workflow name.
-  ["2. workflowName", (w) => { w.delegation.workflowName = "ext:root"; }],
+  [
+    "2. workflowName",
+    (w) => {
+      w.delegation.workflowName = "ext:root";
+    },
+  ],
 
   // #4 the capability set.
   [
     "4a. a tool gains a capability the closure did not already reach",
-    (w) => { w.toolCaps.set("ext__notify", [{ kind: "network", value: "hooks.example.com" }, { kind: "env", value: "DEPLOY_TOKEN" }]); },
+    (w) => {
+      w.toolCaps.set("ext__notify", [
+        { kind: "network", value: "hooks.example.com" },
+        { kind: "env", value: "DEPLOY_TOKEN" },
+      ]);
+    },
   ],
   [
     "4b. a tool loses a capability (the set SHRINKS — still stale)",
-    (w) => { w.toolCaps.set("ext__notify", []); },
+    (w) => {
+      w.toolCaps.set("ext__notify", []);
+    },
   ],
   [
     "4c. T11 — the manifest narrows so the tool is unreachable",
-    (w) => { w.toolCaps.delete("ext__notify"); },
+    (w) => {
+      w.toolCaps.delete("ext__notify");
+    },
   ],
   [
     "4d. an agent's tool scope changes",
-    (w) => { w.agentCaps.set("writer", [{ kind: "storage" }, { kind: "fs.read", value: "/etc" }]); },
+    (w) => {
+      w.agentCaps.set("writer", [{ kind: "storage" }, { kind: "fs.read", value: "/etc" }]);
+    },
   ],
   [
     "4e. the agent becomes unreachable",
-    (w) => { w.agentCaps.delete("writer"); },
+    (w) => {
+      w.agentCaps.delete("writer");
+    },
   ],
   [
     "4f. a NESTED definition's tool gains a capability",
-    (w) => { w.toolCaps.set("ext__deploy", [{ kind: "shell" }, { kind: "fs.write", value: "/" }]); },
+    (w) => {
+      w.toolCaps.set("ext__deploy", [{ kind: "shell" }, { kind: "fs.write", value: "/" }]);
+    },
   ],
   [
     "4g. a step's tool is re-pointed",
-    (w) => { stepOf(w, "root", "s-tool").tool = "ext__deploy"; },
+    (w) => {
+      stepOf(w, "root", "s-tool").tool = "ext__deploy";
+    },
   ],
   [
     "4h. a step's agent is re-pointed",
-    (w) => { stepOf(w, "root", "s-agent").agent = "shipper"; },
+    (w) => {
+      stepOf(w, "root", "s-agent").agent = "shipper";
+    },
   ],
 
   // #5 the transitive closure.
   [
     "5a. a nested edge is added",
-    (w) => { rootOf(w).steps.push({ name: "s-nest-2", kind: "workflow", workflow: "bystander" }); },
+    (w) => {
+      rootOf(w).steps.push({ name: "s-nest-2", kind: "workflow", workflow: "bystander" });
+    },
   ],
   [
     "5b. a nested edge is removed",
-    (w) => { rootOf(w).steps = rootOf(w).steps.filter((s) => s.name !== "s-nest"); },
+    (w) => {
+      rootOf(w).steps = rootOf(w).steps.filter((s) => s.name !== "s-nest");
+    },
   ],
   [
     "5c. a nested edge is re-pointed at another definition",
-    (w) => { stepOf(w, "root", "s-nest").workflow = "bystander"; },
+    (w) => {
+      stepOf(w, "root", "s-nest").workflow = "bystander";
+    },
   ],
   [
     "5d. a nested definition's body changes (identity pinned by name)",
-    (w) => { stepOf(w, "child", "c-tool").tool = "ext__rm"; },
+    (w) => {
+      stepOf(w, "child", "c-tool").tool = "ext__rm";
+    },
   ],
   [
     "5e. unresolved — an edge that points nowhere today may resolve tomorrow",
-    (w) => { w.defs = w.defs.filter((d) => d.name !== "child"); },
+    (w) => {
+      w.defs = w.defs.filter((d) => d.name !== "child");
+    },
   ],
   [
     "5f. cycles",
@@ -301,7 +339,10 @@ const SEMANTIC_INVALIDATING: Array<[string, (w: World) => void]> = [
       const child = w.defs.find((d) => d.name === "child");
       if (!child) throw new Error("fixture lost its child");
       child.steps.push({ name: "c-nest", kind: "workflow", workflow: "g1" });
-      for (const [name, next] of [["g1", "g2"], ["g2", "g3"]] as const) {
+      for (const [name, next] of [
+        ["g1", "g2"],
+        ["g2", "g3"],
+      ] as const) {
         w.defs.push({
           name,
           description: name,
@@ -315,20 +356,47 @@ const SEMANTIC_INVALIDATING: Array<[string, (w: World) => void]> = [
   ],
 
   // #6 trigger.
-  ["6a. trigger kind", (w) => { w.delegation.trigger.kind = "webhook"; }],
-  ["6b. trigger spec", (w) => { w.delegation.trigger.spec = { expr: "*/5 * * * *", tz: "UTC" }; }],
+  [
+    "6a. trigger kind",
+    (w) => {
+      w.delegation.trigger.kind = "webhook";
+    },
+  ],
+  [
+    "6b. trigger spec",
+    (w) => {
+      w.delegation.trigger.spec = { expr: "*/5 * * * *", tz: "UTC" };
+    },
+  ],
 
   // #7 project and the run-as principal.
-  ["7a. projectId", (w) => { w.delegation.projectId = "proj-2"; }],
-  ["7b. runAs kind", (w) => { w.delegation.runAs = { kind: "service", id: "user-1" }; }],
-  ["7c. runAs id", (w) => { w.delegation.runAs = { kind: "user", id: "user-2" }; }],
+  [
+    "7a. projectId",
+    (w) => {
+      w.delegation.projectId = "proj-2";
+    },
+  ],
+  [
+    "7b. runAs kind",
+    (w) => {
+      w.delegation.runAs = { kind: "service", id: "user-1" };
+    },
+  ],
+  [
+    "7c. runAs id",
+    (w) => {
+      w.delegation.runAs = { kind: "user", id: "user-2" };
+    },
+  ],
 
   // #8 the model-override set.
   [
     // The PROVIDER moved, so the `llm::` capability key moved with it —
     // which is a reach fact, not a spelling one.
     "8a. a per-step model override appears, naming a NEW provider",
-    (w) => { stepOf(w, "root", "s-agent").model = { provider: "openai", model: "o3" }; },
+    (w) => {
+      stepOf(w, "root", "s-agent").model = { provider: "openai", model: "o3" };
+    },
   ],
 ];
 
@@ -342,16 +410,22 @@ const DEFINITION_INVALIDATING: Array<[string, (w: World) => void]> = [
   // #3 the version id, and the version number, of the ROOT.
   [
     "3a. root version id",
-    (w) => { w.identities.set("root", { kind: "version", versionId: "ver-root-2", version: 1 }); },
+    (w) => {
+      w.identities.set("root", { kind: "version", versionId: "ver-root-2", version: 1 });
+    },
   ],
   [
     "3b. root version number",
-    (w) => { w.identities.set("root", { kind: "version", versionId: "ver-root", version: 2 }); },
+    (w) => {
+      w.identities.set("root", { kind: "version", versionId: "ver-root", version: 2 });
+    },
   ],
   // #3, nested arm: a child edit the parent's own version id cannot see.
   [
     "3c. nested version id",
-    (w) => { w.identities.set("child", { kind: "version", versionId: "ver-child-2", version: 1 }); },
+    (w) => {
+      w.identities.set("child", { kind: "version", versionId: "ver-child-2", version: 1 });
+    },
   ],
 
   // #8 the model-override set, WITHIN one provider.
@@ -362,35 +436,62 @@ const DEFINITION_INVALIDATING: Array<[string, (w: World) => void]> = [
     // credits — which is why it must still be fingerprinted, and why the
     // ADVISORY digest is recorded rather than merely omitted.
     "8c. a per-step model is re-pointed WITHIN the same provider",
-    (w) => { stepOf(w, "root", "s-agent").model = { provider: "anthropic", model: "opus" }; },
+    (w) => {
+      stepOf(w, "root", "s-agent").model = { provider: "anthropic", model: "opus" };
+    },
   ],
   [
     "8b. the definition-level default model is re-pointed",
-    (w) => { rootOf(w).defaultModel = { provider: "anthropic", model: "opus" }; },
+    (w) => {
+      rootOf(w).defaultModel = { provider: "anthropic", model: "opus" };
+    },
   ],
 
   // #9 reachability — `when` AND `skipDependents`.
   [
     "9a. when",
-    (w) => { stepOf(w, "root", "s-agent").when = { ref: "$input.go", op: "exists" }; },
+    (w) => {
+      stepOf(w, "root", "s-agent").when = { ref: "$input.go", op: "exists" };
+    },
   ],
   [
     "9b. when removed entirely",
-    (w) => { stepOf(w, "root", "s-agent").when = undefined; },
+    (w) => {
+      stepOf(w, "root", "s-agent").when = undefined;
+    },
   ],
   [
     "9c. skipDependents flipped false → true",
-    (w) => { stepOf(w, "root", "s-agent").skipDependents = true; },
+    (w) => {
+      stepOf(w, "root", "s-agent").skipDependents = true;
+    },
   ],
   [
     "9d. skipDependents flipped true → false on a step that relied on the default",
-    (w) => { stepOf(w, "root", "s-tool").skipDependents = false; },
+    (w) => {
+      stepOf(w, "root", "s-tool").skipDependents = false;
+    },
   ],
 
   // Structural: step order decides batch composition.
-  ["10. step order", (w) => { rootOf(w).steps.reverse(); }],
-  ["11. a step is renamed", (w) => { stepOf(w, "root", "s-gate").name = "s-gate-2"; }],
-  ["12. a step kind changes", (w) => { stepOf(w, "root", "s-gate").kind = "transform"; }],
+  [
+    "10. step order",
+    (w) => {
+      rootOf(w).steps.reverse();
+    },
+  ],
+  [
+    "11. a step is renamed",
+    (w) => {
+      stepOf(w, "root", "s-gate").name = "s-gate-2";
+    },
+  ],
+  [
+    "12. a step kind changes",
+    (w) => {
+      stepOf(w, "root", "s-gate").kind = "transform";
+    },
+  ],
 ];
 
 describe("every SEMANTIC input individually invalidates consent", () => {
@@ -459,9 +560,9 @@ describe("the capability closure is FLAT — attribution is the dialog's, not th
     // …and the PER-DEFINITION attribution the consent dialog renders does
     // move, so a human re-reading the material still sees where it came
     // from. Only the digest flattens.
-    expect(
-      materialWith(alsoShell).graph.find((g) => g.name === "root")?.capabilities,
-    ).toContain("shell::");
+    expect(materialWith(alsoShell).graph.find((g) => g.name === "root")?.capabilities).toContain(
+      "shell::",
+    );
   });
 
   test("…but the same capability arriving where the closure reached NOTHING like it does move it", () => {
@@ -483,11 +584,36 @@ describe("the capability closure is FLAT — attribution is the dialog's, not th
 // ─────────────────────────────────────────────────────────────────────
 
 const NOT_INVALIDATING: Array<[string, (w: World) => void]> = [
-  ["input values", (w) => { w.delegation.input = { branch: "release", extra: 1 }; }],
-  ["input values dropped entirely", (w) => { w.delegation.input = null; }],
-  ["display name", (w) => { w.delegation.displayName = "Renamed by the owner"; }],
-  ["concurrency policy", (w) => { w.delegation.concurrency = { policy: "queue" }; }],
-  ["the root's description", (w) => { rootOf(w).description = "a typo fix"; }],
+  [
+    "input values",
+    (w) => {
+      w.delegation.input = { branch: "release", extra: 1 };
+    },
+  ],
+  [
+    "input values dropped entirely",
+    (w) => {
+      w.delegation.input = null;
+    },
+  ],
+  [
+    "display name",
+    (w) => {
+      w.delegation.displayName = "Renamed by the owner";
+    },
+  ],
+  [
+    "concurrency policy",
+    (w) => {
+      w.delegation.concurrency = { policy: "queue" };
+    },
+  ],
+  [
+    "the root's description",
+    (w) => {
+      rootOf(w).description = "a typo fix";
+    },
+  ],
   [
     "a nested definition's description",
     (w) => {
@@ -498,7 +624,9 @@ const NOT_INVALIDATING: Array<[string, (w: World) => void]> = [
   ],
   [
     "the root's inputSchema (the version id is the input, not the schema)",
-    (w) => { rootOf(w).inputSchema = { branch: { type: "string", label: "Branch" } }; },
+    (w) => {
+      rootOf(w).inputSchema = { branch: { type: "string", label: "Branch" } };
+    },
   ],
 ];
 
@@ -556,21 +684,27 @@ describe("rule 1 — the closure is computed with the OWNER's resolver", () => {
   test("the resolver's view alone moves the hash, with no delegation change at all", () => {
     // Same delegation row, same definitions, narrower view: this is what
     // hashing the flat cache instead of the owner's view would erase.
-    expect(hashWith((w) => { w.defs = w.defs.filter((d) => d.name !== "child"); })).not.toBe(
-      BASELINE,
-    );
+    expect(
+      hashWith((w) => {
+        w.defs = w.defs.filter((d) => d.name !== "child");
+      }),
+    ).not.toBe(BASELINE);
   });
 });
 
 describe("rule 2 — unresolved, cycles and tooDeep are hashed", () => {
   test("an unresolved edge is recorded by NAME so a later resolution is visible", () => {
-    const material = materialWith((w) => { w.defs = w.defs.filter((d) => d.name !== "child"); });
+    const material = materialWith((w) => {
+      w.defs = w.defs.filter((d) => d.name !== "child");
+    });
     expect(material.unresolved).toEqual(["child"]);
     expect(material.graph.map((g) => g.name)).toEqual(["root"]);
   });
 
   test("an unresolved edge resolving later invalidates consent", () => {
-    const beforeSharing = hashWith((w) => { w.defs = w.defs.filter((d) => d.name !== "child"); });
+    const beforeSharing = hashWith((w) => {
+      w.defs = w.defs.filter((d) => d.name !== "child");
+    });
     // The workflow gets shared, or a new row takes the name: the graph
     // silently gains a live step. It must not silently keep consent.
     expect(BASELINE).not.toBe(beforeSharing);
@@ -599,7 +733,10 @@ describe("rule 2 — unresolved, cycles and tooDeep are hashed", () => {
     // target is reported and never resolved, at either name.
     const deep = (target: string) => (w: World) => {
       rootOf(w).steps = [{ name: "s-nest", kind: "workflow", workflow: "a" }];
-      for (const [name, next] of [["a", "b"], ["b", "c"]] as const) {
+      for (const [name, next] of [
+        ["a", "b"],
+        ["b", "c"],
+      ] as const) {
         w.defs.push({
           name,
           description: name,
@@ -696,16 +833,20 @@ describe("rule 3 — a child is hashed by RESOLVED IDENTITY, never by name", () 
     // content-derived fingerprint of it agrees with the DB row's. Only the
     // versioned/unversioned discriminant separates them.
     const versioned = materialWith();
-    const shadowed = materialWith((w) => { w.identities.set("child", { kind: "unversioned" }); });
+    const shadowed = materialWith((w) => {
+      w.identities.set("child", { kind: "unversioned" });
+    });
     const versionedChild = versioned.graph.find((g) => g.name === "child");
     const shadowedChild = shadowed.graph.find((g) => g.name === "child");
     expect(versionedChild?.steps).toEqual(shadowedChild?.steps ?? []);
     expect(versionedChild?.capabilities).toEqual(shadowedChild?.capabilities ?? []);
     expect(versionedChild?.identity).toBe("version:ver-child@1");
     expect(shadowedChild?.identity).toMatch(/^unversioned:[0-9a-f]{64}$/);
-    expect(defHashWith((w) => { w.identities.set("child", { kind: "unversioned" }); })).not.toBe(
-      DEF_BASELINE,
-    );
+    expect(
+      defHashWith((w) => {
+        w.identities.set("child", { kind: "unversioned" });
+      }),
+    ).not.toBe(DEF_BASELINE);
   });
 });
 
@@ -773,12 +914,17 @@ describe("a workflow with no version row", () => {
 
 describe("the capability set", () => {
   test('"declares nothing" and "cannot be reached" are different facts', () => {
-    const declaresNothing = hashWith((w) => { w.toolCaps.set("ext__notify", []); });
-    const unreachable = hashWith((w) => { w.toolCaps.delete("ext__notify"); });
+    const declaresNothing = hashWith((w) => {
+      w.toolCaps.set("ext__notify", []);
+    });
+    const unreachable = hashWith((w) => {
+      w.toolCaps.delete("ext__notify");
+    });
     expect(declaresNothing).not.toBe(unreachable);
     expect(
-      materialWith((w) => { w.toolCaps.delete("ext__notify"); }).graph.find((g) => g.name === "root")
-        ?.capabilities,
+      materialWith((w) => {
+        w.toolCaps.delete("ext__notify");
+      }).graph.find((g) => g.name === "root")?.capabilities,
     ).toContain("tool:unreachable::ext__notify");
   });
 

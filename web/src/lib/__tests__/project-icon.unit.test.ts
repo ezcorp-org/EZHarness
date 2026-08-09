@@ -8,21 +8,21 @@ import { isIconUrl } from "$lib/project-icon.js";
  * instead of firing a relative request that 404s.
  */
 describe("isIconUrl", () => {
-	test("accepts real image URL forms", () => {
-		expect(isIconUrl("https://cdn.example.com/logo.png")).toBe(true);
-		expect(isIconUrl("http://example.com/a.png")).toBe(true);
-		expect(isIconUrl("data:image/png;base64,abc123")).toBe(true);
-		expect(isIconUrl("/uploads/project-icon.png")).toBe(true);
-	});
+  test("accepts real image URL forms", () => {
+    expect(isIconUrl("https://cdn.example.com/logo.png")).toBe(true);
+    expect(isIconUrl("http://example.com/a.png")).toBe(true);
+    expect(isIconUrl("data:image/png;base64,abc123")).toBe(true);
+    expect(isIconUrl("/uploads/project-icon.png")).toBe(true);
+  });
 
-	test("rejects non-URL tokens", () => {
-		expect(isIconUrl("FlaskConical")).toBe(false);
-		expect(isIconUrl("")).toBe(false);
-		expect(isIconUrl("javascript:x")).toBe(false);
-	});
+  test("rejects non-URL tokens", () => {
+    expect(isIconUrl("FlaskConical")).toBe(false);
+    expect(isIconUrl("")).toBe(false);
+    expect(isIconUrl("javascript:x")).toBe(false);
+  });
 
-	test("rejects nullish values", () => {
-		expect(isIconUrl(null)).toBe(false);
-		expect(isIconUrl(undefined)).toBe(false);
-	});
+  test("rejects nullish values", () => {
+    expect(isIconUrl(null)).toBe(false);
+    expect(isIconUrl(undefined)).toBe(false);
+  });
 });

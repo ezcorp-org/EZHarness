@@ -144,7 +144,10 @@ describe("per-item consent", () => {
   test("a list too long to read refuses the decision instead of truncating it", () => {
     const many = Array.from({ length: 40 }, (_, i) => `file-${i}.ts`);
     const { getByTestId, queryAllByTestId } = render(PendingApprovalCard, {
-      props: { approval: notice({ requireItemConsent: true, itemIds: many }), onResolved: () => {} },
+      props: {
+        approval: notice({ requireItemConsent: true, itemIds: many }),
+        onResolved: () => {},
+      },
     });
 
     // No choices at all — a partially-shown list cannot produce an

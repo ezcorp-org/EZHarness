@@ -91,16 +91,19 @@ interface DetectMessage {
  * messages are dropped from the OLDEST end (their original ordinals stay on the
  * kept suffix) and `truncated` is set.
  */
-export function buildDetectTranscript(
-  messages: DetectMessage[],
-): { transcript: string; truncated: boolean; ordinalToId: Map<number, string> } {
+export function buildDetectTranscript(messages: DetectMessage[]): {
+  transcript: string;
+  truncated: boolean;
+  ordinalToId: Map<number, string>;
+} {
   const ordinalToId = new Map<number, string>();
   const lines = messages.map((m, i) => {
     const ordinal = i + 1;
     ordinalToId.set(ordinal, m.id);
-    const body = m.content.length > MAX_PER_MESSAGE_CHARS
-      ? `${m.content.slice(0, MAX_PER_MESSAGE_CHARS)}…`
-      : m.content;
+    const body =
+      m.content.length > MAX_PER_MESSAGE_CHARS
+        ? `${m.content.slice(0, MAX_PER_MESSAGE_CHARS)}…`
+        : m.content;
     return `[m${ordinal}] ${m.role}: ${body}`;
   });
 
@@ -168,10 +171,7 @@ interface ContextTypeRow {
 /** Detection system prompt: live type definitions + existing labels for
  *  verbatim reuse + the JSON schema described in words (the pi lane cannot
  *  see `response_format`). */
-export function buildDetectSystemPrompt(
-  types: ContextTypeRow[],
-  existingLabels: string[],
-): string {
+export function buildDetectSystemPrompt(types: ContextTypeRow[], existingLabels: string[]): string {
   const typeLines = types.map((t) => `- ${t.id} (${t.label}): ${t.description}`).join("\n");
   const parts = [
     "You analyze a chat conversation and identify the distinct TOPICS discussed.",
@@ -207,7 +207,7 @@ export function buildDetectSystemPrompt(
   }
   parts.push(
     "",
-    'Respond with ONLY a JSON object of the shape',
+    "Respond with ONLY a JSON object of the shape",
     '{"topics": [{"label": string, "type": string, "typeDescription"?: string, "anchors": number[]}]}',
     `— no markdown, no prose around it. Keep labels under ${MAX_LABEL_WORDS} words. /no_think`,
   );
@@ -315,7 +315,9 @@ export function parseDetectResponse(content: string): RawTopic[] {
   try {
     parsed = JSON.parse(withoutThinking.slice(start, end + 1));
   } catch (err) {
-    throw new Error(`detection response was not valid JSON: ${err instanceof Error ? err.message : String(err)}`);
+    throw new Error(
+      `detection response was not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
   const topics = (parsed as { topics?: unknown })?.topics;
   if (!Array.isArray(topics)) {
@@ -436,9 +438,16 @@ export interface DetectDeps {
   getMessages: (conversationId: string) => Promise<DetectMessage[]>;
   listContextTypes: () => Promise<ContextTypeRow[]>;
   getExistingTopics: (conversationId: string) => Promise<Array<{ label: string }>>;
-  ensureContextType: (t: { id: string; label: string; description: string }) => Promise<{ id: string }>;
+  ensureContextType: (t: {
+    id: string;
+    label: string;
+    description: string;
+  }) => Promise<{ id: string }>;
   replaceTopics: (conversationId: string, topics: TopicInput[]) => Promise<ConversationTopic[]>;
-  upsertTopicState: (conversationId: string, input: TopicStateInput) => Promise<ConversationTopicState>;
+  upsertTopicState: (
+    conversationId: string,
+    input: TopicStateInput,
+  ) => Promise<ConversationTopicState>;
 }
 
 const DEFAULT_DETECT_DEPS: DetectDeps = {
@@ -497,7 +506,10 @@ export async function detectTopics(
   ]);
 
   const { transcript, ordinalToId } = buildDetectTranscript(conversational);
-  const systemPrompt = buildDetectSystemPrompt(types, existing.map((e) => e.label));
+  const systemPrompt = buildDetectSystemPrompt(
+    types,
+    existing.map((e) => e.label),
+  );
 
   const rawText = await deps.runCompletion({
     target,

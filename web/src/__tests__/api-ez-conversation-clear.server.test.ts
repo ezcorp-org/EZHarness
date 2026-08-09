@@ -84,7 +84,11 @@ describe("DELETE /api/ez/conversation/messages", () => {
 
     const res = (await DELETE(makeEvent({ locals: { user } }))) as Response;
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { ok: boolean; conversationId: string; deletedCount: number };
+    const body = (await res.json()) as {
+      ok: boolean;
+      conversationId: string;
+      deletedCount: number;
+    };
     expect(body.ok).toBe(true);
     // Same conversation id — the row is preserved, only messages emptied.
     expect(body.conversationId).toBe("ez-conv-u1");

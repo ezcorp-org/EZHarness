@@ -60,11 +60,7 @@
  * a manual check from `loadMessages().then(...)` on convId change.
  */
 
-import {
-	store,
-	startStreaming,
-	stopStreaming,
-} from "$lib/stores.svelte.js";
+import { store, startStreaming, stopStreaming } from "$lib/stores.svelte.js";
 import { backgroundFetch } from "$lib/utils/fetch-policy.js";
 import type { Message } from "$lib/api.js";
 import type { SelectedModel } from "$lib/chat/page-handlers/send-message.js";
@@ -98,90 +94,88 @@ export const STALENESS_POLL_INTERVAL_MS = 10_000;
 // ── Types ────────────────────────────────────────────────────────────────
 
 export interface Slot<T> {
-	get(): T;
-	set(v: T): void;
+  get(): T;
+  set(v: T): void;
 }
 
 export interface StreamResumeHost {
-	/** Active conversation id — read fresh inside each effect. */
-	convId(): string;
+  /** Active conversation id — read fresh inside each effect. */
+  convId(): string;
 
-	/**
-	 * Generation counter — incremented on each convId change. `checkActiveRun`
-	 * is async, so every continuation guards on `gen === loadGeneration()`
-	 * to discard stale callbacks from a previous conversation.
-	 */
-	loadGeneration(): number;
+  /**
+   * Generation counter — incremented on each convId change. `checkActiveRun`
+   * is async, so every continuation guards on `gen === loadGeneration()`
+   * to discard stale callbacks from a previous conversation.
+   */
+  loadGeneration(): number;
 
-	/** Has the initial `loadMessages()` settled for this convId? */
-	initialLoadDone(): boolean;
+  /** Has the initial `loadMessages()` settled for this convId? */
+  initialLoadDone(): boolean;
 
-	/** Currently selected model (used to tag the streaming placeholder). */
-	selectedModel(): SelectedModel | null;
+  /** Currently selected model (used to tag the streaming placeholder). */
+  selectedModel(): SelectedModel | null;
 
-	// State slots — paired getter/setter pairs backed by `$state` in the
-	// page. Identity of the underlying `$state` MUST be preserved.
-	activeRunId: Slot<string | null>;
-	activeRunStartedAt: Slot<number | null>;
-	serverStalenessMs: Slot<number | null>;
-	resumedRun: Slot<boolean>;
-	checkingActiveRun: Slot<boolean>;
-	allMessages: Slot<Message[]>;
-	activeLeafId: Slot<string | null>;
+  // State slots — paired getter/setter pairs backed by `$state` in the
+  // page. Identity of the underlying `$state` MUST be preserved.
+  activeRunId: Slot<string | null>;
+  activeRunStartedAt: Slot<number | null>;
+  serverStalenessMs: Slot<number | null>;
+  resumedRun: Slot<boolean>;
+  checkingActiveRun: Slot<boolean>;
+  allMessages: Slot<Message[]>;
+  activeLeafId: Slot<string | null>;
 
-	/** Reload the whole conversation (used as a fallback in `checkActiveRun`). */
-	loadMessages(): Promise<void>;
+  /** Reload the whole conversation (used as a fallback in `checkActiveRun`). */
+  loadMessages(): Promise<void>;
 
-	/** Build an optimistic placeholder assistant message at the leaf. */
-	makeOptimisticMessage(
-		overrides: Partial<Message> & Pick<Message, "conversationId">,
-	): Message;
+  /** Build an optimistic placeholder assistant message at the leaf. */
+  makeOptimisticMessage(overrides: Partial<Message> & Pick<Message, "conversationId">): Message;
 
-	/**
-	 * Live streaming-text reader — typically a `$derived` over
-	 * `activeRunId ? store.streamingMessages[activeRunId] : undefined`. Read
-	 * inside the zombie effect so the snapshot/diff captures the *current*
-	 * streaming text after the timeout fires.
-	 */
-	currentStreamingText(): string | undefined;
+  /**
+   * Live streaming-text reader — typically a `$derived` over
+   * `activeRunId ? store.streamingMessages[activeRunId] : undefined`. Read
+   * inside the zombie effect so the snapshot/diff captures the *current*
+   * streaming text after the timeout fires.
+   */
+  currentStreamingText(): string | undefined;
 
-	/**
-	 * Live `isStreaming` reader — typically a `$derived`. The zombie
-	 * watchdog tears down its timers when this flips false.
-	 */
-	isStreaming(): boolean;
+  /**
+   * Live `isStreaming` reader — typically a `$derived`. The zombie
+   * watchdog tears down its timers when this flips false.
+   */
+  isStreaming(): boolean;
 }
 
 export interface StreamResumeApi {
-	/** Manual check (page calls this from `loadMessages().then(...)`). */
-	checkActiveRun: (gen: number) => Promise<void>;
+  /** Manual check (page calls this from `loadMessages().then(...)`). */
+  checkActiveRun: (gen: number) => Promise<void>;
 }
 
 // ── Server response shape ────────────────────────────────────────────────
 
 interface PendingPermissionEntry {
-	toolCallId: string;
-	toolName: string;
-	input: Record<string, unknown> | null;
-	cardType?: string | null;
-	cardLayout?: string | null;
-	category?: string | null;
+  toolCallId: string;
+  toolName: string;
+  input: Record<string, unknown> | null;
+  cardType?: string | null;
+  cardLayout?: string | null;
+  category?: string | null;
 }
 
 interface PendingAskUserEntry {
-	toolCallId: string;
-	question: string;
-	options?: unknown;
+  toolCallId: string;
+  question: string;
+  options?: unknown;
 }
 
 interface ActiveRunResponse {
-	runId?: string | null;
-	status?: string | null;
-	startedAt?: string | null;
-	stalenessMs?: number | null;
-	partialResponse?: string | null;
-	pendingPermissions?: PendingPermissionEntry[] | null;
-	pendingAskUser?: PendingAskUserEntry[] | null;
+  runId?: string | null;
+  status?: string | null;
+  startedAt?: string | null;
+  stalenessMs?: number | null;
+  partialResponse?: string | null;
+  pendingPermissions?: PendingPermissionEntry[] | null;
+  pendingAskUser?: PendingAskUserEntry[] | null;
 }
 
 // ── Plain (testable) inner functions ─────────────────────────────────────
@@ -197,135 +191,133 @@ interface ActiveRunResponse {
  * it to `true` BEFORE invoking; the WS-reconnect effect also sets it to
  * `true` before invoking. Both paths converge here for cleanup.
  */
-export async function runActiveRunCheck(
-	host: StreamResumeHost,
-	gen: number,
-): Promise<void> {
-	const convId = host.convId();
-	try {
-		// Throttled + deduped by fetch-policy: all three active-run call sites
-		// (this one, the staleness poll, and the zombie re-check) share the
-		// same semantic key, so concurrent callers collapse to a single
-		// in-flight GET instead of racing each other.
-		const res = await backgroundFetch(
-			`active-run:${convId}`,
-			`/api/conversations/${convId}/active-run`,
-			{},
-			{ minIntervalMs: 4000 },
-		);
-		if (!res || !res.ok || gen !== host.loadGeneration()) return;
-		const data = (await res.json()) as ActiveRunResponse;
-		if (!data.runId || gen !== host.loadGeneration()) return;
+export async function runActiveRunCheck(host: StreamResumeHost, gen: number): Promise<void> {
+  const convId = host.convId();
+  try {
+    // Throttled + deduped by fetch-policy: all three active-run call sites
+    // (this one, the staleness poll, and the zombie re-check) share the
+    // same semantic key, so concurrent callers collapse to a single
+    // in-flight GET instead of racing each other.
+    const res = await backgroundFetch(
+      `active-run:${convId}`,
+      `/api/conversations/${convId}/active-run`,
+      {},
+      { minIntervalMs: 4000 },
+    );
+    if (!res || !res.ok || gen !== host.loadGeneration()) return;
+    const data = (await res.json()) as ActiveRunResponse;
+    if (!data.runId || gen !== host.loadGeneration()) return;
 
-		// If the run is not actively running, just reload messages
-		if (data.status && data.status !== "running") {
-			if (gen === host.loadGeneration()) await host.loadMessages();
-			return;
-		}
+    // If the run is not actively running, just reload messages
+    if (data.status && data.status !== "running") {
+      if (gen === host.loadGeneration()) await host.loadMessages();
+      return;
+    }
 
-		if (gen !== host.loadGeneration()) return;
-		const started = startStreaming(data.runId, convId);
-		if (!started) {
-			await host.loadMessages();
-			return;
-		}
-		host.activeRunId.set(data.runId);
-		host.resumedRun.set(true);
-		// Capture server-side run metadata for the elapsed counter + stuck-run banner.
-		host.activeRunStartedAt.set(
-			data.startedAt ? new Date(data.startedAt).getTime() : Date.now(),
-		);
-		host.serverStalenessMs.set(
-			typeof data.stalenessMs === "number" ? data.stalenessMs : null,
-		);
+    if (gen !== host.loadGeneration()) return;
+    const started = startStreaming(data.runId, convId);
+    if (!started) {
+      await host.loadMessages();
+      return;
+    }
+    host.activeRunId.set(data.runId);
+    host.resumedRun.set(true);
+    // Capture server-side run metadata for the elapsed counter + stuck-run banner.
+    host.activeRunStartedAt.set(data.startedAt ? new Date(data.startedAt).getTime() : Date.now());
+    host.serverStalenessMs.set(typeof data.stalenessMs === "number" ? data.stalenessMs : null);
 
-		// Restore pending permission gates from server state.
-		// Dedup-by-id: this resume path also fires on WS reconnects mid-run,
-		// where the live `tool:start` SSE already populated the entry. A
-		// blind push would render the same card twice.
-		if (data.pendingPermissions?.length) {
-			for (const perm of data.pendingPermissions) {
-				const existing = store.streamingToolCalls[data.runId] ?? [];
-				if (existing.some((tc) => tc.id === perm.toolCallId)) continue;
-				store.streamingToolCalls = {
-					...store.streamingToolCalls,
-					[data.runId]: [
-						...existing,
-						{
-							id: perm.toolCallId,
-							toolName: perm.toolName,
-							status: "running" as const,
-							input: perm.input,
-							startedAt: Date.now(),
-							permissionPending: true,
-							cardType: perm.cardType ?? undefined,
-							cardLayout: perm.cardLayout === 'dock' ? 'dock' as const : perm.cardLayout === 'inline' ? 'inline' as const : undefined,
-							category: perm.category ?? undefined,
-						},
-					],
-				};
-			}
-		}
+    // Restore pending permission gates from server state.
+    // Dedup-by-id: this resume path also fires on WS reconnects mid-run,
+    // where the live `tool:start` SSE already populated the entry. A
+    // blind push would render the same card twice.
+    if (data.pendingPermissions?.length) {
+      for (const perm of data.pendingPermissions) {
+        const existing = store.streamingToolCalls[data.runId] ?? [];
+        if (existing.some((tc) => tc.id === perm.toolCallId)) continue;
+        store.streamingToolCalls = {
+          ...store.streamingToolCalls,
+          [data.runId]: [
+            ...existing,
+            {
+              id: perm.toolCallId,
+              toolName: perm.toolName,
+              status: "running" as const,
+              input: perm.input,
+              startedAt: Date.now(),
+              permissionPending: true,
+              cardType: perm.cardType ?? undefined,
+              cardLayout:
+                perm.cardLayout === "dock"
+                  ? ("dock" as const)
+                  : perm.cardLayout === "inline"
+                    ? ("inline" as const)
+                    : undefined,
+              category: perm.category ?? undefined,
+            },
+          ],
+        };
+      }
+    }
 
-		// Restore open ask_user_question gates from server state. The
-		// live tool:start SSE fired before this refresh and the
-		// tool_calls DB row isn't written until the user answers, so
-		// the in-memory ask-user-registry is the only source. Mirror
-		// pendingPermissions above: push a synthetic running entry per
-		// gate; the live tool:complete will update it in place by
-		// toolName match (see stores.svelte.ts case "tool:complete").
-		// Dedup-by-id: same reason as pendingPermissions above — this
-		// resume path also runs on WS reconnects, and re-pushing an
-		// already-streamed entry doubles the rendered card.
-		if (data.pendingAskUser?.length) {
-			for (const entry of data.pendingAskUser) {
-				const existing = store.streamingToolCalls[data.runId] ?? [];
-				if (existing.some((tc) => tc.id === entry.toolCallId)) continue;
-				store.streamingToolCalls = {
-					...store.streamingToolCalls,
-					[data.runId]: [
-						...existing,
-						{
-							id: entry.toolCallId,
-							toolName: "ask-user__ask_user_question",
-							status: "running" as const,
-							input: { question: entry.question, options: entry.options },
-							startedAt: Date.now(),
-							cardType: "ask-user-question",
-						},
-					],
-				};
-			}
-		}
+    // Restore open ask_user_question gates from server state. The
+    // live tool:start SSE fired before this refresh and the
+    // tool_calls DB row isn't written until the user answers, so
+    // the in-memory ask-user-registry is the only source. Mirror
+    // pendingPermissions above: push a synthetic running entry per
+    // gate; the live tool:complete will update it in place by
+    // toolName match (see stores.svelte.ts case "tool:complete").
+    // Dedup-by-id: same reason as pendingPermissions above — this
+    // resume path also runs on WS reconnects, and re-pushing an
+    // already-streamed entry doubles the rendered card.
+    if (data.pendingAskUser?.length) {
+      for (const entry of data.pendingAskUser) {
+        const existing = store.streamingToolCalls[data.runId] ?? [];
+        if (existing.some((tc) => tc.id === entry.toolCallId)) continue;
+        store.streamingToolCalls = {
+          ...store.streamingToolCalls,
+          [data.runId]: [
+            ...existing,
+            {
+              id: entry.toolCallId,
+              toolName: "ask-user__ask_user_question",
+              status: "running" as const,
+              input: { question: entry.question, options: entry.options },
+              startedAt: Date.now(),
+              cardType: "ask-user-question",
+            },
+          ],
+        };
+      }
+    }
 
-		// Add placeholder assistant message with partial response if available.
-		// Dedup-by-id: this path may run on a WS reconnect mid-stream — a
-		// `streaming-${runId}` placeholder already exists, and pushing
-		// another would double-mount it (Svelte warns on duplicate keys
-		// AND the message bubble briefly renders twice).
-		const placeholderId = `streaming-${data.runId}`;
-		const all = host.allMessages.get();
-		if (!all.some((m) => m.id === placeholderId)) {
-			const lastMsg = all[all.length - 1];
-			const selectedModel = host.selectedModel();
-			const assistantPlaceholder = host.makeOptimisticMessage({
-				id: placeholderId,
-				conversationId: convId,
-				role: "assistant",
-				content: data.partialResponse ?? "",
-				model: selectedModel?.model ?? null,
-				provider: selectedModel?.provider ?? null,
-				runId: data.runId,
-				parentMessageId: lastMsg?.id ?? null,
-			});
-			host.allMessages.set([...all, assistantPlaceholder]);
-			host.activeLeafId.set(assistantPlaceholder.id);
-		}
-	} catch {
-		// Non-fatal — page works normally without resume
-	} finally {
-		host.checkingActiveRun.set(false);
-	}
+    // Add placeholder assistant message with partial response if available.
+    // Dedup-by-id: this path may run on a WS reconnect mid-stream — a
+    // `streaming-${runId}` placeholder already exists, and pushing
+    // another would double-mount it (Svelte warns on duplicate keys
+    // AND the message bubble briefly renders twice).
+    const placeholderId = `streaming-${data.runId}`;
+    const all = host.allMessages.get();
+    if (!all.some((m) => m.id === placeholderId)) {
+      const lastMsg = all[all.length - 1];
+      const selectedModel = host.selectedModel();
+      const assistantPlaceholder = host.makeOptimisticMessage({
+        id: placeholderId,
+        conversationId: convId,
+        role: "assistant",
+        content: data.partialResponse ?? "",
+        model: selectedModel?.model ?? null,
+        provider: selectedModel?.provider ?? null,
+        runId: data.runId,
+        parentMessageId: lastMsg?.id ?? null,
+      });
+      host.allMessages.set([...all, assistantPlaceholder]);
+      host.activeLeafId.set(assistantPlaceholder.id);
+    }
+  } catch {
+    // Non-fatal — page works normally without resume
+  } finally {
+    host.checkingActiveRun.set(false);
+  }
 }
 
 /**
@@ -343,16 +335,16 @@ export async function runActiveRunCheck(
  * RECONNECT_CHECK_COOLDOWN_MS.
  */
 export function shouldFireReconnectCheck(
-	host: StreamResumeHost,
-	connected: boolean,
-	wasConnected: boolean,
-	lastReconnectCheckAt: number,
-	now: number,
+  host: StreamResumeHost,
+  connected: boolean,
+  wasConnected: boolean,
+  lastReconnectCheckAt: number,
+  now: number,
 ): boolean {
-	if (!(connected && !wasConnected)) return false;
-	if (host.activeRunId.get() !== null) return false;
-	if (!host.initialLoadDone()) return false;
-	return now - lastReconnectCheckAt >= RECONNECT_CHECK_COOLDOWN_MS;
+  if (!(connected && !wasConnected)) return false;
+  if (host.activeRunId.get() !== null) return false;
+  if (!host.initialLoadDone()) return false;
+  return now - lastReconnectCheckAt >= RECONNECT_CHECK_COOLDOWN_MS;
 }
 
 /**
@@ -362,9 +354,9 @@ export function shouldFireReconnectCheck(
  * the one-shot zombie check so both agree on what "finished" means.
  */
 function runIsFinished(data: ActiveRunResponse, attachedRunId: string): boolean {
-	if (!data.runId) return true;
-	if (data.runId !== attachedRunId) return true;
-	return Boolean(data.status && data.status !== "running");
+  if (!data.runId) return true;
+  if (data.runId !== attachedRunId) return true;
+  return Boolean(data.status && data.status !== "running");
 }
 
 /**
@@ -382,29 +374,29 @@ function runIsFinished(data: ActiveRunResponse, attachedRunId: string): boolean 
  * event costs at most one poll interval instead of the whole session.
  */
 export async function pollStaleness(host: StreamResumeHost): Promise<void> {
-	const runId = host.activeRunId.get();
-	if (!runId) return;
-	const convId = host.convId();
-	try {
-		const res = await backgroundFetch(
-			`active-run:${convId}`,
-			`/api/conversations/${convId}/active-run`,
-			{},
-			{ minIntervalMs: 4000 },
-		);
-		if (!res || !res.ok) return;
-		const data = (await res.json()) as ActiveRunResponse;
-		if (runIsFinished(data, host.activeRunId.get() ?? "")) {
-			stopStreaming(runId);
-			return;
-		}
-		if (typeof data.stalenessMs === "number") host.serverStalenessMs.set(data.stalenessMs);
-		if (data.startedAt && host.activeRunStartedAt.get() == null) {
-			host.activeRunStartedAt.set(new Date(data.startedAt).getTime());
-		}
-	} catch {
-		/* non-fatal — the next poll retries */
-	}
+  const runId = host.activeRunId.get();
+  if (!runId) return;
+  const convId = host.convId();
+  try {
+    const res = await backgroundFetch(
+      `active-run:${convId}`,
+      `/api/conversations/${convId}/active-run`,
+      {},
+      { minIntervalMs: 4000 },
+    );
+    if (!res || !res.ok) return;
+    const data = (await res.json()) as ActiveRunResponse;
+    if (runIsFinished(data, host.activeRunId.get() ?? "")) {
+      stopStreaming(runId);
+      return;
+    }
+    if (typeof data.stalenessMs === "number") host.serverStalenessMs.set(data.stalenessMs);
+    if (data.startedAt && host.activeRunStartedAt.get() == null) {
+      host.activeRunStartedAt.set(new Date(data.startedAt).getTime());
+    }
+  } catch {
+    /* non-fatal — the next poll retries */
+  }
 }
 
 /**
@@ -413,31 +405,28 @@ export async function pollStaleness(host: StreamResumeHost): Promise<void> {
  * re-check server status. If the run flipped to non-running, tear down
  * streaming. Otherwise refresh `serverStalenessMs`.
  */
-export async function runZombieCheck(
-	host: StreamResumeHost,
-	snapshotText: string,
-): Promise<void> {
-	const runId = host.activeRunId.get();
-	if (!runId) return;
-	if (host.currentStreamingText() !== snapshotText) return;
-	const convId = host.convId();
-	try {
-		const res = await backgroundFetch(
-			`active-run:${convId}`,
-			`/api/conversations/${convId}/active-run`,
-			{},
-			{ minIntervalMs: 4000 },
-		);
-		if (!res || !res.ok) return;
-		const data = (await res.json()) as ActiveRunResponse;
-		if (runIsFinished(data, host.activeRunId.get() ?? "")) {
-			stopStreaming(runId);
-		} else if (typeof data.stalenessMs === "number") {
-			host.serverStalenessMs.set(data.stalenessMs);
-		}
-	} catch {
-		/* non-fatal — `pollStaleness` re-checks on its repeating interval */
-	}
+export async function runZombieCheck(host: StreamResumeHost, snapshotText: string): Promise<void> {
+  const runId = host.activeRunId.get();
+  if (!runId) return;
+  if (host.currentStreamingText() !== snapshotText) return;
+  const convId = host.convId();
+  try {
+    const res = await backgroundFetch(
+      `active-run:${convId}`,
+      `/api/conversations/${convId}/active-run`,
+      {},
+      { minIntervalMs: 4000 },
+    );
+    if (!res || !res.ok) return;
+    const data = (await res.json()) as ActiveRunResponse;
+    if (runIsFinished(data, host.activeRunId.get() ?? "")) {
+      stopStreaming(runId);
+    } else if (typeof data.stalenessMs === "number") {
+      host.serverStalenessMs.set(data.stalenessMs);
+    }
+  } catch {
+    /* non-fatal — `pollStaleness` re-checks on its repeating interval */
+  }
 }
 
 // ── Module-level cooldown table ──────────────────────────────────────────
@@ -462,8 +451,8 @@ const reconnectCooldownByConv = new Map<string, number>();
  * entry; with no argument, clears all entries.
  */
 export function __resetReconnectCooldown(convId?: string): void {
-	if (convId === undefined) reconnectCooldownByConv.clear();
-	else reconnectCooldownByConv.delete(convId);
+  if (convId === undefined) reconnectCooldownByConv.clear();
+  else reconnectCooldownByConv.delete(convId);
 }
 
 // ── Rune-host wiring ─────────────────────────────────────────────────────
@@ -481,69 +470,69 @@ export function __resetReconnectCooldown(convId?: string): void {
  * production use; tests pass a controlled clock to exercise the cooldown.
  */
 export function attachStreamResume(
-	host: StreamResumeHost,
-	options: { now?: () => number } = {},
+  host: StreamResumeHost,
+  options: { now?: () => number } = {},
 ): StreamResumeApi {
-	const now = options.now ?? (() => Date.now());
+  const now = options.now ?? (() => Date.now());
 
-	// Per-attach state for the WS-reconnect effect. `wasConnected` is reactive
-	// so the effect tracks itself as a dependency and re-fires correctly on
-	// every connect/disconnect transition.
-	let wasConnected = $state(false);
+  // Per-attach state for the WS-reconnect effect. `wasConnected` is reactive
+  // so the effect tracks itself as a dependency and re-fires correctly on
+  // every connect/disconnect transition.
+  let wasConnected = $state(false);
 
-	// Manual entrypoint — page calls this from its loadMessages().then(...)
-	// chain. The async body delegates to the plain inner function so the
-	// test suite can exercise it without a rune scope.
-	const checkActiveRun = (gen: number) => runActiveRunCheck(host, gen);
+  // Manual entrypoint — page calls this from its loadMessages().then(...)
+  // chain. The async body delegates to the plain inner function so the
+  // test suite can exercise it without a rune scope.
+  const checkActiveRun = (gen: number) => runActiveRunCheck(host, gen);
 
-	// WS-reconnect resume.
-	$effect(() => {
-		// Read store.connected INSIDE the effect body so reactivity tracks.
-		// Capturing it once outside would defeat the effect — it must
-		// re-fire on every transition.
-		const connected = store.connected;
-		const convId = host.convId();
-		const lastAt = reconnectCooldownByConv.get(convId) ?? 0;
-		if (shouldFireReconnectCheck(host, connected, wasConnected, lastAt, now())) {
-			reconnectCooldownByConv.set(convId, now());
-			host.checkingActiveRun.set(true);
-			void checkActiveRun(host.loadGeneration());
-		}
-		wasConnected = connected;
-	});
+  // WS-reconnect resume.
+  $effect(() => {
+    // Read store.connected INSIDE the effect body so reactivity tracks.
+    // Capturing it once outside would defeat the effect — it must
+    // re-fire on every transition.
+    const connected = store.connected;
+    const convId = host.convId();
+    const lastAt = reconnectCooldownByConv.get(convId) ?? 0;
+    if (shouldFireReconnectCheck(host, connected, wasConnected, lastAt, now())) {
+      reconnectCooldownByConv.set(convId, now());
+      host.checkingActiveRun.set(true);
+      void checkActiveRun(host.loadGeneration());
+    }
+    wasConnected = connected;
+  });
 
-	// Zombie / staleness watchdog.
-	$effect(() => {
-		// Re-runs whenever `activeRunId` / `isStreaming` / `resumedRun` /
-		// `currentStreamingText` change. The previous run's timers are torn
-		// down at the top, then re-scheduled if a run is still in flight.
-		// On unmount Svelte runs the cleanup function (returned below).
-		const runId = host.activeRunId.get();
-		const streaming = host.isStreaming();
-		const resumed = host.resumedRun.get();
-		const snapshot = host.currentStreamingText() ?? "";
+  // Zombie / staleness watchdog.
+  $effect(() => {
+    // Re-runs whenever `activeRunId` / `isStreaming` / `resumedRun` /
+    // `currentStreamingText` change. The previous run's timers are torn
+    // down at the top, then re-scheduled if a run is still in flight.
+    // On unmount Svelte runs the cleanup function (returned below).
+    const runId = host.activeRunId.get();
+    const streaming = host.isStreaming();
+    const resumed = host.resumedRun.get();
+    const snapshot = host.currentStreamingText() ?? "";
 
-		if (!runId || !streaming) {
-			host.serverStalenessMs.set(null);
-			host.activeRunStartedAt.set(null);
-			return;
-		}
+    if (!runId || !streaming) {
+      host.serverStalenessMs.set(null);
+      host.activeRunStartedAt.set(null);
+      return;
+    }
 
-		const timeout = resumed ? ZOMBIE_TIMEOUT_RESUMED_MS : ZOMBIE_TIMEOUT_FRESH_MS;
+    const timeout = resumed ? ZOMBIE_TIMEOUT_RESUMED_MS : ZOMBIE_TIMEOUT_FRESH_MS;
 
-		const stalenessPollTimer = setInterval(() => {
-			void pollStaleness(host);
-		}, STALENESS_POLL_INTERVAL_MS);
+    const stalenessPollTimer = setInterval(() => {
+      void pollStaleness(host);
+    }, STALENESS_POLL_INTERVAL_MS);
 
-		const zombieTimer = setTimeout(() => {
-			void runZombieCheck(host, snapshot);
-		}, timeout);
+    const zombieTimer = setTimeout(() => {
+      void runZombieCheck(host, snapshot);
+    }, timeout);
 
-		return () => {
-			clearInterval(stalenessPollTimer);
-			clearTimeout(zombieTimer);
-		};
-	});
+    return () => {
+      clearInterval(stalenessPollTimer);
+      clearTimeout(zombieTimer);
+    };
+  });
 
-	return { checkActiveRun };
+  return { checkActiveRun };
 }

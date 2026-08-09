@@ -99,19 +99,13 @@ describe("handleNetworkInternalRpc — input validation", () => {
   });
 
   test("malformed url string → -32602 Invalid url", async () => {
-    const resp = await handleNetworkInternalRpc(
-      makeReq({ url: "not a url" }),
-      makeCtx(),
-    );
+    const resp = await handleNetworkInternalRpc(makeReq({ url: "not a url" }), makeCtx());
     expect(resp.error?.code).toBe(-32602);
     expect(resp.error?.message).toBe("Invalid url");
   });
 
   test("response carries the request id (numeric)", async () => {
-    const resp = await handleNetworkInternalRpc(
-      { jsonrpc: "2.0", id: 99, method: "x" },
-      makeCtx(),
-    );
+    const resp = await handleNetworkInternalRpc({ jsonrpc: "2.0", id: 99, method: "x" }, makeCtx());
     expect(resp.id).toBe(99);
   });
 
@@ -182,21 +176,19 @@ describe("handleNetworkInternalRpc — PDP gate", () => {
       resolvePrompt: async () => {},
       _resetCacheForTests: () => {},
     };
-    await handleNetworkInternalRpc(
-      makeReq({ url: "http://[::1]/healthz" }),
-      makeCtx({ engine }),
-      {
-        fetchImpl: (async () =>
-          new Response("ok", { status: 200, statusText: "OK" })) as unknown as typeof fetch,
-      },
-    );
+    await handleNetworkInternalRpc(makeReq({ url: "http://[::1]/healthz" }), makeCtx({ engine }), {
+      fetchImpl: (async () =>
+        new Response("ok", { status: 200, statusText: "OK" })) as unknown as typeof fetch,
+    });
     expect(captured?.value).toBe("::1");
   });
 
   test("PDP receives correct ctx fields", async () => {
     // Phase 6: AuthorizeContext.userId/conversationId widened to
     // `string | null`, so the captured fixture must accept null too.
-    let capturedCtx: { extensionId?: string; userId?: string | null; conversationId?: string | null } | undefined;
+    let capturedCtx:
+      | { extensionId?: string; userId?: string | null; conversationId?: string | null }
+      | undefined;
     const engine: NetworkInternalContext["engine"] = {
       authorize: async (ctx) => {
         capturedCtx = ctx;
@@ -261,21 +253,17 @@ describe("handleNetworkInternalRpc — happy path", () => {
     // to lowercase keys on iteration — this test pins that contract.
     // A regression that switched to `Object.entries` on the underlying
     // map (or a non-lowercasing iterator) would surface here.
-    const resp = await handleNetworkInternalRpc(
-      makeReq({ url: "http://localhost/" }),
-      makeCtx(),
-      {
-        fetchImpl: (async () =>
-          new Response("x", {
-            status: 200,
-            statusText: "OK",
-            // Authored with mixed case — Headers spec normalizes on
-            // store, forEach yields lowercase. The wrapper relies on
-            // that for stable downstream lookups.
-            headers: { "X-Custom-Header": "v1", "Content-Type": "application/json" },
-          })) as unknown as typeof fetch,
-      },
-    );
+    const resp = await handleNetworkInternalRpc(makeReq({ url: "http://localhost/" }), makeCtx(), {
+      fetchImpl: (async () =>
+        new Response("x", {
+          status: 200,
+          statusText: "OK",
+          // Authored with mixed case — Headers spec normalizes on
+          // store, forEach yields lowercase. The wrapper relies on
+          // that for stable downstream lookups.
+          headers: { "X-Custom-Header": "v1", "Content-Type": "application/json" },
+        })) as unknown as typeof fetch,
+    });
     const result = resp.result as { headers: Record<string, string> };
     expect(result.headers["x-custom-header"]).toBe("v1");
     expect(result.headers["content-type"]).toBe("application/json");
@@ -291,7 +279,10 @@ describe("handleNetworkInternalRpc — happy path", () => {
       makeCtx(),
       {
         fetchImpl: (async () =>
-          new Response("nope", { status: 500, statusText: "Internal Server Error" })) as unknown as typeof fetch,
+          new Response("nope", {
+            status: 500,
+            statusText: "Internal Server Error",
+          })) as unknown as typeof fetch,
       },
     );
     const result = resp.result as { status: number; statusText: string };
@@ -324,14 +315,10 @@ describe("handleNetworkInternalRpc — happy path", () => {
   });
 
   test("init=undefined still works (no shape error)", async () => {
-    const resp = await handleNetworkInternalRpc(
-      makeReq({ url: "http://localhost/" }),
-      makeCtx(),
-      {
-        fetchImpl: (async () =>
-          new Response("", { status: 200, statusText: "OK" })) as unknown as typeof fetch,
-      },
-    );
+    const resp = await handleNetworkInternalRpc(makeReq({ url: "http://localhost/" }), makeCtx(), {
+      fetchImpl: (async () =>
+        new Response("", { status: 200, statusText: "OK" })) as unknown as typeof fetch,
+    });
     expect(resp.error).toBeUndefined();
   });
 });
@@ -389,11 +376,9 @@ describe("handleNetworkInternalRpc — error & cap branches", () => {
       statusText: "OK",
       headers: { forEach: () => {} },
     };
-    const resp = await handleNetworkInternalRpc(
-      makeReq({ url: "http://localhost/" }),
-      makeCtx(),
-      { fetchImpl: (async () => badResponse) as unknown as typeof fetch },
-    );
+    const resp = await handleNetworkInternalRpc(makeReq({ url: "http://localhost/" }), makeCtx(), {
+      fetchImpl: (async () => badResponse) as unknown as typeof fetch,
+    });
     expect(resp.error?.code).toBe(-32000);
     expect(resp.error?.message).toBe("Body read error: read failed");
   });

@@ -85,11 +85,7 @@ function sha256(raw: string): Buffer {
  *  like `127.0.0.1.evil.com`, `1127.0.0.1`, or `0127.0.0.1` can't squeak
  *  through. Each stage normalizes to a candidate string that is then
  *  compared against the exact allowlist. */
-const LOOPBACK_SET: ReadonlySet<string> = new Set([
-  "127.0.0.1",
-  "::1",
-  "::ffff:127.0.0.1",
-]);
+const LOOPBACK_SET: ReadonlySet<string> = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
 export function isLoopbackAddress(remoteAddr: string | undefined | null): boolean {
   if (remoteAddr === null || remoteAddr === undefined || remoteAddr === "") return true;

@@ -25,11 +25,9 @@ mockDbConnection();
 
 const { loadHistory } = await import("../runtime/stream-chat/load-history");
 const { createUser } = await import("../db/queries/users");
-const {
-  getOrCreateEzConversation,
-  createMessage,
-  deleteAllMessagesForConversation,
-} = await import("../db/queries/conversations");
+const { getOrCreateEzConversation, createMessage, deleteAllMessagesForConversation } = await import(
+  "../db/queries/conversations"
+);
 const { addConversationExtensions, getConversationExtensionIds } = await import(
   "../db/queries/conversation-extensions"
 );
@@ -107,9 +105,7 @@ describe("Ez clear → next-turn loadHistory", () => {
       content: "![ext:foo] hello",
     });
 
-    await addConversationExtensions(ezConv.id, [
-      { extensionId: extId, messageId: userMsg.id },
-    ]);
+    await addConversationExtensions(ezConv.id, [{ extensionId: extId, messageId: userMsg.id }]);
 
     expect(await getConversationExtensionIds(ezConv.id)).toContain(extId);
 

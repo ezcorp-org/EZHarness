@@ -50,8 +50,8 @@ const sample = (): AgentTool[] => [
   tool("read_file"),
   tool("write_file"),
   tool("bash_execute"),
-  tool("invoke_agent"),    // orchestration — always preserved
-  tool("ext_widget"),      // extension tool, no def entry
+  tool("invoke_agent"), // orchestration — always preserved
+  tool("ext_widget"), // extension tool, no def entry
 ];
 
 const builtinDefs = new Map<string, BuiltinToolDef>([

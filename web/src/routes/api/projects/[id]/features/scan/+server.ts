@@ -51,9 +51,7 @@ export const POST: RequestHandler = async ({ params, locals }) => {
     // answering 200-with-[] — a silent empty index reads as "no features"
     // and hides the real breakage. Include the relative-path hint only
     // when the configured path isn't already absolute.
-    const hint = isAbsolute(project.path)
-      ? ""
-      : " Set an absolute path in project settings.";
+    const hint = isAbsolute(project.path) ? "" : " Set an absolute path in project settings.";
     return errorJson(
       400,
       `Working directory "${project.path}" does not exist on the server ` +

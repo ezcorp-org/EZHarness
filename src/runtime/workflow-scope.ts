@@ -461,8 +461,7 @@ export function authorizeWorkflow(
 }
 
 /** The refusal when a non-admin tries to mint or promote to `system`. */
-export const VISIBILITY_ASSIGNMENT_DENIAL =
-  "Only an admin can make a workflow system-owned";
+export const VISIBILITY_ASSIGNMENT_DENIAL = "Only an admin can make a workflow system-owned";
 
 /**
  * May `caller` STAMP `visibility` on a workflow — on create, or as a

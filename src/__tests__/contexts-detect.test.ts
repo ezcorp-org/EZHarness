@@ -185,9 +185,9 @@ describe("resolveAnchors", () => {
 
 describe("parseDetectResponse", () => {
   test("clean JSON", () => {
-    expect(parseDetectResponse('{"topics":[{"label":"A","type":"feature","anchors":[1]}]}')).toEqual([
-      { label: "A", type: "feature", anchors: [1] },
-    ]);
+    expect(
+      parseDetectResponse('{"topics":[{"label":"A","type":"feature","anchors":[1]}]}'),
+    ).toEqual([{ label: "A", type: "feature", anchors: [1] }]);
   });
   test("fenced / prose-wrapped JSON (brace slice)", () => {
     const raw = 'Here you go:\n```json\n{"topics":[{"label":"A","type":"idea","anchors":[]}]}\n```';
@@ -224,7 +224,11 @@ describe("validateTopics — open taxonomy + evidence floor", () => {
   ];
   // 1-based [mN] ordinals → real ids: [m1]→"m1", [m2]→"m2".
   function vOpts(
-    ensureContextType: (t: { id: string; label: string; description: string }) => Promise<{ id: string }> = async (t) => ({ id: t.id }),
+    ensureContextType: (t: {
+      id: string;
+      label: string;
+      description: string;
+    }) => Promise<{ id: string }> = async (t) => ({ id: t.id }),
   ) {
     return {
       existingTypes: EXISTING_TYPES,
@@ -238,7 +242,10 @@ describe("validateTopics — open taxonomy + evidence floor", () => {
 
   test("reuses an existing type on exact match (no new type created)", async () => {
     const { fn, calls } = fakeEnsure();
-    const out = await validateTopics([{ label: "auth token flow", type: "feature", anchors: [1] }], vOpts(fn));
+    const out = await validateTopics(
+      [{ label: "auth token flow", type: "feature", anchors: [1] }],
+      vOpts(fn),
+    );
     expect(out[0]!.typeId).toBe("feature");
     expect(calls).toHaveLength(0);
   });
@@ -259,7 +266,14 @@ describe("validateTopics — open taxonomy + evidence floor", () => {
   test("creates a new auto type with the model's typeDescription", async () => {
     const { fn, calls } = fakeEnsure();
     const out = await validateTopics(
-      [{ label: "picker swap", type: "Design Review", typeDescription: "  A review of a design.  ", anchors: [1] }],
+      [
+        {
+          label: "picker swap",
+          type: "Design Review",
+          typeDescription: "  A review of a design.  ",
+          anchors: [1],
+        },
+      ],
       vOpts(fn),
     );
     expect(out[0]!.typeId).toBe("design-review");
@@ -304,7 +318,10 @@ describe("validateTopics — open taxonomy + evidence floor", () => {
 
   test("an empty / invalid slug falls back to idea (no create)", async () => {
     const { fn, calls } = fakeEnsure();
-    const out = await validateTopics([{ label: "some subject", type: "!!!", anchors: [1] }], vOpts(fn));
+    const out = await validateTopics(
+      [{ label: "some subject", type: "!!!", anchors: [1] }],
+      vOpts(fn),
+    );
     expect(out[0]!.typeId).toBe("idea");
     expect(calls).toHaveLength(0);
   });
@@ -341,7 +358,11 @@ describe("validateTopics — open taxonomy + evidence floor", () => {
       ],
       vOpts(),
     );
-    expect(out.map((t) => t.label)).toEqual(["sub-agent chat panel fix", "watermark refresh", "picker swap"]);
+    expect(out.map((t) => t.label)).toEqual([
+      "sub-agent chat panel fix",
+      "watermark refresh",
+      "picker swap",
+    ]);
     expect(out.every((t) => t.messageIds.length === 0)).toBe(true);
   });
 
@@ -383,7 +404,9 @@ describe("validateTopics — open taxonomy + evidence floor", () => {
       vOpts(),
     );
     expect(out).toHaveLength(1);
-    expect(out[0]!.label).toBe("one two three four five six".split(" ").slice(0, MAX_LABEL_WORDS).join(" "));
+    expect(out[0]!.label).toBe(
+      "one two three four five six".split(" ").slice(0, MAX_LABEL_WORDS).join(" "),
+    );
   });
 
   test("caps at MAX_TOPICS", async () => {
@@ -411,7 +434,8 @@ describe("detectTopics orchestrator", () => {
       getExistingTopics: async () => [{ label: "Old" }],
       ensureContextType: async (t) => ({ id: t.id }),
       replaceTopics: async (_c, topics) => topics.map((t, i) => ({ id: `t${i}`, ...t }) as any),
-      upsertTopicState: async (_c, input) => ({ ...input, conversationId: _c, analyzedAt: new Date("2026-07-13T00:00:00Z") }) as any,
+      upsertTopicState: async (_c, input) =>
+        ({ ...input, conversationId: _c, analyzedAt: new Date("2026-07-13T00:00:00Z") }) as any,
       ...overrides,
     };
   }
@@ -419,16 +443,23 @@ describe("detectTopics orchestrator", () => {
   test("validates, replaces, and writes the watermark", async () => {
     let replaceArgs: any;
     let stateArgs: any;
-    const res = await detectTopics("conv-1", baseDeps({
-      replaceTopics: async (_c, topics) => {
-        replaceArgs = topics;
-        return topics.map((t, i) => ({ id: `t${i}`, ...t }) as any);
-      },
-      upsertTopicState: async (_c, input) => {
-        stateArgs = input;
-        return { ...input, conversationId: _c, analyzedAt: new Date("2026-07-13T00:00:00Z") } as any;
-      },
-    }));
+    const res = await detectTopics(
+      "conv-1",
+      baseDeps({
+        replaceTopics: async (_c, topics) => {
+          replaceArgs = topics;
+          return topics.map((t, i) => ({ id: `t${i}`, ...t }) as any);
+        },
+        upsertTopicState: async (_c, input) => {
+          stateArgs = input;
+          return {
+            ...input,
+            conversationId: _c,
+            analyzedAt: new Date("2026-07-13T00:00:00Z"),
+          } as any;
+        },
+      }),
+    );
 
     // messageIds filtered to real ids; label + type preserved.
     expect(replaceArgs).toEqual([{ label: "Auth", typeId: "feature", messageIds: ["m2"] }]);
@@ -442,19 +473,22 @@ describe("detectTopics orchestrator", () => {
   test("ensures a proposed NEW type BEFORE replaceTopics (FK RESTRICT ordering)", async () => {
     const order: string[] = [];
     let replaceArgs: any;
-    await detectTopics("conv-1", baseDeps({
-      runCompletion: async () =>
-        '{"topics":[{"label":"Deploy","type":"design-review","typeDescription":"A review","anchors":[2]}]}',
-      ensureContextType: async (t) => {
-        order.push(`ensure:${t.id}`);
-        return { id: t.id };
-      },
-      replaceTopics: async (_c, topics) => {
-        order.push("replaceTopics");
-        replaceArgs = topics;
-        return topics.map((t, i) => ({ id: `t${i}`, ...t }) as any);
-      },
-    }));
+    await detectTopics(
+      "conv-1",
+      baseDeps({
+        runCompletion: async () =>
+          '{"topics":[{"label":"Deploy","type":"design-review","typeDescription":"A review","anchors":[2]}]}',
+        ensureContextType: async (t) => {
+          order.push(`ensure:${t.id}`);
+          return { id: t.id };
+        },
+        replaceTopics: async (_c, topics) => {
+          order.push("replaceTopics");
+          replaceArgs = topics;
+          return topics.map((t, i) => ({ id: `t${i}`, ...t }) as any);
+        },
+      }),
+    );
     // The auto type is created first, so the topic → type FK resolves.
     expect(order).toEqual(["ensure:design-review", "replaceTopics"]);
     expect(replaceArgs).toEqual([{ label: "Deploy", typeId: "design-review", messageIds: ["m2"] }]);
@@ -463,18 +497,21 @@ describe("detectTopics orchestrator", () => {
   test("empty conversation short-circuits (no LLM call, zero-count watermark)", async () => {
     let ran = false;
     let stateArgs: any;
-    const res = await detectTopics("conv-1", baseDeps({
-      getMessages: async () => [],
-      runCompletion: async () => {
-        ran = true;
-        return "{}";
-      },
-      replaceTopics: async () => [],
-      upsertTopicState: async (_c, input) => {
-        stateArgs = input;
-        return { ...input, conversationId: _c, analyzedAt: new Date() } as any;
-      },
-    }));
+    const res = await detectTopics(
+      "conv-1",
+      baseDeps({
+        getMessages: async () => [],
+        runCompletion: async () => {
+          ran = true;
+          return "{}";
+        },
+        replaceTopics: async () => [],
+        upsertTopicState: async (_c, input) => {
+          stateArgs = input;
+          return { ...input, conversationId: _c, analyzedAt: new Date() } as any;
+        },
+      }),
+    );
     expect(ran).toBe(false);
     expect(stateArgs).toEqual({ lastMessageId: null, messageCount: 0, model: "local/qwen3:1.7b" });
     expect(res.topics).toEqual([]);
@@ -483,21 +520,24 @@ describe("detectTopics orchestrator", () => {
   test("telemetry-only conversation short-circuits but keeps the RAW watermark", async () => {
     let ran = false;
     let stateArgs: any;
-    const res = await detectTopics("conv-1", baseDeps({
-      getMessages: async () => [
-        { id: "m1", role: "capability-event", content: '{"telemetry":1}' },
-        { id: "m2", role: "assistant", content: "   " },
-      ],
-      runCompletion: async () => {
-        ran = true;
-        return "{}";
-      },
-      replaceTopics: async () => [],
-      upsertTopicState: async (_c, input) => {
-        stateArgs = input;
-        return { ...input, conversationId: _c, analyzedAt: new Date() } as any;
-      },
-    }));
+    const res = await detectTopics(
+      "conv-1",
+      baseDeps({
+        getMessages: async () => [
+          { id: "m1", role: "capability-event", content: '{"telemetry":1}' },
+          { id: "m2", role: "assistant", content: "   " },
+        ],
+        runCompletion: async () => {
+          ran = true;
+          return "{}";
+        },
+        replaceTopics: async () => [],
+        upsertTopicState: async (_c, input) => {
+          stateArgs = input;
+          return { ...input, conversationId: _c, analyzedAt: new Date() } as any;
+        },
+      }),
+    );
     expect(ran).toBe(false); // no conversational content → no LLM call
     // Watermark still tracks the RAW newest id + count (staleness stays consistent).
     expect(stateArgs).toEqual({ lastMessageId: "m2", messageCount: 2, model: "local/qwen3:1.7b" });
@@ -507,22 +547,25 @@ describe("detectTopics orchestrator", () => {
   test("strips telemetry from the transcript; ordinals map to the REAL uuids", async () => {
     let userPrompt = "";
     let replaceArgs: any;
-    await detectTopics("conv-1", baseDeps({
-      getMessages: async () => [
-        { id: "uuid-m1", role: "user", content: "how do we fix the login bug" },
-        { id: "uuid-cap", role: "capability-event", content: '{"secret":"TELEMETRY-NOISE"}' },
-        { id: "uuid-m2", role: "assistant", content: "rotate the token" },
-      ],
-      // Ordinals are over the CONVERSATIONAL set only: 1 = uuid-m1, 2 = uuid-m2.
-      runCompletion: async (req) => {
-        userPrompt = req.userPrompt as string;
-        return '{"topics":[{"label":"login token bug","type":"bug-fix","anchors":[1,2]}]}';
-      },
-      replaceTopics: async (_c, topics) => {
-        replaceArgs = topics;
-        return topics.map((t, i) => ({ id: `t${i}`, ...t }) as any);
-      },
-    }));
+    await detectTopics(
+      "conv-1",
+      baseDeps({
+        getMessages: async () => [
+          { id: "uuid-m1", role: "user", content: "how do we fix the login bug" },
+          { id: "uuid-cap", role: "capability-event", content: '{"secret":"TELEMETRY-NOISE"}' },
+          { id: "uuid-m2", role: "assistant", content: "rotate the token" },
+        ],
+        // Ordinals are over the CONVERSATIONAL set only: 1 = uuid-m1, 2 = uuid-m2.
+        runCompletion: async (req) => {
+          userPrompt = req.userPrompt as string;
+          return '{"topics":[{"label":"login token bug","type":"bug-fix","anchors":[1,2]}]}';
+        },
+        replaceTopics: async (_c, topics) => {
+          replaceArgs = topics;
+          return topics.map((t, i) => ({ id: `t${i}`, ...t }) as any);
+        },
+      }),
+    );
     // The capability-event content never reaches the model; real content does.
     expect(userPrompt).not.toContain("TELEMETRY-NOISE");
     expect(userPrompt).toContain("rotate the token");
@@ -534,15 +577,20 @@ describe("detectTopics orchestrator", () => {
 
   test("wholesale citation failure keeps the topic (stored with empty ids)", async () => {
     let replaceArgs: any;
-    await detectTopics("conv-1", baseDeps({
-      runCompletion: async () =>
-        '{"topics":[{"label":"sub-agent chat panel fix","type":"bug-fix","anchors":[]}]}',
-      replaceTopics: async (_c, topics) => {
-        replaceArgs = topics;
-        return topics.map((t, i) => ({ id: `t${i}`, ...t }) as any);
-      },
-    }));
+    await detectTopics(
+      "conv-1",
+      baseDeps({
+        runCompletion: async () =>
+          '{"topics":[{"label":"sub-agent chat panel fix","type":"bug-fix","anchors":[]}]}',
+        replaceTopics: async (_c, topics) => {
+          replaceArgs = topics;
+          return topics.map((t, i) => ({ id: `t${i}`, ...t }) as any);
+        },
+      }),
+    );
     // No usable anchors, but the topic is good → kept anchor-less.
-    expect(replaceArgs).toEqual([{ label: "sub-agent chat panel fix", typeId: "bug-fix", messageIds: [] }]);
+    expect(replaceArgs).toEqual([
+      { label: "sub-agent chat panel fix", typeId: "bug-fix", messageIds: [] },
+    ]);
   });
 });

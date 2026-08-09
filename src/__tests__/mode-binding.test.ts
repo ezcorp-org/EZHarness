@@ -83,9 +83,9 @@ describe("resolveTurnModelBinding — the precedence truth table", () => {
     // model pin absent → mode model; mode model absent → mode tier; mode tier
     // absent → classifier. Same mode row, one field removed at a time.
     expect(resolveTurnModelBinding({}, richMode, CATALOG).source).toBe("mode-model");
-    expect(
-      resolveTurnModelBinding({}, mode({ preferredTier: "powerful" }), CATALOG).source,
-    ).toBe("mode-tier");
+    expect(resolveTurnModelBinding({}, mode({ preferredTier: "powerful" }), CATALOG).source).toBe(
+      "mode-tier",
+    );
     expect(resolveTurnModelBinding({}, mode(), CATALOG).source).toBe("classifier");
   });
 });
@@ -166,7 +166,11 @@ describe("resolveTurnModelBinding — availability", () => {
   test("an empty catalog can honor nothing the mode named, but still throws nothing", () => {
     const binding = resolveTurnModelBinding(
       {},
-      mode({ preferredProvider: "anthropic", preferredModel: "claude-opus-4-6", preferredTier: "powerful" }),
+      mode({
+        preferredProvider: "anthropic",
+        preferredModel: "claude-opus-4-6",
+        preferredTier: "powerful",
+      }),
       [],
     );
     expect(binding).toEqual({ provider: undefined, tier: "powerful", source: "mode-tier" });

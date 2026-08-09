@@ -6,11 +6,7 @@
  * same non-atomic recompute pattern and are now transactional too.
  */
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
-import {
-  setupTestDb,
-  closeTestDb,
-  mockDbConnection,
-} from "../../../__tests__/helpers/test-pglite";
+import { setupTestDb, closeTestDb, mockDbConnection } from "../../../__tests__/helpers/test-pglite";
 
 mockDbConnection();
 

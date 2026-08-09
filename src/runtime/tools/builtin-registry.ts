@@ -75,14 +75,19 @@ export function getBuiltInCategories(): Array<{ name: string; description: strin
   for (const t of getTools()) {
     if (t.mentionable === false || seen.has(t.category)) continue;
     seen.add(t.category);
-    categories.push({ name: t.category, description: CATEGORY_DESCRIPTIONS[t.category] ?? t.category });
+    categories.push({
+      name: t.category,
+      description: CATEGORY_DESCRIPTIONS[t.category] ?? t.category,
+    });
   }
   return categories;
 }
 
 /** Get tool definitions (with schemas) for a built-in category. */
-export function getBuiltInToolsByCategory(_category: string): Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> {
+export function getBuiltInToolsByCategory(
+  _category: string,
+): Array<{ name: string; description: string; inputSchema: Record<string, unknown> }> {
   return getTools()
-    .filter(t => t.category === _category && t.inputSchema)
-    .map(t => ({ name: t.name, description: t.description, inputSchema: t.inputSchema! }));
+    .filter((t) => t.category === _category && t.inputSchema)
+    .map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema! }));
 }

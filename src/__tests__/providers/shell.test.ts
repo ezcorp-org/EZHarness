@@ -26,11 +26,15 @@ test("cwd option works", async () => {
 });
 
 describe("timeout option", () => {
-  test("kills command that exceeds timeout", async () => {
-    const result = await shell.run("sleep 10", { timeout: 100 });
-    // Process should be killed, resulting in non-zero exit code
-    expect(result.exitCode).not.toBe(0);
-  }, { timeout: 15_000 });
+  test(
+    "kills command that exceeds timeout",
+    async () => {
+      const result = await shell.run("sleep 10", { timeout: 100 });
+      // Process should be killed, resulting in non-zero exit code
+      expect(result.exitCode).not.toBe(0);
+    },
+    { timeout: 15_000 },
+  );
 
   test("allows command that completes within timeout", async () => {
     const result = await shell.run("echo fast", { timeout: 5000 });

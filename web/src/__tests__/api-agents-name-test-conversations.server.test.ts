@@ -17,20 +17,13 @@ vi.mock("$server/db/queries/conversations", () => ({
   deleteTestConversations: vi.fn(),
 }));
 
-const { getAgentConfigByName } = await import(
-  "$server/db/queries/agent-configs"
-);
+const { getAgentConfigByName } = await import("$server/db/queries/agent-configs");
 const { getTestConversations, deleteTestConversations } = await import(
   "$server/db/queries/conversations"
 );
-const { GET, DELETE } = await import(
-  "../routes/api/agents/[name]/test-conversations/+server.ts"
-);
+const { GET, DELETE } = await import("../routes/api/agents/[name]/test-conversations/+server.ts");
 
-function makeEvent(opts: {
-  name?: string;
-  locals?: Record<string, unknown>;
-}) {
+function makeEvent(opts: { name?: string; locals?: Record<string, unknown> }) {
   const name = opts.name ?? "test-agent";
   const href = `http://localhost/api/agents/${name}/test-conversations`;
   return {

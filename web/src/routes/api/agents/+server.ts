@@ -24,9 +24,7 @@ export const GET: RequestHandler = async ({ request, locals }) => {
   const fileAgents = executor.listAgents();
 
   const dbConfigs: ListedAgentConfig[] = await listAgentConfigs(user.id);
-  const dbConfigMap = new Map<string, ListedAgentConfig>(
-    dbConfigs.map((c) => [c.name, c]),
-  );
+  const dbConfigMap = new Map<string, ListedAgentConfig>(dbConfigs.map((c) => [c.name, c]));
   const fileAgentNames = new Set(fileAgents.map((a) => a.name));
 
   const agents = fileAgents.map((a) => {
@@ -57,8 +55,8 @@ export const GET: RequestHandler = async ({ request, locals }) => {
         // the response shape inherits whatever `fileAgents.map` produced
         // (AgentCapability[] / InputSchema). These are structurally compatible
         // (string[] ⊇ AgentCapability[]) so the cast is a widen-back.
-        capabilities: config.capabilities as typeof agents[number]["capabilities"],
-        inputSchema: config.inputSchema as typeof agents[number]["inputSchema"],
+        capabilities: config.capabilities as (typeof agents)[number]["capabilities"],
+        inputSchema: config.inputSchema as (typeof agents)[number]["inputSchema"],
         source: "config",
         id: config.id,
         prompt: config.prompt,

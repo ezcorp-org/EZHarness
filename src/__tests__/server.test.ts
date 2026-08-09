@@ -3,7 +3,12 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgents } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import type { AgentEvents } from "../types";
 
 mockDbConnection();
@@ -30,7 +35,7 @@ describe("GET /api/agents", () => {
   test("returns JSON array of agents", async () => {
     const res = await fetch(`${baseUrl}/api/agents`);
     expect(res.status).toBe(200);
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     expect(Array.isArray(data)).toBe(true);
     expect(data.length).toBeGreaterThanOrEqual(2);
 
@@ -55,7 +60,7 @@ describe("POST /api/agents/:name/run", () => {
       body: JSON.stringify({ command: "echo hello" }),
     });
     expect(res.status).toBe(200);
-    const run = await res.json() as any;
+    const run = (await res.json()) as any;
     expect(run.agentName).toBe("shell-runner");
     expect(run.status).toBe("success");
     expect(run.result.success).toBe(true);
@@ -66,7 +71,7 @@ describe("POST /api/agents/:name/run", () => {
   test("GET /api/runs returns array with the run", async () => {
     const res = await fetch(`${baseUrl}/api/runs`);
     expect(res.status).toBe(200);
-    const runs = await res.json() as any;
+    const runs = (await res.json()) as any;
     expect(Array.isArray(runs)).toBe(true);
     expect(runs.length).toBeGreaterThanOrEqual(1);
   });
@@ -78,11 +83,11 @@ describe("POST /api/agents/:name/run", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command: "echo test" }),
     });
-    const postRun = await postRes.json() as any;
+    const postRun = (await postRes.json()) as any;
 
     const res = await fetch(`${baseUrl}/api/runs/${postRun.id}`);
     expect(res.status).toBe(200);
-    const run = await res.json() as any;
+    const run = (await res.json()) as any;
     expect(run.id).toBe(postRun.id);
     expect(run.agentName).toBe("shell-runner");
   });

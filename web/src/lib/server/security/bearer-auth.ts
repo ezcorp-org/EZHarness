@@ -8,10 +8,7 @@
 import type { ApiKeyScope } from "$lib/server/security/api-keys";
 import { verifyApiKey } from "$lib/server/security/api-keys";
 import type { AuthMethod } from "$server/auth/middleware";
-import {
-  INTERNAL_KEY_PREFIX,
-  verifyInternalKey,
-} from "$lib/server/security/internal-auth";
+import { INTERNAL_KEY_PREFIX, verifyInternalKey } from "$lib/server/security/internal-auth";
 import { getUserById } from "$server/db/queries/users";
 import { logger } from "$server/logger";
 
@@ -109,9 +106,7 @@ export async function attachBearerAuth(
     // Trim first so a whitespace-only header is treated as absent — the
     // raw header comes straight from an HTTP request and could contain
     // stray whitespace from a proxy/rewrite.
-    const obo = typeof event.onBehalfOfHeader === "string"
-      ? event.onBehalfOfHeader.trim()
-      : "";
+    const obo = typeof event.onBehalfOfHeader === "string" ? event.onBehalfOfHeader.trim() : "";
     if (obo.length > 0 && !obo.startsWith("sys-")) {
       try {
         const target = await getUserById(obo);
@@ -171,8 +166,7 @@ export async function attachBearerAuth(
     // ceiling is enforced at mint time).
     const owner = await getUserById(keyData.userId);
     if (!owner || owner.status !== "active") return false;
-    const effectiveRole =
-      keyData.role === "admin" && owner.role === "admin" ? "admin" : "member";
+    const effectiveRole = keyData.role === "admin" && owner.role === "admin" ? "admin" : "member";
 
     event.locals.user = {
       id: keyData.userId,

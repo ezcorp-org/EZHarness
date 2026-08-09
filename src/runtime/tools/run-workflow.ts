@@ -184,7 +184,9 @@ export function createRunWorkflowTool(ctx: RunWorkflowToolContext): BuiltinToolD
         // vanished user row fails CLOSED.
         const user = await getUserById(ctx.userId);
         if (!user) {
-          return errorResult("the acting user could not be resolved, so the run was not authorized");
+          return errorResult(
+            "the acting user could not be resolved, so the run was not authorized",
+          );
         }
 
         const decision = await canRunWorkflow(

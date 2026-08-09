@@ -1,4 +1,4 @@
-import { test, expect, describe, } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import type { JsonRpcNotification } from "../extensions/types";
@@ -111,10 +111,11 @@ describe("ExtensionStateMediator", () => {
     test("rejects when params is not object", () => {
       const { mediator, events } = setup();
       // Cast to bypass TS — simulates malformed notification from subprocess
-      mediator.handleNotification(
-        "ext-1",
-        { jsonrpc: "2.0", method: "ezcorp/state", params: "string" as any },
-      );
+      mediator.handleNotification("ext-1", {
+        jsonrpc: "2.0",
+        method: "ezcorp/state",
+        params: "string" as any,
+      });
       expect(events).toHaveLength(0);
     });
   });
@@ -223,10 +224,7 @@ describe("ExtensionStateMediator", () => {
 
     test("strips tags from arrays", () => {
       const { mediator, events } = setup();
-      mediator.handleNotification(
-        "ext-1",
-        makeNotification({ items: ["<a>", "ok", "<br/>"] }),
-      );
+      mediator.handleNotification("ext-1", makeNotification({ items: ["<a>", "ok", "<br/>"] }));
       const items = at(events, 0, "events").state.items as string[];
       expect(items).toEqual(["a", "ok", "br/"]);
     });

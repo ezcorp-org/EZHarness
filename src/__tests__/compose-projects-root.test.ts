@@ -90,9 +90,7 @@ describe("docker-compose.yml — project workspaces are host-visible and sandbox
     // If this expression moves, the branch above is testing a rule the
     // shipped code no longer follows.
     for (const route of ["mkdir", "list"]) {
-      const src = await Bun.file(
-        join(ROOT, "web/src/routes/api/fs", route, "+server.ts"),
-      ).text();
+      const src = await Bun.file(join(ROOT, "web/src/routes/api/fs", route, "+server.ts")).text();
       expect(src).toContain("process.env.EZCORP_PROJECT_ROOT ?? process.cwd()");
     }
   });
@@ -117,9 +115,7 @@ describe("docker-compose.yml — project workspaces are host-visible and sandbox
     const vols = await appVolumes("docker-compose.yml");
     const target = projectsTarget(vols);
 
-    const form = await Bun.file(
-      join(ROOT, "web/src/lib/components/ProjectForm.svelte"),
-    ).text();
+    const form = await Bun.file(join(ROOT, "web/src/lib/components/ProjectForm.svelte")).text();
     const matched = form.match(/initial\?\.path \?\? "([^"]+)"/);
     expect(matched).not.toBeNull();
     const defaultPath = matched![1]!;

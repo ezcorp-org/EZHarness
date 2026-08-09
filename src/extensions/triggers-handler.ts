@@ -64,10 +64,16 @@ import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import { validateCron, parseCron } from "./cron";
 import { ensureWebhookSecret, deleteWebhookSecret } from "./webhook-secret";
 import {
-  TRIGGER_KEY_RE, mintWebhookSlug, isMintableSlug, defaultPerKeyCap,
-  listDynamicCrons, listDynamicWebhooks,
-  upsertDynamicCron, upsertDynamicWebhook,
-  deleteDynamicCron, softDeleteDynamicWebhook,
+  TRIGGER_KEY_RE,
+  mintWebhookSlug,
+  isMintableSlug,
+  defaultPerKeyCap,
+  listDynamicCrons,
+  listDynamicWebhooks,
+  upsertDynamicCron,
+  upsertDynamicWebhook,
+  deleteDynamicCron,
+  softDeleteDynamicWebhook,
   manifestSlugExists,
   type TriggerKind,
 } from "./triggers-store";
@@ -158,7 +164,9 @@ export async function handleTriggersRpc(
   // importing this module never eagerly reads the `recordCapabilityCall`
   // binding, which would trip any test that mocks that module.
   deps: TriggersHandlerDeps = {
-    recordCapabilityCall, ensureWebhookSecret, deleteWebhookSecret,
+    recordCapabilityCall,
+    ensureWebhookSecret,
+    deleteWebhookSecret,
   },
 ): Promise<JsonRpcResponse> {
   const startedAt = Date.now();
@@ -228,11 +236,7 @@ export async function handleTriggersRpc(
   //    extensions are two different triggers.
   const key = params.key;
   if (typeof key !== "string" || !TRIGGER_KEY_RE.test(key)) {
-    return deny(
-      "TRIGGER_KEY_INVALID",
-      `'key' must match ${TRIGGER_KEY_RE.source}`,
-      -32602,
-    );
+    return deny("TRIGGER_KEY_INVALID", `'key' must match ${TRIGGER_KEY_RE.source}`, -32602);
   }
 
   const kind = params.kind;
@@ -291,7 +295,9 @@ async function handleRegister(
   if (kind === "cron") {
     if (granted.maxCron <= 0) {
       return deny("TRIGGERS_QUOTA_EXCEEDED", "cron triggers not granted", -32103, {
-        kind, key, cap: granted.maxCron,
+        kind,
+        key,
+        cap: granted.maxCron,
       });
     }
 
@@ -312,7 +318,9 @@ async function handleRegister(
       // this tier, and shadowing it would make the rejection
       // unclassifiable in analytics.
       return deny("TRIGGER_CRON_INVALID", `invalid cron: ${check.reason}`, -32602, {
-        kind, key, cronReason: check.reason,
+        kind,
+        key,
+        cronReason: check.reason,
       });
     }
 
@@ -327,7 +335,9 @@ async function handleRegister(
       // An unresolvable zone is the realistic case here; `validateCron`
       // already cleared the expression itself.
       return deny("TRIGGER_CRON_INVALID", `invalid cron: ${String(err)}`, -32602, {
-        kind, key, cronReason: String(err),
+        kind,
+        key,
+        cronReason: String(err),
       });
     }
 
@@ -339,7 +349,10 @@ async function handleRegister(
     const isUpdate = existing.some((r) => r.key === key);
     if (!isUpdate && existing.length >= granted.maxCron) {
       return deny("TRIGGERS_QUOTA_EXCEEDED", "cron trigger quota exceeded", -32103, {
-        kind, key, used: existing.length, cap: granted.maxCron,
+        kind,
+        key,
+        used: existing.length,
+        cap: granted.maxCron,
       });
     }
 
@@ -364,20 +377,31 @@ async function handleRegister(
     }
 
     await auditMutation(ctx, EXT_AUDIT_ACTIONS.SDK_TRIGGER_REGISTERED, {
-      kind, key, cron: expr, scheduleId: row.id,
+      kind,
+      key,
+      cron: expr,
+      scheduleId: row.id,
     });
     await audit(ctx, startedAt, deps, "register", {
-      success: true, resourceId: key, after: { kind, key, cron: expr },
+      success: true,
+      resourceId: key,
+      after: { kind, key, cron: expr },
     });
     return rpcResult(req.id, {
-      v: 1, key, kind, cron: expr, maxRunsPerDay: row.maxRunsPerDay,
+      v: 1,
+      key,
+      kind,
+      cron: expr,
+      maxRunsPerDay: row.maxRunsPerDay,
     });
   }
 
   // ── webhook ──
   if (granted.maxWebhooks <= 0) {
     return deny("TRIGGERS_QUOTA_EXCEEDED", "webhook triggers not granted", -32103, {
-      kind, key, cap: granted.maxWebhooks,
+      kind,
+      key,
+      cap: granted.maxWebhooks,
     });
   }
 
@@ -385,7 +409,10 @@ async function handleRegister(
   const isUpdate = existing.some((r) => r.key === key);
   if (!isUpdate && existing.length >= granted.maxWebhooks) {
     return deny("TRIGGERS_QUOTA_EXCEEDED", "webhook trigger quota exceeded", -32103, {
-      kind, key, used: existing.length, cap: granted.maxWebhooks,
+      kind,
+      key,
+      used: existing.length,
+      cap: granted.maxWebhooks,
     });
   }
 
@@ -402,14 +429,18 @@ async function handleRegister(
   // rows answering the same URL and the route picking arbitrarily.
   if (await manifestSlugExists(ctx.extensionName, slug)) {
     return deny("TRIGGERS_WRITE_FAILED", "slug collides with a manifest hook", -32603, {
-      kind, key,
+      kind,
+      key,
     });
   }
 
   let row: Awaited<ReturnType<typeof upsertDynamicWebhook>>;
   try {
     row = await upsertDynamicWebhook({
-      extensionName: ctx.extensionName, key, slug, now,
+      extensionName: ctx.extensionName,
+      key,
+      slug,
+      now,
     });
   } catch (err) {
     log.warn("webhook register write failed", { key, error: String(err) });
@@ -429,16 +460,25 @@ async function handleRegister(
   }
 
   await auditMutation(ctx, EXT_AUDIT_ACTIONS.SDK_TRIGGER_REGISTERED, {
-    kind, key, slug, webhookId: row.id,
+    kind,
+    key,
+    slug,
+    webhookId: row.id,
   });
   await audit(ctx, startedAt, deps, "register", {
-    success: true, resourceId: key, after: { kind, key, slug },
+    success: true,
+    resourceId: key,
+    after: { kind, key, slug },
   });
   // The URL, not the secret. The token is shown once through the existing
   // rotate route; echoing it here would put it in every audit and log sink
   // that sees an RPC result.
   return rpcResult(req.id, {
-    v: 1, key, kind, slug, url: `/api/hooks/${ctx.extensionName}/${slug}`,
+    v: 1,
+    key,
+    kind,
+    slug,
+    url: `/api/hooks/${ctx.extensionName}/${slug}`,
   });
 }
 
@@ -459,7 +499,9 @@ async function handleUnregister(
     }
     await auditMutation(ctx, EXT_AUDIT_ACTIONS.SDK_TRIGGER_UNREGISTERED, { kind, key });
     await audit(ctx, startedAt, deps, "unregister", {
-      success: true, resourceId: key, after: { kind, key },
+      success: true,
+      resourceId: key,
+      after: { kind, key },
     });
     return rpcResult(req.id, { v: 1, key, kind, removed: true });
   }
@@ -479,10 +521,14 @@ async function handleUnregister(
     log.warn("webhook secret delete failed", { key, error: String(err) });
   }
   await auditMutation(ctx, EXT_AUDIT_ACTIONS.SDK_TRIGGER_UNREGISTERED, {
-    kind, key, slug: freedSlug,
+    kind,
+    key,
+    slug: freedSlug,
   });
   await audit(ctx, startedAt, deps, "unregister", {
-    success: true, resourceId: key, after: { kind, key, slug: freedSlug },
+    success: true,
+    resourceId: key,
+    after: { kind, key, slug: freedSlug },
   });
   return rpcResult(req.id, { v: 1, key, kind, removed: true });
 }
@@ -517,7 +563,8 @@ async function handleList(
     })),
   ];
   await audit(ctx, startedAt, deps, "list", {
-    success: true, after: { count: triggers.length },
+    success: true,
+    after: { count: triggers.length },
   });
   return rpcResult(req.id, { v: 1, triggers });
 }

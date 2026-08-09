@@ -33,9 +33,11 @@ function requireAdminOr403(locals: App.Locals): Response | null {
 // other value of `enabled` (or any other field) is a no-op that returns
 // 400 "No valid update fields provided" today; passthrough preserves
 // that behaviour exactly while pinning the type of `enabled` itself.
-const extensionPatchSchema = z.object({
-  enabled: z.boolean().optional(),
-}).passthrough();
+const extensionPatchSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+  })
+  .passthrough();
 
 // GET resolves `[id]` as a REFERENCE (id OR manifest name) — it is the read
 // the `/extensions/<ref>` detail page issues, and the one deep-link the server

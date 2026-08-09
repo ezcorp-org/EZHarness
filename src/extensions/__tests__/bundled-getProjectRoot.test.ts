@@ -35,11 +35,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  __resetProjectRootCacheForTests,
-  getProjectRoot,
-  resolveProjectRoot,
-} from "../bundled";
+import { __resetProjectRootCacheForTests, getProjectRoot, resolveProjectRoot } from "../bundled";
 
 // Track tmpdirs created per test for afterEach cleanup.
 const tmpDirs: string[] = [];
@@ -60,7 +56,11 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const d of tmpDirs) {
-    try { rmSync(d, { recursive: true, force: true }); } catch { /* swallow */ }
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* swallow */
+    }
   }
   tmpDirs.length = 0;
   __resetProjectRootCacheForTests();

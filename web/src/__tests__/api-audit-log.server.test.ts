@@ -15,13 +15,8 @@ vi.mock("$server/db/queries/audit-log", () => ({
 const { listAuditLog } = await import("$server/db/queries/audit-log");
 const { GET } = await import("../routes/api/audit-log/+server");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  query?: Record<string, string>;
-}) {
-  const qs = opts.query
-    ? "?" + new URLSearchParams(opts.query).toString()
-    : "";
+function makeEvent(opts: { locals?: Record<string, unknown>; query?: Record<string, string> }) {
+  const qs = opts.query ? "?" + new URLSearchParams(opts.query).toString() : "";
   const url = "http://localhost/api/audit-log" + qs;
   return {
     url: new URL(url),
@@ -51,9 +46,7 @@ describe("GET /api/audit-log", () => {
   });
 
   test("rejects 403 when API-key lacks 'admin' scope", async () => {
-    const res = await GET(
-      makeEvent({ locals: { ...adminLocals, apiKeyScopes: ["read"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { ...adminLocals, apiKeyScopes: ["read"] } }));
     expect(res.status).toBe(403);
   });
 
@@ -88,9 +81,7 @@ describe("GET /api/audit-log", () => {
   });
 
   test("returns entries wrapped in { entries }", async () => {
-    vi.mocked(listAuditLog).mockResolvedValue([
-      { id: 1, action: "x" },
-    ] as any);
+    vi.mocked(listAuditLog).mockResolvedValue([{ id: 1, action: "x" }] as any);
     const res = await GET(makeEvent({ locals: adminLocals }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { entries?: unknown[] };

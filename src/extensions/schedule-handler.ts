@@ -103,9 +103,13 @@ export async function handlePiSchedule(
     });
     if (result.reason === "max-runs-per-day-exceeded") {
       return {
-        jsonrpc: "2.0", id: req.id,
-        error: { code: -32103, message: "schedule quota exceeded",
-                 data: { reason: "max-runs-per-day-exceeded" } },
+        jsonrpc: "2.0",
+        id: req.id,
+        error: {
+          code: -32103,
+          message: "schedule quota exceeded",
+          data: { reason: "max-runs-per-day-exceeded" },
+        },
       };
     }
     return softFail(req, result.reason);

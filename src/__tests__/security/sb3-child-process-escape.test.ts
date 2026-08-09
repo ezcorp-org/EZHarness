@@ -55,10 +55,11 @@ async function runUnderPreload(
   if (opts.networkAllowed) env.EZCORP_NETWORK_ALLOWED = "1";
   if (opts.shellAllowed) env.EZCORP_SHELL_ALLOWED = "1";
 
-  const proc = Bun.spawn(
-    ["bun", "--preload", SANDBOX_PRELOAD_PATH, "-e", code],
-    { stdout: "pipe", stderr: "pipe", env },
-  );
+  const proc = Bun.spawn(["bun", "--preload", SANDBOX_PRELOAD_PATH, "-e", code], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env,
+  });
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -86,27 +87,21 @@ const SHELL_DENY = /requires 'shell' permission/;
 
 describe("sec-SB3: child_process blocked without shell permission", () => {
   test("require('child_process').spawn throws with shell-permission error", async () => {
-    const out = await runUnderPreload(
-      probeSync(`require('child_process').spawn('ls', [])`),
-    );
+    const out = await runUnderPreload(probeSync(`require('child_process').spawn('ls', [])`));
     expect(out.stdout).toMatch(SHELL_DENY);
     expect(out.stdout).not.toMatch(/^OK$/m);
   });
 
   test("require('child_process').exec throws with shell-permission error", async () => {
     // exec is the classic shell-escape surface; it must also be denied.
-    const out = await runUnderPreload(
-      probeSync(`require('child_process').exec('echo hi')`),
-    );
+    const out = await runUnderPreload(probeSync(`require('child_process').exec('echo hi')`));
     expect(out.stdout).toMatch(SHELL_DENY);
   });
 
   test("require('node:child_process') throws (node: prefix is also blocked)", async () => {
     // Pre-fix neither form was blocked; post-fix the `node:` prefix form is
     // registered in the blocklist alongside the bare form.
-    const out = await runUnderPreload(
-      probeSync(`require('node:child_process').spawn('ls', [])`),
-    );
+    const out = await runUnderPreload(probeSync(`require('node:child_process').spawn('ls', [])`));
     expect(out.stdout).toMatch(SHELL_DENY);
   });
 
@@ -230,9 +225,7 @@ describe("sec-SB3: grant/revoke cycle — a fresh subprocess respects a flipped 
     // on the NEXT spawned subprocess — existing procs are not dynamically
     // revoked. This test pins that a permission grant or revoke is honored
     // by the next process the mediator spawns.
-    const deny1 = await runUnderPreload(
-      probeSync(`require('child_process').spawn('ls', [])`),
-    );
+    const deny1 = await runUnderPreload(probeSync(`require('child_process').spawn('ls', [])`));
     expect(deny1.stdout).toMatch(SHELL_DENY);
 
     const grantRun = await runUnderPreload(

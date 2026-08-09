@@ -135,7 +135,7 @@ let inserted: Array<Record<string, unknown>>;
 
 const kbMock = () => ({
   listKBFiles: async (projectId: string) =>
-    [...kbStore.values()].filter(r => r.projectId === projectId),
+    [...kbStore.values()].filter((r) => r.projectId === projectId),
   getKBFile: async (id: string) => kbStore.get(id) ?? undefined,
   deleteKBFile: async (id: string) => kbStore.delete(id),
   insertKBFile: async (data: Record<string, unknown>) => {
@@ -159,7 +159,10 @@ mock.module("../../db/queries/knowledge-base", kbMock);
 
 // ── Handler imports (AFTER mocks) ────────────────────────────────
 
-import { GET as kbList, POST as kbUpload } from "../../../web/src/routes/api/knowledge-base/+server";
+import {
+  GET as kbList,
+  POST as kbUpload,
+} from "../../../web/src/routes/api/knowledge-base/+server";
 import {
   GET as kbDetail,
   DELETE as kbDelete,
@@ -178,8 +181,18 @@ afterAll(() => {
   restoreModuleMocks();
 });
 
-const UPLOADER = { id: "user-uploader", email: "up@test.local", name: "Uploader", role: "member" } as const;
-const OTHER = { id: "user-other", email: "other@test.local", name: "Other", role: "member" } as const;
+const UPLOADER = {
+  id: "user-uploader",
+  email: "up@test.local",
+  name: "Uploader",
+  role: "member",
+} as const;
+const OTHER = {
+  id: "user-other",
+  email: "other@test.local",
+  name: "Other",
+  role: "member",
+} as const;
 
 const SHARED = "kb-shared-null-owner";
 const OWNED_BY_UPLOADER = "kb-owned-by-uploader";
@@ -190,7 +203,12 @@ beforeEach(() => {
     [SHARED, { id: SHARED, projectId: PROJECT, userId: null, filename: "team-handbook.md" }],
     [
       OWNED_BY_UPLOADER,
-      { id: OWNED_BY_UPLOADER, projectId: PROJECT, userId: UPLOADER.id, filename: "uploader-private.md" },
+      {
+        id: OWNED_BY_UPLOADER,
+        projectId: PROJECT,
+        userId: UPLOADER.id,
+        filename: "uploader-private.md",
+      },
     ],
   ]);
 });
@@ -208,7 +226,7 @@ async function listedFor(user: unknown, id: string): Promise<boolean> {
   );
   expect(res.status).toBe(200);
   const rows = (await res.json()) as Array<{ id: string }>;
-  return rows.some(r => r.id === id);
+  return rows.some((r) => r.id === id);
 }
 
 /** Does `GET /api/knowledge-base/[id]` return the row for this user? */

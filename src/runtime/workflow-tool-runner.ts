@@ -99,10 +99,7 @@ export function createWorkflowToolRunner(
   });
   const executor = new ToolExecutor(registry, engine, { bus });
   if (pendingPermissions) {
-    executor.setPendingPermissionGate(
-      pendingPermissions.register,
-      pendingPermissions.deregister,
-    );
+    executor.setPendingPermissionGate(pendingPermissions.register, pendingPermissions.deregister);
   }
   return executor;
 }

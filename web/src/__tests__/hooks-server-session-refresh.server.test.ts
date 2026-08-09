@@ -102,7 +102,9 @@ const BASE_PAYLOAD = {
   role: "member" as const,
 };
 
-function nowSeconds() { return Math.floor(Date.now() / 1000); }
+function nowSeconds() {
+  return Math.floor(Date.now() / 1000);
+}
 
 describe("hooks.server.ts — sliding session refresh", () => {
   beforeEach(() => {
@@ -147,8 +149,7 @@ describe("hooks.server.ts — sliding session refresh", () => {
     expect(callArgs.id).toBe("sess-1");
     expect(callArgs.oldTokenHash).toBe("hash:incoming-token");
     expect(callArgs.newTokenHash).toBe("hash:rotated-token");
-    const expiresInSeconds =
-      Math.floor(callArgs.newExpiresAt.getTime() / 1000) - nowSeconds();
+    const expiresInSeconds = Math.floor(callArgs.newExpiresAt.getTime() / 1000) - nowSeconds();
     // Allow a few seconds of test drift around the lifetime budget.
     expect(expiresInSeconds).toBeGreaterThan(NEW_LIFETIME_SECONDS - 5);
     expect(expiresInSeconds).toBeLessThanOrEqual(NEW_LIFETIME_SECONDS + 5);
@@ -239,9 +240,7 @@ describe("hooks.server.ts — sliding session refresh", () => {
     const resolve = vi.fn(async () => new Response("ok", { status: 200 }));
     const res = (await handle({ event, resolve } as any)) as Response;
 
-    expect(res.headers.get("Permissions-Policy")).toBe(
-      "camera=(), microphone=(), geolocation=()",
-    );
+    expect(res.headers.get("Permissions-Policy")).toBe("camera=(), microphone=(), geolocation=()");
   });
 
   test("CAS race lost (rotateSessionToken returns null) → no Set-Cookie, request still succeeds", async () => {
@@ -260,7 +259,7 @@ describe("hooks.server.ts — sliding session refresh", () => {
 
     expect(res.status).toBe(200);
     expect(vi.mocked(signJWT)).toHaveBeenCalledTimes(1); // we still signed
-    expect(event.cookies.set).not.toHaveBeenCalled();    // but didn't bind
+    expect(event.cookies.set).not.toHaveBeenCalled(); // but didn't bind
   });
 
   test("rotateSessionToken throws → request still succeeds, no Set-Cookie", async () => {
@@ -313,7 +312,11 @@ describe("hooks.server.ts — sliding session refresh", () => {
     const resolve = vi.fn();
 
     let thrown: unknown;
-    try { await handle({ event, resolve } as any); } catch (err) { thrown = err; }
+    try {
+      await handle({ event, resolve } as any);
+    } catch (err) {
+      thrown = err;
+    }
 
     expect(thrown).toBeDefined();
     // Revoked redirect wins; refresh code is never reached.

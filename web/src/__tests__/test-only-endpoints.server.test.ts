@@ -28,24 +28,14 @@
  * file contents on disk without polluting the worktree.
  */
 
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  test,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // ── Module mocks (BEFORE the route imports) ─────────────────────────
 
-const draftStore = new Map<
-  string,
-  { userId: string; kind: string; payload: unknown }
->();
+const draftStore = new Map<string, { userId: string; kind: string; payload: unknown }>();
 let nextDraftId = 1;
 
 // Track the active tmpdir per test so `getExtensionAuthorDraftDir`
@@ -55,21 +45,19 @@ let TMP_ROOT = "";
 vi.mock("$server/db/queries/ez-drafts", async () => {
   const { join } = await import("node:path");
   return {
-    createDraft: vi.fn(
-      async (data: { userId: string; kind: string; payload: unknown }) => {
-        const id = `draft-${nextDraftId++}`;
-        draftStore.set(id, { userId: data.userId, kind: data.kind, payload: data.payload });
-        return {
-          id,
-          userId: data.userId,
-          kind: data.kind,
-          payload: data.payload,
-          createdAt: new Date(),
-          expiresAt: new Date(Date.now() + 60_000),
-          consumedAt: null,
-        };
-      },
-    ),
+    createDraft: vi.fn(async (data: { userId: string; kind: string; payload: unknown }) => {
+      const id = `draft-${nextDraftId++}`;
+      draftStore.set(id, { userId: data.userId, kind: data.kind, payload: data.payload });
+      return {
+        id,
+        userId: data.userId,
+        kind: data.kind,
+        payload: data.payload,
+        createdAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        consumedAt: null,
+      };
+    }),
     getExtensionAuthorDraftDir: vi.fn((draftId: string, userId: string) =>
       join(TMP_ROOT, ".ezcorp/extension-data/extension-author/drafts", userId, draftId),
     ),
@@ -90,7 +78,7 @@ let mockDeleteExtension = vi.fn(async (id: string) => {
 
 vi.mock("$server/db/queries/extensions", () => ({
   getExtensionByName: vi.fn(async (name: string) => extensionStore.get(name) ?? null),
-  deleteExtension: (...args: unknown[]) => mockDeleteExtension(...args as [string]),
+  deleteExtension: (...args: unknown[]) => mockDeleteExtension(...(args as [string])),
 }));
 
 // Mock $server/extensions/bundled — the cleanup endpoint imports
@@ -112,32 +100,26 @@ vi.mock("$server/auth/middleware", () => ({
     }
     return locals.user;
   }),
-  requireRole: vi.fn(
-    (locals: { user?: { id: string; role: string } }, role: string) => {
-      if (!locals.user) {
-        throw new Response(JSON.stringify({ error: "Authentication required" }), {
-          status: 401,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      if (locals.user.role !== role) {
-        throw new Response(JSON.stringify({ error: "Insufficient permissions" }), {
-          status: 403,
-          headers: { "Content-Type": "application/json" },
-        });
-      }
-      return locals.user;
-    },
-  ),
+  requireRole: vi.fn((locals: { user?: { id: string; role: string } }, role: string) => {
+    if (!locals.user) {
+      throw new Response(JSON.stringify({ error: "Authentication required" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (locals.user.role !== role) {
+      throw new Response(JSON.stringify({ error: "Insufficient permissions" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return locals.user;
+  }),
 }));
 
 // Imports come AFTER the mocks. Both handlers are dynamic-loaded.
-const { POST: seedPOST } = await import(
-  "../routes/api/__test/seed-extension-author-draft/+server"
-);
-const { POST: cleanupPOST } = await import(
-  "../routes/api/__test/cleanup-extension/+server"
-);
+const { POST: seedPOST } = await import("../routes/api/__test/seed-extension-author-draft/+server");
+const { POST: cleanupPOST } = await import("../routes/api/__test/cleanup-extension/+server");
 
 // ── Test fixtures ──────────────────────────────────────────────────
 
@@ -198,7 +180,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  try { rmSync(TMP_ROOT, { recursive: true, force: true }); } catch { /* swallow */ }
+  try {
+    rmSync(TMP_ROOT, { recursive: true, force: true });
+  } catch {
+    /* swallow */
+  }
   delete process.env.PI_E2E_REAL;
   delete process.env.NODE_ENV;
   delete process.env.EZCORP_ALLOW_TEST_SURFACE;

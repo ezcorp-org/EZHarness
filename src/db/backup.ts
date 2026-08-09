@@ -82,17 +82,19 @@ export function getBackupDir(): string {
 
 function markerPath(): string {
   const dbPath = getDbPath();
-  const base = dbPath === "external" || dbPath === ":memory:"
-    ? `${process.env.HOME}/ez-corp/.data`
-    : dirname(dbPath);
+  const base =
+    dbPath === "external" || dbPath === ":memory:"
+      ? `${process.env.HOME}/ez-corp/.data`
+      : dirname(dbPath);
   return join(base, MARKER_FILENAME);
 }
 
 function recoveryMarkerPath(): string {
   const dbPath = getDbPath();
-  const base = dbPath === "external" || dbPath === ":memory:"
-    ? `${process.env.HOME}/ez-corp/.data`
-    : dirname(dbPath);
+  const base =
+    dbPath === "external" || dbPath === ":memory:"
+      ? `${process.env.HOME}/ez-corp/.data`
+      : dirname(dbPath);
   return join(base, RECOVERY_MARKER_FILENAME);
 }
 
@@ -269,7 +271,11 @@ export function readMarker(): MigrationFailureMarker | null {
   try {
     const raw = readFileSync(path, "utf8");
     const parsed = JSON.parse(raw);
-    if (typeof parsed?.imageSha === "string" && typeof parsed?.error === "string" && typeof parsed?.ts === "string") {
+    if (
+      typeof parsed?.imageSha === "string" &&
+      typeof parsed?.error === "string" &&
+      typeof parsed?.ts === "string"
+    ) {
       return parsed as MigrationFailureMarker;
     }
     return null;
@@ -369,4 +375,3 @@ export function stopBackups(): void {
   }
   performBackup(); // Final backup on shutdown (no-op in degraded mode)
 }
-

@@ -57,15 +57,9 @@ const { shareAgent, unshareAgent, getAgentShares } = await import(
   "$server/db/queries/agent-shares"
 );
 const { getTeamMembership } = await import("$server/db/queries/teams");
-const { GET, POST, DELETE } = await import(
-  "../routes/api/agents/[id]/share/+server"
-);
+const { GET, POST, DELETE } = await import("../routes/api/agents/[id]/share/+server");
 
-function makeEvent(opts: {
-  id?: string;
-  body?: unknown;
-  locals?: Record<string, unknown>;
-}) {
+function makeEvent(opts: { id?: string; body?: unknown; locals?: Record<string, unknown> }) {
   const id = opts.id ?? "agent-1";
   return {
     url: new URL(`http://localhost/api/agents/${id}/share`),
@@ -128,9 +122,7 @@ describe("GET /api/agents/[id]/share", () => {
 
   test("returns shares list on happy path", async () => {
     vi.mocked(getAgentConfig).mockResolvedValue(ownedAgent as any);
-    vi.mocked(getAgentShares).mockResolvedValue([
-      { teamId: "t-1", permission: "read" },
-    ] as any);
+    vi.mocked(getAgentShares).mockResolvedValue([{ teamId: "t-1", permission: "read" }] as any);
     const res = await GET(makeEvent({ locals: { user: ownerUser } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { shares: unknown[] };
@@ -216,17 +208,12 @@ describe("DELETE /api/agents/[id]/share", () => {
   });
 
   test("rejects 401 when no auth", async () => {
-    await expectThrown(
-      () => DELETE(makeEvent({ body: { teamId: "t1" } })),
-      401,
-    );
+    await expectThrown(() => DELETE(makeEvent({ body: { teamId: "t1" } })), 401);
   });
 
   test("returns 400 when neither teamId nor userId provided", async () => {
     vi.mocked(getAgentConfig).mockResolvedValue(ownedAgent as any);
-    const res = await DELETE(
-      makeEvent({ locals: { user: ownerUser }, body: {} }),
-    );
+    const res = await DELETE(makeEvent({ locals: { user: ownerUser }, body: {} }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("teamId or userId is required");

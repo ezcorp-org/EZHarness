@@ -17,7 +17,9 @@ import type { CapabilitySet } from "../extensions/capability-types";
 
 // ── A permission engine fake that records authorize() calls ─────────
 
-function fakeEngine(decision: "allow" | "deny" = "allow"): PermissionEngine & { calls: Array<{ value?: string }> } {
+function fakeEngine(
+  decision: "allow" | "deny" = "allow",
+): PermissionEngine & { calls: Array<{ value?: string }> } {
   const calls: Array<{ value?: string }> = [];
   return {
     calls,
@@ -55,7 +57,13 @@ async function ctxFor(watchedRoot: string, engine?: PermissionEngine): Promise<A
 }
 
 function moveProposal(src: string, dst: string, size: number): ApplierProposal {
-  return { id: "p1", kind: "move", src, dst, snapshot: { size, mtimeMs: 0, isSymlink: false, nlink: 1 } };
+  return {
+    id: "p1",
+    kind: "move",
+    src,
+    dst,
+    snapshot: { size, mtimeMs: 0, isSymlink: false, nlink: 1 },
+  };
 }
 
 describe("applyProposal — move", () => {
@@ -137,7 +145,10 @@ describe("applyProposal — move", () => {
     const watched = join(root, "w");
     await mkdir(watched, { recursive: true });
     const ctx = await ctxFor(watched);
-    const outcome = await applyProposal(moveProposal(join(watched, "gone.txt"), join(watched, "sub", "gone.txt"), 1), ctx);
+    const outcome = await applyProposal(
+      moveProposal(join(watched, "gone.txt"), join(watched, "sub", "gone.txt"), 1),
+      ctx,
+    );
     expect(outcome.status).toBe("stale-source");
   });
 
@@ -147,7 +158,13 @@ describe("applyProposal — move", () => {
     const src = join(watched, "mystery.dat");
     await writeFile(src, "x");
     const ctx = await ctxFor(watched);
-    const p: ApplierProposal = { id: "u", kind: "unclassified", src, dst: null, snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 } };
+    const p: ApplierProposal = {
+      id: "u",
+      kind: "unclassified",
+      src,
+      dst: null,
+      snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 },
+    };
     const outcome = await applyProposal(p, ctx);
     expect(outcome.status).toBe("skipped");
     expect(outcome.reason).toContain("not directly applyable");
@@ -179,7 +196,13 @@ describe("applyProposal — move", () => {
     const link = join(watched, "link.txt");
     await symlink(target, link);
     const ctx = await ctxFor(watched);
-    const p: ApplierProposal = { id: "p", kind: "move", src: link, dst: join(watched, "sub", "x"), snapshot: { size: 0, mtimeMs: 0, isSymlink: true, nlink: 1 } };
+    const p: ApplierProposal = {
+      id: "p",
+      kind: "move",
+      src: link,
+      dst: join(watched, "sub", "x"),
+      snapshot: { size: 0, mtimeMs: 0, isSymlink: true, nlink: 1 },
+    };
     const outcome = await applyProposal(p, ctx);
     expect(outcome.status).toBe("skipped");
     expect(await _applierInternals.pathExists(target)).toBe(true);
@@ -193,7 +216,14 @@ describe("applyProposal — quarantine", () => {
     const src = join(watched, "junk.tmp");
     await writeFile(src, "junk");
     const ctx = await ctxFor(watched);
-    const p: ApplierProposal = { id: "p", kind: "delete-quarantine", src, dst: null, quarantineId: "q1", snapshot: { size: 4, mtimeMs: 0, isSymlink: false, nlink: 1 } };
+    const p: ApplierProposal = {
+      id: "p",
+      kind: "delete-quarantine",
+      src,
+      dst: null,
+      quarantineId: "q1",
+      snapshot: { size: 4, mtimeMs: 0, isSymlink: false, nlink: 1 },
+    };
     const outcome = await applyProposal(p, ctx);
     expect(outcome.status).toBe("applied");
     expect(outcome.quarantineId).toBe("q1");
@@ -207,7 +237,13 @@ describe("applyProposal — quarantine", () => {
     const src = join(watched, "junk.tmp");
     await writeFile(src, "j");
     const ctx = await ctxFor(watched, fakeEngine("deny"));
-    const p: ApplierProposal = { id: "p", kind: "delete-quarantine", src, dst: null, snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 } };
+    const p: ApplierProposal = {
+      id: "p",
+      kind: "delete-quarantine",
+      src,
+      dst: null,
+      snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 },
+    };
     const outcome = await applyProposal(p, ctx);
     expect(outcome.status).toBe("blocked");
     expect(await _applierInternals.pathExists(src)).toBe(true);
@@ -234,7 +270,10 @@ describe("restoreFromQuarantine", () => {
     const watched = join(root, "w");
     await mkdir(watched, { recursive: true });
     const ctx = await ctxFor(watched);
-    const outcome = await restoreFromQuarantine({ trashPath: join(ctx.trashRoot, "nope", "x"), restorePath: join(watched, "x") }, ctx);
+    const outcome = await restoreFromQuarantine(
+      { trashPath: join(ctx.trashRoot, "nope", "x"), restorePath: join(watched, "x") },
+      ctx,
+    );
     expect(outcome.status).toBe("stale-source");
   });
 
@@ -243,7 +282,10 @@ describe("restoreFromQuarantine", () => {
     const trashed = join(ctx.trashRoot, "q2", "x");
     await mkdir(join(ctx.trashRoot, "q2"), { recursive: true });
     await writeFile(trashed, "x");
-    const outcome = await restoreFromQuarantine({ trashPath: trashed, restorePath: join(root, ".ezcorp", "data", "x") }, ctx);
+    const outcome = await restoreFromQuarantine(
+      { trashPath: trashed, restorePath: join(root, ".ezcorp", "data", "x") },
+      ctx,
+    );
     expect(outcome.status).toBe("blocked");
   });
 });
@@ -329,10 +371,14 @@ describe("guards (unit)", () => {
     // protected dir is <proj>/.ezcorp/data (its .ezcorp sibling).
     const proj = "/home/dev/proj";
     const dataDirRoot = join(proj, ".ezcorp", "extension-data", "file-organizer");
-    expect(_applierInternals.touchesDataDir(join(proj, ".ezcorp", "data", "ez.db"), dataDirRoot)).toBe(true);
+    expect(
+      _applierInternals.touchesDataDir(join(proj, ".ezcorp", "data", "ez.db"), dataDirRoot),
+    ).toBe(true);
     expect(_applierInternals.touchesDataDir(join(proj, ".ezcorp", "data"), dataDirRoot)).toBe(true);
     // A sibling that merely shares the `.ezcorp` parent but is NOT data/ is fine.
-    expect(_applierInternals.touchesDataDir(join(proj, ".ezcorp", "extension-data", "x"), dataDirRoot)).toBe(false);
+    expect(
+      _applierInternals.touchesDataDir(join(proj, ".ezcorp", "extension-data", "x"), dataDirRoot),
+    ).toBe(false);
     // The anchored check is in addition to the loose fallback — a path under
     // a DIFFERENT project's .ezcorp/data still trips the substring guard.
     expect(_applierInternals.touchesDataDir("/other/.ezcorp/data/y", dataDirRoot)).toBe(true);
@@ -342,8 +388,12 @@ describe("guards (unit)", () => {
     const d = join(root, "no");
     await mkdir(d, { recursive: true });
     await writeFile(join(d, "f.txt"), "1");
-    expect(await _applierInternals.resolveNonOverwrite(join(d, "f.txt"))).toBe(join(d, "f (2).txt"));
-    expect(await _applierInternals.resolveNonOverwrite(join(d, "free.txt"))).toBe(join(d, "free.txt"));
+    expect(await _applierInternals.resolveNonOverwrite(join(d, "f.txt"))).toBe(
+      join(d, "f (2).txt"),
+    );
+    expect(await _applierInternals.resolveNonOverwrite(join(d, "free.txt"))).toBe(
+      join(d, "free.txt"),
+    );
     void stat; // silence unused import in some toolchains
   });
 
@@ -353,12 +403,18 @@ describe("guards (unit)", () => {
     // A dotfile collision: `.bashrc` has NO extension — the suffix must
     // land on the stem, not split as ext=".bashrc" → " (2).bashrc".
     await writeFile(join(d, ".bashrc"), "1");
-    expect(await _applierInternals.resolveNonOverwrite(join(d, ".bashrc"))).toBe(join(d, ".bashrc (2)"));
+    expect(await _applierInternals.resolveNonOverwrite(join(d, ".bashrc"))).toBe(
+      join(d, ".bashrc (2)"),
+    );
     // A multi-dot name keeps only the final ext segment.
     await writeFile(join(d, "archive.tar.gz"), "1");
-    expect(await _applierInternals.resolveNonOverwrite(join(d, "archive.tar.gz"))).toBe(join(d, "archive.tar (2).gz"));
+    expect(await _applierInternals.resolveNonOverwrite(join(d, "archive.tar.gz"))).toBe(
+      join(d, "archive.tar (2).gz"),
+    );
     // A dotfile WITH an ext (`.config.json`) splits at the last dot.
     await writeFile(join(d, ".config.json"), "1");
-    expect(await _applierInternals.resolveNonOverwrite(join(d, ".config.json"))).toBe(join(d, ".config (2).json"));
+    expect(await _applierInternals.resolveNonOverwrite(join(d, ".config.json"))).toBe(
+      join(d, ".config (2).json"),
+    );
   });
 });

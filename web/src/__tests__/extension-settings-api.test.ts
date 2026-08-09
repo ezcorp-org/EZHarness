@@ -54,9 +54,7 @@ const SETTINGS_SCHEMA = {
   },
 };
 
-let mockExt:
-  | { id: string; manifest: { settings?: unknown } | null }
-  | null = null;
+let mockExt: { id: string; manifest: { settings?: unknown } | null } | null = null;
 const mockGetExtension = mock(async (_id: string) => mockExt);
 mock.module("$server/db/queries/extensions", () => ({
   getExtension: mockGetExtension,
@@ -86,8 +84,7 @@ mock.module("$server/db/queries/extension-settings", () => ({
   getUserSettings: async (_userId: string, _extensionId: string) => mockUserValues,
   setUserSettings: mockSetUser,
   clearUserSettings: mockClearUser,
-  resolveExtensionSettings: async (_extensionId: string, _userId: string | null) =>
-    mockResolved,
+  resolveExtensionSettings: async (_extensionId: string, _userId: string | null) => mockResolved,
 }));
 
 const mockAudit = mock(async (..._args: unknown[]) => {});
@@ -108,9 +105,8 @@ const mockSetSecret = mock(
     mockSecretStore.set(secretKeyOf(extId, userId, storageKey), value);
   },
 );
-const mockClearSecret = mock(
-  async (extId: string, userId: string, storageKey: string) =>
-    mockSecretStore.delete(secretKeyOf(extId, userId, storageKey)),
+const mockClearSecret = mock(async (extId: string, userId: string, storageKey: string) =>
+  mockSecretStore.delete(secretKeyOf(extId, userId, storageKey)),
 );
 mock.module("$server/extensions/secret-settings", () => ({
   setSecretSetting: mockSetSecret,
@@ -143,12 +139,8 @@ mock.module("$server/search/policy", () => ({
   getHeldCapabilities: mockGetHeldCapabilities,
 }));
 
-const settingsRoute = await import(
-  "../routes/api/extensions/[id]/settings/+server"
-);
-const userRoute = await import(
-  "../routes/api/extensions/[id]/settings/user/+server"
-);
+const settingsRoute = await import("../routes/api/extensions/[id]/settings/+server");
+const userRoute = await import("../routes/api/extensions/[id]/settings/user/+server");
 
 interface RequestEventLike {
   request: Request;
@@ -156,10 +148,7 @@ interface RequestEventLike {
   params: { id: string };
 }
 
-async function call(
-  handler: (e: never) => unknown,
-  event: RequestEventLike,
-): Promise<Response> {
+async function call(handler: (e: never) => unknown, event: RequestEventLike): Promise<Response> {
   try {
     return (await handler(event as never)) as Response;
   } catch (thrown) {
@@ -179,12 +168,7 @@ function makeEvent(
     request: new Request(`http://localhost/api/extensions/${id}/settings`, {
       method,
       headers: { "Content-Type": "application/json" },
-      body:
-        body === undefined
-          ? undefined
-          : typeof body === "string"
-            ? body
-            : JSON.stringify(body),
+      body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body),
     }),
     locals: apiKeyScopes ? { user: mockUser, apiKeyScopes } : { user: mockUser },
     params: { id },
@@ -255,20 +239,14 @@ describe("extension settings API", () => {
     });
 
     test("DELETE with a read-only key → 403, and nothing is cleared", async () => {
-      const res = await call(
-        userRoute.DELETE,
-        makeEvent("DELETE", undefined, "ext-1", ["read"]),
-      );
+      const res = await call(userRoute.DELETE, makeEvent("DELETE", undefined, "ext-1", ["read"]));
       expect(res.status).toBe(403);
       expect(mockClearUser).not.toHaveBeenCalled();
     });
 
     // Paired controls — a fix that denies everyone is not a fix.
     test("PUT from a COOKIE session still succeeds and stores the secret", async () => {
-      const res = await call(
-        userRoute.PUT,
-        makeEvent("PUT", { values: { apiKey: "sk-legit" } }),
-      );
+      const res = await call(userRoute.PUT, makeEvent("PUT", { values: { apiKey: "sk-legit" } }));
       expect(res.status).toBe(200);
       expect(mockSetSecret).toHaveBeenCalled();
     });
@@ -308,10 +286,7 @@ describe("extension settings API", () => {
 
     test("PUT /settings/user → 401 when caller has no session", async () => {
       mockUser = null;
-      const res = await call(
-        userRoute.PUT,
-        makeEvent("PUT", { values: { voice: "am_adam" } }),
-      );
+      const res = await call(userRoute.PUT, makeEvent("PUT", { values: { voice: "am_adam" } }));
       expect(res.status).toBe(401);
       expect(mockGetExtension).not.toHaveBeenCalled();
       expect(mockSetUser).not.toHaveBeenCalled();
@@ -401,7 +376,10 @@ describe("extension settings API", () => {
     const SEARCH_CAP = {
       cap: "search",
       schema: [
-        { key: "providers", field: { type: "select", label: "Allowed providers", options: [], default: "inherit" } },
+        {
+          key: "providers",
+          field: { type: "select", label: "Allowed providers", options: [], default: "inherit" },
+        },
         { key: "quota", field: { type: "number", label: "Daily quota", default: 100 } },
       ],
       effective: { denied: false, quota: 100, maxResults: 5, providers: "all" },
@@ -430,7 +408,10 @@ describe("extension settings API", () => {
         id: "ext-1",
         manifest: { settings: undefined },
       } as never;
-      (mockExt as { grantedPermissions?: unknown }).grantedPermissions = { grantedAt: {}, search: "inherit" };
+      (mockExt as { grantedPermissions?: unknown }).grantedPermissions = {
+        grantedAt: {},
+        search: "inherit",
+      };
       mockCapabilities = [SEARCH_CAP];
       const res = await call(settingsRoute.GET, makeEvent("GET", undefined));
       const body = await res.json();
@@ -517,10 +498,7 @@ describe("extension settings API", () => {
     test("400 when values missing or not an object", async () => {
       const a = await call(userRoute.PUT, makeEvent("PUT", { other: "x" }));
       expect(a.status).toBe(400);
-      const b = await call(
-        userRoute.PUT,
-        makeEvent("PUT", { values: "string" }),
-      );
+      const b = await call(userRoute.PUT, makeEvent("PUT", { values: "string" }));
       expect(b.status).toBe(400);
       const c = await call(userRoute.PUT, makeEvent("PUT", "not-json"));
       expect(c.status).toBe(400);
@@ -540,17 +518,11 @@ describe("extension settings API", () => {
       expect(numRes.status).toBe(400);
 
       // {values: null} — explicit null fails the "object" guard.
-      const nullValsRes = await call(
-        userRoute.PUT,
-        makeEvent("PUT", { values: null }),
-      );
+      const nullValsRes = await call(userRoute.PUT, makeEvent("PUT", { values: null }));
       expect(nullValsRes.status).toBe(400);
 
       // {values: []} — array fails the explicit Array.isArray guard.
-      const arrValsRes = await call(
-        userRoute.PUT,
-        makeEvent("PUT", { values: [] }),
-      );
+      const arrValsRes = await call(userRoute.PUT, makeEvent("PUT", { values: [] }));
       expect(arrValsRes.status).toBe(400);
       expect(mockSetUser).not.toHaveBeenCalled();
     });
@@ -630,12 +602,7 @@ describe("extension settings API", () => {
 
         // Encrypted-storage write got the plaintext, keyed by storageKey.
         expect(mockSetSecret).toHaveBeenCalledTimes(1);
-        expect(mockSetSecret).toHaveBeenCalledWith(
-          "ext-1",
-          "user-1",
-          "psa-token",
-          PLAINTEXT,
-        );
+        expect(mockSetSecret).toHaveBeenCalledWith("ext-1", "user-1", "psa-token", PLAINTEXT);
         // The settings JSON write NEVER sees the secret key.
         expect(mockSetUser).toHaveBeenCalledTimes(1);
         expect(mockSetUser.mock.calls[0]![2]).toEqual({ voice: "am_adam" });
@@ -650,10 +617,7 @@ describe("extension settings API", () => {
       });
 
       test("audit row is NAME-ONLY: secretsSet lists the field, no arg carries the plaintext", async () => {
-        await call(
-          userRoute.PUT,
-          makeEvent("PUT", { values: { psa_api_token: PLAINTEXT } }),
-        );
+        await call(userRoute.PUT, makeEvent("PUT", { values: { psa_api_token: PLAINTEXT } }));
         expect(mockAudit).toHaveBeenCalledTimes(1);
         const args = mockAudit.mock.calls[0]!;
         const meta = args[3] as Record<string, unknown>;
@@ -666,10 +630,7 @@ describe("extension settings API", () => {
 
       test("untouched secret (key absent from values) is left alone", async () => {
         mockSecretStore.set(secretKeyOf("ext-1", "user-1", "psa-token"), PLAINTEXT);
-        const res = await call(
-          userRoute.PUT,
-          makeEvent("PUT", { values: { voice: "am_adam" } }),
-        );
+        const res = await call(userRoute.PUT, makeEvent("PUT", { values: { voice: "am_adam" } }));
         expect(res.status).toBe(200);
         expect(mockSetSecret).not.toHaveBeenCalled();
         expect(mockClearSecret).not.toHaveBeenCalled();
@@ -681,10 +642,7 @@ describe("extension settings API", () => {
     describe("PUT /settings/user — clear", () => {
       test("empty string deletes the stored row", async () => {
         mockSecretStore.set(secretKeyOf("ext-1", "user-1", "psa-token"), PLAINTEXT);
-        const res = await call(
-          userRoute.PUT,
-          makeEvent("PUT", { values: { psa_api_token: "" } }),
-        );
+        const res = await call(userRoute.PUT, makeEvent("PUT", { values: { psa_api_token: "" } }));
         expect(res.status).toBe(200);
         expect(mockClearSecret).toHaveBeenCalledTimes(1);
         expect(mockClearSecret).toHaveBeenCalledWith("ext-1", "user-1", "psa-token");
@@ -725,10 +683,7 @@ describe("extension settings API", () => {
 
       test("512-char value is accepted (boundary)", async () => {
         const max = "x".repeat(512);
-        const res = await call(
-          userRoute.PUT,
-          makeEvent("PUT", { values: { psa_api_token: max } }),
-        );
+        const res = await call(userRoute.PUT, makeEvent("PUT", { values: { psa_api_token: max } }));
         expect(res.status).toBe(200);
         expect(mockSetSecret).toHaveBeenCalledWith("ext-1", "user-1", "psa-token", max);
       });

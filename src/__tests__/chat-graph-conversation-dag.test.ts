@@ -156,7 +156,9 @@ describe("buildConversationDag — assistants collapse into edges", () => {
     // become a prompt even when the tree remembers something else.
     const graph = buildConversationDag({
       conversationId: "conv-1",
-      treeNodes: [{ id: "u1", parentId: null, role: "extension", excluded: false, createdAt: at(0) }],
+      treeNodes: [
+        { id: "u1", parentId: null, role: "extension", excluded: false, createdAt: at(0) },
+      ],
       messages: [{ id: "u1", role: "user", content: "live role" }],
       subConversations: [],
     });
@@ -272,7 +274,9 @@ describe("buildConversationDag — sub-agent spawns", () => {
   });
 
   test("a spawn anchored directly to the user row attaches to that prompt", () => {
-    const graph = build(conversation, [{ id: "sub-1", agentName: "helper", parentMessageId: "u2" }]);
+    const graph = build(conversation, [
+      { id: "sub-1", agentName: "helper", parentMessageId: "u2" },
+    ]);
     expect(graph.edges).toContainEqual({ from: "u2", to: "sub-1", kind: "spawn" });
   });
 
@@ -425,7 +429,9 @@ describe("turn roll-up on level-1 prompt nodes", () => {
 
   test("a genuine zero IS reported — it was measured", () => {
     const g = withStats({
-      activity: [{ messageId: "a1", toolCalls: 0, hasThinking: false, inputTokens: 0, outputTokens: 0 }],
+      activity: [
+        { messageId: "a1", toolCalls: 0, hasThinking: false, inputTokens: 0, outputTokens: 0 },
+      ],
     });
     expect(g.nodes.find((n) => n.id === "u1")?.stats?.inputTokens).toBe(0);
   });

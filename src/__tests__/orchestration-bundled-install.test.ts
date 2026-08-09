@@ -136,9 +136,7 @@ describe("resolveBundledExtensions — orchestration entry", () => {
     // `task:assignment_update` for invoke_agent's two-hop bridge.
     // Human-in-the-loop moved to the bundled `ask-user` extension
     // which subscribes to its own `ask-user:answer` event.
-    expect(entry.permissions.eventSubscriptions).toEqual([
-      "task:assignment_update",
-    ]);
+    expect(entry.permissions.eventSubscriptions).toEqual(["task:assignment_update"]);
     // No storage — the extension keeps pending invocations in-memory
     // under its `persistent: true` subprocess.
     expect(entry.permissions.storage).toBeUndefined();
@@ -174,9 +172,7 @@ describe("ensureBundledExtensions — first-boot install", () => {
     };
     expect(granted.agentConfig).toBe("read");
     expect(granted.spawnAgents).toEqual({ maxPerHour: 500, maxConcurrent: 25 });
-    expect(granted.eventSubscriptions).toEqual([
-      "task:assignment_update",
-    ]);
+    expect(granted.eventSubscriptions).toEqual(["task:assignment_update"]);
   });
 
   test("manifest declares invoke_agent + collect_agent_result + send_to_agent — ask_human moved to the `ask-user` extension", async () => {

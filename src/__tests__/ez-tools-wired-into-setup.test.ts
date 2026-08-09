@@ -114,8 +114,14 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
       { name: "writeFile" } as unknown as AgentTool,
       { name: "invoke_agent" } as unknown as AgentTool, // orchestration — always survives
     );
-    turn.builtinToolDefsMap.set("readFile", { name: "readFile", category: "read" } as BuiltinToolDef);
-    turn.builtinToolDefsMap.set("writeFile", { name: "writeFile", category: "write" } as BuiltinToolDef);
+    turn.builtinToolDefsMap.set("readFile", {
+      name: "readFile",
+      category: "read",
+    } as BuiltinToolDef);
+    turn.builtinToolDefsMap.set("writeFile", {
+      name: "writeFile",
+      category: "write",
+    } as BuiltinToolDef);
 
     wireEzToolsForTurn({
       agentTools: turn.agentTools,
@@ -182,7 +188,10 @@ describe("wireEzToolsForTurn — Gap #1 fix", () => {
     const summarizeTool = turn.agentTools.find((t) => t.name === "summarize_conversation");
     expect(summarizeTool).toBeDefined();
 
-    const params = summarizeTool!.parameters as { required?: string[]; properties?: Record<string, unknown> };
+    const params = summarizeTool!.parameters as {
+      required?: string[];
+      properties?: Record<string, unknown>;
+    };
     expect(params.required ?? []).toContain("conversationId");
     expect(params.properties?.conversationId).toBeDefined();
   });

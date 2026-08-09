@@ -35,10 +35,7 @@ vi.mock("$server/chat/attachments/storage", () => ({
 
 const { PUT } = await import("../routes/api/conversations/[id]/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown }) {
   const href = "http://localhost/api/conversations/c1";
   return {
     url: new URL(href),
@@ -95,9 +92,7 @@ describe("PUT /api/conversations/[id] (title rename)", () => {
 
   test("returns validation error when title exceeds 500 chars", async () => {
     getConversation.mockResolvedValue({ id: "c1", userId: user.id, title: "Old" });
-    const res = await PUT(
-      makeEvent({ locals: { user }, body: { title: "a".repeat(501) } }),
-    );
+    const res = await PUT(makeEvent({ locals: { user }, body: { title: "a".repeat(501) } }));
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(500);
     expect(updateConversation).not.toHaveBeenCalled();
@@ -116,9 +111,7 @@ describe("PUT /api/conversations/[id] (title rename)", () => {
       title: "Renamed",
       projectId: "p1",
     });
-    const res = await PUT(
-      makeEvent({ locals: { user }, body: { title: "Renamed" } }),
-    );
+    const res = await PUT(makeEvent({ locals: { user }, body: { title: "Renamed" } }));
     expect(res.status).toBe(200);
     expect(updateConversation).toHaveBeenCalledTimes(1);
     expect(updateConversation).toHaveBeenCalledWith("c1", { title: "Renamed" });
@@ -129,9 +122,7 @@ describe("PUT /api/conversations/[id] (title rename)", () => {
   test("returns 404 when updateConversation reports a missing row post-check", async () => {
     getConversation.mockResolvedValue({ id: "c1", userId: user.id, title: "Old" });
     updateConversation.mockResolvedValue(null);
-    const res = await PUT(
-      makeEvent({ locals: { user }, body: { title: "Renamed" } }),
-    );
+    const res = await PUT(makeEvent({ locals: { user }, body: { title: "Renamed" } }));
     expect(res.status).toBe(404);
   });
 
@@ -147,9 +138,7 @@ describe("PUT /api/conversations/[id] (title rename)", () => {
       userId: "someone-else",
       title: "Renamed",
     });
-    const res = await PUT(
-      makeEvent({ locals: { user: admin }, body: { title: "Renamed" } }),
-    );
+    const res = await PUT(makeEvent({ locals: { user: admin }, body: { title: "Renamed" } }));
     expect(res.status).toBe(200);
     expect(updateConversation).toHaveBeenCalledWith("c1", { title: "Renamed" });
   });

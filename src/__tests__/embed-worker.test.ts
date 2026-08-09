@@ -12,22 +12,9 @@
  *   - ../memory/message-chunker — returns predictable single-chunk output
  */
 
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import {
-  closeTestDb,
-  mockDbConnection,
-  setupTestDb,
-} from "./helpers/test-pglite";
+import { closeTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
 // ── Module-level mocks — must precede any import that touches these paths ──
 
@@ -39,7 +26,11 @@ mock.module("../memory/embeddings", () => ({
   isEmbeddingReady: () => embeddingReady,
   generateEmbedding: async (text: string) => generateEmbeddingImpl(text),
   getTokenizer: async () => ({
-    encode: (_text: string, _opts: unknown) => ({ length: 10, slice: (s: number, e: number) => ({ length: Math.min(e, 10) - s }), [Symbol.iterator]: function*() {} }),
+    encode: (_text: string, _opts: unknown) => ({
+      length: 10,
+      slice: (s: number, e: number) => ({ length: Math.min(e, 10) - s }),
+      [Symbol.iterator]: function* () {},
+    }),
     decode: (_ids: unknown, _opts: unknown) => "chunk text",
   }),
   EMBEDDING_MODEL_ID: "Xenova/all-MiniLM-L6-v2@384",
@@ -64,15 +55,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unlink } from "node:fs/promises";
 import { sql } from "drizzle-orm";
-import {
-  EmbedWorker,
-  runBacklogRecovery,
-  _embedWorkerInternals,
-} from "../extensions/embed-worker";
+import { EmbedWorker, runBacklogRecovery, _embedWorkerInternals } from "../extensions/embed-worker";
 import { readProcStartTime } from "../startup/process-lockfile";
-import {
-  enqueueEmbedJob,
-} from "../db/queries/message-embed-outbox";
+import { enqueueEmbedJob } from "../db/queries/message-embed-outbox";
 import { getDb } from "../db/connection";
 import { conversations, messages, messageChunks, messageEmbedOutbox } from "../db/schema";
 
@@ -104,10 +89,7 @@ afterEach(() => {
 
 // ── Helpers ──
 
-async function seedConversationAndMessage(opts: {
-  role?: string;
-  content?: string;
-} = {}) {
+async function seedConversationAndMessage(opts: { role?: string; content?: string } = {}) {
   const db = getDb();
   // Need a project row first
   const projectId = `test-proj-${Math.random().toString(36).slice(2, 8)}`;
@@ -153,10 +135,7 @@ describe("EmbedWorker — ING-01: drain works", () => {
     expect(outcome.skipped).toBe(0);
 
     // message_chunks should have 1 row for the message
-    const chunks = await db
-      .select()
-      .from(messageChunks)
-      .where(sql`message_id = ${messageId}`);
+    const chunks = await db.select().from(messageChunks).where(sql`message_id = ${messageId}`);
     expect(chunks).toHaveLength(1);
 
     // outbox row should be deleted (markDone)
@@ -170,7 +149,10 @@ describe("EmbedWorker — ING-01: drain works", () => {
   test("tickOnce() skips ineligible messages (marks done, no chunk written)", async () => {
     const db = getDb();
     // system role is not embed-eligible
-    const { conversationId, messageId } = await seedConversationAndMessage({ role: "system", content: "system prompt" });
+    const { conversationId, messageId } = await seedConversationAndMessage({
+      role: "system",
+      content: "system prompt",
+    });
     await enqueueEmbedJob(db, messageId, conversationId);
     embeddingReady = true;
 
@@ -229,8 +211,7 @@ function spyOnDbExecute() {
   };
   return {
     statements,
-    analyzeCount: () =>
-      statements.filter((s) => /ANALYZE\s+message_chunks/i.test(s)).length,
+    analyzeCount: () => statements.filter((s) => /ANALYZE\s+message_chunks/i.test(s)).length,
     restore: () => {
       db.execute = original as typeof db.execute;
     },
@@ -537,10 +518,7 @@ describe("EmbedWorker — ING-04: boot recovery", () => {
     expect(ok).toBe(true);
 
     // After start(), the in_progress row should be reset to pending
-    const rows = await db
-      .select()
-      .from(messageEmbedOutbox)
-      .where(sql`message_id = ${messageId}`);
+    const rows = await db.select().from(messageEmbedOutbox).where(sql`message_id = ${messageId}`);
     expect(rows[0]!.status).toBe("pending");
 
     worker.stop();
@@ -596,10 +574,7 @@ describe("EmbedWorker — interval-driven tick", () => {
     let drained = false;
     for (let i = 0; i < 30 && !drained; i++) {
       await new Promise((resolve) => setTimeout(resolve, 200));
-      const rows = await db
-        .select()
-        .from(messageEmbedOutbox)
-        .where(sql`message_id = ${messageId}`);
+      const rows = await db.select().from(messageEmbedOutbox).where(sql`message_id = ${messageId}`);
       drained = rows.length === 0;
     }
     worker.stop();
@@ -646,10 +621,7 @@ describe("EmbedWorker — interval-driven tick", () => {
         SET next_attempt_after = NOW() - INTERVAL '1 second'
         WHERE message_id = ${messageId} AND status = 'pending'
       `);
-      const rows = await db
-        .select()
-        .from(messageEmbedOutbox)
-        .where(sql`message_id = ${messageId}`);
+      const rows = await db.select().from(messageEmbedOutbox).where(sql`message_id = ${messageId}`);
       drained = rows.length === 0;
     }
     worker.stop();
@@ -669,7 +641,9 @@ describe("EmbedWorker — tickOnce re-entrancy guard", () => {
 
     // Block the first tick inside generateEmbedding until we release it.
     let release: () => void = () => {};
-    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     generateEmbeddingImpl = async (_text: string) => {
       await gate;
       return Array(384).fill(0.1);
@@ -819,8 +793,7 @@ describe("EmbedWorker — PID lockfile", () => {
 // unset/empty/invalid/below-floor/valid branches.
 
 describe("EmbedWorker — env-var parsing", () => {
-  const { getEmbedPollIntervalMs, getEmbedBatchSize, getEmbedMaxAttempts } =
-    _embedWorkerInternals;
+  const { getEmbedPollIntervalMs, getEmbedBatchSize, getEmbedMaxAttempts } = _embedWorkerInternals;
 
   afterEach(() => {
     delete process.env.EZCORP_EMBED_POLL_INTERVAL_MS;

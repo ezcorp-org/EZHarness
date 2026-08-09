@@ -33,7 +33,9 @@ mock.module("../db/queries/settings", () => {
       await getDb().delete(tbl).where(eq(tbl.key, key));
       return true;
     },
-    async isListingInstalled() { return false; },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -123,10 +125,7 @@ describe("addConversationExtensions", () => {
     const ext1 = await makeExtension("multi1-" + Date.now());
     const ext2 = await makeExtension("multi2-" + Date.now());
 
-    await addConversationExtensions(conv.id, [
-      { extensionId: ext1.id },
-      { extensionId: ext2.id },
-    ]);
+    await addConversationExtensions(conv.id, [{ extensionId: ext1.id }, { extensionId: ext2.id }]);
 
     const ids = await getConversationExtensionIds(conv.id);
     expect(ids).toContain(ext1.id);
@@ -143,7 +142,7 @@ describe("addConversationExtensions", () => {
     await addConversationExtensions(conv.id, [{ extensionId: ext.id }]);
 
     const ids = await getConversationExtensionIds(conv.id);
-    expect(ids.filter(id => id === ext.id).length).toBe(1);
+    expect(ids.filter((id) => id === ext.id).length).toBe(1);
   });
 
   test("no-ops when entries array is empty", async () => {
@@ -176,11 +175,14 @@ describe("addConversationExtensions", () => {
     // Insert a message to reference
     const { getDb } = await import("../db/connection");
     const { messages } = await import("../db/schema");
-    const msgRows = await getDb().insert(messages).values({
-      conversationId: conv.id,
-      role: "user",
-      content: "test message",
-    }).returning();
+    const msgRows = await getDb()
+      .insert(messages)
+      .values({
+        conversationId: conv.id,
+        role: "user",
+        content: "test message",
+      })
+      .returning();
     const messageId = msgRows[0]!.id;
 
     await addConversationExtensions(conv.id, [{ extensionId: ext.id, messageId }]);

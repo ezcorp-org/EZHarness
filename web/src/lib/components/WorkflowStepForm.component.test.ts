@@ -39,7 +39,12 @@ describe("WorkflowStepForm", () => {
     });
     const onremove = vi.fn();
     const { getByText, getByPlaceholderText, container } = render(WorkflowStepForm, {
-      props: { step: s, agents: [{ name: "writer" } as never], allStepNames: ["s1", "s2"], onremove },
+      props: {
+        step: s,
+        agents: [{ name: "writer" } as never],
+        allStepNames: ["s1", "s2"],
+        onremove,
+      },
     });
 
     // Agent-only sections render (the "-- Select Agent --" option is unique to

@@ -180,7 +180,11 @@ describe("call-provenance registry", () => {
     let captured: { ms: number } | null = null;
     globalThis.setTimeout = ((_fn: () => void, ms: number) => {
       captured = { ms };
-      return { unref() { return this; } };
+      return {
+        unref() {
+          return this;
+        },
+      };
     }) as unknown as typeof setTimeout;
 
     try {
@@ -207,7 +211,11 @@ describe("call-provenance registry", () => {
     let captured: { ms: number } | null = null;
     globalThis.setTimeout = ((_fn: () => void, ms: number) => {
       captured = { ms };
-      return { unref() { return this; } };
+      return {
+        unref() {
+          return this;
+        },
+      };
     }) as unknown as typeof setTimeout;
 
     try {

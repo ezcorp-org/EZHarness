@@ -35,7 +35,9 @@ describe("validatePath", () => {
   });
 
   test("rejects sneaky traversal that starts with a valid prefix", () => {
-    expect(() => validatePath(projectPath, "sub/../../etc/passwd")).toThrow("Path traversal detected");
+    expect(() => validatePath(projectPath, "sub/../../etc/passwd")).toThrow(
+      "Path traversal detected",
+    );
   });
 
   test("rejects absolute paths outside the project", () => {

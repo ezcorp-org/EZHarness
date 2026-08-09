@@ -37,22 +37,31 @@ mock.module("../extensions/manifest", () => ({
     if (!data || typeof data !== "object") return { valid: false, errors: ["not an object"] };
     const m = data as Record<string, unknown>;
     if (m.schemaVersion !== 2) errors.push("schemaVersion must be 2");
-    if (typeof m.version !== "string" || !SEMVER_RE.test(m.version)) errors.push("version must be valid semver");
+    if (typeof m.version !== "string" || !SEMVER_RE.test(m.version))
+      errors.push("version must be valid semver");
     if (!m.description || typeof m.description !== "string") errors.push("description required");
     if (!m.author || typeof m.author !== "object") errors.push("author.name required");
     return { valid: errors.length === 0, errors };
   },
-  generateSlug: (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+  generateSlug: (name: string) =>
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, ""),
   inferPackageType: () => "tool",
 }));
 
 const mockInitDb = mock(() => Promise.resolve());
 // Publish tokens are stored hashed at rest (sha256 hex), never as plaintext.
 const VALID_TOKEN_HASH = createHash("sha256").update("valid-token").digest("hex");
-const mockGetAllSettings = mock(() => Promise.resolve({
-  "publish:token:user-1": { tokenHash: VALID_TOKEN_HASH, createdAt: 1 },
-}));
-const mockCreateListing = mock(() => Promise.resolve({ id: "lst-1", name: "sdk-gap-ext", slug: "sdk-gap-ext" }));
+const mockGetAllSettings = mock(() =>
+  Promise.resolve({
+    "publish:token:user-1": { tokenHash: VALID_TOKEN_HASH, createdAt: 1 },
+  }),
+);
+const mockCreateListing = mock(() =>
+  Promise.resolve({ id: "lst-1", name: "sdk-gap-ext", slug: "sdk-gap-ext" }),
+);
 const mockGetListingBySlug = mock(() => Promise.resolve(undefined));
 const mockCreateVersion = mock(() => Promise.resolve({ id: "ver-1" }));
 const mockGetVersion = mock(() => Promise.resolve(undefined));
@@ -101,10 +110,14 @@ beforeEach(() => {
   mockComputePackageChecksums.mockClear();
   mockGetListingBySlug.mockImplementation(() => Promise.resolve(undefined));
   mockGetVersion.mockImplementation(() => Promise.resolve(undefined));
-  mockCreateListing.mockImplementation(() => Promise.resolve({ id: "lst-1", name: "sdk-gap-ext", slug: "sdk-gap-ext" }));
-  mockGetAllSettings.mockImplementation(() => Promise.resolve({
-    "publish:token:user-1": { tokenHash: VALID_TOKEN_HASH, createdAt: 1 },
-  }));
+  mockCreateListing.mockImplementation(() =>
+    Promise.resolve({ id: "lst-1", name: "sdk-gap-ext", slug: "sdk-gap-ext" }),
+  );
+  mockGetAllSettings.mockImplementation(() =>
+    Promise.resolve({
+      "publish:token:user-1": { tokenHash: VALID_TOKEN_HASH, createdAt: 1 },
+    }),
+  );
 });
 
 afterEach(() => {
@@ -112,7 +125,7 @@ afterEach(() => {
 });
 
 function writeEntrypoint() {
-  writeFileSync(join(tempDir, "index.ts"), 'export default {};');
+  writeFileSync(join(tempDir, "index.ts"), "export default {};");
 }
 
 // ── publish + loadManifest ───────────────────────────────────────
@@ -139,10 +152,7 @@ describe("publishExtension + loadManifest", () => {
 
   test("rejects invalid manifest (missing required fields)", async () => {
     const { publishExtension } = await import("../extensions/sdk/publish");
-    writeFileSync(
-      join(tempDir, "ezcorp.config.ts"),
-      `export default { name: "bad" };\n`,
-    );
+    writeFileSync(join(tempDir, "ezcorp.config.ts"), `export default { name: "bad" };\n`);
 
     await expect(
       publishExtension({ extDir: tempDir, token: "valid-token", skipTests: true }),
@@ -174,7 +184,7 @@ describe("runExtensionTests + loadManifest", () => {
     const { loadManifest } = await import("../extensions/loader");
     await writeConfig(tempDir, MANIFEST_WITH_MEMORY);
 
-    const manifest = await loadManifest(tempDir) as unknown as Record<string, unknown>;
+    const manifest = (await loadManifest(tempDir)) as unknown as Record<string, unknown>;
     const resources = manifest.resources as { memory?: string };
     expect(resources?.memory).toBe("256MB");
   });
@@ -186,7 +196,9 @@ describe("startDevServer + loadManifestFresh", () => {
   test("dev.ts imports loadManifestFresh from loader", async () => {
     const source = await Bun.file(join(import.meta.dir, "../extensions/sdk/dev.ts")).text();
     expect(source).toContain("loadManifestFresh");
-    expect(source).toMatch(/import\s*\{[^}]*loadManifestFresh[^}]*\}\s*from\s*["']\.\.\/loader["']/);
+    expect(source).toMatch(
+      /import\s*\{[^}]*loadManifestFresh[^}]*\}\s*from\s*["']\.\.\/loader["']/,
+    );
   });
 
   test("dev.ts does NOT import loadManifest (only loadManifestFresh)", async () => {
@@ -194,7 +206,7 @@ describe("startDevServer + loadManifestFresh", () => {
     // Should not have a bare loadManifest import (loadManifestFresh is fine)
     const importLine = source.match(/import\s*\{([^}]*)\}\s*from\s*["']\.\.\/loader["']/);
     expect(importLine).toBeTruthy();
-    const imports = importLine![1]!.split(",").map(s => s.trim());
+    const imports = importLine![1]!.split(",").map((s) => s.trim());
     expect(imports).toContain("loadManifestFresh");
     expect(imports).not.toContain("loadManifest");
   });
@@ -214,7 +226,10 @@ describe("backward compatibility", () => {
   test("directory with both manifest.json and ezcorp.config.ts returns data from config", async () => {
     const { loadManifest } = await import("../extensions/loader");
     // Write manifest.json with different name
-    writeFileSync(join(tempDir, "manifest.json"), JSON.stringify({ ...VALID_MANIFEST, name: "json-name" }));
+    writeFileSync(
+      join(tempDir, "manifest.json"),
+      JSON.stringify({ ...VALID_MANIFEST, name: "json-name" }),
+    );
     // Write ezcorp.config.ts with the real name
     await writeConfig(tempDir, VALID_MANIFEST);
 

@@ -34,70 +34,87 @@ export default defineExtension({
 `;
 
 interface PutCall {
-	url: string;
-	body: { path?: string; content?: string };
+  url: string;
+  body: { path?: string; content?: string };
 }
 let putCalls: PutCall[] = [];
 
 function stubFetch() {
-	putCalls = [];
-	vi.stubGlobal(
-		"fetch",
-		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-			const url = String(input);
-			const method = init?.method ?? "GET";
-			// The composition panel + embedded picker load /api/extensions.
-			if (url.includes("/api/extensions") && !url.includes("/draft/")) {
-				return Response.json([]);
-			}
-			// saveFile → PUT /api/extensions/author/draft/[id]
-			if (method === "PUT" && url.includes("/author/draft/")) {
-				putCalls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : {} });
-				return Response.json({ ok: true });
-			}
-			return Response.json({});
-		}),
-	);
+  putCalls = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      // The composition panel + embedded picker load /api/extensions.
+      if (url.includes("/api/extensions") && !url.includes("/draft/")) {
+        return Response.json([]);
+      }
+      // saveFile → PUT /api/extensions/author/draft/[id]
+      if (method === "PUT" && url.includes("/author/draft/")) {
+        putCalls.push({ url, body: init?.body ? JSON.parse(String(init.body)) : {} });
+        return Response.json({ ok: true });
+      }
+      return Response.json({});
+    }),
+  );
 }
 
 function pageData(files: Record<string, string>) {
-	return {
-		draft: { id: "draft-1", kind: "extension" as const, payload: { name: "my-ext", type: "tool" }, createdAt: new Date(0), expiresAt: new Date(0), consumedAt: null },
-		files,
-		// The loader reports files it could not read rather than dropping
-		// them silently, so the shape carries this even when it is empty.
-		unreadable: [] as Array<{ name: string; error: string }>,
-	};
+  return {
+    draft: {
+      id: "draft-1",
+      kind: "extension" as const,
+      payload: { name: "my-ext", type: "tool" },
+      createdAt: new Date(0),
+      expiresAt: new Date(0),
+      consumedAt: null,
+    },
+    files,
+    // The loader reports files it could not read rather than dropping
+    // them silently, so the shape carries this even when it is empty.
+    unreadable: [] as Array<{ name: string; error: string }>,
+  };
 }
 
 afterEach(() => vi.unstubAllGlobals());
 
 describe("author page — composition panel wiring", () => {
-	test("mounts the composition panel when the config file is present", async () => {
-		stubFetch();
-		const { getByTestId } = render(AuthorPage, { props: { data: pageData({ "ezcorp.config.ts": SCAFFOLD }) } });
-		expect(getByTestId("author-composition-panel")).toBeInTheDocument();
-		expect(getByTestId("author-capability-search")).toBeInTheDocument();
-	});
+  test("mounts the composition panel when the config file is present", async () => {
+    stubFetch();
+    const { getByTestId } = render(AuthorPage, {
+      props: { data: pageData({ "ezcorp.config.ts": SCAFFOLD }) },
+    });
+    expect(getByTestId("author-composition-panel")).toBeInTheDocument();
+    expect(getByTestId("author-capability-search")).toBeInTheDocument();
+  });
 
-	test("a capability toggle round-trips through onCompositionSave → saveFile (draft PUT)", async () => {
-		stubFetch();
-		const { getByTestId } = render(AuthorPage, { props: { data: pageData({ "ezcorp.config.ts": SCAFFOLD }) } });
+  test("a capability toggle round-trips through onCompositionSave → saveFile (draft PUT)", async () => {
+    stubFetch();
+    const { getByTestId } = render(AuthorPage, {
+      props: { data: pageData({ "ezcorp.config.ts": SCAFFOLD }) },
+    });
 
-		await fireEvent.click(getByTestId("author-capability-search"));
+    await fireEvent.click(getByTestId("author-capability-search"));
 
-		// The page's onCompositionSave merged the new source into `files`
-		// and PUT it to the draft endpoint.
-		await waitFor(() => expect(putCalls.length).toBeGreaterThanOrEqual(1));
-		const put = putCalls.find((c) => c.body.path === "ezcorp.config.ts");
-		expect(put).toBeTruthy();
-		expect(put!.url).toContain("/api/extensions/author/draft/draft-1");
-		expect(parseCapabilities(put!.body.content ?? "")).toEqual({ search: true, memory: false, llm: false });
-	});
+    // The page's onCompositionSave merged the new source into `files`
+    // and PUT it to the draft endpoint.
+    await waitFor(() => expect(putCalls.length).toBeGreaterThanOrEqual(1));
+    const put = putCalls.find((c) => c.body.path === "ezcorp.config.ts");
+    expect(put).toBeTruthy();
+    expect(put!.url).toContain("/api/extensions/author/draft/draft-1");
+    expect(parseCapabilities(put!.body.content ?? "")).toEqual({
+      search: true,
+      memory: false,
+      llm: false,
+    });
+  });
 
-	test("mount GUARD: no config file → panel absent", () => {
-		stubFetch();
-		const { queryByTestId } = render(AuthorPage, { props: { data: pageData({ "index.ts": "// code" }) } });
-		expect(queryByTestId("author-composition-panel")).toBeNull();
-	});
+  test("mount GUARD: no config file → panel absent", () => {
+    stubFetch();
+    const { queryByTestId } = render(AuthorPage, {
+      props: { data: pageData({ "index.ts": "// code" }) },
+    });
+    expect(queryByTestId("author-composition-panel")).toBeNull();
+  });
 });

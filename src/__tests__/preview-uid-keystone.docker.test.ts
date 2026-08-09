@@ -75,70 +75,63 @@ describe.skipIf(!DOCKER)("uid keystone — LIVE (DOCKER_TEST=1)", () => {
     expect(code).not.toBe(0);
   });
 
-  test(
-    "ProcPortSource attributes a live listener by its preview uid",
-    async () => {
-      const { ProcPortSource } = await import("../runtime/preview/preview-port-source");
-      const { allocatePreviewUid, _resetPreviewUidPoolForTests } = await import(
-        "../runtime/preview/preview-uid-pool"
-      );
-      const { spawnPreviewServer } = await import("../runtime/preview/preview-spawn");
+  test("ProcPortSource attributes a live listener by its preview uid", async () => {
+    const { ProcPortSource } = await import("../runtime/preview/preview-port-source");
+    const { allocatePreviewUid, _resetPreviewUidPoolForTests } = await import(
+      "../runtime/preview/preview-uid-pool"
+    );
+    const { spawnPreviewServer } = await import("../runtime/preview/preview-spawn");
 
-      _resetPreviewUidPoolForTests();
-      const alloc = allocatePreviewUid("conv-live");
-      expect(alloc).not.toBeNull();
+    _resetPreviewUidPoolForTests();
+    const alloc = allocatePreviewUid("conv-live");
+    expect(alloc).not.toBeNull();
 
-      // Launch a tiny listener as the preview uid on a high port. The listener
-      // may bind IPv6 (localhost) — ProcPortSource reads /proc/net/tcp6 too and
-      // normalizes the port, so attribution by the uid column works either way.
-      // A self-exit safety (10s) guarantees nothing lingers past the test even
-      // though we (uid 1000) CANNOT kill a process owned by the preview uid.
-      const PORT = 58731;
-      const server = spawnPreviewServer({
-        uid: alloc!.uid,
-        workDir: "/tmp",
-        command: "bun",
-        args: [
-          "-e",
-          `Bun.serve({ port: ${PORT}, fetch: () => new Response("ok") });` +
-            `setTimeout(() => process.exit(0), 10000);` +
-            `await new Promise(r => setTimeout(r, 10000));`,
-        ],
-      });
+    // Launch a tiny listener as the preview uid on a high port. The listener
+    // may bind IPv6 (localhost) — ProcPortSource reads /proc/net/tcp6 too and
+    // normalizes the port, so attribution by the uid column works either way.
+    // A self-exit safety (10s) guarantees nothing lingers past the test even
+    // though we (uid 1000) CANNOT kill a process owned by the preview uid.
+    const PORT = 58731;
+    const server = spawnPreviewServer({
+      uid: alloc!.uid,
+      workDir: "/tmp",
+      command: "bun",
+      args: [
+        "-e",
+        `Bun.serve({ port: ${PORT}, fetch: () => new Response("ok") });` +
+          `setTimeout(() => process.exit(0), 10000);` +
+          `await new Promise(r => setTimeout(r, 10000));`,
+      ],
+    });
 
-      // POLL until bound. Cold-starting bun as a FRESH preview uid (no warm
-      // page cache for that uid) can take 2–3s to actually bind, so a single
-      // fixed wait flaps. Re-read /proc each iteration (a fresh ProcPortSource)
-      // up to ~8s and break as soon as the listener appears, attributed to
-      // conv-live by its preview-uid column.
-      let bound = false;
-      for (let i = 0; i < 40; i++) {
-        const listeners = new ProcPortSource().listListeners("conv-live");
-        if (listeners.some((l) => l.port === PORT)) {
-          bound = true;
-          break;
-        }
-        await new Promise((r) => setTimeout(r, 200));
+    // POLL until bound. Cold-starting bun as a FRESH preview uid (no warm
+    // page cache for that uid) can take 2–3s to actually bind, so a single
+    // fixed wait flaps. Re-read /proc each iteration (a fresh ProcPortSource)
+    // up to ~8s and break as soon as the listener appears, attributed to
+    // conv-live by its preview-uid column.
+    let bound = false;
+    for (let i = 0; i < 40; i++) {
+      const listeners = new ProcPortSource().listListeners("conv-live");
+      if (listeners.some((l) => l.port === PORT)) {
+        bound = true;
+        break;
       }
+      await new Promise((r) => setTimeout(r, 200));
+    }
 
-      // ASSERT attribution BEFORE teardown — the listener's preview uid is
-      // attributed back to its conversation via the /proc/net/tcp{,6} uid col.
-      expect(bound).toBe(true);
+    // ASSERT attribution BEFORE teardown — the listener's preview uid is
+    // attributed back to its conversation via the /proc/net/tcp{,6} uid col.
+    expect(bound).toBe(true);
 
-      // Robust teardown that can't hang. server.kill() from uid 1000 throws
-      // EPERM on a foreign-uid process — wrap + ignore. Don't bare-await
-      // server.exited (it can hang); race it against a 2s cap. The listener's
-      // own self-exit safety reaps it regardless.
-      try {
-        server.kill();
-      } catch {
-        // EPERM (foreign-uid process) — fine, self-exit handles it.
-      }
-      await Promise.race([
-        server.exited.catch(() => {}),
-        new Promise((r) => setTimeout(r, 2000)),
-      ]);
-    },
-    20000,
-  );
+    // Robust teardown that can't hang. server.kill() from uid 1000 throws
+    // EPERM on a foreign-uid process — wrap + ignore. Don't bare-await
+    // server.exited (it can hang); race it against a 2s cap. The listener's
+    // own self-exit safety reaps it regardless.
+    try {
+      server.kill();
+    } catch {
+      // EPERM (foreign-uid process) — fine, self-exit handles it.
+    }
+    await Promise.race([server.exited.catch(() => {}), new Promise((r) => setTimeout(r, 2000))]);
+  }, 20000);
 });

@@ -139,8 +139,7 @@ describe("ensureBridge", () => {
     // ip link add ... type bridge
     expect(
       calls.some(
-        (c) =>
-          c.cmd.includes("add") && c.cmd.includes("bridge") && c.cmd.includes(BRIDGE_NAME),
+        (c) => c.cmd.includes("add") && c.cmd.includes("bridge") && c.cmd.includes(BRIDGE_NAME),
       ),
     ).toBe(true);
     // ip addr add 10.42.0.1/24 dev br-ezcorp-mcp
@@ -154,14 +153,18 @@ describe("ensureBridge", () => {
     expect(
       calls.some(
         (c) =>
-          c.cmd.includes("link") && c.cmd.includes("set") && c.cmd.includes("up") && c.cmd.includes(BRIDGE_NAME),
+          c.cmd.includes("link") &&
+          c.cmd.includes("set") &&
+          c.cmd.includes("up") &&
+          c.cmd.includes(BRIDGE_NAME),
       ),
     ).toBe(true);
     // sysctl -w net.ipv6.conf.br-ezcorp-mcp.disable_ipv6=1
     expect(
       calls.some(
         (c) =>
-          c.cmd[0] === "sysctl" && c.cmd.some((s) => s.includes("disable_ipv6=1") && s.includes(BRIDGE_NAME)),
+          c.cmd[0] === "sysctl" &&
+          c.cmd.some((s) => s.includes("disable_ipv6=1") && s.includes(BRIDGE_NAME)),
       ),
     ).toBe(true);
   });
@@ -204,11 +207,16 @@ describe("ensureBridge", () => {
     expect(result.ok).toBe(true);
     expect(result.subnet).toBe("10.99.0.0/24");
     expect(
-      calls.some((c) => c.cmd.includes("addr") && c.cmd.includes("add") && c.cmd.includes("10.99.0.0/24")),
+      calls.some(
+        (c) => c.cmd.includes("addr") && c.cmd.includes("add") && c.cmd.includes("10.99.0.0/24"),
+      ),
     ).toBe(true);
     // NOT the default
     expect(
-      calls.some((c) => c.cmd.includes("addr") && c.cmd.includes("add") && c.cmd.includes(BRIDGE_CIDR_DEFAULT)),
+      calls.some(
+        (c) =>
+          c.cmd.includes("addr") && c.cmd.includes("add") && c.cmd.includes(BRIDGE_CIDR_DEFAULT),
+      ),
     ).toBe(false);
   });
 });
@@ -339,9 +347,7 @@ describe("sweepOrphanVeths", () => {
     expect(result.error).toBeUndefined();
 
     // Audit row STILL fires (count=0 operator-visibility contract).
-    const row = auditCalls.find(
-      (c) => c.action === EXT_AUDIT_ACTIONS.MCP_VETH_ORPHAN_SWEPT,
-    );
+    const row = auditCalls.find((c) => c.action === EXT_AUDIT_ACTIONS.MCP_VETH_ORPHAN_SWEPT);
     expect(row).toBeDefined();
     expect(row?.metadata?.count).toBe(0);
     expect(row?.metadata?.names).toEqual([]);
@@ -355,15 +361,7 @@ describe("sweepOrphanVeths", () => {
           return {
             success: true,
             exitCode: 0,
-            stdout: enc(
-              ipOutput([
-                "lo",
-                "eth0",
-                "mcp-deadbeef",
-                "docker0",
-                "mcp-cafef00d",
-              ]),
-            ),
+            stdout: enc(ipOutput(["lo", "eth0", "mcp-deadbeef", "docker0", "mcp-cafef00d"])),
           };
         }
         if (cmd[1] === "link" && cmd[2] === "delete") {
@@ -379,9 +377,7 @@ describe("sweepOrphanVeths", () => {
     expect(result.names.sort()).toEqual(["mcp-cafef00d", "mcp-deadbeef"]);
     expect(deleteCalls.sort()).toEqual(["mcp-cafef00d", "mcp-deadbeef"]);
 
-    const row = auditCalls.find(
-      (c) => c.action === EXT_AUDIT_ACTIONS.MCP_VETH_ORPHAN_SWEPT,
-    );
+    const row = auditCalls.find((c) => c.action === EXT_AUDIT_ACTIONS.MCP_VETH_ORPHAN_SWEPT);
     expect(row?.metadata?.count).toBe(2);
     const sweptNames = row?.metadata?.names as string[] | undefined;
     expect(sweptNames?.sort()).toEqual(["mcp-cafef00d", "mcp-deadbeef"]);

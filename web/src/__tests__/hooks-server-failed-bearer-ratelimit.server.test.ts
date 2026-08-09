@@ -91,9 +91,7 @@ vi.mock("$server/db/queries/settings", () => ({
   getSetting: vi.fn(async () => undefined),
 }));
 
-const { handle, __failedBearerLimiter, __FAILED_BEARER_LIMIT } = await import(
-  "../hooks.server"
-);
+const { handle, __failedBearerLimiter, __FAILED_BEARER_LIMIT } = await import("../hooks.server");
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -230,9 +228,7 @@ describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
     // A cookie-authenticated request from the SAME IP must still succeed — it
     // carries no Authorization header and goes down the session branch,
     // bypassing the failed-Bearer guard entirely.
-    const status = await run(
-      makeEvent(PROTECTED, { cookie: "valid-session-token", socketIp: ip }),
-    );
+    const status = await run(makeEvent(PROTECTED, { cookie: "valid-session-token", socketIp: ip }));
     expect(status).toBe(200);
     // The Bearer router was NOT consulted for the cookie request.
     expect(attachBearerAuth).not.toHaveBeenCalled();
@@ -263,9 +259,9 @@ describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
       await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_a_extra", socketIp: ipA })),
     ).toBe(429);
     // ipB has its OWN fresh budget — first forged attempt is a 401, not a 429.
-    expect(
-      await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_b0", socketIp: ipB })),
-    ).toBe(401);
+    expect(await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_b0", socketIp: ipB }))).toBe(
+      401,
+    );
   });
 
   test("(e) a request with NO Authorization header is never counted or throttled", async () => {
@@ -279,9 +275,9 @@ describe("hooks.server.ts — failed-Bearer per-IP rate limit", () => {
     // Bucket stays empty: a header-less request never increments it, so a
     // legit Bearer client on this IP still gets its full budget afterwards.
     expect(__failedBearerLimiter.peek(`ip:${ip}:bearerFail`).allowed).toBe(true);
-    expect(
-      await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_valid", socketIp: ip })),
-    ).toBe(200);
+    expect(await run(makeEvent(PROTECTED, { authHeader: "Bearer ezk_valid", socketIp: ip }))).toBe(
+      200,
+    );
   });
 
   test("a non-Bearer Authorization scheme is not counted (Basic)", async () => {

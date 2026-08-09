@@ -32,7 +32,10 @@ import { CURRENT_MODEL_SENTINEL } from "../types";
  *  extension (which delegates the sentinel substitution to the host's
  *  spawn-assignment-handler → startAssignment chain). The pure-logic
  *  checks in this file continue to guard the invariant. */
-function resolveSentinel(value: string | undefined | null, fallback: string | undefined): string | undefined {
+function resolveSentinel(
+  value: string | undefined | null,
+  fallback: string | undefined,
+): string | undefined {
   if (value === CURRENT_MODEL_SENTINEL) return fallback;
   return value ?? undefined;
 }
@@ -41,8 +44,16 @@ function resolveSentinel(value: string | undefined | null, fallback: string | un
  *  formerly implemented inline in the legacy invoke-agent built-in and
  *  now mirrored by the startAssignment override cascade reached via the
  *  orchestration extension. */
-function resolveModel(overrideModel: string | undefined | null, configModel: string | undefined | null, parentModel: string | undefined): string | undefined {
-  return resolveSentinel(overrideModel, parentModel) ?? resolveSentinel(configModel, parentModel) ?? parentModel;
+function resolveModel(
+  overrideModel: string | undefined | null,
+  configModel: string | undefined | null,
+  parentModel: string | undefined,
+): string | undefined {
+  return (
+    resolveSentinel(overrideModel, parentModel) ??
+    resolveSentinel(configModel, parentModel) ??
+    parentModel
+  );
 }
 
 /** Inline replica of the resolution logic from the start-assignment endpoint */
@@ -62,7 +73,9 @@ function resolveForTaskAssignment(
 
 describe("resolveSentinel", () => {
   test("__current__ with valid fallback returns fallback", () => {
-    expect(resolveSentinel(CURRENT_MODEL_SENTINEL, "claude-sonnet-4-20250514")).toBe("claude-sonnet-4-20250514");
+    expect(resolveSentinel(CURRENT_MODEL_SENTINEL, "claude-sonnet-4-20250514")).toBe(
+      "claude-sonnet-4-20250514",
+    );
   });
 
   test("__current__ with undefined fallback returns undefined", () => {
@@ -92,23 +105,33 @@ describe("resolveSentinel", () => {
 
 describe("3-tier model resolution chain", () => {
   test("override=__current__, config=specific, parent=X → X", () => {
-    expect(resolveModel(CURRENT_MODEL_SENTINEL, "gpt-4o", "claude-sonnet-4-20250514")).toBe("claude-sonnet-4-20250514");
+    expect(resolveModel(CURRENT_MODEL_SENTINEL, "gpt-4o", "claude-sonnet-4-20250514")).toBe(
+      "claude-sonnet-4-20250514",
+    );
   });
 
   test("override=undefined, config=__current__, parent=X → X", () => {
-    expect(resolveModel(undefined, CURRENT_MODEL_SENTINEL, "claude-sonnet-4-20250514")).toBe("claude-sonnet-4-20250514");
+    expect(resolveModel(undefined, CURRENT_MODEL_SENTINEL, "claude-sonnet-4-20250514")).toBe(
+      "claude-sonnet-4-20250514",
+    );
   });
 
   test("override=__current__, config=__current__, parent=X → X", () => {
-    expect(resolveModel(CURRENT_MODEL_SENTINEL, CURRENT_MODEL_SENTINEL, "claude-sonnet-4-20250514")).toBe("claude-sonnet-4-20250514");
+    expect(
+      resolveModel(CURRENT_MODEL_SENTINEL, CURRENT_MODEL_SENTINEL, "claude-sonnet-4-20250514"),
+    ).toBe("claude-sonnet-4-20250514");
   });
 
   test("override=specific, config=__current__, parent=X → specific", () => {
-    expect(resolveModel("gpt-4o", CURRENT_MODEL_SENTINEL, "claude-sonnet-4-20250514")).toBe("gpt-4o");
+    expect(resolveModel("gpt-4o", CURRENT_MODEL_SENTINEL, "claude-sonnet-4-20250514")).toBe(
+      "gpt-4o",
+    );
   });
 
   test("override=undefined, config=undefined, parent=X → X", () => {
-    expect(resolveModel(undefined, undefined, "claude-sonnet-4-20250514")).toBe("claude-sonnet-4-20250514");
+    expect(resolveModel(undefined, undefined, "claude-sonnet-4-20250514")).toBe(
+      "claude-sonnet-4-20250514",
+    );
   });
 
   test("override=__current__, config=specific, parent=undefined → specific (fallback to config)", () => {
@@ -144,11 +167,15 @@ describe("3-tier model resolution chain", () => {
 
 describe("task assignment model resolution", () => {
   test("config=__current__, body=claude-sonnet, conv=null → claude-sonnet", () => {
-    expect(resolveForTaskAssignment(CURRENT_MODEL_SENTINEL, "claude-sonnet-4-20250514", null)).toBe("claude-sonnet-4-20250514");
+    expect(resolveForTaskAssignment(CURRENT_MODEL_SENTINEL, "claude-sonnet-4-20250514", null)).toBe(
+      "claude-sonnet-4-20250514",
+    );
   });
 
   test("config=__current__, body=undefined, conv=claude-sonnet → claude-sonnet", () => {
-    expect(resolveForTaskAssignment(CURRENT_MODEL_SENTINEL, undefined, "claude-sonnet-4-20250514")).toBe("claude-sonnet-4-20250514");
+    expect(
+      resolveForTaskAssignment(CURRENT_MODEL_SENTINEL, undefined, "claude-sonnet-4-20250514"),
+    ).toBe("claude-sonnet-4-20250514");
   });
 
   test("config=__current__, body=undefined, conv=null → undefined", () => {
@@ -160,11 +187,15 @@ describe("task assignment model resolution", () => {
   });
 
   test("config=null, body=claude-sonnet, conv=null → claude-sonnet", () => {
-    expect(resolveForTaskAssignment(null, "claude-sonnet-4-20250514", null)).toBe("claude-sonnet-4-20250514");
+    expect(resolveForTaskAssignment(null, "claude-sonnet-4-20250514", null)).toBe(
+      "claude-sonnet-4-20250514",
+    );
   });
 
   test("config=null, body=undefined, conv=claude-sonnet → claude-sonnet", () => {
-    expect(resolveForTaskAssignment(null, undefined, "claude-sonnet-4-20250514")).toBe("claude-sonnet-4-20250514");
+    expect(resolveForTaskAssignment(null, undefined, "claude-sonnet-4-20250514")).toBe(
+      "claude-sonnet-4-20250514",
+    );
   });
 
   test("sentinel NEVER leaks into output", () => {
@@ -180,7 +211,6 @@ describe("task assignment model resolution", () => {
     }
   });
 });
-
 
 // ═════════════════════════════════════════════════════════════════════
 // 5. Sentinel constant consistency

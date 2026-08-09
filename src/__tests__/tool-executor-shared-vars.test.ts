@@ -15,7 +15,10 @@ beforeEach(() => {
 
 function createMockRegistry(tools: RegisteredTool[]) {
   const toolMap = new Map(tools.map((t) => [t.name, t]));
-  const processes = new Map<string, { callTool: ReturnType<typeof mock>; setRequestHandler: ReturnType<typeof mock> }>();
+  const processes = new Map<
+    string,
+    { callTool: ReturnType<typeof mock>; setRequestHandler: ReturnType<typeof mock> }
+  >();
 
   return {
     getToolExtension(name: string) {
@@ -31,10 +34,16 @@ function createMockRegistry(tools: RegisteredTool[]) {
     getProcess(extensionId: string) {
       if (!processes.has(extensionId)) {
         processes.set(extensionId, {
-          callTool: mock(async (_name: string, _args: Record<string, unknown>, _meta?: Record<string, unknown>): Promise<ToolCallResult> => ({
-            content: [{ type: "text", text: "ok" }],
-            isError: false,
-          })),
+          callTool: mock(
+            async (
+              _name: string,
+              _args: Record<string, unknown>,
+              _meta?: Record<string, unknown>,
+            ): Promise<ToolCallResult> => ({
+              content: [{ type: "text", text: "ok" }],
+              isError: false,
+            }),
+          ),
           setRequestHandler: mock(() => {}),
         });
       }
@@ -152,12 +161,7 @@ describe("ToolExecutor shared variable injection", () => {
     const registry = createMockRegistry([noSharedTool]);
     const executor = new ToolExecutor(registry as any, createStubPermissionEngine());
 
-    await executor.executeToolCall(
-      "markdown.format",
-      { text: "# Hello" },
-      "conv-1",
-      "msg-1",
-    );
+    await executor.executeToolCall("markdown.format", { text: "# Hello" }, "conv-1", "msg-1");
 
     const proc = registry._processes.get("ext-markdown")!;
     const callArgs = proc.callTool.mock.calls[0]![1] as Record<string, unknown>;
@@ -168,12 +172,7 @@ describe("ToolExecutor shared variable injection", () => {
     const registry = createMockRegistry([multiSharedTool]);
     const executor = new ToolExecutor(registry as any, createStubPermissionEngine());
 
-    await executor.executeToolCall(
-      "analyzer.analyze",
-      { depth: 3 },
-      "conv-1",
-      "msg-1",
-    );
+    await executor.executeToolCall("analyzer.analyze", { depth: 3 }, "conv-1", "msg-1");
 
     const proc = registry._processes.get("ext-analyzer")!;
     const callArgs = proc.callTool.mock.calls[0]![1] as Record<string, unknown>;
@@ -207,10 +206,14 @@ describe("ToolExecutor shared variable injection", () => {
     // Phase 6 ToolExecutor wires bus.on("run:complete"/...) for counter
     // cleanup; provide a no-op `on` so the constructor doesn't throw.
     const bus = {
-      emit(event: string, data: any) { emitted.push({ event, data }); },
+      emit(event: string, data: any) {
+        emitted.push({ event, data });
+      },
       on: () => () => {},
     };
-    const executor = new ToolExecutor(registry as any, createStubPermissionEngine(), { bus: bus as any });
+    const executor = new ToolExecutor(registry as any, createStubPermissionEngine(), {
+      bus: bus as any,
+    });
 
     await executor.executeToolCall(
       "file-refactor.rename-files",

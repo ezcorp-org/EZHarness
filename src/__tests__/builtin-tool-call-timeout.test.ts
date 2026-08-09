@@ -156,7 +156,13 @@ describe("WatchdogManager honors a declared callTimeoutMs > WATCHDOG_IDLE_MS", (
     const RUN_ID = "run-decl";
     const CONV_ID = "conv-decl";
     const TOOL_CALL_ID = "tc-decl-1";
-    const run: AgentRun = { id: RUN_ID, agentName: "test", status: "running", startedAt: fakeNow, logs: [] };
+    const run: AgentRun = {
+      id: RUN_ID,
+      agentName: "test",
+      status: "running",
+      startedAt: fakeNow,
+      logs: [],
+    };
     const runs = new Map([[RUN_ID, run]]);
     const controllers = new Map([[RUN_ID, new AbortController()]]);
 
@@ -230,7 +236,9 @@ function makePiAgent() {
       cb = fn;
       return () => {};
     },
-    fire(e: { type: string; [k: string]: unknown }) { cb(e); },
+    fire(e: { type: string; [k: string]: unknown }) {
+      cb(e);
+    },
     abort() {},
   };
 }
@@ -248,7 +256,13 @@ function buildBridgeHarness(builtinToolDefsMap: Map<string, BuiltinToolDef>): Br
   const RUN_ID = "run-bridge-1";
   const CONV_ID = "conv-bridge-1";
 
-  const run: AgentRun = { id: RUN_ID, agentName: "test", status: "running", startedAt: fakeNow, logs: [] };
+  const run: AgentRun = {
+    id: RUN_ID,
+    agentName: "test",
+    status: "running",
+    startedAt: fakeNow,
+    logs: [],
+  };
   const runs = new Map([[RUN_ID, run]]);
   const controllers = new Map([[RUN_ID, new AbortController()]]);
 
@@ -299,7 +313,14 @@ function buildBridgeHarness(builtinToolDefsMap: Map<string, BuiltinToolDef>): Br
   };
 
   const piAgent = makePiAgent();
-  subscribeBridge(ctx, host, piAgent as unknown as Parameters<typeof subscribeBridge>[2], CONV_ID, {}, null);
+  subscribeBridge(
+    ctx,
+    host,
+    piAgent as unknown as Parameters<typeof subscribeBridge>[2],
+    CONV_ID,
+    {},
+    null,
+  );
 
   return { bus, ctx, host, piAgent, noteCalls };
 }
@@ -462,7 +483,13 @@ describe("subscribe-bridge — long-blocking orchestration tools (F1)", () => {
     // NOT be killed at 90s (the F1 bug), unlike a default-budgeted tool.
     const bus = new EventBus<AgentEvents>();
     const RUN_ID = "run-collect-defer";
-    const run: AgentRun = { id: RUN_ID, agentName: "test", status: "running", startedAt: fakeNow, logs: [] };
+    const run: AgentRun = {
+      id: RUN_ID,
+      agentName: "test",
+      status: "running",
+      startedAt: fakeNow,
+      logs: [],
+    };
     const watchdog = new WatchdogManager({
       runs: new Map([[RUN_ID, run]]),
       controllers: new Map([[RUN_ID, new AbortController()]]),

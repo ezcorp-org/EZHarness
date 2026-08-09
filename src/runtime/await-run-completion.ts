@@ -25,7 +25,9 @@ export type RunCompletion =
   | { kind: "aborted" };
 
 /** AgentResult.error is `string | { code, message }`; normalise to text. */
-function asErrorString(e: string | { code: string; message: string } | undefined): string | undefined {
+function asErrorString(
+  e: string | { code: string; message: string } | undefined,
+): string | undefined {
   if (e == null) return undefined;
   return typeof e === "string" ? e : e.message;
 }
@@ -82,10 +84,22 @@ export function awaitRunCompletion(opts: AwaitRunCompletionOpts): Promise<RunCom
     // gap between subscribe and getRun is not missed.
     unsubs.push(
       bus.on("run:complete", (d: AgentEvents["run:complete"]) => {
-        if (d.run.id === runId) finish({ kind: "done", run: d.run, outcome: "complete", error: asErrorString(d.run.result?.error) });
+        if (d.run.id === runId)
+          finish({
+            kind: "done",
+            run: d.run,
+            outcome: "complete",
+            error: asErrorString(d.run.result?.error),
+          });
       }),
       bus.on("run:error", (d: AgentEvents["run:error"]) => {
-        if (d.run.id === runId) finish({ kind: "done", run: d.run, outcome: "error", error: d.error ?? asErrorString(d.run.result?.error) });
+        if (d.run.id === runId)
+          finish({
+            kind: "done",
+            run: d.run,
+            outcome: "error",
+            error: d.error ?? asErrorString(d.run.result?.error),
+          });
       }),
       bus.on("run:cancel", (d: AgentEvents["run:cancel"]) => {
         if (d.run.id === runId) finish({ kind: "done", run: d.run, outcome: "cancel" });
@@ -102,7 +116,8 @@ export function awaitRunCompletion(opts: AwaitRunCompletionOpts): Promise<RunCom
           return;
         }
         const outcome = TERMINAL_STATUS[run.status];
-        if (outcome) finish({ kind: "done", run, outcome, error: asErrorString(run.result?.error) });
+        if (outcome)
+          finish({ kind: "done", run, outcome, error: asErrorString(run.result?.error) });
       })
       .catch(() => {
         // getRun failure is non-fatal: fall back to waiting for the event /

@@ -85,7 +85,7 @@ describe("memory team — seed team definition", () => {
 
     const memberNames = memberNamesMatch![1]!
       .split(",")
-      .map(s => s.trim().replace(/"/g, ""))
+      .map((s) => s.trim().replace(/"/g, ""))
       .filter(Boolean);
 
     expect(memberNames).toEqual(["Memory Validator", "Memory Organizer", "Memory Tester"]);

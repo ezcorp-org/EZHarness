@@ -7,7 +7,13 @@ import { join } from "node:path";
  * spec the McpClient can use to spawn it. The server exposes a single
  * `echo` tool unless `toolName` is specified.
  */
-export function makeStdioMcpServer(opts: { toolName?: string; tools?: Array<{ name: string; description: string }>; throwOnConnect?: boolean } = {}): {
+export function makeStdioMcpServer(
+  opts: {
+    toolName?: string;
+    tools?: Array<{ name: string; description: string }>;
+    throwOnConnect?: boolean;
+  } = {},
+): {
   command: string;
   args: string[];
   scriptPath: string;

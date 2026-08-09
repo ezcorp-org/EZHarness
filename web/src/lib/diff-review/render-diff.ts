@@ -12,11 +12,11 @@ import type { DiffViewMode } from "../diff-view-mode";
 
 /** Escape a raw diff for the `<pre>` fallback so it can't inject markup. */
 function escapeHtml(value: unknown): string {
-	return String(value)
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;");
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 /**
@@ -28,10 +28,10 @@ function escapeHtml(value: unknown): string {
  * own GitHub-style file tree.
  */
 export function renderDiffHtml(diffText: string, mode: DiffViewMode): string {
-	try {
-		const parsed = Diff2Html.parse(diffText);
-		return Diff2Html.html(parsed, { outputFormat: mode, drawFileList: false });
-	} catch {
-		return `<pre>${escapeHtml(diffText)}</pre>`;
-	}
+  try {
+    const parsed = Diff2Html.parse(diffText);
+    return Diff2Html.html(parsed, { outputFormat: mode, drawFileList: false });
+  } catch {
+    return `<pre>${escapeHtml(diffText)}</pre>`;
+  }
 }

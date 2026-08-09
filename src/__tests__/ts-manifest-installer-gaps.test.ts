@@ -53,7 +53,9 @@ afterAll(() => {
   TMP_ROOT.cleanup();
 });
 
-const { installFromGit, installFromGitHub, updateExtension } = await import("../extensions/installer");
+const { installFromGit, installFromGitHub, updateExtension } = await import(
+  "../extensions/installer"
+);
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -115,7 +117,8 @@ async function createBareRepo(
 // ═══════════════════════════════════════════════════════════════════
 
 describe("installFromGit + loadManifest gaps", () => {
-  const installDir = () => join(tempBase, `ext-install-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+  const installDir = () =>
+    join(tempBase, `ext-install-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
 
   test("loads ezcorp.config.ts from cloned repo successfully", async () => {
     const manifest = makeManifest({ name: "git-load-ok" });
@@ -196,8 +199,18 @@ describe("installFromGitHub + findManifest gaps", () => {
     globalThis.fetch = originalFetch;
   });
 
-  async function createTarball(rootName: string, nestedPath: string, manifest: ExtensionManifestV2, entryContent: string): Promise<string> {
-    const srcDir = join(tempBase, "tar-src-gaps", rootName, ...nestedPath.split("/").filter(Boolean));
+  async function createTarball(
+    rootName: string,
+    nestedPath: string,
+    manifest: ExtensionManifestV2,
+    entryContent: string,
+  ): Promise<string> {
+    const srcDir = join(
+      tempBase,
+      "tar-src-gaps",
+      rootName,
+      ...nestedPath.split("/").filter(Boolean),
+    );
     await mkdir(srcDir, { recursive: true });
     await writeConfig(srcDir, manifest);
     if (manifest.entrypoint) {
@@ -217,7 +230,12 @@ describe("installFromGitHub + findManifest gaps", () => {
           statusText: "OK",
           json: async () => ({
             tag_name: "v1.0.0",
-            assets: [{ name: "release.tar.gz", browser_download_url: "https://example.com/release.tar.gz" }],
+            assets: [
+              {
+                name: "release.tar.gz",
+                browser_download_url: "https://example.com/release.tar.gz",
+              },
+            ],
           }),
         } as Response;
       }
@@ -228,7 +246,12 @@ describe("installFromGitHub + findManifest gaps", () => {
 
   test("findManifest locates ezcorp.config.ts in nested directory", async () => {
     const manifest = makeManifest({ name: "nested-find" });
-    const tarPath = await createTarball("nested-pkg", "sub/deep", manifest, 'console.log("nested");');
+    const tarPath = await createTarball(
+      "nested-pkg",
+      "sub/deep",
+      manifest,
+      'console.log("nested");',
+    );
     mockGitHubFetch(tarPath);
 
     const result = await installFromGitHub("testuser/nested-repo@v1.0.0", defaultPerms);
@@ -246,9 +269,9 @@ describe("installFromGitHub + findManifest gaps", () => {
     Bun.spawnSync(["tar", "-czf", tarPath, "-C", join(tempBase, "tar-src-gaps"), "no-config-pkg"]);
     mockGitHubFetch(tarPath);
 
-    await expect(
-      installFromGitHub("testuser/no-config-repo@v1.0.0", defaultPerms),
-    ).rejects.toThrow(/No ezcorp\.config\.ts found/);
+    await expect(installFromGitHub("testuser/no-config-repo@v1.0.0", defaultPerms)).rejects.toThrow(
+      /No ezcorp\.config\.ts found/,
+    );
   });
 });
 
@@ -314,7 +337,10 @@ describe("updateExtension + loadManifest gaps", () => {
     spawn(["git", "tag", "v1.0.0"], { cwd: workDir });
 
     // v2.0.0 — invalid (missing required fields)
-    await Bun.write(join(workDir, "ezcorp.config.ts"), configContent({ schemaVersion: 2, name: "update-invalid-ext" }));
+    await Bun.write(
+      join(workDir, "ezcorp.config.ts"),
+      configContent({ schemaVersion: 2, name: "update-invalid-ext" }),
+    );
     spawn(["git", "add", "."], { cwd: workDir });
     spawn(["git", "commit", "-m", "v2.0.0 bad"], { cwd: workDir });
     spawn(["git", "tag", "v2.0.0"], { cwd: workDir });

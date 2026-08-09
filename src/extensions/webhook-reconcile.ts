@@ -56,17 +56,19 @@ export async function reconcileWebhooks(
   // MANIFEST rows only — see the module header. This snapshot feeds both the
   // re-enable map and the `disabled` count, so filtering here keeps a dynamic
   // row out of BOTH.
-  const existing: ExtensionWebhook[] = await db.select().from(extensionWebhooks)
-    .where(and(
-      eq(extensionWebhooks.extensionId, extensionId),
-      eq(extensionWebhooks.dynamic, false),
-    ));
+  const existing: ExtensionWebhook[] = await db
+    .select()
+    .from(extensionWebhooks)
+    .where(
+      and(eq(extensionWebhooks.extensionId, extensionId), eq(extensionWebhooks.dynamic, false)),
+    );
   const existingBySlug = new Map<string, ExtensionWebhook>(
     existing.map((row) => [row.slug, row] as const),
   );
   const validSet = new Set(valid);
 
-  let added = 0, preserved = 0;
+  let added = 0,
+    preserved = 0;
   // Deterministic disabled count from the pre-fetch snapshot — PGlite's UPDATE
   // rowCount is unreliable (mirrors reconcileSchedules, which counts via a
   // follow-up SELECT). A currently-enabled slug not in the new grant is being
@@ -78,7 +80,8 @@ export async function reconcileWebhooks(
     const cur = existingBySlug.get(slug);
     if (cur) {
       if (!cur.enabled) {
-        await db.update(extensionWebhooks)
+        await db
+          .update(extensionWebhooks)
           .set({ enabled: true, updatedAt: now() })
           .where(eq(extensionWebhooks.id, cur.id));
       }
@@ -104,23 +107,29 @@ export async function reconcileWebhooks(
   // `dynamic = false` on both branches: a user-created hook was never in the
   // grant, so "not in the grant" cannot mean "revoked" for it.
   if (valid.length > 0) {
-    await db.update(extensionWebhooks)
+    await db
+      .update(extensionWebhooks)
       .set({ enabled: false, updatedAt: now() })
-      .where(and(
-        eq(extensionWebhooks.extensionId, extensionId),
-        eq(extensionWebhooks.dynamic, false),
-        notInArray(extensionWebhooks.slug, valid),
-        eq(extensionWebhooks.enabled, true),
-      ));
+      .where(
+        and(
+          eq(extensionWebhooks.extensionId, extensionId),
+          eq(extensionWebhooks.dynamic, false),
+          notInArray(extensionWebhooks.slug, valid),
+          eq(extensionWebhooks.enabled, true),
+        ),
+      );
   } else if (existing.length > 0) {
     // Grant declared no slugs — disable all the MANIFEST ones.
-    await db.update(extensionWebhooks)
+    await db
+      .update(extensionWebhooks)
       .set({ enabled: false, updatedAt: now() })
-      .where(and(
-        eq(extensionWebhooks.extensionId, extensionId),
-        eq(extensionWebhooks.dynamic, false),
-        eq(extensionWebhooks.enabled, true),
-      ));
+      .where(
+        and(
+          eq(extensionWebhooks.extensionId, extensionId),
+          eq(extensionWebhooks.dynamic, false),
+          eq(extensionWebhooks.enabled, true),
+        ),
+      );
   }
 
   log.debug("reconciled", { extensionId, added, disabled, preserved, totalGranted: valid.length });

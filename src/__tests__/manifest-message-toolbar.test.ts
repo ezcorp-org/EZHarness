@@ -9,10 +9,7 @@
 
 import { test, expect, describe } from "bun:test";
 import { validateManifestV2 } from "../extensions/manifest";
-import type {
-  ExtensionManifestV2,
-  MessageToolbarItem,
-} from "../extensions/types";
+import type { ExtensionManifestV2, MessageToolbarItem } from "../extensions/types";
 
 function makeManifest(extra: Partial<ExtensionManifestV2> = {}): ExtensionManifestV2 {
   return {
@@ -102,9 +99,7 @@ describe("validateMessageToolbarArray", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(
-      r.errors.some((e) => e.includes('id "speak" is duplicated')),
-    ).toBe(true);
+    expect(r.errors.some((e) => e.includes('id "speak" is duplicated'))).toBe(true);
   });
 
   test("rejects missing icon", () => {
@@ -141,9 +136,7 @@ describe("validateMessageToolbarArray", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(
-      r.errors.some((e) => e.includes("messageToolbar[0].appliesTo")),
-    ).toBe(true);
+    expect(r.errors.some((e) => e.includes("messageToolbar[0].appliesTo"))).toBe(true);
   });
 
   test("rejects event without manifest-name prefix", () => {
@@ -154,9 +147,7 @@ describe("validateMessageToolbarArray", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(
-      r.errors.some((e) => e.includes('must be prefixed with "ext-name:"')),
-    ).toBe(true);
+    expect(r.errors.some((e) => e.includes('must be prefixed with "ext-name:"'))).toBe(true);
   });
 
   test("rejects event missing from eventSubscriptions allowlist", () => {
@@ -168,9 +159,7 @@ describe("validateMessageToolbarArray", () => {
     );
     expect(r.valid).toBe(false);
     expect(
-      r.errors.some((e) =>
-        e.includes("must also be listed in permissions.eventSubscriptions"),
-      ),
+      r.errors.some((e) => e.includes("must also be listed in permissions.eventSubscriptions")),
     ).toBe(true);
   });
 
@@ -264,9 +253,7 @@ describe("validateMessageToolbarArray", () => {
     );
     expect(r.valid).toBe(false);
     expect(
-      r.errors.some((e) =>
-        e.includes("messageToolbar[0].event is required and must be a string"),
-      ),
+      r.errors.some((e) => e.includes("messageToolbar[0].event is required and must be a string")),
     ).toBe(true);
   });
 });
@@ -323,9 +310,7 @@ describe("permissions.appendMessages validator", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(r.errors).toContain(
-      "permissions.appendMessages.excludedDefault must be a boolean",
-    );
+    expect(r.errors).toContain("permissions.appendMessages.excludedDefault must be a boolean");
   });
 
   test("rejects non-boolean excludedDefault", () => {
@@ -339,9 +324,7 @@ describe("permissions.appendMessages validator", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(r.errors).toContain(
-      "permissions.appendMessages.excludedDefault must be a boolean",
-    );
+    expect(r.errors).toContain("permissions.appendMessages.excludedDefault must be a boolean");
   });
 });
 

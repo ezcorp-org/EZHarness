@@ -24,7 +24,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
   const limitParam = url.searchParams.get("limit");
   const offsetParam = url.searchParams.get("offset");
-  const limit = limitParam !== null ? Math.min(Math.max(parseInt(limitParam, 10) || 0, 1), 200) : undefined;
+  const limit =
+    limitParam !== null ? Math.min(Math.max(parseInt(limitParam, 10) || 0, 1), 200) : undefined;
   const offset = offsetParam !== null ? Math.max(parseInt(offsetParam, 10) || 0, 0) : undefined;
 
   return json(await convQueries.listConversations(projectId, user.id, { limit, offset }));

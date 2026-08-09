@@ -5,10 +5,13 @@ import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers
 mockDbConnection();
 
 import { users, passwordResetTokens } from "../db/schema";
-import { createPasswordResetToken, claimPasswordResetToken, deleteExpiredResetTokens } from "../db/queries/password-resets";
+import {
+  createPasswordResetToken,
+  claimPasswordResetToken,
+  deleteExpiredResetTokens,
+} from "../db/queries/password-resets";
 import { hashToken } from "../db/queries/sessions";
 import { hashPassword } from "../auth/password";
-
 
 let testUserId: string;
 
@@ -27,12 +30,15 @@ beforeEach(async () => {
 
   // Seed a test user
   const hash = await hashPassword("password123");
-  const [user] = await db.insert(users).values({
-    email: "test@example.com",
-    passwordHash: hash,
-    name: "Test User",
-    role: "member",
-  }).returning();
+  const [user] = await db
+    .insert(users)
+    .values({
+      email: "test@example.com",
+      passwordHash: hash,
+      name: "Test User",
+      role: "member",
+    })
+    .returning();
   testUserId = user!.id;
 });
 

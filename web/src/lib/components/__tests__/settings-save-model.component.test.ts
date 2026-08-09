@@ -17,30 +17,30 @@ import GlobalInstructionsSection from "../settings/GlobalInstructionsSection.sve
 import SecuritySettings from "../settings/SecuritySettings.svelte";
 
 interface FetchCall {
-	url: string;
-	method: string;
-	body?: any;
+  url: string;
+  method: string;
+  body?: any;
 }
 let fetchCalls: FetchCall[] = [];
 
 function stubFetch(
-	getJson: (url: string) => unknown = () => ({ ok: true }),
-	getStatus: (url: string, method: string) => number = () => 200,
+  getJson: (url: string) => unknown = () => ({ ok: true }),
+  getStatus: (url: string, method: string) => number = () => 200,
 ) {
-	fetchCalls = [];
-	vi.stubGlobal(
-		"fetch",
-		vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-			const url = String(input);
-			const method = init?.method ?? "GET";
-			fetchCalls.push({
-				url,
-				method,
-				body: init?.body ? JSON.parse(String(init.body)) : undefined,
-			});
-			return Response.json(getJson(url), { status: getStatus(url, method) });
-		}),
-	);
+  fetchCalls = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? "GET";
+      fetchCalls.push({
+        url,
+        method,
+        body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      });
+      return Response.json(getJson(url), { status: getStatus(url, method) });
+    }),
+  );
 }
 
 /** All PUTs fail with a 500 — GETs keep working. */
@@ -51,237 +51,240 @@ const puts = () => fetchCalls.filter((c) => c.method === "PUT");
 afterEach(() => vi.unstubAllGlobals());
 
 describe("DefaultTierSection auto-save", () => {
-	test("tier click PUTs without a Save button and flashes Saved ✓", async () => {
-		stubFetch();
-		const { getByText, queryByText, getByTestId } = render(DefaultTierSection, {
-			props: { defaultTier: "balanced" },
-		});
+  test("tier click PUTs without a Save button and flashes Saved ✓", async () => {
+    stubFetch();
+    const { getByText, queryByText, getByTestId } = render(DefaultTierSection, {
+      props: { defaultTier: "balanced" },
+    });
 
-		expect(queryByText("Save Tier")).not.toBeInTheDocument();
+    expect(queryByText("Save Tier")).not.toBeInTheDocument();
 
-		await fireEvent.click(getByText("Powerful"));
+    await fireEvent.click(getByText("Powerful"));
 
-		await waitFor(() => {
-			expect(getByTestId("save-indicator-saved")).toBeInTheDocument();
-		});
-		expect(puts()).toHaveLength(1);
-		expect(puts()[0]!.url).toContain("/api/settings/provider:defaultTier");
-		expect(puts()[0]!.body).toEqual({ value: "powerful" });
-	});
+    await waitFor(() => {
+      expect(getByTestId("save-indicator-saved")).toBeInTheDocument();
+    });
+    expect(puts()).toHaveLength(1);
+    expect(puts()[0]!.url).toContain("/api/settings/provider:defaultTier");
+    expect(puts()[0]!.body).toEqual({ value: "powerful" });
+  });
 
-	test("clicking the already-selected tier is a no-op", async () => {
-		stubFetch();
-		const { getByText } = render(DefaultTierSection, { props: { defaultTier: "balanced" } });
-		await fireEvent.click(getByText("Balanced"));
-		expect(puts()).toHaveLength(0);
-	});
+  test("clicking the already-selected tier is a no-op", async () => {
+    stubFetch();
+    const { getByText } = render(DefaultTierSection, { props: { defaultTier: "balanced" } });
+    await fireEvent.click(getByText("Balanced"));
+    expect(puts()).toHaveLength(0);
+  });
 });
 
 describe("PreferenceOrderSection auto-save", () => {
-	test("arrow move PUTs the new order without a Save button", async () => {
-		stubFetch();
-		const { getAllByTitle, queryByText, getByTestId } = render(PreferenceOrderSection, {
-			props: { preferenceOrder: ["anthropic", "openai", "google"] },
-		});
+  test("arrow move PUTs the new order without a Save button", async () => {
+    stubFetch();
+    const { getAllByTitle, queryByText, getByTestId } = render(PreferenceOrderSection, {
+      props: { preferenceOrder: ["anthropic", "openai", "google"] },
+    });
 
-		expect(queryByText("Save Order")).not.toBeInTheDocument();
+    expect(queryByText("Save Order")).not.toBeInTheDocument();
 
-		await fireEvent.click(getAllByTitle("Move down")[0]!);
+    await fireEvent.click(getAllByTitle("Move down")[0]!);
 
-		await waitFor(() => {
-			expect(getByTestId("save-indicator-saved")).toBeInTheDocument();
-		});
-		expect(puts()).toHaveLength(1);
-		expect(puts()[0]!.url).toContain("/api/settings/provider:preferenceOrder");
-		expect(puts()[0]!.body).toEqual({ value: ["openai", "anthropic", "google"] });
-	});
+    await waitFor(() => {
+      expect(getByTestId("save-indicator-saved")).toBeInTheDocument();
+    });
+    expect(puts()).toHaveLength(1);
+    expect(puts()[0]!.url).toContain("/api/settings/provider:preferenceOrder");
+    expect(puts()[0]!.body).toEqual({ value: ["openai", "anthropic", "google"] });
+  });
 
-	test("move past the boundary is a no-op", async () => {
-		stubFetch();
-		const { getAllByTitle } = render(PreferenceOrderSection, {
-			props: { preferenceOrder: ["anthropic", "openai"] },
-		});
-		await fireEvent.click(getAllByTitle("Move up")[0]!);
-		expect(puts()).toHaveLength(0);
-	});
+  test("move past the boundary is a no-op", async () => {
+    stubFetch();
+    const { getAllByTitle } = render(PreferenceOrderSection, {
+      props: { preferenceOrder: ["anthropic", "openai"] },
+    });
+    await fireEvent.click(getAllByTitle("Move up")[0]!);
+    expect(puts()).toHaveLength(0);
+  });
 });
 
 describe("AdvancedSection auto-save", () => {
-	test("toggle PUTs immediately with confirmation", async () => {
-		stubFetch();
-		const { getByLabelText, getByTestId } = render(AdvancedSection, {
-			props: { showObservability: false, agentAutonomyEnabled: true },
-		});
+  test("toggle PUTs immediately with confirmation", async () => {
+    stubFetch();
+    const { getByLabelText, getByTestId } = render(AdvancedSection, {
+      props: { showObservability: false, agentAutonomyEnabled: true },
+    });
 
-		await fireEvent.click(getByLabelText("Toggle observability"));
+    await fireEvent.click(getByLabelText("Toggle observability"));
 
-		await waitFor(() => {
-			expect(getByTestId("save-indicator-saved")).toBeInTheDocument();
-		});
-		expect(puts()[0]!.url).toContain("/api/settings/global:showObservability");
-		expect(puts()[0]!.body).toEqual({ value: true });
-	});
+    await waitFor(() => {
+      expect(getByTestId("save-indicator-saved")).toBeInTheDocument();
+    });
+    expect(puts()[0]!.url).toContain("/api/settings/global:showObservability");
+    expect(puts()[0]!.body).toEqual({ value: true });
+  });
 });
 
 describe("auto-save failure handling", () => {
-	test("tier: failed PUT rolls back the selection and shows the error indicator", async () => {
-		stubFetch(() => ({ error: "boom" }), failPuts);
-		const { getByText, getByTestId, queryByTestId } = render(DefaultTierSection, {
-			props: { defaultTier: "balanced" },
-		});
+  test("tier: failed PUT rolls back the selection and shows the error indicator", async () => {
+    stubFetch(() => ({ error: "boom" }), failPuts);
+    const { getByText, getByTestId, queryByTestId } = render(DefaultTierSection, {
+      props: { defaultTier: "balanced" },
+    });
 
-		await fireEvent.click(getByText("Powerful"));
+    await fireEvent.click(getByText("Powerful"));
 
-		await waitFor(() => {
-			expect(getByTestId("save-indicator-error")).toBeInTheDocument();
-		});
-		expect(queryByTestId("save-indicator-saved")).not.toBeInTheDocument();
-		expect(puts()).toHaveLength(1);
-		// Optimistic mutation rolled back — Balanced is selected again.
-		expect(getByText("Balanced").closest("button")).toHaveClass("bg-blue-600");
-		expect(getByText("Powerful").closest("button")).not.toHaveClass("bg-blue-600");
-	});
+    await waitFor(() => {
+      expect(getByTestId("save-indicator-error")).toBeInTheDocument();
+    });
+    expect(queryByTestId("save-indicator-saved")).not.toBeInTheDocument();
+    expect(puts()).toHaveLength(1);
+    // Optimistic mutation rolled back — Balanced is selected again.
+    expect(getByText("Balanced").closest("button")).toHaveClass("bg-blue-600");
+    expect(getByText("Powerful").closest("button")).not.toHaveClass("bg-blue-600");
+  });
 
-	test("tier: retry after a failure succeeds and clears the error", async () => {
-		let putCount = 0;
-		stubFetch(
-			() => ({ ok: true }),
-			(_url, method) => (method === "PUT" && ++putCount === 1 ? 500 : 200),
-		);
-		const { getByText, getByTestId, queryByTestId } = render(DefaultTierSection, {
-			props: { defaultTier: "balanced" },
-		});
+  test("tier: retry after a failure succeeds and clears the error", async () => {
+    let putCount = 0;
+    stubFetch(
+      () => ({ ok: true }),
+      (_url, method) => (method === "PUT" && ++putCount === 1 ? 500 : 200),
+    );
+    const { getByText, getByTestId, queryByTestId } = render(DefaultTierSection, {
+      props: { defaultTier: "balanced" },
+    });
 
-		await fireEvent.click(getByText("Powerful"));
-		await waitFor(() => {
-			expect(getByTestId("save-indicator-error")).toBeInTheDocument();
-		});
+    await fireEvent.click(getByText("Powerful"));
+    await waitFor(() => {
+      expect(getByTestId("save-indicator-error")).toBeInTheDocument();
+    });
 
-		// The control itself is the retry affordance: click again.
-		await fireEvent.click(getByText("Powerful"));
-		await waitFor(() => {
-			expect(getByTestId("save-indicator-saved")).toBeInTheDocument();
-		});
-		expect(queryByTestId("save-indicator-error")).not.toBeInTheDocument();
-		expect(getByText("Powerful").closest("button")).toHaveClass("bg-blue-600");
-		expect(puts()).toHaveLength(2);
-	});
+    // The control itself is the retry affordance: click again.
+    await fireEvent.click(getByText("Powerful"));
+    await waitFor(() => {
+      expect(getByTestId("save-indicator-saved")).toBeInTheDocument();
+    });
+    expect(queryByTestId("save-indicator-error")).not.toBeInTheDocument();
+    expect(getByText("Powerful").closest("button")).toHaveClass("bg-blue-600");
+    expect(puts()).toHaveLength(2);
+  });
 
-	test("order: failed PUT restores the previous order and shows the error indicator", async () => {
-		stubFetch(() => ({ error: "boom" }), failPuts);
-		const { container, getAllByTitle, getByTestId, queryByTestId } = render(PreferenceOrderSection, {
-			props: { preferenceOrder: ["anthropic", "openai", "google"] },
-		});
+  test("order: failed PUT restores the previous order and shows the error indicator", async () => {
+    stubFetch(() => ({ error: "boom" }), failPuts);
+    const { container, getAllByTitle, getByTestId, queryByTestId } = render(
+      PreferenceOrderSection,
+      {
+        props: { preferenceOrder: ["anthropic", "openai", "google"] },
+      },
+    );
 
-		const order = () =>
-			Array.from(container.querySelectorAll("span.flex-1")).map((e) => e.textContent);
-		const before = order();
+    const order = () =>
+      Array.from(container.querySelectorAll("span.flex-1")).map((e) => e.textContent);
+    const before = order();
 
-		await fireEvent.click(getAllByTitle("Move down")[0]!);
+    await fireEvent.click(getAllByTitle("Move down")[0]!);
 
-		await waitFor(() => {
-			expect(getByTestId("save-indicator-error")).toBeInTheDocument();
-		});
-		expect(queryByTestId("save-indicator-saved")).not.toBeInTheDocument();
-		expect(order()).toEqual(before);
-	});
+    await waitFor(() => {
+      expect(getByTestId("save-indicator-error")).toBeInTheDocument();
+    });
+    expect(queryByTestId("save-indicator-saved")).not.toBeInTheDocument();
+    expect(order()).toEqual(before);
+  });
 
-	test("toggle: failed PUT flips the switch back and shows the error indicator", async () => {
-		stubFetch(() => ({ error: "boom" }), failPuts);
-		const { getByLabelText, getByTestId, queryByTestId } = render(AdvancedSection, {
-			props: { showObservability: false, agentAutonomyEnabled: true },
-		});
+  test("toggle: failed PUT flips the switch back and shows the error indicator", async () => {
+    stubFetch(() => ({ error: "boom" }), failPuts);
+    const { getByLabelText, getByTestId, queryByTestId } = render(AdvancedSection, {
+      props: { showObservability: false, agentAutonomyEnabled: true },
+    });
 
-		const toggle = getByLabelText("Toggle observability");
-		await fireEvent.click(toggle);
+    const toggle = getByLabelText("Toggle observability");
+    await fireEvent.click(toggle);
 
-		await waitFor(() => {
-			expect(getByTestId("save-indicator-error")).toBeInTheDocument();
-		});
-		expect(queryByTestId("save-indicator-saved")).not.toBeInTheDocument();
-		expect(toggle).toHaveAttribute("aria-checked", "false");
-	});
+    await waitFor(() => {
+      expect(getByTestId("save-indicator-error")).toBeInTheDocument();
+    });
+    expect(queryByTestId("save-indicator-saved")).not.toBeInTheDocument();
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+  });
 });
 
 describe("GlobalInstructionsSection dirty tracking", () => {
-	test("Save disabled until dirty, disabled again after save", async () => {
-		stubFetch();
-		const { getByText, getByLabelText, getByTestId } = render(GlobalInstructionsSection, {
-			props: { globalPrompt: "original" },
-		});
+  test("Save disabled until dirty, disabled again after save", async () => {
+    stubFetch();
+    const { getByText, getByLabelText, getByTestId } = render(GlobalInstructionsSection, {
+      props: { globalPrompt: "original" },
+    });
 
-		const save = getByText("Save Global Instructions").closest("button")!;
-		expect(save).toBeDisabled();
+    const save = getByText("Save Global Instructions").closest("button")!;
+    expect(save).toBeDisabled();
 
-		await fireEvent.input(getByLabelText("Global custom instructions"), {
-			target: { value: "updated prompt" },
-		});
-		expect(save).not.toBeDisabled();
+    await fireEvent.input(getByLabelText("Global custom instructions"), {
+      target: { value: "updated prompt" },
+    });
+    expect(save).not.toBeDisabled();
 
-		await fireEvent.click(save);
-		await waitFor(() => {
-			expect(getByTestId("save-indicator-saved")).toBeInTheDocument();
-		});
-		expect(save).toBeDisabled();
-		expect(puts()[0]!.body).toEqual({ value: "updated prompt" });
-	});
+    await fireEvent.click(save);
+    await waitFor(() => {
+      expect(getByTestId("save-indicator-saved")).toBeInTheDocument();
+    });
+    expect(save).toBeDisabled();
+    expect(puts()[0]!.body).toEqual({ value: "updated prompt" });
+  });
 
-	test("reverting to the baseline disables Save again", async () => {
-		stubFetch();
-		const { getByText, getByLabelText } = render(GlobalInstructionsSection, {
-			props: { globalPrompt: "original" },
-		});
-		const textarea = getByLabelText("Global custom instructions");
-		const save = getByText("Save Global Instructions").closest("button")!;
+  test("reverting to the baseline disables Save again", async () => {
+    stubFetch();
+    const { getByText, getByLabelText } = render(GlobalInstructionsSection, {
+      props: { globalPrompt: "original" },
+    });
+    const textarea = getByLabelText("Global custom instructions");
+    const save = getByText("Save Global Instructions").closest("button")!;
 
-		await fireEvent.input(textarea, { target: { value: "changed" } });
-		expect(save).not.toBeDisabled();
-		await fireEvent.input(textarea, { target: { value: "original" } });
-		expect(save).toBeDisabled();
-	});
+    await fireEvent.input(textarea, { target: { value: "changed" } });
+    expect(save).not.toBeDisabled();
+    await fireEvent.input(textarea, { target: { value: "original" } });
+    expect(save).toBeDisabled();
+  });
 });
 
 describe("SecuritySettings dirty tracking", () => {
-	test("Save disabled until a field changes, disabled after saving", async () => {
-		stubFetch(() => ({}));
-		const { getByText, container } = render(SecuritySettings);
+  test("Save disabled until a field changes, disabled after saving", async () => {
+    stubFetch(() => ({}));
+    const { getByText, container } = render(SecuritySettings);
 
-		await waitFor(() => {
-			expect(getByText("Save Security Settings")).toBeInTheDocument();
-		});
-		const save = getByText("Save Security Settings").closest("button")!;
-		expect(save).toBeDisabled();
+    await waitFor(() => {
+      expect(getByText("Save Security Settings")).toBeInTheDocument();
+    });
+    const save = getByText("Save Security Settings").closest("button")!;
+    expect(save).toBeDisabled();
 
-		const tokenInput = container.querySelector('input[step="1000"]')!;
-		await fireEvent.input(tokenInput, { target: { value: "250000" } });
-		expect(save).not.toBeDisabled();
+    const tokenInput = container.querySelector('input[step="1000"]')!;
+    await fireEvent.input(tokenInput, { target: { value: "250000" } });
+    expect(save).not.toBeDisabled();
 
-		await fireEvent.click(save);
-		await waitFor(() => {
-			expect(save).toBeDisabled();
-		});
-		const tokenPut = puts().find((c) => c.url.includes("limits:dailyTokens"));
-		expect(tokenPut?.body).toEqual({ value: 250000 });
-	});
+    await fireEvent.click(save);
+    await waitFor(() => {
+      expect(save).toBeDisabled();
+    });
+    const tokenPut = puts().find((c) => c.url.includes("limits:dailyTokens"));
+    expect(tokenPut?.body).toEqual({ value: 250000 });
+  });
 
-	test("workflow rate-limit override saves under the real limiter category key", async () => {
-		// hooks.server.ts reads overrides by RATE_LIMITED_ROUTES category
-		// ("workflowRun") — the old "pipeline" key silently never applied.
-		stubFetch(() => ({}));
-		const { getByText, getByLabelText } = render(SecuritySettings);
+  test("workflow rate-limit override saves under the real limiter category key", async () => {
+    // hooks.server.ts reads overrides by RATE_LIMITED_ROUTES category
+    // ("workflowRun") — the old "pipeline" key silently never applied.
+    stubFetch(() => ({}));
+    const { getByText, getByLabelText } = render(SecuritySettings);
 
-		await waitFor(() => {
-			expect(getByText("Save Security Settings")).toBeInTheDocument();
-		});
+    await waitFor(() => {
+      expect(getByText("Save Security Settings")).toBeInTheDocument();
+    });
 
-		await fireEvent.input(getByLabelText("Workflow Runs"), { target: { value: "25" } });
-		await fireEvent.click(getByText("Save Security Settings").closest("button")!);
+    await fireEvent.input(getByLabelText("Workflow Runs"), { target: { value: "25" } });
+    await fireEvent.click(getByText("Save Security Settings").closest("button")!);
 
-		await waitFor(() => {
-			const rlPut = puts().find((c) => c.url.includes("limits:rateLimit"));
-			expect(rlPut?.body).toEqual({
-				value: expect.objectContaining({ workflowRun: 25 }),
-			});
-		});
-	});
+    await waitFor(() => {
+      const rlPut = puts().find((c) => c.url.includes("limits:rateLimit"));
+      expect(rlPut?.body).toEqual({
+        value: expect.objectContaining({ workflowRun: 25 }),
+      });
+    });
+  });
 });

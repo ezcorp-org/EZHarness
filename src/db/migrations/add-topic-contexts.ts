@@ -52,16 +52,66 @@ export const CONTEXT_TYPE_SEED: ReadonlyArray<{
   description: string;
   sortOrder: number;
 }> = [
-  { id: "feature", label: "Feature", description: "A capability or piece of functionality to build, or one that already exists.", sortOrder: 1 },
-  { id: "idea", label: "Idea", description: "A proposal, suggestion, or brainstormed concept that has not been decided yet.", sortOrder: 2 },
-  { id: "decision", label: "Decision", description: "A choice that was made, together with the reasoning behind it.", sortOrder: 3 },
-  { id: "bug-fix", label: "Bug Fix", description: "A defect and how it was, or should be, resolved.", sortOrder: 4 },
-  { id: "requirement", label: "Requirement", description: "A constraint or condition the solution must satisfy.", sortOrder: 5 },
-  { id: "how-to", label: "How-To", description: "Step-by-step instructions or a procedure for accomplishing something.", sortOrder: 6 },
-  { id: "code-snippet", label: "Code Snippet", description: "A concrete block of code, configuration, or command.", sortOrder: 7 },
-  { id: "fact", label: "Fact", description: "A piece of reference information or an established truth worth remembering.", sortOrder: 8 },
-  { id: "question", label: "Question", description: "An open question or unresolved inquiry raised in the conversation.", sortOrder: 9 },
-  { id: "plan", label: "Plan", description: "A sequence of steps or a strategy toward a goal.", sortOrder: 10 },
+  {
+    id: "feature",
+    label: "Feature",
+    description: "A capability or piece of functionality to build, or one that already exists.",
+    sortOrder: 1,
+  },
+  {
+    id: "idea",
+    label: "Idea",
+    description: "A proposal, suggestion, or brainstormed concept that has not been decided yet.",
+    sortOrder: 2,
+  },
+  {
+    id: "decision",
+    label: "Decision",
+    description: "A choice that was made, together with the reasoning behind it.",
+    sortOrder: 3,
+  },
+  {
+    id: "bug-fix",
+    label: "Bug Fix",
+    description: "A defect and how it was, or should be, resolved.",
+    sortOrder: 4,
+  },
+  {
+    id: "requirement",
+    label: "Requirement",
+    description: "A constraint or condition the solution must satisfy.",
+    sortOrder: 5,
+  },
+  {
+    id: "how-to",
+    label: "How-To",
+    description: "Step-by-step instructions or a procedure for accomplishing something.",
+    sortOrder: 6,
+  },
+  {
+    id: "code-snippet",
+    label: "Code Snippet",
+    description: "A concrete block of code, configuration, or command.",
+    sortOrder: 7,
+  },
+  {
+    id: "fact",
+    label: "Fact",
+    description: "A piece of reference information or an established truth worth remembering.",
+    sortOrder: 8,
+  },
+  {
+    id: "question",
+    label: "Question",
+    description: "An open question or unresolved inquiry raised in the conversation.",
+    sortOrder: 9,
+  },
+  {
+    id: "plan",
+    label: "Plan",
+    description: "A sequence of steps or a strategy toward a goal.",
+    sortOrder: 10,
+  },
 ];
 
 export async function up(db: MigrationDb): Promise<void> {
@@ -95,7 +145,9 @@ export async function up(db: MigrationDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversation_topics_conversation ON conversation_topics(conversation_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conversation_topics_conversation ON conversation_topics(conversation_id)`,
+  );
   // Case-insensitive label uniqueness per conversation — migration-only
   // (drizzle has no portable functional-index helper).
   await db.execute(sql`
@@ -129,9 +181,15 @@ export async function up(db: MigrationDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_user_created ON saved_contexts(user_id, created_at DESC)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_project ON saved_contexts(project_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_type ON saved_contexts(type_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_user_created ON saved_contexts(user_id, created_at DESC)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_project ON saved_contexts(project_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_type ON saved_contexts(type_id)`,
+  );
   await db.execute(sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_saved_contexts_unique
       ON saved_contexts(user_id, conversation_id, topic_label)

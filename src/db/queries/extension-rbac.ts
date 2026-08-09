@@ -52,7 +52,9 @@ export class InvalidRbacScopeError extends Error {
  *  list; throws {@link InvalidRbacScopeError} otherwise. */
 export function validateRbacScopes(scopes: string[]): string[] {
   if (scopes.length === 0) {
-    throw new InvalidRbacScopeError("scopes must be a non-empty array (revoke by deleting the grant)");
+    throw new InvalidRbacScopeError(
+      "scopes must be a non-empty array (revoke by deleting the grant)",
+    );
   }
   for (const scope of scopes) {
     if (typeof scope !== "string" || !isValidRbacScopeName(scope)) {

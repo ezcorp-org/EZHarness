@@ -85,9 +85,7 @@ describe("create handler — rethrow of non-validation errors", () => {
     // Rethrown → caught by outer try/catch → "<tool> failed: <message>".
     expect(res.content[0]?.text).toContain("non-validation boom");
     // NOT the VALIDATION_FAILED code path.
-    expect((res as ToolCallResult & { code?: string }).code).not.toBe(
-      "VALIDATION_FAILED",
-    );
+    expect((res as ToolCallResult & { code?: string }).code).not.toBe("VALIDATION_FAILED");
   });
 });
 
@@ -104,8 +102,6 @@ describe("update handler — rethrow of non-validation errors", () => {
     });
     expect(res.isError).toBe(true);
     expect(res.content[0]?.text).toContain("non-validation boom");
-    expect((res as ToolCallResult & { code?: string }).code).not.toBe(
-      "VALIDATION_FAILED",
-    );
+    expect((res as ToolCallResult & { code?: string }).code).not.toBe("VALIDATION_FAILED");
   });
 });

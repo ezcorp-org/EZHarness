@@ -77,7 +77,10 @@ describe("read_page (client-side tool)", () => {
 
   test("declares an optional summary|full detail param (no required args)", () => {
     const tool = createReadPageTool({ conversationId: "conv-x", bus: bus() });
-    const params = tool.parameters as { required?: string[]; properties?: Record<string, { enum?: string[] }> };
+    const params = tool.parameters as {
+      required?: string[];
+      properties?: Record<string, { enum?: string[] }>;
+    };
     expect(params.required ?? []).toEqual([]);
     expect(params.properties?.detail?.enum).toEqual(["summary", "full"]);
   });

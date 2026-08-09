@@ -18,10 +18,7 @@ import { userCommands, type UserCommand, type NewUserCommand } from "../schema";
  */
 
 export async function listUserCommands(userId: string): Promise<UserCommand[]> {
-  return getDb()
-    .select()
-    .from(userCommands)
-    .where(eq(userCommands.userId, userId));
+  return getDb().select().from(userCommands).where(eq(userCommands.userId, userId));
 }
 
 export async function getUserCommand(
@@ -105,9 +102,7 @@ function isUniqueViolation(err: unknown): boolean {
   return false;
 }
 
-export async function createUserCommand(
-  input: CreateUserCommandInput,
-): Promise<UserCommand> {
+export async function createUserCommand(input: CreateUserCommandInput): Promise<UserCommand> {
   // Resolve the saved name BEFORE the insert so we never trip the
   // unique-index violation in the happy path. The DB constraint is the
   // safety net; this is the UX layer that turns a duplicate POST into
@@ -196,10 +191,7 @@ export async function updateUserCommand(
   return getUserCommand(userId, savedName);
 }
 
-export async function deleteUserCommand(
-  userId: string,
-  name: string,
-): Promise<boolean> {
+export async function deleteUserCommand(userId: string, name: string): Promise<boolean> {
   const existing = await getUserCommand(userId, name);
   if (!existing) return false;
   await getDb()

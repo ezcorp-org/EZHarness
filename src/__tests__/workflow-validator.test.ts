@@ -62,7 +62,12 @@ describe("validateWorkflow — structural rejections", () => {
         def([
           { name: "a", agent: "x" },
           { name: "b", kind: "transform", output: { n: "$input.n" } },
-          { name: "c", kind: "gate", condition: { ref: "$input.n", op: "exists" }, dependsOn: ["a"] },
+          {
+            name: "c",
+            kind: "gate",
+            condition: { ref: "$input.n", op: "exists" },
+            dependsOn: ["a"],
+          },
         ]),
       ),
     ).toEqual([]);
@@ -73,13 +78,21 @@ describe("validateWorkflow — structural rejections", () => {
       "Workflow must have a non-empty name",
     );
     expect(
-      validateWorkflow({ name: 123 as unknown as string, description: "", steps: [{ name: "a", agent: "x" }] as WorkflowStep[] }),
+      validateWorkflow({
+        name: 123 as unknown as string,
+        description: "",
+        steps: [{ name: "a", agent: "x" }] as WorkflowStep[],
+      }),
     ).toContain("Workflow must have a non-empty name");
   });
 
   test("rejects missing steps array and empty steps array", () => {
     expect(
-      validateWorkflow({ name: "wf", description: "", steps: undefined as unknown as WorkflowStep[] }),
+      validateWorkflow({
+        name: "wf",
+        description: "",
+        steps: undefined as unknown as WorkflowStep[],
+      }),
     ).toContain("Workflow must have at least one step");
     expect(validateWorkflow(def([]))).toContain("Workflow must have at least one step");
   });
@@ -91,19 +104,21 @@ describe("validateWorkflow — structural rejections", () => {
   });
 
   test("rejects duplicate step names", () => {
-    const errs = validateWorkflow(def([
-      { name: "dup", agent: "x" },
-      { name: "dup", agent: "y" },
-    ]));
+    const errs = validateWorkflow(
+      def([
+        { name: "dup", agent: "x" },
+        { name: "dup", agent: "y" },
+      ]),
+    );
     expect(errs.some((e) => e.includes('Duplicate step name "dup"'))).toBe(true);
   });
 });
 
 describe("validateWorkflow — kind rejections", () => {
   test("unknown kind", () => {
-    expect(
-      validateWorkflow(def([{ name: "s", kind: "bogus" as unknown as "agent" }])),
-    ).toContain('Step "s" has unknown kind "bogus"');
+    expect(validateWorkflow(def([{ name: "s", kind: "bogus" as unknown as "agent" }]))).toContain(
+      'Step "s" has unknown kind "bogus"',
+    );
   });
 
   test("agent kind without agent", () => {
@@ -161,32 +176,28 @@ describe("validateWorkflow — kind rejections", () => {
 
 describe("validateWorkflow — dependency + loop rejections", () => {
   test("dependsOn naming an unknown step", () => {
-    expect(
-      validateWorkflow(def([{ name: "s", agent: "x", dependsOn: ["ghost"] }])),
-    ).toContain('Step "s" depends on unknown step "ghost"');
+    expect(validateWorkflow(def([{ name: "s", agent: "x", dependsOn: ["ghost"] }]))).toContain(
+      'Step "s" depends on unknown step "ghost"',
+    );
   });
 
   test("a step depending on itself is rejected at definition time", () => {
     // Used to pass create and then fail every run with "Circular dependency".
-    expect(
-      validateWorkflow(def([{ name: "s", agent: "x", dependsOn: ["s"] }])),
-    ).toContain('Step "s" cannot depend on itself');
+    expect(validateWorkflow(def([{ name: "s", agent: "x", dependsOn: ["s"] }]))).toContain(
+      'Step "s" cannot depend on itself',
+    );
   });
 
   test("a non-string mapping value is rejected (YAML loader path)", () => {
     // zod protects the API; a YAML `output: { n: 42 }` used to crash the
     // resolver at run time with `ref.startsWith is not a function`.
     expect(
-      validateWorkflow(
-        def([{ name: "t", kind: "transform", output: { n: 42 } as never }]),
-      ),
+      validateWorkflow(def([{ name: "t", kind: "transform", output: { n: 42 } as never }])),
     ).toContain(
       'Step "t" output mapping value for "n" must be a string ref, template or literal (got number)',
     );
     expect(
-      validateWorkflow(
-        def([{ name: "s", agent: "x", input: { obj: {} } as never }]),
-      ),
+      validateWorkflow(def([{ name: "s", agent: "x", input: { obj: {} } as never }])),
     ).toContain(
       'Step "s" input mapping value for "obj" must be a string ref, template or literal (got object)',
     );
@@ -195,7 +206,14 @@ describe("validateWorkflow — dependency + loop rejections", () => {
   test("loop on a gate step", () => {
     expect(
       validateWorkflow(
-        def([{ name: "g", kind: "gate", condition: { ref: "$input.n", op: "exists" }, loop: { maxIterations: 2 } }]),
+        def([
+          {
+            name: "g",
+            kind: "gate",
+            condition: { ref: "$input.n", op: "exists" },
+            loop: { maxIterations: 2 },
+          },
+        ]),
       ),
     ).toContain('Step "g" (kind "gate") cannot have a "loop"');
   });
@@ -235,7 +253,9 @@ describe("validateWorkflow — dependency + loop rejections", () => {
 
   test("loop with missing / non-integer maxIterations", () => {
     expect(
-      validateWorkflow(def([{ name: "s", agent: "x", loop: { maxIterations: undefined as unknown as number } }])),
+      validateWorkflow(
+        def([{ name: "s", agent: "x", loop: { maxIterations: undefined as unknown as number } }]),
+      ),
     ).toContain('Step "s" loop requires an integer "maxIterations"');
     expect(
       validateWorkflow(def([{ name: "s", agent: "x", loop: { maxIterations: 2.5 } }])),
@@ -243,7 +263,9 @@ describe("validateWorkflow — dependency + loop rejections", () => {
   });
 
   test("out-of-range but integer maxIterations is NOT a validation error (clamped at run time)", () => {
-    expect(validateWorkflow(def([{ name: "s", agent: "x", loop: { maxIterations: 100 } }]))).toEqual([]);
+    expect(
+      validateWorkflow(def([{ name: "s", agent: "x", loop: { maxIterations: 100 } }])),
+    ).toEqual([]);
   });
 });
 
@@ -263,9 +285,7 @@ describe("validateWorkflow — definition-time caps (untrusted definitions)", ()
   test("rejects an over-long input/output mapping value; at-cap passes", () => {
     const atCap = "a".repeat(MAX_MAPPING_VALUE_LENGTH);
     const overCap = `${atCap}!`;
-    expect(
-      validateWorkflow(def([{ name: "s", agent: "x", input: { big: overCap } }])),
-    ).toContain(
+    expect(validateWorkflow(def([{ name: "s", agent: "x", input: { big: overCap } }]))).toContain(
       `Step "s" input mapping value for "big" exceeds the maximum length of ${MAX_MAPPING_VALUE_LENGTH} characters`,
     );
     expect(
@@ -273,9 +293,7 @@ describe("validateWorkflow — definition-time caps (untrusted definitions)", ()
     ).toContain(
       `Step "t" output mapping value for "big" exceeds the maximum length of ${MAX_MAPPING_VALUE_LENGTH} characters`,
     );
-    expect(
-      validateWorkflow(def([{ name: "s", agent: "x", input: { big: atCap } }])),
-    ).toEqual([]);
+    expect(validateWorkflow(def([{ name: "s", agent: "x", input: { big: atCap } }]))).toEqual([]);
   });
 
   test("rejects a condition tree nested deeper than the maximum depth", () => {
@@ -290,9 +308,7 @@ describe("validateWorkflow — definition-time caps (untrusted definitions)", ()
         e.includes(`maximum condition nesting depth of ${MAX_CONDITION_DEPTH}`),
       ),
     ).toBe(true);
-    const errs = validateWorkflow(
-      def([{ name: "g", kind: "gate", condition: tooDeep as never }]),
-    );
+    const errs = validateWorkflow(def([{ name: "g", kind: "gate", condition: tooDeep as never }]));
     expect(
       errs.some((e) => e.includes(`maximum condition nesting depth of ${MAX_CONDITION_DEPTH}`)),
     ).toBe(true);
@@ -368,9 +384,9 @@ describe("validateWorkflow — condition + loop-until shape (repro: empty condit
     const errs = validateWorkflow(
       def([{ name: "g", kind: "gate", condition: { ref: "$input.n", op: "bogus" as never } }]),
     );
-    expect(errs.some((e) => e.includes('Step "g" condition leaf has an invalid or missing "op"'))).toBe(
-      true,
-    );
+    expect(
+      errs.some((e) => e.includes('Step "g" condition leaf has an invalid or missing "op"')),
+    ).toBe(true);
   });
 
   test("a loop until with a malformed condition is rejected", () => {
@@ -384,9 +400,9 @@ describe("validateWorkflow — condition + loop-until shape (repro: empty condit
         },
       ]),
     );
-    expect(errs.some((e) => e.includes('Step "s" loop until leaf requires a non-empty string "ref"'))).toBe(
-      true,
-    );
+    expect(
+      errs.some((e) => e.includes('Step "s" loop until leaf requires a non-empty string "ref"')),
+    ).toBe(true);
   });
 });
 
@@ -410,7 +426,11 @@ describe("validateWorkflow — per-step model bindings", () => {
       // Silently ignoring it would be the classic "I set it and nothing
       // happened" bug — it must be rejected at definition time.
       expect(
-        errs.some((e) => e === `Step "s" (kind "${kind}") cannot specify a "model" override — only agent steps run an LLM`),
+        errs.some(
+          (e) =>
+            e ===
+            `Step "s" (kind "${kind}") cannot specify a "model" override — only agent steps run an LLM`,
+        ),
       ).toBe(true);
     },
   );
@@ -424,7 +444,9 @@ describe("validateWorkflow — per-step model bindings", () => {
     const d = def([{ name: "s", agent: "a" }]);
     d.defaultModel = { effort: "nope" } as never;
     const errs = validateWorkflow(d);
-    expect(errs.some((e) => e.startsWith('Workflow "defaultModel" "effort" must be one of'))).toBe(true);
+    expect(errs.some((e) => e.startsWith('Workflow "defaultModel" "effort" must be one of'))).toBe(
+      true,
+    );
   });
 
   test("a valid defaultModel passes", () => {
@@ -527,9 +549,7 @@ describe("validateWorkflow — approval steps", () => {
     ).toContain('does not declare "skip" in its "choices"');
 
     // Declared ⇒ valid. `abort` never answers, so it needs no choice.
-    expect(validateWorkflow(approval({ onTimeout: "skip", choices: ["skip", "go"] }))).toEqual(
-      [],
-    );
+    expect(validateWorkflow(approval({ onTimeout: "skip", choices: ["skip", "go"] }))).toEqual([]);
     expect(validateWorkflow(approval({ onTimeout: "abort", choices: ["ship"] }))).toEqual([]);
   });
 
@@ -537,9 +557,9 @@ describe("validateWorkflow — approval steps", () => {
     // A human decision is not a retryable computation: re-asking would
     // either re-park the same question or silently reuse the first answer.
     expect(validateWorkflow(approval({ retries: 2 }))[0]).toContain('cannot specify "retries"');
-    expect(
-      validateWorkflow(approval({ loop: { maxIterations: 2 } }))[0],
-    ).toContain('cannot have a "loop"');
+    expect(validateWorkflow(approval({ loop: { maxIterations: 2 } }))[0]).toContain(
+      'cannot have a "loop"',
+    );
   });
 
   test("abort is the default policy — omitting onTimeout is valid", () => {

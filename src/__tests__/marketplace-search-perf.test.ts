@@ -54,18 +54,8 @@
  * Runner: bun test (backend integration).
  */
 
-import {
-  test,
-  expect,
-  describe,
-  beforeAll,
-  afterAll,
-} from "bun:test";
-import {
-  setupTestDb,
-  closeTestDb,
-  mockDbConnection,
-} from "./helpers/test-pglite";
+import { test, expect, describe, beforeAll, afterAll } from "bun:test";
+import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
 mockDbConnection();
 
@@ -110,12 +100,8 @@ beforeAll(async () => {
     const hasGit = i % 25 === 0; // ~4% match rate
     inserts.push({
       authorId,
-      name: hasGit
-        ? `GitHub Listing ${i}`
-        : `Extension ${i.toString().padStart(4, "0")}`,
-      description: hasGit
-        ? `Tooling for git workflows ${i}`
-        : `Unrelated listing description ${i}`,
+      name: hasGit ? `GitHub Listing ${i}` : `Extension ${i.toString().padStart(4, "0")}`,
+      description: hasGit ? `Tooling for git workflows ${i}` : `Unrelated listing description ${i}`,
       slug: `perf-${i}`,
       category: "Productivity",
       tags: [],
@@ -124,7 +110,9 @@ beforeAll(async () => {
   }
   // Batch-insert in chunks of 100 to keep PGlite happy.
   for (let i = 0; i < inserts.length; i += 100) {
-    await getDb().insert(marketplaceListings).values(inserts.slice(i, i + 100));
+    await getDb()
+      .insert(marketplaceListings)
+      .values(inserts.slice(i, i + 100));
   }
 });
 
@@ -201,9 +189,7 @@ describe("browseMarketplace perf", () => {
       const result: { rows: Array<Record<string, unknown>> } = await db.execute(
         sql`EXPLAIN ANALYZE SELECT * FROM marketplace_listings WHERE (name || ' ' || description) % 'git'`,
       );
-      const planText = result.rows
-        .map((r) => Object.values(r).join(" "))
-        .join("\n");
+      const planText = result.rows.map((r) => Object.values(r).join(" ")).join("\n");
       expect(planText).toContain("idx_marketplace_listings_trgm");
       // Not merely named in a Recheck Cond — actually scanned.
       expect(planText).toContain("Bitmap Index Scan on idx_marketplace_listings_trgm");

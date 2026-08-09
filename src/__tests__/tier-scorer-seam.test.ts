@@ -46,7 +46,11 @@ function preSeamEstimate(input: TierClassifierInput): number {
   return Math.ceil(chars / CHARS_PER_TOKEN) + attachmentTokens;
 }
 
-function preSeamVerdict(input: TierClassifierInput): { tier: RoutingTier; reason: string; estTokens: number } {
+function preSeamVerdict(input: TierClassifierInput): {
+  tier: RoutingTier;
+  reason: string;
+  estTokens: number;
+} {
   const estTokens = preSeamEstimate(input);
   if (input.declaredTier) return { tier: input.declaredTier, reason: "declared", estTokens };
   if (input.tierHint) return { tier: input.tierHint, reason: "hint", estTokens };
@@ -60,7 +64,8 @@ function preSeamVerdict(input: TierClassifierInput): { tier: RoutingTier; reason
     return { tier: "powerful", reason: "system-size", estTokens };
   }
   if (input.hasComplexTools) return { tier: "powerful", reason: "complex-tools", estTokens };
-  if (estTokens >= POWERFUL_MIN_TOKENS) return { tier: "powerful", reason: "context-size", estTokens };
+  if (estTokens >= POWERFUL_MIN_TOKENS)
+    return { tier: "powerful", reason: "context-size", estTokens };
   if ((input.toolCount ?? 0) > 0) return { tier: "balanced", reason: "tool-count", estTokens };
   if (estTokens <= FAST_MAX_TOKENS) return { tier: "fast", reason: "short-turn", estTokens };
   return { tier: "balanced", reason: "midsize-turn", estTokens };
@@ -72,10 +77,20 @@ const AXES = {
   promptChars: [0, 100, 2_000, 40_000],
   historyChars: [undefined, 0, 5_000, 100_000],
   // 8 is AT the agentic history bound (must NOT fire), 9 is over it.
-  historyMessageCount: [undefined, 0, AGENTIC_MIN_HISTORY_MESSAGES, AGENTIC_MIN_HISTORY_MESSAGES + 1],
+  historyMessageCount: [
+    undefined,
+    0,
+    AGENTIC_MIN_HISTORY_MESSAGES,
+    AGENTIC_MIN_HISTORY_MESSAGES + 1,
+  ],
   hasToolMessages: [undefined, false, true],
   // 8000 chars = exactly AGENTIC_MIN_SYSTEM_TOKENS tokens (must NOT fire).
-  systemChars: [undefined, 0, AGENTIC_MIN_SYSTEM_TOKENS * CHARS_PER_TOKEN, AGENTIC_MIN_SYSTEM_TOKENS * CHARS_PER_TOKEN + 4],
+  systemChars: [
+    undefined,
+    0,
+    AGENTIC_MIN_SYSTEM_TOKENS * CHARS_PER_TOKEN,
+    AGENTIC_MIN_SYSTEM_TOKENS * CHARS_PER_TOKEN + 4,
+  ],
   attachmentCount: [undefined, 0, 3],
   toolCount: [undefined, 0, 2],
   hasComplexTools: [undefined, false, true],
@@ -272,9 +287,9 @@ describe("thresholds override (what the sweep replays with)", () => {
   test("passing the defaults explicitly changes nothing", () => {
     for (const input of everyInput()) {
       if (input.promptChars !== 100) continue;
-      expect(JSON.stringify(classifyTierVerdict({ ...input, thresholds: DEFAULT_TIER_THRESHOLDS }))).toBe(
-        JSON.stringify(preSeamVerdict(input)),
-      );
+      expect(
+        JSON.stringify(classifyTierVerdict({ ...input, thresholds: DEFAULT_TIER_THRESHOLDS })),
+      ).toBe(JSON.stringify(preSeamVerdict(input)));
     }
   });
 
@@ -282,14 +297,18 @@ describe("thresholds override (what the sweep replays with)", () => {
     const turn: TierClassifierInput = { promptChars: 8_000 }; // 2000 est tokens
     expect(classifyTierVerdict(turn).tier).toBe("balanced");
     expect(
-      classifyTierVerdict({ ...turn, thresholds: { fastMaxTokens: 500, powerfulMinTokens: 1_000 } }).tier,
+      classifyTierVerdict({ ...turn, thresholds: { fastMaxTokens: 500, powerfulMinTokens: 1_000 } })
+        .tier,
     ).toBe("powerful");
   });
 
   test("a higher fast ceiling routes a mid-size turn down", () => {
     const turn: TierClassifierInput = { promptChars: 8_000 };
     expect(
-      classifyTierVerdict({ ...turn, thresholds: { fastMaxTokens: 5_000, powerfulMinTokens: 8_000 } }).tier,
+      classifyTierVerdict({
+        ...turn,
+        thresholds: { fastMaxTokens: 5_000, powerfulMinTokens: 8_000 },
+      }).tier,
     ).toBe("fast");
   });
 

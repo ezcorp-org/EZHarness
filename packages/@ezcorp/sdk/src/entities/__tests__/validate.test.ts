@@ -10,11 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import {
-  EntityValidationError,
-  type JsonSchema,
-  type JsonSchemaObject,
-} from "../types";
+import { EntityValidationError, type JsonSchema, type JsonSchemaObject } from "../types";
 import { assertRecord, validateRecord } from "../validate";
 
 const POST_TYPE_SCHEMA: JsonSchemaObject = {
@@ -179,15 +175,11 @@ describe("validateRecord — string branch", () => {
   });
 
   test("below minLength", () => {
-    expect(validateRecord(schema, { a: "x" })[0]?.message).toMatch(
-      /below minLength 2/,
-    );
+    expect(validateRecord(schema, { a: "x" })[0]?.message).toMatch(/below minLength 2/);
   });
 
   test("above maxLength", () => {
-    expect(validateRecord(schema, { a: "abcde" })[0]?.message).toMatch(
-      /above maxLength 4/,
-    );
+    expect(validateRecord(schema, { a: "abcde" })[0]?.message).toMatch(/above maxLength 4/);
   });
 
   test("at minLength is accepted", () => {
@@ -258,33 +250,23 @@ describe("validateRecord — number branch", () => {
   };
 
   test("rejects non-number", () => {
-    expect(validateRecord(schema, { n: "5" })[0]?.message).toMatch(
-      /expected number, got string/,
-    );
+    expect(validateRecord(schema, { n: "5" })[0]?.message).toMatch(/expected number, got string/);
   });
 
   test("rejects NaN", () => {
-    expect(validateRecord(schema, { n: Number.NaN })[0]?.message).toMatch(
-      /expected number/,
-    );
+    expect(validateRecord(schema, { n: Number.NaN })[0]?.message).toMatch(/expected number/);
   });
 
   test("rejects Infinity", () => {
-    expect(
-      validateRecord(schema, { n: Number.POSITIVE_INFINITY })[0]?.message,
-    ).toMatch(/finite/);
+    expect(validateRecord(schema, { n: Number.POSITIVE_INFINITY })[0]?.message).toMatch(/finite/);
   });
 
   test("rejects below minimum", () => {
-    expect(validateRecord(schema, { n: -1 })[0]?.message).toMatch(
-      /below minimum 0/,
-    );
+    expect(validateRecord(schema, { n: -1 })[0]?.message).toMatch(/below minimum 0/);
   });
 
   test("rejects above maximum", () => {
-    expect(validateRecord(schema, { n: 11 })[0]?.message).toMatch(
-      /above maximum 10/,
-    );
+    expect(validateRecord(schema, { n: 11 })[0]?.message).toMatch(/above maximum 10/);
   });
 
   test("accepts boundary values", () => {
@@ -298,9 +280,7 @@ describe("validateRecord — number branch", () => {
       properties: { n: { type: "number", integer: true } },
       required: ["n"],
     };
-    expect(validateRecord(s, { n: 1.5 })[0]?.message).toMatch(
-      /expected integer/,
-    );
+    expect(validateRecord(s, { n: 1.5 })[0]?.message).toMatch(/expected integer/);
     expect(validateRecord(s, { n: 1 })).toEqual([]);
   });
 });
@@ -318,9 +298,7 @@ describe("validateRecord — boolean branch", () => {
   });
 
   test("rejects truthy non-boolean", () => {
-    expect(validateRecord(schema, { b: 1 })[0]?.message).toMatch(
-      /expected boolean, got number/,
-    );
+    expect(validateRecord(schema, { b: 1 })[0]?.message).toMatch(/expected boolean, got number/);
     expect(validateRecord(schema, { b: "true" })[0]?.message).toMatch(
       /expected boolean, got string/,
     );
@@ -348,15 +326,13 @@ describe("validateRecord — array branch", () => {
   });
 
   test("rejects below minItems", () => {
-    expect(validateRecord(schema, { tags: [] })[0]?.message).toMatch(
-      /below minItems 1/,
-    );
+    expect(validateRecord(schema, { tags: [] })[0]?.message).toMatch(/below minItems 1/);
   });
 
   test("rejects above maxItems", () => {
-    expect(
-      validateRecord(schema, { tags: ["a", "b", "c", "d"] })[0]?.message,
-    ).toMatch(/above maxItems 3/);
+    expect(validateRecord(schema, { tags: ["a", "b", "c", "d"] })[0]?.message).toMatch(
+      /above maxItems 3/,
+    );
   });
 
   test("validates each item with [i] path", () => {
@@ -431,15 +407,13 @@ describe("assertRecord — hard fail", () => {
       path: "systemPrompt",
       message: "required property is missing",
     });
-    expect((caught as EntityValidationError).message).toMatch(
-      /record failed schema validation/,
-    );
+    expect((caught as EntityValidationError).message).toMatch(/record failed schema validation/);
   });
 
   test("uses ctx prefix in the error message", () => {
-    expect(() =>
-      assertRecord(POST_TYPE_SCHEMA, { name: "n" }, "create_post_type"),
-    ).toThrow(/create_post_type failed schema validation/);
+    expect(() => assertRecord(POST_TYPE_SCHEMA, { name: "n" }, "create_post_type")).toThrow(
+      /create_post_type failed schema validation/,
+    );
   });
 
   test("truncates issue list to 5 with a (+N more) suffix", () => {
@@ -468,17 +442,13 @@ describe("assertRecord — hard fail", () => {
   });
 
   test("renders (root) path for top-level structural failure", () => {
-    expect(() => assertRecord(POST_TYPE_SCHEMA, "not-an-object")).toThrow(
-      /\(root\):/,
-    );
+    expect(() => assertRecord(POST_TYPE_SCHEMA, "not-an-object")).toThrow(/\(root\):/);
   });
 });
 
 describe("EntityValidationError", () => {
   test("preserves issues and name", () => {
-    const err = new EntityValidationError("msg", [
-      { path: "x", message: "y" },
-    ]);
+    const err = new EntityValidationError("msg", [{ path: "x", message: "y" }]);
     expect(err).toBeInstanceOf(Error);
     expect(err.name).toBe("EntityValidationError");
     expect(err.message).toBe("msg");

@@ -21,17 +21,10 @@ vi.mock("$server/db/queries/audit-log", () => ({
 }));
 
 const { getUserById } = await import("$server/db/queries/users");
-const { createPasswordResetToken } = await import(
-  "$server/db/queries/password-resets"
-);
-const { POST, __rateLimiter } = await import(
-  "../routes/api/auth/reset-password/+server"
-);
+const { createPasswordResetToken } = await import("$server/db/queries/password-resets");
+const { POST, __rateLimiter } = await import("../routes/api/auth/reset-password/+server");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown }) {
   return {
     url: new URL("http://localhost/api/auth/reset-password"),
     locals: opts.locals ?? {},
@@ -64,9 +57,10 @@ describe("POST /api/auth/reset-password", () => {
   });
 
   test("rejects 403 when user is not admin", async () => {
-    const res = await expectDenied(() => POST(
-            makeEvent({ locals: memberUser, body: { userId: "u2" } }),
-          ), 403);
+    const res = await expectDenied(
+      () => POST(makeEvent({ locals: memberUser, body: { userId: "u2" } })),
+      403,
+    );
     expect(res.status).toBe(403);
   });
 
@@ -78,17 +72,13 @@ describe("POST /api/auth/reset-password", () => {
   });
 
   test("rejects 400 when userId is empty", async () => {
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: { userId: "" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, body: { userId: "" } }));
     expect(res.status).toBe(400);
   });
 
   test("returns 404 when user not found", async () => {
     vi.mocked(getUserById).mockResolvedValue(undefined);
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: { userId: "ghost" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, body: { userId: "ghost" } }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("User not found");
@@ -101,15 +91,11 @@ describe("POST /api/auth/reset-password", () => {
     } as any);
     // 5 successful generations consume the budget...
     for (let i = 0; i < 5; i++) {
-      const res = await POST(
-        makeEvent({ locals: adminUser, body: { userId: "u2" } }),
-      );
+      const res = await POST(makeEvent({ locals: adminUser, body: { userId: "u2" } }));
       expect(res.status).toBe(200);
     }
     // ...the 6th from the same admin is throttled.
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: { userId: "u2" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, body: { userId: "u2" } }));
     expect(res.status).toBe(429);
     const body = (await res.json()) as { error?: string; retryAfter?: number };
     expect(body.error).toContain("Too many requests");
@@ -122,9 +108,7 @@ describe("POST /api/auth/reset-password", () => {
       id: "u2",
       email: "target@x",
     } as any);
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: { userId: "u2" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, body: { userId: "u2" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { ok?: boolean; masked?: string };
     expect(body.ok).toBe(true);

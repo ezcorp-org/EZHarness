@@ -29,11 +29,7 @@
  * the stub returned.
  */
 
-import type {
-  JsonRpcRequest,
-  JsonRpcResponse,
-  ToolCallResult,
-} from "../../../extensions/types";
+import type { JsonRpcRequest, JsonRpcResponse, ToolCallResult } from "../../../extensions/types";
 
 const decoder = new TextDecoder();
 let buffer = "";
@@ -67,8 +63,7 @@ async function main(): Promise<void> {
 const WEEKLY_POST_TYPE = {
   name: "Weekly digest",
   slug: "weekly",
-  systemPrompt:
-    "You write a friendly weekly digest summarising recent reads in plain English.",
+  systemPrompt: "You write a friendly weekly digest summarising recent reads in plain English.",
   cadence: "weekly",
   defaults: {
     titlePrefix: "Weekly digest — ",
@@ -120,10 +115,7 @@ function handleRequest(req: JsonRpcRequest): JsonRpcResponse {
         const slug = args.postTypeSlug;
         const urls = (args.urls as unknown[]) ?? [];
         if (slug !== WEEKLY_POST_TYPE.slug) {
-          return jsonErrorResult(
-            req.id,
-            `Post type "${String(slug)}" not found`,
-          );
+          return jsonErrorResult(req.id, `Post type "${String(slug)}" not found`);
         }
         return jsonOk(req.id, {
           ok: true,
@@ -178,10 +170,7 @@ function jsonOk(id: JsonRpcRequest["id"], payload: unknown): JsonRpcResponse {
   return { jsonrpc: "2.0", id, result };
 }
 
-function jsonErrorResult(
-  id: JsonRpcRequest["id"],
-  message: string,
-): JsonRpcResponse {
+function jsonErrorResult(id: JsonRpcRequest["id"], message: string): JsonRpcResponse {
   // Tool-level errors (isError:true) — NOT JSON-RPC protocol errors.
   // Mirrors the contract dispatcher-integration.test.ts pins.
   const result: ToolCallResult = {

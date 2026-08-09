@@ -229,7 +229,11 @@ export async function performRead(
     throw new Error(`Read failed via ${reader.name}: ${(err as Error).message}`);
   }
   cache.set(keyFor(outcome.providerName), outcome.markdown, READ_TTL_MS);
-  return { markdown: truncate(outcome.markdown, cap), providerName: outcome.providerName, cached: false };
+  return {
+    markdown: truncate(outcome.markdown, cap),
+    providerName: outcome.providerName,
+    cached: false,
+  };
 }
 
 export type { SearchResult };

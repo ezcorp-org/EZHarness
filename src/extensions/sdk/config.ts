@@ -46,7 +46,10 @@ export async function writeConfig(config: PiConfig, configDir?: string): Promise
  * Get publish token from flag override or config file.
  * Returns null if no token found anywhere.
  */
-export async function getPublishToken(flagToken?: string, configDir?: string): Promise<string | null> {
+export async function getPublishToken(
+  flagToken?: string,
+  configDir?: string,
+): Promise<string | null> {
   if (flagToken) return flagToken;
   const config = await readConfig(configDir);
   return config.publishToken ?? null;

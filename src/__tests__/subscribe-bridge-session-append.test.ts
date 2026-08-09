@@ -34,8 +34,13 @@ function makeBus() {
 function makePiAgent() {
   let cb: (e: any) => void = () => {};
   return {
-    subscribe(fn: (e: any) => void) { cb = fn; return () => {}; },
-    fire(e: any) { cb(e); },
+    subscribe(fn: (e: any) => void) {
+      cb = fn;
+      return () => {};
+    },
+    fire(e: any) {
+      cb(e);
+    },
   };
 }
 
@@ -80,7 +85,14 @@ function makeHost(bus: any, executor: any): StreamChatHost {
 }
 
 function assistantTurn(text: string) {
-  return { type: "turn_end", message: { role: "assistant", content: [{ type: "text", text }], usage: { input: 1, output: 1 } } };
+  return {
+    type: "turn_end",
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text }],
+      usage: { input: 1, output: 1 },
+    },
+  };
 }
 
 async function sessionEntryIds(convId: string): Promise<string[]> {
@@ -93,9 +105,13 @@ describe("subscribe-bridge live session append (flag ON)", () => {
     await setupTestDb();
     ExtensionRegistry.resetInstance();
     // messages.run_id → runs(id) FK: the turn_end save parents on run.id.
-    await getTestDb().insert(runs).values({ id: "run-1", agentName: "t", status: "running", startedAt: new Date() });
+    await getTestDb()
+      .insert(runs)
+      .values({ id: "run-1", agentName: "t", status: "running", startedAt: new Date() });
   }, 30_000);
-  afterAll(async () => { await closeTestDb(); });
+  afterAll(async () => {
+    await closeTestDb();
+  });
 
   test("turn_end appends the assistant turn as a session message entry", async () => {
     const project = await createProject({ name: "SA", path: "/tmp/sa" });
@@ -105,7 +121,14 @@ describe("subscribe-bridge live session append (flag ON)", () => {
 
     const ctx = makeCtx(u1.id);
     const piAgent = makePiAgent();
-    subscribeBridge(ctx, makeHost(makeBus(), {}), piAgent as any, conv.id, { sessionHistoryProducer: true }, null);
+    subscribeBridge(
+      ctx,
+      makeHost(makeBus(), {}),
+      piAgent as any,
+      conv.id,
+      { sessionHistoryProducer: true },
+      null,
+    );
 
     piAgent.fire({ type: "turn_start" });
     piAgent.fire(assistantTurn("the answer"));
@@ -144,7 +167,11 @@ describe("subscribe-bridge live session append (flag ON)", () => {
     const u1 = await createMessage(conv.id, { role: "user", content: "hi" });
     await backfillSessionForConversation(conv.id);
     // The caller persisted a steer row up-front (agent-chat pattern).
-    const steerRow = await createMessage(conv.id, { role: "user", content: "steer!", parentMessageId: u1.id });
+    const steerRow = await createMessage(conv.id, {
+      role: "user",
+      content: "steer!",
+      parentMessageId: u1.id,
+    });
 
     let consumed = false;
     const executor = {
@@ -157,9 +184,19 @@ describe("subscribe-bridge live session append (flag ON)", () => {
 
     const ctx = makeCtx(u1.id);
     const piAgent = makePiAgent();
-    subscribeBridge(ctx, makeHost(makeBus(), executor), piAgent as any, conv.id, { sessionHistoryProducer: true }, null);
+    subscribeBridge(
+      ctx,
+      makeHost(makeBus(), executor),
+      piAgent as any,
+      conv.id,
+      { sessionHistoryProducer: true },
+      null,
+    );
 
-    piAgent.fire({ type: "message_start", message: { role: "user", content: "steer!", timestamp: 1 } });
+    piAgent.fire({
+      type: "message_start",
+      message: { role: "user", content: "steer!", timestamp: 1 },
+    });
     await ctx.dbQueue;
 
     expect(ctx.lastSavedMessageId).toBe(steerRow.id);

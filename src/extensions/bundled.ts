@@ -129,7 +129,6 @@ interface BundledExtension {
   critical?: boolean;
 }
 
-
 const BUNDLED_EXTENSIONS: BundledExtension[] = [
   {
     // Ephemeral conversation-scoped KV store, converted from the built-in
@@ -341,10 +340,7 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     permissions: {
       filesystem: ["$CWD"],
       storage: true,
-      eventSubscriptions: [
-        "claude-design:knob-change",
-        "claude-design:brief-answer",
-      ],
+      eventSubscriptions: ["claude-design:knob-change", "claude-design:brief-answer"],
       network: ["cdn.jsdelivr.net"],
       grantedAt: {
         filesystem: Date.now(),
@@ -366,10 +362,7 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     name: "price-chart",
     path: "docs/extensions/examples/price-chart",
     permissions: {
-      network: [
-        "query1.finance.yahoo.com",
-        "api.coingecko.com",
-      ],
+      network: ["query1.finance.yahoo.com", "api.coingecko.com"],
       grantedAt: {
         network: Date.now(),
       },
@@ -889,9 +882,7 @@ const DISABLE_FLAGS: Readonly<Record<string, string>> = {
 /** Returns the list of bundled extensions to install on this startup —
  *  BUNDLED_EXTENSIONS minus any entry whose opt-out env flag is set to "1".
  *  Exported for testing the opt-out gate without touching the DB. */
-export function resolveBundledExtensions(
-  env: NodeJS.ProcessEnv = process.env,
-): BundledExtension[] {
+export function resolveBundledExtensions(env: NodeJS.ProcessEnv = process.env): BundledExtension[] {
   return BUNDLED_EXTENSIONS.filter((entry) => {
     const flag = DISABLE_FLAGS[entry.name];
     return !flag || env[flag] !== "1";
@@ -948,9 +939,7 @@ export function getBundledExtensionPath(name: string): string | null {
  *  `EZCORP_DISABLE_AI_KIT=1` AFTER an install, the extension still has
  *  integrity-skip semantics until it's uninstalled; the flag only
  *  governs fresh installs. */
-const BUNDLED_EXTENSION_NAMES: ReadonlySet<string> = new Set(
-  BUNDLED_EXTENSIONS.map((e) => e.name),
-);
+const BUNDLED_EXTENSION_NAMES: ReadonlySet<string> = new Set(BUNDLED_EXTENSIONS.map((e) => e.name));
 
 export function isBundledExtensionName(name: string): boolean {
   return BUNDLED_EXTENSION_NAMES.has(name);
@@ -1092,16 +1081,12 @@ export async function ensureBundledExtensions(): Promise<void> {
               // real bundled-install path always passes perms WITH
               // `grantedAt`; mirror that here so "within ceiling" is
               // computed on the same shape.
-              const rawPerms = (diskManifest.permissions ??
-                {}) as ExtensionPermissions;
+              const rawPerms = (diskManifest.permissions ?? {}) as ExtensionPermissions;
               const diskPerms: ExtensionPermissions = {
                 ...rawPerms,
                 grantedAt: rawPerms.grantedAt ?? {},
               };
-              const { clamped } = clampToBundledCeiling(
-                entry.name,
-                diskPerms,
-              );
+              const { clamped } = clampToBundledCeiling(entry.name, diskPerms);
               if (!clamped) {
                 // Within ceiling → auto-accept. Keep enabled, record
                 // the new version so S9 doesn't re-fire next boot, AND
@@ -1186,15 +1171,21 @@ export async function ensureBundledExtensions(): Promise<void> {
           // the redundant write. The first transition's behavior is
           // unchanged.
           if (existing.enabled) {
-            log.warn("Bundled extension version bumped with permission changes — disabled pending re-approval", {
-              name: entry.name,
-            });
+            log.warn(
+              "Bundled extension version bumped with permission changes — disabled pending re-approval",
+              {
+                name: entry.name,
+              },
+            );
             await updateExtension(existing.id, { enabled: false });
           } else {
-            log.info("Bundled extension still drifted — already disabled pending re-approval (no change)", {
-              name: entry.name,
-              extensionId: existing.id,
-            });
+            log.info(
+              "Bundled extension still drifted — already disabled pending re-approval (no change)",
+              {
+                name: entry.name,
+                extensionId: existing.id,
+              },
+            );
           }
           continue;
         }
@@ -1246,7 +1237,8 @@ export async function ensureBundledExtensions(): Promise<void> {
 
           const refreshed: ExtensionManifestV2 = {
             ...diskManifest,
-            permissions: (existing.manifest as ExtensionManifestV2).permissions ?? diskManifest.permissions,
+            permissions:
+              (existing.manifest as ExtensionManifestV2).permissions ?? diskManifest.permissions,
             // Code hashes — see `diskChecksumFields`. These are what make
             // an `index.ts` edit visible to the registry's reload
             // invalidation when `ezcorp.config.ts` is untouched.
@@ -1384,9 +1376,7 @@ export async function ensureBundledExtensions(): Promise<void> {
       const installed = await installFromLocal(resolvedPath, clampedPerms, true, {
         isBundled: true,
         envEscapeHatch: entry.envEscapeHatch === true,
-        ...(legacyEntityMappings
-          ? { legacyEntityMappings: [...legacyEntityMappings] }
-          : {}),
+        ...(legacyEntityMappings ? { legacyEntityMappings: [...legacyEntityMappings] } : {}),
       });
       // Mark provenance AFTER the row exists. installFromLocal is shared
       // with the user install path (which must default isBundled=false),
@@ -1409,7 +1399,12 @@ export async function ensureBundledExtensions(): Promise<void> {
       log.info("Installed extension", { name: entry.name });
       await writeBundledInstallAudit(installed.id, clampedPerms);
       if (clamped) {
-        await writeBundledCeilingClampAudit(installed.id, entry.name, entry.permissions, clampedPerms);
+        await writeBundledCeilingClampAudit(
+          installed.id,
+          entry.name,
+          entry.permissions,
+          clampedPerms,
+        );
       }
     } catch (error) {
       log.error("Failed to install extension", { name: entry.name, error: String(error) });
@@ -1462,10 +1457,9 @@ export async function ensureBundledExtensions(): Promise<void> {
       await migrateLessonsDistillerConversationWiring(lessonsDistillerRow.id);
     }
   } catch (migrationErr) {
-    log.warn(
-      "lessons-distiller wiring migration threw during ensureBundledExtensions",
-      { error: String(migrationErr) },
-    );
+    log.warn("lessons-distiller wiring migration threw during ensureBundledExtensions", {
+      error: String(migrationErr),
+    });
   }
 
   // Phase 53.4 Stage 1: migrate `global:memoryEnabled` into the
@@ -1482,10 +1476,9 @@ export async function ensureBundledExtensions(): Promise<void> {
       await migrateMemoryExtractorEnabledSetting(memoryExtractorRow.id);
     }
   } catch (migrationErr) {
-    log.warn(
-      "memory-extractor settings migration threw during ensureBundledExtensions",
-      { error: String(migrationErr) },
-    );
+    log.warn("memory-extractor settings migration threw during ensureBundledExtensions", {
+      error: String(migrationErr),
+    });
   }
 
   // Phase 53.4 Stage 1: backfill `conversation_extensions` rows for
@@ -1504,10 +1497,9 @@ export async function ensureBundledExtensions(): Promise<void> {
       await migrateMemoryExtractorConversationWiring(memoryExtractorRow.id);
     }
   } catch (migrationErr) {
-    log.warn(
-      "memory-extractor wiring migration threw during ensureBundledExtensions",
-      { error: String(migrationErr) },
-    );
+    log.warn("memory-extractor wiring migration threw during ensureBundledExtensions", {
+      error: String(migrationErr),
+    });
   }
 
   // ez-code default coding agent. The extension's `dispatch_run` tool
@@ -1638,9 +1630,7 @@ async function detectAndLogManifestDrift(
   const fields = ["network", "filesystem", "shell", "env", "storage", "lifecycleHooks"] as const;
   for (const f of fields) {
     if (JSON.stringify(diskPerms[f]) !== JSON.stringify(dbPerms[f])) {
-      diffs.push(
-        `${f}: disk=${JSON.stringify(diskPerms[f])} vs db=${JSON.stringify(dbPerms[f])}`,
-      );
+      diffs.push(`${f}: disk=${JSON.stringify(diskPerms[f])} vs db=${JSON.stringify(dbPerms[f])}`);
     }
   }
 
@@ -1650,17 +1640,23 @@ async function detectAndLogManifestDrift(
       // Same diff payload so an admin can still find it, but at info
       // level and with no audit re-write (the transition boot already
       // wrote the MANIFEST_DRIFTED rows).
-      log.info("Bundled extension still drifted — already disabled, DB grant unchanged (no re-audit)", {
-        name: entry.name,
-        extensionId,
-        diffs,
-      });
+      log.info(
+        "Bundled extension still drifted — already disabled, DB grant unchanged (no re-audit)",
+        {
+          name: entry.name,
+          extensionId,
+          diffs,
+        },
+      );
     } else {
-      log.warn("Bundled extension manifest permissions drifted — DB grant unchanged (fail-closed)", {
-        name: entry.name,
-        extensionId,
-        diffs,
-      });
+      log.warn(
+        "Bundled extension manifest permissions drifted — DB grant unchanged (fail-closed)",
+        {
+          name: entry.name,
+          extensionId,
+          diffs,
+        },
+      );
       // Best-effort audit log — a durable record for post-hoc review.
       try {
         for (const f of fields) {
@@ -1676,7 +1672,9 @@ async function detectAndLogManifestDrift(
           };
           await insertAuditEntry(null, EXT_AUDIT_ACTIONS.MANIFEST_DRIFTED, extensionId, meta);
         }
-      } catch { /* audit write failure is non-fatal — the WARN is the primary signal */ }
+      } catch {
+        /* audit write failure is non-fatal — the WARN is the primary signal */
+      }
     }
   }
 
@@ -1809,7 +1807,9 @@ async function detectAndLogManifestDrift(
       extensionId,
       meta,
     );
-  } catch { /* non-fatal — the info log is the primary signal */ }
+  } catch {
+    /* non-fatal — the info log is the primary signal */
+  }
 
   // ── appendMessages auto-heal branch ──────────────────────────────
   //
@@ -1846,14 +1846,10 @@ async function healBundledAppendMessages(
   diskPerms: Record<string, unknown>,
   dbPerms: Record<string, unknown>,
 ): Promise<void> {
-  const diskValue = diskPerms.appendMessages as
-    | { excludedDefault: boolean }
-    | undefined;
+  const diskValue = diskPerms.appendMessages as { excludedDefault: boolean } | undefined;
   if (diskValue === undefined) return;
 
-  const dbManifestValue = dbPerms.appendMessages as
-    | { excludedDefault: boolean }
-    | undefined;
+  const dbManifestValue = dbPerms.appendMessages as { excludedDefault: boolean } | undefined;
   const dbGrantedValue = dbGranted?.appendMessages;
 
   const grantNeedsHeal = JSON.stringify(dbGrantedValue) !== JSON.stringify(diskValue);
@@ -1893,8 +1889,9 @@ async function healBundledAppendMessages(
           appendMessages: diskValue,
         };
       } else {
-        (dbManifest.permissions as { appendMessages?: { excludedDefault: boolean } })
-          .appendMessages = diskValue;
+        (
+          dbManifest.permissions as { appendMessages?: { excludedDefault: boolean } }
+        ).appendMessages = diskValue;
       }
     }
     if (Object.keys(updates).length === 0) return;
@@ -1932,7 +1929,9 @@ async function healBundledAppendMessages(
       extensionId,
       meta,
     );
-  } catch { /* non-fatal — the info log is the primary signal */ }
+  } catch {
+    /* non-fatal — the info log is the primary signal */
+  }
 }
 
 /**
@@ -2001,8 +2000,12 @@ async function detectVersionBumpRequiringReapproval(
   // this branch `continue`s before BOTH the manifest refresh and the
   // re-enable branch, so the stored manifest never caught up and its
   // tools never reached any agent. See `canonicalizeAndHashForReapproval`.
-  const dbToolHash = canonicalizeAndHashForReapproval(migrateManifestV2ToV3(dbManifest).tools ?? []);
-  const diskToolHash = canonicalizeAndHashForReapproval(migrateManifestV2ToV3(diskManifest).tools ?? []);
+  const dbToolHash = canonicalizeAndHashForReapproval(
+    migrateManifestV2ToV3(dbManifest).tools ?? [],
+  );
+  const diskToolHash = canonicalizeAndHashForReapproval(
+    migrateManifestV2ToV3(diskManifest).tools ?? [],
+  );
   const toolListChanged = dbToolHash !== diskToolHash;
 
   // Version + permissions trigger (legacy S9).
@@ -2054,7 +2057,9 @@ async function detectVersionBumpRequiringReapproval(
       };
       await insertAuditEntry(null, EXT_AUDIT_ACTIONS.UPDATE_BLOCKED, extensionId, meta);
     }
-  } catch { /* non-fatal */ }
+  } catch {
+    /* non-fatal */
+  }
 
   return true;
 }
@@ -2118,7 +2123,9 @@ async function writeBundledInstallAudit(
     // ctx.llm (host-brokered). Soft today; hard in v1.4.
     const { emitEnvKeyLeakWarnings } = await import("./clamp-permissions");
     await emitEnvKeyLeakWarnings(extensionId, permissions.env);
-  } catch { /* audit write failure is non-fatal */ }
+  } catch {
+    /* audit write failure is non-fatal */
+  }
 }
 
 async function writeBundledRegrantAudit(
@@ -2139,7 +2146,9 @@ async function writeBundledRegrantAudit(
       };
       await insertAuditEntry(null, EXT_AUDIT_ACTIONS.BUNDLED_REGRANTED, extensionId, meta);
     }
-  } catch { /* audit write failure is non-fatal */ }
+  } catch {
+    /* audit write failure is non-fatal */
+  }
 }
 
 /**
@@ -2225,10 +2234,11 @@ async function reconcileBundledGrant(
   existing: { id: string; grantedPermissions?: ExtensionPermissions },
 ): Promise<void> {
   try {
-    const stored: ExtensionPermissions =
-      (existing.grantedPermissions as ExtensionPermissions | undefined) ?? {
-        grantedAt: {},
-      };
+    const stored: ExtensionPermissions = (existing.grantedPermissions as
+      | ExtensionPermissions
+      | undefined) ?? {
+      grantedAt: {},
+    };
     const declared = entry.permissions ?? ({} as ExtensionPermissions);
 
     // Deep-merge: declared keys backfill missing fields; stored values
@@ -2260,10 +2270,7 @@ async function reconcileBundledGrant(
       },
     };
 
-    const { effective: reconciled } = clampToBundledCeiling(
-      entry.name,
-      merged,
-    );
+    const { effective: reconciled } = clampToBundledCeiling(entry.name, merged);
 
     // Idempotency gate: structural compare. No write, no audit when the
     // stored grant already satisfies the within-ceiling declared set.
@@ -2320,13 +2327,10 @@ async function writeBundledGrantReconciledAudit(
         "declared-within-ceiling bundled permission set (S6 companion). " +
         "Result is clamped to the bundled ceiling.",
     };
-    await insertAuditEntry(
-      null,
-      EXT_AUDIT_ACTIONS.BUNDLED_REGRANTED,
-      extensionId,
-      meta,
-    );
-  } catch { /* audit write failure is non-fatal */ }
+    await insertAuditEntry(null, EXT_AUDIT_ACTIONS.BUNDLED_REGRANTED, extensionId, meta);
+  } catch {
+    /* audit write failure is non-fatal */
+  }
 }
 
 /**
@@ -2356,7 +2360,9 @@ async function writeBundledCeilingClampAudit(
   };
   try {
     await insertAuditEntry(null, EXT_AUDIT_ACTIONS.BUNDLED_CEILING_CLAMP, extensionId, meta);
-  } catch { /* audit write failure is non-fatal */ }
+  } catch {
+    /* audit write failure is non-fatal */
+  }
 }
 
 /**
@@ -2384,7 +2390,9 @@ async function writeBundledManifestTamperAudit(
   };
   try {
     await insertAuditEntry(null, EXT_AUDIT_ACTIONS.BUNDLED_MANIFEST_TAMPER, extensionId, meta);
-  } catch { /* audit write failure is non-fatal */ }
+  } catch {
+    /* audit write failure is non-fatal */
+  }
 }
 
 /**
@@ -2469,10 +2477,10 @@ export async function bootSpawnFlaggedBundledExtensions(
     try {
       row = await getExtensionByName(entry.name);
     } catch (lookupErr) {
-      log.warn(
-        "boot-spawn lookup failed; event-only handlers will not fire until next boot",
-        { name: entry.name, error: String(lookupErr) },
-      );
+      log.warn("boot-spawn lookup failed; event-only handlers will not fire until next boot", {
+        name: entry.name,
+        error: String(lookupErr),
+      });
       failed.push(entry.name);
       continue;
     }
@@ -2512,10 +2520,11 @@ export async function bootSpawnFlaggedBundledExtensions(
       });
       spawned.push(entry.name);
     } catch (err) {
-      log.warn(
-        "boot-spawn failed; event-only handlers will not fire until next boot",
-        { name: entry.name, extensionId: row.id, error: String(err) },
-      );
+      log.warn("boot-spawn failed; event-only handlers will not fire until next boot", {
+        name: entry.name,
+        extensionId: row.id,
+        error: String(err),
+      });
       failed.push(entry.name);
     }
   }

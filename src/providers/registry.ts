@@ -78,7 +78,9 @@ const LOCAL_OAUTH_OVERRIDES: AnyModel[] = [
 async function loadDiscoveredModels(): Promise<AnyModel[]> {
   const out: AnyModel[] = [];
   for (const provider of DISCOVERY_SCAN_PROVIDERS) {
-    const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as AnyModel[] | undefined;
+    const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as
+      | AnyModel[]
+      | undefined;
     if (!Array.isArray(stored)) continue;
     const piIds = new Set(getModels(provider as BuiltinProvider).map((m) => m.id));
     for (const m of stored) {
@@ -127,7 +129,10 @@ export interface ModelEntry {
 //   medium ≤ $30   (sonnet / gpt-5 / gemini-pro class)
 //   high   > $30   (opus / gpt-5-pro / reasoning tiers)
 
-function inferTier(model: AnyModel): { tier: ModelEntry["tier"]; costTier: ModelEntry["costTier"] } {
+function inferTier(model: AnyModel): {
+  tier: ModelEntry["tier"];
+  costTier: ModelEntry["costTier"];
+} {
   const lower = model.id.toLowerCase();
   const blended = (model.cost?.input ?? 0) + (model.cost?.output ?? 0);
 
@@ -419,7 +424,9 @@ export function resolveOAuthModel(provider: string, modelId: string): AnyModel |
   } catch {
     // fall through to override lookup
   }
-  const override = LOCAL_OAUTH_OVERRIDES.find((m) => m.provider === oauthProvider && m.id === modelId);
+  const override = LOCAL_OAUTH_OVERRIDES.find(
+    (m) => m.provider === oauthProvider && m.id === modelId,
+  );
   return override ?? null;
 }
 
@@ -454,7 +461,7 @@ export function resolveModelForCredential(
   if (provider === "google" || provider === "openai") {
     throw new Error(
       `Model "${model.id}" is not supported with ${provider} OAuth. ` +
-      `Only subscription-eligible models are available with OAuth authentication.`,
+        `Only subscription-eligible models are available with OAuth authentication.`,
     );
   }
   return model;
@@ -464,8 +471,13 @@ export function resolveModelForCredential(
  * Resolve a pi-ai Model object from provider + modelId.
  * Falls back to creating a custom model if not found in registry.
  */
-export async function resolveDiscoveredModel(provider: string, modelId: string): Promise<AnyModel | null> {
-  const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as AnyModel[] | undefined;
+export async function resolveDiscoveredModel(
+  provider: string,
+  modelId: string,
+): Promise<AnyModel | null> {
+  const stored = (await getSetting(`provider:discoveredModels:${provider}`)) as
+    | AnyModel[]
+    | undefined;
   if (!Array.isArray(stored)) return null;
   return stored.find((m) => m.id === modelId) ?? null;
 }
@@ -645,9 +657,7 @@ export function resolveModelObject(
     // the `https://api.openai.com/v1` default above must keep pi-ai's
     // detection: OpenAI's own newer models REJECT `max_tokens` and require
     // `max_completion_tokens`, so forcing it there would break the fallback.
-    ...(baseUrl !== undefined
-      ? { compat: { maxTokensField: "max_tokens" as const } }
-      : {}),
+    ...(baseUrl !== undefined ? { compat: { maxTokensField: "max_tokens" as const } } : {}),
     reasoning: false,
     input: ["text"] as ("text" | "image")[],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },

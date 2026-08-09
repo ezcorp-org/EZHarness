@@ -17,9 +17,7 @@ import type { ExtensionManifestV2 } from "../../extensions/types";
 
 // ── Manifest builder ────────────────────────────────────────────────
 
-export function makeManifest(
-  overrides: Partial<ExtensionManifestV2> = {},
-): ExtensionManifestV2 {
+export function makeManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionManifestV2 {
   return {
     schemaVersion: 2,
     name: "fixture-ext",
@@ -60,8 +58,7 @@ export function makeLocalPackage(
   // ezcorp.config.ts — the canonical manifest source. loadManifest() imports
   // this file and expects a default export (or named `config` export) of a
   // ExtensionManifestV2-shaped object. Keep in sync with loader.ts.
-  const configTs =
-    `export default ${JSON.stringify(manifest, null, 2)} as const;\n`;
+  const configTs = `export default ${JSON.stringify(manifest, null, 2)} as const;\n`;
   writeFileSync(join(root, "ezcorp.config.ts"), configTs);
 
   // Entrypoint file — computeChecksum() reads it, so content just has to exist.
@@ -194,9 +191,7 @@ export interface GithubFetchMockOptions {
  * Returned callable can be installed via `spyOn(globalThis, "fetch")`
  * or mock.module if the caller prefers.
  */
-export function buildGithubFetchStub(
-  opts: GithubFetchMockOptions,
-): typeof globalThis.fetch {
+export function buildGithubFetchStub(opts: GithubFetchMockOptions): typeof globalThis.fetch {
   return (async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
 
@@ -255,7 +250,11 @@ export function makeUnwritableDir(): UnwritableDirFixture {
     cleanup: () => {
       if (cleaned) return;
       cleaned = true;
-      try { chmodSync(path, 0o755); } catch { /* best effort */ }
+      try {
+        chmodSync(path, 0o755);
+      } catch {
+        /* best effort */
+      }
       rmSync(path, { recursive: true, force: true });
     },
   };

@@ -155,9 +155,7 @@ describe("tool:complete preserves cardType from tool:start", () => {
       cardType: "diff",
     });
 
-    expect(at(starts, 0, "starts").cardType).toBe(
-      at(completes, 0, "completes").cardType,
-    );
+    expect(at(starts, 0, "starts").cardType).toBe(at(completes, 0, "completes").cardType);
   });
 });
 
@@ -175,7 +173,7 @@ describe("extension tool without cardType emits undefined", () => {
       toolName: "custom_tool",
       input: {},
       timestamp: Date.now(),
-      cardType: toolDef?.cardType,   // undefined, not null
+      cardType: toolDef?.cardType, // undefined, not null
       category: toolDef?.category,
     });
 

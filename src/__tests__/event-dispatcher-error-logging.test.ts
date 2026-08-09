@@ -12,7 +12,10 @@ import { EventBus } from "../runtime/events";
 import { EventSubscriptionDispatcher } from "../extensions/event-subscription-dispatcher";
 import type { AgentEvents } from "../types";
 
-interface SendCall { method: string; params: Record<string, unknown> }
+interface SendCall {
+  method: string;
+  params: Record<string, unknown>;
+}
 
 function mockProc() {
   const calls: SendCall[] = [];
@@ -38,11 +41,10 @@ describe("EventSubscriptionDispatcher — error logging (no silent swallow)", ()
       },
     } as never;
 
-    const dispatcher = new EventSubscriptionDispatcher(
-      bus,
-      registry,
-      async () => ["ext-throws", "ext-good"],
-    );
+    const dispatcher = new EventSubscriptionDispatcher(bus, registry, async () => [
+      "ext-throws",
+      "ext-good",
+    ]);
     dispatcher.registerExtension("ext-throws", ["task:snapshot"]);
     dispatcher.registerExtension("ext-good", ["task:snapshot"]);
     dispatcher.start();

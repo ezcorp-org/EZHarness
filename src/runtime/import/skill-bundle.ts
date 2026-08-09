@@ -163,9 +163,7 @@ export async function scanSkillBundles(
     }
     const { frontmatter, body } = parseCommandFile(raw);
     const rawName = (frontmatter.name?.trim() || basename(dir)).trim();
-    const description =
-      frontmatter.description?.trim() ||
-      `Imported Claude skill: ${rawName}`;
+    const description = frontmatter.description?.trim() || `Imported Claude skill: ${rawName}`;
 
     let id = skillExtensionName(rawName);
     if (seen.has(id)) {
@@ -192,10 +190,7 @@ export async function scanSkillBundles(
   return out;
 }
 
-async function listBundleScripts(
-  bundleDir: string,
-  limits: ScanLimits,
-): Promise<string[]> {
+async function listBundleScripts(bundleDir: string, limits: ScanLimits): Promise<string[]> {
   const out: string[] = [];
   async function walk(dir: string, rel: string, depth: number): Promise<void> {
     if (depth > limits.maxDepth || out.length >= limits.maxScripts) return;
@@ -220,10 +215,7 @@ async function listBundleScripts(
 }
 
 /** The synthesized `ezcorp.config.ts` source for a skill bundle. */
-export function buildSkillManifestSource(
-  name: string,
-  description: string,
-): string {
+export function buildSkillManifestSource(name: string, description: string): string {
   return `import { defineExtension } from "@ezcorp/sdk";
 
 export default defineExtension({

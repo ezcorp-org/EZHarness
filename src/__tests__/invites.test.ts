@@ -33,7 +33,9 @@ mock.module("../db/queries/settings", () => {
       await getDb().delete(tbl).where(eq(tbl.key, key));
       return true;
     },
-    async isListingInstalled() { return false; },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -152,7 +154,9 @@ describe("getInviteByToken", () => {
   });
 
   test("returns undefined for nonexistent token", async () => {
-    const found = await getInviteByToken("0000000000000000000000000000000000000000000000000000000000000000");
+    const found = await getInviteByToken(
+      "0000000000000000000000000000000000000000000000000000000000000000",
+    );
     expect(found).toBeUndefined();
   });
 
@@ -173,7 +177,9 @@ describe("getInviteByToken", () => {
     const pastDate = new Date(Date.now() - 1000); // 1 second ago
     const bytes = new Uint8Array(32);
     crypto.getRandomValues(bytes);
-    const expiredToken = Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+    const expiredToken = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
 
     await getDb().insert(invites).values({
       token: expiredToken,
@@ -266,7 +272,7 @@ describe("listInvites", () => {
     await markInviteUsed(invite.id);
 
     const all = await listInvites();
-    const usedInvites = all.filter(i => i.usedAt !== null);
+    const usedInvites = all.filter((i) => i.usedAt !== null);
     expect(usedInvites.length).toBeGreaterThanOrEqual(1);
   });
 });
@@ -281,7 +287,7 @@ describe("deleteInvite", () => {
 
     // Verify it's gone
     const all = await listInvites();
-    expect(all.find(i => i.id === invite.id)).toBeUndefined();
+    expect(all.find((i) => i.id === invite.id)).toBeUndefined();
   });
 
   test("returns false for nonexistent invite id", async () => {
@@ -296,7 +302,7 @@ describe("deleteInvite", () => {
     await deleteInvite(toDelete.id);
 
     const all = await listInvites();
-    expect(all.find(i => i.id === toKeep.id)).toBeDefined();
-    expect(all.find(i => i.id === toDelete.id)).toBeUndefined();
+    expect(all.find((i) => i.id === toKeep.id)).toBeDefined();
+    expect(all.find((i) => i.id === toDelete.id)).toBeUndefined();
   });
 });

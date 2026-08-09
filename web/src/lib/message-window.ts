@@ -22,24 +22,31 @@ export const MESSAGE_LOAD_STEP = 20;
  * Negative or zero `windowSize` returns an empty array — callers that pass
  * such values almost always want "render nothing", not "render everything".
  */
-export function computeVisibleMessages<T>(messages: readonly T[], windowSize: number): readonly T[] {
-	if (windowSize <= 0) return [];
-	if (messages.length <= windowSize) return messages;
-	return messages.slice(messages.length - windowSize);
+export function computeVisibleMessages<T>(
+  messages: readonly T[],
+  windowSize: number,
+): readonly T[] {
+  if (windowSize <= 0) return [];
+  if (messages.length <= windowSize) return messages;
+  return messages.slice(messages.length - windowSize);
 }
 
 /** True when not all messages are visible — used to gate the "Load older" UI. */
 export function hasOlderMessages(totalCount: number, visibleCount: number): boolean {
-	return totalCount > Math.min(visibleCount, totalCount);
+  return totalCount > Math.min(visibleCount, totalCount);
 }
 
 /**
  * Compute the next window size after a "load older" trigger. Grows the window
  * by `step`, capped at `totalCount`. Never shrinks; never exceeds `totalCount`.
  */
-export function nextWindowSize(currentSize: number, totalCount: number, step = MESSAGE_LOAD_STEP): number {
-	if (step <= 0) return currentSize;
-	return Math.min(Math.max(currentSize, 0) + step, Math.max(totalCount, 0));
+export function nextWindowSize(
+  currentSize: number,
+  totalCount: number,
+  step = MESSAGE_LOAD_STEP,
+): number {
+  if (step <= 0) return currentSize;
+  return Math.min(Math.max(currentSize, 0) + step, Math.max(totalCount, 0));
 }
 
 /**
@@ -48,10 +55,14 @@ export function nextWindowSize(currentSize: number, totalCount: number, step = M
  * browser would visually jump as new DOM nodes shift the existing content
  * downward.
  */
-export function anchorScrollTop(beforeTop: number, beforeHeight: number, afterHeight: number): number {
-	const delta = afterHeight - beforeHeight;
-	// Clamp to a non-negative result; a negative delta (content shrunk) would
-	// only happen if something else removed DOM during the load, in which
-	// case we just preserve the user's offset.
-	return Math.max(0, beforeTop + Math.max(0, delta));
+export function anchorScrollTop(
+  beforeTop: number,
+  beforeHeight: number,
+  afterHeight: number,
+): number {
+  const delta = afterHeight - beforeHeight;
+  // Clamp to a non-negative result; a negative delta (content shrunk) would
+  // only happen if something else removed DOM during the load, in which
+  // case we just preserve the user's offset.
+  return Math.max(0, beforeTop + Math.max(0, delta));
 }

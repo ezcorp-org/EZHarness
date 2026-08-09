@@ -22,19 +22,12 @@ vi.mock("$server/db/queries/settings", () => ({
   upsertSetting: vi.fn(),
 }));
 
-const { fetchProviderModels } = await import(
-  "$server/providers/model-discovery"
-);
+const { fetchProviderModels } = await import("$server/providers/model-discovery");
 const { getCredential } = await import("$server/providers/credentials");
 const { upsertSetting } = await import("$server/db/queries/settings");
-const { POST } = await import(
-  "../routes/api/providers/[provider]/refresh-models/+server"
-);
+const { POST } = await import("../routes/api/providers/[provider]/refresh-models/+server");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  params?: { provider?: string };
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; params?: { provider?: string } }) {
   return {
     url: new URL("http://localhost/api/providers/x/refresh-models"),
     locals: opts.locals ?? {},
@@ -118,10 +111,9 @@ describe("POST /api/providers/[provider]/refresh-models", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ success: true, count: 1 });
-    expect(vi.mocked(upsertSetting)).toHaveBeenCalledWith(
-      "provider:discoveredModels:openai",
-      [{ id: "gpt-4o" }],
-    );
+    expect(vi.mocked(upsertSetting)).toHaveBeenCalledWith("provider:discoveredModels:openai", [
+      { id: "gpt-4o" },
+    ]);
   });
 
   test("reports how many fetched models are FREE (keyless-usable)", async () => {
@@ -150,32 +142,23 @@ describe("POST /api/providers/[provider]/refresh-models", () => {
   });
 
   test("returns 400 for unknown provider", async () => {
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "bogus" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "bogus" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("Invalid provider");
   });
 
   test("returns 400 when provider is empty", async () => {
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "" } }));
     expect(res.status).toBe(400);
   });
 
   test("happy path: resolves credential, stores models, returns summary", async () => {
     const cred = { type: "apikey", token: "sk-openai" };
     vi.mocked(getCredential).mockResolvedValue(cred as any);
-    vi.mocked(fetchProviderModels).mockResolvedValue([
-      { id: "gpt-5.2" },
-      { id: "gpt-4o" },
-    ] as any);
+    vi.mocked(fetchProviderModels).mockResolvedValue([{ id: "gpt-5.2" }, { id: "gpt-4o" }] as any);
 
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "openai" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "openai" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       success: boolean;
@@ -203,9 +186,7 @@ describe("POST /api/providers/[provider]/refresh-models", () => {
       { id: "anthropic/claude-3.5-sonnet" },
     ] as any);
 
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "openrouter" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "openrouter" } }));
     // openrouter is a VALID provider — not the 400 invalid-provider path.
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
@@ -221,19 +202,14 @@ describe("POST /api/providers/[provider]/refresh-models", () => {
     expect(fetchProviderModels).toHaveBeenCalledWith("openrouter", cred);
     const [key, value] = vi.mocked(upsertSetting).mock.calls[0]!;
     expect(key).toBe("provider:discoveredModels:openrouter");
-    expect(value).toEqual([
-      { id: "openrouter/auto" },
-      { id: "anthropic/claude-3.5-sonnet" },
-    ]);
+    expect(value).toEqual([{ id: "openrouter/auto" }, { id: "anthropic/claude-3.5-sonnet" }]);
   });
 
   test("missing credential still discovers via catalog (undefined passed)", async () => {
     vi.mocked(getCredential).mockRejectedValue(new Error("no creds"));
     vi.mocked(fetchProviderModels).mockResolvedValue([{ id: "gpt-4o" }] as any);
 
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "openai" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "openai" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean; count: number };
     expect(body.success).toBe(true);
@@ -246,13 +222,9 @@ describe("POST /api/providers/[provider]/refresh-models", () => {
       type: "apikey",
       token: "k",
     } as any);
-    vi.mocked(fetchProviderModels).mockRejectedValue(
-      new Error("models.dev returned 503"),
-    );
+    vi.mocked(fetchProviderModels).mockRejectedValue(new Error("models.dev returned 503"));
 
-    const res = await POST(
-      makeEvent({ locals: adminUser, params: { provider: "anthropic" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, params: { provider: "anthropic" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { success: boolean; error?: string };
     expect(body.success).toBe(false);

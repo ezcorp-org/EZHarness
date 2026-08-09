@@ -35,125 +35,129 @@ import { userFetch } from "$lib/utils/fetch-policy.js";
 import type { ToolDefinition } from "../../../../../src/extensions/types";
 
 export interface EditRetrySlot {
-	call: InlineToolCall | null;
-	tool: ToolDefinition | null;
+  call: InlineToolCall | null;
+  tool: ToolDefinition | null;
 }
 
 export interface InlineToolHandlerHost {
-	/** Active conversation id — read fresh on every invocation. */
-	convId(): string;
-	/**
-	 * Current leaf message id (or null). Streaming placeholder ids start
-	 * with `streaming-` and are filtered out — they're not real messages
-	 * and shouldn't anchor an inline tool card.
-	 */
-	activeLeafId(): string | null;
-	/**
-	 * Park (or clear) the call+tool pair the InlineToolForm reads from.
-	 * Pass `(null, null)` to clear after confirm.
-	 */
-	setEditRetry(call: InlineToolCall | null, tool: ToolDefinition | null): void;
-	/** Read the current edit-retry slot. */
-	getEditRetry(): EditRetrySlot;
+  /** Active conversation id — read fresh on every invocation. */
+  convId(): string;
+  /**
+   * Current leaf message id (or null). Streaming placeholder ids start
+   * with `streaming-` and are filtered out — they're not real messages
+   * and shouldn't anchor an inline tool card.
+   */
+  activeLeafId(): string | null;
+  /**
+   * Park (or clear) the call+tool pair the InlineToolForm reads from.
+   * Pass `(null, null)` to clear after confirm.
+   */
+  setEditRetry(call: InlineToolCall | null, tool: ToolDefinition | null): void;
+  /** Read the current edit-retry slot. */
+  getEditRetry(): EditRetrySlot;
 }
 
 export interface InlineToolHandlers {
-	handleToolInvoke(
-		calls: { extensionName: string; toolName: string; input: Record<string, unknown> }[],
-	): void;
-	handleInlineRetry(call: InlineToolCall): void;
-	handleInlineEditRetry(call: InlineToolCall): Promise<void>;
-	handleEditRetryConfirm(input: Record<string, unknown>): void;
-	handleInlineCancel(call: InlineToolCall): void;
+  handleToolInvoke(
+    calls: { extensionName: string; toolName: string; input: Record<string, unknown> }[],
+  ): void;
+  handleInlineRetry(call: InlineToolCall): void;
+  handleInlineEditRetry(call: InlineToolCall): Promise<void>;
+  handleEditRetryConfirm(input: Record<string, unknown>): void;
+  handleInlineCancel(call: InlineToolCall): void;
 }
 
 function generateId(): string {
-	return globalThis.crypto?.randomUUID?.()
-		?? Math.random().toString(36).slice(2) + Date.now().toString(36);
+  return (
+    globalThis.crypto?.randomUUID?.() ??
+    Math.random().toString(36).slice(2) + Date.now().toString(36)
+  );
 }
 
 export function makeInlineToolHandlers(host: InlineToolHandlerHost): InlineToolHandlers {
-	function handleToolInvoke(
-		calls: { extensionName: string; toolName: string; input: Record<string, unknown> }[],
-	): void {
-		// Anchor to current leaf message (skip streaming placeholders — they're not real messages)
-		const leaf = host.activeLeafId();
-		const leafId = leaf?.startsWith("streaming-") ? undefined : leaf;
-		const conversationId = host.convId();
-		for (const call of calls) {
-			invokeInlineTool({
-				conversationId,
-				extensionName: call.extensionName,
-				toolName: call.toolName,
-				input: call.input,
-				messageId: leafId ?? undefined,
-			});
-		}
-	}
+  function handleToolInvoke(
+    calls: { extensionName: string; toolName: string; input: Record<string, unknown> }[],
+  ): void {
+    // Anchor to current leaf message (skip streaming placeholders — they're not real messages)
+    const leaf = host.activeLeafId();
+    const leafId = leaf?.startsWith("streaming-") ? undefined : leaf;
+    const conversationId = host.convId();
+    for (const call of calls) {
+      invokeInlineTool({
+        conversationId,
+        extensionName: call.extensionName,
+        toolName: call.toolName,
+        input: call.input,
+        messageId: leafId ?? undefined,
+      });
+    }
+  }
 
-	function handleInlineRetry(call: InlineToolCall): void {
-		invokeInlineTool({
-			conversationId: call.conversationId,
-			extensionName: call.extensionName,
-			toolName: call.toolName,
-			input: call.input,
-			messageId: call.messageId,
-		});
-	}
+  function handleInlineRetry(call: InlineToolCall): void {
+    invokeInlineTool({
+      conversationId: call.conversationId,
+      extensionName: call.extensionName,
+      toolName: call.toolName,
+      input: call.input,
+      messageId: call.messageId,
+    });
+  }
 
-	async function handleInlineEditRetry(call: InlineToolCall): Promise<void> {
-		try {
-			const res = await userFetch(`/api/extensions/${encodeURIComponent(call.extensionName)}/tools`);
-			if (!res.ok) return;
-			const { tools }: { tools: ToolDefinition[] } = await res.json();
-			const tool = tools.find(t => t.name === call.toolName);
-			if (tool) {
-				host.setEditRetry(call, tool);
-			}
-		} catch {
-			// silent — same as original page
-		}
-	}
+  async function handleInlineEditRetry(call: InlineToolCall): Promise<void> {
+    try {
+      const res = await userFetch(
+        `/api/extensions/${encodeURIComponent(call.extensionName)}/tools`,
+      );
+      if (!res.ok) return;
+      const { tools }: { tools: ToolDefinition[] } = await res.json();
+      const tool = tools.find((t) => t.name === call.toolName);
+      if (tool) {
+        host.setEditRetry(call, tool);
+      }
+    } catch {
+      // silent — same as original page
+    }
+  }
 
-	function handleEditRetryConfirm(input: Record<string, unknown>): void {
-		const { call: editRetryCall } = host.getEditRetry();
-		if (!editRetryCall) return;
-		const invocationId = generateId();
-		inlineToolStore.add({
-			id: invocationId,
-			extensionName: editRetryCall.extensionName,
-			toolName: editRetryCall.toolName,
-			input,
-			conversationId: editRetryCall.conversationId,
-			messageId: editRetryCall.messageId,
-		});
-		userFetch("/api/tool-invoke", {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				extensionName: editRetryCall.extensionName,
-				toolName: editRetryCall.toolName,
-				input,
-				conversationId: editRetryCall.conversationId,
-				invocationId,
-			}),
-		}).catch(err => console.error("Edit retry failed:", err));
-		host.setEditRetry(null, null);
-	}
+  function handleEditRetryConfirm(input: Record<string, unknown>): void {
+    const { call: editRetryCall } = host.getEditRetry();
+    if (!editRetryCall) return;
+    const invocationId = generateId();
+    inlineToolStore.add({
+      id: invocationId,
+      extensionName: editRetryCall.extensionName,
+      toolName: editRetryCall.toolName,
+      input,
+      conversationId: editRetryCall.conversationId,
+      messageId: editRetryCall.messageId,
+    });
+    userFetch("/api/tool-invoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        extensionName: editRetryCall.extensionName,
+        toolName: editRetryCall.toolName,
+        input,
+        conversationId: editRetryCall.conversationId,
+        invocationId,
+      }),
+    }).catch((err) => console.error("Edit retry failed:", err));
+    host.setEditRetry(null, null);
+  }
 
-	function handleInlineCancel(call: InlineToolCall): void {
-		// Mark as error in store (cancellation)
-		inlineToolStore.updateFromEvent(call.id, "tool:error", {
-			error: "Cancelled by user",
-			duration: call.startedAt ? Date.now() - call.startedAt : 0,
-		});
-	}
+  function handleInlineCancel(call: InlineToolCall): void {
+    // Mark as error in store (cancellation)
+    inlineToolStore.updateFromEvent(call.id, "tool:error", {
+      error: "Cancelled by user",
+      duration: call.startedAt ? Date.now() - call.startedAt : 0,
+    });
+  }
 
-	return {
-		handleToolInvoke,
-		handleInlineRetry,
-		handleInlineEditRetry,
-		handleEditRetryConfirm,
-		handleInlineCancel,
-	};
+  return {
+    handleToolInvoke,
+    handleInlineRetry,
+    handleInlineEditRetry,
+    handleEditRetryConfirm,
+    handleInlineCancel,
+  };
 }

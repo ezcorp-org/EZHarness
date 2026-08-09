@@ -1,7 +1,11 @@
 import { test, expect, describe, mock, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { RegisteredTool } from "../extensions/registry";
-import { ToolExecutor, PermissionDeniedError, _resetToolCallsCounterForTests } from "../extensions/tool-executor";
+import {
+  ToolExecutor,
+  PermissionDeniedError,
+  _resetToolCallsCounterForTests,
+} from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import type { ToolCallResult, ToolDefinition } from "../extensions/types";
 
@@ -44,7 +48,10 @@ function makeTool(
 
 function createMockRegistry(tools: RegisteredTool[]) {
   const toolMap = new Map(tools.map((t) => [t.name, t]));
-  const processes = new Map<string, { callTool: ReturnType<typeof mock>; setRequestHandler: ReturnType<typeof mock> }>();
+  const processes = new Map<
+    string,
+    { callTool: ReturnType<typeof mock>; setRequestHandler: ReturnType<typeof mock> }
+  >();
 
   // Group tools by extensionId for extensionTools map
   const extensionTools = new Map<string, RegisteredTool[]>();
@@ -72,7 +79,11 @@ function createMockRegistry(tools: RegisteredTool[]) {
       if (!processes.has(extensionId)) {
         processes.set(extensionId, {
           callTool: mock(
-            async (_name: string, _args: Record<string, unknown>, _meta?: Record<string, unknown>): Promise<ToolCallResult> => ({
+            async (
+              _name: string,
+              _args: Record<string, unknown>,
+              _meta?: Record<string, unknown>,
+            ): Promise<ToolCallResult> => ({
               content: [{ type: "text", text: `result from ${extensionId}` }],
               isError: false,
             }),
@@ -241,7 +252,7 @@ describe("Executor namespace stripping", () => {
       }),
     }));
 
-afterAll(() => restoreModuleMocks());
+    afterAll(() => restoreModuleMocks());
 
     // Re-import to pick up the new mock
     const { ToolExecutor: FreshExecutor } = await import("../extensions/tool-executor");
@@ -314,7 +325,9 @@ afterAll(() => restoreModuleMocks());
       emit: (event: string, data: any) => emitted.push({ event, data }),
       on: () => () => {},
     };
-    const executor = new ToolExecutor(registry as any, createStubPermissionEngine(), { bus: bus as any });
+    const executor = new ToolExecutor(registry as any, createStubPermissionEngine(), {
+      bus: bus as any,
+    });
 
     await executor.executeToolCall("ext-a__search", {}, "conv-1", "msg-1");
 
@@ -340,7 +353,9 @@ afterAll(() => restoreModuleMocks());
       emit: (event: string, data: any) => emitted.push({ event, data }),
       on: () => () => {},
     };
-    const executor = new ToolExecutor(registry as any, createStubPermissionEngine(), { bus: bus as any });
+    const executor = new ToolExecutor(registry as any, createStubPermissionEngine(), {
+      bus: bus as any,
+    });
 
     await executor.executeToolCall("ext-a__search", {}, "conv-1", "msg-1");
 

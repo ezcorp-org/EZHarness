@@ -25,10 +25,7 @@ type WorkflowEvent =
   | { type: "workflow:error"; workflowRun: WorkflowRunLike };
 
 /** Mirror of the `workflow:*` arms of processEvent in stores.svelte.ts. */
-function reduceWorkflowRuns(
-  runs: WorkflowRunLike[],
-  event: WorkflowEvent,
-): WorkflowRunLike[] {
+function reduceWorkflowRuns(runs: WorkflowRunLike[], event: WorkflowEvent): WorkflowRunLike[] {
   switch (event.type) {
     case "workflow:start":
       return [event.workflowRun, ...runs];

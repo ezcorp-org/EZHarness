@@ -56,19 +56,18 @@ if (SKIP_REASON !== null) {
 
 describe.skipIf(SKIP_REASON !== null)("Stage 2 bridge + veth pair integration", () => {
   // Case 1: idempotent bridge create — gated on Plan 03's ensureBridge.
-  test.todo(
-    "[Plan 03] idempotent bridge create — calling ensureBridge twice produces a single br-ezcorp-mcp interface",
-    () => {
-      // Plan 03 will land `ensureBridge()` in mcp-bridge.ts. Until then,
-      // this case is a placeholder so `--todo` flag picks it up cleanly.
-    },
-  );
+  test.todo("[Plan 03] idempotent bridge create — calling ensureBridge twice produces a single br-ezcorp-mcp interface", () => {
+    // Plan 03 will land `ensureBridge()` in mcp-bridge.ts. Until then,
+    // this case is a placeholder so `--todo` flag picks it up cleanly.
+  });
 
   // Case 2: veth pair create + move into a fork()'d sleep fixture's netns.
   // This case uses raw `ip` invocations; it does NOT require the launcher
   // (Task 2). Task 1 flips this from todo to a real assertion.
   test("veth pair create + move into PID-target netns succeeds", () => {
-    const id = Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, "0");
+    const id = Math.floor(Math.random() * 0xffffffff)
+      .toString(16)
+      .padStart(8, "0");
     const hostSide = `mcp-${id}`;
     const nsSide = `mcp-${id}-ns`;
 
@@ -124,19 +123,18 @@ describe.skipIf(SKIP_REASON !== null)("Stage 2 bridge + veth pair integration", 
   // Case 3: nftables egress rule presence — requires Task 2's launcher
   // work + an in-namespace shell that has run the heredoc. Gated until
   // Task 2 + Plan 03 land the end-to-end spawn path.
-  test.todo(
-    "[Task 2 + Plan 03] nft list table inet mcp-egress shows single allow-exception rule",
-    () => {
-      // Task 2 lands the launcher heredoc; Plan 03 lands bridge boot. The
-      // assertion checks `nft list table inet mcp-egress` output inside a
-      // Stage 2 child for the `tcp dport <port> accept` rule.
-    },
-  );
+  test.todo("[Task 2 + Plan 03] nft list table inet mcp-egress shows single allow-exception rule", () => {
+    // Task 2 lands the launcher heredoc; Plan 03 lands bridge boot. The
+    // assertion checks `nft list table inet mcp-egress` output inside a
+    // Stage 2 child for the `tcp dport <port> accept` rule.
+  });
 
   // Case 4: cleanup invariant — covered by Case 2's `finally` block; the
   // `ip link show` post-delete assertion verifies the both-sides teardown.
   test("cleanup: ip link delete <host-side> tears down both ends", () => {
-    const id = Math.floor(Math.random() * 0xffffffff).toString(16).padStart(8, "0");
+    const id = Math.floor(Math.random() * 0xffffffff)
+      .toString(16)
+      .padStart(8, "0");
     const hostSide = `mcp-${id}`;
     const nsSide = `mcp-${id}-ns`;
 

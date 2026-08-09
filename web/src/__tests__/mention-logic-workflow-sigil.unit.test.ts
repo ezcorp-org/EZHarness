@@ -51,33 +51,15 @@ describe("parseMentions — ![workflow:…] tokens", () => {
     const result = parseMentions(
       "![agent:scout] ![workflow:deploy] ![EZ:distill] ![ext:fs] ![team:reviewers]",
     );
-    expect(result.map((m) => m.kind)).toEqual([
-      "agent",
-      "workflow",
-      "EZ",
-      "ext",
-      "team",
-    ]);
-    expect(result.map((m) => m.name)).toEqual([
-      "scout",
-      "deploy",
-      "distill",
-      "fs",
-      "reviewers",
-    ]);
+    expect(result.map((m) => m.kind)).toEqual(["agent", "workflow", "EZ", "ext", "team"]);
+    expect(result.map((m) => m.name)).toEqual(["scout", "deploy", "distill", "fs", "reviewers"]);
   });
 
   test("coexists with the other four sigils in one string", () => {
     const result = parseMentions(
       "![workflow:deploy] @[file:bar.ts] /[cmd:baz] $[feature:qux] %[lesson:wat]",
     );
-    expect(result.map((m) => m.kind)).toEqual([
-      "workflow",
-      "file",
-      "cmd",
-      "feature",
-      "lesson",
-    ]);
+    expect(result.map((m) => m.kind)).toEqual(["workflow", "file", "cmd", "feature", "lesson"]);
   });
 
   test("multiple workflow tokens are extracted independently", () => {
@@ -91,9 +73,7 @@ describe("parseMentions — ![workflow:…] tokens", () => {
     // alternation is matched first and non-greedily against the literal
     // `workflow:`, so the remaining `deployer:release` lands in the name.
     const result = parseMentions("![workflow:deployer:release]");
-    expect(result).toEqual([
-      { kind: "workflow", name: "deployer:release", start: 0, end: 28 },
-    ]);
+    expect(result).toEqual([{ kind: "workflow", name: "deployer:release", start: 0, end: 28 }]);
   });
 
   test("does NOT match `![Workflow:…]` — the kind is lowercase in the token", () => {

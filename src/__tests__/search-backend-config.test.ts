@@ -114,7 +114,10 @@ describe("resolveSearchBackendEnv", () => {
 
   test("DB unavailable (getSetting throws) returns base unchanged, no throw", async () => {
     getSettingThrows = true;
-    const base = { TAVILY_API_KEY: "env-tavily", SEARXNG_BASE_URL: "https://env" } as NodeJS.ProcessEnv;
+    const base = {
+      TAVILY_API_KEY: "env-tavily",
+      SEARXNG_BASE_URL: "https://env",
+    } as NodeJS.ProcessEnv;
     const out = await resolveSearchBackendEnv(base);
     expect(out.TAVILY_API_KEY).toBe("env-tavily");
     expect(out.SEARXNG_BASE_URL).toBe("https://env");

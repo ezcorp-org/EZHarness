@@ -6,7 +6,10 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { isRegisteredExtensionEvent } from "$server/runtime/sse-conversation-filter";
-import { getConversation, getOrCreateExtServiceConversation } from "$server/db/queries/conversations";
+import {
+  getConversation,
+  getOrCreateExtServiceConversation,
+} from "$server/db/queries/conversations";
 import { getProjectByPath } from "$server/db/queries/projects";
 import { getToolCallConversationById } from "$server/db/queries/tool-calls";
 import { getExtensionByName } from "$server/db/queries/extensions";
@@ -151,7 +154,9 @@ const PARAM_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
 async function resolveFileOrganizerQuarantineSettings(
   manifest: unknown,
 ): Promise<{ quarantineTtlDays: number; quarantineCapGb: number }> {
-  const settings = (manifest as { settings?: Record<string, { default?: unknown }> } | null | undefined)?.settings ?? {};
+  const settings =
+    (manifest as { settings?: Record<string, { default?: unknown }> } | null | undefined)
+      ?.settings ?? {};
   const ttl = settings.quarantine_ttl_days?.default;
   const cap = settings.quarantine_cap_gb?.default;
   return {
@@ -334,15 +339,18 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
       // (fs.write, spawn, and any provenance-gated capability) fails `-32602`.
       // The `conversationId` is the resolved service conversation for a gate
       // push (so a push-fired spawn has a resolvable owner scope), else null.
-      const ezCallId = registerFireCallProvenance({
-        onBehalfOf: user.id,
-        conversationId: serviceConversationId,
-        runId: null,
-        parentCallId: null,
-        actorExtensionId: ext.id,
-        kind: "event",
-        ownerless: false,
-      }, { autoReleaseMs: HUB_EVENT_FIRE_TOKEN_MS });
+      const ezCallId = registerFireCallProvenance(
+        {
+          onBehalfOf: user.id,
+          conversationId: serviceConversationId,
+          runId: null,
+          parentCallId: null,
+          actorExtensionId: ext.id,
+          kind: "event",
+          ownerless: false,
+        },
+        { autoReleaseMs: HUB_EVENT_FIRE_TOKEN_MS },
+      );
       const delivered = proc.sendNotification(`ezcorp/event/${fullEventName}`, {
         source: "hub",
         pageId,
@@ -441,8 +449,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     typeof (parsed.data as { messageId?: unknown }).messageId === "string" &&
     typeof toolCallId !== "string" &&
     !isBulkMessageToolbarEvent;
-  const isMessageToolbarEvent =
-    isSingleMessageToolbarEvent || isBulkMessageToolbarEvent;
+  const isMessageToolbarEvent = isSingleMessageToolbarEvent || isBulkMessageToolbarEvent;
 
   if (isMessageToolbarEvent) {
     // ── Diagnostic instrumentation [kokoro-tts-flow] ────────────────
@@ -462,9 +469,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     };
 
     const messageIdProbe = (parsed.data as { messageId?: unknown }).messageId as string | undefined;
-    const messageIdsProbe = isBulkMessageToolbarEvent
-      ? (messageIdsParsed as string[])
-      : undefined;
+    const messageIdsProbe = isBulkMessageToolbarEvent ? (messageIdsParsed as string[]) : undefined;
     recordStage("[messageToolbar] received", {
       name,
       event,
@@ -477,7 +482,8 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     });
 
     const ext = await getExtensionByName(name);
-    const grantedProbe = (ext as { grantedPermissions?: ExtensionPermissions } | null)?.grantedPermissions;
+    const grantedProbe = (ext as { grantedPermissions?: ExtensionPermissions } | null)
+      ?.grantedPermissions;
     recordStage("[messageToolbar] extension lookup", {
       extId: ext?.id ?? null,
       enabled: ext?.enabled ?? false,
@@ -543,9 +549,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     // ignores any caller-supplied selection — the bulk button has no
     // single-row highlight semantics.
     const usedSelection =
-      !isBulkMessageToolbarEvent &&
-      rawSelection !== null &&
-      rawSelection.trim().length > 0;
+      !isBulkMessageToolbarEvent && rawSelection !== null && rawSelection.trim().length > 0;
     const text = (usedSelection ? rawSelection.trim() : rawContent).slice(0, 4_000);
     const headerSubject = isBulkMessageToolbarEvent
       ? `${rawMessageIds.length} turns`
@@ -556,10 +560,13 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
 
     const granted = (ext as { grantedPermissions?: ExtensionPermissions }).grantedPermissions;
     if (!granted?.appendMessages) {
-      log.warn("[kokoro-tts-flow][server] messageToolbar event for extension without appendMessages grant", {
-        extensionId: ext.id,
-        name,
-      });
+      log.warn(
+        "[kokoro-tts-flow][server] messageToolbar event for extension without appendMessages grant",
+        {
+          extensionId: ext.id,
+          name,
+        },
+      );
       return errorJson(403, "Extension lacks appendMessages permission");
     }
 
@@ -594,11 +601,14 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
     } catch (err) {
       wireOk = false;
       wireError = err instanceof Error ? err.message : String(err);
-      log.warn("[kokoro-tts-flow][server] subprocess spawn/wire failed for messageToolbar event (non-fatal)", {
-        extensionId: ext.id,
-        name,
-        error: wireError,
-      });
+      log.warn(
+        "[kokoro-tts-flow][server] subprocess spawn/wire failed for messageToolbar event (non-fatal)",
+        {
+          extensionId: ext.id,
+          name,
+          error: wireError,
+        },
+      );
     }
     recordStage("[messageToolbar] subprocess wire", {
       ok: wireOk,
@@ -719,8 +729,7 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
   // so we don't widen the trust boundary.
   const userDataRecord = userData as Record<string, unknown>;
   const isSaveShape =
-    typeof toolCallId === "string" &&
-    typeof userDataRecord.attachmentId === "string";
+    typeof toolCallId === "string" && typeof userDataRecord.attachmentId === "string";
   if (isSaveShape) {
     const ext = await getExtensionByName(name);
     if (!ext?.enabled) return errorJson(404, "Not found");
@@ -761,11 +770,14 @@ export const POST: RequestHandler = async ({ request, locals, params }) => {
   // `conversation_extensions` wiring + per-extension rate limit).
   // The SSE filter treats this event as a direct carrier because
   // `isRegisteredExtensionEvent` returned true.
-  getBus().emit(fullEventName as never, {
-    ...(typeof toolCallId === "string" ? { toolCallId } : {}),
-    conversationId,
-    ...userData,
-  } as never);
+  getBus().emit(
+    fullEventName as never,
+    {
+      ...(typeof toolCallId === "string" ? { toolCallId } : {}),
+      conversationId,
+      ...userData,
+    } as never,
+  );
 
   return json({ ok: true });
 };

@@ -16,11 +16,7 @@ import type { AgentExecutor } from "./executor";
 import type { DelegationOwnerKind } from "../db/schema";
 import type { EventBus } from "./events";
 import { resumeReasonRefusal } from "./workflow-resume-reasons";
-import {
-  resolveMapping,
-  resolveOutputMapping,
-  type RefContext,
-} from "./workflow-refs";
+import { resolveMapping, resolveOutputMapping, type RefContext } from "./workflow-refs";
 import { evaluateCondition } from "./workflow-condition";
 import { clampMaxIterations, clampRetries, stepKind } from "./workflow-validator";
 import { effectiveModelOverride, resolveModelOverride } from "./workflow-model";
@@ -297,11 +293,7 @@ export type NestedWorkflowResolver = (
  * is each" in the trace, and what lets a replayed loop serve its earlier
  * iterations from their recorded results instead of re-running them.
  */
-export function nestedRunKey(
-  parentRunId: string,
-  stepName: string,
-  iteration: number,
-): string {
+export function nestedRunKey(parentRunId: string, stepName: string, iteration: number): string {
   return `nested:${parentRunId}:${stepName}#${iteration}`;
 }
 
@@ -430,7 +422,10 @@ export { workflowScopeKey };
 export class WorkflowExecutor {
   private readonly persist: boolean;
   private readonly toolRunnerFactory: WorkflowToolRunnerFactory;
-  private readonly stepSubstitute?: (step: WorkflowStep, ctx: RefContext) => AgentResult | undefined;
+  private readonly stepSubstitute?: (
+    step: WorkflowStep,
+    ctx: RefContext,
+  ) => AgentResult | undefined;
   private readonly workflowResolver?: NestedWorkflowResolver;
 
   constructor(
@@ -788,9 +783,7 @@ export class WorkflowExecutor {
       // landing mid-run cannot retroactively change what the run says it
       // ran. Null for a YAML/extension workflow, which has no definition
       // row to version.
-      const version = definition
-        ? await getLatestWorkflowVersion(definition.id)
-        : undefined;
+      const version = definition ? await getLatestWorkflowVersion(definition.id) : undefined;
       // The fingerprint of the graph THIS RUN WAS HANDED — not of the row
       // that happens to own the name.
       const ranHash = workflowDefinitionHash(workflow);
@@ -1099,7 +1092,10 @@ export class WorkflowExecutor {
     // saw, which is a silent wrong answer rather than a loud failure.
     const loaded = await loadStepResults(row.id);
     if (!loaded.ok) {
-      return refuseTerminal("step-output-unavailable", `Cannot resume run ${row.id}: ${loaded.reason}`);
+      return refuseTerminal(
+        "step-output-unavailable",
+        `Cannot resume run ${row.id}: ${loaded.reason}`,
+      );
     }
 
     return this.executeFrom({
@@ -1180,9 +1176,7 @@ export class WorkflowExecutor {
     // is what reproduces the documented order-fragility exactly rather
     // than inventing a graph-deterministic answer the original run never
     // saw.
-    let prevResult = ctx.cursor.prevStepName
-      ? stepResults.get(ctx.cursor.prevStepName)
-      : undefined;
+    let prevResult = ctx.cursor.prevStepName ? stepResults.get(ctx.cursor.prevStepName) : undefined;
     // The NAME whose result `prevResult` currently is — a running variable,
     // advanced at each boundary alongside `prevResult` so the two can never
     // name different steps.
@@ -1373,9 +1367,7 @@ export class WorkflowExecutor {
         // each step's body synchronously up to its first await, so any
         // write issued after it would race the side effects it is meant
         // to describe. While this stands, a crash is not resumable.
-        await this.persistCritical("in-batch", () =>
-          markWorkflowRunInBatch(workflowRun.id),
-        );
+        await this.persistCritical("in-batch", () => markWorkflowRunInBatch(workflowRun.id));
 
         // Run every step in the batch concurrently. The FIRST failure
         // records `batchError` and immediately cancels the still-running
@@ -1410,9 +1402,7 @@ export class WorkflowExecutor {
           // would likewise never fire. It is here because it is correct
           // under BOTH readings, and the cost of being wrong is silent
           // duplicate execution.
-          const restored = alreadyDone.has(step.name)
-            ? stepResults.get(step.name)
-            : undefined;
+          const restored = alreadyDone.has(step.name) ? stepResults.get(step.name) : undefined;
           if (restored) return restored;
 
           const stepRun: WorkflowStepRun = {
@@ -1479,9 +1469,7 @@ export class WorkflowExecutor {
                 // NULL until the step succeeds, and NULL forever for one
                 // that failed — a resume reads that as "no value" and
                 // fails closed rather than guessing.
-                ...(stepOutput !== undefined
-                  ? { output: prepareStepOutput(stepOutput) }
-                  : {}),
+                ...(stepOutput !== undefined ? { output: prepareStepOutput(stepOutput) } : {}),
                 ...(inputSink.resolvedInput !== undefined
                   ? { resolvedInput: prepareResolvedInput(inputSink.resolvedInput) }
                   : {}),
@@ -1618,7 +1606,8 @@ export class WorkflowExecutor {
             // (Kept on one line so the line-coverage gate sees it hit by
             // either branch.)
             const aborting = externallyAborted || err instanceof WorkflowAbortError;
-            if (stepRun.status === "running" || stepRun.status === "success") stepRun.status = aborting ? "cancelled" : "error";
+            if (stepRun.status === "running" || stepRun.status === "success")
+              stepRun.status = aborting ? "cancelled" : "error";
             stepDurationMs = Date.now() - startedAt;
             // The typed reason, not the message. Derived from the
             // exception CLASS so it stays stable enough to GROUP BY: a
@@ -1628,10 +1617,16 @@ export class WorkflowExecutor {
             // A step blocked on human consent is not an error — it never
             // ran. Stamp the distinct state so the persisted history says
             // "this is the step to approve", not "this step failed".
-            if (err instanceof WorkflowApprovalRequiredError) { stepRun.status = "awaiting_approval"; stepRun.errorCode = "approval-required"; }
+            if (err instanceof WorkflowApprovalRequiredError) {
+              stepRun.status = "awaiting_approval";
+              stepRun.errorCode = "approval-required";
+            }
             // A deliberate park is likewise not a failure: the step is
             // waiting, and on resume this same row is updated in place.
-            if (err instanceof WorkflowSuspendedError) { stepRun.status = "suspended"; stepRun.errorCode = "suspended"; }
+            if (err instanceof WorkflowSuspendedError) {
+              stepRun.status = "suspended";
+              stepRun.errorCode = "suspended";
+            }
             persistStep();
             fail(err);
             return undefined;
@@ -1808,8 +1803,7 @@ export class WorkflowExecutor {
             });
           }
         } catch (writeErr) {
-          const message =
-            writeErr instanceof Error ? writeErr.message : String(writeErr);
+          const message = writeErr instanceof Error ? writeErr.message : String(writeErr);
           workflowRun.status = "error";
           workflowRun.finishedAt = Date.now();
           workflowRun.result = {
@@ -2053,9 +2047,7 @@ export class WorkflowExecutor {
       // One message for "no such workflow" and "not yours", on purpose:
       // distinguishing them would turn a nested step into an existence
       // oracle for private workflow names.
-      throw new Error(
-        `Step "${step.name}" (kind "workflow") could not resolve workflow "${name}"`,
-      );
+      throw new Error(`Step "${step.name}" (kind "workflow") could not resolve workflow "${name}"`);
     }
 
     const childInput = resolveMapping(step.input ?? {}, refCtx);
@@ -2358,12 +2350,8 @@ export class WorkflowExecutor {
       }
 
       if (batch.length === 0) {
-        const unresolved = steps
-          .filter((s) => !resolved.has(s.name))
-          .map((s) => s.name);
-        throw new Error(
-          `Circular dependency detected among steps: ${unresolved.join(", ")}`,
-        );
+        const unresolved = steps.filter((s) => !resolved.has(s.name)).map((s) => s.name);
+        throw new Error(`Circular dependency detected among steps: ${unresolved.join(", ")}`);
       }
 
       batches.push(batch);
@@ -2652,8 +2640,7 @@ async function runApprovalStep(
   // got here with an expired row the sweep has not applied its policy
   // yet, so re-asking is the conservative reading.
   const itemIds = resolveApprovalItemIds(step, refCtx);
-  const expiresAt =
-    step.timeoutMs !== undefined ? new Date(Date.now() + step.timeoutMs) : null;
+  const expiresAt = step.timeoutMs !== undefined ? new Date(Date.now() + step.timeoutMs) : null;
   const approvalId = await parkWorkflowApproval({
     workflowRunId,
     stepName: step.name,

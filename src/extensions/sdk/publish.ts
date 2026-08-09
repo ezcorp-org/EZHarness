@@ -17,8 +17,8 @@ import { logger } from "../../logger";
 const log = logger.child("ext-sdk");
 
 export interface PublishOptions {
-  extDir?: string;     // defaults to cwd
-  token?: string;      // --token flag override
+  extDir?: string; // defaults to cwd
+  token?: string; // --token flag override
   skipTests?: boolean; // skip test run (for testing publish flow itself)
 }
 
@@ -34,7 +34,7 @@ export async function publishExtension(opts?: PublishOptions): Promise<void> {
   if (!token) {
     throw new Error(
       "No publish token found. Generate one at Settings > Developer, then run: " +
-      "ezcorp ext publish --token <token> or save to ~/.ezcorp/config.json"
+        "ezcorp ext publish --token <token> or save to ~/.ezcorp/config.json",
     );
   }
 
@@ -69,7 +69,9 @@ export async function publishExtension(opts?: PublishOptions): Promise<void> {
   if (listing) {
     const existingVersion = await getVersion(listing.id, manifest.version);
     if (existingVersion) {
-      throw new Error(`Version ${manifest.version} already published. Bump version in ezcorp.config.ts.`);
+      throw new Error(
+        `Version ${manifest.version} already published. Bump version in ezcorp.config.ts.`,
+      );
     }
   }
 
@@ -82,8 +84,8 @@ export async function publishExtension(opts?: PublishOptions): Promise<void> {
       authorId: userId,
       name: manifest.name,
       description: manifest.description,
-      category: (manifest as unknown as Record<string, unknown>).category as string ?? "Other",
-      tags: (manifest as unknown as Record<string, unknown>).tags as string[] ?? [],
+      category: ((manifest as unknown as Record<string, unknown>).category as string) ?? "Other",
+      tags: ((manifest as unknown as Record<string, unknown>).tags as string[]) ?? [],
       latestVersion: manifest.version,
     });
   }

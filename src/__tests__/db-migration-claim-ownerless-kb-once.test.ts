@@ -24,10 +24,7 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
-import {
-  up,
-  KB_OWNERLESS_CLAIM_MARKER_KEY,
-} from "../db/migrations/claim-ownerless-kb-files-once";
+import { up, KB_OWNERLESS_CLAIM_MARKER_KEY } from "../db/migrations/claim-ownerless-kb-files-once";
 
 let pglite: PGlite | null = null;
 let db: ReturnType<typeof drizzle>;
@@ -201,7 +198,11 @@ describe("(3) a failed run leaves the work PENDING, never falsely done", () => {
 
   test("after a failed run, the NEXT boot still performs the adoption", async () => {
     await addFile("kb-legacy", null);
-    await up({ execute: async () => { throw new Error("simulated migrate failure"); } });
+    await up({
+      execute: async () => {
+        throw new Error("simulated migrate failure");
+      },
+    });
     expect(await ownerOf("kb-legacy")).toBeNull();
 
     await up(db);

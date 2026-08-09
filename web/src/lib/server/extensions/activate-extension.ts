@@ -12,11 +12,7 @@
 // (object or undefined) and reports failures as a discriminated result
 // rather than throwing a Response.
 
-import {
-	getExtension,
-	updateExtension,
-	resetFailures,
-} from "$server/db/queries/extensions";
+import { getExtension, updateExtension, resetFailures } from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { hasSecurityViolation } from "$server/extensions/security";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
@@ -38,13 +34,11 @@ import type { Extension } from "$server/db/schema";
  * normalizes both forms internally, so the union is safe at runtime —
  * the cast at the clamp call is the documented boundary.
  */
-type SubmittedPermissions =
-	| Partial<ExtensionPermissions>
-	| ExtensionManifestV2["permissions"];
+type SubmittedPermissions = Partial<ExtensionPermissions> | ExtensionManifestV2["permissions"];
 
 export type ActivateExtensionResult =
-	| { ok: true; extension: Extension }
-	| { ok: false; status: 403 | 404; message: string };
+  | { ok: true; extension: Extension }
+  | { ok: false; status: 403 | 404; message: string };
 
 /**
  * Flip an installed extension to `enabled=true` and (optionally) grant
@@ -59,124 +53,126 @@ export type ActivateExtensionResult =
  * @param actorId  user id recorded on the `extension:confirmed` audit row.
  */
 export async function activateExtension(
-	id: string,
-	opts: { submittedPermissions?: SubmittedPermissions },
-	actorId: string | null,
+  id: string,
+  opts: { submittedPermissions?: SubmittedPermissions },
+  actorId: string | null,
 ): Promise<ActivateExtensionResult> {
-	const ext = await getExtension(id);
-	if (!ext) return { ok: false, status: 404, message: "Not found" };
+  const ext = await getExtension(id);
+  if (!ext) return { ok: false, status: 404, message: "Not found" };
 
-	// Preserve the sec-C4 invariant: an extension with an unresolved
-	// security violation cannot be re-enabled.
-	if (await hasSecurityViolation(id)) {
-		return {
-			ok: false,
-			status: 403,
-			message:
-				"Cannot re-enable extension with security violations. Clear violations first.",
-		};
-	}
+  // Preserve the sec-C4 invariant: an extension with an unresolved
+  // security violation cannot be re-enabled.
+  if (await hasSecurityViolation(id)) {
+    return {
+      ok: false,
+      status: 403,
+      message: "Cannot re-enable extension with security violations. Clear violations first.",
+    };
+  }
 
-	// Refuse to enable an extension whose declared third-party npm deps
-	// can't be resolved from its install path (verify-only v1). Mirrors the
-	// violations 403 shape (a 4xx with the actionable message, never a 500)
-	// so the operator sees exactly what to install rather than the
-	// extension flipping enabled and then crash-looping on first use.
-	const npmDeps = (ext.manifest as ExtensionManifestV2 | null)?.npmDependencies;
-	if (npmDeps && ext.installPath) {
-		const check = verifyNpmDependencies(npmDeps, ext.installPath);
-		if (!check.ok) {
-			return {
-				ok: false,
-				status: 403,
-				message: formatNpmDepError(ext.name, check.issues),
-			};
-		}
-	}
+  // Refuse to enable an extension whose declared third-party npm deps
+  // can't be resolved from its install path (verify-only v1). Mirrors the
+  // violations 403 shape (a 4xx with the actionable message, never a 500)
+  // so the operator sees exactly what to install rather than the
+  // extension flipping enabled and then crash-looping on first use.
+  const npmDeps = (ext.manifest as ExtensionManifestV2 | null)?.npmDependencies;
+  if (npmDeps && ext.installPath) {
+    const check = verifyNpmDependencies(npmDeps, ext.installPath);
+    if (!check.ok) {
+      return {
+        ok: false,
+        status: 403,
+        message: formatNpmDepError(ext.name, check.issues),
+      };
+    }
+  }
 
-	const submittedPerms = opts.submittedPermissions;
-	const update: {
-		enabled: boolean;
-		grantedPermissions?: ExtensionPermissions;
-		installedPermissions?: ExtensionPermissions;
-	} = { enabled: true };
+  const submittedPerms = opts.submittedPermissions;
+  const update: {
+    enabled: boolean;
+    grantedPermissions?: ExtensionPermissions;
+    installedPermissions?: ExtensionPermissions;
+  } = { enabled: true };
 
-	if (submittedPerms !== undefined) {
-		const manifestPerms = ext.manifest?.permissions ?? {};
-		const clamped = clampExtensionPermissions(submittedPerms as Partial<ExtensionPermissions>, manifestPerms, {
-			acceptsCallerCaps: ext.manifest?.acceptsCallerCaps,
-			escalateChildCaps: ext.manifest?.escalateChildCaps,
-			// Lets the extension's OWN `<name>:<event>` subscriptions survive
-			// the clamp — without it the activate path silently dropped them
-			// (the init_gate "missing ezcorp:events:subscribe" failure).
-			name: ext.manifest?.name,
-		});
-		update.grantedPermissions = clamped;
-		// v1.3 security review HIGH 2 — persist the install-time NARROWED
-		// choice so the reapprove handler clamps against the user's actual
-		// consent rather than the full manifest. At activate time these
-		// two are equal; a later sweep that narrows `grantedPermissions`
-		// must NOT widen `installedPermissions`.
-		update.installedPermissions = clamped;
-	}
+  if (submittedPerms !== undefined) {
+    const manifestPerms = ext.manifest?.permissions ?? {};
+    const clamped = clampExtensionPermissions(
+      submittedPerms as Partial<ExtensionPermissions>,
+      manifestPerms,
+      {
+        acceptsCallerCaps: ext.manifest?.acceptsCallerCaps,
+        escalateChildCaps: ext.manifest?.escalateChildCaps,
+        // Lets the extension's OWN `<name>:<event>` subscriptions survive
+        // the clamp — without it the activate path silently dropped them
+        // (the init_gate "missing ezcorp:events:subscribe" failure).
+        name: ext.manifest?.name,
+      },
+    );
+    update.grantedPermissions = clamped;
+    // v1.3 security review HIGH 2 — persist the install-time NARROWED
+    // choice so the reapprove handler clamps against the user's actual
+    // consent rather than the full manifest. At activate time these
+    // two are equal; a later sweep that narrows `grantedPermissions`
+    // must NOT widen `installedPermissions`.
+    update.installedPermissions = clamped;
+  }
 
-	const updated = await updateExtension(id, update);
-	await resetFailures(id);
-	await ExtensionRegistry.getInstance().reload();
+  const updated = await updateExtension(id, update);
+  await resetFailures(id);
+  await ExtensionRegistry.getInstance().reload();
 
-	// Phase 51 install-time governance — both fire-and-forget; failures
-	// are non-fatal and must not block enable.
-	try {
-		await emitEnvKeyLeakWarnings(id, ext.manifest?.permissions?.env);
-	} catch {
-		/* swallow — audit governance is non-fatal */
-	}
-	try {
-		const cronList = ext.manifest?.permissions?.schedule?.crons;
-		if (Array.isArray(cronList)) await reconcileSchedules(id, cronList);
-	} catch {
-		/* swallow — schedule reconcile is non-fatal */
-	}
-	// Mirror the GRANTED webhook slugs into the `extension_webhooks` registry so
-	// the public inbound-hook route can authenticate deliveries + mint each
-	// hook's initial secret. Source of truth is the clamped GRANT (only slugs the
-	// user actually authorized), NOT the raw manifest — keyed by `ext.name` (the
-	// registry FK), never the row UUID. Falls back to the stored grant when
-	// activating without a permission change. Non-fatal, like the schedule sweep.
-	try {
-		const grantedWebhooks =
-			(update.grantedPermissions ?? ext.grantedPermissions)?.webhooks ?? [];
-		await reconcileWebhooks(ext.name, grantedWebhooks);
-	} catch {
-		/* swallow — webhook reconcile is non-fatal */
-	}
-	// C2 — the `triggers` capability disappearing from the manifest is the
-	// ONE case where soft-disabling user-created triggers is correct: the
-	// capability that authorized them is gone. It has to be an EXPLICIT
-	// sweep, because the reconcilers above deliberately no longer touch
-	// dynamic rows at all — that filter is what keeps a routine manifest
-	// edit from looking like a revocation.
-	//
-	// Narrowing a cap is NOT a revocation: existing rows keep running and
-	// only NEW registrations are refused. Only total removal sweeps.
-	try {
-		if (!ext.manifest?.permissions?.triggers) {
-			await revokeDynamicTriggers(id, ext.name);
-		}
-	} catch {
-		/* swallow — the trigger sweep is non-fatal, like the two above */
-	}
+  // Phase 51 install-time governance — both fire-and-forget; failures
+  // are non-fatal and must not block enable.
+  try {
+    await emitEnvKeyLeakWarnings(id, ext.manifest?.permissions?.env);
+  } catch {
+    /* swallow — audit governance is non-fatal */
+  }
+  try {
+    const cronList = ext.manifest?.permissions?.schedule?.crons;
+    if (Array.isArray(cronList)) await reconcileSchedules(id, cronList);
+  } catch {
+    /* swallow — schedule reconcile is non-fatal */
+  }
+  // Mirror the GRANTED webhook slugs into the `extension_webhooks` registry so
+  // the public inbound-hook route can authenticate deliveries + mint each
+  // hook's initial secret. Source of truth is the clamped GRANT (only slugs the
+  // user actually authorized), NOT the raw manifest — keyed by `ext.name` (the
+  // registry FK), never the row UUID. Falls back to the stored grant when
+  // activating without a permission change. Non-fatal, like the schedule sweep.
+  try {
+    const grantedWebhooks = (update.grantedPermissions ?? ext.grantedPermissions)?.webhooks ?? [];
+    await reconcileWebhooks(ext.name, grantedWebhooks);
+  } catch {
+    /* swallow — webhook reconcile is non-fatal */
+  }
+  // C2 — the `triggers` capability disappearing from the manifest is the
+  // ONE case where soft-disabling user-created triggers is correct: the
+  // capability that authorized them is gone. It has to be an EXPLICIT
+  // sweep, because the reconcilers above deliberately no longer touch
+  // dynamic rows at all — that filter is what keeps a routine manifest
+  // edit from looking like a revocation.
+  //
+  // Narrowing a cap is NOT a revocation: existing rows keep running and
+  // only NEW registrations are refused. Only total removal sweeps.
+  try {
+    if (!ext.manifest?.permissions?.triggers) {
+      await revokeDynamicTriggers(id, ext.name);
+    }
+  } catch {
+    /* swallow — the trigger sweep is non-fatal, like the two above */
+  }
 
-	// Best-effort audit log — do not fail on logging errors.
-	try {
-		await insertAuditEntry(actorId, "extension:confirmed", id, {
-			enabled: true,
-			submittedPermissions: submittedPerms ?? null,
-			grantedPermissions: update.grantedPermissions ?? null,
-		});
-	} catch {
-		/* swallow */
-	}
+  // Best-effort audit log — do not fail on logging errors.
+  try {
+    await insertAuditEntry(actorId, "extension:confirmed", id, {
+      enabled: true,
+      submittedPermissions: submittedPerms ?? null,
+      grantedPermissions: update.grantedPermissions ?? null,
+    });
+  } catch {
+    /* swallow */
+  }
 
-	return { ok: true, extension: updated as Extension };
+  return { ok: true, extension: updated as Extension };
 }

@@ -182,7 +182,9 @@ describe("invariant I — a job-save audit records field NAMES, never values", (
     // silently stop being audited.
     for (const field of DIFFABLE_FIELDS) {
       const before = job();
-      const after = job({ [field]: field === "enabled" ? false : "changed" } as Partial<FactoryJob>);
+      const after = job({
+        [field]: field === "enabled" ? false : "changed",
+      } as Partial<FactoryJob>);
       expect(auditableJobDiff(before, after)).toEqual([field as string]);
     }
   });
@@ -243,10 +245,7 @@ describe("appendWithCap", () => {
   });
 
   test("over the cap: drops the OLDEST and says so in a leading marker", () => {
-    const bucket: AuditBucket = [
-      entry({ kind: "oldest" }),
-      entry({ kind: "middle" }),
-    ];
+    const bucket: AuditBucket = [entry({ kind: "oldest" }), entry({ kind: "middle" })];
     const out = appendWithCap(bucket, entry({ kind: "newest" }), 2);
     expect(isTruncationMarker(out[0]!)).toBe(true);
     expect((out[0] as { dropped: number }).dropped).toBe(1);
@@ -276,10 +275,7 @@ describe("appendWithCap", () => {
   });
 
   test("an existing marker survives an append that does NOT overflow", () => {
-    const bucket: AuditBucket = [
-      { kind: "truncated", dropped: 9, at: NOW },
-      entry({ kind: "a" }),
-    ];
+    const bucket: AuditBucket = [{ kind: "truncated", dropped: 9, at: NOW }, entry({ kind: "a" })];
     const out = appendWithCap(bucket, entry({ kind: "b" }), 10);
     expect((out[0] as { dropped: number }).dropped).toBe(9);
     expect(out).toHaveLength(3);
@@ -320,7 +316,13 @@ describe("createAuditLog", () => {
   test("append stores an id-only entry in today's bucket and reads back", async () => {
     stubStorage();
     const log = createAuditLog();
-    await log.append({ at: NOW, actor: "user-1", kind: "job-save", jobId: "j1", detail: { changed: ["name"] } });
+    await log.append({
+      at: NOW,
+      actor: "user-1",
+      kind: "job-save",
+      jobId: "j1",
+      detail: { changed: ["name"] },
+    });
 
     const bucket = await log.readDay("2026-08-01");
     expect(bucket).toHaveLength(1);

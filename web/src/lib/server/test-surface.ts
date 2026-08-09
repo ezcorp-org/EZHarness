@@ -36,7 +36,5 @@ export function isLoopbackTestBypass(
   // UNAUTHENTICATED access, so an indeterminate peer must NOT pass.
   if (!remoteAddress) return false;
   if (!isLoopbackAddress(remoteAddress)) return false;
-  return LOOPBACK_TEST_BYPASS_PREFIXES.some(
-    (p) => pathname === p || pathname.startsWith(p + "/"),
-  );
+  return LOOPBACK_TEST_BYPASS_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }

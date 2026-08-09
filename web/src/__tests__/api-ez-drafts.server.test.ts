@@ -87,7 +87,12 @@ describe("GET /api/ez/drafts/[id]", () => {
     vi.mocked(getDraft).mockResolvedValue({ ...draftRow } as any);
     const res = (await GET(makeEvent({ locals: { user } }))) as Response;
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { id: string; kind: string; payload: Record<string, unknown>; consumed: boolean };
+    const body = (await res.json()) as {
+      id: string;
+      kind: string;
+      payload: Record<string, unknown>;
+      consumed: boolean;
+    };
     expect(body.id).toBe("draft-1");
     expect(body.kind).toBe("project");
     expect(body.payload).toEqual({ name: "App", path: "/p" });
@@ -112,14 +117,18 @@ describe("POST /api/ez/drafts/[id] (body-action shape)", () => {
   });
 
   test("401 without auth, consumeDraft NOT called", async () => {
-    const res = (await POST(makeEvent({ method: "POST", body: { action: "consume" } }))) as Response;
+    const res = (await POST(
+      makeEvent({ method: "POST", body: { action: "consume" } }),
+    )) as Response;
     expect(res.status).toBe(401);
     expect(vi.mocked(consumeDraft)).not.toHaveBeenCalled();
   });
 
   test("404 when consumeDraft returns undefined", async () => {
     vi.mocked(consumeDraft).mockResolvedValue(undefined as any);
-    const res = (await POST(makeEvent({ method: "POST", locals: { user }, body: { action: "consume" } }))) as Response;
+    const res = (await POST(
+      makeEvent({ method: "POST", locals: { user }, body: { action: "consume" } }),
+    )) as Response;
     expect(res.status).toBe(404);
   });
 
@@ -128,14 +137,18 @@ describe("POST /api/ez/drafts/[id] (body-action shape)", () => {
       ...draftRow,
       consumedAt: new Date("2026-04-01T12:00:00Z"),
     } as any);
-    const res = (await POST(makeEvent({ method: "POST", locals: { user }, body: { action: "consume" } }))) as Response;
+    const res = (await POST(
+      makeEvent({ method: "POST", locals: { user }, body: { action: "consume" } }),
+    )) as Response;
     expect(res.status).toBe(200);
     const body = (await res.json()) as { consumed: boolean };
     expect(body.consumed).toBe(true);
   });
 
   test("rejects unknown action with 400", async () => {
-    const res = (await POST(makeEvent({ method: "POST", locals: { user }, body: { action: "nuke" } }))) as Response;
+    const res = (await POST(
+      makeEvent({ method: "POST", locals: { user }, body: { action: "nuke" } }),
+    )) as Response;
     expect(res.status).toBe(400);
     expect(vi.mocked(consumeDraft)).not.toHaveBeenCalled();
   });

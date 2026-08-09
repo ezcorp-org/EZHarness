@@ -57,9 +57,7 @@ export async function loadAgents(
 
 // ── Static loader (Workers / bundled) ───────────────────────────────
 
-export function loadAgentsStatic(
-  agents: AgentDefinition[],
-): Map<string, AgentDefinition> {
+export function loadAgentsStatic(agents: AgentDefinition[]): Map<string, AgentDefinition> {
   const map = new Map<string, AgentDefinition>();
   for (const agent of agents) map.set(agent.name, agent);
   return map;

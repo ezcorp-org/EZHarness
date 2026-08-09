@@ -24,9 +24,6 @@
  * `fetch()` works identically. Kept for back-compat; will be removed
  * in a future major version.
  */
-export async function fetchPermitted(
-  url: string | URL,
-  init?: RequestInit,
-): Promise<Response> {
+export async function fetchPermitted(url: string | URL, init?: RequestInit): Promise<Response> {
   return fetch(url, init);
 }

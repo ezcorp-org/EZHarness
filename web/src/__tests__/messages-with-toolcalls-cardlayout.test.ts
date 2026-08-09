@@ -15,101 +15,101 @@
 import { test, expect, describe } from "bun:test";
 
 interface ApiToolCallRow {
-	id: string;
-	extensionId: string;
-	toolName: string;
-	status: "success" | "error" | "interrupted";
-	input: Record<string, unknown> | null;
-	outputSummary: string | null;
-	fullOutput?: string | null;
-	success: boolean;
-	durationMs: number;
-	messageId?: string | null;
-	cardType?: string | null;
-	cardLayout?: string | null;
+  id: string;
+  extensionId: string;
+  toolName: string;
+  status: "success" | "error" | "interrupted";
+  input: Record<string, unknown> | null;
+  outputSummary: string | null;
+  fullOutput?: string | null;
+  success: boolean;
+  durationMs: number;
+  messageId?: string | null;
+  cardType?: string | null;
+  cardLayout?: string | null;
 }
 
 interface MessagesWithToolCallsResponse {
-	messages?: Array<{ id: string; toolCalls?: ApiToolCallRow[] }>;
-	orphanedToolCalls?: ApiToolCallRow[];
+  messages?: Array<{ id: string; toolCalls?: ApiToolCallRow[] }>;
+  orphanedToolCalls?: ApiToolCallRow[];
 }
 
 interface HistoricalToolCall {
-	id: string;
-	messageId: string;
-	extensionId: string;
-	toolName: string;
-	status: "success" | "error" | "interrupted";
-	cardLayout?: string | null;
+  id: string;
+  messageId: string;
+  extensionId: string;
+  toolName: string;
+  status: "success" | "error" | "interrupted";
+  cardLayout?: string | null;
 }
 
 // Mirror of load-messages.ts hydrateToolCallsFromApiData. Keep in sync.
 function hydrateMirror(data: MessagesWithToolCallsResponse): {
-	historicalToolCalls: HistoricalToolCall[];
-	hydrateInput: Array<ApiToolCallRow & { messageId?: string }>;
+  historicalToolCalls: HistoricalToolCall[];
+  hydrateInput: Array<ApiToolCallRow & { messageId?: string }>;
 } {
-	const historicalToolCalls: HistoricalToolCall[] = [];
-	const hydrateInput: Array<ApiToolCallRow & { messageId?: string }> = [];
-	for (const msg of data.messages ?? []) {
-		for (const tc of msg.toolCalls ?? []) {
-			historicalToolCalls.push({
-				id: tc.id,
-				messageId: msg.id,
-				extensionId: tc.extensionId,
-				toolName: tc.toolName,
-				status: tc.status,
-				cardLayout: tc.cardLayout ?? null,
-			});
-			hydrateInput.push({ ...tc, messageId: msg.id });
-		}
-	}
-	return { historicalToolCalls, hydrateInput };
+  const historicalToolCalls: HistoricalToolCall[] = [];
+  const hydrateInput: Array<ApiToolCallRow & { messageId?: string }> = [];
+  for (const msg of data.messages ?? []) {
+    for (const tc of msg.toolCalls ?? []) {
+      historicalToolCalls.push({
+        id: tc.id,
+        messageId: msg.id,
+        extensionId: tc.extensionId,
+        toolName: tc.toolName,
+        status: tc.status,
+        cardLayout: tc.cardLayout ?? null,
+      });
+      hydrateInput.push({ ...tc, messageId: msg.id });
+    }
+  }
+  return { historicalToolCalls, hydrateInput };
 }
 
 describe("hydrateToolCallsFromApiData — cardLayout passthrough", () => {
-	test("API row's cardLayout field rides through to historicalToolCalls AND hydrateInput", () => {
-		const data: MessagesWithToolCallsResponse = {
-			messages: [
-				{
-					id: "m1",
-					toolCalls: [
-						{
-							id: "tc-1",
-							extensionId: "claude-design",
-							toolName: "open-canvas",
-							status: "success",
-							input: { draftId: "d-1" },
-							outputSummary: "ok",
-							success: true,
-							durationMs: 100,
-							cardType: "design-canvas",
-							cardLayout: "dock",
-						},
-						{
-							id: "tc-2-null",
-							extensionId: "task-stack",
-							toolName: "list-tasks",
-							status: "success",
-							input: null,
-							outputSummary: "[]",
-							success: true,
-							durationMs: 5,
-							cardType: "task-list",
-							// cardLayout omitted — pre-migration row scenario
-						},
-					],
-				},
-			],
-		};
+  test("API row's cardLayout field rides through to historicalToolCalls AND hydrateInput", () => {
+    const data: MessagesWithToolCallsResponse = {
+      messages: [
+        {
+          id: "m1",
+          toolCalls: [
+            {
+              id: "tc-1",
+              extensionId: "claude-design",
+              toolName: "open-canvas",
+              status: "success",
+              input: { draftId: "d-1" },
+              outputSummary: "ok",
+              success: true,
+              durationMs: 100,
+              cardType: "design-canvas",
+              cardLayout: "dock",
+            },
+            {
+              id: "tc-2-null",
+              extensionId: "task-stack",
+              toolName: "list-tasks",
+              status: "success",
+              input: null,
+              outputSummary: "[]",
+              success: true,
+              durationMs: 5,
+              cardType: "task-list",
+              // cardLayout omitted — pre-migration row scenario
+            },
+          ],
+        },
+      ],
+    };
 
-		const result = hydrateMirror(data);
-		expect(result.historicalToolCalls).toHaveLength(2);
-		const dock = result.historicalToolCalls.find((h) => h.id === "tc-1");
-		const nullCase = result.historicalToolCalls.find((h) => h.id === "tc-2-null");
-		expect(dock?.cardLayout).toBe("dock");
-		expect(nullCase?.cardLayout ?? null).toBeNull();
+    const result = hydrateMirror(data);
+    expect(result.historicalToolCalls).toHaveLength(2);
+    const dock = result.historicalToolCalls.find((h) => h.id === "tc-1");
+    const nullCase = result.historicalToolCalls.find((h) => h.id === "tc-2-null");
+    expect(dock?.cardLayout).toBe("dock");
+    expect(nullCase?.cardLayout ?? null).toBeNull();
 
-		const dockHydrate = result.hydrateInput.find((h) => h.id === "tc-1");
-		expect(dockHydrate?.cardLayout).toBe("dock");
-	});
+    const dockHydrate = result.hydrateInput.find((h) => h.id === "tc-1");
+    expect(dockHydrate?.cardLayout).toBe("dock");
+  });
 });

@@ -16,9 +16,7 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 
 mockDbConnection();
 
-const { createInvite, markInviteUsed, getInviteByToken } = await import(
-  "../db/queries/invites"
-);
+const { createInvite, markInviteUsed, getInviteByToken } = await import("../db/queries/invites");
 const { createUser } = await import("../db/queries/users");
 
 let adminId: string;
@@ -60,9 +58,7 @@ describe("markInviteUsed atomic claim", () => {
     // Fire N concurrent claims at the same token. The atomic guard must let
     // exactly one flip usedAt; every other claim sees the row already used
     // and returns false. Pre-fix (unconditional UPDATE) all N returned true.
-    const results = await Promise.all(
-      Array.from({ length: 8 }, () => markInviteUsed(invite.id)),
-    );
+    const results = await Promise.all(Array.from({ length: 8 }, () => markInviteUsed(invite.id)));
 
     const winners = results.filter((r) => r === true);
     expect(winners).toHaveLength(1);

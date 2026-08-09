@@ -820,7 +820,9 @@ describe("updateItem", () => {
       // #setStatusByName → options
       {
         body: {
-          data: { node: { field: { id: "PVTSSF_s", options: [{ id: "opt_rev", name: "Review" }] } } },
+          data: {
+            node: { field: { id: "PVTSSF_s", options: [{ id: "opt_rev", name: "Review" }] } },
+          },
         },
       },
       { body: { data: { node: { field: { id: "PVTSSF_s" } } } } },
@@ -1044,9 +1046,9 @@ describe("setItemStatus", () => {
   test("throws NotFound when the board has no Status field", async () => {
     enqueue({ body: { data: { node: { field: null } } } });
     const client = createGithubClient();
-    await expect(
-      client.setItemStatus(BOARD_ID, AUTH_PAT, "PVTI_s", "opt_done"),
-    ).rejects.toThrow(/no single-select "Status" field/);
+    await expect(client.setItemStatus(BOARD_ID, AUTH_PAT, "PVTI_s", "opt_done")).rejects.toThrow(
+      /no single-select "Status" field/,
+    );
   });
 
   test("throws NotFound when the board node is null while resolving the field", async () => {

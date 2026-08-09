@@ -3,7 +3,12 @@ import { AgentExecutor } from "../runtime/executor";
 import { EventBus } from "../runtime/events";
 import { loadAgentsStatic } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import type { AgentDefinition, AgentEvents } from "../types";
 
 mockDbConnection();
@@ -52,11 +57,7 @@ describe("Project variable type inference", () => {
     for (const [key, value] of Object.entries(vars)) {
       if (key in existing) continue;
       const type =
-        typeof value === "boolean"
-          ? "boolean"
-          : typeof value === "number"
-            ? "number"
-            : "string";
+        typeof value === "boolean" ? "boolean" : typeof value === "number" ? "number" : "string";
       extra[key] = { type, label: toTitleCase(key), default: value };
     }
     return extra;
@@ -90,10 +91,7 @@ describe("Project variable type inference", () => {
   });
 
   test("object/array values fall through to string type", () => {
-    const result = inferSchema(
-      { config: { nested: true }, tags: ["a", "b"] },
-      {},
-    );
+    const result = inferSchema({ config: { nested: true }, tags: ["a", "b"] }, {});
     expect(result.config!.type).toBe("string");
     expect(result.tags!.type).toBe("string");
   });
@@ -107,10 +105,7 @@ describe("Project variable type inference", () => {
     const agentSchema = {
       provider: { type: "select" },
     };
-    const result = inferSchema(
-      { provider: "google", apiKey: "sk-123" },
-      agentSchema,
-    );
+    const result = inferSchema({ provider: "google", apiKey: "sk-123" }, agentSchema);
     expect(result.provider).toBeUndefined();
     expect(result.apiKey).toBeDefined();
   });
@@ -125,10 +120,7 @@ describe("Project variable type inference", () => {
       provider: { type: "select" },
       model: { type: "string" },
     };
-    const result = inferSchema(
-      { provider: "google", model: "pro" },
-      agentSchema,
-    );
+    const result = inferSchema({ provider: "google", model: "pro" }, agentSchema);
     expect(Object.keys(result)).toHaveLength(0);
   });
 
@@ -292,11 +284,7 @@ describe("Executor resolveInput with project variables", () => {
       variables: { apiKey: "sk-test-123", temperature: 0.7 },
     });
 
-    await executor.runAgent(
-      "capture-input",
-      { text: "hello", provider: "google" },
-      project.id,
-    );
+    await executor.runAgent("capture-input", { text: "hello", provider: "google" }, project.id);
 
     expect(receivedInput.text).toBe("hello");
     expect(receivedInput.provider).toBe("google"); // explicit input wins
@@ -352,11 +340,7 @@ describe("Executor resolveInput with project variables", () => {
       variables: {},
     });
 
-    await executor.runAgent(
-      "capture-input",
-      { text: "test", cwd: "/custom/dir" },
-      project.id,
-    );
+    await executor.runAgent("capture-input", { text: "test", cwd: "/custom/dir" }, project.id);
 
     expect(receivedInput.cwd).toBe("/custom/dir"); // explicit wins
   });
@@ -382,11 +366,7 @@ describe("Executor resolveInput with project variables", () => {
       variables: { customVar: "hello", count: 5 },
     });
 
-    await executor.runAgent(
-      "no-schema",
-      { arbitrary: "data" },
-      project.id,
-    );
+    await executor.runAgent("no-schema", { arbitrary: "data" }, project.id);
 
     expect(receivedInput.arbitrary).toBe("data");
     expect(receivedInput.customVar).toBe("hello");
@@ -461,7 +441,10 @@ describe("Server API: project variables in agent runs", () => {
       }),
     });
     expect(runRes.status).toBe(200);
-    const run = (await runRes.json()) as { status: string; result: { output: Record<string, unknown> } };
+    const run = (await runRes.json()) as {
+      status: string;
+      result: { output: Record<string, unknown> };
+    };
 
     expect(run.status).toBe("success");
     // Project variables are merged into input
@@ -589,19 +572,12 @@ describe("E2E: frontend form data flow", () => {
   };
   type Schema = Record<string, InputField>;
 
-  function inferSchema(
-    vars: Record<string, unknown>,
-    existing: Schema,
-  ): Schema {
+  function inferSchema(vars: Record<string, unknown>, existing: Schema): Schema {
     const extra: Schema = {};
     for (const [key, value] of Object.entries(vars)) {
       if (key in existing) continue;
       const type =
-        typeof value === "boolean"
-          ? "boolean"
-          : typeof value === "number"
-            ? "number"
-            : "string";
+        typeof value === "boolean" ? "boolean" : typeof value === "number" ? "number" : "string";
       extra[key] = { type, label: toTitleCase(key), default: value };
     }
     return extra;
@@ -831,7 +807,9 @@ describe("E2E: server round-trip with project variable auto-populate", () => {
     const agentSchema = agentDef.inputSchema!;
 
     // 4. Frontend derives extra schema (simulating AgentInputForm logic)
-    const extraKeys = Object.keys(projectVars).filter((k) => !(k in agentSchema)).sort();
+    const extraKeys = Object.keys(projectVars)
+      .filter((k) => !(k in agentSchema))
+      .sort();
     expect(extraKeys).toEqual(["apiKey", "temperature", "verbose"]);
     // "provider" is excluded because it's in the agent schema
 

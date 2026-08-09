@@ -51,9 +51,7 @@ export type TriggerBriefingRunNowResult =
   | { ok: false; reason: "unavailable" }
   | { ok: false; reason: "rate-limited"; retryAfter?: number };
 
-export async function triggerBriefingRunNow(
-  userId: string,
-): Promise<TriggerBriefingRunNowResult> {
+export async function triggerBriefingRunNow(userId: string): Promise<TriggerBriefingRunNowResult> {
   if (!getBriefingRuntime()) {
     return { ok: false, reason: "unavailable" };
   }

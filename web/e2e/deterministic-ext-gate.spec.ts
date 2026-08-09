@@ -21,13 +21,7 @@
 
 import { test, expect } from "./fixtures/hydration.js";
 import { spawnSync } from "node:child_process";
-import {
-  mkdtempSync,
-  writeFileSync,
-  readFileSync,
-  rmSync,
-  cpSync,
-} from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, rmSync, cpSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -36,10 +30,7 @@ import { fileURLToPath } from "node:url";
 // (`__dirname` is not defined in this ESM test module.)
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = join(HERE, "..", "..");
-const HARNESS_DIR = join(
-  REPO_ROOT,
-  "docs/extensions/examples/harness-smoke-test",
-);
+const HARNESS_DIR = join(REPO_ROOT, "docs/extensions/examples/harness-smoke-test");
 
 function runCli(args: string[], env: Record<string, string> = {}) {
   return spawnSync("bun", ["run", "index.ts", ...args], {
@@ -52,21 +43,14 @@ function runCli(args: string[], env: Record<string, string> = {}) {
 
 test.describe("deterministic extension-build gate (CLI surface)", () => {
   test("canonical harness-smoke-test ⇒ ext verify --json exit 0, pass:true", () => {
-    const r = runCli([
-      "ext",
-      "verify",
-      "./docs/extensions/examples/harness-smoke-test",
-      "--json",
-    ]);
+    const r = runCli(["ext", "verify", "./docs/extensions/examples/harness-smoke-test", "--json"]);
     expect(r.status).toBe(0);
     // The JSON is the last brace-balanced block on stdout (logger
     // warnings may precede it).
     const jsonStart = r.stdout.indexOf("{");
     const parsed = JSON.parse(r.stdout.slice(jsonStart));
     expect(parsed.pass).toBe(true);
-    expect(
-      parsed.steps.map((s: { name: string }) => s.name),
-    ).toEqual([
+    expect(parsed.steps.map((s: { name: string }) => s.name)).toEqual([
       "load-manifest",
       "validate-manifest",
       "smoke-test-present",
@@ -103,8 +87,7 @@ test.describe("deterministic extension-build gate (CLI surface)", () => {
       expect(parsed.pass).toBe(false);
       expect(
         parsed.steps.some(
-          (s: { name: string; ok: boolean }) =>
-            s.name === "smoke-test-roundtrip" && s.ok === false,
+          (s: { name: string; ok: boolean }) => s.name === "smoke-test-roundtrip" && s.ok === false,
         ),
       ).toBe(true);
     } finally {
@@ -132,14 +115,10 @@ test.describe("deterministic extension-build gate (CLI surface)", () => {
       );
 
       const secondOut = `${second.stdout}\n${second.stderr}`;
-      expect(secondOut).not.toMatch(
-        /Failed query|insert into "extensions"|duplicate key value/i,
-      );
+      expect(secondOut).not.toMatch(/Failed query|insert into "extensions"|duplicate key value/i);
       // 2nd run must take the idempotent refresh path + exit clean.
       expect(second.status).toBe(0);
-      expect(secondOut).toContain(
-        "already installed from same source — refreshed",
-      );
+      expect(secondOut).toContain("already installed from same source — refreshed");
       expect(first.status).toBe(0);
     } finally {
       rmSync(dbDir, { recursive: true, force: true });

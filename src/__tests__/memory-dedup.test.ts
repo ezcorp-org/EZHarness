@@ -46,12 +46,8 @@ mock.module("../memory/embeddings", () => {
   };
 });
 
-const {
-  dedupAndWriteMemory,
-  legacyExtractionProvenance,
-  withDedupLock,
-  dedupLockKey,
-} = await import("../memory/dedup");
+const { dedupAndWriteMemory, legacyExtractionProvenance, withDedupLock, dedupLockKey } =
+  await import("../memory/dedup");
 const { searchMemories } = await import("../db/queries/memories");
 const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
@@ -74,10 +70,13 @@ let conversationB2Id: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values([
-    { id: OWNER_A, email: "dedup-a@test.local", name: "Dedup A", passwordHash: "fake-hash" },
-    { id: OWNER_B, email: "dedup-b@test.local", name: "Dedup B", passwordHash: "fake-hash" },
-  ]).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values([
+      { id: OWNER_A, email: "dedup-a@test.local", name: "Dedup A", passwordHash: "fake-hash" },
+      { id: OWNER_B, email: "dedup-b@test.local", name: "Dedup B", passwordHash: "fake-hash" },
+    ])
+    .onConflictDoNothing();
   const a = await createProject({ name: "dedup-A", path: "/tmp/dedup-a" });
   const b = await createProject({ name: "dedup-B", path: "/tmp/dedup-b" });
   projectAId = a.id;
@@ -105,7 +104,12 @@ beforeEach(async () => {
 describe("dedupAndWriteMemory — INSERT branch (new fact)", () => {
   test("first write inserts a row with the provenance factory's fields", async () => {
     const result = await dedupAndWriteMemory({
-      fact: { content: "User prefers TypeScript", category: "preferences", confidence: "high", messageIds: ["m1"] },
+      fact: {
+        content: "User prefers TypeScript",
+        category: "preferences",
+        confidence: "high",
+        messageIds: ["m1"],
+      },
       conversationId: conversationAId,
       projectId: projectAId,
       provenanceFactory: legacyExtractionProvenance,
@@ -122,7 +126,12 @@ describe("dedupAndWriteMemory — INSERT branch (new fact)", () => {
 
   test("custom provenance factory's fields land on the row", async () => {
     const result = await dedupAndWriteMemory({
-      fact: { content: "Custom-factory fact", category: "technical", confidence: "medium", messageIds: ["m1"] },
+      fact: {
+        content: "Custom-factory fact",
+        category: "technical",
+        confidence: "medium",
+        messageIds: ["m1"],
+      },
       conversationId: conversationAId,
       projectId: projectAId,
       provenanceFactory: (action, fact, conversationId) => ({
@@ -140,7 +149,10 @@ describe("dedupAndWriteMemory — INSERT branch (new fact)", () => {
     expect(result.action).toBe("inserted");
     const rows = await searchMemories({ projectId: projectAId });
     expect(rows).toHaveLength(1);
-    const prov = rows[0]!.provenance as { extensionId?: string; history?: Array<{ reason?: string }> } | null;
+    const prov = rows[0]!.provenance as {
+      extensionId?: string;
+      history?: Array<{ reason?: string }>;
+    } | null;
     expect(prov?.extensionId).toBe("memory-extractor");
     expect(prov?.history?.[0]?.reason).toBe("custom-factory");
   });
@@ -148,7 +160,12 @@ describe("dedupAndWriteMemory — INSERT branch (new fact)", () => {
 
 describe("dedupAndWriteMemory — UPDATE branch (similar existing)", () => {
   test("second write of the same content updates the existing row", async () => {
-    const fact = { content: "Repeated fact for dedup", category: "preferences" as const, confidence: "high" as const, messageIds: ["m1"] };
+    const fact = {
+      content: "Repeated fact for dedup",
+      category: "preferences" as const,
+      confidence: "high" as const,
+      messageIds: ["m1"],
+    };
 
     const first = await dedupAndWriteMemory({
       fact,
@@ -175,7 +192,12 @@ describe("dedupAndWriteMemory — UPDATE branch (similar existing)", () => {
 
 describe("dedupAndWriteMemory — per-user scope wall", () => {
   test("a similar fact from ANOTHER user's conversation inserts fresh — never overwrites the first user's row", async () => {
-    const fact = { content: "Shared-sounding fact for scope wall", category: "preferences" as const, confidence: "high" as const, messageIds: ["m1"] };
+    const fact = {
+      content: "Shared-sounding fact for scope wall",
+      category: "preferences" as const,
+      confidence: "high" as const,
+      messageIds: ["m1"],
+    };
 
     // User A writes the fact via A's conversation.
     const first = await dedupAndWriteMemory({
@@ -203,7 +225,12 @@ describe("dedupAndWriteMemory — per-user scope wall", () => {
   });
 
   test("a conversation with no resolvable owner matches nothing (fail-closed) and inserts", async () => {
-    const fact = { content: "Unowned-conversation fact", category: "technical" as const, confidence: "medium" as const, messageIds: ["m1"] };
+    const fact = {
+      content: "Unowned-conversation fact",
+      category: "technical" as const,
+      confidence: "medium" as const,
+      messageIds: ["m1"],
+    };
 
     const first = await dedupAndWriteMemory({
       fact,
@@ -287,7 +314,12 @@ describe("withDedupLock — per-project mutex serialization", () => {
 describe("dedupAndWriteMemory — cross-extension visibility", () => {
   test("dedup considers memories regardless of which extension authored them", async () => {
     // Insert via "host" provenance (no extensionId).
-    const fact = { content: "Cross-ext shared fact", category: "biographical" as const, confidence: "high" as const, messageIds: [] };
+    const fact = {
+      content: "Cross-ext shared fact",
+      category: "biographical" as const,
+      confidence: "high" as const,
+      messageIds: [],
+    };
     const first = await dedupAndWriteMemory({
       fact,
       conversationId: conversationAId,

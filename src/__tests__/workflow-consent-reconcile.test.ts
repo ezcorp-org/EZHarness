@@ -69,9 +69,9 @@ describe("fresh — both digests match", () => {
     // the semantic digest already covers the closure, so agreeing digests
     // over a disagreeing set means the row was written inconsistently, and
     // the fast path is deliberately the fast path.
-    expect(
-      reconcileDelegationConsent(stored({ capabilitySet: [] }), computed()),
-    ).toEqual({ kind: "fresh" });
+    expect(reconcileDelegationConsent(stored({ capabilitySet: [] }), computed())).toEqual({
+      kind: "fresh",
+    });
   });
 });
 
@@ -124,10 +124,7 @@ describe("carry — something moved and NOTHING was added", () => {
     // The defect this split exists for: a bundled extension's workflow
     // ships in the app image, so every release moved the old combined
     // digest and parked every delegation on it.
-    const verdict = reconcileDelegationConsent(
-      stored({ definitionHash: "graph-0" }),
-      computed(),
-    );
+    const verdict = reconcileDelegationConsent(stored({ definitionHash: "graph-0" }), computed());
     expect(verdict).toEqual({
       kind: "carry",
       removed: [],
@@ -190,10 +187,7 @@ describe("carry — something moved and NOTHING was added", () => {
     // The migration path, and the reason no backfill is performed: a row
     // written before the split has no honest value for the column, so
     // NULL routes it through the widening test on its first fire.
-    const verdict = reconcileDelegationConsent(
-      stored({ definitionHash: null }),
-      computed(),
-    );
+    const verdict = reconcileDelegationConsent(stored({ definitionHash: null }), computed());
     expect(verdict).toEqual({
       kind: "carry",
       removed: [],

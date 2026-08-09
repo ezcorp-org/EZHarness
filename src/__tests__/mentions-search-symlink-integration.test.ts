@@ -197,18 +197,12 @@ describe("GET /api/mentions/search — symlink-escape filter", () => {
 
 describe("resolveFileMentions — symlink-escape boundary holds", () => {
   test("symlinked file pointing outside the project is refused", async () => {
-    const result = await resolveFileMentions(
-      "read @[file:escape-link.txt]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("read @[file:escape-link.txt]", projectRoot);
     expect(result).toEqual([]);
   });
 
   test("symlinked dir pointing outside the project is refused", async () => {
-    const result = await resolveFileMentions(
-      "list @[dir:escape-dir]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("list @[dir:escape-dir]", projectRoot);
     expect(result).toEqual([]);
   });
 
@@ -217,10 +211,7 @@ describe("resolveFileMentions — symlink-escape boundary holds", () => {
     // regressed — readFile(result[0].absPath) would follow the symlink and
     // surface SECRET_CONTENT. realpath confinement is the only thing
     // standing between a `@[file:link]` token and an out-of-project read.
-    const result = await resolveFileMentions(
-      "read @[file:escape-link.txt]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("read @[file:escape-link.txt]", projectRoot);
     expect(result).toHaveLength(0);
     // SECRET_CONTENT is referenced here so the fixture cleanup
     // (`outsideDir`) remains tied to a real assertion target.
@@ -240,10 +231,7 @@ describe("message-POST simulation — content does not leak from a stable bounda
     const { resolveFileMentions, formatFileMentionSystemNotes } = await import(
       "../runtime/mention-wiring"
     );
-    const mentions = await resolveFileMentions(
-      "please read @[file:escape-link.txt]",
-      projectRoot,
-    );
+    const mentions = await resolveFileMentions("please read @[file:escape-link.txt]", projectRoot);
     const note = formatFileMentionSystemNotes(mentions);
     expect(note).not.toContain(SECRET_CONTENT);
     expect(note).not.toContain("TOP-SECRET");
@@ -256,26 +244,17 @@ describe("message-POST simulation — content does not leak from a stable bounda
 
 describe("resolveFileMentions — traversal + absolute paths are rejected", () => {
   test("relative `../../etc/passwd` is rejected (returns empty)", async () => {
-    const result = await resolveFileMentions(
-      "exfil @[file:../../etc/passwd]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("exfil @[file:../../etc/passwd]", projectRoot);
     expect(result).toEqual([]);
   });
 
   test("absolute `/etc/passwd` is rejected (returns empty)", async () => {
-    const result = await resolveFileMentions(
-      "exfil @[file:/etc/passwd]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("exfil @[file:/etc/passwd]", projectRoot);
     expect(result).toEqual([]);
   });
 
   test("absolute path to symlink target is rejected even if target exists", async () => {
-    const result = await resolveFileMentions(
-      `exfil @[file:${secretFile}]`,
-      projectRoot,
-    );
+    const result = await resolveFileMentions(`exfil @[file:${secretFile}]`, projectRoot);
     expect(result).toEqual([]);
   });
 

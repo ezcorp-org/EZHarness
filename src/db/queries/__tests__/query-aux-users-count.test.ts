@@ -10,25 +10,36 @@
  * would fail the strict `toBe`).
  */
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "../../../__tests__/helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
+} from "../../../__tests__/helpers/test-pglite";
 
 mockDbConnection();
 
 const { getUserCount } = await import("../users");
 
 async function seedUser(id: string): Promise<void> {
-  await getTestDb().insert((await import("../../schema")).users).values({
-    id,
-    email: `${id}@test.com`,
-    passwordHash: "secret-hash",
-    name: id,
-    role: "member",
-  });
+  await getTestDb()
+    .insert((await import("../../schema")).users)
+    .values({
+      id,
+      email: `${id}@test.com`,
+      passwordHash: "secret-hash",
+      name: id,
+      role: "member",
+    });
 }
 
 describe("getUserCount — aggregate, sys-user-excluding", () => {
-  beforeEach(async () => { await setupTestDb(); });
-  afterAll(async () => { await closeTestDb(); });
+  beforeEach(async () => {
+    await setupTestDb();
+  });
+  afterAll(async () => {
+    await closeTestDb();
+  });
 
   test("returns 0 on an empty users table", async () => {
     const n = await getUserCount();

@@ -53,12 +53,7 @@ export async function getUserRating(
   const [row] = await getDb()
     .select()
     .from(marketplaceRatings)
-    .where(
-      and(
-        eq(marketplaceRatings.listingId, listingId),
-        eq(marketplaceRatings.userId, userId),
-      ),
-    );
+    .where(and(eq(marketplaceRatings.listingId, listingId), eq(marketplaceRatings.userId, userId)));
   return row;
 }
 
@@ -83,10 +78,7 @@ export async function createFlag(
       .select({ count: sql<number>`count(distinct ${marketplaceFlags.userId})::int` })
       .from(marketplaceFlags)
       .where(
-        and(
-          eq(marketplaceFlags.listingId, listingId),
-          eq(marketplaceFlags.status, "pending"),
-        ),
+        and(eq(marketplaceFlags.listingId, listingId), eq(marketplaceFlags.status, "pending")),
       );
 
     // Update flagCount; auto-flag when ANY flag is pending
@@ -136,10 +128,7 @@ export async function resolveFlag(
   // relative to the flags (same non-atomic recompute hazard fixed in
   // upsertRating / createFlag).
   await getDb().transaction(async (tx: DbTransaction) => {
-    const [flag] = await tx
-      .select()
-      .from(marketplaceFlags)
-      .where(eq(marketplaceFlags.id, flagId));
+    const [flag] = await tx.select().from(marketplaceFlags).where(eq(marketplaceFlags.id, flagId));
 
     if (!flag) return;
 
@@ -186,10 +175,7 @@ export async function resolveFlag(
       .select({ count: sql<number>`count(distinct ${marketplaceFlags.userId})::int` })
       .from(marketplaceFlags)
       .where(
-        and(
-          eq(marketplaceFlags.listingId, flag.listingId),
-          eq(marketplaceFlags.status, "pending"),
-        ),
+        and(eq(marketplaceFlags.listingId, flag.listingId), eq(marketplaceFlags.status, "pending")),
       );
 
     await tx

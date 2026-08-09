@@ -60,7 +60,12 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
   const user = requireAuth(locals);
-  const resolved = await resolveWorkflowOr(user, params.name, "read", url.searchParams.get("projectId"));
+  const resolved = await resolveWorkflowOr(
+    user,
+    params.name,
+    "read",
+    url.searchParams.get("projectId"),
+  );
   if (resolved instanceof Response) return resolved;
   // `toWire` carries the ladder's own `canEdit`, so the detail route serves
   // exactly the shape the list does — a workflow must not gain or lose a

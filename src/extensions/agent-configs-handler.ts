@@ -13,17 +13,9 @@
  * configs are never disclosed.
  */
 
-import type {
-  JsonRpcRequest,
-  JsonRpcResponse,
-  ExtensionPermissions,
-} from "./types";
+import type { JsonRpcRequest, JsonRpcResponse, ExtensionPermissions } from "./types";
 import type { PermissionEngine } from "./permission-engine";
-import {
-  listAgentConfigs,
-  getAgentConfig,
-  type DbAgentConfig,
-} from "../db/queries/agent-configs";
+import { listAgentConfigs, getAgentConfig, type DbAgentConfig } from "../db/queries/agent-configs";
 import { isEzCodeCoderAlias, EZ_CODE_CODER_AGENT_ID } from "./ez-code-coder-agent";
 import { createRateLimiter } from "./rate-limit";
 import { capabilityToolsDisabled } from "./capability-flags";
@@ -129,9 +121,7 @@ export async function handleAgentConfigsRpc(
         extensionId,
         userId: ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null,
         conversationId:
-          ctx.conversationId && ctx.conversationId !== "unknown"
-            ? ctx.conversationId
-            : null,
+          ctx.conversationId && ctx.conversationId !== "unknown" ? ctx.conversationId : null,
         toolName: "ezcorp/agent-configs",
       },
       [{ kind: "ezcorp:agent:config" }],
@@ -180,8 +170,6 @@ export async function handleAgentConfigsRpc(
   // have the full list, so we filter it in-place instead of re-calling
   // listAgentConfigs — identical result, one fewer DB round-trip.
   const needle = idOrName.trim().toLowerCase();
-  const match = configs.find(
-    (c) => c.id === idOrName || c.name.trim().toLowerCase() === needle,
-  );
+  const match = configs.find((c) => c.id === idOrName || c.name.trim().toLowerCase() === needle);
   return rpcResult(req.id, { v: 1, config: match ? toSummary(match) : null });
 }

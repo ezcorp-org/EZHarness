@@ -18,7 +18,8 @@ import {
 // Use the pristine globals snapshot saved by preload.ts (captured before any test file loads).
 // Falls back to current globals at import time if preload didn't run.
 const _pristineFetch: typeof fetch = (globalThis as any).__pristineFetch ?? globalThis.fetch;
-const _pristineWebSocket: typeof WebSocket = (globalThis as any).__pristineWebSocket ?? globalThis.WebSocket;
+const _pristineWebSocket: typeof WebSocket =
+  (globalThis as any).__pristineWebSocket ?? globalThis.WebSocket;
 
 // Extensions must be registered at construction (see the pg_trgm note above);
 // this same set is passed both to the one-time snapshot build and to every
@@ -185,7 +186,10 @@ export function mockRealSettings() {
         const encoded = sql`${JSON.stringify(value) ?? "null"}::text::jsonb`;
         const rows = await db.select().from(tbl).where(eq(tbl.key, key));
         if (rows[0]) {
-          await db.update(tbl).set({ value: encoded, updatedAt: new Date() }).where(eq(tbl.key, key));
+          await db
+            .update(tbl)
+            .set({ value: encoded, updatedAt: new Date() })
+            .where(eq(tbl.key, key));
         } else {
           await db.insert(tbl).values({ key, value: encoded, updatedAt: new Date() });
         }
@@ -196,7 +200,9 @@ export function mockRealSettings() {
         await db.delete(tbl).where(eq(tbl.key, key));
         return true;
       },
-      async isListingInstalled() { return false; },
+      async isListingInstalled() {
+        return false;
+      },
     };
   });
 }

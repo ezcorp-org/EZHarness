@@ -5,40 +5,23 @@
 // script. This closes the gap the other suites leave (they stub the
 // DB / installer / registry); it proves the genuine commit path.
 
-import {
-  test,
-  expect,
-  describe,
-  beforeAll,
-  afterAll,
-} from "bun:test";
+import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdir, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { useTempProjectRoot, type TempProjectRoot } from "./helpers/temp-project-root";
-import {
-  setupTestDb,
-  closeTestDb,
-  mockDbConnection,
-} from "./helpers/test-pglite";
+import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
 mockDbConnection();
 
 const { createUser } = await import("../db/queries/users");
 const { createProject } = await import("../db/queries/projects");
-const { createUserCommand, getUserCommand } = await import(
-  "../db/queries/user-commands"
-);
+const { createUserCommand, getUserCommand } = await import("../db/queries/user-commands");
 const { getExtensionByName } = await import("../db/queries/extensions");
 const { installFromLocal } = await import("../extensions/installer");
-const {
-  stageDirectoryUpload,
-  resolveScanRoot,
-} = await import("../runtime/import/staging");
-const { discoverProjectCommands } = await import(
-  "../runtime/commands/discovery"
-);
+const { stageDirectoryUpload, resolveScanRoot } = await import("../runtime/import/staging");
+const { discoverProjectCommands } = await import("../runtime/commands/discovery");
 const { scanSkillBundles, synthesizeSkillExtension } = await import(
   "../runtime/import/skill-bundle"
 );
@@ -84,10 +67,7 @@ describe("import wizard — fully wired (real DB + real installer)", () => {
       projectRoot,
       files: [
         file("---\ndescription: Greet someone\n---\nHello $1", "greet.md"),
-        file(
-          "---\nname: Echoer\ndescription: Echoes a marker\n---\nRun say.sh",
-          "SKILL.md",
-        ),
+        file("---\nname: Echoer\ndescription: Echoes a marker\n---\nRun say.sh", "SKILL.md"),
         file("#!/bin/bash\necho SMOKE_OK_$1\n", "say.sh"),
       ],
       paths: [

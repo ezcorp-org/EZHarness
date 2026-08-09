@@ -8,10 +8,7 @@
 import { test, expect, describe } from "vitest";
 import { GET, POST } from "../routes/api/teams/+server";
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown }) {
   const body = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
   return {
     url: new URL("http://localhost/api/teams"),

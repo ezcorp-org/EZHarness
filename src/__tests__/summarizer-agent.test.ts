@@ -27,16 +27,26 @@ function makeCtx(
       },
     },
     shell: {
-      async run() { return { stdout: "", stderr: "", exitCode: 0 }; },
+      async run() {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
     },
     file: {
-      async read(_path: string) { return fileContent; },
+      async read(_path: string) {
+        return fileContent;
+      },
       async write() {},
-      async exists() { return true; },
+      async exists() {
+        return true;
+      },
     },
-    log(message: string) { logs.push(message); },
+    log(message: string) {
+      logs.push(message);
+    },
     signal: new AbortController().signal,
-    async run() { return { success: true, output: null }; },
+    async run() {
+      return { success: true, output: null };
+    },
     ...overrides,
   };
 }
@@ -168,12 +178,19 @@ describe("summarizer execute — text input", () => {
     let fileReadCalled = false;
     const ctx = makeCtx({ text: "Direct text." }, {}, "", {
       file: {
-        async read() { fileReadCalled = true; return ""; },
+        async read() {
+          fileReadCalled = true;
+          return "";
+        },
         async write() {},
-        async exists() { return false; },
+        async exists() {
+          return false;
+        },
       },
       llm: {
-        async complete() { return { text: "summary" }; },
+        async complete() {
+          return { text: "summary" };
+        },
       },
     });
 
@@ -202,9 +219,14 @@ describe("summarizer execute — file input", () => {
     let fileReadCalled = false;
     const ctx = makeCtx({ text: "Inline text.", file: "/tmp/notes.txt" }, llm, "File content.", {
       file: {
-        async read() { fileReadCalled = true; return "File content."; },
+        async read() {
+          fileReadCalled = true;
+          return "File content.";
+        },
         async write() {},
-        async exists() { return true; },
+        async exists() {
+          return true;
+        },
       },
       llm: {
         async complete(messages: unknown[], options: Record<string, unknown>) {
@@ -272,8 +294,14 @@ describe("summarizer execute — logging", () => {
   test("logs when using text input", async () => {
     const logged: string[] = [];
     const ctx = makeCtx({ text: "Some text." }, {}, "", {
-      log(msg: string) { logged.push(msg); },
-      llm: { async complete() { return { text: "summary" }; } },
+      log(msg: string) {
+        logged.push(msg);
+      },
+      llm: {
+        async complete() {
+          return { text: "summary" };
+        },
+      },
     });
 
     await summarizerAgent.execute(ctx);
@@ -285,13 +313,23 @@ describe("summarizer execute — logging", () => {
   test("logs file path when reading from file", async () => {
     const logged: string[] = [];
     const ctx = makeCtx({ file: "/tmp/report.txt" }, {}, "report content", {
-      log(msg: string) { logged.push(msg); },
-      file: {
-        async read() { return "report content"; },
-        async write() {},
-        async exists() { return true; },
+      log(msg: string) {
+        logged.push(msg);
       },
-      llm: { async complete() { return { text: "summary" }; } },
+      file: {
+        async read() {
+          return "report content";
+        },
+        async write() {},
+        async exists() {
+          return true;
+        },
+      },
+      llm: {
+        async complete() {
+          return { text: "summary" };
+        },
+      },
     });
 
     await summarizerAgent.execute(ctx);
@@ -302,8 +340,14 @@ describe("summarizer execute — logging", () => {
   test("logs completion message after LLM responds", async () => {
     const logged: string[] = [];
     const ctx = makeCtx({ text: "Some text." }, {}, "", {
-      log(msg: string) { logged.push(msg); },
-      llm: { async complete() { return { text: "done" }; } },
+      log(msg: string) {
+        logged.push(msg);
+      },
+      llm: {
+        async complete() {
+          return { text: "done" };
+        },
+      },
     });
 
     await summarizerAgent.execute(ctx);

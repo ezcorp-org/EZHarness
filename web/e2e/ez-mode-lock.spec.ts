@@ -14,41 +14,48 @@ import { test, expect } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 
 test.describe("Ez — mode lock", () => {
-	const proj = makeProject({ id: "proj-1" });
+  const proj = makeProject({ id: "proj-1" });
 
-	test("PUT /api/conversations/<ezConv> with modeId returns 403", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], ezConversation: { conversationId: "ez-conv-locked" } });
-		// Visit the app shell so the page is in an authenticated session
-		// (matters for the route guard check, even with our mock layer).
-		await page.goto(`/project/${proj.id}/chat`);
+  test("PUT /api/conversations/<ezConv> with modeId returns 403", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], ezConversation: { conversationId: "ez-conv-locked" } });
+    // Visit the app shell so the page is in an authenticated session
+    // (matters for the route guard check, even with our mock layer).
+    await page.goto(`/project/${proj.id}/chat`);
 
-		const result = await page.evaluate(async () => {
-			const res = await fetch("/api/conversations/ez-conv-locked", {
-				method: "PUT",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ modeId: "mode-other" }),
-			});
-			let body: unknown = null;
-			try { body = await res.json(); } catch { /* ignore */ }
-			return { status: res.status, body };
-		});
+    const result = await page.evaluate(async () => {
+      const res = await fetch("/api/conversations/ez-conv-locked", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ modeId: "mode-other" }),
+      });
+      let body: unknown = null;
+      try {
+        body = await res.json();
+      } catch {
+        /* ignore */
+      }
+      return { status: res.status, body };
+    });
 
-		expect(result.status).toBe(403);
-		expect(result.body).toEqual(expect.objectContaining({ error: expect.stringMatching(/mode/i) }));
-	});
+    expect(result.status).toBe(403);
+    expect(result.body).toEqual(expect.objectContaining({ error: expect.stringMatching(/mode/i) }));
+  });
 
-	test("PUT without modeId is NOT rejected (only modeId mutations are locked)", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], ezConversation: { conversationId: "ez-conv-locked" } });
-		await page.goto(`/project/${proj.id}/chat`);
-		const status = await page.evaluate(async () => {
-			const res = await fetch("/api/conversations/ez-conv-locked", {
-				method: "PUT",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ title: "Renamed" }),
-			});
-			return res.status;
-		});
-		// The generic conversations PUT mock returns 200 by echoing the body.
-		expect(status).toBe(200);
-	});
+  test("PUT without modeId is NOT rejected (only modeId mutations are locked)", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({ projects: [proj], ezConversation: { conversationId: "ez-conv-locked" } });
+    await page.goto(`/project/${proj.id}/chat`);
+    const status = await page.evaluate(async () => {
+      const res = await fetch("/api/conversations/ez-conv-locked", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "Renamed" }),
+      });
+      return res.status;
+    });
+    // The generic conversations PUT mock returns 200 by echoing the body.
+    expect(status).toBe(200);
+  });
 });

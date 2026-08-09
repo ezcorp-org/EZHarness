@@ -41,26 +41,17 @@ const { POST, DELETE } = await import(
   "../routes/api/conversations/[id]/tasks/[taskId]/assign/+server.ts"
 );
 
-function makeEvent(opts: {
-  method?: string;
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { method?: string; locals?: Record<string, unknown>; body?: unknown }) {
   const method = opts.method ?? "POST";
   return {
-    url: new URL(
-      "http://localhost/api/conversations/c1/tasks/t1/assign",
-    ),
+    url: new URL("http://localhost/api/conversations/c1/tasks/t1/assign"),
     locals: opts.locals ?? {},
     params: { id: "c1", taskId: "t1" },
-    request: new Request(
-      "http://localhost/api/conversations/c1/tasks/t1/assign",
-      {
-        method,
-        headers: { "content-type": "application/json" },
-        body: opts.body !== undefined ? JSON.stringify(opts.body) : "{}",
-      },
-    ),
+    request: new Request("http://localhost/api/conversations/c1/tasks/t1/assign", {
+      method,
+      headers: { "content-type": "application/json" },
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : "{}",
+    }),
   } as any;
 }
 
@@ -88,25 +79,19 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assign", () => {
 
   test("returns 404 when conversation missing", async () => {
     getConversation.mockResolvedValue(null);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { agentConfigId: "a1" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { agentConfigId: "a1" } }));
     expect(res.status).toBe(404);
   });
 
   test("returns 404 on ownership mismatch", async () => {
     getConversation.mockResolvedValue({ id: "c1", userId: "other" });
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { agentConfigId: "a1" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { agentConfigId: "a1" } }));
     expect(res.status).toBe(404);
   });
 
   test("rejects 400 when agentConfigId missing", async () => {
     getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
-    const res = await POST(
-      makeEvent({ locals: { user }, body: {} }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: {} }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("agentConfigId is required");
@@ -118,9 +103,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assign", () => {
       conversationId: "c1",
       tasks: [],
     });
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { agentConfigId: "a1" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { agentConfigId: "a1" } }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Task not found");
@@ -141,9 +124,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assign", () => {
       ],
     });
     getAgentConfig.mockResolvedValue(null);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { agentConfigId: "a1" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { agentConfigId: "a1" } }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Agent config not found");
@@ -169,9 +150,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assign", () => {
       references: null,
     });
 
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { agentConfigId: "a1" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { agentConfigId: "a1" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       assignment: { agentName: string; status: string };
@@ -192,9 +171,7 @@ describe("DELETE /api/conversations/[id]/tasks/[taskId]/assign", () => {
   test("rejects 401 when unauthenticated", async () => {
     let res: Response | undefined;
     try {
-      await DELETE(
-        makeEvent({ method: "DELETE", body: { assignmentId: "as1" } }),
-      );
+      await DELETE(makeEvent({ method: "DELETE", body: { assignmentId: "as1" } }));
       expect.fail("should have thrown");
     } catch (thrown) {
       expect(thrown).toBeInstanceOf(Response);
@@ -205,9 +182,7 @@ describe("DELETE /api/conversations/[id]/tasks/[taskId]/assign", () => {
 
   test("rejects 400 when assignmentId missing", async () => {
     getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
-    const res = await DELETE(
-      makeEvent({ method: "DELETE", locals: { user }, body: {} }),
-    );
+    const res = await DELETE(makeEvent({ method: "DELETE", locals: { user }, body: {} }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("assignmentId is required");

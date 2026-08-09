@@ -19,84 +19,79 @@ const desktop = { width: 1280, height: 800 };
 const proj = makeProject({ id: "proj-zoom", name: "Zoom Project" });
 const conv = makeConversation({ id: "conv-zoom", projectId: "proj-zoom", title: "Zoom Chat" });
 const userMsg = makeMessage({
-	id: "msg-z1",
-	conversationId: "conv-zoom",
-	role: "user",
-	content: "hello",
+  id: "msg-z1",
+  conversationId: "conv-zoom",
+  role: "user",
+  content: "hello",
 });
 
 function baseMockOpts() {
-	return {
-		projects: [proj],
-		conversations: [conv],
-		messages: [userMsg],
-	};
+  return {
+    projects: [proj],
+    conversations: [conv],
+    messages: [userMsg],
+  };
 }
 
 async function fontSizeOf(locator: ReturnType<import("@playwright/test").Page["locator"]>) {
-	return locator.evaluate((el: HTMLElement) =>
-		parseFloat(getComputedStyle(el).fontSize),
-	);
+  return locator.evaluate((el: HTMLElement) => parseFloat(getComputedStyle(el).fontSize));
 }
 
 test.describe("Mobile input zoom — touch viewport", () => {
-	test.use({ viewport: mobile, hasTouch: true, isMobile: true });
+  test.use({ viewport: mobile, hasTouch: true, isMobile: true });
 
-	test("chat textarea font-size is >= 16px to suppress iOS focus-zoom", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi(baseMockOpts());
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+  test("chat textarea font-size is >= 16px to suppress iOS focus-zoom", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi(baseMockOpts());
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const textarea = page.locator("textarea.chat-textarea");
-		await expect(textarea).toBeVisible({ timeout: 5000 });
+    const textarea = page.locator("textarea.chat-textarea");
+    await expect(textarea).toBeVisible({ timeout: 5000 });
 
-		// Sanity: the test environment must actually report coarse pointer,
-		// otherwise the @media block we are testing wouldn't apply and the
-		// test would silently pass for the wrong reason.
-		const coarse = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
-		expect(coarse).toBe(true);
+    // Sanity: the test environment must actually report coarse pointer,
+    // otherwise the @media block we are testing wouldn't apply and the
+    // test would silently pass for the wrong reason.
+    const coarse = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
+    expect(coarse).toBe(true);
 
-		expect(await fontSizeOf(textarea)).toBeGreaterThanOrEqual(16);
-	});
+    expect(await fontSizeOf(textarea)).toBeGreaterThanOrEqual(16);
+  });
 
-	test("chat overlay (chip mirror) font-size matches the textarea", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi(baseMockOpts());
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+  test("chat overlay (chip mirror) font-size matches the textarea", async ({ page, mockApi }) => {
+    await mockApi(baseMockOpts());
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const textarea = page.locator("textarea.chat-textarea");
-		const overlay = page.locator(".chat-textarea-overlay");
-		await expect(textarea).toBeVisible({ timeout: 5000 });
-		await expect(overlay).toBeAttached();
+    const textarea = page.locator("textarea.chat-textarea");
+    const overlay = page.locator(".chat-textarea-overlay");
+    await expect(textarea).toBeVisible({ timeout: 5000 });
+    await expect(overlay).toBeAttached();
 
-		// Chips position on top of typed text, so any drift between the
-		// textarea and its mirror overlay misaligns mention pills.
-		expect(await fontSizeOf(textarea)).toBe(await fontSizeOf(overlay));
-	});
+    // Chips position on top of typed text, so any drift between the
+    // textarea and its mirror overlay misaligns mention pills.
+    expect(await fontSizeOf(textarea)).toBe(await fontSizeOf(overlay));
+  });
 });
 
 test.describe("Mobile input zoom — desktop viewport (no touch)", () => {
-	test.use({ viewport: desktop, hasTouch: false, isMobile: false });
+  test.use({ viewport: desktop, hasTouch: false, isMobile: false });
 
-	test("chat textarea keeps designed 14px size on fine-pointer devices", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi(baseMockOpts());
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+  test("chat textarea keeps designed 14px size on fine-pointer devices", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi(baseMockOpts());
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const textarea = page.locator("textarea.chat-textarea");
-		await expect(textarea).toBeVisible({ timeout: 5000 });
+    const textarea = page.locator("textarea.chat-textarea");
+    await expect(textarea).toBeVisible({ timeout: 5000 });
 
-		const coarse = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
-		expect(coarse).toBe(false);
+    const coarse = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
+    expect(coarse).toBe(false);
 
-		// 0.875rem at the default 16px root = 14px. Asserting the smaller
-		// size confirms the @media override is correctly scoped, not global.
-		expect(await fontSizeOf(textarea)).toBeLessThan(16);
-	});
+    // 0.875rem at the default 16px root = 14px. Asserting the smaller
+    // size confirms the @media override is correctly scoped, not global.
+    expect(await fontSizeOf(textarea)).toBeLessThan(16);
+  });
 });

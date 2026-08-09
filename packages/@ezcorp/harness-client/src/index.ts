@@ -95,7 +95,11 @@ export interface ConversationTree {
 
 export interface RunResult {
   outcome: "complete" | "error" | "cancel";
-  run: Record<string, unknown> & { id: string; status: string; result?: { output?: unknown; error?: unknown } };
+  run: Record<string, unknown> & {
+    id: string;
+    status: string;
+    result?: { output?: unknown; error?: unknown };
+  };
   error?: string;
 }
 
@@ -133,7 +137,9 @@ export class HarnessApiError extends Error {
     public readonly path: string,
     public readonly body: unknown,
   ) {
-    super(`${method} ${path} → ${status}: ${typeof body === "object" && body && "error" in body ? (body as { error: string }).error : status}`);
+    super(
+      `${method} ${path} → ${status}: ${typeof body === "object" && body && "error" in body ? (body as { error: string }).error : status}`,
+    );
     this.name = "HarnessApiError";
   }
 }
@@ -158,7 +164,9 @@ export class HarnessClient {
   private async request<T>(method: string, path: string, body?: unknown): Promise<T> {
     const res = await this.fetchImpl(`${this.baseUrl}${path}`, {
       method,
-      headers: this.headers(body !== undefined ? { "Content-Type": "application/json" } : undefined),
+      headers: this.headers(
+        body !== undefined ? { "Content-Type": "application/json" } : undefined,
+      ),
       body: body !== undefined ? JSON.stringify(body) : undefined,
       // Never follow a 3xx: a cross-origin redirect would replay the
       // `Authorization: Bearer ezk_*` header to an attacker-controlled host.
@@ -174,7 +182,11 @@ export class HarnessClient {
    *  HTTP method + path template once, substitutes `:param` segments, and
    *  delegates to `request()`. Every single-request method routes through here
    *  so a path string is never written inline. */
-  private route<T>(name: HarnessRouteName, params?: Record<string, string>, body?: unknown): Promise<T> {
+  private route<T>(
+    name: HarnessRouteName,
+    params?: Record<string, string>,
+    body?: unknown,
+  ): Promise<T> {
     const r = HARNESS_ROUTES[name];
     return this.request<T>(r.httpMethod, buildPath(r.pathTemplate, params), body);
   }
@@ -191,10 +203,16 @@ export class HarnessClient {
   /** `projectId` is REQUIRED by the server (`createConversationSchema`);
    *  default it to the `"global"` project so the zero-config call works —
    *  an explicit `input.projectId` always wins. */
-  createConversation(input: Record<string, unknown> = {}): Promise<{ id: string; [k: string]: unknown }> {
+  createConversation(
+    input: Record<string, unknown> = {},
+  ): Promise<{ id: string; [k: string]: unknown }> {
     return this.route("createConversation", undefined, { projectId: "global", ...input });
   }
-  sendMessage(conversationId: string, content: string, opts: SendMessageOptions = {}): Promise<SendMessageResult> {
+  sendMessage(
+    conversationId: string,
+    content: string,
+    opts: SendMessageOptions = {},
+  ): Promise<SendMessageResult> {
     return this.route("sendMessage", { id: conversationId }, { content, ...opts });
   }
 
@@ -216,10 +234,14 @@ export class HarnessClient {
     targetMessageId: string,
     opts: { summary?: string } = {},
   ): Promise<ConversationTree> {
-    return this.route("rewindConversation", { id: conversationId }, {
-      targetMessageId,
-      ...(opts.summary !== undefined ? { summary: opts.summary } : {}),
-    });
+    return this.route(
+      "rewindConversation",
+      { id: conversationId },
+      {
+        targetMessageId,
+        ...(opts.summary !== undefined ? { summary: opts.summary } : {}),
+      },
+    );
   }
 
   /** Clean A/B retry (Sessions P5): re-run the turn that produced `messageId`
@@ -236,11 +258,15 @@ export class HarnessClient {
     messageId: string,
     opts: { provider?: string; model?: string; thinkingLevel?: string } = {},
   ): Promise<SendMessageResult & { retriedMessageId: string }> {
-    return this.route("retryMessage", { id: conversationId, mid: messageId }, {
-      ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
-      ...(opts.model !== undefined ? { model: opts.model } : {}),
-      ...(opts.thinkingLevel !== undefined ? { thinkingLevel: opts.thinkingLevel } : {}),
-    });
+    return this.route(
+      "retryMessage",
+      { id: conversationId, mid: messageId },
+      {
+        ...(opts.provider !== undefined ? { provider: opts.provider } : {}),
+        ...(opts.model !== undefined ? { model: opts.model } : {}),
+        ...(opts.thinkingLevel !== undefined ? { thinkingLevel: opts.thinkingLevel } : {}),
+      },
+    );
   }
 
   // ── Extensions ─────────────────────────────────────────────────────
@@ -252,7 +278,11 @@ export class HarnessClient {
     if (Array.isArray(res)) {
       return res as ExtensionRecord[];
     }
-    if (res && typeof res === "object" && Array.isArray((res as { extensions?: unknown }).extensions)) {
+    if (
+      res &&
+      typeof res === "object" &&
+      Array.isArray((res as { extensions?: unknown }).extensions)
+    ) {
       return (res as { extensions: ExtensionRecord[] }).extensions;
     }
     throw new Error(
@@ -324,11 +354,15 @@ export class HarnessClient {
     value: string,
     opts: { projectId?: string | null } = {},
   ): Promise<{ ok: true }> {
-    return this.route("setExtensionSecret", { id: extensionId }, {
-      name,
-      value,
-      ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
-    });
+    return this.route(
+      "setExtensionSecret",
+      { id: extensionId },
+      {
+        name,
+        value,
+        ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
+      },
+    );
   }
 
   /** Delete a scope-isolated extension secret
@@ -339,16 +373,23 @@ export class HarnessClient {
     name: string,
     opts: { projectId?: string | null } = {},
   ): Promise<{ deleted: boolean }> {
-    return this.route("deleteExtensionSecret", { id: extensionId }, {
-      name,
-      ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
-    });
+    return this.route(
+      "deleteExtensionSecret",
+      { id: extensionId },
+      {
+        name,
+        ...(opts.projectId !== undefined ? { projectId: opts.projectId } : {}),
+      },
+    );
   }
 
   /** Wire installed extensions (by manifest name) to a conversation. All-or-
    *  nothing: an unknown name 404s and wires nothing. Idempotent — re-wiring an
    *  already-wired extension is a no-op success. */
-  wireExtensions(conversationId: string, names: string[]): Promise<{ wired: string[]; extensionIds: string[] }> {
+  wireExtensions(
+    conversationId: string,
+    names: string[],
+  ): Promise<{ wired: string[]; extensionIds: string[] }> {
     return this.route("wireExtensions", { id: conversationId }, { names });
   }
 
@@ -447,7 +488,10 @@ export class HarnessClient {
   /** Block until the run reaches a terminal state (server-side wait). */
   awaitRun(runId: string, timeoutMs = 120_000): Promise<RunResult> {
     const { httpMethod, pathTemplate } = HARNESS_ROUTES.awaitRun;
-    return this.request(httpMethod, `${buildPath(pathTemplate, { id: runId })}?wait=1&timeoutMs=${timeoutMs}`);
+    return this.request(
+      httpMethod,
+      `${buildPath(pathTemplate, { id: runId })}?wait=1&timeoutMs=${timeoutMs}`,
+    );
   }
   /** Cancel an in-flight run (`DELETE /api/runs/:id`). Needs the `chat` scope;
    *  ownership-gated (a non-owner sees 404). `ok` is false-ish via a 404 when
@@ -456,7 +500,11 @@ export class HarnessClient {
     return this.route("cancelRun", { id: runId });
   }
   /** Send a message and block until its run finishes. */
-  async runToCompletion(conversationId: string, content: string, opts: SendMessageOptions & { timeoutMs?: number } = {}): Promise<RunResult> {
+  async runToCompletion(
+    conversationId: string,
+    content: string,
+    opts: SendMessageOptions & { timeoutMs?: number } = {},
+  ): Promise<RunResult> {
     const { timeoutMs, ...send } = opts;
     const { runId } = await this.sendMessage(conversationId, content, send);
     if (!runId) throw new Error("Message produced no run (action-only or disabled command)");
@@ -467,7 +515,10 @@ export class HarnessClient {
   resolveToolPermission(
     toolCallId: string,
     approved: boolean,
-    opts: { scope?: "session" | "conversation" | "project" | "forever"; ttlOverrideMs?: number } = {},
+    opts: {
+      scope?: "session" | "conversation" | "project" | "forever";
+      ttlOverrideMs?: number;
+    } = {},
   ): Promise<unknown> {
     return this.route("resolveToolPermission", { id: toolCallId }, { approved, ...opts });
   }
@@ -489,7 +540,11 @@ export class HarnessClient {
     conversationId: string,
     content: string,
     turns: MockTurn[],
-    opts: { scriptKey?: string; permissionMode?: SendMessageOptions["permissionMode"]; timeoutMs?: number } = {},
+    opts: {
+      scriptKey?: string;
+      permissionMode?: SendMessageOptions["permissionMode"];
+      timeoutMs?: number;
+    } = {},
   ): Promise<RunResult> {
     const scriptKey = opts.scriptKey ?? conversationId;
     await this.scriptLlm(scriptKey, turns);
@@ -506,12 +561,16 @@ export class HarnessClient {
    * Async iterator over the runtime SSE stream. Pass an AbortSignal to stop.
    * Optional `conversationId` scopes the server-side subscription hint.
    */
-  async *streamEvents(opts: { conversationId?: string; signal?: AbortSignal } = {}): AsyncGenerator<RuntimeEvent> {
+  async *streamEvents(
+    opts: { conversationId?: string; signal?: AbortSignal } = {},
+  ): AsyncGenerator<RuntimeEvent> {
     // Path comes from the shared table; the SSE-specific fetch (streaming body,
     // text/event-stream Accept) stays here.
     const { httpMethod, pathTemplate } = HARNESS_ROUTES.streamEvents;
     const path = buildPath(pathTemplate);
-    const qs = opts.conversationId ? `?conversationId=${encodeURIComponent(opts.conversationId)}` : "";
+    const qs = opts.conversationId
+      ? `?conversationId=${encodeURIComponent(opts.conversationId)}`
+      : "";
     const res = await this.fetchImpl(`${this.baseUrl}${path}${qs}`, {
       method: httpMethod,
       headers: this.headers({ Accept: "text/event-stream" }),
@@ -520,7 +579,8 @@ export class HarnessClient {
       // replay the `Authorization: Bearer ezk_*` header to an attacker host.
       redirect: "error",
     });
-    if (!res.ok || !res.body) throw new HarnessApiError(res.status, httpMethod, path, await res.text().catch(() => ""));
+    if (!res.ok || !res.body)
+      throw new HarnessApiError(res.status, httpMethod, path, await res.text().catch(() => ""));
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     const buf = new SseDataBuffer();

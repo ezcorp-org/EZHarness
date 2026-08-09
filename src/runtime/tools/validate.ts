@@ -32,7 +32,7 @@ export type ToolParams = any;
 export function validatePath(projectPath: string, relativePath: string): string {
   const resolved = resolve(projectPath, relativePath);
   const rel = relative(projectPath, resolved);
-  if (rel.startsWith("..") || resolve(resolved) !== resolved && rel.startsWith("..")) {
+  if (rel.startsWith("..") || (resolve(resolved) !== resolved && rel.startsWith(".."))) {
     throw new Error("Path traversal detected: path must stay within the project directory");
   }
   if (!resolved.startsWith(projectPath)) {

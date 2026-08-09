@@ -21,15 +21,26 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 /** The seam. `insertWorkflowRun` is what the park calls first. */
@@ -59,11 +70,7 @@ const { createUser } = await import("../../db/queries/users");
 const { createWorkflowDelegation } = await import("../../db/queries/workflow-delegations");
 const { extensions, sdkCapabilityCalls, auditLog } = await import("../../db/schema");
 
-import type {
-  ExtensionManifestV2,
-  ExtensionPermissions,
-  JsonRpcRequest,
-} from "../types";
+import type { ExtensionManifestV2, ExtensionPermissions, JsonRpcRequest } from "../types";
 import type { WorkflowDefinition, WorkflowRun } from "../../types";
 import type { CachedWorkflow } from "../../runtime/workflow-scope";
 
@@ -126,15 +133,25 @@ function req(): JsonRpcRequest {
 beforeAll(async () => {
   await setupTestDb();
   const owner = await createUser({
-    email: "park@c3.test", passwordHash: "h", name: "Owner",
-    role: "member", status: "active",
+    email: "park@c3.test",
+    passwordHash: "h",
+    name: "Owner",
+    role: "member",
+    status: "active",
   });
   ownerUserId = owner.id;
-  const [row] = await getTestDb().insert(extensions).values({
-    name: EXT_NAME, version: "0.0.1", description: "",
-    manifest: manifest() as never,
-    source: "test", enabled: true, grantedPermissions: granted() as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name: EXT_NAME,
+      version: "0.0.1",
+      description: "",
+      manifest: manifest() as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: granted() as never,
+    })
+    .returning({ id: extensions.id });
   extensionId = row!.id;
   entry = {
     definition: WF,
@@ -163,8 +180,11 @@ beforeEach(async () => {
       async runWorkflow(workflow) {
         started++;
         return {
-          id: "run-1", workflowName: workflow.name, status: "success",
-          startedAt: Date.now(), steps: [],
+          id: "run-1",
+          workflowName: workflow.name,
+          status: "success",
+          startedAt: Date.now(),
+          steps: [],
         } satisfies WorkflowRun;
       },
     },

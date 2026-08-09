@@ -43,14 +43,8 @@ export function formatStatus(status: AgentStatus): string {
 export function formatAgentList(agents: AgentDefinition[]): string {
   if (agents.length === 0) return "No agents registered.";
 
-  const nameWidth = Math.max(
-    "Name".length,
-    ...agents.map((a) => a.name.length),
-  );
-  const descWidth = Math.max(
-    "Description".length,
-    ...agents.map((a) => a.description.length),
-  );
+  const nameWidth = Math.max("Name".length, ...agents.map((a) => a.name.length));
+  const descWidth = Math.max("Description".length, ...agents.map((a) => a.description.length));
 
   const pad = (s: string, w: number) => s + " ".repeat(Math.max(0, w - s.length));
 

@@ -81,7 +81,9 @@ export const GET: RequestHandler = async ({ locals }) => {
   });
 };
 
-function describeRunError(error: string | { code: string; message: string } | undefined): string | null {
+function describeRunError(
+  error: string | { code: string; message: string } | undefined,
+): string | null {
   if (error === undefined) return null;
   return typeof error === "string" ? error : error.message;
 }

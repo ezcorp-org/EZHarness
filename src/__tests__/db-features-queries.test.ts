@@ -72,22 +72,18 @@ describe("features queries", () => {
     });
 
     test("throws when projectId missing", async () => {
-      await expect(
-        createFeature({ projectId: "", name: "x" }),
-      ).rejects.toThrow(/projectId is required/);
+      await expect(createFeature({ projectId: "", name: "x" })).rejects.toThrow(
+        /projectId is required/,
+      );
     });
 
     test("throws when name missing", async () => {
-      await expect(
-        createFeature({ projectId, name: "" }),
-      ).rejects.toThrow(/name is required/);
+      await expect(createFeature({ projectId, name: "" })).rejects.toThrow(/name is required/);
     });
 
     test("rejects duplicate (project_id, name) — unique constraint", async () => {
       await createFeature({ projectId, name: "dupe" });
-      await expect(
-        createFeature({ projectId, name: "dupe" }),
-      ).rejects.toThrow();
+      await expect(createFeature({ projectId, name: "dupe" })).rejects.toThrow();
     });
 
     test("same name in different projects is allowed (uniqueness is per-project)", async () => {
@@ -353,9 +349,7 @@ describe("features queries", () => {
       const after1 = await getFeature(projectId, "idem");
       await replaceAgentFiles(f.id, ["src/a.ts", "src/b.ts"]);
       const after2 = await getFeature(projectId, "idem");
-      expect(after2!.files.map((x) => x.relpath)).toEqual(
-        after1!.files.map((x) => x.relpath),
-      );
+      expect(after2!.files.map((x) => x.relpath)).toEqual(after1!.files.map((x) => x.relpath));
     });
 
     test("no-op for empty featureId", async () => {

@@ -76,12 +76,15 @@ mock.module("../runtime/start-assignment", () => ({
     assignment.startedAt = new Date().toISOString();
     const { getDb } = await import("../db/connection");
     const { conversations } = await import("../db/schema");
-    await getDb().insert(conversations).values({
-      id: subConvId,
-      projectId: opts.projectId as string,
-      parentConversationId: opts.conversationId as string,
-      title: "e2e-sub",
-    } as any).onConflictDoNothing();
+    await getDb()
+      .insert(conversations)
+      .values({
+        id: subConvId,
+        projectId: opts.projectId as string,
+        parentConversationId: opts.conversationId as string,
+        title: "e2e-sub",
+      } as any)
+      .onConflictDoNothing();
     return { subConversationId: subConvId, agentRunId: runId };
   },
 }));
@@ -109,9 +112,7 @@ const { handleAgentConfigsRpc } = await import("../extensions/agent-configs-hand
 const { handleSpawnAssignmentRpc } = await import("../extensions/spawn-assignment-handler");
 const { createSpawnQuota } = await import("../extensions/spawn-quota");
 const { EventBus } = await import("../runtime/events");
-const { EventSubscriptionDispatcher } = await import(
-  "../extensions/event-subscription-dispatcher"
-);
+const { EventSubscriptionDispatcher } = await import("../extensions/event-subscription-dispatcher");
 const { getDb } = await import("../db/connection");
 const {
   conversations,
@@ -148,7 +149,11 @@ interface TestProc {
   proc: Subprocess<"pipe", "pipe", "pipe">;
   outbound: Record<string, unknown>[];
   inbound: (msg: Record<string, unknown>) => void;
-  waitAfter: (i: number, pred: (m: Record<string, unknown>) => boolean, ms?: number) => Promise<Record<string, unknown>>;
+  waitAfter: (
+    i: number,
+    pred: (m: Record<string, unknown>) => boolean,
+    ms?: number,
+  ) => Promise<Record<string, unknown>>;
   kill: () => void;
 }
 
@@ -176,15 +181,28 @@ function spawnExtension(): TestProc {
           const line = buffer.slice(0, idx).trim();
           buffer = buffer.slice(idx + 1);
           if (!line) continue;
-          try { outbound.push(JSON.parse(line)); } catch { /* skip */ }
+          try {
+            outbound.push(JSON.parse(line));
+          } catch {
+            /* skip */
+          }
         }
       }
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   })();
 
   (async () => {
     const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
-    try { while (true) { const { done } = await reader.read(); if (done) return; } } catch { /* */ }
+    try {
+      while (true) {
+        const { done } = await reader.read();
+        if (done) return;
+      }
+    } catch {
+      /* */
+    }
   })();
 
   function inbound(msg: Record<string, unknown>): void {
@@ -207,7 +225,13 @@ function spawnExtension(): TestProc {
     throw new Error(`waitAfter(${i}) timed out`);
   }
 
-  function kill(): void { try { proc.kill(); } catch { /* */ } }
+  function kill(): void {
+    try {
+      proc.kill();
+    } catch {
+      /* */
+    }
+  }
   return { proc, outbound, inbound, waitAfter, kill };
 }
 
@@ -348,7 +372,10 @@ async function callTool(
       _meta: { ezConversationId: CONV_ID, ezOnBehalfOf: USER_ID },
     },
   });
-  const resp = await p.waitAfter(cursor, (m) => m.id === id && (m.result !== undefined || m.error !== undefined));
+  const resp = await p.waitAfter(
+    cursor,
+    (m) => m.id === id && (m.result !== undefined || m.error !== undefined),
+  );
   if (resp.error) {
     return { isError: true, text: JSON.stringify(resp.error) };
   }
@@ -363,25 +390,45 @@ async function callTool(
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values({
-    id: USER_ID, email: "e2e@t.local", passwordHash: "x", name: "E2E",
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({
-    id: PROJ_ID, name: PROJ_ID, path: "/tmp/" + PROJ_ID,
-  } as any).onConflictDoNothing();
-  await getDb().insert(conversations).values({
-    id: CONV_ID, projectId: PROJ_ID, title: "e2e-conv", userId: USER_ID,
-  } as any).onConflictDoNothing();
-  await getDb().insert(extensionsTable).values({
-    id: EXT_ID,
-    name: "task-tracking",
-    version: "1.0.0",
-    description: "e2e",
-    manifest: MANIFEST,
-    source: `test:${EXT_ID}`,
-    installPath: `/tmp/${EXT_ID}`,
-    enabled: true,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values({
+      id: USER_ID,
+      email: "e2e@t.local",
+      passwordHash: "x",
+      name: "E2E",
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({
+      id: PROJ_ID,
+      name: PROJ_ID,
+      path: "/tmp/" + PROJ_ID,
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(conversations)
+    .values({
+      id: CONV_ID,
+      projectId: PROJ_ID,
+      title: "e2e-conv",
+      userId: USER_ID,
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id: EXT_ID,
+      name: "task-tracking",
+      version: "1.0.0",
+      description: "e2e",
+      manifest: MANIFEST,
+      source: `test:${EXT_ID}`,
+      installPath: `/tmp/${EXT_ID}`,
+      enabled: true,
+    } as any)
+    .onConflictDoNothing();
   await addConversationExtensions(CONV_ID, [{ extensionId: EXT_ID }]);
 });
 
@@ -405,18 +452,18 @@ describe("task-tracking e2e: real subprocess + real host handlers + real bus", (
     const proc = spawnExtension();
     bus = new EventBus<AgentEvents>();
     quota = createSpawnQuota(bus);
-    dispatcher = new EventSubscriptionDispatcher(
-      bus,
-      makeStubRegistry(proc) as any,
-      async () => [EXT_ID],
-    );
+    dispatcher = new EventSubscriptionDispatcher(bus, makeStubRegistry(proc) as any, async () => [
+      EXT_ID,
+    ]);
     dispatcher.registerExtension(EXT_ID, ["task:assignment_update"]);
     dispatcher.start();
     startHandlerPump(proc);
 
     // Capture task:snapshot events the real task-events-handler emits.
     const snapshotEvents: Array<unknown> = [];
-    bus.on("task:snapshot", (payload) => { snapshotEvents.push(payload); });
+    bus.on("task:snapshot", (payload) => {
+      snapshotEvents.push(payload);
+    });
 
     const out = await callTool(proc, 100, "task_plan", {
       tasks: [{ title: "Build" }, { title: "Ship" }],
@@ -427,7 +474,11 @@ describe("task-tracking e2e: real subprocess + real host handlers + real bus", (
     // The real storage-handler must have written to PGlite.
     const row = await getStorageValue(EXT_ID, "conversation", CONV_ID, "tasks");
     expect(row).toBeDefined();
-    const snap = row!.value as { tasks: Array<Record<string, unknown>>; activeTaskId?: string; schemaVersion?: number };
+    const snap = row!.value as {
+      tasks: Array<Record<string, unknown>>;
+      activeTaskId?: string;
+      schemaVersion?: number;
+    };
     expect(snap.tasks).toHaveLength(2);
     expect(snap.schemaVersion).toBe(1);
     expect(snap.activeTaskId).toBeDefined();
@@ -442,17 +493,17 @@ describe("task-tracking e2e: real subprocess + real host handlers + real bus", (
     const proc = spawnExtension();
     bus = new EventBus<AgentEvents>();
     quota = createSpawnQuota(bus);
-    dispatcher = new EventSubscriptionDispatcher(
-      bus,
-      makeStubRegistry(proc) as any,
-      async () => [EXT_ID],
-    );
+    dispatcher = new EventSubscriptionDispatcher(bus, makeStubRegistry(proc) as any, async () => [
+      EXT_ID,
+    ]);
     dispatcher.registerExtension(EXT_ID, ["task:assignment_update"]);
     dispatcher.start();
     startHandlerPump(proc);
 
     const assignmentEvents: Array<Record<string, unknown>> = [];
-    bus.on("task:assignment_update", (p) => { assignmentEvents.push(p as Record<string, unknown>); });
+    bus.on("task:assignment_update", (p) => {
+      assignmentEvents.push(p as Record<string, unknown>);
+    });
 
     const out = await callTool(proc, 200, "task_plan", {
       tasks: [{ title: "Core", assignTo: "builder" }],
@@ -464,7 +515,10 @@ describe("task-tracking e2e: real subprocess + real host handlers + real bus", (
     // returned a handle, and the extension re-persisted on success.
     const row = await getStorageValue(EXT_ID, "conversation", CONV_ID, "tasks");
     const snap = row!.value as {
-      tasks: Array<{ title: string; assignments: Array<{ status: string; agentRunId?: string; subConversationId?: string }> }>;
+      tasks: Array<{
+        title: string;
+        assignments: Array<{ status: string; agentRunId?: string; subConversationId?: string }>;
+      }>;
     };
     const core = snap.tasks.find((t) => t.title === "Core")!;
     const assignment = core.assignments[0]!;
@@ -474,7 +528,9 @@ describe("task-tracking e2e: real subprocess + real host handlers + real bus", (
 
     // At least one task:assignment_update fired (the extension's own
     // emit after spawn success). The host's bus saw it.
-    expect(assignmentEvents.some((e) => (e.assignment as { status: string }).status === "running")).toBe(true);
+    expect(
+      assignmentEvents.some((e) => (e.assignment as { status: string }).status === "running"),
+    ).toBe(true);
 
     proc.kill();
   });
@@ -493,11 +549,9 @@ describe("task-tracking e2e: real subprocess + real host handlers + real bus", (
     const proc = spawnExtension();
     bus = new EventBus<AgentEvents>();
     quota = createSpawnQuota(bus);
-    dispatcher = new EventSubscriptionDispatcher(
-      bus,
-      makeStubRegistry(proc) as any,
-      async () => [EXT_ID],
-    );
+    dispatcher = new EventSubscriptionDispatcher(bus, makeStubRegistry(proc) as any, async () => [
+      EXT_ID,
+    ]);
     dispatcher.registerExtension(EXT_ID, ["task:assignment_update"]);
     dispatcher.start();
     startHandlerPump(proc);
@@ -515,7 +569,12 @@ describe("task-tracking e2e: real subprocess + real host handlers + real bus", (
 
     const rowInit = await getStorageValue(EXT_ID, "conversation", CONV_ID, "tasks");
     const snapInit = rowInit!.value as {
-      tasks: Array<{ id: string; title: string; status: string; assignments: Array<{ id: string; status: string }> }>;
+      tasks: Array<{
+        id: string;
+        title: string;
+        status: string;
+        assignments: Array<{ id: string; status: string }>;
+      }>;
       activeTaskId?: string;
     };
     const taskA = snapInit.tasks.find((t) => t.title === "A")!;
@@ -576,11 +635,9 @@ describe("task-tracking e2e: real subprocess + real host handlers + real bus", (
     const proc = spawnExtension();
     bus = new EventBus<AgentEvents>();
     quota = createSpawnQuota(bus);
-    dispatcher = new EventSubscriptionDispatcher(
-      bus,
-      makeStubRegistry(proc) as any,
-      async () => [EXT_ID],
-    );
+    dispatcher = new EventSubscriptionDispatcher(bus, makeStubRegistry(proc) as any, async () => [
+      EXT_ID,
+    ]);
     dispatcher.registerExtension(EXT_ID, ["task:assignment_update"]);
     dispatcher.start();
     startHandlerPump(proc);
@@ -595,7 +652,12 @@ describe("task-tracking e2e: real subprocess + real host handlers + real bus", (
     });
     const rowInit = await getStorageValue(EXT_ID, "conversation", CONV_ID, "tasks");
     const snapInit = rowInit!.value as {
-      tasks: Array<{ id: string; title: string; status: string; assignments: Array<{ id: string; status: string }> }>;
+      tasks: Array<{
+        id: string;
+        title: string;
+        status: string;
+        assignments: Array<{ id: string; status: string }>;
+      }>;
     };
     const soloTask = snapInit.tasks[0]!;
     await callTool(proc, 701, "task_assign", {
@@ -681,11 +743,9 @@ describe("task-tracking e2e: real subprocess + real host handlers + real bus", (
     const proc = spawnExtension();
     bus = new EventBus<AgentEvents>();
     quota = createSpawnQuota(bus);
-    dispatcher = new EventSubscriptionDispatcher(
-      bus,
-      makeStubRegistry(proc) as any,
-      async () => [EXT_ID],
-    );
+    dispatcher = new EventSubscriptionDispatcher(bus, makeStubRegistry(proc) as any, async () => [
+      EXT_ID,
+    ]);
     dispatcher.registerExtension(EXT_ID, ["task:assignment_update"]);
     dispatcher.start();
     startHandlerPump(proc);

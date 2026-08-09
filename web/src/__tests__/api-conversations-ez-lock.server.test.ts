@@ -52,10 +52,7 @@ const { getMode } = await import("$server/db/queries/modes");
 const { POST } = await import("../routes/api/conversations/+server");
 const { PUT } = await import("../routes/api/conversations/[id]/+server");
 
-function makePostEvent(opts: {
-  body?: unknown;
-  locals?: Record<string, unknown>;
-}) {
+function makePostEvent(opts: { body?: unknown; locals?: Record<string, unknown> }) {
   return {
     url: new URL("http://localhost/api/conversations"),
     locals: opts.locals ?? {},
@@ -67,11 +64,7 @@ function makePostEvent(opts: {
   } as any;
 }
 
-function makePutEvent(opts: {
-  id?: string;
-  body?: unknown;
-  locals?: Record<string, unknown>;
-}) {
+function makePutEvent(opts: { id?: string; body?: unknown; locals?: Record<string, unknown> }) {
   const id = opts.id ?? "c1";
   const href = `http://localhost/api/conversations/${id}`;
   return {

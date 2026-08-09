@@ -21,203 +21,238 @@
  * stream is compromised (or a future extension emits the event directly),
  * the panel still refuses to navigate off-origin.
  */
-import {
-	serializePageContext,
-	fillFormFields,
-	type PageContext,
-} from "./page-context.js";
+import { serializePageContext, fillFormFields, type PageContext } from "./page-context.js";
 
 const ALLOWED_ROUTE_PREFIXES = [
-	"/project/", "/agents/", "/agents", "/new-project", "/marketplace",
-	"/extensions/", "/extensions", "/settings", "/active-agents",
-	"/memories", "/workflows", "/runs", "/observability", "/account",
-	"/admin/", "/admin", "/docs/", "/docs",
+  "/project/",
+  "/agents/",
+  "/agents",
+  "/new-project",
+  "/marketplace",
+  "/extensions/",
+  "/extensions",
+  "/settings",
+  "/active-agents",
+  "/memories",
+  "/workflows",
+  "/runs",
+  "/observability",
+  "/account",
+  "/admin/",
+  "/admin",
+  "/docs/",
+  "/docs",
 ] as const;
 
 export interface EzClientToolEvent {
-	conversationId: string;
-	toolCallId: string;
-	toolName: string;
-	input: unknown;
+  conversationId: string;
+  toolCallId: string;
+  toolName: string;
+  input: unknown;
 }
 
 export type DispatchResult =
-	| { ok: true; toolName: string; toolCallId: string; detail?: Record<string, unknown> }
-	| {
-			ok: false;
-			toolName: string;
-			toolCallId: string;
-			error: string;
-			code: "no-handler" | "invalid-input" | "rejected" | "unknown-tool" | "no-dom";
-	  };
+  | { ok: true; toolName: string; toolCallId: string; detail?: Record<string, unknown> }
+  | {
+      ok: false;
+      toolName: string;
+      toolCallId: string;
+      error: string;
+      code: "no-handler" | "invalid-input" | "rejected" | "unknown-tool" | "no-dom";
+    };
 
 export interface DispatcherDeps {
-	/** Page-level navigator. Pass SvelteKit's `goto` in production. */
-	goto: (path: string) => Promise<unknown> | unknown;
-	/** DOM root to serialize/fill within. Defaults to the live `document.body`. */
-	root?: ParentNode | null;
-	/** Current page path. Defaults to `location.pathname + location.search`. */
-	currentPath?: () => string;
-	/** Current document title. Defaults to `document.title`. */
-	currentTitle?: () => string;
-	/** Await the destination route paint before serializing (navigate_to). */
-	afterNavigate?: () => Promise<void>;
+  /** Page-level navigator. Pass SvelteKit's `goto` in production. */
+  goto: (path: string) => Promise<unknown> | unknown;
+  /** DOM root to serialize/fill within. Defaults to the live `document.body`. */
+  root?: ParentNode | null;
+  /** Current page path. Defaults to `location.pathname + location.search`. */
+  currentPath?: () => string;
+  /** Current document title. Defaults to `document.title`. */
+  currentTitle?: () => string;
+  /** Await the destination route paint before serializing (navigate_to). */
+  afterNavigate?: () => Promise<void>;
 }
 
 function isInAppPath(path: string): boolean {
-	if (!path.startsWith("/")) return false;
-	if (path.startsWith("//")) return false;
-	if (path.includes("://")) return false;
-	if (/[\r\n]/.test(path)) return false;
-	// Strip query/hash for prefix matching but keep the original for goto().
-	const justPath = path.replace(/[?#].*$/, "");
-	return ALLOWED_ROUTE_PREFIXES.some((p) =>
-		p.endsWith("/") ? justPath.startsWith(p) : justPath === p || justPath.startsWith(p + "/") || justPath.startsWith(p + "?") || justPath.startsWith(p + "#"),
-	);
+  if (!path.startsWith("/")) return false;
+  if (path.startsWith("//")) return false;
+  if (path.includes("://")) return false;
+  if (/[\r\n]/.test(path)) return false;
+  // Strip query/hash for prefix matching but keep the original for goto().
+  const justPath = path.replace(/[?#].*$/, "");
+  return ALLOWED_ROUTE_PREFIXES.some((p) =>
+    p.endsWith("/")
+      ? justPath.startsWith(p)
+      : justPath === p ||
+        justPath.startsWith(p + "/") ||
+        justPath.startsWith(p + "?") ||
+        justPath.startsWith(p + "#"),
+  );
 }
 
 export function isAllowedNavigateTarget(path: unknown): path is string {
-	return typeof path === "string" && path.length > 0 && isInAppPath(path);
+  return typeof path === "string" && path.length > 0 && isInAppPath(path);
 }
 
 /** Resolve the DOM root, honouring an explicit `null` injection (no DOM). */
 function resolveRoot(deps: DispatcherDeps): ParentNode | null {
-	if (deps.root !== undefined) return deps.root;
-	return typeof document !== "undefined" ? document.body : null;
+  if (deps.root !== undefined) return deps.root;
+  return typeof document !== "undefined" ? document.body : null;
 }
 
 function resolvePath(deps: DispatcherDeps): string {
-	if (deps.currentPath) return deps.currentPath();
-	return typeof location !== "undefined" ? location.pathname + location.search : "";
+  if (deps.currentPath) return deps.currentPath();
+  return typeof location !== "undefined" ? location.pathname + location.search : "";
 }
 
 function resolveTitle(deps: DispatcherDeps): string {
-	if (deps.currentTitle) return deps.currentTitle();
-	return typeof document !== "undefined" ? document.title : "";
+  if (deps.currentTitle) return deps.currentTitle();
+  return typeof document !== "undefined" ? document.title : "";
 }
 
 function noDom(event: EzClientToolEvent): DispatchResult {
-	return {
-		ok: false,
-		toolName: event.toolName,
-		toolCallId: event.toolCallId,
-		error: `${event.toolName} needs a browser DOM, but none is available.`,
-		code: "no-dom",
-	};
+  return {
+    ok: false,
+    toolName: event.toolName,
+    toolCallId: event.toolCallId,
+    error: `${event.toolName} needs a browser DOM, but none is available.`,
+    code: "no-dom",
+  };
 }
 
 function handleReadPage(event: EzClientToolEvent, deps: DispatcherDeps): DispatchResult {
-	const root = resolveRoot(deps);
-	if (!root) return noDom(event);
-	const input = event.input as { detail?: unknown } | null | undefined;
-	const detail = input?.detail === "full" ? "full" : "summary";
-	const page = serializePageContext(root, {
-		detail,
-		path: resolvePath(deps),
-		title: resolveTitle(deps),
-	});
-	return { ok: true, toolName: event.toolName, toolCallId: event.toolCallId, detail: page as unknown as Record<string, unknown> };
+  const root = resolveRoot(deps);
+  if (!root) return noDom(event);
+  const input = event.input as { detail?: unknown } | null | undefined;
+  const detail = input?.detail === "full" ? "full" : "summary";
+  const page = serializePageContext(root, {
+    detail,
+    path: resolvePath(deps),
+    title: resolveTitle(deps),
+  });
+  return {
+    ok: true,
+    toolName: event.toolName,
+    toolCallId: event.toolCallId,
+    detail: page as unknown as Record<string, unknown>,
+  };
 }
 
 function handleFillForm(event: EzClientToolEvent, deps: DispatcherDeps): DispatchResult {
-	const root = resolveRoot(deps);
-	if (!root) return noDom(event);
-	const input = event.input as { formId?: unknown; values?: unknown } | null | undefined;
-	const formId = typeof input?.formId === "string" ? input.formId : "";
-	const values = input?.values && typeof input.values === "object" ? (input.values as Record<string, unknown>) : null;
-	if (!formId || !values) {
-		return {
-			ok: false,
-			toolName: event.toolName,
-			toolCallId: event.toolCallId,
-			error: "fill_form requires a 'formId' (from read_page) and a 'values' object.",
-			code: "invalid-input",
-		};
-	}
-	const result = fillFormFields(root, formId, values);
-	if (result.notFound) {
-		return {
-			ok: false,
-			toolName: event.toolName,
-			toolCallId: event.toolCallId,
-			error: `No form '${formId}' on the current page. Call read_page first to see the available forms and their ids.`,
-			code: "no-handler",
-		};
-	}
-	return {
-		ok: true,
-		toolName: event.toolName,
-		toolCallId: event.toolCallId,
-		detail: { formId, filled: result.filled, skipped: result.skipped },
-	};
+  const root = resolveRoot(deps);
+  if (!root) return noDom(event);
+  const input = event.input as { formId?: unknown; values?: unknown } | null | undefined;
+  const formId = typeof input?.formId === "string" ? input.formId : "";
+  const values =
+    input?.values && typeof input.values === "object"
+      ? (input.values as Record<string, unknown>)
+      : null;
+  if (!formId || !values) {
+    return {
+      ok: false,
+      toolName: event.toolName,
+      toolCallId: event.toolCallId,
+      error: "fill_form requires a 'formId' (from read_page) and a 'values' object.",
+      code: "invalid-input",
+    };
+  }
+  const result = fillFormFields(root, formId, values);
+  if (result.notFound) {
+    return {
+      ok: false,
+      toolName: event.toolName,
+      toolCallId: event.toolCallId,
+      error: `No form '${formId}' on the current page. Call read_page first to see the available forms and their ids.`,
+      code: "no-handler",
+    };
+  }
+  return {
+    ok: true,
+    toolName: event.toolName,
+    toolCallId: event.toolCallId,
+    detail: { formId, filled: result.filled, skipped: result.skipped },
+  };
 }
 
 /** Content excerpt cap for navigate_to's destination report — a glance at
  *  where the user landed, not the full read_page payload. */
 const DESTINATION_CONTENT_CHARS = 500;
 
-async function serializeDestination(deps: DispatcherDeps): Promise<Pick<PageContext, "path" | "title" | "headings" | "content"> | undefined> {
-	// Best-effort: wait one macrotask for the destination route to paint, then
-	// serialize just the identity (path/title/headings + a short content
-	// excerpt) so the model knows where the user landed. Never let a
-	// serialization failure fail the nav.
-	try {
-		await (deps.afterNavigate ?? (() => new Promise<void>((r) => setTimeout(r, 0))))();
-		const root = resolveRoot(deps);
-		if (!root) return undefined;
-		const page = serializePageContext(root, { detail: "summary", path: resolvePath(deps), title: resolveTitle(deps) });
-		const content =
-			page.content.length > DESTINATION_CONTENT_CHARS
-				? `${page.content.slice(0, DESTINATION_CONTENT_CHARS)}…`
-				: page.content;
-		return { path: page.path, title: page.title, headings: page.headings, content };
-	} catch {
-		return undefined;
-	}
+async function serializeDestination(
+  deps: DispatcherDeps,
+): Promise<Pick<PageContext, "path" | "title" | "headings" | "content"> | undefined> {
+  // Best-effort: wait one macrotask for the destination route to paint, then
+  // serialize just the identity (path/title/headings + a short content
+  // excerpt) so the model knows where the user landed. Never let a
+  // serialization failure fail the nav.
+  try {
+    await (deps.afterNavigate ?? (() => new Promise<void>((r) => setTimeout(r, 0))))();
+    const root = resolveRoot(deps);
+    if (!root) return undefined;
+    const page = serializePageContext(root, {
+      detail: "summary",
+      path: resolvePath(deps),
+      title: resolveTitle(deps),
+    });
+    const content =
+      page.content.length > DESTINATION_CONTENT_CHARS
+        ? `${page.content.slice(0, DESTINATION_CONTENT_CHARS)}…`
+        : page.content;
+    return { path: page.path, title: page.title, headings: page.headings, content };
+  } catch {
+    return undefined;
+  }
 }
 
-async function handleNavigateTo(event: EzClientToolEvent, deps: DispatcherDeps): Promise<DispatchResult> {
-	const input = event.input as { path?: unknown } | null | undefined;
-	const path = input?.path;
-	if (!isAllowedNavigateTarget(path)) {
-		return {
-			ok: false,
-			toolName: event.toolName,
-			toolCallId: event.toolCallId,
-			error: `navigate_to refused: '${String(path)}' is not a same-origin in-app route.`,
-			code: "rejected",
-		};
-	}
-	try {
-		await deps.goto(path);
-	} catch (err) {
-		return {
-			ok: false,
-			toolName: event.toolName,
-			toolCallId: event.toolCallId,
-			error: `navigate_to failed: ${(err as Error)?.message ?? String(err)}`,
-			code: "rejected",
-		};
-	}
-	const destination = await serializeDestination(deps);
-	return {
-		ok: true,
-		toolName: event.toolName,
-		toolCallId: event.toolCallId,
-		detail: destination ? { path, destination } : { path },
-	};
+async function handleNavigateTo(
+  event: EzClientToolEvent,
+  deps: DispatcherDeps,
+): Promise<DispatchResult> {
+  const input = event.input as { path?: unknown } | null | undefined;
+  const path = input?.path;
+  if (!isAllowedNavigateTarget(path)) {
+    return {
+      ok: false,
+      toolName: event.toolName,
+      toolCallId: event.toolCallId,
+      error: `navigate_to refused: '${String(path)}' is not a same-origin in-app route.`,
+      code: "rejected",
+    };
+  }
+  try {
+    await deps.goto(path);
+  } catch (err) {
+    return {
+      ok: false,
+      toolName: event.toolName,
+      toolCallId: event.toolCallId,
+      error: `navigate_to failed: ${(err as Error)?.message ?? String(err)}`,
+      code: "rejected",
+    };
+  }
+  const destination = await serializeDestination(deps);
+  return {
+    ok: true,
+    toolName: event.toolName,
+    toolCallId: event.toolCallId,
+    detail: destination ? { path, destination } : { path },
+  };
 }
 
-export async function dispatch(event: EzClientToolEvent, deps: DispatcherDeps): Promise<DispatchResult> {
-	if (event.toolName === "read_page") return handleReadPage(event, deps);
-	if (event.toolName === "fill_form") return handleFillForm(event, deps);
-	if (event.toolName === "navigate_to") return handleNavigateTo(event, deps);
+export async function dispatch(
+  event: EzClientToolEvent,
+  deps: DispatcherDeps,
+): Promise<DispatchResult> {
+  if (event.toolName === "read_page") return handleReadPage(event, deps);
+  if (event.toolName === "fill_form") return handleFillForm(event, deps);
+  if (event.toolName === "navigate_to") return handleNavigateTo(event, deps);
 
-	return {
-		ok: false,
-		toolName: event.toolName,
-		toolCallId: event.toolCallId,
-		error: `Unknown ez client tool '${event.toolName}'`,
-		code: "unknown-tool",
-	};
+  return {
+    ok: false,
+    toolName: event.toolName,
+    toolCallId: event.toolCallId,
+    error: `Unknown ez client tool '${event.toolName}'`,
+    code: "unknown-tool",
+  };
 }

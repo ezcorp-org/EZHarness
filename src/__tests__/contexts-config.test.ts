@@ -28,7 +28,10 @@ function deps(overrides: Partial<ResolveContextsDeps>): Partial<ResolveContextsD
 
 describe("parseModelSetting", () => {
   test("valid provider/model", () => {
-    expect(parseModelSetting("anthropic/claude-x")).toEqual({ provider: "anthropic", modelId: "claude-x" });
+    expect(parseModelSetting("anthropic/claude-x")).toEqual({
+      provider: "anthropic",
+      modelId: "claude-x",
+    });
   });
   test("model id may contain slashes (split on first)", () => {
     expect(parseModelSetting("openrouter/meta-llama/llama-3")).toEqual({
@@ -54,12 +57,14 @@ describe("parseModelSetting", () => {
 
 describe("describeTarget", () => {
   test("sidecar → local/<model>", () => {
-    expect(describeTarget({ kind: "sidecar", baseUrl: "http://x", model: "qwen3:1.7b" })).toBe("local/qwen3:1.7b");
+    expect(describeTarget({ kind: "sidecar", baseUrl: "http://x", model: "qwen3:1.7b" })).toBe(
+      "local/qwen3:1.7b",
+    );
   });
   test("pi → <provider>/<modelId>", () => {
-    expect(describeTarget({ kind: "pi", provider: "anthropic", modelId: "claude-x", piModel: {} })).toBe(
-      "anthropic/claude-x",
-    );
+    expect(
+      describeTarget({ kind: "pi", provider: "anthropic", modelId: "claude-x", piModel: {} }),
+    ).toBe("anthropic/claude-x");
   });
 });
 
@@ -87,7 +92,12 @@ describe("resolveContextsTarget ladder", () => {
         resolveModel: async (p, m) => ({ provider: p!, model: m!, piModel: { id: m } }),
       }),
     );
-    expect(t).toEqual({ kind: "pi", provider: "anthropic", modelId: "claude-x", piModel: { id: "claude-x" } });
+    expect(t).toEqual({
+      kind: "pi",
+      provider: "anthropic",
+      modelId: "claude-x",
+      piModel: { id: "claude-x" },
+    });
   });
 
   test("rung 1 unresolvable → warns and falls through to the default sidecar", async () => {
@@ -209,8 +219,8 @@ describe("resolveContextsTarget ladder", () => {
   });
 
   test("rung 4: nothing resolvable → ContextsUnavailableError", async () => {
-    await expect(
-      resolveContextsTarget("c1", deps({})),
-    ).rejects.toBeInstanceOf(ContextsUnavailableError);
+    await expect(resolveContextsTarget("c1", deps({}))).rejects.toBeInstanceOf(
+      ContextsUnavailableError,
+    );
   });
 });

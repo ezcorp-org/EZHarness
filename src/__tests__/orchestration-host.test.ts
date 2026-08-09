@@ -13,16 +13,7 @@
  *      shape, messageId == runId, etc.).
  */
 
-import {
-  test,
-  expect,
-  describe,
-  beforeAll,
-  afterAll,
-  beforeEach,
-  mock,
-  spyOn,
-} from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, beforeEach, mock, spyOn } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -50,7 +41,12 @@ mock.module("../db/connection", () => ({
 // ToolExecutor class is still exported for the host module's `new
 // ToolExecutor(...)` call site; we simply swap the function.
 interface CapturedExtToolCall {
-  extTool: { name: string; description: string; inputSchema: Record<string, unknown>; dispatchName?: string };
+  extTool: {
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+    dispatchName?: string;
+  };
   toolExecutor: unknown;
   conversationId: string;
   messageId: string;
@@ -67,12 +63,24 @@ class StubToolExecutor {
   public seenModel?: string | null | undefined;
   public seenProvider?: string | null | undefined;
   constructor(public readonly registry: unknown) {}
-  setStateMediator(m: unknown) { this.seenStateMediator = m; }
-  setExecutor(e: unknown) { this.seenExecutor = e; }
-  setSpawnQuota(q: unknown) { this.seenSpawnQuota = q; }
-  setCurrentUserId(u: string) { this.seenUserId = u; }
-  setCurrentModel(m: string | null | undefined) { this.seenModel = m; }
-  setCurrentProvider(p: string | null | undefined) { this.seenProvider = p; }
+  setStateMediator(m: unknown) {
+    this.seenStateMediator = m;
+  }
+  setExecutor(e: unknown) {
+    this.seenExecutor = e;
+  }
+  setSpawnQuota(q: unknown) {
+    this.seenSpawnQuota = q;
+  }
+  setCurrentUserId(u: string) {
+    this.seenUserId = u;
+  }
+  setCurrentModel(m: string | null | undefined) {
+    this.seenModel = m;
+  }
+  setCurrentProvider(p: string | null | undefined) {
+    this.seenProvider = p;
+  }
 }
 
 mock.module("../extensions/tool-executor", () => ({
@@ -126,10 +134,9 @@ const {
 // pre-initialized. Install an allow-all stub as the singleton so the
 // test exercises the wiring path without wiring a real bus / registry /
 // audit log.
-const {
-  _setPermissionEngineForTests,
-  _resetPermissionEngineForTests,
-} = await import("../extensions/permission-engine");
+const { _setPermissionEngineForTests, _resetPermissionEngineForTests } = await import(
+  "../extensions/permission-engine"
+);
 const { createStubPermissionEngine } = await import("./helpers/permission-engine-stub");
 const { getDb } = await import("../db/connection");
 const {
@@ -145,46 +152,58 @@ const {
 const ORCH_EXT_ID = "ext-orch-real";
 
 async function seedFixtures(): Promise<void> {
-  await getDb().insert(users).values({
-    id: "user-orch-t",
-    email: "orch-test@t.local",
-    passwordHash: "x",
-    name: "OrchTest",
-  } as never).onConflictDoNothing();
-  await getDb().insert(projects).values({
-    id: "proj-orch-t",
-    name: "proj-orch-t",
-    path: "/tmp/proj-orch-t",
-  } as never).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values({
+      id: "user-orch-t",
+      email: "orch-test@t.local",
+      passwordHash: "x",
+      name: "OrchTest",
+    } as never)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({
+      id: "proj-orch-t",
+      name: "proj-orch-t",
+      path: "/tmp/proj-orch-t",
+    } as never)
+    .onConflictDoNothing();
 }
 
 async function seedOrchestrationExtension(): Promise<string> {
-  await getDb().insert(extensionsTable).values({
-    id: ORCH_EXT_ID,
-    name: "orchestration",
-    version: "1.0.0",
-    description: "o",
-    manifest: {
-      schemaVersion: 2,
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id: ORCH_EXT_ID,
       name: "orchestration",
       version: "1.0.0",
       description: "o",
-      author: { name: "t" },
-      permissions: {},
-    },
-    source: "test:orch",
-    installPath: "/tmp/orch",
-    enabled: true,
-  } as never).onConflictDoNothing();
+      manifest: {
+        schemaVersion: 2,
+        name: "orchestration",
+        version: "1.0.0",
+        description: "o",
+        author: { name: "t" },
+        permissions: {},
+      },
+      source: "test:orch",
+      installPath: "/tmp/orch",
+      enabled: true,
+    } as never)
+    .onConflictDoNothing();
   return ORCH_EXT_ID;
 }
 
 async function seedConversation(id: string): Promise<void> {
-  await getDb().insert(conversations).values({
-    id,
-    projectId: "proj-orch-t",
-    title: id,
-  } as never).onConflictDoNothing();
+  await getDb()
+    .insert(conversations)
+    .values({
+      id,
+      projectId: "proj-orch-t",
+      title: id,
+    } as never)
+    .onConflictDoNothing();
 }
 
 beforeAll(async () => {
@@ -392,9 +411,9 @@ function makeFakeRegistryWithCollect() {
   };
 }
 
-function baseParams(overrides: Record<string, unknown> = {}): Parameters<
-  typeof wireOrchestrationToolsForTurn
->[0] {
+function baseParams(
+  overrides: Record<string, unknown> = {},
+): Parameters<typeof wireOrchestrationToolsForTurn>[0] {
   const agentTools: AgentTool[] = [];
   return {
     agentTools,
@@ -634,9 +653,7 @@ describe("wireOrchestrationToolsForTurn", () => {
     await wireOrchestrationToolsForTurn(params);
 
     // Exactly one collect tool — not re-appended.
-    expect(
-      params.agentTools.filter((t) => t.name === "collect_agent_result"),
-    ).toHaveLength(1);
+    expect(params.agentTools.filter((t) => t.name === "collect_agent_result")).toHaveLength(1);
     // And no collect wrap was produced by this call.
     expect(captured.some((c) => c.extTool.name === "collect_agent_result")).toBe(false);
   });
@@ -718,9 +735,7 @@ describe("wireOrchestrationToolsForTurn", () => {
 
       expect(params.agentTools).toHaveLength(0);
       expect(captured).toHaveLength(0);
-      const emitted = warnSpy.mock.calls
-        .map((c) => String(c[0]))
-        .join("\n");
+      const emitted = warnSpy.mock.calls.map((c) => String(c[0])).join("\n");
       expect(emitted.toLowerCase()).toContain("no invoke_agent");
     } finally {
       warnSpy.mockRestore();

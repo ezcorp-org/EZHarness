@@ -20,15 +20,7 @@
 //     length to the storage layer
 //   - `delete` returns `{deleted}` reflecting the underlying boolean
 
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 // Capture every call so the assertions can read the exact args.

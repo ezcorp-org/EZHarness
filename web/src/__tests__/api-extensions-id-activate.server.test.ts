@@ -30,15 +30,9 @@ vi.mock("$server/db/queries/audit-log", () => ({
 
 const { getExtension, updateExtension } = await import("$server/db/queries/extensions");
 const { hasSecurityViolation } = await import("$server/extensions/security");
-const { POST } = await import(
-  "../routes/api/extensions/[id]/activate/+server.ts"
-);
+const { POST } = await import("../routes/api/extensions/[id]/activate/+server.ts");
 
-function makeEvent(opts: {
-  id?: string;
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { id?: string; locals?: Record<string, unknown>; body?: unknown }) {
   const id = opts.id ?? "ext-1";
   return {
     url: new URL(`http://localhost/api/extensions/${id}/activate`),

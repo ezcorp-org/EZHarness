@@ -25,10 +25,7 @@
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { JsonRpcTransport } from "../../extensions/json-rpc";
-import type {
-  JsonRpcRequest,
-  JsonRpcNotification,
-} from "../../extensions/types";
+import type { JsonRpcRequest, JsonRpcNotification } from "../../extensions/types";
 
 // ── Harness ────────────────────────────────────────────────────────
 
@@ -157,14 +154,15 @@ describe("sec-SB4: JsonRpcTransport silently drops malformed input", () => {
   });
 
   test("mixed good + bad lines: bad lines dropped, good lines delivered", async () => {
-    const chunk = [
-      "{not json}",
-      JSON.stringify({ jsonrpc: "2.0", method: "one", id: 1 }),
-      "another garbage line }}}",
-      JSON.stringify({ jsonrpc: "2.0", method: "two", id: 2 }),
-      "trailing garbage",
-      JSON.stringify({ jsonrpc: "2.0", method: "three", id: 3 }),
-    ].join("\n") + "\n";
+    const chunk =
+      [
+        "{not json}",
+        JSON.stringify({ jsonrpc: "2.0", method: "one", id: 1 }),
+        "another garbage line }}}",
+        JSON.stringify({ jsonrpc: "2.0", method: "two", id: 2 }),
+        "trailing garbage",
+        JSON.stringify({ jsonrpc: "2.0", method: "three", id: 3 }),
+      ].join("\n") + "\n";
     h.push(chunk);
     await tick();
     expect(h.requests.map((r) => r.method)).toEqual(["one", "two", "three"]);
@@ -242,7 +240,7 @@ describe("sec-SB4: JsonRpcTransport handles pathological valid JSON", () => {
     h.push(JSON.stringify(msg) + "\n");
     await tick();
     expect(h.requests).toHaveLength(1);
-    expect((h.requests[0]!.params!.s as string)).toBe("a\u0000b");
+    expect(h.requests[0]!.params!.s as string).toBe("a\u0000b");
   });
 
   test("lone null byte on its own line is dropped (not valid JSON)", async () => {
@@ -267,7 +265,7 @@ describe("sec-SB4: JsonRpcTransport handles pathological valid JSON", () => {
     await tick();
     expect(h.requests).toHaveLength(1);
     expect(h.requests[0]!.method).toBe("emoji-🚀");
-    expect((h.requests[0]!.params!.greeting as string)).toBe("日本語 — café — Ω");
+    expect(h.requests[0]!.params!.greeting as string).toBe("日本語 — café — Ω");
   });
 
   test("reentrant onRequest: a handler that pushes more frames is serviced normally", async () => {
@@ -282,9 +280,7 @@ describe("sec-SB4: JsonRpcTransport handles pathological valid JSON", () => {
       // Pretend the handler sends and immediately receives a reply.
       // Since send() is not wired to a real subprocess, we route the
       // reply by pushing it back ourselves.
-      h.push(
-        JSON.stringify({ jsonrpc: "2.0", id: `reply-${req.id}`, result: "ok" }) + "\n",
-      );
+      h.push(JSON.stringify({ jsonrpc: "2.0", id: `reply-${req.id}`, result: "ok" }) + "\n");
     };
 
     h.push(JSON.stringify({ jsonrpc: "2.0", method: "reentrant", id: 1 }) + "\n");

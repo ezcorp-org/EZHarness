@@ -16,72 +16,61 @@ import { buildCommands, buildProjectActions } from "$lib/command-registry.js";
 import type { Project } from "$lib/api.js";
 
 function proj(o: Partial<Project> & { id: string; name: string }): Project {
-	return {
-		path: "",
-		icon: null,
-		variables: {},
-		createdAt: "",
-		updatedAt: "",
-		...o,
-	} as Project;
+  return {
+    path: "",
+    icon: null,
+    variables: {},
+    createdAt: "",
+    updatedAt: "",
+    ...o,
+  } as Project;
 }
 
 beforeEach(() => gotoMock.mockClear());
 
 describe("buildProjectActions", () => {
-	test("returns Chat/Settings scoped to the project id", () => {
-		const acts = buildProjectActions("p1");
-		expect(acts.map((a) => a.label)).toEqual(["Go to Chat", "Go to Settings"]);
-		expect(acts.map((a) => a.id)).toEqual([
-			"project-p1-chat",
-			"project-p1-settings",
-		]);
-		expect(acts.every((a) => a.group === "Navigate")).toBe(true);
-	});
+  test("returns Chat/Settings scoped to the project id", () => {
+    const acts = buildProjectActions("p1");
+    expect(acts.map((a) => a.label)).toEqual(["Go to Chat", "Go to Settings"]);
+    expect(acts.map((a) => a.id)).toEqual(["project-p1-chat", "project-p1-settings"]);
+    expect(acts.every((a) => a.group === "Navigate")).toBe(true);
+  });
 
-	test("each action navigates to its scoped route", () => {
-		const [chat, settings] = buildProjectActions("p1");
-		chat.action();
-		expect(gotoMock).toHaveBeenLastCalledWith("/project/p1/chat");
-		settings.action();
-		expect(gotoMock).toHaveBeenLastCalledWith("/project/p1/settings");
-	});
+  test("each action navigates to its scoped route", () => {
+    const [chat, settings] = buildProjectActions("p1");
+    chat.action();
+    expect(gotoMock).toHaveBeenLastCalledWith("/project/p1/chat");
+    settings.action();
+    expect(gotoMock).toHaveBeenLastCalledWith("/project/p1/settings");
+  });
 });
 
 describe("buildCommands — Projects drill-down", () => {
-	const projects = [
-		proj({ id: "a", name: "Alpha", icon: "https://logo.test/alpha.png" }),
-		proj({ id: "b", name: "Beta" }), // icon null → avatar.src null (letter fallback)
-	];
+  const projects = [
+    proj({ id: "a", name: "Alpha", icon: "https://logo.test/alpha.png" }),
+    proj({ id: "b", name: "Beta" }), // icon null → avatar.src null (letter fallback)
+  ];
 
-	test("adds a Projects command whose children mirror the projects", () => {
-		const cmds = buildCommands("global", projects);
-		const projectsCmd = cmds.find((c) => c.id === "projects");
-		expect(projectsCmd).toBeDefined();
-		expect(projectsCmd!.group).toBe("Project");
-		expect(projectsCmd!.children?.map((c) => c.label)).toEqual(["Alpha", "Beta"]);
-		expect(projectsCmd!.children?.map((c) => c.id)).toEqual([
-			"project-a",
-			"project-b",
-		]);
-	});
+  test("adds a Projects command whose children mirror the projects", () => {
+    const cmds = buildCommands("global", projects);
+    const projectsCmd = cmds.find((c) => c.id === "projects");
+    expect(projectsCmd).toBeDefined();
+    expect(projectsCmd!.group).toBe("Project");
+    expect(projectsCmd!.children?.map((c) => c.label)).toEqual(["Alpha", "Beta"]);
+    expect(projectsCmd!.children?.map((c) => c.id)).toEqual(["project-a", "project-b"]);
+  });
 
-	test("project entries carry a logo avatar (image src or null) and their actions", () => {
-		const projectsCmd = buildCommands("global", projects).find(
-			(c) => c.id === "projects",
-		)!;
-		const [alpha, beta] = projectsCmd.children!;
-		expect(alpha.avatar).toEqual({ name: "Alpha", src: "https://logo.test/alpha.png" });
-		expect(beta.avatar).toEqual({ name: "Beta", src: null });
-		expect(alpha.group).toBe("Project");
-		expect(alpha.children?.map((c) => c.id)).toEqual([
-			"project-a-chat",
-			"project-a-settings",
-		]);
-	});
+  test("project entries carry a logo avatar (image src or null) and their actions", () => {
+    const projectsCmd = buildCommands("global", projects).find((c) => c.id === "projects")!;
+    const [alpha, beta] = projectsCmd.children!;
+    expect(alpha.avatar).toEqual({ name: "Alpha", src: "https://logo.test/alpha.png" });
+    expect(beta.avatar).toEqual({ name: "Beta", src: null });
+    expect(alpha.group).toBe("Project");
+    expect(alpha.children?.map((c) => c.id)).toEqual(["project-a-chat", "project-a-settings"]);
+  });
 
-	test("no Projects command when there are no projects (incl. default arg)", () => {
-		expect(buildCommands("global", []).some((c) => c.id === "projects")).toBe(false);
-		expect(buildCommands("global").some((c) => c.id === "projects")).toBe(false);
-	});
+  test("no Projects command when there are no projects (incl. default arg)", () => {
+    expect(buildCommands("global", []).some((c) => c.id === "projects")).toBe(false);
+    expect(buildCommands("global").some((c) => c.id === "projects")).toBe(false);
+  });
 });

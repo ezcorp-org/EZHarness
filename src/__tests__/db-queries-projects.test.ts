@@ -3,14 +3,8 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 
 mockDbConnection();
 
-const {
-  createProject,
-  getProject,
-  getProjectByName,
-  listProjects,
-  updateProject,
-  deleteProject,
-} = await import("../db/queries/projects");
+const { createProject, getProject, getProjectByName, listProjects, updateProject, deleteProject } =
+  await import("../db/queries/projects");
 
 describe("projects queries", () => {
   beforeEach(async () => await setupTestDb());
@@ -63,7 +57,10 @@ describe("projects queries", () => {
     await createProject({ name: "b", path: "/b" });
     const all = await listProjects();
     // Migration seeds a "Global" project, so we expect at least our two plus that.
-    const userNames = all.map((r) => r.name).filter((n) => n !== "Global").sort();
+    const userNames = all
+      .map((r) => r.name)
+      .filter((n) => n !== "Global")
+      .sort();
     expect(userNames).toEqual(["a", "b"]);
   });
 
@@ -73,10 +70,15 @@ describe("projects queries", () => {
     await createProject({ name: "older", path: "/older" });
     await createProject({ name: "newer", path: "/newer" });
     // Insert 'self' LAST so pinning (not insertion order) is what puts it first.
-    await getTestDb().execute(sql`INSERT INTO projects (id, name, path) VALUES ('self', 'EZCorp (this app)', '/repo')`);
+    await getTestDb().execute(
+      sql`INSERT INTO projects (id, name, path) VALUES ('self', 'EZCorp (this app)', '/repo')`,
+    );
     const all = await listProjects();
     expect(all[0]?.id).toBe("self");
-    const rest = all.slice(1).map((r) => r.name).filter((n) => n !== "Global");
+    const rest = all
+      .slice(1)
+      .map((r) => r.name)
+      .filter((n) => n !== "Global");
     expect(rest).toEqual(["older", "newer"]);
   });
 

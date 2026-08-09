@@ -47,20 +47,56 @@ test.describe(
     test.skip(!RUN_REAL, "real-backend spec — requires DOCKER_TEST=1 + live container on :3000");
 
     const proj = makeProject({ id: "proj-shp", name: "Session Producer Project" });
-    const conv = makeConversation({ id: "conv-shp", projectId: "proj-shp", title: "Multi-turn thread" });
+    const conv = makeConversation({
+      id: "conv-shp",
+      projectId: "proj-shp",
+      title: "Multi-turn thread",
+    });
 
     // A prior thread the follow-up turn must still see once the session tree
     // produces the history.
     const history = [
-      makeMessage({ id: "h-0", conversationId: "conv-shp", role: "user", content: "Remember the code word BANANA.", parentMessageId: null, runId: null }),
-      makeMessage({ id: "h-1", conversationId: "conv-shp", role: "assistant", content: "Got it — BANANA.", parentMessageId: "h-0", runId: null }),
-      makeMessage({ id: "h-2", conversationId: "conv-shp", role: "user", content: "What did I ask you to remember?", parentMessageId: "h-1", runId: null }),
-      makeMessage({ id: "h-3", conversationId: "conv-shp", role: "assistant", content: "The code word BANANA.", parentMessageId: "h-2", runId: null }),
+      makeMessage({
+        id: "h-0",
+        conversationId: "conv-shp",
+        role: "user",
+        content: "Remember the code word BANANA.",
+        parentMessageId: null,
+        runId: null,
+      }),
+      makeMessage({
+        id: "h-1",
+        conversationId: "conv-shp",
+        role: "assistant",
+        content: "Got it — BANANA.",
+        parentMessageId: "h-0",
+        runId: null,
+      }),
+      makeMessage({
+        id: "h-2",
+        conversationId: "conv-shp",
+        role: "user",
+        content: "What did I ask you to remember?",
+        parentMessageId: "h-1",
+        runId: null,
+      }),
+      makeMessage({
+        id: "h-3",
+        conversationId: "conv-shp",
+        role: "assistant",
+        content: "The code word BANANA.",
+        parentMessageId: "h-2",
+        runId: null,
+      }),
     ];
 
     const REPLY = "Still BANANA — I have the whole thread.";
 
-    test("follow-up turn streams a normal reply that continues the thread; no error card", async ({ page, mockApi, emitSse }) => {
+    test("follow-up turn streams a normal reply that continues the thread; no error card", async ({
+      page,
+      mockApi,
+      emitSse,
+    }) => {
       await mockApi({ projects: [proj], conversations: [conv], messages: history });
       await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
@@ -73,7 +109,9 @@ test.describe(
       const textarea = page.locator("textarea");
       await textarea.fill("Say it one more time.");
       await Promise.all([
-        page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
+        page.waitForResponse(
+          (r: any) => r.url().includes("/messages") && r.request().method() === "POST",
+        ),
         textarea.press("Enter"),
       ]);
 
@@ -81,18 +119,36 @@ test.describe(
       await expect(page.getByText(REPLY)).toBeVisible({ timeout: 8000 });
       await emitSse({
         type: "run:turn_saved",
-        data: { runId: "run-shp", conversationId: "conv-shp", messageId: "h-new", parentMessageId: "h-3", content: REPLY, final: true },
+        data: {
+          runId: "run-shp",
+          conversationId: "conv-shp",
+          messageId: "h-new",
+          parentMessageId: "h-3",
+          content: REPLY,
+          final: true,
+        },
       });
       await emitSse({
         type: "run:complete",
-        data: { run: { id: "run-shp", agentName: "chat", status: "success", startedAt: "2026-01-01T00:00:00.000Z", logs: [], result: { success: true, output: REPLY } } },
+        data: {
+          run: {
+            id: "run-shp",
+            agentName: "chat",
+            status: "success",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            logs: [],
+            result: { success: true, output: REPLY },
+          },
+        },
       });
 
       // THE CONTRACT: a normal reply rendered, the whole thread is intact,
       // and no producer failure surfaced as an error card.
       await expect(page.getByText(REPLY)).toBeVisible();
       await expect(page.getByText("Got it — BANANA.")).toBeVisible();
-      await expect(page.getByText(/history producer failed|invalid_session|Error:/i)).toHaveCount(0);
+      await expect(page.getByText(/history producer failed|invalid_session|Error:/i)).toHaveCount(
+        0,
+      );
       await expect(page.locator("textarea")).toBeEnabled();
     });
   },

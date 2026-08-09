@@ -100,7 +100,10 @@ describe("ProcPortSource — uid-attributed enumeration", () => {
   });
 
   test("empty conversation id → empty", () => {
-    const src = new ProcPortSource(() => PROC_NET_TCP, () => "conv-A");
+    const src = new ProcPortSource(
+      () => PROC_NET_TCP,
+      () => "conv-A",
+    );
     expect(src.listListeners("")).toEqual([]);
   });
 

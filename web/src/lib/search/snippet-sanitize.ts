@@ -15,5 +15,5 @@ import DOMPurify from "isomorphic-dompurify";
 
 /** Strip a snippet down to a `<mark>`-only (attribute-free) allowlist. */
 export function sanitizeSnippet(html: string): string {
-	return DOMPurify.sanitize(html, { ALLOWED_TAGS: ["mark"], ALLOWED_ATTR: [] });
+  return DOMPurify.sanitize(html, { ALLOWED_TAGS: ["mark"], ALLOWED_ATTR: [] });
 }

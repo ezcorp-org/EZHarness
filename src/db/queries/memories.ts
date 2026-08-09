@@ -9,21 +9,30 @@ import { toVectorLiteral } from "../../memory/vector-utils";
 // ── Junction table helpers ────────────────────────────────────────
 
 /** Bulk assign memory to projects (idempotent via ON CONFLICT DO NOTHING) */
-export async function assignMemoryToProjects(memoryId: string, projectIds: string[]): Promise<void> {
+export async function assignMemoryToProjects(
+  memoryId: string,
+  projectIds: string[],
+): Promise<void> {
   if (projectIds.length === 0) return;
   const db = getDb();
-  await db.insert(memoryProjects)
+  await db
+    .insert(memoryProjects)
     .values(projectIds.map((projectId) => ({ memoryId, projectId })))
     .onConflictDoNothing();
 }
 
 /** Remove specific project assignments */
-export async function removeMemoryFromProjects(memoryId: string, projectIds: string[]): Promise<void> {
+export async function removeMemoryFromProjects(
+  memoryId: string,
+  projectIds: string[],
+): Promise<void> {
   if (projectIds.length === 0) return;
   const db = getDb();
-  await db.delete(memoryProjects).where(
-    and(eq(memoryProjects.memoryId, memoryId), inArray(memoryProjects.projectId, projectIds)),
-  );
+  await db
+    .delete(memoryProjects)
+    .where(
+      and(eq(memoryProjects.memoryId, memoryId), inArray(memoryProjects.projectId, projectIds)),
+    );
 }
 
 /**
@@ -41,7 +50,8 @@ export async function setMemoryProjects(memoryId: string, projectIds: string[]):
   await db.transaction(async (tx: DbTransaction) => {
     await tx.delete(memoryProjects).where(eq(memoryProjects.memoryId, memoryId));
     if (projectIds.length > 0) {
-      await tx.insert(memoryProjects)
+      await tx
+        .insert(memoryProjects)
         .values(projectIds.map((projectId) => ({ memoryId, projectId })))
         .onConflictDoNothing();
     }
@@ -51,19 +61,23 @@ export async function setMemoryProjects(memoryId: string, projectIds: string[]):
 /** Get project IDs for a single memory */
 export async function getMemoryProjectIds(memoryId: string): Promise<string[]> {
   const db = getDb();
-  const rows = await db.select({ projectId: memoryProjects.projectId })
+  const rows = await db
+    .select({ projectId: memoryProjects.projectId })
     .from(memoryProjects)
     .where(eq(memoryProjects.memoryId, memoryId));
   return rows.map((r: { projectId: string }) => r.projectId);
 }
 
 /** Batch fetch project IDs for multiple memories (returns Map) */
-export async function getProjectIdsForMemories(memoryIds: string[]): Promise<Map<string, string[]>> {
+export async function getProjectIdsForMemories(
+  memoryIds: string[],
+): Promise<Map<string, string[]>> {
   const result = new Map<string, string[]>();
   if (memoryIds.length === 0) return result;
   for (const id of memoryIds) result.set(id, []);
   const db = getDb();
-  const rows = await db.select({ memoryId: memoryProjects.memoryId, projectId: memoryProjects.projectId })
+  const rows = await db
+    .select({ memoryId: memoryProjects.memoryId, projectId: memoryProjects.projectId })
     .from(memoryProjects)
     .where(inArray(memoryProjects.memoryId, memoryIds));
   for (const row of rows) {
@@ -96,7 +110,8 @@ export async function insertMemory(data: NewMemory & { projectIds?: string[] }):
     const memory = rows[0]!;
 
     if (resolvedProjectIds.length > 0) {
-      await tx.insert(memoryProjects)
+      await tx
+        .insert(memoryProjects)
         .values(resolvedProjectIds.map((projectId) => ({ memoryId: memory.id, projectId })))
         .onConflictDoNothing();
     }
@@ -216,8 +231,12 @@ export async function listMemories(opts?: {
 }): Promise<Memory[]> {
   const db = getDb();
   const conditions = [];
-  if (opts?.projectId) conditions.push(sql`EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id} AND mp.project_id = ${opts.projectId})`);
-  if (opts?.category) conditions.push(eq(memories.category, opts.category as typeof memories.category._.data));
+  if (opts?.projectId)
+    conditions.push(
+      sql`EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id} AND mp.project_id = ${opts.projectId})`,
+    );
+  if (opts?.category)
+    conditions.push(eq(memories.category, opts.category as typeof memories.category._.data));
   if (opts?.userId) conditions.push(eq(memories.userId, opts.userId));
 
   const query = db
@@ -251,15 +270,24 @@ export async function searchMemories(opts?: {
   const conditions: ReturnType<typeof eq>[] = [];
 
   if (opts?.scope === "global") {
-    conditions.push(sql`NOT EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id})`);
+    conditions.push(
+      sql`NOT EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id})`,
+    );
   } else if (opts?.scope === "project" && opts.projectId) {
-    conditions.push(sql`EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id} AND mp.project_id = ${opts.projectId})`);
+    conditions.push(
+      sql`EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id} AND mp.project_id = ${opts.projectId})`,
+    );
   } else if (opts?.scope === "all" && opts.projectId) {
-    conditions.push(sql`(EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id} AND mp.project_id = ${opts.projectId}) OR NOT EXISTS (SELECT 1 FROM memory_projects mp2 WHERE mp2.memory_id = ${memories.id}))`);
+    conditions.push(
+      sql`(EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id} AND mp.project_id = ${opts.projectId}) OR NOT EXISTS (SELECT 1 FROM memory_projects mp2 WHERE mp2.memory_id = ${memories.id}))`,
+    );
   } else if (opts?.projectId) {
-    conditions.push(sql`EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id} AND mp.project_id = ${opts.projectId})`);
+    conditions.push(
+      sql`EXISTS (SELECT 1 FROM memory_projects mp WHERE mp.memory_id = ${memories.id} AND mp.project_id = ${opts.projectId})`,
+    );
   }
-  if (opts?.category) conditions.push(eq(memories.category, opts.category as typeof memories.category._.data));
+  if (opts?.category)
+    conditions.push(eq(memories.category, opts.category as typeof memories.category._.data));
   if (opts?.userId) conditions.push(eq(memories.userId, opts.userId));
 
   // Default: exclude archived
@@ -271,7 +299,9 @@ export async function searchMemories(opts?: {
   }
 
   if (opts?.search) {
-    conditions.push(sql`to_tsvector('english', ${memories.content}) @@ plainto_tsquery('english', ${opts.search})`);
+    conditions.push(
+      sql`to_tsvector('english', ${memories.content}) @@ plainto_tsquery('english', ${opts.search})`,
+    );
   }
 
   const where = conditions.length === 1 ? conditions[0]! : and(...conditions);
@@ -361,9 +391,7 @@ export async function deleteMemory(id: string): Promise<void> {
 export async function touchMemoryAccess(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
   const db = getDb();
-  await db.update(memories)
-    .set({ lastAccessedAt: new Date() })
-    .where(inArray(memories.id, ids));
+  await db.update(memories).set({ lastAccessedAt: new Date() }).where(inArray(memories.id, ids));
 }
 
 export async function getMemoriesForDecay(): Promise<Memory[]> {

@@ -17,10 +17,7 @@ const decoder = new TextDecoder();
 let buffer = "";
 const stdoutWriter = Bun.stdout.writer();
 let nextRpcId = 1;
-const pendingRpcs = new Map<
-  number,
-  { resolve: (resp: JsonRpcResponse) => void }
->();
+const pendingRpcs = new Map<number, { resolve: (resp: JsonRpcResponse) => void }>();
 
 interface JsonRpcResponse {
   jsonrpc: "2.0";

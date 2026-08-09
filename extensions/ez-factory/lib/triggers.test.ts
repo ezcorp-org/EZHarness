@@ -278,9 +278,7 @@ describe("reading the reason off a thrown host error", () => {
   test("a throw with no typed reason gets a stable synthetic one", () => {
     // Never the MESSAGE: prose moves between builds and a trail keyed on
     // it cannot be aggregated.
-    expect(fireRefusalReason(new Error("something went wrong"))).toBe(
-      UNTYPED_REFUSAL_REASON,
-    );
+    expect(fireRefusalReason(new Error("something went wrong"))).toBe(UNTYPED_REFUSAL_REASON);
     expect(fireRefusalReason({ data: {} })).toBe(UNTYPED_REFUSAL_REASON);
     expect(fireRefusalReason({ data: { reason: 7 } })).toBe(UNTYPED_REFUSAL_REASON);
     expect(fireRefusalReason({ data: { reason: "" } })).toBe(UNTYPED_REFUSAL_REASON);
@@ -307,8 +305,8 @@ describe("the console's one-line fire state", () => {
   });
 
   test("each refusal kind reads differently — that IS the requirement", () => {
-    const labels = (["consent", "quota", "platform", "install", "job"] as const).map(
-      (kind) => fireStateLabel({ at, ok: false, kind } as JobFireOutcome),
+    const labels = (["consent", "quota", "platform", "install", "job"] as const).map((kind) =>
+      fireStateLabel({ at, ok: false, kind } as JobFireOutcome),
     );
     expect(labels).toEqual([
       "consent stale — re-authorize",

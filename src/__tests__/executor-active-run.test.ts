@@ -4,10 +4,7 @@ import { EventBus } from "../runtime/events";
 import { loadAgentsStatic } from "../runtime/loader";
 import type { AgentDefinition, AgentEvents } from "../types";
 
-function makeAgent(
-  name: string,
-  fn: AgentDefinition["execute"],
-): AgentDefinition {
+function makeAgent(name: string, fn: AgentDefinition["execute"]): AgentDefinition {
   return {
     name,
     description: `${name} agent`,

@@ -84,7 +84,10 @@ describe("read gate honours the $USER partition", () => {
   test("allows the acting user's own draft", async () => {
     const r = await checkFilesystemPermission(
       join(draftsRoot, ALICE, "draft-a", "index.ts"),
-      grant(), installDir, "read", ALICE,
+      grant(),
+      installDir,
+      "read",
+      ALICE,
     );
     expect(r.allowed).toBe(true);
   });
@@ -92,22 +95,26 @@ describe("read gate honours the $USER partition", () => {
   test("DENIES another user's draft", async () => {
     const r = await checkFilesystemPermission(
       join(draftsRoot, BOB, "draft-b", "index.ts"),
-      grant(), installDir, "read", ALICE,
+      grant(),
+      installDir,
+      "read",
+      ALICE,
     );
     expect(r.allowed).toBe(false);
   });
 
   test("DENIES the shared drafts root itself", async () => {
-    const r = await checkFilesystemPermission(
-      draftsRoot, grant(), installDir, "read", ALICE,
-    );
+    const r = await checkFilesystemPermission(draftsRoot, grant(), installDir, "read", ALICE);
     expect(r.allowed).toBe(false);
   });
 
   test("DENIES everything when no acting user is supplied", async () => {
     const r = await checkFilesystemPermission(
       join(draftsRoot, ALICE, "draft-a", "index.ts"),
-      grant(), installDir, "read", null,
+      grant(),
+      installDir,
+      "read",
+      null,
     );
     expect(r.allowed).toBe(false);
   });
@@ -115,10 +122,18 @@ describe("read gate honours the $USER partition", () => {
   test("regression: an un-partitioned grant still allows the whole tree", async () => {
     const wide = grantFor(draftsRoot);
     const own = await checkFilesystemPermission(
-      join(draftsRoot, ALICE, "draft-a", "index.ts"), wide, installDir, "read", ALICE,
+      join(draftsRoot, ALICE, "draft-a", "index.ts"),
+      wide,
+      installDir,
+      "read",
+      ALICE,
     );
     const other = await checkFilesystemPermission(
-      join(draftsRoot, BOB, "draft-b", "index.ts"), wide, installDir, "read", ALICE,
+      join(draftsRoot, BOB, "draft-b", "index.ts"),
+      wide,
+      installDir,
+      "read",
+      ALICE,
     );
     expect(own.allowed).toBe(true);
     // This is the pre-fix behaviour the narrowed grant removes.
@@ -132,7 +147,9 @@ describe("write gate honours the $USER partition", () => {
   test("allows a new file under the acting user's draft", async () => {
     const ok = await checkPrefixForWrite(
       join(draftsRoot, ALICE, "draft-a", "new-file.ts"),
-      prefixes(), installDir, ALICE,
+      prefixes(),
+      installDir,
+      ALICE,
     );
     expect(ok.allowed).toBe(true);
   });
@@ -140,7 +157,9 @@ describe("write gate honours the $USER partition", () => {
   test("DENIES a write into another user's draft", async () => {
     const ok = await checkPrefixForWrite(
       join(draftsRoot, BOB, "draft-b", "evil.ts"),
-      prefixes(), installDir, ALICE,
+      prefixes(),
+      installDir,
+      ALICE,
     );
     expect(ok.allowed).toBe(false);
     // Reaching another user's partition is an ESCAPE, not a platform
@@ -151,7 +170,9 @@ describe("write gate honours the $USER partition", () => {
   test("DENIES when no acting user is supplied", async () => {
     const ok = await checkPrefixForWrite(
       join(draftsRoot, ALICE, "draft-a", "new-file.ts"),
-      prefixes(), installDir, null,
+      prefixes(),
+      installDir,
+      null,
     );
     expect(ok.allowed).toBe(false);
     expect(ok.allowed === false && ok.denial).toBe("out-of-grant");

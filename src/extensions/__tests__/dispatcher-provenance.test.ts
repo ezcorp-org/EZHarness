@@ -25,12 +25,12 @@
 import { test, expect, describe, beforeEach, afterEach, beforeAll, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
-import {
-  resolveCallProvenance,
-  _resetCallProvenanceForTests,
-} from "../call-provenance";
+import { resolveCallProvenance, _resetCallProvenanceForTests } from "../call-provenance";
 
 // ── (a) + (b): event-subscription dispatch ──────────────────────────
 //
@@ -51,12 +51,13 @@ mock.module("../../db/queries/audit-log", () => ({
 }));
 
 const { EventBus } = await import("../../runtime/events");
-const { EventSubscriptionDispatcher } = await import(
-  "../event-subscription-dispatcher"
-);
+const { EventSubscriptionDispatcher } = await import("../event-subscription-dispatcher");
 type AgentEvents = import("../../types").AgentEvents;
 
-interface SendCall { method: string; params: Record<string, unknown>; }
+interface SendCall {
+  method: string;
+  params: Record<string, unknown>;
+}
 function mockProc() {
   const calls: SendCall[] = [];
   return {
@@ -148,11 +149,19 @@ describe("dispatcher provenance — event subscription (GAP 2 a/b)", () => {
 // notification, resolve the minted token, and assert ownerless:true.
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 mockDbConnection();
 
@@ -160,14 +169,25 @@ const { ScheduleDaemon } = await import("../schedule-daemon");
 const { extensionSchedules, extensions } = await import("../../db/schema");
 
 async function ensureExtension(name: string): Promise<string> {
-  const [row] = await getTestDb().insert(extensions).values({
-    name, version: "0.0.1", description: "",
-    manifest: {
-      schemaVersion: 2, name, version: "0.0.1", description: "",
-      author: { name: "t" }, permissions: {},
-    } as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name,
+      version: "0.0.1",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    })
+    .returning({ id: extensions.id });
   return row!.id;
 }
 
@@ -192,8 +212,10 @@ describe("dispatcher provenance — schedule-daemon cron fire (GAP 2 c)", () => 
   test("(c) cron fire attaches an ownerless:true token (no-resolvable-owner soft-fail path)", async () => {
     const past = new Date(Date.now() - 60_000);
     await getTestDb().insert(extensionSchedules).values({
-      extensionId: extId, cron: "0 * * * *",
-      nextFireAt: past, enabled: true,
+      extensionId: extId,
+      cron: "0 * * * *",
+      nextFireAt: past,
+      enabled: true,
     });
 
     let captured: { method: string; params: Record<string, unknown> } | null = null;

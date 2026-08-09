@@ -4,12 +4,12 @@
  */
 
 export type VersionInfo = {
-	current: string;
-	latest: string | null;
-	updateAvailable: boolean;
-	checkedAt: string | null;
-	source: "github-releases" | "disabled";
-	releaseUrl?: string;
+  current: string;
+  latest: string | null;
+  updateAvailable: boolean;
+  checkedAt: string | null;
+  source: "github-releases" | "disabled";
+  releaseUrl?: string;
 };
 
 export const DISMISS_STORAGE_KEY = "ezcorp-update-dismissed";
@@ -23,13 +23,13 @@ export const DISMISS_STORAGE_KEY = "ezcorp-update-dismissed";
  * dismissed the previous one, the banner reappears.
  */
 export function shouldShowBanner(
-	info: VersionInfo | null,
-	storage: Pick<Storage, "getItem"> | null,
+  info: VersionInfo | null,
+  storage: Pick<Storage, "getItem"> | null,
 ): boolean {
-	if (!info?.updateAvailable) return false;
-	if (!info.latest) return false;
-	if (!storage) return true;
-	return storage.getItem(DISMISS_STORAGE_KEY) !== info.latest;
+  if (!info?.updateAvailable) return false;
+  if (!info.latest) return false;
+  if (!storage) return true;
+  return storage.getItem(DISMISS_STORAGE_KEY) !== info.latest;
 }
 
 /**
@@ -38,5 +38,5 @@ export function shouldShowBanner(
  * latest won't re-show, but a newer release will.
  */
 export function dismissValue(info: VersionInfo): string | null {
-	return info.latest ?? null;
+  return info.latest ?? null;
 }

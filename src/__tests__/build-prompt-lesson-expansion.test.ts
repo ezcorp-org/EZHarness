@@ -44,13 +44,16 @@ let incrementShouldThrow = false;
 const lessonCalls: Array<{ projectId: string; ownerId: string; slug: string }> = [];
 const incrementCalls: string[] = [];
 
-let mockFeatures: Record<string, {
-  id: string;
-  projectId: string;
-  name: string;
-  description: string;
-  files: { relpath: string }[];
-}> = {};
+let mockFeatures: Record<
+  string,
+  {
+    id: string;
+    projectId: string;
+    name: string;
+    description: string;
+    files: { relpath: string }[];
+  }
+> = {};
 
 mock.module("../db/queries/projects", () => ({
   // build-prompt's @[file:…] block calls getProject(projectId). Return a
@@ -233,10 +236,10 @@ describe("buildPromptInput — feature + lesson expansion together", () => {
       body: "Avoid pattern X.",
     };
 
-    const result = await buildPromptInput(
-      "consider $[feature:bar] and %[lesson:dont]",
-      { projectId: "proj-1", ownerId: "user-1" },
-    );
+    const result = await buildPromptInput("consider $[feature:bar] and %[lesson:dont]", {
+      projectId: "proj-1",
+      ownerId: "user-1",
+    });
 
     // Both blocks present.
     const lessonIdx = result.text.indexOf("**Lesson: Don't do X**");

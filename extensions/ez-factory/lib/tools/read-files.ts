@@ -71,11 +71,7 @@ export const READ_FILES_TOOL = "read_files";
  * repository. `.ezcorp` is excluded from descent for the same reason the
  * platform denies it at the PDP — nothing under it is source material.
  */
-export const EXCLUDED_DIR_NAMES: ReadonlySet<string> = new Set([
-  ".git",
-  "node_modules",
-  ".ezcorp",
-]);
+export const EXCLUDED_DIR_NAMES: ReadonlySet<string> = new Set([".git", "node_modules", ".ezcorp"]);
 
 /** Root-anchored: Docker puts the PGlite datadir at `<root>/data/ezcorp`
  *  and backups at `<root>/data/backups` (EZCORP_DB_PATH=/app/data/ezcorp,
@@ -83,11 +79,7 @@ export const EXCLUDED_DIR_NAMES: ReadonlySet<string> = new Set([
  *  `src/data/` is ordinary source. */
 export const EXCLUDED_ROOT_DIR_NAMES: ReadonlySet<string> = new Set(["data"]);
 
-export type SkipReason =
-  | "file-too-large"
-  | "budget-exhausted"
-  | "unreadable"
-  | "path-too-long";
+export type SkipReason = "file-too-large" | "budget-exhausted" | "unreadable" | "path-too-long";
 
 export interface ReadFilesEntry {
   /** Project-root-relative. */
@@ -228,9 +220,7 @@ export function createReadFiles(deps: ToolDeps) {
         abs: string;
       }
       const candidates: Located[] = [];
-      const queue: Array<Located & { depth: number }> = [
-        { rel: relRoot, abs: absRoot, depth: 0 },
-      ];
+      const queue: Array<Located & { depth: number }> = [{ rel: relRoot, abs: absRoot, depth: 0 }];
       let dirsVisited = 0;
 
       walk: while (queue.length > 0) {
@@ -253,7 +243,9 @@ export function createReadFiles(deps: ToolDeps) {
 
         // Sorted so the same tree always produces the same result, which
         // is what makes "the budget ran out here" reproducible.
-        for (const entry of [...entries].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+        for (const entry of [...entries].sort((a, b) =>
+          a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+        )) {
           const rel = current.rel === "" ? entry.name : `${current.rel}/${entry.name}`;
           const abs = `${current.abs}/${entry.name}`;
           if (entry.isDirectory) {

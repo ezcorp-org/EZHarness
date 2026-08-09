@@ -1,11 +1,6 @@
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import {
-  setupTestDb,
-  closeTestDb,
-  mockDbConnection,
-  getTestDb,
-} from "./helpers/test-pglite";
+import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 

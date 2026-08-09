@@ -8,16 +8,14 @@
  * Rows without a `projectId` fall back to the `global` project segment.
  */
 export interface ActiveAgentHrefInput {
-	conversationId: string;
-	parentConversationId: string | null;
-	projectId: string | null;
+  conversationId: string;
+  parentConversationId: string | null;
+  projectId: string | null;
 }
 
 export function buildActiveAgentHref(row: ActiveAgentHrefInput): string {
-	const targetConvId = row.parentConversationId ?? row.conversationId;
-	const projectSegment = row.projectId ?? "global";
-	const query = row.parentConversationId
-		? `?agent=${encodeURIComponent(row.conversationId)}`
-		: "";
-	return `/project/${projectSegment}/chat/${targetConvId}${query}`;
+  const targetConvId = row.parentConversationId ?? row.conversationId;
+  const projectSegment = row.projectId ?? "global";
+  const query = row.parentConversationId ? `?agent=${encodeURIComponent(row.conversationId)}` : "";
+  return `/project/${projectSegment}/chat/${targetConvId}${query}`;
 }

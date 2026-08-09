@@ -354,7 +354,13 @@ describe("labelConversation — EXCLUSIONS (blocking: never negative)", () => {
       CONV,
       [
         user("u1", 0, null),
-        { id: "a1", role: "assistant", parentMessageId: "u1", createdAt: at(1), usage: { routingSignals: sig() } },
+        {
+          id: "a1",
+          role: "assistant",
+          parentMessageId: "u1",
+          createdAt: at(1),
+          usage: { routingSignals: sig() },
+        },
       ],
       facts,
     );

@@ -93,7 +93,13 @@ export async function up(db: MigrationDb): Promise<void> {
       PRIMARY KEY (session_id, entry_id)
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_seq ON agent_session_entries(session_id, seq)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_type ON agent_session_entries(session_id, type)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_parent ON agent_session_entries(session_id, parent_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_seq ON agent_session_entries(session_id, seq)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_type ON agent_session_entries(session_id, type)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_parent ON agent_session_entries(session_id, parent_id)`,
+  );
 }

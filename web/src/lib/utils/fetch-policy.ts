@@ -53,7 +53,7 @@ function bump(bucket: keyof FetchStats, key: string) {
   b[key] = (b[key] ?? 0) + 1;
 }
 
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   (window as unknown as { __ezFetchStats: FetchStats }).__ezFetchStats = stats;
 }
 
@@ -68,16 +68,16 @@ export async function backgroundFetch(
   policy: BackgroundOpts = {},
 ): Promise<Response | null> {
   const { minIntervalMs = 5_000, dedupInFlight = true } = policy;
-  const method = (opts.method ?? 'GET').toUpperCase();
+  const method = (opts.method ?? "GET").toUpperCase();
 
   // In-flight dedup only makes sense for idempotent reads. Never collapse
   // mutating requests — those are always user-initiated anyway.
-  const isIdempotent = method === 'GET' || method === 'HEAD';
+  const isIdempotent = method === "GET" || method === "HEAD";
 
   if (dedupInFlight && isIdempotent) {
     const existing = inFlight.get(key);
     if (existing) {
-      bump('deduped', key);
+      bump("deduped", key);
       // Every caller gets its OWN readable Response. A body can only be read
       // once, so handing out the shared one made the second reader's
       // `.json()` throw "body stream already read" — which silently killed
@@ -90,11 +90,11 @@ export async function backgroundFetch(
   const now = Date.now();
   const last = lastFetchedAt.get(key) ?? 0;
   if (now - last < minIntervalMs) {
-    bump('throttled', key);
+    bump("throttled", key);
     return null;
   }
   lastFetchedAt.set(key, now);
-  bump('issued', key);
+  bump("issued", key);
 
   const promise = fetch(url, opts);
   if (dedupInFlight && isIdempotent) {

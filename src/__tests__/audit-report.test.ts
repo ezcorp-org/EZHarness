@@ -15,7 +15,11 @@ afterAll(() => {
   rmSync(projectRoot, { recursive: true, force: true });
 });
 
-function verdict(name: string, surfaces: Partial<SurfaceVerdicts> = {}, fromCache = false): FeatureVerdict {
+function verdict(
+  name: string,
+  surfaces: Partial<SurfaceVerdicts> = {},
+  fromCache = false,
+): FeatureVerdict {
   const filled: SurfaceVerdicts = {
     sdk: surfaces.sdk ?? { exposed: false, via: "precheck" },
     ezbutton: surfaces.ezbutton ?? { exposed: false, via: "precheck" },
@@ -94,17 +98,19 @@ describe("writeReport", () => {
   });
 
   test("delta section reports verdict flips when prev provided", async () => {
-    const prev: FeatureClassification[] = [{
-      featureId: "id-x",
-      contentHash: "old",
-      surfaces: {
-        sdk: { exposed: false, via: "precheck" },
-        ezbutton: { exposed: false, via: "precheck" },
-        mcp: { exposed: false, via: "precheck" },
+    const prev: FeatureClassification[] = [
+      {
+        featureId: "id-x",
+        contentHash: "old",
+        surfaces: {
+          sdk: { exposed: false, via: "precheck" },
+          ezbutton: { exposed: false, via: "precheck" },
+          mcp: { exposed: false, via: "precheck" },
+        },
+        rationale: "",
+        classifiedAt: new Date(),
       },
-      rationale: "",
-      classifiedAt: new Date(),
-    }];
+    ];
     const path = await writeReport({
       projectId: "p1",
       projectName: "delta",
@@ -141,8 +147,17 @@ describe("writeReport", () => {
       projectRoot,
       verdicts: [
         verdict("auto-note", {
-          sdk: { exposed: true, via: "precheck", evidence: "docs/extensions/examples/auto-note/ezcorp.config.ts" },
-          mcp: { exposed: true, via: "precheck", evidence: "docs/extensions/examples/auto-note/ezcorp.config.ts: covered by extension_search MCP meta-tool" },
+          sdk: {
+            exposed: true,
+            via: "precheck",
+            evidence: "docs/extensions/examples/auto-note/ezcorp.config.ts",
+          },
+          mcp: {
+            exposed: true,
+            via: "precheck",
+            evidence:
+              "docs/extensions/examples/auto-note/ezcorp.config.ts: covered by extension_search MCP meta-tool",
+          },
         }),
       ],
       prevClassifications: [],

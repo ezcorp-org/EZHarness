@@ -1,5 +1,10 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { mockEmbedding, mockEmbeddingsModule } from "./helpers/mock-vectors";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { MemoryProvenance } from "../memory/types";
@@ -23,7 +28,10 @@ let globalMem2Id: string;
 let projectMem1Id: string;
 let projectMem2Id: string;
 
-async function insertTestMemory(content: string, opts?: { category?: string; projectId?: string | null }) {
+async function insertTestMemory(
+  content: string,
+  opts?: { category?: string; projectId?: string | null },
+) {
   const embedding = mockEmbedding();
   const provenance: MemoryProvenance = {
     sourceConversationId: conversationId,
@@ -53,7 +61,10 @@ beforeAll(async () => {
 
   // Create test data: 2 global + 2 project-specific
   const g1 = await insertTestMemory("Global memory one", { projectId: null });
-  const g2 = await insertTestMemory("Global memory two", { category: "preferences", projectId: null });
+  const g2 = await insertTestMemory("Global memory two", {
+    category: "preferences",
+    projectId: null,
+  });
   const p1 = await insertTestMemory("Project memory one");
   const p2 = await insertTestMemory("Project memory two", { category: "preferences" });
   globalMem1Id = g1.id;
@@ -76,8 +87,10 @@ beforeAll(async () => {
         if (url.searchParams.get("search")) params.search = url.searchParams.get("search");
         if (url.searchParams.get("status")) params.status = url.searchParams.get("status");
         if (url.searchParams.get("category")) params.category = url.searchParams.get("category");
-        if (url.searchParams.get("limit")) params.limit = parseInt(url.searchParams.get("limit")!, 10);
-        if (url.searchParams.get("offset")) params.offset = parseInt(url.searchParams.get("offset")!, 10);
+        if (url.searchParams.get("limit"))
+          params.limit = parseInt(url.searchParams.get("limit")!, 10);
+        if (url.searchParams.get("offset"))
+          params.offset = parseInt(url.searchParams.get("offset")!, 10);
         const results = await searchMemories(params);
         return Response.json(results);
       }
@@ -88,12 +101,23 @@ beforeAll(async () => {
         const { content, category, confidence, projectId: bodyProjectId } = body;
 
         if (!content || typeof content !== "string" || content.trim().length === 0) {
-          return Response.json({ error: "content is required and must be a non-empty string" }, { status: 400 });
+          return Response.json(
+            { error: "content is required and must be a non-empty string" },
+            { status: 400 },
+          );
         }
 
-        const VALID_CATEGORIES = ["preferences", "biographical", "technical", "decisions_goals"] as const;
+        const VALID_CATEGORIES = [
+          "preferences",
+          "biographical",
+          "technical",
+          "decisions_goals",
+        ] as const;
         if (!category || !VALID_CATEGORIES.includes(category)) {
-          return Response.json({ error: `category must be one of: ${VALID_CATEGORIES.join(", ")}` }, { status: 400 });
+          return Response.json(
+            { error: `category must be one of: ${VALID_CATEGORIES.join(", ")}` },
+            { status: 400 },
+          );
         }
 
         const embedding = mockEmbedding();

@@ -130,21 +130,12 @@ export interface ExportSummary {
  * exclusions is telling you something important about the dataset, and that is
  * only visible if the exclusions are counted.
  */
-export async function runExport(
-  args: ParsedExportArgs,
-  deps: ExportDeps,
-): Promise<ExportSummary> {
-  const ids = args.conversationId
-    ? [args.conversationId]
-    : await deps.conversationIds(args.days);
+export async function runExport(args: ParsedExportArgs, deps: ExportDeps): Promise<ExportSummary> {
+  const ids = args.conversationId ? [args.conversationId] : await deps.conversationIds(args.days);
   const all: LabelledSample[] = [];
   let emitted = 0;
   for (const id of ids) {
-    const samples = labelConversation(
-      id,
-      await deps.loadConversation(id),
-      deps.resolveModelFacts,
-    );
+    const samples = labelConversation(id, await deps.loadConversation(id), deps.resolveModelFacts);
     for (const sample of samples) {
       all.push(sample);
       if (!args.includeExcluded && sample.label === "excluded") continue;

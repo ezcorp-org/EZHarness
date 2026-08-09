@@ -15,26 +15,21 @@ import "@testing-library/jest-dom/vitest";
 import { render, fireEvent, waitFor } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach } from "vitest";
 
-const {
-  pageStore,
-  fetchAgentsMock,
-  fetchAgentConfigsMock,
-  rankAgentsMock,
-  WORKER_THRESHOLD,
-} = vi.hoisted(() => {
-  return {
-    pageStore: {
-      subscribe: (run: (v: { url: URL; params: Record<string, string> }) => void) => {
-        run({ url: new URL("http://localhost/agents"), params: {} });
-        return () => {};
+const { pageStore, fetchAgentsMock, fetchAgentConfigsMock, rankAgentsMock, WORKER_THRESHOLD } =
+  vi.hoisted(() => {
+    return {
+      pageStore: {
+        subscribe: (run: (v: { url: URL; params: Record<string, string> }) => void) => {
+          run({ url: new URL("http://localhost/agents"), params: {} });
+          return () => {};
+        },
       },
-    },
-    fetchAgentsMock: vi.fn(),
-    fetchAgentConfigsMock: vi.fn(),
-    rankAgentsMock: vi.fn(),
-    WORKER_THRESHOLD: 100,
-  };
-});
+      fetchAgentsMock: vi.fn(),
+      fetchAgentConfigsMock: vi.fn(),
+      rankAgentsMock: vi.fn(),
+      WORKER_THRESHOLD: 100,
+    };
+  });
 
 vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
 vi.mock("$app/stores", () => ({ page: pageStore }));
@@ -158,19 +153,13 @@ describe("/agents — Phase 49.2 fuzzy search", () => {
     // Manually-controlled deferred Promises so we can resolve out of order.
     let resolveFirst!: (v: { indices: number[]; usedWorker: boolean }) => void;
     let resolveSecond!: (v: { indices: number[]; usedWorker: boolean }) => void;
-    const firstPromise = new Promise<{ indices: number[]; usedWorker: boolean }>(
-      (r) => {
-        resolveFirst = r;
-      },
-    );
-    const secondPromise = new Promise<{ indices: number[]; usedWorker: boolean }>(
-      (r) => {
-        resolveSecond = r;
-      },
-    );
-    rankAgentsMock
-      .mockReturnValueOnce(firstPromise)
-      .mockReturnValueOnce(secondPromise);
+    const firstPromise = new Promise<{ indices: number[]; usedWorker: boolean }>((r) => {
+      resolveFirst = r;
+    });
+    const secondPromise = new Promise<{ indices: number[]; usedWorker: boolean }>((r) => {
+      resolveSecond = r;
+    });
+    rankAgentsMock.mockReturnValueOnce(firstPromise).mockReturnValueOnce(secondPromise);
 
     const { findByTestId, queryByText } = render(AgentsPage);
     const input = (await findByTestId("agent-search-input")) as HTMLInputElement;
@@ -208,10 +197,7 @@ describe("/agents — Phase 49.2 fuzzy search", () => {
   });
 
   test("empty results → shows 'No agents match' state with Clear button", async () => {
-    fetchAgentsMock.mockResolvedValue([
-      makeAgent("summarizer"),
-      makeAgent("translator"),
-    ]);
+    fetchAgentsMock.mockResolvedValue([makeAgent("summarizer"), makeAgent("translator")]);
     rankAgentsMock.mockResolvedValue({ indices: [], usedWorker: false });
     const { findByTestId, queryByTestId } = render(AgentsPage);
     const input = (await findByTestId("agent-search-input")) as HTMLInputElement;
@@ -226,6 +212,6 @@ describe("/agents — Phase 49.2 fuzzy search", () => {
       expect(queryByTestId("agent-search-empty")).toBeNull();
     });
     // Input should be empty after clear.
-    expect((await findByTestId("agent-search-input") as HTMLInputElement).value).toBe("");
+    expect(((await findByTestId("agent-search-input")) as HTMLInputElement).value).toBe("");
   });
 });

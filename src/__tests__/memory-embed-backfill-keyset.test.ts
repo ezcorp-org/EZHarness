@@ -18,26 +18,41 @@ const { createProject } = await import("../db/queries/projects");
 const { conversations, messages, messageChunks, messageEmbedOutbox } = await import("../db/schema");
 const { EMBEDDING_MODEL_ID } = await import("../memory/embeddings");
 
-const FULL = { dryRun: false, refreshStale: false, projectId: null, batchSize: 50, sleepMs: 0 } as const;
+const FULL = {
+  dryRun: false,
+  refreshStale: false,
+  projectId: null,
+  batchSize: 50,
+  sleepMs: 0,
+} as const;
 
 async function seedConversation() {
   const project = await createProject({ name: "p", path: `/tmp/keyset-${crypto.randomUUID()}` });
-  const [conv] = await getTestDb().insert(conversations).values({ projectId: project.id, title: "c", test: false }).returning();
+  const [conv] = await getTestDb()
+    .insert(conversations)
+    .values({ projectId: project.id, title: "c", test: false })
+    .returning();
   return conv!;
 }
 
 async function seedMessage(conversationId: string, content: string, createdAt?: Date) {
-  const [msg] = await getTestDb().insert(messages)
+  const [msg] = await getTestDb()
+    .insert(messages)
     .values({ conversationId, role: "user", content, ...(createdAt ? { createdAt } : {}) })
     .returning();
   return msg!;
 }
 
 async function seedStaleChunk(messageId: string, conversationId: string) {
-  await getTestDb().insert(messageChunks).values({
-    messageId, conversationId, content: "stale", chunkIndex: 0,
-    embeddingModelId: `${EMBEDDING_MODEL_ID}-OLD`,
-  });
+  await getTestDb()
+    .insert(messageChunks)
+    .values({
+      messageId,
+      conversationId,
+      content: "stale",
+      chunkIndex: 0,
+      embeddingModelId: `${EMBEDDING_MODEL_ID}-OLD`,
+    });
 }
 
 async function outboxCount() {
@@ -68,7 +83,10 @@ describe("gaps pass — composite keyset survives equal-timestamp groups", () =>
     expect(result.enqueued).toBe(3);
     expect(await outboxCount()).toBe(3);
     for (const m of [m1, m2, m3]) {
-      const row = await getTestDb().select().from(messageEmbedOutbox).where(eq(messageEmbedOutbox.messageId, m.id));
+      const row = await getTestDb()
+        .select()
+        .from(messageEmbedOutbox)
+        .where(eq(messageEmbedOutbox.messageId, m.id));
       expect(row.length).toBe(1);
     }
   });
@@ -102,17 +120,29 @@ describe("stale-model pass — paged + paced", () => {
     const conv = await seedConversation();
     const staleIds: string[] = [];
     for (let i = 0; i < 5; i++) {
-      const m = await seedMessage(conv.id, `stale ${i}`, new Date(`2026-04-0${i + 1}T00:00:00.000Z`));
+      const m = await seedMessage(
+        conv.id,
+        `stale ${i}`,
+        new Date(`2026-04-0${i + 1}T00:00:00.000Z`),
+      );
       await seedStaleChunk(m.id, conv.id);
       staleIds.push(m.id);
     }
 
     // batchSize=2 forces the stale pass to page (3 pages: 2,2,1).
-    const result = await runBackfill(getTestDb(), { ...FULL, refreshStale: true, batchSize: 2, sleepMs: 0 });
+    const result = await runBackfill(getTestDb(), {
+      ...FULL,
+      refreshStale: true,
+      batchSize: 2,
+      sleepMs: 0,
+    });
     expect(result.enqueued).toBe(5);
     expect(await outboxCount()).toBe(5);
     for (const id of staleIds) {
-      const row = await getTestDb().select().from(messageEmbedOutbox).where(eq(messageEmbedOutbox.messageId, id));
+      const row = await getTestDb()
+        .select()
+        .from(messageEmbedOutbox)
+        .where(eq(messageEmbedOutbox.messageId, id));
       expect(row.length).toBe(1);
       expect(row[0]!.status).toBe("pending");
     }
@@ -124,7 +154,12 @@ describe("stale-model pass — paged + paced", () => {
       const m = await seedMessage(conv.id, `s${i}`, new Date(`2026-05-0${i + 1}T00:00:00.000Z`));
       await seedStaleChunk(m.id, conv.id);
     }
-    const result = await runBackfill(getTestDb(), { ...FULL, refreshStale: true, batchSize: 2, dryRun: true });
+    const result = await runBackfill(getTestDb(), {
+      ...FULL,
+      refreshStale: true,
+      batchSize: 2,
+      dryRun: true,
+    });
     expect(result.enqueued).toBe(4);
     expect(await outboxCount()).toBe(0);
   });

@@ -23,10 +23,7 @@ import { systemCachedWorkflow, type CachedWorkflow } from "$server/runtime/workf
 import { makeNestedWorkflowResolver } from "$server/runtime/nested-workflow-resolver";
 import { terminalizeOrphanedWorkflowRuns } from "$server/db/queries/workflow-runs";
 import { startBackups, stopBackups } from "$server/db/backup";
-import {
-  installShutdownHandlers,
-  registerTeardown,
-} from "$lib/server/shutdown";
+import { installShutdownHandlers, registerTeardown } from "$lib/server/shutdown";
 import {
   bootSpawnFlaggedBundledExtensions,
   ensureBundledExtensions,
@@ -47,10 +44,7 @@ import {
 } from "$server/extensions/lifecycle-dispatcher";
 import { EventSubscriptionDispatcher } from "$server/extensions/event-subscription-dispatcher";
 import { getConversationExtensionIds } from "$server/db/queries/conversation-extensions";
-import {
-  createCommandRegistry,
-  type CommandRegistry,
-} from "$server/runtime/commands/registry";
+import { createCommandRegistry, type CommandRegistry } from "$server/runtime/commands/registry";
 import { listUserCommands } from "$server/db/queries/user-commands";
 import { initGoalHost, parseGoalEnabled, type GoalHost } from "$server/runtime/goal-host";
 import type { AgentEvents, WorkflowDefinition } from "$server/types";
@@ -59,9 +53,8 @@ import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import { existsSync } from "node:fs";
 
-const __dirname = typeof import.meta.dir === "string"
-  ? import.meta.dir
-  : dirname(fileURLToPath(import.meta.url));
+const __dirname =
+  typeof import.meta.dir === "string" ? import.meta.dir : dirname(fileURLToPath(import.meta.url));
 
 /**
  * Locate `<repoRoot>/src/agents` by walking up from this module's compiled
@@ -216,7 +209,8 @@ export async function ensureInitialized(): Promise<void> {
   // configured — which is exactly the deployment that needs it. Best-effort
   // and off the request path; a failure costs the extra models, never boot.
   void warmKiloCatalog().then((result) => {
-    if (result === "failed") console.warn("[kilo] catalog warm failed — free models limited to the built-in seed");
+    if (result === "failed")
+      console.warn("[kilo] catalog warm failed — free models limited to the built-in seed");
   });
   void terminalizeOrphanedWorkflowRuns()
     .then((count) => {
@@ -295,9 +289,7 @@ export async function ensureInitialized(): Promise<void> {
       ...(manifest.pages?.length
         ? {
             pageIds: manifest.pages.map((p) => p.id),
-            perProjectPageIds: manifest.pages
-              .filter((p) => p.perProject === true)
-              .map((p) => p.id),
+            perProjectPageIds: manifest.pages.filter((p) => p.perProject === true).map((p) => p.id),
           }
         : {}),
       ...(Array.isArray(grantedSubs) ? { eventSubscriptions: grantedSubs } : {}),
@@ -392,9 +384,8 @@ export async function ensureInitialized(): Promise<void> {
       bus,
       eventDriven: true,
     });
-    await bootSpawnFlaggedBundledExtensions(
-      registry,
-      (extId, proc) => bootExecutor.ensureSubprocessRpcWired(extId, proc),
+    await bootSpawnFlaggedBundledExtensions(registry, (extId, proc) =>
+      bootExecutor.ensureSubprocessRpcWired(extId, proc),
     );
   } catch (bootSpawnErr) {
     // Boot-spawn failures are individually logged inside the helper.

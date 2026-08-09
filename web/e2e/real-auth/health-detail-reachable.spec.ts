@@ -22,10 +22,7 @@
 import { test, expect } from "../fixtures/hydration.js";
 
 test.describe("admin health-detail reachability", () => {
-  test("?detail=true needs an admin; the bare probe needs nobody", async ({
-    request,
-    baseURL,
-  }) => {
+  test("?detail=true needs an admin; the bare probe needs nobody", async ({ request, baseURL }) => {
     // `request` carries the bootstrapped admin session cookie (storageState).
     // Pre-fix this returned 401 no matter who asked.
     const detail = await request.get("/api/health?detail=true");
@@ -61,9 +58,7 @@ test.describe("admin health-detail reachability", () => {
     expect(probeBody.providers).toBeUndefined();
   });
 
-  test("the other two public system probes are unchanged and anonymous", async ({
-    baseURL,
-  }) => {
+  test("the other two public system probes are unchanged and anonymous", async ({ baseURL }) => {
     // `/api/ready` and `/api/version` share the PUBLIC_PATHS allowlist with
     // `/api/health`, so they were checked for the same latent defect. Neither
     // reads `locals` nor applies a role gate — they return the same body to

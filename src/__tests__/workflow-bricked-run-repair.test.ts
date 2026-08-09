@@ -126,7 +126,7 @@ async function brickedRow(
            cursor = ${overrides.cursor === null ? null : (overrides.cursor ?? CURSOR)}::jsonb,
            suspended_reason = ${
              overrides.suspendedReason === null ? null : (overrides.suspendedReason ?? "approval")
-           },
+},
            claimed_by = 'inst-A',
            lease_expires_at = ${new Date(T0.getTime() + 60_000)}
      WHERE id = ${id}
@@ -223,7 +223,7 @@ describe("a legitimately-failed run is NOT repaired", () => {
   test("an ordinary failed run — no not-resumable code — is left alone", async () => {
     // The single most important negative: a step threw, the run failed,
     // and an operator is entitled to see it stay failed.
-    await brickedRow("real-failure", { code: "step-failed", message: "step \"a\" threw" });
+    await brickedRow("real-failure", { code: "step-failed", message: 'step "a" threw' });
 
     expect(await repairDaemonBrickedWorkflowRuns(db)).toBe(0);
     expect(await statusOf("real-failure")).toBe("error");

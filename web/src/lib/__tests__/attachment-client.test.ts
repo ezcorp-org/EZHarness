@@ -82,10 +82,17 @@ describe("getClientCapabilities", () => {
     const fetchImpl = (async () => {
       callIdx += 1;
       if (callIdx === 1) return new Response("{}", { status: 500 });
-      return new Response(JSON.stringify(CAPS), { status: 200, headers: { "Content-Type": "application/json" } });
+      return new Response(JSON.stringify(CAPS), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
     }) as any;
     let caught: unknown;
-    try { await getClientCapabilities("anthropic", "m", fetchImpl as any); } catch (e) { caught = e; }
+    try {
+      await getClientCapabilities("anthropic", "m", fetchImpl as any);
+    } catch (e) {
+      caught = e;
+    }
     expect(caught).toBeDefined();
     const hit = await getClientCapabilities("anthropic", "m", fetchImpl as any);
     expect(hit).toEqual(CAPS);

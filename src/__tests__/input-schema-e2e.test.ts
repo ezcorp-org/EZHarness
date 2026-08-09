@@ -3,7 +3,12 @@ import { AgentExecutor } from "../runtime/executor";
 import { EventBus } from "../runtime/events";
 import { loadAgents, loadAgentsStatic } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import type { AgentDefinition, AgentEvents } from "../types";
 
 mockDbConnection();
@@ -97,14 +102,14 @@ describe("Server round-trip with inputSchema", () => {
       body: JSON.stringify({ command: "echo roundtrip" }),
     });
     expect(postRes.status).toBe(200);
-    const postRun = await postRes.json() as any;
+    const postRun = (await postRes.json()) as any;
     expect(postRun.status).toBe("success");
     expect(postRun.result.success).toBe(true);
     expect(postRun.result.output.stdout.trim()).toBe("roundtrip");
 
     const getRes = await fetch(`${baseUrl}/api/runs/${postRun.id}`);
     expect(getRes.status).toBe(200);
-    const getRun = await getRes.json() as any;
+    const getRun = (await getRes.json()) as any;
     expect(getRun.id).toBe(postRun.id);
     expect(getRun.result.success).toBe(true);
     expect(getRun.result.output.stdout.trim()).toBe("roundtrip");
@@ -112,7 +117,7 @@ describe("Server round-trip with inputSchema", () => {
 
   test("GET /api/agents includes inputSchema for shell-runner", async () => {
     const res = await fetch(`${baseUrl}/api/agents`);
-    const agents = await res.json() as any;
+    const agents = (await res.json()) as any;
     const shellRunner = agents.find((a: any) => a.name === "shell-runner");
     expect(shellRunner).toBeDefined();
     expect(shellRunner.inputSchema).toBeDefined();

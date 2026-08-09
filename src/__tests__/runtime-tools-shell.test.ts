@@ -48,8 +48,9 @@ describe("createShellTool", () => {
     try {
       const tool = createShellTool(projectPath);
       const result = await tool.execute("1", {
-        // biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a JS template string
-        command: "echo \"secret=${SHELL_TEST_SECRET_KEY:-missing} public=${SHELL_TEST_PUBLIC_KEY:-missing}\"",
+        command:
+          // biome-ignore lint/suspicious/noTemplateCurlyInString: bash parameter expansion, not a JS template string
+          'echo "secret=${SHELL_TEST_SECRET_KEY:-missing} public=${SHELL_TEST_PUBLIC_KEY:-missing}"',
       });
       const text = getText(result);
       expect(text).toContain("secret=missing");

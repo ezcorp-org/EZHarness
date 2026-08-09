@@ -144,16 +144,22 @@ export async function writeTaskSnapshotForConversation(
     ...(snapshot.activeTaskId !== undefined ? { activeTaskId: snapshot.activeTaskId } : {}),
   };
   const sizeBytes = Buffer.byteLength(JSON.stringify(value), "utf-8");
-  await setStorageValue(extId, "conversation", conversationId, STORAGE_KEY, value, false, sizeBytes);
+  await setStorageValue(
+    extId,
+    "conversation",
+    conversationId,
+    STORAGE_KEY,
+    value,
+    false,
+    sizeBytes,
+  );
 }
 
 /**
  * Remove the stored snapshot for a conversation — used by tests (and
  * by a potential future "reset conversation" admin action).
  */
-export async function deleteTaskSnapshotForConversation(
-  conversationId: string,
-): Promise<boolean> {
+export async function deleteTaskSnapshotForConversation(conversationId: string): Promise<boolean> {
   const extId = await getTaskTrackingExtensionId();
   return deleteStorageValue(extId, "conversation", conversationId, STORAGE_KEY);
 }
@@ -171,9 +177,7 @@ export async function deleteTaskSnapshotForConversation(
  * bundled install both SKIP per-conversation wiring, and instead every
  * consumer trips this helper before touching the storage row.
  */
-export async function ensureTaskTrackingWired(
-  conversationId: string,
-): Promise<void> {
+export async function ensureTaskTrackingWired(conversationId: string): Promise<void> {
   const extId = await getTaskTrackingExtensionId();
   const db = getDb();
   await db

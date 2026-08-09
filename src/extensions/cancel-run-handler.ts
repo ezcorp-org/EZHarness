@@ -30,11 +30,7 @@
  * token has already been removed from the tracking maps.
  */
 
-import type {
-  JsonRpcRequest,
-  JsonRpcResponse,
-  ExtensionPermissions,
-} from "./types";
+import type { JsonRpcRequest, JsonRpcResponse, ExtensionPermissions } from "./types";
 import type { AgentExecutor } from "../runtime/executor";
 import type { SpawnQuota } from "./spawn-quota";
 import type { PermissionEngine } from "./permission-engine";
@@ -69,19 +65,14 @@ async function auditCancel(
   extra: Record<string, unknown>,
 ): Promise<void> {
   try {
-    await insertAuditEntry(
-      userId,
-      EXT_AUDIT_ACTIONS.SPAWN_CANCELLED,
-      extensionId,
-      {
-        permission: "spawnAgents",
-        oldValue: undefined,
-        newValue: undefined,
-        actor: "system",
-        reason,
-        ...extra,
-      },
-    );
+    await insertAuditEntry(userId, EXT_AUDIT_ACTIONS.SPAWN_CANCELLED, extensionId, {
+      permission: "spawnAgents",
+      oldValue: undefined,
+      newValue: undefined,
+      actor: "system",
+      reason,
+      ...extra,
+    });
   } catch {
     // Audit failure must never break the response path.
   }
@@ -112,9 +103,7 @@ export async function handleCancelRunRpc(
         extensionId,
         userId: auditUser,
         conversationId:
-          ctx.conversationId && ctx.conversationId !== "unknown"
-            ? ctx.conversationId
-            : null,
+          ctx.conversationId && ctx.conversationId !== "unknown" ? ctx.conversationId : null,
         toolName: "ezcorp/cancel-run",
       },
       [{ kind: "ezcorp:agent:spawn" }],

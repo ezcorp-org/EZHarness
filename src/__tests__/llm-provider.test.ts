@@ -113,9 +113,7 @@ describe("streamLLM", () => {
       throw new Error("Stream connection failed");
     });
 
-    await expect(streamLLM(fakeModel, fakeContext)).rejects.toThrow(
-      "Stream connection failed",
-    );
+    await expect(streamLLM(fakeModel, fakeContext)).rejects.toThrow("Stream connection failed");
   });
 });
 
@@ -164,9 +162,7 @@ describe("completeLLM", () => {
       throw new Error("Model overloaded");
     });
 
-    await expect(completeLLM(fakeModel, fakeContext)).rejects.toThrow(
-      "Model overloaded",
-    );
+    await expect(completeLLM(fakeModel, fakeContext)).rejects.toThrow("Model overloaded");
   });
 
   test("works with a google model — passes provider to getCredential", async () => {

@@ -104,7 +104,10 @@ function makeModel(reasoning: boolean): Model<"openai-responses"> {
  *  watchdog reads via `agent.state.model.reasoning` /
  *  `agent.state.thinkingLevel`. */
 function makeAgent(reasoning: boolean, thinkingLevel: ThinkingLevel): Agent {
-  return new Agent({ initialState: { model: makeModel(reasoning), thinkingLevel }, streamFn: streamSimple });
+  return new Agent({
+    initialState: { model: makeModel(reasoning), thinkingLevel },
+    streamFn: streamSimple,
+  });
 }
 
 // ── Fake clock + setInterval capture ───────────────────────────────────
@@ -141,7 +144,10 @@ async function advanceAndTick(deltaMs: number): Promise<void> {
 
 // ── Harness ────────────────────────────────────────────────────────────
 
-interface CapturedEvent { type: keyof AgentEvents & string; data: unknown }
+interface CapturedEvent {
+  type: keyof AgentEvents & string;
+  data: unknown;
+}
 
 /** Fake pi-agent stream the bridge subscribes to, so we can inject the
  *  synthetic events that drive bumpActivity. Distinct from the real Agent
@@ -153,7 +159,9 @@ function makePiAgentStream() {
       cb = fn;
       return () => {};
     },
-    fire(e: { type: string; [k: string]: unknown }) { cb(e); },
+    fire(e: { type: string; [k: string]: unknown }) {
+      cb(e);
+    },
     abort() {},
   };
 }
@@ -175,7 +183,13 @@ function setupHarness(reasoning: boolean, thinkingLevel: ThinkingLevel): Harness
     bus.on(t, (data) => events.push({ type: t, data }));
   }
 
-  const run: AgentRun = { id: RUN_ID, agentName: "chat", status: "running", startedAt: fakeNow, logs: [] };
+  const run: AgentRun = {
+    id: RUN_ID,
+    agentName: "chat",
+    status: "running",
+    startedAt: fakeNow,
+    logs: [],
+  };
   const runs = new Map([[RUN_ID, run]]);
   const controllers = new Map([[RUN_ID, new AbortController()]]);
 
@@ -233,7 +247,14 @@ function setupHarness(reasoning: boolean, thinkingLevel: ThinkingLevel): Harness
   };
 
   const piStream = makePiAgentStream();
-  subscribeBridge(ctx, host, piStream as unknown as Parameters<typeof subscribeBridge>[2], CONV_ID, {}, null);
+  subscribeBridge(
+    ctx,
+    host,
+    piStream as unknown as Parameters<typeof subscribeBridge>[2],
+    CONV_ID,
+    {},
+    null,
+  );
 
   return { events, watchdog, piStream, run };
 }

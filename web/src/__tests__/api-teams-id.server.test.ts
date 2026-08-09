@@ -54,9 +54,7 @@ describe("GET /api/teams/[id]", () => {
 
 describe("PUT /api/teams/[id]", () => {
   test("unauthenticated returns 401", async () => {
-    const res = await PUT(
-      makeEvent({ method: "PUT", locals: {}, body: { name: "new" } }),
-    );
+    const res = await PUT(makeEvent({ method: "PUT", locals: {}, body: { name: "new" } }));
     expect(res.status).toBe(401);
   });
 

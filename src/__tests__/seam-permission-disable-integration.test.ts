@@ -91,7 +91,11 @@ function buildManifest(): ExtensionManifestV2 {
       {
         name: TOOL_NAME,
         description: "Read a file",
-        inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+        inputSchema: {
+          type: "object",
+          properties: { path: { type: "string" } },
+          required: ["path"],
+        },
       },
     ],
     permissions: { filesystem: [] }, // populated per-test via setGrantedPermsForTest
@@ -251,10 +255,7 @@ describe("Seam 3: permission violation → DB disable → next call rejected", (
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
 
     await executor.handlePiFs(extensionId, makeFsRequest("read", join(outsideDir, "secret.txt")));
-    await executor.handlePiFs(
-      extensionId,
-      makeFsRequest("write", join(outsideDir, "secret.txt")),
-    );
+    await executor.handlePiFs(extensionId, makeFsRequest("write", join(outsideDir, "secret.txt")));
 
     const violations = await getSecurityViolations(extensionId);
     expect(violations).toHaveLength(2);

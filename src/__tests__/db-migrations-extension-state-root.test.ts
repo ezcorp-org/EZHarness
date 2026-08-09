@@ -92,10 +92,8 @@ async function localPair(db: Db, name: string) {
 /** The pair a row must land on once it points at `installPath`. */
 const localPairFor = (installPath: string) => [installPath, `local:${installPath}`];
 
-const stalePath = (name: string, root = ROOT) =>
-  `${root}/web/.ezcorp/extensions/${name}`;
-const canonicalPath = (name: string, root = ROOT) =>
-  `${root}/.ezcorp/extensions/${name}`;
+const stalePath = (name: string, root = ROOT) => `${root}/web/.ezcorp/extensions/${name}`;
+const canonicalPath = (name: string, root = ROOT) => `${root}/.ezcorp/extensions/${name}`;
 
 /** Seed a row in the stale (cwd-anchored) shape under `root`. */
 async function seedStale(db: Db, name: string, root = ROOT) {
@@ -289,12 +287,7 @@ describe("convergence and re-entrancy", () => {
     // Defensive: a row whose source was already fixed by hand but whose
     // install_path still dangles (the exact half-migrated state a manual
     // repair leaves behind) converges to fully canonical.
-    await seed(
-      db,
-      "halfway",
-      `local:${canonicalPath("halfway")}`,
-      stalePath("halfway"),
-    );
+    await seed(db, "halfway", `local:${canonicalPath("halfway")}`, stalePath("halfway"));
 
     await up(db, ROOT);
 

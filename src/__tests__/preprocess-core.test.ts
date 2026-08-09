@@ -143,9 +143,7 @@ describe("mimeMatches", () => {
 
 describe("matchPreprocessors", () => {
   test("one invocation per (extension, preprocessor, attachment) with matching MIME", () => {
-    const exts: PreprocessExtension[] = [
-      { extensionId: "e1", manifest: makeManifest("scanner") },
-    ];
+    const exts: PreprocessExtension[] = [{ extensionId: "e1", manifest: makeManifest("scanner") }];
     const { invocations: out, droppedByCap } = matchPreprocessors(
       exts,
       [att("a1"), att("a2", "application/pdf"), att("a3", "image/jpeg")],
@@ -393,9 +391,11 @@ describe("runPreprocessors", () => {
     // Truncated to the budget with a visible marker…
     expect(note).toContain("[truncated]");
     // …and the trailing do-not-retry directive names the tool.
-    expect(note.endsWith(
-      "Do not call identify on this attachment again this turn — report the failure to the user.",
-    )).toBe(true);
+    expect(
+      note.endsWith(
+        "Do not call identify on this attachment again this turn — report the failure to the user.",
+      ),
+    ).toBe(true);
     // The persisted row keeps the VERBATIM output (defang/truncate = note-only).
     const payload = JSON.parse(persist.rows[0]!.content) as PreprocessRowPayload;
     expect(payload.output).toBe(hostile);
@@ -635,21 +635,18 @@ describe("runPreprocessors", () => {
   test("onStatus fires once per invocation, BEFORE its dispatch, naming the extension", async () => {
     const persist = makePersist();
     const events: string[] = [];
-    await runPreprocessors(
-      [makeInvocation(), makeInvocation({ attachment: att("a2") })],
-      {
-        invokeTool: async (inv) => {
-          events.push(`dispatch:${inv.attachment.id}`);
-          return okResult("ok");
-        },
-        persistRow: persist.persistRow,
-        parentMessageId: null,
-        log: makeLog(),
-        onStatus: (status) => {
-          events.push(`status:${status}`);
-        },
+    await runPreprocessors([makeInvocation(), makeInvocation({ attachment: att("a2") })], {
+      invokeTool: async (inv) => {
+        events.push(`dispatch:${inv.attachment.id}`);
+        return okResult("ok");
       },
-    );
+      persistRow: persist.persistRow,
+      parentMessageId: null,
+      log: makeLog(),
+      onStatus: (status) => {
+        events.push(`status:${status}`);
+      },
+    });
     expect(events).toEqual([
       "status:Running scanner preprocessor…",
       "dispatch:a1",
@@ -693,9 +690,7 @@ function makeTurnArgs(overrides: Partial<Parameters<typeof runPreprocessorsForTu
     registry: {
       getManifest: (id) => (id === "ext-1" ? manifest : undefined),
       getToolsForExtension: (id) =>
-        id === "ext-1"
-          ? [{ name: "graded-card-scanner__identify", originalName: "identify" }]
-          : [],
+        id === "ext-1" ? [{ name: "graded-card-scanner__identify", originalName: "identify" }] : [],
     },
     executeToolCall: async (toolName, input) => {
       fakes.invoked.push({ toolName, input });
@@ -818,9 +813,7 @@ describe("runPreprocessorsForTurn", () => {
     expect(result.notes[result.notes.length - 1]).toBe(
       "[preprocess: 1 additional attachment(s) skipped — per-turn cap]",
     );
-    expect(
-      result.notes.filter((n) => n.includes("per-turn cap")),
-    ).toHaveLength(1);
+    expect(result.notes.filter((n) => n.includes("per-turn cap"))).toHaveLength(1);
   });
 
   test("no cap overflow → no cap note", async () => {
@@ -862,9 +855,7 @@ describe("runPreprocessorsForTurn", () => {
       // Registry has NO manifest (the extension is disabled) → candidate.
       registry: { getManifest: () => undefined, getToolsForExtension: () => [] },
       getDisabledExtension: async (id) =>
-        id === "ext-disabled"
-          ? { name: "graded-card-scanner", manifest: disabledManifest }
-          : null,
+        id === "ext-disabled" ? { name: "graded-card-scanner", manifest: disabledManifest } : null,
     });
     const result = await runPreprocessorsForTurn(args);
 
@@ -946,9 +937,7 @@ describe("runPreprocessorsForTurn", () => {
         return { id: `msg-${persisted.length}` };
       },
       getDisabledExtension: async (id) =>
-        id === "ext-disabled"
-          ? { name: "graded-card-scanner", manifest: disabledManifest }
-          : null,
+        id === "ext-disabled" ? { name: "graded-card-scanner", manifest: disabledManifest } : null,
     });
     const result = await runPreprocessorsForTurn(args);
 
@@ -959,6 +948,8 @@ describe("runPreprocessorsForTurn", () => {
     expect(result.lastRowId).toBe("msg-2");
     // Both a success note and a SKIPPED note ground the turn.
     expect(result.notes.some((n) => n.includes("SKIPPED"))).toBe(true);
-    expect(result.notes.some((n) => !n.includes("SKIPPED") && n.includes("Deterministic preprocess"))).toBe(true);
+    expect(
+      result.notes.some((n) => !n.includes("SKIPPED") && n.includes("Deterministic preprocess")),
+    ).toBe(true);
   });
 });

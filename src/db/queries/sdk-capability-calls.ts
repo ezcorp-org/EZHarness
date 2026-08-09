@@ -52,11 +52,10 @@ export function clampDays(value: number): number {
   return Math.max(1, Math.min(3650, Math.floor(value)));
 }
 
-export async function insertSdkCapabilityCall(row: NewSdkCapabilityCall): Promise<SdkCapabilityCall> {
-  const [inserted] = await getDb()
-    .insert(sdkCapabilityCalls)
-    .values(row)
-    .returning();
+export async function insertSdkCapabilityCall(
+  row: NewSdkCapabilityCall,
+): Promise<SdkCapabilityCall> {
+  const [inserted] = await getDb().insert(sdkCapabilityCalls).values(row).returning();
   return inserted!;
 }
 
@@ -89,7 +88,13 @@ export async function listSdkCapabilityCallsForExtension(
   const limit = opts.limit ?? DEFAULT_LIMIT;
   const cursorAt = await resolveCursor(opts.cursor);
   const conds = [eq(sdkCapabilityCalls.extensionId, extensionId)];
-  if (opts.capability) conds.push(eq(sdkCapabilityCalls.capability, opts.capability as "llm" | "memory" | "lessons" | "schedule" | "events" | "search"));
+  if (opts.capability)
+    conds.push(
+      eq(
+        sdkCapabilityCalls.capability,
+        opts.capability as "llm" | "memory" | "lessons" | "schedule" | "events" | "search",
+      ),
+    );
   if (opts.since) conds.push(gt(sdkCapabilityCalls.createdAt, opts.since));
   if (opts.until) conds.push(lt(sdkCapabilityCalls.createdAt, opts.until));
   if (cursorAt) conds.push(lt(sdkCapabilityCalls.createdAt, cursorAt));
@@ -124,7 +129,13 @@ export async function listSdkCapabilityCallsForUser(
   const limit = opts.limit ?? DEFAULT_LIMIT;
   const cursorAt = await resolveCursor(opts.cursor);
   const conds = [eq(sdkCapabilityCalls.onBehalfOf, userId)];
-  if (opts.capability) conds.push(eq(sdkCapabilityCalls.capability, opts.capability as "llm" | "memory" | "lessons" | "schedule" | "events" | "search"));
+  if (opts.capability)
+    conds.push(
+      eq(
+        sdkCapabilityCalls.capability,
+        opts.capability as "llm" | "memory" | "lessons" | "schedule" | "events" | "search",
+      ),
+    );
   if (cursorAt) conds.push(lt(sdkCapabilityCalls.createdAt, cursorAt));
   return getDb()
     .select()
@@ -170,9 +181,7 @@ export interface RetentionConfig {
  * `clampDays` (which floors at 1), so a stray admin setting of 0
  * cannot bypass retention. Per validator CR-3.
  */
-export async function cleanupOldSdkCapabilityCalls(
-  retention: RetentionConfig,
-): Promise<number> {
+export async function cleanupOldSdkCapabilityCalls(retention: RetentionConfig): Promise<number> {
   const force = retention.force === true;
   const llm = clampDays(retention.llmDays);
   const memory = clampDays(retention.memoryDays);
@@ -203,11 +212,11 @@ export async function cleanupOldSdkCapabilityCalls(
       WHERE id IN (
         SELECT id FROM sdk_capability_calls
         WHERE
-          (capability = 'llm'      AND ${useZeroLLM     ? sql`TRUE` : sql`created_at < ${nowMinusInterval(llm, "days")}`})
-       OR (capability = 'memory'   AND ${useZeroMemory  ? sql`TRUE` : sql`created_at < ${nowMinusInterval(memory, "days")}`})
+          (capability = 'llm'      AND ${useZeroLLM ? sql`TRUE` : sql`created_at < ${nowMinusInterval(llm, "days")}`})
+       OR (capability = 'memory'   AND ${useZeroMemory ? sql`TRUE` : sql`created_at < ${nowMinusInterval(memory, "days")}`})
        OR (capability = 'lessons'  AND ${useZeroLessons ? sql`TRUE` : sql`created_at < ${nowMinusInterval(lessons, "days")}`})
        OR (capability = 'schedule' AND ${useZeroSchedule ? sql`TRUE` : sql`created_at < ${nowMinusInterval(schedule, "days")}`})
-       OR (capability = 'events'   AND ${useZeroEvents  ? sql`TRUE` : sql`created_at < ${nowMinusInterval(events, "days")}`})
+       OR (capability = 'events'   AND ${useZeroEvents ? sql`TRUE` : sql`created_at < ${nowMinusInterval(events, "days")}`})
         LIMIT ${CLEANUP_BATCH_LIMIT}
       )
     `);
@@ -216,8 +225,11 @@ export async function cleanupOldSdkCapabilityCalls(
     // `rowCount` is the standard property; `affectedRows` is set on
     // some drivers; otherwise we count the rows that match the
     // predicate to detect "nothing more to delete."
-    const deleted = ((result as unknown) as { rowCount?: number; affectedRows?: number; rows?: unknown[] })
-      ?.rowCount ?? ((result as unknown) as { affectedRows?: number }).affectedRows ?? 0;
+    const deleted =
+      (result as unknown as { rowCount?: number; affectedRows?: number; rows?: unknown[] })
+        ?.rowCount ??
+      (result as unknown as { affectedRows?: number }).affectedRows ??
+      0;
 
     if (deleted === 0) {
       // Either no driver report, or really nothing left. Probe the
@@ -227,11 +239,11 @@ export async function cleanupOldSdkCapabilityCalls(
         .select({ id: sdkCapabilityCalls.id })
         .from(sdkCapabilityCalls)
         .where(sql`
-          (capability = 'llm'      AND ${useZeroLLM     ? sql`TRUE` : sql`created_at < ${nowMinusInterval(llm, "days")}`})
-       OR (capability = 'memory'   AND ${useZeroMemory  ? sql`TRUE` : sql`created_at < ${nowMinusInterval(memory, "days")}`})
+          (capability = 'llm'      AND ${useZeroLLM ? sql`TRUE` : sql`created_at < ${nowMinusInterval(llm, "days")}`})
+       OR (capability = 'memory'   AND ${useZeroMemory ? sql`TRUE` : sql`created_at < ${nowMinusInterval(memory, "days")}`})
        OR (capability = 'lessons'  AND ${useZeroLessons ? sql`TRUE` : sql`created_at < ${nowMinusInterval(lessons, "days")}`})
        OR (capability = 'schedule' AND ${useZeroSchedule ? sql`TRUE` : sql`created_at < ${nowMinusInterval(schedule, "days")}`})
-       OR (capability = 'events'   AND ${useZeroEvents  ? sql`TRUE` : sql`created_at < ${nowMinusInterval(events, "days")}`})
+       OR (capability = 'events'   AND ${useZeroEvents ? sql`TRUE` : sql`created_at < ${nowMinusInterval(events, "days")}`})
         `)
         .limit(1);
       if (remaining.length === 0) break;

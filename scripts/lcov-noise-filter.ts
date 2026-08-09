@@ -191,8 +191,7 @@ const INTERFACE_DECL = /^\s*(export\s+)?interface\s+\w+/;
 // (`export class Foo { count = 0; }` has `=`), a decorator/registration call
 // (`registerClass(class Foo {` has `(`), or content past the `{`. Such lines
 // emit real JS and must keep their DA record.
-const CLASS_DECL =
-  /^\s*(export\s+)?(default\s+)?(abstract\s+)?class\b[^=({]*\{?\s*$/;
+const CLASS_DECL = /^\s*(export\s+)?(default\s+)?(abstract\s+)?class\b[^=({]*\{?\s*$/;
 
 // Declaration-only class field with access/modifier prefix and a TYPE
 // annotation but NO initializer: `private readonly maxEntries: number;`,
@@ -281,7 +280,8 @@ export function templateInteriorProseLines(lines: string[]): Set<number> {
           }
         }
       } else if (state === "template") {
-        if (ch === "\\") c++; // escape
+        if (ch === "\\")
+          c++; // escape
         else if (ch === "`") {
           state = "code";
           stayedInTemplate = false;

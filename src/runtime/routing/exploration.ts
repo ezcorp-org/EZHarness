@@ -71,9 +71,7 @@ export function parseExplorationRate(value: unknown): number {
 
 /** {@link validateExplorationRate}'s result: the accepted probability, or the
  *  reason the submitted value is not one. */
-export type ExplorationRateValidation =
-  | { ok: true; rate: number }
-  | { ok: false; error: string };
+export type ExplorationRateValidation = { ok: true; rate: number } | { ok: false; error: string };
 
 /**
  * WRITE-time validation for the settings PUT route.

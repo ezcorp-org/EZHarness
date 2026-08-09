@@ -562,10 +562,7 @@ test.describe("ez-factory job editor", () => {
     expect(body.payload).not.toHaveProperty("trigger_tokens_per_run");
   });
 
-  test("a background job says out loud that saving it armed nothing", async ({
-    page,
-    mockApi,
-  }) => {
+  test("a background job says out loud that saving it armed nothing", async ({ page, mockApi }) => {
     // Saving a schedule mints no authority — a `workflow_delegations` row
     // does, and only a human can create one. Without this line the console
     // would show a job whose Trigger reads `cron · 0 3 * * 1` and which

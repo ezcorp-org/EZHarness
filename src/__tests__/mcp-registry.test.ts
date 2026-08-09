@@ -79,7 +79,9 @@ describe("ExtensionRegistry getMcpClient", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (registry as any).mcpClients.set("fails-1", {
       isConnected: false,
-      connect: async () => { throw new Error("boom"); },
+      connect: async () => {
+        throw new Error("boom");
+      },
       close: async () => {},
       listTools: async () => [],
       callTool: async () => ({ content: [], isError: false }),
@@ -144,7 +146,17 @@ describe("ExtensionRegistry getMcpClient", () => {
 
     // Stub McpClient connect to avoid spawning a real process
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const fakeClient: any = { _connected: false, isConnected: false, connect: async function () { this._connected = true; this.isConnected = true; }, close: async () => {}, listTools: async () => [], callTool: async () => ({ content: [], isError: false }) };
+    const fakeClient: any = {
+      _connected: false,
+      isConnected: false,
+      connect: async function () {
+        this._connected = true;
+        this.isConnected = true;
+      },
+      close: async () => {},
+      listTools: async () => [],
+      callTool: async () => ({ content: [], isError: false }),
+    };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (registry as any).mcpClients.set("cached-1", fakeClient);
 
@@ -159,9 +171,15 @@ describe("ExtensionRegistry refreshMcpTools", () => {
   test("throws for non-MCP extensions", async () => {
     const registry = ExtensionRegistry.getInstance();
     const manifest: ExtensionManifestV2 = {
-      schemaVersion: 2, name: "nm", version: "1.0.0", description: "",
-      author: { name: "t" }, kind: "local", entrypoint: "./x.ts",
-      tools: [], permissions: {},
+      schemaVersion: 2,
+      name: "nm",
+      version: "1.0.0",
+      description: "",
+      author: { name: "t" },
+      kind: "local",
+      entrypoint: "./x.ts",
+      tools: [],
+      permissions: {},
     };
     registry.setManifestForTest("nonmcp-1", manifest);
     await expect(registry.refreshMcpTools("nonmcp-1")).rejects.toThrow(/not an MCP extension/);
@@ -172,9 +190,7 @@ describe("ExtensionRegistry refreshMcpTools", () => {
     const installed = await installMcpExtension({
       name: "refresh-mcp",
       server: { transport: "stdio", name: "refresh-mcp", command: "node" },
-      cachedTools: [
-        { name: "old", description: "old", inputSchema: { type: "object" } },
-      ],
+      cachedTools: [{ name: "old", description: "old", inputSchema: { type: "object" } }],
     });
 
     const registry = ExtensionRegistry.getInstance();
@@ -216,9 +232,7 @@ describe("ExtensionRegistry.loadFromDb with MCP-kind rows", () => {
     const installed = await installMcpExtension({
       name: "load-mcp",
       server: { transport: "http", name: "load-mcp", url: "https://ex.com/mcp" },
-      cachedTools: [
-        { name: "h", description: "", inputSchema: { type: "object" } },
-      ],
+      cachedTools: [{ name: "h", description: "", inputSchema: { type: "object" } }],
     });
     const registry = ExtensionRegistry.getInstance();
     await registry.loadFromDb();
@@ -234,9 +248,22 @@ describe("ExtensionRegistry.killAll closes MCP clients", () => {
     let closedA = false;
     let closedB = false;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const map = (registry as any).mcpClients as Map<string, { close: () => Promise<void>; isConnected: boolean }>;
-    map.set("a", { close: async () => { closedA = true; }, isConnected: true });
-    map.set("b", { close: async () => { closedB = true; }, isConnected: true });
+    const map = (registry as any).mcpClients as Map<
+      string,
+      { close: () => Promise<void>; isConnected: boolean }
+    >;
+    map.set("a", {
+      close: async () => {
+        closedA = true;
+      },
+      isConnected: true,
+    });
+    map.set("b", {
+      close: async () => {
+        closedB = true;
+      },
+      isConnected: true,
+    });
 
     registry.killAll();
 

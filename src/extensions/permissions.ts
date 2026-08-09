@@ -130,9 +130,7 @@ function expandUserSegment(prefix: string, actingUserId?: string | null): string
  * exact granted subtree; a sibling outside it still fails the
  * caller's `startsWith(prefix + "/")` compare.
  */
-export async function resolveGrantPrefixCanonical(
-  absPrefix: string,
-): Promise<string | null> {
+export async function resolveGrantPrefixCanonical(absPrefix: string): Promise<string | null> {
   try {
     return await realpath(absPrefix);
   } catch {
@@ -202,14 +200,8 @@ export async function resolveGrantPrefixCanonical(
  */
 async function resolveReservedSensitiveDirs(): Promise<string[]> {
   const root = getProjectRoot();
-  const raw = [
-    join(root, ".ezcorp", "data"),
-    join(root, ".ezcorp", "backups"),
-    ...getDbMaskDirs(),
-  ];
-  const resolved = await Promise.all(
-    raw.map((p) => resolveGrantPrefixCanonical(p)),
-  );
+  const raw = [join(root, ".ezcorp", "data"), join(root, ".ezcorp", "backups"), ...getDbMaskDirs()];
+  const resolved = await Promise.all(raw.map((p) => resolveGrantPrefixCanonical(p)));
   // Drop unresolvable (null) entries; de-dup canonical paths.
   return [...new Set(resolved.filter((p): p is string => p !== null))];
 }
@@ -224,13 +216,9 @@ async function resolveReservedSensitiveDirs(): Promise<string[]> {
  *
  * Segment-bounded: `p === reserved || p.startsWith(reserved + "/")`.
  */
-export async function isReservedSensitivePath(
-  resolvedRealPath: string,
-): Promise<boolean> {
+export async function isReservedSensitivePath(resolvedRealPath: string): Promise<boolean> {
   const reserved = await resolveReservedSensitiveDirs();
-  return reserved.some(
-    (r) => resolvedRealPath === r || resolvedRealPath.startsWith(r + "/"),
-  );
+  return reserved.some((r) => resolvedRealPath === r || resolvedRealPath.startsWith(r + "/"));
 }
 
 // ── Secure Filesystem Permission Check (realpath-resolved) ─────────
@@ -266,10 +254,7 @@ export type FilesystemMode = "read" | "write";
  * Ask "was this an escape?" via {@link isGrantEscape} — never by
  * comparing strings and never by `!allowed`.
  */
-export type FilesystemDenialKind =
-  | "not-found"
-  | "reserved-carveout"
-  | "out-of-grant";
+export type FilesystemDenialKind = "not-found" | "reserved-carveout" | "out-of-grant";
 
 /**
  * The single classification table for {@link FilesystemDenialKind}.
@@ -444,12 +429,20 @@ export function getRequiredPermissions(manifest: ExtensionManifest): PermissionI
 
   if (perms.network) {
     for (const domain of perms.network) {
-      items.push({ type: "network", value: domain, description: PERMISSION_DESCRIPTIONS.network!(domain) });
+      items.push({
+        type: "network",
+        value: domain,
+        description: PERMISSION_DESCRIPTIONS.network!(domain),
+      });
     }
   }
   if (perms.filesystem) {
     for (const path of perms.filesystem) {
-      items.push({ type: "filesystem", value: path, description: PERMISSION_DESCRIPTIONS.filesystem!(path) });
+      items.push({
+        type: "filesystem",
+        value: path,
+        description: PERMISSION_DESCRIPTIONS.filesystem!(path),
+      });
     }
   }
   if (perms.shell) {
@@ -457,11 +450,19 @@ export function getRequiredPermissions(manifest: ExtensionManifest): PermissionI
   }
   if (perms.env) {
     for (const varName of perms.env) {
-      items.push({ type: "env", value: varName, description: PERMISSION_DESCRIPTIONS.env!(varName) });
+      items.push({
+        type: "env",
+        value: varName,
+        description: PERMISSION_DESCRIPTIONS.env!(varName),
+      });
     }
   }
   if (perms.storage) {
-    items.push({ type: "storage", value: true, description: PERMISSION_DESCRIPTIONS.storage!(true) });
+    items.push({
+      type: "storage",
+      value: true,
+      description: PERMISSION_DESCRIPTIONS.storage!(true),
+    });
   }
 
   return items;
@@ -612,9 +613,7 @@ export interface AlwaysAllowRecord {
  * legacy `false`, new `{allowed: false}`, malformed objects, undefined,
  * arrays, strings) collapses to `"needs_confirmation"` — fail-closed.
  */
-export function parseAlwaysAllowValue(
-  value: unknown,
-): "allowed" | "needs_confirmation" {
+export function parseAlwaysAllowValue(value: unknown): "allowed" | "needs_confirmation" {
   // Legacy boolean shape — pre-Phase-1 rows that haven't been rewritten.
   if (value === true) return "allowed";
   if (value === false) return "needs_confirmation";
@@ -622,11 +621,7 @@ export function parseAlwaysAllowValue(
   // New shape — `{allowed: boolean, grantedAt: number}`. Reject any
   // value that doesn't match the contract exactly. `allowed` MUST be
   // a boolean (not "true"/"yes"/1) and `grantedAt` MUST be a number.
-  if (
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value)
-  ) {
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
     const v = value as Record<string, unknown>;
     if (typeof v.allowed === "boolean" && typeof v.grantedAt === "number") {
       return v.allowed ? "allowed" : "needs_confirmation";
@@ -658,9 +653,7 @@ export function parseAlwaysAllowValue(
  * Defensive: accepts `unknown` so the sweep can call it directly on a
  * raw `row.value` from the settings table without pre-narrowing.
  */
-export function readTtlOverrideMs(
-  value: unknown,
-): number | null | undefined {
+export function readTtlOverrideMs(value: unknown): number | null | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
     return undefined;
   }

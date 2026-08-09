@@ -43,15 +43,11 @@ const log = logger.child("startup/assert-critical-extensions");
  */
 const CRITICAL_CONSEQUENCE: Record<string, string> = {
   "ask-user": "agents cannot ask the user for clarification",
-  "task-tracking":
-    "agents cannot self-structure recovery / track multi-step work",
+  "task-tracking": "agents cannot self-structure recovery / track multi-step work",
 };
 
 function consequenceFor(name: string): string {
-  return (
-    CRITICAL_CONSEQUENCE[name] ??
-    "agents lose a loop-safety capability"
-  );
+  return CRITICAL_CONSEQUENCE[name] ?? "agents lose a loop-safety capability";
 }
 
 export interface CriticalAssertionResult {
@@ -96,10 +92,9 @@ export async function assertCriticalExtensions(): Promise<CriticalAssertionResul
       // Install failed earlier in ensureBundledExtensions — that path
       // already logged. Surface here too: a missing critical extension
       // is as bad as a disabled one (agents can't ask the user).
-      log.error(
-        `CRITICAL extension ${entry.name} not installed — ${consequenceFor(entry.name)}`,
-        { name: entry.name },
-      );
+      log.error(`CRITICAL extension ${entry.name} not installed — ${consequenceFor(entry.name)}`, {
+        name: entry.name,
+      });
       result.violations.push(entry.name);
       result.unremediated.push(entry.name);
       continue;
@@ -111,18 +106,16 @@ export async function assertCriticalExtensions(): Promise<CriticalAssertionResul
 
     // ── Violation ────────────────────────────────────────────────────
     result.violations.push(entry.name);
-    log.error(
-      `CRITICAL extension ${entry.name} disabled — ${consequenceFor(entry.name)}`,
-      { name: entry.name, extensionId: row.id },
-    );
+    log.error(`CRITICAL extension ${entry.name} disabled — ${consequenceFor(entry.name)}`, {
+      name: entry.name,
+      extensionId: row.id,
+    });
 
     // One-time remediation: re-enable IFF on-disk perms are within
     // the bundled ceiling. The ceiling stays the hard security bound.
     let diskManifest: ExtensionManifestV2 | null = null;
     try {
-      diskManifest = await loadManifestFresh(
-        join(getProjectRoot(), entry.path),
-      );
+      diskManifest = await loadManifestFresh(join(getProjectRoot(), entry.path));
     } catch (e) {
       log.error(
         `CRITICAL extension ${entry.name} disabled and on-disk manifest unreadable — NOT auto-re-enabled`,

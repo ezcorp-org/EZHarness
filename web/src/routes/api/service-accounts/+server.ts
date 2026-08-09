@@ -177,18 +177,13 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
 
   // Scope NAMES only — the row carries no secret material to leak.
-  await insertAuditEntry(
-    admin.id,
-    SERVICE_ACCOUNT_AUDIT_ACTIONS.CREATED,
-    created.account.id,
-    {
-      name: created.account.name,
-      projectId: created.account.projectId,
-      scopes: created.account.scopes,
-      droppedScopes: created.droppedScopes,
-      maxTokensPerDay: created.account.maxTokensPerDay,
-    },
-  );
+  await insertAuditEntry(admin.id, SERVICE_ACCOUNT_AUDIT_ACTIONS.CREATED, created.account.id, {
+    name: created.account.name,
+    projectId: created.account.projectId,
+    scopes: created.account.scopes,
+    droppedScopes: created.droppedScopes,
+    maxTokensPerDay: created.account.maxTokensPerDay,
+  });
 
   return json(
     {

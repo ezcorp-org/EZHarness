@@ -37,11 +37,7 @@ import type { ToolDeps, ToolOutcome } from "./shared";
  *  asserts this is exactly the manifest's `tools[].name` set, so adding a
  *  tool in one place and not the other fails a named test rather than
  *  producing a manifest whose declaration nothing serves. */
-export const FACTORY_TOOL_NAMES = [
-  READ_FILES_TOOL,
-  WRITE_FILE_TOOL,
-  EMIT_ARTIFACT_TOOL,
-] as const;
+export const FACTORY_TOOL_NAMES = [READ_FILES_TOOL, WRITE_FILE_TOOL, EMIT_ARTIFACT_TOOL] as const;
 
 /** Convert the internal outcome into the SDK's wire result. Kept in one
  *  place so `isError` and the error `code` cannot drift per tool. */

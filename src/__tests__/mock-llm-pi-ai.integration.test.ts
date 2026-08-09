@@ -56,7 +56,10 @@ beforeAll(() => {
 afterAll(() => server.stop(true));
 
 function userContext(text: string) {
-  return { systemPrompt: "test", messages: [{ role: "user" as const, content: text, timestamp: 1 }] };
+  return {
+    systemPrompt: "test",
+    messages: [{ role: "user" as const, content: text, timestamp: 1 }],
+  };
 }
 
 describe("pi-ai ⇄ mock-LLM wire contract", () => {
@@ -67,7 +70,10 @@ describe("pi-ai ⇄ mock-LLM wire contract", () => {
 
     expect(msg.role).toBe("assistant");
     expect(msg.stopReason).toBe("stop");
-    const text = msg.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
+    const text = msg.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { text: string }).text)
+      .join("");
     expect(text).toBe("hi from the mock");
   });
 
@@ -93,7 +99,11 @@ describe("pi-ai ⇄ mock-LLM wire contract", () => {
     const model = resolveModelObject("ezcorp-mock", "mock:itest-seq", baseUrl);
     const a = await stream(model, userContext("x"), { apiKey: "no-key-needed" }).result();
     const b = await stream(model, userContext("y"), { apiKey: "no-key-needed" }).result();
-    const textOf = (m: typeof a) => m.content.filter((c) => c.type === "text").map((c) => (c as { text: string }).text).join("");
+    const textOf = (m: typeof a) =>
+      m.content
+        .filter((c) => c.type === "text")
+        .map((c) => (c as { text: string }).text)
+        .join("");
     expect(textOf(a)).toBe("first");
     expect(textOf(b)).toBe("second");
   });
@@ -147,7 +157,10 @@ describe("pi-ai ⇄ mock-LLM wire contract", () => {
     // The retry pulls the next scripted turn and succeeds deterministically.
     const second = await stream(model, userContext("hi"), { apiKey: "no-key-needed" }).result();
     expect(second.stopReason).toBe("stop");
-    const text = second.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
+    const text = second.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { text: string }).text)
+      .join("");
     expect(text).toBe("recovered");
   });
 });

@@ -82,10 +82,7 @@ function deepEq(a: unknown, b: unknown): boolean {
  * can explain itself. Throws only when a strict ref (`$prev` with no
  * previous result, `$steps.<unknownStep>`) can't be resolved.
  */
-export function evaluateCondition(
-  cond: WorkflowCondition,
-  ctx: RefContext,
-): ConditionResult {
+export function evaluateCondition(cond: WorkflowCondition, ctx: RefContext): ConditionResult {
   if ("all" in cond) {
     for (const child of cond.all) {
       const r = evaluateCondition(child, ctx);
@@ -122,9 +119,7 @@ export function evaluateCondition(
   // `TypeError: undefined is not an object (evaluating 'ref.startsWith')`.
   const leaf = cond as { ref?: unknown; op?: unknown; value?: unknown };
   if (typeof leaf.ref !== "string" || typeof leaf.op !== "string") {
-    throw new Error(
-      `Malformed condition leaf: expected a string "ref" and "op", got ${fmt(cond)}`,
-    );
+    throw new Error(`Malformed condition leaf: expected a string "ref" and "op", got ${fmt(cond)}`);
   }
   const actual = resolveConditionRef(cond.ref, ctx);
   const passed = applyOp(cond.op, actual, cond.value);

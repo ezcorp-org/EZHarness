@@ -39,10 +39,9 @@ const { parkWorkflowApproval, getWorkflowApprovalById } = await import(
   "../db/queries/workflow-approvals"
 );
 const registry = await import("../runtime/workflow/runtime-registry");
-const {
-  registerWorkflowApprovalsHubPage,
-  WORKFLOW_APPROVALS_HUB_PAGE_ID,
-} = await import("../runtime/workflow-approvals-hub-page");
+const { registerWorkflowApprovalsHubPage, WORKFLOW_APPROVALS_HUB_PAGE_ID } = await import(
+  "../runtime/workflow-approvals-hub-page"
+);
 const hubPages = await import("../runtime/hub-pages");
 
 const DEF: WorkflowDefinition = {
@@ -77,16 +76,20 @@ beforeEach(async () => {
     workflowExecutor: {
       runWorkflow: (async () => ({}) as WorkflowRun) as never,
       resumeWorkflow: (async (_w: unknown, row: { id: string }) =>
-        ({ id: row.id, workflowName: DEF.name, status: "success", startedAt: 0, steps: [] }) as unknown as WorkflowRun) as never,
+        ({
+          id: row.id,
+          workflowName: DEF.name,
+          status: "success",
+          startedAt: 0,
+          steps: [],
+        }) as unknown as WorkflowRun) as never,
     },
   });
 });
 
-async function seedApproval(opts: {
-  userId?: string | null;
-  requireItemConsent?: boolean;
-  itemIds?: string[];
-} = {}): Promise<string> {
+async function seedApproval(
+  opts: { userId?: string | null; requireItemConsent?: boolean; itemIds?: string[] } = {},
+): Promise<string> {
   const runId = crypto.randomUUID();
   await insertWorkflowRun({
     id: runId,

@@ -91,7 +91,13 @@ function message(
 }
 
 /** A `ToolCallSummary` as `getMessagesWithToolCalls` returns it. */
-function toolCall(id: string, messageId: string, toolName: string, seconds: number, durationMs = 0) {
+function toolCall(
+  id: string,
+  messageId: string,
+  toolName: string,
+  seconds: number,
+  durationMs = 0,
+) {
   return {
     id,
     extensionId: "builtin",
@@ -120,7 +126,14 @@ function seedConversation(): void {
     message("u2", "user", 6, "a1"),
   ];
   state.subConversations = [
-    { id: "sub-1", agentName: "researcher", agentConfigId: "ac-1", messageCount: 4, lastMessagePreview: "done", parentMessageId: "a1" },
+    {
+      id: "sub-1",
+      agentName: "researcher",
+      agentConfigId: "ac-1",
+      messageCount: 4,
+      lastMessagePreview: "done",
+      parentMessageId: "a1",
+    },
   ];
   state.treeNodes = state.messages.map((m) => ({
     id: m.id,
@@ -226,8 +239,22 @@ describe("loadTurnGraph", () => {
   test("maps rows into level 2 and never reads the session tree", async () => {
     seedConversation();
     state.observability = [
-      { id: "ev-1", eventType: "tool_call", messageId: null, data: { toolName: "search" }, durationMs: 750, createdAt: at(2) },
-      { id: "ev-2", eventType: "turn_summary", messageId: "a1", data: {}, durationMs: 4000, createdAt: at(5) },
+      {
+        id: "ev-1",
+        eventType: "tool_call",
+        messageId: null,
+        data: { toolName: "search" },
+        durationMs: 750,
+        createdAt: at(2),
+      },
+      {
+        id: "ev-2",
+        eventType: "turn_summary",
+        messageId: "a1",
+        data: {},
+        durationMs: 4000,
+        createdAt: at(5),
+      },
     ];
     const graph = await loadTurnGraph("conv-1", "u1");
     expect(graph).not.toBeNull();
@@ -246,7 +273,14 @@ describe("loadTurnGraph", () => {
   test("an observability row with a null data payload does not throw", async () => {
     seedConversation();
     state.observability = [
-      { id: "ev-null", eventType: "tool_call", messageId: null, data: null, durationMs: 10, createdAt: at(2) },
+      {
+        id: "ev-null",
+        eventType: "tool_call",
+        messageId: null,
+        data: null,
+        durationMs: 10,
+        createdAt: at(2),
+      },
     ];
     const graph = await loadTurnGraph("conv-1", "u1");
     expect(graph!.nodes.find((n) => n.id === "tc-1")!.durationMs).toBeUndefined();

@@ -43,7 +43,10 @@ const ROOT = join(import.meta.dir, "..", "..");
 // Each test gets a fresh tempdir under /tmp/ezcorp-shutdown-test-<rand>
 // so concurrent test invocations (Bun's default) can't trample each
 // other's PGlite directories. Cleaned up in afterAll.
-const TEST_ROOT = join(tmpdir(), `ezcorp-shutdown-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+const TEST_ROOT = join(
+  tmpdir(),
+  `ezcorp-shutdown-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+);
 
 beforeAll(() => {
   mkdirSync(TEST_ROOT, { recursive: true });
@@ -131,7 +134,10 @@ async function spawnChild(
   // and blocks until exit — we need to react MID-run to the READY line.
   let stdoutBuf = "";
   const ready = new Promise<void>((resolve, reject) => {
-    const timeout = setTimeout(() => reject(new Error("child never signaled READY within 10s")), 10_000);
+    const timeout = setTimeout(
+      () => reject(new Error("child never signaled READY within 10s")),
+      10_000,
+    );
     (async () => {
       const reader = proc.stdout.getReader();
       const decoder = new TextDecoder();
@@ -153,7 +159,9 @@ async function spawnChild(
                   if (done) break;
                   stdoutBuf += decoder.decode(value, { stream: true });
                 }
-              } catch { /* pipe closed */ }
+              } catch {
+                /* pipe closed */
+              }
             })();
             return;
           }
@@ -217,7 +225,10 @@ describe("PGlite graceful shutdown (incident 2026-05-10 regression)", () => {
     const { PGlite } = await import("@electric-sql/pglite");
     const pg2 = new PGlite(dbPath);
     await pg2.waitReady;
-    const rows = await pg2.query<{ k: string; v: string }>("SELECT k, v FROM test_kv WHERE k = $1", ["k"]);
+    const rows = await pg2.query<{ k: string; v: string }>(
+      "SELECT k, v FROM test_kv WHERE k = $1",
+      ["k"],
+    );
     await pg2.close();
     expect(rows.rows).toEqual([{ k: "k", v: "v" }]);
   }, 30_000);
@@ -230,7 +241,8 @@ describe("PGlite graceful shutdown (incident 2026-05-10 regression)", () => {
     // handler. Bun reports either exitCode 137 (128 + 9) or signalCode
     // "SIGKILL"; behaviour varies slightly by platform/version, so we
     // accept either as "killed by SIGKILL".
-    const killedBySignal = result.signalCode === "SIGKILL" || result.exitCode === 137 || result.exitCode === null;
+    const killedBySignal =
+      result.signalCode === "SIGKILL" || result.exitCode === 137 || result.exitCode === null;
     expect(killedBySignal).toBe(true);
 
     // Sanity: the stale lock IS present (SIGKILL didn't let us close).
@@ -250,11 +262,11 @@ describe("PGlite graceful shutdown (incident 2026-05-10 regression)", () => {
     const probeScript = [
       'process.env.EZCORP_NO_EXIT = "1";',
       'const { initDb, getPglite, closeDb } = await import("./src/db/connection.ts");',
-      'await initDb();',
-      'const pg = getPglite();',
+      "await initDb();",
+      "const pg = getPglite();",
       'const rows = await pg.query("SELECT k, v FROM test_kv WHERE k = $1", ["k"]);',
       'console.log("ROW:" + JSON.stringify(rows.rows));',
-      'await closeDb();',
+      "await closeDb();",
       'console.log("PROBE_DONE");',
     ].join("\n");
     const probe = Bun.spawn(["bun", "--eval", probeScript], {
@@ -297,9 +309,7 @@ describe("PGlite graceful shutdown (incident 2026-05-10 regression)", () => {
     expect(probeStdout).toContain('ROW:[{"k":"k","v":"v"}]');
     expect(probeStdout).toContain("PROBE_DONE");
 
-    const siblings = readdirSync(TEST_ROOT).filter(
-      (n) => n.startsWith("path-b") && n !== "path-b",
-    );
+    const siblings = readdirSync(TEST_ROOT).filter((n) => n.startsWith("path-b") && n !== "path-b");
     expect(siblings).toEqual([]);
   }, 60_000);
 });

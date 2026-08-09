@@ -129,10 +129,7 @@ describe("AgentExecutor — parent→child cascade cancel", () => {
     bus.on("run:cancel", ({ run }) => cancels.push(run.id));
 
     const exec = track(
-      new AgentExecutor(
-        loadAgentsStatic([blockingAgent("p"), blockingAgent("live")]),
-        bus,
-      ),
+      new AgentExecutor(loadAgentsStatic([blockingAgent("p"), blockingAgent("live")]), bus),
     );
 
     const runs = [exec.runAgent("p", {}), exec.runAgent("live", {})];
@@ -167,10 +164,7 @@ describe("AgentExecutor — parent→child cascade cancel", () => {
     bus.on("run:cancel", ({ run }) => cancels.push(run.id));
 
     const exec = track(
-      new AgentExecutor(
-        loadAgentsStatic([blockingAgent("cyA"), blockingAgent("cyB")]),
-        bus,
-      ),
+      new AgentExecutor(loadAgentsStatic([blockingAgent("cyA"), blockingAgent("cyB")]), bus),
     );
 
     const runs = [exec.runAgent("cyA", {}), exec.runAgent("cyB", {})];
@@ -327,7 +321,10 @@ describe("AgentExecutor — orphan cascade on abnormal parent terminals", () => 
     const child = await startBlockingRun(exec, bus, "done-child");
     expect(exec.registerChildRun(parent.id, child.id)).toBe(true);
 
-    bus.emit("run:complete", { run: { ...runShape(parent.id), status: "success" }, conversationId: "c" });
+    bus.emit("run:complete", {
+      run: { ...runShape(parent.id), status: "success" },
+      conversationId: "c",
+    });
 
     // Child untouched (still running); registry entry dropped.
     expect((await exec.getRun(child.id))!.status).toBe("running");

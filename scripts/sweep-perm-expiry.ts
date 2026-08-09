@@ -28,11 +28,7 @@
  */
 
 import { initDb, getDb } from "../src/db/connection";
-import {
-  runSweep,
-  applySweepResult,
-  type ExpiryEvent,
-} from "../src/extensions/perm-expiry-sweep";
+import { runSweep, applySweepResult, type ExpiryEvent } from "../src/extensions/perm-expiry-sweep";
 
 interface ParsedArgs {
   dryRun: boolean;

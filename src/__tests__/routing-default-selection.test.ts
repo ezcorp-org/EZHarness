@@ -41,7 +41,18 @@ describe("parseDefaultSelection — tolerant read", () => {
   });
 
   test("every malformed shape degrades instead of throwing", () => {
-    for (const bad of ["Auto", "FIRST", "firstish", "", 1, 0, true, false, { mode: "first" }, ["first"]]) {
+    for (const bad of [
+      "Auto",
+      "FIRST",
+      "firstish",
+      "",
+      1,
+      0,
+      true,
+      false,
+      { mode: "first" },
+      ["first"],
+    ]) {
       expect(parseDefaultSelection(bad)).toBe("auto");
     }
   });

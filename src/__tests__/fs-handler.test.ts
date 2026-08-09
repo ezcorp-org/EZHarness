@@ -11,16 +11,7 @@
  * test reassembles the frames the same way the SDK channel will.
  */
 
-import {
-  test,
-  expect,
-  describe,
-  beforeEach,
-  afterEach,
-  afterAll,
-  mock,
-  spyOn,
-} from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, afterAll, mock, spyOn } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 // Spy target for M4 assertions — `securityModule.denyAndDisable` is
 // the trip wire fs handlers call on out-of-grant access.
@@ -89,10 +80,7 @@ let grantedDir: string;
 
 const EXT_ID = "ext-fs-test";
 
-function makeMockRegistry(opts: {
-  granted?: ExtensionPermissions;
-  installPath?: string;
-}) {
+function makeMockRegistry(opts: { granted?: ExtensionPermissions; installPath?: string }) {
   const granted: ExtensionPermissions = opts.granted ?? { grantedAt: {} };
   const installPath = opts.installPath ?? installDir;
   return {
@@ -114,7 +102,9 @@ function makeRequest(method: string, params: Record<string, unknown>, id = 1): J
   return { jsonrpc: "2.0", id, method, params };
 }
 
-function makeCtx(opts: { granted?: ExtensionPermissions; installPath?: string } = {}): FsHandlerContext {
+function makeCtx(
+  opts: { granted?: ExtensionPermissions; installPath?: string } = {},
+): FsHandlerContext {
   return {
     extensionId: EXT_ID,
     conversationId: "conv-1",
@@ -189,10 +179,7 @@ describe("fs-handler — common gating (all operations)", () => {
     };
     const target = join(grantedDir, "x.txt");
     writeFileSync(target, "hi");
-    await handleFsReadRpc(
-      makeRequest("ezcorp/fs.read", { path: target }),
-      ctx,
-    );
+    await handleFsReadRpc(makeRequest("ezcorp/fs.read", { path: target }), ctx);
     expect(engine.calls.length).toBe(1);
     expect(engine.calls[0]!.needed[0]!.kind).toBe("fs.read");
     expect(engine.calls[0]!.needed[0]!.value).toBe(target);
@@ -230,7 +217,12 @@ describe("fs-handler — read", () => {
     )) as JsonRpcResponse;
 
     expect(r.error).toBeUndefined();
-    const result = r.result as { encoding: string; body: string; bytes: number; resolvedPath: string };
+    const result = r.result as {
+      encoding: string;
+      body: string;
+      bytes: number;
+      resolvedPath: string;
+    };
     expect(result.encoding).toBe("utf-8");
     expect(result.bytes).toBe(13);
     expect(result.resolvedPath).toBe(target);
@@ -243,10 +235,7 @@ describe("fs-handler — read", () => {
     const size = STREAM_THRESHOLD + 4096; // just over the threshold
     writeFileSync(target, Buffer.alloc(size, 0x41));
 
-    const r = await handleFsReadRpc(
-      makeRequest("ezcorp/fs.read", { path: target }, 7),
-      ctx,
-    );
+    const r = await handleFsReadRpc(makeRequest("ezcorp/fs.read", { path: target }, 7), ctx);
 
     expect((r as { streamed?: boolean }).streamed).toBe(true);
     // M2 fix: StreamedResponse.frames is `readonly string[]`. Use a

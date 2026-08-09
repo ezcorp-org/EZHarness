@@ -55,10 +55,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       importedAt: new Date().toISOString(),
     });
 
-    return json(
-      { agentConfig, extensionsNeeded: [] },
-      { status: 201 },
-    );
+    return json({ agentConfig, extensionsNeeded: [] }, { status: 201 });
   }
 
   return errorJson(400, "Manifest must include an agent component to be imported");

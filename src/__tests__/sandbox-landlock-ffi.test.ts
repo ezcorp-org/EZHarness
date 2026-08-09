@@ -54,9 +54,7 @@ describe("landlock-ffi — safe syscall wrappers (no restrict_self)", () => {
 
   test.if(LANDLOCK_OK)("createRuleset returns a valid fd, then closeFd frees it", () => {
     const handled =
-      LANDLOCK_ACCESS_FS.EXECUTE |
-      LANDLOCK_ACCESS_FS.READ_FILE |
-      LANDLOCK_ACCESS_FS.READ_DIR;
+      LANDLOCK_ACCESS_FS.EXECUTE | LANDLOCK_ACCESS_FS.READ_FILE | LANDLOCK_ACCESS_FS.READ_DIR;
     const fd = createRuleset(handled);
     expect(fd).toBeGreaterThanOrEqual(0);
     closeFd(fd);
@@ -64,9 +62,7 @@ describe("landlock-ffi — safe syscall wrappers (no restrict_self)", () => {
 
   test.if(LANDLOCK_OK)("addPathBeneathRule attaches a rule for an existing dir", () => {
     const handled =
-      LANDLOCK_ACCESS_FS.EXECUTE |
-      LANDLOCK_ACCESS_FS.READ_FILE |
-      LANDLOCK_ACCESS_FS.READ_DIR;
+      LANDLOCK_ACCESS_FS.EXECUTE | LANDLOCK_ACCESS_FS.READ_FILE | LANDLOCK_ACCESS_FS.READ_DIR;
     const fd = createRuleset(handled);
     expect(fd).toBeGreaterThanOrEqual(0);
     const rc = addPathBeneathRule(fd, DIR, READ_ACCESS & handled);
@@ -84,9 +80,7 @@ describe("landlock-ffi — safe syscall wrappers (no restrict_self)", () => {
 
   test("READ_ACCESS is the exec+read_file+read_dir subset", () => {
     expect(READ_ACCESS).toBe(
-      LANDLOCK_ACCESS_FS.EXECUTE |
-        LANDLOCK_ACCESS_FS.READ_FILE |
-        LANDLOCK_ACCESS_FS.READ_DIR,
+      LANDLOCK_ACCESS_FS.EXECUTE | LANDLOCK_ACCESS_FS.READ_FILE | LANDLOCK_ACCESS_FS.READ_DIR,
     );
   });
 

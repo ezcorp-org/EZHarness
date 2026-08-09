@@ -51,12 +51,38 @@ async function makeTestListing(name: string) {
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values([
-    { id: AUTHOR_ID, email: "author@mmu.test", passwordHash: "h", name: "MMU Author", role: "member" },
-    { id: USER_A_ID, email: "usera@mmu.test", passwordHash: "h", name: "MMU User A", role: "member" },
-    { id: USER_B_ID, email: "userb@mmu.test", passwordHash: "h", name: "MMU User B", role: "member" },
-    { id: ADMIN_ID, email: "admin@mmu.test", passwordHash: "h", name: "MMU Admin", role: "admin" },
-  ]);
+  await getDb()
+    .insert(users)
+    .values([
+      {
+        id: AUTHOR_ID,
+        email: "author@mmu.test",
+        passwordHash: "h",
+        name: "MMU Author",
+        role: "member",
+      },
+      {
+        id: USER_A_ID,
+        email: "usera@mmu.test",
+        passwordHash: "h",
+        name: "MMU User A",
+        role: "member",
+      },
+      {
+        id: USER_B_ID,
+        email: "userb@mmu.test",
+        passwordHash: "h",
+        name: "MMU User B",
+        role: "member",
+      },
+      {
+        id: ADMIN_ID,
+        email: "admin@mmu.test",
+        passwordHash: "h",
+        name: "MMU Admin",
+        role: "admin",
+      },
+    ]);
 });
 
 afterAll(async () => {
@@ -327,7 +353,11 @@ describe("countPendingFlagsByUser", () => {
   test("does not count resolved flags", async () => {
     const freshUserId = "mmu-fresh-counter-001";
     await getDb().insert(users).values({
-      id: freshUserId, email: "freshcounter@mmu.test", passwordHash: "h", name: "Fresh Counter", role: "member",
+      id: freshUserId,
+      email: "freshcounter@mmu.test",
+      passwordHash: "h",
+      name: "Fresh Counter",
+      role: "member",
     });
 
     const listing = await makeTestListing("Resolved Count Listing");

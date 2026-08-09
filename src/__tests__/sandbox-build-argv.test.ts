@@ -19,9 +19,7 @@ import { realpathSync } from "node:fs";
 import * as realNodeFs from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import {
-  buildSandboxArgv,
-} from "../extensions/sandbox/build-sandbox-argv";
+import { buildSandboxArgv } from "../extensions/sandbox/build-sandbox-argv";
 import {
   buildLandlockJailSpec,
   applyLandlockJailSpec,
@@ -88,13 +86,7 @@ describe("buildSandboxArgv — tier branches", () => {
       shimPath: "/shim.ts",
     });
     expect(r.tier).toBe("landlock");
-    expect(r.argv).toEqual([
-      "/usr/local/bin/bun",
-      "/shim.ts",
-      "--",
-      "mcp-server",
-      "--flag",
-    ]);
+    expect(r.argv).toEqual(["/usr/local/bin/bun", "/shim.ts", "--", "mcp-server", "--flag"]);
     expect(r.env[LANDLOCK_SPEC_ENV]).toBeDefined();
     const spec = JSON.parse(r.env[LANDLOCK_SPEC_ENV]!);
     expect(spec.rw).toContain(resolve(WORKSPACE));
@@ -286,15 +278,15 @@ describe("buildLandlockJailSpec — pure spec + deny invariants", () => {
   });
 
   test("throws when workspaceDir missing", () => {
-    expect(() =>
-      buildLandlockJailSpec({ workspaceDir: "", projectRoot: ROOT }),
-    ).toThrow(/workspaceDir is required/);
+    expect(() => buildLandlockJailSpec({ workspaceDir: "", projectRoot: ROOT })).toThrow(
+      /workspaceDir is required/,
+    );
   });
 
   test("throws when projectRoot missing", () => {
-    expect(() =>
-      buildLandlockJailSpec({ workspaceDir: WORKSPACE, projectRoot: "" }),
-    ).toThrow(/projectRoot is required/);
+    expect(() => buildLandlockJailSpec({ workspaceDir: WORKSPACE, projectRoot: "" })).toThrow(
+      /projectRoot is required/,
+    );
   });
 
   test("DENY: a path UNDER the data dir in rwPaths fails closed", () => {
@@ -397,9 +389,7 @@ describe("runtimeExecRoDirs — runtime bin-dir read-exec grant (#55)", () => {
   // runners install it under `~/.bun/bin`). It must yield the REAL (symlink-
   // resolved) parent dir of the running runtime, deduped, and never throw.
   test("contains dirname(realpathSync(process.execPath)) — the running runtime's bin-dir", () => {
-    expect(runtimeExecRoDirs()).toContain(
-      dirname(realpathSync(process.execPath)),
-    );
+    expect(runtimeExecRoDirs()).toContain(dirname(realpathSync(process.execPath)));
   });
 
   test("entries are deduped (execPath + Bun.which usually resolve to one dir)", () => {
@@ -502,15 +492,13 @@ describe("landlock-shim — pure parsers", () => {
   });
 
   test("parseSpecFromEnv throws on invalid JSON", () => {
-    expect(() => parseSpecFromEnv({ [LANDLOCK_SPEC_ENV]: "{not json" })).toThrow(
-      /not valid JSON/,
-    );
+    expect(() => parseSpecFromEnv({ [LANDLOCK_SPEC_ENV]: "{not json" })).toThrow(/not valid JSON/);
   });
 
   test("parseSpecFromEnv throws on malformed shape", () => {
-    expect(() =>
-      parseSpecFromEnv({ [LANDLOCK_SPEC_ENV]: JSON.stringify({ ro: "x" }) }),
-    ).toThrow(/malformed/);
+    expect(() => parseSpecFromEnv({ [LANDLOCK_SPEC_ENV]: JSON.stringify({ ro: "x" }) })).toThrow(
+      /malformed/,
+    );
   });
 
   // ── RAW spec (the sandboxed-subprocess handoff) ─────────────────────
@@ -579,13 +567,7 @@ describe("defaultShimPath — bundled EZCORP_PROJECT_ROOT fallback", () => {
 
   test("falls back to <EZCORP_PROJECT_ROOT>/src/... shim when colocated is absent", async () => {
     const fakeRoot = "/fake/project/root";
-    const expectedShim = join(
-      fakeRoot,
-      "src",
-      "extensions",
-      "sandbox",
-      "landlock-shim.ts",
-    );
+    const expectedShim = join(fakeRoot, "src", "extensions", "sandbox", "landlock-shim.ts");
     process.env.EZCORP_PROJECT_ROOT = fakeRoot;
     mock.module("node:fs", () => ({
       ...NODE_FS_SNAPSHOT,
@@ -598,9 +580,7 @@ describe("defaultShimPath — bundled EZCORP_PROJECT_ROOT fallback", () => {
       },
     }));
     // Re-import so the module binds the stubbed existsSync.
-    const { buildSandboxArgv: build } = await import(
-      "../extensions/sandbox/build-sandbox-argv"
-    );
+    const { buildSandboxArgv: build } = await import("../extensions/sandbox/build-sandbox-argv");
     const r = build({
       tier: "landlock",
       workspaceDir: WORKSPACE,
@@ -622,9 +602,7 @@ describe("defaultShimPath — bundled EZCORP_PROJECT_ROOT fallback", () => {
         return NODE_FS_SNAPSHOT.existsSync(p);
       },
     }));
-    const { buildSandboxArgv: build } = await import(
-      "../extensions/sandbox/build-sandbox-argv"
-    );
+    const { buildSandboxArgv: build } = await import("../extensions/sandbox/build-sandbox-argv");
     const r = build({
       tier: "landlock",
       workspaceDir: WORKSPACE,

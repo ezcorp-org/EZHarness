@@ -142,31 +142,56 @@ describe("createPreviewSession", () => {
   });
 
   test("rejects missing userId / conversationId", async () => {
-    await expect(preview.createPreviewSession({ userId: "", conversationId: convA, kind: "static", staticPath: "/x" })).rejects.toThrow(/userId/);
-    await expect(preview.createPreviewSession({ userId: userA, conversationId: "", kind: "static", staticPath: "/x" })).rejects.toThrow(/conversationId/);
+    await expect(
+      preview.createPreviewSession({
+        userId: "",
+        conversationId: convA,
+        kind: "static",
+        staticPath: "/x",
+      }),
+    ).rejects.toThrow(/userId/);
+    await expect(
+      preview.createPreviewSession({
+        userId: userA,
+        conversationId: "",
+        kind: "static",
+        staticPath: "/x",
+      }),
+    ).rejects.toThrow(/conversationId/);
   });
 
   test("rejects static without staticPath and dynamic without a valid port", async () => {
-    await expect(preview.createPreviewSession({ userId: userA, conversationId: convA, kind: "static" })).rejects.toThrow(/staticPath/);
-    await expect(preview.createPreviewSession({ userId: userA, conversationId: convA, kind: "dynamic" })).rejects.toThrow(/targetPort/);
-    await expect(preview.createPreviewSession({ userId: userA, conversationId: convA, kind: "dynamic", targetPort: 0 })).rejects.toThrow(/targetPort/);
+    await expect(
+      preview.createPreviewSession({ userId: userA, conversationId: convA, kind: "static" }),
+    ).rejects.toThrow(/staticPath/);
+    await expect(
+      preview.createPreviewSession({ userId: userA, conversationId: convA, kind: "dynamic" }),
+    ).rejects.toThrow(/targetPort/);
+    await expect(
+      preview.createPreviewSession({
+        userId: userA,
+        conversationId: convA,
+        kind: "dynamic",
+        targetPort: 0,
+      }),
+    ).rejects.toThrow(/targetPort/);
   });
 
   test("rejects a staticPath OUTSIDE the sites root (trust boundary)", async () => {
     // Absolute escape: /etc is nowhere near .ezcorp/sites.
-    await expect(
-      mkStatic({ staticPath: "/etc" }),
-    ).rejects.toThrow(/must resolve under|fail-closed/);
+    await expect(mkStatic({ staticPath: "/etc" })).rejects.toThrow(
+      /must resolve under|fail-closed/,
+    );
     // A path that points into .ezcorp/data is the exact hole we close.
-    await expect(
-      mkStatic({ staticPath: join(PROJECT_ROOT, ".ezcorp", "data") }),
-    ).rejects.toThrow(/must resolve under|fail-closed/);
+    await expect(mkStatic({ staticPath: join(PROJECT_ROOT, ".ezcorp", "data") })).rejects.toThrow(
+      /must resolve under|fail-closed/,
+    );
   });
 
   test("rejects a non-existent staticPath (fail-closed)", async () => {
-    await expect(
-      mkStatic({ staticPath: join(SITES_ROOT, "does-not-exist") }),
-    ).rejects.toThrow(/fail-closed/);
+    await expect(mkStatic({ staticPath: join(SITES_ROOT, "does-not-exist") })).rejects.toThrow(
+      /fail-closed/,
+    );
   });
 
   test("accepts a valid `.ezcorp/sites/<dir>` staticPath", async () => {
@@ -196,11 +221,15 @@ describe("assertUnderSitesRoot / previewSitesRoot (unit)", () => {
   test("accepts a contained dir, rejects an escape + a missing path", () => {
     expect(() => preview.assertUnderSitesRoot(VALID_STATIC, PROJECT_ROOT)).not.toThrow();
     expect(() => preview.assertUnderSitesRoot("/etc", PROJECT_ROOT)).toThrow(/must resolve under/);
-    expect(() => preview.assertUnderSitesRoot(join(SITES_ROOT, "missing"), PROJECT_ROOT)).toThrow(/fail-closed/);
+    expect(() => preview.assertUnderSitesRoot(join(SITES_ROOT, "missing"), PROJECT_ROOT)).toThrow(
+      /fail-closed/,
+    );
   });
 
   test("fails closed when the sites root itself does not exist", () => {
-    expect(() => preview.assertUnderSitesRoot(VALID_STATIC, "/no/such/project/root")).toThrow(/fail-closed/);
+    expect(() => preview.assertUnderSitesRoot(VALID_STATIC, "/no/such/project/root")).toThrow(
+      /fail-closed/,
+    );
   });
 });
 
@@ -224,7 +253,10 @@ describe("getServablePreview (requester-only access gate)", () => {
   test("returns undefined once expired", async () => {
     const row = await mkStatic();
     // Force expiry into the past.
-    await getDb().update(previewSessions).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(previewSessions.id, row.id));
+    await getDb()
+      .update(previewSessions)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(previewSessions.id, row.id));
     expect(await preview.getServablePreview(row.id, userA)).toBeUndefined();
   });
 
@@ -271,7 +303,10 @@ describe("sweepExpiredPreviews", () => {
   test("flips only past-due active rows to expired", async () => {
     const stale = await mkStatic({ userId: userB });
     const fresh = await mkStatic({ userId: userB });
-    await getDb().update(previewSessions).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(previewSessions.id, stale.id));
+    await getDb()
+      .update(previewSessions)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(previewSessions.id, stale.id));
     const n = await preview.sweepExpiredPreviews();
     expect(n).toBeGreaterThanOrEqual(1);
     const staleRow = await preview.getPreviewByIdRaw(stale.id);
@@ -304,7 +339,10 @@ describe("countActivePreviewsForUser", () => {
     expect(await preview.countActivePreviewsForUser(u)).toBe(0);
     const live = await mkStatic({ userId: u });
     const exp = await mkStatic({ userId: u });
-    await getDb().update(previewSessions).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(previewSessions.id, exp.id));
+    await getDb()
+      .update(previewSessions)
+      .set({ expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(previewSessions.id, exp.id));
     expect(await preview.countActivePreviewsForUser(u)).toBe(1);
     await preview.revokePreview(live.id, u);
     expect(await preview.countActivePreviewsForUser(u)).toBe(0);
@@ -314,8 +352,11 @@ describe("countActivePreviewsForUser", () => {
 
 describe("listPreviewsForUser (management query — v1 floor)", () => {
   test("returns the user's rows newest-first, INCLUDING revoked + expired, scoped to the owner", async () => {
-    const owner = (await createUser({ email: "prev-list@test.com", passwordHash: "h", name: "L" })).id;
-    const other = (await createUser({ email: "prev-list-other@test.com", passwordHash: "h", name: "O" })).id;
+    const owner = (await createUser({ email: "prev-list@test.com", passwordHash: "h", name: "L" }))
+      .id;
+    const other = (
+      await createUser({ email: "prev-list-other@test.com", passwordHash: "h", name: "O" })
+    ).id;
 
     // Three rows for `owner`, created in order so createdAt desc is testable.
     const first = await mkStatic({ userId: owner });
@@ -328,7 +369,10 @@ describe("listPreviewsForUser (management query — v1 floor)", () => {
 
     // Revoke one, expire another — both must still be listed.
     await preview.revokePreview(second.id, owner);
-    await getDb().update(previewSessions).set({ status: "expired", expiresAt: new Date(Date.now() - 1000) }).where(eq(previewSessions.id, first.id));
+    await getDb()
+      .update(previewSessions)
+      .set({ status: "expired", expiresAt: new Date(Date.now() - 1000) })
+      .where(eq(previewSessions.id, first.id));
 
     const list = await preview.listPreviewsForUser(owner);
     expect(list).toHaveLength(3);

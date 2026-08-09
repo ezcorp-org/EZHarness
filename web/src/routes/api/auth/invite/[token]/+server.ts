@@ -31,12 +31,21 @@ export const GET: RequestHandler = async ({ params }) => {
 
 export const POST: RequestHandler = async ({ params, request, cookies, getClientAddress }) => {
   let ip = "unknown";
-  try { ip = getClientAddress(); } catch { /* proxy not configured */ }
+  try {
+    ip = getClientAddress();
+  } catch {
+    /* proxy not configured */
+  }
   const rl = __rateLimiter.check(ip);
   if (!rl.allowed) {
-    return errorJson(429, "Too many requests", { retryAfter: rl.retryAfter }, {
-      "Retry-After": String(rl.retryAfter ?? 1),
-    });
+    return errorJson(
+      429,
+      "Too many requests",
+      { retryAfter: rl.retryAfter },
+      {
+        "Retry-After": String(rl.retryAfter ?? 1),
+      },
+    );
   }
 
   const invite = await getInviteByToken(params.token);
@@ -52,7 +61,7 @@ export const POST: RequestHandler = async ({ params, request, cookies, getClient
   if (!name || name.trim().length === 0) errors.push("Name is required");
   if (!email || !EMAIL_REGEX.test(email)) errors.push("Valid email is required");
   const pwResult = passwordSchema.safeParse(password);
-  if (!pwResult.success) errors.push(pwResult.error.issues.map(i => i.message).join("; "));
+  if (!pwResult.success) errors.push(pwResult.error.issues.map((i) => i.message).join("; "));
   if (errors.length > 0) {
     return errorJson(400, errors.join("; "));
   }
@@ -105,12 +114,19 @@ export const POST: RequestHandler = async ({ params, request, cookies, getClient
   const expiresAt = new Date(Date.now() + cfg.lifetimeSeconds * 1000);
   const userAgent = request.headers.get("user-agent");
   let ipAddress: string | null = null;
-  try { ipAddress = getClientAddress(); } catch { /* proxy not configured */ }
+  try {
+    ipAddress = getClientAddress();
+  } catch {
+    /* proxy not configured */
+  }
   await createSession({ userId: user.id, tokenHash, userAgent, ipAddress, expiresAt });
 
   setSessionCookie(cookies, token);
 
-  return json({
-    user: { id: user.id, name: user.name, email: user.email, role: user.role },
-  }, { status: 201 });
+  return json(
+    {
+      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    },
+    { status: 201 },
+  );
 };

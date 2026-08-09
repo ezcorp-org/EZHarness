@@ -14,10 +14,7 @@ export interface GitResult {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const CLONE_TIMEOUT_MS = 120_000;
 
-export function gitExec(
-  args: string[],
-  opts?: { cwd?: string; timeout?: number },
-): GitResult {
+export function gitExec(args: string[], opts?: { cwd?: string; timeout?: number }): GitResult {
   const timeout = opts?.timeout ?? DEFAULT_TIMEOUT_MS;
   try {
     const result = Bun.spawnSync(["git", ...args], {

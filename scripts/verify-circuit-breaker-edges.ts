@@ -33,7 +33,10 @@ function section(title: string) {
   step += 1;
   console.log(`\n${bold(`Scenario ${step}: ${title}`)}`);
 }
-function fail(msg: string): never { console.log(red(`  ✗ ${msg}`)); process.exit(1); }
+function fail(msg: string): never {
+  console.log(red(`  ✗ ${msg}`));
+  process.exit(1);
+}
 
 // Child scripts must live inside the repo so bun's package resolution can
 // find node_modules. Data dirs (DB, backups) stay in /tmp.
@@ -57,9 +60,10 @@ async function runChild(name: string, env: Record<string, string>, body: string)
     EZCORP_NO_EXIT: "1",
   };
 
-  const header = Object.entries(childEnv)
-    .map(([k, v]) => `process.env.${k} = ${JSON.stringify(v)};`)
-    .join("\n") +
+  const header =
+    Object.entries(childEnv)
+      .map(([k, v]) => `process.env.${k} = ${JSON.stringify(v)};`)
+      .join("\n") +
     "\ndelete process.env.DATABASE_URL;\n" +
     `const TMP = ${JSON.stringify(dataDir)};\n`;
 
@@ -87,7 +91,10 @@ async function runChild(name: string, env: Record<string, string>, body: string)
 try {
   // ── Scenario 1 ─────────────────────────────────────────────────────────
   section("Stale marker (SHA mismatch) — ignored, normal boot proceeds");
-  await runChild("stale-marker", { EZCORP_IMAGE_SHA: "current-sha" }, `
+  await runChild(
+    "stale-marker",
+    { EZCORP_IMAGE_SHA: "current-sha" },
+    `
     import { mkdirSync, writeFileSync } from "node:fs";
     import { join } from "node:path";
     mkdirSync(TMP, { recursive: true });
@@ -107,11 +114,15 @@ try {
     }
     console.log("  ✓ Stale marker from different SHA correctly ignored → readiness=ready");
     await closeDb();
-  `);
+  `,
+  );
 
   // ── Scenario 2 ─────────────────────────────────────────────────────────
   section("Unset EZCORP_IMAGE_SHA — circuit breaker disabled, no marker I/O");
-  await runChild("unset-sha", {}, `
+  await runChild(
+    "unset-sha",
+    {},
+    `
     // Explicitly unset SHA (runChild doesn't set it unless provided).
     delete process.env.EZCORP_IMAGE_SHA;
 
@@ -136,11 +147,15 @@ try {
     }
     console.log("  ✓ No SHA → circuit breaker skipped, boot proceeds normally");
     await closeDb();
-  `);
+  `,
+  );
 
   // ── Scenario 3 ─────────────────────────────────────────────────────────
   section("Rollback with no pre-boot snapshot — marker written, data not restored");
-  await runChild("no-snapshot", { EZCORP_IMAGE_SHA: "fresh-install-sha" }, `
+  await runChild(
+    "no-snapshot",
+    { EZCORP_IMAGE_SHA: "fresh-install-sha" },
+    `
     import { existsSync, readFileSync } from "node:fs";
     import { join } from "node:path";
 
@@ -167,11 +182,15 @@ try {
       process.exit(1);
     }
     console.log("  ✓ Marker written even when no snapshot exists (first-boot edge case handled)");
-  `);
+  `,
+  );
 
   // ── Scenario 4 ─────────────────────────────────────────────────────────
   section("Snapshot pruning caps at 3 after repeated boots");
-  await runChild("pruning", { EZCORP_IMAGE_SHA: "prune-sha" }, `
+  await runChild(
+    "pruning",
+    { EZCORP_IMAGE_SHA: "prune-sha" },
+    `
     import { readdirSync } from "node:fs";
     import { join } from "node:path";
     const conn = await import(CONN_ABS_PLACEHOLDER);
@@ -199,11 +218,15 @@ try {
     // Verify these are the NEWEST 3 (lex order on ISO timestamp)
     const lastTs = snaps[snaps.length - 1];
     console.log("  ✓ Snapshot pruning capped at 3: " + snaps.length + " kept, newest=" + lastTs);
-  `);
+  `,
+  );
 
   // ── Scenario 5 ─────────────────────────────────────────────────────────
   section("Malformed marker JSON is treated as absent");
-  await runChild("malformed-marker", { EZCORP_IMAGE_SHA: "any-sha" }, `
+  await runChild(
+    "malformed-marker",
+    { EZCORP_IMAGE_SHA: "any-sha" },
+    `
     import { mkdirSync, writeFileSync } from "node:fs";
     import { join } from "node:path";
     mkdirSync(TMP, { recursive: true });
@@ -219,9 +242,12 @@ try {
     }
     console.log("  ✓ Garbage marker file ignored; boot completes normally");
     await closeDb();
-  `);
+  `,
+  );
 
-  console.log(`\n${bold(green("EDGE CASES PASSED"))} — all five circuit-breaker edges behave correctly.`);
+  console.log(
+    `\n${bold(green("EDGE CASES PASSED"))} — all five circuit-breaker edges behave correctly.`,
+  );
   rmSync(CHILD_ROOT, { recursive: true, force: true });
   rmSync(DATA_ROOT, { recursive: true, force: true });
 } catch (err) {

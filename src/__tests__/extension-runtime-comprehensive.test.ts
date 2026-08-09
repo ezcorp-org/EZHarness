@@ -6,11 +6,7 @@ import { JsonRpcTransport } from "../extensions/json-rpc";
 
 mockDbConnection();
 
-import {
-  createExtension,
-  deleteExtension,
-  listExtensions,
-} from "../db/queries/extensions";
+import { createExtension, deleteExtension, listExtensions } from "../db/queries/extensions";
 import { ExtensionProcess, type ExtensionProcessOptions } from "../extensions/subprocess";
 import { ExtensionRegistry } from "../extensions/registry";
 import { computeChecksum, verifyChecksum } from "../extensions/checksum";
@@ -136,7 +132,9 @@ describe("JsonRpcTransport", () => {
     });
 
     const stdin = {
-      write(_data: string | Uint8Array): number { return 0; },
+      write(_data: string | Uint8Array): number {
+        return 0;
+      },
     };
 
     const transport = new JsonRpcTransport(stdin as any, stdout);
@@ -162,7 +160,11 @@ describe("JsonRpcTransport", () => {
       },
     });
 
-    const stdin = { write(_d: string | Uint8Array): number { return 0; } };
+    const stdin = {
+      write(_d: string | Uint8Array): number {
+        return 0;
+      },
+    };
     const transport = new JsonRpcTransport(stdin as any, stdout);
     transport.startReading();
 
@@ -173,10 +175,16 @@ describe("JsonRpcTransport", () => {
   test("close() rejects all pending callbacks with 'Transport closed'", async () => {
     // A stdout that never delivers data
     const stdout = new ReadableStream<Uint8Array>({
-      start() { /* never enqueue, never close */ },
+      start() {
+        /* never enqueue, never close */
+      },
     });
 
-    const stdin = { write(_d: string | Uint8Array): number { return 0; } };
+    const stdin = {
+      write(_d: string | Uint8Array): number {
+        return 0;
+      },
+    };
     const transport = new JsonRpcTransport(stdin as any, stdout);
     transport.startReading();
 
@@ -199,7 +207,9 @@ describe("JsonRpcTransport", () => {
         written.push(typeof data === "string" ? data : new TextDecoder().decode(data));
         return typeof data === "string" ? data.length : data.byteLength;
       },
-      flush() { flushed = true; },
+      flush() {
+        flushed = true;
+      },
     };
 
     const transport = new JsonRpcTransport(stdin as any, stdout);
@@ -378,7 +388,9 @@ describe("ExtensionProcess", () => {
     );
     processes.push(ep);
 
-    await expect(ep.call("tools/call", { name: "echo", arguments: {} })).rejects.toThrow(/timed out/);
+    await expect(ep.call("tools/call", { name: "echo", arguments: {} })).rejects.toThrow(
+      /timed out/,
+    );
     // After timeout, process should be killed
     expect(ep.isRunning).toBe(false);
   });
@@ -418,7 +430,14 @@ describe("ExtensionProcess", () => {
     // Override the internal proc reference with a fake that has a throwing stdin
     const originalProc = (ep as any).proc;
     Object.defineProperty(ep, "proc", {
-      value: { stdin: { write: () => { throw new Error("stdin closed"); } }, kill: () => {} },
+      value: {
+        stdin: {
+          write: () => {
+            throw new Error("stdin closed");
+          },
+        },
+        kill: () => {},
+      },
       writable: true,
       configurable: true,
     });
@@ -490,7 +509,10 @@ describe("Checksum", () => {
   });
 
   test("verifyChecksum() returns false for mismatching checksum", async () => {
-    const match = await verifyChecksum(MOCK_ENTRYPOINT, "0000000000000000000000000000000000000000000000000000000000000000");
+    const match = await verifyChecksum(
+      MOCK_ENTRYPOINT,
+      "0000000000000000000000000000000000000000000000000000000000000000",
+    );
     expect(match).toBe(false);
   });
 

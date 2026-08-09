@@ -23,13 +23,13 @@ type ToolTextPart = { type: "text"; text: string };
  * plain objects and content arrays with no text parts all pass through).
  */
 export function extractToolOutput(value: unknown): unknown {
-	if (value == null || typeof value !== "object") return value;
-	const content = (value as { content?: unknown }).content;
-	if (!Array.isArray(content)) return value;
-	const texts = (content as ReadonlyArray<{ type?: unknown; text?: unknown }>)
-		.filter((c): c is ToolTextPart => c?.type === "text" && typeof c?.text === "string")
-		.map((c) => c.text);
-	return texts.length > 0 ? texts.join("\n") : value;
+  if (value == null || typeof value !== "object") return value;
+  const content = (value as { content?: unknown }).content;
+  if (!Array.isArray(content)) return value;
+  const texts = (content as ReadonlyArray<{ type?: unknown; text?: unknown }>)
+    .filter((c): c is ToolTextPart => c?.type === "text" && typeof c?.text === "string")
+    .map((c) => c.text);
+  return texts.length > 0 ? texts.join("\n") : value;
 }
 
 /**
@@ -39,6 +39,6 @@ export function extractToolOutput(value: unknown): unknown {
  * only alternative was a `[object Object]` on screen.
  */
 export function stringifyToolOutput(value: unknown): string {
-	const unwrapped = extractToolOutput(value);
-	return typeof unwrapped === "string" ? unwrapped : JSON.stringify(unwrapped);
+  const unwrapped = extractToolOutput(value);
+  return typeof unwrapped === "string" ? unwrapped : JSON.stringify(unwrapped);
 }

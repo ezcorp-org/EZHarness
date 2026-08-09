@@ -46,7 +46,16 @@ async function seedConfig(): Promise<void> {
   await writeFile(
     join(dataDir, "config.json"),
     JSON.stringify({
-      folders: [{ id: "f1", path: watched, presets: [], customRules: [], ignore: [], backlogPolicy: "include-existing" }],
+      folders: [
+        {
+          id: "f1",
+          path: watched,
+          presets: [],
+          customRules: [],
+          ignore: [],
+          backlogPolicy: "include-existing",
+        },
+      ],
       globalIgnore: [".ezcorp/data", ".git", "node_modules"],
       schemaVersion: 1,
     }),
@@ -55,16 +64,28 @@ async function seedConfig(): Promise<void> {
 
 function proposal(over: Partial<Proposal> = {}): Proposal {
   return {
-    id: "p1", kind: "move", src: join(watched, "a.txt"), dst: join(watched, "sub", "a.txt"),
-    reason: "route", ruleId: "r1", ruleLabel: "Route", folderId: "f1",
+    id: "p1",
+    kind: "move",
+    src: join(watched, "a.txt"),
+    dst: join(watched, "sub", "a.txt"),
+    reason: "route",
+    ruleId: "r1",
+    ruleLabel: "Route",
+    folderId: "f1",
     snapshot: { size: 5, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 },
-    status: "pending", dedupeKey: "k", createdAt: "2026-06-17T00:00:00.000Z", version: 0,
+    status: "pending",
+    dedupeKey: "k",
+    createdAt: "2026-06-17T00:00:00.000Z",
+    version: 0,
     ...over,
   };
 }
 
 async function seedProposals(ps: Proposal[]): Promise<void> {
-  await writeFile(join(dataDir, "proposals.json"), JSON.stringify({ proposals: ps, suppressed: [], schemaVersion: 1 }));
+  await writeFile(
+    join(dataDir, "proposals.json"),
+    JSON.stringify({ proposals: ps, suppressed: [], schemaVersion: 1 }),
+  );
 }
 
 async function readProposals() {
@@ -135,7 +156,16 @@ describe("acceptProposal", () => {
   test("delete-quarantine: applies + records manifest entry", async () => {
     await seedConfig();
     await writeFile(join(watched, "junk.tmp"), "junk");
-    await seedProposals([proposal({ id: "d1", kind: "delete-quarantine", src: join(watched, "junk.tmp"), dst: null, quarantineId: "q1", reason: "junk" })]);
+    await seedProposals([
+      proposal({
+        id: "d1",
+        kind: "delete-quarantine",
+        src: join(watched, "junk.tmp"),
+        dst: null,
+        quarantineId: "q1",
+        reason: "junk",
+      }),
+    ]);
     const r = await state.acceptProposal(deps(), "d1");
     expect(r.ok).toBe(true);
     const manifest = await readManifest();
@@ -158,7 +188,9 @@ describe("acceptProposal", () => {
     await seedConfig();
     await writeFile(join(watched, "a.txt"), "hello"); // 5 bytes
     // Snapshot claims the wrong size ⇒ copy-verify fails ⇒ applier "failed".
-    await seedProposals([proposal({ snapshot: { size: 999, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 } })]);
+    await seedProposals([
+      proposal({ snapshot: { size: 999, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 } }),
+    ]);
     const r = await state.acceptProposal(deps(), "p1");
     expect(r.ok).toBe(false);
     expect(r.message).toContain("Failed:");
@@ -175,7 +207,9 @@ describe("acceptProposal", () => {
     await symlink(target, link);
     // isSymlink snapshot ⇒ applier returns "skipped" ⇒ applyOutcome default
     // (null) ⇒ acceptProposal reports a no-op and leaves the row pending.
-    await seedProposals([proposal({ snapshot: { size: 0, mtimeMs: 0, isSymlink: true, dev: 0, ino: 0, nlink: 1 } })]);
+    await seedProposals([
+      proposal({ snapshot: { size: 0, mtimeMs: 0, isSymlink: true, dev: 0, ino: 0, nlink: 1 } }),
+    ]);
     const r = await state.acceptProposal(deps(), "p1");
     expect(r.ok).toBe(false);
     expect(r.message).toBe("Apply was a no-op");
@@ -186,7 +220,11 @@ describe("acceptProposal", () => {
 describe("rejectProposal", () => {
   test("rejects + adds to suppressed-set", async () => {
     await seedConfig();
-    await seedProposals([proposal({ snapshot: { size: 5, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1, sha256: "h" } })]);
+    await seedProposals([
+      proposal({
+        snapshot: { size: 5, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1, sha256: "h" },
+      }),
+    ]);
     const r = await state.rejectProposal(deps(), "p1");
     expect(r.ok).toBe(true);
     const file = await readProposals();
@@ -207,8 +245,20 @@ describe("confirmDeletes (batch)", () => {
     await writeFile(join(watched, "j1.tmp"), "a");
     await writeFile(join(watched, "j2.tmp"), "b");
     await seedProposals([
-      proposal({ id: "d1", kind: "delete-quarantine", src: join(watched, "j1.tmp"), dst: null, quarantineId: "q1" }),
-      proposal({ id: "d2", kind: "delete-quarantine", src: join(watched, "j2.tmp"), dst: null, quarantineId: "q2" }),
+      proposal({
+        id: "d1",
+        kind: "delete-quarantine",
+        src: join(watched, "j1.tmp"),
+        dst: null,
+        quarantineId: "q1",
+      }),
+      proposal({
+        id: "d2",
+        kind: "delete-quarantine",
+        src: join(watched, "j2.tmp"),
+        dst: null,
+        quarantineId: "q2",
+      }),
       proposal({ id: "m1", kind: "move" }), // not a delete — untouched
     ]);
     const r = await state.confirmDeletes(deps());
@@ -226,7 +276,14 @@ describe("confirmDeletes (batch)", () => {
     await seedConfig();
     await writeFile(join(watched, "j1.tmp"), "a");
     await seedProposals([
-      proposal({ id: "d1", kind: "delete-quarantine", src: join(watched, "j1.tmp"), dst: null, quarantineId: "q1", folderId: "ghost" }),
+      proposal({
+        id: "d1",
+        kind: "delete-quarantine",
+        src: join(watched, "j1.tmp"),
+        dst: null,
+        quarantineId: "q1",
+        folderId: "ghost",
+      }),
     ]);
     const r = await state.confirmDeletes(deps());
     expect(r.changed).toBe(false); // nothing applied
@@ -261,7 +318,19 @@ describe("quarantine restore / undo / purge", () => {
       join(dataDir, ".trash", "manifest.json"),
       JSON.stringify({
         schemaVersion: 1,
-        entries: [{ id: "q1", originalPath: join(watched, "a.txt"), trashPath: join(trashDir, "a.txt"), proposalId: "p1", reason: "junk", deletedAt: new Date(0).toISOString(), batchId, size: 8, expiresAtMs: Date.now() + 1e9 }],
+        entries: [
+          {
+            id: "q1",
+            originalPath: join(watched, "a.txt"),
+            trashPath: join(trashDir, "a.txt"),
+            proposalId: "p1",
+            reason: "junk",
+            deletedAt: new Date(0).toISOString(),
+            batchId,
+            size: 8,
+            expiresAtMs: Date.now() + 1e9,
+          },
+        ],
       }),
     );
   }
@@ -314,7 +383,22 @@ describe("quarantine restore / undo / purge", () => {
     await writeFile(join(trashDir, "a"), "x");
     await writeFile(
       join(dataDir, ".trash", "manifest.json"),
-      JSON.stringify({ schemaVersion: 1, entries: [{ id: "q1", originalPath: join(watched, "a"), trashPath: join(trashDir, "a"), proposalId: null, reason: "r", deletedAt: new Date(0).toISOString(), batchId: null, size: 1, expiresAtMs: 1 }] }),
+      JSON.stringify({
+        schemaVersion: 1,
+        entries: [
+          {
+            id: "q1",
+            originalPath: join(watched, "a"),
+            trashPath: join(trashDir, "a"),
+            proposalId: null,
+            reason: "r",
+            deletedAt: new Date(0).toISOString(),
+            batchId: null,
+            size: 1,
+            expiresAtMs: 1,
+          },
+        ],
+      }),
     );
     const r = await state.purgeExpired(deps());
     expect(r.message).toBe("Purged 1");
@@ -423,7 +507,21 @@ describe("dismissStale", () => {
 
 describe("internals", () => {
   test("rootForRestore finds the owning folder, else the parent", () => {
-    const cfg = { folders: [{ id: "f", path: "/w", mode: undefined, presets: [], customRules: [], ignore: [], backlogPolicy: "new-only" as const }], globalIgnore: [], schemaVersion: 1 };
+    const cfg = {
+      folders: [
+        {
+          id: "f",
+          path: "/w",
+          mode: undefined,
+          presets: [],
+          customRules: [],
+          ignore: [],
+          backlogPolicy: "new-only" as const,
+        },
+      ],
+      globalIgnore: [],
+      schemaVersion: 1,
+    };
     expect(state._stateInternals.rootForRestore(cfg, "/w/sub/a.txt")).toBe("/w");
     expect(state._stateInternals.rootForRestore(cfg, "/other/a.txt")).toBe("/other");
   });

@@ -58,8 +58,12 @@ function coerceFinalizedOutput(output: unknown): ToolCallResult {
   if (output === undefined || output === null) {
     return { content: [], isError: false };
   }
-  if (typeof output === "object" && output !== null && Array.isArray((output as { content?: unknown }).content)) {
-    return { content: ((output as ToolCallResult).content) ?? [], isError: false };
+  if (
+    typeof output === "object" &&
+    output !== null &&
+    Array.isArray((output as { content?: unknown }).content)
+  ) {
+    return { content: (output as ToolCallResult).content ?? [], isError: false };
   }
   const text = typeof output === "string" ? output : JSON.stringify(output);
   return { content: [{ type: "text", text }], isError: false };
@@ -85,9 +89,7 @@ export async function handleFinalizeToolCallRpc(
         extensionId,
         userId: ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null,
         conversationId:
-          ctx.conversationId && ctx.conversationId !== "unknown"
-            ? ctx.conversationId
-            : null,
+          ctx.conversationId && ctx.conversationId !== "unknown" ? ctx.conversationId : null,
         toolName: "ezcorp/finalize-tool-call",
       },
       [{ kind: "ezcorp:chat:append" }],

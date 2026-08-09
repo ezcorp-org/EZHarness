@@ -25,7 +25,9 @@ const { createConversation } = await import("../db/queries/conversations");
 const { getDb } = await import("../db/connection");
 const { previewSessions, settings } = await import("../db/schema");
 const { eq } = await import("drizzle-orm");
-const { redeemOneTimeCode, _resetCodeStoreForTests } = await import("../runtime/preview/preview-token");
+const { redeemOneTimeCode, _resetCodeStoreForTests } = await import(
+  "../runtime/preview/preview-token"
+);
 const consent = await import("../runtime/preview/preview-consent");
 
 let userA: string;
@@ -73,11 +75,18 @@ describe("buildConsentCardPayload (pure)", () => {
 
 describe("exposeDetectedPort", () => {
   test("creates a dynamic preview row owned by the requester + mints a redeemable code", async () => {
-    const out = await consent.exposeDetectedPort({ userId: userA, conversationId: convA, port: 5173 });
+    const out = await consent.exposeDetectedPort({
+      userId: userA,
+      conversationId: convA,
+      port: 5173,
+    });
     expect(out.previewId).toHaveLength(26);
     expect(out.subdomainLabel).toBe(out.previewId);
 
-    const rows = await getDb().select().from(previewSessions).where(eq(previewSessions.id, out.previewId));
+    const rows = await getDb()
+      .select()
+      .from(previewSessions)
+      .where(eq(previewSessions.id, out.previewId));
     expect(rows).toHaveLength(1);
     expect(rows[0]!.userId).toBe(userA);
     expect(rows[0]!.conversationId).toBe(convA);
@@ -122,7 +131,7 @@ describe("always-expose preference (D3)", () => {
     expect(key).toBe(`preview:always-expose:${convA}`);
     const rows = await getDb().select().from(settings).where(eq(settings.key, key));
     expect(rows).toHaveLength(1);
-    expect((rows[0]!.value as { userId: string; enabled: boolean })).toEqual({
+    expect(rows[0]!.value as { userId: string; enabled: boolean }).toEqual({
       userId: userA,
       enabled: true,
     });
@@ -138,7 +147,11 @@ describe("always-expose preference (D3)", () => {
 
 describe("decideOnDetection routing", () => {
   test("pref UNSET → consent-card (Ignore is the implicit non-action: no row created)", async () => {
-    const decision = await consent.decideOnDetection({ userId: userA, conversationId: convA, port: 5173 });
+    const decision = await consent.decideOnDetection({
+      userId: userA,
+      conversationId: convA,
+      port: 5173,
+    });
     expect(decision.kind).toBe("consent-card");
     if (decision.kind !== "consent-card") throw new Error("unreachable");
     expect(decision.port).toBe(5173);
@@ -150,22 +163,36 @@ describe("decideOnDetection routing", () => {
 
   test("pref SET → auto-exposed (row + code), no card", async () => {
     await consent.setAlwaysExpose(convA, userA);
-    const decision = await consent.decideOnDetection({ userId: userA, conversationId: convA, port: 5173 });
+    const decision = await consent.decideOnDetection({
+      userId: userA,
+      conversationId: convA,
+      port: 5173,
+    });
     expect(decision.kind).toBe("auto-exposed");
     if (decision.kind !== "auto-exposed") throw new Error("unreachable");
     expect(decision.port).toBe(5173);
 
-    const rows = await getDb().select().from(previewSessions).where(eq(previewSessions.id, decision.previewId));
+    const rows = await getDb()
+      .select()
+      .from(previewSessions)
+      .where(eq(previewSessions.id, decision.previewId));
     expect(rows).toHaveLength(1);
     expect(rows[0]!.userId).toBe(userA);
     expect(rows[0]!.kind).toBe("dynamic");
     // The handoff code redeems for the owner.
-    expect(redeemOneTimeCode(decision.code)).toEqual({ previewId: decision.previewId, userId: userA });
+    expect(redeemOneTimeCode(decision.code)).toEqual({
+      previewId: decision.previewId,
+      userId: userA,
+    });
   });
 
   test("pref set by a DIFFERENT user does not auto-expose (falls back to card)", async () => {
     await consent.setAlwaysExpose(convA, userB); // someone else opted in
-    const decision = await consent.decideOnDetection({ userId: userA, conversationId: convA, port: 5173 });
+    const decision = await consent.decideOnDetection({
+      userId: userA,
+      conversationId: convA,
+      port: 5173,
+    });
     expect(decision.kind).toBe("consent-card");
   });
 

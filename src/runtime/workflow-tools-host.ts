@@ -59,14 +59,8 @@ export interface WireRunWorkflowForTurnParams {
  * mirroring ez-tools-host's dedup posture.
  */
 export function wireRunWorkflowForTurn(params: WireRunWorkflowForTurnParams): void {
-  const {
-    agentTools,
-    builtinToolDefsMap,
-    conversationId,
-    userId,
-    projectId,
-    pendingPermissions,
-  } = params;
+  const { agentTools, builtinToolDefsMap, conversationId, userId, projectId, pendingPermissions } =
+    params;
 
   if (agentTools.some((t) => t.name === RUN_WORKFLOW_TOOL_NAME)) return;
 

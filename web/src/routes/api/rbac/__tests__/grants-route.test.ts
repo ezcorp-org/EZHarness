@@ -147,12 +147,45 @@ const MANAGER_USER: AuthUser = {
   role: "member",
 };
 
-const DB_USERS: Record<string, { id: string; email: string; name: string; role: string; passwordHash: string }> = {
-  "admin-001": { id: "admin-001", email: "admin@test.local", name: "Test Admin", role: "admin", passwordHash: "HASH-admin" },
-  "member-001": { id: "member-001", email: "member@test.local", name: "Test Member", role: "member", passwordHash: "HASH-member" },
-  "manager-001": { id: "manager-001", email: "manager@test.local", name: "Test Manager", role: "member", passwordHash: "HASH-manager" },
-  "member-002": { id: "member-002", email: "target@test.local", name: "Target Member", role: "member", passwordHash: "HASH-target" },
-  "member-003": { id: "member-003", email: "third@test.local", name: "Third Member", role: "member", passwordHash: "HASH-third" },
+const DB_USERS: Record<
+  string,
+  { id: string; email: string; name: string; role: string; passwordHash: string }
+> = {
+  "admin-001": {
+    id: "admin-001",
+    email: "admin@test.local",
+    name: "Test Admin",
+    role: "admin",
+    passwordHash: "HASH-admin",
+  },
+  "member-001": {
+    id: "member-001",
+    email: "member@test.local",
+    name: "Test Member",
+    role: "member",
+    passwordHash: "HASH-member",
+  },
+  "manager-001": {
+    id: "manager-001",
+    email: "manager@test.local",
+    name: "Test Manager",
+    role: "member",
+    passwordHash: "HASH-manager",
+  },
+  "member-002": {
+    id: "member-002",
+    email: "target@test.local",
+    name: "Target Member",
+    role: "member",
+    passwordHash: "HASH-target",
+  },
+  "member-003": {
+    id: "member-003",
+    email: "third@test.local",
+    name: "Third Member",
+    role: "member",
+    passwordHash: "HASH-third",
+  },
 };
 
 const usersMock = {
@@ -180,7 +213,12 @@ mock.module("$server/db/queries/extensions", () => ({
 }));
 
 // Audit capture.
-const auditCalls: Array<{ userId: string | null; action: string; target?: string; metadata?: Record<string, unknown> }> = [];
+const auditCalls: Array<{
+  userId: string | null;
+  action: string;
+  target?: string;
+  metadata?: Record<string, unknown>;
+}> = [];
 mock.module("$server/db/queries/audit-log", () => ({
   insertAuditEntry: async (
     userId: string | null,
@@ -216,7 +254,13 @@ beforeEach(() => {
     "proj-2": { id: "proj-2", name: "Proj Two" },
   };
   extensionsByName = { [EXT]: { id: "ext-uuid-1", name: EXT } };
-  const t = (id: string, userId: string, projectId: string | null, extensionId: string | null, scopes: string[]): GrantRow => ({
+  const t = (
+    id: string,
+    userId: string,
+    projectId: string | null,
+    extensionId: string | null,
+    scopes: string[],
+  ): GrantRow => ({
     id,
     userId,
     projectId,
@@ -349,7 +393,12 @@ describe("POST grants — admin", () => {
       ev({
         method: "POST",
         user: ADMIN_USER,
-        body: { userId: "member-002", projectId: "proj-2", extensionId: EXT, scopes: ["use", "configure"] },
+        body: {
+          userId: "member-002",
+          projectId: "proj-2",
+          extensionId: EXT,
+          scopes: ["use", "configure"],
+        },
       }),
     );
     expect(res.status).toBe(200);
@@ -401,7 +450,11 @@ describe("POST grants — admin", () => {
   test("duplicate scope names are de-duplicated before storage", async () => {
     const res = await run(
       POST,
-      ev({ method: "POST", user: ADMIN_USER, body: { userId: "member-002", scopes: ["use", "use"] } }),
+      ev({
+        method: "POST",
+        user: ADMIN_USER,
+        body: { userId: "member-002", scopes: ["use", "use"] },
+      }),
     );
     expect(res.status).toBe(200);
     expect((await res.json()).scopes).toEqual(["use"]);
@@ -413,7 +466,12 @@ describe("POST grants — admin", () => {
       ev({
         method: "POST",
         user: ADMIN_USER,
-        body: { userId: "member-002", projectId: "proj-1", extensionId: EXT, scopes: ["configure"] },
+        body: {
+          userId: "member-002",
+          projectId: "proj-1",
+          extensionId: EXT,
+          scopes: ["configure"],
+        },
       }),
     );
     expect(res.status).toBe(200);
@@ -445,7 +503,11 @@ describe("POST grants — admin", () => {
   test("unknown project → 404, nothing written", async () => {
     const res = await run(
       POST,
-      ev({ method: "POST", user: ADMIN_USER, body: { userId: "member-002", projectId: "ghost", scopes: ["use"] } }),
+      ev({
+        method: "POST",
+        user: ADMIN_USER,
+        body: { userId: "member-002", projectId: "ghost", scopes: ["use"] },
+      }),
     );
     expect(res.status).toBe(404);
     expect((await res.json()).error).toContain("Project");
@@ -455,7 +517,11 @@ describe("POST grants — admin", () => {
   test("unknown extension → 404, nothing written", async () => {
     const res = await run(
       POST,
-      ev({ method: "POST", user: ADMIN_USER, body: { userId: "member-002", extensionId: "nope", scopes: ["use"] } }),
+      ev({
+        method: "POST",
+        user: ADMIN_USER,
+        body: { userId: "member-002", extensionId: "nope", scopes: ["use"] },
+      }),
     );
     expect(res.status).toBe(404);
     expect((await res.json()).error).toContain("Extension");
@@ -477,7 +543,10 @@ describe("POST grants — validation", () => {
   });
 
   test("missing userId → 400", async () => {
-    const res = await run(POST, ev({ method: "POST", user: ADMIN_USER, body: { scopes: ["use"] } }));
+    const res = await run(
+      POST,
+      ev({ method: "POST", user: ADMIN_USER, body: { scopes: ["use"] } }),
+    );
     expect(res.status).toBe(400);
     expect((await res.json()).error).toContain("userId");
   });
@@ -485,7 +554,11 @@ describe("POST grants — validation", () => {
   test("non-string projectId → 400", async () => {
     const res = await run(
       POST,
-      ev({ method: "POST", user: ADMIN_USER, body: { userId: "member-002", projectId: 7, scopes: ["use"] } }),
+      ev({
+        method: "POST",
+        user: ADMIN_USER,
+        body: { userId: "member-002", projectId: 7, scopes: ["use"] },
+      }),
     );
     expect(res.status).toBe(400);
     expect((await res.json()).error).toContain("projectId");
@@ -494,7 +567,11 @@ describe("POST grants — validation", () => {
   test("empty-string extensionId → 400 (null means covers-all, '' is a bug)", async () => {
     const res = await run(
       POST,
-      ev({ method: "POST", user: ADMIN_USER, body: { userId: "member-002", extensionId: "", scopes: ["use"] } }),
+      ev({
+        method: "POST",
+        user: ADMIN_USER,
+        body: { userId: "member-002", extensionId: "", scopes: ["use"] },
+      }),
     );
     expect(res.status).toBe(400);
     expect((await res.json()).error).toContain("extensionId");
@@ -512,7 +589,11 @@ describe("POST grants — validation", () => {
   test("invalid scope name → 400 with the validator's message", async () => {
     const res = await run(
       POST,
-      ev({ method: "POST", user: ADMIN_USER, body: { userId: "member-002", scopes: ["Bad_Scope"] } }),
+      ev({
+        method: "POST",
+        user: ADMIN_USER,
+        body: { userId: "member-002", scopes: ["Bad_Scope"] },
+      }),
     );
     expect(res.status).toBe(400);
     expect((await res.json()).error).toContain("invalid scope name");
@@ -530,7 +611,10 @@ describe("POST grants — validation", () => {
   });
 
   test("missing user → 401, nothing written", async () => {
-    const res = await run(POST, ev({ method: "POST", user: null, body: { userId: "member-002", scopes: ["use"] } }));
+    const res = await run(
+      POST,
+      ev({ method: "POST", user: null, body: { userId: "member-002", scopes: ["use"] } }),
+    );
     expect(res.status).toBe(401);
     expect(upsertCalls).toHaveLength(0);
   });
@@ -543,7 +627,12 @@ describe("POST grants — delegation (real canManageGrant)", () => {
       ev({
         method: "POST",
         user: MANAGER_USER,
-        body: { userId: "member-002", projectId: "proj-1", extensionId: EXT, scopes: ["use", "approve-runs"] },
+        body: {
+          userId: "member-002",
+          projectId: "proj-1",
+          extensionId: EXT,
+          scopes: ["use", "approve-runs"],
+        },
       }),
     );
     expect(res.status).toBe(200);

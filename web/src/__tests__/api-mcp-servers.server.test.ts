@@ -37,10 +37,7 @@ vi.mock("$server/extensions/registry", () => ({
 const { installMcpExtension } = await import("$server/db/queries/extensions");
 const { POST } = await import("../routes/api/mcp-servers/+server");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown }) {
   return {
     url: new URL("http://localhost/api/mcp-servers"),
     locals: opts.locals ?? {},
@@ -96,7 +93,10 @@ describe("POST /api/mcp-servers", () => {
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    const res = await expectDenied(() => POST(makeEvent({ locals: memberUser, body: validStdioBody() })), 403);
+    const res = await expectDenied(
+      () => POST(makeEvent({ locals: memberUser, body: validStdioBody() })),
+      403,
+    );
     expect(res.status).toBe(403);
   });
 
@@ -140,9 +140,7 @@ describe("POST /api/mcp-servers", () => {
 
   test("returns 502 when McpClient.connect() fails", async () => {
     mcpConnect.mockRejectedValueOnce(new Error("ECONNREFUSED"));
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: validStdioBody() }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, body: validStdioBody() }));
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("MCP connect failed");
@@ -153,9 +151,7 @@ describe("POST /api/mcp-servers", () => {
 
   test("returns 502 when listTools() fails", async () => {
     mcpListTools.mockRejectedValueOnce(new Error("tools/list not supported"));
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: validStdioBody() }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, body: validStdioBody() }));
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("MCP connect failed");
@@ -164,12 +160,8 @@ describe("POST /api/mcp-servers", () => {
 
   test("returns 400 when installMcpExtension throws (persist failure)", async () => {
     mcpListTools.mockResolvedValueOnce([{ name: "echo" }] as any);
-    vi.mocked(installMcpExtension).mockRejectedValueOnce(
-      new Error("duplicate name"),
-    );
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: validStdioBody() }),
-    );
+    vi.mocked(installMcpExtension).mockRejectedValueOnce(new Error("duplicate name"));
+    const res = await POST(makeEvent({ locals: adminUser, body: validStdioBody() }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("duplicate name");
@@ -182,9 +174,7 @@ describe("POST /api/mcp-servers", () => {
       id: "ext-1",
       name: "ext-stdio",
     } as any);
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: validStdioBody() }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, body: validStdioBody() }));
     expect(res.status).toBe(201);
     const body = (await res.json()) as { id?: string; name?: string };
     expect(body.id).toBe("ext-1");
@@ -203,9 +193,7 @@ describe("POST /api/mcp-servers", () => {
 
   test("falls back to generic message when McpClient throws a non-Error", async () => {
     mcpConnect.mockRejectedValueOnce("pipe closed");
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: validStdioBody() }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, body: validStdioBody() }));
     expect(res.status).toBe(502);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("MCP connect failed: MCP connect failed");

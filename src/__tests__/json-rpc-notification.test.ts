@@ -1,6 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { JsonRpcTransport } from "../extensions/json-rpc";
-import type { JsonRpcNotification, JsonRpcRequest, } from "../extensions/types";
+import type { JsonRpcNotification, JsonRpcRequest } from "../extensions/types";
 
 function at<T>(arr: readonly T[], i: number, what: string): T {
   const v = arr[i];
@@ -25,7 +25,9 @@ function createTransport() {
   // Create a readable stream we can push data into
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   const stdout = new ReadableStream<Uint8Array>({
-    start(c) { controller = c; },
+    start(c) {
+      controller = c;
+    },
   });
 
   const transport = new JsonRpcTransport(stdin, stdout);

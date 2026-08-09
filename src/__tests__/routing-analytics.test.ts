@@ -106,13 +106,20 @@ beforeAll(async () => {
   const db = getTestDb();
 
   await db.insert(users).values({
-    id: USER_ID, email: "r@x.com", passwordHash: "x", name: "R", role: "admin",
+    id: USER_ID,
+    email: "r@x.com",
+    passwordHash: "x",
+    name: "R",
+    role: "admin",
   } as any);
   await db.insert(projects).values({ id: PROJECT_ID, name: "r", path: "/tmp/r" } as any);
   for (const id of [CONV_A, CONV_B]) {
     await db.insert(conversations).values({
-      id, projectId: PROJECT_ID, userId: USER_ID,
-      model: "claude-opus-4-5", provider: "anthropic",
+      id,
+      projectId: PROJECT_ID,
+      userId: USER_ID,
+      model: "claude-opus-4-5",
+      provider: "anthropic",
     } as any);
   }
 
@@ -120,7 +127,9 @@ beforeAll(async () => {
   // Each assistant turn answers its own user turn, except the retry trio.
   for (let i = 1; i <= 11; i++) {
     seedMessage({
-      id: `u${i}`, conversationId: CONV_A, role: "user",
+      id: `u${i}`,
+      conversationId: CONV_A,
+      role: "user",
       // u10 hangs off the a9b RETRY SIBLING — that is what makes a9b the
       // sibling the branch continued through.
       parentMessageId: i === 10 ? "a9b" : null,
@@ -128,77 +137,182 @@ beforeAll(async () => {
     });
   }
 
-  seedMessage({ id: "a1", conversationId: CONV_A, role: "assistant", parentMessageId: "u1",
-    model: "claude-haiku-4-5", provider: "anthropic",
-    usage: pinned("claude-haiku-4-5", "anthropic"), createdAt: at(0) });
-  seedMessage({ id: "a2", conversationId: CONV_A, role: "assistant", parentMessageId: "u2",
-    model: "claude-opus-4-5", provider: "anthropic",
-    usage: pinned("claude-opus-4-5", "anthropic"), createdAt: at(1) });
+  seedMessage({
+    id: "a1",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u1",
+    model: "claude-haiku-4-5",
+    provider: "anthropic",
+    usage: pinned("claude-haiku-4-5", "anthropic"),
+    createdAt: at(0),
+  });
+  seedMessage({
+    id: "a2",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u2",
+    model: "claude-opus-4-5",
+    provider: "anthropic",
+    usage: pinned("claude-opus-4-5", "anthropic"),
+    createdAt: at(1),
+  });
   // conv-b's first turn lands BETWEEN two conv-a turns: if the switch query
   // ever loses `PARTITION BY conversation_id`, these interleavings break it.
-  seedMessage({ id: "b1", conversationId: CONV_B, role: "assistant", parentMessageId: "ub1",
-    model: "claude-opus-4-5", provider: "anthropic",
-    usage: pinned("claude-opus-4-5", "anthropic"), createdAt: at(2) });
-  seedMessage({ id: "a3", conversationId: CONV_A, role: "assistant", parentMessageId: "u3",
-    model: "gemini-2.5-flash", provider: "google",
-    usage: pinned("gemini-2.5-flash", "google"), createdAt: at(3) });
-  seedMessage({ id: "a4", conversationId: CONV_A, role: "assistant", parentMessageId: "u4",
-    model: "claude-haiku-4-5", provider: "anthropic",
-    usage: pinned("claude-haiku-4-5", "anthropic"), createdAt: at(4) });
+  seedMessage({
+    id: "b1",
+    conversationId: CONV_B,
+    role: "assistant",
+    parentMessageId: "ub1",
+    model: "claude-opus-4-5",
+    provider: "anthropic",
+    usage: pinned("claude-opus-4-5", "anthropic"),
+    createdAt: at(2),
+  });
+  seedMessage({
+    id: "a3",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u3",
+    model: "gemini-2.5-flash",
+    provider: "google",
+    usage: pinned("gemini-2.5-flash", "google"),
+    createdAt: at(3),
+  });
+  seedMessage({
+    id: "a4",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u4",
+    model: "claude-haiku-4-5",
+    provider: "anthropic",
+    usage: pinned("claude-haiku-4-5", "anthropic"),
+    createdAt: at(4),
+  });
   // The one EXPLORED turn (WS7): the classifier wanted `balanced`, exploration
   // served `fast`. Both are kept — `routedTier` is what served, and
   // `routingSignals.tier` is what the heuristic asked for.
-  seedMessage({ id: "a5", conversationId: CONV_A, role: "assistant", parentMessageId: "u5",
-    model: "claude-haiku-4-5", provider: "anthropic",
+  seedMessage({
+    id: "a5",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u5",
+    model: "claude-haiku-4-5",
+    provider: "anthropic",
     usage: routed("fast", {
       // Also carries a WS7d shadow verdict that AGREED — exploration and shadow
       // are independent: one changes what was served, the other cannot.
       routingSignals: {
-        estTokens: 900, tier: "balanced", reason: "midsize-turn", exploration: true,
+        estTokens: 900,
+        tier: "balanced",
+        reason: "midsize-turn",
+        exploration: true,
         shadow: { tier: "balanced", agreed: true },
       },
-    }), createdAt: at(5) });
+    }),
+    createdAt: at(5),
+  });
   // The failover turn, and the only turn with output + cache tokens (so the
   // 1h-write premium is exercised end to end).
-  seedMessage({ id: "a6", conversationId: CONV_A, role: "assistant", parentMessageId: "u6",
-    model: "claude-opus-4-5", provider: "anthropic",
+  seedMessage({
+    id: "a6",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u6",
+    model: "claude-opus-4-5",
+    provider: "anthropic",
     usage: routed("powerful", {
       outputTokens: ONE_M,
       cacheReadTokens: ONE_M,
       cacheWriteTokens: ONE_M,
       cacheWrite1hTokens: 400_000,
       failover: true,
-    }), createdAt: at(6) });
+    }),
+    createdAt: at(6),
+  });
   // LEGACY shape 1: usage jsonb with tokens but NO provenance key at all.
-  seedMessage({ id: "a7", conversationId: CONV_A, role: "assistant", parentMessageId: "u7",
-    model: "claude-sonnet-4-5", provider: "anthropic",
-    usage: { inputTokens: ONE_M, outputTokens: 0 }, createdAt: at(7) });
+  seedMessage({
+    id: "a7",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u7",
+    model: "claude-sonnet-4-5",
+    provider: "anthropic",
+    usage: { inputTokens: ONE_M, outputTokens: 0 },
+    createdAt: at(7),
+  });
   // LEGACY shape 2: no usage jsonb at all.
-  seedMessage({ id: "a8", conversationId: CONV_A, role: "assistant", parentMessageId: "u8",
-    model: "claude-sonnet-4-5", provider: "anthropic",
-    usage: null, createdAt: at(8) });
+  seedMessage({
+    id: "a8",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u8",
+    model: "claude-sonnet-4-5",
+    provider: "anthropic",
+    usage: null,
+    createdAt: at(8),
+  });
   // A/B retry: three assistant siblings under one user turn.
-  seedMessage({ id: "a9a", conversationId: CONV_A, role: "assistant", parentMessageId: "u9",
-    model: "claude-sonnet-4-5", provider: "anthropic",
-    usage: pinned("claude-sonnet-4-5", "anthropic"), createdAt: at(9) });
-  seedMessage({ id: "a9b", conversationId: CONV_A, role: "assistant", parentMessageId: "u9",
-    model: "claude-sonnet-4-5", provider: "anthropic",
-    usage: pinned("claude-sonnet-4-5", "anthropic"), createdAt: at(10) });
-  seedMessage({ id: "b2", conversationId: CONV_B, role: "assistant", parentMessageId: "ub2",
-    model: "claude-haiku-4-5", provider: "anthropic",
-    usage: pinned("claude-haiku-4-5", "anthropic"), createdAt: at(11) });
-  seedMessage({ id: "a9c", conversationId: CONV_A, role: "assistant", parentMessageId: "u9",
-    model: "claude-sonnet-4-5", provider: "anthropic",
-    usage: pinned("claude-sonnet-4-5", "anthropic"), createdAt: at(12) });
+  seedMessage({
+    id: "a9a",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u9",
+    model: "claude-sonnet-4-5",
+    provider: "anthropic",
+    usage: pinned("claude-sonnet-4-5", "anthropic"),
+    createdAt: at(9),
+  });
+  seedMessage({
+    id: "a9b",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u9",
+    model: "claude-sonnet-4-5",
+    provider: "anthropic",
+    usage: pinned("claude-sonnet-4-5", "anthropic"),
+    createdAt: at(10),
+  });
+  seedMessage({
+    id: "b2",
+    conversationId: CONV_B,
+    role: "assistant",
+    parentMessageId: "ub2",
+    model: "claude-haiku-4-5",
+    provider: "anthropic",
+    usage: pinned("claude-haiku-4-5", "anthropic"),
+    createdAt: at(11),
+  });
+  seedMessage({
+    id: "a9c",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u9",
+    model: "claude-sonnet-4-5",
+    provider: "anthropic",
+    usage: pinned("claude-sonnet-4-5", "anthropic"),
+    createdAt: at(12),
+  });
   // UNPRICED: a token-plan (subscription) provider — every rate is 0, exactly
   // the shape an OAuth subscription login produces. Dollars are meaningless
   // here; tokens are the only honest unit.
-  seedMessage({ id: "a10", conversationId: CONV_A, role: "assistant", parentMessageId: "u10",
-    model: "deepseek-v3.2", provider: "qwen-token-plan",
-    usage: routed("balanced"), createdAt: at(13) });
+  seedMessage({
+    id: "a10",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u10",
+    model: "deepseek-v3.2",
+    provider: "qwen-token-plan",
+    usage: routed("balanced"),
+    createdAt: at(13),
+  });
   // A routed turn stamped with a tier OUTSIDE the current vocabulary (what a
   // renamed tier would look like in an old row) and no served model.
-  seedMessage({ id: "a11", conversationId: CONV_A, role: "assistant", parentMessageId: "u11",
+  seedMessage({
+    id: "a11",
+    conversationId: CONV_A,
+    role: "assistant",
+    parentMessageId: "u11",
     usage: routed("turbo", {
       inputTokens: 0,
       // A STRING "true" — what a sloppy future writer might emit. The
@@ -207,18 +321,30 @@ beforeAll(async () => {
       // WS7d: a shadow verdict that DISAGREED — the candidate would have served
       // `balanced`; `fast` went out anyway, because shadow can never change a turn.
       routingSignals: {
-        estTokens: 10, tier: "fast", reason: "short-turn", exploration: "true",
+        estTokens: 10,
+        tier: "fast",
+        reason: "short-turn",
+        exploration: "true",
         shadow: { tier: "balanced", agreed: false },
       },
-    }), createdAt: at(14) });
+    }),
+    createdAt: at(14),
+  });
 
   // ── conv-b users + a row OUTSIDE the window ──
   seedMessage({ id: "ub1", conversationId: CONV_B, role: "user", createdAt: at(2) });
   seedMessage({ id: "ub2", conversationId: CONV_B, role: "user", createdAt: at(11) });
   seedMessage({ id: "ub0", conversationId: CONV_B, role: "user", createdAt: OUT_OF_WINDOW });
-  seedMessage({ id: "b0", conversationId: CONV_B, role: "assistant", parentMessageId: "ub0",
-    model: "claude-opus-4-5", provider: "anthropic",
-    usage: pinned("claude-opus-4-5", "anthropic"), createdAt: OUT_OF_WINDOW });
+  seedMessage({
+    id: "b0",
+    conversationId: CONV_B,
+    role: "assistant",
+    parentMessageId: "ub0",
+    model: "claude-opus-4-5",
+    provider: "anthropic",
+    usage: pinned("claude-opus-4-5", "anthropic"),
+    createdAt: OUT_OF_WINDOW,
+  });
 
   // `messages.parent_message_id` carries a real FK (added by migration, not
   // visible on the Drizzle column), so rows must land parent-before-child.
@@ -262,13 +388,22 @@ describe("getRoutingStats — fixture preconditions", () => {
   // rather than masquerading as a bug in the cost math.
   test("pi-ai still prices the fixture's models at the assumed rates", () => {
     expect(modelPrices("anthropic", "claude-haiku-4-5")).toEqual({
-      input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25,
+      input: 1,
+      output: 5,
+      cacheRead: 0.1,
+      cacheWrite: 1.25,
     });
     expect(modelPrices("anthropic", "claude-sonnet-4-5")).toEqual({
-      input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75,
+      input: 3,
+      output: 15,
+      cacheRead: 0.3,
+      cacheWrite: 3.75,
     });
     expect(modelPrices("anthropic", "claude-opus-4-5")).toEqual({
-      input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25,
+      input: 5,
+      output: 25,
+      cacheRead: 0.5,
+      cacheWrite: 6.25,
     });
     expect(modelPrices("google", "gemini-2.5-flash").input).toBe(0.3);
   });
@@ -288,9 +423,9 @@ describe("getRoutingStats — routed share and provenance", () => {
     expect(s.days).toBe(30);
     // 15 assistant turns in the window; the 60-day-old row is excluded.
     expect(s.turns.total).toBe(15);
-    expect(s.turns.routed).toBe(4);   // a5, a6, a10, a11
-    expect(s.turns.pinned).toBe(9);   // a1-a4, a9a-a9c, b1, b2
-    expect(s.turns.legacy).toBe(2);   // a7 (no provenance key), a8 (no usage)
+    expect(s.turns.routed).toBe(4); // a5, a6, a10, a11
+    expect(s.turns.pinned).toBe(9); // a1-a4, a9a-a9c, b1, b2
+    expect(s.turns.legacy).toBe(2); // a7 (no provenance key), a8 (no usage)
     expect(s.turns.routed + s.turns.pinned + s.turns.legacy).toBe(s.turns.total);
   });
 
@@ -367,29 +502,40 @@ describe("getRoutingStats — mid-conversation switches", () => {
     const [first, second, third, fourth] = s.switches.samples;
     // haiku (fast) → opus (powerful) on conv-a's 2nd assistant turn.
     expect(first).toMatchObject({
-      conversationId: CONV_A, turnIndex: 2,
-      fromModel: "claude-haiku-4-5", fromTier: "fast",
-      toModel: "claude-opus-4-5", toTier: "powerful",
+      conversationId: CONV_A,
+      turnIndex: 2,
+      fromModel: "claude-haiku-4-5",
+      fromTier: "fast",
+      toModel: "claude-opus-4-5",
+      toTier: "powerful",
       kind: "escalation",
     });
     // opus (powerful) → gemini flash (fast): a downgrade, and the requested
     // PROVIDER changes with it.
     expect(second).toMatchObject({
-      conversationId: CONV_A, turnIndex: 3,
-      fromProvider: "anthropic", fromModel: "claude-opus-4-5",
-      toProvider: "google", toModel: "gemini-2.5-flash",
+      conversationId: CONV_A,
+      turnIndex: 3,
+      fromProvider: "anthropic",
+      fromModel: "claude-opus-4-5",
+      toProvider: "google",
+      toModel: "gemini-2.5-flash",
       kind: "downgrade",
     });
     // Two different fast-tier models: a lateral move, not an escalation.
     expect(third).toMatchObject({
-      conversationId: CONV_A, turnIndex: 4,
-      fromModel: "gemini-2.5-flash", fromTier: "fast",
-      toModel: "claude-haiku-4-5", toTier: "fast",
+      conversationId: CONV_A,
+      turnIndex: 4,
+      fromModel: "gemini-2.5-flash",
+      fromTier: "fast",
+      toModel: "claude-haiku-4-5",
+      toTier: "fast",
       kind: "lateral",
     });
     // conv-b's own switch, indexed within conv-b (not globally).
     expect(fourth).toMatchObject({
-      conversationId: CONV_B, turnIndex: 2, kind: "downgrade",
+      conversationId: CONV_B,
+      turnIndex: 2,
+      kind: "downgrade",
     });
   });
 });
@@ -398,8 +544,8 @@ describe("getRoutingStats — A/B retries", () => {
   test("reports retried turns, extra siblings and the rate", async () => {
     const s = await getRoutingStats(30);
     expect(s.retries.answeredTurns).toBe(13); // u1-u11 + ub1 + ub2
-    expect(s.retries.retriedTurns).toBe(1);   // only u9 got more than one answer
-    expect(s.retries.extraSiblings).toBe(2);  // 3 siblings - 1 first answer
+    expect(s.retries.retriedTurns).toBe(1); // only u9 got more than one answer
+    expect(s.retries.extraSiblings).toBe(2); // 3 siblings - 1 first answer
     expect(s.retries.rate).toBeCloseTo(1 / 13, 10);
   });
 
@@ -441,8 +587,11 @@ describe("getRoutingStats — priced spend", () => {
     const opusRouted = segment(s.spend.segments, "anthropic", "claude-opus-4-5", "routed");
     expect(opusRouted.turnCount).toBe(1);
     expect(opusRouted.tokens).toEqual({
-      input: ONE_M, output: ONE_M, cacheRead: ONE_M,
-      cacheWrite: ONE_M, cacheWrite1h: 400_000,
+      input: ONE_M,
+      output: ONE_M,
+      cacheRead: ONE_M,
+      cacheWrite: ONE_M,
+      cacheWrite1h: 400_000,
     });
     // 400k written at 1h retention bills at 2× the $5 input rate ($4.00); the
     // remaining 600k at the $6.25 5m-write rate ($3.75).
@@ -467,7 +616,7 @@ describe("getRoutingStats — priced spend", () => {
   test("splits routed vs pinned spend and costs per resolved conversation", async () => {
     const s = await getRoutingStats(30);
     expect(s.spend.routedUsd).toBeCloseTo(39.25, 10); // haiku $1 + opus $38.25
-    expect(s.spend.pinnedUsd).toBeCloseTo(22.30, 10); // $3 + $10 + $0.30 + $9
+    expect(s.spend.pinnedUsd).toBeCloseTo(22.3, 10); // $3 + $10 + $0.30 + $9
     expect(s.spend.legacyUsd).toBeCloseTo(3.0, 10);
     expect(s.spend.totalUsd).toBeCloseTo(64.55, 10);
     // Per CONVERSATION, not per call: 15 turns landed across 2 conversations.

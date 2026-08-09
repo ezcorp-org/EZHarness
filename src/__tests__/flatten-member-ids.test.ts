@@ -5,9 +5,17 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 // MUST be before any module imports that use DB
 mockDbConnection();
 
-import { flattenMemberIds, createAgentConfig, updateAgentConfig, getAgentConfig } from "../db/queries/agent-configs";
+import {
+  flattenMemberIds,
+  createAgentConfig,
+  updateAgentConfig,
+  getAgentConfig,
+} from "../db/queries/agent-configs";
 
-function member(id: string, subAgents?: Parameters<typeof flattenMemberIds>[0]): Parameters<typeof flattenMemberIds>[0][0] {
+function member(
+  id: string,
+  subAgents?: Parameters<typeof flattenMemberIds>[0],
+): Parameters<typeof flattenMemberIds>[0][0] {
   return { agentConfigId: id, ...(subAgents ? { subAgents } : {}) };
 }
 
@@ -21,7 +29,11 @@ describe("flattenMemberIds", () => {
   });
 
   test("multiple members returns all IDs", () => {
-    expect(flattenMemberIds([member("a1"), member("a2"), member("a3")])).toEqual(["a1", "a2", "a3"]);
+    expect(flattenMemberIds([member("a1"), member("a2"), member("a3")])).toEqual([
+      "a1",
+      "a2",
+      "a3",
+    ]);
   });
 
   test("nested subAgents are included (2 levels)", () => {
@@ -30,21 +42,12 @@ describe("flattenMemberIds", () => {
   });
 
   test("deep nesting (3 levels) collects all IDs", () => {
-    const members = [
-      member("a1", [
-        member("a2", [
-          member("a3"),
-        ]),
-      ]),
-    ];
+    const members = [member("a1", [member("a2", [member("a3")])])];
     expect(flattenMemberIds(members)).toEqual(["a1", "a2", "a3"]);
   });
 
   test("duplicate IDs are deduplicated", () => {
-    const members = [
-      member("a1", [member("a2")]),
-      member("a2", [member("a1")]),
-    ];
+    const members = [member("a1", [member("a2")]), member("a2", [member("a1")])];
     const result = flattenMemberIds(members);
     expect(result).toEqual(["a1", "a2"]);
   });
@@ -103,7 +106,11 @@ describe("members persistence in DB", () => {
         extensions: [],
         members: [
           { agentConfigId: "m1" },
-          { agentConfigId: "m2", overrides: { toolRestriction: "read-only" }, subAgents: [{ agentConfigId: "m3" }] },
+          {
+            agentConfigId: "m2",
+            overrides: { toolRestriction: "read-only" },
+            subAgents: [{ agentConfigId: "m3" }],
+          },
         ],
       },
     });

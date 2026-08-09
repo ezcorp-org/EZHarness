@@ -5,20 +5,20 @@
  * to the default settings route. Pure fetch logic — testable without Svelte.
  */
 export interface CurrentUser {
-	id: string;
-	email: string;
-	name: string;
-	role: "admin" | "member";
+  id: string;
+  email: string;
+  name: string;
+  role: "admin" | "member";
 }
 
 export async function requireAdmin(): Promise<CurrentUser | null> {
-	try {
-		const res = await fetch("/api/auth/me");
-		if (!res.ok) return null;
-		const data = await res.json();
-		const user = data?.user as CurrentUser | undefined;
-		return user?.role === "admin" ? user : null;
-	} catch {
-		return null;
-	}
+  try {
+    const res = await fetch("/api/auth/me");
+    if (!res.ok) return null;
+    const data = await res.json();
+    const user = data?.user as CurrentUser | undefined;
+    return user?.role === "admin" ? user : null;
+  } catch {
+    return null;
+  }
 }

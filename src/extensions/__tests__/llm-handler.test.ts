@@ -23,19 +23,24 @@ import {
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
 
-import {
-  handlePiLlmComplete,
-  _resetLlmAbuseTrackerForTests,
-} from "../llm-handler";
+import { handlePiLlmComplete, _resetLlmAbuseTrackerForTests } from "../llm-handler";
 import { _resetLlmQuotaForTests } from "../llm-quota";
 import { createUser } from "../../db/queries/users";
 import {
@@ -65,7 +70,14 @@ async function ensureExtension(name: string): Promise<string> {
       name,
       version: "0.0.1",
       description: "",
-      manifest: { schemaVersion: 2, name, version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as any,
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as any,
       source: "test",
       enabled: true,
       grantedPermissions: {} as any,
@@ -111,7 +123,9 @@ afterAll(async () => {
   await closeTestDb();
 });
 
-function makeGranted(overrides: Partial<NonNullable<ExtensionPermissions["llm"]>> = {}): ExtensionPermissions {
+function makeGranted(
+  overrides: Partial<NonNullable<ExtensionPermissions["llm"]>> = {},
+): ExtensionPermissions {
   return {
     grantedAt: { llm: Date.now() },
     llm: {
@@ -136,7 +150,9 @@ interface FakeUpstream {
   model?: string;
 }
 
-function makeMockedHandlerCtx(overrides: { granted?: ExtensionPermissions; mockComplete?: () => Promise<FakeUpstream> } = {}) {
+function makeMockedHandlerCtx(
+  overrides: { granted?: ExtensionPermissions; mockComplete?: () => Promise<FakeUpstream> } = {},
+) {
   const granted = overrides.granted ?? makeGranted();
   const completeFn = async (
     _piModel: unknown,
@@ -172,9 +188,12 @@ describe("handlePiLlmComplete — happy path", () => {
     const ctx = makeMockedHandlerCtx();
     const resp = await handlePiLlmComplete(
       {
-        jsonrpc: "2.0", id: 1, method: "ezcorp/llm-complete",
+        jsonrpc: "2.0",
+        id: 1,
+        method: "ezcorp/llm-complete",
         params: {
-          provider: "anthropic", model: "claude-sonnet-4",
+          provider: "anthropic",
+          model: "claude-sonnet-4",
           messages: [{ role: "user", content: "hello" }],
           maxTokens: 100,
         },
@@ -183,12 +202,14 @@ describe("handlePiLlmComplete — happy path", () => {
       makeRpcMeta(),
     );
     expect(resp.error).toBeUndefined();
-    expect(resp.result).toEqual(expect.objectContaining({
-      content: "ok",
-      usage: expect.objectContaining({ inputTokens: 10, outputTokens: 20 }),
-      finishReason: "stop",
-      model: "claude-sonnet-4",
-    }));
+    expect(resp.result).toEqual(
+      expect.objectContaining({
+        content: "ok",
+        usage: expect.objectContaining({ inputTokens: 10, outputTokens: 20 }),
+        finishReason: "stop",
+        model: "claude-sonnet-4",
+      }),
+    );
 
     // ── INVARIANT 1: token never in response. ──
     const respJson = JSON.stringify(resp);
@@ -196,7 +217,8 @@ describe("handlePiLlmComplete — happy path", () => {
 
     // ── INVARIANT 2: token never in audit row. ──
     const auditRows = await getTestDb()
-      .select().from(sdkCapabilityCalls)
+      .select()
+      .from(sdkCapabilityCalls)
       .where(eq(sdkCapabilityCalls.extensionId, extensionId));
     expect(auditRows.length).toBe(1);
     const auditJson = JSON.stringify(auditRows[0]);
@@ -212,9 +234,12 @@ describe("handlePiLlmComplete — soft-fail ladder", () => {
     const ctx = makeMockedHandlerCtx({ granted: makeGranted({ providers: ["anthropic"] }) });
     const resp = await handlePiLlmComplete(
       {
-        jsonrpc: "2.0", id: 2, method: "ezcorp/llm-complete",
+        jsonrpc: "2.0",
+        id: 2,
+        method: "ezcorp/llm-complete",
         params: {
-          provider: "openai", model: "gpt-4",
+          provider: "openai",
+          model: "gpt-4",
           messages: [{ role: "user", content: "hi" }],
         },
       },
@@ -224,11 +249,9 @@ describe("handlePiLlmComplete — soft-fail ladder", () => {
     expect(resp.error?.code).toBe(-32101);
     expect(resp.error?.message).toContain("openai");
     const audits = await getTestDb()
-      .select().from(auditLog)
-      .where(and(
-        eq(auditLog.action, "ext:sdk-llm-rejected"),
-        eq(auditLog.target, extensionId),
-      ));
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "ext:sdk-llm-rejected"), eq(auditLog.target, extensionId)));
     expect(audits.length).toBe(1);
   });
 
@@ -240,9 +263,12 @@ describe("handlePiLlmComplete — soft-fail ladder", () => {
     const ctx = makeMockedHandlerCtx({ granted });
     const resp = await handlePiLlmComplete(
       {
-        jsonrpc: "2.0", id: 3, method: "ezcorp/llm-complete",
+        jsonrpc: "2.0",
+        id: 3,
+        method: "ezcorp/llm-complete",
         params: {
-          provider: "anthropic", model: "claude-sonnet-4",
+          provider: "anthropic",
+          model: "claude-sonnet-4",
           messages: [{ role: "user", content: "hi" }],
         },
       },
@@ -261,9 +287,12 @@ describe("handlePiLlmComplete — soft-fail ladder", () => {
     const ctx = makeMockedHandlerCtx({ granted });
     const resp = await handlePiLlmComplete(
       {
-        jsonrpc: "2.0", id: 31, method: "ezcorp/llm-complete",
+        jsonrpc: "2.0",
+        id: 31,
+        method: "ezcorp/llm-complete",
         params: {
-          provider: "anthropic", model: "claude-3-opus",
+          provider: "anthropic",
+          model: "claude-3-opus",
           messages: [{ role: "user", content: "hi" }],
         },
       },
@@ -277,7 +306,8 @@ describe("handlePiLlmComplete — soft-fail ladder", () => {
     const granted = makeGranted({ maxCallsPerHour: 2, maxCallsPerDay: 5 });
     const ctx = makeMockedHandlerCtx({ granted });
     const params = {
-      provider: "anthropic", model: "claude-sonnet-4",
+      provider: "anthropic",
+      model: "claude-sonnet-4",
       messages: [{ role: "user" as const, content: "hi" }],
       maxTokens: 100,
     };
@@ -285,17 +315,17 @@ describe("handlePiLlmComplete — soft-fail ladder", () => {
     for (let i = 0; i < 2; i++) {
       await handlePiLlmComplete(
         { jsonrpc: "2.0", id: i + 10, method: "ezcorp/llm-complete", params },
-        ctx, makeRpcMeta(),
+        ctx,
+        makeRpcMeta(),
       );
     }
     const resp = await handlePiLlmComplete(
       { jsonrpc: "2.0", id: 99, method: "ezcorp/llm-complete", params },
-      ctx, makeRpcMeta(),
+      ctx,
+      makeRpcMeta(),
     );
     expect(resp.error?.code).toBe(-32103);
-    const denial = resp.error?.data as
-      | { reason?: string; retryAfterMs?: number }
-      | undefined;
+    const denial = resp.error?.data as { reason?: string; retryAfterMs?: number } | undefined;
     expect(denial?.reason).toBe("calls-per-hour");
     expect(denial?.retryAfterMs).toBeGreaterThanOrEqual(0);
   });
@@ -305,18 +335,27 @@ describe("handlePiLlmComplete — soft-fail ladder", () => {
       granted: makeGranted(),
       registeredTool: { extensionId },
       resolveModelFn: async (provider: string, model: string) => ({
-        provider, model, piModel: {} as unknown,
+        provider,
+        model,
+        piModel: {} as unknown,
       }),
-      getCredentialFn: async () => { throw new Error("BYOK key missing"); },
+      getCredentialFn: async () => {
+        throw new Error("BYOK key missing");
+      },
       completeFn: (async (): Promise<FakeUpstream> => ({
-        content: [], usage: {}, stopReason: "stop",
+        content: [],
+        usage: {},
+        stopReason: "stop",
       })) as never,
     };
     const resp = await handlePiLlmComplete(
       {
-        jsonrpc: "2.0", id: 11, method: "ezcorp/llm-complete",
+        jsonrpc: "2.0",
+        id: 11,
+        method: "ezcorp/llm-complete",
         params: {
-          provider: "anthropic", model: "claude-sonnet-4",
+          provider: "anthropic",
+          model: "claude-sonnet-4",
           messages: [{ role: "user", content: "hi" }],
         },
       },
@@ -336,9 +375,12 @@ describe("handlePiLlmComplete — soft-fail ladder", () => {
     });
     const resp = await handlePiLlmComplete(
       {
-        jsonrpc: "2.0", id: 12, method: "ezcorp/llm-complete",
+        jsonrpc: "2.0",
+        id: 12,
+        method: "ezcorp/llm-complete",
         params: {
-          provider: "anthropic", model: "claude-sonnet-4",
+          provider: "anthropic",
+          model: "claude-sonnet-4",
           messages: [{ role: "user", content: "hi" }],
           maxTokens: 100,
         },
@@ -355,23 +397,24 @@ describe("handlePiLlmComplete — hard-deny graduation", () => {
   test("11 attempts at un-granted provider in 60s → denyAndDisable", async () => {
     const ctx = makeMockedHandlerCtx({ granted: makeGranted({ providers: ["anthropic"] }) });
     const params = {
-      provider: "openai", model: "gpt-4",
+      provider: "openai",
+      model: "gpt-4",
       messages: [{ role: "user" as const, content: "x" }],
     };
     for (let i = 0; i < 11; i++) {
       await handlePiLlmComplete(
         { jsonrpc: "2.0", id: i + 100, method: "ezcorp/llm-complete", params },
-        ctx, makeRpcMeta(),
+        ctx,
+        makeRpcMeta(),
       );
     }
     // Ext should be disabled now.
-    const exts = await getTestDb()
-      .select().from(extensions)
-      .where(eq(extensions.id, extensionId));
+    const exts = await getTestDb().select().from(extensions).where(eq(extensions.id, extensionId));
     expect(exts[0]!.enabled).toBe(false);
 
     const denyAudits = await getTestDb()
-      .select().from(auditLog)
+      .select()
+      .from(auditLog)
       .where(eq(auditLog.action, "ext:sdk-llm-denied-and-disabled"));
     expect(denyAudits.length).toBe(1);
   });
@@ -379,10 +422,14 @@ describe("handlePiLlmComplete — hard-deny graduation", () => {
 
 describe("handlePiLlmComplete — getBudget", () => {
   test("op=budget returns snapshot without consuming", async () => {
-    const ctx = makeMockedHandlerCtx({ granted: makeGranted({ maxCallsPerHour: 60, maxCallsPerDay: 500 }) });
+    const ctx = makeMockedHandlerCtx({
+      granted: makeGranted({ maxCallsPerHour: 60, maxCallsPerDay: 500 }),
+    });
     const resp = await handlePiLlmComplete(
       {
-        jsonrpc: "2.0", id: 200, method: "ezcorp/llm-complete",
+        jsonrpc: "2.0",
+        id: 200,
+        method: "ezcorp/llm-complete",
         params: { op: "budget", provider: "anthropic", model: "", messages: [] },
       },
       ctx,
@@ -397,7 +444,9 @@ describe("handlePiLlmComplete — getBudget", () => {
     const ctx = makeMockedHandlerCtx();
     const resp = await handlePiLlmComplete(
       {
-        jsonrpc: "2.0", id: 201, method: "ezcorp/llm-complete",
+        jsonrpc: "2.0",
+        id: 201,
+        method: "ezcorp/llm-complete",
         params: { op: "stream", provider: "anthropic", model: "claude-sonnet-4", messages: [] },
       },
       ctx,
@@ -410,8 +459,11 @@ describe("handlePiLlmComplete — getBudget", () => {
 describe("clamp + env-key-leak detection", () => {
   test("detectEnvKeyLeaks finds *_API_KEY|TOKEN|SECRET", async () => {
     const { detectEnvKeyLeaks } = await import("../clamp-permissions");
-    expect(detectEnvKeyLeaks(["OPENAI_API_KEY", "FOO_TOKEN", "BAR_SECRET", "PATH"]))
-      .toEqual(["OPENAI_API_KEY", "FOO_TOKEN", "BAR_SECRET"]);
+    expect(detectEnvKeyLeaks(["OPENAI_API_KEY", "FOO_TOKEN", "BAR_SECRET", "PATH"])).toEqual([
+      "OPENAI_API_KEY",
+      "FOO_TOKEN",
+      "BAR_SECRET",
+    ]);
     expect(detectEnvKeyLeaks(["FOO", "BAR"])).toEqual([]);
     expect(detectEnvKeyLeaks(undefined)).toEqual([]);
   });
@@ -431,7 +483,9 @@ describe("clamp + env-key-leak detection", () => {
     const out = clampLlmPermission(
       { providers: ["openai"], maxCallsPerHour: 60, maxCallsPerDay: 500 },
       {
-        providers: ["openai"], maxCallsPerHour: 60, maxCallsPerDay: 500,
+        providers: ["openai"],
+        maxCallsPerHour: 60,
+        maxCallsPerDay: 500,
         allowedModels: { openai: ["gpt-4*", "../etc/passwd"] },
       },
     );
@@ -505,7 +559,7 @@ describe("LlmQuota — counters", () => {
     expect(q.consume("ext-tok", cfg, { tokens: 200 }).ok).toBe(true);
     // Reconcile to actual: input 300 + output 150 = 450 total.
     // delta = 450 - 200 = 250.
-    q.adjustTokens("ext-tok", (300 + 150) - 200);
+    q.adjustTokens("ext-tok", 300 + 150 - 200);
     expect(q.budget("ext-tok", cfg).tokensRemaining.day).toBe(1000 - 450);
     q.dispose();
   });

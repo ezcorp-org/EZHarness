@@ -13,7 +13,7 @@
  * via {@link runEzClientTool} — see `client-tool.ts`.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import type { BuiltinToolDef } from "../types";
 import { runEzClientTool, type ClientToolContext } from "./client-tool";
 import type { ToolParams } from "../validate";
 
@@ -34,8 +34,16 @@ export function createFillFormTool(ctx: ClientToolContext): BuiltinToolDef {
     parameters: Type.Unsafe({
       type: "object",
       properties: {
-        formId: { type: "string", minLength: 1, description: "ID of the form to fill, as reported by read_page." },
-        values: { type: "object", additionalProperties: true, description: "Field-name → value map. Fields not present on the form are skipped." },
+        formId: {
+          type: "string",
+          minLength: 1,
+          description: "ID of the form to fill, as reported by read_page.",
+        },
+        values: {
+          type: "object",
+          additionalProperties: true,
+          description: "Field-name → value map. Fields not present on the form are skipped.",
+        },
       },
       required: ["formId", "values"],
     }),

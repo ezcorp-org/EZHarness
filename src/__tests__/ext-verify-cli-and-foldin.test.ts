@@ -10,14 +10,7 @@
  *   + smoke-fail ⇒ non-zero.
  */
 
-import {
-  test,
-  expect,
-  describe,
-  afterAll,
-  mock,
-  spyOn,
-} from "bun:test";
+import { test, expect, describe, afterAll, mock, spyOn } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 mock.module("../db/queries/extensions", () => ({
@@ -54,15 +47,11 @@ describe("cli — ext verify --json", () => {
     const logSpy = spyOn(console, "log").mockImplementation((...a) => {
       logs.push(a.join(" "));
     });
-    const exitSpy = spyOn(process, "exit").mockImplementation(((
-      code?: number,
-    ) => {
+    const exitSpy = spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code ?? 0}`);
     }) as never);
     try {
-      await expect(
-        cli(["ext", "verify", fx.dir, "--json"]),
-      ).rejects.toThrow("exit:0");
+      await expect(cli(["ext", "verify", fx.dir, "--json"])).rejects.toThrow("exit:0");
       const out = logs.join("\n");
       const parsed = JSON.parse(out);
       expect(parsed.pass).toBe(true);
@@ -78,15 +67,11 @@ describe("cli — ext verify --json", () => {
   test("failing fixture (missing smokeTest) ⇒ exit 1", async () => {
     const fx = buildVerifyFixture({ name: "cli-verify-fail", smokeTest: null });
     const logSpy = spyOn(console, "log").mockImplementation(() => {});
-    const exitSpy = spyOn(process, "exit").mockImplementation(((
-      code?: number,
-    ) => {
+    const exitSpy = spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code ?? 0}`);
     }) as never);
     try {
-      await expect(
-        cli(["ext", "verify", fx.dir, "--json"]),
-      ).rejects.toThrow("exit:1");
+      await expect(cli(["ext", "verify", fx.dir, "--json"])).rejects.toThrow("exit:1");
     } finally {
       logSpy.mockRestore();
       exitSpy.mockRestore();
@@ -100,9 +85,7 @@ describe("cli — ext verify --json", () => {
     const logSpy = spyOn(console, "log").mockImplementation((...a) => {
       logs.push(a.join(" "));
     });
-    const exitSpy = spyOn(process, "exit").mockImplementation(((
-      code?: number,
-    ) => {
+    const exitSpy = spyOn(process, "exit").mockImplementation(((code?: number) => {
       throw new Error(`exit:${code ?? 0}`);
     }) as never);
     try {

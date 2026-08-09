@@ -41,7 +41,10 @@ const HEARTBEAT_REFRESH_MS = 30_000;
 // - REASONING: minimal/low/medium thinking levels
 // - REASONING_HIGH: high/xhigh thinking levels (deepest, longest gaps)
 const WATCHDOG_IDLE_REASONING_MS = envIdleMs("EZCORP_WATCHDOG_IDLE_REASONING_MS", 300_000);
-const WATCHDOG_IDLE_REASONING_HIGH_MS = envIdleMs("EZCORP_WATCHDOG_IDLE_REASONING_HIGH_MS", 900_000);
+const WATCHDOG_IDLE_REASONING_HIGH_MS = envIdleMs(
+  "EZCORP_WATCHDOG_IDLE_REASONING_HIGH_MS",
+  900_000,
+);
 
 /**
  * Default per-call timeout (ms) used when a tool's manifest doesn't declare
@@ -117,10 +120,7 @@ export interface WatchdogHost {
  * written (or immediately if another path already claimed the run's
  * error-persist slot).
  */
-export type WatchdogPersistError = (
-  conversationId: string,
-  errorContent: string,
-) => Promise<void>;
+export type WatchdogPersistError = (conversationId: string, errorContent: string) => Promise<void>;
 
 /**
  * Manages all liveness-detection state for {@link AgentExecutor}:
@@ -168,11 +168,14 @@ export class WatchdogManager {
     // Clean up orphaned runs on startup and periodically.
     // Also cancel any in-memory runs whose DB record was marked interrupted.
     // On fresh startup, ALL "running" DB entries are orphaned — interrupt them immediately
-    activeRunsDb.interruptAllRuns().then((count) => {
-      if (count > 0) log.info("Interrupted orphaned runs from previous process", { count });
-    }).catch((err) => {
-      log.error("interruptAllRuns on startup failed", { error: String(err) });
-    });
+    activeRunsDb
+      .interruptAllRuns()
+      .then((count) => {
+        if (count > 0) log.info("Interrupted orphaned runs from previous process", { count });
+      })
+      .catch((err) => {
+        log.error("interruptAllRuns on startup failed", { error: String(err) });
+      });
 
     // Drain the `runs`-table counterpart of the same invariant: a fresh
     // process owns zero in-memory runs, so ANY `runs` row still
@@ -182,19 +185,22 @@ export class WatchdogManager {
     // ~131-row backlog). This both drains that pre-existing backlog on
     // the next legitimate restart AND self-heals after any crash/OOM
     // kill that skipped finalizeCleanup — no manual DB surgery needed.
-    dbRuns.terminalizeOrphanedRuns().then((count) => {
-      if (count > 0) log.info("Terminalized orphaned runs rows from previous process", { count });
-      // C2: reconcile task-tracking assignments a restart left `running`.
-      // Runs AFTER terminalization so each dangling assignment's run row is
-      // already terminal. Fire-and-forget + self-catching so a slow/failing
-      // reconcile never delays or fails boot. Full resume is a deliberate
-      // v1 non-goal — see boot-reconcile-assignments.ts.
-      void reconcileInterruptedAssignments(this.host.bus).catch((err) => {
-        log.error("assignment reconciliation on startup failed", { error: String(err) });
+    dbRuns
+      .terminalizeOrphanedRuns()
+      .then((count) => {
+        if (count > 0) log.info("Terminalized orphaned runs rows from previous process", { count });
+        // C2: reconcile task-tracking assignments a restart left `running`.
+        // Runs AFTER terminalization so each dangling assignment's run row is
+        // already terminal. Fire-and-forget + self-catching so a slow/failing
+        // reconcile never delays or fails boot. Full resume is a deliberate
+        // v1 non-goal — see boot-reconcile-assignments.ts.
+        void reconcileInterruptedAssignments(this.host.bus).catch((err) => {
+          log.error("assignment reconciliation on startup failed", { error: String(err) });
+        });
+      })
+      .catch((err) => {
+        log.error("terminalizeOrphanedRuns on startup failed", { error: String(err) });
       });
-    }).catch((err) => {
-      log.error("terminalizeOrphanedRuns on startup failed", { error: String(err) });
-    });
 
     const cleanupOrphans = async () => {
       const cleaned = await activeRunsDb.cleanupOrphanedRuns(5);
@@ -432,12 +438,7 @@ export class WatchdogManager {
         // delay the abort / run:error fast-recovery path.
         const persistError = this.persistError.get(runId);
         const persistedSet = this.host.errorMessagePersisted;
-        if (
-          persistError &&
-          this.host.persist &&
-          persistedSet &&
-          !persistedSet.has(runId)
-        ) {
+        if (persistError && this.host.persist && persistedSet && !persistedSet.has(runId)) {
           persistedSet.add(runId);
           void persistError(conversationId, `Error: ${reason}`).catch((err) => {
             log.error("Watchdog persistError failed", {

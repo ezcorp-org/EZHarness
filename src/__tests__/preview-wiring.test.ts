@@ -65,7 +65,17 @@ describe("emitDetectionDecision", () => {
     bus.on("tool:complete", (d) => got.push(d));
     const payload = emitDetectionDecision(
       bus,
-      { kind: "consent-card", port: 5173, card: { conversationId: "conv-1", port: 5173, title: "t", summary: "s", actions: { expose: "e", ignore: "i", alwaysExpose: "a" } } },
+      {
+        kind: "consent-card",
+        port: 5173,
+        card: {
+          conversationId: "conv-1",
+          port: 5173,
+          title: "t",
+          summary: "s",
+          actions: { expose: "e", ignore: "i", alwaysExpose: "a" },
+        },
+      },
       EVENT,
     );
     expect(payload).not.toBeNull();
@@ -109,7 +119,17 @@ describe("onPreviewDetected", () => {
     await onPreviewDetected(EVENT, {
       getBus: () => bus,
       appHost: () => "localhost",
-      decide: async () => ({ kind: "consent-card", port: 5173, card: { conversationId: "conv-1", port: 5173, title: "t", summary: "s", actions: { expose: "e", ignore: "i", alwaysExpose: "a" } } }),
+      decide: async () => ({
+        kind: "consent-card",
+        port: 5173,
+        card: {
+          conversationId: "conv-1",
+          port: 5173,
+          title: "t",
+          summary: "s",
+          actions: { expose: "e", ignore: "i", alwaysExpose: "a" },
+        },
+      }),
     });
     expect(got).toHaveLength(1);
   });
@@ -194,8 +214,12 @@ describe("launchPreviewDevServer (spawn orchestration)", () => {
   });
 
   test("validates required inputs", () => {
-    expect(launchPreviewDevServer({ conversationId: "", userId: "u", workDir: "/w", command: "x" }).ok).toBe(false);
-    expect(launchPreviewDevServer({ conversationId: "c", userId: "u", workDir: "", command: "x" }).ok).toBe(false);
+    expect(
+      launchPreviewDevServer({ conversationId: "", userId: "u", workDir: "/w", command: "x" }).ok,
+    ).toBe(false);
+    expect(
+      launchPreviewDevServer({ conversationId: "c", userId: "u", workDir: "", command: "x" }).ok,
+    ).toBe(false);
   });
 
   test("tracks the launched process + killConversationProcesses confirms the kill via the helper", async () => {
@@ -205,14 +229,23 @@ describe("launchPreviewDevServer (spawn orchestration)", () => {
       {
         capabilities: () => ({ mode: "uid" }),
         // Capture the uid + pgid (== pid here) the orchestration records.
-        spawn: ({ uid }) => ({ pid: 4242, uid, pgid: 4242, kill: () => {}, exited: new Promise(() => {}) }),
+        spawn: ({ uid }) => ({
+          pid: 4242,
+          uid,
+          pgid: 4242,
+          kill: () => {},
+          exited: new Promise(() => {}),
+        }),
       },
     );
     expect(res.ok).toBe(true);
     expect(trackedProcessCount("conv-kill")).toBe(1);
     // CONFIRMED kill: the injected killPreview resolves true → killed:1.
     const r = await killConversationProcesses("conv-kill", {
-      killPreview: async (uid, pgid) => { killArgs.push({ uid, pgid }); return true; },
+      killPreview: async (uid, pgid) => {
+        killArgs.push({ uid, pgid });
+        return true;
+      },
     });
     expect(r).toEqual({ killed: 1, unconfirmed: 0 });
     // Routed through the helper with the captured uid + pgid (not proc.kill()).
@@ -229,7 +262,13 @@ describe("launchPreviewDevServer (spawn orchestration)", () => {
       { conversationId: "conv-unconf", userId: "u1", workDir: "/w", command: "bun" },
       {
         capabilities: () => ({ mode: "uid" }),
-        spawn: ({ uid }) => ({ pid: 7, uid, pgid: 7, kill: () => {}, exited: new Promise(() => {}) }),
+        spawn: ({ uid }) => ({
+          pid: 7,
+          uid,
+          pgid: 7,
+          kill: () => {},
+          exited: new Promise(() => {}),
+        }),
       },
     );
     const r = await killConversationProcesses("conv-unconf", {
@@ -250,7 +289,10 @@ describe("launchPreviewDevServer (spawn orchestration)", () => {
     );
     let helperCalled = false;
     const r = await killConversationProcesses("conv-nouid", {
-      killPreview: async () => { helperCalled = true; return true; },
+      killPreview: async () => {
+        helperCalled = true;
+        return true;
+      },
     });
     expect(helperCalled).toBe(false); // never even attempts (no pgid)
     expect(r).toEqual({ killed: 0, unconfirmed: 1 });
@@ -261,11 +303,19 @@ describe("launchPreviewDevServer (spawn orchestration)", () => {
       { conversationId: "conv-throw", userId: "u1", workDir: "/w", command: "bun" },
       {
         capabilities: () => ({ mode: "uid" }),
-        spawn: ({ uid }) => ({ pid: 11, uid, pgid: 11, kill: () => {}, exited: new Promise(() => {}) }),
+        spawn: ({ uid }) => ({
+          pid: 11,
+          uid,
+          pgid: 11,
+          kill: () => {},
+          exited: new Promise(() => {}),
+        }),
       },
     );
     const r = await killConversationProcesses("conv-throw", {
-      killPreview: async () => { throw new Error("helper spawn boom"); },
+      killPreview: async () => {
+        throw new Error("helper spawn boom");
+      },
     });
     expect(r).toEqual({ killed: 0, unconfirmed: 1 });
   });

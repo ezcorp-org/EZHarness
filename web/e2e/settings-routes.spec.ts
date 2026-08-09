@@ -12,233 +12,296 @@ import { makeProject } from "./fixtures/data.js";
 const proj = makeProject({ id: "proj-1", name: "Test Project" });
 
 const adminMe = {
-	user: { id: "admin-1", email: "admin@test.local", name: "Admin", role: "admin" },
+  user: { id: "admin-1", email: "admin@test.local", name: "Admin", role: "admin" },
 };
 const memberMe = {
-	user: { id: "member-1", email: "member@test.local", name: "Member", role: "member" },
+  user: { id: "member-1", email: "member@test.local", name: "Member", role: "member" },
 };
 
 const adminRoutes = {
-	"/api/auth/me": () => adminMe,
-	"/api/users": () => ({ users: [{ id: "member-1", email: "member@test.local", name: "Member", role: "member", status: "active" }] }),
-	"/api/admin/sessions": () => ({ sessions: [] }),
-	"/api/teams": () => ({ teams: [] }),
-	"/api/auth/invite": () => ({ invites: [] }),
-	"/api/audit-log": () => ({ entries: [], total: 0 }),
-	"/api/health": () => ({ status: "healthy", db: { status: "up" }, embeddings: { status: "ready" }, providers: {} }),
+  "/api/auth/me": () => adminMe,
+  "/api/users": () => ({
+    users: [
+      {
+        id: "member-1",
+        email: "member@test.local",
+        name: "Member",
+        role: "member",
+        status: "active",
+      },
+    ],
+  }),
+  "/api/admin/sessions": () => ({ sessions: [] }),
+  "/api/teams": () => ({ teams: [] }),
+  "/api/auth/invite": () => ({ invites: [] }),
+  "/api/audit-log": () => ({ entries: [], total: 0 }),
+  "/api/health": () => ({
+    status: "healthy",
+    db: { status: "up" },
+    embeddings: { status: "ready" },
+    providers: {},
+  }),
 };
 
 test.describe("settings sub-routes", () => {
-	test("models page renders providers, tier, order, custom models", async ({ page, mockApi }) => {
-		// Admin: this page's reads and writes are both admin-gated.
-		await mockApi({ projects: [proj], routes: adminRoutes });
-		await page.goto("/settings/models");
+  test("models page renders providers, tier, order, custom models", async ({ page, mockApi }) => {
+    // Admin: this page's reads and writes are both admin-gated.
+    await mockApi({ projects: [proj], routes: adminRoutes });
+    await page.goto("/settings/models");
 
-		await expect(page.locator("#providers")).toBeVisible();
-		await expect(page.locator("#tier")).toBeVisible();
-		await expect(page.locator("#order")).toBeVisible();
-		await expect(page.locator("#custom-models")).toBeVisible();
-	});
+    await expect(page.locator("#providers")).toBeVisible();
+    await expect(page.locator("#tier")).toBeVisible();
+    await expect(page.locator("#order")).toBeVisible();
+    await expect(page.locator("#custom-models")).toBeVisible();
+  });
 
-	test("personalization page renders instructions, modes, briefing, audit-visibility, advanced", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings/personalization");
+  test("personalization page renders instructions, modes, briefing, audit-visibility, advanced", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+    await page.goto("/settings/personalization");
 
-		await expect(page.locator("#instructions")).toBeVisible();
-		await expect(page.locator("#modes")).toBeVisible();
-		await expect(page.locator("#briefing")).toBeVisible();
-		await expect(page.locator("#audit-visibility")).toBeVisible();
-		await expect(page.locator("#advanced")).toBeVisible();
-	});
+    await expect(page.locator("#instructions")).toBeVisible();
+    await expect(page.locator("#modes")).toBeVisible();
+    await expect(page.locator("#briefing")).toBeVisible();
+    await expect(page.locator("#audit-visibility")).toBeVisible();
+    await expect(page.locator("#advanced")).toBeVisible();
+  });
 
-	test("developer page renders the API key manager", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings/developer");
+  test("developer page renders the API key manager", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+    await page.goto("/settings/developer");
 
-		await expect(page.locator("#api-keys")).toBeVisible();
-		await expect(page.getByRole("heading", { name: "Developer" })).toBeVisible();
-	});
+    await expect(page.locator("#api-keys")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Developer" })).toBeVisible();
+  });
 
-	test("admin page renders users, teams, invites, security, health for admins", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: adminRoutes });
-		await page.goto("/settings/admin");
+  test("admin page renders users, teams, invites, security, health for admins", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({ projects: [proj], routes: adminRoutes });
+    await page.goto("/settings/admin");
 
-		await expect(page.locator("#users")).toBeVisible();
-		await expect(page.locator("#teams")).toBeVisible();
-		await expect(page.locator("#invites")).toBeVisible();
-		await expect(page.locator("#security")).toBeVisible();
-		await expect(page.locator("#health")).toBeVisible();
-		await expect(page.getByTestId("audit-log-link")).toHaveAttribute("href", "/settings/admin/audit");
-	});
+    await expect(page.locator("#users")).toBeVisible();
+    await expect(page.locator("#teams")).toBeVisible();
+    await expect(page.locator("#invites")).toBeVisible();
+    await expect(page.locator("#security")).toBeVisible();
+    await expect(page.locator("#health")).toBeVisible();
+    await expect(page.getByTestId("audit-log-link")).toHaveAttribute(
+      "href",
+      "/settings/admin/audit",
+    );
+  });
 
-	test("audit log page renders for admins", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: adminRoutes });
-		await page.goto("/settings/admin/audit");
+  test("audit log page renders for admins", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], routes: adminRoutes });
+    await page.goto("/settings/admin/audit");
 
-		await expect(page.getByRole("heading", { name: "Audit Log" })).toBeVisible();
-		await expect(page.getByLabel("Filter audit events")).toBeVisible();
-	});
+    await expect(page.getByRole("heading", { name: "Audit Log" })).toBeVisible();
+    await expect(page.getByLabel("Filter audit events")).toBeVisible();
+  });
 });
 
 test.describe("legacy anchor redirects", () => {
-	test("/settings redirects a member to their first allowed page", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings");
+  test("/settings redirects a member to their first allowed page", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+    await page.goto("/settings");
 
-		await expect(page).toHaveURL(/\/settings\/personalization$/);
-	});
+    await expect(page).toHaveURL(/\/settings\/personalization$/);
+  });
 
-	test("/settings#providers lands on models page with the anchor (admin)", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: adminRoutes });
-		await page.goto("/settings#providers");
+  test("/settings#providers lands on models page with the anchor (admin)", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({ projects: [proj], routes: adminRoutes });
+    await page.goto("/settings#providers");
 
-		await expect(page).toHaveURL(/\/settings\/models#providers$/);
-		await expect(page.locator("#providers")).toBeVisible();
-	});
+    await expect(page).toHaveURL(/\/settings\/models#providers$/);
+    await expect(page.locator("#providers")).toBeVisible();
+  });
 
-	test("/settings#modes lands on personalization page with the anchor", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings#modes");
+  test("/settings#modes lands on personalization page with the anchor", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+    await page.goto("/settings#modes");
 
-		await expect(page).toHaveURL(/\/settings\/personalization#modes$/);
-		await expect(page.locator("#modes")).toBeVisible();
-	});
+    await expect(page).toHaveURL(/\/settings\/personalization#modes$/);
+    await expect(page.locator("#modes")).toBeVisible();
+  });
 
-	test("/settings#users routes admins to the admin page", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: adminRoutes });
-		await page.goto("/settings#users");
+  test("/settings#users routes admins to the admin page", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], routes: adminRoutes });
+    await page.goto("/settings#users");
 
-		await expect(page).toHaveURL(/\/settings\/admin#users$/);
-		await expect(page.locator("#users")).toBeVisible();
-	});
+    await expect(page).toHaveURL(/\/settings\/admin#users$/);
+    await expect(page.locator("#users")).toBeVisible();
+  });
 
-	test("/settings#users routes members to their default page", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings#users");
+  test("/settings#users routes members to their default page", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+    await page.goto("/settings#users");
 
-		await expect(page).toHaveURL(/\/settings\/personalization$/);
-	});
+    await expect(page).toHaveURL(/\/settings\/personalization$/);
+  });
 
-	test("/settings#audit routes admins to the audit log page", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: adminRoutes });
-		await page.goto("/settings#audit");
+  test("/settings#audit routes admins to the audit log page", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], routes: adminRoutes });
+    await page.goto("/settings#audit");
 
-		await expect(page).toHaveURL(/\/settings\/admin\/audit$/);
-	});
+    await expect(page).toHaveURL(/\/settings\/admin\/audit$/);
+  });
 
-	test("unknown hash falls back to the member default page", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings#nonsense");
+  test("unknown hash falls back to the member default page", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+    await page.goto("/settings#nonsense");
 
-		await expect(page).toHaveURL(/\/settings\/personalization$/);
-	});
+    await expect(page).toHaveURL(/\/settings\/personalization$/);
+  });
 });
 
 test.describe("admin gating", () => {
-	test("non-admin direct nav to /settings/admin redirects to their default page", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings/admin");
+  test("non-admin direct nav to /settings/admin redirects to their default page", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+    await page.goto("/settings/admin");
 
-		await expect(page).toHaveURL(/\/settings\/personalization$/);
-	});
+    await expect(page).toHaveURL(/\/settings\/personalization$/);
+  });
 
-	test("non-admin direct nav to /settings/admin/audit redirects to their default page", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings/admin/audit");
+  test("non-admin direct nav to /settings/admin/audit redirects to their default page", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+    await page.goto("/settings/admin/audit");
 
-		await expect(page).toHaveURL(/\/settings\/personalization$/);
-	});
+    await expect(page).toHaveURL(/\/settings\/personalization$/);
+  });
 
-	test("nav hides admin entries for members, shows them for admins", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings/personalization");
-		// Models & Providers is admin-only now: every control on it reads and
-		// writes admin-gated endpoints, so listing it for members showed a page
-		// rendered from defaults whose saves then failed.
-		await expect(page.getByTestId("settings-nav-models")).toHaveCount(0);
-		await expect(page.getByTestId("settings-nav-admin")).toHaveCount(0);
+  test("nav hides admin entries for members, shows them for admins", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+    await page.goto("/settings/personalization");
+    // Models & Providers is admin-only now: every control on it reads and
+    // writes admin-gated endpoints, so listing it for members showed a page
+    // rendered from defaults whose saves then failed.
+    await expect(page.getByTestId("settings-nav-models")).toHaveCount(0);
+    await expect(page.getByTestId("settings-nav-admin")).toHaveCount(0);
 
-		await mockApi({ projects: [proj], routes: adminRoutes });
-		await page.goto("/settings/admin");
-		await expect(page.getByTestId("settings-nav-models")).toBeVisible();
-		await expect(page.getByTestId("settings-nav-admin")).toBeVisible();
-		await expect(page.getByTestId("settings-nav-admin")).toContainText("admin");
-	});
+    await mockApi({ projects: [proj], routes: adminRoutes });
+    await page.goto("/settings/admin");
+    await expect(page.getByTestId("settings-nav-models")).toBeVisible();
+    await expect(page.getByTestId("settings-nav-admin")).toBeVisible();
+    await expect(page.getByTestId("settings-nav-admin")).toContainText("admin");
+  });
 
-	test("a member hitting /settings/models directly is redirected, not shown defaults", async ({
-		page,
-		mockApi,
-	}) => {
-		// The nav no longer links it, so this covers the typed/bookmarked URL.
-		// Landing here previously rendered every editor at its DEFAULT value —
-		// "exploration off, ladder unconfigured" — indistinguishable from those
-		// being the real stored values.
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings/models");
+  test("a member hitting /settings/models directly is redirected, not shown defaults", async ({
+    page,
+    mockApi,
+  }) => {
+    // The nav no longer links it, so this covers the typed/bookmarked URL.
+    // Landing here previously rendered every editor at its DEFAULT value —
+    // "exploration off, ladder unconfigured" — indistinguishable from those
+    // being the real stored values.
+    await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+    await page.goto("/settings/models");
 
-		await expect(page).toHaveURL(/\/settings\/personalization$/);
-		await expect(page.getByTestId("tier-ladder-fast")).toHaveCount(0);
-	});
+    await expect(page).toHaveURL(/\/settings\/personalization$/);
+    await expect(page.getByTestId("tier-ladder-fast")).toHaveCount(0);
+  });
 
-	test("active nav item tracks the current route", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings/personalization");
+  test("active nav item tracks the current route", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+    await page.goto("/settings/personalization");
 
-		await expect(page.getByTestId("settings-nav-personalization")).toHaveAttribute("aria-current", "page");
-		await expect(page.getByTestId("settings-nav-briefing")).not.toHaveAttribute("aria-current", "page");
-	});
+    await expect(page.getByTestId("settings-nav-personalization")).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(page.getByTestId("settings-nav-briefing")).not.toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
 });
 
 test.describe("Settings v2 — System & Moderation admin nav links (additive)", () => {
-	// Canonical routes the additive settings-nav links point at. Mocks
-	// for the destination pages so navigation lands cleanly.
-	const adminPageRoutes = {
-		...adminRoutes,
-		"/api/admin/analytics": () => ({ totals: {}, daily: [] }),
-		"/api/admin/system": () => ({ version: "test", uptime: 0 }),
-		"/api/admin/embed-progress": () => ({ pending: 0, done: 0 }),
-		"/api/marketplace/flags": () => ({ flags: [] }),
-	};
+  // Canonical routes the additive settings-nav links point at. Mocks
+  // for the destination pages so navigation lands cleanly.
+  const adminPageRoutes = {
+    ...adminRoutes,
+    "/api/admin/analytics": () => ({ totals: {}, daily: [] }),
+    "/api/admin/system": () => ({ version: "test", uptime: 0 }),
+    "/api/admin/embed-progress": () => ({ pending: 0, done: 0 }),
+    "/api/marketplace/flags": () => ({ flags: [] }),
+  };
 
-	test("admin sees System and Moderation in the settings nav with canonical hrefs", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: adminPageRoutes });
-		await page.goto("/settings/admin");
+  test("admin sees System and Moderation in the settings nav with canonical hrefs", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({ projects: [proj], routes: adminPageRoutes });
+    await page.goto("/settings/admin");
 
-		// adminOnly entries render an "admin" badge, so scope to substring.
-		await expect(page.getByTestId("settings-nav-system")).toHaveAttribute("href", "/admin/dashboard");
-		await expect(page.getByTestId("settings-nav-system")).toContainText("System");
-		await expect(page.getByTestId("settings-nav-moderation")).toHaveAttribute("href", "/admin/moderation");
-		await expect(page.getByTestId("settings-nav-moderation")).toContainText("Moderation");
-	});
+    // adminOnly entries render an "admin" badge, so scope to substring.
+    await expect(page.getByTestId("settings-nav-system")).toHaveAttribute(
+      "href",
+      "/admin/dashboard",
+    );
+    await expect(page.getByTestId("settings-nav-system")).toContainText("System");
+    await expect(page.getByTestId("settings-nav-moderation")).toHaveAttribute(
+      "href",
+      "/admin/moderation",
+    );
+    await expect(page.getByTestId("settings-nav-moderation")).toContainText("Moderation");
+  });
 
-	test("clicking System navigates to the canonical /admin/dashboard route", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: adminPageRoutes });
-		await page.goto("/settings/admin");
+  test("clicking System navigates to the canonical /admin/dashboard route", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({ projects: [proj], routes: adminPageRoutes });
+    await page.goto("/settings/admin");
 
-		// /admin/dashboard guards admin client-side (via /api/auth/me, which
-		// mockApi supplies), so navigation lands.
-		await page.getByTestId("settings-nav-system").click();
-		await expect(page).toHaveURL(/\/admin\/dashboard$/);
-	});
+    // /admin/dashboard guards admin client-side (via /api/auth/me, which
+    // mockApi supplies), so navigation lands.
+    await page.getByTestId("settings-nav-system").click();
+    await expect(page).toHaveURL(/\/admin\/dashboard$/);
+  });
 
-	test("Moderation link targets the canonical /admin/moderation route", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: adminPageRoutes });
-		await page.goto("/settings/admin");
+  test("Moderation link targets the canonical /admin/moderation route", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({ projects: [proj], routes: adminPageRoutes });
+    await page.goto("/settings/admin");
 
-		// /admin/moderation has a server-side admin guard keyed off
-		// `locals.user`, which the client-side mockApi harness can't
-		// satisfy (SSR would redirect away on click). The additive-link
-		// contract (decision 2) is the href pointing at the canonical
-		// route — navigation behaviour itself is covered by
-		// admin-moderation.spec.ts against the real auth flow.
-		await expect(page.getByTestId("settings-nav-moderation")).toHaveAttribute("href", "/admin/moderation");
-	});
+    // /admin/moderation has a server-side admin guard keyed off
+    // `locals.user`, which the client-side mockApi harness can't
+    // satisfy (SSR would redirect away on click). The additive-link
+    // contract (decision 2) is the href pointing at the canonical
+    // route — navigation behaviour itself is covered by
+    // admin-moderation.spec.ts against the real auth flow.
+    await expect(page.getByTestId("settings-nav-moderation")).toHaveAttribute(
+      "href",
+      "/admin/moderation",
+    );
+  });
 
-	test("members never see the System or Moderation settings-nav links", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
-		await page.goto("/settings/models");
+  test("members never see the System or Moderation settings-nav links", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({ projects: [proj], routes: { "/api/auth/me": () => memberMe } });
+    await page.goto("/settings/models");
 
-		await expect(page.getByTestId("settings-nav-system")).toHaveCount(0);
-		await expect(page.getByTestId("settings-nav-moderation")).toHaveCount(0);
-	});
+    await expect(page.getByTestId("settings-nav-system")).toHaveCount(0);
+    await expect(page.getByTestId("settings-nav-moderation")).toHaveCount(0);
+  });
 });

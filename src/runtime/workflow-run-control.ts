@@ -35,10 +35,7 @@ import {
   getWorkflowRunRow,
 } from "../db/queries/workflow-runs";
 import { resumeClaimedRun } from "./workflow-executor";
-import {
-  getWorkflowRuntime,
-  type WorkflowRuntime,
-} from "./workflow/runtime-registry";
+import { getWorkflowRuntime, type WorkflowRuntime } from "./workflow/runtime-registry";
 import type { WorkflowRun } from "../types";
 
 const log = logger.child("workflow.run-control");
@@ -185,7 +182,11 @@ export async function resumeParkedRun(
   if (run.result?.error !== undefined) {
     const detail =
       typeof run.result.error === "object" ? run.result.error.message : String(run.result.error);
-    return { ok: false, code: "resume-failed", message: `Run ${runId} could not continue: ${detail}` };
+    return {
+      ok: false,
+      code: "resume-failed",
+      message: `Run ${runId} could not continue: ${detail}`,
+    };
   }
   log.info("run resumed by operator", { runId, status: run.status, by: actor.userId });
   return { ok: true, run };
@@ -206,10 +207,7 @@ export async function resumeParkedRun(
  * the two states. A daemon-held run stops at its next boundary because
  * the row is no longer `running` for it to advance.
  */
-export async function cancelParkedRun(
-  runId: string,
-  actor: RunActor,
-): Promise<RunControlResult> {
+export async function cancelParkedRun(runId: string, actor: RunActor): Promise<RunControlResult> {
   const row = await getWorkflowRunRow(runId);
   if (!row) return { ok: false, code: "not-found", message: `Workflow run ${runId} not found` };
   if (!mayControl(row.userId, actor)) {

@@ -46,21 +46,11 @@ vi.mock("$lib/server/conversation-ownership", () => ({
   resolveRootConversationForOwnership: vi.fn(async () => ({ conv: {}, root: {} })),
 }));
 
-const { getActiveRun, markInterrupted } = await import(
-  "$server/db/queries/active-runs"
-);
-const { getPendingAskUserForConversation } = await import(
-  "$server/runtime/ask-user-registry"
-);
-const { GET, POST } = await import(
-  "../routes/api/conversations/[id]/active-run/+server.ts"
-);
+const { getActiveRun, markInterrupted } = await import("$server/db/queries/active-runs");
+const { getPendingAskUserForConversation } = await import("$server/runtime/ask-user-registry");
+const { GET, POST } = await import("../routes/api/conversations/[id]/active-run/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-  method?: string;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown; method?: string }) {
   const method = opts.method ?? "GET";
   return {
     url: new URL("http://localhost/api/conversations/c1/active-run"),

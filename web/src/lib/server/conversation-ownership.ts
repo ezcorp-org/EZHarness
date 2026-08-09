@@ -150,11 +150,7 @@ export async function resolveRootConversationForOwnership(
   // `conv.userId` check, which is what keeps top-level callers
   // unchanged.
   let root = conv;
-  for (
-    let depth = 0;
-    depth < MAX_PARENT_DEPTH && root.parentConversationId;
-    depth++
-  ) {
+  for (let depth = 0; depth < MAX_PARENT_DEPTH && root.parentConversationId; depth++) {
     const next = await convQueries.getConversation(root.parentConversationId);
     // A dangling parent ref is fail-closed: stop walking and authorize
     // against the furthest resolvable ancestor. For a sub-conv whose

@@ -87,7 +87,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       } else if (resolved.provider === "google" || resolved.provider === "openai") {
         throw new Error(
           `Model "${piModel.id}" is not supported with ${resolved.provider} OAuth. ` +
-          `Only subscription-eligible models are available with OAuth authentication.`,
+            `Only subscription-eligible models are available with OAuth authentication.`,
         );
       }
     }
@@ -106,10 +106,27 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     const context: Context = {
       systemPrompt,
-      messages: body.messages.map((m): Message =>
-        m.role === "assistant"
-          ? { role: "assistant" as const, content: [{ type: "text" as const, text: m.content }], api: "openai-completions", provider: "unknown", model: "unknown", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop" as const, timestamp: Date.now() }
-          : { role: "user" as const, content: m.content, timestamp: Date.now() }
+      messages: body.messages.map(
+        (m): Message =>
+          m.role === "assistant"
+            ? {
+                role: "assistant" as const,
+                content: [{ type: "text" as const, text: m.content }],
+                api: "openai-completions",
+                provider: "unknown",
+                model: "unknown",
+                usage: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 0,
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                },
+                stopReason: "stop" as const,
+                timestamp: Date.now(),
+              }
+            : { role: "user" as const, content: m.content, timestamp: Date.now() },
       ),
     };
     const reasoning =

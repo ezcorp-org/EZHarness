@@ -15,7 +15,12 @@
  */
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { sql } from "drizzle-orm";
-import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "../../../__tests__/helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
+} from "../../../__tests__/helpers/test-pglite";
 
 mockDbConnection();
 
@@ -24,21 +29,52 @@ const { browseMarketplace } = await import("../marketplace");
 let authorId: string;
 
 const SEED: Array<{ name: string; description: string; slug: string; category: string }> = [
-  { name: "GitHub Code Reviewer", description: "Reviews pull requests on GitHub repositories", slug: "gh-cr", category: "Productivity" },
-  { name: "iPhone-style camera", description: "Camera UI that mimics iPhone", slug: "iph", category: "Media" },
-  { name: "Markdown Editor", description: "Edits markdown files inline", slug: "md", category: "Editor" },
-  { name: "Note Taker", description: "Captures meeting notes automatically", slug: "note", category: "Productivity" },
+  {
+    name: "GitHub Code Reviewer",
+    description: "Reviews pull requests on GitHub repositories",
+    slug: "gh-cr",
+    category: "Productivity",
+  },
+  {
+    name: "iPhone-style camera",
+    description: "Camera UI that mimics iPhone",
+    slug: "iph",
+    category: "Media",
+  },
+  {
+    name: "Markdown Editor",
+    description: "Edits markdown files inline",
+    slug: "md",
+    category: "Editor",
+  },
+  {
+    name: "Note Taker",
+    description: "Captures meeting notes automatically",
+    slug: "note",
+    category: "Productivity",
+  },
 ];
 
 async function reseed(): Promise<void> {
   const db = getTestDb();
   const { users, marketplaceListings } = await import("../../schema");
   authorId = crypto.randomUUID();
-  await db.insert(users).values({ id: authorId, email: `${authorId}@t.com`, passwordHash: "h", name: "a", role: "member" });
+  await db.insert(users).values({
+    id: authorId,
+    email: `${authorId}@t.com`,
+    passwordHash: "h",
+    name: "a",
+    role: "member",
+  });
   for (const r of SEED) {
     await db.insert(marketplaceListings).values({
-      authorId, name: r.name, description: r.description, slug: r.slug,
-      category: r.category, tags: [], latestVersion: "1.0.0",
+      authorId,
+      name: r.name,
+      description: r.description,
+      slug: r.slug,
+      category: r.category,
+      tags: [],
+      latestVersion: "1.0.0",
     });
   }
 }
@@ -47,14 +83,20 @@ async function thresholdNow(): Promise<string> {
   const res = await getTestDb().execute(
     sql`SELECT current_setting('pg_trgm.word_similarity_threshold') AS t`,
   );
-  const rows = (res as unknown as { rows?: Array<{ t: string }> }).rows
-    ?? (res as unknown as Array<{ t: string }>);
+  const rows =
+    (res as unknown as { rows?: Array<{ t: string }> }).rows ??
+    (res as unknown as Array<{ t: string }>);
   return rows[0]!.t;
 }
 
 describe("browseMarketplace — index-eligible `<%` recall arm", () => {
-  beforeEach(async () => { await setupTestDb(); await reseed(); });
-  afterAll(async () => { await closeTestDb(); });
+  beforeEach(async () => {
+    await setupTestDb();
+    await reseed();
+  });
+  afterAll(async () => {
+    await closeTestDb();
+  });
 
   test("empty query returns all active listings (no trigram path)", async () => {
     expect((await browseMarketplace({})).length).toBe(SEED.length);

@@ -21,7 +21,15 @@
 // Tests fix(sec-M3): 449ef7b
 
 import { test, expect, describe, afterAll, beforeAll, afterEach, mock } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  symlinkSync,
+  rmSync,
+  realpathSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { restoreModuleMocks } from "../helpers/mock-cleanup";
@@ -113,7 +121,9 @@ afterAll(() => {
   else process.env.EZCORP_PROJECT_ROOT = prevProjectRoot;
   for (const p of [sandbox, outsideFile]) {
     if (p && existsSync(p)) {
-      try { rmSync(p, { recursive: true, force: true }); } catch {}
+      try {
+        rmSync(p, { recursive: true, force: true });
+      } catch {}
     }
   }
   restoreModuleMocks();

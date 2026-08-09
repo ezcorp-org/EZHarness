@@ -46,7 +46,7 @@ describe("GET /api/models/default-selection", () => {
     expect(res!.status).toBe(401);
   });
 
-  test('a plain member (NOT admin) gets the value — the revert must reach everyone', async () => {
+  test("a plain member (NOT admin) gets the value — the revert must reach everyone", async () => {
     vi.mocked(getSetting).mockResolvedValue("first" as any);
     const res = await GET(makeEvent(memberLocals));
     expect(res.status).toBe(200);

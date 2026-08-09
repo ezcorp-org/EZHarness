@@ -130,7 +130,7 @@ describe("authored install (creatorUserId set)", () => {
     }
   });
 
-  test("non-boolean truthy setting (\"true\" string) → modifiable = false (strict ===)", async () => {
+  test('non-boolean truthy setting ("true" string) → modifiable = false (strict ===)', async () => {
     settingValue = "true";
     const fx = makeLocalPackage({ name: "auth-string" });
     try {

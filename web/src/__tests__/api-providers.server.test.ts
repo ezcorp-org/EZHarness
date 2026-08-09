@@ -23,9 +23,7 @@ vi.mock("$server/providers/encryption", () => ({
   decrypt: vi.fn((ct: string) => ct.replace(/^enc:/, "")),
 }));
 
-const { getSetting, upsertSetting, deleteSetting } = await import(
-  "$server/db/queries/settings"
-);
+const { getSetting, upsertSetting, deleteSetting } = await import("$server/db/queries/settings");
 const { insertAuditEntry } = await import("$server/db/queries/audit-log");
 const { encrypt } = await import("$server/providers/encryption");
 const { GET, POST, DELETE } = await import("../routes/api/providers/+server");
@@ -112,15 +110,11 @@ describe("GET /api/providers", () => {
       expect(entry.source).toBe("none");
       expect(entry.oauthConnected).toBe(false);
     }
-    expect(body.find((b) => b.provider === "anthropic")?.oauthSupported).toBe(
-      false,
-    );
+    expect(body.find((b) => b.provider === "anthropic")?.oauthSupported).toBe(false);
     expect(body.find((b) => b.provider === "openai")?.oauthSupported).toBe(true);
     expect(body.find((b) => b.provider === "google")?.oauthSupported).toBe(true);
     // openrouter and kilo are BYOK-only — never OAuth.
-    expect(body.find((b) => b.provider === "openrouter")?.oauthSupported).toBe(
-      false,
-    );
+    expect(body.find((b) => b.provider === "openrouter")?.oauthSupported).toBe(false);
     expect(body.find((b) => b.provider === "kilo")?.oauthSupported).toBe(false);
     // Kilo's `hasKey: false` above is NOT "unusable": its free models answer
     // with no credential. That distinction lives in provider AVAILABILITY
@@ -165,23 +159,31 @@ describe("POST /api/providers", () => {
   // the caller actually received a 500. This path is hook-unreachable anyway
   // (`hooks.server.ts` 401s unauthenticated `/api/*` before the handler).
   test("rejects 403 when locals.user is missing", async () => {
-    const res = await expectDenied(() => POST(
-            makeEvent({
-              method: "POST",
-              body: { provider: "openai", apiKey: "sk-x" },
-            }),
-          ), 403);
+    const res = await expectDenied(
+      () =>
+        POST(
+          makeEvent({
+            method: "POST",
+            body: { provider: "openai", apiKey: "sk-x" },
+          }),
+        ),
+      403,
+    );
     expect(res.status).toBe(403);
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    const res = await expectDenied(() => POST(
-            makeEvent({
-              method: "POST",
-              locals: memberUser,
-              body: { provider: "openai", apiKey: "sk-x" },
-            }),
-          ), 403);
+    const res = await expectDenied(
+      () =>
+        POST(
+          makeEvent({
+            method: "POST",
+            locals: memberUser,
+            body: { provider: "openai", apiKey: "sk-x" },
+          }),
+        ),
+      403,
+    );
     expect(res.status).toBe(403);
   });
 
@@ -249,16 +251,8 @@ describe("POST /api/providers", () => {
     const body = (await res.json()) as { success?: boolean };
     expect(body.success).toBe(true);
     expect(encrypt).toHaveBeenCalledWith("sk-abc");
-    expect(upsertSetting).toHaveBeenCalledWith(
-      "provider:apiKey:openai",
-      "enc:sk-abc",
-    );
-    expect(insertAuditEntry).toHaveBeenCalledWith(
-      "admin-1",
-      "provider:key_upsert",
-      "openai",
-      {},
-    );
+    expect(upsertSetting).toHaveBeenCalledWith("provider:apiKey:openai", "enc:sk-abc");
+    expect(insertAuditEntry).toHaveBeenCalledWith("admin-1", "provider:key_upsert", "openai", {});
   });
 
   test("still returns 200 if audit-log write throws (best-effort)", async () => {
@@ -286,20 +280,25 @@ describe("DELETE /api/providers", () => {
   // 403, not 401 — see the POST case above for why `requireAdmin` collapses
   // "no principal" and "not an admin" into one denial.
   test("rejects 403 when locals.user is missing", async () => {
-    const res = await expectDenied(() => DELETE(
-            makeEvent({ method: "DELETE", body: { provider: "openai" } }),
-          ), 403);
+    const res = await expectDenied(
+      () => DELETE(makeEvent({ method: "DELETE", body: { provider: "openai" } })),
+      403,
+    );
     expect(res.status).toBe(403);
   });
 
   test("rejects 403 when caller is not admin", async () => {
-    const res = await expectDenied(() => DELETE(
-            makeEvent({
-              method: "DELETE",
-              locals: memberUser,
-              body: { provider: "openai" },
-            }),
-          ), 403);
+    const res = await expectDenied(
+      () =>
+        DELETE(
+          makeEvent({
+            method: "DELETE",
+            locals: memberUser,
+            body: { provider: "openai" },
+          }),
+        ),
+      403,
+    );
     expect(res.status).toBe(403);
   });
 
@@ -317,9 +316,7 @@ describe("DELETE /api/providers", () => {
   });
 
   test("rejects 400 when provider is missing", async () => {
-    const res = await DELETE(
-      makeEvent({ method: "DELETE", locals: adminUser, body: {} }),
-    );
+    const res = await DELETE(makeEvent({ method: "DELETE", locals: adminUser, body: {} }));
     expect(res.status).toBe(400);
   });
 

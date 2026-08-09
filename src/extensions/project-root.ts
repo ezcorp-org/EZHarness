@@ -128,10 +128,7 @@ export function __resetProjectRootCacheForTests(): void {
  * without finding one. `.git` may be a directory (normal repo) or a
  * file (git worktree / submodule), so we accept either.
  */
-function walkUpForGit(
-  from: string,
-  exists: (p: string) => boolean,
-): string | undefined {
+function walkUpForGit(from: string, exists: (p: string) => boolean): string | undefined {
   let dir = from;
   // Hard cap on iterations as a belt-and-braces guard against a
   // pathological filesystem where `dirname()` doesn't fixed-point.
@@ -144,10 +141,7 @@ function walkUpForGit(
   return undefined;
 }
 
-function isProjectRootCandidate(
-  root: string,
-  exists: (p: string) => boolean,
-): boolean {
+function isProjectRootCandidate(root: string, exists: (p: string) => boolean): boolean {
   return exists(join(root, "docs", "extensions", "examples"));
 }
 
@@ -157,9 +151,7 @@ function isProjectRootCandidate(
  * side-effects; the WARN for step 4 is emitted by the caller via
  * `warnIfCwdFallback`.
  */
-export function resolveProjectRoot(
-  overrides: ProjectRootOverrides = {},
-): ProjectRootResolution {
+export function resolveProjectRoot(overrides: ProjectRootOverrides = {}): ProjectRootResolution {
   const env = overrides.env ?? process.env;
   const exists = overrides.existsSync ?? existsSync;
 
@@ -207,9 +199,12 @@ export function resolveProjectRoot(
   // Skipped when the `importMetaDir` test override is in play and no URL
   // override accompanies it (the test wants to drive resolution without
   // bleed-through from this file's actual path).
-  const metaUrl = "importMetaUrl" in overrides
-    ? (overrides.importMetaUrl ?? "")
-    : (hasMetaDirOverride ? "" : import.meta.url);
+  const metaUrl =
+    "importMetaUrl" in overrides
+      ? (overrides.importMetaUrl ?? "")
+      : hasMetaDirOverride
+        ? ""
+        : import.meta.url;
   if (metaUrl) {
     try {
       const thisDir = dirname(fileURLToPath(metaUrl));

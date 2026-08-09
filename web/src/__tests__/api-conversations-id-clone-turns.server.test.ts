@@ -20,15 +20,9 @@ vi.mock("$server/db/queries/conversations", () => ({
   cloneTurnsIntoNewConversation,
 }));
 
-const { POST } = await import(
-  "../routes/api/conversations/[id]/clone-turns/+server.ts"
-);
+const { POST } = await import("../routes/api/conversations/[id]/clone-turns/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-  id?: string;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown; id?: string }) {
   const id = opts.id ?? "c1";
   return {
     url: new URL(`http://localhost/api/conversations/${id}/clone-turns`),
@@ -65,9 +59,7 @@ describe("POST /api/conversations/[id]/clone-turns", () => {
 
   test("returns 404 when source conversation does not exist", async () => {
     getConversation.mockResolvedValue(null);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { messageIds: [MID] } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { messageIds: [MID] } }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Not found");
@@ -75,9 +67,7 @@ describe("POST /api/conversations/[id]/clone-turns", () => {
 
   test("returns 404 when non-owner non-admin attempts clone", async () => {
     getConversation.mockResolvedValue({ id: "c1", userId: "someone-else" });
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { messageIds: [MID] } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { messageIds: [MID] } }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Not found");
@@ -85,17 +75,13 @@ describe("POST /api/conversations/[id]/clone-turns", () => {
 
   test("rejects 400 on schema validation failure (empty messageIds)", async () => {
     getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { messageIds: [] } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { messageIds: [] } }));
     expect(res.status).toBe(400);
   });
 
   test("rejects 400 when messageId is not a uuid", async () => {
     getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { messageIds: ["not-a-uuid"] } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { messageIds: ["not-a-uuid"] } }));
     expect(res.status).toBe(400);
   });
 
@@ -104,9 +90,7 @@ describe("POST /api/conversations/[id]/clone-turns", () => {
     cloneTurnsIntoNewConversation.mockRejectedValue(
       new Error("messages do not belong to this conversation"),
     );
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { messageIds: [MID] } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { messageIds: [MID] } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("do not belong");

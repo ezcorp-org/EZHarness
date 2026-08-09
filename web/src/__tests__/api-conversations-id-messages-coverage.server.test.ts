@@ -131,9 +131,7 @@ vi.mock("$server/runtime/ez-actions/registry", () => ({
   getEzAction,
 }));
 
-const { GET, POST } = await import(
-  "../routes/api/conversations/[id]/messages/+server.ts"
-);
+const { GET, POST } = await import("../routes/api/conversations/[id]/messages/+server.ts");
 
 // ── Event helpers ───────────────────────────────────────────────────
 
@@ -165,10 +163,7 @@ function makeJsonPostEvent(opts: { body: unknown; locals?: Record<string, unknow
   } as any;
 }
 
-function makeMultipartEvent(opts: {
-  form: FormData;
-  locals?: Record<string, unknown>;
-}) {
+function makeMultipartEvent(opts: { form: FormData; locals?: Record<string, unknown> }) {
   // jsdom's `File` does not satisfy undici's webidl.is.File predicate,
   // so a real `new Request(href, { body: formData })` round-tripped
   // through `request.formData()` throws on every test under vitest.
@@ -460,9 +455,7 @@ describe("POST — attachments: file count + project + validator + persist", () 
 describe("POST — EZ Actions", () => {
   test("unknown EZ action name → silent strip; no row persisted, streamChat still fires", async () => {
     getEzAction.mockReturnValue(null);
-    const res = await POST(
-      makeJsonPostEvent({ body: { content: "hello ![EZ:nothere]" } }),
-    );
+    const res = await POST(makeJsonPostEvent({ body: { content: "hello ![EZ:nothere]" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       runId: string | null;
@@ -480,9 +473,7 @@ describe("POST — EZ Actions", () => {
       card: { title: "Pinged", body: "ok", variant: "info" as const },
     }));
     getEzAction.mockReturnValue({ name: "ping", description: "x", handler });
-    const res = await POST(
-      makeJsonPostEvent({ body: { content: "do it ![EZ:ping]" } }),
-    );
+    const res = await POST(makeJsonPostEvent({ body: { content: "do it ![EZ:ping]" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       runId: string | null;
@@ -508,9 +499,7 @@ describe("POST — EZ Actions", () => {
       throw new Error("boom");
     });
     getEzAction.mockReturnValue({ name: "explode", description: "x", handler });
-    const res = await POST(
-      makeJsonPostEvent({ body: { content: "still talking ![EZ:explode]" } }),
-    );
+    const res = await POST(makeJsonPostEvent({ body: { content: "still talking ![EZ:explode]" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       ezActionResults: Array<{ content: string }>;
@@ -534,9 +523,7 @@ describe("POST — EZ Actions", () => {
       card: { title: "Done", body: "ok", variant: "info" as const },
     }));
     getEzAction.mockReturnValue({ name: "ping", description: "x", handler });
-    const res = await POST(
-      makeJsonPostEvent({ body: { content: "![EZ:ping]" } }),
-    );
+    const res = await POST(makeJsonPostEvent({ body: { content: "![EZ:ping]" } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       runId: string | null;
@@ -589,9 +576,7 @@ describe("POST — streamChat rejection is logged via streamPromise.catch", () =
       rejected.catch(() => {});
       return rejected as unknown as ReturnType<typeof streamChat>;
     });
-    const res = await POST(
-      makeJsonPostEvent({ body: { content: "hi" } }),
-    );
+    const res = await POST(makeJsonPostEvent({ body: { content: "hi" } }));
     expect(res.status).toBe(200);
     expect(streamChat).toHaveBeenCalledTimes(1);
     // Wait one microtask so the route's `.catch` handler runs and the

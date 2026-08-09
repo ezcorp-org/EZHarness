@@ -11,16 +11,16 @@ import type { Page } from "@playwright/test";
  * package, which trips the "did not expect test.describe()" runtime guard.
  */
 export async function dismissPickerSheet(page: Page) {
-	const sheet = page.getByTestId("bottom-sheet");
-	if (await sheet.isVisible().catch(() => false)) {
-		await sheet.getByRole("button", { name: "Close", exact: true }).click();
-		await sheet.waitFor({ state: "hidden", timeout: 3000 });
-	}
+  const sheet = page.getByTestId("bottom-sheet");
+  if (await sheet.isVisible().catch(() => false)) {
+    await sheet.getByRole("button", { name: "Close", exact: true }).click();
+    await sheet.waitFor({ state: "hidden", timeout: 3000 });
+  }
 }
 
 /** The inline `<input>` FilePicker renders at lg+ (absent on the mobile shim). */
 function inlinePickerInput(page: Page) {
-	return page.locator('[data-testid="open-file-picker"] input');
+  return page.locator('[data-testid="open-file-picker"] input');
 }
 
 /**
@@ -32,9 +32,9 @@ function inlinePickerInput(page: Page) {
  * otherwise have to branch on viewport width.
  */
 export async function filePickerValue(page: Page): Promise<string> {
-	const inline = inlinePickerInput(page);
-	if (await inline.count()) return await inline.first().inputValue();
-	return (await page.getByTestId("open-file-picker").innerText()).trim();
+  const inline = inlinePickerInput(page);
+  if (await inline.count()) return await inline.first().inputValue();
+  return (await page.getByTestId("open-file-picker").innerText()).trim();
 }
 
 /**
@@ -44,14 +44,14 @@ export async function filePickerValue(page: Page): Promise<string> {
  * under the sheet's backdrop once it is up).
  */
 export async function openFilePickerInput(page: Page, placeholder: string) {
-	const inline = inlinePickerInput(page);
-	if (await inline.count()) return inline.first();
+  const inline = inlinePickerInput(page);
+  if (await inline.count()) return inline.first();
 
-	const sheet = page.getByTestId("bottom-sheet");
-	if (!(await sheet.isVisible().catch(() => false))) {
-		await page.getByTestId("open-file-picker").click();
-	}
-	const sheetInput = sheet.getByPlaceholder(placeholder);
-	await sheetInput.waitFor({ state: "visible", timeout: 3000 });
-	return sheetInput;
+  const sheet = page.getByTestId("bottom-sheet");
+  if (!(await sheet.isVisible().catch(() => false))) {
+    await page.getByTestId("open-file-picker").click();
+  }
+  const sheetInput = sheet.getByPlaceholder(placeholder);
+  await sheetInput.waitFor({ state: "visible", timeout: 3000 });
+  return sheetInput;
 }

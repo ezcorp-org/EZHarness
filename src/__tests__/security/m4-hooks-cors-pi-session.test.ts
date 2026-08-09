@@ -108,14 +108,11 @@ describe("sec-M4: CORS allow-list parser and getCorsHeaders behavior (replicated
   function parseAllowedOrigins(envValue: string | undefined): string[] {
     return (envValue ?? "")
       .split(",")
-      .map(s => s.trim())
-      .filter(s => s.length > 0 && s !== "*");
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0 && s !== "*");
   }
 
-  function getCorsHeaders(
-    origin: string | null,
-    allowed: string[],
-  ): Record<string, string> {
+  function getCorsHeaders(origin: string | null, allowed: string[]): Record<string, string> {
     const headers: Record<string, string> = {
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, Authorization",
@@ -129,10 +126,10 @@ describe("sec-M4: CORS allow-list parser and getCorsHeaders behavior (replicated
 
   test("parser strips '*' entries from the allow-list", () => {
     expect(parseAllowedOrigins("*")).toEqual([]);
-    expect(parseAllowedOrigins("*,https://trusted.example"))
-      .toEqual(["https://trusted.example"]);
-    expect(parseAllowedOrigins(" * , https://trusted.example "))
-      .toEqual(["https://trusted.example"]);
+    expect(parseAllowedOrigins("*,https://trusted.example")).toEqual(["https://trusted.example"]);
+    expect(parseAllowedOrigins(" * , https://trusted.example ")).toEqual([
+      "https://trusted.example",
+    ]);
   });
 
   test("unset / empty env defaults to a deny-all allow-list", () => {
@@ -182,8 +179,7 @@ describe("sec-M4: CORS allow-list parser and getCorsHeaders behavior (replicated
     const allowed = parseAllowedOrigins("https://trusted.example");
     const headers = getCorsHeaders("https://trusted.example", allowed);
     const preflight = new Response(null, { status: 204, headers });
-    expect(preflight.headers.get("Access-Control-Allow-Origin"))
-      .toBe("https://trusted.example");
+    expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe("https://trusted.example");
     // Credentials must not be enabled — even for trusted origins the fix
     // doesn't set ACAC. Cookies are same-origin only by construction.
     expect(preflight.headers.get("Access-Control-Allow-Credentials")).toBeNull();
@@ -322,7 +318,7 @@ describe("sec-M4: pi_session migration bridge gate logic (replicated)", () => {
     // Exactly one op: purge the stale cookie. No ezcorp_session set.
     expect(r.ops).toHaveLength(1);
     expect(r.ops[0]).toEqual({ op: "set", name: "pi_session", value: "", maxAge: 0 });
-    expect(r.ops.some(o => o.op === "set" && o.name === "ezcorp_session")).toBe(false);
+    expect(r.ops.some((o) => o.op === "set" && o.name === "ezcorp_session")).toBe(false);
   });
 
   test("legacy cookie exactly at the boundary → still promoted (strict >)", () => {

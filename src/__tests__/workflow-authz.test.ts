@@ -61,32 +61,36 @@ function privateEntry(name = "mine"): CachedWorkflow {
 }
 
 async function seedUser(id: string, role: "admin" | "member"): Promise<void> {
-  await getTestDb().insert(users).values({
-    id,
-    email: `${id}@example.com`,
-    passwordHash: "h",
-    name: id,
-    role,
-  });
+  await getTestDb()
+    .insert(users)
+    .values({
+      id,
+      email: `${id}@example.com`,
+      passwordHash: "h",
+      name: id,
+      role,
+    });
 }
 
 async function seedExtension(name: string, enabled: boolean): Promise<void> {
-  await getTestDb().insert(extensions).values({
-    name,
-    version: "0.0.1",
-    description: "",
-    manifest: {
-      schemaVersion: 2,
+  await getTestDb()
+    .insert(extensions)
+    .values({
       name,
       version: "0.0.1",
       description: "",
-      author: { name: "t" },
-      permissions: {},
-    } as never,
-    source: "test",
-    enabled,
-    grantedPermissions: {} as never,
-  });
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled,
+      grantedPermissions: {} as never,
+    });
 }
 
 describe("canRunWorkflow", () => {

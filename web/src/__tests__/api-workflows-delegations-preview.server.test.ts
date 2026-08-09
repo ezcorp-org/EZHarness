@@ -36,7 +36,10 @@ vi.mock("$server/extensions/registry", () => ({
   ExtensionRegistry: { getInstance: () => ({ getManifest: registry.getManifest }) },
 }));
 
-const accounts = vi.hoisted(() => ({ findLiveServiceAccount: vi.fn(), serviceAccountReach: vi.fn() }));
+const accounts = vi.hoisted(() => ({
+  findLiveServiceAccount: vi.fn(),
+  serviceAccountReach: vi.fn(),
+}));
 vi.mock("$server/db/queries/service-accounts", () => ({
   findLiveServiceAccount: accounts.findLiveServiceAccount,
   serviceAccountReach: accounts.serviceAccountReach,
@@ -131,7 +134,11 @@ function previewEvent(locals: Record<string, unknown> = member, body: unknown = 
 }
 
 function runsEvent(locals: Record<string, unknown> = member) {
-  return { url: new URL("http://localhost/api/workflows/delegated-runs"), locals, params: {} } as never;
+  return {
+    url: new URL("http://localhost/api/workflows/delegated-runs"),
+    locals,
+    params: {},
+  } as never;
 }
 
 describe("POST /api/workflows/delegations/preview — the session gate", () => {
@@ -278,7 +285,13 @@ describe("POST /api/workflows/delegations/preview — the effort no-op disclosur
       effortNoops: Array<Record<string, string>>;
     };
     expect(body.effortNoops).toEqual([
-      { workflowName: "ship-it", stepName: "write", provider: "ollama", model: "llama3", effort: "high" },
+      {
+        workflowName: "ship-it",
+        stepName: "write",
+        provider: "ollama",
+        model: "llama3",
+        effort: "high",
+      },
     ]);
   });
 
@@ -446,7 +459,11 @@ describe("GET /api/workflows/delegated-runs", () => {
         {
           ...ROW,
           id: "run-2",
-          result: { success: false, output: null, error: { code: "cancelled", message: "stopped" } },
+          result: {
+            success: false,
+            output: null,
+            error: { code: "cancelled", message: "stopped" },
+          },
         },
       ],
     });
@@ -459,7 +476,9 @@ describe("GET /api/workflows/delegated-runs", () => {
 
   test("a successful run reports no error, and never leaks its output", async () => {
     runs.listDelegatedRunsForConsenter.mockResolvedValue({
-      runs: [{ ...ROW, status: "success", result: { success: true, output: { secret: "s3cret" } } }],
+      runs: [
+        { ...ROW, status: "success", result: { success: true, output: { secret: "s3cret" } } },
+      ],
     });
     const body = (await (await GET_RUNS(runsEvent())).json()) as {
       runs: Array<Record<string, unknown>>;
@@ -470,7 +489,9 @@ describe("GET /api/workflows/delegated-runs", () => {
 
   test("a run with no result at all does not throw", async () => {
     runs.listDelegatedRunsForConsenter.mockResolvedValue({
-      runs: [{ ...ROW, status: "running", result: null, finishedAt: null, suspendedReason: "approval" }],
+      runs: [
+        { ...ROW, status: "running", result: null, finishedAt: null, suspendedReason: "approval" },
+      ],
     });
     const body = (await (await GET_RUNS(runsEvent())).json()) as {
       runs: Array<Record<string, unknown>>;

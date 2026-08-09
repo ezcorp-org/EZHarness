@@ -48,11 +48,7 @@ import {
   probeNetnsAvailability,
 } from "../extensions/mcp-netns";
 import { buildSandboxedMcpSpec, _setSandboxTierOverrideForTests } from "../extensions/mcp-sandbox";
-import type {
-  ExtensionManifestV2,
-  McpServerDefinition,
-  McpServerStdio,
-} from "../extensions/types";
+import type { ExtensionManifestV2, McpServerDefinition, McpServerStdio } from "../extensions/types";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 
 // Keep the original `process.platform` so we can flip it per-test.
@@ -167,7 +163,11 @@ describe("buildSandboxedMcpSpec — fallback path with ctx", () => {
         userId: null,
       };
       const { spec: rawWrapped, proxyHandle } = await buildSandboxedMcpSpec(
-        spec, mcpManifest(), { grantedAt: {} }, "ext-fallback-1", ctx,
+        spec,
+        mcpManifest(),
+        { grantedAt: {} },
+        "ext-fallback-1",
+        ctx,
       );
       const wrapped = rawWrapped as McpServerStdio;
 
@@ -180,9 +180,7 @@ describe("buildSandboxedMcpSpec — fallback path with ctx", () => {
       expect(wrapped.env?.HTTPS_PROXY).toMatch(/^http:\/\/_:[a-f0-9]+@127\.0\.0\.1:\d+$/);
       // Audit settle.
       await new Promise((res) => setTimeout(res, 50));
-      const fallbackRow = auditCalls.find(
-        (c) => c.action === "ext:mcp:netns-fallback",
-      );
+      const fallbackRow = auditCalls.find((c) => c.action === "ext:mcp:netns-fallback");
       expect(fallbackRow).toBeDefined();
       expect(fallbackRow?.metadata?.reason).toBe("not linux");
 
@@ -221,15 +219,17 @@ describe("buildSandboxedMcpSpec — fallback path with ctx", () => {
       userId: null,
     };
     const { spec: rawWrapped, proxyHandle } = await buildSandboxedMcpSpec(
-      spec, mcpManifest(), { grantedAt: {} }, "ext-netns-1", ctx,
+      spec,
+      mcpManifest(),
+      { grantedAt: {} },
+      "ext-netns-1",
+      ctx,
     );
     const wrapped = rawWrapped as McpServerStdio;
 
     expect(wrapped.command).toBe("unshare");
     await new Promise((res) => setTimeout(res, 50));
-    const createdRow = auditCalls.find(
-      (c) => c.action === "ext:mcp:netns-created",
-    );
+    const createdRow = auditCalls.find((c) => c.action === "ext:mcp:netns-created");
     expect(createdRow).toBeDefined();
 
     await proxyHandle?.stop();
@@ -249,7 +249,11 @@ describe("buildSandboxedMcpSpec — fallback path with ctx", () => {
       userId: null,
     };
     const { spec: wrapped, proxyHandle } = await buildSandboxedMcpSpec(
-      spec, mcpManifest(), { grantedAt: {} }, "ext-http-1", ctx,
+      spec,
+      mcpManifest(),
+      { grantedAt: {} },
+      "ext-http-1",
+      ctx,
     );
     expect(wrapped).toBe(spec);
     expect(proxyHandle).toBeNull();

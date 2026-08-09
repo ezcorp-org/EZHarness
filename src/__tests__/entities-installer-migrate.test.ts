@@ -10,22 +10,12 @@
 //   - audit row written
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import {
-  closeTestDb,
-  getTestDb,
-  mockDbConnection,
-  setupTestDb,
-} from "./helpers/test-pglite";
+import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 
 import { and, eq, like } from "drizzle-orm";
-import {
-  auditLog,
-  extensions,
-  extensionStorage,
-  users,
-} from "../db/schema";
+import { auditLog, extensions, extensionStorage, users } from "../db/schema";
 import { runEntityNamespaceMigration } from "../extensions/entities/migrate";
 
 let extId: string;
@@ -137,12 +127,7 @@ async function listExtKeys(scopeId: string): Promise<string[]> {
   const rows = await db
     .select()
     .from(extensionStorage)
-    .where(
-      and(
-        eq(extensionStorage.extensionId, extId),
-        eq(extensionStorage.scopeId, scopeId),
-      ),
-    );
+    .where(and(eq(extensionStorage.extensionId, extId), eq(extensionStorage.scopeId, scopeId)));
   return rows.map((r) => r.key).sort();
 }
 
@@ -163,9 +148,7 @@ describe("runEntityNamespaceMigration — happy path", () => {
     });
     expect(result.recordsRenamed).toBe(2);
     expect(result.scopesMigrated).toBe(1);
-    expect(result.slugsByType["post-type"]?.sort()).toEqual(
-      ["monthly", "weekly"].sort(),
-    );
+    expect(result.slugsByType["post-type"]?.sort()).toEqual(["monthly", "weekly"].sort());
 
     const keys = await listExtKeys(userA);
     expect(keys).toEqual(
@@ -202,10 +185,7 @@ describe("runEntityNamespaceMigration — happy path", () => {
 
     const keysA = await listExtKeys(userA);
     const keysB = await listExtKeys(userB);
-    expect(keysA).toEqual([
-      "__entity-index:post-type",
-      "__entity:post-type:weekly",
-    ]);
+    expect(keysA).toEqual(["__entity-index:post-type", "__entity:post-type:weekly"]);
     expect(keysB).toEqual(
       [
         "__entity-index:post-type",
@@ -224,9 +204,7 @@ describe("runEntityNamespaceMigration — happy path", () => {
     });
     const db = getTestDb();
     const rows = await db.select().from(auditLog);
-    const ours = rows.filter(
-      (r) => r.action === "ext:entity-namespace-migrated",
-    );
+    const ours = rows.filter((r) => r.action === "ext:entity-namespace-migrated");
     expect(ours.length).toBe(2);
     const userIds = ours.map((r) => r.userId).sort();
     expect(userIds).toEqual([userA, userB].sort());

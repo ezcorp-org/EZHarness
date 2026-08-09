@@ -15,17 +15,19 @@ import type { RequestHandler } from "./$types";
 // it cares about and uses `.passthrough()` so the structured
 // `references`/`capabilities`/`inputSchema` payloads continue to flow
 // through to the DB layer (which is the downstream validator).
-const updateAgentConfigSchema = z.object({
-  name: z.string().min(1).optional(),
-  description: z.string().optional(),
-  prompt: z.string().optional(),
-  outputFormat: z.enum(["text", "json"]).optional(),
-  provider: z.string().optional(),
-  model: z.string().optional(),
-  temperature: z.number().optional(),
-  maxTokens: z.number().optional(),
-  category: z.string().nullable().optional(),
-}).passthrough();
+const updateAgentConfigSchema = z
+  .object({
+    name: z.string().min(1).optional(),
+    description: z.string().optional(),
+    prompt: z.string().optional(),
+    outputFormat: z.enum(["text", "json"]).optional(),
+    provider: z.string().optional(),
+    model: z.string().optional(),
+    temperature: z.number().optional(),
+    maxTokens: z.number().optional(),
+    category: z.string().nullable().optional(),
+  })
+  .passthrough();
 
 // NULL-`userId` agent_configs rows are SYSTEM-owned (e.g. the shared
 // "Daily Briefing" agent minted at boot) — they must stay readable by

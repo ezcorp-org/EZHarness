@@ -25,7 +25,9 @@ afterAll(() => restoreModuleMocks());
 // it so the test needs no DB.
 const persisted: Array<Record<string, unknown>> = [];
 mock.module("../db/queries/tool-calls", () => ({
-  persistToolCall: async (row: Record<string, unknown>) => { persisted.push(row); },
+  persistToolCall: async (row: Record<string, unknown>) => {
+    persisted.push(row);
+  },
   listToolCallOutputsForMessages: async () => [],
   getToolCallConversationById: async () => null,
 }));
@@ -63,7 +65,9 @@ function makePromptEngine(): { engine: PermissionEngine; lastPromptId: () => str
         sensitive: { kind: "fs.write", value: "/p" },
       };
     },
-    async resolvePrompt() { /* no-op */ },
+    async resolvePrompt() {
+      /* no-op */
+    },
     _resetCacheForTests() {},
   } as unknown as PermissionEngine;
   return { engine, lastPromptId: () => last };
@@ -80,7 +84,9 @@ function makeRegistry(): ExtensionRegistry {
       inputSchema: { type: "object", properties: {} },
     }),
     getManifest: () => ({ tools: [{ name: "create_extension" }] }),
-    getProcess: async () => { throw new Error(SENTINEL); },
+    getProcess: async () => {
+      throw new Error(SENTINEL);
+    },
   } as unknown as ExtensionRegistry;
 }
 
@@ -98,8 +104,12 @@ function makeExec() {
   const { engine, lastPromptId } = makePromptEngine();
   const exec = new ToolExecutor(makeRegistry(), engine, { bus: makeBus() });
   exec.setPendingPermissionGate(
-    (key: string) => { reg.push(key); },
-    (key: string) => { dereg.push(key); },
+    (key: string) => {
+      reg.push(key);
+    },
+    (key: string) => {
+      dereg.push(key);
+    },
   );
   return { exec, reg, dereg, lastPromptId };
 }
@@ -154,7 +164,10 @@ describe("extension sensitive-cap prompt ↔ pendingPermissions wiring", () => {
 
     resolvePermission(promptId, false);
 
-    const err = await p.then(() => null, (e: unknown) => e);
+    const err = await p.then(
+      () => null,
+      (e: unknown) => e,
+    );
     expect(err).toBeInstanceOf(Error);
     expect(String((err as Error).message)).toMatch(/declined/i);
     // finally ran on the deny path too — the entry never leaks.

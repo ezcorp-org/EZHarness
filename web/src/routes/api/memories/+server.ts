@@ -1,6 +1,12 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
-import { insertMemory, updateMemory, searchMemories, getMemoryProjectIds, getProjectIdsForMemories } from "$server/db/queries/memories";
+import {
+  insertMemory,
+  updateMemory,
+  searchMemories,
+  getMemoryProjectIds,
+  getProjectIdsForMemories,
+} from "$server/db/queries/memories";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
@@ -77,7 +83,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   // Resolve projectIds: explicit array takes precedence, fall back to single projectId
   let projectIds: string[] | undefined;
   if (rawProjectIds !== undefined) {
-    if (!Array.isArray(rawProjectIds) || rawProjectIds.length > 50 || !rawProjectIds.every((id: unknown) => typeof id === "string" && UUID_RE.test(id))) {
+    if (
+      !Array.isArray(rawProjectIds) ||
+      rawProjectIds.length > 50 ||
+      !rawProjectIds.every((id: unknown) => typeof id === "string" && UUID_RE.test(id))
+    ) {
       return errorJson(400, "projectIds must be an array of up to 50 valid UUIDs");
     }
     projectIds = rawProjectIds;

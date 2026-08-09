@@ -49,7 +49,9 @@ beforeEach(() => {
 
 afterEach(() => {
   if (cwd) {
-    try { rmSync(cwd, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(cwd, { recursive: true, force: true });
+    } catch {}
     cwd = "";
   }
 });
@@ -71,10 +73,7 @@ describe("rehydrateAssistantMessageContent", () => {
   // ── Case 2 ─────────────────────────────────────────────────────────
   test("one valid ext-files URL → text + one ImageContent", async () => {
     const url = writeFixture("generated/a.png", PNG_BYTES);
-    const out = await rehydrateAssistantMessageContent(
-      `Here you go: ![alt](${url})`,
-      { cwd },
-    );
+    const out = await rehydrateAssistantMessageContent(`Here you go: ![alt](${url})`, { cwd });
     expect(out.length).toBe(2);
     expect(out[0]).toEqual({ type: "text", text: `Here you go: ![alt](${url})` });
     expect(out[1]).toEqual({ type: "image", data: PNG_B64, mimeType: "image/png" });
@@ -84,10 +83,9 @@ describe("rehydrateAssistantMessageContent", () => {
   test("multiple valid URLs → image parts in source order", async () => {
     const u1 = writeFixture("generated/one.png", PNG_BYTES);
     const u2 = writeFixture("generated/two.jpg", JPG_BYTES);
-    const out = await rehydrateAssistantMessageContent(
-      `first: ![](${u1}) then: ![](${u2})`,
-      { cwd },
-    );
+    const out = await rehydrateAssistantMessageContent(`first: ![](${u1}) then: ![](${u2})`, {
+      cwd,
+    });
     expect(out.length).toBe(3);
     expect((out[1] as any).data).toBe(PNG_B64);
     expect((out[1] as any).mimeType).toBe("image/png");
@@ -98,30 +96,21 @@ describe("rehydrateAssistantMessageContent", () => {
   // ── Case 4 ─────────────────────────────────────────────────────────
   test("disallowed extension name → URL stays as text, no image parts", async () => {
     const fakeUrl = "/api/ext-files/not-allowed/generated/a.png";
-    const out = await rehydrateAssistantMessageContent(
-      `trying: ![](${fakeUrl})`,
-      { cwd },
-    );
+    const out = await rehydrateAssistantMessageContent(`trying: ![](${fakeUrl})`, { cwd });
     expect(out).toEqual([{ type: "text", text: `trying: ![](${fakeUrl})` }]);
   });
 
   // ── Case 5 ─────────────────────────────────────────────────────────
   test("path traversal → skipped", async () => {
     const mali = `/api/ext-files/${EXT}/../../../etc/passwd`;
-    const out = await rehydrateAssistantMessageContent(
-      `oops: ![](${mali})`,
-      { cwd },
-    );
+    const out = await rehydrateAssistantMessageContent(`oops: ![](${mali})`, { cwd });
     expect(out).toEqual([{ type: "text", text: `oops: ![](${mali})` }]);
   });
 
   // ── Case 6 ─────────────────────────────────────────────────────────
   test("nonexistent file → gracefully skipped", async () => {
     const ghost = `/api/ext-files/${EXT}/generated/nonexistent.png`;
-    const out = await rehydrateAssistantMessageContent(
-      `missing: ![](${ghost})`,
-      { cwd },
-    );
+    const out = await rehydrateAssistantMessageContent(`missing: ![](${ghost})`, { cwd });
     expect(out).toEqual([{ type: "text", text: `missing: ![](${ghost})` }]);
   });
 
@@ -129,10 +118,7 @@ describe("rehydrateAssistantMessageContent", () => {
   test("directory path (not a file) → skipped", async () => {
     mkdirSync(join(cwd, ".ezcorp", "extension-data", EXT, "generated"), { recursive: true });
     const dirUrl = `/api/ext-files/${EXT}/generated`;
-    const out = await rehydrateAssistantMessageContent(
-      `weird: ![](${dirUrl})`,
-      { cwd },
-    );
+    const out = await rehydrateAssistantMessageContent(`weird: ![](${dirUrl})`, { cwd });
     expect(out).toEqual([{ type: "text", text: `weird: ![](${dirUrl})` }]);
   });
 
@@ -149,7 +135,9 @@ describe("rehydrateAssistantMessageContent", () => {
       `![](${u1}) ![](${u2}) ![](${u3}) ![](${u4}) ![](${u5}) ![](${u6})`,
       { cwd },
     );
-    const images = out.filter((p: { type: string }) => p.type === "image") as Array<{ mimeType: string }>;
+    const images = out.filter((p: { type: string }) => p.type === "image") as Array<{
+      mimeType: string;
+    }>;
     // `.bin` isn't an image, so rehydration skips it — we shouldn't
     // feed the model a base64 blob with `application/octet-stream` and
     // expect it to render.
@@ -172,10 +160,9 @@ describe("rehydrateAssistantMessageContent", () => {
   });
 
   test("external http:// URL in markdown → skipped", async () => {
-    const out = await rehydrateAssistantMessageContent(
-      `fetched: ![](http://example.com/cat.png)`,
-      { cwd },
-    );
+    const out = await rehydrateAssistantMessageContent(`fetched: ![](http://example.com/cat.png)`, {
+      cwd,
+    });
     expect(out).toEqual([{ type: "text", text: "fetched: ![](http://example.com/cat.png)" }]);
   });
 
@@ -185,10 +172,12 @@ describe("rehydrateAssistantMessageContent", () => {
       `inline: ![](data:image/png;base64,${PNG_B64})`,
       { cwd },
     );
-    expect(out).toEqual([{
-      type: "text",
-      text: `inline: ![](data:image/png;base64,${PNG_B64})`,
-    }]);
+    expect(out).toEqual([
+      {
+        type: "text",
+        text: `inline: ![](data:image/png;base64,${PNG_B64})`,
+      },
+    ]);
   });
 
   // ── Case 11 ────────────────────────────────────────────────────────
@@ -202,10 +191,7 @@ describe("rehydrateAssistantMessageContent", () => {
 
   test("bare URL without markdown wrapping → skipped (we only match `![](url)`)", async () => {
     const url = writeFixture("generated/a.png", PNG_BYTES);
-    const out = await rehydrateAssistantMessageContent(
-      `see ${url} for the image`,
-      { cwd },
-    );
+    const out = await rehydrateAssistantMessageContent(`see ${url} for the image`, { cwd });
     // Only markdown-wrapped URLs are rehydrated. Bare URLs could be
     // anywhere in prose and we don't want false positives like a model
     // mentioning an old URL in passing.
@@ -217,10 +203,7 @@ describe("rehydrateAssistantMessageContent", () => {
     // The URL shape we produce (UUID + extension) never has parens, so
     // perfect paren parsing isn't required. Verify the common case.
     const url = writeFixture("generated/a.png", PNG_BYTES);
-    const out = await rehydrateAssistantMessageContent(
-      `![a](${url})\n\nnotes`,
-      { cwd },
-    );
+    const out = await rehydrateAssistantMessageContent(`![a](${url})\n\nnotes`, { cwd });
     expect(out.filter((p: { type: string }) => p.type === "image").length).toBe(1);
   });
 
@@ -231,19 +214,15 @@ describe("rehydrateAssistantMessageContent", () => {
     // we don't silently drop one. The executor-level last-N cap is what
     // controls overall token spend.
     const url = writeFixture("generated/a.png", PNG_BYTES);
-    const out = await rehydrateAssistantMessageContent(
-      `before: ![](${url}) after: ![](${url})`,
-      { cwd },
-    );
+    const out = await rehydrateAssistantMessageContent(`before: ![](${url}) after: ![](${url})`, {
+      cwd,
+    });
     expect(out.filter((p: { type: string }) => p.type === "image").length).toBe(2);
   });
 
   test("URL with whitespace inside parens is not matched (keeps parser strict)", async () => {
     const url = writeFixture("generated/a.png", PNG_BYTES);
-    const out = await rehydrateAssistantMessageContent(
-      `![a](  ${url}  )`,
-      { cwd },
-    );
+    const out = await rehydrateAssistantMessageContent(`![a](  ${url}  )`, { cwd });
     // Standard markdown wouldn't accept the leading/trailing whitespace
     // inside (); we keep the parser strict to avoid matching prose that
     // happens to contain a stray URL.
@@ -260,11 +239,10 @@ describe("rehydrateAssistantMessageContent", () => {
     try {
       const { chmodSync } = await import("node:fs");
       chmodSync(abs, 0o000);
-    } catch { /* non-critical — fall through */ }
-    const out = await rehydrateAssistantMessageContent(
-      `![](${url})`,
-      { cwd },
-    );
+    } catch {
+      /* non-critical — fall through */
+    }
+    const out = await rehydrateAssistantMessageContent(`![](${url})`, { cwd });
     // Either the read failed → text-only output,
     // or it succeeded → text + image. Both are acceptable — what matters
     // is we never throw.

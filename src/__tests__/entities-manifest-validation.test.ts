@@ -181,9 +181,7 @@ describe("validateManifestV2 — entities[] shape errors", () => {
     ];
     const res = validateManifestV2(m);
     expect(res.valid).toBe(false);
-    expect(
-      res.errors.some((e) => e.includes("pattern is not a valid regex")),
-    ).toBe(true);
+    expect(res.errors.some((e) => e.includes("pattern is not a valid regex"))).toBe(true);
   });
 
   test("rejects empty enum array", () => {
@@ -246,7 +244,7 @@ describe("validateManifestV2 — reserved-key + collision checks", () => {
       // entity clamp runs BEFORE that check completes; settings field
       // validation will also push its own error. We assert the entity
       // clamp added the reserved-namespace error specifically.
-      "__entity_thing": { type: "text", label: "X" },
+      __entity_thing: { type: "text", label: "X" },
     };
     m.entities = [
       {
@@ -289,11 +287,7 @@ describe("validateManifestV2 — reserved-key + collision checks", () => {
     ];
     const res = validateManifestV2(m);
     expect(res.valid).toBe(false);
-    expect(
-      res.errors.some((e) =>
-        e.includes("uses reserved entity namespace"),
-      ),
-    ).toBe(true);
+    expect(res.errors.some((e) => e.includes("uses reserved entity namespace"))).toBe(true);
   });
 
   test("rejects auto-tool-name collision with hand-rolled tool", () => {
@@ -319,9 +313,7 @@ describe("validateManifestV2 — reserved-key + collision checks", () => {
     const res = validateManifestV2(m);
     expect(res.valid).toBe(false);
     expect(
-      res.errors.some((e) =>
-        e.includes('auto-generated tool name "create_post_type" collides'),
-      ),
+      res.errors.some((e) => e.includes('auto-generated tool name "create_post_type" collides')),
     ).toBe(true);
   });
 

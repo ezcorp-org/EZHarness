@@ -114,10 +114,7 @@ function readPlaceholderFile(rawPath: string, sourceDir: string): string {
   // Windows (defense-in-depth; codebase targets Bun/Linux today).
   const sourceWithSep = absSource.endsWith(sep) ? absSource : absSource + sep;
   if (absTarget !== absSource && !absTarget.startsWith(sourceWithSep)) {
-    throw new FilePlaceholderError(
-      `Path escapes source dir: ${JSON.stringify(rawPath)}`,
-      rawPath,
-    );
+    throw new FilePlaceholderError(`Path escapes source dir: ${JSON.stringify(rawPath)}`, rawPath);
   }
   // Symlink-escape clamp: the lexical check above defeats `..`
   // traversal, but a symlink INSIDE `sourceDir` could still point at
@@ -131,10 +128,7 @@ function readPlaceholderFile(rawPath: string, sourceDir: string): string {
   try {
     realSource = realpathSync(absSource);
   } catch (err) {
-    throw new FilePlaceholderError(
-      `Source dir not accessible: ${(err as Error).message}`,
-      rawPath,
-    );
+    throw new FilePlaceholderError(`Source dir not accessible: ${(err as Error).message}`, rawPath);
   }
   try {
     realTarget = realpathSync(absTarget);
@@ -206,9 +200,7 @@ function walkPlaceholders(value: unknown, sourceDir: string): unknown {
  * doesn't already have. Returns a per-type summary for the caller to
  * write into the install audit row.
  */
-export async function runEntitySeed(
-  opts: EntitySeedOptions,
-): Promise<EntitySeedResult> {
+export async function runEntitySeed(opts: EntitySeedOptions): Promise<EntitySeedResult> {
   const result: EntitySeedResult = {
     seededByType: {},
     skippedByType: {},
@@ -250,9 +242,7 @@ export async function runEntitySeed(
     const existingIndex = await store.get<unknown>(indexKey);
     const existingSlugs = new Set(
       existingIndex.exists && Array.isArray(existingIndex.value)
-        ? (existingIndex.value as unknown[]).filter(
-            (s): s is string => typeof s === "string",
-          )
+        ? (existingIndex.value as unknown[]).filter((s): s is string => typeof s === "string")
         : [],
     );
 
@@ -282,9 +272,7 @@ export async function runEntitySeed(
         if (err instanceof FilePlaceholderError) {
           // Soft-fail: skip this seed record, continue with the rest.
           // The install proceeds; the operator sees a clean warning.
-          console.warn(
-            `[entities/seed] ${decl.type}#${seed.slug}: ${err.message}`,
-          );
+          console.warn(`[entities/seed] ${decl.type}#${seed.slug}: ${err.message}`);
           skipped.push(seed.slug);
           continue;
         }
@@ -293,11 +281,7 @@ export async function runEntitySeed(
 
       // Validate against the declared schema. Hard-fail (throws) on
       // validation error — the caller (installer) surfaces it.
-      assertRecord(
-        decl.schema,
-        resolved,
-        `entities[${decl.type}].seed[${seed.slug}]`,
-      );
+      assertRecord(decl.schema, resolved, `entities[${decl.type}].seed[${seed.slug}]`);
 
       // Write the record + bump the index.
       await store.set(recordKey, resolved);

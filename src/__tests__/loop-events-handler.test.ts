@@ -46,12 +46,17 @@ import type { JsonRpcRequest, ExtensionPermissions } from "../extensions/types";
 import type { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 
-interface EmitCall { event: string; payload: unknown; }
+interface EmitCall {
+  event: string;
+  payload: unknown;
+}
 
 function makeBus(): { bus: EventBus<AgentEvents>; calls: EmitCall[] } {
   const calls: EmitCall[] = [];
   const bus = {
-    emit: (event: string, payload: unknown) => { calls.push({ event, payload }); },
+    emit: (event: string, payload: unknown) => {
+      calls.push({ event, payload });
+    },
     on: () => () => {},
     off: () => {},
   } as unknown as EventBus<AgentEvents>;
@@ -99,12 +104,15 @@ async function lastAudit(
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values({
-    id: "user-loops",
-    email: "user-loops@t.local",
-    passwordHash: "x",
-    name: "user-loops",
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values({
+      id: "user-loops",
+      email: "user-loops@t.local",
+      passwordHash: "x",
+      name: "user-loops",
+    } as any)
+    .onConflictDoNothing();
 });
 
 afterAll(async () => {
@@ -217,7 +225,11 @@ describe("emit-loop-event — loopId provenance stamp", () => {
     const { bus, calls } = makeBus();
     await handleEmitLoopEventRpc(
       id,
-      rpc({ v: 1, type: "approval_pending", payload: { loopId: "victim-ext:secret", runId: "r1" } }),
+      rpc({
+        v: 1,
+        type: "approval_pending",
+        payload: { loopId: "victim-ext:secret", runId: "r1" },
+      }),
       ctx(bus),
     );
     // Stamped under the CALLER's id — the wire id is `<caller>:victim-ext:secret`,
@@ -230,7 +242,11 @@ describe("emit-loop-event — loopId provenance stamp", () => {
     const { bus } = makeBus();
     await handleEmitLoopEventRpc(
       id,
-      rpc({ v: 1, type: "approval_resolved", payload: { loopId: "docs", runId: "r1", decision: "approved" } }),
+      rpc({
+        v: 1,
+        type: "approval_resolved",
+        payload: { loopId: "docs", runId: "r1", decision: "approved" },
+      }),
       ctx(bus),
     );
     const audit = await lastAudit(id, "ext:loop-event-emitted");
@@ -245,7 +261,11 @@ describe("emit-loop-event — loopId provenance stamp", () => {
 describe("emit-loop-event — validation", () => {
   test("v !== 1 → -32602 + audit", async () => {
     const id = ext();
-    const resp = await handleEmitLoopEventRpc(id, rpc({ v: 2, type: "approval_pending", payload: {} }), ctx(makeBus().bus));
+    const resp = await handleEmitLoopEventRpc(
+      id,
+      rpc({ v: 2, type: "approval_pending", payload: {} }),
+      ctx(makeBus().bus),
+    );
     expect(resp.error?.code).toBe(-32602);
     expect(resp.error?.message).toMatch(/'v'/);
     const audit = await lastAudit(id, "ext:loop-event-rejected");
@@ -253,30 +273,54 @@ describe("emit-loop-event — validation", () => {
   });
 
   test("non-object payload → -32602", async () => {
-    const resp = await handleEmitLoopEventRpc(ext(), rpc({ v: 1, type: "approval_pending", payload: "nope" }), ctx(makeBus().bus));
+    const resp = await handleEmitLoopEventRpc(
+      ext(),
+      rpc({ v: 1, type: "approval_pending", payload: "nope" }),
+      ctx(makeBus().bus),
+    );
     expect(resp.error?.message).toMatch(/payload/);
   });
 
   test("missing/empty loopId → -32602", async () => {
     const { bus, calls } = makeBus();
-    const r1 = await handleEmitLoopEventRpc(ext(), rpc({ v: 1, type: "approval_pending", payload: { runId: "r" } }), ctx(bus));
+    const r1 = await handleEmitLoopEventRpc(
+      ext(),
+      rpc({ v: 1, type: "approval_pending", payload: { runId: "r" } }),
+      ctx(bus),
+    );
     expect(r1.error?.message).toMatch(/loopId/);
-    const r2 = await handleEmitLoopEventRpc(ext(), rpc({ v: 1, type: "approval_pending", payload: { loopId: "", runId: "r" } }), ctx(bus));
+    const r2 = await handleEmitLoopEventRpc(
+      ext(),
+      rpc({ v: 1, type: "approval_pending", payload: { loopId: "", runId: "r" } }),
+      ctx(bus),
+    );
     expect(r2.error?.message).toMatch(/loopId/);
     expect(calls).toHaveLength(0);
   });
 
   test("missing/empty runId → -32602", async () => {
-    const r1 = await handleEmitLoopEventRpc(ext(), rpc({ v: 1, type: "approval_pending", payload: { loopId: "l" } }), ctx(makeBus().bus));
+    const r1 = await handleEmitLoopEventRpc(
+      ext(),
+      rpc({ v: 1, type: "approval_pending", payload: { loopId: "l" } }),
+      ctx(makeBus().bus),
+    );
     expect(r1.error?.message).toMatch(/runId/);
-    const r2 = await handleEmitLoopEventRpc(ext(), rpc({ v: 1, type: "approval_pending", payload: { loopId: "l", runId: "" } }), ctx(makeBus().bus));
+    const r2 = await handleEmitLoopEventRpc(
+      ext(),
+      rpc({ v: 1, type: "approval_pending", payload: { loopId: "l", runId: "" } }),
+      ctx(makeBus().bus),
+    );
     expect(r2.error?.message).toMatch(/runId/);
   });
 
   test("non-string conversationId → -32602", async () => {
     const resp = await handleEmitLoopEventRpc(
       ext(),
-      rpc({ v: 1, type: "approval_pending", payload: { loopId: "l", runId: "r", conversationId: 5 } }),
+      rpc({
+        v: 1,
+        type: "approval_pending",
+        payload: { loopId: "l", runId: "r", conversationId: 5 },
+      }),
       ctx(makeBus().bus),
     );
     expect(resp.error?.message).toMatch(/conversationId/);
@@ -297,7 +341,11 @@ describe("emit-loop-event — validation", () => {
   test("approval_resolved with a bad decision → -32602", async () => {
     const resp = await handleEmitLoopEventRpc(
       ext(),
-      rpc({ v: 1, type: "approval_resolved", payload: { loopId: "l", runId: "r", decision: "maybe" } }),
+      rpc({
+        v: 1,
+        type: "approval_resolved",
+        payload: { loopId: "l", runId: "r", decision: "maybe" },
+      }),
       ctx(makeBus().bus),
     );
     expect(resp.error?.message).toMatch(/decision/);
@@ -327,7 +375,10 @@ describe("emit-loop-event — validation", () => {
       ctx(bus),
     );
     expect(resp.result).toEqual({ ok: true });
-    expect(calls[0]).toEqual({ event: "loops:auto_disabled", payload: { loopId: `${id}:flaky`, consecutiveErrors: 5 } });
+    expect(calls[0]).toEqual({
+      event: "loops:auto_disabled",
+      payload: { loopId: `${id}:flaky`, consecutiveErrors: 5 },
+    });
   });
 });
 
@@ -343,7 +394,9 @@ describe("emit-loop-event — happy paths", () => {
       ctx(bus),
     );
     expect(resp.result).toEqual({ ok: true });
-    expect(calls).toEqual([{ event: "loops:approval_pending", payload: { loopId: `${id}:docs`, runId: "r1" } }]);
+    expect(calls).toEqual([
+      { event: "loops:approval_pending", payload: { loopId: `${id}:docs`, runId: "r1" } },
+    ]);
     const audit = await lastAudit(id, "ext:loop-event-emitted");
     expect(audit?.metadata?.newValue).toBe("approval_pending");
   });
@@ -353,7 +406,11 @@ describe("emit-loop-event — happy paths", () => {
     const { bus, calls } = makeBus();
     await handleEmitLoopEventRpc(
       id,
-      rpc({ v: 1, type: "approval_pending", payload: { loopId: "docs", runId: "r1", conversationId: "c9" } }),
+      rpc({
+        v: 1,
+        type: "approval_pending",
+        payload: { loopId: "docs", runId: "r1", conversationId: "c9" },
+      }),
       ctx(bus),
     );
     expect(calls[0]!.payload).toEqual({ loopId: `${id}:docs`, runId: "r1", conversationId: "c9" });
@@ -364,7 +421,11 @@ describe("emit-loop-event — happy paths", () => {
     const { bus, calls } = makeBus();
     await handleEmitLoopEventRpc(
       id,
-      rpc({ v: 1, type: "approval_pending", payload: { loopId: "docs", runId: "r1", conversationId: "" } }),
+      rpc({
+        v: 1,
+        type: "approval_pending",
+        payload: { loopId: "docs", runId: "r1", conversationId: "" },
+      }),
       ctx(bus),
     );
     expect(calls[0]!.payload).toEqual({ loopId: `${id}:docs`, runId: "r1" });
@@ -375,7 +436,11 @@ describe("emit-loop-event — happy paths", () => {
     const { bus, calls } = makeBus();
     const resp = await handleEmitLoopEventRpc(
       id,
-      rpc({ v: 1, type: "approval_resolved", payload: { loopId: "docs", runId: "r1", decision: "declined", conversationId: "c1" } }),
+      rpc({
+        v: 1,
+        type: "approval_resolved",
+        payload: { loopId: "docs", runId: "r1", decision: "declined", conversationId: "c1" },
+      }),
       ctx(bus),
     );
     expect(resp.result).toEqual({ ok: true });
@@ -390,10 +455,18 @@ describe("emit-loop-event — happy paths", () => {
     const { bus, calls } = makeBus();
     await handleEmitLoopEventRpc(
       id,
-      rpc({ v: 1, type: "auto_disabled", payload: { loopId: "flaky", consecutiveErrors: 2, conversationId: "c1" } }),
+      rpc({
+        v: 1,
+        type: "auto_disabled",
+        payload: { loopId: "flaky", consecutiveErrors: 2, conversationId: "c1" },
+      }),
       ctx(bus),
     );
-    expect(calls[0]!.payload).toEqual({ loopId: `${id}:flaky`, consecutiveErrors: 2, conversationId: "c1" });
+    expect(calls[0]!.payload).toEqual({
+      loopId: `${id}:flaky`,
+      consecutiveErrors: 2,
+      conversationId: "c1",
+    });
   });
 
   test("a missing bus is a clean no-op emit (still ok, still audited)", async () => {
@@ -424,7 +497,10 @@ describe("emit-loop-event — rate limit", () => {
       for (let i = 0; i < 60; i++) {
         const resp = await handleEmitLoopEventRpc(
           id,
-          rpc({ v: 1, type: "approval_pending", payload: { loopId: "l", runId: `r${i}` } }, `rl-${i}`),
+          rpc(
+            { v: 1, type: "approval_pending", payload: { loopId: "l", runId: `r${i}` } },
+            `rl-${i}`,
+          ),
           ctx(bus),
         );
         if (resp.error?.code === -32029) limited++;

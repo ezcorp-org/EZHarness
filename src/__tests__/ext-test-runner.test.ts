@@ -37,14 +37,8 @@ mock.module("../../src/extensions/manifest", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-import {
-  buildTestSpawnArgs,
-  buildTestEnv,
-} from "../../src/extensions/sdk/test-runner";
-import {
-  callTool,
-  assertToolResult,
-} from "../../src/extensions/sdk/test-helpers";
+import { buildTestSpawnArgs, buildTestEnv } from "../../src/extensions/sdk/test-runner";
+import { callTool, assertToolResult } from "../../src/extensions/sdk/test-helpers";
 import { parseArgs } from "../../src/cli";
 
 const _TEST_MANIFEST = {

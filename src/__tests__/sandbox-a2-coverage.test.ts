@@ -35,12 +35,8 @@ describe("applyLandlockJailSpec — FFI stubbed (no real jail)", () => {
         throw new Error("should not be called when ABI<1");
       },
     }));
-    const { applyLandlockJailSpec } = await import(
-      "../extensions/sandbox/landlock"
-    );
-    expect(() => applyLandlockJailSpec({ ro: ["/usr"], rw: ["/w"] })).toThrow(
-      /not supported/,
-    );
+    const { applyLandlockJailSpec } = await import("../extensions/sandbox/landlock");
+    expect(() => applyLandlockJailSpec({ ro: ["/usr"], rw: ["/w"] })).toThrow(/not supported/);
   });
 
   test("calls applyReadWriteJail with rw + ro + list (root) split when supported", async () => {
@@ -142,7 +138,12 @@ describe("runShim — apply stubbed, spawns a trivial child", () => {
     const errs: string[] = [];
     // Empty argv → parseShimArgv throws "no inner command" → runShim rejects,
     // driving the catch arm.
-    await shim.runShimMain([], process.env, (c) => exits.push(c), (m) => errs.push(m));
+    await shim.runShimMain(
+      [],
+      process.env,
+      (c) => exits.push(c),
+      (m) => errs.push(m),
+    );
     expect(exits).toEqual([127]);
     expect(errs[0]).toContain("landlock-shim:");
   });

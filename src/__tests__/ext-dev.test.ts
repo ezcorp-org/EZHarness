@@ -26,7 +26,10 @@ mock.module("../../src/extensions/installer", () => ({
 
 mock.module("../../src/db/queries/extensions", () => ({
   listExtensions: async () => mockListExtensionsResult,
-  deleteExtension: async (id: string) => { mockDeleteExtensionCalls.push(id); return true; },
+  deleteExtension: async (id: string) => {
+    mockDeleteExtensionCalls.push(id);
+    return true;
+  },
   createExtension: async (data: unknown) => ({ id: "dev-ext-id", ...(data as object) }),
 }));
 
@@ -37,7 +40,9 @@ mock.module("../../src/extensions/registry", () => ({
         mockReloadCalls++;
         if (mockReloadShouldThrow) throw new Error("boom: registry reload failed");
       },
-      killAll: () => { _mockKillAllCalls++; },
+      killAll: () => {
+        _mockKillAllCalls++;
+      },
       getProcess: async () => ({
         kill: () => {},
         ensureRunning: () => {},
@@ -81,7 +86,10 @@ async function createTempExtDir(): Promise<string> {
   const { mkdtemp } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const dir = await mkdtemp(`${tmpdir()}/ext-dev-test-`);
-  await Bun.write(`${dir}/ezcorp.config.ts`, `export default ${JSON.stringify(TEST_MANIFEST, null, 2)};\n`);
+  await Bun.write(
+    `${dir}/ezcorp.config.ts`,
+    `export default ${JSON.stringify(TEST_MANIFEST, null, 2)};\n`,
+  );
   await Bun.write(`${dir}/index.ts`, 'console.log("hello");');
   return dir;
 }
@@ -119,7 +127,7 @@ describe("ezcorp ext dev", () => {
 
       const controller = new AbortController();
       const promise = startDevServer({ extDir: tmpDir, _signal: controller.signal });
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
       controller.abort();
       await promise.catch(() => {});
 
@@ -156,7 +164,7 @@ describe("ezcorp ext dev", () => {
     try {
       const controller = new AbortController();
       const promise = startDevServer({ extDir: tmpDir, _signal: controller.signal });
-      await new Promise(r => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 50));
       controller.abort();
       await promise.catch(() => {});
 
@@ -172,10 +180,10 @@ describe("ezcorp ext dev", () => {
     try {
       const controller = new AbortController();
       const promise = startDevServer({ extDir: tmpDir, _signal: controller.signal });
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
 
       await Bun.write(`${tmpDir}/index.ts`, 'console.log("changed");');
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 300));
 
       expect(mockReloadCalls).toBeGreaterThanOrEqual(1);
 
@@ -192,13 +200,13 @@ describe("ezcorp ext dev", () => {
       const controller = new AbortController();
       const reloadsBefore = mockReloadCalls;
       const promise = startDevServer({ extDir: tmpDir, _signal: controller.signal });
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
 
       for (let i = 0; i < 5; i++) {
         await Bun.write(`${tmpDir}/index.ts`, `console.log("change-${i}");`);
-        await new Promise(r => setTimeout(r, 20));
+        await new Promise((r) => setTimeout(r, 20));
       }
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 300));
 
       const reloadsTriggered = mockReloadCalls - reloadsBefore;
       expect(reloadsTriggered).toBeLessThan(5);
@@ -221,11 +229,11 @@ describe("ezcorp ext dev", () => {
       const controller = new AbortController();
       const reloadsBefore = mockReloadCalls;
       const promise = startDevServer({ extDir: tmpDir, _signal: controller.signal });
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
 
       await Bun.write(`${tmpDir}/node_modules/foo.js`, "ignored");
       await Bun.write(`${tmpDir}/.hidden/bar.js`, "ignored");
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 300));
 
       const reloadsTriggered = mockReloadCalls - reloadsBefore;
       expect(reloadsTriggered).toBe(0);
@@ -247,10 +255,10 @@ describe("ezcorp ext dev", () => {
       mockReloadShouldThrow = true;
       const controller = new AbortController();
       const promise = startDevServer({ extDir: tmpDir, _signal: controller.signal });
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
 
       await Bun.write(`${tmpDir}/index.ts`, 'console.log("trigger reload throw");');
-      await new Promise(r => setTimeout(r, 300));
+      await new Promise((r) => setTimeout(r, 300));
 
       // reload() was attempted (and threw → caught), and the server did not die:
       // a follow-up abort still resolves cleanly through cleanup().
@@ -298,7 +306,7 @@ describe("ezcorp ext dev", () => {
       // Intentionally un-awaited: the no-signal keep-alive (line 134) never
       // resolves. Startup runs through the `else` branch registering handlers.
       void startDevServer({ extDir: tmpDir });
-      await new Promise(r => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 100));
 
       expect(typeof handlers.SIGINT).toBe("function");
       expect(typeof handlers.SIGTERM).toBe("function");

@@ -1,127 +1,125 @@
 {
-	"$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
-	"vcs": {
-		"enabled": true,
-		"clientKind": "git",
-		"useIgnoreFile": true
-	},
-	"files": {
-		"includes": [
-			"**",
-			"!**/node_modules",
-			"!**/dist",
-			"!**/build",
-			"!**/.svelte-kit",
-			"!**/coverage",
-			"!**/data",
-			"!**/test-results",
-			"!**/.ezcorp",
-			"!**/.planning",
-			"!.claude",
-			"!worktrees",
-			"!**/TESTENV",
-			"!web/build",
-			"!web/.svelte-kit",
-			"!**/*.min.js",
-			"!**/*.bundle.js",
-			"!bun.lock",
-			"!**/*.svelte",
-			"!**/*.css",
-			"!**/*.svg",
-			"!docs/extensions/examples"
-		]
-	},
-	"formatter": {
-		"enabled": false
-	},
-	"assist": {
-		"enabled": false
-	},
-	"linter": {
-		"enabled": true,
-		"rules": {
-			"recommended": true,
-			"suspicious": {
-				"noExplicitAny": "error",
-				"noAssignInExpressions": "off",
-				"noImplicitAnyLet": "error",
-				"noThenProperty": "off"
-			},
-			"style": {
-				"noNonNullAssertion": "off",
-				"useNodejsImportProtocol": "off",
-				"useTemplate": "off",
-				"noRestrictedImports": {
-					"level": "error",
-					"options": {
-						"paths": {
-							"express": "Bun.serve() has HTTP, routing and WebSockets built in — do not add express (CLAUDE.md: don't add replaced deps).",
-							"ws": "Bun.serve() speaks WebSockets natively — do not add ws (CLAUDE.md: don't add replaced deps).",
-							"pg": "Storage is PGlite embedded + Bun.sql for external Postgres — do not add pg (CLAUDE.md: don't add replaced deps).",
-							"postgres": "Storage is PGlite embedded + Bun.sql for external Postgres — do not add postgres.js (CLAUDE.md: don't add replaced deps).",
-							"better-sqlite3": "Storage is PGlite embedded + Bun.sql for external Postgres — do not add better-sqlite3 (CLAUDE.md: don't add replaced deps).",
-							"bun:sqlite": "Storage is PGlite embedded + Bun.sql for external Postgres — do not use bun:sqlite (CLAUDE.md: don't add replaced deps).",
-							"ioredis": "If Redis is ever introduced, use Bun.redis — do not add ioredis (CLAUDE.md: don't add replaced deps).",
-							"execa": "Use Bun.$`cmd` for subprocesses — do not add execa (CLAUDE.md: don't add replaced deps).",
-							"dotenv": "Bun auto-loads .env — do not add dotenv (CLAUDE.md: Bun section).",
-							"vitest": "Vitest is sanctioned ONLY under web/ (Svelte component/server tests). Everything else uses bun:test via scripts/test.sh (CLAUDE.md: Testing)."
-						}
-					}
-				}
-			},
-			"complexity": {
-				"useLiteralKeys": "off"
-			},
-			"correctness": {
-				"noUnusedFunctionParameters": "off"
-			}
-		}
-	},
-	"javascript": {
-		"formatter": {
-			"enabled": false
-		}
-	},
-	"overrides": [
-		{
-			"includes": [
-				"**/__tests__/**",
-				"**/*.test.ts",
-				"**/*.spec.ts",
-				"web/e2e/**"
-			],
-			"linter": {
-				"rules": {
-					"suspicious": {
-						"noExplicitAny": "off"
-					}
-				}
-			}
-		},
-		{
-			"includes": ["web/**"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noRestrictedImports": {
-							"level": "error",
-							"options": {
-								"paths": {
-									"express": "Bun.serve() has HTTP, routing and WebSockets built in — do not add express (CLAUDE.md: don't add replaced deps).",
-									"ws": "Bun.serve() speaks WebSockets natively — do not add ws (CLAUDE.md: don't add replaced deps).",
-									"pg": "Storage is PGlite embedded + Bun.sql for external Postgres — do not add pg (CLAUDE.md: don't add replaced deps).",
-									"postgres": "Storage is PGlite embedded + Bun.sql for external Postgres — do not add postgres.js (CLAUDE.md: don't add replaced deps).",
-									"better-sqlite3": "Storage is PGlite embedded + Bun.sql for external Postgres — do not add better-sqlite3 (CLAUDE.md: don't add replaced deps).",
-									"bun:sqlite": "Storage is PGlite embedded + Bun.sql for external Postgres — do not use bun:sqlite (CLAUDE.md: don't add replaced deps).",
-									"ioredis": "If Redis is ever introduced, use Bun.redis — do not add ioredis (CLAUDE.md: don't add replaced deps).",
-									"execa": "Use Bun.$`cmd` for subprocesses — do not add execa (CLAUDE.md: don't add replaced deps).",
-									"dotenv": "Bun auto-loads .env — do not add dotenv (CLAUDE.md: Bun section)."
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	]
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/build",
+      "!**/.svelte-kit",
+      "!**/coverage",
+      "!**/data",
+      "!**/test-results",
+      "!**/.ezcorp",
+      "!**/.planning",
+      "!.claude",
+      "!worktrees",
+      "!**/TESTENV",
+      "!web/build",
+      "!web/.svelte-kit",
+      "!**/*.min.js",
+      "!**/*.bundle.js",
+      "!bun.lock",
+      "!**/*.svelte",
+      "!**/*.css",
+      "!**/*.svg",
+      "!docs/extensions/examples"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "assist": {
+    "enabled": false
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "suspicious": {
+        "noExplicitAny": "error",
+        "noAssignInExpressions": "off",
+        "noImplicitAnyLet": "error",
+        "noThenProperty": "off"
+      },
+      "style": {
+        "noNonNullAssertion": "off",
+        "useNodejsImportProtocol": "off",
+        "useTemplate": "off",
+        "noRestrictedImports": {
+          "level": "error",
+          "options": {
+            "paths": {
+              "express": "Bun.serve() has HTTP, routing and WebSockets built in — do not add express (CLAUDE.md: don't add replaced deps).",
+              "ws": "Bun.serve() speaks WebSockets natively — do not add ws (CLAUDE.md: don't add replaced deps).",
+              "pg": "Storage is PGlite embedded + Bun.sql for external Postgres — do not add pg (CLAUDE.md: don't add replaced deps).",
+              "postgres": "Storage is PGlite embedded + Bun.sql for external Postgres — do not add postgres.js (CLAUDE.md: don't add replaced deps).",
+              "better-sqlite3": "Storage is PGlite embedded + Bun.sql for external Postgres — do not add better-sqlite3 (CLAUDE.md: don't add replaced deps).",
+              "bun:sqlite": "Storage is PGlite embedded + Bun.sql for external Postgres — do not use bun:sqlite (CLAUDE.md: don't add replaced deps).",
+              "ioredis": "If Redis is ever introduced, use Bun.redis — do not add ioredis (CLAUDE.md: don't add replaced deps).",
+              "execa": "Use Bun.$`cmd` for subprocesses — do not add execa (CLAUDE.md: don't add replaced deps).",
+              "dotenv": "Bun auto-loads .env — do not add dotenv (CLAUDE.md: Bun section).",
+              "vitest": "Vitest is sanctioned ONLY under web/ (Svelte component/server tests). Everything else uses bun:test via scripts/test.sh (CLAUDE.md: Testing)."
+            }
+          }
+        }
+      },
+      "complexity": {
+        "useLiteralKeys": "off"
+      },
+      "correctness": {
+        "noUnusedFunctionParameters": "off"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "enabled": true
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["**/__tests__/**", "**/*.test.ts", "**/*.spec.ts", "web/e2e/**"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["web/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "express": "Bun.serve() has HTTP, routing and WebSockets built in — do not add express (CLAUDE.md: don't add replaced deps).",
+                  "ws": "Bun.serve() speaks WebSockets natively — do not add ws (CLAUDE.md: don't add replaced deps).",
+                  "pg": "Storage is PGlite embedded + Bun.sql for external Postgres — do not add pg (CLAUDE.md: don't add replaced deps).",
+                  "postgres": "Storage is PGlite embedded + Bun.sql for external Postgres — do not add postgres.js (CLAUDE.md: don't add replaced deps).",
+                  "better-sqlite3": "Storage is PGlite embedded + Bun.sql for external Postgres — do not add better-sqlite3 (CLAUDE.md: don't add replaced deps).",
+                  "bun:sqlite": "Storage is PGlite embedded + Bun.sql for external Postgres — do not use bun:sqlite (CLAUDE.md: don't add replaced deps).",
+                  "ioredis": "If Redis is ever introduced, use Bun.redis — do not add ioredis (CLAUDE.md: don't add replaced deps).",
+                  "execa": "Use Bun.$`cmd` for subprocesses — do not add execa (CLAUDE.md: don't add replaced deps).",
+                  "dotenv": "Bun auto-loads .env — do not add dotenv (CLAUDE.md: Bun section)."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
 }

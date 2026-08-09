@@ -48,7 +48,11 @@ const listing = {
 function nav() {
   return [
     { type: "link", label: "Jobs", href: `/hub/${encodeURIComponent(FACTORY)}` },
-    { type: "link", label: "Templates", href: `/hub/${encodeURIComponent(FACTORY)}?view=templates` },
+    {
+      type: "link",
+      label: "Templates",
+      href: `/hub/${encodeURIComponent(FACTORY)}?view=templates`,
+    },
     { type: "link", label: "Recent runs", href: `/hub/${encodeURIComponent(FACTORY)}?view=runs` },
     { type: "link", label: "New job", href: `/hub/${encodeURIComponent(JOB)}` },
     { type: "link", label: "Approvals inbox", href: "/workflows/approvals" },
@@ -160,15 +164,27 @@ function templatesTree() {
             columns: ["Template", "What it does", "Job-settable inputs"],
             rows: [
               {
-                cells: ["docs-factory", "Read source files, draft documentation…", "globs, outPath"],
+                cells: [
+                  "docs-factory",
+                  "Read source files, draft documentation…",
+                  "globs, outPath",
+                ],
                 href: "/workflows/ez-factory%3Adocs-factory",
               },
               {
-                cells: ["etl-factory", "Read a set of files, extract and normalise…", "globs, outPath"],
+                cells: [
+                  "etl-factory",
+                  "Read a set of files, extract and normalise…",
+                  "globs, outPath",
+                ],
                 href: "/workflows/ez-factory%3Aetl-factory",
               },
               {
-                cells: ["draft-and-verify", "Verify one draft against its sources…", "draft, sources"],
+                cells: [
+                  "draft-and-verify",
+                  "Verify one draft against its sources…",
+                  "draft, sources",
+                ],
                 href: "/workflows/ez-factory%3Adraft-and-verify",
               },
             ],
@@ -341,10 +357,7 @@ test.describe("ez-factory console", () => {
 
     await page.goto(`/hub/${encodeURIComponent(FACTORY)}`);
     const link = page.getByTestId("hub-row-link").first();
-    await expect(link).toHaveAttribute(
-      "href",
-      `/hub/${encodeURIComponent(JOB)}?view=job%3Aj1`,
-    );
+    await expect(link).toHaveAttribute("href", `/hub/${encodeURIComponent(JOB)}?view=job%3Aj1`);
   });
 
   test("`?view=` reaches the render pull and selects the surface", async ({ page, mockApi }) => {
@@ -379,9 +392,9 @@ test.describe("ez-factory console", () => {
 
     await page.goto(`/hub/${encodeURIComponent(FACTORY)}?view=runs`);
     await expect(page.getByTestId("hub-node-table")).toContainText("awaiting_approval");
-    const hrefs = await page.getByTestId("hub-row-link").evaluateAll((els) =>
-      els.map((e) => e.getAttribute("href")),
-    );
+    const hrefs = await page
+      .getByTestId("hub-row-link")
+      .evaluateAll((els) => els.map((e) => e.getAttribute("href")));
     expect(hrefs).toEqual(["/workflows/runs/wr-9", "/workflows/runs/wr-8"]);
   });
 
