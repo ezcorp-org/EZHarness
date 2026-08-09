@@ -1,6 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { setupApiMocks } from "./fixtures/api-mocks.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { captureEvidence } from "./fixtures/evidence.js";
 
 /**
  * Stick-to-bottom: when the user is already at the bottom, the view must
@@ -317,6 +318,85 @@ test.describe("chat stick-to-bottom", () => {
 				message: "after jump-to-bottom, streaming growth must re-pin",
 			})
 			.toBe(true);
+	});
+
+	test("the jump-to-bottom affordance is an overlay: mounting it must not move the scroll extent @evidence", async ({
+		page,
+	}, testInfo) => {
+		// Issue #140's root cause, asserted at the level it actually broke.
+		// The button used to be a `position: sticky` sibling of the message
+		// wrapper — sticky boxes stay IN FLOW, so its 2.5rem height counted
+		// toward the container's scrollHeight. Because the button is mounted
+		// BY the state it reports ("you are not at the bottom"), that closed a
+		// self-sustaining loop: mounting it pushed the bottom a further 40px
+		// away, which kept the bottom sentinel out of view, which kept the
+		// button mounted. It now lives in a zero-height sticky dock, so its
+		// presence cannot move the scroll extent at all.
+		await installFakeTransports(page);
+		await setupApiMocks(page, {
+			projects: [proj],
+			conversations: [convA, convB],
+			messages: longHistoryA,
+			routes: activeRunRunning,
+		});
+
+		await page.goto(`/project/proj-1/chat/conv-A`);
+		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({
+			timeout: 8000,
+		});
+		await page.waitForTimeout(150);
+
+		const jump = page.getByRole("button", { name: /jump to bottom/i });
+		await expect(jump).toBeHidden();
+		const pinned = await readContainerMetrics(page);
+		expect(await isAtBottom(page)).toBe(true);
+		await captureEvidence(page, testInfo, "chat-stick-to-bottom-pinned");
+
+		// Nudge up just far enough for the bottom sentinel to leave the
+		// viewport (which mounts the affordance) and no further — a big jump
+		// would trip the top sentinel and paginate in older messages, which
+		// legitimately grows the extent. Nothing about the CONTENT changes
+		// here, only the button appears, so the extent must be byte-identical.
+		// Pre-fix it grew by the button's 40px.
+		await setContainerScrollTop(
+			page,
+			pinned.scrollHeight - pinned.clientHeight - 200,
+		);
+		await expect(jump).toBeVisible();
+		const withButton = await readContainerMetrics(page);
+		expect(
+			withButton.scrollHeight,
+			"mounting the jump-to-bottom button must not change scrollHeight",
+		).toBe(pinned.scrollHeight);
+		expect(withButton.clientHeight).toBe(pinned.clientHeight);
+
+		// …and it is a real overlay: painted inside the visible scrollport,
+		// near its bottom edge, not parked at the end of the content.
+		const container = page.getByTestId("chat-messages-container");
+		const cbox = (await container.boundingBox())!;
+		const bbox = (await jump.boundingBox())!;
+		expect(bbox.y).toBeGreaterThan(cbox.y);
+		expect(bbox.y + bbox.height).toBeLessThanOrEqual(cbox.y + cbox.height + 1);
+		// …still horizontally centred on the container (the dock swapped the
+		// button from `sticky` to `absolute`, which re-resolves left/transform).
+		expect(
+			Math.abs(bbox.x + bbox.width / 2 - (cbox.x + cbox.width / 2)),
+			"the affordance must stay centred",
+		).toBeLessThanOrEqual(1);
+		await captureEvidence(page, testInfo, "chat-jump-to-bottom-overlay");
+
+		// Clicking it re-glues, and the extent is still untouched.
+		await jump.click();
+		await expect
+			.poll(() => isAtBottom(page), {
+				timeout: 5000,
+				message: "jump-to-bottom returns to the bottom",
+			})
+			.toBe(true);
+		await expect(jump).toBeHidden();
+		expect((await readContainerMetrics(page)).scrollHeight).toBe(
+			pinned.scrollHeight,
+		);
 	});
 
 	test("open-restore to a non-bottom position is preserved (RO must not yank on resize)", async ({ page }) => {

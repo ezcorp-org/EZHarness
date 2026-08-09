@@ -45,7 +45,7 @@ const LANE_NAMES = ["mock-gate", "real-auth", "evidence-soft", "docker", "unwire
 // bought room to re-ADD specs to the backlog), so it now ratchets on every
 // wiring.
 //
-// Three sibling chat specs were MEASURED and deliberately left unwired — a
+// One sibling chat spec was MEASURED and deliberately left unwired — a
 // blocking lane runs at `retries: 0`, so a flaky member is worse than an
 // unwired one (rates from repeated local runs against the mock preview):
 //   - chat-message-pagination  ~4% isolated / 12-25% under lane load — the
@@ -56,21 +56,24 @@ const LANE_NAMES = ["mock-gate", "real-auth", "evidence-soft", "docker", "unwire
 //     `count === 35` assertion sees 50. FIXABLE without weakening it — give
 //     the click a stable target, or suppress the top sentinel for the
 //     duration of an explicit click. Worth doing; it just isn't this PR.
-//   - chat-stick-to-bottom     ~4% (2/45). "streaming growth while at bottom
-//     must stay pinned" already polls for 5s and still misses.
-//   - chat-scroll-restore      ~2% (2/90), same assertion class
-//     ("streamed-turn growth while following must keep the view pinned").
-// The last two are a REAL product bug in ChatThread.svelte, not a settle
-// flake — `expect.poll` burns its full 5s and never recovers, so the thread
-// is in a terminal not-following state. `stuck` is recomputed ONLY in the
-// scroll handler (`stuck = bottomSlack(el) < 80`); `stickObserver` defers its
-// re-pin to a rAF, and a scroll event dispatched inside that window (Chrome's
-// default `overflow-anchor: auto` fires one when content above the anchor
-// grows) makes `onScroll` read post-growth/pre-repin slack and latch
-// `stuck = false` with nothing to reset it. Tracked in issue #140 (with a
-// pointer comment at the observer itself); wiring these two needs the
-// product fix, not a test edit.
-const UNWIRED_CEILING = 235;
+//
+// 235 → 232: chat-stick-to-bottom + chat-scroll-restore were WIRED into
+// `mock-gate` once issue #140 was FIXED (the ceiling also re-pins to the exact
+// backlog size — it had drifted 1 above the real 234, which silently bought
+// room to re-ADD a spec). Both used to fail on "streaming growth while at
+// bottom must stay pinned" (~4% and ~2%), and it was a real product bug, not a
+// settle flake: `expect.poll` burned its full 5s and never recovered. The
+// jump-to-bottom button was a `position: sticky` — i.e. still IN FLOW — child
+// of the scroll container, so its 2.5rem counted toward `scrollHeight`; since
+// it is mounted BY the "you are not at the bottom" state it reports, mounting
+// it after the stick pin kept the view exactly its own height off the bottom,
+// forever. It now lives in a zero-height overlay dock. Measured on the mock
+// preview: 5/40 red before the fix; after it, 300/300 (--repeat-each=30, 6
+// workers) and 400/400 (--repeat-each=40, 10 workers) across both files. The
+// flake is also retired as a flake — a new deterministic @evidence assertion
+// (mounting the affordance must not change `scrollHeight`) fails 5/5 against
+// the pre-fix component.
+const UNWIRED_CEILING = 232;
 
 function bashLines(cmd: string): string[] {
   const proc = Bun.spawnSync(["bash", "-c", cmd], { cwd: REPO_ROOT });
