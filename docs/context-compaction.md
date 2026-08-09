@@ -53,6 +53,41 @@ is a char-based heuristic; pi-ai exposes no tokenizer). If the
 estimated history already fits `inputBudget`, the hook is a no-op and
 the message array is returned untouched.
 
+**`model.contextWindow` is corrected before it reaches this math.**
+`src/runtime/routing/model-context-windows.ts` is the single place that
+decides how big a window really is, and it is applied on BOTH sides —
+`piModelToEntry` (what the picker shows) and `resolveModelObject` (what the
+wire and this budget use) — so the number the user sees and the trim point can
+never diverge. It does two things:
+
+- **Caps ids the catalog overstates.** Claude Sonnet 4/4.5 ship as `1_000_000`
+  on `anthropic`, `openrouter` and `vercel-ai-gateway`; that is the
+  `context-1m-2025-08-07` *beta* window, which EZCorp never requests. The same
+  catalog reports 200k for the same model on bedrock, cloudflare, opencode and
+  github-copilot. Left uncorrected the budget was **904,000** against a real
+  200k limit, so compaction never fired and every turn past the limit failed
+  with an unclearable `400 "prompt is too long"`. The table is a **ceiling**,
+  never an assignment — it can only move a window down, and Sonnet 4.6 / 5
+  (genuinely 1M everywhere) are deliberately not matched.
+- **Marks invented windows.** A model no catalog reports falls back to
+  `FALLBACK_CONTEXT_WINDOW` (128k) flagged `estimated`, which the picker and
+  the context indicator render with a `~`. Callers that DO know a window (a
+  custom model's operator-declared size, a discovered Kilo row) pass it as
+  `resolveModelObject`'s `declaredContextWindow` so the fallback cannot
+  overwrite a known number — previously an `ollama` model declared at 262,144
+  was displayed at its declared size and budgeted at 101,760.
+
+**The UI measures against `inputBudget`, not `contextWindow`.**
+`/api/models` returns both, and the chat indicator shows
+`used / inputBudget (contextWindow window)`. Showing only the window put the
+gauge at 42% while compaction was already dropping turns. The numerator is
+`inputTokens + cacheReadTokens + cacheWriteTokens` — cached tokens still
+occupy the window, and counting only the fresh ones made the danger bucket
+unreachable on any provider with prompt caching on. The denominator is keyed
+to the model that **served** the turn (read off the assistant row), not the
+model in the picker, which survives conversation switches and is seeded from a
+global `localStorage` preference.
+
 **Trimming (the `trim` strategy).** History is split into *turn
 blocks* — a `user` message plus every following assistant / toolResult
 message up to the next `user` message. The **last block (the active

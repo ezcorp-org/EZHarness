@@ -727,6 +727,84 @@ describe("ContextUsageIndicator", () => {
 		await fireEvent.mouseEnter(trigger);
 
 		const popover = getByTestId("context-usage-popover");
-		expect(popover.textContent).toContain("50k / 200k tokens used (25%)");
+		// With only a raw window and no known budget, usage is measured against
+		// the window itself — the pre-fix arithmetic, unchanged for this caller.
+		expect(popover.textContent).toContain("50k / 200k used (25%)");
+		expect(popover.textContent).toContain("200k window");
+		// …and no reserve is claimed, because none is known here.
+		expect(popover.textContent).not.toContain("is held back");
+	});
+
+	// ── served-model denominator ──────────────────────────────────────────
+	// The reported bug: the gauge measured the served model's tokens against
+	// whatever window the picker happened to be holding.
+
+	test("measures against the enforced budget, not the raw window", async () => {
+		const { getByTestId } = render(ContextUsageIndicator, {
+			usedTokens: 84_000,
+			contextWindow: 200_000,
+			denominator: {
+				contextWindow: 200_000,
+				inputBudget: 168_000,
+				estimated: false,
+				matched: true,
+			},
+		});
+		// 84k/168k = 50%, not 84k/200k = 42%. Compaction is the 100% mark.
+		expect(getByTestId("context-usage-pct").textContent?.trim()).toBe("50%");
+	});
+
+	test("a 200k served model is not measured against a stale 1M picker window", async () => {
+		const { getByTestId } = render(ContextUsageIndicator, {
+			usedTokens: 160_000,
+			// What the picker was holding — a global last-model preference.
+			contextWindow: 1_000_000,
+			// What actually served the turn.
+			denominator: {
+				contextWindow: 200_000,
+				inputBudget: 168_000,
+				estimated: false,
+				matched: true,
+			},
+		});
+		// Pre-fix this read 16%. The thread is in fact nearly full.
+		expect(getByTestId("context-usage-pct").textContent?.trim()).toBe("95%");
+		expect(getByTestId("context-usage-indicator").dataset.tone).toBe("danger");
+	});
+
+	test("marks an estimated window with a tilde and says why", async () => {
+		const { getByTestId } = render(ContextUsageIndicator, {
+			usedTokens: 50_000,
+			contextWindow: 128_000,
+			denominator: {
+				contextWindow: 128_000,
+				inputBudget: 101_760,
+				estimated: true,
+				matched: true,
+			},
+		});
+		const pct = getByTestId("context-usage-pct");
+		expect(pct.textContent?.trim()).toBe("~49%");
+		expect(pct.dataset.estimated).toBe("true");
+
+		await fireEvent.mouseEnter(getByTestId("context-usage-indicator").parentElement!);
+		expect(getByTestId("ctx-usage-explanation").textContent).toContain("estimates");
+	});
+
+	test("says so when the served model could not be identified", async () => {
+		const { getByTestId } = render(ContextUsageIndicator, {
+			usedTokens: 50_000,
+			contextWindow: 200_000,
+			denominator: {
+				contextWindow: 200_000,
+				inputBudget: 168_000,
+				estimated: false,
+				matched: false,
+			},
+		});
+		await fireEvent.mouseEnter(getByTestId("context-usage-indicator").parentElement!);
+		expect(getByTestId("ctx-usage-explanation").textContent).toContain(
+			"could not be identified",
+		);
 	});
 });

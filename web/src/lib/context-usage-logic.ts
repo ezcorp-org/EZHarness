@@ -5,7 +5,50 @@ export type Tone = "muted" | "warn" | "danger";
 
 export interface MessageLike {
 	role: string;
-	usage?: { inputTokens?: number | null; outputTokens?: number | null } | null;
+	/** The model that ACTUALLY served this turn — not the one in the picker.
+	 *  Persisted on the message row by the runtime, including after a failover
+	 *  or a tier route, which is why the denominator is derived from here. */
+	model?: string | null;
+	provider?: string | null;
+	usage?: {
+		inputTokens?: number | null;
+		outputTokens?: number | null;
+		cacheReadTokens?: number | null;
+		cacheWriteTokens?: number | null;
+	} | null;
+}
+
+/**
+ * One model as the picker knows it. Structural on purpose — the indicator only
+ * ever needs these four fields, and depending on the full API shape would drag
+ * the whole model type into a pure logic module.
+ */
+export interface ModelWindowLike {
+	provider: string;
+	model: string;
+	contextWindow?: number | null;
+	/** What the runtime actually enforces (window − reserve − margin). */
+	inputBudget?: number | null;
+	/** True when `contextWindow` was invented by a fallback, not reported. */
+	estimated?: boolean;
+}
+
+/**
+ * The denominator, resolved for a specific turn.
+ *
+ * `contextWindow` is the model's advertised size — what people recognise.
+ * `inputBudget` is where compaction actually starts, which is 8-16% lower and
+ * is the honest 100% mark. The indicator shows usage against the BUDGET and
+ * reports the window alongside it, because showing only the window put the
+ * gauge at 42% while history was already being dropped.
+ */
+export interface ContextDenominator {
+	contextWindow: number;
+	inputBudget: number;
+	estimated: boolean;
+	/** False when no catalog row matched the served model — the numbers are the
+	 *  caller's fallback (the picker's), so they may describe a different model. */
+	matched: boolean;
 }
 
 export interface ToolCallLike {
@@ -106,15 +149,56 @@ export function fmtTokens(n: number): string {
 }
 
 /**
- * Tooltip text — single source of truth so the component and any future
- * status bar stay consistent.
+ * The indicator's label: usage against the ENFORCED budget, with the model's
+ * advertised window named alongside it.
+ *
+ * Both numbers are shown because either alone misleads. The budget alone
+ * prompts "why does my 200k model say 168k?"; the window alone is what used to
+ * read 42% while compaction was already dropping turns. Naming both makes the
+ * gap self-explaining rather than something the user has to discover.
  */
-export function tooltipText(usedTokens: number | null | undefined, contextWindow: number | null | undefined): string {
-	const pct = computePct(usedTokens, contextWindow);
-	if (pct == null) {
-		return "Context usage — appears after the first assistant response";
+export function summaryText(
+	usedTokens: number | null | undefined,
+	denom: ContextDenominator | null,
+): string {
+	if (!denom) return "Context usage — appears after the first assistant response";
+	const pct = computePct(usedTokens, denom.inputBudget);
+	if (pct == null) return "Context usage — appears after the first assistant response";
+	const est = denom.estimated ? "~" : "";
+	return (
+		`${fmtTokens(usedTokens as number)} / ${est}${fmtTokens(denom.inputBudget)} used ` +
+		`(${Math.round(pct)}%) — ${est}${fmtTokens(denom.contextWindow)} window`
+	);
+}
+
+/**
+ * The long-form explanation behind the two numbers. Kept next to `summaryText`
+ * so the pill and its tooltip can never describe different arithmetic.
+ */
+export function budgetExplanation(denom: ContextDenominator | null): string {
+	if (!denom) return "";
+	const reserve = denom.contextWindow - denom.inputBudget;
+	const parts = [`This model's context window is ${fmtTokens(denom.contextWindow)} tokens.`];
+	// Only claim a reserve when one is actually known. A caller with no budget
+	// gets `inputBudget === contextWindow`, and saying "0 is held back … dropped
+	// at 200k" there would state a fact we do not have.
+	if (reserve > 0) {
+		parts.push(
+			`${fmtTokens(reserve)} is held back for the reply and a safety margin, ` +
+				`so older messages start being dropped at ${fmtTokens(denom.inputBudget)}.`,
+		);
 	}
-	return `${fmtTokens(usedTokens as number)} / ${fmtTokens(contextWindow as number)} tokens used (${Math.round(pct)}%)`;
+	if (denom.estimated) {
+		parts.push(
+			"This model's window is not published in the installed catalog, so both numbers are estimates.",
+		);
+	}
+	if (!denom.matched) {
+		parts.push(
+			"Showing the selected model — the model that served the last reply could not be identified.",
+		);
+	}
+	return parts.join(" ");
 }
 
 /**
@@ -133,7 +217,14 @@ export function pickLastTurnInputTokens(messages: readonly MessageLike[]): numbe
  */
 export function pickLastTurnUsage(
 	messages: readonly MessageLike[],
-): { inputTokens: number; outputTokens: number } | null {
+): {
+	inputTokens: number;
+	outputTokens: number;
+	cacheReadTokens: number;
+	cacheWriteTokens: number;
+	provider: string | null;
+	model: string | null;
+} | null {
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const m = messages[i];
 		if (!m || m.role !== "assistant") continue;
@@ -141,9 +232,86 @@ export function pickLastTurnUsage(
 		if (typeof inp !== "number" || !Number.isFinite(inp) || inp <= 0) continue;
 		const out = m.usage?.outputTokens;
 		const outNum = typeof out === "number" && Number.isFinite(out) && out > 0 ? out : 0;
-		return { inputTokens: inp, outputTokens: outNum };
+		return {
+			inputTokens: inp,
+			outputTokens: outNum,
+			cacheReadTokens: positive(m.usage?.cacheReadTokens),
+			cacheWriteTokens: positive(m.usage?.cacheWriteTokens),
+			// Carried, not discarded. Throwing these away is what let the gauge
+			// measure one model's tokens against another model's window.
+			provider: m.provider ?? null,
+			model: m.model ?? null,
+		};
 	}
 	return null;
+}
+
+/** A usage field coerced to a non-negative number; anything odd becomes 0. */
+function positive(n: number | null | undefined): number {
+	return typeof n === "number" && Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * Tokens actually occupying the context window this turn.
+ *
+ * `inputTokens` alone is the FRESH, non-cached prompt only. With prompt
+ * caching on — which this repo enables by default, with 1h retention on
+ * Anthropic — most of a long thread is served from cache, so the raw field
+ * undercounts badly: a conversation genuinely near its limit reported a small
+ * fraction of it and the gauge could never reach the danger bucket. Cached
+ * tokens still occupy the window; they are merely cheaper.
+ */
+export function contextUsedTokens(
+	usage: Pick<
+		NonNullable<ReturnType<typeof pickLastTurnUsage>>,
+		"inputTokens" | "cacheReadTokens" | "cacheWriteTokens"
+	> | null,
+): number | null {
+	if (!usage) return null;
+	return usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+}
+
+/**
+ * Resolve the denominator for the model that SERVED the last turn.
+ *
+ * Falls back to the caller's picker-derived numbers only when the served model
+ * is unknown (no assistant turn yet) or absent from the catalog — and reports
+ * `matched: false` so the caller can decline to imply precision it does not
+ * have. Matching is case-insensitive on both fields because gateways disagree
+ * on case for the same id.
+ */
+export function resolveContextDenominator(
+	served: { provider: string | null; model: string | null } | null,
+	models: readonly ModelWindowLike[],
+	fallback: { contextWindow?: number | null; inputBudget?: number | null; estimated?: boolean },
+): ContextDenominator | null {
+	const eq = (a: string | null | undefined, b: string | null | undefined) =>
+		(a ?? "").toLowerCase() === (b ?? "").toLowerCase();
+	const hit =
+		served?.model != null
+			? models.find(
+					(m) =>
+						eq(m.model, served.model) &&
+						// A served row without a provider still matches on id alone —
+						// legacy rows predate the provider column.
+						(served.provider == null || eq(m.provider, served.provider)),
+				)
+			: undefined;
+
+	const source = hit ?? fallback;
+	const window = source.contextWindow;
+	if (typeof window !== "number" || !Number.isFinite(window) || window <= 0) return null;
+	const budgetRaw = source.inputBudget;
+	const budget =
+		typeof budgetRaw === "number" && Number.isFinite(budgetRaw) && budgetRaw > 0
+			? Math.min(budgetRaw, window)
+			: window;
+	return {
+		contextWindow: window,
+		inputBudget: budget,
+		estimated: source.estimated === true,
+		matched: hit !== undefined,
+	};
 }
 
 /**

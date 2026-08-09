@@ -26,6 +26,10 @@
 		displayName?: string;
 		available: boolean;
 		contextWindow?: number;
+		/** What the runtime enforces after the response reserve + safety margin. */
+		inputBudget?: number;
+		/** True when `contextWindow` was invented by a fallback, not reported. */
+		estimated?: boolean;
 	}
 
 	const MAX_RETRIES = 3;
@@ -35,6 +39,7 @@
 		onselect,
 		onreasoningchange,
 		oncontextwindowchange,
+		onmodelsloaded,
 		onautoselect,
 		allowAuto = false,
 		autoServed = null,
@@ -44,6 +49,17 @@
 		onselect: (provider: string, model: string) => void;
 		onreasoningchange?: (reasoning: boolean) => void;
 		oncontextwindowchange?: (contextWindow: number | null) => void;
+		/**
+		 * Hand the loaded catalog to the parent.
+		 *
+		 * The context indicator needs to look up the model that actually SERVED
+		 * a turn, which is not necessarily the one selected here (failover, tier
+		 * routing, a per-message model override). This picker is already the one
+		 * component that fetches `/api/models` for the composer, so it shares
+		 * that list rather than the parent opening an eighth fetch of the same
+		 * endpoint.
+		 */
+		onmodelsloaded?: (models: readonly ModelOption[]) => void;
 		onautoselect?: (provider: string, model: string) => void;
 		/** Offer the "Auto (smart routing)" row. Opt-in — only chat
 		 *  composers that speak the explicit-null wire sentinel should
@@ -78,6 +94,11 @@
 			if (res.ok) {
 				const data: ModelOption[] = await res.json();
 				models = filterAvailable(data);
+				// The UNFILTERED list: a conversation can legitimately have been
+				// served by a model this deployment no longer offers in the picker
+				// (a since-disabled provider, an OAuth-filtered id). Its window is
+				// still the right denominator for the turns it already served.
+				onmodelsloaded?.(data);
 				if (selected) {
 					const m = models.find((m) => m.provider === selected!.provider && m.model === selected!.model);
 					onreasoningchange?.(!!m?.reasoning);

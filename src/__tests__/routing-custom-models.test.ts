@@ -113,12 +113,33 @@ describe("normalizeCustomModel()", () => {
       provider: "ollama",
       tier: "fast",
       contextWindow: 8192,
+      maxTokens: undefined,
       vision: true,
       reasoning: true,
       costTier: "high",
       displayName: "My Model",
       baseUrl: "http://localhost:11434",
+      // A declared window is a KNOWN window — only the fallback is estimated.
+      estimated: false,
     });
+  });
+
+  test("a declared window survives, and is not marked estimated", () => {
+    const entry = normalizeCustomModel({
+      id: "m1",
+      provider: "ollama",
+      contextWindow: 262_144,
+      maxTokens: 32_768,
+    });
+    expect(entry?.contextWindow).toBe(262_144);
+    expect(entry?.maxTokens).toBe(32_768);
+    expect(entry?.estimated).toBe(false);
+  });
+
+  test("an undeclared window falls back to 128k and IS marked estimated", () => {
+    const entry = normalizeCustomModel({ id: "m1", provider: "ollama" });
+    expect(entry?.contextWindow).toBe(128_000);
+    expect(entry?.estimated).toBe(true);
   });
 
   test("the UI's `modelId` spelling is accepted as the id", () => {

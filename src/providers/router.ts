@@ -259,7 +259,13 @@ export async function resolveModel(
     // the `id` and the legacy `modelId` spelling — which is the only reason
     // the shape is stated here instead of imported.
     const customModels = (await getSetting("provider:customModels")) as
-      | Array<{ id?: string; modelId?: string; provider?: string; baseUrl?: string }>
+      | Array<{
+          id?: string;
+          modelId?: string;
+          provider?: string;
+          baseUrl?: string;
+          contextWindow?: number;
+        }>
       | undefined;
     const custom = customModels?.find(
       (m) => (m.id ?? m.modelId) === modelId && m.provider === provider,
@@ -285,7 +291,11 @@ export async function resolveModel(
       !!custom?.baseUrl,
     );
     if (gapMessage) log.warn(gapMessage, { provider, modelId });
-    return { provider, model: modelId, piModel: resolveModelObject(provider, modelId, custom?.baseUrl) };
+    return {
+      provider,
+      model: modelId,
+      piModel: resolveModelObject(provider, modelId, custom?.baseUrl, custom?.contextWindow),
+    };
   }
 
   // Past the pinned-passthrough level, every remaining branch picks a model
@@ -306,7 +316,12 @@ export async function resolveModel(
       return {
         provider,
         model: entry.id,
-        piModel: resolveModelObject(provider, entry.id, entry.baseUrl),
+        // `entry.contextWindow` is the number the PICKER shows for this model.
+        // Forwarding it is what keeps the compaction budget derived from the
+        // same window the user is looking at — a catalog entry ignores it
+        // (the catalog lookup wins), a custom or Kilo-discovered entry is the
+        // only reason it is not already correct.
+        piModel: resolveModelObject(provider, entry.id, entry.baseUrl, entry.contextWindow),
       };
     }
     // Fallback to the first model for this provider
@@ -351,7 +366,12 @@ export async function resolveModel(
 
     // See Level 2: baseUrl is undefined for every catalog entry, set only
     // for a custom/local one.
-    return { provider: p, model: entry.id, piModel: resolveModelObject(p, entry.id, entry.baseUrl) };
+    return {
+      provider: p,
+      model: entry.id,
+      // See Level 2 — the picker's window and the trim point stay the same number.
+      piModel: resolveModelObject(p, entry.id, entry.baseUrl, entry.contextWindow),
+    };
   }
 
   // Name the real constraint. "No available providers" sent people looking

@@ -60,8 +60,11 @@
 	import {
 		computeBreakdown,
 		computeToolBreakdown,
+		contextUsedTokens,
 		estimateToolCallTokens,
 		pickLastTurnUsage,
+		resolveContextDenominator,
+		type ModelWindowLike,
 	} from "$lib/context-usage-logic";
 	import { buildHistoricalBlocks } from "$lib/content-blocks.js";
 	import type { LoadedTool } from "$lib/loaded-tools-logic";
@@ -283,6 +286,7 @@
 		selectedModel: { provider: string; model: string } | null;
 		selectedModelContextWindow: number | null;
 		lastTurnInputTokens: number | null;
+		contextDenominator: ReturnType<typeof resolveContextDenominator>;
 		contextBreakdown: ReturnType<typeof computeBreakdown>;
 		contextToolBreakdown: ReturnType<typeof computeToolBreakdown>;
 		/** `/api/tools` listing fetched on mount — the header's tool-count
@@ -442,6 +446,18 @@
 	);
 	let modelSupportsReasoning = $state(false);
 	let selectedModelContextWindow = $state<number | null>(null);
+	/** The composer's model catalog, shared up from ModelSelector so the
+	 *  indicator can resolve a SERVED model without a second /api/models fetch. */
+	let modelCatalog = $state<readonly ModelWindowLike[]>([]);
+	/** Enforced budget for the PICKER's model — the fallback denominator, used
+	 *  only until the conversation has an assistant turn to key off. */
+	let selectedModelInputBudget = $derived.by(() => {
+		if (!selectedModel) return null;
+		const hit = modelCatalog.find(
+			(m) => m.provider === selectedModel?.provider && m.model === selectedModel?.model,
+		);
+		return hit?.inputBudget ?? null;
+	});
 	let activeRunId = $state<string | null>(null);
 	let activeRunStartedAt = $state<number | null>(null);
 	let serverStalenessMs = $state<number | null>(null);
@@ -634,7 +650,29 @@
 	// ── Chrome-relevant derivations (surfaced to the page shell) ──────
 	// Context usage — verbatim from +page.svelte.
 	let lastTurnUsage = $derived(pickLastTurnUsage(messages));
-	let lastTurnInputTokens = $derived(lastTurnUsage?.inputTokens ?? null);
+	// Cached tokens still occupy the window — counting only the fresh ones made
+	// the gauge unreachable-by-design on any provider with prompt caching on.
+	let lastTurnInputTokens = $derived(contextUsedTokens(lastTurnUsage));
+	/**
+	 * The denominator, keyed to the model that SERVED the last turn rather than
+	 * the one sitting in the picker.
+	 *
+	 * These are two different models more often than it looks: the picker
+	 * survives conversation switches (this component is not re-keyed on
+	 * `convId`), it is seeded from a GLOBAL `localStorage` preference on cold
+	 * load, and failover / tier-routing / per-message model overrides all change
+	 * the served model without touching it. Measuring one model's tokens against
+	 * another model's window is the whole bug.
+	 *
+	 * The picker remains the fallback — correct for a chat with no assistant
+	 * reply yet, which is the one case where no served model exists.
+	 */
+	let contextDenominator = $derived(
+		resolveContextDenominator(lastTurnUsage, modelCatalog, {
+			contextWindow: selectedModelContextWindow,
+			inputBudget: selectedModelInputBudget,
+		}),
+	);
 	let contextBreakdown = $derived(
 		computeBreakdown(
 			lastTurnUsage?.inputTokens ?? null,
@@ -802,6 +840,9 @@
 	}
 	function handleContextWindowChange(cw: number | null) {
 		selectedModelContextWindow = cw;
+	}
+	function handleModelsLoaded(loaded: readonly ModelWindowLike[]) {
+		modelCatalog = loaded;
 	}
 
 	// Per-conversation tool scoping (Phase 4/D). The composer's 🔧 Tools
@@ -1252,6 +1293,7 @@
 		selectedModel,
 		selectedModelContextWindow,
 		lastTurnInputTokens,
+		contextDenominator,
 		contextBreakdown,
 		contextToolBreakdown,
 		loadedTools,
@@ -2758,6 +2800,7 @@
 			{modelSupportsReasoning}
 			onreasoningchange={handleReasoningChange}
 			oncontextwindowchange={handleContextWindowChange}
+			onmodelsloaded={handleModelsLoaded}
 			conversationId={conversationId}
 			{projectId}
 			ontoolinvoke={handleToolInvoke}

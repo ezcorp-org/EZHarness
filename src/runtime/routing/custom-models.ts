@@ -41,6 +41,7 @@
  */
 
 import { type RoutingTier, isRoutingTier } from "../tier-classifier";
+import { resolveContextWindow } from "./model-context-windows";
 
 /**
  * A custom model as routing sees it. Field-for-field a `ModelEntry`
@@ -53,11 +54,16 @@ export interface CustomModelEntry {
   provider: string;
   tier: RoutingTier;
   contextWindow: number;
+  /** Output cap, when the operator declared one. Used only to derive the
+   *  enforced input budget shown in the UI. */
+  maxTokens?: number;
   vision: boolean;
   reasoning: boolean;
   costTier: "low" | "medium" | "high";
   displayName?: string;
   baseUrl?: string;
+  /** True when the operator declared no window and the fallback supplied one. */
+  estimated?: boolean;
 }
 
 /** Tier stored on a row that omits one — matches `getModelRegistry()`'s
@@ -103,16 +109,28 @@ export function normalizeCustomModel(raw: unknown): CustomModelEntry | null {
       ? raw.costTier
       : "low";
 
+  // An operator who declared a window gets exactly that number, uncapped-by-id
+  // (a local model's id says nothing about its window). One who declared none
+  // gets the fallback, MARKED — so the picker can say "estimated" instead of
+  // presenting an invented 128k as though it were measured.
+  const { contextWindow, estimated } = resolveContextWindow(
+    provider,
+    id,
+    typeof raw.contextWindow === "number" ? raw.contextWindow : undefined,
+  );
+
   return {
     id,
     provider,
     tier,
-    contextWindow: typeof raw.contextWindow === "number" ? raw.contextWindow : 128_000,
+    contextWindow,
+    maxTokens: typeof raw.maxTokens === "number" ? raw.maxTokens : undefined,
     vision: raw.vision === true,
     reasoning: raw.reasoning === true,
     costTier,
     displayName: optionalString(raw.displayName) ?? id,
     baseUrl: optionalString(raw.baseUrl),
+    estimated,
   };
 }
 

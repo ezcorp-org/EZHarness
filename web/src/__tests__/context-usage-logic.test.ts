@@ -1,9 +1,12 @@
-import { test, expect, describe } from "bun:test";
+// Runs on the VITEST leg, not the bun leg — registered explicitly in
+// web/vitest.config.ts and subtracted from `web_bunleg_files()`. That leg is
+// the only coverage producer for `web/src/lib/**`, and this suite is what
+// covers `context-usage-logic.ts`; on the bun leg it produced no lcov at all.
+import { test, expect, describe } from "vitest";
 import {
 	computePct,
 	computeTone,
 	fmtTokens,
-	tooltipText,
 	pickLastTurnInputTokens,
 	pickLastTurnUsage,
 	estimateToolCallTokens,
@@ -12,7 +15,12 @@ import {
 	groupToolBreakdown,
 	splitNamespacedToolName,
 	summarizeToolInput,
+	budgetExplanation,
+	contextUsedTokens,
+	resolveContextDenominator,
+	summaryText,
 	type MessageLike,
+	type ModelWindowLike,
 	type ToolBreakdownEntry,
 } from "$lib/context-usage-logic";
 
@@ -128,24 +136,6 @@ describe("fmtTokens", () => {
 	});
 });
 
-// ── tooltipText ─────────────────────────────────────────────────────────────
-
-describe("tooltipText", () => {
-	test("returns placeholder when tokens are unknown", () => {
-		expect(tooltipText(null, 200_000)).toBe("Context usage — appears after the first assistant response");
-		expect(tooltipText(1_000, null)).toBe("Context usage — appears after the first assistant response");
-	});
-
-	test("formats used / window / percent", () => {
-		expect(tooltipText(50_000, 200_000)).toBe("50k / 200k tokens used (25%)");
-	});
-
-	test("rounds percentage to nearest whole", () => {
-		// 1/3 → 33.33…%
-		expect(tooltipText(1_000, 3_000)).toBe("1.0k / 3.0k tokens used (33%)");
-	});
-});
-
 // ── pickLastTurnInputTokens ─────────────────────────────────────────────────
 
 describe("pickLastTurnInputTokens", () => {
@@ -227,18 +217,74 @@ describe("pickLastTurnUsage", () => {
 			{ role: "user" },
 			{ role: "assistant", usage: { inputTokens: 500, outputTokens: 75 } },
 		];
-		expect(pickLastTurnUsage(msgs)).toEqual({ inputTokens: 500, outputTokens: 75 });
+		expect(pickLastTurnUsage(msgs)).toEqual({
+			inputTokens: 500,
+			outputTokens: 75,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			provider: null,
+			model: null,
+		});
 	});
 
 	test("treats missing/zero outputTokens as 0", () => {
 		const msgs: MessageLike[] = [
 			{ role: "assistant", usage: { inputTokens: 1_000 } },
 		];
-		expect(pickLastTurnUsage(msgs)).toEqual({ inputTokens: 1_000, outputTokens: 0 });
+		expect(pickLastTurnUsage(msgs)).toEqual({
+			inputTokens: 1_000,
+			outputTokens: 0,
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			provider: null,
+			model: null,
+		});
 	});
 
 	test("returns null when no assistant message has positive inputTokens", () => {
 		expect(pickLastTurnUsage([{ role: "assistant", usage: { inputTokens: 0, outputTokens: 5 } }])).toBeNull();
+	});
+
+	// The served model's identity is the whole point of carrying these: the
+	// denominator is looked up from them, not from the picker.
+	test("carries the served provider/model and cache tokens", () => {
+		const msgs: MessageLike[] = [
+			{
+				role: "assistant",
+				provider: "anthropic",
+				model: "claude-sonnet-4-5",
+				usage: {
+					inputTokens: 500,
+					outputTokens: 75,
+					cacheReadTokens: 12_000,
+					cacheWriteTokens: 3_000,
+				},
+			},
+		];
+		expect(pickLastTurnUsage(msgs)).toEqual({
+			inputTokens: 500,
+			outputTokens: 75,
+			cacheReadTokens: 12_000,
+			cacheWriteTokens: 3_000,
+			provider: "anthropic",
+			model: "claude-sonnet-4-5",
+		});
+	});
+
+	test("coerces malformed cache counters to 0 rather than propagating them", () => {
+		const msgs: MessageLike[] = [
+			{
+				role: "assistant",
+				usage: {
+					inputTokens: 500,
+					cacheReadTokens: Number.NaN,
+					cacheWriteTokens: -5,
+				},
+			},
+		];
+		const usage = pickLastTurnUsage(msgs);
+		expect(usage?.cacheReadTokens).toBe(0);
+		expect(usage?.cacheWriteTokens).toBe(0);
 	});
 });
 
@@ -645,5 +691,214 @@ describe("summarizeToolInput", () => {
 		const cyclic: Record<string, unknown> = {};
 		cyclic.self = cyclic;
 		expect(summarizeToolInput(cyclic)).toBe("");
+	});
+});
+
+// ── contextUsedTokens ───────────────────────────────────────────────────────
+
+describe("contextUsedTokens", () => {
+	test("is null with no usage", () => {
+		expect(contextUsedTokens(null)).toBeNull();
+	});
+
+	test("sums fresh + cache-read + cache-write", () => {
+		expect(
+			contextUsedTokens({ inputTokens: 500, cacheReadTokens: 12_000, cacheWriteTokens: 3_000 }),
+		).toBe(15_500);
+	});
+
+	// The regression this function exists for: with caching on, the fresh count
+	// alone was a small fraction of what actually occupied the window, so the
+	// gauge could never reach the danger bucket on a thread that was genuinely
+	// nearly full.
+	test("counts cached tokens, which still occupy the window", () => {
+		const fresh = contextUsedTokens({ inputTokens: 500, cacheReadTokens: 0, cacheWriteTokens: 0 });
+		const cached = contextUsedTokens({
+			inputTokens: 500,
+			cacheReadTokens: 160_000,
+			cacheWriteTokens: 0,
+		});
+		expect(fresh).toBe(500);
+		expect(cached).toBe(160_500);
+		expect(computePct(cached, 168_000)).toBeGreaterThan(90);
+		expect(computePct(fresh, 168_000)).toBeLessThan(1);
+	});
+});
+
+// ── resolveContextDenominator ───────────────────────────────────────────────
+
+const CATALOG: ModelWindowLike[] = [
+	{ provider: "anthropic", model: "claude-sonnet-4-5", contextWindow: 200_000, inputBudget: 168_000 },
+	{ provider: "anthropic", model: "claude-sonnet-4-6", contextWindow: 1_000_000, inputBudget: 904_000 },
+	{ provider: "openai", model: "gpt-5.1", contextWindow: 400_000, inputBudget: 352_000 },
+	{ provider: "ollama", model: "local-thing", contextWindow: 128_000, inputBudget: 101_760, estimated: true },
+];
+
+describe("resolveContextDenominator", () => {
+	test("uses the SERVED model's window, not the picker's", () => {
+		const denom = resolveContextDenominator(
+			{ provider: "anthropic", model: "claude-sonnet-4-5" },
+			CATALOG,
+			{ contextWindow: 1_000_000, inputBudget: 904_000 },
+		);
+		expect(denom).toEqual({
+			contextWindow: 200_000,
+			inputBudget: 168_000,
+			estimated: false,
+			matched: true,
+		});
+	});
+
+	// The reported bug, in one assertion: a global last-model preference put a
+	// 1M window under a chat served by a 200k model, so a full thread read 17%.
+	test("a stale 1M picker value cannot mask a 200k served model", () => {
+		const denom = resolveContextDenominator(
+			{ provider: "anthropic", model: "claude-sonnet-4-5" },
+			CATALOG,
+			{ contextWindow: 1_000_000, inputBudget: 904_000 },
+		);
+		expect(Math.round(computePct(160_000, denom!.inputBudget) ?? 0)).toBe(95);
+	});
+
+	test("falls back to the picker when there is no served model yet", () => {
+		const denom = resolveContextDenominator(null, CATALOG, {
+			contextWindow: 400_000,
+			inputBudget: 352_000,
+		});
+		expect(denom).toEqual({
+			contextWindow: 400_000,
+			inputBudget: 352_000,
+			estimated: false,
+			matched: false,
+		});
+	});
+
+	test("falls back and reports matched:false when the served model is unknown", () => {
+		const denom = resolveContextDenominator(
+			{ provider: "anthropic", model: "retired-model" },
+			CATALOG,
+			{ contextWindow: 200_000, inputBudget: 168_000 },
+		);
+		expect(denom?.matched).toBe(false);
+	});
+
+	test("matches case-insensitively on provider and model", () => {
+		const denom = resolveContextDenominator(
+			{ provider: "AnThRoPiC", model: "Claude-Sonnet-4-6" },
+			CATALOG,
+			{ contextWindow: 1, inputBudget: 1 },
+		);
+		expect(denom?.contextWindow).toBe(1_000_000);
+		expect(denom?.matched).toBe(true);
+	});
+
+	test("matches on id alone for a legacy row with no provider", () => {
+		const denom = resolveContextDenominator({ provider: null, model: "gpt-5.1" }, CATALOG, {
+			contextWindow: 1,
+			inputBudget: 1,
+		});
+		expect(denom?.contextWindow).toBe(400_000);
+		expect(denom?.matched).toBe(true);
+	});
+
+	test("carries the estimated flag off the served model", () => {
+		const denom = resolveContextDenominator({ provider: "ollama", model: "local-thing" }, CATALOG, {
+			contextWindow: 200_000,
+		});
+		expect(denom?.estimated).toBe(true);
+	});
+
+	test("is null when neither the served model nor the fallback has a window", () => {
+		expect(resolveContextDenominator(null, CATALOG, { contextWindow: null })).toBeNull();
+		expect(resolveContextDenominator(null, CATALOG, { contextWindow: 0 })).toBeNull();
+		expect(
+			resolveContextDenominator(null, CATALOG, { contextWindow: Number.NaN }),
+		).toBeNull();
+	});
+
+	test("defaults the budget to the window when none is known", () => {
+		const denom = resolveContextDenominator(null, [], { contextWindow: 200_000 });
+		expect(denom?.inputBudget).toBe(200_000);
+	});
+
+	test("never lets the budget exceed the window", () => {
+		const denom = resolveContextDenominator(null, [], {
+			contextWindow: 200_000,
+			inputBudget: 900_000,
+		});
+		expect(denom?.inputBudget).toBe(200_000);
+	});
+});
+
+// ── summaryText / budgetExplanation ─────────────────────────────────────────
+
+describe("summaryText", () => {
+	test("names the used total, the budget and the window", () => {
+		const text = summaryText(84_000, {
+			contextWindow: 200_000,
+			inputBudget: 168_000,
+			estimated: false,
+			matched: true,
+		});
+		expect(text).toBe("84k / 168k used (50%) — 200k window");
+	});
+
+	test("marks an estimated window with a tilde on both numbers", () => {
+		const text = summaryText(64_000, {
+			contextWindow: 128_000,
+			inputBudget: 101_760,
+			estimated: true,
+			matched: true,
+		});
+		expect(text).toContain("~102k");
+		expect(text).toContain("~128k window");
+	});
+
+	test("falls back to the placeholder with no denominator", () => {
+		expect(summaryText(100, null)).toContain("appears after the first assistant response");
+	});
+
+	test("falls back to the placeholder with no usage", () => {
+		expect(
+			summaryText(null, { contextWindow: 200_000, inputBudget: 168_000, estimated: false, matched: true }),
+		).toContain("appears after the first assistant response");
+	});
+});
+
+describe("budgetExplanation", () => {
+	test("is empty with no denominator", () => {
+		expect(budgetExplanation(null)).toBe("");
+	});
+
+	test("explains the reserve and where compaction starts", () => {
+		const text = budgetExplanation({
+			contextWindow: 200_000,
+			inputBudget: 168_000,
+			estimated: false,
+			matched: true,
+		});
+		expect(text).toContain("200k");
+		expect(text).toContain("32k");
+		expect(text).toContain("168k");
+	});
+
+	test("says so when the window is estimated", () => {
+		const text = budgetExplanation({
+			contextWindow: 128_000,
+			inputBudget: 101_760,
+			estimated: true,
+			matched: true,
+		});
+		expect(text).toContain("estimates");
+	});
+
+	test("says so when the served model could not be identified", () => {
+		const text = budgetExplanation({
+			contextWindow: 200_000,
+			inputBudget: 168_000,
+			estimated: false,
+			matched: false,
+		});
+		expect(text).toContain("could not be identified");
 	});
 });

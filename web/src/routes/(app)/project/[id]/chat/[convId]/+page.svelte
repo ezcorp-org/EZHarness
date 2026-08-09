@@ -295,6 +295,7 @@
 				{convId}
 				{currentConversation}
 				lastTurnInputTokens={chrome.lastTurnInputTokens}
+				contextDenominator={chrome.contextDenominator}
 				selectedModelContextWindow={chrome.selectedModelContextWindow}
 				contextBreakdown={chrome.contextBreakdown}
 				contextToolBreakdown={chrome.contextToolBreakdown}

@@ -8,7 +8,11 @@
 	import type { TopicsChrome } from "$lib/components/ChatThread.svelte";
 	import type { Conversation } from "$lib/api.js";
 	import type { PermissionMode } from "$lib/permission-mode.js";
-	import type { ContextBreakdown, ToolBreakdownEntry } from "$lib/context-usage-logic";
+	import type {
+		ContextBreakdown,
+		ContextDenominator,
+		ToolBreakdownEntry,
+	} from "$lib/context-usage-logic";
 	import {
 		groupToolsByExtension,
 		buildExtensionTypeMap,
@@ -22,6 +26,12 @@
 		currentConversation: Conversation | null;
 		lastTurnInputTokens: number | null;
 		selectedModelContextWindow: number | null;
+		/** Window + enforced budget of the model that SERVED the last turn.
+		 *  Null until the first assistant reply; falls back to the picker's
+		 *  model inside `resolveContextDenominator`. Optional so a caller with
+		 *  no catalog to hand still renders — the indicator then degrades to
+		 *  measuring against `selectedModelContextWindow` alone. */
+		contextDenominator?: ContextDenominator | null;
 		contextBreakdown: ContextBreakdown | null;
 		contextToolBreakdown: readonly ToolBreakdownEntry[];
 		loadedTools: LoadedTool[];
@@ -56,6 +66,7 @@
 		currentConversation,
 		lastTurnInputTokens,
 		selectedModelContextWindow,
+		contextDenominator = null,
 		contextBreakdown,
 		contextToolBreakdown,
 		loadedTools,
@@ -179,6 +190,7 @@
 		<ContextUsageIndicator
 			usedTokens={lastTurnInputTokens}
 			contextWindow={selectedModelContextWindow}
+			denominator={contextDenominator}
 			breakdown={contextBreakdown}
 			toolBreakdown={contextToolBreakdown}
 			oncallclick={oncallclick}
