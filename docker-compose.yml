@@ -407,6 +407,17 @@ services:
       - /dev/null:/repo/web/e2e/.docker-auth.json:ro
       - /dev/null:/repo/web/e2e/.validate-auth.json:ro
       - /dev/null:/repo/.claude.json:ro
+      # The REPO-ROOT pair, which the list above missed while masking the
+      # web/ copy of the same filename. These are the LEGACY secret location
+      # that src/providers/encryption.ts still reads and writes when
+      # EZCORP_SECRETS_DIR / EZCORP_DB_PATH are unset (`join(process.cwd(),
+      # ".pi-secret")`) — so any host that has run the app or the backend
+      # suite from the checkout root has a live provider-encryption key here.
+      # They are also why `bun run test` could red compose-podman-masks.test.ts
+      # on a developer box but not in CI: a test in the pool creates the root
+      # .pi-secret mid-run, and the derived check reads the disk.
+      - /dev/null:/repo/.pi-secret:ro
+      - /dev/null:/repo/.pi-salt:ro
     tmpfs:
       # Mask the prod DB/keys dir and the multi-GB agent-scratch worktrees
       # out of /repo (mounts nest by target-path depth — same mechanism as
