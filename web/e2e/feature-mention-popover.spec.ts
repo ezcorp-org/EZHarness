@@ -191,13 +191,27 @@ test.describe("Feature mention chip — hover popover", () => {
 			.first();
 		await expect(chip).toBeVisible({ timeout: 5000 });
 
-		// Inject ~600px of padding so the chip sits well below the
-		// 360px flip threshold from the top of the viewport — popover
-		// should render *above* the chip.
+		// Push the chip well below the 360px flip threshold, measured from the
+		// top of the VIEWPORT — the popover should then render *above* it.
+		//
+		// The spacer goes inside the message scroller, not on <body>: the app
+		// shell is a fixed-height flex layout, so `body { padding-top }` moves
+		// nothing inside the chat. It only appeared to work before `page.goto`
+		// gated on hydration (issue #145), because the assertion then ran
+		// against a document whose shell had not laid out yet.
 		await page.evaluate(() => {
-			document.body.style.paddingTop = "600px";
+			const scroller = document.querySelector('[data-testid="chat-messages-container"]');
+			if (!scroller) throw new Error("chat-messages-container not found");
+			const spacer = document.createElement("div");
+			spacer.style.height = "600px";
+			spacer.setAttribute("data-e2e-spacer", "");
+			scroller.prepend(spacer);
+			scroller.scrollTop = 0;
 		});
-		await chip.scrollIntoViewIfNeeded();
+		// Prove the fixture actually moved the chip past the threshold, so a
+		// layout change makes THIS fail rather than silently re-testing the
+		// "below" branch.
+		expect(await chip.evaluate((el) => el.getBoundingClientRect().top)).toBeGreaterThan(360);
 		await chip.hover();
 
 		const popover = page.locator(`[data-feature-popover='${FEATURE_NAME}']`);

@@ -27,7 +27,7 @@
  * integration in `src/__tests__/executor-streamchat.test.ts` (a model-less
  * turn drives the classifier through the real `setupTools`).
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 // Relative import: the package isn't a web dependency; Playwright's TS loader
 // resolves the workspace source directly.
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";

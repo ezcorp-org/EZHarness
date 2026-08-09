@@ -33,7 +33,7 @@
  * and until phase 8a nothing could raise it — the consent route was the
  * sole writer and its supersede tombstones the row that rule re-reads.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 
 const ABSENT_DELEGATION = "e2e-no-such-delegation-0000";
 

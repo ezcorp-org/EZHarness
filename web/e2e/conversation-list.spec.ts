@@ -123,7 +123,12 @@ test.describe("Conversation List", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat`);
 
-		await expect(page.getByText("No conversations yet")).toBeVisible();
+		// This spec owns the SIDEBAR list, so scope to it. The chat page renders
+		// its own "No conversations yet" heading, and once the page is fully
+		// hydrated an unscoped match hits both (strict-mode violation).
+		await expect(
+			page.getByRole("navigation", { name: "Conversations" }).getByText("No conversations yet"),
+		).toBeVisible();
 	});
 
 	test.describe("fork grouping", () => {

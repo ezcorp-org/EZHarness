@@ -18,7 +18,7 @@
  * invoke roundtrip falls back to task-tracking (task_plan → task_list), which
  * the tool-invoke route wires on first use. Neither path edits manifest.lock.json.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 // Relative import: the package isn't a web dependency; Playwright's TS loader
 // resolves the workspace source directly.
 import { HarnessClient, HarnessApiError } from "../../../packages/@ezcorp/harness-client/src/index";

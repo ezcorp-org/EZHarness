@@ -36,7 +36,7 @@
  * tier stubs `GET /api/workflows/approvals` outright, so it could only
  * assert the fixture.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 
 const APPROVAL_STEP = {
   name: "gate",

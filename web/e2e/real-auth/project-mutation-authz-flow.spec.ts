@@ -48,7 +48,7 @@
  * row is not reachable over HTTP and that branch is pinned at handler level
  * in src/__tests__/security/cross-tenant-deletion-projects-kb-modes.test.ts.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 
 type MemberRow = { userId: string; role: string; userEmail: string };
 

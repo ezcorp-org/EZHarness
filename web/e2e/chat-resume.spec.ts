@@ -84,7 +84,12 @@ test.describe("Chat resume — last opened conversation", () => {
 		await page.goto(`/project/proj-1/chat`);
 
 		// Should show empty state, not redirect
-		await expect(page.getByText("No conversations yet")).toBeVisible({ timeout: 5000 });
+		// The chat page's own empty-state HEADING. The sidebar list renders the
+		// same words, so on a fully-hydrated page an unscoped getByText is a
+		// strict-mode violation.
+		await expect(page.getByRole("heading", { name: "No conversations yet" })).toBeVisible({
+			timeout: 5000,
+		});
 	});
 
 	test("shows empty state when localStorage points to deleted chat and no conversations", async ({ page, mockApi }) => {
@@ -101,7 +106,12 @@ test.describe("Chat resume — last opened conversation", () => {
 		);
 
 		await page.goto(`/project/proj-1/chat`);
-		await expect(page.getByText("No conversations yet")).toBeVisible({ timeout: 5000 });
+		// The chat page's own empty-state HEADING. The sidebar list renders the
+		// same words, so on a fully-hydrated page an unscoped getByText is a
+		// strict-mode violation.
+		await expect(page.getByRole("heading", { name: "No conversations yet" })).toBeVisible({
+			timeout: 5000,
+		});
 	});
 });
 

@@ -13,7 +13,7 @@
  * Everything between the message and the result is the real harness — the
  * mock only replaces the LLM's HTTP boundary.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 // Relative import: the package isn't a web dependency; Playwright's TS loader
 // resolves the workspace source directly.
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";

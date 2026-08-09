@@ -21,6 +21,31 @@ frontend build.
   `captureEvidence(page, testInfo, label)` (`web/e2e/fixtures/evidence.ts`) —
   the `Visual evidence` CI gate enforces it.
 
+**Take `test` from the fixtures, never from `@playwright/test`.** Every route
+here is server-rendered, so `await expect(page.getByText("…")).toBeVisible()`
+after a `goto` is satisfied at FIRST PAINT — the text, the `<textarea>` and the
+send button are all in the raw HTML with zero JS run (33 KB on the chat route,
+measured with `curl`). A `fill()` next can land on the pre-hydration node;
+hydration then re-creates the composer with `value = ""`, throws the typed text
+away, and the send button stays disabled FOREVER, so the click burns its full
+timeout. It reproduces only when the box is starved, which is why it reached
+CI (issue #145; audit: 489 such windows across 150 of 344 specs).
+
+The gate is therefore structural, not per-spec: `app.html` ships
+`data-hydrated="false"`, the root `+layout.svelte` onMount flips it to `"true"`,
+and `e2e/fixtures/hydration.ts` wraps `page.goto` to wait for the flip. Import
+`test`/`expect` from `fixtures/test-base.js` (mock tier) or
+`fixtures/hydration.js` (real-auth + docker specs, which must not pull in the
+fetch mocks) and you inherit it. `src/__tests__/e2e-hydration-gate.test.ts`
+enforces this. Two consequences worth knowing:
+
+- `sendComposerMessage` (`fixtures/composer.ts`) is still required for sending —
+  hydration is necessary but not sufficient; the send button also needs
+  `/api/models` plus the picker's autoselect.
+- Assertions about a message must be scoped with `threadMessages(page)`. On a
+  fully-hydrated page the sidebar row carries the same auto-title text, so an
+  unscoped `getByText(sent)` is a strict-mode violation.
+
 ## API routes (remote-testability contract)
 
 Routes live under `src/routes/api/**`; the contract is enforced by the CI

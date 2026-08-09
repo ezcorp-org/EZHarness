@@ -1,5 +1,10 @@
-import { test as base } from "@playwright/test";
 import { setupApiMocks, type MockOverrides } from "./api-mocks.js";
+// `hydration.ts` — NOT `@playwright/test` — is the base: its `page` fixture
+// gates every `goto` on the client app actually having hydrated (issue #145).
+// Extending it here means the mock tier inherits that gate for free, and the
+// real-auth tier gets the same gate by importing `hydration.js` directly
+// (it must not reach this module — see playwright.real.config.ts).
+import { test as base } from "./hydration.js";
 import { setupWsMock, emitWsEvent, emitSseEvent } from "./ws-mock.js";
 
 export const test = base.extend<{
@@ -28,3 +33,4 @@ export const test = base.extend<{
 
 export { expect } from "@playwright/test";
 export { captureEvidence } from "./evidence";
+export { waitForHydration, HYDRATION_ATTR } from "./hydration.js";

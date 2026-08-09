@@ -17,9 +17,34 @@ async function setLs(page: import("@playwright/test").Page, key: string, value: 
 	await page.evaluate(([k, v]) => localStorage.setItem(k, v), [key, value] as const);
 }
 
+/**
+ * Seed the saved last-path — but only once the app's OWN save for the current
+ * page has landed.
+ *
+ * `/` resumes on load and then records the route it resolved to, so a write
+ * that lands before that save is silently clobbered and the next `/` resumes
+ * to the app's value instead of ours. `page.goto` used to hide this by
+ * returning before hydration; now that it waits for it (#145), the window is
+ * real and shows up as a ~40% flake under `--repeat-each`. Waiting for the
+ * first save is the deterministic ordering, not a sleep.
+ */
+async function seedLastPath(page: import("@playwright/test").Page, value: string) {
+	await expect
+		.poll(() => page.evaluate((k) => localStorage.getItem(k), STORAGE_KEY))
+		.not.toBeNull();
+	await setLs(page, STORAGE_KEY, value);
+}
+
 test.describe("Resume last path", () => {
+	// `conversations: []` is load-bearing in the two cases below. With the mock
+	// default (one conversation) `/project/<id>/chat` CLIENT-REDIRECTS to that
+	// conversation the moment the app hydrates, so the saved path settles on
+	// `…/chat/conv-1` and asserting `…/chat` only ever passed by winning a race
+	// against hydration — which is precisely the bug in #145. An empty list has
+	// nothing to redirect to, so the assertion below is about the save, not the
+	// timing.
 	test("saves the last path to localStorage on navigation", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj] });
+		await mockApi({ projects: [proj], conversations: [] });
 		await page.goto(`/project/${proj.id}/chat`);
 
 		// `afterNavigate` fires after hydration — poll until the save lands.
@@ -27,7 +52,7 @@ test.describe("Resume last path", () => {
 	});
 
 	test("never saves the root path", async ({ page, mockApi }) => {
-		await mockApi({ projects: [proj] });
+		await mockApi({ projects: [proj], conversations: [] });
 		await page.goto(`/project/${proj.id}/chat`);
 		await expect.poll(() => page.evaluate((k) => localStorage.getItem(k), STORAGE_KEY)).toBe(`/project/${proj.id}/chat`);
 
@@ -43,7 +68,7 @@ test.describe("Resume last path", () => {
 	}) => {
 		await mockApi({ projects: [proj], conversations: [conv1], messages: [msg] });
 		await page.goto("/");
-		await setLs(page, STORAGE_KEY, `/project/${proj.id}/chat/conv-1`);
+		await seedLastPath(page, `/project/${proj.id}/chat/conv-1`);
 
 		await page.goto("/");
 		await page.waitForURL("**/chat/conv-1", { timeout: 7000 });
@@ -54,7 +79,7 @@ test.describe("Resume last path", () => {
 		await mockApi({ projects: [proj] });
 		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: { pages: [] } }));
 		await page.goto("/");
-		await setLs(page, STORAGE_KEY, "/hub");
+		await seedLastPath(page, "/hub");
 
 		await page.goto("/");
 		await page.waitForURL("**/hub", { timeout: 7000 });
@@ -67,7 +92,7 @@ test.describe("Resume last path", () => {
 	}) => {
 		await mockApi({ projects: [proj], conversations: [] });
 		await page.goto("/");
-		await setLs(page, STORAGE_KEY, "/project/deleted-proj/chat/conv-x");
+		await seedLastPath(page, "/project/deleted-proj/chat/conv-x");
 
 		await page.goto("/");
 		await page.waitForURL("**/project/global/chat", { timeout: 7000 });
@@ -78,7 +103,7 @@ test.describe("Resume last path", () => {
 		await page.setViewportSize({ width: 375, height: 667 });
 		await mockApi({ projects: [proj], conversations: [conv1], messages: [msg] });
 		await page.goto("/");
-		await setLs(page, STORAGE_KEY, `/project/${proj.id}/chat/conv-1`);
+		await seedLastPath(page, `/project/${proj.id}/chat/conv-1`);
 
 		await page.goto("/");
 		await page.waitForURL("**/chat/conv-1", { timeout: 7000 });
@@ -93,7 +118,7 @@ test.describe("Resume last path", () => {
 
 		// Light theme → white splash background.
 		await page.goto("/");
-		await setLs(page, STORAGE_KEY, `/project/${proj.id}/chat/conv-1`);
+		await seedLastPath(page, `/project/${proj.id}/chat/conv-1`);
 		await setLs(page, THEME_KEY, "light");
 		await page.goto("/");
 		await page.waitForURL("**/chat/conv-1", { timeout: 7000 });

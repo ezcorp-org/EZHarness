@@ -23,7 +23,7 @@
  * it in their own list and a 404 would be a lie they could disprove in one
  * click.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 
 // `workflow_definitions.name` is globally unique and a create is refused on a
 // collision, so the run stamps its own names rather than assuming a fresh DB.

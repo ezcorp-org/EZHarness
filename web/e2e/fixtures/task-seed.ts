@@ -1,4 +1,6 @@
-import { expect, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+// `expect` via the fixture root, never the package — see readable.ts.
+import { expect } from "./hydration.js";
 import type { Conversation, Project } from "../../src/lib/api.js";
 import type { MockOverrides } from "./api-mocks.js";
 import { emitSseEvent } from "./ws-mock.js";

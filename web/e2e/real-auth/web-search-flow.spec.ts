@@ -36,7 +36,7 @@
  *     IPv6-first resolution path is the one under test. Reverting the
  *     egress-guard failover fails this spec.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 // Relative import: the package isn't a web dependency; Playwright's TS

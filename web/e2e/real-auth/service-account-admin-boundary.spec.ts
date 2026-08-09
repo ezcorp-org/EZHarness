@@ -26,7 +26,7 @@
  * Raw `fetch` for the bearer calls so the admin session cookie is provably
  * absent — the only authority is the key, which is the whole claim.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 
 const ACCOUNT_NAME = "e2e-nightly-runner";
 

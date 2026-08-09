@@ -37,7 +37,7 @@
  * legitimate shape, because a route that refused everything would satisfy
  * the first half of all three.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 
 const STAMP = Date.now();
 
