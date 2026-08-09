@@ -25,6 +25,8 @@ import {
 } from "../../scripts/coverage-config.ts";
 import {
   addedExcludes,
+  biomeConfigFileViolations,
+  biomeGateWeakenings,
   deletedOrRenamedTests,
   forbiddenTestAdditions,
   isPathAbsentAtRev,
@@ -1207,5 +1209,476 @@ describe("audit-deps: parseArgs", () => {
     expect(() => parseArgs(["--serverity", "high"], ROOT)).toThrow("unknown flag");
     expect(() => parseArgs(["--severity"], ROOT)).toThrow("missing value");
     expect(() => parseArgs(["--severity", "banana"], ROOT)).toThrow("--severity must be one of");
+  });
+});
+
+// ── gate-integrity: biome.json weakening (checks 9 + 10) ────────────────────
+//
+// `biome.json` is the LINT gate's un-gating surface — structurally identical
+// to `EXCLUDES` (issue #143). These fixtures are deliberately adversarial: for
+// every shape that MUST fire there is a paired shape that must stay SILENT,
+// because a gate that fires on strengthening gets routed around, and a gate
+// nobody tried to bypass has not been tested.
+
+type BiomeLinterFixture = { enabled?: boolean; rules?: Record<string, unknown> };
+type BiomeFixture = {
+  files?: { includes?: string[] };
+  formatter?: { enabled?: boolean };
+  linter?: BiomeLinterFixture;
+  overrides?: Array<{ includes?: string[]; linter?: BiomeLinterFixture }>;
+};
+
+/** Mirrors the real config's shape: bare-string AND object-form severities. */
+const BIOME_BASE: BiomeFixture = {
+  files: { includes: ["**", "!**/node_modules", "!**/*.svelte"] },
+  formatter: { enabled: false },
+  linter: {
+    enabled: true,
+    rules: {
+      recommended: true,
+      suspicious: { noExplicitAny: "error", noThenProperty: "off" },
+      style: {
+        noNonNullAssertion: "off",
+        noRestrictedImports: {
+          level: "error",
+          options: { paths: { express: "use Bun.serve()", vitest: "use bun:test" } },
+        },
+      },
+    },
+  },
+  overrides: [
+    {
+      includes: ["**/*.test.ts", "**/__tests__/**"],
+      linter: { rules: { suspicious: { noExplicitAny: "off" } } },
+    },
+  ],
+};
+
+/** Rule group (`suspicious`, `style`, …) of a fixture linter, for mutation. */
+function fixtureGroup(
+  linter: BiomeLinterFixture | undefined,
+  name: string,
+): Record<string, unknown> {
+  const rules = (linter?.rules ?? {}) as Record<string, Record<string, unknown>>;
+  return rules[name] as Record<string, unknown>;
+}
+
+/** Apply `mutate` to a fresh copy of BIOME_BASE and diff it against the base. */
+function biomeDiff(mutate: (head: BiomeFixture) => void): string[] {
+  const head = structuredClone(BIOME_BASE);
+  mutate(head);
+  return biomeGateWeakenings(JSON.stringify(BIOME_BASE), JSON.stringify(head));
+}
+
+describe("gate-integrity: biome.json — shapes that MUST fire", () => {
+  test("shape 1: a new `!<path>` in files.includes un-lints for every rule", () => {
+    const v = biomeDiff((head) => {
+      head.files?.includes?.push("!src/providers/router.ts");
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain("files.includes gained the exclusion");
+    expect(v[0]).toContain("!src/providers/router.ts");
+  });
+
+  test("shape 1b: NARROWING a positive include un-lints without any `!`", () => {
+    // Swapping "**" for "src/**" drops web/ out of linting entirely, and no
+    // exclusion token appears in the diff at all.
+    const v = biomeDiff((head) => {
+      head.files = { includes: ["src/**", "!**/node_modules", "!**/*.svelte"] };
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain('files.includes lost "**"');
+  });
+
+  test("shape 2: a NEW override entry setting a rule to off", () => {
+    const v = biomeDiff((head) => {
+      head.overrides?.push({
+        includes: ["src/providers/**"],
+        linter: { rules: { suspicious: { noExplicitAny: "off" } } },
+      });
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain("DISARMED");
+    expect(v[0]).toContain("suspicious/noExplicitAny");
+    expect(v[0]).toContain("src/providers/**");
+  });
+
+  test("shape 2b: WIDENED — a new path added to an existing off-override", () => {
+    const v = biomeDiff((head) => {
+      head.overrides?.[0]?.includes?.push("src/db/**");
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain("src/db/**");
+  });
+
+  test("shape 2c: WIDENED — a new rule turned off inside an existing override", () => {
+    const v = biomeDiff((head) => {
+      fixtureGroup(head.overrides?.[0]?.linter, "suspicious").noThenProperty = "off";
+    });
+    // One finding per path the override reaches, so the message names the
+    // scope that lost the rule. Only the newly-off rule fires; the
+    // pre-existing noExplicitAny does not.
+    expect(v).toHaveLength(2);
+    expect(v.every((m) => m.includes("suspicious/noThenProperty"))).toBe(true);
+    expect(v.some((m) => m.includes("**/*.test.ts"))).toBe(true);
+    expect(v.some((m) => m.includes("**/__tests__/**"))).toBe(true);
+  });
+
+  test("shape 2d: WIDENED — an override's `!` exemption removed", () => {
+    // The path set grows with no new array element to notice in review.
+    const widened = structuredClone(BIOME_BASE);
+    widened.overrides?.[0]?.includes?.push("!web/e2e/**");
+    const v = biomeGateWeakenings(JSON.stringify(widened), JSON.stringify(BIOME_BASE));
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain("exemption REMOVED");
+    expect(v[0]).toContain("!web/e2e/**");
+  });
+
+  test("shape 2e: an override with NO includes disarms everywhere", () => {
+    const v = biomeDiff((head) => {
+      head.overrides?.push({ linter: { rules: { suspicious: { noExplicitAny: "off" } } } });
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain("**");
+  });
+
+  test("shape 3: error → warn on a bare-string severity", () => {
+    const v = biomeDiff((head) => {
+      fixtureGroup(head.linter, "suspicious").noExplicitAny = "warn";
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain('"error" → "warn"');
+    expect(v[0]).toContain('only "error" blocks');
+  });
+
+  test("shape 3b: error → warn on the OBJECT severity form (the bypass)", () => {
+    // `noRestrictedImports` on main is `{ "level": "error", "options": {…} }`.
+    // A checker that only understood bare strings would wave this straight
+    // through while the denylist stopped enforcing anything.
+    const v = biomeDiff((head) => {
+      const rule = fixtureGroup(head.linter, "style").noRestrictedImports as { level: string };
+      rule.level = "warn";
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain("style/noRestrictedImports");
+    expect(v[0]).toContain('"error" → "warn"');
+  });
+
+  test("shape 3c: error → off, and error → the indeterminate `on`", () => {
+    const off = biomeDiff((head) => {
+      fixtureGroup(head.linter, "suspicious").noExplicitAny = "off";
+    });
+    expect(off).toHaveLength(1);
+    expect(off[0]).toContain('"error" → "off"');
+    // `"on"` means "the rule's own default", which may resolve below error —
+    // ranked under error so the drop is caught fail-closed.
+    const on = biomeDiff((head) => {
+      fixtureGroup(head.linter, "suspicious").noExplicitAny = "on";
+    });
+    expect(on).toHaveLength(1);
+    expect(on[0]).toContain('"error" → "on"');
+  });
+
+  test("shape 3d: a rule DELETED while it stood at error", () => {
+    const v = biomeDiff((head) => {
+      delete fixtureGroup(head.linter, "suspicious").noExplicitAny;
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain('DELETED while at "error"');
+    expect(v[0]).toContain("suspicious/noExplicitAny");
+  });
+
+  test("a rule's options.paths denylist losing an entry, still at error", () => {
+    const v = biomeDiff((head) => {
+      const rule = fixtureGroup(head.linter, "style").noRestrictedImports as {
+        options: { paths: Record<string, string> };
+      };
+      delete rule.options.paths.express;
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain('stopped denying "express"');
+  });
+
+  test("blanket disarms: linter.enabled false, recommended false, preset none", () => {
+    const disabled = biomeDiff((head) => {
+      if (head.linter) head.linter.enabled = false;
+    });
+    expect(disabled).toHaveLength(1);
+    expect(disabled[0]).toContain("<all rules>");
+
+    const unrecommended = biomeDiff((head) => {
+      if (head.linter?.rules) head.linter.rules.recommended = false;
+    });
+    expect(unrecommended).toHaveLength(1);
+    expect(unrecommended[0]).toContain("<all rules>");
+
+    const presetNone = biomeDiff((head) => {
+      if (head.linter?.rules) {
+        delete head.linter.rules.recommended;
+        head.linter.rules.preset = "none";
+      }
+    });
+    expect(presetNone).toHaveLength(1);
+    expect(presetNone[0]).toContain("<all rules>");
+  });
+
+  test("an override that disables the linter outright for a path set", () => {
+    const v = biomeDiff((head) => {
+      head.overrides?.push({ includes: ["src/db/**"], linter: { enabled: false } });
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain("<all rules>");
+    expect(v[0]).toContain("src/db/**");
+  });
+
+  test("a whole rule GROUP switched off in one line", () => {
+    const v = biomeDiff((head) => {
+      if (head.linter?.rules) head.linter.rules.suspicious = "off";
+    });
+    // The group-wide record fires; the two rules it replaced were deleted, and
+    // noExplicitAny stood at error, so that deletion is reported too.
+    expect(v.some((m) => m.includes("suspicious/*"))).toBe(true);
+    expect(v.some((m) => m.includes('DELETED while at "error"'))).toBe(true);
+  });
+
+  test("an unparseable HEAD is itself a finding (biome discards it silently)", () => {
+    const v = biomeGateWeakenings(JSON.stringify(BIOME_BASE), "{ not json");
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain("not valid JSON in HEAD");
+    // A non-object HEAD (valid JSON, useless config) is caught too.
+    expect(biomeGateWeakenings(JSON.stringify(BIOME_BASE), "[]")).toEqual([
+      "biome.json is not a JSON object in HEAD",
+    ]);
+  });
+});
+
+describe("gate-integrity: biome.json — shapes that must stay SILENT", () => {
+  test("an unchanged config produces nothing", () => {
+    expect(biomeDiff(() => {})).toEqual([]);
+  });
+
+  test("REMOVING a files.includes exclusion (the #143 prior art itself)", () => {
+    const v = biomeDiff((head) => {
+      head.files = { includes: ["**", "!**/node_modules"] };
+    });
+    expect(v).toEqual([]);
+  });
+
+  test("ADDING a positive include (widening what biome lints)", () => {
+    const v = biomeDiff((head) => {
+      head.files?.includes?.push("docs/**");
+    });
+    expect(v).toEqual([]);
+  });
+
+  test("RAISING a severity: off → error, warn → error, on → error", () => {
+    expect(
+      biomeDiff((head) => {
+        fixtureGroup(head.linter, "style").noNonNullAssertion = "error";
+      }),
+    ).toEqual([]);
+    const fromWarn = structuredClone(BIOME_BASE);
+    fixtureGroup(fromWarn.linter, "suspicious").noExplicitAny = "warn";
+    expect(biomeGateWeakenings(JSON.stringify(fromWarn), JSON.stringify(BIOME_BASE))).toEqual([]);
+    const fromOn = structuredClone(BIOME_BASE);
+    fixtureGroup(fromOn.linter, "suspicious").noExplicitAny = "on";
+    expect(biomeGateWeakenings(JSON.stringify(fromOn), JSON.stringify(BIOME_BASE))).toEqual([]);
+  });
+
+  test("SHRINKING a disarming override — issue #142's exact edit", () => {
+    // #142 removes paths from the noExplicitAny opt-out override. That is a
+    // strengthening: fewer files stop being linted. It must pass cleanly, both
+    // when paths are trimmed and when the whole override is retired.
+    const shrunk = biomeDiff((head) => {
+      const first = head.overrides?.[0];
+      if (first) first.includes = ["**/*.test.ts"];
+    });
+    expect(shrunk).toEqual([]);
+    expect(
+      biomeDiff((head) => {
+        head.overrides = [];
+      }),
+    ).toEqual([]);
+  });
+
+  test("a NEW override that sets a rule to error", () => {
+    const v = biomeDiff((head) => {
+      head.overrides?.push({
+        includes: ["src/db/**"],
+        linter: { rules: { suspicious: { noThenProperty: "error" } } },
+      });
+    });
+    expect(v).toEqual([]);
+  });
+
+  test("a NEW `!` exemption inside an override (narrowing its reach)", () => {
+    const v = biomeDiff((head) => {
+      head.overrides?.[0]?.includes?.push("!web/e2e/**");
+    });
+    expect(v).toEqual([]);
+  });
+
+  test("dropping an override that only RESTATED the root at error", () => {
+    // Falls back to the root pin, which still says error — a cleanup, not a
+    // hole. Flagging it would make redundancy permanent.
+    const withRestatement = structuredClone(BIOME_BASE);
+    withRestatement.overrides?.push({
+      includes: ["web/**"],
+      linter: {
+        rules: {
+          style: { noRestrictedImports: { level: "error", options: { paths: { express: "x" } } } },
+        },
+      },
+    });
+    expect(
+      biomeGateWeakenings(JSON.stringify(withRestatement), JSON.stringify(BIOME_BASE)),
+    ).toEqual([]);
+  });
+
+  test("deleting a rule that stood BELOW error (it can only re-arm)", () => {
+    const v = biomeDiff((head) => {
+      delete fixtureGroup(head.linter, "style").noNonNullAssertion;
+    });
+    expect(v).toEqual([]);
+  });
+
+  test("ADDING a denied path to options.paths", () => {
+    const v = biomeDiff((head) => {
+      const rule = fixtureGroup(head.linter, "style").noRestrictedImports as {
+        options: { paths: Record<string, string> };
+      };
+      rule.options.paths.ioredis = "use Bun.redis";
+    });
+    expect(v).toEqual([]);
+  });
+
+  test('`recommended: true` dropped, or migrated to `preset: "recommended"`', () => {
+    // `true` is biome's default, and 2.5 deprecates the key in favour of
+    // `preset`. Neither edit changes what is enforced.
+    expect(
+      biomeDiff((head) => {
+        if (head.linter?.rules) delete head.linter.rules.recommended;
+      }),
+    ).toEqual([]);
+    expect(
+      biomeDiff((head) => {
+        if (head.linter?.rules) {
+          delete head.linter.rules.recommended;
+          head.linter.rules.preset = "recommended";
+        }
+      }),
+    ).toEqual([]);
+  });
+
+  test("an unrelated edit outside the linter", () => {
+    const v = biomeDiff((head) => {
+      head.formatter = { enabled: true };
+    });
+    expect(v).toEqual([]);
+  });
+
+  test("an unreadable BASE yields no findings (nothing to compare against)", () => {
+    expect(biomeGateWeakenings("{ not json", JSON.stringify(BIOME_BASE))).toEqual([]);
+    expect(biomeGateWeakenings("null", JSON.stringify(BIOME_BASE))).toEqual([]);
+  });
+});
+
+describe("gate-integrity: biome.json — against the REAL config", () => {
+  const readReal = async (): Promise<string> =>
+    await Bun.file(join(import.meta.dir, "..", "..", "biome.json")).text();
+
+  test("the committed biome.json does not flag itself", async () => {
+    const real = await readReal();
+    expect(real.length).toBeGreaterThan(0);
+    expect(biomeGateWeakenings(real, real)).toEqual([]);
+  });
+
+  test("re-adding the 8 exclusions PR #144 deleted is flagged, one per path", async () => {
+    // The prior art from issue #143: these accumulated with no reason comments
+    // and were hiding 25 `any` plus 4 real diagnostics. Nothing flagged them
+    // going in. Re-adding them now must cost a maintainer label.
+    const PRIOR_ART = [
+      "!src/api-registry.ts",
+      "!src/extensions/bundled.ts",
+      "!src/providers/registry.ts",
+      "!src/providers/router.ts",
+      "!src/providers/model-discovery.ts",
+      "!web/src/lib/api.ts",
+      "!web/src/routes/api/models",
+      "!web/src/routes/api/providers/\\[provider\\]/refresh-models",
+    ];
+    const real = await readReal();
+    const head = JSON.parse(real) as BiomeFixture;
+    head.files?.includes?.push(...PRIOR_ART);
+    const v = biomeGateWeakenings(real, JSON.stringify(head));
+    expect(v).toHaveLength(PRIOR_ART.length);
+    for (const path of PRIOR_ART) {
+      expect(v.some((m) => m.includes(`"${path}"`))).toBe(true);
+    }
+  });
+
+  test("shrinking the real noExplicitAny opt-out list is silent (#142)", async () => {
+    const real = await readReal();
+    const head = JSON.parse(real) as BiomeFixture;
+    // The unmeasurable-files override is the one #142 shrinks. Drop paths from
+    // it exactly as that PR does — the list "must only ever shrink", per
+    // dependency-denylist.test.ts.
+    const target = (head.overrides ?? []).find((o) =>
+      (o.includes ?? []).includes("src/db/seed-marketplace.ts"),
+    );
+    expect(target).toBeDefined();
+    const kept = (target?.includes ?? []).slice(0, 2);
+    expect(kept.length).toBeGreaterThan(0);
+    target!.includes = kept;
+    expect(biomeGateWeakenings(real, JSON.stringify(head))).toEqual([]);
+  });
+
+  test("flipping the real noRestrictedImports to warn is caught", async () => {
+    const real = await readReal();
+    const head = JSON.parse(real) as BiomeFixture;
+    const style = fixtureGroup(head.linter, "style");
+    (style.noRestrictedImports as { level: string }).level = "warn";
+    const v = biomeGateWeakenings(real, JSON.stringify(head));
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain("style/noRestrictedImports");
+  });
+});
+
+describe("gate-integrity: biome CONFIG FILE moves (check 10)", () => {
+  test("the root biome.json deleted or renamed away", () => {
+    expect(biomeConfigFileViolations("D\tbiome.json")[0]).toContain("biome.json DELETED");
+    const renamed = biomeConfigFileViolations("R100\tbiome.json\tbiome.old.json");
+    expect(renamed).toHaveLength(1);
+    expect(renamed[0]).toContain("RENAMED to biome.old.json");
+  });
+
+  test("a NESTED biome config added anywhere else", () => {
+    const v = biomeConfigFileViolations(["A\tweb/biome.json", "A\tsrc/db/biome.jsonc"].join("\n"));
+    expect(v).toHaveLength(2);
+    expect(v[0]).toContain("web/biome.json");
+    expect(v[1]).toContain("src/db/biome.jsonc");
+    // A nested config arriving by RENAME is the same hole.
+    const moved = biomeConfigFileViolations("R090\tconfig/lint.json\tworker/biome.json");
+    expect(moved).toHaveLength(1);
+    expect(moved[0]).toContain("worker/biome.json");
+  });
+
+  test("a C-quoted path is still recognised", () => {
+    const v = biomeConfigFileViolations('A\t"packages/@ezcorp/sd\\303\\244k/biome.json"');
+    expect(v).toHaveLength(1);
+    expect(v[0]).toContain("nested biome config ADDED");
+  });
+
+  test("routine changes are silent", () => {
+    const quiet = [
+      "M\tbiome.json", // editing it is check 9's job, not a file-move
+      "A\tbiome.json", // bootstrap: creating the root config
+      "D\tweb/biome.json", // REMOVING a nested config re-arms the subtree
+      "A\tsrc/runtime/biome-helpers.ts", // not a config, despite the name
+      "R100\tsrc/a.ts\tsrc/b.ts",
+      "", // blank lines and short/garbage rows are skipped
+      "X",
+    ].join("\n");
+    expect(biomeConfigFileViolations(quiet)).toEqual([]);
   });
 });

@@ -171,8 +171,17 @@ lcov it just built, so it isn't rebuilt twice):
 5. **Assertion-free test** — a newly-touched `test()`/`it()` block with no
    `expect`/`assert`.
 6. **Committed `coverage/lcov.info`** — the report must be built in CI.
+7. **`biome.json` weakened** — the LINT gate's un-gating surface, structurally
+   identical to `EXCLUDES`: a new `"!<path>"` in `files.includes`, a new or
+   widened `overrides[]` entry that disarms a rule, or a severity lowered out
+   of `"error"` (only `error` blocks — CI keeps biome warnings non-blocking).
+   Strengthening is silent: raising a severity, removing an exclusion,
+   shrinking an opt-out override.
+8. **The biome config FILE moved** — root `biome.json` deleted/renamed, or a
+   nested `biome.json`/`biome.jsonc` added (biome resolves the nearest config,
+   so one can un-lint a whole subtree without the root diff showing anything).
 
-All six are diff-scoped, so pre-existing skips/mocks don't false-positive.
+All of them are diff-scoped, so pre-existing skips/mocks don't false-positive.
 
 ## Local hooks (shift-left)
 
