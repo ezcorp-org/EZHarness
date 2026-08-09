@@ -28,8 +28,10 @@
 		selectedModelContextWindow: number | null;
 		/** Window + enforced budget of the model that SERVED the last turn.
 		 *  Null until the first assistant reply; falls back to the picker's
-		 *  model inside `resolveContextDenominator`. */
-		contextDenominator: ContextDenominator | null;
+		 *  model inside `resolveContextDenominator`. Optional so a caller with
+		 *  no catalog to hand still renders — the indicator then degrades to
+		 *  measuring against `selectedModelContextWindow` alone. */
+		contextDenominator?: ContextDenominator | null;
 		contextBreakdown: ContextBreakdown | null;
 		contextToolBreakdown: readonly ToolBreakdownEntry[];
 		loadedTools: LoadedTool[];
@@ -64,7 +66,7 @@
 		currentConversation,
 		lastTurnInputTokens,
 		selectedModelContextWindow,
-		contextDenominator,
+		contextDenominator = null,
 		contextBreakdown,
 		contextToolBreakdown,
 		loadedTools,
