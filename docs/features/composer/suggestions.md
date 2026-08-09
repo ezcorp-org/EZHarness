@@ -69,7 +69,7 @@ Both are registered in `src/api-registry.ts` with the scopes above, per the [rem
 | setting `suggest:ollama-url` / env `EZCORP_SUGGEST_OLLAMA_URL` | compose: `http://ollama:11434` (prod) / `http://localhost:11434` (dev) | Local model endpoint. Unset ⇒ enhancement off, chips unaffected. |
 | setting `suggest:model` / env `EZCORP_SUGGEST_MODEL` | `qwen3:1.7b` | Ollama tag. GPU tier: `qwen3:4b`. `ollama-init` pulls whatever is set. |
 
-Settings win over env vars. The compose sidecar follows the SearXNG contract: always-on, hard resource caps, no `depends_on`, delete the `ollama`/`ollama-init` services to run without it.
+Settings win over env vars. The compose sidecar follows the SearXNG contract: hard resource caps, no `depends_on`, deletable. It differs on one point — in **dev it is opt-in** (`docker compose --profile ollama up -d`), because publishing the well-known port 11434 fails the whole `up` on a box already running Ollama natively. The dev URL default is loopback, so a host-native daemon serves suggestions with no sidecar at all. Prod is always-on (bridge, no published port, nothing to collide with). See [deployment.md](../../deployment.md#suggestion-model-sidecar-ollama).
 
 **Consent contract (binding):** suggestions never modify the draft on their own. Tool chips insert a mention only when clicked; the ✨ rewrite renders as a preview and replaces the draft only on an explicit **Apply** (always followed by an **Undo** affordance). There is no auto-apply path.
 
@@ -134,7 +134,7 @@ The base model works cold. When an install has real usage, the operator can fine
 - [[settings-system]] — the global/per-project toggles and the sidecar URL/model are settings keys, with settings winning over env.
 - [[audit-and-observability]] — `suggestion_feedback` is a separate telemetry plane from the governance audit trail; it never stores draft text.
 - [[remote-testability]] — both routes are registered in `src/api-registry.ts` with scopes.
-- [[deployment-and-releases]] — the `ollama`/`ollama-init` compose services follow the SearXNG contract (always-on, hard caps, no `depends_on`, deletable).
+- [[deployment-and-releases]] — the `ollama`/`ollama-init` compose services follow the SearXNG contract (hard caps, no `depends_on`, deletable); dev gates them behind `--profile ollama` so port 11434 can't fail the whole `up`.
 
 ## Related docs
 

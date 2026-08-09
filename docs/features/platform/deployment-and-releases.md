@@ -20,7 +20,7 @@ EZCorp is a single-container, self-hosted platform, so the build/deploy story is
 
 ### Compose stacks
 
-- **Dev (`docker-compose.yml`, `Dockerfile.dev`)** — builds the dev image (deps incl. devDeps, **no** SvelteKit prod build; source bind-mounted for HMR). `network_mode: host`, a `pgvector/pgvector:pg16` Postgres sidecar (`DATABASE_URL` set), a one-shot seed (`bun src/db/seed-marketplace.ts` gated by a `.seeded` sentinel), `EZCORP_DEV_INDICATOR=1` (inverts the logo), and a SearXNG sidecar published on loopback `127.0.0.1:8889`.
+- **Dev (`docker-compose.yml`, `Dockerfile.dev`)** — builds the dev image (deps incl. devDeps, **no** SvelteKit prod build; source bind-mounted for HMR). `network_mode: host`, a `pgvector/pgvector:pg16` Postgres sidecar (`DATABASE_URL` set), a one-shot seed (`bun src/db/seed-marketplace.ts` gated by a `.seeded` sentinel), `EZCORP_DEV_INDICATOR=1` (inverts the logo), and a SearXNG sidecar published on loopback `127.0.0.1:8889`. The Ollama suggestion sidecar (`ollama` + `ollama-init`) is also here but sits behind `profiles: ["ollama"]`, so a default `up` skips it: it publishes the well-known `127.0.0.1:11434`, and a lost bind aborts the **entire** `up` — taking down postgres/app/searxng over a service all three are independent of. Opting out is free because the app is host-networked and `EZCORP_SUGGEST_OLLAMA_URL` defaults to `http://localhost:11434`, which a host-native daemon answers just as well. Prod is not gated (bridge, no published port, nothing to collide with). Pinned by `src/__tests__/compose-ollama-profile.test.ts`.
 - **Prod (`compose.prod.yml`, `Dockerfile`)** — distinct project name `ezcorp-prod`; default `build:` local image tagged `ezcorp:local` (override `EZCORP_IMAGE=ghcr.io/ezcorp-org/ezcorp:<tag>` to pull instead). Bridge networking, `cap_add: NET_ADMIN` (for the MCP netns/veth stack), `stop_grace_period: 30s` (the app's internal hard-timeout is 25s — see `web/src/lib/server/shutdown.ts`), and an `env_file: .env.prod`. **Fail-on-missing-secret**: required vars use `${VAR:?error}` interpolation so `docker compose up` aborts if `EZCORP_PUBLIC_URL` / `EZCORP_ENCRYPTION_SECRET` / `EZCORP_ENCRYPTION_SALT` / `EZCORP_JWT_SECRET` are unset (better than silently auto-generating ephemeral secrets that break decrypts on restart). All DB state + snapshots live on a host bind mount `./.ezcorp/data → /app/data` (survives `down -v`, `prune`, image upgrades). SearXNG is internal (`http://searxng:8080`, no published port); a commented-out Watchtower service (24h poll, opt-in by label) and a commented external-Postgres block are provided.
 
 ### Boot safety (`src/db/connection.ts`)
@@ -57,6 +57,7 @@ docker compose -f compose.prod.yml up -d            # → http://localhost:4000
 
 # Dev
 docker compose up -d                                # network_mode: host, :3000
+docker compose --profile ollama up -d               # + the opt-in suggestion sidecar
 
 # Rebuild-from-source prod deploy (default build: flow)
 docker compose -f compose.prod.yml up -d --build
