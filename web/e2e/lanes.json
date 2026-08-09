@@ -52,6 +52,7 @@
       "web/e2e/api-key-scopes-evidence.spec.ts",
       "web/e2e/auto-model-routing.spec.ts",
       "web/e2e/cache-stats-pill.spec.ts",
+      "web/e2e/chat-context-window-served-model.spec.ts",
       "web/e2e/chat-durable-leaf-capability-event.spec.ts",
       "web/e2e/chat-graph-evidence.spec.ts",
       "web/e2e/city-conditions-card.spec.ts",
