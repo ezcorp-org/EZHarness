@@ -42,6 +42,9 @@
   "web/e2e/chat-prompt-arrow-nav-cards.spec.ts": [
     "web/src/lib/components/ChatThread.svelte"
   ],
+  "web/e2e/chat-stick-to-bottom.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte"
+  ],
   "web/e2e/chat-turn-collapse.spec.ts": [
     "web/src/lib/components/ChatThread.svelte",
     "web/src/lib/components/TurnCollapsedSummary.svelte"

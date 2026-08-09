@@ -15,7 +15,11 @@
  *   });
  *
  * …and ChatThread's persist `onScroll`, which is the ONLY thing that sets
- * `stuck`:  stuck = bottomSlack(el) < STICK_TO_BOTTOM_THRESHOLD_PX.
+ * `stuck`:
+ *
+ *   const scrollTop = el.scrollTop;
+ *   stuck = nextFollowIntent({ previousScrollTop, scrollTop, slack: bottomSlack(el), stuck });
+ *   previousScrollTop = scrollTop;
  *
  * So any drift between the helper module and the component would show up
  * here (same strategy as chat-scroll-restore.integration.test.ts). The
@@ -26,6 +30,7 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import {
 	shouldStickToBottom,
+	nextFollowIntent,
 	bottomSlack,
 	STICK_TO_BOTTOM_THRESHOLD_PX,
 } from "$lib/chat-stick-to-bottom.js";
@@ -63,14 +68,23 @@ class Sim {
 	rafPending = false;
 	pinCount = 0;
 	private pendingRaf: (() => void) | null = null;
+	private previousScrollTop: number;
 
 	constructor(el: FakeContainer) {
 		this.el = el;
+		this.previousScrollTop = el.scrollTop;
 	}
 
 	/** ChatThread.onScroll: every real scroll re-decides `stuck`. */
 	private onScroll() {
-		this.stuck = bottomSlack(this.el) < STICK_TO_BOTTOM_THRESHOLD_PX;
+		const scrollTop = this.el.scrollTop;
+		this.stuck = nextFollowIntent({
+			previousScrollTop: this.previousScrollTop,
+			scrollTop,
+			slack: bottomSlack(this.el),
+			stuck: this.stuck,
+		});
+		this.previousScrollTop = scrollTop;
 	}
 
 	/** The user drags the scrollbar to `top` (fires a real scroll). */
@@ -137,6 +151,26 @@ class Sim {
 		const cb = this.pendingRaf;
 		this.pendingRaf = null;
 		cb?.();
+	}
+
+	/**
+	 * The browser servicing the queued frame when the thread grows AGAIN
+	 * between the pin's `scrollTop` write and the delivery of the scroll
+	 * event that write queues — the real sequence measured in Chrome for
+	 * issue #140 (a late markdown/image/KaTeX reflow, or the next SSE chunk
+	 * landing in the same frame). `onScroll` therefore observes a scrollTop
+	 * that is no longer at the bottom, through no action of the user.
+	 */
+	flushRafWithLateGrowth(px: number) {
+		const cb = this.pendingRaf;
+		this.pendingRaf = null;
+		if (!cb) return;
+		this.rafPending = false;
+		// The pin, clamped by the browser to the height it saw.
+		this.el.scrollTop = this.el.scrollHeight - this.el.clientHeight;
+		this.pinCount += 1;
+		this.el.grow(px); // …then the thread grows again
+		this.onScroll(); // …and only now is the scroll event delivered
 	}
 
 	atBottom() {
@@ -295,6 +329,47 @@ describe("chat-stick-to-bottom — integration with the observer/rAF lifecycle",
 		sim.flushRaf();
 		expect(sim.atBottom()).toBe(true);
 		expect(sim.pinCount).toBe(1);
+	});
+
+	test("REGRESSION (#140): growth landing between the pin and its scroll event cannot latch the follow off", () => {
+		sim.initialScrollDone = true;
+		sim.scrollToBottom();
+		expect(sim.stuck).toBe(true);
+
+		// A big streamed chunk arrives; the observer schedules the pin. The
+		// pin writes scrollTop against the height it saw, but a late reflow
+		// grows the thread by another 400px before the scroll event that
+		// write queued is delivered. onScroll therefore sees a slack far past
+		// the threshold with the user having done nothing at all.
+		el.grow(900);
+		sim.resizeTick();
+		sim.flushRafWithLateGrowth(400);
+		expect(el.slack).toBeGreaterThan(STICK_TO_BOTTOM_THRESHOLD_PX);
+		expect(
+			sim.stuck,
+			"the thread's own growth is not a user scroll — the follow must survive",
+		).toBe(true);
+
+		// Because it survived, the very next resize tick converges.
+		sim.resizeTick();
+		sim.flushRaf();
+		expect(sim.atBottom()).toBe(true);
+		expect(sim.pinCount).toBe(2);
+	});
+
+	test("REGRESSION (#140, negative): the same late growth does NOT resurrect a follow the user already broke", () => {
+		sim.initialScrollDone = true;
+		sim.scrollToBottom();
+		sim.userScrollTo(300);
+		expect(sim.stuck).toBe(false);
+
+		// No pin is scheduled (not stuck), so only the growth + its scroll
+		// event land. `stuck` must stay false — the rule preserves intent,
+		// it does not invent it.
+		el.grow(900);
+		sim.resizeTick();
+		expect(sim.pinCount).toBe(0);
+		expect(sim.stuck).toBe(false);
 	});
 
 	test("REGRESSION (negative): a deliberate scroll-up before a large insert is still NOT yanked", () => {

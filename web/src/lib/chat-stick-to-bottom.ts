@@ -110,3 +110,53 @@ export function shouldStickToBottom(i: StickGateInput): boolean {
 	if (i.anchorWatchActive) return false;
 	return i.stuck;
 }
+
+export interface FollowIntentInput {
+	/**
+	 * `scrollTop` as of the PREVIOUS scroll event on this container (the
+	 * element's value at listener-install time for the first event).
+	 */
+	previousScrollTop: number;
+	/** `scrollTop` at this scroll event. */
+	scrollTop: number;
+	/** {@link bottomSlack} measured at this scroll event. */
+	slack: number;
+	/** The follow intent going in. */
+	stuck: boolean;
+}
+
+/**
+ * The follow intent after a scroll event — the single writer for `stuck`
+ * from the caller's scroll handler.
+ *
+ * ## Why this is not just `slack < THRESHOLD` (issue #140)
+ *
+ * `bottomSlack` can grow for two completely different reasons:
+ *
+ *   1. **The viewport moved up** — the user scrolled away to read.
+ *   2. **The bottom moved down** — the thread grew under a stationary
+ *      viewport (a streamed code block or table, an image or KaTeX reflow,
+ *      a turn-completion insert).
+ *
+ * Only (1) is user intent, and the old rule — recompute `stuck` from the
+ * post-event slack on *every* scroll — could not tell them apart. That made
+ * the follow state latchable to `false` by the thread's OWN growth: the
+ * stick pin writes `el.scrollTop = el.scrollHeight`, but the resulting
+ * scroll event is delivered a frame later, by which time the content may
+ * have grown again. The handler then read a large slack, concluded "the
+ * user broke away", and `shouldStickToBottom` declined forever after —
+ * a terminal state nothing but a real scroll back to the bottom could clear.
+ *
+ * The fix makes that unrepresentable rather than filtered: when the view IS
+ * at the bottom, the *only* gesture that can break the follow is one that
+ * moves the viewport UP. Growth never lowers `scrollTop`; neither does
+ * scroll anchoring (it compensates upward), nor the programmatic pin (it
+ * raises it). So a non-decreasing `scrollTop` is not evidence of intent and
+ * must leave `stuck` alone. Re-gluing stays unconditional: landing within
+ * {@link STICK_TO_BOTTOM_THRESHOLD_PX} of the bottom always means following,
+ * whoever put us there.
+ */
+export function nextFollowIntent(i: FollowIntentInput): boolean {
+	if (i.slack < STICK_TO_BOTTOM_THRESHOLD_PX) return true;
+	return i.scrollTop < i.previousScrollTop ? false : i.stuck;
+}

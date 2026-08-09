@@ -208,6 +208,15 @@ coverage_host_files() {
     # permission-mode-indicator: the github-projects route tests import
     # $lib/permission-mode (constants only), landing it in the merged lcov at
     # 25% — this suite exercises the functions so the union clears web/src/lib/**.
+    # chat-scroll + chat-stick-to-bottom.integration: the only producers for
+    # $lib/chat-stick-to-bottom.ts, which had NO lcov record from any leg — so
+    # a change to it read as "no test loads it" against the patch gate no
+    # matter how thoroughly the two suites (58 tests) exercised it. The same
+    # "tested but unmeasured" trap this file documents for hooks.server.ts,
+    # found via issue #140. Safe for the denominator warning above: both files
+    # import ONLY `bun:test` and $lib/chat-stick-to-bottom.js (they read the
+    # .svelte sources as TEXT via Bun.file rather than importing them), so
+    # they pull no unrelated module into the merged lcov.
     printf '%s\n' \
       web/src/__tests__/snippet-sanitize.test.ts \
       web/src/__tests__/workflow-builder-logic.test.ts \
@@ -240,7 +249,9 @@ coverage_host_files() {
       web/src/__tests__/mock-llm-route.test.ts \
       web/src/__tests__/runs-wait-route.test.ts \
       web/src/__tests__/seed-reset-route.test.ts \
-      web/src/__tests__/extensions-events-route.test.ts
+      web/src/__tests__/extensions-events-route.test.ts \
+      web/src/__tests__/chat-scroll.test.ts \
+      web/src/__tests__/chat-stick-to-bottom.integration.test.ts
     # The suggest-leg files are subtracted below — ONE definition
     # (suggest_leg_files) serves both this exclusion and the runner.
   } 2>/dev/null | sort -u | comm -23 - <(suggest_leg_files)

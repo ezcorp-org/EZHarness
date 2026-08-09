@@ -343,6 +343,7 @@
   "web/src/lib/chat/page-handlers/task-hydrate.ts": 100,
   "web/src/lib/chat/page-handlers/task-hydrate.svelte.ts": 100,
   "web/src/lib/chat-prompt-nav.ts": 100,
+  "web/src/lib/chat-stick-to-bottom.ts": 100,
   "web/src/lib/chat-turn-collapse.ts": 100,
   "web/src/lib/components/TurnCollapsedSummary.svelte": 100,
   "web/src/lib/extensions/extension-sort.ts": 100,
