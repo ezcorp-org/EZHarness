@@ -49,7 +49,10 @@ import { join } from "node:path";
 const ROOT = join(import.meta.dir, "..", "..");
 
 interface ComposeFile {
-  services?: Record<string, { tmpfs?: string[]; command?: string[]; image?: string }>;
+  services?: Record<
+    string,
+    { tmpfs?: string[]; command?: string[]; image?: string; volumes?: string[] }
+  >;
 }
 
 async function parse(relPath: string): Promise<ComposeFile> {
@@ -102,11 +105,53 @@ function guardedPaths(script: string): string[] {
 }
 
 describe("tmpfs secret masks — base file (Docker)", () => {
-  test("both trees the mask exists to hide are actually masked", async () => {
+  test("every tree the mask exists to hide is actually masked", async () => {
     const masks = masksOf(await parse("docker-compose.yml"));
-    // These two paths are the whole point of the feature: the prod DB/keys
-    // and the agent-scratch tree must not be visible inside /repo.
-    expect([...masks.keys()].sort()).toEqual(["/repo/.ezcorp", "/repo/worktrees"]);
+    // These paths are the whole point of the feature: the prod DB/keys and
+    // the agent-scratch trees must not be visible inside /repo.
+    //
+    // `/repo/.claude/worktrees` was missing for as long as this file has
+    // existed. `worktrees` READS like it covers every worktree tree, but
+    // these are literal mount targets — and the Agent tool's
+    // `isolation: "worktree"` writes to `.claude/worktrees`, not `worktrees`.
+    // Measured when it was found: 26 GB, 288 .env* files and 76 live .ezcorp
+    // dirs (PGlite DB + keys) readable by the self-modification agent on
+    // every `docker compose up`, while the boot guard below reported success
+    // because it checked only the two paths that WERE masked.
+    expect([...masks.keys()].sort()).toEqual([
+      "/repo/.claude/worktrees",
+      "/repo/.ezcorp",
+      "/repo/agent",
+      "/repo/worktrees",
+    ]);
+  });
+
+  test("every worktree tree on disk is masked, not just the ones we remembered", async () => {
+    // The assertion above is a literal, so it only ever knows what someone
+    // thought to write down — which is exactly how the `.claude/worktrees`
+    // gap survived. This one derives the expectation from the repo instead:
+    // any directory named `worktrees` that a bind mount would expose under
+    // /repo has to have a corresponding mask.
+    //
+    // Uses `git ls-files --others` so it sees IGNORED trees — the whole
+    // hazard is that these are gitignored scratch dirs nobody looks at.
+    const masks = masksOf(await parse("docker-compose.yml"));
+    const { stdout } = Bun.spawnSync({
+      cmd: ["git", "ls-files", "--others", "--directory", "--ignored", "--exclude-standard"],
+      cwd: ROOT,
+    });
+    const worktreeDirs = stdout
+      .toString()
+      .split("\n")
+      .map((l) => l.trim().replace(/\/$/, ""))
+      .filter((l) => l === "worktrees" || l.endsWith("/worktrees"));
+
+    for (const dir of worktreeDirs) {
+      expect(
+        masks.has(`/repo/${dir}`),
+        `${dir}/ exists on disk and is exposed by the .:/repo bind, but has no tmpfs mask`,
+      ).toBe(true);
+    }
   });
 
   test("every mask is size-capped, so none can default to half of host RAM", async () => {
@@ -132,6 +177,90 @@ describe("tmpfs secret masks — base file (Docker)", () => {
         false,
       );
     }
+  });
+});
+
+/**
+ * Every path the `.:/repo` bind hides, by either mechanism: tmpfs targets
+ * (directories) and /dev/null binds (single files — tmpfs cannot mask one).
+ */
+function allMaskedPaths(compose: ComposeFile): Set<string> {
+  const out = new Set<string>([...masksOf(compose).keys()]);
+  for (const entry of compose.services?.app?.volumes ?? []) {
+    const m = entry.match(/^\/dev\/null:(\/repo\/[^:]+)/);
+    if (m) out.add(m[1]);
+  }
+  return out;
+}
+
+/** True when the path or any ancestor of it is masked. */
+function isCovered(repoPath: string, masked: Set<string>): boolean {
+  const parts = repoPath.split("/");
+  for (let i = parts.length; i > 1; i--) {
+    if (masked.has(parts.slice(0, i).join("/"))) return true;
+  }
+  return false;
+}
+
+/**
+ * Basenames that are credentials wherever they appear. Name-derived on
+ * purpose: a rule keyed on file CONTENT flaps on a busy box (agents create
+ * and delete transient files mid-run), and a gate that flaps gets disabled.
+ */
+const CREDENTIAL_PATTERNS = [
+  /^\.env$/,
+  /^\.env\..+/,
+  /^\.pi-secret$/,
+  /^\.pi-salt$/,
+  /auth.*\.json$/,
+  /^\.ezcorp$/,
+  /^worktrees$/,
+];
+
+describe("mask completeness — derived from git, not from memory", () => {
+  test("every ignored credential path under /repo is masked", async () => {
+    // THE POINT OF THIS TEST. Every other assertion in this file compares
+    // one hand-written list against another, so all of them pass while the
+    // lists agree with each other and both omit something. That is not
+    // hypothetical — it is the entire history of this mask:
+    //
+    //   .dockerignore                 missed .claude/worktrees   (#158)
+    //   Dockerfile.test.dockerignore  missed .env*, .pi-secret   (#158)
+    //   tmpfs: + boot guard           missed .claude/worktrees   (#167)
+    //   /dev/null binds               missed web/.pi-secret, agent/auth.json,
+    //                                 web/e2e/*auth*.json, .claude.json
+    //
+    // Four independent misses, same cause: the expectation was written by
+    // hand. This asks GIT what is ignored — the scratch and secret files
+    // nobody reviews — and requires a mask for anything credential-shaped.
+    // It needs no maintenance when a new secret appears; it just fails.
+    const masked = allMaskedPaths(await parse("docker-compose.yml"));
+    // Deliberately NOT --directory. That flag collapses an ignored tree to
+    // its top directory, so a secret nested inside an already-ignored dir
+    // (.cache/sub/.env) never appears and the check silently misses it —
+    // verified by planting one. The full listing is 106,810 paths and takes
+    // 0.38s, and on this repo it flags zero dependency fixtures, so the
+    // cheap version buys nothing but a blind spot.
+    const { stdout } = Bun.spawnSync({
+      cmd: ["git", "ls-files", "--others", "--ignored", "--exclude-standard"],
+      cwd: ROOT,
+    });
+
+    const unmasked = stdout
+      .toString()
+      .split("\n")
+      .map((l) => l.trim().replace(/\/$/, ""))
+      .filter(Boolean)
+      .filter((p) => {
+        const base = p.split("/").pop() ?? "";
+        return CREDENTIAL_PATTERNS.some((re) => re.test(base));
+      })
+      .filter((p) => !isCovered(`/repo/${p}`, masked));
+
+    expect(
+      unmasked,
+      `these ignored credential paths are readable by the self-modification agent at /repo:\n  ${unmasked.join("\n  ")}`,
+    ).toEqual([]);
   });
 });
 

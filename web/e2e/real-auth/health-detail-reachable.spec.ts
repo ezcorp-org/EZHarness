@@ -19,7 +19,7 @@
  * `web/e2e/`), so the request never reaches `hooks.server.ts` — which is
  * precisely why the bug survived. The stub answers before the broken code runs.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 
 test.describe("admin health-detail reachability", () => {
   test("?detail=true needs an admin; the bare probe needs nobody", async ({

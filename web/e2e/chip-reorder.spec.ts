@@ -39,7 +39,7 @@
  * Run from web/:  `cd web && bunx playwright test e2e/chip-reorder.spec.ts`
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 import AxeBuilder from "@axe-core/playwright";
 
 test.describe("Extension chip drag-reorder (UX-04)", () => {

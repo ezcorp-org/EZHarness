@@ -57,9 +57,9 @@ The marketplace lets users publish their own agent configurations as versioned l
 - `GET /api/marketplace/export/[id]` — downloads the latest version's manifest as JSON (`Content-Disposition: attachment; filename="<slug>-v<version>.json"`), stamped with `exportedAt`.
 - `POST /api/marketplace/import` — accepts a raw `ExtensionManifestV2` JSON, `validateManifestV2`, and if it has an `agent`, creates a private config (name-collision suffix ` (Imported)`) and records `marketplace:imported:<agentConfigId>` provenance. Returns 400 if the manifest has no agent component. This is the "Import Agent" button — a manifest-file install path that bypasses the catalog entirely.
 
-### Demo seed (`src/db/seed-marketplace.ts`)
+### Demo seed (`scripts/seed-marketplace.ts`)
 
-`bun src/db/seed-marketplace.ts` seeds 15 demo agents (Code Reviewer, SQL Query Builder, …) as listings+versions with randomized ratings and a few `featured`, plus 5 demo agent *teams*, a test project/conversation, seed memories, bundled extensions, and `.env.seed` credentials. It exists for UI verification, not production.
+`bun scripts/seed-marketplace.ts` seeds 15 demo agents (Code Reviewer, SQL Query Builder, …) as listings+versions with randomized ratings and a few `featured`, plus 5 demo agent *teams*, a test project/conversation, seed memories, bundled extensions, and `.env.seed` credentials. It exists for UI verification, not production.
 
 ## Usage
 
@@ -115,7 +115,7 @@ The marketplace lets users publish their own agent configurations as versioned l
 - `src/db/queries/settings.ts` — `isListingInstalled` (LIKE over `marketplace:installed:%` settings rows).
 - `src/db/schema.ts` — `marketplaceListings` / `marketplaceVersions` / `marketplaceRatings` / `marketplaceFlags`.
 - `src/extensions/manifest.ts` — `validateManifestV2`, `generateSlug`, `compareVersions` (shared with publish/install/import).
-- `src/db/seed-marketplace.ts` — demo seed (15 agents + 5 teams + project/memories).
+- `scripts/seed-marketplace.ts` — demo seed (15 agents + 5 teams + project/memories).
 - `web/src/routes/(app)/marketplace/+page.svelte` + `[id]/+page.svelte` — catalog + detail UI.
 - `web/src/lib/components/MarketplaceCard.svelte`, `MarketplaceDetail.svelte`, `PublishDialog.svelte`, `FlagDialog.svelte`, `CategoryGrid.svelte` — UI components.
 - `web/src/lib/api.ts` — marketplace client wrappers.

@@ -38,7 +38,8 @@
  * status the console renders is the status the host reports. That is read
  * from the API and compared to the cell, rather than pinned to a literal.
  */
-import { test, expect, type Page, type APIRequestContext } from "@playwright/test";
+import type { Page, APIRequestContext } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 
 const FACTORY_PAGE = "ext:ez-factory:factory";
 const JOB_PAGE = "ext:ez-factory:job";

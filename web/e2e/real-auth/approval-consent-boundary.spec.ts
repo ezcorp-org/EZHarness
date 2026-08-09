@@ -26,7 +26,7 @@
  * Raw `fetch` for the bearer calls so the admin session cookie is provably
  * absent — the ONLY authority is the key, which is the whole claim.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 
 // A syntactically fine approval id that certainly does not exist. Reaching
 // `answerApproval` with it yields `not-found` → 404.

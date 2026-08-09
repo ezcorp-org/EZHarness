@@ -27,7 +27,7 @@
  * (PGlite single-writer), so afterEach happens before the next test
  * starts.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 import {
 	cleanupExtensionAuthorDraft,
 	cleanupInstalledExtension,

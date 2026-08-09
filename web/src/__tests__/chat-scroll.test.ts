@@ -1,6 +1,7 @@
 import { test, expect, describe, mock, beforeEach } from "bun:test";
 import {
 	shouldStickToBottom,
+	nextFollowIntent,
 	bottomSlack,
 	STICK_TO_BOTTOM_THRESHOLD_PX,
 } from "$lib/chat-stick-to-bottom.js";
@@ -268,6 +269,188 @@ describe("stick-to-bottom gate", () => {
 		};
 		pin();
 		expect(el.scrollTop).toBe(2400);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// 3b. nextFollowIntent — the single writer for `stuck` in ChatThread's
+//     onScroll. Issue #140: growth must never be able to latch the follow
+//     state off.
+// ---------------------------------------------------------------------------
+describe("nextFollowIntent (follow-intent state machine)", () => {
+	const at = (slack: number) => slack; // readability helper
+
+	test("landing within the threshold of the bottom always means following", () => {
+		// Whoever put us here — user, the rAF pin, jump-to-bottom — being at
+		// the bottom IS following. Re-gluing is unconditional.
+		expect(
+			nextFollowIntent({
+				previousScrollTop: 1600,
+				scrollTop: 1600,
+				slack: at(0),
+				stuck: false,
+			}),
+		).toBe(true);
+		expect(
+			nextFollowIntent({
+				previousScrollTop: 200,
+				scrollTop: 1590,
+				slack: at(STICK_TO_BOTTOM_THRESHOLD_PX - 1),
+				stuck: false,
+			}),
+		).toBe(true);
+	});
+
+	test("a viewport that moved UP past the threshold breaks the follow", () => {
+		// The user dragged / wheeled / PageUp'd away to read.
+		expect(
+			nextFollowIntent({
+				previousScrollTop: 1600,
+				scrollTop: 400,
+				slack: at(1200),
+				stuck: true,
+			}),
+		).toBe(false);
+	});
+
+	test("REGRESSION (#140): growth under a stationary viewport cannot latch the follow off", () => {
+		// The rAF pin wrote scrollTop = scrollHeight, but by the time the
+		// scroll event was delivered the thread had grown again (a code block,
+		// an image, a KaTeX reflow). Slack is now way past the threshold, yet
+		// the viewport never moved up — this is the thread's OWN growth, not
+		// user intent, so the follow must survive and the next resize tick
+		// re-pins.
+		expect(
+			nextFollowIntent({
+				previousScrollTop: 900,
+				scrollTop: 929, // the pin RAISED it
+				slack: at(900),
+				stuck: true,
+			}),
+		).toBe(true);
+	});
+
+	test("REGRESSION (#140): an unchanged scrollTop past the threshold cannot latch it off either", () => {
+		// Pure growth with no anchoring adjustment at all.
+		expect(
+			nextFollowIntent({
+				previousScrollTop: 762,
+				scrollTop: 762,
+				slack: at(167),
+				stuck: true,
+			}),
+		).toBe(true);
+	});
+
+	test("scroll anchoring (which only ever raises scrollTop) cannot latch it off", () => {
+		expect(
+			nextFollowIntent({
+				previousScrollTop: 762,
+				scrollTop: 1662, // browser compensated for 900px of growth above
+				slack: at(900),
+				stuck: true,
+			}),
+		).toBe(true);
+	});
+
+	test("a broken follow stays broken while the viewport moves down but is still far from the bottom", () => {
+		expect(
+			nextFollowIntent({
+				previousScrollTop: 400,
+				scrollTop: 700,
+				slack: at(900),
+				stuck: false,
+			}),
+		).toBe(false);
+	});
+
+	test("threshold boundary: < threshold re-glues, >= threshold defers to the movement test", () => {
+		const mk = (slack: number, stuck: boolean) =>
+			nextFollowIntent({
+				previousScrollTop: 1000,
+				scrollTop: 1000, // no movement ⇒ only the slack branch can act
+				slack,
+				stuck,
+			});
+		expect(mk(STICK_TO_BOTTOM_THRESHOLD_PX - 1, false)).toBe(true);
+		expect(mk(STICK_TO_BOTTOM_THRESHOLD_PX, false)).toBe(false);
+		expect(mk(STICK_TO_BOTTOM_THRESHOLD_PX, true)).toBe(true);
+	});
+
+	test("the pin→grow→pin loop converges instead of latching (walked end to end)", () => {
+		// 2400px of content, 800px viewport, parked at the bottom.
+		const el = { scrollHeight: 2400, scrollTop: 1600, clientHeight: 800 };
+		let stuck = true;
+		let previousScrollTop = el.scrollTop;
+		const onScroll = () => {
+			const scrollTop = el.scrollTop;
+			stuck = nextFollowIntent({
+				previousScrollTop,
+				scrollTop,
+				slack: bottomSlack(el),
+				stuck,
+			});
+			previousScrollTop = scrollTop;
+		};
+
+		// Frame 1: a big chunk lands, the rAF pin runs against the height it
+		// saw, and the thread grows AGAIN before the scroll event is dispatched.
+		el.scrollHeight += 900;
+		el.scrollTop = el.scrollHeight - el.clientHeight; // the pin
+		el.scrollHeight += 400; // late reflow, pre-dispatch
+		onScroll();
+		expect(bottomSlack(el)).toBe(400);
+		expect(stuck, "the thread's own growth must not break the follow").toBe(
+			true,
+		);
+
+		// Frame 2: because `stuck` survived, the observer pins again and the
+		// view converges on the bottom.
+		el.scrollTop = el.scrollHeight - el.clientHeight;
+		onScroll();
+		expect(bottomSlack(el)).toBe(0);
+		expect(stuck).toBe(true);
+	});
+});
+
+// ---------------------------------------------------------------------------
+// 3c. The jump-to-bottom affordance must not contribute to the scroll extent
+//     it reports on (issue #140 root cause). Asserted against the component
+//     SOURCE — a bun test must not import a web/src/lib Svelte module.
+// ---------------------------------------------------------------------------
+describe("jump-to-bottom overlay dock (ChatThread source invariant)", () => {
+	let src: string;
+
+	beforeEach(async () => {
+		src = await Bun.file(
+			new URL("../lib/components/ChatThread.svelte", import.meta.url).pathname,
+		).text();
+	});
+
+	test("the button is rendered inside the dock, not as a bare child of the scroll container", () => {
+		const dockOpen = src.indexOf('<div class="jump-to-bottom-dock"');
+		expect(dockOpen).toBeGreaterThan(-1);
+		const buttonAt = src.indexOf('class="jump-to-bottom"');
+		expect(buttonAt).toBeGreaterThan(dockOpen);
+	});
+
+	test("the dock is sticky (pins to the scrollport, not the padding box)", () => {
+		expect(src).toMatch(
+			/\.jump-to-bottom-dock\s*\{[^}]*position:\s*sticky/,
+		);
+	});
+
+	test("the dock is ZERO-HEIGHT so it adds nothing to the container's scrollHeight", () => {
+		// The load-bearing rule. A sticky box is still in flow: give this dock
+		// a real height and the "you are not at the bottom" affordance starts
+		// keeping the view off the bottom by exactly its own height.
+		expect(src).toMatch(/\.jump-to-bottom-dock\s*\{[^}]*height:\s*0\s*;/);
+	});
+
+	test("the button is absolutely positioned (out of flow) inside the dock", () => {
+		expect(src).toMatch(/\.jump-to-bottom\s*\{[^}]*position:\s*absolute/);
+		// …and specifically NOT sticky any more, which is what put it in flow.
+		expect(src).not.toMatch(/\.jump-to-bottom\s*\{[^}]*position:\s*sticky/);
 	});
 });
 

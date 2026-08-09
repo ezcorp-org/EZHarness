@@ -6,6 +6,7 @@ import { configToAgent } from "$server/runtime/config-to-agent";
 import { requireAuth, requireRole } from "$server/auth/middleware";
 import { getExecutor } from "$lib/server/context";
 import { requireScope } from "$lib/server/security/api-keys";
+import type { AgentConfig } from "$server/types";
 import type { RequestHandler } from "./$types";
 
 // Boundary validation. PUT body forwards into `updateAgentConfig`,
@@ -71,16 +72,22 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   const updated = await agentConfigQueries.updateAgentConfig(params.id, parsed.data);
   if (!updated) return errorJson(404, "Not found");
 
-  // Re-register the agent
+  // Re-register the agent.
+  // DB JSONB columns decode as string[] / Record<string, unknown>; the
+  // AgentConfig shape demanded by configToAgent uses the narrower
+  // AgentCapability[] / InputSchema / provider string. Casts are structural
+  // widen-backs — the content was validated upstream by
+  // updateAgentConfigSchema and the query layer. Same idiom as the sibling
+  // collection route (web/src/routes/api/agent-configs/+server.ts).
   const executor = getExecutor();
   const agentDef = configToAgent({
     name: updated.name,
     description: updated.description,
-    capabilities: updated.capabilities as any,
+    capabilities: updated.capabilities as AgentConfig["capabilities"],
     prompt: updated.prompt,
-    inputSchema: updated.inputSchema as any,
+    inputSchema: (updated.inputSchema ?? undefined) as AgentConfig["inputSchema"],
     outputFormat: (updated.outputFormat as "text" | "json") ?? "text",
-    provider: updated.provider as any,
+    provider: updated.provider ?? undefined,
     model: updated.model ?? undefined,
     temperature: updated.temperature ?? undefined,
     maxTokens: updated.maxTokens ?? undefined,

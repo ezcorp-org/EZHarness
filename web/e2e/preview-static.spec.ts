@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 
 /**
  * E2E for the secure-preview origin (Secure User-Site Preview / Port

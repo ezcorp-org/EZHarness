@@ -22,7 +22,8 @@
  *   BASE_URL=http://localhost:5173 bunx playwright test e2e/validate-prod-shape.spec.ts --reporter=line
  */
 
-import { test, expect, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 
 const BASE    = process.env.BASE_URL ?? "http://localhost:5173";
 const PROJECT = "6975f296-26bd-4201-8080-048abd25bde3";

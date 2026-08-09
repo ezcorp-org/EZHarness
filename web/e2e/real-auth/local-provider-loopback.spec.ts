@@ -21,7 +21,7 @@
  * completely different outcome from the 400 this fixes, and the distinction
  * the assertions are written on.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 
 /** The string web/src/lib/components/settings/CustomModelsSection.svelte
  *  auto-fills when an operator picks the `ollama` provider. */

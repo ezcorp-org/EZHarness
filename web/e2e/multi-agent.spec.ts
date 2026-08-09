@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 import type { Page } from "@playwright/test";
 
@@ -20,7 +21,9 @@ test.describe("Multi-Agent Orchestration", () => {
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
 			page.getByRole("button", { name: "Send message" }).click(),
 		]);
-		await expect(page.getByText(text)).toBeVisible({ timeout: 5000 });
+		// Scoped to the thread: the sidebar row is auto-titled with the same
+		// text, so an unscoped match is ambiguous on a hydrated page.
+		await expect(threadMessages(page).getByText(text)).toBeVisible({ timeout: 5000 });
 	}
 
 	// ── Streaming agent tests ──────────────────────────────────────────────

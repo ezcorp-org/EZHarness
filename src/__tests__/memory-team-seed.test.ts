@@ -7,7 +7,7 @@
  */
 import { test, expect, describe } from "bun:test";
 
-const seedPath = new URL("../db/seed-marketplace.ts", import.meta.url).pathname;
+const seedPath = new URL("../../scripts/seed-marketplace.ts", import.meta.url).pathname;
 const seedContent = await Bun.file(seedPath).text();
 
 describe("memory team — seed agent definitions", () => {

@@ -1,3 +1,5 @@
+import { stringifyToolOutput } from './tool-output.js';
+
 export interface InlineToolCall {
   id: string;              // client-generated invocationId
   extensionName: string;
@@ -29,18 +31,6 @@ export interface InlineToolCall {
   source?: 'inline' | 'agent-run';
 }
 
-function stringifyError(value: unknown): string {
-  if (typeof value === 'string') return value;
-  // Handle ToolCallResult shape: { content: [{ type: "text", text: "..." }] }
-  if (value && typeof value === 'object' && 'content' in value && Array.isArray((value as any).content)) {
-    const texts = (value as any).content
-      .filter((c: any) => c.type === 'text' && typeof c.text === 'string')
-      .map((c: any) => c.text);
-    if (texts.length > 0) return texts.join('\n');
-  }
-  return JSON.stringify(value);
-}
-
 class InlineToolStore {
   calls = $state<InlineToolCall[]>([]);
 
@@ -68,7 +58,7 @@ class InlineToolStore {
       case 'tool:complete': {
         const completeUpdate: Partial<InlineToolCall> = {
           status: 'complete',
-          output: stringifyError(data.output),
+          output: stringifyToolOutput(data.output),
           duration: data.duration as number,
         };
         if (data.cardType) completeUpdate.cardType = data.cardType as string;
@@ -81,7 +71,7 @@ class InlineToolStore {
       case 'tool:error': {
         const errorUpdate: Partial<InlineToolCall> = {
           status: 'error',
-          error: stringifyError(data.error),
+          error: stringifyToolOutput(data.error),
           duration: data.duration as number,
           retryCount: call.retryCount + 1,
         };

@@ -42,6 +42,9 @@
   "web/e2e/chat-prompt-arrow-nav-cards.spec.ts": [
     "web/src/lib/components/ChatThread.svelte"
   ],
+  "web/e2e/chat-stick-to-bottom.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte"
+  ],
   "web/e2e/chat-turn-collapse.spec.ts": [
     "web/src/lib/components/ChatThread.svelte",
     "web/src/lib/components/TurnCollapsedSummary.svelte"
@@ -144,6 +147,9 @@
   "web/e2e/hub-side-nav.spec.ts": [
     "web/src/lib/components/hub/**/*.svelte",
     "web/src/routes/(app)/+layout.svelte"
+  ],
+  "web/e2e/hydration-marker.spec.ts": [
+    "web/src/routes/+layout.svelte"
   ],
   "web/e2e/kilo-provider.spec.ts": [
     "web/src/lib/components/ProviderSettings.svelte",

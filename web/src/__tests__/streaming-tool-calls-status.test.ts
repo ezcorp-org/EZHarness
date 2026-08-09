@@ -12,6 +12,9 @@
  * from stores.svelte.ts so logic regressions surface here.
  */
 import { test, expect, describe, beforeEach } from "bun:test";
+// The SHIPPED unwrapper, not a hand-copy (issue #142). `$lib/tool-output` is
+// rune-free precisely so a bun:test suite can import the real function.
+import { extractToolOutput } from "$lib/tool-output";
 
 interface ToolCallState {
 	id?: string;
@@ -37,20 +40,10 @@ function makeStore(): StoreShape {
 	};
 }
 
-// ── Replicated extraction utility (same as stores.svelte.ts) ──────────────
-function extractToolOutput(value: unknown): unknown {
-	if (value == null || typeof value !== "object") return value;
-	const obj = value as Record<string, unknown>;
-	if (Array.isArray(obj.content)) {
-		const texts = (obj.content as Array<Record<string, unknown>>)
-			.filter((c) => c.type === "text" && typeof c.text === "string")
-			.map((c) => c.text as string);
-		if (texts.length > 0) return texts.join("\n");
-	}
-	return value;
-}
-
 // ── Replicated handler bodies from stores.svelte.ts ──────────────────────
+// (The extraction utility is NOT replicated — `extractToolOutput` is imported
+// from `$lib/tool-output` above, which is the same function stores.svelte.ts
+// calls. It used to be a seventh hand-copy; issue #142 collapsed them.)
 
 type ToolCompleteEvent = {
 	conversationId: string;

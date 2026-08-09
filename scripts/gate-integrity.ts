@@ -23,6 +23,13 @@
  *      D/R check can't see (delete the bodies, keep the file). Legit
  *      refactors MOVE assertions (net count roughly preserved) and don't
  *      trip it.
+ *   9. biome.json was WEAKENED — a new `"!<path>"` in files.includes, a new
+ *      or widened override that disarms a rule, or a severity lowered out of
+ *      `error`. biome.json is to LINT what EXCLUDES is to coverage.
+ *  10. The biome CONFIG FILE itself moved — root biome.json deleted/renamed
+ *      (biome falls back to its built-in defaults), or a NESTED biome config
+ *      added (biome resolves the nearest config, so one can un-lint a whole
+ *      subtree without the root diff showing anything).
  *
  * All checks are DIFF-SCOPED (only what the PR adds is judged) so the 19
  * pre-existing `.skip`s and 365 mock files in the tree don't false-positive.
@@ -421,6 +428,18 @@ export function testGuttingViolation(
 }
 
 /**
+ * Defense in depth against git's C-quoting: with core.quotePath=true a path
+ * containing non-ASCII/special bytes is emitted as `"src/…\303\244….test.ts"` —
+ * the surrounding quotes would make a suffix match (`.test.ts`, `biome.json`)
+ * miss. Every diff invocation here pins `-c core.quotePath=false`; this strip
+ * catches any quoted path that reaches the parsers anyway (the escaped
+ * interior still ends in the real suffix).
+ */
+function unquotePath(p: string | undefined): string | undefined {
+  return p?.startsWith('"') && p.endsWith('"') ? p.slice(1, -1) : p;
+}
+
+/**
  * Deleted or renamed test files from `git diff --name-status -M` output.
  * A deletion removes a gate outright; a RENAME — even R100, content-identical
  * — can silently de-gate a file because the P/C/CRIT test sets are built from
@@ -429,20 +448,12 @@ export function testGuttingViolation(
  * here — the old-side path decides.)
  */
 export function deletedOrRenamedTests(nameStatus: string): string[] {
-  // Defense in depth against git's C-quoting: with core.quotePath=true a
-  // path containing non-ASCII/special bytes is emitted as "src/…\303\244….test.ts"
-  // — the surrounding quotes would make isTestFile miss the .test.ts suffix.
-  // The diff invocation pins -c core.quotePath=false, and this strip catches
-  // any quoted path that reaches us anyway (the escaped interior still ends
-  // in .test.ts).
-  const unquote = (p: string | undefined): string | undefined =>
-    p?.startsWith('"') && p.endsWith('"') ? p.slice(1, -1) : p;
   const out: string[] = [];
   for (const line of nameStatus.split("\n")) {
     if (!line.trim()) continue;
     const [status, rawOld, rawNew] = line.split("\t");
-    const oldPath = unquote(rawOld);
-    const newPath = unquote(rawNew);
+    const oldPath = unquotePath(rawOld);
+    const newPath = unquotePath(rawNew);
     if (!status || !oldPath || !isTestFile(oldPath)) continue;
     if (status.startsWith("D")) {
       out.push(`test file DELETED: ${oldPath} — removing a test removes a gate`);
@@ -463,6 +474,392 @@ export function deletedOrRenamedTests(nameStatus: string): string[] {
  */
 export function isPathAbsentAtRev(stderr: string): boolean {
   return /does not exist in|exists on disk, but not in/.test(stderr);
+}
+
+// ── biome.json: the LINT gate's un-gating surface ──────────────────────────
+//
+// `biome.json` is to lint exactly what `EXCLUDES` is to coverage — a place
+// where one line silently removes enforcement — and it had zero coverage from
+// this script (issue #143). Three edit shapes disarm it:
+//
+//   1. a `"!<path>"` added to `files.includes` un-lints that path for EVERY
+//      rule, forever, with nowhere to write a reason;
+//   2. a new or WIDENED `overrides[]` entry that sets a rule to `"off"`
+//      un-lints that rule across a path set;
+//   3. a severity lowered out of `"error"`. This is the nastiest: `ci.yml`
+//      keeps biome warnings visible but NON-BLOCKING, so a rule flipped to
+//      `"warn"` still appears in the config and in the lint output while
+//      enforcing nothing, and the diff reads as a severity tweak.
+//
+// `src/__tests__/dependency-denylist.test.ts` pins some of this already, but
+// it is an ordinary test: an author editing `biome.json` can edit the test in
+// the same commit. An `EXCLUDES` addition cannot be self-approved. That
+// asymmetry is what this closes — the same maintainer-only
+// `gate-change-approved` label now governs both surfaces.
+//
+// DESIGN — what "weakening" means here, and what it deliberately does NOT:
+//
+// * The check judges the AUTHOR'S EDIT, not the resolved severity. That is the
+//   answer to `recommended: true`: this script runs in a CI job with no deps
+//   installed, so it cannot ask biome which rules the preset enables or at what
+//   default severity. It does not need to. WRITING an explicit sub-`error`
+//   severity into the config is an affirmative act of disarming — if the rule
+//   were already off by default the line would be pointless. So a newly
+//   spelled-out `"off"` / `"warn"` / `"info"` fires, whatever the preset does.
+//   The known cost: adopting a brand-new rule at `"warn"` as a stepping stone
+//   also fires. In a repo where warnings do not block, that is precisely the
+//   edit worth a human look, and the label is the answer.
+// * RAISING a severity, REMOVING an exclusion, ADDING a path to the linted set
+//   and ADDING an override that sets a rule to `"error"` are all silent. A gate
+//   that fires on strengthening gets routed around.
+// * DELETING a rule that stood at `"error"` counts as a weakening, because the
+//   rule then falls back to a default this file does not state and this script
+//   cannot resolve — the same unknowable-baseline problem, and the same
+//   fail-closed answer. It is NOT flagged when the rule is still pinned at
+//   `error` somewhere that still covers it (dropping a redundant `web/**`
+//   override that restates the root is a cleanup, not a hole). Deleting a rule
+//   that stood BELOW error is allowed outright: it can only re-arm.
+// * KNOWN LIMITS, stated rather than papered over: (a) `vcs.useIgnoreFile` is
+//   on, so a `.gitignore` addition also un-lints — flagging every `.gitignore`
+//   edit would drown the signal, and those edits are legible in review; (b)
+//   two overrides that set the SAME rule at different severities resolve
+//   last-one-wins, and a REORDER of such a pair is not modelled. No such pair
+//   exists today, and `dependency-denylist.test.ts` drives the real biome
+//   binary against probe files, which is the check that would catch it.
+
+/** Only `error` BLOCKS — ci.yml keeps biome warnings non-blocking on purpose. */
+const BIOME_SEVERITY_RANK = { off: 0, info: 1, warn: 2, on: 3, error: 4 } as const;
+type BiomeSeverity = keyof typeof BIOME_SEVERITY_RANK;
+const BIOME_ERROR_RANK = BIOME_SEVERITY_RANK.error;
+const BIOME_ROOT_SCOPE = "<root>";
+const BIOME_ALL_RULES = "<all rules>";
+
+/**
+ * Rank of a biome severity keyword, or null when the value isn't one.
+ *
+ * `"on"` ranks BELOW `"error"` on purpose: it means "run at the rule's own
+ * default", which may resolve to `warn`/`info`. So `error` → `on` reads as a
+ * lowering (fail-closed), while `on` → `error` is a raise and stays silent.
+ */
+function biomeSeverityRank(name: string): number | null {
+  return name in BIOME_SEVERITY_RANK ? BIOME_SEVERITY_RANK[name as BiomeSeverity] : null;
+}
+
+type JsonObject = Record<string, unknown>;
+
+function asJsonObject(v: unknown): JsonObject | null {
+  return v !== null && typeof v === "object" && !Array.isArray(v) ? (v as JsonObject) : null;
+}
+
+function asStringArray(v: unknown): string[] {
+  return Array.isArray(v) ? v.filter((e): e is string => typeof e === "string") : [];
+}
+
+/**
+ * The severity NAME a biome rule value carries. Severity is expressible two
+ * ways and both must be handled or the object form is a free bypass:
+ * a bare string (`"error"`) or `{ "level": "error", "options": {…} }` —
+ * `noRestrictedImports` on main uses the object form. An object with `options`
+ * but no `level` runs the rule at its own default: same standing as `"on"`.
+ */
+function biomeRuleSeverity(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  const obj = asJsonObject(value);
+  if (!obj) return null;
+  if (typeof obj.level === "string") return obj.level;
+  return "on";
+}
+
+/**
+ * Keys of a rule's `options.paths` denylist (biome's `noRestrictedImports`
+ * shape). It is a pure DENYlist, so losing a key is a weakening — dropping
+ * `express` from the map stops denying express while the rule still reads as
+ * `"error"`. Rules without such a map yield `[]` and are unaffected.
+ */
+function biomeRuleDenyPaths(value: unknown): string[] {
+  const paths = asJsonObject(asJsonObject(asJsonObject(value)?.options)?.paths);
+  return paths ? Object.keys(paths).sort() : [];
+}
+
+/**
+ * True when the rule PRESET is switched off — the blanket form of turning
+ * every rule off at once. Biome 2.5 deprecates `recommended` in favour of
+ * `preset`, so both are read: a `biome migrate` that swaps `recommended: true`
+ * for `preset: "recommended"` reads as the no-op it is, while `preset: "none"`
+ * still fires.
+ */
+function isBiomePresetDisabled(rules: JsonObject): boolean {
+  if ("preset" in rules) {
+    return rules.preset === false || rules.preset === "none" || rules.preset === "off";
+  }
+  return rules.recommended === false;
+}
+
+/**
+ * One "rule R stands at severity S over path-scope P" fact, flattened out of
+ * the root config and every `overrides[]` entry so base and head can be
+ * compared by (scope, rule) rather than by array index — an override that
+ * moves position must not read as removed-and-re-added.
+ */
+type BiomeRuleRecord = {
+  /** An `includes` token with any leading `!` stripped, or `<root>`. */
+  scope: string;
+  /** The token was `!<scope>`: an EXEMPTION carved OUT of the override. */
+  negated: boolean;
+  /** `group/name`, `group/*` for a group-wide setting, or `<all rules>`. */
+  rule: string;
+  severity: string;
+  level: number;
+  denyPaths: string[];
+  where: string;
+};
+
+type BiomeScope = { scope: string; negated: boolean };
+
+function collectBiomeLinterRecords(
+  out: BiomeRuleRecord[],
+  linterNode: unknown,
+  scopes: readonly BiomeScope[],
+  where: string,
+): void {
+  const linter = asJsonObject(linterNode);
+  if (!linter) return;
+  const push = (rule: string, severity: string, denyPaths: string[]): void => {
+    const level = biomeSeverityRank(severity);
+    if (level === null) return;
+    for (const s of scopes) out.push({ ...s, rule, severity, level, denyPaths, where });
+  };
+  // `linter.enabled: false` disarms every rule at once — the blanket form of a
+  // per-rule "off", and the obvious way to route around a per-rule check.
+  if (linter.enabled === false) push(BIOME_ALL_RULES, "off", []);
+  const rules = asJsonObject(linter.rules);
+  if (!rules) return;
+  if (isBiomePresetDisabled(rules)) push(BIOME_ALL_RULES, "off", []);
+  for (const [group, groupNode] of Object.entries(rules)) {
+    if (group === "recommended" || group === "preset") continue;
+    // A whole GROUP can be set at once (`"a11y": "off"`) — same disarm, one
+    // level up, so it gets a `group/*` record rather than being skipped.
+    if (typeof groupNode === "string") {
+      push(`${group}/*`, groupNode, []);
+      continue;
+    }
+    const groupRules = asJsonObject(groupNode);
+    if (!groupRules) continue;
+    for (const [name, value] of Object.entries(groupRules)) {
+      const severity = biomeRuleSeverity(value);
+      if (severity !== null) push(`${group}/${name}`, severity, biomeRuleDenyPaths(value));
+    }
+  }
+}
+
+/** Flatten a parsed biome config into its (scope, rule) → severity facts. */
+function collectBiomeRecords(cfg: JsonObject): BiomeRuleRecord[] {
+  const out: BiomeRuleRecord[] = [];
+  collectBiomeLinterRecords(out, cfg.linter, [{ scope: BIOME_ROOT_SCOPE, negated: false }], "linter");
+  const overrides = Array.isArray(cfg.overrides) ? cfg.overrides : [];
+  for (let i = 0; i < overrides.length; i++) {
+    const ov = asJsonObject(overrides[i]);
+    if (!ov) continue;
+    const tokens = asStringArray(ov.includes);
+    // An override with no `includes` applies EVERYWHERE. An EMPTY one is read
+    // the same way, fail-closed: this dep-free script cannot ask biome how it
+    // resolves an empty glob list, and "matches nothing" is the exploitable
+    // reading. The cost is a finding on a degenerate no-op override; the
+    // benefit is that `includes: []` can never be a blanket disarm in disguise.
+    const scopes: BiomeScope[] = (tokens.length > 0 ? tokens : ["**"]).map((t) =>
+      t.startsWith("!") ? { scope: t.slice(1), negated: true } : { scope: t, negated: false },
+    );
+    collectBiomeLinterRecords(out, ov.linter, scopes, `overrides[${i}]`);
+  }
+  return out;
+}
+
+const biomeRecordKey = (r: BiomeRuleRecord): string =>
+  `${r.negated ? "!" : ""}${r.scope} ${r.rule}`;
+
+const biomeRecordAt = (r: BiomeRuleRecord): string =>
+  r.scope === BIOME_ROOT_SCOPE ? "linter.rules" : `${r.where} (${r.negated ? "!" : ""}${r.scope})`;
+
+/** Shape 1: `files.includes` gained an exclusion, or lost linted ground. */
+function biomeFilesIncludesWeakenings(baseCfg: JsonObject, headCfg: JsonObject): string[] {
+  const read = (cfg: JsonObject): string[] => asStringArray(asJsonObject(cfg.files)?.includes);
+  const base = read(baseCfg);
+  const head = read(headCfg);
+  const baseSet = new Set(base);
+  const headSet = new Set(head);
+  const out: string[] = [];
+  for (const token of head) {
+    if (!token.startsWith("!") || baseSet.has(token)) continue;
+    out.push(
+      `biome files.includes gained the exclusion "${token}" — that un-lints ${token.slice(1)} ` +
+        `for EVERY rule, forever, with nowhere to state a reason`,
+    );
+  }
+  for (const token of base) {
+    // A POSITIVE token is what biome is told to look AT; dropping one narrows
+    // the linted set just as surely as adding a "!" exclusion (swapping "**"
+    // for "src/**" un-lints web/ without a single "!" appearing in the diff).
+    if (token.startsWith("!") || headSet.has(token)) continue;
+    out.push(
+      `biome files.includes lost "${token}" — narrowing what biome looks at un-lints ` +
+        `everything that pattern used to reach`,
+    );
+  }
+  return out;
+}
+
+/** Shapes 2 + 3: a rule disarmed, widened, lowered, or deleted out of error. */
+function biomeRuleWeakenings(baseCfg: JsonObject, headCfg: JsonObject): string[] {
+  const baseRecords = collectBiomeRecords(baseCfg);
+  const headRecords = collectBiomeRecords(headCfg);
+  const baseByKey = new Map(baseRecords.map((r) => [biomeRecordKey(r), r]));
+  const headByKey = new Map(headRecords.map((r) => [biomeRecordKey(r), r]));
+  const out: string[] = [];
+
+  for (const head of headRecords) {
+    const base = baseByKey.get(biomeRecordKey(head));
+    if (!base) {
+      // A NEW `!token` NARROWS an override's reach — a strengthening.
+      if (head.negated) continue;
+      // A new (scope, rule) pair at `error` only ever ADDS enforcement.
+      if (head.level >= BIOME_ERROR_RANK) continue;
+      out.push(
+        `biome rule DISARMED: ${head.rule} set to "${head.severity}" at ${biomeRecordAt(head)} ` +
+          `— spelling out a sub-"error" severity disarms the rule there (only "error" blocks)`,
+      );
+      continue;
+    }
+    if (head.level < base.level) {
+      out.push(
+        `biome rule DISARMED: ${head.rule} "${base.severity}" → "${head.severity}" at ` +
+          `${biomeRecordAt(head)} — only "error" blocks, so this enforces nothing while still ` +
+          `appearing in the config and in lint output`,
+      );
+      continue;
+    }
+    if (head.level < BIOME_ERROR_RANK) continue;
+    for (const p of base.denyPaths) {
+      if (head.denyPaths.includes(p)) continue;
+      out.push(
+        `biome rule ${head.rule} at ${biomeRecordAt(head)} stopped denying "${p}" — the rule ` +
+          `still reads as "${head.severity}" but no longer covers that entry`,
+      );
+    }
+  }
+
+  const headErrorRules = new Set(
+    headRecords.filter((r) => !r.negated && r.level >= BIOME_ERROR_RANK).map((r) => r.rule),
+  );
+  const headRootErrorRules = new Set(
+    headRecords
+      .filter((r) => r.scope === BIOME_ROOT_SCOPE && r.level >= BIOME_ERROR_RANK)
+      .map((r) => r.rule),
+  );
+  for (const base of baseRecords) {
+    if (headByKey.has(biomeRecordKey(base))) continue;
+    if (base.negated) {
+      // Losing an exemption WIDENS the disarm it used to carve out of — the
+      // path set grows with no new array element to notice in review.
+      if (base.level < BIOME_ERROR_RANK) {
+        out.push(
+          `biome override exemption REMOVED: "!${base.scope}" no longer carved out of ` +
+            `${base.rule}="${base.severity}" (${base.where}) — the disarmed path set grew`,
+        );
+      }
+      continue;
+    }
+    // Dropping a record that stood BELOW error can only re-arm the rule.
+    if (base.level < BIOME_ERROR_RANK) continue;
+    // A root pin must still be pinned at the ROOT; an override's pin may fall
+    // back to any surviving `error` (dropping a redundant restatement of the
+    // root is a cleanup, not a hole).
+    const stillPinned =
+      base.scope === BIOME_ROOT_SCOPE
+        ? headRootErrorRules.has(base.rule)
+        : headErrorRules.has(base.rule);
+    if (stillPinned) continue;
+    out.push(
+      `biome rule DELETED while at "error": ${base.rule} (was ${biomeRecordAt(base)}) — a ` +
+        `deleted rule falls back to a default this file no longer states`,
+    );
+  }
+  return out;
+}
+
+/**
+ * Gate-weakening edits between two `biome.json` texts. Mirrors
+ * `addedExcludes()`: findings route through the same maintainer-only
+ * `gate-change-approved` label, and only WEAKENING fires.
+ *
+ * An unparseable BASE yields no findings (nothing trustworthy to compare
+ * against, same as `thresholdRatchetViolations`); an unparseable HEAD is
+ * itself a finding — biome discards a config it cannot read and walks up to
+ * whatever it finds next, which in an agent worktree means `Checked 0 files`
+ * and a green exit (root-caused in PR #134).
+ */
+export function biomeGateWeakenings(baseJson: string, headJson: string): string[] {
+  let baseCfg: JsonObject | null = null;
+  try {
+    baseCfg = asJsonObject(JSON.parse(baseJson));
+  } catch {
+    return [];
+  }
+  if (!baseCfg) return [];
+  let headCfg: JsonObject | null = null;
+  try {
+    headCfg = asJsonObject(JSON.parse(headJson));
+  } catch {
+    return [
+      "biome.json is not valid JSON in HEAD — biome silently discards a config it cannot " +
+        "parse and lints against whatever it finds next (PR #134: `Checked 0 files`, exit 0)",
+    ];
+  }
+  if (!headCfg) return ["biome.json is not a JSON object in HEAD"];
+  return [
+    ...new Set([
+      ...biomeFilesIncludesWeakenings(baseCfg, headCfg),
+      ...biomeRuleWeakenings(baseCfg, headCfg),
+    ]),
+  ];
+}
+
+/**
+ * Config-FILE moves that route around the content diff entirely, read from the
+ * same `git diff --name-status -M` output check 7 uses:
+ *
+ *   - the root `biome.json` DELETED or RENAMED — biome falls back to its
+ *     built-in defaults, dropping every rule this repo pins;
+ *   - a NESTED `biome.json` / `biome.jsonc` ADDED anywhere else — biome 2
+ *     resolves the nearest config for a file, so a nested one can un-lint a
+ *     whole subtree while the root config's diff shows nothing at all.
+ */
+export function biomeConfigFileViolations(nameStatus: string): string[] {
+  const BIOME_CONFIG = /(^|\/)biome\.jsonc?$/;
+  const out: string[] = [];
+  for (const line of nameStatus.split("\n")) {
+    if (!line.trim()) continue;
+    const [status, rawOld, rawNew] = line.split("\t");
+    const oldPath = unquotePath(rawOld);
+    if (!status || !oldPath) continue;
+    // A/M/D emit two fields, so the new path IS the old path there.
+    const newPath = unquotePath(rawNew) ?? oldPath;
+    if (oldPath === "biome.json" && /^[DR]/.test(status)) {
+      out.push(
+        status.startsWith("D")
+          ? `biome.json DELETED — biome falls back to its built-in defaults, dropping every rule this repo pins`
+          : `biome.json RENAMED to ${newPath} — biome only auto-loads biome.json/biome.jsonc at the root`,
+      );
+      continue;
+    }
+    if (!/^[AR]/.test(status)) continue;
+    const added = status.startsWith("A") ? oldPath : newPath;
+    if (added === "biome.json" || !BIOME_CONFIG.test(added)) continue;
+    out.push(
+      `nested biome config ADDED: ${added} — biome resolves the NEAREST config, so this can ` +
+        `un-lint its whole subtree without touching biome.json`,
+    );
+  }
+  return out;
 }
 
 // ── git wiring + main() ────────────────────────────────────────────────────
@@ -548,6 +945,26 @@ async function main(): Promise<void> {
     `${mergeBase}...HEAD`,
   ]);
   for (const v of deletedOrRenamedTests(nameStatus)) {
+    violations.push(`${v} — needs the gate-change-approved label`);
+  }
+
+  // 9. biome.json content — the LINT gate's un-gating surface.
+  if (changed.includes("biome.json")) {
+    const baseSrc = await showAtBase(mergeBase, "biome.json");
+    const headPath = resolve(REPO_ROOT, "biome.json");
+    // Absent at the merge-base = this PR INTRODUCES the lint config; there is
+    // no prior enforcement to weaken. Absent in HEAD = deleted, which check 10
+    // reports from the name-status (and reading it here would just throw).
+    if (baseSrc !== null && existsSync(headPath)) {
+      const headSrc = await Bun.file(headPath).text();
+      for (const v of biomeGateWeakenings(baseSrc, headSrc)) {
+        violations.push(`${v} — needs the gate-change-approved label`);
+      }
+    }
+  }
+
+  // 10. biome CONFIG FILE moves (root deleted/renamed, nested config added).
+  for (const v of biomeConfigFileViolations(nameStatus)) {
     violations.push(`${v} — needs the gate-change-approved label`);
   }
 

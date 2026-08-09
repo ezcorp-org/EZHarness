@@ -129,8 +129,8 @@
 	import { resolveDeepLink } from "$lib/search/deep-link-resolve.js";
 	import {
 		shouldStickToBottom,
+		nextFollowIntent,
 		bottomSlack,
-		STICK_TO_BOTTOM_THRESHOLD_PX,
 	} from "$lib/chat-stick-to-bottom.js";
 	import ChatMessage from "$lib/components/ChatMessage.svelte";
 	import ChatInput from "$lib/components/ChatInput.svelte";
@@ -1602,21 +1602,23 @@
 			// async callback can stale-flip `userScrolledUp` from the same
 			// growth, so a genuine "scrolled up to read" still wins.
 			//
-			// KNOWN BUG — issue #140. This observer is correct; the latch
-			// below it is not. The re-pin is deferred to a rAF, and `stuck`
-			// is recomputed ONLY in the scroll handler (see the
-			// `stuck = bottomSlack(el) < STICK_TO_BOTTOM_THRESHOLD_PX` line
-			// further down). A scroll event dispatched inside that rAF
-			// window — Chrome's default `overflow-anchor: auto` fires one
-			// when content above the anchor grows — makes `onScroll` read
-			// post-growth/pre-repin slack and latch `stuck = false` with
-			// nothing to reset it. One large streamed chunk (a code block
-			// or table) then stops the thread following, permanently.
-			// `web/e2e/chat-stick-to-bottom.spec.ts` and
-			// `chat-scroll-restore.spec.ts` both catch it and are held out
-			// of the blocking lane because of it. Fix direction: ignore
-			// scroll events whose `scrollTop` is unchanged (growth-driven,
-			// not user-driven).
+			// INVARIANT (issue #140): `el.firstElementChild` is the whole
+			// scroll extent of `el`. Observing the container plus that one
+			// wrapper is only sufficient because every other child of the
+			// container is a ZERO-HEIGHT overlay layer (`.jump-to-bottom-dock`)
+			// that contributes nothing to `scrollHeight`.
+			//
+			// It used not to be. The jump-to-bottom button was a
+			// `position: sticky` sibling of the wrapper, and sticky boxes stay
+			// in flow, so its 2.5rem counted toward `scrollHeight` — and it is
+			// mounted BY the very state it reports. That closed a loop:
+			// streaming growth pushed the bottom sentinel out of view → the
+			// IntersectionObserver set `userScrolledUp` → the button mounted →
+			// `scrollHeight` grew 40px AFTER the rAF pin had already run →
+			// the view sat 40px short of the bottom → the sentinel stayed out
+			// of view → the button stayed. Terminal, and invisible to this
+			// observer because the button was not inside the observed wrapper.
+			// If you add a real-height child to the container, observe it here.
 			if (typeof ResizeObserver !== "undefined") {
 				const el = container;
 				let rafPending = false;
@@ -1675,14 +1677,26 @@
 		if (!container) return;
 		const el = container;
 		const cid = conversationId;
+		// `scrollTop` as of the previous scroll event — the term that tells a
+		// viewport move (user intent) apart from the thread growing under a
+		// stationary viewport. See nextFollowIntent() / issue #140.
+		let previousScrollTop = el.scrollTop;
 		const onScroll = () => {
 			// Synchronous follow-intent. Every real scroll (and the
 			// programmatic pin, which lands at scrollHeight) re-decides
 			// `stuck`: within the threshold of the bottom ⇒ still glued;
-			// further ⇒ the user broke away to read. This is the gate's
-			// only signal — never the async sentinel observer — so a
-			// one-shot large turn insert can't stale-flip it.
-			stuck = bottomSlack(el) < STICK_TO_BOTTOM_THRESHOLD_PX;
+			// further AND the viewport moved up ⇒ the user broke away to
+			// read. This is the gate's only signal — never the async
+			// sentinel observer — so a one-shot large turn insert can't
+			// stale-flip it.
+			const scrollTop = el.scrollTop;
+			stuck = nextFollowIntent({
+				previousScrollTop,
+				scrollTop,
+				slack: bottomSlack(el),
+				stuck,
+			});
+			previousScrollTop = scrollTop;
 			const anchor = computeAnchor(el);
 			const partial: Parameters<typeof updateCachedScrollState>[1] = {
 				scrollTop: el.scrollTop,
@@ -2724,31 +2738,51 @@
 			<div bind:this={sentinel} class="h-1"></div>
 		</div>
 
-		{#if userScrolledUp}
-			<button
-				class="jump-to-bottom"
-				onclick={() => {
-					stuck = true;
-					userScrolledUp = false;
-					sentinel?.scrollIntoView({ behavior: "smooth" });
-				}}
-				aria-label="Jump to bottom"
-			>
-				<svg
-					class="h-4 w-4"
-					fill="none"
-					stroke="currentColor"
-					viewBox="0 0 24 24"
+		<!--
+			Overlay dock for the jump-to-bottom affordance (issue #140).
+
+			The button used to be a `position: sticky` sibling of the message
+			wrapper — and sticky boxes stay IN FLOW, so its 2.5rem height was
+			part of the container's `scrollHeight`. That closed a feedback
+			loop: streaming growth pushed the bottom sentinel out of view →
+			the IntersectionObserver set `userScrolledUp` → the button
+			mounted → `scrollHeight` grew 40px *after* the stick pin had
+			already run → the view sat exactly 40px short of the bottom →
+			the sentinel stayed out of view → the button stayed → the 40px
+			stayed. Terminal, and the `stickObserver` never saw it because
+			the button is not inside the observed `firstElementChild`.
+
+			The dock is zero-height, so this layer can never move the scroll
+			extent it reports on. Keep it that way: anything rendered here
+			must be absolutely positioned.
+		-->
+		<div class="jump-to-bottom-dock">
+			{#if userScrolledUp}
+				<button
+					class="jump-to-bottom"
+					onclick={() => {
+						stuck = true;
+						userScrolledUp = false;
+						sentinel?.scrollIntoView({ behavior: "smooth" });
+					}}
+					aria-label="Jump to bottom"
 				>
-					<path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						stroke-width="2"
-						d="M19 14l-7 7m0 0l-7-7m7 7V3"
-					/>
-				</svg>
-			</button>
-		{/if}
+					<svg
+						class="h-4 w-4"
+						fill="none"
+						stroke="currentColor"
+						viewBox="0 0 24 24"
+					>
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							stroke-width="2"
+							d="M19 14l-7 7m0 0l-7-7m7 7V3"
+						/>
+					</svg>
+				</button>
+			{/if}
+		</div>
 	</div>
 
 	{#if isStreaming && serverStalenessMs != null && serverStalenessMs >= 30_000 && activeRunStartedAt != null}
@@ -2822,8 +2856,25 @@
 </div>
 
 <style>
-	.jump-to-bottom {
+	/*
+	 * Zero-height sticky overlay layer (issue #140). `sticky` keeps it
+	 * parked at the bottom of the SCROLLPORT (a plain `absolute` inside a
+	 * scroll container resolves against the padding box — i.e. the whole
+	 * scrollable area — and would scroll away). `height: 0` is the load-
+	 * bearing part: a sticky box is still in flow, so a dock with real
+	 * height would add itself to the container's `scrollHeight` and the
+	 * "you are not at the bottom" affordance would itself keep the view
+	 * off the bottom. Children here must be absolutely positioned.
+	 */
+	.jump-to-bottom-dock {
 		position: sticky;
+		bottom: 0;
+		height: 0;
+		z-index: 10;
+	}
+
+	.jump-to-bottom {
+		position: absolute;
 		bottom: 1rem;
 		left: 50%;
 		transform: translateX(-50%);

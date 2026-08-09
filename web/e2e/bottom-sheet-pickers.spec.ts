@@ -22,7 +22,7 @@
  * NEVER `--watch` (auto-memory rule).
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 import AxeBuilder from "@axe-core/playwright";
 
 interface PickerSpec {

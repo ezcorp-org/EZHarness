@@ -21,7 +21,7 @@
  * so the admin session cookie is provably absent — the ONLY authority is the
  * key, which is what proves role resolution comes from the key.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 
 // An unset, non-sensitive settings key: a role-gated GET returns 404 once the
 // caller is past requireRole, so 404 (not 403) proves the admin-role key

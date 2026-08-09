@@ -1,4 +1,8 @@
-import { expect, type Locator, type Page } from "@playwright/test";
+import type { Locator, Page } from "@playwright/test";
+// `expect` via the fixture root, never the package: a VALUE import of
+// `@playwright/test` from a helper can resolve a SECOND copy and trip the
+// "did not expect test.describe()" runtime guard (see picker-helpers.ts).
+import { expect } from "./hydration.js";
 
 /**
  * Readability assertions for the app's WARNING panels.
