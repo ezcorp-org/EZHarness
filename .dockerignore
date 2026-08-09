@@ -32,7 +32,34 @@ ez-corp-db
 # Local-only trees, never build inputs. worktrees/ alone is multi-GB
 # (each holds its own node_modules); sending it stalls or EACCES-breaks
 # `docker compose up --build`.
+#
+# `worktrees` is PATH-EXACT — it matches the top-level dir and nothing
+# else — so it did NOT cover `.claude/worktrees/`, where the Agent tool's
+# `isolation: "worktree"` puts every spawned agent's checkout. CLAUDE.md
+# mandates that isolation, so the mandated workflow is what fills the
+# directory. Measured on the primary dev box: 101 worktrees, 26 GB,
+# 5,326,186 files, against 80,368 files in the actual repo. A bare
+# `FROM scratch` + `COPY . /x` probe hit 21.67 GB and was still climbing
+# after 12 minutes; with the `**/` forms below the same probe transfers
+# 96.58 MB in 0.9s.
+#
+# Keep BOTH spellings: the bare name is the documented-exact match, and
+# `**/`-prefixed handling of a zero-depth match is not worth relying on.
+# Same reasoning as `web/node_modules` on line 2 and the `**/`-prefixed
+# test excludes at the bottom of this file — this is the third instance
+# of the same trap.
 worktrees
+**/worktrees
+**/node_modules
+# Agent scratch (see above) plus per-machine Claude Code config.
+.claude
+# Gitignored build/test caches. `.cache` holds the prepared PGlite
+# snapshot datadirs (see CLAUDE.md) — regenerated on demand, never a
+# build input.
+.cache
+coverage-shard
+.merge-snapshot
+.wrangler
 # Project workspaces live at `.ezcorp/projects` now (covered by `**/.ezcorp`
 # above, recursively). `projects` stays for checkouts that still carry the
 # pre-#153 dir — it can hold node_modules and build output, and shipping it

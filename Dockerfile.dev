@@ -1,6 +1,10 @@
 # Development image — installs all dependencies (including devDependencies)
 # but skips the SvelteKit production build. Source code is bind-mounted at runtime.
-FROM oven/bun:1
+#
+# Pinned to match `.bun-version` (the repo's single pin source — see the note
+# in ci.yml). The floating `oven/bun:1` this used to carry meant any upstream
+# 1.x push invalidated every layer below, including both installs.
+FROM oven/bun:1.3.14
 WORKDIR /app
 
 # System packages. `git` is required at runtime by `installFromGit` — the
@@ -26,11 +30,17 @@ COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-clien
 # scripts lets the cache-friendly install layer succeed; the dev image
 # relies on Bun's "bun" exports condition (raw .ts at runtime), so dist/
 # is unnecessary here. Same rationale for the web install below.
-RUN bun install --frozen-lockfile --ignore-scripts
+#
+# The cache mount keeps Bun's global package cache across builds, so an
+# invalidated install layer re-links from disk instead of re-downloading the
+# whole dependency set from npm. `sharing=locked` because two concurrent
+# builds (dev + test) would otherwise race on the same cache dir. Matches the
+# prod `Dockerfile`, which has had this since it was written.
+RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun install --frozen-lockfile --ignore-scripts
 
 # Install web dependencies (all, including dev)
 COPY web/package.json web/bun.lock web/
-RUN cd web && bun install --frozen-lockfile --ignore-scripts
+RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --frozen-lockfile --ignore-scripts
 
 # Copy everything for initial setup (source is bind-mounted over this at runtime)
 COPY . .

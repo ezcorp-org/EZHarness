@@ -52,7 +52,7 @@ See [docs/development-lifecycle.md](docs/development-lifecycle.md#local-hooks-sh
 **Worktree isolation (binding):** ALWAYS run agents in a separate git
 worktree — never let a spawned agent edit the primary working directory
 directly. Before delegating work, create an isolated worktree on its own
-branch (`git worktree add ../ez-corp-ai-<slug> -b <branch>`), point the
+branch (`git worktree add ./worktrees/<slug> -b <branch>`), point the
 agent at that path, and have it do all reads/writes/commits there. This
 keeps parallel agents from contaminating each other or the main tree, and
 keeps `main` clean. When using the Agent/Workflow tools, pass
