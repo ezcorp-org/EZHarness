@@ -70,7 +70,14 @@ describe("sec-M4: CORS wildcard reflection is gone from hooks.server.ts source",
     // The fix must drop the literal "*" entry so it cannot be used as a
     // magic allow-everything token. A `!== "*"` token in the filter is the
     // unambiguous signal of the fix.
-    expect(corsBlock).toMatch(/filter\([^)]*!==\s*"\*"/);
+    //
+    // The arrow parameter may be spelled `s =>` or `(s) =>`; the old pattern
+    // relied on the unparenthesised form because `[^)]*` cannot cross the `)`
+    // of `(s)`. Consuming the parameter explicitly keeps the `!== "*"` still
+    // required INSIDE this one filter callback — `[^)]*?` continues to stop
+    // at the callback's closing paren, so a `!== "*"` somewhere else in the
+    // block cannot satisfy it.
+    expect(corsBlock).toMatch(/\.filter\(\s*\(?\w+\)?\s*=>[^)]*?!==\s*"\*"/);
   });
 
   test("getCorsHeaders no longer short-circuits on a wildcard entry", () => {

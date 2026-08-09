@@ -34,7 +34,12 @@ describe("SdkCapability ↔ sdk_capability_calls.capability", () => {
     expect(handlerMatch, "SdkCapability declaration not found").not.toBeNull();
 
     const schemaMatch = schemaSrc.match(
-      /capability: text\("capability"\)\.notNull\(\)\.\$type<([^>]*)>\(\)/,
+    // `\s*` at each join, so the pin survives the chain being wrapped across
+    // lines. This does NOT loosen the match: the token sequence
+    // `text("capability") .notNull() .$type<…>()` is still required in that
+    // exact order, and `[^>]*` still cannot escape the type argument. Only
+    // whitespace — which carries no meaning here — is allowed to vary.
+      /capability:\s*text\("capability"\)\s*\.notNull\(\)\s*\.\$type<([^>]*)>\(\)/,
     );
     expect(schemaMatch, "sdkCapabilityCalls.capability $type<> not found").not.toBeNull();
 
