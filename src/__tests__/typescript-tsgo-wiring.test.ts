@@ -98,6 +98,29 @@ describe("TypeScript 7 dual install", () => {
     // --tsgo has nothing to select.
     expect(native).toMatch(/^npm:typescript@7\./);
   });
+
+  test("the --tsgo incremental cache directory is gitignored", async () => {
+    // `--tsgo` opts into TypeScript's incremental build cache. svelte-check
+    // writes it into `.svelte-kit`, and FALLS BACK to `web/.svelte-check`
+    // when `.svelte-kit` has not been generated yet — i.e. in a fresh
+    // worktree, before `svelte-kit sync`. Reproduced: 785 generated files.
+    //
+    // Two ways that bites, both invisible to CI (fresh checkout per job):
+    //   - `biome.json` sets `vcs.useIgnoreFile: true`, so an unignored path
+    //     gets LINTED. Measured: 4313 files / 212 errors / exit 1, from
+    //     generated code nobody wrote.
+    //   - the pre-push hook runs svelte_check ITSELF, so it poisons its own
+    //     next run: push #1 leaves the artifact, push #2 fails on lint.
+    //
+    // Assert through git rather than by string-matching .gitignore, so any
+    // ignore rule that covers the path counts.
+    const proc = Bun.spawn(["git", "check-ignore", "-q", "web/.svelte-check/x.ts"], {
+      cwd: REPO_ROOT,
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    expect(await proc.exited).toBe(0);
+  });
 });
 
 describe("--tsgo is on EVERY svelte-check call site", () => {

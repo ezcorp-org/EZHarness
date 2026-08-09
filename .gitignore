@@ -29,6 +29,13 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 *.tsbuildinfo
 *.d.ts.map
 .fallow/
+# `svelte-check --tsgo` opts into TypeScript's incremental build cache. It
+# writes that cache into `.svelte-kit`, and FALLS BACK to `.svelte-check`
+# when `.svelte-kit` has not been generated yet — i.e. in a fresh worktree
+# before `svelte-kit sync`. 785 generated files land here, and because
+# biome.json sets `vcs.useIgnoreFile: true`, ignoring the path is also what
+# keeps `bun run lint` from linting them. See web/CLAUDE.md.
+.svelte-check/
 
 # editors
 .idea
