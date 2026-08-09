@@ -1,4 +1,8 @@
-FROM oven/bun:1
+# Pinned to match `.bun-version` (the repo's single pin source — see the note
+# in ci.yml). The floating `oven/bun:1` this used to carry meant any upstream
+# 1.x push invalidated every layer below — including the Playwright
+# `--with-deps` install, which is the most expensive step in this file.
+FROM oven/bun:1.3.14
 WORKDIR /app
 
 # Install git (for extension installer tests) and Node.js (for Playwright)
@@ -18,11 +22,15 @@ COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-clien
 # the package.json), so the `prepare` script's tsc build can't succeed.
 # Skip lifecycle here; the SDK is rebuilt as needed once `COPY . .` lands.
 # Bun's "bun" exports condition resolves the SDK's raw .ts at runtime.
-RUN bun install --frozen-lockfile --ignore-scripts
+#
+# Cache mount keeps Bun's global package cache across builds so an invalidated
+# install layer re-links from disk instead of re-downloading from npm.
+# `sharing=locked` because a concurrent dev build uses the same cache dir.
+RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun install --frozen-lockfile --ignore-scripts
 
 # Install web dependencies
 COPY web/package.json web/bun.lock web/
-RUN cd web && bun install --frozen-lockfile --ignore-scripts
+RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --frozen-lockfile --ignore-scripts
 
 # Install Playwright chromium + system deps
 RUN cd web && bunx playwright install --with-deps chromium

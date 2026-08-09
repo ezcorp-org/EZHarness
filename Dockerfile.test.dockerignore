@@ -1,3 +1,16 @@
+# Build-context excludes for `Dockerfile.test` ONLY.
+#
+# BuildKit uses `<dockerfile>.dockerignore` when it exists and that file
+# REPLACES the root `.dockerignore` outright — the two are never merged.
+# So every exclude the root file needs, this file needs too, minus the
+# ones the test image genuinely depends on.
+#
+# What this file deliberately does NOT exclude (and why it can't just be
+# deleted in favour of the root file): `web/e2e`, `**/*.test.ts`,
+# `**/*.spec.ts`, `**/__tests__`. The root `.dockerignore` drops all four
+# because the prod runtime image must not ship tests; the test image is
+# built to RUN them.
+
 node_modules
 web/node_modules
 web/.svelte-kit
@@ -7,3 +20,39 @@ agent/sessions
 .playwright-mcp
 TESTENV/
 test-results/
+
+# ── Secrets ────────────────────────────────────────────────────────────
+# The root `.dockerignore` excludes these; because that file is REPLACED
+# rather than merged (see header), omitting them here meant a host
+# .env.prod / .pi-secret / agent auth token landed in this build's
+# context. None are build inputs — the test image gets its config from
+# docker-compose.test.yml `environment:`.
+.env
+.env.*
+**/.pi-secret
+**/.pi-salt
+agent
+
+# ── Local-only trees, never build inputs ───────────────────────────────
+# The expensive omission. `worktrees` is path-exact, so both spellings
+# are needed to also catch `.claude/worktrees/` — where the Agent tool's
+# `isolation: "worktree"` writes. Measured together: 51 GB across ~10.9M
+# files, none of it a build input. See the long note in `.dockerignore`.
+worktrees
+**/worktrees
+**/node_modules
+.claude
+.cache
+coverage
+coverage-shard
+.merge-snapshot
+.wrangler
+tasks
+projects
+
+# Runtime data, not a build input (DB dirs, extension state, snapshots).
+**/.ezcorp
+/data/
+/web/data/
+*.db
+ez-corp-db
