@@ -1,4 +1,8 @@
-import { test, expect, describe } from "bun:test";
+// Runs on the VITEST leg, not the bun leg — registered explicitly in
+// web/vitest.config.ts and subtracted from `web_bunleg_files()`. That leg is
+// the only coverage producer for `web/src/lib/**`, and this suite is what
+// covers `context-usage-logic.ts`; on the bun leg it produced no lcov at all.
+import { test, expect, describe } from "vitest";
 import {
 	computePct,
 	computeTone,

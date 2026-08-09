@@ -79,6 +79,17 @@ export default defineConfig({
 			// `web_bunleg_files()` keeps it in exactly one runner, explicitly —
 			// same mechanism relative-time.test.ts uses above.
 			"src/lib/chat/page-handlers/__tests__/send-message.test.ts",
+			// Same reason as send-message above: the vitest leg is the ONLY
+			// coverage producer for `web/src/lib/**`, and this suite is what
+			// covers `context-usage-logic.ts` (the context-indicator maths —
+			// served-model denominator, cache-inclusive numerator, budget vs
+			// window). On the bun leg its ~100 tests produced NO lcov at all,
+			// so the patch-coverage gate saw the file as unmeasured. Listed
+			// explicitly rather than renamed to `.unit.` for the same reason:
+			// the `Gate integrity` test-rename check treats a rename as a
+			// potential silent de-gating. Registered here AND subtracted from
+			// `web_bunleg_files()`, so it runs in exactly one runner.
+			"src/__tests__/context-usage-logic.test.ts",
 		],
 		setupFiles: ["./src/__tests__/vitest-setup.ts"],
 		globals: true,

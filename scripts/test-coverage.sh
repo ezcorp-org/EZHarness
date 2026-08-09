@@ -566,6 +566,7 @@ run_legs() {
       src/__tests__/api-extensions-id-reopen.server.test.ts \
       src/__tests__/test-only-endpoints.server.test.ts \
       src/lib/__tests__/extract-tool-output.unit.test.ts \
+      src/__tests__/context-usage-logic.test.ts \
       --coverage --coverage.provider=v8 --coverage.reporter=lcovonly \
       --coverage.reportsDirectory="$VITEST_COV" \
       --coverage.include='src/lib/search/*.ts' \
@@ -575,6 +576,7 @@ run_legs() {
       --coverage.include='src/lib/components/UpdateBanner.helpers.ts' \
       --coverage.include='src/routes/api/version/+server.ts' \
       --coverage.include='src/lib/utils/relative-time.ts' \
+      --coverage.include='src/lib/context-usage-logic.ts' \
       --coverage.include='src/lib/server/http-errors.ts' \
       --coverage.include='src/lib/server/auth/session-cookie.ts' \
       --coverage.include='src/hooks.server.ts' \
