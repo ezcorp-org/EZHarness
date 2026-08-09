@@ -53,3 +53,4 @@ services:
       # the stakes are higher than for the base file: without notmpcopyup a
       # 26 GB tree is copied into RAM at container start.
       - /repo/.claude/worktrees:size=64m,notmpcopyup
+      - /repo/agent:size=1m,notmpcopyup
