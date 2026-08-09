@@ -48,7 +48,7 @@
 		"kokoro-js": "^1.2.0",
 		"linkedom": "^0.18.12",
 		"lucide-svelte": "^0.577.0",
-		"marked": "^17.0.4",
+		"marked": "^18.0.7",
 		"svelte-adapter-bun": "^1.0.1",
 		"svelte-dnd-action": "^0.9.69",
 		"zod": "^4.3.6"
