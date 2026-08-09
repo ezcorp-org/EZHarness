@@ -134,7 +134,7 @@ services:
         # single-dollar references (even inside these comments) and would
         # substitute the loop variable away to an empty string before sh ever
         # sees it — which silently makes the check pass unconditionally.
-        for masked in /repo/.ezcorp /repo/worktrees; do
+        for masked in /repo/.ezcorp /repo/worktrees /repo/.claude/worktrees; do
           if [ -n "$$(ls -A "$$masked" 2>/dev/null)" ]; then
             echo "FATAL: $$masked is not empty inside the container." >&2
             echo "       Its tmpfs mask is not in effect, so host secrets or" >&2
@@ -418,6 +418,22 @@ services:
       # silently dropped under Podman. A test locks that.
       - /repo/.ezcorp:size=16m
       - /repo/worktrees:size=64m
+      # The Agent tool's `isolation: "worktree"` writes HERE, not to
+      # ./worktrees — and CLAUDE.md mandates that isolation, so this is the
+      # tree that actually grows. Measured on the primary dev box: 101
+      # worktrees / 26 GB, holding 288 .env* files and 76 live .ezcorp dirs
+      # (PGlite DB + encryption keys) — a near-identical twin of what the
+      # ./worktrees mask above already hides (280 / 73).
+      #
+      # It was missed because `worktrees` reads like it covers every worktree
+      # tree. It does not; these are literal mount targets. The same
+      # assumption also cost `.dockerignore` its build context (26 GB into
+      # every build, ~12 min) — same root cause, different layer.
+      #
+      # Masking the leaf, not `/repo/.claude`, is deliberate: commands/,
+      # skills/, workflows/ and settings.local.json live alongside and are
+      # legitimate things for a self-improving agent to read and edit.
+      - /repo/.claude/worktrees:size=64m
     depends_on:
       postgres:
         condition: service_healthy
