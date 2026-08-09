@@ -36,9 +36,12 @@ complete required-check table): [docs/development-lifecycle.md](docs/development
    enforces a spec is present and the bot attaches screenshots to the PR.
 5. **Never** weaken the gate or fake green — no lowered thresholds, no new
    `EXCLUDES`, no `.skip/.only/.todo`, no assertion-free tests, no empty
-   `catch {}` in test files, no committed `coverage/lcov.info`. These are
-   blocked by the `Gate integrity` CI check; a maintainer-only
-   `gate-change-approved` label is the only bypass (you cannot apply it).
+   `catch {}` in test files, no committed `coverage/lcov.info`, and no
+   **`biome.json`** opt-out (a new `"!<path>"` in `files.includes`, a new or
+   widened `overrides[]` that turns a rule `"off"`, or a severity lowered out
+   of `"error"` — only `error` blocks). These are blocked by the
+   `Gate integrity` CI check; a maintainer-only `gate-change-approved` label
+   is the only bypass (you cannot apply it).
 
 The gate files (`scripts/coverage-*.ts`, `coverage-thresholds.json`, CI
 workflows, `playwright.config.ts`) are CODEOWNERS-owned — changing them needs

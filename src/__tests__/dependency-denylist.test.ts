@@ -23,6 +23,14 @@
 // `"level": "error"` is load-bearing and also asserted: `ci.yml` deliberately
 // keeps biome warnings visible but non-blocking (`bun run lint` exits 0 with
 // warnings present), so a denial registered at `warn` enforces nothing at all.
+//
+// TEETH: this file is the FAST LOCAL SIGNAL, not the enforcement. It is an
+// ordinary test, so an author editing `biome.json` can edit it in the same
+// commit. `scripts/gate-integrity.ts` (checks 7 + 8) diffs `biome.json` itself
+// and routes any weakening — a new `"!<path>"` exclusion, a new/widened
+// disarming `overrides[]` entry, a severity lowered out of `"error"`, or a
+// dropped `options.paths` denial — through the maintainer-only
+// `gate-change-approved` label, which an agent's token cannot apply (#143).
 
 import { test, expect, describe } from "bun:test";
 import { Glob } from "bun";
