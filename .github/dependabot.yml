@@ -95,10 +95,10 @@ updates:
     schedule:
       interval: "weekly"
     # Each of these drags the full backend + coverage + e2e suite behind it,
-    # which is the expensive tier of CI — hence a limit at all. Raised 3 → 5
-    # because the three `exclude-patterns` below now each get their OWN PR: at
-    # 3, the batch plus two exclusions fills the quota and the third is simply
-    # never opened, which looks exactly like Dependabot having nothing to say.
+    # which is the expensive tier of CI — hence a limit at all. Held at 5
+    # because every package in `exclude-patterns` below gets its OWN PR on top
+    # of the batch: too low a limit and the last exclusion is simply never
+    # opened, which looks exactly like Dependabot having nothing to say.
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore"
@@ -109,7 +109,7 @@ updates:
     # Minor/patch batch into one reviewable PR; MAJORS stay individual, because
     # a major is exactly the bump that deserves its own diff and its own CI run.
     #
-    # `exclude-patterns` carves three packages back out of that batch. They are
+    # `exclude-patterns` carves a few packages back out of that batch. They are
     # semver-MINOR but sit at 0.x, where minor is the breaking slot — so the
     # group's own reasoning about majors already applies to them. Grouped, they
     # hold the safe members hostage: #128 cannot land its `@biomejs/biome` and
@@ -123,25 +123,21 @@ updates:
     # routine bump we know is a migration — not to go blind on advisories.
     #
     # Delete an entry once that package's migration lands:
-    #   - The four `@electric-sql/pglite*` packages — these move as ONE SET and
-    #     a lone bump of any of them is broken by construction:
+    #   - The two `@electric-sql/pglite*` packages — these move as ONE PAIR and
+    #     a lone bump of either is broken by construction:
     #       * `@electric-sql/pglite` is pinned EXACTLY (not `^`) because
     #         `@electric-sql/pglite-pgvector` peer-pins an exact version
     #         (`0.0.5` → `0.5.4`). pgvector left the core package in 0.5.x, so
     #         a caret would silently drift off its own extension.
     #       * `@electric-sql/pglite-pgvector` is a 0.0.x package. Every future
     #         PGlite bump needs a matching pgvector release to exist FIRST.
-    #       * `@electric-sql/pglite-legacy` (alias of 0.3.16) and
-    #         `@electric-sql/pglite-tools` (peer-pins 0.3.16) are the read side
-    #         of `src/db/datadir-upgrade.ts`. They are pinned to the OLD engine
-    #         on purpose and must not be "updated" — bumping them breaks the
-    #         upgrade path off PG 17. Drop both once no supported upgrade path
-    #         starts at PG 17.
     #     A PGlite minor can also bump bundled Postgres across a MAJOR (0.3.x
-    #     was PG 17.5, 0.5.x is PG 18.3), which is a datadir migration for
-    #     every self-hosted install — `src/db/datadir-upgrade.ts` handles
-    #     17 → 18 and refuses anything else loudly. Any future major jump needs
-    #     that module extended, so it stays a hand-reviewed PR.
+    #     was PG 17.5, 0.5.x is PG 18.3), and Postgres data directories are
+    #     never compatible across majors — so such a bump strands the data
+    #     directory of every self-hosted install. `src/db/datadir-upgrade.ts`
+    #     refuses to boot on one rather than silently starting empty, but
+    #     refusing is not migrating: a major jump needs an operator-facing
+    #     upgrade story shipped with it, so it stays a hand-reviewed PR.
     #   - `@earendil-works/pi-ai`, `@earendil-works/pi-agent-core` — must move
     #     as a pair, and 0.83.0 removes `getOAuthApiKey`, requires `streamFn`,
     #     and grows the `SessionStorage` interface. A code migration.
@@ -152,8 +148,6 @@ updates:
         exclude-patterns:
           - "@electric-sql/pglite"
           - "@electric-sql/pglite-pgvector"
-          - "@electric-sql/pglite-legacy"
-          - "@electric-sql/pglite-tools"
           - "@earendil-works/pi-ai"
           - "@earendil-works/pi-agent-core"
         update-types:
