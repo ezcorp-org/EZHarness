@@ -22,7 +22,7 @@ import {
   clearProcessHolder,
 } from "./live-holder-guard";
 import { applyPgliteNulPatches, patchJsonColumns, patchTextColumns } from "./nul-column-patch";
-import { APP_DATABASE, clearStaleLockFiles, upgradeDatadirIfNeeded } from "./datadir-upgrade";
+import { APP_DATABASE, CURRENT_PG_MAJOR, assertDatadirCompatible, clearStaleLockFiles } from "./datadir-upgrade";
 const log = logger.child("db");
 
 const DEFAULT_DB_DIR = `${process.env.HOME}/ez-corp/.data`;
@@ -177,6 +177,31 @@ function recoverInterruptedRollback(dbPath: string = DB_PATH): void {
   throw new Error("Interrupted migration rollback: snapshot unavailable, refusing to boot");
 }
 
+/**
+ * Refuse to boot on a data directory written by a different PostgreSQL major,
+ * and say so on `/api/ready` instead of crash-looping mute.
+ *
+ * The readiness call is the whole reason this is a function: the refusal is the
+ * common path for an install stranded on an old datadir, and the sibling
+ * failure paths (`rollback-interrupted`, `data-recovery-needed`) both report
+ * themselves while this one used to propagate silently.
+ *
+ * `dbPath` is a parameter because the module-level `DB_PATH` is frozen from the
+ * environment at import, so passing one in is the only way a test can exercise
+ * this against a datadir of a chosen major.
+ */
+export async function guardDatadirMajor(dbPath: string): Promise<void> {
+  try {
+    await assertDatadirCompatible(dbPath);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    const detail = { message, dbPath, expectedPgMajor: CURRENT_PG_MAJOR };
+    log.error("Data directory is incompatible with this build — refusing to boot", detail);
+    setReadiness({ state: "degraded", reason: "datadir-incompatible", detail });
+    throw e;
+  }
+}
+
 async function initPglite(): Promise<void> {
   const { PGlite } = await import("@electric-sql/pglite");
   const { vector } = await import("@electric-sql/pglite-pgvector");
@@ -211,13 +236,20 @@ async function initPglite(): Promise<void> {
     // server's datadir. Dead-pid claims (SIGKILL) pass through as stale.
     assertNoLiveHolder(DB_PATH);
     claimHolder(DB_PATH);
-    // Cross-major Postgres upgrade (PG 17 datadir -> the PG 18 engine this
-    // build ships). No-op on a fresh install and on an already-current
+    // Postgres MAJOR guard: prove the datadir was written by the engine this
+    // build ships, and finish or unwind an interrupted upgrade an OLDER build
+    // left mid-swap. No-op on a fresh install and on an already-current
     // datadir. Runs AFTER claimHolder so no other live EZCorp process can be
-    // writing while we dump — the holder pidfile is a SIBLING of DB_PATH
-    // (`live-holder-guard.holderPidPath`), so it survives the datadir swap.
-    // Before openPglite, because 0.5.x refuses a PG 17 datadir outright.
-    await upgradeDatadirIfNeeded(DB_PATH);
+    // renaming underneath it — the holder pidfile is a SIBLING of DB_PATH
+    // (`live-holder-guard.holderPidPath`), so it survives a datadir swap.
+    //
+    // STRICTLY BEFORE openPglite, and that ordering is the whole point. PGlite
+    // 0.5.4 opening e.g. a PG 17 datadir throws a bare "PGlite failed to
+    // initialize properly" that never names a version; that lands in the catch
+    // further down, and with EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE=1 it would
+    // rename the operator's database aside and boot EMPTY. Checked here it is a
+    // refusal that says which major wrote the directory and touches nothing.
+    await guardDatadirMajor(DB_PATH);
   }
   // PGlite uses the URI-style `memory://` scheme for in-memory mode;
   // passing the SQLite-style `:memory:` literal creates a directory of

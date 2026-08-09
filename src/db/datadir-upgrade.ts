@@ -1,11 +1,10 @@
 /**
- * First-boot upgrade of the embedded PGlite data directory across a
- * PostgreSQL MAJOR version.
+ * PostgreSQL MAJOR-version guard for the embedded PGlite data directory.
  *
  * ## Why this exists
  *
  * PGlite bundles a whole Postgres build, so bumping PGlite can bump Postgres:
- * `@electric-sql/pglite` 0.3.16 ships **PostgreSQL 17.5**, 0.5.4 ships
+ * `@electric-sql/pglite` 0.3.16 shipped **PostgreSQL 17.5**, 0.5.4 ships
  * **PostgreSQL 18.3**. Postgres data directories are never compatible across
  * majors — that is core Postgres behaviour, not a PGlite quirk — so a datadir
  * written by 0.3.x makes 0.5.x abort at startup:
@@ -16,60 +15,56 @@
  *         which is not compatible with this version 18.3.
  * ```
  *
- * PGlite is the default database whenever `DATABASE_URL` is unset, so without
- * this module every existing self-hosted deployment would fail to boot on
- * update, surfacing only as the uninformative "PGlite failed to initialize
- * properly" (the FATAL above is swallowed unless `debug` is on).
+ * PGlite swallows that FATAL unless `debug` is on, so all the caller actually
+ * sees is `Error: PGlite failed to initialize properly` — a message that never
+ * names a version. `connection.ts` catches exactly that, and under
+ * `EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE=1` it renames the datadir aside and
+ * boots an EMPTY database. So the major is decided HERE, from the datadir's own
+ * `PG_VERSION` file and strictly BEFORE `openPglite()`: a mismatch has to be a
+ * loud refusal that names the version, never an anonymous open failure.
  *
- * `pg_upgrade` does not exist in a WASM build, so the only path is a logical
- * dump under the old engine and a restore under the new one. Both engines are
- * therefore installed at once: `@electric-sql/pglite-legacy` is an alias of
- * 0.3.16 kept solely to READ old datadirs, and it can be dropped once no
- * supported upgrade path starts at PG 17.
+ * ## What this module no longer does
  *
- * ## Why 0.4.x is never used as a stepping stone
+ * It used to carry a real PG 17 -> 18 upgrade — a logical dump under a second
+ * bundled engine (`@electric-sql/pglite-legacy`, an alias of 0.3.16, plus
+ * `@electric-sql/pglite-tools` for `pgDump`) and a restore under the new one.
+ * Both engines are gone, and with them ~24 MB of runtime image. A PG 17 datadir
+ * is now REFUSED rather than converted. The file keeps its name because what
+ * survives here is the recovery half of that upgrade.
  *
- * PGlite 0.4.x is still PostgreSQL 17, which makes it look like a cheaper
- * intermediate hop. It is not, and it is the more dangerous version to touch:
- * 0.4.x changed the DEFAULT DATABASE from `template1` to `postgres`. Opening a
- * 0.3.x datadir with 0.4.x therefore SUCCEEDS and presents an empty database —
- * 0 tables, no `vector` extension — while the real data sits unreachable in
- * `template1`. `migrate()` would then recreate the whole schema empty and the
- * user would see an empty install with no error anywhere. The 0.5.x hard
- * refusal is by far the safer failure, so the upgrade goes 0.3 → 0.5 directly.
+ * ## The crash-recovery state machine survives, and has to
  *
- * ## Safety model
- *
- * The original datadir is NEVER mutated. The new one is built alongside it and
- * only swapped in after it has been verified row-for-row against the source:
+ * An older build could be interrupted mid-swap, and this build still has to
+ * clean that up. Every one of its steps is a pure `rename(2)` or `rm`, so it
+ * needs no Postgres engine of any major — which is exactly why it outlives the
+ * upgrade it belonged to. The paths an interrupted run may have left:
  *
  * ```
- *   <db>                      live datadir
- *   <db>.pg-upgrade-tmp       staging; built, verified, then renamed into place
- *   <db>.pg17-backup.<ts>     the original, retained after the swap (rollback)
+ *   <db>                              live datadir
+ *   <db>.pg-upgrade-tmp               staging (its real path is in the marker)
+ *   <db>.pg17-backup.<ts>             the pre-upgrade original (ditto)
  *   ../.ezcorp-datadir-upgrade.json   crash marker (sibling — survives renames)
  * ```
  *
- * Every step is crash-safe because the *only* destructive operations are two
- * `rename(2)` calls, and the state between them is detectable. On the next
- * boot `resolveRecovery()` reads the on-disk PG_VERSION of each path — never
- * mere directory existence, because `initPglite` may have `mkdir`ed an empty
- * one — and decides deterministically:
+ * `resolveRecovery()` reads the on-disk `PG_VERSION` of each path — never mere
+ * directory existence, because `initPglite` may have `mkdir`ed an empty one —
+ * and decides deterministically:
  *
  * | live | tmp | backup | meaning | action |
  * |---|---|---|---|---|
  * | 18 | — | — | swap completed | clear marker |
- * | 17 | — | — | crashed before any rename; original intact | retry |
+ * | 17 | — | — | crashed before any rename; original intact | clear up, then refuse |
  * | absent | 18 | 17 | crashed BETWEEN the renames | finish the swap |
- * | absent | not 18 | 17 | crashed between renames, staging unusable | roll back, retry |
+ * | absent | not 18 | 17 | crashed between renames, staging unusable | roll back, then refuse |
  * | anything else | | | unprovable | refuse loudly |
  *
- * A half-swapped datadir is never presented as healthy. A handled failure (as
- * opposed to a crash) cleans up after itself and leaves the pre-upgrade state
- * exactly as it was, so a retry on the next boot is always safe and the marker
- * only ever describes a real crash.
+ * Deleting this would be silent data loss, not dead-code cleanup. In the
+ * `finish-swap` state the live datadir is ABSENT: `connection.ts` would `mkdir`
+ * an empty one, PGlite would bootstrap a fresh cluster, `migrate()` would run,
+ * and the operator would boot into an empty app with their real database
+ * sitting in a sibling directory nobody thinks to look at.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, renameSync, rmSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { logger } from "../logger";
 
@@ -77,46 +72,42 @@ const log = logger.child("db");
 
 /** Postgres major shipped by the PGlite version this build depends on. */
 export const CURRENT_PG_MAJOR = "18";
-/** Postgres major shipped by `@electric-sql/pglite-legacy` (0.3.16). */
+/**
+ * The major this project used to be able to upgrade FROM, kept because both
+ * the refusal and `resolveRecovery` still have to recognise it: a PG 17 datadir
+ * gets a message that says what happened, not a generic one, and a marker left
+ * by the old bridge names 17 in its `fromMajor`.
+ */
 export const LEGACY_PG_MAJOR = "17";
 
 /**
- * The database name each side of the upgrade uses — passed EXPLICITLY, never
- * taken from the driver's default.
+ * The database `connection.ts` opens, passed EXPLICITLY rather than left to the
+ * driver default.
  *
  * PGlite changed its default database from `template1` to `postgres` in 0.4.x.
- * Relying on defaults happens to work for this exact pair of versions — the
- * 0.3.16 datadir keeps everything in `template1` and 0.5.4 lands in `postgres`,
- * which is also where the app then looks — but that is luck, not design. If a
- * future PGlite moved the default again, an implicit dump would silently read
- * an EMPTY database and "successfully" migrate nothing, which is precisely the
- * silent-data-loss shape this whole module exists to prevent.
- *
- * So both ends are pinned. `APP_DATABASE` is also what `connection.ts` passes
- * when it opens the datadir, so the database the restore writes and the
- * database the app reads are the same name from the same constant rather than
- * two independent defaults that happen to agree.
+ * Naming it from one constant keeps the app off whatever the installed driver
+ * happens to default to today — a default that has already moved once, and
+ * whose move is what made 0.4.x unusable as an upgrade stepping stone (opening
+ * a 0.3.x datadir with it SUCCEEDS and presents an empty database while the
+ * real data sits unreachable in `template1`).
  */
-export const LEGACY_SOURCE_DATABASE = "template1";
 export const APP_DATABASE = "postgres";
 
-const TMP_SUFFIX = ".pg-upgrade-tmp";
-const BACKUP_SUFFIX = ".pg17-backup.";
 const MARKER_FILENAME = ".ezcorp-datadir-upgrade.json";
 
 /**
  * PGlite writes these when the engine is running. A SIGKILLed container leaves
- * them behind and the next open aborts at the WASM level — the same
- * false-positive `connection.ts` clears before its own open. The upgrade opens
- * the datadir too, so it has to clear them first or an unclean shutdown would
- * masquerade as an unreadable datadir.
+ * them behind and the next open aborts at the WASM level — a false positive
+ * `connection.ts` clears before its own open.
  */
 const LOCK_FILES = ["postmaster.pid", "postmaster.opts"] as const;
 
-export type UpgradePhase = "dumping" | "swapping";
-
+/**
+ * The crash marker an OLDER build wrote while upgrading. Nothing writes one any
+ * more; this build only ever reads and clears them.
+ */
 export type UpgradeMarker = {
-  phase: UpgradePhase;
+  phase: "dumping" | "swapping";
   fromMajor: string;
   toMajor: string;
   tmpPath: string;
@@ -124,31 +115,24 @@ export type UpgradeMarker = {
   startedAt: string;
 };
 
-/** What `upgradeDatadirIfNeeded` actually did, for logs and tests. */
-export type UpgradeAction =
+/**
+ * What `assertDatadirCompatible` actually did, for logs and tests.
+ *
+ * There is deliberately no `recovered-rolled-back` member: a roll-back restores
+ * the PRE-upgrade (PG 17) datadir, which this build cannot open, so that arm
+ * always continues into the refusal below rather than reporting success.
+ */
+export type DatadirGuardAction =
   | "none-fresh-install"
   | "none-already-current"
-  | "upgraded"
   | "recovered-completed-swap"
-  | "recovered-cleared-marker"
-  | "recovered-rolled-back";
+  | "recovered-cleared-marker";
 
-export type UpgradeOutcome = {
-  action: UpgradeAction;
-  /** Where the pre-upgrade datadir was retained, when a swap happened. */
+export type DatadirGuardOutcome = {
+  action: DatadirGuardAction;
+  /** Where a previous build's pre-upgrade datadir was retained, when known. */
   backupPath?: string;
 };
-
-/** Per-table row counts, keyed by table name — the verification contract. */
-export type TableCounts = Record<string, number>;
-
-export function tmpPathFor(dbPath: string): string {
-  return `${dbPath}${TMP_SUFFIX}`;
-}
-
-export function backupPathFor(dbPath: string, stamp: string): string {
-  return `${dbPath}${BACKUP_SUFFIX}${stamp}`;
-}
 
 export function markerPathFor(dbPath: string): string {
   return join(dirname(dbPath), MARKER_FILENAME);
@@ -158,12 +142,12 @@ export function markerPathFor(dbPath: string): string {
  * The Postgres major that wrote `dir`, read from its `PG_VERSION` file.
  *
  * `undefined` for a path that does not exist, is not a datadir, or whose
- * `PG_VERSION` is not a plain integer — all of which mean "nothing to upgrade
+ * `PG_VERSION` is not a plain integer — all of which mean "nothing to check
  * here" rather than an error.
  *
- * The strictness is deliberate and load-bearing. A CORRUPT `PG_VERSION` (a
- * NUL byte, a truncated write) is not a version this module can reason about,
- * and it must NOT be mistaken for "some other major" and refused here: the
+ * The strictness is deliberate and load-bearing. A CORRUPT `PG_VERSION` (a NUL
+ * byte, a truncated write) is not a version this module can reason about, and
+ * it must NOT be mistaken for "some other major" and refused here: the
  * open-failure path in `connection.ts` already owns corrupt datadirs, with a
  * recovery marker, operator hints and the `EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE`
  * escape hatch behind it (two 2026-05-10 prod incidents shaped that contract).
@@ -189,12 +173,6 @@ export function readUpgradeMarker(dbPath: string): UpgradeMarker | null {
   }
 }
 
-export function writeUpgradeMarker(dbPath: string, marker: UpgradeMarker): void {
-  const path = markerPathFor(dbPath);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(marker, null, 2));
-}
-
 export function clearUpgradeMarker(dbPath: string): void {
   try {
     unlinkSync(markerPathFor(dbPath));
@@ -206,8 +184,7 @@ export function clearUpgradeMarker(dbPath: string): void {
 
 /**
  * Remove stale PGlite lock files so an unclean shutdown doesn't read as an
- * unreadable datadir. Shared with `connection.ts`, which needs exactly the
- * same pre-flight before its own open.
+ * unreadable datadir. Called by `connection.ts` on every boot.
  */
 export function clearStaleLockFiles(dbPath: string): void {
   if (!existsSync(dbPath)) return;
@@ -223,129 +200,7 @@ export function clearStaleLockFiles(dbPath: string): void {
   }
 }
 
-/**
- * Dump a PG 17 datadir to SQL using the legacy engine, along with the row
- * counts the restore will be verified against.
- *
- * `pgDump` emits a script that begins by setting an empty `search_path`, so
- * the caller MUST replay it as one whole `exec()` — splitting it into
- * statements loses that session state and the restore half-fails with
- * `relation "public.x" does not exist`.
- */
-export async function dumpLegacyDatadir(dbPath: string): Promise<{ sql: string; counts: TableCounts }> {
-  const { PGlite } = await import("@electric-sql/pglite-legacy");
-  const { vector } = await import("@electric-sql/pglite-legacy/vector");
-  const { pg_trgm } = await import("@electric-sql/pglite-legacy/contrib/pg_trgm");
-  const { pgDump } = await import("@electric-sql/pglite-tools/pg_dump");
-
-  clearStaleLockFiles(dbPath);
-  // Explicit source database — see LEGACY_SOURCE_DATABASE.
-  const pg = new PGlite({ dataDir: dbPath, database: LEGACY_SOURCE_DATABASE, extensions: { vector, pg_trgm } });
-  try {
-    await pg.waitReady;
-    const counts = await collectTableCounts((sql) => pg.query(sql));
-    // `pglite-tools@0.2.21` peer-pins pglite 0.3.16, so the LEGACY instance is
-    // exactly what it expects at runtime. TypeScript disagrees only because
-    // the bare specifier `@electric-sql/pglite` resolves to 0.5.4 in this tree
-    // (0.3.16 is installed under the `-legacy` alias), and PGlite's private
-    // field makes the two classes structurally distinct. A resolution
-    // artifact, not an incompatibility — the round trip is covered by tests.
-    const dump = await pgDump({ pg: pg as unknown as Parameters<typeof pgDump>[0]["pg"] });
-    return { sql: await dump.text(), counts };
-  } finally {
-    await pg.close().catch(() => {});
-  }
-}
-
-/** Build a fresh PG 18 datadir at `tmpPath` and replay `sql` into it. */
-export async function restoreIntoNewDatadir(tmpPath: string, sql: string): Promise<void> {
-  const { PGlite } = await import("@electric-sql/pglite");
-  const { vector } = await import("@electric-sql/pglite-pgvector");
-  const { pg_trgm } = await import("@electric-sql/pglite/contrib/pg_trgm");
-
-  // Explicit target database — the one connection.ts will open. See APP_DATABASE.
-  const pg = new PGlite({ dataDir: tmpPath, database: APP_DATABASE, extensions: { vector, pg_trgm } });
-  try {
-    await pg.waitReady;
-    // ONE exec for the WHOLE script — see dumpLegacyDatadir.
-    await pg.exec(sql);
-  } finally {
-    await pg.close().catch(() => {});
-  }
-}
-
-/**
- * Re-open the restored datadir and prove it matches the source table for table.
- *
- * The reconnect is load-bearing, not hygiene: the session that ran the restore
- * still carries the dump's empty `search_path`, so unqualified operators fail
- * there (`operator does not exist: public.vector <-> unknown`). A fresh session
- * is also what the app itself will get, which is what we actually want to
- * assert.
- */
-export async function verifyRestoredDatadir(tmpPath: string, expected: TableCounts): Promise<void> {
-  const { PGlite } = await import("@electric-sql/pglite");
-  const { vector } = await import("@electric-sql/pglite-pgvector");
-  const { pg_trgm } = await import("@electric-sql/pglite/contrib/pg_trgm");
-
-  // Same database the app will read, so verification proves what the app sees.
-  const pg = new PGlite({ dataDir: tmpPath, database: APP_DATABASE, extensions: { vector, pg_trgm } });
-  let actual: TableCounts;
-  try {
-    await pg.waitReady;
-    actual = await collectTableCounts((sql) => pg.query(sql));
-  } finally {
-    await pg.close().catch(() => {});
-  }
-
-  const mismatches: string[] = [];
-  for (const [table, count] of Object.entries(expected)) {
-    const got = actual[table];
-    if (got !== count) mismatches.push(`${table}: expected ${count}, got ${got ?? "missing table"}`);
-  }
-  const extra = Object.keys(actual).filter((t) => !(t in expected));
-  if (extra.length > 0) mismatches.push(`unexpected tables: ${extra.sort().join(", ")}`);
-  if (mismatches.length > 0) {
-    throw new Error(`Upgraded datadir does not match the source: ${mismatches.sort().join("; ")}`);
-  }
-}
-
-/**
- * Row count of every public base table, via an injected query function so the
- * same code serves the old engine and the new one.
- */
-export async function collectTableCounts(
-  query: (sql: string) => Promise<{ rows: unknown[] }>,
-): Promise<TableCounts> {
-  const listed = (await query(
-    "select table_name from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE' order by table_name",
-  )) as { rows: { table_name: string }[] };
-  const counts: TableCounts = {};
-  for (const { table_name } of listed.rows) {
-    // Identifiers come from the catalog, and are quoted so an exotic table
-    // name can't change the shape of the statement.
-    const res = (await query(`select count(*)::int as n from "${table_name.replace(/"/g, '""')}"`)) as {
-      rows: { n: number }[];
-    };
-    counts[table_name] = res.rows[0]?.n ?? 0;
-  }
-  return counts;
-}
-
-/** Seams so the recovery/refusal paths are testable without booting WASM twice. */
-export type UpgradeDeps = {
-  dump: typeof dumpLegacyDatadir;
-  restore: typeof restoreIntoNewDatadir;
-  verify: typeof verifyRestoredDatadir;
-};
-
-const REAL_DEPS: UpgradeDeps = {
-  dump: dumpLegacyDatadir,
-  restore: restoreIntoNewDatadir,
-  verify: verifyRestoredDatadir,
-};
-
-/** What a crashed run left behind, decided from PG_VERSION rather than existence. */
+/** What a crashed upgrade left behind, decided from PG_VERSION rather than existence. */
 export type RecoveryPlan =
   | { kind: "retry" }
   | { kind: "finish-swap" }
@@ -369,18 +224,17 @@ export function resolveRecovery(dbPath: string, marker: UpgradeMarker): Recovery
 }
 
 /**
- * Bring `dbPath` up to the Postgres major this build runs, if it isn't already.
+ * Prove `dbPath` is a datadir this build's Postgres can open, or throw.
+ *
  * Safe to call on every boot: a fresh install, an already-current datadir and
- * an external-Postgres deployment are all no-ops.
+ * an external-Postgres deployment are all no-ops. MUST be called before
+ * `openPglite()` — see the module header for what happens if it is not.
  */
-export async function upgradeDatadirIfNeeded(
-  dbPath: string,
-  deps: UpgradeDeps = REAL_DEPS,
-): Promise<UpgradeOutcome> {
+export async function assertDatadirCompatible(dbPath: string): Promise<DatadirGuardOutcome> {
   const marker = readUpgradeMarker(dbPath);
   if (marker) {
     const plan = resolveRecovery(dbPath, marker);
-    log.warn("Datadir upgrade marker found — a previous upgrade did not finish", {
+    log.warn("Datadir upgrade marker found — an earlier build's upgrade did not finish", {
       phase: marker.phase,
       startedAt: marker.startedAt,
       plan: plan.kind,
@@ -402,8 +256,13 @@ export async function upgradeDatadirIfNeeded(
         renameSync(marker.backupPath, dbPath);
         clearUpgradeMarker(dbPath);
         log.warn("Rolled an interrupted datadir upgrade back to the original");
-        return { action: "recovered-rolled-back" };
+        // Falls through to the major check below, which refuses: the original
+        // this just restored is by definition the PRE-upgrade (PG 17) datadir.
+        break;
       case "retry":
+        // Nothing was ever renamed, so the live datadir is still the untouched
+        // original. Drop the crashed attempt's leftovers and let the major
+        // check below deliver the refusal.
         rmSync(marker.tmpPath, { recursive: true, force: true });
         clearUpgradeMarker(dbPath);
         break;
@@ -418,69 +277,16 @@ export async function upgradeDatadirIfNeeded(
   const major = readDatadirMajor(dbPath);
   if (major === undefined) return { action: "none-fresh-install" };
   if (major === CURRENT_PG_MAJOR) return { action: "none-already-current" };
-  if (major !== LEGACY_PG_MAJOR) {
+  if (major === LEGACY_PG_MAJOR) {
     throw new Error(
-      `Refusing to boot: the database at ${dbPath} was written by PostgreSQL ${major}, but this build runs PostgreSQL ${CURRENT_PG_MAJOR} and can only upgrade from ${LEGACY_PG_MAJOR}. ` +
-        "Downgrade to the EZCorp version that wrote it, or restore a compatible backup.",
+      `Refusing to boot: the database at ${dbPath} was written by PostgreSQL ${LEGACY_PG_MAJOR}, but this build runs PostgreSQL ${CURRENT_PG_MAJOR}, and it no longer ships the PostgreSQL ${LEGACY_PG_MAJOR} engine needed to read one. ` +
+        "THE DATA DIRECTORY HAS NOT BEEN MODIFIED. " +
+        `To recover, either restore a PostgreSQL ${CURRENT_PG_MAJOR} backup of this directory, or run an EZCorp build that still carries the ${LEGACY_PG_MAJOR}->${CURRENT_PG_MAJOR} upgrade bridge and let it convert the directory first.`,
     );
   }
-
-  return runUpgrade(dbPath, deps);
-}
-
-async function runUpgrade(dbPath: string, deps: UpgradeDeps): Promise<UpgradeOutcome> {
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const tmpPath = tmpPathFor(dbPath);
-  const backupPath = backupPathFor(dbPath, stamp);
-
-  log.info("Upgrading the embedded database across a PostgreSQL major version", {
-    from: LEGACY_PG_MAJOR,
-    to: CURRENT_PG_MAJOR,
-    dbPath,
-    backupPath,
-  });
-  writeUpgradeMarker(dbPath, {
-    phase: "dumping",
-    fromMajor: LEGACY_PG_MAJOR,
-    toMajor: CURRENT_PG_MAJOR,
-    tmpPath,
-    backupPath,
-    startedAt: new Date().toISOString(),
-  });
-
-  try {
-    // Leftovers from an earlier attempt are never reused.
-    rmSync(tmpPath, { recursive: true, force: true });
-    const { sql, counts } = await deps.dump(dbPath);
-    await deps.restore(tmpPath, sql);
-    await deps.verify(tmpPath, counts);
-  } catch (err) {
-    // The original has not been touched, so putting the disk back exactly as
-    // we found it makes the next boot a clean retry rather than a recovery.
-    rmSync(tmpPath, { recursive: true, force: true });
-    clearUpgradeMarker(dbPath);
-    log.error("Datadir upgrade failed — the original database is untouched", { error: String(err) });
-    throw err;
-  }
-
-  writeUpgradeMarker(dbPath, {
-    phase: "swapping",
-    fromMajor: LEGACY_PG_MAJOR,
-    toMajor: CURRENT_PG_MAJOR,
-    tmpPath,
-    backupPath,
-    startedAt: new Date().toISOString(),
-  });
-  // The only two destructive operations in the whole module. A crash between
-  // them is the "finish-swap" row of the recovery table.
-  renameSync(dbPath, backupPath);
-  renameSync(tmpPath, dbPath);
-  clearUpgradeMarker(dbPath);
-
-  log.info("Database upgraded; the pre-upgrade datadir was kept for rollback", {
-    from: LEGACY_PG_MAJOR,
-    to: CURRENT_PG_MAJOR,
-    backupPath,
-  });
-  return { action: "upgraded", backupPath };
+  throw new Error(
+    `Refusing to boot: the database at ${dbPath} was written by PostgreSQL ${major}, but this build runs PostgreSQL ${CURRENT_PG_MAJOR}. Postgres data directories are never compatible across majors. ` +
+      "THE DATA DIRECTORY HAS NOT BEEN MODIFIED. " +
+      `To recover, either restore a PostgreSQL ${CURRENT_PG_MAJOR} backup of this directory, or run the EZCorp build that wrote it.`,
+  );
 }
