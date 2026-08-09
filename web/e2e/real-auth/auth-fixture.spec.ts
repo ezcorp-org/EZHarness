@@ -11,7 +11,7 @@
  * Every later real-auth spec depends on this contract — if this one
  * goes red, fix the harness BEFORE chasing failures in feature specs.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 import { TEST_USER } from "../real-auth-setup";
 
 test.describe("Real-auth harness", () => {

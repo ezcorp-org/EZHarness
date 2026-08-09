@@ -86,7 +86,7 @@
  * the picker can emit must be accepted by `validateDependencies`.
  * ─────────────────────────────────────────────────────────────────────
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 import {
 	cleanupExtensionAuthorDraft,
 	cleanupInstalledExtension,

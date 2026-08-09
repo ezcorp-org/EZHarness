@@ -1,16 +1,36 @@
 import type { Locator, Page } from "@playwright/test";
-// `expect` is re-exported by test-base rather than imported straight from
-// "@playwright/test": a VALUE import of the package from a fixture can
-// resolve a second copy and trip the "did not expect test.describe()"
-// runtime guard (see picker-helpers.ts). Going through test-base reuses the
-// exact module instance every spec already loads.
-import { expect } from "./test-base";
+// `expect` is re-exported by the fixture root rather than imported straight
+// from "@playwright/test": a VALUE import of the package from a fixture can
+// resolve a second copy and trip the "did not expect test.describe()" runtime
+// guard (see picker-helpers.ts). `hydration.ts` is the root every tier loads
+// (test-base extends it, real-auth imports it directly), so going through it
+// reuses the exact module instance without dragging in the fetch mocks.
+import { expect } from "./hydration.js";
 
 /**
  * Anything that can scope composer queries: the whole `Page` (main chat) or a
  * `Locator` for a sub-surface (the agent panel's drawer).
  */
 export type ComposerScope = Pick<Page | Locator, "getByRole" | "locator">;
+
+/**
+ * The chat thread's message list — the correct scope for "did my message land
+ * in the conversation?".
+ *
+ * Sending a message auto-titles the conversation with that same text, so on a
+ * FULLY HYDRATED page an unscoped `page.getByText(sent)` matches twice: the
+ * sidebar's conversation row and the chat bubble. Playwright's strict mode
+ * then fails the assertion.
+ *
+ * That used to pass, and for the wrong reason: before `page.goto` gated on
+ * hydration (issue #145), the assertion ran while the sidebar was still the
+ * server's stale render, so exactly one node matched. Scoping is the fix —
+ * `.first()` would just re-pick a race, and it can silently assert on the
+ * SIDEBAR row instead of the message.
+ */
+export function threadMessages(scope: ComposerScope): Locator {
+	return scope.locator('[data-testid="chat-messages-container"]');
+}
 
 /**
  * Type a message into a composer and send it — waiting for the composer to be
@@ -42,6 +62,12 @@ export type ComposerScope = Pick<Page | Locator, "getByRole" | "locator">;
  * The post-fill `toBeEnabled()` is the second half: if the value is ever lost
  * again the spec fails fast and legibly on the assertion instead of hanging on
  * an un-clickable button.
+ *
+ * STILL NEEDED after the hydration gate landed (`fixtures/hydration.ts` now
+ * makes every `page.goto` wait for `<html data-hydrated="true">`). Hydration
+ * is NECESSARY for the composer to be interactive but not SUFFICIENT: the
+ * send button additionally needs `/api/models` to answer and the picker to
+ * autoselect. The two gates are layered, not redundant.
  */
 export async function sendComposerMessage(
 	scope: ComposerScope,

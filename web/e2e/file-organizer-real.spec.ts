@@ -48,7 +48,8 @@
  * is unaffected (host cwd is already /app). The previously-skipped
  * "appears in the Hub render" specs are enabled below.
  */
-import { test, expect, type APIRequestContext, type APIResponse } from "@playwright/test";
+import type { APIRequestContext, APIResponse } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 import { execFileSync } from "node:child_process";
 
 const RUN_REAL = !!process.env.DOCKER_TEST;

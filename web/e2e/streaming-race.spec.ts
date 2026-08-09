@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeRun } from "./fixtures/data.js";
 
 /**
@@ -30,7 +31,7 @@ test.describe("Streaming Race Conditions", () => {
 		await page.getByRole("button", { name: "Send message" }).click();
 
 		// Wait for user message to appear (POST completed, startStreaming called)
-		await expect(page.getByText("Hello streaming")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Hello streaming")).toBeVisible({ timeout: 5000 });
 
 		// Now emit tokens — these should appear incrementally
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "First " } });
@@ -53,7 +54,7 @@ test.describe("Streaming Race Conditions", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Stream test");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Stream test")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Stream test")).toBeVisible({ timeout: 5000 });
 
 		// Send first batch of tokens
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "The answer " } });
@@ -78,7 +79,7 @@ test.describe("Streaming Race Conditions", () => {
 		await page.getByRole("button", { name: "Send message" }).click();
 
 		// User message appears
-		await expect(page.getByText("Show me skeleton")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Show me skeleton")).toBeVisible({ timeout: 5000 });
 
 		// The skeleton loader should be visible (no tokens yet, streaming status active)
 		// The skeleton has "Thinking..." text by default
@@ -97,7 +98,7 @@ test.describe("Streaming Race Conditions", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Cursor test");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Cursor test")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Cursor test")).toBeVisible({ timeout: 5000 });
 
 		// Send a token so streaming text appears
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Streaming text..." } });
@@ -120,7 +121,7 @@ test.describe("Streaming Race Conditions", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Complete test");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Complete test")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Complete test")).toBeVisible({ timeout: 5000 });
 
 		// Stream tokens
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Done!" } });
@@ -151,7 +152,7 @@ test.describe("Streaming Race Conditions", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Stop button test");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Stop button test")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Stop button test")).toBeVisible({ timeout: 5000 });
 
 		// Emit token to establish streaming state
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Processing..." } });
@@ -183,7 +184,7 @@ test.describe("Streaming Race Conditions", () => {
 		await page.getByRole("button", { name: "Send message" }).click();
 
 		// Wait for user message
-		await expect(page.getByText("Error test")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Error test")).toBeVisible({ timeout: 5000 });
 
 		// Send a token so streaming is active
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Partial..." } });
@@ -215,7 +216,7 @@ test.describe("Streaming Race Conditions", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Status test");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Status test")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Status test")).toBeVisible({ timeout: 5000 });
 
 		// Emit a status update before tokens
 		await emitSse({ type: "run:status", data: { runId: "run-stream", status: "Searching documents..." } });
@@ -243,7 +244,7 @@ test.describe("Streaming Markdown Rendering", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Show me code");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Show me code")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Show me code")).toBeVisible({ timeout: 5000 });
 
 		// Stream a code block
 		const codeBlock = "```js\nconst x = 42;\n```";
@@ -271,7 +272,7 @@ test.describe("Streaming Markdown Rendering", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Format test");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Format test")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Format test")).toBeVisible({ timeout: 5000 });
 
 		// Stream markdown content
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "**bold** and *italic*" } });
@@ -300,7 +301,7 @@ test.describe("Streaming Auto-Scroll", () => {
 		await page.getByRole("button", { name: "Send message" }).click();
 
 		// The user message should appear immediately (optimistic rendering)
-		await expect(page.getByText("Optimistic message")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Optimistic message")).toBeVisible({ timeout: 5000 });
 	});
 
 	test("auto-scroll follows streaming tokens from empty chat", async ({ page, mockApi, emitSse }) => {

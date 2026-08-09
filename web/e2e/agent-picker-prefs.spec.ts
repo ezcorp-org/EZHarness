@@ -12,7 +12,7 @@
  * Run from web/:  `cd web && bunx playwright test e2e/agent-picker-prefs.spec.ts`
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 
 test.describe("Agent picker saved searches & pinned agents (UX-03)", () => {
 	test("save a search query: appears in saved-searches list after reload", async ({ page }) => {

@@ -25,9 +25,11 @@
  * matching requests fall through to the default handler via `route.fallback()`.
  */
 
-import { test, expect, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 import { setupApiMocks } from "./fixtures/api-mocks.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
+import { threadMessages } from "./fixtures/composer.js";
 
 async function installFakeTransports(page: Page) {
 	await page.addInitScript(() => {
@@ -224,7 +226,7 @@ test.describe("chat blank turn race — reconcileAfterStream snapshot fallback",
 		await page.addStyleTag({ content: ".ez-button { display: none !important; }" });
 		await page.locator("textarea").fill("Hello");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Hello")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Hello")).toBeVisible({ timeout: 5000 });
 		// Stop button visibility proves `startStreaming` registered the run.
 		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({
 			timeout: 8000,
@@ -711,7 +713,7 @@ test.describe("chat blank turn race — extended reconciliation races", () => {
 
 		await page.locator("textarea").fill("tool me");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("tool me")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("tool me")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({
 			timeout: 8000,
 		});

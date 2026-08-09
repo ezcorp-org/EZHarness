@@ -20,7 +20,8 @@
  *     wrapper on assistant rows whose content is empty/whitespace.
  */
 
-import { test, expect, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 import { setupApiMocks } from "./fixtures/api-mocks.js";
 import { setupWsMock } from "./fixtures/ws-mock.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";

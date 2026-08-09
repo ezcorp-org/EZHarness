@@ -19,7 +19,7 @@
  *      SQL error; "refreshed" path). (root-cause #1)
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 import { spawnSync } from "node:child_process";
 import {
   mkdtempSync,

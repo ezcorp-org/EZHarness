@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 
 test.describe("PWA", () => {
 	test("manifest is served with correct fields", async ({ page }) => {

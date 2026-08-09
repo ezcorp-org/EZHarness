@@ -18,7 +18,8 @@
  * Gated on the sandbox probe like the other extension-spawn specs: without
  * kernel caps the extension subprocess can't start at all.
  */
-import { test, expect, type APIRequestContext } from "@playwright/test";
+import type { APIRequestContext } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 import { sandboxSpawnAvailable } from "./sandbox-probe";
 
 test.describe.configure({ mode: "serial" });

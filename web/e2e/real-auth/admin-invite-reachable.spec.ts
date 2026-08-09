@@ -13,7 +13,7 @@
  * `hooks.server.ts` — which is precisely why the bug survived: the stub
  * answers before the broken code runs.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect } from "../fixtures/hydration.js";
 
 test.describe("admin invite API reachability (F5)", () => {
   test("bare path is admin-authenticated; :token path stays anonymous", async ({

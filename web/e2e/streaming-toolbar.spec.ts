@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Test Project" });
@@ -36,8 +37,12 @@ test.describe("Streaming Indicators", () => {
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Here is " } });
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "the answer" } });
 
-		// Skeleton should disappear, streamed text should appear
-		await expect(page.locator(".skeleton-line")).not.toBeVisible({ timeout: 5000 });
+		// Skeleton should disappear, streamed text should appear.
+		// `toHaveCount(0)` rather than `not.toBeVisible()`: the skeleton renders
+		// FOUR shimmer lines, and a multi-match locator is a strict-mode
+		// violation. It is also the stronger assertion — "no skeleton line
+		// exists" instead of "the one I happened to match isn't visible".
+		await expect(page.locator(".skeleton-line")).toHaveCount(0, { timeout: 5000 });
 		await expect(page.getByText("Here is the answer")).toBeVisible({ timeout: 5000 });
 	});
 
@@ -50,7 +55,7 @@ test.describe("Streaming Indicators", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Search for something");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Search for something")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Search for something")).toBeVisible({ timeout: 5000 });
 
 		// Emit a token to ensure stream is active
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Searching..." } });
@@ -79,7 +84,7 @@ test.describe("Streaming Indicators", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Do a search");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Do a search")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Do a search")).toBeVisible({ timeout: 5000 });
 
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Working..." } });
 
@@ -121,7 +126,7 @@ test.describe("Streaming Indicators", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Try something");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Try something")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Try something")).toBeVisible({ timeout: 5000 });
 
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Attempting..." } });
 
@@ -161,7 +166,7 @@ test.describe("Streaming Indicators", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Lookup data");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Lookup data")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Lookup data")).toBeVisible({ timeout: 5000 });
 
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Looking up..." } });
 
@@ -208,7 +213,7 @@ test.describe("Streaming Indicators", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Do multiple things");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Do multiple things")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Do multiple things")).toBeVisible({ timeout: 5000 });
 
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Processing..." } });
 
@@ -313,7 +318,7 @@ test.describe("Message Toolbar", () => {
 		const textarea = page.locator("textarea");
 		await textarea.fill("Stream this");
 		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Stream this")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Stream this")).toBeVisible({ timeout: 5000 });
 
 		// Keep streaming active
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Streaming content" } });

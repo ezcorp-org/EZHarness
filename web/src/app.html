@@ -1,5 +1,16 @@
 <!doctype html>
-<html lang="en">
+<!--
+	`data-hydrated` is the app's HYDRATION MARKER, and the only signal that
+	distinguishes "the server sent HTML" from "the client app is alive".
+	SSR emits `false` here; the root +layout.svelte's onMount flips it to
+	`true`. Every e2e navigation gates on it (web/e2e/fixtures/hydration.ts).
+
+	It has to live in app.html, not in a component: this template wraps EVERY
+	document the app serves — routes, the SvelteKit error page, redirects — so
+	the attribute's ABSENCE is itself meaningful (that document is not an
+	EZCorp app document and will never hydrate). See issue #145.
+-->
+<html lang="en" data-hydrated="false">
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />

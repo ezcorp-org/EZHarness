@@ -12,7 +12,7 @@
  * Run from web/:  `cd web && bunx playwright test e2e/marketplace-trgm-search.spec.ts`
  */
 
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 
 test.describe("Marketplace trigram search (UX-02)", () => {
 	test("typing 'iphne' returns 'iPhone' results within 500ms", async ({ page }) => {

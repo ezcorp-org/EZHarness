@@ -65,7 +65,8 @@
  * reasons. Visual evidence for the chat tool-card surface is carried by
  * the mock-tier specs instead.
  */
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import type { APIRequestContext, Page } from "@playwright/test";
+import { expect, test } from "../fixtures/hydration.js";
 import {
 	cleanupExtensionAuthorDraft,
 	cleanupInstalledExtension,

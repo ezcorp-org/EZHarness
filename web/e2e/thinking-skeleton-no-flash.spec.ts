@@ -20,7 +20,8 @@
  * the WS-only `emitWs` helper would not deliver these events.
  */
 
-import { test, expect, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { test, expect } from "./fixtures/hydration.js";
 import { setupApiMocks } from "./fixtures/api-mocks.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 

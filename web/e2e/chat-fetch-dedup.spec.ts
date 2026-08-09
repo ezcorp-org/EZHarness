@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
 
 /**
@@ -83,7 +84,7 @@ test("turn_saved events during an active run fire zero extra hydrate fetches", a
 		page.waitForResponse((r) => r.url().includes("/api/conversations/c1/messages") && r.request().method() === "POST"),
 		page.getByRole("button", { name: "Send message" }).click(),
 	]);
-	await expect(page.getByText("run a long orchestration")).toBeVisible({ timeout: 5000 });
+	await expect(threadMessages(page).getByText("run a long orchestration")).toBeVisible({ timeout: 5000 });
 	await page.waitForTimeout(300);
 
 	const baseline = hydrateCount;
