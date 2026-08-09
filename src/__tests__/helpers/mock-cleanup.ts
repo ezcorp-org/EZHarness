@@ -102,15 +102,10 @@ const MODULE_PATHS = [
   // import pulled in the whole bundled-extension graph per spawn. The one
   // suite that still stubs it (assert-bundled-not-stranded.test.ts) mocks it
   // at module top level and never imports the real one, so the residual leak
-  // is inert under scripts/test.sh's one-process-per-file pool.
-  //
-  // NOTE — the QUOTES on that path above are load-bearing, which is a bug in
-  // the meta-test, not a design: mock-cleanup-coverage.ts's loadModulePaths()
-  // scrapes every quoted string out of this array INCLUDING comments, so the
-  // mention alone is what lets assert-bundled-not-stranded.test.ts pass. If
-  // you normalise these quotes to backticks that suite reds for no visible
-  // reason. Tracked with the fix (strip `//` lines the way extractMockPaths()
-  // already does, plus an EXEMPT_PATTERNS entry) in issue #138.
+  // is inert under scripts/test.sh's one-process-per-file pool. That suite is
+  // held by an explicit EXEMPT_PATTERNS entry in mock-cleanup-coverage.test.ts,
+  // not by this comment: loadModulePaths() strips `//` lines before scraping,
+  // so quoting a path here documents it without snapshotting it (issue #138).
   //
   // `project-root` IS snapshotted, and cheaply: the resolver was split out
   // of bundled.ts and imports only `../../logger` + node builtins, so the
