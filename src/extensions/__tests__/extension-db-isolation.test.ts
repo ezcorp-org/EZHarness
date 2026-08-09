@@ -46,10 +46,10 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { Glob } from "bun";
+import { getTableName } from "drizzle-orm";
 
 // src/extensions (this file lives in src/extensions/__tests__)
 const extDir = `${import.meta.dir}/..`;
-const schemaPath = `${extDir}/../db/schema.ts`;
 
 // Identity / auth / RBAC tables. SQL name → drizzle export symbol in
 // `src/db/schema.ts`. A self-check below asserts this map matches the schema so
@@ -184,11 +184,19 @@ describe("extension DB isolation — guard integrity", () => {
     expect(sdk.length).toBeGreaterThan(10);
   });
 
-  test("the security-table map matches src/db/schema.ts", () => {
-    const schema = readFileSync(schemaPath, "utf8");
+  // STRUCTURAL, not textual. This used to regex `export const <symbol> =
+  // pgTable("<table>"` out of schema.ts, which pinned the DECLARATION'S LAYOUT
+  // as much as its content — the moment a pgTable() call wrapped across lines
+  // the pin broke without a table being renamed. Asking drizzle for the real
+  // table name is both layout-proof and strictly stronger: it reads the
+  // compiled object, so a name that only appears in a comment, a string, or a
+  // dead branch can no longer satisfy it.
+  test("the security-table map matches src/db/schema.ts", async () => {
+    const schema = (await import("../../db/schema")) as Record<string, unknown>;
     for (const [table, symbol] of Object.entries(SECURITY_TABLES)) {
-      const re = new RegExp(`export const ${symbol} = pgTable\\("${table}"`);
-      expect(schema).toMatch(re);
+      const exported = schema[symbol];
+      expect(exported, `src/db/schema.ts does not export \`${symbol}\``).toBeDefined();
+      expect(getTableName(exported as Parameters<typeof getTableName>[0])).toBe(table);
     }
   });
 });

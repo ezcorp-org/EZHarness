@@ -70,6 +70,7 @@ import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { squish } from "../helpers/source-match";
 import { mockServerAlias, createMockEvent, ADMIN_USER } from "../helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -405,13 +406,20 @@ describe("source: both read predicates carry the KB-SHARED-NULL-OWNER anchor", (
   const LIST = "web/src/routes/api/knowledge-base/+server.ts";
   const DETAIL = "web/src/routes/api/knowledge-base/[id]/+server.ts";
 
+  // Every token of the predicate is still required, in order — only the arrow
+  // parameter's optional parens (`f =>` vs `(f) =>`) and whitespace may vary.
+  // Dropping `!f.userId ||`, widening `===`, or swapping the operands all
+  // still fail. See helpers/source-match.ts for why layout must not count.
+  const LIST_FILTER =
+    /files\.filter\(\(?f\)?\s*=>\s*!f\.userId\s*\|\|\s*f\.userId\s*===\s*user\.id\)/;
+
   test(`${LIST} — the list filter is annotated as deliberate sharing`, () => {
-    const src = read(LIST);
+    const src = squish(read(LIST));
     expect(src).toContain("KB-SHARED-NULL-OWNER");
     // The anchor must sit with the predicate it explains, not drift to the top
     // of the file: the filter has to appear after it.
     const anchorAt = src.indexOf("KB-SHARED-NULL-OWNER");
-    const filterAt = src.indexOf("files.filter(f => !f.userId || f.userId === user.id)");
+    const filterAt = src.search(LIST_FILTER);
     expect(anchorAt).toBeGreaterThan(-1);
     expect(filterAt).toBeGreaterThan(anchorAt);
   });

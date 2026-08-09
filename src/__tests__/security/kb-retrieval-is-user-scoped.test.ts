@@ -45,6 +45,7 @@ import { resolve } from "node:path";
 import { setupTestDb, closeTestDb, mockDbConnection } from "../helpers/test-pglite";
 import { mockEmbedding, mockEmbeddingsModule } from "../helpers/mock-vectors";
 import { mockServerAlias, createMockEvent } from "../helpers/mock-request";
+import { containsCall } from "../helpers/source-match";
 import { mock } from "bun:test";
 
 mockDbConnection();
@@ -385,10 +386,20 @@ describe("source: the scope is named, and the call site actually threads a user"
   test(`${SETUP_TOOLS} — the injection call site passes the conversation owner, not a placeholder`, () => {
     // The query being scoped is worth nothing if the one production caller
     // hardcodes a user (or drops back to a 4-arg call). Pinned literally.
+    // Matched layout-insensitively so that wrapping the call across lines is
+    // not mistaken for changing it; the argument list itself is still required
+    // verbatim, in order (see helpers/source-match.ts).
     const src = read(SETUP_TOOLS);
-    expect(src).toContain(
-      "searchKBChunksForQuery(userMessage, queryEmbedding, options.projectId!, convRecord?.userId ?? null, 5)",
-    );
-    expect(src).toContain("hasKBChunks(options.projectId!, convRecord?.userId ?? null)");
+    expect(
+      containsCall(
+        src,
+        "searchKBChunksForQuery(userMessage, queryEmbedding, options.projectId!, convRecord?.userId ?? null, 5)",
+      ),
+      "the searchKBChunksForQuery call site no longer threads the conversation owner",
+    ).toBe(true);
+    expect(
+      containsCall(src, "hasKBChunks(options.projectId!, convRecord?.userId ?? null)"),
+      "the hasKBChunks call site no longer threads the conversation owner",
+    ).toBe(true);
   });
 });

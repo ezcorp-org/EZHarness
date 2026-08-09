@@ -195,6 +195,38 @@ describe("object-valued capability (custom ceiling) — brace-aware, no corrupt 
 		expect(unmanagedCapabilities(OBJECT_CAP)).toEqual(["search"]);
 	});
 
+	// Whitespace BETWEEN an object value's closing `}` and its comma — an input
+	// shape only an object value can produce (the non-object walk stops on the
+	// `,` itself). Previously untested; these two assert that the spacing
+	// changes neither the read nor a neighbouring cap's rewrite.
+	const OBJECT_CAP_SPACED = SCAFFOLD.replace(
+		"permissions: {}",
+		`permissions: {\n    search: { quota: 500 } ,\n    memory: "inherit",\n  }`,
+	);
+
+	test("a space between an object cap's `}` and its comma is read correctly", () => {
+		expect(parseCapabilities(OBJECT_CAP_SPACED)).toEqual({
+			search: true,
+			memory: true,
+			llm: false,
+		});
+		expect(unmanagedCapabilities(OBJECT_CAP_SPACED)).toEqual(["search"]);
+	});
+
+	test("removing a managed cap next to a space-then-comma object cap leaves valid source", () => {
+		// `memory` is managed and gets rewritten; `search` is unmanaged and must
+		// survive byte-for-byte, its ` ,` included, with no orphaned comma.
+		const res = setCapabilityPermissions(OBJECT_CAP_SPACED, allCaps({ memory: false }));
+		expect(res.recognized).toBe(true);
+		expect(res.source).toContain("search: { quota: 500 }");
+		expect(res.source).not.toMatch(/,\s*,/);
+		expect(parseCapabilities(res.source)).toEqual({
+			search: true,
+			memory: false,
+			llm: false,
+		});
+	});
+
 	test("toggling OFF an object cap does NOT corrupt the file and does NOT widen it", () => {
 		// Author clicks the Search toggle (would-be off). The object ceiling
 		// is UNMANAGED → left byte-for-byte; the file stays valid TS.
