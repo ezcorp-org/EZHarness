@@ -77,11 +77,6 @@ export type DriftReapproveResult =
       message: string;
     };
 
-/** `canonicalizePerms` options for the DIFF comparator below — the one
- *  knob on which it deliberately disagrees with the ceiling comparator.
- *  Rationale in `diffGrants`' doc. */
-const DIFF_CANONICALIZE = { includeRbacScopes: true } as const;
-
 /**
  * Structural diff of two grant shapes over the union of their permission
  * fields (excluding `grantedAt` — timestamps refresh on every
@@ -97,23 +92,28 @@ const DIFF_CANONICALIZE = { includeRbacScopes: true } as const;
  * phantom permission diff for a release that granted nothing new. Reuse,
  * not a second canonicalizer, so the two can't diverge again.
  *
- * `includeRbacScopes` is the ONE knob on which the two comparators must
- * NOT agree, and that is deliberate. `canonicalizePerms` drops
- * `rbacScopes` by default because `equalPermissions` asks "did the
- * ceiling NARROW this request?", and an inert scope declaration narrows
- * nothing — counting it would flag every manifest-shaped request as
- * `clamped`. This function asks a different question: "what must the
- * admin SEE before re-approving?" A scope renamed `read` → `admin`, or
- * declared where there was none, is exactly that: no privilege moves
- * (holding a scope still needs an `extension_rbac_grants` row), but it
- * is a security-review fact, and a screen that renders nothing for it is
- * worse than one that renders too much. Inheriting the default here made
- * that field invisible on this screen, which is why the opt-in exists.
+ * `rbacScopes` IS AND MUST STAY SILENT HERE — and the reason is
+ * structural, not a policy call about how much an admin should see. This
+ * is a GRANT-vs-GRANT diff: `newGrant` is the output of
+ * `clampToBundledCeiling`, which runs `intersectPermissions`
+ * (`capability-types.ts`), and `intersectPermissions` never emits
+ * `rbacScopes` — it drops the declaration even when BOTH the request and
+ * the ceiling declare it (verified by direct call: the intersection came
+ * back `{grantedAt, network}`). So the new side structurally cannot carry
+ * the field, and a rename like `read` → `admin` is not expressible in
+ * this diff at all.
  *
- * Order-only churn is still not a diff on this field either:
- * `canonicalizePerms` sorts object arrays by a stable serialization, so
- * re-listing the same scopes cannot resurrect the phantom-diff bug the
- * paragraph above describes.
+ * What making it visible actually produced was
+ * `{field:"rbacScopes", oldValue:<stored declaration>, newValue:undefined}`
+ * for any legacy row whose `grantedPermissions` jsonb still carries the
+ * blob — rendered as "REMOVED", on a security-review screen, repeatedly
+ * until the row is healed. That is a lie about a release, and worse than
+ * silence. It shipped once (commit 4dc382ab) and was reverted.
+ *
+ * If declaration changes should ever be surfaced, the input has to be the
+ * MANIFEST rather than the grant — a different comparison with a
+ * different pair of operands, not a knob on this one.
+ * `src/__tests__/bundled-drift-reapprove.test.ts` guards the absence.
  */
 function diffGrants(
   oldGrant: ExtensionPermissions,
@@ -128,8 +128,8 @@ function diffGrants(
   const oneField = (field: string, v: unknown) =>
     ({ [field]: v }) as unknown as ExtensionPermissions;
   for (const field of [...fields].sort()) {
-    const canonA = canonicalizePerms(oneField(field, a[field]), DIFF_CANONICALIZE);
-    const canonB = canonicalizePerms(oneField(field, b[field]), DIFF_CANONICALIZE);
+    const canonA = canonicalizePerms(oneField(field, a[field]));
+    const canonB = canonicalizePerms(oneField(field, b[field]));
     if (canonA !== canonB) {
       diffs.push({ field, oldValue: a[field], newValue: b[field] });
     }

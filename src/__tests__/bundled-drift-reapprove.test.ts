@@ -319,15 +319,20 @@ describe("bundled drift re-approval", () => {
     expect(result.diffs).toEqual([]);
   }, 30_000);
 
-  test("a changed rbacScopes declaration reaches the admin's diff — the ceiling comparator's skip must not leak into it", async () => {
+  test("a stored rbacScopes declaration produces NO diff entry — a grant-vs-grant diff cannot express a declaration change", async () => {
     const { previewBundledDrift } = await import("../extensions/bundled-drift-reapprove");
-    // `canonicalizePerms` skips `rbacScopes` by default, and that skip is
-    // a CEILING-comparator rule: an inert scope declaration narrows
-    // nothing, so counting it would flag `clamped` on every
-    // manifest-shaped request. When `diffGrants` started sharing that
-    // canonicalizer it inherited the skip too — and silently stopped
-    // reporting the field on the screen an admin reads BEFORE approving
-    // a release. `diffGrants` now passes `{includeRbacScopes: true}`.
+    // REGRESSION GUARD against reintroducing `canonicalizePerms({
+    // includeRbacScopes: true})` in `diffGrants` (shipped in 4dc382ab,
+    // reverted). The premise of that change — "an admin should see a
+    // scope renamed read → admin" — cannot be served by THIS comparison:
+    // `diffGrants` receives the output of `clampToBundledCeiling`, and
+    // `intersectPermissions` never emits `rbacScopes` (it drops the
+    // declaration even when BOTH sides declare it). The new side is
+    // therefore always `undefined`, so the only entry the opt-in can
+    // produce is `{oldValue:<stale blob>, newValue:undefined}` — which a
+    // UI renders as REMOVED, wrongly, on every preview until the row is
+    // healed. Silence is correct; surfacing declaration changes would
+    // need the MANIFEST as input, not the grant.
     //
     // github-projects is the fixture because its REAL on-disk manifest
     // declares one scope (`write-tickets`). The stored row below carries
@@ -367,22 +372,25 @@ describe("bundled drift re-approval", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("unreachable");
 
-    // THE FIX: the field is visible again. `newValue` is `undefined`
-    // because a GRANT never carries declarations — `intersectPermissions`
-    // drops them, which is also why no ceiling row lists them — so what
-    // the admin is being shown is "the scope list recorded on this row is
-    // not what the release declares". Suppressing that is the defect.
-    const rbac = result.diffs.find((d) => d.field === "rbacScopes");
-    expect(rbac).toBeDefined();
-    expect(rbac?.oldValue).toEqual(STALE_SCOPES);
-    expect(rbac?.newValue).toBeUndefined();
+    // The premise, asserted rather than assumed: the freshly clamped
+    // grant carries no declaration, so there is no "new value" any diff
+    // entry could report against.
     expect((result.grant as unknown as Record<string, unknown>).rbacScopes).toBeUndefined();
 
-    // …and the fields that genuinely did not move stay quiet, so the
-    // opt-in didn't just make the screen noisier across the board.
+    // THE GUARD: no rbacScopes row, despite the stored side carrying one.
+    expect(result.diffs.some((d) => d.field === "rbacScopes")).toBe(false);
+
+    // Non-vacuous: the fixture really did reach the comparator with the
+    // stale declaration on the old side (it is still on the row), and
+    // nothing else about this row drifted either — so the screen is
+    // silent because the field is excluded, not because the diff is
+    // empty for some unrelated reason.
+    expect(
+      (row.grantedPermissions as unknown as Record<string, unknown>).rbacScopes,
+    ).toEqual(STALE_SCOPES);
     expect(result.diffs.some((d) => d.field === "eventSubscriptions")).toBe(false);
     expect(result.diffs.some((d) => d.field === "storage")).toBe(false);
-    expect(result.diffs.map((d) => d.field)).toEqual(["rbacScopes"]);
+    expect(result.diffs).toEqual([]);
   }, 30_000);
 
   test("the bug + happy path + boot convergence: S9 disables, reapprove heals from disk, next boot stays enabled", async () => {

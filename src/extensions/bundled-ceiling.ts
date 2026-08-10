@@ -86,13 +86,24 @@
  * would read as `clamped: true` on every call — spurious
  * ceiling-clamp audit noise for a field that grants no privilege.
  *
- * That exclusion is a CEILING-comparator rule, not a property of the
- * canonicalizer: a DIFF comparator (`diffGrants` in
- * `bundled-drift-reapprove.ts`) renders an admin-facing "what changed in
- * this release" screen, where a renamed or newly declared scope is
- * information the reviewer must see. Those callers pass
- * `canonicalizePerms(…, { includeRbacScopes: true })` — see that option's
- * doc below.
+ * The exclusion is UNCONDITIONAL — every comparator sharing this
+ * canonicalizer skips the field, the DIFF comparator (`diffGrants` in
+ * `bundled-drift-reapprove.ts`, which renders the admin's "what changed
+ * in this release" screen) included. That screen looks like it wants the
+ * field, and an opt-in was briefly shipped to give it one; it was
+ * reverted because the premise was false. `diffGrants` compares GRANT
+ * against GRANT, and `intersectPermissions` drops declarations from
+ * every grant it produces — verified by direct call: a request and a
+ * ceiling that BOTH declare `rbacScopes` intersect to
+ * `{grantedAt, network}`. The field is therefore absent from the NEW
+ * side by construction, a `read → admin` rename is not expressible in a
+ * grant-vs-grant diff at all, and opting in yields only
+ * `{field:"rbacScopes", oldValue:<stale stored blob>, newValue:undefined}`
+ * on legacy rows whose `grantedPermissions` jsonb still carries a
+ * declaration — which a UI renders as REMOVED, persistently, until the
+ * row is healed. A phantom removal on a security-review screen is worse
+ * than silence. Surfacing a genuine declaration change requires the
+ * MANIFEST as input, not the grant.
  */
 
 import type { ExtensionPermissions } from "./types";
@@ -721,19 +732,6 @@ function equalPermissions(
   return canonicalizePerms(a) === canonicalizePerms(b);
 }
 
-/** Per-caller knobs for `canonicalizePerms`. Type-only: erased at
- *  runtime, so it carries no instrumentable lines. */
-export interface CanonicalizePermsOptions {
-  /**
-   * Keep `permissions.rbacScopes` in the canonical form instead of
-   * dropping it. Default (unset/false) is the CEILING-comparator
-   * behavior — see the module header for why an inert declaration must
-   * not flip `clamped`. DIFF comparators opt IN so a renamed or newly
-   * declared scope still reaches the admin's re-approval screen.
-   */
-  includeRbacScopes?: boolean;
-}
-
 /**
  * Canonical string form of a grant shape. Exported so every permission
  * comparator canonicalizes identically and none of them can drift apart:
@@ -748,21 +746,15 @@ export interface CanonicalizePermsOptions {
  * element (whose own keys are sorted first). So a release that only
  * reshuffles a list is byte-identical to its predecessor.
  *
- * `rbacScopes` is the ONE field whose treatment depends on the caller,
- * via `opts.includeRbacScopes`:
- *
- *   • CEILING callers (the default) SKIP it. `intersectPermissions`
- *     never carries declarations into a grant, so counting them would
- *     flip `clamped` to `true` for every manifest-shaped request that
- *     declares scopes — audit noise for a field that grants nothing.
- *   • DIFF callers OPT IN. Suppressing the field there hides a
- *     security-review fact (a scope renamed `read` → `admin`, or added
- *     from nothing) on the screen an admin reads before re-approving.
+ * There is deliberately NO per-caller knob. `rbacScopes` is skipped for
+ * every caller — the ceiling comparator because an inert declaration
+ * narrows nothing, and the diff comparator because a grant-vs-grant diff
+ * cannot express a declaration change in the first place (see the module
+ * header: `intersectPermissions` strips the field from every grant, so
+ * the new side never has it). Reintroducing an option here re-creates a
+ * phantom "removed" row on the admin's re-approval screen.
  */
-export function canonicalizePerms(
-  p: ExtensionPermissions,
-  opts?: CanonicalizePermsOptions,
-): string {
+export function canonicalizePerms(p: ExtensionPermissions): string {
   const ordered: Record<string, unknown> = {};
   // `as unknown` first because `ExtensionPermissions` has typed fields
   // that don't structurally overlap with `Record<string, unknown>`.
@@ -796,21 +788,25 @@ export function canonicalizePerms(
     // + descriptions for the grant UI / ctx.rbac.check), NOT privileges.
     // `intersectPermissions` never carries them into the intersection, so
     // counting them here would flip `clamped` to true for every
-    // manifest-shaped request that declares scopes (see module doc). Diff
-    // comparators opt back in — the field is information, just not a
-    // privilege.
-    if (k === "rbacScopes" && !opts?.includeRbacScopes) continue;
+    // manifest-shaped request that declares scopes — and, for the diff
+    // comparator, would report a field the new side structurally cannot
+    // have as REMOVED. Unconditional for both; see the module doc.
+    if (k === "rbacScopes") continue;
     if (BOOL_FIELDS.has(k) && v === false) continue;
     if (Array.isArray(v)) {
       // Empty arrays are treated as "not granted" — same equivalence
       // as empty object {} for grantedAt below.
       if (v.length === 0) continue;
       // Sort string arrays for order-independence. Arrays that aren't
-      // all strings (today only `rbacScopes`, an array of objects) get
-      // the same order-independence from a stable serialization sort —
-      // otherwise re-listing the same scopes in a new order would read
-      // as a change, which is the exact phantom-diff bug the shared
-      // canonicalizer exists to prevent, just on another field.
+      // all strings get the same order-independence from a stable
+      // serialization sort. No VALIDATED grant shape reaches this branch
+      // today — but `diffGrants` reads its old side straight out of the
+      // stored `grantedPermissions` jsonb, which nothing re-validates on
+      // read, so a legacy or hand-edited row can present objects (or
+      // anything else) on a field like `network`. Leaving those on the
+      // raw `: v` passthrough would make their ORDER a difference, which
+      // is exactly the phantom-diff bug this canonicalizer exists to
+      // prevent, just arriving on a different field.
       const allStrings = v.every((x) => typeof x === "string");
       ordered[k] = allStrings ? [...v].sort() : canonicalizeUnsortedArray(v);
     } else if (v !== null && typeof v === "object") {
@@ -834,8 +830,10 @@ function sortObjectKeys(o: Record<string, unknown>): Record<string, unknown> {
 
 /** Canonicalize ONE element of a non-string array: objects get their keys
  *  sorted (so per-key order is not a difference either); anything else —
- *  a primitive, `null`, a nested array from an unvalidated stored jsonb
- *  blob — is left alone. */
+ *  a primitive, `null`, a nested array — is left alone. Every branch here
+ *  is reachable from a stored `grantedPermissions` blob, which is
+ *  unvalidated jsonb on read, so this must be TOTAL rather than correct
+ *  only on shapes the manifest validator would have admitted. */
 function canonicalizeArrayElement(el: unknown): unknown {
   if (el !== null && typeof el === "object" && !Array.isArray(el)) {
     return sortObjectKeys(el as Record<string, unknown>);
@@ -843,10 +841,11 @@ function canonicalizeArrayElement(el: unknown): unknown {
   return el;
 }
 
-/** Order-independent form of an array whose elements aren't all strings
- *  (today only `rbacScopes`: `Array<{name, description}>`). Elements are
- *  canonicalized, then sorted by their own serialization — the object
- *  analogue of the `[...v].sort()` string arrays already get. */
+/** Order-independent form of an array whose elements aren't all strings.
+ *  Elements are canonicalized, then sorted by their own serialization —
+ *  the object analogue of the `[...v].sort()` string arrays already get.
+ *  Reached only via malformed stored jsonb (see the caller), which is
+ *  precisely why it must exist: that data is never re-validated. */
 function canonicalizeUnsortedArray(v: unknown[]): unknown[] {
   const keyed = v.map((el) => {
     const norm = canonicalizeArrayElement(el);
