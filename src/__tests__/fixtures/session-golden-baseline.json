@@ -1,0 +1,1117 @@
+{
+  "version": 1,
+  "fixture": {
+    "conversationId": "golden-conv",
+    "rows": [
+      {
+        "id": "m01",
+        "role": "user",
+        "content": "hello",
+        "parentId": null,
+        "excluded": false,
+        "offsetSec": 0
+      },
+      {
+        "id": "m02",
+        "role": "assistant",
+        "content": "hi there",
+        "parentId": "m01",
+        "excluded": false,
+        "offsetSec": 1
+      },
+      {
+        "id": "m03",
+        "role": "user",
+        "content": "second question",
+        "parentId": "m02",
+        "excluded": false,
+        "offsetSec": 2
+      },
+      {
+        "id": "m04",
+        "role": "assistant",
+        "content": "answer A",
+        "parentId": "m03",
+        "excluded": false,
+        "offsetSec": 3
+      },
+      {
+        "id": "m05",
+        "role": "assistant",
+        "content": "answer B",
+        "parentId": "m03",
+        "excluded": false,
+        "offsetSec": 4
+      },
+      {
+        "id": "m06",
+        "role": "capability-event",
+        "content": "{\"kind\":\"cap\"}",
+        "parentId": "m05",
+        "excluded": false,
+        "offsetSec": 5
+      },
+      {
+        "id": "m07",
+        "role": "user",
+        "content": "third",
+        "parentId": "m06",
+        "excluded": false,
+        "offsetSec": 6
+      },
+      {
+        "id": "m08",
+        "role": "assistant",
+        "content": "excluded reply",
+        "parentId": "m07",
+        "excluded": true,
+        "offsetSec": 7
+      },
+      {
+        "id": "m09",
+        "role": "user",
+        "content": "after excluded",
+        "parentId": "m08",
+        "excluded": false,
+        "offsetSec": 8
+      },
+      {
+        "id": "m10",
+        "role": "user",
+        "content": "child seeded before its parent",
+        "parentId": "m09",
+        "excluded": false,
+        "offsetSec": -5
+      },
+      {
+        "id": "m11",
+        "role": "user",
+        "content": "cross-conversation parent",
+        "parentId": "x01",
+        "excluded": false,
+        "offsetSec": -6
+      }
+    ],
+    "foreignRow": {
+      "id": "x01",
+      "role": "user",
+      "content": "foreign root",
+      "parentId": null,
+      "excluded": false,
+      "offsetSec": -100
+    }
+  },
+  "sessionRow": {
+    "id": "<session-id>",
+    "conversationId": "golden-conv",
+    "cwd": null,
+    "parentSessionId": null,
+    "leafEntryId": "m04",
+    "metadata": {
+      "topologySyncedThroughMs": 1767225608000
+    },
+    "createdAt": "<wall-clock>"
+  },
+  "entries": {
+    "seqStrictlyIncreasing": true,
+    "rows": [
+      {
+        "rank": 0,
+        "entryId": "m11",
+        "type": "message",
+        "parentId": null,
+        "timestamp": "2025-12-31T23:59:54.000Z",
+        "ezMessageId": "m11",
+        "payload": {
+          "message": {
+            "role": "user",
+            "content": "cross-conversation parent",
+            "timestamp": 1767225594000
+          }
+        }
+      },
+      {
+        "rank": 1,
+        "entryId": "m10",
+        "type": "message",
+        "parentId": "m09",
+        "timestamp": "2025-12-31T23:59:55.000Z",
+        "ezMessageId": "m10",
+        "payload": {
+          "message": {
+            "role": "user",
+            "content": "child seeded before its parent",
+            "timestamp": 1767225595000
+          }
+        }
+      },
+      {
+        "rank": 2,
+        "entryId": "m01",
+        "type": "message",
+        "parentId": null,
+        "timestamp": "2026-01-01T00:00:00.000Z",
+        "ezMessageId": "m01",
+        "payload": {
+          "message": {
+            "role": "user",
+            "content": "hello",
+            "timestamp": 1767225600000
+          }
+        }
+      },
+      {
+        "rank": 3,
+        "entryId": "m02",
+        "type": "message",
+        "parentId": "m01",
+        "timestamp": "2026-01-01T00:00:01.000Z",
+        "ezMessageId": "m02",
+        "payload": {
+          "message": {
+            "api": "unknown",
+            "role": "assistant",
+            "model": "unknown",
+            "usage": {
+              "cost": {
+                "input": 0,
+                "total": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0
+              },
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0
+            },
+            "content": [
+              {
+                "text": "hi there",
+                "type": "text"
+              }
+            ],
+            "provider": "unknown",
+            "timestamp": 1767225601000,
+            "stopReason": "stop"
+          }
+        }
+      },
+      {
+        "rank": 4,
+        "entryId": "m03",
+        "type": "message",
+        "parentId": "m02",
+        "timestamp": "2026-01-01T00:00:02.000Z",
+        "ezMessageId": "m03",
+        "payload": {
+          "message": {
+            "role": "user",
+            "content": "second question",
+            "timestamp": 1767225602000
+          }
+        }
+      },
+      {
+        "rank": 5,
+        "entryId": "m04",
+        "type": "message",
+        "parentId": "m03",
+        "timestamp": "2026-01-01T00:00:03.000Z",
+        "ezMessageId": "m04",
+        "payload": {
+          "message": {
+            "api": "unknown",
+            "role": "assistant",
+            "model": "unknown",
+            "usage": {
+              "cost": {
+                "input": 0,
+                "total": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0
+              },
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0
+            },
+            "content": [
+              {
+                "text": "answer A",
+                "type": "text"
+              }
+            ],
+            "provider": "unknown",
+            "timestamp": 1767225603000,
+            "stopReason": "stop"
+          }
+        }
+      },
+      {
+        "rank": 6,
+        "entryId": "m05",
+        "type": "message",
+        "parentId": "m03",
+        "timestamp": "2026-01-01T00:00:04.000Z",
+        "ezMessageId": "m05",
+        "payload": {
+          "message": {
+            "api": "unknown",
+            "role": "assistant",
+            "model": "unknown",
+            "usage": {
+              "cost": {
+                "input": 0,
+                "total": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0
+              },
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "totalTokens": 0
+            },
+            "content": [
+              {
+                "text": "answer B",
+                "type": "text"
+              }
+            ],
+            "provider": "unknown",
+            "timestamp": 1767225604000,
+            "stopReason": "stop"
+          }
+        }
+      },
+      {
+        "rank": 7,
+        "entryId": "m06",
+        "type": "custom",
+        "parentId": "m05",
+        "timestamp": "2026-01-01T00:00:05.000Z",
+        "ezMessageId": null,
+        "payload": {
+          "data": {
+            "role": "capability-event",
+            "excluded": false
+          },
+          "customType": "ezcorp:filtered-row"
+        }
+      },
+      {
+        "rank": 8,
+        "entryId": "m07",
+        "type": "message",
+        "parentId": "m06",
+        "timestamp": "2026-01-01T00:00:06.000Z",
+        "ezMessageId": "m07",
+        "payload": {
+          "message": {
+            "role": "user",
+            "content": "third",
+            "timestamp": 1767225606000
+          }
+        }
+      },
+      {
+        "rank": 9,
+        "entryId": "m08",
+        "type": "custom",
+        "parentId": "m07",
+        "timestamp": "2026-01-01T00:00:07.000Z",
+        "ezMessageId": null,
+        "payload": {
+          "data": {
+            "role": "assistant",
+            "excluded": true
+          },
+          "customType": "ezcorp:filtered-row"
+        }
+      },
+      {
+        "rank": 10,
+        "entryId": "m09",
+        "type": "message",
+        "parentId": "m08",
+        "timestamp": "2026-01-01T00:00:08.000Z",
+        "ezMessageId": "m09",
+        "payload": {
+          "message": {
+            "role": "user",
+            "content": "after excluded",
+            "timestamp": 1767225608000
+          }
+        }
+      },
+      {
+        "rank": 11,
+        "entryId": "<gen-1>",
+        "type": "leaf",
+        "parentId": "m09",
+        "timestamp": "<wall-clock>",
+        "ezMessageId": null,
+        "payload": {
+          "targetId": "m04"
+        }
+      }
+    ]
+  },
+  "leafId": "m04",
+  "pathToRoot": {
+    "m04": [
+      "m01",
+      "m02",
+      "m03",
+      "m04"
+    ],
+    "m10": [
+      "m01",
+      "m02",
+      "m03",
+      "m05",
+      "m06",
+      "m07",
+      "m08",
+      "m09",
+      "m10"
+    ],
+    "m11": [
+      "m11"
+    ],
+    "m08": [
+      "m01",
+      "m02",
+      "m03",
+      "m05",
+      "m06",
+      "m07",
+      "m08"
+    ],
+    "null": []
+  },
+  "entriesCursorWindows": {
+    "limit=3": [
+      "m11",
+      "m10",
+      "m01"
+    ],
+    "afterEntrySeq=2,limit=2": [
+      "m01",
+      "m02"
+    ],
+    "afterEntrySeq=99": []
+  },
+  "sessionStats": {
+    "messageCount": 9,
+    "cachedTokens": 0,
+    "uncachedTokens": 0,
+    "totalTokens": 0,
+    "costTotal": 0
+  },
+  "tree": {
+    "conversationId": "golden-conv",
+    "currentLeaf": "m04",
+    "nodes": [
+      {
+        "id": "m11",
+        "parentId": null,
+        "role": "user",
+        "excluded": false,
+        "createdAt": "2025-12-31T23:59:54.000Z"
+      },
+      {
+        "id": "m10",
+        "parentId": "m09",
+        "role": "user",
+        "excluded": false,
+        "createdAt": "2025-12-31T23:59:55.000Z"
+      },
+      {
+        "id": "m01",
+        "parentId": null,
+        "role": "user",
+        "excluded": false,
+        "createdAt": "2026-01-01T00:00:00.000Z"
+      },
+      {
+        "id": "m02",
+        "parentId": "m01",
+        "role": "assistant",
+        "excluded": false,
+        "createdAt": "2026-01-01T00:00:01.000Z"
+      },
+      {
+        "id": "m03",
+        "parentId": "m02",
+        "role": "user",
+        "excluded": false,
+        "createdAt": "2026-01-01T00:00:02.000Z"
+      },
+      {
+        "id": "m04",
+        "parentId": "m03",
+        "role": "assistant",
+        "excluded": false,
+        "createdAt": "2026-01-01T00:00:03.000Z"
+      },
+      {
+        "id": "m05",
+        "parentId": "m03",
+        "role": "assistant",
+        "excluded": false,
+        "createdAt": "2026-01-01T00:00:04.000Z"
+      },
+      {
+        "id": "m06",
+        "parentId": "m05",
+        "role": "capability-event",
+        "excluded": false,
+        "createdAt": "2026-01-01T00:00:05.000Z"
+      },
+      {
+        "id": "m07",
+        "parentId": "m06",
+        "role": "user",
+        "excluded": false,
+        "createdAt": "2026-01-01T00:00:06.000Z"
+      },
+      {
+        "id": "m08",
+        "parentId": "m07",
+        "role": "assistant",
+        "excluded": true,
+        "createdAt": "2026-01-01T00:00:07.000Z"
+      },
+      {
+        "id": "m09",
+        "parentId": "m08",
+        "role": "user",
+        "excluded": false,
+        "createdAt": "2026-01-01T00:00:08.000Z"
+      }
+    ]
+  },
+  "branches": {
+    "default": [
+      {
+        "id": "m01",
+        "role": "user",
+        "content": "hello"
+      },
+      {
+        "id": "m02",
+        "role": "assistant",
+        "content": "hi there"
+      },
+      {
+        "id": "m03",
+        "role": "user",
+        "content": "second question"
+      },
+      {
+        "id": "m04",
+        "role": "assistant",
+        "content": "answer A"
+      }
+    ],
+    "parent=m10": [
+      {
+        "id": "m01",
+        "role": "user",
+        "content": "hello"
+      },
+      {
+        "id": "m02",
+        "role": "assistant",
+        "content": "hi there"
+      },
+      {
+        "id": "m03",
+        "role": "user",
+        "content": "second question"
+      },
+      {
+        "id": "m05",
+        "role": "assistant",
+        "content": "answer B"
+      },
+      {
+        "id": "m06",
+        "role": "capability-event",
+        "content": "{\"kind\":\"cap\"}"
+      },
+      {
+        "id": "m07",
+        "role": "user",
+        "content": "third"
+      },
+      {
+        "id": "m09",
+        "role": "user",
+        "content": "after excluded"
+      },
+      {
+        "id": "m10",
+        "role": "user",
+        "content": "child seeded before its parent"
+      }
+    ],
+    "parent=m04": [
+      {
+        "id": "m01",
+        "role": "user",
+        "content": "hello"
+      },
+      {
+        "id": "m02",
+        "role": "assistant",
+        "content": "hi there"
+      },
+      {
+        "id": "m03",
+        "role": "user",
+        "content": "second question"
+      },
+      {
+        "id": "m04",
+        "role": "assistant",
+        "content": "answer A"
+      }
+    ],
+    "parent=m11": [
+      {
+        "id": "m11",
+        "role": "user",
+        "content": "cross-conversation parent"
+      }
+    ]
+  },
+  "loadHistory": {
+    "default": [
+      {
+        "role": "user",
+        "content": "hello",
+        "timestamp": "<wall-clock-ms>"
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi there"
+          }
+        ],
+        "api": "unknown",
+        "provider": "unknown",
+        "model": "unknown",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": "<wall-clock-ms>"
+      },
+      {
+        "role": "user",
+        "content": "second question",
+        "timestamp": "<wall-clock-ms>"
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer A"
+          }
+        ],
+        "api": "unknown",
+        "provider": "unknown",
+        "model": "unknown",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": "<wall-clock-ms>"
+      }
+    ],
+    "parent=m10": [
+      {
+        "role": "user",
+        "content": "hello",
+        "timestamp": "<wall-clock-ms>"
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi there"
+          }
+        ],
+        "api": "unknown",
+        "provider": "unknown",
+        "model": "unknown",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": "<wall-clock-ms>"
+      },
+      {
+        "role": "user",
+        "content": "second question",
+        "timestamp": "<wall-clock-ms>"
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "answer B"
+          }
+        ],
+        "api": "unknown",
+        "provider": "unknown",
+        "model": "unknown",
+        "usage": {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "cacheWrite": 0,
+          "totalTokens": 0,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0,
+            "total": 0
+          }
+        },
+        "stopReason": "stop",
+        "timestamp": "<wall-clock-ms>"
+      },
+      {
+        "role": "user",
+        "content": "third",
+        "timestamp": "<wall-clock-ms>"
+      },
+      {
+        "role": "user",
+        "content": "after excluded",
+        "timestamp": "<wall-clock-ms>"
+      },
+      {
+        "role": "user",
+        "content": "child seeded before its parent",
+        "timestamp": "<wall-clock-ms>"
+      }
+    ]
+  },
+  "afterRewind": {
+    "outcome": {
+      "ok": true,
+      "tree": {
+        "conversationId": "golden-conv",
+        "currentLeaf": "m03",
+        "nodes": [
+          {
+            "id": "m11",
+            "parentId": null,
+            "role": "user",
+            "excluded": false,
+            "createdAt": "2025-12-31T23:59:54.000Z"
+          },
+          {
+            "id": "m10",
+            "parentId": "m09",
+            "role": "user",
+            "excluded": false,
+            "createdAt": "2025-12-31T23:59:55.000Z"
+          },
+          {
+            "id": "m01",
+            "parentId": null,
+            "role": "user",
+            "excluded": false,
+            "createdAt": "2026-01-01T00:00:00.000Z"
+          },
+          {
+            "id": "m02",
+            "parentId": "m01",
+            "role": "assistant",
+            "excluded": false,
+            "createdAt": "2026-01-01T00:00:01.000Z"
+          },
+          {
+            "id": "m03",
+            "parentId": "m02",
+            "role": "user",
+            "excluded": false,
+            "createdAt": "2026-01-01T00:00:02.000Z"
+          },
+          {
+            "id": "m04",
+            "parentId": "m03",
+            "role": "assistant",
+            "excluded": false,
+            "createdAt": "2026-01-01T00:00:03.000Z"
+          },
+          {
+            "id": "m05",
+            "parentId": "m03",
+            "role": "assistant",
+            "excluded": false,
+            "createdAt": "2026-01-01T00:00:04.000Z"
+          },
+          {
+            "id": "m06",
+            "parentId": "m05",
+            "role": "capability-event",
+            "excluded": false,
+            "createdAt": "2026-01-01T00:00:05.000Z"
+          },
+          {
+            "id": "m07",
+            "parentId": "m06",
+            "role": "user",
+            "excluded": false,
+            "createdAt": "2026-01-01T00:00:06.000Z"
+          },
+          {
+            "id": "m08",
+            "parentId": "m07",
+            "role": "assistant",
+            "excluded": true,
+            "createdAt": "2026-01-01T00:00:07.000Z"
+          },
+          {
+            "id": "m09",
+            "parentId": "m08",
+            "role": "user",
+            "excluded": false,
+            "createdAt": "2026-01-01T00:00:08.000Z"
+          }
+        ]
+      }
+    },
+    "entries": {
+      "seqStrictlyIncreasing": true,
+      "rows": [
+        {
+          "rank": 0,
+          "entryId": "m11",
+          "type": "message",
+          "parentId": null,
+          "timestamp": "2025-12-31T23:59:54.000Z",
+          "ezMessageId": "m11",
+          "payload": {
+            "message": {
+              "role": "user",
+              "content": "cross-conversation parent",
+              "timestamp": 1767225594000
+            }
+          }
+        },
+        {
+          "rank": 1,
+          "entryId": "m10",
+          "type": "message",
+          "parentId": "m09",
+          "timestamp": "2025-12-31T23:59:55.000Z",
+          "ezMessageId": "m10",
+          "payload": {
+            "message": {
+              "role": "user",
+              "content": "child seeded before its parent",
+              "timestamp": 1767225595000
+            }
+          }
+        },
+        {
+          "rank": 2,
+          "entryId": "m01",
+          "type": "message",
+          "parentId": null,
+          "timestamp": "2026-01-01T00:00:00.000Z",
+          "ezMessageId": "m01",
+          "payload": {
+            "message": {
+              "role": "user",
+              "content": "hello",
+              "timestamp": 1767225600000
+            }
+          }
+        },
+        {
+          "rank": 3,
+          "entryId": "m02",
+          "type": "message",
+          "parentId": "m01",
+          "timestamp": "2026-01-01T00:00:01.000Z",
+          "ezMessageId": "m02",
+          "payload": {
+            "message": {
+              "api": "unknown",
+              "role": "assistant",
+              "model": "unknown",
+              "usage": {
+                "cost": {
+                  "input": 0,
+                  "total": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0
+                },
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0
+              },
+              "content": [
+                {
+                  "text": "hi there",
+                  "type": "text"
+                }
+              ],
+              "provider": "unknown",
+              "timestamp": 1767225601000,
+              "stopReason": "stop"
+            }
+          }
+        },
+        {
+          "rank": 4,
+          "entryId": "m03",
+          "type": "message",
+          "parentId": "m02",
+          "timestamp": "2026-01-01T00:00:02.000Z",
+          "ezMessageId": "m03",
+          "payload": {
+            "message": {
+              "role": "user",
+              "content": "second question",
+              "timestamp": 1767225602000
+            }
+          }
+        },
+        {
+          "rank": 5,
+          "entryId": "m04",
+          "type": "message",
+          "parentId": "m03",
+          "timestamp": "2026-01-01T00:00:03.000Z",
+          "ezMessageId": "m04",
+          "payload": {
+            "message": {
+              "api": "unknown",
+              "role": "assistant",
+              "model": "unknown",
+              "usage": {
+                "cost": {
+                  "input": 0,
+                  "total": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0
+                },
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0
+              },
+              "content": [
+                {
+                  "text": "answer A",
+                  "type": "text"
+                }
+              ],
+              "provider": "unknown",
+              "timestamp": 1767225603000,
+              "stopReason": "stop"
+            }
+          }
+        },
+        {
+          "rank": 6,
+          "entryId": "m05",
+          "type": "message",
+          "parentId": "m03",
+          "timestamp": "2026-01-01T00:00:04.000Z",
+          "ezMessageId": "m05",
+          "payload": {
+            "message": {
+              "api": "unknown",
+              "role": "assistant",
+              "model": "unknown",
+              "usage": {
+                "cost": {
+                  "input": 0,
+                  "total": 0,
+                  "output": 0,
+                  "cacheRead": 0,
+                  "cacheWrite": 0
+                },
+                "input": 0,
+                "output": 0,
+                "cacheRead": 0,
+                "cacheWrite": 0,
+                "totalTokens": 0
+              },
+              "content": [
+                {
+                  "text": "answer B",
+                  "type": "text"
+                }
+              ],
+              "provider": "unknown",
+              "timestamp": 1767225604000,
+              "stopReason": "stop"
+            }
+          }
+        },
+        {
+          "rank": 7,
+          "entryId": "m06",
+          "type": "custom",
+          "parentId": "m05",
+          "timestamp": "2026-01-01T00:00:05.000Z",
+          "ezMessageId": null,
+          "payload": {
+            "data": {
+              "role": "capability-event",
+              "excluded": false
+            },
+            "customType": "ezcorp:filtered-row"
+          }
+        },
+        {
+          "rank": 8,
+          "entryId": "m07",
+          "type": "message",
+          "parentId": "m06",
+          "timestamp": "2026-01-01T00:00:06.000Z",
+          "ezMessageId": "m07",
+          "payload": {
+            "message": {
+              "role": "user",
+              "content": "third",
+              "timestamp": 1767225606000
+            }
+          }
+        },
+        {
+          "rank": 9,
+          "entryId": "m08",
+          "type": "custom",
+          "parentId": "m07",
+          "timestamp": "2026-01-01T00:00:07.000Z",
+          "ezMessageId": null,
+          "payload": {
+            "data": {
+              "role": "assistant",
+              "excluded": true
+            },
+            "customType": "ezcorp:filtered-row"
+          }
+        },
+        {
+          "rank": 10,
+          "entryId": "m09",
+          "type": "message",
+          "parentId": "m08",
+          "timestamp": "2026-01-01T00:00:08.000Z",
+          "ezMessageId": "m09",
+          "payload": {
+            "message": {
+              "role": "user",
+              "content": "after excluded",
+              "timestamp": 1767225608000
+            }
+          }
+        },
+        {
+          "rank": 11,
+          "entryId": "<gen-1>",
+          "type": "leaf",
+          "parentId": "m09",
+          "timestamp": "<wall-clock>",
+          "ezMessageId": null,
+          "payload": {
+            "targetId": "m04"
+          }
+        },
+        {
+          "rank": 12,
+          "entryId": "<gen-2>",
+          "type": "branch_summary",
+          "parentId": "m04",
+          "timestamp": "<wall-clock>",
+          "ezMessageId": null,
+          "payload": {
+            "fromId": "m04",
+            "summary": "abandoning branch B"
+          }
+        },
+        {
+          "rank": 13,
+          "entryId": "<gen-3>",
+          "type": "leaf",
+          "parentId": "<gen-2>",
+          "timestamp": "<wall-clock>",
+          "ezMessageId": null,
+          "payload": {
+            "targetId": "m03"
+          }
+        }
+      ]
+    },
+    "leafId": "m03",
+    "sessionRow": {
+      "leafEntryId": "m03",
+      "metadata": {
+        "topologySyncedThroughMs": 1767225608000
+      }
+    },
+    "messageParentsUnchanged": true
+  }
+}
