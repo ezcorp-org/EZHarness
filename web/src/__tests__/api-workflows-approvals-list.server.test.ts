@@ -9,6 +9,8 @@
  * user's parked decisions while every DB-level test stayed green.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const q = vi.hoisted(() => ({ listPendingWorkflowApprovalsForUser: vi.fn() }));
 vi.mock("$server/db/queries/workflow-approvals", () => ({
@@ -25,27 +27,10 @@ const member = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
 const admin = { user: { id: "a1", email: "a@x", name: "a", role: "admin" } };
 
 function makeEvent(locals: Record<string, unknown> = {}) {
-  return {
-    url: new URL("http://localhost/api/workflows/approvals"),
+  return makeRequestEvent("http://localhost/api/workflows/approvals", {
     locals,
     params: {},
-    request: new Request("http://localhost/api/workflows/approvals"),
-  } as never;
-}
-
-async function expectThrownResponse(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
+  });
 }
 
 describe("GET /api/workflows/approvals", () => {

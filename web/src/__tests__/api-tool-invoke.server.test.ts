@@ -9,6 +9,8 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse as expectThrown } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const registryGetTool = vi.fn();
 const registryLoadFromDb = vi.fn(async () => undefined);
@@ -74,29 +76,13 @@ function makeEvent(opts: {
     init.body = JSON.stringify(opts.body);
     init.headers = { "content-type": "application/json" };
   }
-  return {
-    url: new URL("http://localhost/api/tool-invoke"),
+  return makeRequestEvent("http://localhost/api/tool-invoke", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/tool-invoke", init),
-  } as any;
+    request: init,
+  });
 }
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
-
-async function expectThrown(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
-}
 
 describe("POST /api/tool-invoke", () => {
   beforeEach(() => {

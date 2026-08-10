@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 // PHASE 61-02 PER-ROW TESTID HARDENING (Bucket A #7): added
@@ -356,11 +357,9 @@ test.describe("Task Card Actions (Full Coverage)", () => {
 		await page.waitForSelector("textarea");
 
 		// Send message to get into streaming context
-		const textarea = page.locator("textarea");
-		await textarea.fill("Show tasks");
 		await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "Show tasks"),
 		]);
 
 		// Emit tool events WITHOUT conversationId in the data (simulating agent streaming path)

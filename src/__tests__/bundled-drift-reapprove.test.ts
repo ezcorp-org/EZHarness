@@ -84,40 +84,16 @@ mock.module("../db/queries/audit-log", () => ({
 }));
 
 // ── In-memory extension store (mirrors bundled-critical-s9.test.ts) ─
-interface StoredExtension {
-  id: string;
-  name: string;
-  description?: string;
-  manifest: unknown;
-  installPath: string;
-  enabled: boolean;
-  isBundled?: boolean;
-  grantedPermissions: ExtensionPermissions;
-  installedPermissions?: ExtensionPermissions;
-  version?: string;
-}
+import { createMockExtensionsStore, type MockExtensionRow } from "./helpers/mock-extensions-store";
 
-let store: Map<string, StoredExtension>;
-let nextId = 0;
+const extStore = createMockExtensionsStore({ keyBy: "name" });
+const store = extStore.store;
 
 mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: async (name: string) => store.get(name) ?? null,
-  createExtension: async (data: Omit<StoredExtension, "id">) => {
-    const id = `ext-${++nextId}`;
-    const row = { id, ...data } as StoredExtension;
-    store.set(data.name, row);
-    return row;
-  },
-  listExtensions: async () => Array.from(store.values()),
-  updateExtension: async (id: string, patch: Partial<StoredExtension>) => {
-    for (const row of store.values()) {
-      if (row.id === id) {
-        Object.assign(row, patch);
-        return row;
-      }
-    }
-    return null;
-  },
+  getExtensionByName: extStore.getExtensionByName,
+  createExtension: extStore.createExtension,
+  listExtensions: extStore.listExtensions,
+  updateExtension: extStore.updateExtension,
   deleteExtension: async () => undefined,
   incrementFailures: async () => 0,
   resetFailures: async () => undefined,
@@ -127,8 +103,7 @@ mock.module("../db/queries/extensions", () => ({
 afterAll(() => restoreModuleMocks());
 
 beforeEach(() => {
-  store = new Map();
-  nextId = 0;
+  extStore.reset();
   auditEntries.length = 0;
   auditShouldThrow = false;
   manifestMutator = null;
@@ -144,8 +119,8 @@ beforeEach(() => {
  */
 const OLD_NETWORK = ["api.tavily.com", "api.search.brave.com"];
 const OLD_ENV = ["TAVILY_API_KEY", "BRAVE_API_KEY"];
-function seedStaleWebSearch(): StoredExtension {
-  const row: StoredExtension = {
+function seedStaleWebSearch(): MockExtensionRow {
+  const row: MockExtensionRow = {
     id: "seed-web-search",
     name: "web-search",
     // Denormalized column carries the STALE description — the live
@@ -178,7 +153,7 @@ function seedStaleWebSearch(): StoredExtension {
 describe("bundled drift re-approval", () => {
   test("preview exposes every newly added capability before approval", async () => {
     const { previewBundledDrift } = await import("../extensions/bundled-drift-reapprove");
-    const row: StoredExtension = {
+    const row: MockExtensionRow = {
       id: "seed-city-conditions",
       name: "city-conditions",
       enabled: true,
@@ -261,7 +236,7 @@ describe("bundled drift re-approval", () => {
     // `equalPermissions`/`canonicalizePerms` in bundled-ceiling.ts already
     // treats that as equal (it sorts string arrays). `diffGrants` must not
     // diverge from that and report a changed field for order alone.
-    const row: StoredExtension = {
+    const row: MockExtensionRow = {
       id: "seed-city-conditions-reorder",
       name: "city-conditions",
       enabled: true,
@@ -352,7 +327,7 @@ describe("bundled drift re-approval", () => {
       "run:complete",
     ];
     const STALE_SCOPES = [{ name: "read-tickets", description: "Read board tickets" }];
-    const row: StoredExtension = {
+    const row: MockExtensionRow = {
       id: "seed-github-projects-rbac",
       name: "github-projects",
       enabled: true,

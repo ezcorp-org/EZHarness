@@ -29,6 +29,7 @@
  */
 import { test, expect } from "./fixtures/test-base.js";
 import type { Page } from "@playwright/test";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 // ── Fake-worker init script ─────────────────────────────────────────
@@ -668,9 +669,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
       { timeout: 5000 },
     );
 
-    const textarea = page.locator("textarea");
-    await textarea.fill("follow-up question");
-    await page.getByRole("button", { name: "Send message" }).click();
+    await sendComposerMessage(page, "follow-up question");
 
     const req = await postReq;
     // The body the FE ships is `{ content }` (or multipart with content

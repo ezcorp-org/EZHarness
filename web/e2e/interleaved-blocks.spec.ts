@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 import type { Page } from "@playwright/test";
 
@@ -30,13 +31,11 @@ test.describe("Interleaved Content Blocks", () => {
 
 	/** Send a chat message and wait for the API response (ensures startStreaming is called) */
 	async function sendAndWaitForStream(page: Page, text: string) {
-		const textarea = page.locator("textarea");
-		await textarea.fill(text);
 		await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.getByRole("button", { name: "Send message" }).click(),
+			sendComposerMessage(page, text),
 		]);
-		await expect(page.getByText(text)).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText(text)).toBeVisible({ timeout: 5000 });
 	}
 
 	test.describe("Streaming: text between tool calls is visible", () => {

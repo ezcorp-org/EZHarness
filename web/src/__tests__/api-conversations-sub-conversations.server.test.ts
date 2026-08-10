@@ -9,6 +9,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/conversations", () => ({
   getConversation: vi.fn(),
@@ -27,14 +28,10 @@ function makeEvent(opts: {
   id?: string;
 }) {
   const id = opts.id ?? "conv-1";
-  return {
-    url: new URL(`http://localhost/api/conversations/${id}/sub-conversations`),
+  return makeRequestEvent(`http://localhost/api/conversations/${id}/sub-conversations`, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(
-      `http://localhost/api/conversations/${id}/sub-conversations`,
-    ),
-  } as any;
+  });
 }
 
 describe("GET /api/conversations/[id]/sub-conversations", () => {

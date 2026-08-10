@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/extensions", () => ({
   getExtension: vi.fn(),
@@ -40,16 +41,15 @@ function makeEvent(opts: {
 }) {
   const id = opts.id ?? "ext-1";
   const href = `http://localhost/api/extensions/${id}/permissions`;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(href, {
+    request: {
       method: opts.method ?? "GET",
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const adminUser = { id: "u1", email: "a@x", name: "a", role: "admin" };

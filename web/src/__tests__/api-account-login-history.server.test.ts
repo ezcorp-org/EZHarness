@@ -5,29 +5,14 @@
 
 import { test, expect, describe } from "vitest";
 import { GET } from "../routes/api/account/login-history/+server";
+import { expectThrownResponse } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeEvent(locals: Record<string, unknown> = {}) {
-	return {
-		url: new URL("http://localhost/api/account/login-history"),
-		locals,
-	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		const out = await fn();
-		res = out;
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res).toBeInstanceOf(Response);
-	expect(res!.status).toBe(status);
-	return res!;
+	return makeRequestEvent("http://localhost/api/account/login-history", {
+	  locals,
+	  request: null,
+	});
 }
 
 describe("GET /api/account/login-history", () => {

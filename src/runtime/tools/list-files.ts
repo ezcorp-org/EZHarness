@@ -1,7 +1,7 @@
 import { Type } from "@earendil-works/pi-ai";
 import { readdir } from "node:fs/promises";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef  } from "./types";
+import { errorMessage, toolError, type BuiltinToolDef } from "./types";
 import type { ToolParams } from "./validate";
 
 export function createListFilesTool(projectPath: string): BuiltinToolDef {
@@ -29,7 +29,7 @@ export function createListFilesTool(projectPath: string): BuiltinToolDef {
         }
         return { content: [{ type: "text" as const, text: items.join("\n") || "(empty directory)" }], details: {} };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return toolError(errorMessage(e));
       }
     },
   };

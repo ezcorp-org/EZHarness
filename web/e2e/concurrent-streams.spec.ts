@@ -16,6 +16,7 @@
  */
 
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Concurrent Project" });
@@ -196,11 +197,7 @@ test.describe("Concurrent main + panel stream isolation (Phase 6)", () => {
 		).toHaveCount(2);
 
 		// Send on the PANEL → the panel instance binds run-panel.
-		const panelTextarea = panel.locator("textarea").first();
-		await panelTextarea.fill("panel msg");
-		await panel
-			.getByRole("button", { name: "Send message" })
-			.click();
+		await sendComposerMessage(panel, "panel msg");
 		await expect(panel.getByText("panel msg")).toBeVisible({
 			timeout: 5000,
 		});

@@ -7,9 +7,13 @@
 
 import { test, expect, describe, beforeEach, vi } from "vitest";
 import { GET } from "../routes/api/models/capabilities/+server";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeEvent(href: string, locals: Record<string, unknown> = {}) {
-  return { url: new URL(href), locals } as any;
+  return makeRequestEvent(href, {
+    locals,
+    request: null,
+  });
 }
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };

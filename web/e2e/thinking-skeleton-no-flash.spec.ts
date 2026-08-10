@@ -22,6 +22,7 @@
 
 import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/hydration.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { setupApiMocks } from "./fixtures/api-mocks.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
@@ -119,9 +120,8 @@ test.describe("Thinking card survives terminal-turn save (no ghost skeleton)", (
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible({ timeout: 5000 });
 
 		await page.addStyleTag({ content: ".ez-button { display: none !important; }" });
-		await page.locator("textarea").fill("Explain quantum computing");
-		await page.getByRole("button", { name: "Send message" }).click();
-		await expect(page.getByText("Explain quantum computing")).toBeVisible({ timeout: 5000 });
+		await sendComposerMessage(page, "Explain quantum computing");
+		await expect(threadMessages(page).getByText("Explain quantum computing")).toBeVisible({ timeout: 5000 });
 		await expect(page.getByRole("button", { name: /stop/i })).toBeVisible({ timeout: 8000 });
 
 		// Thinking streams → thinking card appears.

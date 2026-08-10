@@ -5,7 +5,8 @@
  * *lexical* leg via Reciprocal Rank Fusion in a single CTE round-trip. It is the
  * single source of truth the Wave-2 route (`65-02`) and Phases 66/67 consume.
  *
- * It mirrors two shipped functions:
+ * It shares its SQL math with two other functions, which import the shared
+ * pieces from this module (see "SHARED HOME" below) rather than re-deriving them:
  *   - `hybridSearch` (src/memory/retrieval.ts) — the RRF structure: two ranked
  *     CTEs, FULL OUTER JOIN, fused score `1/(k+rank_v) + 1/(k+rank_k)`, k=60.
  *   - `searchConversations` (src/db/queries/conversations.ts) — the lexical
@@ -43,11 +44,24 @@
  * fallback returns the same rows); the restructure is what makes the EXPLAIN
  * plan honest at scale. See 65-01-SUMMARY.md "Deviations".
  */
-import { sql, type SQL } from "drizzle-orm";
+import { eq, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import { getDb } from "../connection";
+import { conversations } from "../schema";
 import { toVectorLiteral } from "../../memory/vector-utils";
 
-/** RRF constant. Named so RANK-01 (v2) has a one-line tune point. */
+/**
+ * This module is also the SHARED HOME for the bits of hybrid-search math that
+ * `src/memory/retrieval.ts#hybridSearch` and `searchConversations`
+ * (`conversations.ts`) independently re-implemented (a duplication audit —
+ * see the module-level exports below): the RRF constant + fused-score
+ * formula, the `ts_headline` options string, the `<2-char` query guard, and
+ * the "non-test, non-ext-service conversation" tenant-hygiene predicate (both
+ * a Drizzle-composable form and a raw-SQL fragment, so every caller imports
+ * instead of re-deriving it). Each export below says which callers use it.
+ */
+
+/** RRF constant. Named so RANK-01 (v2) has a one-line tune point. Also the
+ *  default `k` for `hybridSearch` (src/memory/retrieval.ts). */
 export const RRF_K = 60;
 
 export type SearchMode = "hybrid" | "keyword" | "semantic";
@@ -96,8 +110,76 @@ export interface SearchMessagesParams {
   offset?: number;
 }
 
-// ── Shared snippet options (verbatim from searchConversations) ──────────
-const HEADLINE_OPTS = "StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15";
+// ── Shared snippet options (also used by searchConversations) ───────────
+export const HEADLINE_OPTS = "StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15";
+
+// ── Shared `<2-char` query guard (also used by searchConversations) ─────
+/** Minimum non-whitespace length for a search query. Below this, the FTS/ANN
+ *  legs have no useful signal, so callers return `[]` without touching SQL. */
+export const MIN_SEARCH_QUERY_LENGTH = 2;
+
+/** True when `query` is empty/whitespace-only or shorter than {@link MIN_SEARCH_QUERY_LENGTH}. */
+export function isSearchQueryTooShort(query: string): boolean {
+  return !query || query.trim().length < MIN_SEARCH_QUERY_LENGTH;
+}
+
+// ── Shared RRF fused-score formula (also used by hybridSearch) ──────────
+/**
+ * RRF fused-score SQL text: `COALESCE(1/(k+vectorRank),0) + COALESCE(1/(k+keywordRank),0)`
+ * — the same formula `hybridSearch` (src/memory/retrieval.ts) independently
+ * implemented. Returns a raw (parameter-free) SQL string: `vectorRankExpr` /
+ * `keywordRankExpr` MUST be trusted SQL identifiers (column refs), never user
+ * input. A drizzle `sql`-tag caller splices it via `sql.raw(...)`;
+ * `hybridSearch` (rawQuery-based, not drizzle-tag) inlines the string directly.
+ */
+export function rrfFusedScoreExpr(
+  vectorRankExpr: string,
+  keywordRankExpr: string,
+  k: number = RRF_K,
+): string {
+  return `(COALESCE(1.0 / (${k} + ${vectorRankExpr}), 0) + COALESCE(1.0 / (${k} + ${keywordRankExpr}), 0))`;
+}
+
+/**
+ * Single-leg RRF score SQL text: `1/(k+rankExpr)` — used when only one ranked
+ * leg is present (keyword-only / semantic-only search modes), so no COALESCE
+ * is needed.
+ */
+export function rrfSingleLegScoreExpr(rankExpr: string, k: number = RRF_K): string {
+  return `(1.0 / (${k} + ${rankExpr}))`;
+}
+
+// ── Shared tenant-hygiene predicate ──────────────────────────────────────
+// "non-test, non-ext-service conversation" keeps host-internal `ext-service`
+// conversations and scratch `test` conversations out of user-facing
+// search/list results. Exported in the two shapes callers need:
+//   - a Drizzle-composable condition, for typed `.where(and(...))` builders
+//     (conversations.ts's listConversations / listRecentConversationsForUser)
+//   - a raw-SQL `SQL` fragment (aliased `c`), spliced via `${...}` into
+//     another `sql`-tag template (this module, conversations.ts's
+//     searchConversations, message-embed-outbox.ts's getEmbedProgress)
+// NOT every caller wants BOTH halves — message-search.ts / getEmbedProgress
+// only ever apply the non-test half (they don't scope by conversation kind),
+// so the two halves stay independently importable rather than pre-ANDed.
+
+/** Plain-string form (aliased `c`) for the one non-parameterized text builder
+ *  (`explainVectorLegSql`, which must emit literal EXPLAIN ANALYZE text). */
+export const NON_TEST_CONVERSATION_SQL_TEXT = "(c.test IS NULL OR c.test = false)";
+/** Raw-SQL fragment (aliased `c`) — splice via `${...}` into a `sql`-tag template. */
+export const NON_TEST_CONVERSATION_SQL = sql.raw(NON_TEST_CONVERSATION_SQL_TEXT);
+
+/** Raw-SQL fragment (aliased `c`) — excludes host-internal `ext-service` conversations. */
+export const NON_EXT_SERVICE_CONVERSATION_SQL = sql.raw("c.kind <> 'ext-service'");
+
+/** Drizzle-composable: excludes soft-deleted `test` conversations. */
+export function nonTestConversationCondition() {
+  return or(eq(conversations.test, false), isNull(conversations.test));
+}
+
+/** Drizzle-composable: excludes host-internal `ext-service` conversations. */
+export function nonExtServiceConversationCondition() {
+  return ne(conversations.kind, "ext-service");
+}
 
 /**
  * Tenant scope predicate for a `conversations c` row (parameterized). Two shapes:
@@ -136,7 +218,7 @@ function scopedConvArray(
   return sql`ANY (ARRAY(
     SELECT c.id FROM conversations c
     WHERE ${tenantPredicate(projectId, userId, scope)}
-      AND (c.test IS NULL OR c.test = false)
+      AND ${NON_TEST_CONVERSATION_SQL}
   ))`;
 }
 
@@ -191,7 +273,7 @@ function keywordLegInner(
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
     WHERE ${tenantPredicate(projectId, userId, scope)}
-      AND (c.test IS NULL OR c.test = false)
+      AND ${NON_TEST_CONVERSATION_SQL}
       AND m.role IN ('user', 'assistant')
       AND to_tsvector('english', m.content) @@ plainto_tsquery('english', ${query})
     LIMIT ${fetchLimit}
@@ -265,8 +347,8 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
     return [];
   }
 
-  // <2-char/whitespace guard — verbatim from searchConversations. No SQL.
-  if (!query || query.trim().length < 2) return [];
+  // <2-char/whitespace guard — shared with searchConversations. No SQL.
+  if (isSearchQueryTooShort(query)) return [];
 
   const db = getDb();
   const fetchLimit = limit * 2;
@@ -295,7 +377,7 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
         k.message_id AS message_id,
         NULL::bigint AS rank_v,
         k.rank_k AS rank_k,
-        (1.0 / (${RRF_K} + k.rank_k)) AS score,
+        ${sql.raw(rrfSingleLegScoreExpr("k.rank_k"))} AS score,
         k.snippet AS snippet,
         NULL::text AS matched_content,
         c.id AS conversation_id,
@@ -309,8 +391,7 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
       JOIN conversations c ON c.id = m.conversation_id
       JOIN projects p ON p.id = c.project_id
       ORDER BY score DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
+      LIMIT ${limit} OFFSET ${offset}`;
   } else if (mode === "semantic") {
     if (!vectorLiteral) return [];
     fused = sql`
@@ -331,7 +412,7 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
         v.message_id AS message_id,
         v.rank_v AS rank_v,
         NULL::bigint AS rank_k,
-        (1.0 / (${RRF_K} + v.rank_v)) AS score,
+        ${sql.raw(rrfSingleLegScoreExpr("v.rank_v"))} AS score,
         NULL::text AS snippet,
         v.matched_content AS matched_content,
         c.id AS conversation_id,
@@ -345,8 +426,7 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
       JOIN conversations c ON c.id = m.conversation_id
       JOIN projects p ON p.id = c.project_id
       ORDER BY score DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
+      LIMIT ${limit} OFFSET ${offset}`;
   } else {
     // hybrid: FULL OUTER JOIN of the two ranked legs on message_id.
     if (!vectorLiteral) return [];
@@ -372,10 +452,7 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
           COALESCE(v.message_id, k.message_id) AS message_id,
           v.rank_v AS rank_v,
           k.rank_k AS rank_k,
-          (
-            COALESCE(1.0 / (${RRF_K} + v.rank_v), 0) +
-            COALESCE(1.0 / (${RRF_K} + k.rank_k), 0)
-          ) AS score,
+          ${sql.raw(rrfFusedScoreExpr("v.rank_v", "k.rank_k"))} AS score,
           k.snippet AS snippet,
           v.matched_content AS matched_content
         FROM vector_ranked v
@@ -399,8 +476,7 @@ export async function searchMessages(params: SearchMessagesParams): Promise<Mess
       JOIN conversations c ON c.id = m.conversation_id
       JOIN projects p ON p.id = c.project_id
       ORDER BY f.score DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `;
+      LIMIT ${limit} OFFSET ${offset}`;
   }
 
   const result = await db.execute(fused);
@@ -448,7 +524,7 @@ export function explainVectorLegSql(params: {
       AND mc.conversation_id = ANY (ARRAY(
         SELECT c.id FROM conversations c
         WHERE ${tenant}
-          AND (c.test IS NULL OR c.test = false)
+          AND ${NON_TEST_CONVERSATION_SQL_TEXT}
       ))
     ORDER BY mc.embedding <=> ${vectorLiteral}
     LIMIT ${fetchLimit}`;

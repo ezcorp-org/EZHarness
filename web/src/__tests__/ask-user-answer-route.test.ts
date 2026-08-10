@@ -19,6 +19,7 @@
  */
 
 import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Mock auth + scope middleware ──────────────────────────────────
 
@@ -95,16 +96,17 @@ interface RequestEventLike {
 }
 
 function makeEvent(body: unknown): RequestEventLike {
-  return {
-    request: new Request("http://localhost/api/ask-user/answer", {
+  return makeRequestEvent("http://localhost/api/ask-user/answer", {
+    url: null,
+    request: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: typeof body === "string" ? body : JSON.stringify(body),
-    }),
+    },
     locals: {
       user: { id: "user-1", email: "t@t.com", name: "T", role: "member" },
     },
-  };
+  });
 }
 
 // ── Tests ──────────────────────────────────────────────────────────

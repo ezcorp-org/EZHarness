@@ -10,6 +10,7 @@
  * canvas-dock-sdk.md §5 e2e #canvas-dock-open-close.
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Canvas Dock — open/close + sidebar restore", () => {
@@ -33,11 +34,9 @@ test.describe("Canvas Dock — open/close + sidebar restore", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Open the canvas");
 		await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "Open the canvas"),
 		]);
 
 		await emitWs({

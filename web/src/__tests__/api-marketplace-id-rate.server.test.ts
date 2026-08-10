@@ -7,6 +7,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/marketplace-ratings", () => ({
 	upsertRating: vi.fn(async () => undefined),
@@ -25,16 +26,15 @@ function makeEvent(opts: {
 	id?: string;
 }) {
 	const id = opts.id ?? "abc";
-	return {
-		url: new URL(`http://localhost/api/marketplace/${id}/rate`),
-		locals: opts.locals ?? {},
-		params: { id },
-		request: new Request(`http://localhost/api/marketplace/${id}/rate`, {
+	return makeRequestEvent(`http://localhost/api/marketplace/${id}/rate`, {
+	  locals: opts.locals ?? {},
+	  params: { id },
+	  request: {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(opts.body ?? {}),
-		}),
-	} as any;
+		},
+	});
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

@@ -16,6 +16,7 @@
  * scoping is tested without a DB.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mockExpose = vi.fn();
 const mockSetAlways = vi.fn();
@@ -33,15 +34,14 @@ const USER = { id: "session-user", email: "u@x", name: "u", role: "member" } as 
 function makeEvent(opts: { body?: unknown; raw?: string; locals?: Record<string, unknown> }) {
   const href = "http://localhost/api/preview/consent";
   const body = opts.raw !== undefined ? opts.raw : opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
-  return {
-    request: new Request(href, {
+  return makeRequestEvent(href, {
+    request: {
       method: "POST",
       body,
       headers: { "Content-Type": "application/json" },
-    }),
+    },
     locals: opts.locals ?? { user: USER },
-    url: new URL(href),
-  } as never;
+  });
 }
 
 async function run(event: ReturnType<typeof makeEvent>): Promise<Response> {

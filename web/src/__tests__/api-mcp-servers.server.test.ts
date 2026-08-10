@@ -9,6 +9,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // McpClient mock — constructor captures args, instance methods are spied.
 const mcpConnect = vi.fn(async () => undefined);
@@ -41,15 +42,14 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
   body?: unknown;
 }) {
-  return {
-    url: new URL("http://localhost/api/mcp-servers"),
+  return makeRequestEvent("http://localhost/api/mcp-servers", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/mcp-servers", {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const adminUser = {

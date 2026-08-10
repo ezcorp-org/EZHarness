@@ -18,6 +18,7 @@
  * test style on the sibling `[id]` route.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mockSearchMemories = vi.fn();
 const mockGetProjectIdsForMemories = vi.fn();
@@ -64,11 +65,10 @@ const ADMIN = { id: "admin-1", email: "admin@x", name: "Admin", role: "admin" };
 
 function makeGetEvent(user: Record<string, unknown>) {
 	// Cookie session (no `apiKeyScopes`) → `requireScope("read")` passes.
-	return {
-		url: new URL("http://localhost/api/memories"),
-		locals: { user },
-		request: new Request("http://localhost/api/memories", { method: "GET" }),
-	} as any;
+	return makeRequestEvent("http://localhost/api/memories", {
+	  locals: { user },
+	  request: { method: "GET" },
+	});
 }
 
 beforeEach(() => {

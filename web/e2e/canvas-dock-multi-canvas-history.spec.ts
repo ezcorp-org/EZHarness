@@ -15,6 +15,7 @@
  * validation: ping-pong fix + initial-mount skip + DockHost latest-canvas restore.
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Canvas Dock — multi-canvas history (no ping-pong)", () => {
@@ -34,10 +35,9 @@ test.describe("Canvas Dock — multi-canvas history (no ping-pong)", () => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		await page.locator("textarea").fill("Open twice");
 		await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "Open twice"),
 		]);
 
 		// Stream BOTH dock-mode completions back-to-back.

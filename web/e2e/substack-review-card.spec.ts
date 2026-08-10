@@ -25,6 +25,7 @@
  */
 
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import type { MockOverrides } from "./fixtures/api-mocks.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
@@ -138,10 +139,7 @@ async function navigateAndOpenCard(
 	// before Svelte wires the submit handler, so the POST never leaves and
 	// `waitForResponse` hangs to timeout — the root of the flake. Gating on
 	// an enabled textarea makes the setup deterministic.
-	const textarea = page.locator("textarea").first();
-	await expect(textarea).toBeEnabled({ timeout: 15_000 });
-	await textarea.fill("show my review queue");
-	// Register the response waiter BEFORE pressing Enter so the POST can't
+	// Register the response waiter BEFORE sending so the POST can't
 	// race ahead of the listener. Explicit generous timeout so a slow
 	// (CPU-starved) mocked round-trip doesn't fall back to a tighter default.
 	await Promise.all([
@@ -149,7 +147,7 @@ async function navigateAndOpenCard(
 			(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			{ timeout: 15_000 },
 		),
-		textarea.press("Enter"),
+		sendComposerMessage(page, "show my review queue"),
 	]);
 
 	const invocationId = "inv-open-review";

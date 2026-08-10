@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/sessions", () => ({
   listAllSessions: vi.fn(async () => []),
@@ -37,11 +38,10 @@ function makeEvent(opts: {
     init.body = JSON.stringify(opts.body);
     init.headers = { "content-type": "application/json" };
   }
-  return {
-    url: new URL(url),
+  return makeRequestEvent(url, {
     locals: opts.locals ?? {},
-    request: new Request(url, init),
-  } as any;
+    request: init,
+  });
 }
 
 const adminLocals = {

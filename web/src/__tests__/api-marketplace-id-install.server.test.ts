@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/marketplace", () => ({
   getListingById: vi.fn(),
@@ -54,16 +55,15 @@ function makeEvent(opts: {
 }) {
   const id = opts.id ?? "listing-1";
   const href = `http://localhost/api/marketplace/${id}/install`;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(href, {
+    request: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

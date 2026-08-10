@@ -1,6 +1,6 @@
 import { Type } from "@earendil-works/pi-ai";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef  } from "./types";
+import { errorMessage, toolError, type BuiltinToolDef } from "./types";
 import type { ToolParams } from "./validate";
 
 export function createGlobTool(projectPath: string): BuiltinToolDef {
@@ -54,10 +54,7 @@ export function createGlobTool(projectPath: string): BuiltinToolDef {
           details: { fileCount: files.length, truncated },
         };
       } catch (e) {
-        return {
-          content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }],
-          details: { isError: true, fileCount: 0, truncated: false },
-        };
+        return toolError(errorMessage(e), { fileCount: 0, truncated: false });
       }
     },
   };

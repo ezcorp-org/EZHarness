@@ -7,6 +7,8 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse as expectThrown } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const registerAgent = vi.fn();
 const unregisterAgent = vi.fn();
@@ -39,16 +41,15 @@ function makeEvent(opts: {
 }) {
   const id = opts.id ?? "cfg-1";
   const href = `http://localhost/api/agent-configs/${id}`;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(href, {
+    request: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };
@@ -57,22 +58,6 @@ const admin = { id: "a1", email: "a@x", name: "a", role: "admin" };
 // NULL-userId rows are SYSTEM-owned (e.g. the shared "Daily Briefing"
 // agent minted at boot) — readable by everyone, mutable by admins only.
 const systemConfig = { id: "cfg-sys", userId: null, name: "Daily Briefing" };
-
-async function expectThrown(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-    if (!res || res.status !== status) expect.fail("expected thrown Response");
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
-}
 
 describe("GET /api/agent-configs/[id]", () => {
   beforeEach(() => vi.mocked(getAgentConfig).mockReset());

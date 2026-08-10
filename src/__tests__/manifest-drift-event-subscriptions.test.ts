@@ -19,39 +19,18 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 // ── DB stub (same shape as bundled-grant-event-subscriptions.test.ts) ──
 
-interface StoredExtension {
-  id: string;
-  name: string;
-  manifest: { schemaVersion: 2; name: string; version: string; permissions?: Record<string, unknown> } & Record<string, unknown>;
-  installPath: string;
-  enabled: boolean;
-  isBundled?: boolean;
-  consecutiveFailures?: number;
-  grantedPermissions: {
-    network?: string[];
-    eventSubscriptions?: string[];
-    grantedAt: Record<string, number>;
-    [k: string]: unknown;
-  };
-}
+import { createMockExtensionsStore, type MockExtensionRow } from "./helpers/mock-extensions-store";
 
-let store: Map<string, StoredExtension>;
+const extStore = createMockExtensionsStore({ keyBy: "name" });
+const store = extStore.store;
 
 mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: async (name: string) => store.get(name) ?? null,
+  getExtensionByName: extStore.getExtensionByName,
   createExtension: async () => {
     throw new Error("createExtension should not be invoked — fixtures pre-seed");
   },
-  listExtensions: async () => Array.from(store.values()),
-  updateExtension: async (id: string, patch: Partial<StoredExtension>) => {
-    for (const row of store.values()) {
-      if (row.id === id) {
-        Object.assign(row, patch);
-        return row;
-      }
-    }
-    return null;
-  },
+  listExtensions: extStore.listExtensions,
+  updateExtension: extStore.updateExtension,
   deleteExtension: async () => undefined,
   incrementFailures: async () => 0,
   resetFailures: async () => undefined,
@@ -127,7 +106,7 @@ import { ensureBundledExtensions } from "../extensions/bundled";
 import { EXT_AUDIT_ACTIONS } from "../extensions/audit-actions";
 
 beforeEach(() => {
-  store = new Map();
+  extStore.reset();
   auditCounts.clear();
 });
 
@@ -135,7 +114,7 @@ beforeEach(() => {
  *  the bundled.ts entry's declared permissions. This lets us inspect a
  *  SINGLE target extension (`claude-design`) while every other bundled
  *  entry is a no-op (drift returns no diff). */
-function seedAll(target: { name: string; row: StoredExtension }): void {
+function seedAll(target: { name: string; row: MockExtensionRow }): void {
   // `bundled.ts` iterates BUNDLED_EXTENSIONS; we only need a row for
   // entries that would otherwise hit `installFromLocal` (which we
   // mock-throw on). Easier to seed our target and let the rest fall

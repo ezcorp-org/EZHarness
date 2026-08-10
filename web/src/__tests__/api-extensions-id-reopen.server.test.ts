@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // The route does `err instanceof ReopenError`, importing it from this
 // same module — so the mock must export the real class and the mock
@@ -34,14 +35,13 @@ const { POST } = await import(
 
 function makeEvent(opts: { id?: string; locals?: Record<string, unknown> }) {
   const id = opts.id ?? "ext-1";
-  return {
-    url: new URL(`http://localhost/api/extensions/${id}/reopen`),
+  return makeRequestEvent(`http://localhost/api/extensions/${id}/reopen`, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(`http://localhost/api/extensions/${id}/reopen`, {
+    request: {
       method: "POST",
-    }),
-  } as any;
+    },
+  });
 }
 
 const owner = { id: "owner-1", email: "o@x", name: "o", role: "member" };

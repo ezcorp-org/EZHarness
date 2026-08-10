@@ -18,6 +18,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/extensions", () => ({
   getExtension: vi.fn(),
@@ -46,12 +47,10 @@ function makeEvent(opts: {
 }) {
   const id = opts.id ?? "ext-1";
   const href = `http://localhost/api/extensions/${id}/audit${opts.search ?? ""}`;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(href),
-  } as any;
+  });
 }
 
 const adminUser = { id: "u1", email: "a@x", name: "a", role: "admin" };

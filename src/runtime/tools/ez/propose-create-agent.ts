@@ -14,10 +14,10 @@
  * Same goes for capabilities[] (free-form strings).
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import { errorMessage, toolError, type BuiltinToolDef } from "../types";
 import { createDraft } from "../../../db/queries/ez-drafts";
 import type { EzToolContext } from "./propose-create-project";
-import type { ToolParams } from "../validate";
+import { stringParam, type ToolParams } from "../validate";
 
 export function createProposeCreateAgentTool(ctx: EzToolContext): BuiltinToolDef {
   return {
@@ -41,13 +41,13 @@ export function createProposeCreateAgentTool(ctx: EzToolContext): BuiltinToolDef
     }),
     execute: async (_toolCallId, params: ToolParams) => {
       try {
-        const name = typeof params?.name === "string" ? params.name.trim() : "";
+        const name = stringParam(params, "name");
         const prompt = typeof params?.prompt === "string" ? params.prompt : "";
         if (!name) {
-          return { content: [{ type: "text" as const, text: "Error: name is required" }], details: { isError: true } };
+          return toolError("name is required");
         }
         if (!prompt.trim()) {
-          return { content: [{ type: "text" as const, text: "Error: prompt is required" }], details: { isError: true } };
+          return toolError("prompt is required");
         }
         const inputSchema = params?.inputSchema && typeof params.inputSchema === "object" ? params.inputSchema : undefined;
         const capabilities = Array.isArray(params?.capabilities)
@@ -65,7 +65,7 @@ export function createProposeCreateAgentTool(ctx: EzToolContext): BuiltinToolDef
           details: { draftId: draft.id, openUrl, kind: "agent" as const },
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return toolError(errorMessage(e));
       }
     },
   };

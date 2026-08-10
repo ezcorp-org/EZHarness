@@ -12,6 +12,7 @@
  * registered BEFORE mockApi so the more-specific handler wins.
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("claude-design — adaptive knob sidebar", () => {
@@ -60,12 +61,11 @@ test.describe("claude-design — adaptive knob sidebar", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		await page.locator("textarea").fill("Open canvas");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "Open canvas"),
 		]);
 
 		// Tool result carries a 3-knob descriptor array — primary color,

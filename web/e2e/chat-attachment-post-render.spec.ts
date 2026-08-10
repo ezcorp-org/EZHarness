@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
 
 /**
@@ -47,8 +48,7 @@ test("uploaded image appears in chat history after send without a reload", async
 
 	const fileInput = page.getByTestId("attachment-file-input");
 	await fileInput.setInputFiles({ name: "cat.png", mimeType: "image/png", buffer: PNG_1x1 });
-	await page.locator("textarea").first().fill("look");
-	await page.getByRole("button", { name: "Send message" }).click();
+	await sendComposerMessage(page, "look");
 
 	// The optimistic merge path: POST returns AttachmentSummary with id
 	// `att-sent-1` (see api-mocks.ts). ChatMessage renders it above (or

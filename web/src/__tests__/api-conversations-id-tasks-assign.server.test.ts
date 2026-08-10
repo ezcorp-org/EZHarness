@@ -11,6 +11,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
 const getAgentConfig = vi.fn();
@@ -47,21 +48,15 @@ function makeEvent(opts: {
   body?: unknown;
 }) {
   const method = opts.method ?? "POST";
-  return {
-    url: new URL(
-      "http://localhost/api/conversations/c1/tasks/t1/assign",
-    ),
+  return makeRequestEvent("http://localhost/api/conversations/c1/tasks/t1/assign", {
     locals: opts.locals ?? {},
     params: { id: "c1", taskId: "t1" },
-    request: new Request(
-      "http://localhost/api/conversations/c1/tasks/t1/assign",
-      {
+    request: {
         method,
         headers: { "content-type": "application/json" },
         body: opts.body !== undefined ? JSON.stringify(opts.body) : "{}",
       },
-    ),
-  } as any;
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

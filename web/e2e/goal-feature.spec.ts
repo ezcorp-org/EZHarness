@@ -91,6 +91,7 @@
  */
 
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
 
 test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
@@ -127,13 +128,11 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		// interceptor writes metadata.goal, emits goal:update{active},
 		// then falls through to streamChat — so we expect both a
 		// non-null runId (skeleton appears) AND a goal:update frame.
-		const textarea = page.locator("textarea");
-		await textarea.fill("/goal ship the chip");
-		await Promise.all([
+				await Promise.all([
 			page.waitForResponse(
 				(r: any) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "/goal ship the chip"),
 		]);
 
 		// SSE: the goal-host emitted goal:update{active}. The chip
@@ -168,10 +167,9 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		// distinct run:complete + goal:update updates and asserting the
 		// reason from the second one surfaces in the inline status card
 		// (the user explicitly fetches one via /goal at the end).
-		await page.locator("textarea").fill("/goal keep refactoring");
-		await Promise.all([
+				await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "/goal keep refactoring"),
 		]);
 
 		// First turn's run:complete + evaluator reason.
@@ -201,8 +199,7 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 
 		// User requests a status snapshot — server returns a status
 		// card via the slash-prefix interceptor (no LLM turn).
-		await page.locator("textarea").fill("/goal");
-		await page.locator("textarea").press("Enter");
+		await sendComposerMessage(page, "/goal");
 
 		const statusCard = page.locator('[data-goal-kind="status"]');
 		await expect(statusCard).toBeVisible({ timeout: 4000 });
@@ -216,10 +213,9 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 	}) => {
 		await gotoChat(page, mockApi);
 
-		await page.locator("textarea").fill("/goal short and sweet");
-		await Promise.all([
+				await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "/goal short and sweet"),
 		]);
 
 		// Chip armed.
@@ -267,10 +263,9 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		// The interceptor returns a card-only response (runId:null) —
 		// no streaming turn fires. We assert the absence of the
 		// skeleton plus the presence of the status card.
-		await page.locator("textarea").fill("/goal");
-		await Promise.all([
+				await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "/goal"),
 		]);
 
 		await expect(page.locator('[data-goal-kind="status"]')).toBeVisible({ timeout: 4000 });
@@ -286,10 +281,9 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		await gotoChat(page, mockApi);
 
 		// Arm first so we have something to clear.
-		await page.locator("textarea").fill("/goal x");
-		await Promise.all([
+				await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "/goal x"),
 		]);
 		await emitSse({
 			type: "goal:update",
@@ -298,10 +292,9 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		await expect(page.locator('[data-testid="goal-pill"]')).toBeVisible();
 
 		// Clear via the canonical command.
-		await page.locator("textarea").fill("/goal clear");
-		await Promise.all([
+				await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "/goal clear"),
 		]);
 		await emitSse({
 			type: "goal:update",
@@ -312,10 +305,9 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		await expect(page.locator('[data-goal-kind="cleared"]').first()).toBeVisible({ timeout: 4000 });
 
 		// Re-arm so we can test the `stop` alias separately.
-		await page.locator("textarea").fill("/goal y");
-		await Promise.all([
+				await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "/goal y"),
 		]);
 		await emitSse({
 			type: "goal:update",
@@ -323,10 +315,9 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		});
 		await expect(page.locator('[data-testid="goal-pill"]')).toBeVisible();
 
-		await page.locator("textarea").fill("/goal stop");
-		await Promise.all([
+				await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "/goal stop"),
 		]);
 		await emitSse({
 			type: "goal:update",
@@ -344,10 +335,9 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 	}) => {
 		await gotoChat(page, mockApi);
 
-		await page.locator("textarea").fill("/goal long task");
-		await Promise.all([
+				await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "/goal long task"),
 		]);
 		await emitSse({
 			type: "goal:update",
@@ -374,8 +364,7 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 
 		// User sends a plain non-/goal message. FR-13b's lazy rehydrate
 		// flips paused→active for non-/goal POSTs.
-		await page.locator("textarea").fill("keep going");
-		await page.locator("textarea").press("Enter");
+		await sendComposerMessage(page, "keep going");
 		await emitSse({
 			type: "goal:update",
 			data: { conversationId: "conv-goal", state: "active", condition: "long task", armedAt: Date.now() },
@@ -427,14 +416,13 @@ test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
 		// turn — skeleton appears, run:token frames render.
 		await gotoChat(page, mockApi);
 
-		await page.locator("textarea").fill("/goal stream me");
 		// The POST resolves with a non-null runId (the mockApi default
 		// returns one for any plain content POST — see fixtures). The waiter
-		// is armed WITH the keypress: registered after it, it can miss its own
+		// is armed WITH the send: registered after it, it can miss its own
 		// response and then block for the full test timeout.
 		await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "/goal stream me"),
 		]);
 
 		// A token frame arrives — the streaming skeleton gives way

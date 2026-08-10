@@ -9,6 +9,8 @@
  * (no internal-field leakage, ownedByMe flag wired correctly).
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mockListVisibleLessons = vi.fn();
 vi.mock("$server/db/queries/lessons", () => ({
@@ -18,26 +20,10 @@ vi.mock("$server/db/queries/lessons", () => ({
 const { GET } = await import("../routes/api/lessons/+server");
 
 function makeEvent(opts: { href: string; locals?: Record<string, unknown> }) {
-	return {
-		url: new URL(opts.href),
-		locals: opts.locals ?? {},
-		request: new Request(opts.href, { method: "GET" }),
-	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		res = await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res!.status).toBe(status);
-	return res!;
+	return makeRequestEvent(opts.href, {
+	  locals: opts.locals ?? {},
+	  request: { method: "GET" },
+	});
 }
 
 const USER = { id: "u1", email: "u@x", name: "u", role: "user" };

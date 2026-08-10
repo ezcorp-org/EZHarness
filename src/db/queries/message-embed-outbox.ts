@@ -1,5 +1,6 @@
 import { and, eq, sql, type SQL } from "drizzle-orm";
 import { messageChunks, messageEmbedOutbox } from "../schema";
+import { NON_TEST_CONVERSATION_SQL } from "./message-search";
 
 /**
  * Minimal structural handle accepted by {@link enqueueEmbedJob}. Both the
@@ -173,10 +174,11 @@ export interface EmbedProgress {
 /**
  * Compute the embed-index {@link EmbedProgress} snapshot.
  *
- * Eligibility predicates are MIRRORED VERBATIM from message-search.ts (DRY —
- * never re-derived):
- *   - `(c.test IS NULL OR c.test = false)`   (message-search.ts:139/194)
- *   - `m.role IN ('user','assistant')`       (message-search.ts:195)
+ * Eligibility predicates: the non-test-conversation half is IMPORTED from
+ * message-search.ts (`NON_TEST_CONVERSATION_SQL` — DRY, never re-derived);
+ * the other two are local to this predicate (getEmbedProgress does not scope
+ * by conversation `kind`, so it does not need the ext-service half):
+ *   - `m.role IN ('user','assistant')`       (mirrors message-search.ts)
  *   - `length(trim(m.content)) > 0`          (mirrors isEmbedEligible, message-chunker.ts:20)
  *
  * `embeddedMessages` is `COUNT(DISTINCT mc.message_id)` over chunked messages
@@ -209,7 +211,7 @@ export async function getEmbedProgress(db: DrainDb): Promise<EmbedProgress> {
     SELECT COUNT(*)::int AS count
     FROM messages m
     JOIN conversations c ON c.id = m.conversation_id
-    WHERE (c.test IS NULL OR c.test = false)
+    WHERE ${NON_TEST_CONVERSATION_SQL}
       AND m.role IN ('user', 'assistant')
       AND length(trim(m.content)) > 0
   `);
@@ -222,7 +224,7 @@ export async function getEmbedProgress(db: DrainDb): Promise<EmbedProgress> {
     FROM message_chunks mc
     JOIN messages m ON m.id = mc.message_id
     JOIN conversations c ON c.id = m.conversation_id
-    WHERE (c.test IS NULL OR c.test = false)
+    WHERE ${NON_TEST_CONVERSATION_SQL}
       AND m.role IN ('user', 'assistant')
       AND length(trim(m.content)) > 0
   `);

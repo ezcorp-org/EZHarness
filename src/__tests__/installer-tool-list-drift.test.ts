@@ -31,41 +31,17 @@ mock.module("../db/queries/audit-log", () => ({
   listAuditForExtension: async () => [],
 }));
 
-interface StoredExtension {
-  id: string;
-  name: string;
-  manifest: unknown;
-  installPath: string;
-  enabled: boolean;
-  consecutiveFailures?: number;
-  isBundled?: boolean;
-  grantedPermissions: { storage?: boolean; grantedAt: Record<string, number> };
-}
+import { createMockExtensionsStore, type MockExtensionRow } from "./helpers/mock-extensions-store";
 
-let store: Map<string, StoredExtension>;
-let nextId = 0;
+const extStore = createMockExtensionsStore({ keyBy: "name" });
+const store = extStore.store;
 
 mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: async (name: string) => store.get(name) ?? null,
-  createExtension: async (data: Omit<StoredExtension, "id">) => {
-    const id = `ext-${++nextId}`;
-    const row = { id, ...data } as StoredExtension;
-    store.set(data.name, row);
-    return row;
-  },
-  listExtensions: async () => Array.from(store.values()),
-  updateExtension: async (id: string, patch: Partial<StoredExtension>) => {
-    for (const row of store.values()) {
-      if (row.id === id) {
-        Object.assign(row, patch);
-        return row;
-      }
-    }
-    return null;
-  },
-  deleteExtension: async (id: string) => {
-    for (const [k, v] of store) if (v.id === id) store.delete(k);
-  },
+  getExtensionByName: extStore.getExtensionByName,
+  createExtension: extStore.createExtension,
+  listExtensions: extStore.listExtensions,
+  updateExtension: extStore.updateExtension,
+  deleteExtension: extStore.deleteExtension,
   incrementFailures: async () => 0,
   resetFailures: async () => undefined,
   disableExtension: async () => undefined,
@@ -76,8 +52,7 @@ afterAll(() => restoreModuleMocks());
 const { ensureBundledExtensions } = await import("../extensions/bundled");
 
 beforeEach(() => {
-  store = new Map();
-  nextId = 0;
+  extStore.reset();
 });
 
 // Pull the scratchpad row into a known state, then mutate its DB-stored
@@ -86,14 +61,14 @@ beforeEach(() => {
 // any mutation we apply to `row.manifest` becomes the "DB stored"
 // side that the gate compares against.
 
-async function installAndGetScratchpad(): Promise<StoredExtension> {
+async function installAndGetScratchpad(): Promise<MockExtensionRow> {
   await ensureBundledExtensions();
   const row = store.get("scratchpad");
   if (!row) throw new Error("scratchpad install failed");
   return row;
 }
 
-function manifestOf(row: StoredExtension): ExtensionManifestV2 {
+function manifestOf(row: MockExtensionRow): ExtensionManifestV2 {
   return row.manifest as ExtensionManifestV2;
 }
 

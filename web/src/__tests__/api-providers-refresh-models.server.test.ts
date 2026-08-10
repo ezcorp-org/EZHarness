@@ -9,6 +9,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/providers/model-discovery", () => ({
   fetchProviderModels: vi.fn(),
@@ -35,11 +36,11 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
   params?: { provider?: string };
 }) {
-  return {
-    url: new URL("http://localhost/api/providers/x/refresh-models"),
+  return makeRequestEvent("http://localhost/api/providers/x/refresh-models", {
     locals: opts.locals ?? {},
     params: opts.params ?? { provider: "openai" },
-  } as any;
+    request: null,
+  });
 }
 
 const adminUser = { user: { id: "u1", email: "u@x", name: "u", role: "admin" } };

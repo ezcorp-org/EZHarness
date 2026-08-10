@@ -11,6 +11,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const selectMock = vi.fn();
 vi.mock("$server/db/connection", () => ({
@@ -32,12 +33,10 @@ const { GET } = await import("../routes/api/tool-calls/[id]/output/+server");
 
 function makeEvent(opts: { id?: string; locals?: Record<string, unknown> }) {
   const id = opts.id ?? "tc-1";
-  return {
-    url: new URL(`http://localhost/api/tool-calls/${id}/output`),
+  return makeRequestEvent(`http://localhost/api/tool-calls/${id}/output`, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(`http://localhost/api/tool-calls/${id}/output`),
-  } as any;
+  });
 }
 
 function chainReturning(rows: unknown[]) {

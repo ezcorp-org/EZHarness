@@ -22,6 +22,7 @@
  * `tweak-design` invocation.
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Test Project" });
@@ -98,12 +99,11 @@ test.describe("Canvas Dock — knob Apply flow", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		await page.locator("textarea").fill("Open canvas");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "Open canvas"),
 		]);
 
 		// Stream the open-canvas completion. The new payload includes the
@@ -260,12 +260,11 @@ test.describe("Canvas Dock — knob Apply flow", () => {
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		await page.locator("textarea").fill("Open canvas");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "Open canvas"),
 		]);
 
 		await emitWs({

@@ -23,7 +23,7 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { cp, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import type { ExtensionManifestV2, ExtensionPermissions } from "../extensions/types";
+import type { ExtensionManifestV2 } from "../extensions/types";
 import type { ExtensionProcess } from "../extensions/subprocess";
 
 // ── mocks (registered before the modules under test are imported) ────
@@ -39,41 +39,17 @@ mock.module("../db/queries/settings", () => ({
   setSetting: async () => undefined,
 }));
 
-interface StoredExtension {
-  id: string;
-  name: string;
-  manifest: unknown;
-  installPath: string;
-  enabled: boolean;
-  description?: string;
-  version?: string;
-  isBundled?: boolean;
-  grantedPermissions: ExtensionPermissions;
-}
+import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
 
-const store = new Map<string, StoredExtension>();
-let nextId = 0;
+const extStore = createMockExtensionsStore({ keyBy: "name" });
+const store = extStore.store;
 
 mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: async (name: string) => store.get(name) ?? null,
-  getExtension: async (id: string) =>
-    Array.from(store.values()).find((r) => r.id === id) ?? null,
-  createExtension: async (data: Omit<StoredExtension, "id">) => {
-    const id = `ext-${++nextId}`;
-    const row = { id, ...data } as StoredExtension;
-    store.set(data.name, row);
-    return row;
-  },
-  listExtensions: async () => Array.from(store.values()),
-  updateExtension: async (id: string, patch: Partial<StoredExtension>) => {
-    for (const row of store.values()) {
-      if (row.id === id) {
-        Object.assign(row, patch);
-        return row;
-      }
-    }
-    return null;
-  },
+  getExtensionByName: extStore.getExtensionByName,
+  getExtension: extStore.getExtension,
+  createExtension: extStore.createExtension,
+  listExtensions: extStore.listExtensions,
+  updateExtension: extStore.updateExtension,
   deleteExtension: async () => undefined,
   incrementFailures: async () => 0,
   resetFailures: async () => undefined,

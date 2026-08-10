@@ -14,6 +14,7 @@
  */
 
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import type { MockOverrides } from "./fixtures/api-mocks.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
@@ -62,12 +63,8 @@ async function streamToolCall(
 
 	await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-	// Gate on a hydrated composer before driving it (see
-	// substack-review-card.spec.ts — kills the slow-hydration flake).
-	const textarea = page.locator("textarea").first();
-	await expect(textarea).toBeEnabled({ timeout: 15_000 });
-	await textarea.fill("keep an eye on the Bun 2.0 release for me");
-	// Register the response waiter BEFORE pressing Enter so the POST can't
+	// sendComposerMessage owns the hydration + model-ready gate.
+	// Register the response waiter BEFORE sending so the POST can't
 	// race ahead of the listener. The timeout is the full test budget
 	// (30s) rather than a tighter 15s: when this file's three tests run in
 	// parallel (worse still under --repeat-each), the single mocked dev
@@ -80,7 +77,7 @@ async function streamToolCall(
 			(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			{ timeout: 30_000 },
 		),
-		textarea.press("Enter"),
+		sendComposerMessage(page, "keep an eye on the Bun 2.0 release for me"),
 	]);
 
 	const invocationId = `inv-${opts.toolName}`;

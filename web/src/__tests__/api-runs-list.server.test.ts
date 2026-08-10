@@ -7,6 +7,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mockListRuns = vi.fn();
 
@@ -19,7 +20,7 @@ const { GET } = await import("../routes/api/runs/+server.ts");
 function makeEvent(opts: { locals?: Record<string, unknown>; projectId?: string }) {
 	const u = new URL("http://x/api/runs");
 	if (opts.projectId) u.searchParams.set("projectId", opts.projectId);
-	return { url: u, locals: opts.locals ?? {} } as any;
+	return makeRequestEvent(u.toString(), { locals: opts.locals ?? {}, request: null });
 }
 
 describe("GET /api/runs (list — per-user IDOR scope)", () => {

@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 // E2E for the substack-pipeline human turn. The pipeline itself is
@@ -36,13 +37,11 @@ test.describe("substack-pipeline — ask-user card render → click → resume",
 			messages: [userMsg, assistantMsg],
 		});
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		const textarea = page.locator("textarea");
-		await textarea.fill("Turn https://example.com/post into a post");
 		await Promise.all([
 			page.waitForResponse(
 				(r: any) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "Turn https://example.com/post into a post"),
 		]);
 	}
 

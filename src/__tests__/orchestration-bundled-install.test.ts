@@ -25,45 +25,21 @@ mock.module("../db/queries/audit-log", () => ({
   listAuditForExtension: async () => [],
 }));
 
-interface StoredExtension {
-  id: string;
-  name: string;
-  manifest: unknown;
-  installPath: string;
-  enabled: boolean;
-  consecutiveFailures?: number;
-  isBundled?: boolean;
-  grantedPermissions: Record<string, unknown>;
-}
+import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
 
-let store: Map<string, StoredExtension>;
-let nextId = 0;
+const extStore = createMockExtensionsStore({ keyBy: "name" });
+const store = extStore.store;
 // Track writes to extension_storage so we can assert the extension
 // creates zero rows. The orchestration extension has no persistent
 // state; any write would be an error.
 let storageWrites: Array<{ extId: string; key: string }> = [];
 
 mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: async (name: string) => store.get(name) ?? null,
-  createExtension: async (data: Omit<StoredExtension, "id">) => {
-    const id = `ext-${++nextId}`;
-    const row = { id, ...data } as StoredExtension;
-    store.set(data.name, row);
-    return row;
-  },
-  listExtensions: async () => Array.from(store.values()),
-  updateExtension: async (id: string, patch: Partial<StoredExtension>) => {
-    for (const row of store.values()) {
-      if (row.id === id) {
-        Object.assign(row, patch);
-        return row;
-      }
-    }
-    return null;
-  },
-  deleteExtension: async (id: string) => {
-    for (const [k, v] of store) if (v.id === id) store.delete(k);
-  },
+  getExtensionByName: extStore.getExtensionByName,
+  createExtension: extStore.createExtension,
+  listExtensions: extStore.listExtensions,
+  updateExtension: extStore.updateExtension,
+  deleteExtension: extStore.deleteExtension,
   incrementFailures: async () => 0,
   resetFailures: async () => undefined,
   disableExtension: async () => undefined,
@@ -109,8 +85,7 @@ import {
 } from "../extensions/bundled";
 
 beforeEach(() => {
-  store = new Map();
-  nextId = 0;
+  extStore.reset();
   storageWrites = [];
 });
 

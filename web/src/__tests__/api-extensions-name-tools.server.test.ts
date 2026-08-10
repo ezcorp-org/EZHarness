@@ -7,6 +7,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getAllTools = vi.fn();
 
@@ -36,12 +37,10 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
 }) {
   const name = opts.name ?? "my-ext";
-  return {
-    url: new URL(`http://localhost/api/extensions/${name}/tools`),
+  return makeRequestEvent(`http://localhost/api/extensions/${name}/tools`, {
     locals: opts.locals ?? {},
     params: { name },
-    request: new Request(`http://localhost/api/extensions/${name}/tools`),
-  } as any;
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

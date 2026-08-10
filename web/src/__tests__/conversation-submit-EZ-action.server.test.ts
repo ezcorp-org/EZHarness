@@ -24,6 +24,7 @@
  * handler exercise.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
 const getMessages = vi.fn();
@@ -83,16 +84,15 @@ const user = { id: "u1", email: "u@x", name: "u", role: "user" };
 
 function makeEvent(opts: { body: { content: string } }) {
   const href = "http://localhost/api/conversations/c1/messages";
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: { user },
     params: { id: "c1" },
-    request: new Request(href, {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(opts.body),
-    }),
-  } as any;
+    },
+  });
 }
 
 describe("POST messages — EZ action dispatch", () => {

@@ -12,6 +12,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
 const getLatestLeaf = vi.fn();
@@ -58,16 +59,15 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
   body?: unknown;
 }) {
-  return {
-    url: new URL("http://localhost/api/conversations/sub-1/agent-chat"),
+  return makeRequestEvent("http://localhost/api/conversations/sub-1/agent-chat", {
     locals: opts.locals ?? {},
     params: { id: "sub-1" },
-    request: new Request("http://localhost/api/conversations/sub-1/agent-chat", {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

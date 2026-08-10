@@ -9,6 +9,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/settings", () => ({
   getSetting: vi.fn(),
@@ -18,10 +19,10 @@ const { getSetting } = await import("$server/db/queries/settings");
 const { GET } = await import("../routes/api/models/default-selection/+server.ts");
 
 function makeEvent(locals: Record<string, unknown> = {}) {
-  return {
-    url: new URL("http://localhost/api/models/default-selection"),
+  return makeRequestEvent("http://localhost/api/models/default-selection", {
     locals,
-  } as any;
+    request: null,
+  });
 }
 
 const memberLocals = {

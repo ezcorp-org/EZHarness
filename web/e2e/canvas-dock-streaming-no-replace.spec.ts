@@ -6,6 +6,7 @@
  * rule, plan §5 unit + e2e cases #streaming-no-replace.)
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Canvas Dock — streaming precedence", () => {
@@ -17,10 +18,9 @@ test.describe("Canvas Dock — streaming precedence", () => {
 	test("tool:start (running) for cardLayout:dock does NOT auto-open; tool:complete does", async ({ page, mockApi, emitWs }) => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await page.locator("textarea").fill("Open");
 		await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "Open"),
 		]);
 
 		await emitWs({

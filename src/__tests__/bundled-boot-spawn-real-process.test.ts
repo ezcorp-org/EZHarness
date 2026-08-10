@@ -72,21 +72,18 @@ const EXT_ID = "ext-real-process-fixture";
 //   - `getConversation` + `getMessages` to return real-ish rows so the
 //     RPC handler has data to echo back.
 
-interface StoredExtension {
-  id: string;
-  name: string;
-  enabled: boolean;
-}
+import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
 
-let store: Map<string, StoredExtension>;
+const extStore = createMockExtensionsStore({ keyBy: "name" });
+const store = extStore.store;
 let conversationStore: Map<string, { id: string; projectId: string | null }>;
 let messagesStore: Map<string, Array<{ id: string; role: string; content: string }>>;
 let wiringStore: Map<string, string[]>;
 
 mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: async (name: string) => store.get(name) ?? null,
+  getExtensionByName: extStore.getExtensionByName,
   updateExtension: async () => null,
-  listExtensions: async () => Array.from(store.values()),
+  listExtensions: extStore.listExtensions,
 }));
 
 // Spread the real `conversations` queries module so unrelated exports
@@ -147,7 +144,7 @@ let registry: ReturnType<typeof ExtensionRegistry.getInstance> | null = null;
 let dispatcher: InstanceType<typeof EventSubscriptionDispatcher> | null = null;
 
 beforeAll(() => {
-  store = new Map();
+  extStore.reset();
   conversationStore = new Map();
   messagesStore = new Map();
   wiringStore = new Map();
@@ -181,7 +178,7 @@ afterAll(() => restoreModuleMocks());
 describe("bootSpawnFlaggedBundledExtensions — real subprocess (Phase 53.6)", () => {
   test("spawns a real subprocess AND delivers run:complete to it", async () => {
     // 1. DB row for the hijacked bundled slot.
-    store.set(HIJACK_NAME, { id: EXT_ID, name: HIJACK_NAME, enabled: true });
+    extStore.seed({ id: EXT_ID, name: HIJACK_NAME, enabled: true });
 
     // 2. Real registry, fixture manifest registered via test seams.
     //    `resetInstance()` drops any prior singleton (from another
@@ -271,7 +268,7 @@ describe("bootSpawnFlaggedBundledExtensions — real subprocess (Phase 53.6)", (
   // outcome via a `test/rpc-result` notification the host asserts on.
   test("reverse-RPC succeeds via wiring fallback when boot executor is eventDriven (M1)", async () => {
     // 1. DB row for the hijacked bundled slot.
-    store.set(HIJACK_NAME, { id: EXT_ID, name: HIJACK_NAME, enabled: true });
+    extStore.seed({ id: EXT_ID, name: HIJACK_NAME, enabled: true });
 
     // 2. Conversation + messages the RPC will read. These have to exist
     //    so `runtime.conversations.getMessages` returns a real envelope

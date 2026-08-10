@@ -13,6 +13,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/auth/middleware", () => ({
 	requireAuth: (locals: Record<string, unknown>) => {
@@ -91,12 +92,10 @@ interface EventLike {
 }
 function makeEvent(id = "conv-owned", query = "", locals: Record<string, unknown> = {}): EventLike {
 	const href = `http://localhost/api/conversations/${id}/graph${query}`;
-	return {
-		request: new Request(href),
-		url: new URL(href),
-		locals: { user: { id: "user-1", email: "u@x", name: "u", role: "member" }, ...locals },
-		params: { id },
-	};
+	return makeRequestEvent(href, {
+	  locals: { user: { id: "user-1", email: "u@x", name: "u", role: "member" }, ...locals },
+	  params: { id },
+	});
 }
 async function run(fn: () => Promise<Response> | Response): Promise<Response> {
 	try {

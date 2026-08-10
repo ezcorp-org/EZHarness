@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 import type { Page } from "@playwright/test";
 
@@ -74,17 +75,13 @@ test.describe("Sub-Agent Permission Routing", () => {
 		// Send a user message. The mocked POST /messages endpoint returns
 		// runId "run-stream", which causes the frontend to call startStreaming
 		// and register { "run-stream": "conv-1" } in streamingRunToConversation.
-		// Clicking the Send button is more reliable than press("Enter") across
-		// parallel workers — matches the pattern used in multi-agent.spec.ts.
-		const textarea = page.locator("textarea");
-		await textarea.fill("Delegate to a sub-agent");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			page.getByRole("button", { name: "Send message" }).click(),
+			sendComposerMessage(page, "Delegate to a sub-agent"),
 		]);
-		await expect(page.getByText("Delegate to a sub-agent")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Delegate to a sub-agent")).toBeVisible({ timeout: 5000 });
 
 		// A token so the content-block builder has some text and the assistant
 		// bubble exists in the DOM.

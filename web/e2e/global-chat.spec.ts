@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
 
 const ACTIVE_PROJECT_KEY = "activeProjectId";
@@ -118,9 +119,7 @@ test.describe("Global chat + handoff", () => {
 		);
 
 		await page.goto("/");
-		const textarea = page.locator("textarea");
-		await textarea.fill("hello global");
-		await textarea.press("Enter");
+		await sendComposerMessage(page, "hello global");
 
 		const body = (await createReq).postDataJSON();
 		expect(body).toMatchObject({ projectId: "global" });

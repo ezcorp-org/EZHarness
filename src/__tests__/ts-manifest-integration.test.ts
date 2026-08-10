@@ -16,29 +16,23 @@ import { mkdtemp } from "fs/promises";
 
 // ── Mock DB layer ────────────────────────────────────────────────────
 
-const mockExtensions = new Map<string, any>();
+import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
+
+const extStore = createMockExtensionsStore({ keyBy: "id", timestamps: true, generateId: () => crypto.randomUUID() });
+const mockExtensions = extStore.store;
 let lastCreateCall: any = null;
 
 mock.module("../db/queries/extensions", () => ({
   createExtension: async (data: any) => {
-    const ext = { id: crypto.randomUUID(), ...data, createdAt: new Date(), updatedAt: new Date() };
+    const ext = await extStore.createExtension(data);
     lastCreateCall = ext;
-    mockExtensions.set(ext.id, ext);
     return ext;
   },
-  getExtension: async (id: string) => mockExtensions.get(id) ?? null,
-  getExtensionByName: async (name: string) => {
-    for (const ext of mockExtensions.values()) if (ext.name === name) return ext;
-    return null;
-  },
-  updateExtension: async (id: string, data: any) => {
-    const ext = mockExtensions.get(id);
-    if (!ext) return null;
-    Object.assign(ext, data, { updatedAt: new Date() });
-    return ext;
-  },
-  deleteExtension: async (id: string) => mockExtensions.delete(id),
-  listExtensions: async () => Array.from(mockExtensions.values()),
+  getExtension: extStore.getExtension,
+  getExtensionByName: extStore.getExtensionByName,
+  updateExtension: extStore.updateExtension,
+  deleteExtension: extStore.deleteExtension,
+  listExtensions: extStore.listExtensions,
   incrementFailures: async () => 0,
   resetFailures: async () => {},
   disableExtension: async () => {},

@@ -13,6 +13,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/extensions", () => ({
   listExtensions: vi.fn(),
@@ -52,15 +53,14 @@ function makeEvent(opts: {
   query?: string;
 }) {
   const href = `http://localhost/api/extensions${opts.query ?? ""}`;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
-    request: new Request(href, {
+    request: {
       method: opts.method ?? "GET",
       headers: { "content-type": "application/json" },
       body: opts.body ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const adminUser = { id: "u1", email: "a@x", name: "a", role: "admin" };

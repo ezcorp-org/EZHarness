@@ -1,5 +1,6 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
 import type { TaskSnapshot } from "../../../src/runtime/task-tracking-host";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Mock db/query layer ─────────────────────────────────────────────
 
@@ -52,13 +53,14 @@ const { GET } = await import("../routes/api/conversations/[id]/tasks/+server");
 // ── Test helpers ────────────────────────────────────────────────────
 
 function makeEvent(conversationId: string, opts: { user?: typeof mockUser } = {}) {
-  return {
-    request: new Request(`http://localhost/api/conversations/${conversationId}/tasks`, {
+  return makeRequestEvent(`http://localhost/api/conversations/${conversationId}/tasks`, {
+    url: null,
+    request: {
       method: "GET",
-    }),
+    },
     params: { id: conversationId },
     locals: { user: opts.user ?? mockUser },
-  } as any;
+  });
 }
 
 function _snap(overrides: Partial<TaskSnapshot> = {}): TaskSnapshot {

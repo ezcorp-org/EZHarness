@@ -36,24 +36,21 @@ import { writeConfig } from "./helpers/write-config";
 
 // ── Mock DB queries ─────────────────────────────────────────────────
 
-const mockExtensions = new Map<string, unknown>();
+import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
+
+const extStore = createMockExtensionsStore({ keyBy: "id", timestamps: true, generateId: () => crypto.randomUUID() });
+const mockExtensions = extStore.store;
 let createExtensionCalled: { name: string; version: string; manifest: unknown } | null = null;
 
 mock.module("../db/queries/extensions", () => ({
   createExtension: async (data: { name: string; version: string; manifest: unknown }) => {
-    const ext = {
-      id: crypto.randomUUID(),
-      ...data,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    createExtensionCalled = ext;
-    mockExtensions.set(ext.id, ext);
+    const ext = await extStore.createExtension(data as Parameters<typeof extStore.createExtension>[0]);
+    createExtensionCalled = ext as { name: string; version: string; manifest: unknown };
     return ext;
   },
-  getExtension: async (id: string) => mockExtensions.get(id) ?? null,
+  getExtension: extStore.getExtension,
   getExtensionByName: async () => null,
-  listExtensions: async () => Array.from(mockExtensions.values()),
+  listExtensions: extStore.listExtensions,
 }));
 
 afterAll(() => restoreModuleMocks());

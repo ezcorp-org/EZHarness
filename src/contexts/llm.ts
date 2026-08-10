@@ -2,13 +2,13 @@
  * Dual-lane LLM runner for topic contexts.
  *
  *  - SIDECAR lane: a raw `fetch` to an OpenAI-compatible `/v1/chat/completions`
- *    endpoint. When a JSON schema is supplied it is sent as
+ *    endpoint via the shared `../providers/openai-compat-client` (also used by
+ *    `src/suggest/enhance.ts`). When a JSON schema is supplied it is sent as
  *    `response_format: json_schema` (Ollama ≥0.5 / llama.cpp translate this
  *    to GBNF — grammar-constrained decoding, the accuracy backbone on small
  *    models) with a no-schema retry for servers that reject `response_format`.
  *    pi-ai does NOT pass grammar through, which is why detection cannot use
- *    the pi lane for its constrained pass. Mechanics copied from
- *    `src/suggest/enhance.ts`.
+ *    the pi lane for its constrained pass.
  *  - PI lane: `completeLLM` (credentials + OAuth model swap). pi-ai reports
  *    provider failures as RESULT FIELDS (`stopReason: "error"` +
  *    `errorMessage`), not throws — without that check a failed call has an
@@ -20,6 +20,7 @@
  * every branch is unit-testable with no network.
  */
 
+import { requestOpenAICompatCompletion } from "../providers/openai-compat-client";
 import type { ContextsTarget } from "./config";
 
 /** Default completion timeout — a slow local model on a long transcript can
@@ -53,12 +54,6 @@ export interface ContextsCompletionDeps {
   completeFn?: (piModel: any, context: any, opts?: { conversationId?: string }) => Promise<any>;
 }
 
-/** Strip a trailing `/v1`, slashes, or colons — same normalization as
- *  `src/suggest/enhance.ts` so a bare or `/v1`-suffixed baseUrl both work. */
-function normalizeUrl(baseUrl: string): string {
-  return baseUrl.trim().replace(/\/v1\/?$/, "").replace(/[/:]+$/, "");
-}
-
 interface ChatCompletionResponse {
   choices?: Array<{ message?: { content?: string } }>;
 }
@@ -68,46 +63,17 @@ async function runSidecar(
   req: ContextsCompletionRequest,
   fetchFn: typeof fetch,
 ): Promise<string> {
-  const { baseUrl, model } = target;
-  const url = `${normalizeUrl(baseUrl)}/v1/chat/completions`;
-  const timeoutMs = req.timeoutMs ?? DEFAULT_CONTEXTS_TIMEOUT_MS;
-
-  const doRequest = (withSchema: boolean): Promise<Response> => {
-    const body: Record<string, unknown> = {
-      model,
-      stream: false,
-      temperature: req.temperature ?? 0.2,
-      max_tokens: req.maxTokens ?? 2_000,
-      messages: [
-        { role: "system", content: req.systemPrompt },
-        { role: "user", content: req.userPrompt },
-      ],
-    };
-    if (withSchema && req.schema) {
-      body.response_format = {
-        type: "json_schema",
-        json_schema: {
-          name: req.schemaName ?? "contexts_output",
-          strict: true,
-          schema: req.schema,
-        },
-      };
-    }
-    return fetchFn(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  };
-
-  let res = await doRequest(!!req.schema);
-  // Some /v1 servers reject `response_format` — retry once without the
-  // schema (the schema is also described in the system prompt, and the
-  // parser tolerates free-form JSON).
-  if (!res.ok && req.schema) {
-    res = await doRequest(false);
-  }
+  const res = await requestOpenAICompatCompletion({
+    baseUrl: target.baseUrl,
+    model: target.model,
+    systemPrompt: req.systemPrompt,
+    userPrompt: req.userPrompt,
+    temperature: req.temperature ?? 0.2,
+    maxTokens: req.maxTokens ?? 2_000,
+    timeoutMs: req.timeoutMs ?? DEFAULT_CONTEXTS_TIMEOUT_MS,
+    schema: req.schema ? { name: req.schemaName ?? "contexts_output", schema: req.schema } : undefined,
+    fetchFn,
+  });
   if (!res.ok) {
     throw new Error(`contexts sidecar completion failed (HTTP ${res.status})`);
   }

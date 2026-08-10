@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 /**
@@ -168,11 +169,8 @@ test.describe("AgentDetailPanel Chat Input", () => {
 
 		const panel = page.locator(".agent-detail-panel");
 		if (await panel.isVisible({ timeout: 3000 }).catch(() => false)) {
-			const textarea = panel.locator("textarea");
-			await textarea.fill("Focus on tests first");
-
-			// Press Enter to submit
-			await textarea.press("Enter");
+			// Send via the composer helper (hydration + enabled gate).
+			await sendComposerMessage(panel, "Focus on tests first");
 
 			// Wait for the request to be captured
 			await page.waitForTimeout(500);
@@ -409,9 +407,7 @@ test.describe("AgentDetailPanel Model Picker", () => {
 			await page.getByText("GPT-5").click();
 
 			// Send a message
-			const textarea = panel.locator("textarea");
-			await textarea.fill("Try again on the cheaper model");
-			await textarea.press("Enter");
+			await sendComposerMessage(panel, "Try again on the cheaper model");
 
 			await page.waitForTimeout(500);
 			expect(agentChatRequests.length).toBeGreaterThanOrEqual(1);

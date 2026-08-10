@@ -13,7 +13,7 @@
  * via {@link runEzClientTool} — see `client-tool.ts`.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import { toolError, type BuiltinToolDef } from "../types";
 import { runEzClientTool, type ClientToolContext } from "./client-tool";
 import type { ToolParams } from "../validate";
 
@@ -43,10 +43,7 @@ export function createFillFormTool(ctx: ClientToolContext): BuiltinToolDef {
       const formId = typeof params?.formId === "string" ? params.formId : "";
       const values = params?.values && typeof params.values === "object" ? params.values : {};
       if (!formId) {
-        return {
-          content: [{ type: "text" as const, text: "Error: formId is required" }],
-          details: { isError: true },
-        };
+        return toolError("formId is required");
       }
       return runEzClientTool({
         ctx,

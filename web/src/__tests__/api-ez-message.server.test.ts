@@ -23,6 +23,7 @@
  *    allowlist filter would silently drop legit tools).
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
 const getLatestLeaf = vi.fn();
@@ -97,16 +98,15 @@ function makeEvent(opts: {
   body?: unknown;
 }) {
   const href = "http://localhost/api/conversations/ez-conv/messages";
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
     params: { id: "ez-conv" },
-    request: new Request(href, {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

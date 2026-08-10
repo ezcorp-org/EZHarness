@@ -19,9 +19,9 @@
  * `resolveModel` + `completeLLM`.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import { errorMessage, toolError, type BuiltinToolDef } from "../types";
 import { getConversation, getMessages } from "../../../db/queries/conversations";
-import type { ToolParams } from "../validate";
+import { stringParam, type ToolParams } from "../validate";
 
 export type SummaryStyle = "brief" | "standup" | "tweet";
 
@@ -168,33 +168,20 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
     }),
     execute: async (_toolCallId, params: ToolParams) => {
       try {
-        const explicit = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
-        const conversationId = explicit;
+        const conversationId = stringParam(params, "conversationId");
         if (!conversationId) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text:
-                  "Error: conversationId is required. Pass the id explicitly.",
-              },
-            ],
-            details: { isError: true },
-          };
+          return toolError("conversationId is required. Pass the id explicitly.");
         }
         const style: SummaryStyle = params?.style && STYLE_PROMPTS[params.style as SummaryStyle] ? params.style : "brief";
         // A non-empty `question` turns this into a targeted-answer pass over
         // the transcript instead of a style summary (the escalation path when
         // a read_page excerpt is truncated). Whitespace-only falls back to
         // the style behavior.
-        const question = typeof params?.question === "string" ? params.question.trim() : "";
+        const question = stringParam(params, "question");
 
         const conv = await getConversation(conversationId);
         if (!conv) {
-          return {
-            content: [{ type: "text" as const, text: `Error: conversation ${conversationId} not found` }],
-            details: { isError: true },
-          };
+          return toolError(`conversation ${conversationId} not found`);
         }
         const messages = await getMessages(conversationId);
         if (messages.length === 0) {
@@ -229,7 +216,7 @@ export function createSummarizeConversationTool(ctx: SummarizeContext = {}): Bui
           details,
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return toolError(errorMessage(e));
       }
     },
   };

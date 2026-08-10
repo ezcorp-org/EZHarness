@@ -5,6 +5,7 @@
  * canvas-dock-sdk.md §5 e2e #canvas-dock-mobile-swipe (resolved §7.5).
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Canvas Dock — mobile swipe-to-dismiss", () => {
@@ -17,10 +18,9 @@ test.describe("Canvas Dock — mobile swipe-to-dismiss", () => {
 		await page.setViewportSize({ width: 360, height: 800 });
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await page.locator("textarea").fill("Open");
 		await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "Open"),
 		]);
 
 		await emitWs({

@@ -58,6 +58,7 @@
  * forever button can flip the assertion in place.
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import {
 	makeProject,
 	makeConversation,
@@ -284,14 +285,13 @@ test.describe("F: install → 4-scope modal → grant conversation", () => {
 		// `runId: "run-stream"` (api-mocks.ts:602), which registers the
 		// run → conv map so subsequent permission-request events route
 		// correctly. Mirrors the pattern in sub-agent-permission-routing.spec.
-		await page.locator("textarea").fill("Echo hello");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			page.getByRole("button", { name: "Send message" }).click(),
+			sendComposerMessage(page, "Echo hello"),
 		]);
-		await expect(page.getByText("Echo hello")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Echo hello")).toBeVisible({ timeout: 5000 });
 
 		// Push a token so the block-builder has a tool_ref anchor in
 		// the parent's content stream — required by the same pattern
@@ -388,14 +388,13 @@ test.describe("F: install → 4-scope modal → grant conversation", () => {
 		});
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await page.locator("textarea").fill("Echo hello");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			page.getByRole("button", { name: "Send message" }).click(),
+			sendComposerMessage(page, "Echo hello"),
 		]);
-		await expect(page.getByText("Echo hello")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Echo hello")).toBeVisible({ timeout: 5000 });
 
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "..." } });
 		await emitSse({
@@ -477,14 +476,13 @@ test.describe("F: install → 4-scope modal → grant conversation", () => {
 		});
 
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await page.locator("textarea").fill("Echo hello");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			page.getByRole("button", { name: "Send message" }).click(),
+			sendComposerMessage(page, "Echo hello"),
 		]);
-		await expect(page.getByText("Echo hello")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Echo hello")).toBeVisible({ timeout: 5000 });
 
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "..." } });
 		await emitSse({

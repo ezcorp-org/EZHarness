@@ -9,6 +9,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const runAgent = vi.fn();
 
@@ -32,16 +33,15 @@ function makeEvent(opts: {
 }) {
   const name = opts.name ?? "test-agent";
   const href = `http://localhost/api/agents/${name}/run`;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
     params: { name },
-    request: new Request(href, {
+    request: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

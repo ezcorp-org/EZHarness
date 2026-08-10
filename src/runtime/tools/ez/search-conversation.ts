@@ -31,9 +31,9 @@
  * `message-search.ts` until `defaultSearch` is invoked.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import { errorMessage, toolError, type BuiltinToolDef } from "../types";
 import type { MessageSearchHit } from "../../../db/queries/message-search";
-import type { ToolParams } from "../validate";
+import { stringParam, type ToolParams } from "../validate";
 
 /** Default number of hits returned when the LLM doesn't specify a limit. */
 const DEFAULT_LIMIT = 10;
@@ -104,11 +104,11 @@ export function createSearchConversationTool(ctx: SearchConversationContext): Bu
     }),
     execute: async (_toolCallId, params: ToolParams) => {
       try {
-        const query = typeof params?.query === "string" ? params.query.trim() : "";
+        const query = stringParam(params, "query");
         if (!query) {
-          return { content: [{ type: "text" as const, text: "Error: query is required" }], details: { isError: true } };
+          return toolError("query is required");
         }
-        const conversationId = typeof params?.conversationId === "string" ? params.conversationId.trim() : "";
+        const conversationId = stringParam(params, "conversationId");
         const rawLimit =
           typeof params?.limit === "number" && Number.isFinite(params.limit) ? Math.floor(params.limit) : DEFAULT_LIMIT;
         const limit = Math.max(1, Math.min(rawLimit, MAX_LIMIT));
@@ -135,7 +135,7 @@ export function createSearchConversationTool(ctx: SearchConversationContext): Bu
           details: { query, conversationId: conversationId || undefined, count: hits.length },
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return toolError(errorMessage(e));
       }
     },
   };

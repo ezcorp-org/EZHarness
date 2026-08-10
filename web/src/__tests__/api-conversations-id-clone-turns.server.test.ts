@@ -11,6 +11,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
 const cloneTurnsIntoNewConversation = vi.fn();
@@ -30,16 +31,15 @@ function makeEvent(opts: {
   id?: string;
 }) {
   const id = opts.id ?? "c1";
-  return {
-    url: new URL(`http://localhost/api/conversations/${id}/clone-turns`),
+  return makeRequestEvent(`http://localhost/api/conversations/${id}/clone-turns`, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(`http://localhost/api/conversations/${id}/clone-turns`, {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

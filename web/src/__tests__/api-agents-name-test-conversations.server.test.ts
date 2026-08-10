@@ -7,6 +7,8 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse as expectThrown } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/agent-configs", () => ({
   getAgentConfigByName: vi.fn(),
@@ -33,31 +35,13 @@ function makeEvent(opts: {
 }) {
   const name = opts.name ?? "test-agent";
   const href = `http://localhost/api/agents/${name}/test-conversations`;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
     params: { name },
-    request: new Request(href),
-  } as any;
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };
-
-async function expectThrown(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-    if (!res || res.status !== status) expect.fail("expected thrown Response");
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
-}
 
 describe("GET /api/agents/[name]/test-conversations", () => {
   beforeEach(() => {

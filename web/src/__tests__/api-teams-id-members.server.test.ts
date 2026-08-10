@@ -8,6 +8,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/teams", () => ({
   getTeamMembers: vi.fn(async () => []),
@@ -42,12 +43,11 @@ function makeEvent(opts: {
     init.body = JSON.stringify(opts.body);
     init.headers = { "content-type": "application/json" };
   }
-  return {
-    url: new URL(`http://localhost/api/teams/${id}/members`),
+  return makeRequestEvent(`http://localhost/api/teams/${id}/members`, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(`http://localhost/api/teams/${id}/members`, init),
-  } as any;
+    request: init,
+  });
 }
 
 const adminLocals = {

@@ -17,6 +17,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getAllSettings = vi.fn(async () => ({}) as Record<string, unknown>);
 vi.mock("$server/db/queries/settings", () => ({
@@ -29,11 +30,9 @@ vi.mock("$server/db/queries/settings", () => ({
 const { GET } = await import("../routes/api/settings/+server");
 
 function makeEvent(locals: Record<string, unknown> = {}) {
-  return {
-    url: new URL("http://localhost/api/settings"),
+  return makeRequestEvent("http://localhost/api/settings", {
     locals,
-    request: new Request("http://localhost/api/settings"),
-  } as never;
+  });
 }
 
 const adminUser = { user: { id: "admin-1", email: "a@x", name: "a", role: "admin" } };

@@ -7,6 +7,8 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse as expectThrown } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/users", () => ({
   listUsers: vi.fn(async () => []),
@@ -22,29 +24,12 @@ function makeEvent(opts: {
   const url =
     "http://localhost/api/users/search" +
     (opts.q !== undefined ? `?q=${encodeURIComponent(opts.q)}` : "");
-  return {
-    url: new URL(url),
+  return makeRequestEvent(url, {
     locals: opts.locals ?? {},
-    request: new Request(url),
-  } as any;
+  });
 }
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } };
-
-async function expectThrown(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
-}
 
 describe("GET /api/users/search", () => {
   beforeEach(() => vi.mocked(listUsers).mockReset());

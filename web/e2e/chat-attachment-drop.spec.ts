@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Test Project" });
@@ -101,13 +102,11 @@ test("dropping a PNG anywhere in the chat window stages it and sends multipart",
 	// text content (the visible text is just the remove-button glyph).
 	await expect(chip).toHaveAttribute("title", "dropped.png");
 
-	await textarea.fill("dropped this in");
-
 	const sendRequest = page.waitForRequest(
 		(req) => req.method() === "POST" && /\/api\/conversations\/[^/]+\/messages$/.test(req.url()),
 		{ timeout: 5_000 },
 	);
-	await page.getByRole("button", { name: "Send message" }).click();
+	await sendComposerMessage(page, "dropped this in");
 	const req = await sendRequest;
 	expect((req.headers()["content-type"] ?? "").startsWith("multipart/form-data")).toBe(true);
 	const raw = req.postDataBuffer()?.toString("binary") ?? "";

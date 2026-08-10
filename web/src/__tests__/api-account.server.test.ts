@@ -11,6 +11,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/users", () => ({
 	getUserById: vi.fn(),
@@ -46,23 +47,6 @@ function makeEvent(init: {
 			body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
 		}),
 	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		const out = await fn();
-		res = out;
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res).toBeInstanceOf(Response);
-	expect(res!.status).toBe(status);
-	return res!;
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

@@ -8,19 +8,21 @@ import { mkdtemp, rm } from "fs/promises";
 import { writeConfig } from "./helpers/write-config";
 
 // ── Mock DB queries (must precede imports that touch these modules) ──
-const mockExtensions = new Map<string, any>();
+import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
+
+const extStore = createMockExtensionsStore({ keyBy: "id", timestamps: true, generateId: () => crypto.randomUUID() });
+const mockExtensions = extStore.store;
 let createExtensionCalled: any = null;
 
 mock.module("../db/queries/extensions", () => ({
   createExtension: async (data: any) => {
-    const ext = { id: crypto.randomUUID(), ...data, createdAt: new Date(), updatedAt: new Date() };
+    const ext = await extStore.createExtension(data);
     createExtensionCalled = ext;
-    mockExtensions.set(ext.id, ext);
     return ext;
   },
-  getExtension: async (id: string) => mockExtensions.get(id) ?? null,
+  getExtension: extStore.getExtension,
   getExtensionByName: async () => null,
-  listExtensions: async () => Array.from(mockExtensions.values()),
+  listExtensions: extStore.listExtensions,
 }));
 
 // The install base is the RELATIVE `data/extensions`, resolved against

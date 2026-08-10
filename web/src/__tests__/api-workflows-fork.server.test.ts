@@ -40,6 +40,7 @@ vi.mock("$server/db/queries/workflow-versions", () => versions);
 vi.mock("$server/db/queries/project-members", () => projectMembers);
 
 import { POST } from "../routes/api/workflows/[name]/fork/+server";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const SOURCE = {
   name: "ez-factory:docs-factory",
@@ -63,16 +64,15 @@ const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "user" } }
 
 function makeEvent(opts: { name?: string; body?: unknown; locals?: Record<string, unknown> }) {
   const name = opts.name ?? SOURCE.name;
-  return {
-    url: new URL(`http://localhost/api/workflows/${name}/fork`),
+  return makeRequestEvent(`http://localhost/api/workflows/${name}/fork`, {
     locals: opts.locals ?? {},
     params: { name },
-    request: new Request(`http://localhost/api/workflows/${name}/fork`, {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(opts.body ?? {}),
-    }),
-  } as never;
+    },
+  });
 }
 
 beforeEach(() => {

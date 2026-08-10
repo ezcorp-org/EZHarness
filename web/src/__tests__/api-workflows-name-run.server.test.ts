@@ -35,6 +35,8 @@ vi.mock("$server/runtime/workflow-authz", () => authz);
 vi.mock("$server/db/queries/project-members", () => members);
 
 import { POST } from "../routes/api/workflows/[name]/run/+server";
+import { expectThrownResponse } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 /** The definition the executor should receive, unwrapped from its entry. */
 const W1 = { name: "w1", description: "", steps: [] };
@@ -67,31 +69,15 @@ function makeEvent(opts: {
 	headers?: Record<string, string>;
 }) {
 	const name = opts.name ?? "does-not-exist";
-	return {
-		url: new URL(`http://localhost/api/workflows/${name}/run`),
-		locals: opts.locals ?? {},
-		params: { name },
-		request: new Request(`http://localhost/api/workflows/${name}/run`, {
+	return makeRequestEvent(`http://localhost/api/workflows/${name}/run`, {
+	  locals: opts.locals ?? {},
+	  params: { name },
+	  request: {
 			method: "POST",
 			headers: { "content-type": "application/json", ...(opts.headers ?? {}) },
 			body: opts.body !== undefined ? JSON.stringify(opts.body) : "{}",
-		}),
-	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		res = await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res!.status).toBe(status);
-	return res!;
+		},
+	});
 }
 
 const authedUser = {

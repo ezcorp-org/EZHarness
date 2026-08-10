@@ -19,6 +19,7 @@
  * same way every other `canvas-dock-*` spec in this directory does it.
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Canvas Dock — knob-change round-trip", () => {
@@ -61,12 +62,11 @@ test.describe("Canvas Dock — knob-change round-trip", () => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		await page.locator("textarea").fill("Open canvas");
 		await Promise.all([
 			page.waitForResponse(
 				(r) => r.url().includes("/messages") && r.request().method() === "POST",
 			),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "Open canvas"),
 		]);
 
 		// Stream a `tool:complete` for `claude-design__open-canvas` —

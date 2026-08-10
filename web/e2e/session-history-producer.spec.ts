@@ -35,6 +35,7 @@
  */
 
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const RUN_REAL = !!process.env.DOCKER_TEST;
@@ -70,11 +71,9 @@ test.describe(
 
       // Send a follow-up: the real backend runs the session history producer
       // to rebuild the branch, then streams a turn.
-      const textarea = page.locator("textarea");
-      await textarea.fill("Say it one more time.");
       await Promise.all([
         page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-        textarea.press("Enter"),
+        sendComposerMessage(page, "Say it one more time."),
       ]);
 
       await emitSse({ type: "run:token", data: { runId: "run-shp", token: REPLY, kind: "text" } });

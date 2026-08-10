@@ -11,6 +11,8 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/attachments", () => ({
 	getAttachment: vi.fn(),
@@ -43,27 +45,11 @@ function makeEvent(opts: {
 }) {
 	const id = opts.id ?? "att-1";
 	const href = opts.href ?? `http://localhost/api/attachments/${id}`;
-	return {
-		url: new URL(href),
-		locals: opts.locals ?? {},
-		params: { id },
-		request: new Request(href, { method: "GET" }),
-	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		res = await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res!.status).toBe(status);
-	return res!;
+	return makeRequestEvent(href, {
+	  locals: opts.locals ?? {},
+	  params: { id },
+	  request: { method: "GET" },
+	});
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

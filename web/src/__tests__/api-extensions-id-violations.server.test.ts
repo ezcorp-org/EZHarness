@@ -7,6 +7,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/extensions/security", () => ({
   getSecurityViolations: vi.fn(),
@@ -25,12 +26,10 @@ function makeEvent(opts: {
   locals?: Record<string, unknown>;
 }) {
   const id = opts.id ?? "ext-1";
-  return {
-    url: new URL(`http://localhost/api/extensions/${id}/violations`),
+  return makeRequestEvent(`http://localhost/api/extensions/${id}/violations`, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(`http://localhost/api/extensions/${id}/violations`),
-  } as any;
+  });
 }
 
 const adminUser = { id: "u1", email: "a@x", name: "a", role: "admin" };

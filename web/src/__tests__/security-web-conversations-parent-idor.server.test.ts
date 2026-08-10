@@ -9,6 +9,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/conversations", () => ({
   createConversation: vi.fn(),
@@ -36,15 +37,14 @@ const PARENT_ID = "00000000-0000-4000-8000-0000000000aa";
 const user = { id: "u-b", email: "b@x", name: "b", role: "member" };
 
 function makeEvent(body: unknown, locals: Record<string, unknown> = { user }) {
-  return {
-    url: new URL("http://localhost/api/conversations"),
+  return makeRequestEvent("http://localhost/api/conversations", {
     locals,
-    request: new Request("http://localhost/api/conversations", {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
-    }),
-  } as any;
+    },
+  });
 }
 
 describe("IDOR: POST /api/conversations parentConversationId ownership", () => {

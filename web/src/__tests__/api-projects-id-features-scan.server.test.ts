@@ -16,6 +16,7 @@
  * `{ features, notice }` envelope including all three notice outcomes.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownOrResponse } from "./helpers/server-route-test-utils";
 
 // ── Auth middleware (real contract: requireAuth throws a 401 Response) ──
 vi.mock("$server/auth/middleware", () => ({
@@ -126,17 +127,6 @@ function makeEvent(opts: {
 	};
 	if (opts.apiKeyScopes) locals.apiKeyScopes = opts.apiKeyScopes;
 	return { params: { id: opts.id ?? "proj-1" }, locals };
-}
-
-async function expectThrownOrResponse(
-	fn: () => Promise<Response> | Response,
-): Promise<Response> {
-	try {
-		return await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		return thrown as Response;
-	}
 }
 
 const feature = (over: Partial<ScannedFeature> = {}): ScannedFeature => ({

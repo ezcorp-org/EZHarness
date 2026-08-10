@@ -38,7 +38,13 @@ import type { ModelPrices } from "../runtime/usage/cache-stats";
 // The one provider table. `KILO_PROVIDER` is imported (not spelled) so the
 // carve-outs below cannot drift from the table that declares it keyless.
 import { KILO_PROVIDER, LLM_PROVIDER_IDS } from "../runtime/routing/llm-providers";
+// Cost-tier thresholds, shared with kilo.ts#kiloCostTier — see that module's
+// header for why it imports the same pure module rather than this file
+// directly (this file imports kilo.ts at runtime, so the reverse import
+// would be a cycle).
+import { costTierForBlendedRate } from "../runtime/routing/cost-tier";
 import { kiloPickerEntries, resolveKiloModel } from "./kilo";
+import { OAUTH_PROVIDER_IDS } from "./credential-store";
 // Context-window truth. Pure + coverage-gated, for the reason spelled out in
 // that module's header: `src/providers/**` is outside the gate, so the window
 // DECISION must not live here even though the catalog reads do.
@@ -137,12 +143,8 @@ function inferTier(model: AnyModel): { tier: ModelEntry["tier"]; costTier: Model
     if (/\bmini\b|nano|flash|lite|haiku/.test(lower)) costTier = "low";
     else if (/opus|^o[1-9]$|pro|codex-max/.test(lower)) costTier = "high";
     else costTier = "medium";
-  } else if (blended <= 3) {
-    costTier = "low";
-  } else if (blended <= 30) {
-    costTier = "medium";
   } else {
-    costTier = "high";
+    costTier = costTierForBlendedRate(blended);
   }
 
   let tier: ModelEntry["tier"];
@@ -379,17 +381,27 @@ export function findRunnableModelForProviderInTier(
 }
 
 /**
- * Mapping from user-facing providers to their OAuth-compatible pi-ai provider.
- * When OAuth is active, only models from the OAuth provider are supported
- * because the standard API endpoints require API key auth (not OAuth tokens).
+ * Mapping from user-facing providers to their OAuth-compatible pi-ai provider
+ * — but ONLY where the OAuth flow needs a DIFFERENT pi-ai provider (and so a
+ * different model catalog) than the api-key flow:
  *
  * - google → google-gemini-cli (Cloud Code Assist API, Bearer token auth)
  * - openai → openai-codex (ChatGPT Codex API, different endpoint + scopes)
+ *
+ * Derived from `credential-store.ts#OAUTH_PROVIDER_IDS` (the credential
+ * store's full provider → pi-id map — "the one place that reads it", per that
+ * module's own comment) rather than restated, so the two cannot drift.
+ * `OAUTH_PROVIDER_IDS` also carries `anthropic: "anthropic"` — the SAME id
+ * both ways, because Anthropic's OAuth models are just its ordinary catalog
+ * and no swap is ever needed — so self-mapped entries are filtered out here:
+ * this map answers "does resolving this provider's OAuth model require
+ * consulting a different catalog", and for anthropic the answer must stay
+ * "no" (an entry mapping anthropic to itself would make `resolveOAuthModel`
+ * attempt a live catalog lookup where today it short-circuits to `null`).
  */
-const OAUTH_PROVIDER_MAP: Record<string, BuiltinProvider> = {
-  google: "google-gemini-cli" as BuiltinProvider,
-  openai: "openai-codex" as BuiltinProvider,
-};
+const OAUTH_PROVIDER_MAP: Record<string, BuiltinProvider> = Object.fromEntries(
+  Object.entries(OAUTH_PROVIDER_IDS).filter(([ezProvider, piProvider]) => piProvider !== ezProvider),
+) as Record<string, BuiltinProvider>;
 
 /**
  * Returns the set of model IDs supported by a provider's OAuth-compatible variant.

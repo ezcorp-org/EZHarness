@@ -42,6 +42,8 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownOrResponse } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Settings KV spy ───────────────────────────────────────────────
 //
@@ -194,34 +196,25 @@ interface RequestEventLike {
 }
 
 function makeGetEvent(): RequestEventLike {
-	return {
-		request: new Request("http://localhost/api/extensions/ext-1/expired-grants"),
-		locals: { user: { id: HELLO_USER, role: "member" } },
-		params: { id: "ext-1" },
-	};
+	return makeRequestEvent("http://localhost/api/extensions/ext-1/expired-grants", {
+	  url: null,
+	  request: undefined,
+	  locals: { user: { id: HELLO_USER, role: "member" } },
+	  params: { id: "ext-1" },
+	});
 }
 
 function makePostEvent(body: unknown): RequestEventLike {
-	return {
-		request: new Request("http://localhost/api/extensions/ext-1/reapprove", {
+	return makeRequestEvent("http://localhost/api/extensions/ext-1/reapprove", {
+	  url: null,
+	  request: {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify(body),
-		}),
-		locals: { user: { id: HELLO_USER, role: "member" } },
-		params: { id: "ext-1" },
-	};
-}
-
-async function expectThrownOrResponse(
-	fn: () => Promise<Response> | Response,
-): Promise<Response> {
-	try {
-		return await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		return thrown as Response;
-	}
+		},
+	  locals: { user: { id: HELLO_USER, role: "member" } },
+	  params: { id: "ext-1" },
+	});
 }
 
 beforeEach(() => {

@@ -7,6 +7,8 @@
  */
 
 import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
+import { expectThrownResponse as expectThrown } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const realpath = vi.fn();
 const readdir = vi.fn();
@@ -28,11 +30,9 @@ function makeEvent(opts: {
   if (opts.hidden) qs.set("hidden", "1");
   const s = qs.toString();
   const url = "http://localhost/api/fs/list" + (s ? `?${s}` : "");
-  return {
-    url: new URL(url),
+  return makeRequestEvent(url, {
     locals: opts.locals ?? {},
-    request: new Request(url),
-  } as any;
+  });
 }
 
 const adminLocals = {
@@ -41,21 +41,6 @@ const adminLocals = {
 const memberLocals = {
   user: { id: "u1", email: "u@x", name: "U", role: "user" },
 };
-
-async function expectThrown(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<Response> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
-  return res!;
-}
 
 describe("GET /api/fs/list", () => {
   const originalRoot = process.env.EZCORP_PROJECT_ROOT;

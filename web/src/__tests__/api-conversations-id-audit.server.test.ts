@@ -13,6 +13,7 @@
  *   - filter forwarding (capability, status, since, until, cursor, limit).
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/conversations", () => ({
 	getConversation: vi.fn(),
@@ -35,12 +36,10 @@ function makeEvent(opts: {
 }) {
 	const id = opts.id ?? "conv-1";
 	const href = `http://localhost/api/conversations/${id}/audit${opts.search ?? ""}`;
-	return {
-		url: new URL(href),
-		locals: opts.locals ?? {},
-		params: { id },
-		request: new Request(href),
-	} as any;
+	return makeRequestEvent(href, {
+	  locals: opts.locals ?? {},
+	  params: { id },
+	});
 }
 
 const ownerUser = { id: "u-owner", email: "o@x", name: "owner", role: "user" };

@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { threadMessages } from "./fixtures/composer.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Test Project" });
@@ -13,9 +13,7 @@ test.describe("Streaming Indicators", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Hello");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Hello");
 
 		// Before any tokens arrive, the skeleton shimmer lines should be visible
 		await expect(page.locator(".skeleton-line").first()).toBeVisible({ timeout: 5000 });
@@ -26,9 +24,7 @@ test.describe("Streaming Indicators", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Tell me something");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Tell me something");
 
 		// Wait for skeleton to appear first
 		await expect(page.locator(".skeleton-line").first()).toBeVisible({ timeout: 5000 });
@@ -52,9 +48,7 @@ test.describe("Streaming Indicators", () => {
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
 		// Send a message to initiate streaming (sets up streamingRunToConversation mapping)
-		const textarea = page.locator("textarea");
-		await textarea.fill("Search for something");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Search for something");
 		await expect(threadMessages(page).getByText("Search for something")).toBeVisible({ timeout: 5000 });
 
 		// Emit a token to ensure stream is active
@@ -81,9 +75,7 @@ test.describe("Streaming Indicators", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Do a search");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Do a search");
 		await expect(threadMessages(page).getByText("Do a search")).toBeVisible({ timeout: 5000 });
 
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Working..." } });
@@ -123,9 +115,7 @@ test.describe("Streaming Indicators", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Try something");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Try something");
 		await expect(threadMessages(page).getByText("Try something")).toBeVisible({ timeout: 5000 });
 
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Attempting..." } });
@@ -163,9 +153,7 @@ test.describe("Streaming Indicators", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Lookup data");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Lookup data");
 		await expect(threadMessages(page).getByText("Lookup data")).toBeVisible({ timeout: 5000 });
 
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Looking up..." } });
@@ -210,9 +198,7 @@ test.describe("Streaming Indicators", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Do multiple things");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Do multiple things");
 		await expect(threadMessages(page).getByText("Do multiple things")).toBeVisible({ timeout: 5000 });
 
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Processing..." } });
@@ -315,9 +301,7 @@ test.describe("Message Toolbar", () => {
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 		await expect(page.getByText("Send a message to start the conversation")).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Stream this");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Stream this");
 		await expect(threadMessages(page).getByText("Stream this")).toBeVisible({ timeout: 5000 });
 
 		// Keep streaming active

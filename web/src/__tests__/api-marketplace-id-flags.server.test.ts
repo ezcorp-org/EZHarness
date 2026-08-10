@@ -9,6 +9,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/marketplace-ratings", () => ({
 	getFlagHistory: vi.fn(),
@@ -35,16 +36,15 @@ function makeEvent(opts: {
 }) {
 	const id = opts.id ?? "abc";
 	const method = opts.method ?? "GET";
-	return {
-		url: new URL(`http://localhost/api/marketplace/${id}/flags`),
-		locals: opts.locals ?? {},
-		params: { id },
-		request: new Request(`http://localhost/api/marketplace/${id}/flags`, {
+	return makeRequestEvent(`http://localhost/api/marketplace/${id}/flags`, {
+	  locals: opts.locals ?? {},
+	  params: { id },
+	  request: {
 			method,
 			headers: { "Content-Type": "application/json" },
 			body: method === "GET" ? undefined : JSON.stringify(opts.body ?? {}),
-		}),
-	} as any;
+		},
+	});
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

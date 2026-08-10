@@ -38,7 +38,7 @@
  */
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import type { ExtensionPermissions } from "../extensions/types";
+import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
 
 mock.module("../db/queries/audit-log", () => ({
   insertAuditEntry: async () => {},
@@ -46,23 +46,8 @@ mock.module("../db/queries/audit-log", () => ({
   listAuditForExtension: async () => [],
 }));
 
-interface StoredExtension {
-  id: string;
-  name: string;
-  version: string;
-  description: string;
-  manifest: unknown;
-  source: string;
-  installPath: string;
-  enabled: boolean;
-  isBundled?: boolean;
-  grantedPermissions: ExtensionPermissions;
-  checksumVerified: boolean;
-  consecutiveFailures: number;
-}
-
-let store: Map<string, StoredExtension>;
-let nextId = 0;
+const extStore = createMockExtensionsStore({ keyBy: "name" });
+const store = extStore.store;
 /** Simulates the ez-factory install not landing on this boot (bad disk
  *  state, a manifest the validator rejects, an operator opt-out). The
  *  boot loop catches per-extension install failures and moves on, so the
@@ -71,29 +56,16 @@ let nextId = 0;
 let ezFactoryInstallFails = false;
 
 mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: async (name: string) => store.get(name) ?? null,
-  createExtension: async (data: Omit<StoredExtension, "id">) => {
+  getExtensionByName: extStore.getExtensionByName,
+  createExtension: async (data: Parameters<typeof extStore.createExtension>[0]) => {
     if (ezFactoryInstallFails && data.name === "ez-factory") {
       throw new Error("simulated ez-factory install failure");
     }
-    const id = `ext-${++nextId}`;
-    const row = { id, ...data } as StoredExtension;
-    store.set(data.name, row);
-    return row;
+    return extStore.createExtension(data);
   },
-  listExtensions: async () => Array.from(store.values()),
-  updateExtension: async (id: string, patch: Partial<StoredExtension>) => {
-    for (const row of store.values()) {
-      if (row.id === id) {
-        Object.assign(row, patch);
-        return row;
-      }
-    }
-    return null;
-  },
-  deleteExtension: async (id: string) => {
-    for (const [k, v] of store) if (v.id === id) store.delete(k);
-  },
+  listExtensions: extStore.listExtensions,
+  updateExtension: extStore.updateExtension,
+  deleteExtension: extStore.deleteExtension,
   incrementFailures: async () => 0,
   resetFailures: async () => undefined,
   disableExtension: async () => undefined,
@@ -146,8 +118,7 @@ function factoryRows(): StoredAgent[] {
 }
 
 beforeEach(() => {
-  store = new Map();
-  nextId = 0;
+  extStore.reset();
   agents = [];
   agentReadThrows = false;
   ezFactoryInstallFails = false;

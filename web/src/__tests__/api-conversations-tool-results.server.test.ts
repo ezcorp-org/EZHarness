@@ -18,6 +18,7 @@
  * stateless server-local code that the endpoint imports directly.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
 
@@ -41,16 +42,15 @@ function makeEvent(opts: {
 }) {
   const id = opts.conversationId ?? "ez-conv";
   const href = `http://localhost/api/conversations/${id}/tool-results`;
-  return {
-    url: new URL(href),
+  return makeRequestEvent(href, {
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(href, {
+    request: {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-    }),
-  } as any;
+    },
+  });
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };

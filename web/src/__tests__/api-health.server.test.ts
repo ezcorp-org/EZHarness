@@ -22,11 +22,15 @@
 
 import { test, expect, describe } from "vitest";
 import { GET } from "../routes/api/health/+server";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeEvent(href: string, locals: Record<string, unknown> = {}) {
   // Only the fields the handler reads — `url` and `locals`. Cast to `any`
   // at the call site so we don't pull in SvelteKit's full RequestEvent type.
-  return { url: new URL(href), locals } as any;
+  return makeRequestEvent(href, {
+    locals,
+    request: null,
+  });
 }
 
 describe("GET /api/health", () => {

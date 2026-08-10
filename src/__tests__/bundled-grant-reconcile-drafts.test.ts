@@ -44,49 +44,21 @@ import type {
 
 // ── Mock the DB-queries module so ensureBundledExtensions sees a
 // pre-seeded "extension-author" row whose grant lacks custom.drafts.
-interface StoredExtension {
-  id: string;
-  name: string;
-  manifest: {
-    schemaVersion: 2;
-    name: string;
-    version: string;
-    permissions?: Record<string, unknown>;
-  } & Record<string, unknown>;
-  installPath: string;
-  enabled: boolean;
-  isBundled?: boolean;
-  consecutiveFailures?: number;
-  version?: string;
-  grantedPermissions: ExtensionPermissions;
-}
+import { createMockExtensionsStore, type MockExtensionRow } from "./helpers/mock-extensions-store";
 
-let store: Map<string, StoredExtension>;
-let nextId = 0;
-let updateCalls: Array<{ id: string; patch: Partial<StoredExtension> }>;
+const extStore = createMockExtensionsStore({ keyBy: "name" });
+const store = extStore.store;
+let updateCalls: Array<{ id: string; patch: Partial<MockExtensionRow> }>;
 
 mock.module("../db/queries/extensions", () => ({
-  getExtensionByName: async (name: string) => store.get(name) ?? null,
-  createExtension: async (data: Omit<StoredExtension, "id">) => {
-    const id = `ext-${++nextId}`;
-    const row = { id, ...data } as StoredExtension;
-    store.set(data.name, row);
-    return row;
-  },
-  listExtensions: async () => Array.from(store.values()),
-  updateExtension: async (id: string, patch: Partial<StoredExtension>) => {
+  getExtensionByName: extStore.getExtensionByName,
+  createExtension: extStore.createExtension,
+  listExtensions: extStore.listExtensions,
+  updateExtension: async (id: string, patch: Partial<MockExtensionRow>) => {
     updateCalls.push({ id, patch });
-    for (const row of store.values()) {
-      if (row.id === id) {
-        Object.assign(row, patch);
-        return row;
-      }
-    }
-    return null;
+    return extStore.updateExtension(id, patch);
   },
-  deleteExtension: async (id: string) => {
-    for (const [k, v] of store) if (v.id === id) store.delete(k);
-  },
+  deleteExtension: extStore.deleteExtension,
   incrementFailures: async () => 0,
   resetFailures: async () => undefined,
   disableExtension: async () => undefined,
@@ -131,8 +103,7 @@ import { EXT_AUDIT_ACTIONS } from "../extensions/audit-actions";
 let DISK_AUTHOR_MANIFEST: ExtensionManifestV2;
 
 beforeEach(() => {
-  store = new Map();
-  nextId = 0;
+  extStore.reset();
   updateCalls = [];
   auditCalls.length = 0;
 });
@@ -148,9 +119,9 @@ beforeEach(() => {
  *    `custom.drafts.kinds` (the bug).
  */
 function seedStaleAuthor(
-  overrides: Partial<StoredExtension> = {},
-): StoredExtension {
-  const row: StoredExtension = {
+  overrides: Partial<MockExtensionRow> = {},
+): MockExtensionRow {
+  const row: MockExtensionRow = {
     id: "ext-stale-author",
     name: "extension-author",
     installPath: "docs/extensions/examples/extension-author",
@@ -159,7 +130,7 @@ function seedStaleAuthor(
     version: DISK_AUTHOR_MANIFEST.version,
     manifest: JSON.parse(
       JSON.stringify(DISK_AUTHOR_MANIFEST),
-    ) as StoredExtension["manifest"],
+    ) as ExtensionManifestV2,
     grantedPermissions: {
       filesystem: ["$CWD/.ezcorp/extension-data/extension-author/drafts/$USER"],
       // custom.drafts.kinds intentionally MISSING — the bug.
@@ -181,7 +152,7 @@ function reconcileAudits(): AuditCall[] {
 
 function authorUpdateCalls(): Array<{
   id: string;
-  patch: Partial<StoredExtension>;
+  patch: Partial<MockExtensionRow>;
 }> {
   return updateCalls.filter(
     (u) => u.id === "ext-stale-author" && "grantedPermissions" in u.patch,
@@ -364,7 +335,7 @@ describe("ensureBundledExtensions — extension-author custom.drafts.kinds self-
     // broken filesystem-only shape from seedStaleAuthor().
     const driftManifest = JSON.parse(
       JSON.stringify(DISK_AUTHOR_MANIFEST),
-    ) as StoredExtension["manifest"];
+    ) as ExtensionManifestV2;
     driftManifest.tools = [];
     seedStaleAuthor({ manifest: driftManifest });
 

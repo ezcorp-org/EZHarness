@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
-import { threadMessages } from "./fixtures/composer.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
 
 /**
@@ -75,14 +75,9 @@ test("turn_saved events during an active run fire zero extra hydrate fetches", a
 
 	await page.goto(`/project/${proj.id}/chat/${conv.id}`, { waitUntil: "networkidle" });
 
-	// Wait for the textarea to be enabled (connection state = connected).
-	const textarea = page.locator("textarea");
-	await expect(textarea).toBeEnabled({ timeout: 5000 });
-
-	await textarea.fill("run a long orchestration");
 	await Promise.all([
 		page.waitForResponse((r) => r.url().includes("/api/conversations/c1/messages") && r.request().method() === "POST"),
-		page.getByRole("button", { name: "Send message" }).click(),
+		sendComposerMessage(page, "run a long orchestration"),
 	]);
 	await expect(threadMessages(page).getByText("run a long orchestration")).toBeVisible({ timeout: 5000 });
 	await page.waitForTimeout(300);

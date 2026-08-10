@@ -8,6 +8,7 @@
  * validation: post-plan addition #5 (responsive chat width).
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Canvas Dock — responsive <main> width", () => {
@@ -32,10 +33,9 @@ test.describe("Canvas Dock — responsive <main> width", () => {
 		const widthBefore = (await main.boundingBox())?.width ?? 0;
 		expect(widthBefore).toBeGreaterThan(0);
 
-		await page.locator("textarea").fill("Open canvas");
 		await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "Open canvas"),
 		]);
 
 		await emitWs({
@@ -79,10 +79,9 @@ test.describe("Canvas Dock — responsive <main> width", () => {
 
 		const main = page.locator("main").first();
 
-		await page.locator("textarea").fill("Open canvas");
 		await Promise.all([
 			page.waitForResponse((r) => r.url().includes("/messages") && r.request().method() === "POST"),
-			page.locator("textarea").press("Enter"),
+			sendComposerMessage(page, "Open canvas"),
 		]);
 
 		await emitWs({

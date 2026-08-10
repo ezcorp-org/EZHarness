@@ -6,6 +6,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/marketplace-ratings", () => ({
   listFlags: vi.fn(),
@@ -20,11 +21,9 @@ const { getListingById } = await import("$server/db/queries/marketplace");
 const { GET } = await import("../routes/api/marketplace/flags/+server.ts");
 
 function makeEvent(opts: { locals?: Record<string, unknown> }) {
-  return {
-    url: new URL("http://localhost/api/marketplace/flags"),
+  return makeRequestEvent("http://localhost/api/marketplace/flags", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/marketplace/flags"),
-  } as any;
+  });
 }
 
 const adminUser = { id: "u1", email: "a@x", name: "a", role: "admin" };

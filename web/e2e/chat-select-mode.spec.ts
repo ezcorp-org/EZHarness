@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage, threadMessages } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Chat Select Mode → New Chat", () => {
@@ -156,12 +157,10 @@ test.describe("Chat Select Mode → New Chat", () => {
 
 		// Kick off a send — the mock POST response returns `runId: "run-stream"`,
 		// which the chat page latches onto as `activeRunId`.
-		const textarea = page.locator("textarea").first();
-		await textarea.fill("Tell me a joke");
-		await page.getByRole("button", { name: "Send message" }).click();
+		await sendComposerMessage(page, "Tell me a joke");
 		// Wait until the user message is rendered, so we know the send resolved
 		// before we fire WS tokens against the run id.
-		await expect(page.getByText("Tell me a joke")).toBeVisible({ timeout: 5000 });
+		await expect(threadMessages(page).getByText("Tell me a joke")).toBeVisible({ timeout: 5000 });
 		// Token tick populates `store.streamingMessages[runId]`, flipping
 		// `isStreaming` true and the toggle disabled.
 		await emitSse({ type: "run:token", data: { runId: "run-stream", token: "Hi " } });

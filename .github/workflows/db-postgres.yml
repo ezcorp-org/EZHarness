@@ -61,9 +61,34 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
 
-      # Targeted, single-file run (safe per scripts/test.sh — only the
-      # unbounded root glob deadlocks). The file's PGlite suite runs too and
-      # keeps passing; the DATABASE_URL-gated suite now executes against the
-      # real server instead of being skipped.
+      # Targeted, single-file runs (safe per scripts/test.sh — only the
+      # unbounded root glob deadlocks; a separate step per file is also a
+      # separate process, so mock.module() state from one never reaches
+      # another — the exact contamination the glob warning is about). The
+      # first file's PGlite suite runs too and keeps passing; its
+      # DATABASE_URL-gated suite executes against the real server instead of
+      # being skipped, including a tx.execute() (inside db.transaction())
+      # assertion that only the real bun-sql driver can prove — drizzle hands
+      # that callback a brand-new transaction object, not `db` itself, so a
+      # mocked driver can't stand in for it.
       - name: Run external-Postgres DB suite
         run: bun test src/__tests__/db-migration-postgres.test.ts
+
+      # These two are dedicated regression tests for db-audit findings that
+      # only manifested on Bun.sql (a select-then-insert settings race; a
+      # bare-value jsonb bind Postgres 500s on). Both call mockDbConnection()
+      # unconditionally, so — same as in the normal backend pool — they run
+      # against PGlite regardless of DATABASE_URL; their own header comments
+      # say as much ("asserts structurally"). Running them here doesn't add
+      # real-driver coverage, but keeps them exercised alongside the suite
+      # above rather than only in the main pool.
+      # `./` prefix required: bunfig.toml's `[test] root = "src/__tests__"`
+      # makes a bare relative path OUTSIDE that root resolve as a name
+      # FILTER, not a path — `bun test src/db/queries/...` reports "0 tests
+      # matched" (exit 1, so it fails loud rather than silently skipping, but
+      # still needs the fix). Confirmed locally; `src/__tests__/...` above
+      # doesn't need it because it's already under the configured root.
+      - name: Run settings upsert-race regression (PGlite-structural)
+        run: bun test ./src/db/queries/__tests__/query-core-settings-upsert-race.test.ts --timeout 30000
+      - name: Run settings jsonb-roundtrip regression (PGlite-structural)
+        run: bun test ./src/db/queries/__tests__/settings-jsonb-roundtrip.test.ts --timeout 30000

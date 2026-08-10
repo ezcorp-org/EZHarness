@@ -18,6 +18,7 @@
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { expectDenied } from "./fixtures/expect-denied";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Auth middleware ───────────────────────────────────────────────────
 // Real contract of `requireAdmin` (api-keys.ts): ROLE-ONLY. Returns a 403
@@ -115,17 +116,15 @@ function makeEvent(
 	role: "admin" | "member" = "admin",
 	locals: Record<string, unknown> = {},
 ): RequestEventLike {
-	return {
-		request: new Request(
-			"http://localhost/api/extensions/ext-1/reapprove-drift",
-			{ method: "POST" },
-		),
-		locals: {
+	return makeRequestEvent("http://localhost/api/extensions/ext-1/reapprove-drift", {
+	  url: null,
+	  request: { method: "POST" },
+	  locals: {
 			user: { id: "user-1", email: "u@x", name: "u", role },
 			...locals,
 		},
-		params: { id: "ext-1" },
-	};
+	  params: { id: "ext-1" },
+	});
 }
 
 /**

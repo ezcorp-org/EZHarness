@@ -14,6 +14,8 @@
  */
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { expectThrownResponse } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const fakeStorage: {
 	rows: Map<string, { value: unknown; sizeBytes: number; encrypted: boolean }>;
@@ -105,31 +107,15 @@ function makeEvent(opts: {
 	method?: string;
 	locals?: Record<string, unknown>;
 }) {
-	return {
-		url: new URL(opts.href),
-		params: opts.params,
-		locals: opts.locals ?? { user },
-		request: new Request(opts.href, {
+	return makeRequestEvent(opts.href, {
+	  params: opts.params,
+	  locals: opts.locals ?? { user },
+	  request: {
 			method: opts.method ?? "GET",
 			headers: { "content-type": "application/json" },
 			body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-		}),
-	} as any;
-}
-
-async function expectThrownResponse(
-	fn: () => Promise<Response> | Response,
-	status: number,
-): Promise<Response> {
-	let res: Response | undefined;
-	try {
-		res = await fn();
-	} catch (thrown) {
-		expect(thrown).toBeInstanceOf(Response);
-		res = thrown as Response;
-	}
-	expect(res!.status).toBe(status);
-	return res!;
+		},
+	});
 }
 
 beforeEach(() => {

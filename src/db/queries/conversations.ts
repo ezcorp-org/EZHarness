@@ -6,6 +6,14 @@ import { listAttachmentsForMessages } from "./attachments";
 import { getSetting, upsertSetting } from "./settings";
 import { isEmbedEligible } from "../../memory/message-chunker";
 import { enqueueEmbedJob, clearMessageEmbedState } from "./message-embed-outbox";
+import {
+  nonTestConversationCondition,
+  nonExtServiceConversationCondition,
+  NON_TEST_CONVERSATION_SQL,
+  NON_EXT_SERVICE_CONVERSATION_SQL,
+  HEADLINE_OPTS,
+  isSearchQueryTooShort,
+} from "./message-search";
 import { logger } from "../../logger";
 
 const log = logger.child("db.queries.conversations");
@@ -198,11 +206,11 @@ export async function listConversations(
 ): Promise<Conversation[]> {
   const conditions = [
     eq(conversations.projectId, projectId),
-    or(eq(conversations.test, false), isNull(conversations.test)),
+    nonTestConversationCondition(),
     isNull(conversations.parentConversationId),
     // Service conversations (ECF gate-push owner) carry a real projectId but
     // are host-internal — they must never appear in a user's chat list.
-    ne(conversations.kind, "ext-service"),
+    nonExtServiceConversationCondition(),
   ];
   if (userId) conditions.push(eq(conversations.userId, userId));
 
@@ -250,7 +258,7 @@ export async function listRecentConversationsForUser(
   if (!userId) throw new Error("userId is required");
   const conditions = [
     eq(conversations.userId, userId),
-    or(eq(conversations.test, false), isNull(conversations.test)),
+    nonTestConversationCondition(),
     isNull(conversations.parentConversationId),
     eq(conversations.kind, "regular"),
   ];
@@ -1055,7 +1063,7 @@ export async function searchConversations(
   userId?: string,
   opts?: { limit?: number; offset?: number },
 ): Promise<SearchResult[]> {
-  if (!query || query.trim().length < 2) return [];
+  if (isSearchQueryTooShort(query)) return [];
 
   const db = getDb();
   const limit = opts?.limit ?? DEFAULT_CONVERSATION_SEARCH_LIMIT;
@@ -1079,12 +1087,12 @@ export async function searchConversations(
       FROM conversations c
       JOIN messages m ON m.conversation_id = c.id
       WHERE c.project_id = ${projectId}
-        AND (c.test IS NULL OR c.test = false)
+        AND ${NON_TEST_CONVERSATION_SQL}
         -- Service conversations (ECF gate-push owner, kind='ext-service') carry a
         -- real projectId + real messages but are host-internal — never surface
-        -- them in search (mirrors the listConversations / listRecentConversations
-        -- ne(kind,'ext-service') hygiene guard, so a title/message match can't leak).
-        AND c.kind <> 'ext-service'
+        -- them in search (shared with the listConversations / listRecentConversations
+        -- hygiene guard via message-search.ts, so a title/message match can't leak).
+        AND ${NON_EXT_SERVICE_CONVERSATION_SQL}
         ${userFilter}
         AND (
           to_tsvector('english', m.content) @@ plainto_tsquery('english', ${query})
@@ -1107,8 +1115,7 @@ export async function searchConversations(
       title,
       updated_at,
       message_id AS matching_message_id,
-      ts_headline('english', content, plainto_tsquery('english', ${query}),
-        'StartSel=<mark>, StopSel=</mark>, MaxWords=35, MinWords=15') AS snippet,
+      ts_headline('english', content, plainto_tsquery('english', ${query}), ${HEADLINE_OPTS}) AS snippet,
       rank
     FROM page
     ORDER BY rank DESC

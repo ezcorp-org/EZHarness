@@ -29,37 +29,20 @@ import { join, resolve as pathResolve } from "node:path";
 // Installer tests below need a minimal in-memory "extensions" table.
 // Every other block in this file (AF-1, AF-3) is DB-independent — the
 // mocks are safe to install globally.
-const mockExtensions = new Map<string, Record<string, unknown>>();
+import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
+
+const extStore = createMockExtensionsStore({ keyBy: "id", timestamps: true, generateId: () => crypto.randomUUID() });
 
 mock.module("../db/queries/extensions", () => ({
-  createExtension: async (data: Record<string, unknown>) => {
-    const ext = {
-      id: crypto.randomUUID(),
-      ...data,
-      // Schema default: isBundled defaults to false unless explicitly set.
-      // This mock must match that contract so installFromLocal's row
-      // reports the right shape even though the real DB isn't involved.
-      isBundled: data.isBundled ?? false,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    mockExtensions.set(ext.id as string, ext);
-    return ext;
-  },
-  getExtensionByName: async (name: string) => {
-    for (const ext of mockExtensions.values()) {
-      if (ext.name === name) return ext;
-    }
-    return null;
-  },
-  updateExtension: async (id: string, data: Record<string, unknown>) => {
-    const ext = mockExtensions.get(id);
-    if (!ext) return null;
-    Object.assign(ext, data, { updatedAt: new Date() });
-    return ext;
-  },
-  deleteExtension: async (id: string) => mockExtensions.delete(id),
-  listExtensions: async () => Array.from(mockExtensions.values()),
+  createExtension: async (data: Record<string, unknown>) =>
+    // Schema default: isBundled defaults to false unless explicitly set.
+    // This mock must match that contract so installFromLocal's row
+    // reports the right shape even though the real DB isn't involved.
+    extStore.createExtension({ isBundled: false, ...data } as Parameters<typeof extStore.createExtension>[0]),
+  getExtensionByName: extStore.getExtensionByName,
+  updateExtension: extStore.updateExtension,
+  deleteExtension: extStore.deleteExtension,
+  listExtensions: extStore.listExtensions,
 }));
 
 mock.module("../extensions/registry", () => ({

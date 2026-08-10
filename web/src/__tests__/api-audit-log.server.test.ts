@@ -7,6 +7,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/audit-log", () => ({
   listAuditLog: vi.fn(async () => []),
@@ -23,11 +24,9 @@ function makeEvent(opts: {
     ? "?" + new URLSearchParams(opts.query).toString()
     : "";
   const url = "http://localhost/api/audit-log" + qs;
-  return {
-    url: new URL(url),
+  return makeRequestEvent(url, {
     locals: opts.locals ?? {},
-    request: new Request(url),
-  } as any;
+  });
 }
 
 const adminLocals = {

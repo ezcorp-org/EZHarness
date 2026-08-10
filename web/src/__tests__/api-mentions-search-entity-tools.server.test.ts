@@ -14,6 +14,7 @@
  */
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const fakeRegistry = {
 	getManifestByName: vi.fn(),
@@ -40,11 +41,10 @@ const { GET } = await import("../routes/api/mentions/search/+server");
 
 function makeEvent(href: string) {
 	const user = { id: "u1", email: "u@x", name: "u", role: "user" };
-	return {
-		url: new URL(href),
-		locals: { user },
-		request: new Request(href, { method: "GET" }),
-	} as any;
+	return makeRequestEvent(href, {
+	  locals: { user },
+	  request: { method: "GET" },
+	});
 }
 
 describe("/api/mentions/search?type=tool", () => {

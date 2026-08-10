@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Shared state used by mocks ─────────────────────────────────────
 
@@ -107,18 +108,16 @@ const { POST } = await import(
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function makeEvent(subConvId: string, body?: Record<string, unknown>) {
-  return {
-    request: new Request(
-      `http://localhost/api/conversations/${subConvId}/agent-chat`,
-      {
+  return makeRequestEvent(`http://localhost/api/conversations/${subConvId}/agent-chat`, {
+    url: null,
+    request: {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body ?? { content: "hello agent" }),
       },
-    ),
     params: { id: subConvId },
     locals: { user: mockUser },
-  } as any;
+  });
 }
 
 function resetMocks() {

@@ -7,6 +7,7 @@
  * canvas-dock-sdk.md §5 e2e #canvas-dock-replace.
  */
 import { test, expect } from "./fixtures/test-base.js";
+import { sendComposerMessage } from "./fixtures/composer.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 test.describe("Canvas Dock — auto-replace", () => {
@@ -26,11 +27,9 @@ test.describe("Canvas Dock — auto-replace", () => {
 		await mockApi({ projects: [proj], conversations: [conv], messages: [userMsg, assistantMsg] });
 		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Open canvas twice");
 		await Promise.all([
 			page.waitForResponse((r: any) => r.url().includes("/messages") && r.request().method() === "POST"),
-			textarea.press("Enter"),
+			sendComposerMessage(page, "Open canvas twice"),
 		]);
 
 		// First dock call.

@@ -18,7 +18,10 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { ExtensionPermissions } from "../extensions/types";
 import { makeLocalPackage } from "./helpers/installer-fixtures";
 
-const mockExtensions = new Map<string, any>();
+import { createMockExtensionsStore } from "./helpers/mock-extensions-store";
+
+const extStore = createMockExtensionsStore({ keyBy: "id", timestamps: true, generateId: () => crypto.randomUUID() });
+const mockExtensions = extStore.store;
 let createCalls = 0;
 let updateCalls = 0;
 let reloadCalls = 0;
@@ -27,30 +30,15 @@ let entitySeedCalls = 0;
 mock.module("../db/queries/extensions", () => ({
   createExtension: async (data: any) => {
     createCalls++;
-    const ext = {
-      id: crypto.randomUUID(),
-      ...data,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
-    mockExtensions.set(ext.id, ext);
-    return ext;
+    return extStore.createExtension(data);
   },
-  getExtensionByName: async (name: string) => {
-    for (const ext of mockExtensions.values()) {
-      if (ext.name === name) return ext;
-    }
-    return null;
-  },
+  getExtensionByName: extStore.getExtensionByName,
   updateExtension: async (id: string, data: any) => {
     updateCalls++;
-    const ext = mockExtensions.get(id);
-    if (!ext) return null;
-    Object.assign(ext, data, { updatedAt: new Date() });
-    return ext;
+    return extStore.updateExtension(id, data);
   },
-  deleteExtension: async (id: string) => mockExtensions.delete(id),
-  listExtensions: async () => Array.from(mockExtensions.values()),
+  deleteExtension: extStore.deleteExtension,
+  listExtensions: extStore.listExtensions,
 }));
 
 mock.module("../extensions/registry", () => ({

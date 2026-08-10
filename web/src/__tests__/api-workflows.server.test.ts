@@ -42,6 +42,7 @@ vi.mock("$server/db/queries/workflow-versions", () => versions);
 vi.mock("$server/db/queries/project-members", () => members);
 
 import { GET, POST } from "../routes/api/workflows/+server";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 /** A `system` cache entry — what every row created through POST is. */
 function systemEntry(name: string) {
@@ -75,15 +76,14 @@ function makeEvent(opts: {
   body?: unknown;
 }) {
   const body = opts.body !== undefined ? JSON.stringify(opts.body) : "{}";
-  return {
-    url: new URL("http://localhost/api/workflows"),
+  return makeRequestEvent("http://localhost/api/workflows", {
     locals: opts.locals ?? {},
-    request: new Request("http://localhost/api/workflows", {
+    request: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body,
-    }),
-  } as any;
+    },
+  });
 }
 
 const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "member" } };

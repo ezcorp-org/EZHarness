@@ -15,6 +15,7 @@
  * `resolved_input`.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import { expectThrownResponse } from "./helpers/server-route-test-utils";
 
 const trace = vi.hoisted(() => ({
   getWorkflowRunTrace: vi.fn(),
@@ -56,20 +57,6 @@ function listEvent(query = "", locals: Record<string, unknown> = authedUser) {
 function oneEvent(id = "r1", locals: Record<string, unknown> = authedUser) {
   const url = new URL(`http://localhost/api/workflows/runs/${id}`);
   return { url, locals, params: { id }, request: new Request(url) } as never;
-}
-
-async function expectThrownResponse(
-  fn: () => Promise<Response> | Response,
-  status: number,
-): Promise<void> {
-  let res: Response | undefined;
-  try {
-    res = await fn();
-  } catch (thrown) {
-    expect(thrown).toBeInstanceOf(Response);
-    res = thrown as Response;
-  }
-  expect(res!.status).toBe(status);
 }
 
 describe("gates", () => {
