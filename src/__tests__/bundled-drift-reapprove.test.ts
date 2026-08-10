@@ -319,6 +319,72 @@ describe("bundled drift re-approval", () => {
     expect(result.diffs).toEqual([]);
   }, 30_000);
 
+  test("a changed rbacScopes declaration reaches the admin's diff — the ceiling comparator's skip must not leak into it", async () => {
+    const { previewBundledDrift } = await import("../extensions/bundled-drift-reapprove");
+    // `canonicalizePerms` skips `rbacScopes` by default, and that skip is
+    // a CEILING-comparator rule: an inert scope declaration narrows
+    // nothing, so counting it would flag `clamped` on every
+    // manifest-shaped request. When `diffGrants` started sharing that
+    // canonicalizer it inherited the skip too — and silently stopped
+    // reporting the field on the screen an admin reads BEFORE approving
+    // a release. `diffGrants` now passes `{includeRbacScopes: true}`.
+    //
+    // github-projects is the fixture because its REAL on-disk manifest
+    // declares one scope (`write-tickets`). The stored row below carries
+    // a DIFFERENT declaration, the shape a row written by an older
+    // release leaves behind — `grantedPermissions` is unvalidated jsonb
+    // on read, and nothing rewrites it until a heal lands.
+    const EVENTS = [
+      "github-projects:approve",
+      "github-projects:dismiss",
+      "github-projects:rerun",
+      "github-projects:pause",
+      "github-projects:resume",
+      "github-projects:refresh",
+      "github-projects:poll-now",
+      "github-projects:proposal-update",
+      "task:assignment_update",
+      "run:complete",
+    ];
+    const STALE_SCOPES = [{ name: "read-tickets", description: "Read board tickets" }];
+    const row: StoredExtension = {
+      id: "seed-github-projects-rbac",
+      name: "github-projects",
+      enabled: true,
+      isBundled: true,
+      installPath: "docs/extensions/examples/github-projects",
+      version: "0.1.0",
+      manifest: { name: "github-projects", version: "0.1.0" },
+      grantedPermissions: {
+        eventSubscriptions: EVENTS,
+        storage: true,
+        rbacScopes: STALE_SCOPES,
+        grantedAt: { eventSubscriptions: 1, storage: 1 },
+      } as unknown as ExtensionPermissions,
+    };
+
+    const result = await previewBundledDrift(row);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    // THE FIX: the field is visible again. `newValue` is `undefined`
+    // because a GRANT never carries declarations — `intersectPermissions`
+    // drops them, which is also why no ceiling row lists them — so what
+    // the admin is being shown is "the scope list recorded on this row is
+    // not what the release declares". Suppressing that is the defect.
+    const rbac = result.diffs.find((d) => d.field === "rbacScopes");
+    expect(rbac).toBeDefined();
+    expect(rbac?.oldValue).toEqual(STALE_SCOPES);
+    expect(rbac?.newValue).toBeUndefined();
+    expect((result.grant as unknown as Record<string, unknown>).rbacScopes).toBeUndefined();
+
+    // …and the fields that genuinely did not move stay quiet, so the
+    // opt-in didn't just make the screen noisier across the board.
+    expect(result.diffs.some((d) => d.field === "eventSubscriptions")).toBe(false);
+    expect(result.diffs.some((d) => d.field === "storage")).toBe(false);
+    expect(result.diffs.map((d) => d.field)).toEqual(["rbacScopes"]);
+  }, 30_000);
+
   test("the bug + happy path + boot convergence: S9 disables, reapprove heals from disk, next boot stays enabled", async () => {
     const { ensureBundledExtensions } = await import("../extensions/bundled");
     const { reapproveBundledDrift } = await import("../extensions/bundled-drift-reapprove");
