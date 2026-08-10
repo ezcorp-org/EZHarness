@@ -5,8 +5,7 @@
 
 import { test, expect, describe } from "vitest";
 import { GET, POST } from "../routes/api/projects/+server";
-import { expectThrownResponse } from "./helpers/server-route-test-utils";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeGetEvent(locals: Record<string, unknown> = {}) {
 	return makeRequestEvent("http://localhost/api/projects", {

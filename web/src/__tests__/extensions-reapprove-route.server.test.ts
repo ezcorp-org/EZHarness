@@ -36,8 +36,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
-import { expectThrownOrResponse } from "./helpers/server-route-test-utils";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownOrResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Mock auth + scope middleware ──────────────────────────────────
 // `requireAuth(locals)` returns the user. The `scope: "forever"` admin gate

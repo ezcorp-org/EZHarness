@@ -9,8 +9,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
-import { expectThrownResponse as expectThrown } from "./helpers/server-route-test-utils";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownResponse as expectThrown, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 vi.mock("$server/db/queries/agent-configs", () => ({
   getAgentConfig: vi.fn(),

@@ -35,8 +35,7 @@ vi.mock("$server/runtime/workflow-authz", () => authz);
 vi.mock("$server/db/queries/project-members", () => members);
 
 import { POST } from "../routes/api/workflows/[name]/run/+server";
-import { expectThrownResponse } from "./helpers/server-route-test-utils";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 /** The definition the executor should receive, unwrapped from its entry. */
 const W1 = { name: "w1", description: "", steps: [] };

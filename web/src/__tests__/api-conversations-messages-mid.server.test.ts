@@ -3,10 +3,9 @@
  * Auth gate — success path mutates DB.
  */
 
-import { test, expect, describe } from "vitest";
+import { test, describe } from "vitest";
 import { PATCH } from "../routes/api/conversations/[id]/messages/[mid]/+server";
-import { expectThrownResponse } from "./helpers/server-route-test-utils";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeEvent(opts: { body?: unknown; locals?: Record<string, unknown> }) {
 	return makeRequestEvent("http://localhost/api/conversations/c1/messages/m1", {

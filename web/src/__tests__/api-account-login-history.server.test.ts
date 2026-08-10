@@ -5,8 +5,7 @@
 
 import { test, expect, describe } from "vitest";
 import { GET } from "../routes/api/account/login-history/+server";
-import { expectThrownResponse } from "./helpers/server-route-test-utils";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeEvent(locals: Record<string, unknown> = {}) {
 	return makeRequestEvent("http://localhost/api/account/login-history", {

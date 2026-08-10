@@ -9,8 +9,7 @@
  * (no internal-field leakage, ownedByMe flag wired correctly).
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
-import { expectThrownResponse } from "./helpers/server-route-test-utils";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const mockListVisibleLessons = vi.fn();
 vi.mock("$server/db/queries/lessons", () => ({

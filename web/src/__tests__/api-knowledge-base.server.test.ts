@@ -7,8 +7,7 @@
 
 import { test, expect, describe } from "vitest";
 import { GET, POST } from "../routes/api/knowledge-base/+server";
-import { expectThrownResponse } from "./helpers/server-route-test-utils";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeGetEvent(opts: {
 	href?: string;

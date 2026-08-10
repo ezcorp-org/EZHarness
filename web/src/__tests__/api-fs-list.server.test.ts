@@ -7,8 +7,7 @@
  */
 
 import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
-import { expectThrownResponse as expectThrown } from "./helpers/server-route-test-utils";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownResponse as expectThrown, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const realpath = vi.fn();
 const readdir = vi.fn();

@@ -14,8 +14,7 @@
  */
 
 import { beforeEach, describe, expect, test, vi } from "vitest";
-import { expectThrownResponse } from "./helpers/server-route-test-utils";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const fakeStorage: {
 	rows: Map<string, { value: unknown; sizeBytes: number; encrypted: boolean }>;

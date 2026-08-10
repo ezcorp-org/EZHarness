@@ -7,8 +7,7 @@
 
 import { test, expect, describe } from "vitest";
 import { GET, PUT, DELETE } from "../routes/api/projects/[id]/+server";
-import { expectThrownResponse } from "./helpers/server-route-test-utils";
-import { makeRequestEvent } from "./helpers/server-route-test-utils";
+import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
 
 function makeEvent(opts: {
 	id?: string;
