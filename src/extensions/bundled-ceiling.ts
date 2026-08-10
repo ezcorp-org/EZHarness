@@ -713,7 +713,14 @@ function equalPermissions(
   return canonicalizePerms(a) === canonicalizePerms(b);
 }
 
-function canonicalizePerms(p: ExtensionPermissions): string {
+/**
+ * Exported so other permission comparators (e.g. `diffGrants` in
+ * `bundled-drift-reapprove.ts`) canonicalize identically to
+ * `equalPermissions` — see that module's `diffGrants` doc for the bug a
+ * second, diverging canonicalizer caused (an array-order-only manifest
+ * change reported as a phantom permission diff).
+ */
+export function canonicalizePerms(p: ExtensionPermissions): string {
   const ordered: Record<string, unknown> = {};
   // `as unknown` first because `ExtensionPermissions` has typed fields
   // that don't structurally overlap with `Record<string, unknown>`.

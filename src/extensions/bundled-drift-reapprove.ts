@@ -41,7 +41,7 @@ import { updateExtension } from "../db/queries/extensions";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "./audit-actions";
 import { CAPABILITY_POLICY_FIELDS } from "./capability-flags";
-import { clampToBundledCeiling } from "./bundled-ceiling";
+import { canonicalizePerms, clampToBundledCeiling } from "./bundled-ceiling";
 import { verifyManifestAgainstLock } from "./bundled-lock";
 import { loadManifestFresh } from "./loader";
 import { getBundledExtensionPath, getProjectRoot } from "./bundled";
@@ -81,6 +81,16 @@ export type DriftReapproveResult =
  * Structural diff of two grant shapes over the union of their permission
  * fields (excluding `grantedAt` — timestamps refresh on every
  * re-approval and would make the no-drift case look like a change).
+ *
+ * Per field, equality goes through `canonicalizePerms` — the SAME
+ * canonicalizer `equalPermissions` (`bundled-ceiling.ts`) uses to decide
+ * whether `clampToBundledCeiling` narrowed a request. A raw
+ * `JSON.stringify` comparison here used to diverge from it: a manifest
+ * whose `permissions.network` array is reordered between releases with
+ * the same host set is "equal" per `equalPermissions` (which sorts
+ * string arrays) but "changed" per raw JSON — so an admin would see a
+ * phantom permission diff for a release that granted nothing new. Reuse,
+ * not a second canonicalizer, so the two can't diverge again.
  */
 function diffGrants(
   oldGrant: ExtensionPermissions,
@@ -92,7 +102,9 @@ function diffGrants(
   fields.delete("grantedAt");
   const diffs: DriftReapproveDiff[] = [];
   for (const field of [...fields].sort()) {
-    if (JSON.stringify(a[field]) !== JSON.stringify(b[field])) {
+    const canonA = canonicalizePerms({ [field]: a[field] } as unknown as ExtensionPermissions);
+    const canonB = canonicalizePerms({ [field]: b[field] } as unknown as ExtensionPermissions);
+    if (canonA !== canonB) {
       diffs.push({ field, oldValue: a[field], newValue: b[field] });
     }
   }

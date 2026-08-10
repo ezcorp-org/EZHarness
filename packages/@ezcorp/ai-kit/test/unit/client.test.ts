@@ -235,6 +235,61 @@ describe("EzcorpClient — call context", () => {
   });
 });
 
+describe("EzcorpClient — redirects", () => {
+  // A stub fetch wrapper that rewrites the target path to a 302 route just
+  // before dispatch, so the real request/streamEvents code paths are
+  // exercised unmodified — only the URL the fake server sees changes. Cast
+  // to `typeof fetch`: the real type carries a `preconnect` member a bare
+  // arrow can't satisfy.
+  function redirectingFetch(fromPath: string, toPath: string): typeof fetch {
+    return ((input: string | URL | Request, init?: RequestInit) => {
+      const u = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      return fetch(u.replace(fromPath, toPath), init);
+    }) as unknown as typeof fetch;
+  }
+
+  test("refuses to follow a redirect (no bearer-token replay)", async () => {
+    const c = new EzcorpClient({
+      baseUrl: server.url,
+      fetch: redirectingFetch("/api/health", "/api/health-redirect"),
+    });
+    let threw = false;
+    try {
+      // The target (`/api/health`) is a real, reachable route — if the
+      // redirect were followed instead of refused, this would resolve with
+      // `{ ok: true }` rather than throw. That's what makes this assertion
+      // meaningful rather than trivially true.
+      await c.health();
+    } catch (e) {
+      threw = true;
+      // fetch rejects under `redirect: "error"`; it never surfaces as an
+      // EzcorpApiError, which would imply the redirect was followed and the
+      // response read.
+      expect(e).not.toBeInstanceOf(EzcorpApiError);
+    }
+    expect(threw).toBe(true);
+  });
+
+  test("streamEvents refuses to follow a redirect (no bearer-token replay)", async () => {
+    const c = new EzcorpClient({
+      baseUrl: server.url,
+      fetch: redirectingFetch("/api/runtime-events", "/api/runtime-events-redirect"),
+    });
+    let threw = false;
+    try {
+      // The target is the real `/api/runtime-events` SSE route — a followed
+      // redirect would successfully establish the stream instead of throwing.
+      for await (const _ of c.streamEvents()) {
+        // unreachable: the fetch itself must reject before yielding.
+      }
+    } catch (e) {
+      threw = true;
+      expect(e).not.toBeInstanceOf(EzcorpApiError);
+    }
+    expect(threw).toBe(true);
+  });
+});
+
 describe("EzcorpClient — SSE streaming", () => {
   test("streamEvents yields emitted frames in order", async () => {
     const ac = new AbortController();

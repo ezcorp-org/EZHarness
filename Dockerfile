@@ -1,5 +1,5 @@
 # Stage 1: Build
-FROM oven/bun:1.3.11 AS builder
+FROM oven/bun:1.3.14 AS builder
 WORKDIR /app
 
 # Install root dependencies
@@ -29,7 +29,7 @@ RUN bun run --cwd packages/@ezcorp/sdk build
 RUN cd web && bun run build
 
 # Stage 2: Runtime
-FROM oven/bun:1.3.11-slim
+FROM oven/bun:1.3.14-slim
 WORKDIR /app
 
 # Phase 7 (MCP isolation) + Phase 55 Stage 1 (DNS rebind / tmpfs / seccomp

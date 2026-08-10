@@ -200,7 +200,16 @@ export class EzcorpClient {
     if (init.body && !(init.body instanceof FormData) && !headers["Content-Type"]) {
       headers["Content-Type"] = "application/json";
     }
-    const res = await this.fetchImpl(url, { ...init, headers });
+    const res = await this.fetchImpl(url, {
+      ...init,
+      headers,
+      // Never follow a 3xx: fetch strips `Authorization` on a cross-origin
+      // redirect but FORWARDS it on a same-origin one, so the exposure is a
+      // same-origin redirect (open-redirect route, misconfigured proxy)
+      // replaying the bearer token — plus not trusting a response body a
+      // redirect could steer us to.
+      redirect: "error",
+    });
     if (!res.ok) {
       throw new EzcorpApiError(res.status, url.toString(), await res.text());
     }
@@ -401,6 +410,11 @@ export class EzcorpClient {
     const res = await this.fetchImpl(url, {
       headers: { Accept: "text/event-stream", ...this.authHeaders() },
       signal: opts.signal,
+      // Mirror request(): never follow a 3xx. fetch forwards `Authorization`
+      // on a same-origin redirect (only strips it cross-origin), so the real
+      // exposure is a same-origin redirect replaying the bearer token — plus
+      // not trusting a response body a redirect could steer us to.
+      redirect: "error",
     });
     if (!res.ok || !res.body) {
       throw new EzcorpApiError(res.status, url.toString(), await res.text().catch(() => ""));

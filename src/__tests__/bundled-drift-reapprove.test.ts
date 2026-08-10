@@ -248,6 +248,77 @@ describe("bundled drift re-approval", () => {
     }
   }, 30_000);
 
+  test("diffGrants canonicalizes like equalPermissions — a network reorder with the same host set is not a phantom diff", async () => {
+    const { previewBundledDrift } = await import("../extensions/bundled-drift-reapprove");
+    // Same city-conditions manifest as the "preview exposes every newly
+    // added capability" case above, but the STORED prior grant already
+    // holds the full current host set — just in a different array order
+    // than the on-disk manifest declares (as would happen if a past
+    // release listed `permissions.network` in a different order with the
+    // same hosts). `intersectPermissions` preserves the REQUESTED side's
+    // (disk manifest's) array order rather than sorting, so the freshly
+    // computed grant and the stored prior grant differ in order only —
+    // `equalPermissions`/`canonicalizePerms` in bundled-ceiling.ts already
+    // treats that as equal (it sorts string arrays). `diffGrants` must not
+    // diverge from that and report a changed field for order alone.
+    const row: StoredExtension = {
+      id: "seed-city-conditions-reorder",
+      name: "city-conditions",
+      enabled: true,
+      isBundled: true,
+      installPath: "docs/extensions/examples/city-conditions",
+      version: "0.1.0",
+      manifest: {
+        name: "city-conditions",
+        version: "0.1.0",
+        permissions: {
+          storage: true,
+          network: [
+            "geocoding-api.open-meteo.com",
+            "api.open-meteo.com",
+            "air-quality-api.open-meteo.com",
+            "pollen.googleapis.com",
+            "www.atlantaallergy.com",
+          ],
+          workflows: { names: ["conditions"], maxRunsPerHour: 12 },
+        },
+      },
+      grantedPermissions: {
+        storage: true,
+        // Same five hosts as the disk manifest/ceiling, reverse order.
+        network: [
+          "www.atlantaallergy.com",
+          "pollen.googleapis.com",
+          "air-quality-api.open-meteo.com",
+          "api.open-meteo.com",
+          "geocoding-api.open-meteo.com",
+        ],
+        workflows: { names: ["conditions"], maxRunsPerHour: 12 },
+        grantedAt: { storage: 1, network: 1, workflows: 1 },
+      } as ExtensionPermissions,
+    };
+
+    const result = await previewBundledDrift(row);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    // The freshly computed grant does carry the disk manifest's array
+    // order (not sorted) — that's `intersectPermissions`'s documented
+    // behavior, not the bug.
+    expect(result.grant.network).toEqual([
+      "geocoding-api.open-meteo.com",
+      "api.open-meteo.com",
+      "air-quality-api.open-meteo.com",
+      "pollen.googleapis.com",
+      "www.atlantaallergy.com",
+    ]);
+    // But it must NOT show up as a diff: same hosts, order-only churn.
+    expect(result.diffs.some((d) => d.field === "network")).toBe(false);
+    expect(result.diffs.some((d) => d.field === "storage")).toBe(false);
+    expect(result.diffs.some((d) => d.field === "workflows")).toBe(false);
+    expect(result.diffs).toEqual([]);
+  }, 30_000);
+
   test("the bug + happy path + boot convergence: S9 disables, reapprove heals from disk, next boot stays enabled", async () => {
     const { ensureBundledExtensions } = await import("../extensions/bundled");
     const { reapproveBundledDrift } = await import("../extensions/bundled-drift-reapprove");

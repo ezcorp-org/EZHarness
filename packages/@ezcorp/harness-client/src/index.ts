@@ -160,8 +160,11 @@ export class HarnessClient {
       method,
       headers: this.headers(body !== undefined ? { "Content-Type": "application/json" } : undefined),
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      // Never follow a 3xx: a cross-origin redirect would replay the
-      // `Authorization: Bearer ezk_*` header to an attacker-controlled host.
+      // Never follow a 3xx: fetch strips `Authorization` on a cross-origin
+      // redirect but FORWARDS it on a same-origin one, so the exposure is a
+      // same-origin redirect (open-redirect route, misconfigured proxy)
+      // replaying the `ezk_*` bearer token — plus not trusting a response
+      // body a redirect could steer us to.
       redirect: "error",
     });
     const text = await res.text();
@@ -516,8 +519,11 @@ export class HarnessClient {
       method: httpMethod,
       headers: this.headers({ Accept: "text/event-stream" }),
       signal: opts.signal,
-      // Mirror request(): never follow a 3xx — a cross-origin redirect would
-      // replay the `Authorization: Bearer ezk_*` header to an attacker host.
+      // Mirror request(): never follow a 3xx. fetch forwards `Authorization`
+      // on a same-origin redirect (only strips it cross-origin), so the real
+      // exposure is a same-origin redirect replaying the `ezk_*` bearer
+      // token — plus not trusting a response body a redirect could steer us
+      // to.
       redirect: "error",
     });
     if (!res.ok || !res.body) throw new HarnessApiError(res.status, httpMethod, path, await res.text().catch(() => ""));

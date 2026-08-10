@@ -1,5 +1,7 @@
-import { test, expect } from "bun:test";
+import { afterAll, beforeAll, describe, expect, spyOn, test } from "bun:test";
 import { resolve } from "node:path";
+import { _internals, main } from "./index";
+import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
 
 // Test format-table logic
 function formatTable(headers: string[], rows: string[][]): string {
@@ -105,4 +107,108 @@ test("manifest skill has content", async () => {
   const skill = manifest.skills[0];
   expect(skill.name).toBe("markdown-style");
   expect(skill.content).toContain("ATX-style");
+});
+
+describe("dispatch: extract-headings", () => {
+  test("extracts headings via the real dispatcher", () => {
+    const res = _internals.handleRequest({
+      jsonrpc: "2.0",
+      id: 20,
+      method: "tools/call",
+      params: { name: "extract-headings", arguments: { markdown: "# Title\nbody\n## Sub" } },
+    });
+    const content = (res.result as { content: { type: string; text: string }[] }).content;
+    expect(JSON.parse(content[0]!.text)).toEqual([
+      { level: 1, text: "Title", line: 1 },
+      { level: 2, text: "Sub", line: 3 },
+    ]);
+  });
+
+  test("missing markdown argument is -32602", () => {
+    const res = _internals.handleRequest({
+      jsonrpc: "2.0",
+      id: 21,
+      method: "tools/call",
+      params: { name: "extract-headings", arguments: {} },
+    });
+    expect(res.error?.code).toBe(-32602);
+    expect(res.error?.message).toContain("markdown");
+  });
+});
+
+describe("dispatch: format-table validation", () => {
+  test("missing headers or rows is -32602", () => {
+    const res = _internals.handleRequest({
+      jsonrpc: "2.0",
+      id: 22,
+      method: "tools/call",
+      params: { name: "format-table", arguments: {} },
+    });
+    expect(res.error?.code).toBe(-32602);
+    expect(res.error?.message).toContain("Missing headers or rows");
+  });
+});
+
+describe("main() — the stdin JSON-RPC loop", () => {
+  // `writeStdout` in index.ts caches the `Bun.stdout.writer()` instance the
+  // FIRST time it's called and reuses it for the rest of the process — see
+  // the comment on `writeStdout`. The spy is therefore installed exactly
+  // ONCE for this file's test process; writes are routed through a
+  // rebindable sink so each test gets its own array.
+  const sink = { written: [] as string[] };
+  let writerSpy: ReturnType<typeof spyOn>;
+  beforeAll(() => {
+    writerSpy = spyOn(Bun.stdout, "writer").mockReturnValue({
+      write: (s: string) => {
+        sink.written.push(s as string);
+        return (s as string).length;
+      },
+      flush: () => Promise.resolve(0),
+    } as unknown as ReturnType<typeof Bun.stdout.writer>);
+  });
+  afterAll(() => {
+    writerSpy.mockRestore();
+  });
+
+  async function runMain(input: string): Promise<string[]> {
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(input));
+        controller.close();
+      },
+    });
+    const streamSpy = spyOn(Bun.stdin, "stream").mockReturnValue(
+      stream as unknown as ReturnType<typeof Bun.stdin.stream>,
+    );
+    sink.written = [];
+    try {
+      await main();
+    } finally {
+      streamSpy.mockRestore();
+    }
+    return sink.written;
+  }
+
+  test("answers a format-table request end-to-end through the real reader loop", async () => {
+    const req: JsonRpcRequest = {
+      jsonrpc: "2.0",
+      id: 7,
+      method: "tools/call",
+      params: { name: "format-table", arguments: { headers: ["A"], rows: [["1"]] } },
+    };
+    const written = await runMain(JSON.stringify(req) + "\n");
+    expect(written).toHaveLength(1);
+    const res = JSON.parse(written[0]!.trim()) as JsonRpcResponse;
+    expect(res.id).toBe(7);
+    const content = (res.result as { content: { type: string; text: string }[] }).content;
+    expect(content[0]!.text).toContain("A");
+  });
+
+  test("an unknown method still answers through the loop", async () => {
+    const req: JsonRpcRequest = { jsonrpc: "2.0", id: 8, method: "nope/nope" };
+    const written = await runMain(JSON.stringify(req) + "\n");
+    expect(written).toHaveLength(1);
+    const res = JSON.parse(written[0]!.trim()) as JsonRpcResponse;
+    expect(res.error!.code).toBe(-32601);
+  });
 });

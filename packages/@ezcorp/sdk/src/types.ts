@@ -10,11 +10,45 @@
 
 // ── V2 Component Definitions ─────────────────────────────────────
 
+/**
+ * Per-tool capability declaration (Phase 1, manifest schemaVersion 3).
+ *
+ * Tools opt into specific runtime capabilities here; the host's PDP
+ * intersects the declaration with the extension-wide grant at every tool
+ * call. v2 manifests auto-promote via `migrateManifestV2ToV3`: each tool
+ * inherits the extension-wide ceiling, and the result is flagged
+ * `_inheritedFromV2: true` so the audit log can distinguish authored vs
+ * inherited declarations.
+ *
+ * `custom` accepts namespaced capability names (e.g. `ezcorp:chat:append`)
+ * for caps that don't fit the network/fs/shell/env/storage primitives.
+ */
+export interface CapabilityDeclaration {
+  network?: { hosts: string[] };
+  filesystem?: { paths: string[]; mode: ("read" | "write")[] };
+  shell?: boolean;
+  env?: string[];
+  storage?: boolean;
+  custom?: Record<string, string[] | boolean>;
+}
+
 export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>; // JSON Schema object
   cardType?: string; // Maps to frontend card component for custom rendering
+  /**
+   * Where the chat UI should render this tool's card when the call completes.
+   *   "inline" (default) — render inside the message bubble, same as today.
+   *   "dock"             — render in the floating right-side `DockHost` panel,
+   *                        and replace the in-message slot with a navigable
+   *                        "Canvas open ↗" pill. Only honored for
+   *                        `status === "complete"`; running calls always
+   *                        render inline (streaming-precedence rule).
+   * Unknown values are tolerated and normalized to `"inline"` at the host —
+   * the warning surfaces in the registry log without breaking install.
+   */
+  cardLayout?: "inline" | "dock";
   /**
    * When `true`, the host treats this tool as human-in-the-loop:
    * the subprocess JSON-RPC timeout race is skipped, and the watchdog
@@ -33,6 +67,14 @@ export interface ToolDefinition {
    * NEVER shown to the LLM (stripped before the tool spec is built).
    */
   suggestExamples?: string[];
+  /**
+   * Per-tool capability declaration (Phase 1, manifest v3 only).
+   *
+   * Optional on v2 manifests — `migrateManifestV2ToV3` synthesizes a
+   * declaration from the extension-wide `permissions` block when this
+   * field is absent. The PDP uses the FINAL post-migration value.
+   */
+  capabilities?: CapabilityDeclaration;
   /**
    * Extension-RBAC scope (user→extension axis) REQUIRED to invoke this
    * tool. When set, the host enforces it at dispatch: the acting user
@@ -217,6 +259,54 @@ export type SettingsField =
  *  /^[a-z][a-z0-9_]{0,63}$/ (filesystem-safe identifier). */
 export type SettingsSchema = Record<string, SettingsField>;
 
+/**
+ * Per-turn action icon contributed by an extension. Rendered in
+ * `MessageToolbar.svelte` between the exclude and save-to-memory buttons.
+ *
+ * Click handler in the host posts to the existing extension event route
+ * (`/api/extensions/<name>/events/<event>`) with
+ * `{ messageId, conversationId, content, selection }`. The selection is
+ * captured via `window.getSelection()` and clamped to the source row's
+ * DOM (so highlighting in another row doesn't leak).
+ *
+ * `event` MUST be prefixed with the extension's `name:`, AND the extension
+ * MUST also list this event under `permissions.eventSubscriptions` —
+ * toolbar contributions are gated by the same allowlist as canvas-card
+ * events.
+ */
+export interface MessageToolbarItem {
+  /** Unique id within the extension. Lowercase letters, digits, hyphens. */
+  id: string;
+  /** lucide-svelte icon name, e.g. "Volume2". */
+  icon: string;
+  /** Tooltip text shown on hover. */
+  tooltip: string;
+  /** Which message roles this icon should appear on. Default `"both"`. */
+  appliesTo?: "user" | "assistant" | "both";
+  /**
+   * Whether this contribution participates in the multi-select bulk
+   * action bar in addition to / instead of the per-message hover toolbar.
+   *
+   *   - `"single"` (default) — appears only on the per-message hover
+   *     toolbar. Click POSTs `{ conversationId, messageId, content,
+   *     selection }`.
+   *   - `"bulk"`  — appears only in the multi-select bar. Click POSTs
+   *     `{ conversationId, messageIds: string[], content }` where
+   *     `content` is the concatenated content of the selected turns
+   *     (no `selection` — bulk has no single highlight).
+   *   - `"both"`  — appears in both. Single-row clicks send the
+   *     single-id payload; bulk clicks send the array payload.
+   *
+   * The host route accepts EITHER `messageId` OR `messageIds[]` for
+   * messageToolbar events, so an extension only needs to handle whichever
+   * shapes match the `appliesToSelection` modes it opts into. Default
+   * `"single"` preserves the original behavior for existing manifests.
+   */
+  appliesToSelection?: "single" | "bulk" | "both";
+  /** Event name in this extension's namespace, e.g. "kokoro-tts:speak". */
+  event: string;
+}
+
 // ── Hub Pages (Extension Pages Hub) ──────────────────────────────
 
 /**
@@ -254,7 +344,7 @@ export interface ExtensionPageDeclaration {
 import type { EntityDeclaration } from "./entities/types";
 
 export interface ExtensionManifestV2 {
-  schemaVersion: 2;
+  schemaVersion: 2 | 3;
   name: string; // Also serves as namespace prefix
   version: string; // semver
   description: string;
@@ -307,6 +397,14 @@ export interface ExtensionManifestV2 {
    * assistant turn — see {@link PreprocessorDecl} for the full contract.
    */
   preprocessors?: PreprocessorDecl[];
+
+  /**
+   * Per-turn action icons contributed to `MessageToolbar`. Each item must
+   * declare an event that is also present in
+   * `permissions.eventSubscriptions` (the same dispatcher allowlist used
+   * by canvas-card events). See `MessageToolbarItem`.
+   */
+  messageToolbar?: MessageToolbarItem[];
 
   /**
    * User-editable configuration declared by the extension. The host renders
@@ -387,8 +485,14 @@ export interface ExtensionManifestV2 {
     /** Subscribe to server→extension bus-event notifications (Phase 2c).
      *  Each string names a bus event type from the 13 direct-carrier events
      *  — delivery is conversation-scoped to the `conversation_extensions`
-     *  wiring. Unknown names are filtered at clamp time. */
-    eventSubscriptions?: string[];
+     *  wiring. Unknown names are filtered at clamp time.
+     *
+     *  Phase 51.4 added the object form
+     *  `{events: string[], includeFullPayload?: boolean}`. When
+     *  `includeFullPayload: true`, the dispatcher does NOT strip the
+     *  heavy `input`/`output` blobs from `tool:start` /
+     *  `tool:complete` payloads. Default false. */
+    eventSubscriptions?: string[] | { events: string[]; includeFullPayload?: boolean };
     /** Receive inbound HTTP webhook deliveries (Loops EZ Mode Phase 4). Each
      *  string is a hook `slug`; the host mints a per-hook secret at install and
      *  routes an authenticated `POST /api/hooks/:extensionId/:slug` onto the
@@ -396,6 +500,28 @@ export interface ExtensionManifestV2 {
      *  attacker-controllable, so a webhook-triggered loop is permanently
      *  `untrusted-input`. Undeclared slugs are dropped at install. */
     webhooks?: string[];
+    /** Envelope for DYNAMIC cron + webhook triggers created at runtime via
+     *  `ctx.triggers` (C2). Deliberately a SEPARATE key from `webhooks`
+     *  above, which is a bare `string[]` of fixed author-chosen slugs — the
+     *  two coexist, and an extension may declare both.
+     *
+     *  The extension never chooses a dynamic slug: it supplies a `key` and
+     *  the host mints `<webhookPrefix><digest>` from the registry-resolved
+     *  extension name, so collision and forgery are inexpressible rather
+     *  than merely denied. `webhookPrefix` is therefore a NAMESPACE CLAIM
+     *  and is taken from the manifest only — never widened by the submitted
+     *  grant, which would let a user hand one extension another's
+     *  namespace.
+     *
+     *  `maxRunsPerDay` is an extension-wide fire ENVELOPE, not a per-job
+     *  allowance; the host additionally derives a per-key cap so one busy
+     *  job cannot starve its siblings. */
+    triggers?: {
+      maxCron?: number;
+      maxWebhooks?: number;
+      webhookPrefix?: string;
+      maxRunsPerDay?: number;
+    };
     /** Trigger runs of workflows THIS extension ships, via `ctx.workflows`
      *  (the `Workflows` helper in `@ezcorp/sdk/runtime`). Ship the
      *  definitions as `*.workflow.yaml` files at the root of your extension
@@ -419,6 +545,63 @@ export interface ExtensionManifestV2 {
      *  the host re-reads on every call and which is revocable
      *  independently of this grant. */
     workflows?: { names: string[]; maxRunsPerHour?: number; allowDelegated?: boolean };
+    /** Author turns directly via the `ezcorp/append-message` reverse RPC.
+     *  Conversation scope is forced by the host (the extension cannot
+     *  target another conversation). The host always forces the new
+     *  message's `excluded` flag to `true` regardless of what the
+     *  extension passes in `excludedDefault`; the field is reserved for
+     *  a future opt-in tier. Pairs naturally with `messageToolbar`
+     *  (toolbar click → subprocess gets event → calls append-message). */
+    appendMessages?: { excludedDefault: boolean };
+
+    // ── Phase 51 capability surfaces ────────────────────────────────
+    /** Brokered LLM access via `ctx.llm.complete()`. The token NEVER
+     *  crosses the JSON-RPC boundary in either direction — the host
+     *  resolves credentials and calls the provider directly, returning
+     *  ONLY the result. */
+    llm?: {
+      providers: string[];
+      maxCallsPerHour?: number;
+      maxCallsPerDay?: number;
+      maxTokensPerCall?: number;
+      maxTokensPerDay?: number;
+      maxTimeoutMs?: number;
+      allowedModels?: Record<string, string[]>;
+      maxCostCentsPerDay?: number;
+    };
+    /** Read/write access to the user's memory store via `ctx.memory`.
+     *  Extension-authored memories are stamped with provenance and
+     *  default to `injectionEligible: false` so they don't auto-inject
+     *  into LLM system prompts. `selfOnly: true` (the default) keeps
+     *  reads scoped to memories this extension itself authored. */
+    memory?: {
+      access: "read" | "write";
+      maxWritesPerDay?: number;
+      categories?: ("preferences" | "biographical" | "technical" | "decisions_goals")[];
+      selfOnly?: boolean;
+    };
+    /** Read/write access to the lessons corpus via `ctx.lessons`.
+     *  `maxVisibility` is clamped to user|project (no global). Slug
+     *  uniqueness composite includes the author extension so two
+     *  extensions can share a slug for the same user. */
+    lessons?: {
+      access: "read" | "write";
+      maxWritesPerDay?: number;
+      maxVisibility?: "user" | "project";
+    };
+    /** Persistent cron schedules via `ctx.schedule`. All crons are
+     *  declared in the manifest (max 8, min 5-min interval). The daemon
+     *  enforces `maxRunsPerDay`, `maxRunDurationMs`, and the missed-run
+     *  policy. `at-most-once` delivery is the default — extensions
+     *  opt into at-least-once via `maxRetries > 0`. */
+    schedule?: {
+      crons: string[];
+      maxRunsPerDay?: number;
+      maxRunDurationMs?: number;
+      missedRunPolicy?: "skip" | "fire-once" | "fire-all";
+      maxRetries?: number;
+      purpose?: string;
+    };
     /** Brokered web search + URL read via `ctx.search` (shared-search
      *  Phase 1). The provider chain + SSRF guard run host-side. A bundled
      *  extension may declare `"inherit"` (full grant, tracks instance
@@ -483,12 +666,61 @@ export interface ExtensionManifestV2 {
     expect: { isError?: boolean; textIncludes?: string };
   };
 
+  /**
+   * Quality-tier routing (pi-caching/routing integration). Declares the
+   * model tier this extension's work needs — a `powerful`-declaring
+   * extension wired into a conversation nudges the heuristic tier
+   * classifier up so its turns route to a strong model (and vice-versa for
+   * `fast`). OPTIONAL: absent = the extension expresses no tier preference
+   * and the length/tools heuristic decides. The declaration only takes
+   * effect when the conversation has NO established model yet (routing is
+   * tier-stable within a thread to protect the prompt cache).
+   */
+  routing?: { tier: "fast" | "balanced" | "powerful" };
+
   // Marketplace metadata (optional for local installs)
   tags?: string[];
   changelog?: string;
   category?: string;
   checksum?: string;
   packageChecksums?: Record<string, string>;
+  /** Algorithm version the `packageChecksums` baseline was recorded with
+   *  (`"v2"` = dotfiles hashed). Absent on pre-versioning installs, which
+   *  are verified in legacy (no-dotfile) mode. */
+  packageChecksumsAlgo?: string;
+
+  // ── Phase 4 deputy / orchestration opt-in flags ───────────────────
+  /**
+   * When `true`, this extension's tools accept caller capabilities via
+   * `ezcorp/invoke` and run with `intersect(callerCaps, ownCaps)`.
+   * Default `false` — pre-Phase-4 behavior, callee runs with its own
+   * caps as-is. Bundled "deputy" extensions (e.g. ai-kit) opt in;
+   * the install-time UI surfaces the elevated-trust nature.
+   *
+   * The runtime check is `=== true` — v2 manifests that don't carry
+   * this field are treated as opted-out.
+   *
+   * Granted at install time on the `extensions.grantedPermissions`
+   * blob — the runtime consults the GRANT, not the manifest. A
+   * manifest declaring `acceptsCallerCaps: true` without user consent
+   * is treated as if the flag were absent.
+   */
+  acceptsCallerCaps?: boolean;
+  /**
+   * When `true`, this extension's `ezcorp/spawn-assignment` calls do
+   * NOT cap the child conversation by parent capabilities. The child
+   * runs with its own agent-config-declared caps (still intersected
+   * with the child manifest's declared permissions). Default `false`
+   * — child caps are clipped by `intersect(parentGrants,
+   * childManifestPerms)`. Only orchestration extensions whose entire
+   * purpose is delegation should set this; the install-time UI
+   * requires explicit consent.
+   *
+   * Like `acceptsCallerCaps`, the runtime consults the GRANT (not the
+   * manifest) so a manifest without user consent is treated as
+   * opted-out.
+   */
+  escalateChildCaps?: boolean;
 }
 
 // ── Permissions (granted at install time) ────────────────────────

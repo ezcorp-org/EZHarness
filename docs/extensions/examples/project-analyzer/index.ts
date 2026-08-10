@@ -5,34 +5,22 @@ import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
 import { fsRead } from "@ezcorp/sdk/runtime";
 import { resolve, normalize } from "node:path";
 
-// JSON-RPC server
-const reader = Bun.stdin.stream().getReader();
 const decoder = new TextDecoder();
-let buffer = "";
 
 const cwd = process.cwd();
 
-async function main() {
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    let newlineIdx: number;
-    while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, newlineIdx).trim();
-      buffer = buffer.slice(newlineIdx + 1);
-      if (!line) continue;
-
-      try {
-        const req: JsonRpcRequest = JSON.parse(line);
-        const res = await handleRequest(req);
-        process.stdout.write(JSON.stringify(res) + "\n");
-      } catch {
-        // Ignore malformed lines
-      }
-    }
-  }
+// `process.stdout.write` triggers Bun's lazy lookup of `node:fs`'s
+// WriteStream constructor for stdio init. Phase 3 sandbox-preload
+// poisons fs module property access, so the very first stdout write
+// would throw `Extension sandbox: 'fs module' blocked`. `Bun.stdout`
+// is a stable Bun primitive (not gated by Phase 3 fs poisoning), so
+// its writer survives the sandbox. Cached lazily so we don't pay
+// the writer-creation cost on every JSON-RPC frame.
+let stdoutWriter: ReturnType<typeof Bun.stdout.writer> | null = null;
+function writeStdout(s: string): void {
+  if (!stdoutWriter) stdoutWriter = Bun.stdout.writer();
+  stdoutWriter.write(s);
+  void stdoutWriter.flush();
 }
 
 // Path validation
@@ -89,4 +77,40 @@ async function handleRequest(req: JsonRpcRequest): Promise<JsonRpcResponse> {
   return errorResponse(req.id, -32601, `Unknown method: ${req.method}`);
 }
 
-main();
+// --- Production wiring ---
+//
+// The stdin reader is grabbed INSIDE `main()`, gated on `import.meta.main`:
+// at module scope, opening it eagerly (and calling `main()` unconditionally)
+// would lock stdin's reader the moment anything imported this file, hanging
+// `index.test.ts` on a read that never resolves. Same shape as file-refactor
+// / todo-tracker.
+export async function main(): Promise<void> {
+  const reader = Bun.stdin.stream().getReader();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let newlineIdx: number;
+    while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, newlineIdx).trim();
+      buffer = buffer.slice(newlineIdx + 1);
+      if (!line) continue;
+
+      try {
+        const req: JsonRpcRequest = JSON.parse(line);
+        const res = await handleRequest(req);
+        writeStdout(JSON.stringify(res) + "\n");
+      } catch {
+        // Ignore malformed lines
+      }
+    }
+  }
+}
+
+/** Exported for `index.test.ts` — driven directly with a stubbed host
+ *  channel, mirroring file-refactor's `_internals` convention. */
+export const _internals = { handleRequest, handleListFiles, handleReadFile, isUnderCwd, cwd };
+
+if (import.meta.main) void main();
