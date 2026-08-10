@@ -717,9 +717,12 @@ export interface ExtensionManifestV2 {
      * via `ctx.rbac.check(name)` (`ezcorp/rbac-check` reverse-RPC).
      * Holding a scope always requires an explicit
      * `extension_rbac_grants` row (or the admin role) — declaring one
-     * confers nothing by itself, so the bundled ceiling passes these
-     * through un-clamped (see `bundled-ceiling.ts`) and grants never
-     * carry them (`intersectPermissions` drops unknown keys).
+     * confers nothing by itself. Two SEPARATE mechanisms follow, and
+     * neither one lets the field survive into a grant: the bundled
+     * ceiling's COMPARATOR ignores declarations, so declaring or
+     * renaming a scope never sets `clamped` (see `bundled-ceiling.ts`);
+     * and `intersectPermissions` DROPS them outright, so no grant ever
+     * carries one.
      *
      * Names are implicitly namespaced per-extension, must match
      * `/^[a-z][a-z0-9-]*$/`, must NOT collide with the core verbs
