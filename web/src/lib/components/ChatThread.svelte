@@ -64,6 +64,7 @@
 		estimateToolCallTokens,
 		pickLastTurnUsage,
 		resolveContextDenominator,
+		sameModel,
 		type ModelWindowLike,
 	} from "$lib/context-usage-logic";
 	import { buildHistoricalBlocks } from "$lib/content-blocks.js";
@@ -688,10 +689,14 @@
 	let nextTurnModel = $derived.by(() => {
 		if (!selectedModel || isAutoSelection(selectedModel)) return null;
 		if (modelPickedExplicitly) return selectedModel;
-		const pinned = currentConv;
-		return pinned?.provider === selectedModel.provider && pinned?.model === selectedModel.model
-			? selectedModel
-			: null;
+		// `sameModel`, not `===`: the denominator lookup this feeds already
+		// compares case-insensitively because gateways disagree on case for one
+		// id, and the pin is written from the same picker values the catalog is
+		// matched against — an exact compare here would read a real pin as
+		// "inherited" and drop the switch. It also matches on model id alone when
+		// the pinned row has no provider, which widens the pin only to rows the
+		// provider column predates; they name one model either way.
+		return sameModel(currentConv, selectedModel) ? selectedModel : null;
 	});
 	let contextDenominator = $derived(
 		resolveContextDenominator(

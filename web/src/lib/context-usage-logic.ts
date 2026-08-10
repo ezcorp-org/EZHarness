@@ -287,8 +287,11 @@ export function contextUsedTokens(
 }
 
 /** Case-insensitive provider/model equality — gateways disagree on case for
- *  the same id, so an exact compare would miss real matches. */
-function sameModel(
+ *  the same id, so an exact compare would miss real matches. Exported because
+ *  callers deciding "is this the same model?" must use the SAME rule the
+ *  denominator lookup below does; two spellings of one comparison is how the
+ *  gauge ends up disagreeing with itself. */
+export function sameModel(
 	a: { provider?: string | null; model?: string | null } | null | undefined,
 	b: { provider?: string | null; model?: string | null } | null | undefined,
 ): boolean {

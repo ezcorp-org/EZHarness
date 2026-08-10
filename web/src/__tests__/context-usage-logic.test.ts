@@ -18,6 +18,7 @@ import {
 	budgetExplanation,
 	contextUsedTokens,
 	resolveContextDenominator,
+	sameModel,
 	summaryText,
 	type MessageLike,
 	type ModelWindowLike,
@@ -722,6 +723,70 @@ describe("contextUsedTokens", () => {
 		expect(cached).toBe(160_500);
 		expect(computePct(cached, 168_000)).toBeGreaterThan(90);
 		expect(computePct(fresh, 168_000)).toBeLessThan(1);
+	});
+});
+
+// ── sameModel ───────────────────────────────────────────────────────────────
+//
+// Exported so every "is this the same model?" decision in the context
+// indicator uses ONE rule. `ChatThread` compares the conversation's pinned
+// model against the picker with it; before that it used `===`, which disagreed
+// with the catalog lookup below on exactly the inputs this rule exists for.
+
+describe("sameModel", () => {
+	test("matches case-insensitively on provider and model", () => {
+		expect(
+			sameModel(
+				{ provider: "anthropic", model: "claude-sonnet-4-5" },
+				{ provider: "AnThRoPiC", model: "Claude-Sonnet-4-5" },
+			),
+		).toBe(true);
+	});
+
+	test("is false when the model ids genuinely differ", () => {
+		expect(
+			sameModel(
+				{ provider: "anthropic", model: "claude-sonnet-4-5" },
+				{ provider: "anthropic", model: "claude-sonnet-4-6" },
+			),
+		).toBe(false);
+	});
+
+	test("is false when the same id comes from different providers", () => {
+		expect(
+			sameModel(
+				{ provider: "openai", model: "gpt-5.1" },
+				{ provider: "azure", model: "gpt-5.1" },
+			),
+		).toBe(false);
+	});
+
+	test("matches on model id alone when one side has no provider", () => {
+		// Legacy rows predate the provider column; they still name one model.
+		expect(sameModel({ provider: null, model: "gpt-5.1" }, { provider: "openai", model: "gpt-5.1" })).toBe(
+			true,
+		);
+		expect(sameModel({ provider: "openai", model: "gpt-5.1" }, { provider: null, model: "gpt-5.1" })).toBe(
+			true,
+		);
+	});
+
+	test("a missing model id never matches, on either side", () => {
+		const real = { provider: "openai", model: "gpt-5.1" };
+		expect(sameModel(null, real)).toBe(false);
+		expect(sameModel(real, null)).toBe(false);
+		expect(sameModel(undefined, real)).toBe(false);
+		expect(sameModel({ provider: "openai", model: null }, real)).toBe(false);
+		expect(sameModel(real, { provider: "openai" })).toBe(false);
+	});
+
+	// The reviewed nit, as the caller sees it: a pinned conversation row whose
+	// provider/model differ from the picker only in case IS the pinned model, so
+	// `ChatThread` must treat the picker value as this conversation's deliberate
+	// choice rather than an inherited one.
+	test("a pinned conversation row matches a picker value that differs only in case", () => {
+		const pinned = { id: "c1", title: "chat", provider: "OpenAI", model: "GPT-5.1" };
+		expect(sameModel(pinned, { provider: "openai", model: "gpt-5.1" })).toBe(true);
 	});
 });
 
