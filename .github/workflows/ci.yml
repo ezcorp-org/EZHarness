@@ -239,6 +239,16 @@ jobs:
       # Biome lint is a hard gate. Warnings and infos remain visible
       # (`bun run lint` exits 0 on them) so we can chip away without blocking CI.
       - run: bun run lint
+      # Architectural dependency boundaries (scripts/check-boundaries.ts).
+      # Folded into THIS job rather than run as its own: it takes ~0.2s over
+      # the whole tree, so it is free here, and `Lint (biome)` is already a
+      # required status check — a standalone job would not be required until
+      # someone with repo-admin adds the context to branch protection, which
+      # would leave it advisory and ignorable in the meantime. Kept as a
+      # separate STEP so a failure is attributable in the UI without changing
+      # what `bun run lint` itself does.
+      - name: Dependency boundaries
+        run: bun scripts/check-boundaries.ts
 
   manifest-lock:
     name: Manifest lockfile drift check

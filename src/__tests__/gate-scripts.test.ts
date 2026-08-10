@@ -66,6 +66,16 @@ import {
   severityRank,
   utcToday,
 } from "../../scripts/audit-deps.ts";
+import {
+  checkEdge,
+  checkSource,
+  extractSpecifiers,
+  isTestPath,
+  resolveSpecifier,
+  WORKER_ALLOWED_EXACT,
+  WORKER_ALLOWED_PREFIXES,
+  WORKER_FORBIDDEN_SUBSYSTEMS,
+} from "../../scripts/check-boundaries.ts";
 
 // ── coverage-config ─────────────────────────────────────────────────────────
 describe("coverage-config helpers", () => {
@@ -1739,4 +1749,186 @@ describe("gate-integrity: biome CONFIG FILE moves (check 10)", () => {
     ].join("\n");
     expect(biomeConfigFileViolations(quiet)).toEqual([]);
   });
+});
+
+// ── check-boundaries ────────────────────────────────────────────────────────
+
+describe("check-boundaries: resolveSpecifier", () => {
+  test("relative specifiers resolve against the IMPORTING FILE's directory", () => {
+    // The whole reason this is a resolver and not a glob: the same textual
+    // specifier means different things depending on where it is written.
+    expect(resolveSpecifier("web/src/lib/x.ts", "../../../src/types")).toBe("src/types");
+    expect(resolveSpecifier("worker/src/index.ts", "../../src/runtime/events")).toBe(
+      "src/runtime/events",
+    );
+    expect(resolveSpecifier("packages/@ezcorp/ai-kit/test/unit/a.test.ts", "../../src/client")).toBe(
+      "packages/@ezcorp/ai-kit/src/client",
+    );
+  });
+
+  test("SvelteKit aliases resolve to their real trees", () => {
+    expect(resolveSpecifier("web/src/lib/x.ts", "$server/auth/types")).toBe("src/auth/types");
+    expect(resolveSpecifier("web/src/routes/+page.svelte", "$lib/api")).toBe("web/src/lib/api");
+  });
+
+  test("non-first-party specifiers are not our business", () => {
+    for (const spec of ["bun:test", "node:path", "@ezcorp/sdk", "zod", "@sveltejs/kit"]) {
+      expect(resolveSpecifier("src/a.ts", spec)).toBeNull();
+    }
+    // Escaping the repo entirely resolves to null rather than a bogus path.
+    expect(resolveSpecifier("src/a.ts", "../../../../../etc/passwd")).toBeNull();
+  });
+});
+
+describe("check-boundaries: the cases a glob CANNOT distinguish", () => {
+  // Every specifier below contains the substring `src/`. A biome
+  // `noRestrictedImports` pattern like `**/src/**` matches the raw specifier
+  // and would flag all three; only the first is actually a violation. These
+  // are the measured in-tree shapes that ruled out the lint-rule approach.
+  test("package-local ../src/client is LEGAL (does not escape the package)", () => {
+    expect(checkEdge("packages/@ezcorp/ai-kit/test/unit/client.test.ts", "../../src/client")).toBeNull();
+    expect(checkEdge("packages/@ezcorp/sdk/test/loop.test.ts", "../src/runtime/loop")).toBeNull();
+  });
+
+  test("intra-web ../src/lib/api.js from web/e2e is LEGAL", () => {
+    expect(checkEdge("web/e2e/fixtures/api-mocks.ts", "../../src/lib/fuzzy-match.js")).toBeNull();
+    expect(checkEdge("web/e2e/provider-settings.spec.ts", "../src/lib/api.js")).toBeNull();
+  });
+
+  test("a package escaping to the app IS a violation, at any ../ depth", () => {
+    const shallow = checkEdge("packages/@ezcorp/sdk/src/a.ts", "../../../../src/db/connection");
+    expect(shallow?.rule).toBe("packages-no-app-imports");
+    const deep = checkEdge(
+      "packages/@ezcorp/ai-kit/src/mcp/tools/deep.ts",
+      "../../../../../../src/extensions/manifest",
+    );
+    expect(deep?.rule).toBe("packages-no-app-imports");
+  });
+});
+
+describe("check-boundaries: packages must not import the app", () => {
+  test("production package code importing src/ or web/ is rejected", () => {
+    const a = checkEdge("packages/@ezcorp/harness-client/src/index.ts", "../../../../src/api-registry");
+    expect(a?.rule).toBe("packages-no-app-imports");
+    expect(a?.why).toContain("would not resolve for a consumer");
+
+    const b = checkEdge(
+      "packages/@ezcorp/harness-client/src/index.ts",
+      "../../../../web/src/lib/runtime-event-names",
+    );
+    expect(b?.rule).toBe("packages-no-app-imports");
+  });
+
+  test("the rule is PRODUCTION-only — package tests may assert parity against the app", () => {
+    // Deliberate scope, not an allowlist: harness-client's suite imports the
+    // app's canonical RUNTIME_EVENT_NAMES precisely to assert the package's
+    // copy has not drifted, and ai-kit validates its manifest with the host's
+    // authoritative validator. Forbidding those would force duplicating the
+    // very constant the guard exists to compare against.
+    expect(
+      checkEdge(
+        "packages/@ezcorp/harness-client/src/index.test.ts",
+        "../../../../web/src/lib/runtime-event-names",
+      ),
+    ).toBeNull();
+    expect(
+      checkEdge(
+        "packages/@ezcorp/ai-kit/test/integration/extension.test.ts",
+        "../../../../../src/extensions/manifest",
+      ),
+    ).toBeNull();
+    // …and the distinction is carried by isTestPath, not by a path list.
+    expect(isTestPath("packages/@ezcorp/harness-client/src/index.test.ts")).toBe(true);
+    expect(isTestPath("packages/@ezcorp/harness-client/src/index.ts")).toBe(false);
+  });
+});
+
+describe("check-boundaries: the worker runtime allowlist", () => {
+  test("the legal surface passes — exactly what worker/src/index.ts imports today", () => {
+    for (const spec of [
+      "../../src/types",
+      "../../src/runtime/events",
+      "../../src/runtime/executor",
+      "../../src/runtime/loader",
+    ]) {
+      expect(checkEdge("worker/src/index.ts", spec), `${spec} must be legal`).toBeNull();
+    }
+  });
+
+  test("every node-only subsystem is named in the diagnostic, not just refused", () => {
+    for (const sub of WORKER_FORBIDDEN_SUBSYSTEMS) {
+      const v = checkEdge("worker/src/index.ts", `../../src/${sub}/anything`);
+      expect(v?.rule, `src/${sub} must be forbidden`).toBe("worker-no-node-only-subsystems");
+      expect(v?.why).toContain(`src/${sub}/**`);
+      expect(v?.why).toContain("Workers");
+    }
+  });
+
+  test("ALLOWLIST shape: a new src/ import outside the surface fails by default", () => {
+    // The point of an allowlist over a denylist — a subsystem nobody has
+    // thought of yet is refused without anyone editing this file.
+    const v = checkEdge("worker/src/index.ts", "../../src/brand-new-subsystem/thing");
+    expect(v?.rule).toBe("worker-runtime-allowlist");
+    expect(v?.why).toContain("src/runtime/");
+  });
+
+  test("the allowlist constants are the ones the rule actually enforces", () => {
+    // Guards against the constants drifting into decoration.
+    expect(WORKER_ALLOWED_PREFIXES).toContain("src/runtime/");
+    expect(WORKER_ALLOWED_EXACT).toContain("src/types");
+    expect(checkEdge("worker/src/index.ts", "../../src/types.ts")).toBeNull();
+  });
+
+  test("worker importing its own files, or a bare package, is untouched", () => {
+    expect(checkEdge("worker/src/index.ts", "./helper")).toBeNull();
+    expect(checkEdge("worker/src/index.ts", "@ezcorp/sdk")).toBeNull();
+  });
+});
+
+describe("check-boundaries: source scanning", () => {
+  test("extractSpecifiers finds every import form the repo uses", () => {
+    const src = [
+      `import a from "./a";`,
+      `import { b } from '../b';`,
+      `export { c } from "./c";`,
+      `const d = await import("./d");`,
+      `const e = require("./e");`,
+      `import type { F } from "$server/f";`,
+    ].join("\n");
+    expect(extractSpecifiers(src)).toEqual(["./a", "../b", "./c", "./d", "./e", "$server/f"]);
+  });
+
+  test("checkSource reports every violating edge in a file", () => {
+    const src = [
+      `import { a } from "../../src/db/connection";`,
+      `import { b } from "../../src/runtime/events";`, // legal
+      `import { c } from "../../src/auth/middleware";`,
+    ].join("\n");
+    const vs = checkSource("worker/src/index.ts", src);
+    expect(vs.map((v) => v.target)).toEqual(["src/db/connection", "src/auth/middleware"]);
+  });
+
+  test("THE REPO ITSELF PASSES — the gate is green on the real tree", async () => {
+    // Not a smoke test: this is the assertion that the three shipped rules are
+    // genuinely at zero, so the gate needs no baseline file. If someone adds a
+    // violating import, this fails here before CI.
+    const proc = Bun.spawnSync(["git", "ls-files"], {
+      cwd: join(import.meta.dir, "..", ".."),
+      stdout: "pipe",
+    });
+    const files = proc.stdout
+      .toString()
+      .split("\n")
+      .filter((f) => /\.(?:ts|tsx|js|mjs|cjs|svelte)$/.test(f));
+    expect(files.length).toBeGreaterThan(100); // not vacuous
+    const violations = [];
+    for (const f of files) {
+      const text = await Bun.file(join(import.meta.dir, "..", "..", f)).text().catch(() => "");
+      if (text) violations.push(...checkSource(f, text));
+    }
+    expect(
+      violations.map((v) => `${v.from} -> ${v.spec} [${v.rule}]`),
+      "the shipped rules must stay at zero — this gate has no baseline by design",
+    ).toEqual([]);
+  }, 120_000);
 });
