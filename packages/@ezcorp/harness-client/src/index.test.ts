@@ -76,9 +76,14 @@ beforeAll(() => {
         }
         if (p !== "/api/runs/r1") return Response.json({ id: "captured", status: "running" });
       }
-      // Redirect route: a 3xx the client must refuse to follow.
+      // Redirect route: a 3xx the client must refuse to follow. The target is
+      // a REACHABLE same-origin route (not an unresolvable host) on purpose —
+      // an unreachable target would throw either way (redirect refused, or
+      // redirect followed then DNS fails), which proves nothing. Pointing at
+      // a live route means the test only passes if the redirect is actually
+      // refused; if it were followed, the call would succeed with { value: 7 }.
       if (req.method === "GET" && p === "/api/settings/redirect") {
-        return new Response(null, { status: 302, headers: { Location: "http://evil.example/steal" } });
+        return new Response(null, { status: 302, headers: { Location: "/api/settings/k" } });
       }
       if (req.method === "POST" && p === "/api/conversations/c1/messages") {
         return Response.json({ userMessage: { id: "m1" }, runId: "r1" });
@@ -220,9 +225,12 @@ beforeAll(() => {
         scripted = null;
         return Response.json({ ok: true });
       }
-      // SSE redirect route: a 3xx the streamEvents path must refuse to follow.
+      // SSE redirect route: a 3xx the streamEvents path must refuse to
+      // follow. Target is the real, reachable `/api/runtime-events` route
+      // below (not an unresolvable host) — see the comment on the sibling
+      // `/api/settings/redirect` route for why that matters.
       if (req.method === "GET" && p === "/api/runtime-events-redirect") {
-        return new Response(null, { status: 302, headers: { Location: "http://evil.example/steal" } });
+        return new Response(null, { status: 302, headers: { Location: "/api/runtime-events" } });
       }
       if (req.method === "GET" && p === "/api/runtime-events") {
         const body = new ReadableStream<Uint8Array>({
@@ -387,10 +395,16 @@ describe("HarnessClient", () => {
   test("refuses to follow a redirect (no bearer-token replay)", async () => {
     let threw = false;
     try {
+      // The target (`/api/settings/k`) is a real, reachable route — if the
+      // redirect were followed instead of refused, this would resolve with
+      // `{ value: 7 }` rather than throw. That's what makes this assertion
+      // meaningful rather than trivially true.
       await client().getSetting("redirect");
     } catch (e) {
       threw = true;
-      // fetch rejects with a TypeError under `redirect: "error"`; never silently follows.
+      // fetch rejects under `redirect: "error"` (an Error, not a
+      // TypeError, on Bun); it never surfaces as a HarnessApiError, which
+      // would imply the redirect was followed and the response read.
       expect(e).not.toBeInstanceOf(HarnessApiError);
     }
     expect(threw).toBe(true);
@@ -398,13 +412,16 @@ describe("HarnessClient", () => {
 
   test("streamEvents refuses to follow a redirect (no bearer-token replay)", async () => {
     // Point streamEvents' `/api/runtime-events` fetch at the 302 route via a
-    // path-rewriting fetch wrapper. Under `redirect: "error"` the SSE fetch
-    // must reject (TypeError) rather than transparently follow to the
-    // attacker host and replay the bearer token.
-    const redirectingFetch: typeof fetch = (input, init) => {
+    // path-rewriting fetch wrapper. The 302 targets the real, reachable
+    // `/api/runtime-events` route below — under `redirect: "error"` the SSE
+    // fetch must still reject rather than transparently follow it and
+    // establish the stream.
+    // Cast to `typeof fetch`: the real type carries a `preconnect` member a
+    // bare arrow can't satisfy (same shape the deliverHook stub uses).
+    const redirectingFetch = ((input: string | URL | Request, init?: RequestInit) => {
       const u = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
       return fetch(u.replace("/api/runtime-events", "/api/runtime-events-redirect"), init);
-    };
+    }) as unknown as typeof fetch;
     const c = new HarnessClient({
       baseUrl: `http://127.0.0.1:${server.port}`,
       apiKey: "ezk_test",
@@ -417,9 +434,9 @@ describe("HarnessClient", () => {
       }
     } catch (e) {
       threw = true;
-      // fetch rejects with a TypeError under `redirect: "error"`; it never
-      // surfaces as a HarnessApiError (which would imply the redirect was
-      // followed and the response read).
+      // fetch rejects under `redirect: "error"`; it never surfaces as a
+      // HarnessApiError, which would imply the redirect was followed and
+      // the response read.
       expect(e).not.toBeInstanceOf(HarnessApiError);
     }
     expect(threw).toBe(true);

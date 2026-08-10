@@ -41,7 +41,7 @@ import { updateExtension } from "../db/queries/extensions";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "./audit-actions";
 import { CAPABILITY_POLICY_FIELDS } from "./capability-flags";
-import { clampToBundledCeiling } from "./bundled-ceiling";
+import { canonicalizePerms, clampToBundledCeiling } from "./bundled-ceiling";
 import { verifyManifestAgainstLock } from "./bundled-lock";
 import { loadManifestFresh } from "./loader";
 import { getBundledExtensionPath, getProjectRoot } from "./bundled";
@@ -77,10 +77,43 @@ export type DriftReapproveResult =
       message: string;
     };
 
+/** `canonicalizePerms` options for the DIFF comparator below — the one
+ *  knob on which it deliberately disagrees with the ceiling comparator.
+ *  Rationale in `diffGrants`' doc. */
+const DIFF_CANONICALIZE = { includeRbacScopes: true } as const;
+
 /**
  * Structural diff of two grant shapes over the union of their permission
  * fields (excluding `grantedAt` — timestamps refresh on every
  * re-approval and would make the no-drift case look like a change).
+ *
+ * Per field, equality goes through `canonicalizePerms` — the SAME
+ * canonicalizer `equalPermissions` (`bundled-ceiling.ts`) uses to decide
+ * whether `clampToBundledCeiling` narrowed a request. A raw
+ * `JSON.stringify` comparison here used to diverge from it: a manifest
+ * whose `permissions.network` array is reordered between releases with
+ * the same host set is "equal" per `equalPermissions` (which sorts
+ * string arrays) but "changed" per raw JSON — so an admin would see a
+ * phantom permission diff for a release that granted nothing new. Reuse,
+ * not a second canonicalizer, so the two can't diverge again.
+ *
+ * `includeRbacScopes` is the ONE knob on which the two comparators must
+ * NOT agree, and that is deliberate. `canonicalizePerms` drops
+ * `rbacScopes` by default because `equalPermissions` asks "did the
+ * ceiling NARROW this request?", and an inert scope declaration narrows
+ * nothing — counting it would flag every manifest-shaped request as
+ * `clamped`. This function asks a different question: "what must the
+ * admin SEE before re-approving?" A scope renamed `read` → `admin`, or
+ * declared where there was none, is exactly that: no privilege moves
+ * (holding a scope still needs an `extension_rbac_grants` row), but it
+ * is a security-review fact, and a screen that renders nothing for it is
+ * worse than one that renders too much. Inheriting the default here made
+ * that field invisible on this screen, which is why the opt-in exists.
+ *
+ * Order-only churn is still not a diff on this field either:
+ * `canonicalizePerms` sorts object arrays by a stable serialization, so
+ * re-listing the same scopes cannot resurrect the phantom-diff bug the
+ * paragraph above describes.
  */
 function diffGrants(
   oldGrant: ExtensionPermissions,
@@ -91,8 +124,13 @@ function diffGrants(
   const fields = new Set([...Object.keys(a), ...Object.keys(b)]);
   fields.delete("grantedAt");
   const diffs: DriftReapproveDiff[] = [];
+  /** The single-field grant shape `canonicalizePerms` compares. */
+  const oneField = (field: string, v: unknown) =>
+    ({ [field]: v }) as unknown as ExtensionPermissions;
   for (const field of [...fields].sort()) {
-    if (JSON.stringify(a[field]) !== JSON.stringify(b[field])) {
+    const canonA = canonicalizePerms(oneField(field, a[field]), DIFF_CANONICALIZE);
+    const canonB = canonicalizePerms(oneField(field, b[field]), DIFF_CANONICALIZE);
+    if (canonA !== canonB) {
       diffs.push({ field, oldValue: a[field], newValue: b[field] });
     }
   }

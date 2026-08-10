@@ -85,6 +85,14 @@
  * drift-reapprove heal, which clamps the raw disk `permissions` block)
  * would read as `clamped: true` on every call — spurious
  * ceiling-clamp audit noise for a field that grants no privilege.
+ *
+ * That exclusion is a CEILING-comparator rule, not a property of the
+ * canonicalizer: a DIFF comparator (`diffGrants` in
+ * `bundled-drift-reapprove.ts`) renders an admin-facing "what changed in
+ * this release" screen, where a renamed or newly declared scope is
+ * information the reviewer must see. Those callers pass
+ * `canonicalizePerms(…, { includeRbacScopes: true })` — see that option's
+ * doc below.
  */
 
 import type { ExtensionPermissions } from "./types";
@@ -713,7 +721,48 @@ function equalPermissions(
   return canonicalizePerms(a) === canonicalizePerms(b);
 }
 
-function canonicalizePerms(p: ExtensionPermissions): string {
+/** Per-caller knobs for `canonicalizePerms`. Type-only: erased at
+ *  runtime, so it carries no instrumentable lines. */
+export interface CanonicalizePermsOptions {
+  /**
+   * Keep `permissions.rbacScopes` in the canonical form instead of
+   * dropping it. Default (unset/false) is the CEILING-comparator
+   * behavior — see the module header for why an inert declaration must
+   * not flip `clamped`. DIFF comparators opt IN so a renamed or newly
+   * declared scope still reaches the admin's re-approval screen.
+   */
+  includeRbacScopes?: boolean;
+}
+
+/**
+ * Canonical string form of a grant shape. Exported so every permission
+ * comparator canonicalizes identically and none of them can drift apart:
+ * `equalPermissions` below, and `diffGrants` in
+ * `bundled-drift-reapprove.ts` — see that module's `diffGrants` doc for
+ * the bug a second, diverging canonicalizer caused (an array-order-only
+ * manifest change reported as a phantom permission diff).
+ *
+ * ORDER NEVER MEANS ANYTHING here. Top-level keys are sorted, nested
+ * object keys are sorted, string arrays are sorted, and arrays that
+ * aren't all strings are sorted by a stable serialization of each
+ * element (whose own keys are sorted first). So a release that only
+ * reshuffles a list is byte-identical to its predecessor.
+ *
+ * `rbacScopes` is the ONE field whose treatment depends on the caller,
+ * via `opts.includeRbacScopes`:
+ *
+ *   • CEILING callers (the default) SKIP it. `intersectPermissions`
+ *     never carries declarations into a grant, so counting them would
+ *     flip `clamped` to `true` for every manifest-shaped request that
+ *     declares scopes — audit noise for a field that grants nothing.
+ *   • DIFF callers OPT IN. Suppressing the field there hides a
+ *     security-review fact (a scope renamed `read` → `admin`, or added
+ *     from nothing) on the screen an admin reads before re-approving.
+ */
+export function canonicalizePerms(
+  p: ExtensionPermissions,
+  opts?: CanonicalizePermsOptions,
+): string {
   const ordered: Record<string, unknown> = {};
   // `as unknown` first because `ExtensionPermissions` has typed fields
   // that don't structurally overlap with `Record<string, unknown>`.
@@ -747,26 +796,64 @@ function canonicalizePerms(p: ExtensionPermissions): string {
     // + descriptions for the grant UI / ctx.rbac.check), NOT privileges.
     // `intersectPermissions` never carries them into the intersection, so
     // counting them here would flip `clamped` to true for every
-    // manifest-shaped request that declares scopes (see module doc).
-    if (k === "rbacScopes") continue;
+    // manifest-shaped request that declares scopes (see module doc). Diff
+    // comparators opt back in — the field is information, just not a
+    // privilege.
+    if (k === "rbacScopes" && !opts?.includeRbacScopes) continue;
     if (BOOL_FIELDS.has(k) && v === false) continue;
     if (Array.isArray(v)) {
       // Empty arrays are treated as "not granted" — same equivalence
       // as empty object {} for grantedAt below.
       if (v.length === 0) continue;
-      // Sort string arrays for order-independence; non-string arrays
-      // (none exist on ExtensionPermissions today) pass through.
+      // Sort string arrays for order-independence. Arrays that aren't
+      // all strings (today only `rbacScopes`, an array of objects) get
+      // the same order-independence from a stable serialization sort —
+      // otherwise re-listing the same scopes in a new order would read
+      // as a change, which is the exact phantom-diff bug the shared
+      // canonicalizer exists to prevent, just on another field.
       const allStrings = v.every((x) => typeof x === "string");
-      ordered[k] = allStrings ? [...v].sort() : v;
+      ordered[k] = allStrings ? [...v].sort() : canonicalizeUnsortedArray(v);
     } else if (v !== null && typeof v === "object") {
       // Sort nested object keys (spawnAgents, appendMessages, grantedAt).
-      const inner: Record<string, unknown> = {};
-      const innerKeys = Object.keys(v as Record<string, unknown>).sort();
-      for (const ik of innerKeys) inner[ik] = (v as Record<string, unknown>)[ik];
-      ordered[k] = inner;
+      ordered[k] = sortObjectKeys(v as Record<string, unknown>);
     } else {
       ordered[k] = v;
     }
   }
   return JSON.stringify(ordered);
+}
+
+/** One plain object with its keys in sorted order. Shared by the nested
+ *  object branch and the object-array branch above so both canonicalize
+ *  a `{…}` identically. */
+function sortObjectKeys(o: Record<string, unknown>): Record<string, unknown> {
+  const inner: Record<string, unknown> = {};
+  for (const ik of Object.keys(o).sort()) inner[ik] = o[ik];
+  return inner;
+}
+
+/** Canonicalize ONE element of a non-string array: objects get their keys
+ *  sorted (so per-key order is not a difference either); anything else —
+ *  a primitive, `null`, a nested array from an unvalidated stored jsonb
+ *  blob — is left alone. */
+function canonicalizeArrayElement(el: unknown): unknown {
+  if (el !== null && typeof el === "object" && !Array.isArray(el)) {
+    return sortObjectKeys(el as Record<string, unknown>);
+  }
+  return el;
+}
+
+/** Order-independent form of an array whose elements aren't all strings
+ *  (today only `rbacScopes`: `Array<{name, description}>`). Elements are
+ *  canonicalized, then sorted by their own serialization — the object
+ *  analogue of the `[...v].sort()` string arrays already get. */
+function canonicalizeUnsortedArray(v: unknown[]): unknown[] {
+  const keyed = v.map((el) => {
+    const norm = canonicalizeArrayElement(el);
+    // Wrapped in a one-element array because `JSON.stringify(undefined)`
+    // is `undefined`, not a string — this keeps every sort key comparable.
+    return { key: JSON.stringify([norm]), norm };
+  });
+  keyed.sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+  return keyed.map((e) => e.norm);
 }

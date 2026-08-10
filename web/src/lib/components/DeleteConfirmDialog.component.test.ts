@@ -35,6 +35,15 @@ describe("DeleteConfirmDialog", () => {
 		expect(getByText("My Convo")).toBeInTheDocument();
 	});
 
+	test("backdrop exposes modal dialog a11y attributes wired to the heading", () => {
+		const { getByRole } = renderDialog(true);
+		const dialog = getByRole("dialog");
+		expect(dialog).toHaveAttribute("aria-modal", "true");
+		const heading = getByRole("heading", { name: "Delete conversation" });
+		expect(heading.id).not.toBe("");
+		expect(dialog).toHaveAttribute("aria-labelledby", heading.id);
+	});
+
 	test("clicking Delete fires onconfirm and not oncancel", async () => {
 		const { getByRole, onconfirm, oncancel } = renderDialog(true);
 		await fireEvent.click(getByRole("button", { name: "Delete" }));

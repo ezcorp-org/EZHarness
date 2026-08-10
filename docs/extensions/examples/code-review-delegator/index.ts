@@ -3,10 +3,7 @@
 
 import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
 
-// JSON-RPC server
-const reader = Bun.stdin.stream().getReader();
 const decoder = new TextDecoder();
-let buffer = "";
 
 const pendingInvokes = new Map<
   number | string,
@@ -15,35 +12,18 @@ const pendingInvokes = new Map<
 
 let nextInvokeId = 2000;
 
-async function main() {
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    let newlineIdx: number;
-    while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
-      const line = buffer.slice(0, newlineIdx).trim();
-      buffer = buffer.slice(newlineIdx + 1);
-      if (!line) continue;
-
-      try {
-        const msg = JSON.parse(line);
-
-        if (msg.id !== undefined && !msg.method && pendingInvokes.has(msg.id)) {
-          const pending = pendingInvokes.get(msg.id)!;
-          pendingInvokes.delete(msg.id);
-          pending.resolve(msg as JsonRpcResponse);
-          continue;
-        }
-
-        const req = msg as JsonRpcRequest;
-        handleRequest(req);
-      } catch {
-        // Ignore malformed lines
-      }
-    }
-  }
+// `process.stdout.write` triggers Bun's lazy lookup of `node:fs`'s
+// WriteStream constructor for stdio init. Phase 3 sandbox-preload
+// poisons fs module property access, so the very first stdout write
+// would throw `Extension sandbox: 'fs module' blocked`. `Bun.stdout`
+// is a stable Bun primitive (not gated by Phase 3 fs poisoning), so
+// its writer survives the sandbox. Cached lazily so we don't pay
+// the writer-creation cost on every JSON-RPC frame.
+let stdoutWriter: ReturnType<typeof Bun.stdout.writer> | null = null;
+function writeStdout(s: string): void {
+  if (!stdoutWriter) stdoutWriter = Bun.stdout.writer();
+  stdoutWriter.write(s);
+  void stdoutWriter.flush();
 }
 
 // Cross-extension invocation helper
@@ -56,7 +36,7 @@ function invoke(tool: string, args: Record<string, unknown>): Promise<JsonRpcRes
     params: { tool, arguments: args },
   };
 
-  process.stdout.write(JSON.stringify(invokeReq) + "\n");
+  writeStdout(JSON.stringify(invokeReq) + "\n");
 
   return new Promise<JsonRpcResponse>((resolve) => {
     pendingInvokes.set(invokeId, { resolve });
@@ -74,7 +54,7 @@ async function reviewFile(req: JsonRpcRequest, filePath: string): Promise<void> 
   const readRes = await invoke("project-analyzer.readFile", { path: filePath });
   if (readRes.error) {
     const errorRes: JsonRpcResponse = { jsonrpc: "2.0", id: req.id, error: readRes.error };
-    process.stdout.write(JSON.stringify(errorRes) + "\n");
+    writeStdout(JSON.stringify(errorRes) + "\n");
     return;
   }
 
@@ -101,7 +81,7 @@ async function reviewFile(req: JsonRpcRequest, filePath: string): Promise<void> 
       isError: false,
     },
   };
-  process.stdout.write(JSON.stringify(res) + "\n");
+  writeStdout(JSON.stringify(res) + "\n");
 }
 
 function buildRecommendations(content: string, qualityText: string): string[] {
@@ -128,7 +108,7 @@ function handleRequest(req: JsonRpcRequest): void {
       id: req.id,
       error: { code: -32601, message: `Unknown tool: ${toolName}` },
     };
-    process.stdout.write(JSON.stringify(errorRes) + "\n");
+    writeStdout(JSON.stringify(errorRes) + "\n");
     return;
   }
 
@@ -137,7 +117,66 @@ function handleRequest(req: JsonRpcRequest): void {
     id: req.id,
     error: { code: -32601, message: `Unknown method: ${req.method}` },
   };
-  process.stdout.write(JSON.stringify(errorRes) + "\n");
+  writeStdout(JSON.stringify(errorRes) + "\n");
 }
 
-main();
+/** Route one decoded stdin line: a JSON-RPC response to a pending
+ *  `ezcorp/invoke` resolves the waiting promise; anything else dispatches
+ *  as an inbound request. Extracted out of `main()`'s loop so tests can
+ *  drive the invoke round-trip directly, without a real stdin stream. */
+function handleLine(line: string): void {
+  try {
+    const msg = JSON.parse(line);
+
+    if (msg.id !== undefined && !msg.method && pendingInvokes.has(msg.id)) {
+      const pending = pendingInvokes.get(msg.id)!;
+      pendingInvokes.delete(msg.id);
+      pending.resolve(msg as JsonRpcResponse);
+      return;
+    }
+
+    handleRequest(msg as JsonRpcRequest);
+  } catch {
+    // Ignore malformed lines
+  }
+}
+
+// --- Production wiring ---
+//
+// The stdin reader is grabbed INSIDE `main()`, gated on `import.meta.main`:
+// at module scope, opening it eagerly (and calling `main()` unconditionally)
+// would lock stdin's reader the moment anything imported this file, hanging
+// `index.test.ts` on a read that never resolves. Same shape as file-refactor
+// / todo-tracker.
+export async function main(): Promise<void> {
+  const reader = Bun.stdin.stream().getReader();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let newlineIdx: number;
+    while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
+      const line = buffer.slice(0, newlineIdx).trim();
+      buffer = buffer.slice(newlineIdx + 1);
+      if (!line) continue;
+      handleLine(line);
+    }
+  }
+}
+
+/** Exported for `index.test.ts`, mirroring file-refactor's `_internals`
+ *  convention. `pendingInvokes` lets a test resolve an outbound
+ *  `ezcorp/invoke` call directly, without round-tripping through a real
+ *  stdin stream. */
+export const _internals = {
+  handleRequest,
+  reviewFile,
+  handleLine,
+  invoke,
+  pendingInvokes,
+  buildRecommendations,
+};
+
+if (import.meta.main) void main();

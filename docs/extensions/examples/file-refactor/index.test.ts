@@ -324,6 +324,28 @@ describe("skip lists", () => {
 });
 
 describe("main() — the stdin JSON-RPC loop", () => {
+  // `writeStdout` in index.ts caches the `Bun.stdout.writer()` instance the
+  // FIRST time it's called and reuses it for the rest of the process (that's
+  // the whole point of the cache — see the comment on `writeStdout`). So the
+  // spy on `Bun.stdout.writer` must be installed exactly ONCE for this file's
+  // test process; re-spying per test would just be ignored after the first
+  // `runMain()` call. Route writes through a rebindable sink instead so each
+  // test gets its own array.
+  const sink = { written: [] as string[] };
+  let writerSpy: ReturnType<typeof spyOn>;
+  beforeAll(() => {
+    writerSpy = spyOn(Bun.stdout, "writer").mockReturnValue({
+      write: (s: string) => {
+        sink.written.push(s as string);
+        return (s as string).length;
+      },
+      flush: () => Promise.resolve(0),
+    } as unknown as ReturnType<typeof Bun.stdout.writer>);
+  });
+  afterAll(() => {
+    writerSpy.mockRestore();
+  });
+
   // Reachable only because `main()` now creates its reader lazily and is
   // gated on `import.meta.main`. Driven by swapping `Bun.stdin.stream()`
   // for a controlled ReadableStream; the input is split ACROSS CHUNKS at
@@ -341,18 +363,13 @@ describe("main() — the stdin JSON-RPC loop", () => {
     const streamSpy = spyOn(Bun.stdin, "stream").mockReturnValue(
       stream as unknown as ReturnType<typeof Bun.stdin.stream>,
     );
-    const written: string[] = [];
-    const writeSpy = spyOn(process.stdout, "write").mockImplementation(((s: string) => {
-      written.push(s);
-      return true;
-    }) as typeof process.stdout.write);
+    sink.written = [];
     try {
       await main();
     } finally {
       streamSpy.mockRestore();
-      writeSpy.mockRestore();
     }
-    return written;
+    return sink.written;
   }
 
   test("answers a well-formed request, skips blanks, swallows malformed lines", async () => {

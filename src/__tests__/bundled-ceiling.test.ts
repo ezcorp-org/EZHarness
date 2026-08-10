@@ -96,6 +96,7 @@ afterAll(() => restoreModuleMocks());
 
 const {
   BUNDLED_CEILING,
+  canonicalizePerms,
   clampToBundledCeiling,
   getCeiling,
 } = await import("../extensions/bundled-ceiling");
@@ -295,6 +296,173 @@ describe("(g) rbacScopes declarations never trip the clamp", () => {
     expect(effective.network).toBeUndefined();
     expect(effective.shell).toBeUndefined();
     expect((effective as unknown as Record<string, unknown>).rbacScopes).toBeUndefined();
+  });
+
+  // REGRESSION GUARD for the `canonicalizePerms({includeRbacScopes})`
+  // opt-in. That option exists so the DIFF comparator in
+  // `bundled-drift-reapprove.ts` can show an admin a renamed/added scope
+  // declaration. The CEILING comparator must keep ignoring the field:
+  // no ceiling row lists rbacScopes and `intersectPermissions` drops it,
+  // so counting a rename here would flag `clamped: true` — and emit an
+  // AUDIT_BUNDLED_CEILING_CLAMP row — on a call where nothing narrowed.
+  test("a RENAMED declaration (read-tickets → admin-tickets) still does not trip the clamp", () => {
+    const asExtra = (names: string[]) =>
+      ({ rbacScopes: declarations(names) }) as unknown as Partial<ExtensionPermissions>;
+    const before = clampToBundledCeiling(
+      "github-projects",
+      withDeclaration(asExtra(["read-tickets"])),
+    );
+    const after = clampToBundledCeiling(
+      "github-projects",
+      withDeclaration(asExtra(["admin-tickets"])),
+    );
+    expect(before.clamped).toBe(false);
+    expect(after.clamped).toBe(false);
+    // The rename is invisible to the clamp in BOTH directions: same
+    // effective grant, and neither side carries the declaration.
+    expect(after.effective).toEqual(before.effective);
+    expect((after.effective as unknown as Record<string, unknown>).rbacScopes).toBeUndefined();
+  });
+
+  test("declaring scopes where the ceiling row has none still does not trip the clamp", () => {
+    const none = clampToBundledCeiling("github-projects", withDeclaration());
+    const added = clampToBundledCeiling(
+      "github-projects",
+      withDeclaration({
+        rbacScopes: declarations(["write-tickets", "approve-gate"]),
+      } as unknown as Partial<ExtensionPermissions>),
+    );
+    expect(none.clamped).toBe(false);
+    expect(added.clamped).toBe(false);
+    expect(added.effective).toEqual(none.effective);
+  });
+});
+
+// ── canonicalizePerms: rbacScopes is caller-selected; order never is ──
+//
+// `canonicalizePerms` is shared by BOTH permission comparators so they
+// cannot drift apart (see its doc). The two ask different questions
+// though: `equalPermissions` asks "did the ceiling NARROW this?" (an
+// inert declaration narrows nothing → skip it), while `diffGrants` asks
+// "what must the admin SEE before re-approving?" (a renamed or newly
+// declared scope is a security-review fact → show it). `opts
+// .includeRbacScopes` is that one difference, and it is opt-IN so every
+// pre-existing caller keeps today's behavior.
+//
+// The trap this block pins: including the field must NOT reintroduce the
+// phantom-diff bug the shared canonicalizer was written to kill. Unlike
+// `network`, `rbacScopes` is an array of OBJECTS, so it never hit the
+// "sort string arrays" branch — re-listing the same scopes in a new
+// order has to canonicalize identically anyway.
+
+/** `permissions.rbacScopes`-shaped declarations for the given names. */
+function declarations(names: string[]): Array<{ name: string; description: string }> {
+  return names.map((name) => ({ name, description: `${name} scope` }));
+}
+
+/** Manifest-shaped permission blocks are cast the same way the
+ *  drift-reapprove / boot paths cast them (`rbacScopes` lives on the
+ *  MANIFEST permission type, never on a grant). */
+const asPerms = (o: Record<string, unknown>): ExtensionPermissions =>
+  o as unknown as ExtensionPermissions;
+
+const OPT_IN = { includeRbacScopes: true };
+
+describe("canonicalizePerms — rbacScopes opt-in", () => {
+  test("default: the field is erased, so a rename and an addition both read as no change", () => {
+    const absent = canonicalizePerms(asPerms({}));
+    const read = canonicalizePerms(asPerms({ rbacScopes: declarations(["read"]) }));
+    const admin = canonicalizePerms(asPerms({ rbacScopes: declarations(["admin"]) }));
+    expect(read).toBe("{}");
+    expect(read).toBe(absent);
+    expect(admin).toBe(read);
+  });
+
+  test("opt-in: a RENAMED scope (read → admin) is a difference", () => {
+    const read = canonicalizePerms(asPerms({ rbacScopes: declarations(["read"]) }), OPT_IN);
+    const admin = canonicalizePerms(asPerms({ rbacScopes: declarations(["admin"]) }), OPT_IN);
+    expect(read).not.toBe(admin);
+    expect(read).toContain("read");
+    expect(admin).toContain("admin");
+  });
+
+  test("opt-in: scopes declared where there were none is a difference", () => {
+    const absent = canonicalizePerms(asPerms({}), OPT_IN);
+    const added = canonicalizePerms(asPerms({ rbacScopes: declarations(["read"]) }), OPT_IN);
+    expect(absent).toBe("{}");
+    expect(added).not.toBe(absent);
+  });
+
+  test("opt-in: ARRAY ORDER alone is not a difference (no phantom diff)", () => {
+    const forward = canonicalizePerms(
+      asPerms({ rbacScopes: declarations(["manage-jobs", "run-job", "approve-gate"]) }),
+      OPT_IN,
+    );
+    const shuffled = canonicalizePerms(
+      asPerms({ rbacScopes: declarations(["run-job", "approve-gate", "manage-jobs"]) }),
+      OPT_IN,
+    );
+    expect(shuffled).toBe(forward);
+    // …and it really did keep the scopes rather than dropping them all.
+    expect(forward).toContain("approve-gate");
+  });
+
+  test("opt-in: per-entry KEY order alone is not a difference either", () => {
+    const declared = canonicalizePerms(
+      asPerms({ rbacScopes: [{ name: "run-job", description: "Fire a job" }] }),
+      OPT_IN,
+    );
+    const keySwapped = canonicalizePerms(
+      asPerms({ rbacScopes: [{ description: "Fire a job", name: "run-job" }] }),
+      OPT_IN,
+    );
+    expect(keySwapped).toBe(declared);
+  });
+
+  test("opt-in: an EMPTY declaration list is equivalent to declaring none", () => {
+    expect(canonicalizePerms(asPerms({ rbacScopes: [] }), OPT_IN)).toBe(
+      canonicalizePerms(asPerms({}), OPT_IN),
+    );
+  });
+
+  test("opt-in: a malformed list (non-object entries) still canonicalizes order-independently", () => {
+    // `diffGrants` reads the OLD side straight out of the stored
+    // `grantedPermissions` jsonb, which no validator re-checks on read —
+    // so the canonicalizer has to be total, not just correct on the
+    // shape the manifest validator would have admitted.
+    const messy = [7, "loose", null, { name: "z", description: "d" }];
+    const a = canonicalizePerms(asPerms({ rbacScopes: messy }), OPT_IN);
+    const b = canonicalizePerms(
+      asPerms({ rbacScopes: [{ description: "d", name: "z" }, null, "loose", 7] }),
+      OPT_IN,
+    );
+    expect(a).toBe(b);
+    // A genuinely different element set is still a difference.
+    expect(
+      canonicalizePerms(asPerms({ rbacScopes: [7, "loose", null] }), OPT_IN),
+    ).not.toBe(a);
+  });
+
+  test("the opt-in changes NOTHING about any other field's canonical form", () => {
+    const shape = asPerms({
+      network: ["b.example.com", "a.example.com"],
+      storage: true,
+      shell: false,
+      env: [],
+      spawnAgents: { maxConcurrent: 2, maxPerHour: 5 },
+      grantedAt: { storage: 1 },
+    });
+    expect(canonicalizePerms(shape, OPT_IN)).toBe(canonicalizePerms(shape));
+    // The pre-existing guarantees still hold: keys + string arrays sorted,
+    // `shell: false` and `[]` dropped as "not granted".
+    expect(canonicalizePerms(shape)).toBe(
+      JSON.stringify({
+        grantedAt: { storage: 1 },
+        network: ["a.example.com", "b.example.com"],
+        spawnAgents: { maxConcurrent: 2, maxPerHour: 5 },
+        storage: true,
+      }),
+    );
   });
 });
 

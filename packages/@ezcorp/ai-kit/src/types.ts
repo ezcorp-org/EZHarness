@@ -189,38 +189,53 @@ export interface GenerateAgentResult {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Runtime events (SSE) — taxonomy matches web/src/routes/api/runtime-events
+// Runtime events (SSE) — mirrors the canonical list at
+// `web/src/lib/runtime-event-names.ts`. The package can't import the app's
+// source (it ships standalone), so a parity assertion
+// (`test/unit/events.test.ts`, "event-name parity with the app") keeps the
+// two in lockstep. Keep them identical.
 // ──────────────────────────────────────────────────────────────────────────────
 
-export type RuntimeEventType =
-  | "run:start"
-  | "run:status"
-  | "run:log"
-  | "run:token"
-  | "run:turn_saved"
-  | "run:turn_text_reset"
-  | "run:usage"
-  | "run:complete"
-  | "run:error"
-  | "run:cancel"
-  | "workflow:start"
-  | "workflow:step"
-  | "workflow:complete"
-  | "workflow:error"
-  | "tool:start"
-  | "tool:complete"
-  | "tool:error"
-  | "tool:permission_request"
-  | "agent:spawn"
-  | "agent:status"
-  | "agent:complete"
-  | "task:snapshot"
-  | "task:assignment_update"
-  | "ask-user:answer"
-  | "ext:state";
+export const RUNTIME_EVENT_NAMES = [
+  "run:start", "run:status", "run:log", "run:complete", "run:error", "run:cancel",
+  "run:token", "run:usage", "run:turn_saved", "run:turn_text_reset",
+  "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
+  // A run parked on an `approval` step — drives the pending-decisions tray.
+  "workflow:approval_request",
+  "tool:start", "tool:complete", "tool:error", "tool:permission_request",
+  "agent:spawn", "agent:status", "agent:complete",
+  "task:snapshot", "task:assignment_update",
+  "ask-user:answer",
+  // Ez concierge client-side tool delivery (fill_form / navigate_to).
+  "ez:client-tool",
+  "ext:state",
+  // Extension Pages Hub: content-free page invalidation signal.
+  "ext:page-state",
+  // User-scoped live Library refresh (install).
+  "extensions:installed",
+  // /goal autopilot indicator (conversation-scoped).
+  "goal:update",
+  // Daily Briefing: server-initiated conversation delivery (user-scoped).
+  "conversation:created",
+  // Sessions P4 rewind/checkpoint: the conversation's message tree / durable
+  // leaf pointer changed (conversation-scoped).
+  "conversation:tree-changed",
+  // github-projects integration: a proposal was created/decided/finished.
+  "github-projects:proposal-update",
+  // Loops EZ Mode Phase 2: a loop run parked awaiting approval / was resolved.
+  "loops:approval_pending",
+  "loops:approval_resolved",
+  // Loop auto-disabled after N consecutive errors.
+  "loops:auto_disabled",
+] as const;
+
+export type RuntimeEventName = (typeof RUNTIME_EVENT_NAMES)[number];
 
 export interface RuntimeEvent {
-  type: RuntimeEventType;
+  /** A future event the app adds before this package's next release is still
+   *  assignable — the escape hatch keeps a stale copy from hard-erroring for
+   *  consumers; the parity test is what actually keeps the two in sync. */
+  type: RuntimeEventName | (string & {});
   data: Record<string, unknown>;
 }
 

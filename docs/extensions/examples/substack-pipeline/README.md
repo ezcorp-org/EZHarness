@@ -59,14 +59,14 @@ The intuitive design — one tool that internally
 `invoke()`s `ask-user__ask_user_question` for a self-contained
 approve/revise loop — **does not work** with the current host:
 
-- `src/extensions/tool-executor.ts:1697` — `handlePiInvoke` calls
-  `executeToolCall` **without** the 6th `invocationMetadata` argument on
+- `src/extensions/tool-executor/invoke.ts` — `handlePiInvoke` calls
+  `host.executeToolCall` **without** the 6th `invocationMetadata` argument on
   the cross-ext path.
-- `src/extensions/tool-executor.ts:1208` — `executeToolCall` only sets
+- `src/extensions/tool-executor/executor.ts` — `executeToolCall` only sets
   `_meta.invocationMetadata` from that (absent) arg, so a cross-ext
   invoked `ask_user_question` receives no `toolCallId`/`conversationId`
   and returns `"Error: missing tool-call context"`
-  (`docs/extensions/examples/ask-user/index.ts:168`).
+  (`docs/extensions/examples/ask-user/index.ts:169`).
 - `src/runtime/ask-user-registry.ts` (used by
   `web/.../api/ask-user/answer`) is populated **only** by the LLM-facing
   `wireAskUserToolForTurn` — so even a forged id could never be resolved

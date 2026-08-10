@@ -248,6 +248,143 @@ describe("bundled drift re-approval", () => {
     }
   }, 30_000);
 
+  test("diffGrants canonicalizes like equalPermissions — a network reorder with the same host set is not a phantom diff", async () => {
+    const { previewBundledDrift } = await import("../extensions/bundled-drift-reapprove");
+    // Same city-conditions manifest as the "preview exposes every newly
+    // added capability" case above, but the STORED prior grant already
+    // holds the full current host set — just in a different array order
+    // than the on-disk manifest declares (as would happen if a past
+    // release listed `permissions.network` in a different order with the
+    // same hosts). `intersectPermissions` preserves the REQUESTED side's
+    // (disk manifest's) array order rather than sorting, so the freshly
+    // computed grant and the stored prior grant differ in order only —
+    // `equalPermissions`/`canonicalizePerms` in bundled-ceiling.ts already
+    // treats that as equal (it sorts string arrays). `diffGrants` must not
+    // diverge from that and report a changed field for order alone.
+    const row: StoredExtension = {
+      id: "seed-city-conditions-reorder",
+      name: "city-conditions",
+      enabled: true,
+      isBundled: true,
+      installPath: "docs/extensions/examples/city-conditions",
+      version: "0.1.0",
+      manifest: {
+        name: "city-conditions",
+        version: "0.1.0",
+        permissions: {
+          storage: true,
+          network: [
+            "geocoding-api.open-meteo.com",
+            "api.open-meteo.com",
+            "air-quality-api.open-meteo.com",
+            "pollen.googleapis.com",
+            "www.atlantaallergy.com",
+          ],
+          workflows: { names: ["conditions"], maxRunsPerHour: 12 },
+        },
+      },
+      grantedPermissions: {
+        storage: true,
+        // Same five hosts as the disk manifest/ceiling, reverse order.
+        network: [
+          "www.atlantaallergy.com",
+          "pollen.googleapis.com",
+          "air-quality-api.open-meteo.com",
+          "api.open-meteo.com",
+          "geocoding-api.open-meteo.com",
+        ],
+        workflows: { names: ["conditions"], maxRunsPerHour: 12 },
+        grantedAt: { storage: 1, network: 1, workflows: 1 },
+      } as ExtensionPermissions,
+    };
+
+    const result = await previewBundledDrift(row);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    // The freshly computed grant does carry the disk manifest's array
+    // order (not sorted) — that's `intersectPermissions`'s documented
+    // behavior, not the bug.
+    expect(result.grant.network).toEqual([
+      "geocoding-api.open-meteo.com",
+      "api.open-meteo.com",
+      "air-quality-api.open-meteo.com",
+      "pollen.googleapis.com",
+      "www.atlantaallergy.com",
+    ]);
+    // But it must NOT show up as a diff: same hosts, order-only churn.
+    expect(result.diffs.some((d) => d.field === "network")).toBe(false);
+    expect(result.diffs.some((d) => d.field === "storage")).toBe(false);
+    expect(result.diffs.some((d) => d.field === "workflows")).toBe(false);
+    expect(result.diffs).toEqual([]);
+  }, 30_000);
+
+  test("a changed rbacScopes declaration reaches the admin's diff — the ceiling comparator's skip must not leak into it", async () => {
+    const { previewBundledDrift } = await import("../extensions/bundled-drift-reapprove");
+    // `canonicalizePerms` skips `rbacScopes` by default, and that skip is
+    // a CEILING-comparator rule: an inert scope declaration narrows
+    // nothing, so counting it would flag `clamped` on every
+    // manifest-shaped request. When `diffGrants` started sharing that
+    // canonicalizer it inherited the skip too — and silently stopped
+    // reporting the field on the screen an admin reads BEFORE approving
+    // a release. `diffGrants` now passes `{includeRbacScopes: true}`.
+    //
+    // github-projects is the fixture because its REAL on-disk manifest
+    // declares one scope (`write-tickets`). The stored row below carries
+    // a DIFFERENT declaration, the shape a row written by an older
+    // release leaves behind — `grantedPermissions` is unvalidated jsonb
+    // on read, and nothing rewrites it until a heal lands.
+    const EVENTS = [
+      "github-projects:approve",
+      "github-projects:dismiss",
+      "github-projects:rerun",
+      "github-projects:pause",
+      "github-projects:resume",
+      "github-projects:refresh",
+      "github-projects:poll-now",
+      "github-projects:proposal-update",
+      "task:assignment_update",
+      "run:complete",
+    ];
+    const STALE_SCOPES = [{ name: "read-tickets", description: "Read board tickets" }];
+    const row: StoredExtension = {
+      id: "seed-github-projects-rbac",
+      name: "github-projects",
+      enabled: true,
+      isBundled: true,
+      installPath: "docs/extensions/examples/github-projects",
+      version: "0.1.0",
+      manifest: { name: "github-projects", version: "0.1.0" },
+      grantedPermissions: {
+        eventSubscriptions: EVENTS,
+        storage: true,
+        rbacScopes: STALE_SCOPES,
+        grantedAt: { eventSubscriptions: 1, storage: 1 },
+      } as unknown as ExtensionPermissions,
+    };
+
+    const result = await previewBundledDrift(row);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("unreachable");
+
+    // THE FIX: the field is visible again. `newValue` is `undefined`
+    // because a GRANT never carries declarations — `intersectPermissions`
+    // drops them, which is also why no ceiling row lists them — so what
+    // the admin is being shown is "the scope list recorded on this row is
+    // not what the release declares". Suppressing that is the defect.
+    const rbac = result.diffs.find((d) => d.field === "rbacScopes");
+    expect(rbac).toBeDefined();
+    expect(rbac?.oldValue).toEqual(STALE_SCOPES);
+    expect(rbac?.newValue).toBeUndefined();
+    expect((result.grant as unknown as Record<string, unknown>).rbacScopes).toBeUndefined();
+
+    // …and the fields that genuinely did not move stay quiet, so the
+    // opt-in didn't just make the screen noisier across the board.
+    expect(result.diffs.some((d) => d.field === "eventSubscriptions")).toBe(false);
+    expect(result.diffs.some((d) => d.field === "storage")).toBe(false);
+    expect(result.diffs.map((d) => d.field)).toEqual(["rbacScopes"]);
+  }, 30_000);
+
   test("the bug + happy path + boot convergence: S9 disables, reapprove heals from disk, next boot stays enabled", async () => {
     const { ensureBundledExtensions } = await import("../extensions/bundled");
     const { reapproveBundledDrift } = await import("../extensions/bundled-drift-reapprove");

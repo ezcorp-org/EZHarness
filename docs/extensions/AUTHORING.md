@@ -395,7 +395,8 @@ via `resources.callTimeoutMs`.
 
 Tool subprocesses can call back into the host using **reverse-RPC**
 methods on the same stdio channel. The host inspects `req.method` and
-routes to the matching handler (`src/extensions/tool-executor.ts:2066+`).
+routes to the matching handler through the declarative dispatch table
+`REVERSE_RPC_ROUTES` (`src/extensions/tool-executor/rpc-handlers.ts`).
 
 | Method                    | What it does                              | Required permission                |
 | ------------------------- | ----------------------------------------- | ---------------------------------- |
@@ -407,8 +408,10 @@ routes to the matching handler (`src/extensions/tool-executor.ts:2066+`).
 | `ezcorp/llm-complete`     | Call an LLM through the host              | `llm: { providers, ... }`          |
 | `ezcorp/drafts`           | Create an Ez proposal-card draft (bundled-only) | `custom: { drafts: { kinds } }` |
 
-Full list: `src/extensions/tool-executor.ts` (search for
-`req.method === "ezcorp/`).
+Full list: `src/extensions/tool-executor/rpc-handlers.ts`, the
+`REVERSE_RPC_ROUTES` object (exact-match method strings; the one
+prefix-matched family, `ezcorp/github-projects.<verb>`, is handled
+separately in `routeReverseRpc` in the same file).
 
 ---
 

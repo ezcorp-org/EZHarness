@@ -66,6 +66,67 @@ test.describe("Conversation list sidebar — nav landmark", () => {
 	});
 
 	/**
+	 * Delete-confirm dialog — modal a11y attributes.
+	 *
+	 * `DeleteConfirmDialog.svelte` (opened from this sidebar's per-row
+	 * "Delete" action) renders a backdrop + Escape handler +
+	 * backdrop-click-to-close, i.e. a real modal, but was missing
+	 * `role="dialog"` / `aria-modal="true"` — a screen-reader user got no
+	 * signal that focus had moved into a modal that traps interaction,
+	 * unlike every sibling dialog (FlagDialog, PublishDialog,
+	 * ShareAgentDialog, DelegationConsentDialog, ModeFormModal). Fixed by
+	 * adding both, plus `aria-labelledby` wired to the dialog's own
+	 * heading so its accessible name is "Delete conversation".
+	 */
+	test("delete-confirm dialog exposes modal a11y attributes and removes the conversation @evidence", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		// The row's rename/delete controls live in a `hidden group-hover:flex`
+		// container (ConversationList.svelte), so they are reachable only with a
+		// fine pointer. `mobile-chromium` (Pixel 5) has a coarse pointer and no
+		// swipe/long-press affordance exists, so the dialog cannot be opened from
+		// the sidebar there at all — there is nothing to assert on that side
+		// rather than a weaker version of this assertion. Same conditional-guard
+		// idiom as chat-resume-roundtrip.spec.ts.
+		test.skip(
+			testInfo.project.name === "mobile-chromium",
+			"sidebar row actions are hover-only; the delete control has no coarse-pointer affordance",
+		);
+
+		await mockApi({
+			projects: [proj],
+			conversations: [conv, other],
+		});
+
+		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+
+		const sidebar = page.getByRole("navigation", { name: "Conversations" });
+		await sidebar.getByText("Active chat").hover();
+		await sidebar.getByTitle("Delete").first().click();
+
+		// Modal semantics: role + aria-modal, accessible name from the
+		// dialog's own heading (via aria-labelledby). A generous timeout here:
+		// this assertion round-trips through the browser's accessibility tree
+		// (role + aria-labelledby-derived name), which on a heavily loaded
+		// shared box can lag behind the DOM mutation it reflects.
+		const dialog = page.getByRole("dialog", { name: "Delete conversation" });
+		await expect(dialog).toBeVisible({ timeout: 10_000 });
+		await expect(dialog).toHaveAttribute("aria-modal", "true");
+		await expect(dialog.getByText(/This can't be undone/)).toBeVisible();
+
+		await captureEvidence(page, testInfo, "conversation-list-delete-confirm-dialog");
+
+		await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+
+		// Confirming removes the conversation from the sidebar; the other
+		// conversation is untouched.
+		await expect(dialog).not.toBeVisible();
+		await expect(sidebar.getByText("Active chat")).not.toBeVisible();
+		await expect(sidebar.getByText("Another conversation")).toBeVisible();
+	});
+
+	/**
 	 * Degraded-search notice — readable on the LIGHT theme.
 	 *
 	 * This notice used to be `bg-amber-500/10` + `text-amber-300`, a pairing

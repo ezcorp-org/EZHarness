@@ -26,9 +26,13 @@
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
 		onkeydown={handleKeydown}
 		onclick={handleBackdropClick}
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="delete-dialog-title"
+		tabindex={-1}
 	>
 		<div class="w-full max-w-sm rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6 shadow-xl">
-			<h3 class="text-sm font-semibold text-[var(--color-text-primary)]">Delete conversation</h3>
+			<h3 id="delete-dialog-title" class="text-sm font-semibold text-[var(--color-text-primary)]">Delete conversation</h3>
 			<p class="mt-2 text-sm text-[var(--color-text-secondary)]">
 				Delete "<span class="text-[var(--color-text-primary)]">{conversationTitle}</span>"? This can't be undone.
 			</p>

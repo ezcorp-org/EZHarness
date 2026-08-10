@@ -88,6 +88,21 @@ export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
 
       if (p === "/api/health") return json({ ok: true });
 
+      // Redirect test routes: a 3xx the client must refuse to follow (no
+      // bearer-token replay). The target is a REACHABLE same-origin route
+      // (not an unresolvable host) on purpose — an unreachable target would
+      // throw either way (redirect refused, or redirect followed then DNS
+      // fails), which proves nothing. Pointing at a live route means the
+      // test only passes if the redirect is actually refused; if it were
+      // followed, the call would succeed. No auth required — mirrors the
+      // real routes they stand in for.
+      if (p === "/api/health-redirect") {
+        return new Response(null, { status: 302, headers: { Location: "/api/health" } });
+      }
+      if (p === "/api/runtime-events-redirect") {
+        return new Response(null, { status: 302, headers: { Location: "/api/runtime-events" } });
+      }
+
       if (!authOk(req)) return new Response("unauthorized", { status: 401 });
 
       if (p === "/api/auth/me")

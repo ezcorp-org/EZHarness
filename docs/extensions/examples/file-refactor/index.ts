@@ -7,6 +7,20 @@ import { resolve, normalize, basename, dirname, join, extname } from "node:path"
 
 const cwd = process.cwd();
 
+// `process.stdout.write` triggers Bun's lazy lookup of `node:fs`'s
+// WriteStream constructor for stdio init. Phase 3 sandbox-preload
+// poisons fs module property access, so the very first stdout write
+// would throw `Extension sandbox: 'fs module' blocked`. `Bun.stdout`
+// is a stable Bun primitive (not gated by Phase 3 fs poisoning), so
+// its writer survives the sandbox. Cached lazily so we don't pay
+// the writer-creation cost on every JSON-RPC frame.
+let stdoutWriter: ReturnType<typeof Bun.stdout.writer> | null = null;
+function writeStdout(s: string): void {
+  if (!stdoutWriter) stdoutWriter = Bun.stdout.writer();
+  stdoutWriter.write(s);
+  void stdoutWriter.flush();
+}
+
 function isUnderCwd(filePath: string): boolean {
   const resolved = resolve(cwd, normalize(filePath));
   return resolved.startsWith(cwd + "/") || resolved === cwd;
@@ -212,7 +226,7 @@ export async function main(): Promise<void> {
       try {
         const req: JsonRpcRequest = JSON.parse(line);
         const res = await handleRequest(req);
-        process.stdout.write(JSON.stringify(res) + "\n");
+        writeStdout(JSON.stringify(res) + "\n");
       } catch { /* ignore malformed */ }
     }
   }

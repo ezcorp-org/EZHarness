@@ -109,6 +109,16 @@ not have. Run it before you declare a multi-branch program finished.
 
 ## The gate (required checks on `main`)
 
+> **The applied branch protection has drifted from this table.** Measured
+> 2026-08-09, `gh api …/branches/main/protection/required_status_checks`
+> requires **10** contexts, not the 13 listed below: **Gate integrity**,
+> **Visual evidence**, **Svelte check** and **E2E (real auth + real DB)** are
+> NOT enforced (they run and report, but don't block merge), while
+> **Web security coverage** IS enforced and is absent from this table.
+> Re-applying the [snippet below](#applying-branch-protection-one-time)
+> reconciles it — an admin action, not a code change.
+> See [platform/dev-lifecycle-and-gates.md](features/platform/dev-lifecycle-and-gates.md#what-branch-protection-enforces).
+
 Every PR must pass these before it can merge. Names are the GitHub check
 contexts (the job `name:` in `.github/workflows/ci.yml`), pinned in branch
 protection so renaming/deleting a job in a PR doesn't dodge the requirement.
