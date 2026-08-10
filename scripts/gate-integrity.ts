@@ -221,21 +221,99 @@ const ALWAYS_FORBIDDEN =
 const STATIC_SKIP = /\b(?:test|it|bench)\s*\.\s*skip\s*\(\s*[),]/;
 const EMPTY_CATCH = /\bcatch\s*(?:\([^)]*\))?\s*\{\s*\}/;
 
-/** Forbidden patterns added to a test file (skip/only/todo + empty catch). */
-export function forbiddenTestAdditions(addedTexts: string[]): string[] {
+/** Forbidden patterns added to a test file (skip/only/todo + empty catch).
+ *
+ * LAYOUT-INSENSITIVE, and that is the whole point. This used to test each added
+ * LINE on its own, which made every pattern here trivially evadable by a line
+ * break — the regexes already spell `\s*` between their tokens, but two halves
+ * of one construct never met in the same string. Found for real: a formatter
+ * broke a member chain as
+ *
+ *     test.describe
+ *       .skip("Landing page", () => {
+ *
+ * which is semantically identical and became INVISIBLE to the gate. Three
+ * existing suite skips stopped being counted (23 -> 20) — and a newly added
+ * one would hide exactly as well. The same evasion works by hand: wrap a long
+ * `describe.skip(...)` title past the margin and the suppression vanishes.
+ *
+ * So the scan now runs over the whole file with line structure preserved, and
+ * a finding is reported when the MATCH intersects an added line — same
+ * diff-scoping as {@link unassertedAddedBlocks}, no widening of what counts.
+ *
+ * Noise stripping is layered and load-bearing, because a looser matcher is
+ * exactly how a scan like this starts crying wolf. Each pattern keeps the
+ * scrubbing it had before, so this change alters LAYOUT SENSITIVITY ONLY and
+ * not what counts as a violation:
+ *
+ *   - all three patterns get {@link stripBlockComments} then
+ *     {@link stripNoise}. The block-comment pass is new, and it only ever
+ *     REMOVES findings — prose like `flip \`test.describe.skip\` to …`, or the
+ *     English word "fit" matching the `fdescribe|fit` alternation, no longer
+ *     counts — so it cannot hide a real cheat.
+ *   - `EMPTY_CATCH` must match in the scrubbed text AND in the RAW source.
+ *     The scrubbed pass proves it is code rather than a `"catch {}"` string in
+ *     a fixture; the raw pass proves the body is genuinely EMPTY. Without the
+ *     raw check, comment-stripping turns the repo's ~180 documented swallows —
+ *     `catch { /* best-effort *\/ }` and the multi-line `catch {\n // why\n}`
+ *     — into "empty" and fires on every one of them. Whether a comment-only
+ *     catch should count as empty is a fair question, but it is a change to
+ *     the RULE, not to line-break tolerance, and does not belong in this PR.
+ *
+ * Both passes preserve newlines, so reported line numbers stay accurate.
+ */
+export function forbiddenTestAdditions(fileContent: string, addedLines: Set<number>): string[] {
+  const rawLines = fileContent.split("\n");
+  const scrubbed = stripBlockComments(fileContent).split("\n").map(stripNoise);
+
   const out: string[] = [];
-  for (const text of addedTexts) {
-    // stripNoise removes BOTH line comments and string/template literals, so a
-    // skip/only/todo or empty-catch that only appears INSIDE a quoted string
-    // (e.g. the fixtures in this gate's own test, src/__tests__/gate-scripts.test.ts)
-    // is not mistaken for a real, executable cheat. A genuine `it.skip(...)` keeps
-    // its keyword outside the quotes, so it is still caught.
-    const stripped = stripNoise(text);
-    if (ALWAYS_FORBIDDEN.test(stripped) || STATIC_SKIP.test(stripped)) {
-      out.push(`added skip/only/todo: ${text.trim()}`);
+  const scan = (scrubbed: string[], re: RegExp, label: string, alsoRaw = false): void => {
+    const joined = scrubbed.join("\n");
+    // Char offset -> 1-based line, for mapping a match back to its lines.
+    const lineStart: number[] = [0];
+    for (let i = 0; i < scrubbed.length; i++) {
+      lineStart.push(lineStart[i]! + scrubbed[i]!.length + 1);
     }
-    if (EMPTY_CATCH.test(stripped)) out.push(`added empty catch{}: ${text.trim()}`);
-  }
+    const lineAt = (idx: number): number => {
+      let lo = 0;
+      let hi = scrubbed.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (lineStart[mid]! <= idx) lo = mid;
+        else hi = mid - 1;
+      }
+      return lo + 1;
+    };
+    for (const m of joined.matchAll(new RegExp(re.source, `${re.flags.replace("g", "")}g`))) {
+      const from = lineAt(m.index!);
+      const to = lineAt(m.index! + Math.max(m[0]!.length - 1, 0));
+      let touchesAdded = false;
+      for (let ln = from; ln <= to; ln++) {
+        if (addedLines.has(ln)) {
+          touchesAdded = true;
+          break;
+        }
+      }
+      if (!touchesAdded) continue;
+      // Report the RAW source of the matched span, whitespace-collapsed, so a
+      // construct split across lines reads as the one construct it is.
+      const text = rawLines
+        .slice(from - 1, to)
+        .join(" ")
+        .replace(/\s+/g, " ")
+        .trim();
+      // `alsoRaw`: the construct must survive in the UNSCRUBBED source too.
+      // Only EMPTY_CATCH uses it — a body holding nothing but a comment is a
+      // documented swallow, not an empty catch, and comment-stripping alone
+      // cannot tell the two apart.
+      if (alsoRaw && !re.test(rawLines.slice(from - 1, to).join("\n"))) continue;
+      out.push(`${label}: ${text}`);
+    }
+  };
+
+  scan(scrubbed, ALWAYS_FORBIDDEN, "added skip/only/todo");
+  scan(scrubbed, STATIC_SKIP, "added skip/only/todo");
+  scan(scrubbed, EMPTY_CATCH, "added empty catch{}", true);
   return out;
 }
 
@@ -980,11 +1058,15 @@ async function main(): Promise<void> {
   const perFile = parseUnifiedDiff(testDiff);
   for (const [file, info] of perFile) {
     if (!isTestFile(file)) continue;
-    for (const v of forbiddenTestAdditions(info.addedTexts)) violations.push(`${file}: ${v}`);
     const content = await Bun.file(resolve(REPO_ROOT, file))
       .text()
       .catch(() => "");
     if (content) {
+      // Both scans are content-aware so a construct SPLIT ACROSS LINES is still
+      // seen; each stays diff-scoped by intersecting `addedLines`.
+      for (const v of forbiddenTestAdditions(content, info.addedLines)) {
+        violations.push(`${file}: ${v}`);
+      }
       for (const v of unassertedAddedBlocks(content, info.addedLines)) violations.push(`${file}: ${v}`);
     }
     // 8. In-place gutting — only meaningful for a file that EXISTED at the
