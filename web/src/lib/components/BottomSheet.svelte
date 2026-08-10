@@ -23,11 +23,9 @@
 
   WCAG 2.5.1 single-pointer-equivalent is satisfied by the × button — NOT
   drag-to-dismiss. The CSS-only impl was chosen over `@abhivarde/svelte-drawer`
-  for Wave 1 because the W0 test contract is simpler to satisfy verbatim here.
-  That package was installed alongside to keep the swap-in option warm, was
-  never imported, and has now been removed — an uninstalled package is no
-  harder to adopt later than an unused installed one, and it was drawing a
-  recurring dependabot stream while shipping zero bytes.
+  for Wave 1 because the W0 test contract is simpler to satisfy verbatim
+  here; the dep was installed in Task 1 to keep the swap-in option open
+  for follow-up if gesture polish is needed.
 -->
 <script lang="ts">
 	import type { Snippet } from "svelte";
