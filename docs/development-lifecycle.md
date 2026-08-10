@@ -210,6 +210,51 @@ These hooks are **advisory speed, not the gate** — they're bypassable by desig
 and the CI required checks above remain the enforcement backstop. They just move
 the feedback earlier.
 
+## What the local commands do NOT cover
+
+`bun run typecheck && bun run lint && bun run test && bun run test:coverage` is
+the pre-push line, and it is worth knowing precisely where it stops. Each gap
+below has already cost someone a red CI run or a wrong conclusion.
+
+**`bun run test` is the BACKEND pool only** (`scripts/test.sh`). It does not run:
+
+- `scripts/test-web.sh` — 222 orphaned `web/src/**/*.test.ts`, their own CI job
+  (`Web tests (bun-leg orphans)`);
+- the Vitest surface (`bun run --cwd web test:component`);
+- any e2e.
+
+A green `bun run test` therefore says nothing about three separate CI jobs. Run
+`bash scripts/test-web.sh` too when you touch anything under `web/`.
+
+**`bun run test:e2e` is NOT the e2e gate.** It runs `testDir: "./e2e"` — all
+**345** spec files across two projects (~4102 tests), including the 232 that
+`web/e2e/lanes.json` deliberately parks in the `unwired` lane because they need
+a live backend, and the 20 real-tier specs under `e2e/real-auth/` that
+fail-closed to 404 without `PI_E2E_REAL=1`. Expect it to be substantially red;
+that is by design, not a regression. CI's `E2E (mock, no Docker)` gates the
+**24-spec `mock-gate` lane on chromium only**. To reproduce exactly what CI
+gates:
+
+```sh
+bash -c 'mapfile -t ARGS < <(bun scripts/e2e-lane-args.ts mock-gate)
+         cd web && bunx playwright test --project=chromium "${ARGS[@]}"'
+```
+
+`mapfile` is **bash-only**. Under zsh it is not a builtin, `ARGS` silently comes
+out EMPTY, and playwright runs the whole 4102-test backlog instead of the lane —
+which looks like a catastrophic regression and is nothing of the sort. Keep the
+`bash -c`, and sanity-check `${#ARGS[@]}` is 24.
+
+**A rebase invalidates your baselines. Re-measure the control on the new base.**
+Comparing post-rebase numbers against pre-rebase ones silently attributes
+upstream changes to your branch. Worked example: PR #172 swapped the typecheck
+toolchain to tsgo, and `svelte-check`'s reported file count went **4906 → 509**
+on `main` itself. A branch measured after that rebase, compared against a
+pre-rebase 4906, would look like it had dropped 4400 files from type checking.
+It hadn't — the baseline moved. Take the control on the rebased base (a detached
+checkout of the new `origin/main`, both installs re-run) and compare like with
+like.
+
 ## Trustworthy green
 
 The blocking e2e suite runs with **`retries: 0`** (`web/playwright.config.ts`):
