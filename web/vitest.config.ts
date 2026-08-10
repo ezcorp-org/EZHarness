@@ -14,7 +14,11 @@ import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { resolve } from "node:path";
 
 export default defineConfig({
-	plugins: [svelte({ hot: false })],
+	// No `hot` option here: vite-plugin-svelte 7 removed it, and passing it
+	// logs `invalid plugin option \`hot\` in inline config` on every run.
+	// HMR is a dev-server concern and vitest never starts one, so `hot:
+	// false` was already inert — dropping it keeps the run warning-free.
+	plugins: [svelte()],
 	resolve: {
 		conditions: ["browser"],
 		alias: {
