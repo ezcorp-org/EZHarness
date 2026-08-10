@@ -49,6 +49,11 @@ export interface ContextDenominator {
 	/** False when no catalog row matched the served model — the numbers are the
 	 *  caller's fallback (the picker's), so they may describe a different model. */
 	matched: boolean;
+	/** True when these numbers describe the model that will serve the NEXT turn
+	 *  rather than the one that served the last — i.e. the user deliberately
+	 *  switched models and the two have different windows. The tooltip says so;
+	 *  a gauge that silently re-scaled would be indistinguishable from a bug. */
+	nextTurn: boolean;
 }
 
 export interface ToolCallLike {
@@ -179,6 +184,16 @@ export function budgetExplanation(denom: ContextDenominator | null): string {
 	if (!denom) return "";
 	const reserve = denom.contextWindow - denom.inputBudget;
 	const parts = [`This model's context window is ${fmtTokens(denom.contextWindow)} tokens.`];
+	// A gauge that jumps on a model switch with no explanation reads as a bug.
+	// Say which model it now describes, and that the token count itself is still
+	// the last turn's measurement — we cannot re-count a thread for a tokenizer
+	// that has not seen it.
+	if (denom.nextTurn) {
+		parts.push(
+			"You switched models, so this is measured against the model that will serve your NEXT turn; " +
+				"the token count is still what the last reply actually used.",
+		);
+	}
 	// Only claim a reserve when one is actually known. A caller with no budget
 	// gets `inputBudget === contextWindow`, and saying "0 is held back … dropped
 	// at 200k" there would state a fact we do not have.
@@ -271,33 +286,64 @@ export function contextUsedTokens(
 	return usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
 }
 
+/** Case-insensitive provider/model equality — gateways disagree on case for
+ *  the same id, so an exact compare would miss real matches. Exported because
+ *  callers deciding "is this the same model?" must use the SAME rule the
+ *  denominator lookup below does; two spellings of one comparison is how the
+ *  gauge ends up disagreeing with itself. */
+export function sameModel(
+	a: { provider?: string | null; model?: string | null } | null | undefined,
+	b: { provider?: string | null; model?: string | null } | null | undefined,
+): boolean {
+	if (a?.model == null || b?.model == null) return false;
+	if (a.model.toLowerCase() !== b.model.toLowerCase()) return false;
+	// A row without a provider still matches on id alone — legacy message rows
+	// predate the provider column.
+	if (a.provider == null || b.provider == null) return true;
+	return a.provider.toLowerCase() === b.provider.toLowerCase();
+}
+
 /**
- * Resolve the denominator for the model that SERVED the last turn.
+ * Resolve the denominator for the model that will serve the conversation.
  *
- * Falls back to the caller's picker-derived numbers only when the served model
- * is unknown (no assistant turn yet) or absent from the catalog — and reports
- * `matched: false` so the caller can decline to imply precision it does not
- * have. Matching is case-insensitive on both fields because gateways disagree
- * on case for the same id.
+ * Two candidates, in priority order:
+ *
+ *  1. `nextTurnModel` — the model the NEXT turn will use, but ONLY when the
+ *     caller can vouch that it is a deliberate choice for THIS conversation (an
+ *     explicit pick, or the conversation's pinned model). A user who switches
+ *     models is asking "how full am I against *that* one", and leaving the
+ *     gauge pinned to the old window answers a question they stopped asking.
+ *  2. The model that SERVED the last turn, read off the assistant row. This is
+ *     the default because the picker is stale far more often than it looks —
+ *     it is seeded from a GLOBAL localStorage key, survives conversation
+ *     switches, and failover / tier routing move the served model without
+ *     touching it. Measuring one model's tokens against another's window is
+ *     the bug #157 exists to close, and (1) is deliberately narrow so it
+ *     cannot reopen it.
+ *
+ * Falls back to the caller's picker-derived numbers only when neither resolves
+ * in the catalog — and reports `matched: false` so the caller can decline to
+ * imply precision it does not have.
  */
 export function resolveContextDenominator(
 	served: { provider: string | null; model: string | null } | null,
 	models: readonly ModelWindowLike[],
 	fallback: { contextWindow?: number | null; inputBudget?: number | null; estimated?: boolean },
+	nextTurnModel: { provider: string | null; model: string | null } | null = null,
 ): ContextDenominator | null {
-	const eq = (a: string | null | undefined, b: string | null | undefined) =>
-		(a ?? "").toLowerCase() === (b ?? "").toLowerCase();
-	const hit =
-		served?.model != null
-			? models.find(
-					(m) =>
-						eq(m.model, served.model) &&
-						// A served row without a provider still matches on id alone —
-						// legacy rows predate the provider column.
-						(served.provider == null || eq(m.provider, served.provider)),
-				)
-			: undefined;
+	const lookup = (sel: { provider: string | null; model: string | null } | null) =>
+		sel?.model != null ? models.find((m) => sameModel(m, sel)) : undefined;
+	const servedHit = lookup(served);
+	const nextHit = lookup(nextTurnModel);
+	// Only call it a switch when there is a served turn to switch AWAY from and
+	// the two are genuinely different models. Same model picked again is not a
+	// switch, and a chat with no reply yet has nothing to contrast.
+	const switched =
+		nextHit !== undefined && served?.model != null && !sameModel(served, nextTurnModel);
 
+	// Every non-switch path stays exactly as it was: served model, else the
+	// caller's fallback. The new candidate can only ever win a real switch.
+	const hit = switched ? nextHit : servedHit;
 	const source = hit ?? fallback;
 	const window = source.contextWindow;
 	if (typeof window !== "number" || !Number.isFinite(window) || window <= 0) return null;
@@ -311,6 +357,7 @@ export function resolveContextDenominator(
 		inputBudget: budget,
 		estimated: source.estimated === true,
 		matched: hit !== undefined,
+		nextTurn: switched,
 	};
 }
 

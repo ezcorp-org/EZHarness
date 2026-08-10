@@ -18,6 +18,7 @@ import {
 	budgetExplanation,
 	contextUsedTokens,
 	resolveContextDenominator,
+	sameModel,
 	summaryText,
 	type MessageLike,
 	type ModelWindowLike,
@@ -725,6 +726,70 @@ describe("contextUsedTokens", () => {
 	});
 });
 
+// ── sameModel ───────────────────────────────────────────────────────────────
+//
+// Exported so every "is this the same model?" decision in the context
+// indicator uses ONE rule. `ChatThread` compares the conversation's pinned
+// model against the picker with it; before that it used `===`, which disagreed
+// with the catalog lookup below on exactly the inputs this rule exists for.
+
+describe("sameModel", () => {
+	test("matches case-insensitively on provider and model", () => {
+		expect(
+			sameModel(
+				{ provider: "anthropic", model: "claude-sonnet-4-5" },
+				{ provider: "AnThRoPiC", model: "Claude-Sonnet-4-5" },
+			),
+		).toBe(true);
+	});
+
+	test("is false when the model ids genuinely differ", () => {
+		expect(
+			sameModel(
+				{ provider: "anthropic", model: "claude-sonnet-4-5" },
+				{ provider: "anthropic", model: "claude-sonnet-4-6" },
+			),
+		).toBe(false);
+	});
+
+	test("is false when the same id comes from different providers", () => {
+		expect(
+			sameModel(
+				{ provider: "openai", model: "gpt-5.1" },
+				{ provider: "azure", model: "gpt-5.1" },
+			),
+		).toBe(false);
+	});
+
+	test("matches on model id alone when one side has no provider", () => {
+		// Legacy rows predate the provider column; they still name one model.
+		expect(sameModel({ provider: null, model: "gpt-5.1" }, { provider: "openai", model: "gpt-5.1" })).toBe(
+			true,
+		);
+		expect(sameModel({ provider: "openai", model: "gpt-5.1" }, { provider: null, model: "gpt-5.1" })).toBe(
+			true,
+		);
+	});
+
+	test("a missing model id never matches, on either side", () => {
+		const real = { provider: "openai", model: "gpt-5.1" };
+		expect(sameModel(null, real)).toBe(false);
+		expect(sameModel(real, null)).toBe(false);
+		expect(sameModel(undefined, real)).toBe(false);
+		expect(sameModel({ provider: "openai", model: null }, real)).toBe(false);
+		expect(sameModel(real, { provider: "openai" })).toBe(false);
+	});
+
+	// The reviewed nit, as the caller sees it: a pinned conversation row whose
+	// provider/model differ from the picker only in case IS the pinned model, so
+	// `ChatThread` must treat the picker value as this conversation's deliberate
+	// choice rather than an inherited one.
+	test("a pinned conversation row matches a picker value that differs only in case", () => {
+		const pinned = { id: "c1", title: "chat", provider: "OpenAI", model: "GPT-5.1" };
+		expect(sameModel(pinned, { provider: "openai", model: "gpt-5.1" })).toBe(true);
+	});
+});
+
 // ── resolveContextDenominator ───────────────────────────────────────────────
 
 const CATALOG: ModelWindowLike[] = [
@@ -746,6 +811,7 @@ describe("resolveContextDenominator", () => {
 			inputBudget: 168_000,
 			estimated: false,
 			matched: true,
+			nextTurn: false,
 		});
 	});
 
@@ -770,6 +836,7 @@ describe("resolveContextDenominator", () => {
 			inputBudget: 352_000,
 			estimated: false,
 			matched: false,
+			nextTurn: false,
 		});
 	});
 
@@ -830,6 +897,126 @@ describe("resolveContextDenominator", () => {
 	});
 });
 
+// ── resolveContextDenominator: a deliberate model switch ────────────────────
+//
+// The gauge answers "how full am I". After the user switches models, that
+// question is about the model that will serve the NEXT turn — the old window
+// describes a turn that already happened and cannot happen again.
+
+const SERVED_200K = { provider: "anthropic", model: "claude-sonnet-4-5" };
+const PICKED_1M = { provider: "anthropic", model: "claude-sonnet-4-6" };
+const PICKER_FALLBACK = { contextWindow: 200_000, inputBudget: 168_000 };
+
+describe("resolveContextDenominator — explicit model switch", () => {
+	test("a deliberate switch re-aims the denominator at the new model", () => {
+		const denom = resolveContextDenominator(SERVED_200K, CATALOG, PICKER_FALLBACK, PICKED_1M);
+		expect(denom).toEqual({
+			contextWindow: 1_000_000,
+			inputBudget: 904_000,
+			estimated: false,
+			matched: true,
+			nextTurn: true,
+		});
+	});
+
+	// The user-visible symptom: the bar sat at 95% and would not move.
+	test("the percentage re-scales to the new model's budget", () => {
+		const before = resolveContextDenominator(SERVED_200K, CATALOG, PICKER_FALLBACK);
+		const after = resolveContextDenominator(SERVED_200K, CATALOG, PICKER_FALLBACK, PICKED_1M);
+		expect(Math.round(computePct(160_000, before!.inputBudget) ?? 0)).toBe(95);
+		expect(Math.round(computePct(160_000, after!.inputBudget) ?? 0)).toBe(18);
+	});
+
+	test("re-picking the SAME model is not a switch", () => {
+		const denom = resolveContextDenominator(SERVED_200K, CATALOG, PICKER_FALLBACK, SERVED_200K);
+		expect(denom?.contextWindow).toBe(200_000);
+		expect(denom?.nextTurn).toBe(false);
+	});
+
+	test("same model, different case, is still not a switch", () => {
+		const denom = resolveContextDenominator(SERVED_200K, CATALOG, PICKER_FALLBACK, {
+			provider: "AnThRoPiC",
+			model: "Claude-Sonnet-4-5",
+		});
+		expect(denom?.nextTurn).toBe(false);
+	});
+
+	test("a legacy served row with no provider still matches the pick on id alone", () => {
+		const denom = resolveContextDenominator(
+			{ provider: null, model: "claude-sonnet-4-5" },
+			CATALOG,
+			PICKER_FALLBACK,
+			SERVED_200K,
+		);
+		expect(denom?.nextTurn).toBe(false);
+	});
+
+	test("a picked model absent from the catalog leaves the served window alone", () => {
+		const denom = resolveContextDenominator(SERVED_200K, CATALOG, PICKER_FALLBACK, {
+			provider: "anthropic",
+			model: "not-in-the-catalog",
+		});
+		expect(denom?.contextWindow).toBe(200_000);
+		expect(denom?.nextTurn).toBe(false);
+	});
+
+	test("no pick at all is exactly the served-model behavior", () => {
+		expect(resolveContextDenominator(SERVED_200K, CATALOG, PICKER_FALLBACK, null)).toEqual(
+			resolveContextDenominator(SERVED_200K, CATALOG, PICKER_FALLBACK),
+		);
+	});
+
+	test("a pick with no model id is ignored", () => {
+		const denom = resolveContextDenominator(SERVED_200K, CATALOG, PICKER_FALLBACK, {
+			provider: "anthropic",
+			model: null,
+		});
+		expect(denom?.contextWindow).toBe(200_000);
+		expect(denom?.nextTurn).toBe(false);
+	});
+
+	test("with no served turn yet, a pick is not reported as a switch", () => {
+		const denom = resolveContextDenominator(null, CATALOG, PICKER_FALLBACK, PICKED_1M);
+		expect(denom?.nextTurn).toBe(false);
+		// Nothing to contrast against, so the caller's fallback still wins —
+		// identical to the pre-existing no-served-model path.
+		expect(denom?.contextWindow).toBe(200_000);
+	});
+
+	test("a served row with no model id is not something to switch away from", () => {
+		const denom = resolveContextDenominator(
+			{ provider: "anthropic", model: null },
+			CATALOG,
+			PICKER_FALLBACK,
+			PICKED_1M,
+		);
+		expect(denom?.nextTurn).toBe(false);
+		expect(denom?.contextWindow).toBe(200_000);
+	});
+
+	test("carries the picked model's estimated flag, not the served one's", () => {
+		const denom = resolveContextDenominator(SERVED_200K, CATALOG, PICKER_FALLBACK, {
+			provider: "ollama",
+			model: "local-thing",
+		});
+		expect(denom?.contextWindow).toBe(128_000);
+		expect(denom?.estimated).toBe(true);
+		expect(denom?.nextTurn).toBe(true);
+	});
+
+	test("switching to a model the served one was never in the catalog for still works", () => {
+		const denom = resolveContextDenominator(
+			{ provider: "anthropic", model: "retired-model" },
+			CATALOG,
+			PICKER_FALLBACK,
+			PICKED_1M,
+		);
+		expect(denom?.contextWindow).toBe(1_000_000);
+		expect(denom?.matched).toBe(true);
+		expect(denom?.nextTurn).toBe(true);
+	});
+});
+
 // ── summaryText / budgetExplanation ─────────────────────────────────────────
 
 describe("summaryText", () => {
@@ -839,6 +1026,7 @@ describe("summaryText", () => {
 			inputBudget: 168_000,
 			estimated: false,
 			matched: true,
+			nextTurn: false,
 		});
 		expect(text).toBe("84k / 168k used (50%) — 200k window");
 	});
@@ -849,6 +1037,7 @@ describe("summaryText", () => {
 			inputBudget: 101_760,
 			estimated: true,
 			matched: true,
+			nextTurn: false,
 		});
 		expect(text).toContain("~102k");
 		expect(text).toContain("~128k window");
@@ -860,7 +1049,7 @@ describe("summaryText", () => {
 
 	test("falls back to the placeholder with no usage", () => {
 		expect(
-			summaryText(null, { contextWindow: 200_000, inputBudget: 168_000, estimated: false, matched: true }),
+			summaryText(null, { contextWindow: 200_000, inputBudget: 168_000, estimated: false, matched: true, nextTurn: false }),
 		).toContain("appears after the first assistant response");
 	});
 });
@@ -876,6 +1065,7 @@ describe("budgetExplanation", () => {
 			inputBudget: 168_000,
 			estimated: false,
 			matched: true,
+			nextTurn: false,
 		});
 		expect(text).toContain("200k");
 		expect(text).toContain("32k");
@@ -888,6 +1078,7 @@ describe("budgetExplanation", () => {
 			inputBudget: 101_760,
 			estimated: true,
 			matched: true,
+			nextTurn: false,
 		});
 		expect(text).toContain("estimates");
 	});
@@ -898,7 +1089,34 @@ describe("budgetExplanation", () => {
 			inputBudget: 168_000,
 			estimated: false,
 			matched: false,
+			nextTurn: false,
 		});
 		expect(text).toContain("could not be identified");
+	});
+
+	test("says the numbers describe the next turn after a model switch", () => {
+		const text = budgetExplanation({
+			contextWindow: 1_000_000,
+			inputBudget: 904_000,
+			estimated: false,
+			matched: true,
+			nextTurn: true,
+		});
+		expect(text).toContain("switched models");
+		expect(text).toContain("NEXT turn");
+		// The numerator is still the last turn's measurement — say so rather than
+		// letting the user read it as a re-count under the new tokenizer.
+		expect(text).toContain("still what the last reply actually used");
+	});
+
+	test("stays silent about a switch when there wasn't one", () => {
+		const text = budgetExplanation({
+			contextWindow: 200_000,
+			inputBudget: 168_000,
+			estimated: false,
+			matched: true,
+			nextTurn: false,
+		});
+		expect(text).not.toContain("switched models");
 	});
 });

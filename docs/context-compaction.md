@@ -88,6 +88,21 @@ to the model that **served** the turn (read off the assistant row), not the
 model in the picker, which survives conversation switches and is seeded from a
 global `localStorage` preference.
 
+**One exception: a DELIBERATE model switch re-aims the denominator.** The
+picker is ignored because it is usually *inherited*, not chosen — but an
+explicit pick names the model that will serve the NEXT turn, and that is the
+question a user is asking when they switch. `resolveContextDenominator` takes
+the next-turn model as a fourth argument and lets it win over the served model;
+`ChatThread` supplies it only from the two sources that are deliberate for THIS
+conversation — a pick made in the composer this session, and the conversation's
+own pinned `provider`/`model` (which only an explicit pick ever writes). The
+global `ezcorp-last-model` preload, the `models[0]` default and the Auto
+sentinel never qualify, so the stale-picker bug above stays closed. When the
+switch changes the numbers, `ContextDenominator.nextTurn` is true and the
+tooltip says which turn they describe — and that the token count itself is
+still the last reply's measurement, since a thread cannot be re-counted for a
+tokenizer that has never seen it.
+
 **Trimming (the `trim` strategy).** History is split into *turn
 blocks* — a `user` message plus every following assistant / toolResult
 message up to the next `user` message. The **last block (the active

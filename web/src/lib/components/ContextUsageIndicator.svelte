@@ -101,7 +101,13 @@
 	let denom = $derived<ContextDenominator | null>(
 		denominator ??
 			(typeof contextWindow === "number" && Number.isFinite(contextWindow) && contextWindow > 0
-				? { contextWindow, inputBudget: contextWindow, estimated: false, matched: true }
+				? {
+						contextWindow,
+						inputBudget: contextWindow,
+						estimated: false,
+						matched: true,
+						nextTurn: false,
+					}
 				: null),
 	);
 	// The percentage is against the ENFORCED budget: 100% now means "compaction
