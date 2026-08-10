@@ -160,6 +160,61 @@ describe("e2e lane manifest", () => {
     expect(new RegExp(hub!).test("e2e/hub.spec.ts")).toBe(true);
   });
 
+  test("the MOCK config cannot reach the real-auth tier", () => {
+    // The two configs share a tree: playwright.real.config.ts scopes itself to
+    // `testDir: "./e2e/real-auth"`, which sits INSIDE the mock config's
+    // `testDir: "./e2e"`. Without `testIgnore` the mock lane sweeps the real
+    // tier up, and those specs then fail on their own guard — the mock preview
+    // boots without PI_E2E_REAL=1, so isTestSurfaceEnabled() fail-closes and
+    // every /api/__test/** route 404s. Measured on a bare `bun run test:e2e`
+    // before the fix: 76 real-auth tests collected, 64 failing, 16 of them
+    // "is the webServer launched with PI_E2E_REAL=1?" and 8
+    // `seedExtensionAuthorDraft: failed (404)`.
+    //
+    // This drives Playwright's REAL collector rather than asserting on the
+    // config text, for the same reason dependency-denylist.test.ts spawns the
+    // actual biome binary: a `testIgnore` can be present and still not resolve
+    // the way it reads. `--list` loads spec files but launches no browser
+    // (~1.4s locally), and both CI jobs that run this file use
+    // `.github/actions/setup` with `web: "true"`, so @playwright/test is
+    // installed.
+    //
+    // It has been LATENT, never active: ci.yml's blocking lane passes an
+    // explicit anchored file list from scripts/e2e-lane-args.ts rather than
+    // relying on testDir collection. That is precisely why it needs pinning —
+    // the only thing standing between this repo and the 64 failures is an arg
+    // list, and switching to plain `testDir` collection would silently undo it.
+    const proc = Bun.spawnSync(["bunx", "playwright", "test", "--list", "--reporter=list"], {
+      cwd: join(REPO_ROOT, "web"),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const out = proc.stdout.toString();
+    // Not vacuous: a config error or a failed collection would print nothing
+    // and make the real-auth check below trivially true.
+    expect(out, `playwright --list produced no test listing:\n${proc.stderr.toString()}`).toMatch(
+      /Total: \d+ tests? in \d+ files?/,
+    );
+
+    const leaked = out
+      .split("\n")
+      .filter((l) => l.includes("real-auth/"))
+      .map((l) => l.trim());
+    expect(
+      leaked,
+      `web/playwright.config.ts collects ${leaked.length} real-auth test(s) into the MOCK lane — ` +
+        `they need a PI_E2E_REAL=1 webServer and will fail on their own test-surface guard. ` +
+        `Restore \`testIgnore\` for **/real-auth/**:\n  ${leaked.slice(0, 5).join("\n  ")}`,
+    ).toEqual([]);
+
+    // The real tier must still be reachable SOMEWHERE — the partition has to
+    // move these specs to the other config, not orphan them. (The population
+    // itself is pinned against the real config's testDir by the lane test
+    // above; this asserts the manifest is non-empty so a delete can't satisfy
+    // both halves at once.)
+    expect(lanes["real-auth"]!.length).toBeGreaterThan(0);
+  }, 120_000);
+
   test("ci.yml consumes the manifest via the generator (one home for the gate list)", async () => {
     const ci = await Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text();
     expect(ci).toContain("bun scripts/e2e-lane-args.ts mock-gate");
