@@ -298,11 +298,8 @@ describe("(g) rbacScopes declarations never trip the clamp", () => {
     expect((effective as unknown as Record<string, unknown>).rbacScopes).toBeUndefined();
   });
 
-  // REGRESSION GUARD for the `canonicalizePerms({includeRbacScopes})`
-  // opt-in. That option exists so the DIFF comparator in
-  // `bundled-drift-reapprove.ts` can show an admin a renamed/added scope
-  // declaration. The CEILING comparator must keep ignoring the field:
-  // no ceiling row lists rbacScopes and `intersectPermissions` drops it,
+  // REGRESSION GUARD: the clamp must stay blind to declaration changes.
+  // No ceiling row lists rbacScopes and `intersectPermissions` drops it,
   // so counting a rename here would flag `clamped: true` — and emit an
   // AUDIT_BUNDLED_CEILING_CLAMP row — on a call where nothing narrowed.
   test("a RENAMED declaration (read-tickets → admin-tickets) still does not trip the clamp", () => {
@@ -338,22 +335,22 @@ describe("(g) rbacScopes declarations never trip the clamp", () => {
   });
 });
 
-// ── canonicalizePerms: rbacScopes is caller-selected; order never is ──
+// ── canonicalizePerms: rbacScopes is skipped for EVERY caller ────────
 //
 // `canonicalizePerms` is shared by BOTH permission comparators so they
-// cannot drift apart (see its doc). The two ask different questions
-// though: `equalPermissions` asks "did the ceiling NARROW this?" (an
-// inert declaration narrows nothing → skip it), while `diffGrants` asks
-// "what must the admin SEE before re-approving?" (a renamed or newly
-// declared scope is a security-review fact → show it). `opts
-// .includeRbacScopes` is that one difference, and it is opt-IN so every
-// pre-existing caller keeps today's behavior.
+// cannot drift apart (see its doc), and they agree on `rbacScopes`
+// without exception. `equalPermissions` skips it because an inert
+// declaration narrows nothing. `diffGrants` skips it because it compares
+// GRANT against GRANT and `intersectPermissions` strips declarations
+// from every grant it emits — so the new side structurally cannot carry
+// the field, and reporting it could only ever render as a spurious
+// "removed". An `{includeRbacScopes}` opt-in was shipped and reverted;
+// these tests pin the reverted behavior, including the absent parameter.
 //
-// The trap this block pins: including the field must NOT reintroduce the
-// phantom-diff bug the shared canonicalizer was written to kill. Unlike
-// `network`, `rbacScopes` is an array of OBJECTS, so it never hit the
-// "sort string arrays" branch — re-listing the same scopes in a new
-// order has to canonicalize identically anyway.
+// Order-independence for NON-string arrays is retained and tested
+// separately below. That branch is defensive rather than dead: stored
+// `grantedPermissions` is unvalidated jsonb on read, so a legacy row can
+// present objects on a field that is NOT skipped.
 
 /** `permissions.rbacScopes`-shaped declarations for the given names. */
 function declarations(names: string[]): Array<{ name: string; description: string }> {
@@ -366,10 +363,8 @@ function declarations(names: string[]): Array<{ name: string; description: strin
 const asPerms = (o: Record<string, unknown>): ExtensionPermissions =>
   o as unknown as ExtensionPermissions;
 
-const OPT_IN = { includeRbacScopes: true };
-
-describe("canonicalizePerms — rbacScopes opt-in", () => {
-  test("default: the field is erased, so a rename and an addition both read as no change", () => {
+describe("canonicalizePerms — rbacScopes is erased, unconditionally", () => {
+  test("a rename and an addition both read as no change", () => {
     const absent = canonicalizePerms(asPerms({}));
     const read = canonicalizePerms(asPerms({ rbacScopes: declarations(["read"]) }));
     const admin = canonicalizePerms(asPerms({ rbacScopes: declarations(["admin"]) }));
@@ -378,72 +373,109 @@ describe("canonicalizePerms — rbacScopes opt-in", () => {
     expect(admin).toBe(read);
   });
 
-  test("opt-in: a RENAMED scope (read → admin) is a difference", () => {
-    const read = canonicalizePerms(asPerms({ rbacScopes: declarations(["read"]) }), OPT_IN);
-    const admin = canonicalizePerms(asPerms({ rbacScopes: declarations(["admin"]) }), OPT_IN);
-    expect(read).not.toBe(admin);
-    expect(read).toContain("read");
-    expect(admin).toContain("admin");
+  test("there is no opt-in parameter to re-enable the field", () => {
+    // The reverted defect was a second argument. Pin BOTH halves: the
+    // declared arity, and the behavior under a caller that passes the old
+    // option object anyway (a stale call site must not resurrect it).
+    expect(canonicalizePerms.length).toBe(1);
+    const withScopes = asPerms({ rbacScopes: declarations(["admin"]) });
+    const sneak = canonicalizePerms as unknown as (
+      p: ExtensionPermissions,
+      opts?: unknown,
+    ) => string;
+    expect(sneak(withScopes, { includeRbacScopes: true })).toBe("{}");
   });
 
-  test("opt-in: scopes declared where there were none is a difference", () => {
-    const absent = canonicalizePerms(asPerms({}), OPT_IN);
-    const added = canonicalizePerms(asPerms({ rbacScopes: declarations(["read"]) }), OPT_IN);
-    expect(absent).toBe("{}");
-    expect(added).not.toBe(absent);
-  });
-
-  test("opt-in: ARRAY ORDER alone is not a difference (no phantom diff)", () => {
-    const forward = canonicalizePerms(
-      asPerms({ rbacScopes: declarations(["manage-jobs", "run-job", "approve-gate"]) }),
-      OPT_IN,
+  test("erasing it does not suppress a REAL field that changed alongside it", () => {
+    // Guards the skip from being over-broad: only `rbacScopes` is dropped.
+    const before = canonicalizePerms(
+      asPerms({ storage: true, rbacScopes: declarations(["read"]) }),
     );
+    const after = canonicalizePerms(
+      asPerms({ storage: true, shell: true, rbacScopes: declarations(["admin"]) }),
+    );
+    expect(before).toBe(JSON.stringify({ storage: true }));
+    expect(after).not.toBe(before);
+    expect(after).toContain("shell");
+  });
+});
+
+// ── canonicalizePerms: non-string arrays are order-independent ───────
+//
+// RETAINED from the reverted change, on its own merits. `grantedPermissions`
+// is unvalidated jsonb on READ, so a stored row can present a non-string
+// array on ANY field — including ones the canonicalizer does not skip. The
+// old `: v` passthrough left those order-dependent, which is the same
+// phantom-diff class (`network` reordered between releases reported as a
+// permission change) that the shared canonicalizer exists to prevent. The
+// fixtures below use `network` precisely because it is NOT skipped, so this
+// branch stays reachable and covered.
+
+/** A malformed-but-storable `network` value: objects, a primitive, `null`,
+ *  and a nested array — none of which a validator would have admitted, all
+ *  of which a legacy jsonb row can hold. */
+const MESSY_NETWORK: unknown[] = [
+  { host: "z.example.com", note: "d" },
+  7,
+  null,
+  ["nested"],
+  "a.example.com",
+];
+
+describe("canonicalizePerms — malformed non-string arrays", () => {
+  test("ARRAY ORDER alone is not a difference (no phantom diff)", () => {
+    const forward = canonicalizePerms(asPerms({ network: MESSY_NETWORK }));
     const shuffled = canonicalizePerms(
-      asPerms({ rbacScopes: declarations(["run-job", "approve-gate", "manage-jobs"]) }),
-      OPT_IN,
+      asPerms({ network: [...MESSY_NETWORK].reverse() }),
     );
     expect(shuffled).toBe(forward);
-    // …and it really did keep the scopes rather than dropping them all.
-    expect(forward).toContain("approve-gate");
+    // …and it really did keep the elements rather than dropping them all.
+    expect(forward).toContain("z.example.com");
+    expect(forward).toContain("nested");
   });
 
-  test("opt-in: per-entry KEY order alone is not a difference either", () => {
+  test("per-entry KEY order alone is not a difference either", () => {
     const declared = canonicalizePerms(
-      asPerms({ rbacScopes: [{ name: "run-job", description: "Fire a job" }] }),
-      OPT_IN,
+      asPerms({ network: [{ host: "run-job", note: "Fire a job" }] }),
     );
     const keySwapped = canonicalizePerms(
-      asPerms({ rbacScopes: [{ description: "Fire a job", name: "run-job" }] }),
-      OPT_IN,
+      asPerms({ network: [{ note: "Fire a job", host: "run-job" }] }),
     );
     expect(keySwapped).toBe(declared);
   });
 
-  test("opt-in: an EMPTY declaration list is equivalent to declaring none", () => {
-    expect(canonicalizePerms(asPerms({ rbacScopes: [] }), OPT_IN)).toBe(
-      canonicalizePerms(asPerms({}), OPT_IN),
+  test("null / number / string / nested-array elements survive verbatim", () => {
+    // Non-object elements take the passthrough branch — they must be
+    // preserved, not coerced or dropped, or a real change to one of them
+    // would go unreported.
+    // Sorted by each element's own `JSON.stringify([el])`, which is why
+    // the string sorts first (`"` < `7` < `[` < `n`) — the exact order is
+    // irrelevant to callers, but pinning it catches a silent coercion.
+    const canon = canonicalizePerms(asPerms({ network: [null, 7, ["nested"], "s"] }));
+    expect(JSON.parse(canon).network).toEqual(["s", 7, ["nested"], null]);
+  });
+
+  test("duplicate elements canonicalize identically to their reverse", () => {
+    // Exercises the equal-sort-key path in the element comparator.
+    const dupes = [{ a: 1 }, { a: 1 }, "x", "x"];
+    expect(canonicalizePerms(asPerms({ network: dupes }))).toBe(
+      canonicalizePerms(asPerms({ network: [...dupes].reverse() })),
     );
   });
 
-  test("opt-in: a malformed list (non-object entries) still canonicalizes order-independently", () => {
-    // `diffGrants` reads the OLD side straight out of the stored
-    // `grantedPermissions` jsonb, which no validator re-checks on read —
-    // so the canonicalizer has to be total, not just correct on the
-    // shape the manifest validator would have admitted.
-    const messy = [7, "loose", null, { name: "z", description: "d" }];
-    const a = canonicalizePerms(asPerms({ rbacScopes: messy }), OPT_IN);
-    const b = canonicalizePerms(
-      asPerms({ rbacScopes: [{ description: "d", name: "z" }, null, "loose", 7] }),
-      OPT_IN,
+  test("a genuinely different element set is STILL a difference", () => {
+    expect(canonicalizePerms(asPerms({ network: [7, null] }))).not.toBe(
+      canonicalizePerms(asPerms({ network: MESSY_NETWORK })),
     );
-    expect(a).toBe(b);
-    // A genuinely different element set is still a difference.
-    expect(
-      canonicalizePerms(asPerms({ rbacScopes: [7, "loose", null] }), OPT_IN),
-    ).not.toBe(a);
   });
 
-  test("the opt-in changes NOTHING about any other field's canonical form", () => {
+  test("an EMPTY array is equivalent to the field being absent", () => {
+    expect(canonicalizePerms(asPerms({ network: [] }))).toBe(
+      canonicalizePerms(asPerms({})),
+    );
+  });
+
+  test("every other field's canonical form is untouched", () => {
     const shape = asPerms({
       network: ["b.example.com", "a.example.com"],
       storage: true,
@@ -452,9 +484,8 @@ describe("canonicalizePerms — rbacScopes opt-in", () => {
       spawnAgents: { maxConcurrent: 2, maxPerHour: 5 },
       grantedAt: { storage: 1 },
     });
-    expect(canonicalizePerms(shape, OPT_IN)).toBe(canonicalizePerms(shape));
-    // The pre-existing guarantees still hold: keys + string arrays sorted,
-    // `shell: false` and `[]` dropped as "not granted".
+    // Keys + string arrays sorted, `shell: false` and `[]` dropped as
+    // "not granted" — the all-strings branch is unaffected by the above.
     expect(canonicalizePerms(shape)).toBe(
       JSON.stringify({
         grantedAt: { storage: 1 },
