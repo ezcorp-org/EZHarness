@@ -62,12 +62,20 @@ export function makeRequestEvent(href: string, opts: MakeRequestEventOptions = {
  * Asserts the thrown/returned value actually is a `Response`.
  */
 export async function expectThrownOrResponse(fn: () => Promise<Response> | Response): Promise<Response> {
+  let res: Response;
   try {
-    return await fn();
+    res = await fn();
   } catch (thrown) {
     expect(thrown).toBeInstanceOf(Response);
-    return thrown as Response;
+    res = thrown as Response;
   }
+  // Asserted on BOTH paths, not just the catch. Seven of the local copies this
+  // replaced checked it unconditionally, so restricting it to the throw path
+  // would let a handler that RETURNS a non-Response (e.g. a bare object, or
+  // `undefined` from an early return) slip through with only `.status` read off
+  // it as undefined. Strictly additive — no caller depends on skipping it.
+  expect(res).toBeInstanceOf(Response);
+  return res;
 }
 
 /** Same as {@link expectThrownOrResponse}, plus an assertion on `.status`. */
