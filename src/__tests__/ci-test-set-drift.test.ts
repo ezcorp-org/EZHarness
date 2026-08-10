@@ -19,9 +19,11 @@
  * This file lives in src/__tests__/ so the P/C sweeps pick it up
  * automatically — the drift gate itself cannot be orphaned.
  *
- * (web/src/** is deliberately out of scope: vitest's suffix globs + the
+ * web/src/** ORPHANING is out of scope here — vitest's suffix globs + the
  * `web-bun-tests` sweep (web_bunleg_files) already partition that tree, and
- * web_bunleg_files is itself a sweep-minus — new web files cannot orphan.)
+ * web_bunleg_files is itself a sweep-minus, so a new web file cannot run in
+ * NO job. web/src GATING is a separate question, and it had a real hole; the
+ * "web/src pass/fail gating" describe at the bottom of this file covers it.
  */
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
@@ -172,5 +174,87 @@ describe("examples tree pass/fail gating", () => {
         `would fall into the single-runner residual job instead of the 12 ` +
         `parallel cov shards:\n  ${unmeasured.join("\n  ")}`,
     ).toEqual([]);
+  });
+});
+
+/**
+ * web/src/** pass/fail gating (wave 5) — the SAME failure mode as the examples
+ * tree above, in the other tree that feeds the host pool.
+ *
+ * 27 `web/src/**` suites ran under --coverage in the cov shards and gated in
+ * NOTHING: gate_host_failures classifies a non-P failure as
+ * "TOLERATED — not in the pass/fail set P", so a red assertion printed and the
+ * build exited 0. They included the fail-closed /api/__test/** gate suites
+ * (test-surface, test-surface-bypass) and snippet-sanitize.
+ *
+ * The trap worth naming, because it reads backwards: a web file's C-membership
+ * is exactly what REMOVES it from the `web-bun-tests` job, since
+ * web_bunleg_files subtracts P ∪ C. So "it's measured in C, and web-bun-tests
+ * runs it for pass/fail" was never true of any of them — adding a web file to
+ * C alone DE-GATES it. That is why the assertion below is on C ⊆ P and not on
+ * some directory sweep: C-membership is the thing that must imply gating.
+ *
+ * The fix is structural — P and C both consume ONE shared web_host_files — so
+ * these tests should hold BY CONSTRUCTION. They exist because construction is
+ * one edit away from being undone, and the symptom (a tolerated red) is
+ * invisible in a green build.
+ */
+describe("web/src pass/fail gating", () => {
+  const inP = new Set(setMembers("passfail_files"));
+  const coverageFiles = setMembers("coverage_host_files");
+  const webInC = coverageFiles.filter((f) => f.startsWith("web/src/"));
+
+  /**
+   * web/src suites that are coverage-measured but deliberately NOT pass/fail-
+   * gated. Every entry needs a CONCRETE environmental reason (needs Docker, a
+   * live server, a seeded DB…) — "it was flaky once" is not a reason, it is an
+   * undiagnosed bug. Empty today: all 34 scoped web files were verified
+   * deterministic under isolated `bun test ./<f> --timeout 30000`, 3 runs each.
+   */
+  const WEB_GATING_EXCEPTIONS: ReadonlyArray<{ file: string; reason: string }> = [];
+
+  test("sweep floor — the scoped web host set still has its known population", () => {
+    // 34 when this gate landed; a ratchet floor in the same style as the
+    // examples sweep above. A drop below it means web_host_files rotted or a
+    // list was gutted.
+    expect(
+      webInC.length,
+      `only ${webInC.length} web/src file(s) in the coverage set — did web_host_files rot?`,
+    ).toBeGreaterThanOrEqual(30);
+  });
+
+  test("every web/src file that runs under coverage is in the pass/fail set P", () => {
+    const excepted = new Set(WEB_GATING_EXCEPTIONS.map((e) => e.file));
+    const ungated = webInC.filter((f) => !inP.has(f) && !excepted.has(f));
+    expect(
+      ungated,
+      `${ungated.length} web/src test file(s) RUN in the coverage shards but do ` +
+        `NOT gate pass/fail — gate_host_failures would print a red assertion in ` +
+        `them as "TOLERATED" and CI would exit 0:\n  ${ungated.join("\n  ")}\n` +
+        `They are also NOT run by \`web-bun-tests\` (web_bunleg_files subtracts ` +
+        `P ∪ C), so C-membership is what de-gated them. Fix by adding the file ` +
+        `to web_host_files in ${SETS_LIB} (P and C share it), NOT by listing it ` +
+        `in coverage_host_files alone.`,
+    ).toEqual([]);
+  });
+
+  test("C \\ P is empty overall — no file is coverage-measured without gating", () => {
+    const ungated = coverageFiles.filter((f) => !inP.has(f));
+    expect(
+      ungated,
+      `${ungated.length} file(s) are in the coverage set C but not the pass/fail ` +
+        `set P. Coverage thresholds are not a pass/fail proxy: a suite with ` +
+        `overlapping fixtures still executes every line when an assertion goes ` +
+        `red.\n  ${ungated.join("\n  ")}`,
+    ).toEqual([]);
+  });
+
+  test("web gating exceptions stay honest (exist on disk, still ungated)", () => {
+    const onDisk = new Set(bashLines("find web/src -name '*.test.ts' | sort -u"));
+    for (const e of WEB_GATING_EXCEPTIONS) {
+      expect(onDisk.has(e.file), `exception '${e.file}' no longer exists — remove it`).toBe(true);
+      expect(inP.has(e.file), `exception '${e.file}' is now in P — remove it`).toBe(false);
+      expect(e.reason.length, `exception '${e.file}' needs a concrete reason`).toBeGreaterThan(20);
+    }
   });
 });

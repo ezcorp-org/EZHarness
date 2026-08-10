@@ -34,8 +34,9 @@
 #                             modules whose DA line-set floats the denominator
 #                             and false-drops unit-measured files — Bun's
 #                             per-line attribution drift) and the cov-extras
-#                             suggest-leg files (dedicated coverage home). It
-#                             ADDS the scoped web search-helper bun:test files.
+#                             suggest-leg files (dedicated coverage home). Both
+#                             sets ADD the scoped web bun:test files via the
+#                             shared web_host_files below.
 #
 # The set difference is small and intentional:
 #   P \ C = the excluded *integration* variants + the suggest-leg files +
@@ -49,13 +50,21 @@
 #           files are the ones the shards never run, so the residual job is
 #           their only pass/fail home.) The examples sweep added NOTHING here:
 #           it is a subset of C, so the residual set is unchanged at 14 files.
-#   C \ P = the scoped web bun:test files only (measured for coverage; their
-#           pass/fail home is the `web-bun-tests` job / vitest). The example
-#           suites USED to live here on the theory that "the example e2e cases
-#           fail-by-timeout without Docker" — measured and false: no example
-#           test references Docker, and the full 1280-file host pool under
-#           --coverage reports 0 fail. They are now P∩C and hard-gate inside
-#           the shards.
+#   C \ P = EMPTY, and empty BY CONSTRUCTION (wave 5) — every web file in C
+#           comes from the shared web_host_files, which P consumes too, so the
+#           two cannot drift by an edit to one list. It used to be "the scoped
+#           web bun:test files, whose pass/fail home is `web-bun-tests` /
+#           vitest", and that was FALSE: web_bunleg_files subtracts P ∪ C, so
+#           a file's C-membership is exactly what REMOVES it from the
+#           `web-bun-tests` job. Those 27 files therefore ran in the cov
+#           shards and gated in nothing — gate_host_failures printed them as
+#           "TOLERATED" and the build exited 0 on a red assertion. Measured,
+#           not assumed: all 27 pass 3/3 under isolated `bun test ./<f>
+#           --timeout 30000`, so per the header rules the whole scoped set
+#           belongs in P. Among them were the fail-closed /api/__test/** gate
+#           suites (test-surface, test-surface-bypass) and snippet-sanitize.
+#           A genuinely env-dependent future web suite must be excluded HERE
+#           by name, with its reason — never by adding it to C only.
 #
 # Also defined: the cov-extras LEG sets (suggest / sdk / harness-client /
 # ai-kit) — the exact file lists scripts/test-coverage.sh's run_legs executes.
@@ -109,14 +118,9 @@ passfail_files() {
     # A genuinely env-dependent future example suite must be excluded HERE by
     # name, with its reason — never by dropping the sweep.
     find docs/extensions/examples -name "*.test.ts" ! -path "*/node_modules/*"
-    # import-wizard endpoint tests live beside their SvelteKit routes (bun:test).
-    find web/src/routes/api/import -name "*.test.ts"
-    # github-projects web route tests.
-    find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
-    # extension web entry-route tests.
-    find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
-    # extension-RBAC grants API route tests.
-    find web/src/routes/api/rbac/__tests__ -name "*.test.ts"
+    # The scoped web bun:test files — ONE definition shared with C (see
+    # web_host_files). P consumes it so C\P stays empty by construction.
+    web_host_files
     # Remote-control route-contract governance meta-test — a HARD pass/fail gate
     # (a failing assertion must RED CI, not merely advise). It lives ONLY in P,
     # deliberately kept OUT of the coverage set C below: the set difference P\C
@@ -130,32 +134,114 @@ passfail_files() {
     # RESIDUAL_ONLY mode asserts this file's presence in P\C, so membership
     # drift (rename / C absorbing it) fails loudly instead of de-gating.
     printf '%s\n' web/src/__tests__/route-contract.test.ts
-    # Chat-graph layout engine — pure TS, no DOM/mock.module, deterministic.
-    # Listed in BOTH P and C (unlike the C-only web helpers below it in
-    # coverage_host_files) on purpose: its threshold is 100%, but coverage
-    # alone is NOT a pass/fail proxy here — the suite has enough overlapping
-    # fixtures that one red assertion still leaves every line executed, so a
-    # C-only membership would leave a genuinely failing test TOLERATED by the
-    # shard classifier. P∩C membership hard-gates it inside the cov shards.
-    printf '%s\n' web/src/lib/graph/layout.test.ts
-    # Chat-graph panel/canvas pure logic — same shape and same reasoning as
-    # layout.test.ts above: 100%-gated pure TS whose overlapping fixtures mean
-    # coverage alone would not catch a red assertion.
-    printf '%s\n' web/src/lib/graph/panel-logic.test.ts
-    printf '%s\n' web/src/lib/graph/canvas-view.test.ts
-    # Code-review panel model / viewed-state / diff render — same shape and
-    # same reasoning as the graph trio above: 100%-gated pure TS whose
-    # overlapping fixtures mean coverage alone would not catch a red
-    # assertion, so they need P∩C membership to hard-gate inside the shards.
-    printf '%s\n' web/src/lib/diff-review/review-model.test.ts
-    printf '%s\n' web/src/lib/diff-review/viewed-files.test.ts
-    printf '%s\n' web/src/lib/diff-review/render-diff.test.ts
-    # In-app help copy. It imports `helpContent` directly (not a source scan),
-    # so it lands the string table in lcov — without which the patch-coverage
-    # gate fails "NO lcov data" the moment anyone edits a tooltip's wording.
-    # P∩C for the same reason as the trio above: its key-drift assertions must
-    # RED CI, and coverage alone would not catch a rotted one.
-    printf '%s\n' web/src/__tests__/help-content.test.ts
+  } 2>/dev/null | sort -u
+}
+
+# The SCOPED web bun:test files that run in the backend per-file pool — ONE
+# definition consumed by BOTH P (passfail_files) and C (coverage_host_files).
+#
+# WHY IT IS SHARED (wave 5): these paths used to be two hand-maintained lists,
+# and the drift between them was a silent gating hole. C listed 34 files; P
+# re-listed only 7 of them, so 27 web suites RAN in the cov shards while
+# gating nowhere at all. The trap is that C-membership is what removes a file
+# from the `web-bun-tests` job (web_bunleg_files subtracts P ∪ C), so "its
+# pass/fail home is web-bun-tests" was exactly backwards — adding a file to C
+# alone DE-GATED it. gate_host_failures then printed it under "TOLERATED" and
+# the build exited 0 on a red assertion, including for the fail-closed
+# /api/__test/** gate suites. Sharing one list makes C\P empty by
+# construction: a file cannot be coverage-measured without also gating.
+#
+# SCOPED on purpose — this is deliberately NOT a `find web/src` sweep, for two
+# independent reasons: vitest owns the *.component/*.server/*.unit suffixes
+# (and a few explicitly-listed basenames — see web_bunleg_files), several of
+# which bun cannot even load (rune modules); and widening to whole directories
+# transitively imports dozens of unrelated modules whose zero-hit DA records
+# inflate the denominator on files already pinned at 100%. The rest of the
+# tree is swept by web_bunleg_files, which is itself a sweep-minus, so new web
+# files still cannot orphan.
+#
+# A genuinely env-dependent web suite must be excluded from P HERE by name,
+# with its reason — never by listing it in coverage_host_files only. There are
+# no such exclusions today: all 34 were verified deterministic under isolated
+# `bun test ./<f> --timeout 30000`, 3 runs each.
+web_host_files() {
+  {
+    # See passfail_files: scoped `set +e` so a missing dir doesn't silently
+    # truncate the list under the callers' `set -e`.
+    set +e
+    # import-wizard endpoint tests live beside their SvelteKit routes (bun:test).
+    find web/src/routes/api/import -name "*.test.ts"
+    # github-projects web route tests.
+    find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
+    # extension web entry-route tests.
+    find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
+    # extension-RBAC grants API route tests (coverage for the two rbac
+    # +server.ts files pinned at 100 in coverage-thresholds.json).
+    find web/src/routes/api/rbac/__tests__ -name "*.test.ts"
+    # Scoped web bun:test files. Per-file notes on why each is MEASURED (the
+    # C-side rationale) — all of them also GATE, per the header above.
+    #   permission-mode-indicator: the github-projects route tests import
+    #     $lib/permission-mode (constants only), landing it in the merged lcov
+    #     at 25% — this suite exercises the functions so the union clears
+    #     web/src/lib/**.
+    #   chat-scroll + chat-stick-to-bottom.integration: the only producers for
+    #     $lib/chat-stick-to-bottom.ts, which had NO lcov record from any leg —
+    #     so a change to it read as "no test loads it" against the patch gate no
+    #     matter how thoroughly the two suites (58 tests) exercised it. The same
+    #     "tested but unmeasured" trap this file documents for hooks.server.ts,
+    #     found via issue #140. Safe for the denominator warning above: both
+    #     files import ONLY `bun:test` and $lib/chat-stick-to-bottom.js (they
+    #     read the .svelte sources as TEXT via Bun.file rather than importing
+    #     them), so they pull no unrelated module into the merged lcov.
+    #   graph/{layout,panel-logic,canvas-view} + diff-review/{review-model,
+    #     viewed-files,render-diff} + help-content: 100%-gated pure TS whose
+    #     overlapping fixtures mean coverage alone is NOT a pass/fail proxy —
+    #     one red assertion still leaves every line executed. These were the
+    #     only seven the old P list carried, precisely for that reason; the
+    #     shared list now extends the same guarantee to all 34.
+    #   help-content also imports `helpContent` directly (not a source scan),
+    #     so it lands the string table in lcov — without which the patch-
+    #     coverage gate fails "NO lcov data" the moment anyone edits a
+    #     tooltip's wording.
+    # NOTE: route-contract.test.ts is intentionally NOT here — it is a P-only
+    # hard gate (see passfail_files); it covers only the already-pinned
+    # harness-client route table + the unpinned api-registry, so measuring it
+    # would add no threshold-gated coverage.
+    printf '%s\n' \
+      web/src/__tests__/snippet-sanitize.test.ts \
+      web/src/__tests__/workflow-builder-logic.test.ts \
+      web/src/__tests__/workflow-editor-logic.test.ts \
+      web/src/__tests__/workflow-provenance.test.ts \
+      web/src/__tests__/extension-tool-options.test.ts \
+      web/src/lib/__tests__/rbac-grants-view.test.ts \
+      web/src/__tests__/permission-mode-indicator.test.ts \
+      web/src/__tests__/search-mode.test.ts \
+      web/src/__tests__/shared-ui-components.test.ts \
+      web/src/lib/search/__tests__/palette-results.test.ts \
+      web/src/lib/__tests__/diff-view-mode.test.ts \
+      web/src/lib/__tests__/tool-scope-logic.test.ts \
+      web/src/lib/__tests__/loaded-tools-logic.test.ts \
+      web/src/lib/__tests__/briefing-cron.test.ts \
+      web/src/lib/graph/layout.test.ts \
+      web/src/lib/graph/panel-logic.test.ts \
+      web/src/lib/graph/canvas-view.test.ts \
+      web/src/lib/diff-review/review-model.test.ts \
+      web/src/lib/diff-review/viewed-files.test.ts \
+      web/src/lib/diff-review/render-diff.test.ts \
+      web/src/__tests__/help-content.test.ts \
+      web/src/lib/__tests__/timeline-normalize.test.ts \
+      web/src/lib/__tests__/format-duration.test.ts \
+      web/src/lib/chat/__tests__/task-snapshot-store.test.ts \
+      web/src/lib/chat/page-handlers/__tests__/task-hydrate.test.ts \
+      web/src/__tests__/test-surface.test.ts \
+      web/src/__tests__/test-surface-bypass.test.ts \
+      web/src/__tests__/mock-llm-store.test.ts \
+      web/src/__tests__/mock-llm-route.test.ts \
+      web/src/__tests__/runs-wait-route.test.ts \
+      web/src/__tests__/seed-reset-route.test.ts \
+      web/src/__tests__/extensions-events-route.test.ts \
+      web/src/__tests__/chat-scroll.test.ts \
+      web/src/__tests__/chat-stick-to-bottom.integration.test.ts
   } 2>/dev/null | sort -u
 }
 
@@ -192,66 +278,10 @@ coverage_host_files() {
     # node_modules); it exists so a future `bun install` inside an example
     # can't sweep vendored *.test.ts into either pool.
     find docs/extensions/examples -name "*.test.ts" ! -path "*/node_modules/*"
-    find web/src/routes/api/import -name "*.test.ts"
-    find web/src/routes/api/integrations/github-projects/__tests__ -name "*.test.ts"
-    find web/src/routes/api/extensions/__tests__ -name "*.test.ts"
-    # extension-RBAC grants API route tests (coverage for the two rbac
-    # +server.ts files pinned at 100 in coverage-thresholds.json).
-    find web/src/routes/api/rbac/__tests__ -name "*.test.ts"
-    # Scoped web search-helper bun:test files. SCOPED on purpose — widening to
-    # the whole web/src/__tests__ dir transitively imports dozens of unrelated
-    # modules whose zero-hit DA records inflate the denominator on files already
-    # pinned at 100%. NOTE: route-contract.test.ts is intentionally NOT in this
-    # coverage set — it is a HARD pass/fail gate in P (see passfail_files); it
-    # covers only the already-pinned harness-client route table + the unpinned
-    # api-registry, so measuring it here would add no threshold-gated coverage.
-    # permission-mode-indicator: the github-projects route tests import
-    # $lib/permission-mode (constants only), landing it in the merged lcov at
-    # 25% — this suite exercises the functions so the union clears web/src/lib/**.
-    # chat-scroll + chat-stick-to-bottom.integration: the only producers for
-    # $lib/chat-stick-to-bottom.ts, which had NO lcov record from any leg — so
-    # a change to it read as "no test loads it" against the patch gate no
-    # matter how thoroughly the two suites (58 tests) exercised it. The same
-    # "tested but unmeasured" trap this file documents for hooks.server.ts,
-    # found via issue #140. Safe for the denominator warning above: both files
-    # import ONLY `bun:test` and $lib/chat-stick-to-bottom.js (they read the
-    # .svelte sources as TEXT via Bun.file rather than importing them), so
-    # they pull no unrelated module into the merged lcov.
-    printf '%s\n' \
-      web/src/__tests__/snippet-sanitize.test.ts \
-      web/src/__tests__/workflow-builder-logic.test.ts \
-      web/src/__tests__/workflow-editor-logic.test.ts \
-      web/src/__tests__/workflow-provenance.test.ts \
-      web/src/__tests__/extension-tool-options.test.ts \
-      web/src/lib/__tests__/rbac-grants-view.test.ts \
-      web/src/__tests__/permission-mode-indicator.test.ts \
-      web/src/__tests__/search-mode.test.ts \
-      web/src/__tests__/shared-ui-components.test.ts \
-      web/src/lib/search/__tests__/palette-results.test.ts \
-      web/src/lib/__tests__/diff-view-mode.test.ts \
-      web/src/lib/__tests__/tool-scope-logic.test.ts \
-      web/src/lib/__tests__/loaded-tools-logic.test.ts \
-      web/src/lib/__tests__/briefing-cron.test.ts \
-      web/src/lib/graph/layout.test.ts \
-      web/src/lib/graph/panel-logic.test.ts \
-      web/src/lib/graph/canvas-view.test.ts \
-      web/src/lib/diff-review/review-model.test.ts \
-      web/src/lib/diff-review/viewed-files.test.ts \
-      web/src/lib/diff-review/render-diff.test.ts \
-      web/src/__tests__/help-content.test.ts \
-      web/src/lib/__tests__/timeline-normalize.test.ts \
-      web/src/lib/__tests__/format-duration.test.ts \
-      web/src/lib/chat/__tests__/task-snapshot-store.test.ts \
-      web/src/lib/chat/page-handlers/__tests__/task-hydrate.test.ts \
-      web/src/__tests__/test-surface.test.ts \
-      web/src/__tests__/test-surface-bypass.test.ts \
-      web/src/__tests__/mock-llm-store.test.ts \
-      web/src/__tests__/mock-llm-route.test.ts \
-      web/src/__tests__/runs-wait-route.test.ts \
-      web/src/__tests__/seed-reset-route.test.ts \
-      web/src/__tests__/extensions-events-route.test.ts \
-      web/src/__tests__/chat-scroll.test.ts \
-      web/src/__tests__/chat-stick-to-bottom.integration.test.ts
+    # The scoped web bun:test files — the SAME shared definition P consumes,
+    # so C\P is empty BY CONSTRUCTION (see web_host_files for why that matters:
+    # a C-only web entry is a DE-GATED file, not a coverage-only one).
+    web_host_files
     # The suggest-leg files are subtracted below — ONE definition
     # (suggest_leg_files) serves both this exclusion and the runner.
   } 2>/dev/null | sort -u | comm -23 - <(suggest_leg_files)
