@@ -79,7 +79,7 @@ describe("owned session types — assignable to and from pi's", () => {
       // pi → owned: nothing pi produces became unrepresentable either.
       const backToOwned = assignable<SessionTreeEntry>(asPi);
       expect(backToOwned).toBe(owned);
-      expect(backToOwned.type).toBe(type);
+      expect(backToOwned.type as string).toBe(type);
     }
     // The union is exhaustive in both directions — same 11 members.
     expect(Object.keys(OWNED_ENTRIES)).toHaveLength(11);
@@ -102,7 +102,7 @@ describe("owned session types — assignable to and from pi's", () => {
       { type: "message", id: "m2", parentId: "m1", timestamp: "t", message: assistantMsg("second") },
     ];
     const ctx = buildSessionContext(branch);
-    expect(ctx.messages.map((m: { content: unknown }) => m.content)).toEqual(["first", "second"]);
+    expect(ctx.messages.map((m) => (m as { content?: unknown }).content)).toEqual(["first", "second"]);
     expect(ctx.model).toEqual({ provider: "anthropic", modelId: "claude" });
   });
 

@@ -13,7 +13,7 @@ import { isUniqueViolation } from "./unique-violation";
  * tasks/2026-07-11-postgres-session-storage-design.md §7).
  *
  * Reconstructs a `DbSessionStorage` session tree for an EXISTING
- * conversation from its `messages` rows, so the pi Session read path can
+ * conversation from its `messages` rows, so the session read path can
  * reproduce today's `loadHistory` output. This slice is DARK — nothing in
  * the runtime request path calls it yet (P3 wires the lazy trigger); it is
  * exercised only by the read-parity suite
