@@ -748,6 +748,7 @@ describe("ContextUsageIndicator", () => {
 				inputBudget: 168_000,
 				estimated: false,
 				matched: true,
+				nextTurn: false,
 			},
 		});
 		// 84k/168k = 50%, not 84k/200k = 42%. Compaction is the 100% mark.
@@ -765,6 +766,7 @@ describe("ContextUsageIndicator", () => {
 				inputBudget: 168_000,
 				estimated: false,
 				matched: true,
+				nextTurn: false,
 			},
 		});
 		// Pre-fix this read 16%. The thread is in fact nearly full.
@@ -781,6 +783,7 @@ describe("ContextUsageIndicator", () => {
 				inputBudget: 101_760,
 				estimated: true,
 				matched: true,
+				nextTurn: false,
 			},
 		});
 		const pct = getByTestId("context-usage-pct");
@@ -800,11 +803,38 @@ describe("ContextUsageIndicator", () => {
 				inputBudget: 168_000,
 				estimated: false,
 				matched: false,
+				nextTurn: false,
 			},
 		});
 		await fireEvent.mouseEnter(getByTestId("context-usage-indicator").parentElement!);
 		expect(getByTestId("ctx-usage-explanation").textContent).toContain(
 			"could not be identified",
 		);
+	});
+
+	// ── denominator after a deliberate model switch ───────────────────────
+
+	test("re-scales to the newly picked model and explains the jump", async () => {
+		const { getByTestId } = render(ContextUsageIndicator, {
+			usedTokens: 160_000,
+			contextWindow: 1_000_000,
+			// The user switched from the 200k model to the 1M one, so the same
+			// 160k of history is now a fifth of the budget instead of all of it.
+			denominator: {
+				contextWindow: 1_000_000,
+				inputBudget: 904_000,
+				estimated: false,
+				matched: true,
+				nextTurn: true,
+			},
+		});
+		expect(getByTestId("context-usage-pct").textContent?.trim()).toBe("18%");
+		expect(getByTestId("context-usage-indicator").dataset.tone).toBe("muted");
+
+		await fireEvent.mouseEnter(getByTestId("context-usage-indicator").parentElement!);
+		const explanation = getByTestId("ctx-usage-explanation").textContent ?? "";
+		expect(explanation).toContain("switched models");
+		expect(explanation).toContain("NEXT turn");
+		expect(getByTestId("ctx-usage-summary").textContent).toContain("904k");
 	});
 });

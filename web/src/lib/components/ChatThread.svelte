@@ -439,6 +439,11 @@
 	let editTextDraft = $state("");
 	let editTextSaving = $state(false);
 	let selectedModel = $state<{ provider: string; model: string } | null>(null);
+	/** True once the user has picked a model from the composer's picker in this
+	 *  session. Distinguishes a DELIBERATE choice from the picker's inherited
+	 *  state (the global `ezcorp-last-model` preload, the `models[0]` default),
+	 *  which is the distinction the context denominator turns on. */
+	let modelPickedExplicitly = $state(false);
 	let thinkingLevel = $state<string>(
 		typeof localStorage !== "undefined"
 			? (localStorage.getItem("ezcorp-thinking-level") ?? "medium")
@@ -667,11 +672,37 @@
 	 * The picker remains the fallback — correct for a chat with no assistant
 	 * reply yet, which is the one case where no served model exists.
 	 */
+	/**
+	 * The model the NEXT turn will use — but only when it is a DELIBERATE choice
+	 * for THIS conversation. Two sources qualify:
+	 *
+	 *   - an explicit pick from the composer's picker this session, and
+	 *   - the conversation's own pinned `provider`/`model`, which only an
+	 *     explicit pick ever writes.
+	 *
+	 * Everything else the picker can be holding is inherited, not chosen — the
+	 * global `ezcorp-last-model` preload, the `models[0]` default — and must not
+	 * touch the denominator. The Auto sentinel is excluded too: it is not a
+	 * model, it has no window, and routing picks per turn.
+	 */
+	let nextTurnModel = $derived.by(() => {
+		if (!selectedModel || isAutoSelection(selectedModel)) return null;
+		if (modelPickedExplicitly) return selectedModel;
+		const pinned = currentConv;
+		return pinned?.provider === selectedModel.provider && pinned?.model === selectedModel.model
+			? selectedModel
+			: null;
+	});
 	let contextDenominator = $derived(
-		resolveContextDenominator(lastTurnUsage, modelCatalog, {
-			contextWindow: selectedModelContextWindow,
-			inputBudget: selectedModelInputBudget,
-		}),
+		resolveContextDenominator(
+			lastTurnUsage,
+			modelCatalog,
+			{
+				contextWindow: selectedModelContextWindow,
+				inputBudget: selectedModelInputBudget,
+			},
+			nextTurnModel,
+		),
 	);
 	let contextBreakdown = $derived(
 		computeBreakdown(
@@ -790,6 +821,7 @@
 
 	function handleModelChange(provider: string, model: string) {
 		selectedModel = { provider, model };
+		modelPickedExplicitly = true;
 		// The Auto (smart routing) sentinel is a client-side selection state,
 		// never a persisted identity: writing "auto"/"auto" to the
 		// conversation row (or localStorage last-model) would defeat routing
@@ -2170,6 +2202,12 @@
 		resumedRun = false;
 		localSystemMessages = [];
 		subConversations = [];
+		// An explicit model pick belongs to the conversation it was made in.
+		// `selectedModel` deliberately survives a switch (the picker is a
+		// composer-level preference), but its DELIBERATENESS does not — carrying
+		// it over would let one chat's pick re-scale another chat's gauge, which
+		// is the stale-picker bug in a new costume.
+		modelPickedExplicitly = false;
 		checkingActiveRun = true;
 		initialLoadDone = false;
 		invalidateFetchPolicy("messages-all:");
