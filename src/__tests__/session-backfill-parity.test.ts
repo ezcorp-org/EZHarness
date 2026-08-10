@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { and, eq } from "drizzle-orm";
-import { Session } from "@earendil-works/pi-agent-core";
+import { buildSessionContext } from "@earendil-works/pi-agent-core";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { agentSessionEntries, agentSessions, conversations, messageAttachments, messages, projects } from "../db/schema";
 import type { StreamChatContext } from "../runtime/stream-chat/context";
@@ -70,10 +70,29 @@ async function referenceHistory(convId: string) {
   return (await loadHistory({} as StreamChatContext, convId, {})).history;
 }
 
-/** CANDIDATE: backfill → pi Session → buildContext. */
+/**
+ * The context for a storage the caller already built.
+ *
+ * This is exactly what `Session.buildContext()` did — `getBranch()` is
+ * `getPathToRootOrCompaction(await getLeafId())`, and `buildContext` is
+ * `buildSessionContext` over it — minus the `Session` wrapper the storage no
+ * longer conforms to. Feeding repo-owned `SessionTreeEntry` values straight
+ * into pi's builder is also the running proof that the owned union is what
+ * the engine consumes.
+ *
+ * Takes the STORAGE, not a conversation id, on purpose. Re-deriving it from
+ * the id would call `backfillSessionForConversation` a second time, which is
+ * idempotent by opening the EXISTING session — so the assertion would silently
+ * move off the fresh in-memory build and onto a reopened one, and a defect
+ * unique to the fresh-build path would stop tripping these tests.
+ */
+async function contextOf(storage: Awaited<ReturnType<typeof backfillSessionForConversation>>) {
+  return buildSessionContext(await storage.getPathToRootOrCompaction(await storage.getLeafId())).messages;
+}
+
+/** CANDIDATE: backfill → the stored branch → pi's context builder. */
 async function candidateContext(convId: string) {
-  const storage = await backfillSessionForConversation(convId);
-  return (await new Session(storage).buildContext()).messages;
+  return contextOf(await backfillSessionForConversation(convId));
 }
 
 describe("session backfill — dark read-parity vs loadHistory", () => {
@@ -261,7 +280,7 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
     await seedMsg({ id: "a2", convId: c, role: "assistant", content: "a2", parentId: "u2", createdAt: at(2) });
 
     const storage = await backfillSessionForConversation(c);
-    const ctx = (await new Session(storage).buildContext()).messages; // must NOT throw
+    const ctx = await contextOf(storage); // must NOT throw
     expect(ctx.map(textOf)).toEqual(["u2", "a2"]);
 
     const u2entry = (await storage.getEntries()).find((e) => e.id === "u2");
@@ -277,7 +296,7 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
     const storage = await backfillSessionForConversation(c);
     expect(await storage.getEntries()).toEqual([]);
     expect(await storage.getLeafId()).toBeNull();
-    expect((await new Session(storage).buildContext()).messages).toEqual([]);
+    expect(await contextOf(storage)).toEqual([]);
     expect(await referenceHistory(c)).toEqual([]);
   });
 });

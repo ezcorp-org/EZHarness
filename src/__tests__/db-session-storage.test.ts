@@ -1,28 +1,36 @@
+/**
+ * DbSessionStorage unit + behaviour coverage.
+ *
+ * The suite drives the storage DIRECTLY. It used to drive it through
+ * pi-agent-core's `Session` wrapper, which was the only thing in the repo
+ * that redeemed the (now removed) `implements SessionStorage` promise — no
+ * production code ever constructed a `Session`. The append/rewind sequences
+ * that wrapper performed are inlined below as `appendMessage` / `moveTo` /
+ * `appendCompaction`, byte-for-byte, so every expectation here is the same
+ * assertion about the same tree.
+ *
+ * pi's `buildSessionContext` IS still used, in the one describe that is
+ * about the engine-side context transform rather than about storage — it
+ * also proves the repo-owned `SessionTreeEntry` union is structurally what
+ * the engine consumes.
+ */
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { sql } from "drizzle-orm";
-import { Session } from "@earendil-works/pi-agent-core";
-import type { AgentMessage, SessionTreeEntry } from "@earendil-works/pi-agent-core";
+import { buildSessionContext } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { agentSessionEntries } from "../db/schema";
+import type { DbSessionStorage as DbSessionStorageInstance, SessionTreeEntry } from "../db/session-storage";
 
 // Must mock before importing modules that use db/connection.
 mockDbConnection();
 
-const {
-  DbSessionStorage,
-  generateEntryId,
-  leafIdAfterEntry,
-  updateLabelCache,
-  buildLabelsById,
-  entryToRow,
-  rowToEntry,
-  asJsonbObject,
-  completeUsage,
-  entryUsage,
-} = await import("../db/session-storage");
+const { DbSessionStorage, generateEntryId, leafIdAfterEntry, entryToRow, rowToEntry, asJsonbObject } = await import(
+  "../db/session-storage"
+);
 
-// ── AgentMessage builders (pi passes `entry.message` through verbatim;
-//    the exact LLM shape doesn't matter for storage semantics). ───────
+// ── AgentMessage builders (`entry.message` is passed through verbatim;
+//    the exact LLM shape doesn't matter for storage semantics). ────────
 function userMsg(content: string): AgentMessage {
   return { role: "user", content } as unknown as AgentMessage;
 }
@@ -30,21 +38,63 @@ function assistantMsg(content: string, provider = "anthropic", model = "claude")
   return { role: "assistant", content, provider, model } as unknown as AgentMessage;
 }
 
-// ── Usage builders for the getSessionStats suite ─────────────────────
-/** A complete pi `Usage` blob. Every field the guard checks is present. */
-function usage(input: number, output: number, cacheRead: number, cacheWrite: number, total: number): any {
-  return {
-    input,
-    output,
-    cacheRead,
-    cacheWrite,
-    totalTokens: input + output + cacheRead + cacheWrite,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total },
-  };
+// ── The append sequences the removed pi `Session` wrapper performed ───
+// Inlined verbatim from pi-agent-core 0.83.0's session.js so the tree these
+// tests build is identical to the one they built before the decoupling.
+
+/** `Session.appendMessage`: a fresh entry id, parented on the current leaf. */
+async function appendMessage(storage: DbSessionStorageInstance, message: AgentMessage): Promise<string> {
+  const id = await storage.createEntryId();
+  const parentId = await storage.getLeafId();
+  await storage.appendEntry({ type: "message", id, parentId, timestamp: new Date().toISOString(), message });
+  return id;
 }
-/** An assistant message carrying usage, as a persisted entry would. */
-function assistantMsgWithUsage(content: string, u: any): AgentMessage {
-  return { ...(assistantMsg(content) as any), usage: u } as unknown as AgentMessage;
+
+/** `Session.moveTo`: move the leaf, then (optionally) record the abandoned
+ *  branch — which, being an append, advances the leaf onto the summary. */
+async function moveTo(storage: DbSessionStorageInstance, entryId: string | null, summary?: string): Promise<void> {
+  await storage.setLeafId(entryId);
+  if (!summary) return;
+  const id = await storage.createEntryId();
+  await storage.appendEntry({
+    type: "branch_summary",
+    id,
+    parentId: entryId,
+    timestamp: new Date().toISOString(),
+    fromId: entryId ?? "root",
+    summary,
+  });
+}
+
+/** `Session.appendCompaction` (the arguments this suite uses). */
+async function appendCompaction(
+  storage: DbSessionStorageInstance,
+  summary: string,
+  firstKeptEntryId: string,
+  tokensBefore: number,
+): Promise<void> {
+  const id = await storage.createEntryId();
+  const parentId = await storage.getLeafId();
+  await storage.appendEntry({
+    type: "compaction",
+    id,
+    parentId,
+    timestamp: new Date().toISOString(),
+    summary,
+    firstKeptEntryId,
+    tokensBefore,
+  });
+}
+
+/** `Session.getBranch()`: the path to the current leaf. */
+function branchOf(storage: DbSessionStorageInstance): Promise<SessionTreeEntry[]> {
+  return storage.getLeafId().then((leafId) => storage.getPathToRootOrCompaction(leafId));
+}
+
+/** One entry by id, off the insertion axis (the storage no longer needs a
+ *  by-id accessor of its own — nothing in the product asked for one). */
+async function entryById(storage: DbSessionStorageInstance, id: string): Promise<SessionTreeEntry | undefined> {
+  return (await storage.getEntries()).find((entry) => entry.id === id);
 }
 
 // ── 0. jsonb metadata sanitization (tree-500 regression) ─────────────
@@ -89,7 +139,7 @@ describe("DbSessionStorage — metadata never writes invalid jsonb", () => {
   });
 });
 
-// ── 1. append / branch semantics (driven through pi's real Session) ──
+// ── 1. append / branch semantics ────────────────────────────────────
 describe("DbSessionStorage — append + branch semantics", () => {
   beforeEach(async () => {
     await setupTestDb();
@@ -98,22 +148,21 @@ describe("DbSessionStorage — append + branch semantics", () => {
     await closeTestDb();
   });
 
-  test("append chains parentId; getBranch + buildContext return root→leaf order", async () => {
+  test("append chains parentId; the branch + context are root→leaf order", async () => {
     const storage = await DbSessionStorage.create();
-    const session = new Session(storage);
-    const id1 = await session.appendMessage(userMsg("first"));
-    const id2 = await session.appendMessage(assistantMsg("second"));
-    const id3 = await session.appendMessage(userMsg("third"));
+    const id1 = await appendMessage(storage, userMsg("first"));
+    const id2 = await appendMessage(storage, assistantMsg("second"));
+    const id3 = await appendMessage(storage, userMsg("third"));
 
     expect(await storage.getLeafId()).toBe(id3);
-    expect((await storage.getEntry(id1))?.parentId).toBeNull();
-    expect((await storage.getEntry(id2))?.parentId).toBe(id1);
-    expect((await storage.getEntry(id3))?.parentId).toBe(id2);
+    expect((await entryById(storage, id1))?.parentId).toBeNull();
+    expect((await entryById(storage, id2))?.parentId).toBe(id1);
+    expect((await entryById(storage, id3))?.parentId).toBe(id2);
 
-    const branch = await session.getBranch();
+    const branch = await branchOf(storage);
     expect(branch.map((e) => e.id)).toEqual([id1, id2, id3]);
 
-    const ctx = await session.buildContext();
+    const ctx = buildSessionContext(branch);
     expect(ctx.messages.map((m: any) => m.content)).toEqual(["first", "second", "third"]);
     // deriveSessionContextState reads the latest assistant message's model.
     expect(ctx.model).toEqual({ provider: "anthropic", modelId: "claude" });
@@ -124,7 +173,7 @@ describe("DbSessionStorage — append + branch semantics", () => {
     const storage = await DbSessionStorage.create();
     const id = await storage.createEntryId();
     expect(id).toHaveLength(8);
-    expect(await storage.getEntry(id)).toBeUndefined();
+    expect(await entryById(storage, id)).toBeUndefined();
     expect(await storage.getEntries()).toEqual([]);
   });
 
@@ -140,10 +189,9 @@ describe("DbSessionStorage — append + branch semantics", () => {
 
     const bare = await DbSessionStorage.create({ id: "m2" });
     const md2 = await bare.getMetadata();
+    expect(md2.id).toBe("m2");
     expect(md2.cwd).toBeUndefined();
     expect(md2.metadata).toBeUndefined();
-    // Reachable through pi's Session too.
-    expect((await new Session(bare).getMetadata()).id).toBe("m2");
   });
 
   test("session links to a conversation (FK + conversationId metadata, survives reopen)", async () => {
@@ -176,18 +224,17 @@ describe("DbSessionStorage — leaf / rewind semantics", () => {
 
   test("moveTo rewinds the leaf; the abandoned tail survives on the insertion axis", async () => {
     const storage = await DbSessionStorage.create();
-    const session = new Session(storage);
-    const id1 = await session.appendMessage(userMsg("u1"));
-    const id2 = await session.appendMessage(assistantMsg("a1"));
-    const id3 = await session.appendMessage(userMsg("u2-tail"));
+    const id1 = await appendMessage(storage, userMsg("u1"));
+    const id2 = await appendMessage(storage, assistantMsg("a1"));
+    const id3 = await appendMessage(storage, userMsg("u2-tail"));
 
-    await session.moveTo(id1);
+    await moveTo(storage, id1);
     expect(await storage.getLeafId()).toBe(id1);
 
-    const id4 = await session.appendMessage(assistantMsg("a1-alt"));
-    expect((await storage.getEntry(id4))?.parentId).toBe(id1);
+    const id4 = await appendMessage(storage, assistantMsg("a1-alt"));
+    expect((await entryById(storage, id4))?.parentId).toBe(id1);
 
-    const branch = await session.getBranch();
+    const branch = await branchOf(storage);
     expect(branch.map((e) => e.id)).toEqual([id1, id4]);
 
     const all = (await storage.getEntries()).map((e) => e.id);
@@ -197,12 +244,11 @@ describe("DbSessionStorage — leaf / rewind semantics", () => {
 
   test("moveTo with a summary records a branch_summary entry", async () => {
     const storage = await DbSessionStorage.create();
-    const session = new Session(storage);
-    const id1 = await session.appendMessage(userMsg("u1"));
-    await session.appendMessage(assistantMsg("a1"));
-    await session.moveTo(id1, { summary: "abandoned that path" });
+    const id1 = await appendMessage(storage, userMsg("u1"));
+    await appendMessage(storage, assistantMsg("a1"));
+    await moveTo(storage, id1, "abandoned that path");
 
-    const summaries = await storage.findEntries("branch_summary");
+    const summaries = (await storage.getEntries()).filter((e) => e.type === "branch_summary");
     expect(summaries).toHaveLength(1);
     expect((summaries[0] as any).summary).toBe("abandoned that path");
     expect((summaries[0] as any).fromId).toBe(id1);
@@ -210,10 +256,9 @@ describe("DbSessionStorage — leaf / rewind semantics", () => {
 
   test("leaf recovery on reopen replays entries incl. a leaf pointer", async () => {
     const storage = await DbSessionStorage.create({ id: "sess-reopen" });
-    const session = new Session(storage);
-    const id1 = await session.appendMessage(userMsg("u1"));
-    const id2 = await session.appendMessage(assistantMsg("a1"));
-    await session.moveTo(id1); // appends a leaf pointer → leaf = id1
+    const id1 = await appendMessage(storage, userMsg("u1"));
+    const id2 = await appendMessage(storage, assistantMsg("a1"));
+    await moveTo(storage, id1); // appends a leaf pointer → leaf = id1
 
     const reopened = await DbSessionStorage.open("sess-reopen");
     expect(await reopened.getLeafId()).toBe(id1);
@@ -224,8 +269,7 @@ describe("DbSessionStorage — leaf / rewind semantics", () => {
 
   test("setLeafId(null) clears the leaf and the empty branch survives reopen", async () => {
     const storage = await DbSessionStorage.create({ id: "sess-null" });
-    const session = new Session(storage);
-    await session.appendMessage(userMsg("u1"));
+    await appendMessage(storage, userMsg("u1"));
     await storage.setLeafId(null);
     expect(await storage.getLeafId()).toBeNull();
     expect(await storage.getPathToRootOrCompaction(null)).toEqual([]);
@@ -253,23 +297,23 @@ describe("DbSessionStorage — reparentEntry (P3 topology reconcile)", () => {
 
     // Change: reparent e3 from e1 → e2. getPathToRootOrCompaction must follow the new parent.
     await storage.reparentEntry("e3", "e2");
-    expect((await storage.getEntry("e3"))?.parentId).toBe("e2");
+    expect((await entryById(storage, "e3"))?.parentId).toBe("e2");
     expect((await storage.getPathToRootOrCompaction("e3")).map((e) => e.id)).toEqual(["e1", "e2", "e3"]);
 
     // Persisted across reopen.
     const reopened = await DbSessionStorage.open("sess-reparent");
-    expect((await reopened.getEntry("e3"))?.parentId).toBe("e2");
+    expect((await entryById(reopened, "e3"))?.parentId).toBe("e2");
 
     // No-op when the parent is already the desired value (early return, no write).
     await storage.reparentEntry("e3", "e2");
-    expect((await storage.getEntry("e3"))?.parentId).toBe("e2");
+    expect((await entryById(storage, "e3"))?.parentId).toBe("e2");
 
     // Unknown entry rejects.
     await expect(storage.reparentEntry("nope", null)).rejects.toThrow();
   });
 });
 
-// ── 3. insertion-order axis + findEntries ───────────────────────────
+// ── 3. insertion-order axis vs tree order ───────────────────────────
 describe("DbSessionStorage — insertion order vs tree order", () => {
   beforeEach(async () => {
     await setupTestDb();
@@ -280,11 +324,10 @@ describe("DbSessionStorage — insertion order vs tree order", () => {
 
   test("getEntries is seq (insertion) order, distinct from tree order", async () => {
     const storage = await DbSessionStorage.create();
-    const session = new Session(storage);
-    const id1 = await session.appendMessage(userMsg("u1"));
-    const id2 = await session.appendMessage(assistantMsg("a1"));
-    await session.moveTo(id1); // 3rd insert = leaf pointer
-    const id4 = await session.appendMessage(userMsg("u2-branch")); // 4th insert, parent id1
+    const id1 = await appendMessage(storage, userMsg("u1"));
+    const id2 = await appendMessage(storage, assistantMsg("a1"));
+    await moveTo(storage, id1); // 3rd insert = leaf pointer
+    const id4 = await appendMessage(storage, userMsg("u2-branch")); // 4th insert, parent id1
 
     const insertion = (await storage.getEntries()).map((e) => e.id);
     expect(insertion).toHaveLength(4);
@@ -293,60 +336,25 @@ describe("DbSessionStorage — insertion order vs tree order", () => {
     expect(insertion[3]).toBe(id4);
 
     // Tree order is a SEPARATE axis: the branch skips the abandoned a1.
-    const branch = (await storage.getPathToRootOrCompaction(await storage.getLeafId())).map((e) => e.id);
+    const branch = (await branchOf(storage)).map((e) => e.id);
     expect(branch).toEqual([id1, id4]);
     expect(branch).not.toContain(id2);
   });
 
-  test("findEntries filters by type in insertion order", async () => {
+  test("the insertion axis keeps every entry type in append order", async () => {
     const storage = await DbSessionStorage.create();
-    const session = new Session(storage);
-    await session.appendMessage(userMsg("u1"));
-    await session.appendMessage(assistantMsg("a1"));
-    await session.appendSessionName("my session");
+    await appendMessage(storage, userMsg("u1"));
+    await appendMessage(storage, assistantMsg("a1"));
+    await storage.appendEntry({ type: "session_info", id: "si1", parentId: null, timestamp: "t", name: "my session" });
 
-    const msgs = await storage.findEntries("message");
-    expect(msgs).toHaveLength(2);
-    expect(msgs.every((e) => e.type === "message")).toBe(true);
-
-    const infos = await storage.findEntries("session_info");
-    expect(infos).toHaveLength(1);
+    const types = (await storage.getEntries()).map((e) => e.type);
+    expect(types).toEqual(["message", "message", "session_info"]);
+    const infos = (await storage.getEntries()).filter((e) => e.type === "session_info");
     expect((infos[0] as any).name).toBe("my session");
-    expect(await storage.findEntries("compaction")).toHaveLength(0);
   });
 });
 
-// ── 4. labels: latest-non-empty-wins derived cache, survives reopen ──
-describe("DbSessionStorage — label cache", () => {
-  beforeEach(async () => {
-    await setupTestDb();
-  }, 30_000);
-  afterAll(async () => {
-    await closeTestDb();
-  });
-
-  test("latest non-empty label wins; whitespace clears; both survive reopen", async () => {
-    const storage = await DbSessionStorage.create({ id: "sess-label" });
-    const session = new Session(storage);
-    const id1 = await session.appendMessage(userMsg("u1"));
-    await session.appendLabel(id1, "first");
-    expect(await storage.getLabel(id1)).toBe("first");
-    await session.appendLabel(id1, "second");
-    expect(await storage.getLabel(id1)).toBe("second");
-
-    const reopened = await DbSessionStorage.open("sess-label");
-    expect(await reopened.getLabel(id1)).toBe("second");
-
-    // A whitespace-only label clears the cache entry.
-    await new Session(reopened).appendLabel(id1, "   ");
-    expect(await reopened.getLabel(id1)).toBeUndefined();
-
-    const reopened2 = await DbSessionStorage.open("sess-label");
-    expect(await reopened2.getLabel(id1)).toBeUndefined();
-  });
-});
-
-// ── 5. fork-shaped data: shared entry ids across sessions (PK proof) ─
+// ── 4. fork-shaped data: shared entry ids across sessions (PK proof) ─
 describe("DbSessionStorage — fork PK + intra-session collision", () => {
   beforeEach(async () => {
     await setupTestDb();
@@ -368,8 +376,8 @@ describe("DbSessionStorage — fork PK + intra-session collision", () => {
     await a.appendEntry(shared);
     // Same entry id in a DIFFERENT session — allowed (PK is composite).
     await b.appendEntry({ ...shared });
-    expect((await a.getEntry("shared01"))?.id).toBe("shared01");
-    expect((await b.getEntry("shared01"))?.id).toBe("shared01");
+    expect((await entryById(a, "shared01"))?.id).toBe("shared01");
+    expect((await entryById(b, "shared01"))?.id).toBe("shared01");
 
     // Duplicate id WITHIN the same session rejects on the PK.
     await expect(a.appendEntry({ ...shared })).rejects.toThrow();
@@ -378,7 +386,7 @@ describe("DbSessionStorage — fork PK + intra-session collision", () => {
   });
 });
 
-// ── 6. jsonb + timestamp fidelity (PGlite round-trip + Bun.sql binding) ─
+// ── 5. jsonb + timestamp fidelity (PGlite round-trip + Bun.sql binding) ─
 describe("DbSessionStorage — payload + timestamp fidelity", () => {
   beforeEach(async () => {
     await setupTestDb();
@@ -399,10 +407,10 @@ describe("DbSessionStorage — payload + timestamp fidelity", () => {
       usage: { in: 10, out: 20 },
     } as unknown as AgentMessage;
     const storage = await DbSessionStorage.create({ id: "sess-fidelity" });
-    const id = await new Session(storage).appendMessage(rich);
+    const id = await appendMessage(storage, rich);
 
     const reopened = await DbSessionStorage.open("sess-fidelity");
-    const entry = await reopened.getEntry(id);
+    const entry = await entryById(reopened, id);
     expect((entry as any).message).toEqual(rich);
     // Value-level byte fidelity: unicode + deep nesting survive verbatim.
     const got = (entry as any).message;
@@ -410,12 +418,12 @@ describe("DbSessionStorage — payload + timestamp fidelity", () => {
     expect(got.content[1].input.nested.a[2].b).toBeNull();
   });
 
-  test("timestamp round-trips VERBATIM as pi's ISO string (TEXT column)", async () => {
+  test("timestamp round-trips VERBATIM as the ISO string it was given (TEXT column)", async () => {
     const storage = await DbSessionStorage.create({ id: "sess-ts" });
     const ts = "2026-07-11T12:34:56.789Z";
     await storage.appendEntry({ type: "message", id: "ts01", parentId: null, timestamp: ts, message: userMsg("x") });
     const reopened = await DbSessionStorage.open("sess-ts");
-    expect((await reopened.getEntry("ts01"))?.timestamp).toBe(ts);
+    expect((await entryById(reopened, "ts01"))?.timestamp).toBe(ts);
   });
 
   test("Bun.sql path: identity mapToDriverValue binds the payload natively (no double-encode)", async () => {
@@ -449,7 +457,10 @@ describe("DbSessionStorage — payload + timestamp fidelity", () => {
   });
 });
 
-// ── 7. compaction transform driven through the storage ──────────────
+// ── 6. the engine-side context transform over a stored branch ───────
+// The one describe that is about pi's context builder rather than about
+// storage: it feeds a REAL persisted branch (repo-owned entry types) into
+// pi's `buildSessionContext`, which is what the runtime ultimately targets.
 describe("DbSessionStorage — compaction context transform", () => {
   beforeEach(async () => {
     await setupTestDb();
@@ -460,14 +471,13 @@ describe("DbSessionStorage — compaction context transform", () => {
 
   test("compaction on branch drops pre-firstKeptEntryId and injects the summary", async () => {
     const storage = await DbSessionStorage.create();
-    const session = new Session(storage);
-    await session.appendMessage(userMsg("m1-dropped"));
-    const id2 = await session.appendMessage(userMsg("m2-kept"));
-    await session.appendMessage(assistantMsg("m3-kept"));
-    await session.appendCompaction("SUMMARY-TEXT", id2, 4321);
-    await session.appendMessage(userMsg("m4-post"));
+    await appendMessage(storage, userMsg("m1-dropped"));
+    const id2 = await appendMessage(storage, userMsg("m2-kept"));
+    await appendMessage(storage, assistantMsg("m3-kept"));
+    await appendCompaction(storage, "SUMMARY-TEXT", id2, 4321);
+    await appendMessage(storage, userMsg("m4-post"));
 
-    const ctx = await session.buildContext();
+    const ctx = buildSessionContext(await branchOf(storage));
     expect((ctx.messages[0] as any).role).toBe("compactionSummary");
     expect((ctx.messages[0] as any).summary).toBe("SUMMARY-TEXT");
     expect((ctx.messages[0] as any).tokensBefore).toBe(4321);
@@ -478,141 +488,7 @@ describe("DbSessionStorage — compaction context transform", () => {
   });
 });
 
-// ── 8. pi-agent-core 0.83.0 SessionStorage additions ────────────────
-// getSessionName / getSessionStats / the getEntries cursor / the compaction
-// stop in getPathToRootOrCompaction. Each is a port of memory-storage.js;
-// these assert the ported SEMANTICS, not just that the methods exist.
-
-describe("DbSessionStorage — getSessionName", () => {
-  beforeEach(async () => {
-    await setupTestDb();
-  }, 30_000);
-  afterAll(async () => {
-    await closeTestDb();
-  });
-
-  test("undefined with no session_info; latest non-blank wins; blank clears; survives reopen", async () => {
-    const storage = await DbSessionStorage.create({ id: "sess-name" });
-    const session = new Session(storage);
-    // EZCorp's own producer never writes session_info, so this is the
-    // realistic steady state.
-    expect(await storage.getSessionName()).toBeUndefined();
-
-    await session.appendSessionName("  first name  ");
-    expect(await storage.getSessionName()).toBe("first name");
-
-    // LAST entry wins (insertion order), not first.
-    await session.appendSessionName("second name");
-    expect(await storage.getSessionName()).toBe("second name");
-
-    // Read back off the DB, not the in-memory append.
-    expect(await (await DbSessionStorage.open("sess-name")).getSessionName()).toBe("second name");
-
-    // A whitespace-only name is treated as unset (`.trim() || undefined`).
-    await session.appendSessionName("   ");
-    expect(await storage.getSessionName()).toBeUndefined();
-    // …as is a session_info entry with no name at all.
-    await storage.appendEntry({ type: "session_info", id: "si-x", parentId: null, timestamp: "t" });
-    expect(await storage.getSessionName()).toBeUndefined();
-  });
-});
-
-describe("DbSessionStorage — getSessionStats", () => {
-  beforeEach(async () => {
-    await setupTestDb();
-  }, 30_000);
-  afterAll(async () => {
-    await closeTestDb();
-  });
-
-  test("empty session is all zeros", async () => {
-    expect(await (await DbSessionStorage.create()).getSessionStats()).toEqual({
-      messageCount: 0,
-      cachedTokens: 0,
-      uncachedTokens: 0,
-      totalTokens: 0,
-      costTotal: 0,
-    });
-  });
-
-  test("sums assistant + compaction + branch_summary usage; counts every message entry", async () => {
-    const storage = await DbSessionStorage.create({ id: "sess-stats" });
-    // messageCount counts BOTH roles; only the assistant turn carries usage.
-    await storage.appendEntry({ type: "message", id: "u1", parentId: null, timestamp: "t", message: userMsg("q") });
-    await storage.appendEntry({
-      type: "message",
-      id: "a1",
-      parentId: "u1",
-      timestamp: "t",
-      message: assistantMsgWithUsage("a", usage(10, 20, 5, 3, 0.5)),
-    });
-    // Entry-level usage on the two summary entry types.
-    await storage.appendEntry({
-      type: "branch_summary",
-      id: "bs1",
-      parentId: "a1",
-      timestamp: "t",
-      fromId: "u1",
-      summary: "s",
-      usage: usage(1, 2, 3, 4, 0.25),
-    } as unknown as SessionTreeEntry);
-    await storage.appendEntry({
-      type: "compaction",
-      id: "cp1",
-      parentId: "bs1",
-      timestamp: "t",
-      summary: "s",
-      tokensBefore: 99,
-      usage: usage(100, 0, 0, 0, 1),
-    } as unknown as SessionTreeEntry);
-    // Entries with no usage concept at all must not perturb the totals.
-    await storage.appendEntry({ type: "leaf", id: "lf1", parentId: null, timestamp: "t", targetId: "cp1" });
-
-    const stats = await storage.getSessionStats();
-    expect(stats.messageCount).toBe(2);
-    // cachedTokens = Σ cacheRead
-    expect(stats.cachedTokens).toBe(5 + 3 + 0);
-    // uncachedTokens = Σ (input + cacheWrite)
-    expect(stats.uncachedTokens).toBe(10 + 3 + (1 + 4) + 100);
-    // totalTokens = Σ (input + output + cacheRead + cacheWrite)
-    expect(stats.totalTokens).toBe(38 + 10 + 100);
-    expect(stats.costTotal).toBeCloseTo(1.75, 10);
-
-    // Reopening rebuilds from the DB and derives the same totals.
-    expect(await (await DbSessionStorage.open("sess-stats")).getSessionStats()).toEqual(stats);
-  });
-
-  test("a MALFORMED persisted usage blob is skipped, not summed as NaN", async () => {
-    // `payload` is jsonb — a partial usage object is representable, and
-    // summing it would poison every total with NaN.
-    const storage = await DbSessionStorage.create();
-    await storage.appendEntry({
-      type: "message",
-      id: "bad",
-      parentId: null,
-      timestamp: "t",
-      message: { role: "assistant", content: "x", usage: { input: 1 } } as unknown as AgentMessage,
-    });
-    const stats = await storage.getSessionStats();
-    expect(stats.messageCount).toBe(1);
-    expect(stats.totalTokens).toBe(0);
-    expect(Number.isNaN(stats.costTotal)).toBe(false);
-  });
-
-  test("counts the ABANDONED tail too (insertion axis, not the active branch)", async () => {
-    // pi sums what the session COST, so a rewound-past turn still counts.
-    const storage = await DbSessionStorage.create();
-    const session = new Session(storage);
-    const id1 = await session.appendMessage(userMsg("u1"));
-    await session.appendMessage(assistantMsgWithUsage("abandoned", usage(7, 0, 0, 0, 0.1)));
-    await session.moveTo(id1);
-
-    const stats = await storage.getSessionStats();
-    expect((await storage.getPathToRootOrCompaction(await storage.getLeafId())).map((e) => e.id)).toEqual([id1]);
-    expect(stats.totalTokens).toBe(7);
-    expect(stats.costTotal).toBeCloseTo(0.1, 10);
-  });
-});
+// ── 7. the getEntries cursor + the compaction stop ───────────────────
 
 describe("DbSessionStorage — getEntries cursor window", () => {
   beforeEach(async () => {
@@ -703,7 +579,7 @@ describe("DbSessionStorage — getPathToRootOrCompaction stops at a compaction",
       summary: "s",
       tokensBefore: 1,
       firstKeptEntryId: "m1",
-    } as unknown as SessionTreeEntry));
+    }));
     // m0 was summarized into `cp` and is NOT re-walked; m1 is the boundary.
     expect((await storage.getPathToRootOrCompaction("m3")).map((e) => e.id)).toEqual(["m1", "m2", "cp", "m3"]);
   });
@@ -717,7 +593,7 @@ describe("DbSessionStorage — getPathToRootOrCompaction stops at a compaction",
       summary: "s",
       tokensBefore: 1,
       retainedTail: [userMsg("kept")],
-    } as unknown as SessionTreeEntry));
+    }));
     expect((await storage.getPathToRootOrCompaction("m3")).map((e) => e.id)).toEqual(["cp", "m3"]);
   });
 
@@ -729,14 +605,14 @@ describe("DbSessionStorage — getPathToRootOrCompaction stops at a compaction",
       timestamp: "t",
       summary: "s",
       tokensBefore: 1,
-    } as unknown as SessionTreeEntry));
+    }));
     expect((await storage.getPathToRootOrCompaction("m3")).map((e) => e.id)).toEqual(["m0", "m1", "m2", "cp", "m3"]);
   });
 
   test("EZCorp's own entry types never take the early exit", async () => {
     // The producer (session-sync.ts) appends message / custom /
-    // branch_summary only — never compaction — so the rename is behaviour-
-    // preserving for every stored EZCorp tree.
+    // branch_summary only — never compaction — so the compaction stop is
+    // behaviour-preserving for every stored EZCorp tree.
     const storage = await DbSessionStorage.create();
     await storage.appendEntry({ type: "message", id: "p0", parentId: null, timestamp: "t", message: userMsg("a") });
     await storage.appendEntry({ type: "custom", id: "p1", parentId: "p0", timestamp: "t", customType: "x" });
@@ -747,7 +623,7 @@ describe("DbSessionStorage — getPathToRootOrCompaction stops at a compaction",
       timestamp: "t",
       fromId: "p0",
       summary: "s",
-    } as unknown as SessionTreeEntry);
+    });
     await storage.appendEntry({ type: "message", id: "p3", parentId: "p2", timestamp: "t", message: userMsg("b") });
     expect((await storage.getPathToRootOrCompaction("p3")).map((e) => e.id)).toEqual(["p0", "p1", "p2", "p3"]);
   });
@@ -809,44 +685,6 @@ describe("session-storage pure helpers", () => {
       ["aaaabbbb", { type: "message", id: "aaaabbbb", parentId: null, timestamp: "t", message: userMsg("m") }],
     ]);
     expect(generateEntryId(byId, () => fixed)).toBe(fixed);
-  });
-
-  test("updateLabelCache + buildLabelsById: latest non-empty wins, empty clears", () => {
-    const entries: SessionTreeEntry[] = [
-      { type: "label", id: "l1", parentId: null, timestamp: "t", targetId: "T", label: "one" },
-      { type: "label", id: "l2", parentId: null, timestamp: "t", targetId: "T", label: "two" },
-      { type: "message", id: "m", parentId: null, timestamp: "t", message: userMsg("m") },
-    ];
-    const cache = buildLabelsById(entries);
-    expect(cache.get("T")).toBe("two");
-    updateLabelCache(cache, { type: "label", id: "l3", parentId: null, timestamp: "t", targetId: "T", label: "  " });
-    expect(cache.get("T")).toBeUndefined();
-  });
-
-  test("completeUsage: accepts a full blob, rejects undefined / any missing counter / a missing cost.total", () => {
-    const full = usage(1, 2, 3, 4, 0.5);
-    expect(completeUsage(full)).toBe(full);
-    expect(completeUsage(undefined)).toBeUndefined();
-    // Each of the four token counters is individually load-bearing.
-    for (const field of ["input", "output", "cacheRead", "cacheWrite"]) {
-      expect(completeUsage({ ...full, [field]: "3" })).toBeUndefined();
-      expect(completeUsage({ ...full, [field]: undefined })).toBeUndefined();
-    }
-    // …as is cost.total, including when `cost` itself is absent.
-    expect(completeUsage({ ...full, cost: { ...full.cost, total: undefined } })).toBeUndefined();
-    expect(completeUsage({ ...full, cost: undefined })).toBeUndefined();
-  });
-
-  test("entryUsage: assistant message → message.usage; compaction/branch_summary → entry.usage; else undefined", () => {
-    const u = usage(1, 1, 1, 1, 0.1);
-    expect(entryUsage({ type: "message", id: "a", parentId: null, timestamp: "t", message: assistantMsgWithUsage("x", u) })).toBe(u);
-    // A user turn has no usage even though it IS a message entry.
-    expect(entryUsage({ type: "message", id: "u", parentId: null, timestamp: "t", message: userMsg("x") })).toBeUndefined();
-    expect(entryUsage({ type: "compaction", id: "c", parentId: null, timestamp: "t", summary: "s", tokensBefore: 1, usage: u } as any)).toBe(u);
-    expect(entryUsage({ type: "branch_summary", id: "b", parentId: null, timestamp: "t", fromId: "x", summary: "s", usage: u } as any)).toBe(u);
-    // A summary entry that carries no usage, and a type that never can.
-    expect(entryUsage({ type: "branch_summary", id: "b2", parentId: null, timestamp: "t", fromId: "x", summary: "s" } as any)).toBeUndefined();
-    expect(entryUsage({ type: "leaf", id: "l", parentId: null, timestamp: "t", targetId: null })).toBeUndefined();
   });
 
   test("entryToRow / rowToEntry are inverse (base columns + payload)", () => {

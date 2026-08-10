@@ -1,11 +1,11 @@
 import { eq } from "drizzle-orm";
-import type { AgentMessage, SessionTreeEntry } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, UserMessage } from "../types";
 import { PREPROCESS_RESULT_ROLE } from "../runtime/stream-chat/preprocess-shared";
 import { getDb } from "./connection";
 import { getLatestLeaf, getMessages } from "./queries/conversations";
 import { agentSessions } from "./schema";
-import { DbSessionStorage } from "./session-storage";
+import { DbSessionStorage, type SessionTreeEntry } from "./session-storage";
 import { isUniqueViolation } from "./unique-violation";
 
 /**
@@ -13,7 +13,7 @@ import { isUniqueViolation } from "./unique-violation";
  * tasks/2026-07-11-postgres-session-storage-design.md §7).
  *
  * Reconstructs a `DbSessionStorage` session tree for an EXISTING
- * conversation from its `messages` rows, so the pi Session read path can
+ * conversation from its `messages` rows, so the session read path can
  * reproduce today's `loadHistory` output. This slice is DARK — nothing in
  * the runtime request path calls it yet (P3 wires the lazy trigger); it is
  * exercised only by the read-parity suite

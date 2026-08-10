@@ -14,7 +14,7 @@
 
 ### The session tree is a mirror, not the source of truth for reads
 
-The `messages` table remains the system of record. `src/db/session-sync.ts` maintains a **parallel** pi session (`agent_sessions` + `agent_session_entries`) per conversation, lazily backfilled from `messages` on first use and live-appended as new assistant turns save. It exists to give the conversation two things the flat `messages` walk can't cheaply express: an append-only topology with a **persisted leaf pointer** (pi `getLeafId`/`moveTo`), and an O(delta) catch-up cursor.
+The `messages` table remains the system of record. `src/db/session-sync.ts` maintains a **parallel** session tree (`agent_sessions` + `agent_session_entries`) per conversation, lazily backfilled from `messages` on first use and live-appended as new assistant turns save. It exists to give the conversation two things the flat `messages` walk can't cheaply express: an append-only topology with a **persisted leaf pointer** (`DbSessionStorage.getLeafId` / `setLeafId`), and an O(delta) catch-up cursor. The tree's shape was ported from pi-agent-core's session storage, but the types are repo-owned (`src/db/session-storage.ts`) — nothing hands this storage to pi.
 
 Crucially, **the session leaf pointer is NOT authoritative for producer reads.** The branch that becomes the LLM's context is still chosen by the **client-carried `parentMessageId`** on each send (`loadHistory` → `computeBranch` → `computeSessionBranch(conversationId, parentMessageId)`), exactly as the legacy CTE walk did. The durable leaf drives **display + reload-restore + external consumers**, not the prompt. Keep that separation: content/excluded state is read live via a join against `messages`, so the cursor only gates *topology* appends.
 
