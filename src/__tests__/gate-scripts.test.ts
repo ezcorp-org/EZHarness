@@ -66,6 +66,16 @@ import {
   severityRank,
   utcToday,
 } from "../../scripts/audit-deps.ts";
+import {
+  checkEdge,
+  checkSource,
+  extractSpecifiers,
+  isTestPath,
+  resolveSpecifier,
+  WORKER_ALLOWED_EXACT,
+  WORKER_ALLOWED_PREFIXES,
+  WORKER_FORBIDDEN_SUBSYSTEMS,
+} from "../../scripts/check-boundaries.ts";
 
 // ── coverage-config ─────────────────────────────────────────────────────────
 describe("coverage-config helpers", () => {
@@ -322,43 +332,97 @@ describe("gate-integrity: testGuttingViolation", () => {
 
 // ── gate-integrity: forbidden test additions ────────────────────────────────
 describe("gate-integrity: forbidden test additions", () => {
+  /**
+   * The detector is content-aware (file text + the set of added line numbers),
+   * so these fixtures are written as LINES and joined — every line counts as
+   * added, which is what a brand-new hunk looks like.
+   */
+  const scan = (...lines: string[]): string[] =>
+    forbiddenTestAdditions(lines.join("\n"), new Set(lines.map((_, i) => i + 1)));
+
   test("flags .skip / .only / .todo and x/f variants", () => {
-    expect(forbiddenTestAdditions(["  it.skip('x', () => {})"]).length).toBe(1);
-    expect(forbiddenTestAdditions(["  describe.only('x', () => {})"]).length).toBe(1);
-    expect(forbiddenTestAdditions(["  test.todo('later')"]).length).toBe(1);
-    expect(forbiddenTestAdditions(["  xit('x', () => {})"]).length).toBe(1);
-    expect(forbiddenTestAdditions(["  fdescribe('x', () => {})"]).length).toBe(1);
+    expect(scan("  it.skip('x', () => {})").length).toBe(1);
+    expect(scan("  describe.only('x', () => {})").length).toBe(1);
+    expect(scan("  test.todo('later')").length).toBe(1);
+    expect(scan("  xit('x', () => {})").length).toBe(1);
+    expect(scan("  fdescribe('x', () => {})").length).toBe(1);
   });
   test("flags empty catch blocks", () => {
-    expect(forbiddenTestAdditions(["  try { x() } catch {}"]).length).toBe(1);
-    expect(forbiddenTestAdditions(["  } catch (e) {}"]).length).toBe(1);
+    expect(scan("  try { x() } catch {}").length).toBe(1);
+    expect(scan("  } catch (e) {}").length).toBe(1);
   });
   test("does not flag normal test code or commented-out skips", () => {
-    expect(forbiddenTestAdditions(["  it('real', () => { expect(1).toBe(1) })"])).toEqual([]);
-    expect(forbiddenTestAdditions(["  // it.skip('disabled')"])).toEqual([]);
-    expect(forbiddenTestAdditions(["  } catch (e) { handle(e) }"])).toEqual([]);
+    expect(scan("  it('real', () => { expect(1).toBe(1) })")).toEqual([]);
+    expect(scan("  // it.skip('disabled')")).toEqual([]);
+    expect(scan("  } catch (e) { handle(e) }")).toEqual([]);
   });
   test("does not flag skip/only/empty-catch that only appear inside a string literal", () => {
     // A line that merely MENTIONS the pattern inside a quoted string (e.g. this
     // gate's own test fixtures) is not an executable cheat — stripNoise drops the
     // string before matching, so it must not be flagged.
-    expect(forbiddenTestAdditions(['  expect(forbiddenTestAdditions(["it.skip(1)"])).toBe(1)'])).toEqual(
-      [],
-    );
-    expect(forbiddenTestAdditions(['  const sql = "describe.only(x)";'])).toEqual([]);
-    expect(forbiddenTestAdditions(['  const code = "try { x() } catch {}";'])).toEqual([]);
+    expect(scan('  expect(forbiddenTestAdditions(["it.skip(1)"])).toBe(1)')).toEqual([]);
+    expect(scan('  const sql = "describe.only(x)";')).toEqual([]);
+    expect(scan('  const code = "try { x() } catch {}";')).toEqual([]);
     // …but a REAL skip whose keyword is outside any string is still caught.
-    expect(forbiddenTestAdditions(['  it.skip("still caught", () => {})']).length).toBe(1);
+    expect(scan('  it.skip("still caught", () => {})').length).toBe(1);
   });
   test("allows runtime-conditional skips, still flags static/unconditional ones", () => {
     // ALLOWED — Playwright runtime gate on environment/data, not a dodge.
-    expect(forbiddenTestAdditions(['  test.skip(!RUN_REAL, "needs DOCKER_TEST=1")'])).toEqual([]);
-    expect(forbiddenTestAdditions(["  test.skip(!pending, 'nothing real to accept')"])).toEqual([]);
-    expect(forbiddenTestAdditions(["  it.skip(process.env.CI == null)"])).toEqual([]);
+    expect(scan('  test.skip(!RUN_REAL, "needs DOCKER_TEST=1")')).toEqual([]);
+    expect(scan("  test.skip(!pending, 'nothing real to accept')")).toEqual([]);
+    expect(scan("  it.skip(process.env.CI == null)")).toEqual([]);
     // FORBIDDEN — static named skip, unconditional no-arg skip, static suite skip.
-    expect(forbiddenTestAdditions(['  test.skip("permanently disabled", () => {})']).length).toBe(1);
-    expect(forbiddenTestAdditions(["  it.skip()"]).length).toBe(1);
-    expect(forbiddenTestAdditions(["  test.describe.skip('suite', () => {})"]).length).toBe(1);
+    expect(scan('  test.skip("permanently disabled", () => {})').length).toBe(1);
+    expect(scan("  it.skip()").length).toBe(1);
+    expect(scan("  test.describe.skip('suite', () => {})").length).toBe(1);
+  });
+
+  // ── layout insensitivity ──────────────────────────────────────────────────
+  // A line break must not hide a cheat. This is not hypothetical: a formatter
+  // broke `test.describe.skip(` into `test.describe` / `.skip(` in three e2e
+  // specs, and the per-line scan that preceded this stopped seeing all three
+  // (repo-wide detector-visible skips fell 23 -> 20). Hand-wrapping a long
+  // title past the margin does the same thing.
+  test("catches a skip/only/todo whose member chain is SPLIT across lines", () => {
+    expect(scan("test.describe", '  .skip("Landing page", () => {', "});").length).toBe(1);
+    expect(scan("test", '  .only("x", () => {});').length).toBe(1);
+    expect(scan("it", '  .todo("later");').length).toBe(1);
+    expect(scan("test", '  .skip("name", fn);').length).toBe(1);
+    // The whole construct is reported as one finding, not one per line.
+    expect(scan("test.describe", '  .skip("Landing page", () => {', "});")[0]).toContain(
+      "test.describe .skip",
+    );
+  });
+  test("catches an empty catch whose braces are SPLIT across lines", () => {
+    expect(scan("try { x(); } catch (e)", "{", "}").length).toBe(1);
+    expect(scan("} catch {", "}").length).toBe(1);
+  });
+  test("a comment-only catch body is NOT an empty catch", () => {
+    // The rule is unchanged by this hardening: a documented swallow keeps its
+    // body. Stripping comments before matching would turn ~180 existing
+    // `catch { /* why */ }` into violations — a change to the RULE, not to
+    // line-break tolerance. EMPTY_CATCH must therefore hold in the RAW source.
+    expect(scan("} catch {", "  // best-effort, nothing to do", "}")).toEqual([]);
+    expect(scan("try { x(); } catch { /* swallow */ }")).toEqual([]);
+  });
+  test("prose in a BLOCK comment is not a cheat", () => {
+    // `\bfit\b` matches the English word "fit"; `describe.skip` appears in
+    // doc comments that explain how to re-enable a suite. Neither is code.
+    expect(scan("/**", " * trims whole turns to fit a per-model budget.", " */")).toEqual([]);
+    expect(scan("/**", " * → flip `test.describe.skip` to `test.describe`.", " */")).toEqual([]);
+    expect(scan("/* try { x() } catch {} */")).toEqual([]);
+  });
+  test("an unrelated .skip() method call is not a test skip", () => {
+    expect(scan("const rows = cursor.skip(10);")).toEqual([]);
+    expect(scan("const rows = query", "  .skip(5)", "  .take(10);")).toEqual([]);
+  });
+  test("only findings that INTERSECT an added line are reported", () => {
+    // Diff-scoping is unchanged: an untouched pre-existing skip stays silent.
+    const src = ["test.describe", '  .skip("old suite", () => {});', 'test("new", () => {});'].join(
+      "\n",
+    );
+    expect(forbiddenTestAdditions(src, new Set([3]))).toEqual([]);
+    expect(forbiddenTestAdditions(src, new Set([2])).length).toBe(1);
   });
 });
 
@@ -1685,4 +1749,186 @@ describe("gate-integrity: biome CONFIG FILE moves (check 10)", () => {
     ].join("\n");
     expect(biomeConfigFileViolations(quiet)).toEqual([]);
   });
+});
+
+// ── check-boundaries ────────────────────────────────────────────────────────
+
+describe("check-boundaries: resolveSpecifier", () => {
+  test("relative specifiers resolve against the IMPORTING FILE's directory", () => {
+    // The whole reason this is a resolver and not a glob: the same textual
+    // specifier means different things depending on where it is written.
+    expect(resolveSpecifier("web/src/lib/x.ts", "../../../src/types")).toBe("src/types");
+    expect(resolveSpecifier("worker/src/index.ts", "../../src/runtime/events")).toBe(
+      "src/runtime/events",
+    );
+    expect(resolveSpecifier("packages/@ezcorp/ai-kit/test/unit/a.test.ts", "../../src/client")).toBe(
+      "packages/@ezcorp/ai-kit/src/client",
+    );
+  });
+
+  test("SvelteKit aliases resolve to their real trees", () => {
+    expect(resolveSpecifier("web/src/lib/x.ts", "$server/auth/types")).toBe("src/auth/types");
+    expect(resolveSpecifier("web/src/routes/+page.svelte", "$lib/api")).toBe("web/src/lib/api");
+  });
+
+  test("non-first-party specifiers are not our business", () => {
+    for (const spec of ["bun:test", "node:path", "@ezcorp/sdk", "zod", "@sveltejs/kit"]) {
+      expect(resolveSpecifier("src/a.ts", spec)).toBeNull();
+    }
+    // Escaping the repo entirely resolves to null rather than a bogus path.
+    expect(resolveSpecifier("src/a.ts", "../../../../../etc/passwd")).toBeNull();
+  });
+});
+
+describe("check-boundaries: the cases a glob CANNOT distinguish", () => {
+  // Every specifier below contains the substring `src/`. A biome
+  // `noRestrictedImports` pattern like `**/src/**` matches the raw specifier
+  // and would flag all three; only the first is actually a violation. These
+  // are the measured in-tree shapes that ruled out the lint-rule approach.
+  test("package-local ../src/client is LEGAL (does not escape the package)", () => {
+    expect(checkEdge("packages/@ezcorp/ai-kit/test/unit/client.test.ts", "../../src/client")).toBeNull();
+    expect(checkEdge("packages/@ezcorp/sdk/test/loop.test.ts", "../src/runtime/loop")).toBeNull();
+  });
+
+  test("intra-web ../src/lib/api.js from web/e2e is LEGAL", () => {
+    expect(checkEdge("web/e2e/fixtures/api-mocks.ts", "../../src/lib/fuzzy-match.js")).toBeNull();
+    expect(checkEdge("web/e2e/provider-settings.spec.ts", "../src/lib/api.js")).toBeNull();
+  });
+
+  test("a package escaping to the app IS a violation, at any ../ depth", () => {
+    const shallow = checkEdge("packages/@ezcorp/sdk/src/a.ts", "../../../../src/db/connection");
+    expect(shallow?.rule).toBe("packages-no-app-imports");
+    const deep = checkEdge(
+      "packages/@ezcorp/ai-kit/src/mcp/tools/deep.ts",
+      "../../../../../../src/extensions/manifest",
+    );
+    expect(deep?.rule).toBe("packages-no-app-imports");
+  });
+});
+
+describe("check-boundaries: packages must not import the app", () => {
+  test("production package code importing src/ or web/ is rejected", () => {
+    const a = checkEdge("packages/@ezcorp/harness-client/src/index.ts", "../../../../src/api-registry");
+    expect(a?.rule).toBe("packages-no-app-imports");
+    expect(a?.why).toContain("would not resolve for a consumer");
+
+    const b = checkEdge(
+      "packages/@ezcorp/harness-client/src/index.ts",
+      "../../../../web/src/lib/runtime-event-names",
+    );
+    expect(b?.rule).toBe("packages-no-app-imports");
+  });
+
+  test("the rule is PRODUCTION-only — package tests may assert parity against the app", () => {
+    // Deliberate scope, not an allowlist: harness-client's suite imports the
+    // app's canonical RUNTIME_EVENT_NAMES precisely to assert the package's
+    // copy has not drifted, and ai-kit validates its manifest with the host's
+    // authoritative validator. Forbidding those would force duplicating the
+    // very constant the guard exists to compare against.
+    expect(
+      checkEdge(
+        "packages/@ezcorp/harness-client/src/index.test.ts",
+        "../../../../web/src/lib/runtime-event-names",
+      ),
+    ).toBeNull();
+    expect(
+      checkEdge(
+        "packages/@ezcorp/ai-kit/test/integration/extension.test.ts",
+        "../../../../../src/extensions/manifest",
+      ),
+    ).toBeNull();
+    // …and the distinction is carried by isTestPath, not by a path list.
+    expect(isTestPath("packages/@ezcorp/harness-client/src/index.test.ts")).toBe(true);
+    expect(isTestPath("packages/@ezcorp/harness-client/src/index.ts")).toBe(false);
+  });
+});
+
+describe("check-boundaries: the worker runtime allowlist", () => {
+  test("the legal surface passes — exactly what worker/src/index.ts imports today", () => {
+    for (const spec of [
+      "../../src/types",
+      "../../src/runtime/events",
+      "../../src/runtime/executor",
+      "../../src/runtime/loader",
+    ]) {
+      expect(checkEdge("worker/src/index.ts", spec), `${spec} must be legal`).toBeNull();
+    }
+  });
+
+  test("every node-only subsystem is named in the diagnostic, not just refused", () => {
+    for (const sub of WORKER_FORBIDDEN_SUBSYSTEMS) {
+      const v = checkEdge("worker/src/index.ts", `../../src/${sub}/anything`);
+      expect(v?.rule, `src/${sub} must be forbidden`).toBe("worker-no-node-only-subsystems");
+      expect(v?.why).toContain(`src/${sub}/**`);
+      expect(v?.why).toContain("Workers");
+    }
+  });
+
+  test("ALLOWLIST shape: a new src/ import outside the surface fails by default", () => {
+    // The point of an allowlist over a denylist — a subsystem nobody has
+    // thought of yet is refused without anyone editing this file.
+    const v = checkEdge("worker/src/index.ts", "../../src/brand-new-subsystem/thing");
+    expect(v?.rule).toBe("worker-runtime-allowlist");
+    expect(v?.why).toContain("src/runtime/");
+  });
+
+  test("the allowlist constants are the ones the rule actually enforces", () => {
+    // Guards against the constants drifting into decoration.
+    expect(WORKER_ALLOWED_PREFIXES).toContain("src/runtime/");
+    expect(WORKER_ALLOWED_EXACT).toContain("src/types");
+    expect(checkEdge("worker/src/index.ts", "../../src/types.ts")).toBeNull();
+  });
+
+  test("worker importing its own files, or a bare package, is untouched", () => {
+    expect(checkEdge("worker/src/index.ts", "./helper")).toBeNull();
+    expect(checkEdge("worker/src/index.ts", "@ezcorp/sdk")).toBeNull();
+  });
+});
+
+describe("check-boundaries: source scanning", () => {
+  test("extractSpecifiers finds every import form the repo uses", () => {
+    const src = [
+      `import a from "./a";`,
+      `import { b } from '../b';`,
+      `export { c } from "./c";`,
+      `const d = await import("./d");`,
+      `const e = require("./e");`,
+      `import type { F } from "$server/f";`,
+    ].join("\n");
+    expect(extractSpecifiers(src)).toEqual(["./a", "../b", "./c", "./d", "./e", "$server/f"]);
+  });
+
+  test("checkSource reports every violating edge in a file", () => {
+    const src = [
+      `import { a } from "../../src/db/connection";`,
+      `import { b } from "../../src/runtime/events";`, // legal
+      `import { c } from "../../src/auth/middleware";`,
+    ].join("\n");
+    const vs = checkSource("worker/src/index.ts", src);
+    expect(vs.map((v) => v.target)).toEqual(["src/db/connection", "src/auth/middleware"]);
+  });
+
+  test("THE REPO ITSELF PASSES — the gate is green on the real tree", async () => {
+    // Not a smoke test: this is the assertion that the three shipped rules are
+    // genuinely at zero, so the gate needs no baseline file. If someone adds a
+    // violating import, this fails here before CI.
+    const proc = Bun.spawnSync(["git", "ls-files"], {
+      cwd: join(import.meta.dir, "..", ".."),
+      stdout: "pipe",
+    });
+    const files = proc.stdout
+      .toString()
+      .split("\n")
+      .filter((f) => /\.(?:ts|tsx|js|mjs|cjs|svelte)$/.test(f));
+    expect(files.length).toBeGreaterThan(100); // not vacuous
+    const violations = [];
+    for (const f of files) {
+      const text = await Bun.file(join(import.meta.dir, "..", "..", f)).text().catch(() => "");
+      if (text) violations.push(...checkSource(f, text));
+    }
+    expect(
+      violations.map((v) => `${v.from} -> ${v.spec} [${v.rule}]`),
+      "the shipped rules must stay at zero — this gate has no baseline by design",
+    ).toEqual([]);
+  }, 120_000);
 });

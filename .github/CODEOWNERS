@@ -62,6 +62,13 @@
 /scripts/audit-deps.ts              @EZArchy
 /scripts/audit-allowlist.json       @EZArchy
 
+# Architectural dependency boundaries. Owned for the same reason as the
+# allowlist above: `scripts/` has no catch-all, and every rule here is a gate
+# whose LOOSENING is invisible in a diff read casually — widening the worker
+# allowlist or dropping the production-only scope on the package rule would
+# each re-open a boundary without touching a test.
+/scripts/check-boundaries.ts        @EZArchy
+
 # Test-runner + lint config that decides what runs and how strictly.
 /biome.json                         @EZArchy
 /bunfig.toml                        @EZArchy
