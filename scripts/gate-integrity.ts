@@ -407,57 +407,241 @@ function stripNoise(line: string): string {
 }
 
 /**
- * Find `test()/it()` blocks in `fileContent` that overlap any added line and
- * contain no assertion. Returns a short label per offending block.
+ * Per-character "is this CODE?" mask for a whole file — 1 outside strings,
+ * template literals and comments, 0 inside them. Newlines are always 1 so line
+ * arithmetic is unaffected.
  *
- * Heuristic brace-matcher: starts at the first `{` after a test opener and
- * scans to the matching close, ignoring braces inside strings/comments.
+ * WHY A WHOLE-FILE PASS. {@link stripNoise} is per LINE, so its quote state
+ * resets at every newline. A multi-line template literal therefore leaks its
+ * insides back into "code" from line two onward, and the braces in
+ * `` `${JSON.stringify({ … })}` `` get counted by the block matcher. Measured
+ * on this tree: that mis-scoped 18 test blocks, ending them early so an
+ * assertion that IS inside the block fell outside the scanned range and the
+ * test was reported vacuous. Tracking state across the whole file removes that
+ * class outright.
+ *
+ * Template interpolations are handled properly: the `${ … }` payload is real
+ * code (it can contain calls, and `expect(` inside one is a genuine
+ * assertion), so the mask re-enters code inside the braces and returns to
+ * string afterwards, at any nesting depth.
+ *
+ * REGEX LITERALS ARE TRACKED, and they have to be. A regex routinely carries
+ * both quotes and parens — `/from\s+["']\$server\/…["']/` and
+ * `/color:(rgb\([^)]*\))/g` are real lines in this repo. Leaving them as code
+ * lets a `"` inside one open a phantom string that desynchronises the mask for
+ * the REST OF THE FILE. The previous per-line scanner was accidentally
+ * insulated from this (its quote state reset at every newline, containing the
+ * damage to one line); a whole-file pass is not, so the protection has to be
+ * real. Measured: without this, two blocks that plainly contain `expect(`
+ * (`feature-scan.test.ts:590`, `markdown-render.test.ts:317`) were reported
+ * vacuous.
+ *
+ * `/` is divide-or-regex, so it is disambiguated by the previous significant
+ * code character — the standard lexer rule: after a value (`)`, `]`, an
+ * identifier, a number) it is division; after an operator, `(`, `,`, `=`, `:`,
+ * `[`, `!`, `&`, `|`, `?`, `{`, `}`, `;`, or `return`/`typeof`/`case`, it
+ * opens a regex.
+ *
+ * `scripts/gate-integrity.ts` runs in a CI job with NO dependencies installed
+ * (ci.yml: "no deps needed"), so a real parser is not available here — this is
+ * a lexer-grade approximation, and the tree-wide sweep in the PR body is the
+ * evidence it holds on this codebase.
  */
-export function unassertedAddedBlocks(fileContent: string, addedLines: Set<number>): string[] {
-  // Blank block comments first (newline-preserving) so a doc-comment phrase
-  // like "e2e self-test (mockApi)" can't masquerade as a `test(` opener.
-  const lines = stripBlockComments(fileContent).split("\n");
-  const out: string[] = [];
-  for (let i = 0; i < lines.length; i++) {
-    const raw = lines[i]!;
-    if (!TEST_OPENER.test(stripNoise(raw))) continue;
-    // Find opening brace of the callback, from this line forward.
-    let depth = 0;
-    let started = false;
-    let endLine = i;
-    let hasAssertion = false;
-    let foundOpen = false;
-    for (let j = i; j < lines.length; j++) {
-      const code = stripNoise(lines[j]!);
-      if (ASSERTION.test(lines[j]!)) hasAssertion = true;
-      for (const ch of code) {
-        if (ch === "{") {
-          depth++;
-          started = true;
-          foundOpen = true;
-        } else if (ch === "}") {
-          depth--;
+export function codeMask(src: string): Uint8Array {
+  const mask = new Uint8Array(src.length).fill(1);
+  // Stack of template-literal depths so `${ }` nesting resolves correctly.
+  const tmplBraceDepth: number[] = [];
+  let i = 0;
+  let quote: string | null = null;
+  let inLine = false;
+  let inBlock = false;
+  let inRegex = false;
+  let inClass = false; // inside a regex character class `[ … ]`
+  // Last significant CODE character, for `/` divide-vs-regex disambiguation.
+  let prev = "";
+  const REGEX_PRECEDERS = new Set([
+    "", "(", ",", "=", ":", "[", "!", "&", "|", "?", "{", "}", ";", "+", "-", "*", "%", "<", ">", "~", "^",
+  ]);
+  const KEYWORD_BEFORE_REGEX = /\b(?:return|typeof|case|in|of|delete|void|instanceof|new|do|else|yield|await)$/;
+  while (i < src.length) {
+    const ch = src[i]!;
+    const next = src[i + 1];
+    if (inRegex) {
+      mask[i] = 0;
+      if (ch === "\\") { if (i + 1 < src.length) mask[i + 1] = 0; i += 2; continue; }
+      if (ch === "[") inClass = true;
+      else if (ch === "]") inClass = false;
+      else if (ch === "/" && !inClass) { inRegex = false; prev = "/"; }
+      else if (ch === "\n") { inRegex = false; inClass = false; mask[i] = 1; } // unterminated: bail at EOL
+      i++;
+      continue;
+    }
+    if (ch === "\n") {
+      inLine = false;
+      i++;
+      continue; // newline stays code(1)
+    }
+    if (inLine || inBlock) {
+      mask[i] = 0;
+      if (inBlock && ch === "*" && next === "/") {
+        mask[i + 1] = 0;
+        i += 2;
+        inBlock = false;
+        continue;
+      }
+      i++;
+      continue;
+    }
+    if (quote) {
+      mask[i] = 0;
+      if (ch === "\\") {
+        if (i + 1 < src.length) mask[i + 1] = 0;
+        i += 2;
+        continue;
+      }
+      // `${` opens a real-code interpolation inside a template literal.
+      if (quote === "`" && ch === "$" && next === "{") {
+        mask[i + 1] = 1;
+        tmplBraceDepth.push(1);
+        quote = null;
+        i += 2;
+        continue;
+      }
+      if (ch === quote) quote = null;
+      i++;
+      continue;
+    }
+    // Inside a `${ … }` interpolation: track braces to find its end.
+    if (tmplBraceDepth.length > 0) {
+      if (ch === "{") tmplBraceDepth[tmplBraceDepth.length - 1]!++;
+      else if (ch === "}") {
+        tmplBraceDepth[tmplBraceDepth.length - 1]!--;
+        if (tmplBraceDepth[tmplBraceDepth.length - 1] === 0) {
+          tmplBraceDepth.pop();
+          mask[i] = 0; // the closing `}` belongs to the literal
+          quote = "`"; // back inside the template
+          i++;
+          continue;
         }
       }
-      if (started && depth <= 0) {
-        endLine = j;
-        break;
-      }
-      endLine = j;
     }
-    if (!foundOpen) continue;
-    // 1-based line range [i+1, endLine+1].
+    if (ch === "/" && next === "/") {
+      inLine = true;
+      mask[i] = 0;
+      i++;
+      continue;
+    }
+    if (ch === "/" && next === "*") {
+      inBlock = true;
+      mask[i] = 0;
+      i++;
+      continue;
+    }
+    if (ch === '"' || ch === "'" || ch === "`") {
+      quote = ch;
+      mask[i] = 0;
+      prev = ch;
+      i++;
+      continue;
+    }
+    if (ch === "/") {
+      const before = src.slice(Math.max(0, i - 12), i);
+      if (REGEX_PRECEDERS.has(prev) || KEYWORD_BEFORE_REGEX.test(before.trimEnd())) {
+        inRegex = true;
+        inClass = false;
+        mask[i] = 0;
+        i++;
+        continue;
+      }
+    }
+    if (!/\s/.test(ch)) prev = ch;
+    i++;
+  }
+  return mask;
+}
+
+/**
+ * Find `test()/it()` calls in `fileContent` that overlap any added line and
+ * contain no assertion. Returns a short label per offending call.
+ *
+ * EXTENT IS THE WHOLE CALL, from `test(` to its matching `)`, measured with a
+ * whole-file {@link codeMask} so strings/templates/comments can't shift it.
+ * The previous version looked for the first `{` after the opener and matched
+ * braces from there, which has two measured defects:
+ *
+ *   1. a multi-line template literal leaked braces into the count and ended
+ *      the block early — 18 blocks on this tree contained an assertion that
+ *      fell outside the scanned range and were reported vacuous;
+ *   2. a CONCISE ARROW body has no `{` at all, so `foundOpen` stayed false and
+ *      the block was SKIPPED ENTIRELY. `test("x", () => helper())` was never
+ *      examined — about 14 such blocks on this tree, and a genuinely vacuous
+ *      one was invisible to the gate.
+ *
+ * Matching parentheses instead of braces covers both shapes with one rule.
+ *
+ * What counts as an assertion is UNCHANGED — same {@link ASSERTION} pattern,
+ * applied to the same code-only text. This commit fixes WHERE the gate looks,
+ * never WHAT it accepts; helper-wrapped assertions (`expectFail(…)`) remain
+ * flagged and are a separate, deliberate decision.
+ *
+ * Hooks were never in scope and still are not: {@link TEST_OPENER} requires
+ * `test`/`it` immediately followed by `(`, so `test.beforeEach(`,
+ * `test.describe(` and `describe(` do not match.
+ */
+export function unassertedAddedBlocks(fileContent: string, addedLines: Set<number>): string[] {
+  const mask = codeMask(fileContent);
+  // Code-only projection: non-code bytes become spaces, so offsets and line
+  // numbers line up exactly with the original text.
+  let code = "";
+  for (let i = 0; i < fileContent.length; i++) {
+    code += mask[i] ? fileContent[i]! : fileContent[i] === "\n" ? "\n" : " ";
+  }
+  const lineOf = (idx: number): number => {
+    let n = 1;
+    for (let i = 0; i < idx; i++) if (code[i] === "\n") n++;
+    return n;
+  };
+  const rawLines = fileContent.split("\n");
+
+  const out: string[] = [];
+  const opener = new RegExp(TEST_OPENER.source, "g");
+  for (const m of code.matchAll(opener)) {
+    // TEST_OPENER may consume a LEADING non-word char (often the newline
+    // before `test(`), so `m.index` can sit on the previous line. Report from
+    // the keyword itself or the finding names the wrong line — the existing
+    // doc-comment test catches exactly that.
+    const kw = m.index! + (m[0]!.match(/(?:test|it)\s*\($/)?.index ?? 0);
+    // The opener may include a leading non-word char; find its own `(`.
+    const open = code.indexOf("(", kw);
+    if (open < 0) continue;
+    let depth = 0;
+    let close = -1;
+    for (let i = open; i < code.length; i++) {
+      const c = code[i];
+      if (c === "(") depth++;
+      else if (c === ")") {
+        depth--;
+        if (depth === 0) {
+          close = i;
+          break;
+        }
+      }
+    }
+    if (close < 0) continue; // unbalanced — leave it alone rather than guess
+    const from = lineOf(kw);
+    const to = lineOf(close);
     let touched = false;
-    for (let ln = i + 1; ln <= endLine + 1; ln++) {
+    for (let ln = from; ln <= to; ln++) {
       if (addedLines.has(ln)) {
         touched = true;
         break;
       }
     }
-    if (touched && !hasAssertion) {
-      out.push(`vacuous test (no assertion) near line ${i + 1}: ${raw.trim().slice(0, 80)}`);
-    }
-    i = endLine; // skip past this block
+    if (!touched) continue;
+    if (ASSERTION.test(code.slice(kw, close + 1))) continue;
+    out.push(
+      `vacuous test (no assertion) near line ${from}: ${(rawLines[from - 1] ?? "").trim().slice(0, 80)}`,
+    );
   }
   return out;
 }
