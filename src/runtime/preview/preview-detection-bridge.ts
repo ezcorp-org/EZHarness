@@ -80,7 +80,12 @@ export function emitDetectionDecision(
 
   let output: unknown;
   if (decision.kind === "auto-exposed") {
-    const url = buildPreviewOpenUrl(decision.subdomainLabel, decision.code, opts.appHost, opts.secure);
+    const url = buildPreviewOpenUrl(
+      decision.subdomainLabel,
+      decision.code,
+      opts.appHost,
+      opts.secure,
+    );
     output = {
       kind: "auto-exposed",
       previewId: decision.previewId,

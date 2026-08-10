@@ -428,9 +428,9 @@ describe("setDelegationRunBounds — adjust the bounds, touch NOTHING else", () 
     const updated = await setDelegationRunBounds(before.id, { maxRunsPerDay: 96 });
     expect(updated?.maxRunsPerDay).toBe(96);
     expect(updated?.maxTokensPerRun).toBe(before.maxTokensPerRun);
-    expect(
-      frozenFields(updated as unknown as Record<string, unknown>, ["maxRunsPerDay"]),
-    ).toEqual(frozenFields(before as unknown as Record<string, unknown>, ["maxRunsPerDay"]));
+    expect(frozenFields(updated as unknown as Record<string, unknown>, ["maxRunsPerDay"])).toEqual(
+      frozenFields(before as unknown as Record<string, unknown>, ["maxRunsPerDay"]),
+    );
   });
 
   test("BOTH at once is one write, and still touches nothing else", async () => {
@@ -486,7 +486,10 @@ describe("setDelegationRunBounds — adjust the bounds, touch NOTHING else", () 
     const created = await createWorkflowDelegation(consentInput());
     expect(created.ok).toBe(true);
     if (!created.ok) return;
-    expect((await setDelegationRunBounds(created.delegation.id, { maxTokensPerRun: 1 }))?.maxTokensPerRun).toBe(1);
+    expect(
+      (await setDelegationRunBounds(created.delegation.id, { maxTokensPerRun: 1 }))
+        ?.maxTokensPerRun,
+    ).toBe(1);
   });
 
   test("a REVOKED delegation is refused — a tombstone has no budget to adjust", async () => {
@@ -495,7 +498,9 @@ describe("setDelegationRunBounds — adjust the bounds, touch NOTHING else", () 
     if (!created.ok) return;
     await revokeWorkflowDelegation(created.delegation.id);
 
-    expect(await setDelegationRunBounds(created.delegation.id, { maxTokensPerRun: 99_000 })).toBeUndefined();
+    expect(
+      await setDelegationRunBounds(created.delegation.id, { maxTokensPerRun: 99_000 }),
+    ).toBeUndefined();
     // …and the refusal wrote nothing.
     expect((await getWorkflowDelegation(created.delegation.id))?.maxTokensPerRun).toBe(5000);
   });
@@ -510,10 +515,14 @@ describe("setDelegationRunBounds — adjust the bounds, touch NOTHING else", () 
     if (!created.ok) return;
     expect(await disableWorkflowDelegation(created.delegation.id, "the world moved")).toBe(true);
 
-    expect(await setDelegationRunBounds(created.delegation.id, { maxTokensPerRun: 99_000 })).toBeUndefined();
+    expect(
+      await setDelegationRunBounds(created.delegation.id, { maxTokensPerRun: 99_000 }),
+    ).toBeUndefined();
     // The SECOND bound is refused by the same CAS. Adding a field to a
     // writer is exactly how a liveness filter gets bypassed for one arm.
-    expect(await setDelegationRunBounds(created.delegation.id, { maxRunsPerDay: 96 })).toBeUndefined();
+    expect(
+      await setDelegationRunBounds(created.delegation.id, { maxRunsPerDay: 96 }),
+    ).toBeUndefined();
     const after = await getWorkflowDelegation(created.delegation.id);
     expect(after?.maxTokensPerRun).toBe(5000);
     expect(after?.maxRunsPerDay).toBe(24);
@@ -522,7 +531,9 @@ describe("setDelegationRunBounds — adjust the bounds, touch NOTHING else", () 
   });
 
   test("an unknown id is undefined, not a throw", async () => {
-    expect(await setDelegationRunBounds(crypto.randomUUID(), { maxTokensPerRun: 10 })).toBeUndefined();
+    expect(
+      await setDelegationRunBounds(crypto.randomUUID(), { maxTokensPerRun: 10 }),
+    ).toBeUndefined();
   });
 });
 
@@ -551,10 +562,7 @@ describe("toWorkflowDelegationView — one shape, three routes", () => {
     const created = await createWorkflowDelegation(consentInput());
     expect(created.ok).toBe(true);
     if (!created.ok) return;
-    const view = toWorkflowDelegationView(created.delegation) as unknown as Record<
-      string,
-      unknown
-    >;
+    const view = toWorkflowDelegationView(created.delegation) as unknown as Record<string, unknown>;
     expect(Object.hasOwn(view, "consentHash")).toBe(false);
     // Same argument, same reason: the advisory graph digest is a value a
     // client could use to assert its own freshness.
@@ -627,8 +635,12 @@ describe("carryDelegationConsentForward — re-stamp a live consent, nothing els
     await revokeWorkflowDelegation(revoked.delegation.id);
     await disableWorkflowDelegation(disabled.delegation.id, "stopped");
 
-    expect(await carryDelegationConsentForward(revoked.delegation.id, "hash-1", CARRIED)).toBe(false);
-    expect(await carryDelegationConsentForward(disabled.delegation.id, "hash-1", CARRIED)).toBe(false);
+    expect(await carryDelegationConsentForward(revoked.delegation.id, "hash-1", CARRIED)).toBe(
+      false,
+    );
+    expect(await carryDelegationConsentForward(disabled.delegation.id, "hash-1", CARRIED)).toBe(
+      false,
+    );
     expect((await getWorkflowDelegation(revoked.delegation.id))?.consentHash).toBe("hash-1");
     expect((await getWorkflowDelegation(disabled.delegation.id))?.definitionHash).toBe("def-1");
   });
@@ -659,9 +671,7 @@ describe("pinnedVersionIds — the version sweep actually honours a live delegat
 
   test("a live delegation's version is pinned; a revoked one's is not", async () => {
     const { pinned } = await seedVersions();
-    const created = await createWorkflowDelegation(
-      consentInput({ definitionVersionId: pinned }),
-    );
+    const created = await createWorkflowDelegation(consentInput({ definitionVersionId: pinned }));
     expect(created.ok).toBe(true);
     if (!created.ok) return;
     expect(await listPinnedDelegationVersionIds()).toEqual([pinned]);

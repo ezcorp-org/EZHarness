@@ -44,11 +44,7 @@ const { _internals, _resetBindingsForTests } = await import(
 import type { AgentExecutor } from "../runtime/executor";
 import type { EventBus as EventBusType } from "../runtime/events";
 import type { AgentEvents } from "../types";
-import type {
-  TaskAssignment,
-  TrackedTask,
-  TaskSnapshot,
-} from "../runtime/task-tracking-host";
+import type { TaskAssignment, TrackedTask, TaskSnapshot } from "../runtime/task-tracking-host";
 
 describe("autonomous continuation ↔ orchestration wait (integration)", () => {
   test("loops across cycles; parent invoke_agent resolves only on the terminal sentinel cycle", async () => {
@@ -58,33 +54,34 @@ describe("autonomous continuation ↔ orchestration wait (integration)", () => {
     const conversationId = "conv-int";
 
     // Scripted sub-agent outputs: two working turns, then the sentinel.
-    const outputs = [
-      "made some progress",
-      "more progress",
-      "everything is done <<TASK_DONE>>",
-    ];
+    const outputs = ["made some progress", "more progress", "everything is done <<TASK_DONE>>"];
     let callIdx = 0;
     const streamChatCalls: string[] = [];
     const streamChat = mock(
-      async (
-        _subConvId: string,
-        userMessage: string,
-        options: Record<string, unknown>,
-      ) => {
+      async (_subConvId: string, userMessage: string, options: Record<string, unknown>) => {
         const idx = callIdx++;
         streamChatCalls.push(userMessage);
         const runId = options.runId as string;
         setTimeout(() => {
           bus.emit("run:complete", {
             run: {
-              id: runId, agentName: "worker", status: "success",
-              startedAt: Date.now(), logs: [],
+              id: runId,
+              agentName: "worker",
+              status: "success",
+              startedAt: Date.now(),
+              logs: [],
               result: { success: true, output: outputs[idx] ?? "(overflow)" },
             },
             conversationId,
           } as AgentEvents["run:complete"]);
         }, 0);
-        return { id: runId, agentName: "worker", status: "success", startedAt: Date.now(), logs: [] };
+        return {
+          id: runId,
+          agentName: "worker",
+          status: "success",
+          startedAt: Date.now(),
+          logs: [],
+        };
       },
     );
     const executor = { streamChat, registerRunMode: () => {} } as unknown as AgentExecutor;
@@ -108,7 +105,9 @@ describe("autonomous continuation ↔ orchestration wait (integration)", () => {
       createdAt: new Date().toISOString(),
     };
     const snapshot: TaskSnapshot = {
-      conversationId, tasks: [task], activeTaskId: task.id,
+      conversationId,
+      tasks: [task],
+      activeTaskId: task.id,
     };
 
     // Wire the REAL orchestration two-hop bridge onto the bus and
@@ -121,7 +120,9 @@ describe("autonomous continuation ↔ orchestration wait (integration)", () => {
         resolvedValue = v;
         resolvedAtCall = streamChatCalls.length;
       },
-      reject: (e: Error) => { throw e; },
+      reject: (e: Error) => {
+        throw e;
+      },
       timeoutHandle: setTimeout(() => {}, 0),
       // Sliding-deadline / reap fields (Phase A2). This test drives a
       // terminal update, so the give-up path is never exercised — dummy

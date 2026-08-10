@@ -198,13 +198,15 @@ describe("WatchdogManager inflight tracking — state machine (AC1)", () => {
     startRun(h);
     fakeNow += 999 + 90_000; // exceed callTimeoutMs AND idle threshold
     capturedTicks[0]?.();
-    return new Promise<void>((resolve) => queueMicrotask(() => {
-      const toolError = h.events.find((e) => e.type === "tool:error");
-      expect(toolError).toBeDefined();
-      const data = toolError!.data as AgentEvents["tool:error"];
-      expect(data.toolName).toBe("second");
-      resolve();
-    }));
+    return new Promise<void>((resolve) =>
+      queueMicrotask(() => {
+        const toolError = h.events.find((e) => e.type === "tool:error");
+        expect(toolError).toBeDefined();
+        const data = toolError!.data as AgentEvents["tool:error"];
+        expect(data.toolName).toBe("second");
+        resolve();
+      }),
+    );
   });
 
   test("noteToolEnd removes the entry and is a no-op for unknown ids", () => {
@@ -255,12 +257,14 @@ describe("WatchdogManager inflight tracking — state machine (AC1)", () => {
 
     fakeNow += 95_000;
     capturedTicks[0]?.();
-    return new Promise<void>((resolve) => queueMicrotask(() => {
-      // Run b's tool is still in flight (200_000 budget) — must NOT be killed.
-      expect(h.events.find((e) => e.type === "run:error")).toBeUndefined();
-      expect(runB.status).toBe("running");
-      resolve();
-    }));
+    return new Promise<void>((resolve) =>
+      queueMicrotask(() => {
+        // Run b's tool is still in flight (200_000 budget) — must NOT be killed.
+        expect(h.events.find((e) => e.type === "run:error")).toBeUndefined();
+        expect(runB.status).toBe("running");
+        resolve();
+      }),
+    );
   });
 
   test("destroy wipes all inflight state across all runs", async () => {
@@ -326,10 +330,14 @@ describe("Watchdog deferral via inflight tools (AC2)", () => {
     const h = makeHarness();
     const run = startRun(h);
     // Single short-budget tool so we can pin the reason text.
-    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({
-      toolName: "ext__slow",
-      callTimeoutMs: 50_000,
-    }));
+    h.manager.noteToolStart(
+      RUN_ID,
+      TOOL_CALL_ID,
+      info({
+        toolName: "ext__slow",
+        callTimeoutMs: 50_000,
+      }),
+    );
 
     // 50s tool budget + 90s idle clock. Tick at 60s lifts the deferral
     // (tool over budget) but doesn't kill yet; tick at 155s does.
@@ -355,11 +363,15 @@ describe("Watchdog deferral via inflight tools (AC2)", () => {
     // declared callTimeoutMs is or how much wall-clock elapses.
     const h = makeHarness();
     const run = startRun(h);
-    h.manager.noteToolStart(RUN_ID, TOOL_CALL_ID, info({
-      toolName: "ask-user__ask_user_question",
-      callTimeoutMs: 50_000, // tiny budget — would normally fire fast
-      requiresUserInput: true,
-    }));
+    h.manager.noteToolStart(
+      RUN_ID,
+      TOOL_CALL_ID,
+      info({
+        toolName: "ask-user__ask_user_question",
+        callTimeoutMs: 50_000, // tiny budget — would normally fire fast
+        requiresUserInput: true,
+      }),
+    );
 
     // Drive the clock to 30 minutes — 36x the would-be budget and 20x
     // the idle threshold. With requiresUserInput, deferralReason
@@ -406,19 +418,27 @@ describe("Watchdog tool:error fan-out on kill (AC3)", () => {
     const run = startRun(h);
 
     // Two inflight tools, both will exceed their budgets before we kill.
-    h.manager.noteToolStart(RUN_ID, "tc-a", info({
-      toolName: "img__generate",
-      extensionId: "openai-image-gen-2",
-      callTimeoutMs: 30_000,
-      cardType: "image-card",
-      cardLayout: "dock",
-    }));
-    h.manager.noteToolStart(RUN_ID, "tc-b", info({
-      toolName: "img__edit",
-      extensionId: "openai-image-gen-2",
-      callTimeoutMs: 30_000,
-      // No cardType / cardLayout — verify they're omitted (not undefined) on the wire.
-    }));
+    h.manager.noteToolStart(
+      RUN_ID,
+      "tc-a",
+      info({
+        toolName: "img__generate",
+        extensionId: "openai-image-gen-2",
+        callTimeoutMs: 30_000,
+        cardType: "image-card",
+        cardLayout: "dock",
+      }),
+    );
+    h.manager.noteToolStart(
+      RUN_ID,
+      "tc-b",
+      info({
+        toolName: "img__edit",
+        extensionId: "openai-image-gen-2",
+        callTimeoutMs: 30_000,
+        // No cardType / cardLayout — verify they're omitted (not undefined) on the wire.
+      }),
+    );
 
     // Drive past tool budgets, then past idle threshold from start.
     await advanceAndTick(35_000); // both tools expired, deferral lifts; idleMs=35s, no kill
@@ -545,7 +565,10 @@ describe("Watchdog pendingPermissions deferral regression (AC5)", () => {
 /** Minimal fake pi-agent Agent exposing what resolveIdleThreshold reads
  *  (state.model.reasoning + state.thinkingLevel) plus the abort() the kill
  *  path invokes on activeAgents. */
-function fakeAgent(reasoning: boolean, thinkingLevel: string): { state: unknown; abort: () => void } {
+function fakeAgent(
+  reasoning: boolean,
+  thinkingLevel: string,
+): { state: unknown; abort: () => void } {
   return { state: { model: { reasoning }, thinkingLevel }, abort: () => {} };
 }
 

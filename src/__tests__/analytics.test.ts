@@ -123,9 +123,7 @@ describe("analytics queries", () => {
 
   describe("getAgentStats", () => {
     test("returns array with name, conversationCount", async () => {
-      queryResults = [
-        [{ name: "Test Agent", conversationCount: 15 }],
-      ];
+      queryResults = [[{ name: "Test Agent", conversationCount: 15 }]];
 
       const result = await getAgentStats();
       expect(Array.isArray(result)).toBe(true);
@@ -136,9 +134,7 @@ describe("analytics queries", () => {
 
   describe("getExtensionStats", () => {
     test("returns array with name, installCount", async () => {
-      queryResults = [
-        [{ name: "markdown-utils", installCount: 8 }],
-      ];
+      queryResults = [[{ name: "markdown-utils", installCount: 8 }]];
 
       const result = await getExtensionStats();
       expect(Array.isArray(result)).toBe(true);
@@ -222,12 +218,8 @@ describe("analytics queries", () => {
   describe("getErrorSummary", () => {
     test("returns totalErrors, errorRate, recentErrors", async () => {
       // getErrorSummary makes 1 query (errorRate by date) + calls listErrors
-      queryResults = [
-        [{ date: "2026-03-23", count: 3 }],
-      ];
-      mockListErrors = [
-        { id: "e1", level: "error", message: "test", createdAt: new Date() },
-      ];
+      queryResults = [[{ date: "2026-03-23", count: 3 }]];
+      mockListErrors = [{ id: "e1", level: "error", message: "test", createdAt: new Date() }];
 
       const result = await getErrorSummary(7);
       expect(result).toHaveProperty("totalErrors");
@@ -246,7 +238,7 @@ describe("analytics queries", () => {
       queryResults = [
         [
           { toolName: "read_file", extensionId: "builtin", count: 20, successCount: 18 },
-          { toolName: "search",    extensionId: "ext-1",   count: 5,  successCount: 5 },
+          { toolName: "search", extensionId: "ext-1", count: 5, successCount: 5 },
         ],
       ];
 
@@ -266,7 +258,11 @@ describe("analytics queries", () => {
       queryResults = [[{ toolName: "t", extensionId: "e", count: 3, successCount: null }]];
       const r = await getToolUsageByTool(30);
       expect(r[0]).toEqual({
-        toolName: "t", extensionId: "e", count: 3, successCount: 0, errorCount: 3,
+        toolName: "t",
+        extensionId: "e",
+        count: 3,
+        successCount: 0,
+        errorCount: 3,
       });
     });
 
@@ -303,8 +299,14 @@ describe("analytics queries", () => {
     test("projects agent + tool pair counts with successCount and derives errorCount", async () => {
       queryResults = [
         [
-          { agentConfigId: "a1", agentName: "Researcher", toolName: "read_file", count: 12, successCount: 10 },
-          { agentConfigId: "a2", agentName: null,          toolName: "search",    count: 4,  successCount: 4 },
+          {
+            agentConfigId: "a1",
+            agentName: "Researcher",
+            toolName: "read_file",
+            count: 12,
+            successCount: 10,
+          },
+          { agentConfigId: "a2", agentName: null, toolName: "search", count: 4, successCount: 4 },
         ],
       ];
 
@@ -319,7 +321,9 @@ describe("analytics queries", () => {
     });
 
     test("treats null successCount as zero (all errors)", async () => {
-      queryResults = [[{ agentConfigId: "a1", agentName: "x", toolName: "t", count: 3, successCount: null }]];
+      queryResults = [
+        [{ agentConfigId: "a1", agentName: "x", toolName: "t", count: 3, successCount: null }],
+      ];
       const r = await getToolUsageByAgent(30);
       expect(r[0]!.successCount).toBe(0);
       expect(r[0]!.errorCount).toBe(3);
@@ -335,15 +339,34 @@ describe("analytics queries", () => {
     test("projects user + tool pair counts with name/email, successCount, errorCount", async () => {
       queryResults = [
         [
-          { userId: "u1", userName: "Alice", userEmail: "a@x.com", toolName: "read_file", count: 9, successCount: 7 },
-          { userId: "u2", userName: null,    userEmail: null,       toolName: "search",    count: 2, successCount: 2 },
+          {
+            userId: "u1",
+            userName: "Alice",
+            userEmail: "a@x.com",
+            toolName: "read_file",
+            count: 9,
+            successCount: 7,
+          },
+          {
+            userId: "u2",
+            userName: null,
+            userEmail: null,
+            toolName: "search",
+            count: 2,
+            successCount: 2,
+          },
         ],
       ];
 
       const r = await getToolUsageByUser(30);
       expect(r[0]).toEqual({
-        userId: "u1", userName: "Alice", userEmail: "a@x.com",
-        toolName: "read_file", count: 9, successCount: 7, errorCount: 2,
+        userId: "u1",
+        userName: "Alice",
+        userEmail: "a@x.com",
+        toolName: "read_file",
+        count: 9,
+        successCount: 7,
+        errorCount: 2,
       });
       expect(r[1]!.userName).toBe("Unknown");
       expect(r[1]!.userEmail).toBe("");
@@ -351,7 +374,18 @@ describe("analytics queries", () => {
     });
 
     test("treats null successCount as zero (all errors)", async () => {
-      queryResults = [[{ userId: "u1", userName: "x", userEmail: "x@x", toolName: "t", count: 5, successCount: null }]];
+      queryResults = [
+        [
+          {
+            userId: "u1",
+            userName: "x",
+            userEmail: "x@x",
+            toolName: "t",
+            count: 5,
+            successCount: null,
+          },
+        ],
+      ];
       const r = await getToolUsageByUser(30);
       expect(r[0]!.errorCount).toBe(5);
     });
@@ -366,8 +400,20 @@ describe("analytics queries", () => {
     test("projects model + provider + tool counts with successCount and errorCount", async () => {
       queryResults = [
         [
-          { model: "claude-opus-4-7",    provider: "anthropic", toolName: "read_file", count: 15, successCount: 13 },
-          { model: "claude-sonnet-4-6",  provider: "anthropic", toolName: "search",    count: 6,  successCount: 6 },
+          {
+            model: "claude-opus-4-7",
+            provider: "anthropic",
+            toolName: "read_file",
+            count: 15,
+            successCount: 13,
+          },
+          {
+            model: "claude-sonnet-4-6",
+            provider: "anthropic",
+            toolName: "search",
+            count: 6,
+            successCount: 6,
+          },
         ],
       ];
 

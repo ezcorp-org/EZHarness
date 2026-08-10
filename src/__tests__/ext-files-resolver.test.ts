@@ -1,12 +1,5 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
-  symlinkSync,
-  realpathSync,
-} from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -32,7 +25,9 @@ beforeEach(() => {
 
 afterEach(() => {
   if (cwd) {
-    try { rmSync(cwd, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(cwd, { recursive: true, force: true });
+    } catch {}
     cwd = "";
   }
 });
@@ -61,9 +56,7 @@ describe("MIME_BY_EXT", () => {
 
 describe("extensionDataRoot", () => {
   test("returns <cwd>/.ezcorp/extension-data/<name>", () => {
-    expect(extensionDataRoot(EXT, cwd)).toBe(
-      join(cwd, ".ezcorp", "extension-data", EXT),
-    );
+    expect(extensionDataRoot(EXT, cwd)).toBe(join(cwd, ".ezcorp", "extension-data", EXT));
   });
 });
 
@@ -131,7 +124,9 @@ describe("resolveExtFilesPath", () => {
     for (const f of ["a.jpeg", "a.webp", "a.bin"]) writeFileSync(join(dir, f), "X");
     expect(resolveExtFilesPath(EXT, "generated/a.jpeg", cwd)!.mimeType).toBe("image/jpeg");
     expect(resolveExtFilesPath(EXT, "generated/a.webp", cwd)!.mimeType).toBe("image/webp");
-    expect(resolveExtFilesPath(EXT, "generated/a.bin", cwd)!.mimeType).toBe("application/octet-stream");
+    expect(resolveExtFilesPath(EXT, "generated/a.bin", cwd)!.mimeType).toBe(
+      "application/octet-stream",
+    );
   });
 
   // ── F4: symlink escape ────────────────────────────────────────────

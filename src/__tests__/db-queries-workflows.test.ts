@@ -68,9 +68,7 @@ describe("workflows queries", () => {
 
   test("createWorkflow rejects duplicate name (unique constraint)", async () => {
     await createWorkflow({ name: "uniq", steps: sampleSteps as any } as any);
-    expect(
-      createWorkflow({ name: "uniq", steps: sampleSteps as any } as any),
-    ).rejects.toThrow();
+    expect(createWorkflow({ name: "uniq", steps: sampleSteps as any } as any)).rejects.toThrow();
   });
 
   test("getWorkflow returns row by id", async () => {

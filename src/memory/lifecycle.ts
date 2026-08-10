@@ -25,9 +25,10 @@ export async function runDecaySweep(): Promise<number> {
   let updated = 0;
 
   for (const memory of candidates) {
-    const lastAccessed = memory.lastAccessedAt instanceof Date
-      ? memory.lastAccessedAt
-      : new Date(memory.lastAccessedAt as string);
+    const lastAccessed =
+      memory.lastAccessedAt instanceof Date
+        ? memory.lastAccessedAt
+        : new Date(memory.lastAccessedAt as string);
     const newStatus = computeStatus(lastAccessed);
 
     if (newStatus !== memory.status) {

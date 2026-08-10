@@ -13,52 +13,57 @@ import { makeProject } from "./fixtures/data.js";
  * screenshot of the rendered badge.
  */
 
-test("dev-mode git badge renders branch · commit bottom-right @evidence", async ({ page, mockApi }, testInfo) => {
-	// Stamp the dataset the server would set with EZCORP_DEV_INDICATOR=1. At
-	// addInitScript time `document.documentElement` may not exist yet, so apply
-	// immediately when it does and re-apply on DOMContentLoaded (which fires
-	// before the layout's onMount reads it).
-	await page.addInitScript(() => {
-		const apply = () => {
-			document.documentElement.dataset.devIndicator = "1";
-			document.documentElement.dataset.devBranch = "feat/demo";
-			document.documentElement.dataset.devCommit = "a1b2c3d";
-		};
-		if (document.documentElement) apply();
-		document.addEventListener("DOMContentLoaded", apply);
-	});
+test("dev-mode git badge renders branch · commit bottom-right @evidence", async ({
+  page,
+  mockApi,
+}, testInfo) => {
+  // Stamp the dataset the server would set with EZCORP_DEV_INDICATOR=1. At
+  // addInitScript time `document.documentElement` may not exist yet, so apply
+  // immediately when it does and re-apply on DOMContentLoaded (which fires
+  // before the layout's onMount reads it).
+  await page.addInitScript(() => {
+    const apply = () => {
+      document.documentElement.dataset.devIndicator = "1";
+      document.documentElement.dataset.devBranch = "feat/demo";
+      document.documentElement.dataset.devCommit = "a1b2c3d";
+    };
+    if (document.documentElement) apply();
+    document.addEventListener("DOMContentLoaded", apply);
+  });
 
-	const proj = makeProject({ id: "proj-1", name: "Test Project" });
-	await mockApi({
-		projects: [proj],
-		routes: {
-			"/api/auth/me": () => ({
-				user: { id: "user-1", email: "user@test.local", name: "Test User", role: "member" },
-			}),
-			"/api/account": () => ({
-				id: "user-1",
-				email: "user@test.local",
-				name: "Test User",
-				role: "member" as const,
-				createdAt: "2026-01-15T00:00:00.000Z",
-			}),
-		},
-	});
+  const proj = makeProject({ id: "proj-1", name: "Test Project" });
+  await mockApi({
+    projects: [proj],
+    routes: {
+      "/api/auth/me": () => ({
+        user: { id: "user-1", email: "user@test.local", name: "Test User", role: "member" },
+      }),
+      "/api/account": () => ({
+        id: "user-1",
+        email: "user@test.local",
+        name: "Test User",
+        role: "member" as const,
+        createdAt: "2026-01-15T00:00:00.000Z",
+      }),
+    },
+  });
 
-	await page.goto("/account");
-	// Wait for the layout + page to render before checking the badge.
-	await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible({ timeout: 5000 });
+  await page.goto("/account");
+  // Wait for the layout + page to render before checking the badge.
+  await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible({
+    timeout: 5000,
+  });
 
-	const badge = page.getByTestId("dev-badge");
-	await expect(badge).toBeVisible();
-	await expect(badge).toContainText("feat/demo");
-	await expect(badge).toContainText("a1b2c3d");
+  const badge = page.getByTestId("dev-badge");
+  await expect(badge).toBeVisible();
+  await expect(badge).toContainText("feat/demo");
+  await expect(badge).toContainText("a1b2c3d");
 
-	// Legibility contract: the chip renders on a solid dark-slate fill (the
-	// pre-#82 ghosted currentColor mix was near invisible on the light theme).
-	// Assert the computed background is the opaque slate, not a transparent mix.
-	const bg = await badge.evaluate((el) => getComputedStyle(el).backgroundColor);
-	expect(bg).toMatch(/rgba?\(\s*31\s*,\s*41\s*,\s*55/);
+  // Legibility contract: the chip renders on a solid dark-slate fill (the
+  // pre-#82 ghosted currentColor mix was near invisible on the light theme).
+  // Assert the computed background is the opaque slate, not a transparent mix.
+  const bg = await badge.evaluate((el) => getComputedStyle(el).backgroundColor);
+  expect(bg).toMatch(/rgba?\(\s*31\s*,\s*41\s*,\s*55/);
 
-	await captureEvidence(page, testInfo, "dev-badge");
+  await captureEvidence(page, testInfo, "dev-badge");
 });

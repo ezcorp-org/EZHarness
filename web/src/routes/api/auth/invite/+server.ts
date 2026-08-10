@@ -42,15 +42,18 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
     await insertAuditEntry(user.id, "user:invited", invite.id, { email, role });
 
-    return json({
-      invite: {
-        id: invite.id,
-        token: invite.token,
-        email: invite.email,
-        role: invite.role,
-        expiresAt: invite.expiresAt,
+    return json(
+      {
+        invite: {
+          id: invite.id,
+          token: invite.token,
+          email: invite.email,
+          role: invite.role,
+          expiresAt: invite.expiresAt,
+        },
       },
-    }, { status: 201 });
+      { status: 201 },
+    );
   } catch (e) {
     if (e instanceof Response) return e;
     throw e;

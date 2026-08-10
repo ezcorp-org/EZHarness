@@ -38,7 +38,11 @@ import { isUniqueViolation } from "./unique-violation";
 
 /** Roles loadHistory maps to `null` — UI-only synthetic rows never sent to
  *  the LLM. Kept in lockstep with load-history.ts. */
-const SYNTHETIC_ROLES = new Set<string>(["ez-action-result", PREPROCESS_RESULT_ROLE, "capability-event"]);
+const SYNTHETIC_ROLES = new Set<string>([
+  "ez-action-result",
+  PREPROCESS_RESULT_ROLE,
+  "capability-event",
+]);
 
 /** A conversation `messages` row (the subset backfill reads). */
 type ConversationMessage = Awaited<ReturnType<typeof getMessages>>[number];
@@ -98,13 +102,22 @@ export function rowToPiMessage(row: ConversationMessage): AssistantMessage | Use
  *  recursive CTE is conversation-scoped, so loadHistory also stops a stray
  *  cross-conversation pointer at the boundary rather than following it. The
  *  two read paths agree (asserted in session-backfill-parity.test.ts). */
-export function rowToEntry(row: ConversationMessage, knownIds: ReadonlySet<string>): SessionTreeEntry {
-  const parentId = row.parentMessageId && knownIds.has(row.parentMessageId) ? row.parentMessageId : null;
+export function rowToEntry(
+  row: ConversationMessage,
+  knownIds: ReadonlySet<string>,
+): SessionTreeEntry {
+  const parentId =
+    row.parentMessageId && knownIds.has(row.parentMessageId) ? row.parentMessageId : null;
   const base = { id: row.id, parentId, timestamp: row.createdAt.toISOString() };
   if (isLlmTurn(row)) {
     return { type: "message", ...base, message: rowToPiMessage(row) as AgentMessage };
   }
-  return { type: "custom", ...base, customType: "ezcorp:filtered-row", data: { role: row.role, excluded: row.excluded } };
+  return {
+    type: "custom",
+    ...base,
+    customType: "ezcorp:filtered-row",
+    data: { role: row.role, excluded: row.excluded },
+  };
 }
 
 /**
@@ -121,14 +134,19 @@ export function rowToEntry(row: ConversationMessage, knownIds: ReadonlySet<strin
  * loser may open a session the winner is still populating — a partial read
  * that per-session locking closes in P3 (out of scope here).
  */
-export async function backfillSessionForConversation(conversationId: string): Promise<DbSessionStorage> {
+export async function backfillSessionForConversation(
+  conversationId: string,
+): Promise<DbSessionStorage> {
   const db = getDb();
   const storage = await DbSessionStorage.create({ conversationId }).catch((err) => {
     if (!isUniqueViolation(err)) throw err;
     return null;
   });
   if (!storage) {
-    const [existing] = await db.select().from(agentSessions).where(eq(agentSessions.conversationId, conversationId));
+    const [existing] = await db
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.conversationId, conversationId));
     return DbSessionStorage.open(existing.id);
   }
 

@@ -28,17 +28,10 @@ vi.mock("$server/lib/export", () => ({
   exportToJson,
 }));
 
-const { GET } = await import(
-  "../routes/api/conversations/[id]/export/+server.ts"
-);
+const { GET } = await import("../routes/api/conversations/[id]/export/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  query?: string;
-}) {
-  const href = `http://localhost/api/conversations/c1/export${
-    opts.query ? `?${opts.query}` : ""
-  }`;
+function makeEvent(opts: { locals?: Record<string, unknown>; query?: string }) {
+  const href = `http://localhost/api/conversations/c1/export${opts.query ? `?${opts.query}` : ""}`;
   return {
     url: new URL(href),
     locals: opts.locals ?? {},
@@ -95,9 +88,7 @@ describe("GET /api/conversations/[id]/export", () => {
       title: "My Chat!!",
     });
     getLatestLeaf.mockResolvedValue({ id: "msg-1" });
-    getConversationPath.mockResolvedValue([
-      { id: "msg-1", role: "user", content: "hi" },
-    ]);
+    getConversationPath.mockResolvedValue([{ id: "msg-1", role: "user", content: "hi" }]);
     exportToMarkdown.mockReturnValue("# Chat\nhi");
 
     const res = await GET(makeEvent({ locals: { user } }));
@@ -118,9 +109,7 @@ describe("GET /api/conversations/[id]/export", () => {
     getConversationPath.mockResolvedValue([]);
     exportToJson.mockReturnValue('{"title":"Chat"}');
 
-    const res = await GET(
-      makeEvent({ locals: { user }, query: "format=json" }),
-    );
+    const res = await GET(makeEvent({ locals: { user }, query: "format=json" }));
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toContain("application/json");
     expect(res.headers.get("content-disposition")).toContain(".json");

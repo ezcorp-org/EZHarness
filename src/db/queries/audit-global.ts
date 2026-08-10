@@ -131,17 +131,14 @@ export async function listGlobalAudit(
     .from(sdkCapabilityCalls)
     .orderBy(desc(sdkCapabilityCalls.createdAt), desc(sdkCapabilityCalls.id))
     .limit(limit * 2);
-  const capabilityRows: SdkCapabilityCall[] = cconds.length > 0
-    ? await capQuery.where(and(...cconds))
-    : await capQuery;
+  const capabilityRows: SdkCapabilityCall[] =
+    cconds.length > 0 ? await capQuery.where(and(...cconds)) : await capQuery;
 
   // Governance rows — only when the caller didn't specify a
   // capability filter (governance has no capability column).
   let governanceRows: AuditEntry[] = [];
   if (!opts.capability && !opts.onBehalfOf) {
-    const gconds = [
-      or(like(auditLog.action, "ext:%"), like(auditLog.action, "extension:%"))!,
-    ];
+    const gconds = [or(like(auditLog.action, "ext:%"), like(auditLog.action, "extension:%"))!];
     if (opts.extensionId) gconds.push(eq(auditLog.target, opts.extensionId));
     if (opts.action) gconds.push(eq(auditLog.action, opts.action));
     if (cursorTs && cursorId) {
@@ -207,12 +204,13 @@ export async function listGlobalAudit(
     return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
   });
   const page = merged.slice(0, limit);
-  const nextCursor = page.length === limit && page.length > 0
-    ? encodeCursor({
-        ts: page[page.length - 1]!.createdAt.toISOString(),
-        id: page[page.length - 1]!.id,
-      })
-    : null;
+  const nextCursor =
+    page.length === limit && page.length > 0
+      ? encodeCursor({
+          ts: page[page.length - 1]!.createdAt.toISOString(),
+          id: page[page.length - 1]!.id,
+        })
+      : null;
 
   return { entries: page, nextCursor };
 }
@@ -288,8 +286,9 @@ export async function globalStats(rangeMs: number): Promise<GlobalStats> {
 function pickRows(result: unknown): Array<Record<string, unknown>> {
   return (
     (result as { rows?: Array<Record<string, unknown>> }).rows ??
-      (result as Array<Record<string, unknown>>)
-  ) ?? [];
+    (result as Array<Record<string, unknown>>) ??
+    []
+  );
 }
 
 function pickFirstRow(result: unknown): Record<string, unknown> {
@@ -300,12 +299,15 @@ function pickFirstRow(result: unknown): Record<string, unknown> {
  *  with the friendly extension name. Trivial — already a one-liner
  *  in queries/extensions.ts but the path import is one less import
  *  for the audit page. */
-export async function listExtensionsForFacets(): Promise<Array<{ id: string; name: string; isBundled: boolean }>> {
-  const rows: Array<{ id: string; name: string; isBundled: boolean }> = await getDb().select({
-    id: extensions.id,
-    name: extensions.name,
-    isBundled: extensions.isBundled,
-  }).from(extensions);
+export async function listExtensionsForFacets(): Promise<
+  Array<{ id: string; name: string; isBundled: boolean }>
+> {
+  const rows: Array<{ id: string; name: string; isBundled: boolean }> = await getDb()
+    .select({
+      id: extensions.id,
+      name: extensions.name,
+      isBundled: extensions.isBundled,
+    })
+    .from(extensions);
   return rows.map((r) => ({ id: r.id, name: r.name, isBundled: r.isBundled }));
 }
-

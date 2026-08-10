@@ -53,10 +53,13 @@ type WorkerFactory = () => WorkerLike;
 
 let workerInstance: WorkerLike | null = null;
 let messageListener: ((ev: MessageEvent | ErrorEvent) => void) | null = null;
-const pending = new Map<string, {
-  resolve: (res: RankResponse) => void;
-  reject: (err: Error) => void;
-}>();
+const pending = new Map<
+  string,
+  {
+    resolve: (res: RankResponse) => void;
+    reject: (err: Error) => void;
+  }
+>();
 
 let workerFactory: WorkerFactory = defaultWorkerFactory;
 
@@ -65,10 +68,9 @@ function defaultWorkerFactory(): WorkerLike {
   // `agent-fuzzy-search-worker.ts` at build time and ships it as a
   // separate chunk with `type: "module"` so its top-level imports
   // (including `fuzzy-match.ts`) resolve.
-  const w = new Worker(
-    new URL("./agent-fuzzy-search-worker.ts", import.meta.url),
-    { type: "module" },
-  );
+  const w = new Worker(new URL("./agent-fuzzy-search-worker.ts", import.meta.url), {
+    type: "module",
+  });
   return w as unknown as WorkerLike;
 }
 

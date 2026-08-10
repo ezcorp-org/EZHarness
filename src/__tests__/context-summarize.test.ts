@@ -70,18 +70,34 @@ const userMsg = (text: string): Msg => ({ role: "user", content: text, timestamp
 const asstText = (text: string): Msg => ({
   role: "assistant",
   content: [{ type: "text", text }],
-  api: "x", provider: "x", model: "x", usage: {}, stopReason: "stop", timestamp: 1,
+  api: "x",
+  provider: "x",
+  model: "x",
+  usage: {},
+  stopReason: "stop",
+  timestamp: 1,
 });
 
 const okAssistant = (text: string): any => ({
   role: "assistant",
   content: [{ type: "text", text }],
-  api: "x", provider: "x", model: "m", usage: { input: 0, output: 0 }, stopReason: "stop", timestamp: 1,
+  api: "x",
+  provider: "x",
+  model: "m",
+  usage: { input: 0, output: 0 },
+  stopReason: "stop",
+  timestamp: 1,
 });
 const errAssistant = (): any => ({
   role: "assistant",
   content: [],
-  api: "x", provider: "x", model: "m", usage: { input: 0, output: 0 }, stopReason: "error", errorMessage: "boom", timestamp: 1,
+  api: "x",
+  provider: "x",
+  model: "m",
+  usage: { input: 0, output: 0 },
+  stopReason: "error",
+  errorMessage: "boom",
+  timestamp: 1,
 });
 
 const summarize = getCompactionStrategy("summarize");
@@ -196,7 +212,10 @@ describe("makeSummarizer", () => {
 
   test("uses the compaction:summarizeModel setting when set + resolvable", async () => {
     settingValue = "anthropic/claude-x";
-    resolveModelImpl = async () => ({ provider: "anthropic", piModel: { id: "claude-x", provider: "anthropic", maxTokens: 4_000 } });
+    resolveModelImpl = async () => ({
+      provider: "anthropic",
+      piModel: { id: "claude-x", provider: "anthropic", maxTokens: 4_000 },
+    });
     completeImpl = async () => okAssistant("PICKED SUMMARY");
 
     const fn = makeSummarizer(turnModel, "conv-B", "conv-B");

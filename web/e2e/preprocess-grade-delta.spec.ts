@@ -20,11 +20,7 @@
  * (mirrors graded-card-scanner.spec).
  */
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
-import {
-	makeProject,
-	makeConversation,
-	makeMessage,
-} from "./fixtures/data.js";
+import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
 const PROJECT_ID = "proj-preprocess";
 const CONV_ID = "conv-preprocess";
@@ -36,36 +32,36 @@ const CONV_SKIP_ID = "conv-preprocess-skip";
 const project = makeProject({ id: PROJECT_ID, name: "Preprocess Project" });
 
 const IDENTIFY_RECORD = {
-	cert: "49392223",
-	grader: "PSA",
-	identity: {
-		subject: "Charizard",
-		year: "1999",
-		set: "Pokemon Base Set",
-		cardNo: "4",
-		variety: "Holo",
-		grade: "PSA 9",
-	},
-	grades: {
-		PSA: { "9": 2587.5, "10": 30100 },
-		BGS: { "9.5": 3875, "10": 46000 },
-		SGC: { "10": 8494.97 },
-	},
-	deltas: [
-		{
-			company: "PSA",
-			steps: [{ from: "9", to: "10", fromPrice: 2587.5, toPrice: 30100, pct: 1063.3 }],
-		},
-		{
-			company: "BGS",
-			steps: [{ from: "9.5", to: "10", fromPrice: 3875, toPrice: 46000, pct: 1087.1 }],
-		},
-	],
-	sources: {
-		decode: { source: "zxing", fetchedAt: "2026-07-09T00:00:00.000Z" },
-		identity: { source: "psa-api", fetchedAt: "2026-07-09T00:00:00.000Z" },
-		price: { source: "pricecharting", fetchedAt: "2026-07-09T00:00:00.000Z" },
-	},
+  cert: "49392223",
+  grader: "PSA",
+  identity: {
+    subject: "Charizard",
+    year: "1999",
+    set: "Pokemon Base Set",
+    cardNo: "4",
+    variety: "Holo",
+    grade: "PSA 9",
+  },
+  grades: {
+    PSA: { "9": 2587.5, "10": 30100 },
+    BGS: { "9.5": 3875, "10": 46000 },
+    SGC: { "10": 8494.97 },
+  },
+  deltas: [
+    {
+      company: "PSA",
+      steps: [{ from: "9", to: "10", fromPrice: 2587.5, toPrice: 30100, pct: 1063.3 }],
+    },
+    {
+      company: "BGS",
+      steps: [{ from: "9.5", to: "10", fromPrice: 3875, toPrice: 46000, pct: 1087.1 }],
+    },
+  ],
+  sources: {
+    decode: { source: "zxing", fetchedAt: "2026-07-09T00:00:00.000Z" },
+    identity: { source: "psa-api", fetchedAt: "2026-07-09T00:00:00.000Z" },
+    price: { source: "pricecharting", fetchedAt: "2026-07-09T00:00:00.000Z" },
+  },
 };
 
 /** A PSA slab that decoded fine but whose identity lookup was skipped
@@ -73,329 +69,315 @@ const IDENTIFY_RECORD = {
  *  stamped "psa-api:no-token" — the exact degradation the actionable
  *  set_psa_token hint owns (identify.ts stamps decode/identity/price). */
 const NO_TOKEN_RECORD = {
-	cert: "49392223",
-	grader: "PSA",
-	identity: { subject: "", year: "", set: "", cardNo: "", variety: "", grade: "" },
-	grades: {},
-	deltas: [],
-	sources: {
-		decode: { source: "zxing", fetchedAt: "2026-07-09T00:00:00.000Z" },
-		identity: { source: "psa-api:no-token", fetchedAt: "2026-07-09T00:00:00.000Z" },
-		price: { source: "not-searched", fetchedAt: "2026-07-09T00:00:00.000Z" },
-	},
+  cert: "49392223",
+  grader: "PSA",
+  identity: { subject: "", year: "", set: "", cardNo: "", variety: "", grade: "" },
+  grades: {},
+  deltas: [],
+  sources: {
+    decode: { source: "zxing", fetchedAt: "2026-07-09T00:00:00.000Z" },
+    identity: { source: "psa-api:no-token", fetchedAt: "2026-07-09T00:00:00.000Z" },
+    price: { source: "not-searched", fetchedAt: "2026-07-09T00:00:00.000Z" },
+  },
 };
 
 /** The exact chain shape the host runner persists (user → row → assistant). */
 function seedMessages(convId: string, rowContent: string) {
-	return [
-		makeMessage({
-			id: `${convId}-u1`,
-			conversationId: convId,
-			role: "user",
-			content: "what is this slab worth? ![ext:graded-card-scanner]",
-			parentMessageId: null,
-			createdAt: "2026-07-09T00:00:00.000Z",
-		}),
-		makeMessage({
-			id: `${convId}-pp1`,
-			conversationId: convId,
-			role: "preprocess-result",
-			content: rowContent,
-			parentMessageId: `${convId}-u1`,
-			createdAt: "2026-07-09T00:00:01.000Z",
-		}),
-		makeMessage({
-			id: `${convId}-a1`,
-			conversationId: convId,
-			role: "assistant",
-			content: "That slab is a 1999 Base Set Charizard, PSA 9 — a 10 sells for ~12× more.",
-			parentMessageId: `${convId}-pp1`,
-			createdAt: "2026-07-09T00:00:02.000Z",
-		}),
-	];
+  return [
+    makeMessage({
+      id: `${convId}-u1`,
+      conversationId: convId,
+      role: "user",
+      content: "what is this slab worth? ![ext:graded-card-scanner]",
+      parentMessageId: null,
+      createdAt: "2026-07-09T00:00:00.000Z",
+    }),
+    makeMessage({
+      id: `${convId}-pp1`,
+      conversationId: convId,
+      role: "preprocess-result",
+      content: rowContent,
+      parentMessageId: `${convId}-u1`,
+      createdAt: "2026-07-09T00:00:01.000Z",
+    }),
+    makeMessage({
+      id: `${convId}-a1`,
+      conversationId: convId,
+      role: "assistant",
+      content: "That slab is a 1999 Base Set Charizard, PSA 9 — a 10 sells for ~12× more.",
+      parentMessageId: `${convId}-pp1`,
+      createdAt: "2026-07-09T00:00:02.000Z",
+    }),
+  ];
 }
 
 test.describe("Deterministic preprocess — GradeDeltaCard in the transcript", () => {
-	test("preprocess-result row renders the grade-delta chart card between user and assistant turns, and captures evidence @evidence", async ({
-		page,
-		mockApi,
-	}, testInfo) => {
-		await mockApi({
-			projects: [project],
-			conversations: [
-				makeConversation({ id: CONV_ID, projectId: PROJECT_ID, title: "Slab chat" }),
-			],
-			messages: seedMessages(
-				CONV_ID,
-				JSON.stringify({
-					extensionName: "graded-card-scanner",
-					toolName: "identify_slab",
-					cardType: "grade-delta-chart",
-					ok: true,
-					output: JSON.stringify(IDENTIFY_RECORD),
-				}),
-			),
-		});
-		await page.goto(`/project/${PROJECT_ID}/chat/${CONV_ID}`);
+  test("preprocess-result row renders the grade-delta chart card between user and assistant turns, and captures evidence @evidence", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    await mockApi({
+      projects: [project],
+      conversations: [makeConversation({ id: CONV_ID, projectId: PROJECT_ID, title: "Slab chat" })],
+      messages: seedMessages(
+        CONV_ID,
+        JSON.stringify({
+          extensionName: "graded-card-scanner",
+          toolName: "identify_slab",
+          cardType: "grade-delta-chart",
+          ok: true,
+          output: JSON.stringify(IDENTIFY_RECORD),
+        }),
+      ),
+    });
+    await page.goto(`/project/${PROJECT_ID}/chat/${CONV_ID}`);
 
-		// The chained row is ON the transcript path (user → row → assistant).
-		const row = page.getByTestId("preprocess-result-row");
-		await expect(row).toBeVisible({ timeout: 5000 });
-		await expect(row).toHaveAttribute("data-preprocess-status", "complete");
+    // The chained row is ON the transcript path (user → row → assistant).
+    const row = page.getByTestId("preprocess-result-row");
+    await expect(row).toBeVisible({ timeout: 5000 });
+    await expect(row).toHaveAttribute("data-preprocess-status", "complete");
 
-		// GradeDeltaCard rendered from the row's JSON payload.
-		const card = page.getByTestId("grade-delta-card");
-		await expect(card).toBeVisible();
-		await expect(page.getByTestId("grade-delta-grader")).toHaveText("PSA");
-		await expect(page.getByTestId("grade-delta-cert")).toHaveText("#49392223");
-		await expect(page.getByTestId("grade-delta-title")).toContainText(
-			"1999 Pokemon Base Set Charizard #4",
-		);
+    // GradeDeltaCard rendered from the row's JSON payload.
+    const card = page.getByTestId("grade-delta-card");
+    await expect(card).toBeVisible();
+    await expect(page.getByTestId("grade-delta-grader")).toHaveText("PSA");
+    await expect(page.getByTestId("grade-delta-cert")).toHaveText("#49392223");
+    await expect(page.getByTestId("grade-delta-title")).toContainText(
+      "1999 Pokemon Base Set Charizard #4",
+    );
 
-		// Grouped bar chart: one bar per adjacent-grade step, one label per
-		// company with steps (SGC has a single priced grade → chart-omitted).
-		await expect(page.getByTestId("grade-delta-bar")).toHaveCount(2);
-		const groups = page.getByTestId("grade-delta-group");
-		await expect(groups).toHaveCount(2);
-		await expect(groups.nth(0)).toHaveText("PSA");
-		await expect(groups.nth(1)).toHaveText("BGS");
-		await expect(card).toContainText("+1063.3%");
+    // Grouped bar chart: one bar per adjacent-grade step, one label per
+    // company with steps (SGC has a single priced grade → chart-omitted).
+    await expect(page.getByTestId("grade-delta-bar")).toHaveCount(2);
+    const groups = page.getByTestId("grade-delta-group");
+    await expect(groups).toHaveCount(2);
+    await expect(groups.nth(0)).toHaveText("PSA");
+    await expect(groups.nth(1)).toHaveText("BGS");
+    await expect(card).toContainText("+1063.3%");
 
-		// Price table: every company (SGC included) + honest N/A cells.
-		const table = page.getByTestId("grade-delta-table");
-		await expect(table).toContainText("$30,100.00");
-		await expect(table).toContainText("$8,494.97");
-		await expect(table).toContainText("N/A");
+    // Price table: every company (SGC included) + honest N/A cells.
+    const table = page.getByTestId("grade-delta-table");
+    await expect(table).toContainText("$30,100.00");
+    await expect(table).toContainText("$8,494.97");
+    await expect(table).toContainText("N/A");
 
-		// The surrounding turns render around the card.
-		await expect(
-			page.locator(`[data-message-id="${CONV_ID}-u1"]`),
-		).toContainText("what is this slab worth?");
-		await expect(
-			page.locator(`[data-message-id="${CONV_ID}-a1"]`),
-		).toContainText("PSA 9");
+    // The surrounding turns render around the card.
+    await expect(page.locator(`[data-message-id="${CONV_ID}-u1"]`)).toContainText(
+      "what is this slab worth?",
+    );
+    await expect(page.locator(`[data-message-id="${CONV_ID}-a1"]`)).toContainText("PSA 9");
 
-		await captureEvidence(page, testInfo, "preprocess-grade-delta-card");
+    await captureEvidence(page, testInfo, "preprocess-grade-delta-card");
 
-		// Capture contract (mirrors graded-card-scanner.spec) — meaningful
-		// in both modes rather than a bare screenshot call.
-		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
-			expect(
-				testInfo.attachments.some(
-					(a) => a.name === "preprocess-grade-delta-card" && a.contentType === "image/png",
-				),
-			).toBe(true);
-		} else {
-			expect(
-				testInfo.attachments.some((a) => a.name === "preprocess-grade-delta-card"),
-			).toBe(false);
-		}
-	});
+    // Capture contract (mirrors graded-card-scanner.spec) — meaningful
+    // in both modes rather than a bare screenshot call.
+    if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+      expect(
+        testInfo.attachments.some(
+          (a) => a.name === "preprocess-grade-delta-card" && a.contentType === "image/png",
+        ),
+      ).toBe(true);
+    } else {
+      expect(testInfo.attachments.some((a) => a.name === "preprocess-grade-delta-card")).toBe(
+        false,
+      );
+    }
+  });
 
-	test("ok:false preprocess row renders DefaultCard's error state, never a broken chart", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi({
-			projects: [project],
-			conversations: [
-				makeConversation({
-					id: CONV_ERR_ID,
-					projectId: PROJECT_ID,
-					title: "Slab chat (failed decode)",
-				}),
-			],
-			messages: seedMessages(
-				CONV_ERR_ID,
-				JSON.stringify({
-					extensionName: "graded-card-scanner",
-					toolName: "identify_slab",
-					cardType: "grade-delta-chart",
-					ok: false,
-					output: "identify_slab failed for slab.png: unsupported image MIME",
-				}),
-			),
-		});
-		await page.goto(`/project/${PROJECT_ID}/chat/${CONV_ERR_ID}`);
+  test("ok:false preprocess row renders DefaultCard's error state, never a broken chart", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({
+      projects: [project],
+      conversations: [
+        makeConversation({
+          id: CONV_ERR_ID,
+          projectId: PROJECT_ID,
+          title: "Slab chat (failed decode)",
+        }),
+      ],
+      messages: seedMessages(
+        CONV_ERR_ID,
+        JSON.stringify({
+          extensionName: "graded-card-scanner",
+          toolName: "identify_slab",
+          cardType: "grade-delta-chart",
+          ok: false,
+          output: "identify_slab failed for slab.png: unsupported image MIME",
+        }),
+      ),
+    });
+    await page.goto(`/project/${PROJECT_ID}/chat/${CONV_ERR_ID}`);
 
-		const row = page.getByTestId("preprocess-result-row");
-		await expect(row).toBeVisible({ timeout: 5000 });
-		await expect(row).toHaveAttribute("data-preprocess-status", "error");
+    const row = page.getByTestId("preprocess-result-row");
+    await expect(row).toBeVisible({ timeout: 5000 });
+    await expect(row).toHaveAttribute("data-preprocess-status", "error");
 
-		// cardType is dropped on failure — DefaultCard owns the error state.
-		await expect(page.getByTestId("grade-delta-card")).toHaveCount(0);
-		await expect(page.getByTestId("grade-delta-missing")).toHaveCount(0);
-		const defaultCard = page.getByTestId("tool-card-default");
-		await expect(defaultCard).toBeVisible();
-		await expect(defaultCard).toContainText("graded-card-scanner__identify_slab");
+    // cardType is dropped on failure — DefaultCard owns the error state.
+    await expect(page.getByTestId("grade-delta-card")).toHaveCount(0);
+    await expect(page.getByTestId("grade-delta-missing")).toHaveCount(0);
+    const defaultCard = page.getByTestId("tool-card-default");
+    await expect(defaultCard).toBeVisible();
+    await expect(defaultCard).toContainText("graded-card-scanner__identify_slab");
 
-		// The assistant turn still rendered — a failed preprocess never
-		// blocks the conversation.
-		await expect(
-			page.locator(`[data-message-id="${CONV_ERR_ID}-a1"]`),
-		).toContainText("PSA 9");
-	});
+    // The assistant turn still rendered — a failed preprocess never
+    // blocks the conversation.
+    await expect(page.locator(`[data-message-id="${CONV_ERR_ID}-a1"]`)).toContainText("PSA 9");
+  });
 
-	test("dependency-error preprocess row renders DefaultCard and shows the actionable text on expand", async ({
-		page,
-		mockApi,
-	}) => {
-		// extension npm-deps: a missing runtime dependency surfaces as an
-		// ok:false preprocess row whose output IS the actionable message. It
-		// must render through DefaultCard's error state (never a broken chart)
-		// and reveal the full message when expanded.
-		const depError =
-			'Extension "graded-card-scanner" requires npm package(s) it cannot resolve: ' +
-			"@zxing/library@^0.23.0 (missing). Install them in the deployment " +
-			"(root package.json + bun install, or rebuild the image), then retry.";
-		await mockApi({
-			projects: [project],
-			conversations: [
-				makeConversation({
-					id: CONV_DEP_ID,
-					projectId: PROJECT_ID,
-					title: "Slab chat (missing dependency)",
-				}),
-			],
-			messages: seedMessages(
-				CONV_DEP_ID,
-				JSON.stringify({
-					extensionName: "graded-card-scanner",
-					toolName: "identify_slab",
-					cardType: "grade-delta-chart",
-					ok: false,
-					output: depError,
-				}),
-			),
-		});
-		await page.goto(`/project/${PROJECT_ID}/chat/${CONV_DEP_ID}`);
+  test("dependency-error preprocess row renders DefaultCard and shows the actionable text on expand", async ({
+    page,
+    mockApi,
+  }) => {
+    // extension npm-deps: a missing runtime dependency surfaces as an
+    // ok:false preprocess row whose output IS the actionable message. It
+    // must render through DefaultCard's error state (never a broken chart)
+    // and reveal the full message when expanded.
+    const depError =
+      'Extension "graded-card-scanner" requires npm package(s) it cannot resolve: ' +
+      "@zxing/library@^0.23.0 (missing). Install them in the deployment " +
+      "(root package.json + bun install, or rebuild the image), then retry.";
+    await mockApi({
+      projects: [project],
+      conversations: [
+        makeConversation({
+          id: CONV_DEP_ID,
+          projectId: PROJECT_ID,
+          title: "Slab chat (missing dependency)",
+        }),
+      ],
+      messages: seedMessages(
+        CONV_DEP_ID,
+        JSON.stringify({
+          extensionName: "graded-card-scanner",
+          toolName: "identify_slab",
+          cardType: "grade-delta-chart",
+          ok: false,
+          output: depError,
+        }),
+      ),
+    });
+    await page.goto(`/project/${PROJECT_ID}/chat/${CONV_DEP_ID}`);
 
-		const row = page.getByTestId("preprocess-result-row");
-		await expect(row).toBeVisible({ timeout: 5000 });
-		await expect(row).toHaveAttribute("data-preprocess-status", "error");
+    const row = page.getByTestId("preprocess-result-row");
+    await expect(row).toBeVisible({ timeout: 5000 });
+    await expect(row).toHaveAttribute("data-preprocess-status", "error");
 
-		// cardType is dropped on failure — DefaultCard owns the error state.
-		await expect(page.getByTestId("grade-delta-card")).toHaveCount(0);
-		const card = page.getByTestId("tool-card-default");
-		await expect(card).toBeVisible();
+    // cardType is dropped on failure — DefaultCard owns the error state.
+    await expect(page.getByTestId("grade-delta-card")).toHaveCount(0);
+    const card = page.getByTestId("tool-card-default");
+    await expect(card).toBeVisible();
 
-		// Expand the card to reveal the full actionable dependency message.
-		await card.locator("button").first().click();
-		await expect(card).toContainText("@zxing/library@^0.23.0 (missing)");
-		await expect(card).toContainText("cannot resolve");
+    // Expand the card to reveal the full actionable dependency message.
+    await card.locator("button").first().click();
+    await expect(card).toContainText("@zxing/library@^0.23.0 (missing)");
+    await expect(card).toContainText("cannot resolve");
 
-		// The assistant turn still rendered (a failed preprocess never blocks).
-		await expect(
-			page.locator(`[data-message-id="${CONV_DEP_ID}-a1"]`),
-		).toContainText("PSA 9");
-	});
+    // The assistant turn still rendered (a failed preprocess never blocks).
+    await expect(page.locator(`[data-message-id="${CONV_DEP_ID}-a1"]`)).toContainText("PSA 9");
+  });
 
-	test("skip-when-disabled preprocess row renders the disabled-extension message on expand", async ({
-		page,
-		mockApi,
-	}) => {
-		// extension npm-deps: when the wired extension is DISABLED, the turn
-		// runner persists a single "skipped — disabled" ok:false row so the
-		// user sees the outage rather than a silently-dropped attachment.
-		const skipMsg =
-			'skipped: extension "graded-card-scanner" is disabled (auto-disabled after ' +
-			"repeated failures, or manually). Re-enable it from the Extensions page.";
-		await mockApi({
-			projects: [project],
-			conversations: [
-				makeConversation({
-					id: CONV_SKIP_ID,
-					projectId: PROJECT_ID,
-					title: "Slab chat (extension disabled)",
-				}),
-			],
-			messages: seedMessages(
-				CONV_SKIP_ID,
-				JSON.stringify({
-					extensionName: "graded-card-scanner",
-					toolName: "identify_slab",
-					ok: false,
-					output: skipMsg,
-				}),
-			),
-		});
-		await page.goto(`/project/${PROJECT_ID}/chat/${CONV_SKIP_ID}`);
+  test("skip-when-disabled preprocess row renders the disabled-extension message on expand", async ({
+    page,
+    mockApi,
+  }) => {
+    // extension npm-deps: when the wired extension is DISABLED, the turn
+    // runner persists a single "skipped — disabled" ok:false row so the
+    // user sees the outage rather than a silently-dropped attachment.
+    const skipMsg =
+      'skipped: extension "graded-card-scanner" is disabled (auto-disabled after ' +
+      "repeated failures, or manually). Re-enable it from the Extensions page.";
+    await mockApi({
+      projects: [project],
+      conversations: [
+        makeConversation({
+          id: CONV_SKIP_ID,
+          projectId: PROJECT_ID,
+          title: "Slab chat (extension disabled)",
+        }),
+      ],
+      messages: seedMessages(
+        CONV_SKIP_ID,
+        JSON.stringify({
+          extensionName: "graded-card-scanner",
+          toolName: "identify_slab",
+          ok: false,
+          output: skipMsg,
+        }),
+      ),
+    });
+    await page.goto(`/project/${PROJECT_ID}/chat/${CONV_SKIP_ID}`);
 
-		const row = page.getByTestId("preprocess-result-row");
-		await expect(row).toBeVisible({ timeout: 5000 });
-		await expect(row).toHaveAttribute("data-preprocess-status", "error");
+    const row = page.getByTestId("preprocess-result-row");
+    await expect(row).toBeVisible({ timeout: 5000 });
+    await expect(row).toHaveAttribute("data-preprocess-status", "error");
 
-		const card = page.getByTestId("tool-card-default");
-		await expect(card).toBeVisible();
-		await card.locator("button").first().click();
-		await expect(card).toContainText("is disabled");
-		await expect(card).toContainText("Re-enable it from the Extensions page");
-	});
+    const card = page.getByTestId("tool-card-default");
+    await expect(card).toBeVisible();
+    await card.locator("button").first().click();
+    await expect(card).toContainText("is disabled");
+    await expect(card).toContainText("Re-enable it from the Extensions page");
+  });
 
-	test("no-token degradation renders the actionable set_psa_token hint in the empty state, and captures evidence @evidence", async ({
-		page,
-		mockApi,
-	}, testInfo) => {
-		await mockApi({
-			projects: [project],
-			conversations: [
-				makeConversation({
-					id: CONV_HINT_ID,
-					projectId: PROJECT_ID,
-					title: "Slab chat (no PSA token)",
-				}),
-			],
-			messages: seedMessages(
-				CONV_HINT_ID,
-				JSON.stringify({
-					extensionName: "graded-card-scanner",
-					toolName: "identify_slab",
-					cardType: "grade-delta-chart",
-					ok: true,
-					output: JSON.stringify(NO_TOKEN_RECORD),
-				}),
-			),
-		});
-		await page.goto(`/project/${PROJECT_ID}/chat/${CONV_HINT_ID}`);
+  test("no-token degradation renders the actionable set_psa_token hint in the empty state, and captures evidence @evidence", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    await mockApi({
+      projects: [project],
+      conversations: [
+        makeConversation({
+          id: CONV_HINT_ID,
+          projectId: PROJECT_ID,
+          title: "Slab chat (no PSA token)",
+        }),
+      ],
+      messages: seedMessages(
+        CONV_HINT_ID,
+        JSON.stringify({
+          extensionName: "graded-card-scanner",
+          toolName: "identify_slab",
+          cardType: "grade-delta-chart",
+          ok: true,
+          output: JSON.stringify(NO_TOKEN_RECORD),
+        }),
+      ),
+    });
+    await page.goto(`/project/${PROJECT_ID}/chat/${CONV_HINT_ID}`);
 
-		const row = page.getByTestId("preprocess-result-row");
-		await expect(row).toBeVisible({ timeout: 5000 });
-		await expect(row).toHaveAttribute("data-preprocess-status", "complete");
+    const row = page.getByTestId("preprocess-result-row");
+    await expect(row).toBeVisible({ timeout: 5000 });
+    await expect(row).toHaveAttribute("data-preprocess-status", "complete");
 
-		// The card renders its honest empty/identity-unavailable state…
-		const card = page.getByTestId("grade-delta-card");
-		await expect(card).toBeVisible();
-		await expect(page.getByTestId("grade-delta-title")).toContainText(
-			"Identity unavailable",
-		);
-		await expect(page.getByTestId("grade-delta-chart")).toHaveCount(0);
-		await expect(page.getByTestId("grade-delta-table")).toHaveCount(0);
+    // The card renders its honest empty/identity-unavailable state…
+    const card = page.getByTestId("grade-delta-card");
+    await expect(card).toBeVisible();
+    await expect(page.getByTestId("grade-delta-title")).toContainText("Identity unavailable");
+    await expect(page.getByTestId("grade-delta-chart")).toHaveCount(0);
+    await expect(page.getByTestId("grade-delta-table")).toHaveCount(0);
 
-		// …with the ACTIONABLE hint: name the tool and the token source so
-		// the user knows exactly what to ask the assistant for.
-		const hint = page.getByTestId("grade-delta-hint");
-		await expect(hint).toBeVisible();
-		await expect(hint).toContainText("set_psa_token");
-		await expect(hint).toContainText("api.psacard.com");
+    // …with the ACTIONABLE hint: name the tool and the token source so
+    // the user knows exactly what to ask the assistant for.
+    const hint = page.getByTestId("grade-delta-hint");
+    await expect(hint).toBeVisible();
+    await expect(hint).toContainText("set_psa_token");
+    await expect(hint).toContainText("api.psacard.com");
 
-		await captureEvidence(page, testInfo, "preprocess-grade-delta-no-token-hint");
+    await captureEvidence(page, testInfo, "preprocess-grade-delta-no-token-hint");
 
-		// Capture contract (mirrors the first spec) — meaningful in both
-		// modes rather than a bare screenshot call.
-		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
-			expect(
-				testInfo.attachments.some(
-					(a) =>
-						a.name === "preprocess-grade-delta-no-token-hint" &&
-						a.contentType === "image/png",
-				),
-			).toBe(true);
-		} else {
-			expect(
-				testInfo.attachments.some(
-					(a) => a.name === "preprocess-grade-delta-no-token-hint",
-				),
-			).toBe(false);
-		}
-	});
+    // Capture contract (mirrors the first spec) — meaningful in both
+    // modes rather than a bare screenshot call.
+    if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+      expect(
+        testInfo.attachments.some(
+          (a) => a.name === "preprocess-grade-delta-no-token-hint" && a.contentType === "image/png",
+        ),
+      ).toBe(true);
+    } else {
+      expect(
+        testInfo.attachments.some((a) => a.name === "preprocess-grade-delta-no-token-hint"),
+      ).toBe(false);
+    }
+  });
 });

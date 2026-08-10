@@ -98,7 +98,14 @@ export interface AgentResult {
 
 // ── Input Schema ────────────────────────────────────────────────────
 
-export type InputFieldType = "string" | "text" | "number" | "boolean" | "select" | "file-path" | "custom";
+export type InputFieldType =
+  | "string"
+  | "text"
+  | "number"
+  | "boolean"
+  | "select"
+  | "file-path"
+  | "custom";
 
 export interface InputField {
   type: InputFieldType;
@@ -106,8 +113,8 @@ export interface InputField {
   description?: string;
   required?: boolean;
   default?: unknown;
-  options?: string[];       // for "select" type
-  component?: string;       // for "custom" type: filename in web/src/lib/custom/
+  options?: string[]; // for "select" type
+  component?: string; // for "custom" type: filename in web/src/lib/custom/
 }
 
 export type InputSchema = Record<string, InputField>;
@@ -219,13 +226,7 @@ export interface LoopConfig {
  * an LLM or a gate is bounded re-execution, while looping a raw
  * side-effecting `tool` call is not — and that ban is unchanged.
  */
-export type WorkflowStepKind =
-  | "agent"
-  | "transform"
-  | "gate"
-  | "tool"
-  | "approval"
-  | "workflow";
+export type WorkflowStepKind = "agent" | "transform" | "gate" | "tool" | "approval" | "workflow";
 
 /**
  * What happens to an `approval` step whose `timeoutMs` elapses.
@@ -335,11 +336,7 @@ export interface WorkflowModelBinding extends Omit<ModelOverride, "effort"> {
  *   `TerminalWorkflowRunStatus` (`db/queries/workflow-runs.ts`) is the
  *   narrower type that says so for runs.
  */
-export type WorkflowRunStatus =
-  | AgentStatus
-  | "awaiting_approval"
-  | "suspended"
-  | "skipped";
+export type WorkflowRunStatus = AgentStatus | "awaiting_approval" | "suspended" | "skipped";
 
 /**
  * Which side of a step boundary the executor was on when it last wrote.
@@ -785,9 +782,41 @@ export interface AgentEvents {
     expiresAt: string | null;
     userId?: string;
   };
-  "tool:start": { conversationId: string; extensionId: string; toolName: string; input: unknown; timestamp: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string; category?: string };
-  "tool:complete": { conversationId: string; extensionId: string; toolName: string; output: unknown; duration: number; success: boolean; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
-  "tool:error": { conversationId: string; extensionId: string; toolName: string; error: string; duration: number; source?: 'inline' | 'agent-run'; invocationId?: string; cardType?: string; cardLayout?: string };
+  "tool:start": {
+    conversationId: string;
+    extensionId: string;
+    toolName: string;
+    input: unknown;
+    timestamp: number;
+    source?: "inline" | "agent-run";
+    invocationId?: string;
+    cardType?: string;
+    cardLayout?: string;
+    category?: string;
+  };
+  "tool:complete": {
+    conversationId: string;
+    extensionId: string;
+    toolName: string;
+    output: unknown;
+    duration: number;
+    success: boolean;
+    source?: "inline" | "agent-run";
+    invocationId?: string;
+    cardType?: string;
+    cardLayout?: string;
+  };
+  "tool:error": {
+    conversationId: string;
+    extensionId: string;
+    toolName: string;
+    error: string;
+    duration: number;
+    source?: "inline" | "agent-run";
+    invocationId?: string;
+    cardType?: string;
+    cardLayout?: string;
+  };
   "tool:permission_request": {
     conversationId: string;
     toolCallId: string;
@@ -876,8 +905,23 @@ export interface AgentEvents {
   "github-projects:proposal-update": {
     projectId: string;
   };
-  "obs:turn": { conversationId: string; messageId?: string; llmDurationMs: number; toolDurationMs: number; totalDurationMs: number; tokenUsage: { input: number; output: number } };
-  "run:turn_saved": { runId: string; conversationId: string; messageId: string; parentMessageId: string | null; content: string; thinkingContent?: string; final: boolean };
+  "obs:turn": {
+    conversationId: string;
+    messageId?: string;
+    llmDurationMs: number;
+    toolDurationMs: number;
+    totalDurationMs: number;
+    tokenUsage: { input: number; output: number };
+  };
+  "run:turn_saved": {
+    runId: string;
+    conversationId: string;
+    messageId: string;
+    parentMessageId: string | null;
+    content: string;
+    thinkingContent?: string;
+    final: boolean;
+  };
   "run:turn_text_reset": { runId: string };
   // ── Multi-Agent Orchestration ──
   "agent:spawn": {

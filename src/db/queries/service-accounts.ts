@@ -131,7 +131,11 @@ export const SERVICE_ACCOUNT_CALLER: WorkflowCaller = delegationPrincipal("servi
  * of `src/types.ts` and comparing (`service-accounts-queries.test.ts`).
  * Exported for exactly that test — there is nothing else to compare against.
  */
-export const ALL_VISIBILITIES = ["system", "project", "private"] as const satisfies readonly WorkflowVisibility[];
+export const ALL_VISIBILITIES = [
+  "system",
+  "project",
+  "private",
+] as const satisfies readonly WorkflowVisibility[];
 
 /** A workflow the caller does NOT own, at `visibility`. `systemCachedWorkflow`
  *  builds the ownerless shape (`workflow-scope.ts:88-106`); the visibility is
@@ -185,7 +189,7 @@ export function serviceAccountReach(): ServiceAccountReach {
     runnableVisibilities: [...runnable],
     message:
       `A service account has no user identity, so it can only be delegated workflows whose visibility is one of: ${runnable.join(", ")}. ` +
-      "Forking a workflow stamps it `project`-visible, so a service account cannot run a forked workflow — delegate those with \"run as me\" instead, " +
+      'Forking a workflow stamps it `project`-visible, so a service account cannot run a forked workflow — delegate those with "run as me" instead, ' +
       "or ask an admin to make the workflow system-visible.",
   };
 }

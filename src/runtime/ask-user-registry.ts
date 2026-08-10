@@ -74,9 +74,7 @@ export function registerPendingAskUser(
 /** Read the pending entry. Returns `undefined` for an unknown
  *  toolCallId (gate already cleared, or never registered — both treat
  *  as "no-op" in the POST handler). */
-export function getPendingAskUser(
-  toolCallId: string,
-): PendingAskUserEntry | undefined {
+export function getPendingAskUser(toolCallId: string): PendingAskUserEntry | undefined {
   return pendingByToolCallId.get(toolCallId);
 }
 
@@ -86,9 +84,7 @@ export function getPendingAskUser(
  *  `tool_calls` row is written (the row only lands after the user
  *  answers, so a SELECT-by-conversation would silently miss every
  *  in-flight question). */
-export function getPendingAskUserForConversation(
-  conversationId: string,
-): PendingAskUserSummary[] {
+export function getPendingAskUserForConversation(conversationId: string): PendingAskUserSummary[] {
   const out: PendingAskUserSummary[] = [];
   for (const [toolCallId, entry] of pendingByToolCallId) {
     if (entry.conversationId !== conversationId) continue;

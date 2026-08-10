@@ -25,12 +25,7 @@ import {
   trimRetention,
 } from "./loop-core";
 import type { NewRunInput } from "./loop-core";
-import type {
-  LoopApprovalLabel,
-  LoopContract,
-  LoopRunState,
-  ResolvedContract,
-} from "./loop-types";
+import type { LoopApprovalLabel, LoopContract, LoopRunState, ResolvedContract } from "./loop-types";
 
 // Re-export so callers don't reach into loop-core for the input shape.
 export type { NewRunInput } from "./loop-core";
@@ -196,9 +191,7 @@ export function createLoopRunStore<Outcome = unknown>(
   contract: LoopContract<unknown> | ResolvedContract<unknown>,
   storageFactory: (scope: StorageScope) => StorageLike = (scope) => new Storage(scope),
 ): LoopRunStore<Outcome> {
-  const resolved: ResolvedContract = isResolved(contract)
-    ? contract
-    : resolveContract(contract);
+  const resolved: ResolvedContract = isResolved(contract) ? contract : resolveContract(contract);
   const scope = resolved.scope;
   const storage = storageFactory(scope);
   const lk = lockKey(loopId, scope);
@@ -208,9 +201,7 @@ export function createLoopRunStore<Outcome = unknown>(
     return Array.isArray(res.value) ? res.value : [];
   }
 
-  async function readRun(
-    runId: string,
-  ): Promise<LoopRunState<Outcome> | null> {
+  async function readRun(runId: string): Promise<LoopRunState<Outcome> | null> {
     const res = await storage.get<LoopRunState<Outcome>>(runKey(loopId, runId));
     return res.exists && res.value ? res.value : null;
   }
@@ -234,11 +225,7 @@ export function createLoopRunStore<Outcome = unknown>(
         // Idempotency: a duplicate key on a still-open run is a no-op.
         if (input.idempotencyKey) {
           const existing = await readAll(ids);
-          const dupe = findOpenDuplicate(
-            existing,
-            input.idempotencyKey,
-            resolved,
-          );
+          const dupe = findOpenDuplicate(existing, input.idempotencyKey, resolved);
           if (dupe) return { run: dupe, created: false };
         }
         const now = new Date().toISOString();
@@ -271,12 +258,7 @@ export function createLoopRunStore<Outcome = unknown>(
         // race let an event-only update silently revert a concurrent status
         // flip). The event-log entry still uses `eventStatus ?? status`.
         const resolvedStatus = next.status ?? run.status;
-        const updated = coreTransition(
-          run,
-          { ...next, status: resolvedStatus },
-          resolved,
-          now,
-        );
+        const updated = coreTransition(run, { ...next, status: resolvedStatus }, resolved, now);
         await storage.set(runKey(loopId, runId), updated);
         return updated;
       });
@@ -291,12 +273,7 @@ export function createLoopRunStore<Outcome = unknown>(
         if (run.status !== expectedStatus) return null;
         const now = new Date().toISOString();
         const resolvedStatus = next.status ?? run.status;
-        const updated = coreTransition(
-          run,
-          { ...next, status: resolvedStatus },
-          resolved,
-          now,
-        );
+        const updated = coreTransition(run, { ...next, status: resolvedStatus }, resolved, now);
         await storage.set(runKey(loopId, runId), updated);
         return updated;
       });

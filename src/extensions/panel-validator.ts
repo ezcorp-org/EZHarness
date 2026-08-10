@@ -17,7 +17,15 @@ import type {
 // ── Constants ──────────────────────────────────────────────────────
 
 const KNOWN_TYPES = new Set<PanelComponentType>([
-  "header", "text", "badge", "progress", "status", "list", "kv", "counter", "divider",
+  "header",
+  "text",
+  "badge",
+  "progress",
+  "status",
+  "list",
+  "kv",
+  "counter",
+  "divider",
 ]);
 
 const BADGE_COLORS = new Set(["blue", "green", "red", "yellow", "purple", "gray"]);
@@ -61,7 +69,13 @@ function validateText(raw: Record<string, unknown>): PanelText | null {
   return {
     type: "text",
     content: truncate(raw.content, 500),
-    ...(raw.variant != null ? { variant: TEXT_VARIANTS.has(raw.variant as string) ? raw.variant as PanelText["variant"] : "default" } : {}),
+    ...(raw.variant != null
+      ? {
+          variant: TEXT_VARIANTS.has(raw.variant as string)
+            ? (raw.variant as PanelText["variant"])
+            : "default",
+        }
+      : {}),
   };
 }
 
@@ -70,7 +84,7 @@ function validateBadge(raw: Record<string, unknown>): PanelBadge | null {
   return {
     type: "badge",
     label: truncate(raw.label, 30),
-    color: BADGE_COLORS.has(raw.color as string) ? raw.color as PanelBadge["color"] : "gray",
+    color: BADGE_COLORS.has(raw.color as string) ? (raw.color as PanelBadge["color"]) : "gray",
   };
 }
 
@@ -87,7 +101,7 @@ function validateStatus(raw: Record<string, unknown>): PanelStatus | null {
   return {
     type: "status",
     label: truncate(raw.label, 50),
-    state: STATUS_STATES.has(raw.state as string) ? raw.state as PanelStatus["state"] : "idle",
+    state: STATUS_STATES.has(raw.state as string) ? (raw.state as PanelStatus["state"]) : "idle",
   };
 }
 
@@ -97,16 +111,25 @@ function validateListItem(raw: unknown): PanelListItem | null {
   if (typeof item.label !== "string") return null;
   return {
     label: truncate(item.label, 100),
-    ...(item.status != null && LIST_STATUSES.has(item.status as string) ? { status: item.status as PanelListItem["status"] } : {}),
+    ...(item.status != null && LIST_STATUSES.has(item.status as string)
+      ? { status: item.status as PanelListItem["status"] }
+      : {}),
     ...(item.detail != null ? { detail: truncate(item.detail, 200) } : {}),
     ...(item.badge != null ? { badge: truncate(item.badge, 30) } : {}),
-    ...(item.badgeColor != null ? { badgeColor: BADGE_COLORS.has(item.badgeColor as string) ? item.badgeColor as PanelListItem["badgeColor"] : "gray" } : {}),
+    ...(item.badgeColor != null
+      ? {
+          badgeColor: BADGE_COLORS.has(item.badgeColor as string)
+            ? (item.badgeColor as PanelListItem["badgeColor"])
+            : "gray",
+        }
+      : {}),
   };
 }
 
 function validateList(raw: Record<string, unknown>): PanelList | null {
   if (!Array.isArray(raw.items)) return null;
-  const items = raw.items.slice(0, MAX_LIST_ITEMS)
+  const items = raw.items
+    .slice(0, MAX_LIST_ITEMS)
     .map(validateListItem)
     .filter((item): item is PanelListItem => item !== null);
   return { type: "list", items };
@@ -114,8 +137,15 @@ function validateList(raw: Record<string, unknown>): PanelList | null {
 
 function validateKV(raw: Record<string, unknown>): PanelKV | null {
   if (!Array.isArray(raw.pairs)) return null;
-  const pairs = raw.pairs.slice(0, MAX_KV_PAIRS)
-    .filter((p): p is Record<string, unknown> => p != null && typeof p === "object" && typeof (p as Record<string, unknown>).key === "string" && typeof (p as Record<string, unknown>).value === "string")
+  const pairs = raw.pairs
+    .slice(0, MAX_KV_PAIRS)
+    .filter(
+      (p): p is Record<string, unknown> =>
+        p != null &&
+        typeof p === "object" &&
+        typeof (p as Record<string, unknown>).key === "string" &&
+        typeof (p as Record<string, unknown>).value === "string",
+    )
     .map((p) => ({
       key: truncate(p.key, 50),
       value: truncate(p.value, 200),
@@ -156,16 +186,26 @@ export function validateComponent(raw: unknown): PanelComponent | null {
   if (!KNOWN_TYPES.has(obj.type as PanelComponentType)) return null;
 
   switch (obj.type) {
-    case "header":   return validateHeader(obj);
-    case "text":     return validateText(obj);
-    case "badge":    return validateBadge(obj);
-    case "progress": return validateProgress(obj);
-    case "status":   return validateStatus(obj);
-    case "list":     return validateList(obj);
-    case "kv":       return validateKV(obj);
-    case "counter":  return validateCounter(obj);
-    case "divider":  return validateDivider();
-    default:         return null;
+    case "header":
+      return validateHeader(obj);
+    case "text":
+      return validateText(obj);
+    case "badge":
+      return validateBadge(obj);
+    case "progress":
+      return validateProgress(obj);
+    case "status":
+      return validateStatus(obj);
+    case "list":
+      return validateList(obj);
+    case "kv":
+      return validateKV(obj);
+    case "counter":
+      return validateCounter(obj);
+    case "divider":
+      return validateDivider();
+    default:
+      return null;
   }
 }
 

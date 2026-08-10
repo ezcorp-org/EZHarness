@@ -170,9 +170,7 @@ export class EzcorpClient {
    *  model (createConversation, sendMessage, startAssignment). Kept as a
    *  private helper so the merge is in one place and testable via the
    *  AsyncLocalStorage scope in integration tests. */
-  private withModelDefaults<T extends { model?: string; provider?: string }>(
-    body: T,
-  ): T {
+  private withModelDefaults<T extends { model?: string; provider?: string }>(body: T): T {
     const ctx = callContext.getStore();
     if (!ctx) return body;
     return {

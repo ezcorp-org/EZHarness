@@ -1,5 +1,9 @@
 import { json } from "@sveltejs/kit";
-import { getExtension, rehydrateMcpServerSecrets, updateMcpExtension } from "$server/db/queries/extensions";
+import {
+  getExtension,
+  rehydrateMcpServerSecrets,
+  updateMcpExtension,
+} from "$server/db/queries/extensions";
 import { ExtensionRegistry } from "$server/extensions/registry";
 import { McpClient } from "$server/mcp/client";
 import { requireAdmin, requireScope } from "$lib/server/security/api-keys";
@@ -87,8 +91,7 @@ function mergeHeaders(
   prev: McpServerDefinition | undefined,
 ): McpServerDefinition {
   if (next.transport === "stdio") return next;
-  const prevHeaders =
-    prev && prev.transport !== "stdio" ? (prev.headers ?? {}) : {};
+  const prevHeaders = prev && prev.transport !== "stdio" ? (prev.headers ?? {}) : {};
   const merged: Record<string, string> = { ...prevHeaders };
   for (const [k, v] of Object.entries(next.headers ?? {})) {
     // Blank value = "keep existing" (only overwrite when a fresh value is

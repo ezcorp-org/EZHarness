@@ -47,8 +47,7 @@ const MOCK_LLM_BASE_URL = `${baseURL.replace("//localhost", "//127.0.0.1")}/api/
 // spec — the same directory must survive for the whole `playwright
 // test` invocation. Best-effort cleanup happens at process exit
 // (see globalTeardown).
-const DB_DIR = process.env.PI_E2E_REAL_DB_PATH
-  ?? mkdtempSync(join(tmpdir(), "ezcorp-e2e-"));
+const DB_DIR = process.env.PI_E2E_REAL_DB_PATH ?? mkdtempSync(join(tmpdir(), "ezcorp-e2e-"));
 
 // Visual-evidence mode (opt-in via `EZCORP_E2E_EVIDENCE=1`). Mirrors the
 // default config: `captureEvidence` owns screenshotting so Playwright's own
@@ -107,9 +106,7 @@ export default defineConfig({
   // NB: this is a mitigation, not a root-cause fix. The upstream null-deref is
   // not ours to fix and does not reproduce on a fast dev machine (15 clean
   // local runs); it only shows up on the 4-vCPU CI runner.
-  projects: [
-    { name: "chromium", use: { browserName: "chromium", channel: "chromium" } },
-  ],
+  projects: [{ name: "chromium", use: { browserName: "chromium", channel: "chromium" } }],
   webServer: {
     // Use Vite preview against the production build, identical to the
     // default config — but WITHOUT `PI_SKIP_INIT`, so the DB layer

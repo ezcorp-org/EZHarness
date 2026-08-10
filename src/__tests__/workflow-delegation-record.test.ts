@@ -167,7 +167,9 @@ describe("latestWorkflowVersionFor", () => {
     dbDoubles.latestVersion = async () => ({ id: "v1", version: 3, stepsHash: "h" });
 
     expect(await latestWorkflowVersionFor("root")).toEqual({
-      id: "v1", version: 3, stepsHash: "h",
+      id: "v1",
+      version: 3,
+      stepsHash: "h",
     });
   });
 });
@@ -199,7 +201,9 @@ describe("computeDelegationConsentRecord", () => {
   test("a MATCHING version is pinned", async () => {
     dbDoubles.workflowByName = async () => ({ id: "def-1" });
     dbDoubles.latestVersion = async () => ({
-      id: "v1", version: 1, stepsHash: workflowDefinitionHash(AGENT_ROOT),
+      id: "v1",
+      version: 1,
+      stepsHash: workflowDefinitionHash(AGENT_ROOT),
     });
 
     const record = await computeDelegationConsentRecord(request());
@@ -213,7 +217,9 @@ describe("computeDelegationConsentRecord", () => {
   test("a DIVERGED version REFUSES the pin rather than papering over it", async () => {
     dbDoubles.workflowByName = async () => ({ id: "def-1" });
     dbDoubles.latestVersion = async () => ({
-      id: "v1", version: 1, stepsHash: "content-that-never-ran",
+      id: "v1",
+      version: 1,
+      stepsHash: "content-that-never-ran",
     });
 
     const record = await computeDelegationConsentRecord(request());
@@ -248,7 +254,8 @@ describe("computeDelegationConsentRecord", () => {
       request({ entry: root, entries: [root] }),
     );
     expect(withTool.capabilitySet).toContainEqual({
-      kind: "tool:unreachable", value: "ext__thing",
+      kind: "tool:unreachable",
+      value: "ext__thing",
     });
 
     // Register the tool and the hash MOVES — the set grew, but the point
@@ -308,14 +315,16 @@ describe("computeDelegationConsentRecord", () => {
 
     const asUser = await computeDelegationConsentRecord(
       request({
-        entry: root, entries,
+        entry: root,
+        entries,
         runAs: { kind: "user", id: "u1" },
         principal: delegationPrincipal("user", "u1"),
       }),
     );
     const asService = await computeDelegationConsentRecord(
       request({
-        entry: root, entries,
+        entry: root,
+        entries,
         runAs: { kind: "service", id: "svc-1" },
         principal: delegationPrincipal("service", "svc-1"),
       }),

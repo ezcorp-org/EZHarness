@@ -119,7 +119,11 @@ export async function reapPreviewConversation(
       try {
         forget(id);
       } catch (err) {
-        log.warn("reap: forgetting quota failed", { conversationId, previewId: id, error: String(err) });
+        log.warn("reap: forgetting quota failed", {
+          conversationId,
+          previewId: id,
+          error: String(err),
+        });
       }
     }
   } catch (err) {

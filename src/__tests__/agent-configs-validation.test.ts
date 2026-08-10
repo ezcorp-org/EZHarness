@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeAll, afterAll, } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 
 mockDbConnection();

@@ -8,7 +8,13 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgents } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings, restoreFetch } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+  restoreFetch,
+} from "./helpers/test-pglite";
 import { createProject } from "../db/queries/projects";
 import * as convQueries from "../db/queries/conversations";
 import type { AgentEvents } from "../types";
@@ -259,9 +265,7 @@ describe("Search API", () => {
   });
 
   test("GET /api/conversations?search= returns matching conversations", async () => {
-    const res = await fetch(
-      `${baseUrl}/api/conversations?projectId=${projectId}&search=quantum`,
-    );
+    const res = await fetch(`${baseUrl}/api/conversations?projectId=${projectId}&search=quantum`);
     expect(res.status).toBe(200);
     const results = (await res.json()) as any[];
     expect(results.length).toBeGreaterThanOrEqual(1);
@@ -278,9 +282,7 @@ describe("Search API", () => {
   });
 
   test("search with empty query returns empty array", async () => {
-    const res = await fetch(
-      `${baseUrl}/api/conversations?projectId=${projectId}&search=`,
-    );
+    const res = await fetch(`${baseUrl}/api/conversations?projectId=${projectId}&search=`);
     expect(res.status).toBe(200);
     const results = (await res.json()) as any[];
     // Empty search should not crash -- returns empty or all
@@ -332,9 +334,7 @@ describe("Branch-aware messages", () => {
   });
 
   test("GET messages?all=true returns flat list of all messages", async () => {
-    const res = await fetch(
-      `${baseUrl}/api/conversations/${convId}/messages?all=true`,
-    );
+    const res = await fetch(`${baseUrl}/api/conversations/${convId}/messages?all=true`);
     expect(res.status).toBe(200);
     const msgs = (await res.json()) as any[];
     expect(msgs.length).toBe(3); // root + branchA + branchB
@@ -353,9 +353,7 @@ describe("Branch-aware messages", () => {
   });
 
   test("default GET returns latest-leaf path", async () => {
-    const res = await fetch(
-      `${baseUrl}/api/conversations/${convId}/messages`,
-    );
+    const res = await fetch(`${baseUrl}/api/conversations/${convId}/messages`);
     expect(res.status).toBe(200);
     const msgs = (await res.json()) as any[];
     // Should be root + the latest leaf (branchB, created last)
@@ -483,9 +481,7 @@ describe("Export API", () => {
   });
 
   test("GET export?format=markdown returns text/markdown with Content-Disposition", async () => {
-    const res = await fetch(
-      `${baseUrl}/api/conversations/${convId}/export?format=markdown`,
-    );
+    const res = await fetch(`${baseUrl}/api/conversations/${convId}/export?format=markdown`);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/markdown");
     expect(res.headers.get("Content-Disposition")).toContain("attachment");
@@ -497,9 +493,7 @@ describe("Export API", () => {
   });
 
   test("GET export?format=json returns valid JSON with conversation + messages", async () => {
-    const res = await fetch(
-      `${baseUrl}/api/conversations/${convId}/export?format=json`,
-    );
+    const res = await fetch(`${baseUrl}/api/conversations/${convId}/export?format=json`);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("application/json");
     expect(res.headers.get("Content-Disposition")).toContain("attachment");
@@ -514,9 +508,7 @@ describe("Export API", () => {
   });
 
   test("export on nonexistent conversation returns 404", async () => {
-    const res = await fetch(
-      `${baseUrl}/api/conversations/nonexistent/export?format=markdown`,
-    );
+    const res = await fetch(`${baseUrl}/api/conversations/nonexistent/export?format=markdown`);
     expect(res.status).toBe(404);
   });
 });

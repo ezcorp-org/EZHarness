@@ -82,9 +82,7 @@ export function isUntrustedInputTrigger(trigger: LoopTrigger): boolean {
  *  permanently `untrusted-input`. Normalizes the one-or-many `trigger` shape.
  *  Pure; the registration path (`defineLoop`) stamps the result and Phase 8
  *  reads it. */
-export function hasUntrustedInputTrigger(
-  def: Pick<LoopDefinition, "trigger">,
-): boolean {
+export function hasUntrustedInputTrigger(def: Pick<LoopDefinition, "trigger">): boolean {
   const triggers = Array.isArray(def.trigger) ? def.trigger : [def.trigger];
   return triggers.some(isUntrustedInputTrigger);
 }
@@ -108,15 +106,11 @@ export function resolveContract<Input>(
   contract: LoopContract<Input> = {},
 ): ResolvedContract<Input> {
   const declaredStates =
-    contract.states && contract.states.length > 0
-      ? contract.states
-      : DEFAULT_STATES;
+    contract.states && contract.states.length > 0 ? contract.states : DEFAULT_STATES;
   // Default: every declared state is terminal (capture loops resolve in
   // one transition). Deferred loops declare a narrower `terminal` subset.
   const declaredTerminal =
-    contract.terminal && contract.terminal.length > 0
-      ? contract.terminal
-      : declaredStates;
+    contract.terminal && contract.terminal.length > 0 ? contract.terminal : declaredStates;
 
   // Approval: inject the primitive-owned states so `transition` accepts
   // them without the extension re-declaring the governance vocabulary.
@@ -134,9 +128,7 @@ export function resolveContract<Input>(
       );
     }
   }
-  const states = hasApproval
-    ? dedupe([...declaredStates, ...APPROVAL_STATES])
-    : declaredStates;
+  const states = hasApproval ? dedupe([...declaredStates, ...APPROVAL_STATES]) : declaredStates;
   const terminal = hasApproval
     ? dedupe([...declaredTerminal, ...APPROVAL_TERMINAL_STATES])
     : declaredTerminal;
@@ -145,23 +137,17 @@ export function resolveContract<Input>(
     states,
     terminal,
     scope: contract.scope ?? "global",
-    ...(contract.idempotencyKey
-      ? { idempotencyKey: contract.idempotencyKey }
-      : {}),
+    ...(contract.idempotencyKey ? { idempotencyKey: contract.idempotencyKey } : {}),
     maxRuns: contract.retention?.maxRuns ?? DEFAULT_MAX_RUNS,
-    maxEventsPerRun:
-      contract.retention?.maxEventsPerRun ?? DEFAULT_MAX_EVENTS_PER_RUN,
+    maxEventsPerRun: contract.retention?.maxEventsPerRun ?? DEFAULT_MAX_EVENTS_PER_RUN,
     classify: contract.failure?.classify ?? (() => "transient"),
     autoDisableAfter: contract.failure?.autoDisableAfter ?? 0,
-    ...(contract.failure?.onAutoDisable
-      ? { onAutoDisable: contract.failure.onAutoDisable }
-      : {}),
+    ...(contract.failure?.onAutoDisable ? { onAutoDisable: contract.failure.onAutoDisable } : {}),
     ...(hasApproval
       ? {
           approval: {
             mode: (contract.approval!.mode ?? "proactive") as ApprovalMode,
-            staleAfterDays:
-              contract.approval!.staleAfterDays ?? DEFAULT_STALE_AFTER_DAYS,
+            staleAfterDays: contract.approval!.staleAfterDays ?? DEFAULT_STALE_AFTER_DAYS,
           },
         }
       : {}),
@@ -185,19 +171,13 @@ function dedupe(xs: readonly string[]): string[] {
 // ── Status predicates ────────────────────────────────────────────────
 
 /** Whether `status` is a terminal state under the resolved contract. Pure. */
-export function isTerminal(
-  status: string,
-  contract: ResolvedContract,
-): boolean {
+export function isTerminal(status: string, contract: ResolvedContract): boolean {
   return contract.terminal.includes(status);
 }
 
 /** A run is live (steerable/cancellable, open for deferred re-entry) iff
  *  its status is NOT terminal. Pure. */
-export function isLive(
-  run: Pick<LoopRunState, "status">,
-  contract: ResolvedContract,
-): boolean {
+export function isLive(run: Pick<LoopRunState, "status">, contract: ResolvedContract): boolean {
   return !isTerminal(run.status, contract);
 }
 
@@ -327,13 +307,9 @@ export function createRun<Outcome = unknown>(
     ...(input.input !== undefined ? { input: input.input } : {}),
     ...(input.outcome !== undefined ? { outcome: input.outcome } : {}),
     ...(input.externalRunId ? { externalRunId: input.externalRunId } : {}),
-    ...(input.externalAssignmentId
-      ? { externalAssignmentId: input.externalAssignmentId }
-      : {}),
+    ...(input.externalAssignmentId ? { externalAssignmentId: input.externalAssignmentId } : {}),
     ...(input.externalTaskId ? { externalTaskId: input.externalTaskId } : {}),
-    ...(input.subConversationId
-      ? { subConversationId: input.subConversationId }
-      : {}),
+    ...(input.subConversationId ? { subConversationId: input.subConversationId } : {}),
     ...(input.proposal !== undefined ? { proposal: input.proposal } : {}),
     events: appendEvent([], firstEvent, contract.maxEventsPerRun),
     createdAt: now,
@@ -380,17 +356,11 @@ export function transition<Outcome = unknown>(
     status: next.status,
     ...(next.outcome !== undefined ? { outcome: next.outcome } : {}),
     ...(next.externalRunId ? { externalRunId: next.externalRunId } : {}),
-    ...(next.externalAssignmentId
-      ? { externalAssignmentId: next.externalAssignmentId }
-      : {}),
+    ...(next.externalAssignmentId ? { externalAssignmentId: next.externalAssignmentId } : {}),
     ...(next.externalTaskId ? { externalTaskId: next.externalTaskId } : {}),
-    ...(next.subConversationId
-      ? { subConversationId: next.subConversationId }
-      : {}),
+    ...(next.subConversationId ? { subConversationId: next.subConversationId } : {}),
     ...(next.proposal !== undefined ? { proposal: next.proposal } : {}),
-    ...(next.verifyManually !== undefined
-      ? { verifyManually: next.verifyManually }
-      : {}),
+    ...(next.verifyManually !== undefined ? { verifyManually: next.verifyManually } : {}),
     updatedAt: now,
     events: appendEvent(run.events, evt, contract.maxEventsPerRun),
   };
@@ -398,10 +368,7 @@ export function transition<Outcome = unknown>(
 
 /** Whether a status is a member of the contract's declared vocabulary.
  *  Pure. */
-export function isKnownState(
-  status: string,
-  contract: ResolvedContract,
-): boolean {
+export function isKnownState(status: string, contract: ResolvedContract): boolean {
   return contract.states.includes(status);
 }
 
@@ -420,10 +387,7 @@ export function findOpenDuplicate<Outcome = unknown>(
   contract: ResolvedContract,
 ): LoopRunState<Outcome> | undefined {
   if (!idempotencyKey) return undefined;
-  return runs.find(
-    (r) =>
-      r.idempotencyKey === idempotencyKey && isLive(r, contract),
-  );
+  return runs.find((r) => r.idempotencyKey === idempotencyKey && isLive(r, contract));
 }
 
 // ── Retention ────────────────────────────────────────────────────────
@@ -497,8 +461,7 @@ export function classifyFailure(
   }
   const consecutiveErrors = priorConsecutive + 1;
   const shouldDisable =
-    contract.autoDisableAfter > 0 &&
-    consecutiveErrors >= contract.autoDisableAfter;
+    contract.autoDisableAfter > 0 && consecutiveErrors >= contract.autoDisableAfter;
   return { class: "permanent", consecutiveErrors, shouldDisable };
 }
 
@@ -529,14 +492,11 @@ export function autoDisableContext(
  * `contract.approval` (a proposal with no governance is a misconfiguration)
  * or when the proposal descriptor is malformed. Pure.
  */
-export function validateActResult(
-  result: ActResult,
-  contract: ResolvedContract,
-): string | null {
+export function validateActResult(result: ActResult, contract: ResolvedContract): string | null {
   if (result.kind === "skip") return null;
   if (result.kind === "proposal") {
     if (!contract.approval) {
-      return "loop act returned a proposal but contract.approval is not declared — add `approval: { mode: \"proactive\" }`";
+      return 'loop act returned a proposal but contract.approval is not declared — add `approval: { mode: "proactive" }`';
     }
     if (typeof result.finalize !== "function") {
       return "loop proposal must supply a finalize() function";

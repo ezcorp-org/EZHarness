@@ -23,7 +23,7 @@ import { test, expect } from "./fixtures/test-base.js";
  * - On success: window.location.href = "/"
  */
 function setupShellHtml() {
-	return `<!DOCTYPE html>
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -183,18 +183,18 @@ function setupShellHtml() {
  * server-side load. Mirrors gotoLogin() in auth-login.spec.ts.
  */
 async function gotoSetup(page: any) {
-	await page.route(/^[^?]*\/setup(\?.*)?$/, (route: any) => {
-		const url = new URL(route.request().url());
-		if (url.pathname === "/setup" && route.request().method() === "GET") {
-			return route.fulfill({
-				status: 200,
-				contentType: "text/html",
-				body: setupShellHtml(),
-			});
-		}
-		return route.fallback();
-	});
-	await page.goto("/setup");
+  await page.route(/^[^?]*\/setup(\?.*)?$/, (route: any) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/setup" && route.request().method() === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: setupShellHtml(),
+      });
+    }
+    return route.fallback();
+  });
+  await page.goto("/setup");
 }
 
 /**
@@ -203,174 +203,189 @@ async function gotoSetup(page: any) {
  * full mock harness).
  */
 async function stubRoot(page: any) {
-	await page.route(/^[^?]*\/(\?.*)?$/, (route: any) => {
-		const url = new URL(route.request().url());
-		if (url.pathname === "/" && route.request().method() === "GET") {
-			return route.fulfill({
-				status: 200,
-				contentType: "text/html",
-				body: "<!doctype html><html><head><title>OK</title></head><body>OK</body></html>",
-			});
-		}
-		return route.fallback();
-	});
+  await page.route(/^[^?]*\/(\?.*)?$/, (route: any) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/" && route.request().method() === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: "<!doctype html><html><head><title>OK</title></head><body>OK</body></html>",
+      });
+    }
+    return route.fallback();
+  });
 }
 
 // Run as fully unauthenticated — independent of local vs Docker harness.
 test.use({ storageState: { cookies: [], origins: [] } });
 
 test.describe("Setup — First Run", () => {
-	test("renders setup form with all fields and submit button", async ({ page, mockApi }) => {
-		await mockApi({});
-		await gotoSetup(page);
+  test("renders setup form with all fields and submit button", async ({ page, mockApi }) => {
+    await mockApi({});
+    await gotoSetup(page);
 
-		await expect(page.getByRole("heading", { name: "Welcome to EZCorp" })).toBeVisible({ timeout: 5000 });
-		await expect(page.locator("#name")).toBeVisible();
-		await expect(page.locator("#email")).toBeVisible();
-		await expect(page.locator("#password")).toBeVisible();
-		await expect(page.locator("#confirmPassword")).toBeVisible();
-		await expect(page.getByRole("button", { name: "Create Admin Account" })).toBeVisible();
-		await expect(page).toHaveTitle(/Setup/);
-	});
+    await expect(page.getByRole("heading", { name: "Welcome to EZCorp" })).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.locator("#name")).toBeVisible();
+    await expect(page.locator("#email")).toBeVisible();
+    await expect(page.locator("#password")).toBeVisible();
+    await expect(page.locator("#confirmPassword")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create Admin Account" })).toBeVisible();
+    await expect(page).toHaveTitle(/Setup/);
+  });
 
-	test("client validation blocks submit on weak password", async ({ page, mockApi }) => {
-		await mockApi({});
+  test("client validation blocks submit on weak password", async ({ page, mockApi }) => {
+    await mockApi({});
 
-		// Track any POST to /api/auth/setup so we can assert it was never hit.
-		let setupCalls = 0;
-		await page.route("**/api/auth/setup", (route: any) => {
-			if (route.request().method() === "POST") setupCalls++;
-			return route.fulfill({ status: 200, json: {} });
-		});
+    // Track any POST to /api/auth/setup so we can assert it was never hit.
+    let setupCalls = 0;
+    await page.route("**/api/auth/setup", (route: any) => {
+      if (route.request().method() === "POST") setupCalls++;
+      return route.fulfill({ status: 200, json: {} });
+    });
 
-		await gotoSetup(page);
+    await gotoSetup(page);
 
-		await page.locator("#name").fill("Admin");
-		await page.locator("#email").fill("admin@example.com");
-		await page.locator("#password").fill("weak");
-		await page.locator("#confirmPassword").fill("weak");
-		await page.getByRole("button", { name: "Create Admin Account" }).click();
+    await page.locator("#name").fill("Admin");
+    await page.locator("#email").fill("admin@example.com");
+    await page.locator("#password").fill("weak");
+    await page.locator("#confirmPassword").fill("weak");
+    await page.getByRole("button", { name: "Create Admin Account" }).click();
 
-		await expect(page.getByText("Password must be at least 8 characters")).toBeVisible({ timeout: 5000 });
-		// Give any rogue request a moment to materialise, then assert none happened.
-		await page.waitForTimeout(250);
-		expect(setupCalls).toBe(0);
-	});
+    await expect(page.getByText("Password must be at least 8 characters")).toBeVisible({
+      timeout: 5000,
+    });
+    // Give any rogue request a moment to materialise, then assert none happened.
+    await page.waitForTimeout(250);
+    expect(setupCalls).toBe(0);
+  });
 
-	test("client validation blocks on password mismatch", async ({ page, mockApi }) => {
-		await mockApi({});
+  test("client validation blocks on password mismatch", async ({ page, mockApi }) => {
+    await mockApi({});
 
-		let setupCalls = 0;
-		await page.route("**/api/auth/setup", (route: any) => {
-			if (route.request().method() === "POST") setupCalls++;
-			return route.fulfill({ status: 200, json: {} });
-		});
+    let setupCalls = 0;
+    await page.route("**/api/auth/setup", (route: any) => {
+      if (route.request().method() === "POST") setupCalls++;
+      return route.fulfill({ status: 200, json: {} });
+    });
 
-		await gotoSetup(page);
+    await gotoSetup(page);
 
-		await page.locator("#name").fill("Admin");
-		await page.locator("#email").fill("admin@example.com");
-		await page.locator("#password").fill("GoodPass1");
-		await page.locator("#confirmPassword").fill("Different1");
-		await page.getByRole("button", { name: "Create Admin Account" }).click();
+    await page.locator("#name").fill("Admin");
+    await page.locator("#email").fill("admin@example.com");
+    await page.locator("#password").fill("GoodPass1");
+    await page.locator("#confirmPassword").fill("Different1");
+    await page.getByRole("button", { name: "Create Admin Account" }).click();
 
-		await expect(page.getByText("Passwords do not match")).toBeVisible({ timeout: 5000 });
-		await page.waitForTimeout(250);
-		expect(setupCalls).toBe(0);
-	});
+    await expect(page.getByText("Passwords do not match")).toBeVisible({ timeout: 5000 });
+    await page.waitForTimeout(250);
+    expect(setupCalls).toBe(0);
+  });
 
-	test("happy path: 201 response navigates to /", async ({ page, mockApi }) => {
-		await mockApi({});
-		await stubRoot(page);
+  test("happy path: 201 response navigates to /", async ({ page, mockApi }) => {
+    await mockApi({});
+    await stubRoot(page);
 
-		let captured: { name?: string; email?: string; password?: string; confirmPassword?: string } | null = null;
-		await page.route("**/api/auth/setup", (route: any) => {
-			if (route.request().method() === "POST") {
-				try {
-					captured = JSON.parse(route.request().postData() || "{}");
-				} catch {
-					captured = {};
-				}
-				return route.fulfill({
-					status: 201,
-					contentType: "application/json",
-					body: JSON.stringify({ user: { id: "u1", role: "admin" } }),
-				});
-			}
-			return route.fallback();
-		});
+    let captured: {
+      name?: string;
+      email?: string;
+      password?: string;
+      confirmPassword?: string;
+    } | null = null;
+    await page.route("**/api/auth/setup", (route: any) => {
+      if (route.request().method() === "POST") {
+        try {
+          captured = JSON.parse(route.request().postData() || "{}");
+        } catch {
+          captured = {};
+        }
+        return route.fulfill({
+          status: 201,
+          contentType: "application/json",
+          body: JSON.stringify({ user: { id: "u1", role: "admin" } }),
+        });
+      }
+      return route.fallback();
+    });
 
-		await gotoSetup(page);
+    await gotoSetup(page);
 
-		await page.locator("#name").fill("Admin");
-		await page.locator("#email").fill("Admin@Example.com");
-		await page.locator("#password").fill("GoodPass1");
-		await page.locator("#confirmPassword").fill("GoodPass1");
+    await page.locator("#name").fill("Admin");
+    await page.locator("#email").fill("Admin@Example.com");
+    await page.locator("#password").fill("GoodPass1");
+    await page.locator("#confirmPassword").fill("GoodPass1");
 
-		const navigationPromise = page.waitForURL("**/", { timeout: 5000 });
-		await page.getByRole("button", { name: "Create Admin Account" }).click();
-		await navigationPromise;
+    const navigationPromise = page.waitForURL("**/", { timeout: 5000 });
+    await page.getByRole("button", { name: "Create Admin Account" }).click();
+    await navigationPromise;
 
-		expect(new URL(page.url()).pathname).toBe("/");
-		expect(captured).not.toBeNull();
-		expect(captured!.name).toBe("Admin");
-		expect(captured!.email).toBe("admin@example.com");
-		expect(captured!.password).toBe("GoodPass1");
-		expect(captured!.confirmPassword).toBeUndefined();
-	});
+    expect(new URL(page.url()).pathname).toBe("/");
+    expect(captured).not.toBeNull();
+    expect(captured!.name).toBe("Admin");
+    expect(captured!.email).toBe("admin@example.com");
+    expect(captured!.password).toBe("GoodPass1");
+    expect(captured!.confirmPassword).toBeUndefined();
+  });
 
-	test("server 400 with fields.password shows password-specific error", async ({ page, mockApi }) => {
-		await mockApi({});
-		await page.route("**/api/auth/setup", (route: any) => {
-			if (route.request().method() === "POST") {
-				return route.fulfill({
-					status: 400,
-					contentType: "application/json",
-					body: JSON.stringify({
-						error: "Validation failed",
-						fields: { password: "Password must contain at least one digit" },
-					}),
-				});
-			}
-			return route.fallback();
-		});
+  test("server 400 with fields.password shows password-specific error", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({});
+    await page.route("**/api/auth/setup", (route: any) => {
+      if (route.request().method() === "POST") {
+        return route.fulfill({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({
+            error: "Validation failed",
+            fields: { password: "Password must contain at least one digit" },
+          }),
+        });
+      }
+      return route.fallback();
+    });
 
-		await gotoSetup(page);
+    await gotoSetup(page);
 
-		await page.locator("#name").fill("Admin");
-		await page.locator("#email").fill("admin@example.com");
-		await page.locator("#password").fill("GoodPass1");
-		await page.locator("#confirmPassword").fill("GoodPass1");
-		await page.getByRole("button", { name: "Create Admin Account" }).click();
+    await page.locator("#name").fill("Admin");
+    await page.locator("#email").fill("admin@example.com");
+    await page.locator("#password").fill("GoodPass1");
+    await page.locator("#confirmPassword").fill("GoodPass1");
+    await page.getByRole("button", { name: "Create Admin Account" }).click();
 
-		await expect(page.locator("#password-error")).toHaveText("Password must contain at least one digit", {
-			timeout: 5000,
-		});
-		// Generic banner should NOT appear when a per-field error was routed.
-		await expect(page.locator("#error-box")).not.toBeVisible();
-	});
+    await expect(page.locator("#password-error")).toHaveText(
+      "Password must contain at least one digit",
+      {
+        timeout: 5000,
+      },
+    );
+    // Generic banner should NOT appear when a per-field error was routed.
+    await expect(page.locator("#error-box")).not.toBeVisible();
+  });
 
-	test("server 429 shows top-level error banner", async ({ page, mockApi }) => {
-		await mockApi({});
-		await page.route("**/api/auth/setup", (route: any) => {
-			if (route.request().method() === "POST") {
-				return route.fulfill({
-					status: 429,
-					contentType: "application/json",
-					body: JSON.stringify({ error: "Too many requests", retryAfter: 60 }),
-				});
-			}
-			return route.fallback();
-		});
+  test("server 429 shows top-level error banner", async ({ page, mockApi }) => {
+    await mockApi({});
+    await page.route("**/api/auth/setup", (route: any) => {
+      if (route.request().method() === "POST") {
+        return route.fulfill({
+          status: 429,
+          contentType: "application/json",
+          body: JSON.stringify({ error: "Too many requests", retryAfter: 60 }),
+        });
+      }
+      return route.fallback();
+    });
 
-		await gotoSetup(page);
+    await gotoSetup(page);
 
-		await page.locator("#name").fill("Admin");
-		await page.locator("#email").fill("admin@example.com");
-		await page.locator("#password").fill("GoodPass1");
-		await page.locator("#confirmPassword").fill("GoodPass1");
-		await page.getByRole("button", { name: "Create Admin Account" }).click();
+    await page.locator("#name").fill("Admin");
+    await page.locator("#email").fill("admin@example.com");
+    await page.locator("#password").fill("GoodPass1");
+    await page.locator("#confirmPassword").fill("GoodPass1");
+    await page.getByRole("button", { name: "Create Admin Account" }).click();
 
-		await expect(page.getByText("Too many requests")).toBeVisible({ timeout: 5000 });
-	});
+    await expect(page.getByText("Too many requests")).toBeVisible({ timeout: 5000 });
+  });
 });

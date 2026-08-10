@@ -7,10 +7,27 @@ const DEFAULT_CHUNK_SIZE = 512;
 const DEFAULT_OVERLAP = 50;
 
 export const ALLOWED_EXTENSIONS = new Set([
-  ".txt", ".md", ".csv", ".json", ".yaml", ".yml", ".toml",
-  ".ts", ".js", ".py", ".go", ".rs",
-  ".html", ".xml", ".css",
-  ".sh", ".sql", ".env", ".cfg", ".ini", ".log",
+  ".txt",
+  ".md",
+  ".csv",
+  ".json",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".ts",
+  ".js",
+  ".py",
+  ".go",
+  ".rs",
+  ".html",
+  ".xml",
+  ".css",
+  ".sh",
+  ".sql",
+  ".env",
+  ".cfg",
+  ".ini",
+  ".log",
 ]);
 
 /**

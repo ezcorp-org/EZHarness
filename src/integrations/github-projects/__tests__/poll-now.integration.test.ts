@@ -90,7 +90,12 @@ afterAll(async () => {
 });
 
 const GH_EXT = "github-projects";
-const USER = { id: "user-poll-1", email: "poll@test.local", name: "Poller", role: "member" as const };
+const USER = {
+  id: "user-poll-1",
+  email: "poll@test.local",
+  name: "Poller",
+  role: "member" as const,
+};
 
 function pollNowReq(linkId: string) {
   return {

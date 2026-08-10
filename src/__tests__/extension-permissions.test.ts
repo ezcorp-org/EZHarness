@@ -15,7 +15,9 @@ import type { ExtensionPermissions, ExtensionManifestV2 } from "../extensions/ty
 const mockSettings = new Map<string, unknown>();
 mock.module("../db/queries/settings", () => ({
   getSetting: async (key: string) => mockSettings.get(key),
-  upsertSetting: async (key: string, value: unknown) => { mockSettings.set(key, value); },
+  upsertSetting: async (key: string, value: unknown) => {
+    mockSettings.set(key, value);
+  },
   getAllSettings: async () => Object.fromEntries(mockSettings),
   deleteSetting: async (key: string) => mockSettings.delete(key),
   isListingInstalled: async () => false,
@@ -144,17 +146,13 @@ describe("checkSensitiveConfirmation", () => {
   test("forever-scope write for filesystem is found by the scoped reader", async () => {
     const SCOPE = { userId: "user-1", scope: "forever" as const, scopeId: "*" };
     await setSensitiveAlwaysAllow("ext-1", "filesystem", true, SCOPE);
-    expect(
-      await checkSensitiveConfirmation("ext-1", "filesystem", SCOPE),
-    ).toBe("allowed");
+    expect(await checkSensitiveConfirmation("ext-1", "filesystem", SCOPE)).toBe("allowed");
   });
 
   test("forever-scope write for shell is found by the scoped reader", async () => {
     const SCOPE = { userId: "user-1", scope: "forever" as const, scopeId: "*" };
     await setSensitiveAlwaysAllow("ext-1", "shell", true, SCOPE);
-    expect(await checkSensitiveConfirmation("ext-1", "shell", SCOPE)).toBe(
-      "allowed",
-    );
+    expect(await checkSensitiveConfirmation("ext-1", "shell", SCOPE)).toBe("allowed");
   });
 });
 
@@ -234,7 +232,11 @@ describe("checkFilesystemPermission — `$CWD` grant resolves to the project roo
     else process.env.EZCORP_PROJECT_ROOT = priorEnv;
     __resetProjectRootCacheForTests();
     if (projectRoot) {
-      try { rmSync(projectRoot, { recursive: true, force: true }); } catch { /* */ }
+      try {
+        rmSync(projectRoot, { recursive: true, force: true });
+      } catch {
+        /* */
+      }
     }
   });
 
@@ -282,7 +284,12 @@ describe("resolveGrantPrefixCanonical", () => {
     root = realpathSync(mkdtempSync(join(tmpdir(), "grant-prefix-")));
   });
   afterAll(() => {
-    if (root) try { rmSync(root, { recursive: true, force: true }); } catch { /* */ }
+    if (root)
+      try {
+        rmSync(root, { recursive: true, force: true });
+      } catch {
+        /* */
+      }
   });
 
   test("existing dir → identical to realpath", async () => {
@@ -338,7 +345,12 @@ describe("checkFilesystemPermission — granted prefix dir not created yet", () 
     if (priorEnv === undefined) delete process.env.EZCORP_PROJECT_ROOT;
     else process.env.EZCORP_PROJECT_ROOT = priorEnv;
     __resetProjectRootCacheForTests();
-    if (projectRoot) try { rmSync(projectRoot, { recursive: true, force: true }); } catch { /* */ }
+    if (projectRoot)
+      try {
+        rmSync(projectRoot, { recursive: true, force: true });
+      } catch {
+        /* */
+      }
   });
 
   test("target under a granted-but-uncreated `$CWD/...` prefix is ALLOWED once it exists", async () => {
@@ -346,10 +358,7 @@ describe("checkFilesystemPermission — granted prefix dir not created yet", () 
     // pre-created — only the eventual target file's parent is. Pre-fix
     // the prefix realpath would throw and the grant be voided.
     const grant = "$CWD/.ezcorp/extension-data/extension-author";
-    const target = join(
-      projectRoot,
-      ".ezcorp/extension-data/extension-author/drafts/u/d",
-    );
+    const target = join(projectRoot, ".ezcorp/extension-data/extension-author/drafts/u/d");
     mkdirSync(target, { recursive: true });
     writeFileSync(join(target, "ezcorp.config.ts"), "x");
 

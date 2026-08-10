@@ -35,9 +35,10 @@ export const GET: RequestHandler = async ({ params, locals, url }) => {
 
   const KNOWN_CAPS = new Set(["llm", "memory", "lessons", "schedule", "events"]);
   const cap = url.searchParams.get("capability");
-  const capability = cap && KNOWN_CAPS.has(cap)
-    ? (cap as "llm" | "memory" | "lessons" | "schedule" | "events")
-    : undefined;
+  const capability =
+    cap && KNOWN_CAPS.has(cap)
+      ? (cap as "llm" | "memory" | "lessons" | "schedule" | "events")
+      : undefined;
   const status = url.searchParams.get("status") === "denial" ? "denial" : undefined;
   const cursor = url.searchParams.get("cursor") ?? undefined;
   const since = url.searchParams.get("since");

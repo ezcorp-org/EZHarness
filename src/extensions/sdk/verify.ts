@@ -57,9 +57,7 @@ function requiresSmokeTest(manifest: ExtensionManifestV2): boolean {
  * Never throws — every failure mode is captured as a `VerifyStep` with
  * `ok:false` and `pass:false`.
  */
-export async function verifyExtension(
-  opts: VerifyExtensionOptions,
-): Promise<VerifyResult> {
+export async function verifyExtension(opts: VerifyExtensionOptions): Promise<VerifyResult> {
   const { extDir } = opts;
   const steps: VerifyStep[] = [];
 
@@ -137,10 +135,7 @@ export async function verifyExtension(
   let proc: Awaited<ReturnType<typeof createTestExtension>> | null = null;
   try {
     proc = await createTestExtension(extDir, { sandbox: true });
-    const result: ToolCallResult = await proc.callTool(
-      smoke.tool,
-      smoke.input,
-    );
+    const result: ToolCallResult = await proc.callTool(smoke.tool, smoke.input);
     // assertToolResult uses `{ text, isError }`; the smokeTest schema
     // uses `{ textIncludes, isError }`. Map across the boundary.
     assertToolResult(result, {

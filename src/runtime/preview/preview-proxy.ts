@@ -149,7 +149,7 @@ export async function resolveStaticFile(
   if (segments.length === 0) return null;
   for (const seg of segments) {
     if (seg === "..") return null;
-        // Reject control bytes (defense-in-depth — browsers encode these).
+    // Reject control bytes (defense-in-depth — browsers encode these).
     // Char-code scan instead of a control-char regex (biome forbids the
     // literal class) — same semantics as the extension-data route.
     for (let i = 0; i < seg.length; i++) {

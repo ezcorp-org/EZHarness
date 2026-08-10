@@ -29,7 +29,11 @@ describe("workflowDefinitionHash", () => {
       description: base.description,
       steps: [
         { output: { a: "1" }, kind: "transform", name: "draft" },
-        { condition: { value: "1", op: "eq" as const, ref: "$prev.output.a" }, kind: "gate", name: "verify" },
+        {
+          condition: { value: "1", op: "eq" as const, ref: "$prev.output.a" },
+          kind: "gate",
+          name: "verify",
+        },
       ],
       name: base.name,
     };

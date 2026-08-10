@@ -1,6 +1,6 @@
 import { Type } from "@earendil-works/pi-ai";
 import { validatePath } from "./validate";
-import type { BuiltinToolDef  } from "./types";
+import type { BuiltinToolDef } from "./types";
 import type { ToolParams } from "./validate";
 
 export function createGlobTool(projectPath: string): BuiltinToolDef {
@@ -13,9 +13,20 @@ export function createGlobTool(projectPath: string): BuiltinToolDef {
     parameters: Type.Unsafe({
       type: "object",
       properties: {
-        pattern: { type: "string", description: "Glob pattern to match files (e.g. '**/*.ts', 'src/**/*.svelte')" },
-        path: { type: "string", description: "Relative path to search in (default: project root)", default: "." },
-        maxResults: { type: "number", description: "Maximum files to return (default: 200)", default: 200 },
+        pattern: {
+          type: "string",
+          description: "Glob pattern to match files (e.g. '**/*.ts', 'src/**/*.svelte')",
+        },
+        path: {
+          type: "string",
+          description: "Relative path to search in (default: project root)",
+          default: ".",
+        },
+        maxResults: {
+          type: "number",
+          description: "Maximum files to return (default: 200)",
+          default: 200,
+        },
       },
       required: ["pattern"],
     }),
@@ -55,7 +66,9 @@ export function createGlobTool(projectPath: string): BuiltinToolDef {
         };
       } catch (e) {
         return {
-          content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }],
+          content: [
+            { type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` },
+          ],
           details: { isError: true, fileCount: 0, truncated: false },
         };
       }

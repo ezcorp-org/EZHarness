@@ -5,23 +5,13 @@
 // assert the orchestration (DRY createUserCommand, installFromLocal
 // wiring, rollback, registry invalidation, staging cleanup).
 
-import {
-  test,
-  expect,
-  describe,
-  beforeEach,
-  afterAll,
-  mock,
-} from "bun:test";
+import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { mkdtemp, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { restoreModuleMocks } from "../../../../../../src/__tests__/helpers/mock-cleanup";
-import {
-  mockServerAlias,
-  MEMBER_USER,
-} from "../../../../../../src/__tests__/helpers/mock-request";
+import { mockServerAlias, MEMBER_USER } from "../../../../../../src/__tests__/helpers/mock-request";
 
 mockServerAlias();
 
@@ -70,12 +60,7 @@ let installImpl: (d: string) => Promise<{ id: string }> = async () => ({
   id: "ext-installed",
 });
 mock.module("$server/extensions/installer", () => ({
-  installFromLocal: async (
-    dir: string,
-    _perms: unknown,
-    _enabled: boolean,
-    _opts: unknown,
-  ) => {
+  installFromLocal: async (dir: string, _perms: unknown, _enabled: boolean, _opts: unknown) => {
     installCalls.push({ dir, _opts });
     return installImpl(dir);
   },
@@ -146,11 +131,7 @@ async function stageFixture(): Promise<{
       F("---\nname: Baz\ndescription: Baz skill\n---\ninstr", "SKILL.md"),
       F("echo hi", "run.sh"),
     ],
-    paths: [
-      ".claude/commands/foo.md",
-      ".claude/skills/baz/SKILL.md",
-      ".claude/skills/baz/run.sh",
-    ],
+    paths: [".claude/commands/foo.md", ".claude/skills/baz/SKILL.md", ".claude/skills/baz/run.sh"],
   });
   return {
     sessionId,
@@ -174,9 +155,7 @@ describe("commit — guards", () => {
   });
 
   test("global project → 400", async () => {
-    expect(
-      (await POST(evt({ projectId: "global", sessionId: "x" }))).status,
-    ).toBe(400);
+    expect((await POST(evt({ projectId: "global", sessionId: "x" }))).status).toBe(400);
   });
 
   test("expired/unknown session → 410", async () => {
@@ -216,12 +195,8 @@ describe("commit — happy path", () => {
     expect(skill.status).toBe("ok");
     expect(skill.finalName).toBe("baz");
     expect(skill.extId).toBe("ext-installed");
-    expect(installCalls[0].dir).toBe(
-      join(projectRoot, ".ezcorp/extensions", "baz"),
-    );
-    expect(
-      existsSync(join(projectRoot, ".ezcorp/extensions/baz/ezcorp.config.ts")),
-    ).toBe(true);
+    expect(installCalls[0].dir).toBe(join(projectRoot, ".ezcorp/extensions", "baz"));
+    expect(existsSync(join(projectRoot, ".ezcorp/extensions/baz/ezcorp.config.ts"))).toBe(true);
 
     expect(invalidatedFor).toBe(MEMBER_USER.id);
     expect(reloadCalled).toBe(true);
@@ -229,9 +204,7 @@ describe("commit — happy path", () => {
     // Staging removed in finally.
     let gone = false;
     try {
-      await stat(
-        join(projectRoot, ".ezcorp/import-staging", sessionId),
-      );
+      await stat(join(projectRoot, ".ezcorp/import-staging", sessionId));
     } catch {
       gone = true;
     }
@@ -260,9 +233,7 @@ describe("commit — collisions + failures", () => {
     );
     const { results } = await res.json();
     expect(results[0].finalName).toBe("baz-2");
-    expect(installCalls[0].dir).toBe(
-      join(projectRoot, ".ezcorp/extensions", "baz-2"),
-    );
+    expect(installCalls[0].dir).toBe(join(projectRoot, ".ezcorp/extensions", "baz-2"));
   });
 
   test("install failure rolls back the synthesized dir", async () => {

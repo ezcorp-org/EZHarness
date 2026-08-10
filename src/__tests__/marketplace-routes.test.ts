@@ -16,8 +16,14 @@ mockDbConnection();
 mockServerAlias();
 
 // Import route handlers
-import { GET as browseGET, POST as publishPOST } from "../../web/src/routes/api/marketplace/+server";
-import { GET as detailGET, DELETE as removeDELETE } from "../../web/src/routes/api/marketplace/[id]/+server";
+import {
+  GET as browseGET,
+  POST as publishPOST,
+} from "../../web/src/routes/api/marketplace/+server";
+import {
+  GET as detailGET,
+  DELETE as removeDELETE,
+} from "../../web/src/routes/api/marketplace/[id]/+server";
 import { POST as installPOST } from "../../web/src/routes/api/marketplace/[id]/install/+server";
 import { POST as ratePOST } from "../../web/src/routes/api/marketplace/[id]/rate/+server";
 import { POST as flagPOST } from "../../web/src/routes/api/marketplace/[id]/flag/+server";
@@ -31,19 +37,42 @@ import { getDb } from "../db/connection";
 import { users } from "../db/schema";
 import { createAgentConfig } from "../db/queries/agent-configs";
 
-const AUTHOR: AuthUser = { id: "route-author-001", email: "author@route.test", name: "Route Author", role: "member" };
-const INSTALLER: AuthUser = { id: "route-installer-001", email: "installer@route.test", name: "Route Installer", role: "member" };
-const ADMIN: AuthUser = { id: "route-admin-001", email: "admin@route.test", name: "Route Admin", role: "admin" };
+const AUTHOR: AuthUser = {
+  id: "route-author-001",
+  email: "author@route.test",
+  name: "Route Author",
+  role: "member",
+};
+const INSTALLER: AuthUser = {
+  id: "route-installer-001",
+  email: "installer@route.test",
+  name: "Route Installer",
+  role: "member",
+};
+const ADMIN: AuthUser = {
+  id: "route-admin-001",
+  email: "admin@route.test",
+  name: "Route Admin",
+  role: "admin",
+};
 
 let agentConfigId: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values([
-    { id: AUTHOR.id, email: AUTHOR.email, passwordHash: "h", name: AUTHOR.name, role: "member" },
-    { id: INSTALLER.id, email: INSTALLER.email, passwordHash: "h", name: INSTALLER.name, role: "member" },
-    { id: ADMIN.id, email: ADMIN.email, passwordHash: "h", name: ADMIN.name, role: "admin" },
-  ]);
+  await getDb()
+    .insert(users)
+    .values([
+      { id: AUTHOR.id, email: AUTHOR.email, passwordHash: "h", name: AUTHOR.name, role: "member" },
+      {
+        id: INSTALLER.id,
+        email: INSTALLER.email,
+        passwordHash: "h",
+        name: INSTALLER.name,
+        role: "member",
+      },
+      { id: ADMIN.id, email: ADMIN.email, passwordHash: "h", name: ADMIN.name, role: "admin" },
+    ]);
 
   const config = await createAgentConfig({
     name: "Route Test Agent",
@@ -471,7 +500,11 @@ describe("POST /api/marketplace/[id]/install", () => {
     // Create another user to avoid name collision
     const otherUserId = crypto.randomUUID();
     await getDb().insert(users).values({
-      id: otherUserId, email: `install-v-test@route.test`, passwordHash: "h", name: "V Tester", role: "member",
+      id: otherUserId,
+      email: `install-v-test@route.test`,
+      passwordHash: "h",
+      name: "V Tester",
+      role: "member",
     });
 
     const event = createMockEvent({
@@ -479,7 +512,12 @@ describe("POST /api/marketplace/[id]/install", () => {
       url: `http://localhost/api/marketplace/${installListingId}/install`,
       params: { id: installListingId },
       body: { version: "99.99.99" },
-      user: { id: otherUserId, email: "install-v-test@route.test", name: "V Tester", role: "member" },
+      user: {
+        id: otherUserId,
+        email: "install-v-test@route.test",
+        name: "V Tester",
+        role: "member",
+      },
     });
     const res = await installPOST(event);
     expect(res.status).toBe(404);
@@ -955,7 +993,9 @@ describe("GET /api/marketplace/updates", () => {
     await publishPOST(pub1);
 
     // Install as INSTALLER
-    const browseEvent = createMockEvent({ url: "http://localhost/api/marketplace?q=Update+Check+Agent" });
+    const browseEvent = createMockEvent({
+      url: "http://localhost/api/marketplace?q=Update+Check+Agent",
+    });
     const browseRes = await browseGET(browseEvent);
     const browseData = await jsonFromResponse(browseRes);
     const listingId = browseData.listings.find((l: any) => l.name === "Update Check Agent")?.id;
@@ -1024,7 +1064,9 @@ describe("full e2e flow through HTTP routes", () => {
     expect(version.version).toBe("1.0.0");
 
     // 3. Browse - should find it
-    const browseEvent = createMockEvent({ url: "http://localhost/api/marketplace?q=E2E+Route+Flow" });
+    const browseEvent = createMockEvent({
+      url: "http://localhost/api/marketplace?q=E2E+Route+Flow",
+    });
     const browseRes = await browseGET(browseEvent);
     const browseData = await jsonFromResponse(browseRes);
     expect(browseData.listings.some((l: any) => l.id === listingId)).toBe(true);
@@ -1087,7 +1129,9 @@ describe("full e2e flow through HTTP routes", () => {
     expect(flagRes.status).toBe(200);
 
     // 9. Verify flagged listing hidden from browse
-    const browse2Event = createMockEvent({ url: "http://localhost/api/marketplace?q=E2E+Route+Flow" });
+    const browse2Event = createMockEvent({
+      url: "http://localhost/api/marketplace?q=E2E+Route+Flow",
+    });
     const browse2Res = await browseGET(browse2Event);
     const browse2Data = await jsonFromResponse(browse2Res);
     expect(browse2Data.listings.some((l: any) => l.id === listingId)).toBe(false);

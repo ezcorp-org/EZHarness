@@ -9,7 +9,13 @@
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
+import {
+  mockServerAlias,
+  createMockEvent,
+  jsonFromResponse,
+  ADMIN_USER,
+  MEMBER_USER,
+} from "./helpers/mock-request";
 
 mockServerAlias();
 
@@ -22,12 +28,25 @@ mock.module("$lib/server/security/api-keys", () => ({
 }));
 
 // ── Mocked conversations query module ────────────────────────────
-type MockConv = { id: string; userId: string; projectId: string; title: string; model: string | null; provider: string | null; forkedFromConversationId?: string | null; forkedFromMessageId?: string | null };
+type MockConv = {
+  id: string;
+  userId: string;
+  projectId: string;
+  title: string;
+  model: string | null;
+  provider: string | null;
+  forkedFromConversationId?: string | null;
+  forkedFromMessageId?: string | null;
+};
 
 let mockSourceConv: MockConv | null = null;
 let mockCloneError: Error | null = null;
 let mockCloneResult: { conversation: MockConv; messageIdMap: Map<string, string> } | null = null;
-let capturedCloneArgs: { sourceConvId: string; messageIds: string[]; opts: { userId?: string | null; title?: string } } | null = null;
+let capturedCloneArgs: {
+  sourceConvId: string;
+  messageIds: string[];
+  opts: { userId?: string | null; title?: string };
+} | null = null;
 
 const convQueriesMock = () => ({
   getConversation: async (_id: string) => mockSourceConv,

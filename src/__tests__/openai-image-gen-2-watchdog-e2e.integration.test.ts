@@ -46,7 +46,9 @@ mock.module("../db/queries/active-runs", () => ({
 
 const persisted: Array<Record<string, unknown>> = [];
 mock.module("../db/queries/tool-calls", () => ({
-  persistToolCall: async (row: Record<string, unknown>) => { persisted.push(row); },
+  persistToolCall: async (row: Record<string, unknown>) => {
+    persisted.push(row);
+  },
   listToolCallOutputsForMessages: async () => [],
   getToolCallConversationById: async () => null,
 }));
@@ -139,7 +141,10 @@ async function advanceAndTick(deltaMs: number): Promise<void> {
 
 // ── Harness ────────────────────────────────────────────────────────────
 
-interface CapturedEvent { type: keyof AgentEvents & string; data: unknown }
+interface CapturedEvent {
+  type: keyof AgentEvents & string;
+  data: unknown;
+}
 
 function makePiAgent() {
   let cb: (e: { type: string; [k: string]: unknown }) => void = () => {};
@@ -148,7 +153,9 @@ function makePiAgent() {
       cb = fn;
       return () => {};
     },
-    fire(e: { type: string; [k: string]: unknown }) { cb(e); },
+    fire(e: { type: string; [k: string]: unknown }) {
+      cb(e);
+    },
     abort() {},
   };
 }
@@ -173,13 +180,20 @@ function setupHarness(): E2EHarness {
     bus.on(t, (data) => events.push({ type: t, data }));
   }
 
-  const run: AgentRun = { id: RUN_ID, agentName: "oig2-agent", status: "running", startedAt: fakeNow, logs: [] };
+  const run: AgentRun = {
+    id: RUN_ID,
+    agentName: "oig2-agent",
+    status: "running",
+    startedAt: fakeNow,
+    logs: [],
+  };
   const runs = new Map([[RUN_ID, run]]);
   const controllers = new Map([[RUN_ID, new AbortController()]]);
   const pendingPermissions = new Map();
 
   const watchdogHost: WatchdogHost = {
-    runs, controllers,
+    runs,
+    controllers,
     activeAgents: new Map(),
     runConversations: new Map(),
     pendingPermissions: pendingPermissions as unknown as Map<string, { conversationId: string }>,
@@ -224,7 +238,14 @@ function setupHarness(): E2EHarness {
   };
 
   const piAgent = makePiAgent();
-  subscribeBridge(ctx, host, piAgent as unknown as Parameters<typeof subscribeBridge>[2], CONV_ID, {}, null);
+  subscribeBridge(
+    ctx,
+    host,
+    piAgent as unknown as Parameters<typeof subscribeBridge>[2],
+    CONV_ID,
+    {},
+    null,
+  );
 
   return { bus, events, watchdog, ctx, host, piAgent, run };
 }
@@ -315,7 +336,10 @@ describe("openai-image-gen-2 watchdog e2e — hung tool past manifest budget", (
 
     // tool:error MUST exist for the in-flight call.
     const toolErr = h.events.find((e) => e.type === "tool:error");
-    expect(toolErr, "tool:error must fire so the chat renders a failure card instead of bare abort text").toBeDefined();
+    expect(
+      toolErr,
+      "tool:error must fire so the chat renders a failure card instead of bare abort text",
+    ).toBeDefined();
     const td = toolErr!.data as AgentEvents["tool:error"];
 
     // Full payload-shape pin against AgentEvents["tool:error"] in src/types.ts:256.
@@ -326,7 +350,9 @@ describe("openai-image-gen-2 watchdog e2e — hung tool past manifest budget", (
     expect(td.cardType).toBe("image-card"); // propagated from manifest tool def
     expect(typeof td.duration).toBe("number");
     expect(td.duration).toBeGreaterThanOrEqual(OIG2_CALL_TIMEOUT_MS);
-    expect(td.error).toMatch(new RegExp(`Tool ${OIG2_TOOL} exceeded its ${OIG2_CALL_TIMEOUT_MS}ms call timeout`));
+    expect(td.error).toMatch(
+      new RegExp(`Tool ${OIG2_TOOL} exceeded its ${OIG2_CALL_TIMEOUT_MS}ms call timeout`),
+    );
 
     // run:error follows tool:error (chat ordering: per-tool card, then terminal banner).
     const runErr = h.events.find((e) => e.type === "run:error");
@@ -367,7 +393,11 @@ describe("openai-image-gen-2 watchdog e2e — happy path", () => {
       toolCallId: "tc-img-ok",
       toolName: OIG2_TOOL,
       isError: false,
-      result: { content: [{ type: "text", text: '{"url":"/api/ext-files/openai-image-gen-2/generated/x.png"}' }] },
+      result: {
+        content: [
+          { type: "text", text: '{"url":"/api/ext-files/openai-image-gen-2/generated/x.png"}' },
+        ],
+      },
     });
     await h.ctx.dbQueue;
 

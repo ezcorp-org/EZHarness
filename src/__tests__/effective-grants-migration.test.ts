@@ -45,10 +45,9 @@ const {
   conversationExtensions,
 } = await import("../db/schema");
 const { migrate } = await import("../db/migrate");
-const {
-  getConversationExtensionEffectiveGrants,
-  getEffectiveGrantsForConversation,
-} = await import("../db/queries/conversation-extensions");
+const { getConversationExtensionEffectiveGrants, getEffectiveGrantsForConversation } = await import(
+  "../db/queries/conversation-extensions"
+);
 
 import type { ExtensionPermissions } from "../extensions/types";
 
@@ -59,33 +58,73 @@ const EXT_NEW = "ext-mig-new";
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values({
-    id: "user-mig", email: "mig@t.local", passwordHash: "x", name: "Mig",
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({
-    id: PROJECT, name: PROJECT, path: `/tmp/${PROJECT}`,
-  } as any);
-  await getDb().insert(conversations).values({
-    id: CONV, projectId: PROJECT, title: "mig",
-  } as any);
+  await getDb()
+    .insert(users)
+    .values({
+      id: "user-mig",
+      email: "mig@t.local",
+      passwordHash: "x",
+      name: "Mig",
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({
+      id: PROJECT,
+      name: PROJECT,
+      path: `/tmp/${PROJECT}`,
+    } as any);
+  await getDb()
+    .insert(conversations)
+    .values({
+      id: CONV,
+      projectId: PROJECT,
+      title: "mig",
+    } as any);
   // Two extensions: one will get a row WITHOUT the new column populated,
   // the other WITH it. Both rows share the same conversation.
-  await getDb().insert(extensionsTable).values({
-    id: EXT_LEGACY, name: EXT_LEGACY, version: "1.0.0", description: "t",
-    manifest: { schemaVersion: 2, name: EXT_LEGACY, version: "1.0.0", description: "t", author: { name: "t" }, permissions: {} },
-    source: `test:${EXT_LEGACY}`,
-    installPath: `/tmp/${EXT_LEGACY}`,
-    enabled: true,
-    grantedPermissions: { network: ["foo.com"], grantedAt: {} },
-  } as any).onConflictDoNothing();
-  await getDb().insert(extensionsTable).values({
-    id: EXT_NEW, name: EXT_NEW, version: "1.0.0", description: "t",
-    manifest: { schemaVersion: 2, name: EXT_NEW, version: "1.0.0", description: "t", author: { name: "t" }, permissions: {} },
-    source: `test:${EXT_NEW}`,
-    installPath: `/tmp/${EXT_NEW}`,
-    enabled: true,
-    grantedPermissions: { network: ["bar.com"], grantedAt: {} },
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id: EXT_LEGACY,
+      name: EXT_LEGACY,
+      version: "1.0.0",
+      description: "t",
+      manifest: {
+        schemaVersion: 2,
+        name: EXT_LEGACY,
+        version: "1.0.0",
+        description: "t",
+        author: { name: "t" },
+        permissions: {},
+      },
+      source: `test:${EXT_LEGACY}`,
+      installPath: `/tmp/${EXT_LEGACY}`,
+      enabled: true,
+      grantedPermissions: { network: ["foo.com"], grantedAt: {} },
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id: EXT_NEW,
+      name: EXT_NEW,
+      version: "1.0.0",
+      description: "t",
+      manifest: {
+        schemaVersion: 2,
+        name: EXT_NEW,
+        version: "1.0.0",
+        description: "t",
+        author: { name: "t" },
+        permissions: {},
+      },
+      source: `test:${EXT_NEW}`,
+      installPath: `/tmp/${EXT_NEW}`,
+      enabled: true,
+      grantedPermissions: { network: ["bar.com"], grantedAt: {} },
+    } as any)
+    .onConflictDoNothing();
 });
 
 afterAll(async () => {
@@ -122,10 +161,13 @@ describe("effective_granted_permissions migration — idempotent", () => {
 
 describe("effective_granted_permissions — legacy null fallback", () => {
   test("row inserted WITHOUT the column populated reads back as null", async () => {
-    await getDb().insert(conversationExtensions).values({
-      conversationId: CONV,
-      extensionId: EXT_LEGACY,
-    } as any).onConflictDoNothing();
+    await getDb()
+      .insert(conversationExtensions)
+      .values({
+        conversationId: CONV,
+        extensionId: EXT_LEGACY,
+      } as any)
+      .onConflictDoNothing();
 
     const eff = await getConversationExtensionEffectiveGrants(CONV, EXT_LEGACY);
     expect(eff).toBeNull();
@@ -152,11 +194,14 @@ describe("effective_granted_permissions — populated override is honored", () =
       shell: false,
       grantedAt: { network: 12345 },
     };
-    await getDb().insert(conversationExtensions).values({
-      conversationId: CONV,
-      extensionId: EXT_NEW,
-      effectiveGrantedPermissions: override,
-    } as any).onConflictDoNothing();
+    await getDb()
+      .insert(conversationExtensions)
+      .values({
+        conversationId: CONV,
+        extensionId: EXT_NEW,
+        effectiveGrantedPermissions: override,
+      } as any)
+      .onConflictDoNothing();
 
     const eff = await getConversationExtensionEffectiveGrants(CONV, EXT_NEW);
     expect(eff).toEqual(override);
@@ -175,10 +220,7 @@ describe("effective_granted_permissions — populated override is honored", () =
 
 describe("effective_granted_permissions — per-conversation isolation", () => {
   test("query for an unwired (conversation, extension) pair returns null", async () => {
-    const eff = await getConversationExtensionEffectiveGrants(
-      "conv-does-not-exist",
-      EXT_NEW,
-    );
+    const eff = await getConversationExtensionEffectiveGrants("conv-does-not-exist", EXT_NEW);
     expect(eff).toBeNull();
   });
 });

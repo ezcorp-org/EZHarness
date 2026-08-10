@@ -34,9 +34,8 @@ describe("safeIntervalCount — clamp boundaries", () => {
   ];
   for (const [label, input, fallback, expected] of CASES) {
     test(label, () => {
-      const out = fallback === undefined
-        ? safeIntervalCount(input)
-        : safeIntervalCount(input, fallback);
+      const out =
+        fallback === undefined ? safeIntervalCount(input) : safeIntervalCount(input, fallback);
       expect(out).toBe(expected);
       // The result is ALWAYS a plain integer — this is the property the
       // sql.raw interpolation relies on.

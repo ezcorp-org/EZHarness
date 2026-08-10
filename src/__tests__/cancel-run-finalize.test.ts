@@ -22,7 +22,11 @@ afterAll(() => restoreModuleMocks());
 
 // ── Mocks (must precede SUT import) ────────────────────────────────────
 
-interface FinalizeCall { runId: string; status: string; error?: string }
+interface FinalizeCall {
+  runId: string;
+  status: string;
+  error?: string;
+}
 const finalizeRunRowCalls: FinalizeCall[] = [];
 
 mock.module("../db/queries/runs", () => ({
@@ -99,7 +103,9 @@ describe("cancelRun terminalizes the runs row (orphan-row safety net)", () => {
     let releaseHang: () => void = () => {};
     const agents = loadAgentsStatic([
       makeAgent("hang", async () => {
-        await new Promise<void>((resolve) => { releaseHang = resolve; });
+        await new Promise<void>((resolve) => {
+          releaseHang = resolve;
+        });
         return { success: true, output: null };
       }),
     ]);

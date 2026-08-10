@@ -58,9 +58,7 @@ function installFetch(analytics: "hang" | "500") {
         // Never resolves — simulates the 40s+ hang.
         return new Promise<Response>(() => {});
       }
-      return Promise.resolve(
-        new Response(JSON.stringify({ error: "boom" }), { status: 500 }),
-      );
+      return Promise.resolve(new Response(JSON.stringify({ error: "boom" }), { status: 500 }));
     }
     return Promise.resolve(new Response("{}"));
   });

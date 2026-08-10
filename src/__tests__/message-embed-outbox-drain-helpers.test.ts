@@ -19,8 +19,9 @@ import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers
 
 mockDbConnection();
 
-const { claimBatch, markDone, markFailed, resetAttemptsForPending, enqueueEmbedJob } =
-  await import("../db/queries/message-embed-outbox");
+const { claimBatch, markDone, markFailed, resetAttemptsForPending, enqueueEmbedJob } = await import(
+  "../db/queries/message-embed-outbox"
+);
 
 // ── Seed helpers ─────────────────────────────────────────────────────────────
 

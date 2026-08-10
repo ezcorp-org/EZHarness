@@ -70,7 +70,11 @@ vi.mock("$server/db/queries/sessions", async (importActual) => {
 });
 
 import { signJWT, verifyJWT } from "$server/auth/jwt";
-import { hashToken, rotateSessionToken, lookupSessionByTokenHash } from "$server/db/queries/sessions";
+import {
+  hashToken,
+  rotateSessionToken,
+  lookupSessionByTokenHash,
+} from "$server/db/queries/sessions";
 const { handle, __sessionRefreshConfig } = await import("../hooks.server");
 const { REFRESH_AFTER_SECONDS, NEW_LIFETIME_SECONDS } = __sessionRefreshConfig;
 
@@ -138,7 +142,11 @@ async function mintBackdatedJWT(iatSecondsAgo: number): Promise<string> {
   const payloadB64 = b64url(encoder.encode(JSON.stringify(payload)));
   const signingInput = `${headerB64}.${payloadB64}`;
   const key = await crypto.subtle.importKey(
-    "raw", encoder.encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+    "raw",
+    encoder.encode(SECRET),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
   );
   const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(signingInput));
   return `${signingInput}.${b64url(new Uint8Array(sig))}`;
@@ -171,7 +179,7 @@ describe("hooks.server.ts — E2E sliding refresh (real crypto)", () => {
     expect(res.status).toBe(200);
 
     // Exactly one Set-Cookie for the session, carrying a parseable JWT.
-    const sessionWrites = setCookies.filter(c => c.name === "ezcorp_session");
+    const sessionWrites = setCookies.filter((c) => c.name === "ezcorp_session");
     expect(sessionWrites).toHaveLength(1);
     const newToken = sessionWrites[0]!.value;
     expect(newToken).not.toBe(staleToken);
@@ -210,7 +218,7 @@ describe("hooks.server.ts — E2E sliding refresh (real crypto)", () => {
     expect(res.status).toBe(200);
 
     expect(vi.mocked(rotateSessionToken)).not.toHaveBeenCalled();
-    const sessionWrites = setCookies.filter(c => c.name === "ezcorp_session");
+    const sessionWrites = setCookies.filter((c) => c.name === "ezcorp_session");
     expect(sessionWrites).toHaveLength(0);
     // locals.user populated as the downstream contract requires.
     expect(event.locals.user).toMatchObject(IDENTITY);
@@ -221,7 +229,7 @@ describe("hooks.server.ts — E2E sliding refresh (real crypto)", () => {
     const staleToken = await mintBackdatedJWT(REFRESH_AFTER_SECONDS + 3600);
     const first = makeEvent({ cookie: staleToken });
     await handle({ event: first.event, resolve: vi.fn(async () => new Response("ok")) } as any);
-    const newToken = first.setCookies.find(c => c.name === "ezcorp_session")!.value;
+    const newToken = first.setCookies.find((c) => c.name === "ezcorp_session")!.value;
 
     // Second pass: present the rotated cookie. Must be considered fresh
     // (no rotation triggered) — proves the new iat was actually written.
@@ -230,6 +238,6 @@ describe("hooks.server.ts — E2E sliding refresh (real crypto)", () => {
     await handle({ event: second.event, resolve: vi.fn(async () => new Response("ok")) } as any);
 
     expect(vi.mocked(rotateSessionToken)).not.toHaveBeenCalled();
-    expect(second.setCookies.filter(c => c.name === "ezcorp_session")).toHaveLength(0);
+    expect(second.setCookies.filter((c) => c.name === "ezcorp_session")).toHaveLength(0);
   });
 });

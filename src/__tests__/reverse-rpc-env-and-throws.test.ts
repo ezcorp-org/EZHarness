@@ -26,10 +26,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  parseHostReverseRpcTimeoutMs,
-  ToolExecutor,
-} from "../extensions/tool-executor";
+import { parseHostReverseRpcTimeoutMs, ToolExecutor } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import type { ExtensionProcess } from "../extensions/subprocess";
 import type { JsonRpcRequest, JsonRpcResponse } from "../extensions/types";
@@ -98,17 +95,11 @@ afterEach(() => {
 });
 
 function makeStubProc(): {
-  installedRequestHandler:
-    | ((req: JsonRpcRequest) => Promise<JsonRpcResponse>)
-    | null;
+  installedRequestHandler: ((req: JsonRpcRequest) => Promise<JsonRpcResponse>) | null;
 } & ExtensionProcess {
   const proc: {
-    installedRequestHandler:
-      | ((req: JsonRpcRequest) => Promise<JsonRpcResponse>)
-      | null;
-    setRequestHandler: (
-      h: (req: JsonRpcRequest) => Promise<JsonRpcResponse>,
-    ) => void;
+    installedRequestHandler: ((req: JsonRpcRequest) => Promise<JsonRpcResponse>) | null;
+    setRequestHandler: (h: (req: JsonRpcRequest) => Promise<JsonRpcResponse>) => void;
     setNotificationHandler: (h: (n: unknown) => void) => void;
   } = {
     installedRequestHandler: null,
@@ -136,13 +127,12 @@ describe("dispatchReverseRpcWithTimeout — host handler rejects before the time
     // timeout). Mirrors a host DB op that throws synchronously-ish, vs.
     // the already-covered "never settles → -32603" path.
     const boom = new Error("host handler exploded mid-DB-write");
-    const executor = new ToolExecutor(
-      makeStubRegistry(),
-      createStubPermissionEngine(),
-    );
-    (executor as unknown as {
-      handlePiStorage: () => Promise<JsonRpcResponse>;
-    }).handlePiStorage = () => Promise.reject(boom);
+    const executor = new ToolExecutor(makeStubRegistry(), createStubPermissionEngine());
+    (
+      executor as unknown as {
+        handlePiStorage: () => Promise<JsonRpcResponse>;
+      }
+    ).handlePiStorage = () => Promise.reject(boom);
     const proc = makeStubProc();
     await executor.ensureSubprocessRpcWired("ext-1", proc);
     const handler = proc.installedRequestHandler!;
@@ -178,13 +168,12 @@ describe("dispatchReverseRpcWithTimeout — host handler rejects before the time
 
   test("synchronous throw inside the handler is also propagated + timer cleared", async () => {
     const boom = new Error("sync throw before any await");
-    const executor = new ToolExecutor(
-      makeStubRegistry(),
-      createStubPermissionEngine(),
-    );
-    (executor as unknown as {
-      handlePiStorage: () => Promise<JsonRpcResponse>;
-    }).handlePiStorage = () => {
+    const executor = new ToolExecutor(makeStubRegistry(), createStubPermissionEngine());
+    (
+      executor as unknown as {
+        handlePiStorage: () => Promise<JsonRpcResponse>;
+      }
+    ).handlePiStorage = () => {
       throw boom;
     };
     const proc = makeStubProc();

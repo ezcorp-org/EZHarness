@@ -112,7 +112,10 @@ export function inFlightRequestCount(): number {
  *  — whichever comes first. Resolves immediately when nothing is in flight. */
 export async function drainInFlightRequests(timeoutMs: number = DRAIN_TIMEOUT_MS): Promise<void> {
   if (inFlightRequests <= 0) return;
-  log.info("draining in-flight requests before teardown", { inFlight: inFlightRequests, timeoutMs });
+  log.info("draining in-flight requests before teardown", {
+    inFlight: inFlightRequests,
+    timeoutMs,
+  });
   await new Promise<void>((resolve) => {
     const timer = setTimeout(() => {
       log.warn("in-flight drain timed out — proceeding with teardown", {

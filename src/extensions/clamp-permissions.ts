@@ -71,8 +71,11 @@ export function clampLlmPermission(
   // shape — the optional fields default to undefined and the clamp
   // logic below reads them through `clampNumber` which already
   // handles undefined.
-  const sub: NonNullable<ExtensionPermissions["llm"]> =
-    submitted ?? { providers: [], maxCallsPerHour: 0, maxCallsPerDay: 0 };
+  const sub: NonNullable<ExtensionPermissions["llm"]> = submitted ?? {
+    providers: [],
+    maxCallsPerHour: 0,
+    maxCallsPerDay: 0,
+  };
 
   // Provider intersection: submitted ∩ manifest ∩ KNOWN_LLM_PROVIDERS.
   const manifestProviders = new Set(manifest.providers ?? []);
@@ -139,8 +142,11 @@ export function clampMemoryPermission(
   manifest: ExtensionManifestV2["permissions"]["memory"] | undefined,
 ): ExtensionPermissions["memory"] {
   if (!manifest) return undefined;
-  const sub: NonNullable<ExtensionPermissions["memory"]> =
-    submitted ?? { access: manifest.access, maxWritesPerDay: 0, selfOnly: true };
+  const sub: NonNullable<ExtensionPermissions["memory"]> = submitted ?? {
+    access: manifest.access,
+    maxWritesPerDay: 0,
+    selfOnly: true,
+  };
 
   // Access tier: write implies read. Submitted cannot exceed manifest.
   let access: "read" | "write" = "read";
@@ -160,7 +166,10 @@ export function clampMemoryPermission(
 
   if (Array.isArray(manifest.categories)) {
     const validCategories = new Set([
-      "preferences", "biographical", "technical", "decisions_goals",
+      "preferences",
+      "biographical",
+      "technical",
+      "decisions_goals",
     ]);
     const fromManifest = manifest.categories.filter((c) => validCategories.has(c));
     const filtered = Array.isArray(sub.categories)
@@ -209,7 +218,10 @@ export function clampSearchPermission(
   // `ExtensionPermissions["search"]` (the §3.1 three-state shape). The
   // reapprove/re-clamp path passes a prior GRANT as the ceiling, so the
   // param must tolerate `false` / `"inherit"`.
-  manifest: ExtensionManifestV2["permissions"]["search"] | ExtensionPermissions["search"] | undefined,
+  manifest:
+    | ExtensionManifestV2["permissions"]["search"]
+    | ExtensionPermissions["search"]
+    | undefined,
 ): ExtensionPermissions["search"] {
   if (manifest === undefined) return undefined;
   // A `false` ceiling disables search regardless of what was submitted.
@@ -377,8 +389,11 @@ export function clampLessonsPermission(
   manifest: ExtensionManifestV2["permissions"]["lessons"] | undefined,
 ): ExtensionPermissions["lessons"] {
   if (!manifest) return undefined;
-  const sub: NonNullable<ExtensionPermissions["lessons"]> =
-    submitted ?? { access: manifest.access, maxWritesPerDay: 0, maxVisibility: "user" };
+  const sub: NonNullable<ExtensionPermissions["lessons"]> = submitted ?? {
+    access: manifest.access,
+    maxWritesPerDay: 0,
+    maxVisibility: "user",
+  };
 
   let access: "read" | "write" = "read";
   if (manifest.access === "write" && sub.access === "write") access = "write";
@@ -580,9 +595,7 @@ const ENV_KEY_LEAK_PATTERN = /(_API_KEY|TOKEN|SECRET)$/i;
  *  audit rows (governance, soft warning; hard error in v1.4). */
 export function detectEnvKeyLeaks(envNames: string[] | undefined): string[] {
   if (!Array.isArray(envNames)) return [];
-  return envNames.filter(
-    (n) => typeof n === "string" && ENV_KEY_LEAK_PATTERN.test(n),
-  );
+  return envNames.filter((n) => typeof n === "string" && ENV_KEY_LEAK_PATTERN.test(n));
 }
 
 /**
@@ -604,18 +617,14 @@ export async function emitEnvKeyLeakWarnings(
     const { insertAuditEntry } = await import("../db/queries/audit-log");
     const { EXT_AUDIT_ACTIONS } = await import("./audit-actions");
     for (const name of leaks) {
-      await insertAuditEntry(
-        null,
-        EXT_AUDIT_ACTIONS.ENV_KEY_LEAK_WARNING,
-        extensionId,
-        {
-          permission: "env",
-          oldValue: undefined,
-          newValue: name,
-          actor: "system",
-          reason: "Credential-shaped env name. Migrate to ctx.llm (host-brokered) — hard error in v1.4.",
-        },
-      );
+      await insertAuditEntry(null, EXT_AUDIT_ACTIONS.ENV_KEY_LEAK_WARNING, extensionId, {
+        permission: "env",
+        oldValue: undefined,
+        newValue: name,
+        actor: "system",
+        reason:
+          "Credential-shaped env name. Migrate to ctx.llm (host-brokered) — hard error in v1.4.",
+      });
     }
   } catch {
     // Audit failure is non-fatal.
@@ -789,7 +798,12 @@ function isOwnNamespaceEvent(eventType: string, ownName: string | undefined): bo
 export function manifestEventsIncludeFullPayload(
   field: ExtensionManifestV2["permissions"]["eventSubscriptions"],
 ): boolean {
-  if (field && typeof field === "object" && !Array.isArray(field) && field.includeFullPayload === true) {
+  if (
+    field &&
+    typeof field === "object" &&
+    !Array.isArray(field) &&
+    field.includeFullPayload === true
+  ) {
     return true;
   }
   return false;
@@ -873,17 +887,19 @@ export function clampExtensionPermissions(
     const manifestEvents = normalizeManifestEventSubscriptions(manifest.eventSubscriptions);
     const submittedEvents = Array.isArray(submitted.eventSubscriptions)
       ? submitted.eventSubscriptions
-      : (submitted.eventSubscriptions && typeof submitted.eventSubscriptions === "object"
-          && Array.isArray((submitted.eventSubscriptions as { events?: unknown }).events)
-            ? (submitted.eventSubscriptions as { events: string[] }).events
-            : undefined);
+      : submitted.eventSubscriptions &&
+          typeof submitted.eventSubscriptions === "object" &&
+          Array.isArray((submitted.eventSubscriptions as { events?: unknown }).events)
+        ? (submitted.eventSubscriptions as { events: string[] }).events
+        : undefined;
     if (Array.isArray(submittedEvents) && Array.isArray(manifestEvents)) {
       const manifestSet = new Set(manifestEvents);
       const allowed = submittedEvents.filter(
-        (e) => typeof e === "string"
-          && manifestSet.has(e)
-          && (DIRECT_CARRIER_EVENT_TYPES.has(e as never)
-            || isOwnNamespaceEvent(e, manifestTopLevel?.name)),
+        (e) =>
+          typeof e === "string" &&
+          manifestSet.has(e) &&
+          (DIRECT_CARRIER_EVENT_TYPES.has(e as never) ||
+            isOwnNamespaceEvent(e, manifestTopLevel?.name)),
       );
       if (allowed.length > 0) clamped.eventSubscriptions = allowed;
     }
@@ -896,9 +912,7 @@ export function clampExtensionPermissions(
     // (mirrors cron/event — the grant is never widened).
     if (Array.isArray(submitted.webhooks) && Array.isArray(manifest.webhooks)) {
       const manifestSet = new Set(manifest.webhooks);
-      const allowed = submitted.webhooks.filter(
-        (s) => typeof s === "string" && manifestSet.has(s),
-      );
+      const allowed = submitted.webhooks.filter((s) => typeof s === "string" && manifestSet.has(s));
       if (allowed.length > 0) clamped.webhooks = allowed;
     }
 
@@ -921,37 +935,22 @@ export function clampExtensionPermissions(
     // Delegate to the canonical clamp helpers above. Each helper returns
     // `undefined` when the manifest didn't declare the surface OR
     // when the clamp produced a no-op grant; only attach when defined.
-    const llm = clampLlmPermission(
-      submitted.llm,
-      manifest.llm,
-    );
+    const llm = clampLlmPermission(submitted.llm, manifest.llm);
     if (llm) clamped.llm = llm;
 
-    const memory = clampMemoryPermission(
-      submitted.memory,
-      manifest.memory,
-    );
+    const memory = clampMemoryPermission(submitted.memory, manifest.memory);
     if (memory) clamped.memory = memory;
 
-    const lessons = clampLessonsPermission(
-      submitted.lessons,
-      manifest.lessons,
-    );
+    const lessons = clampLessonsPermission(submitted.lessons, manifest.lessons);
     if (lessons) clamped.lessons = lessons;
 
-    const schedule = clampSchedulePermission(
-      submitted.schedule,
-      manifest.schedule,
-    );
+    const schedule = clampSchedulePermission(submitted.schedule, manifest.schedule);
     if (schedule) clamped.schedule = schedule;
 
     // ctx.search (Phase 1). Unlike the others, `false` (search disabled)
     // is a VALID grant state — only `undefined` means "not declared" —
     // so attach on `!== undefined`.
-    const search = clampSearchPermission(
-      submitted.search,
-      manifest.search,
-    );
+    const search = clampSearchPermission(submitted.search, manifest.search);
     if (search !== undefined) clamped.search = search;
   }
 
@@ -960,16 +959,10 @@ export function clampExtensionPermissions(
   // when the manifest declared TRUE. Submission omitting or setting
   // the field to false leaves the grant absent (treated as opted-out
   // at runtime).
-  if (
-    submitted.acceptsCallerCaps === true &&
-    manifestTopLevel?.acceptsCallerCaps === true
-  ) {
+  if (submitted.acceptsCallerCaps === true && manifestTopLevel?.acceptsCallerCaps === true) {
     clamped.acceptsCallerCaps = true;
   }
-  if (
-    submitted.escalateChildCaps === true &&
-    manifestTopLevel?.escalateChildCaps === true
-  ) {
+  if (submitted.escalateChildCaps === true && manifestTopLevel?.escalateChildCaps === true) {
     clamped.escalateChildCaps = true;
   }
 

@@ -41,16 +41,18 @@ export const FALLBACK_ICON_NAME = "HelpCircle";
  * and names that interleave digits (`Volume2` -> `volume-2`).
  */
 export function pascalToKebab(name: string): string {
-  return name
-    // ABc => A-Bc
-    .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
-    // aB / a2 => a-B / a-2
-    .replace(/([a-zA-Z])(\d)/g, "$1-$2")
-    // 2A => 2-A
-    .replace(/(\d)([A-Z])/g, "$1-$2")
-    // aB => a-B
-    .replace(/([a-z])([A-Z])/g, "$1-$2")
-    .toLowerCase();
+  return (
+    name
+      // ABc => A-Bc
+      .replace(/([A-Z]+)([A-Z][a-z])/g, "$1-$2")
+      // aB / a2 => a-B / a-2
+      .replace(/([a-zA-Z])(\d)/g, "$1-$2")
+      // 2A => 2-A
+      .replace(/(\d)([A-Z])/g, "$1-$2")
+      // aB => a-B
+      .replace(/([a-z])([A-Z])/g, "$1-$2")
+      .toLowerCase()
+  );
 }
 
 /**
@@ -104,13 +106,11 @@ type LucideModule = { default: Component };
 const STATIC_ICON_LOADERS: Record<string, () => Promise<LucideModule>> = {
   // Always include the fallback so `loadFallback()` works even if the
   // platform extensions request only icons not in this map.
-  HelpCircle: () =>
-    import("lucide-svelte/icons/help-circle") as unknown as Promise<LucideModule>,
+  HelpCircle: () => import("lucide-svelte/icons/help-circle") as unknown as Promise<LucideModule>,
 
   // ── Bundled extensions ──────────────────────────────────────────
   // kokoro-tts: speaker icon contributed via messageToolbar[].
-  Volume2: () =>
-    import("lucide-svelte/icons/volume-2") as unknown as Promise<LucideModule>,
+  Volume2: () => import("lucide-svelte/icons/volume-2") as unknown as Promise<LucideModule>,
 };
 
 const defaultLoader: IconLoader = async (kebabName) => {

@@ -92,10 +92,7 @@ vi.mock("$server/chat/attachments/storage", () => ({
 const { POST } = await import("../routes/api/conversations/[id]/messages/+server.ts");
 const { EZ_TOOL_NAMES } = await import("$server/runtime/tools/ez/index");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown }) {
   const href = "http://localhost/api/conversations/ez-conv/messages";
   return {
     url: new URL(href),
@@ -190,7 +187,7 @@ describe("POST /api/conversations/[id]/messages — Ez allowlist plumbing", () =
       modeId: null, // regular conversations may have no mode
     });
     const res = (await POST(
-      makeEvent({ locals: { user }, body: { content: "regular message" } })
+      makeEvent({ locals: { user }, body: { content: "regular message" } }),
     )) as Response;
     expect(res.status).toBe(200);
     const options = streamChat.mock.calls[0]![2] as { modeId?: string };

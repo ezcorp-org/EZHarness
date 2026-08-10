@@ -39,7 +39,11 @@ function stubRequest(impl: (call: RequestCall) => Promise<unknown>): { calls: Re
 
 describe("Search.web", () => {
   test("sends { action:'web', query } and returns the result", async () => {
-    const { calls } = stubRequest(async () => ({ markdown: "- [a](https://a)", provider: "duckduckgo", cached: false }));
+    const { calls } = stubRequest(async () => ({
+      markdown: "- [a](https://a)",
+      provider: "duckduckgo",
+      cached: false,
+    }));
     const result = await new Search().web("bun");
     expect(calls[0]?.method).toBe("ezcorp/search");
     expect(calls[0]?.params).toEqual({ action: "web", query: "bun" });
@@ -47,13 +51,21 @@ describe("Search.web", () => {
   });
 
   test("attaches maxResults when supplied", async () => {
-    const { calls } = stubRequest(async () => ({ markdown: "", provider: "searxng", cached: false }));
+    const { calls } = stubRequest(async () => ({
+      markdown: "",
+      provider: "searxng",
+      cached: false,
+    }));
     await new Search().web("bun", { maxResults: 10 });
     expect(calls[0]?.params).toEqual({ action: "web", query: "bun", maxResults: 10 });
   });
 
   test("omits maxResults when not supplied", async () => {
-    const { calls } = stubRequest(async () => ({ markdown: "", provider: "searxng", cached: false }));
+    const { calls } = stubRequest(async () => ({
+      markdown: "",
+      provider: "searxng",
+      cached: false,
+    }));
     await new Search().web("bun", {});
     expect(calls[0]?.params).toEqual({ action: "web", query: "bun" });
   });
@@ -91,7 +103,11 @@ describe("Search.web", () => {
 
 describe("Search.read", () => {
   test("sends { action:'read', url } and returns the result", async () => {
-    const { calls } = stubRequest(async () => ({ markdown: "# Page", provider: "jina", cached: true }));
+    const { calls } = stubRequest(async () => ({
+      markdown: "# Page",
+      provider: "jina",
+      cached: true,
+    }));
     const result = await new Search().read("https://example.com");
     expect(calls[0]?.params).toEqual({ action: "read", url: "https://example.com" });
     expect(result).toEqual({ markdown: "# Page", provider: "jina", cached: true });

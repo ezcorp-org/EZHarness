@@ -83,7 +83,9 @@ beforeEach(() => {
     ...def,
   }));
   queries.listWorkflows.mockReset().mockResolvedValue([]);
-  versions.ensureWorkflowVersion.mockReset().mockResolvedValue({ version: { version: 1 }, minted: true });
+  versions.ensureWorkflowVersion
+    .mockReset()
+    .mockResolvedValue({ version: { version: 1 }, minted: true });
 });
 
 describe("POST /api/workflows/[name]/fork", () => {
@@ -184,9 +186,7 @@ describe("POST /api/workflows/[name]/fork", () => {
   });
 
   test("an author-supplied name is used instead of the source's", async () => {
-    const res = await POST(
-      makeEvent({ locals: authedUser, body: { name: "docs-factory-copy" } }),
-    );
+    const res = await POST(makeEvent({ locals: authedUser, body: { name: "docs-factory-copy" } }));
     expect(res.status).toBe(201);
     expect((await res.json()) as { name?: string }).toMatchObject({ name: "docs-factory-copy" });
   });
@@ -198,9 +198,7 @@ describe("POST /api/workflows/[name]/fork", () => {
 
   test("an author-supplied name that is TAKEN is suffixed like any other", async () => {
     queries.listWorkflows.mockResolvedValue([{ name: "docs-factory-copy" }]);
-    const res = await POST(
-      makeEvent({ locals: authedUser, body: { name: "docs-factory-copy" } }),
-    );
+    const res = await POST(makeEvent({ locals: authedUser, body: { name: "docs-factory-copy" } }));
     expect((await res.json()) as { name?: string }).toMatchObject({ name: "docs-factory-copy-2" });
   });
 

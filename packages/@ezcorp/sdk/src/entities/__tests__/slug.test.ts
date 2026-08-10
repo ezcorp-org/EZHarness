@@ -7,12 +7,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import {
-  SLUG_MAX_LENGTH,
-  SLUG_REGEX,
-  assertValidSlug,
-  isValidSlug,
-} from "../slug";
+import { SLUG_MAX_LENGTH, SLUG_REGEX, assertValidSlug, isValidSlug } from "../slug";
 
 describe("isValidSlug — accept cases", () => {
   test.each([
@@ -73,9 +68,7 @@ describe("assertValidSlug", () => {
   });
 
   test("throws on invalid slug with full regex in message", () => {
-    expect(() => assertValidSlug("-bad")).toThrow(
-      /Invalid slug "-bad" — must match \^\[a-z0-9\]/,
-    );
+    expect(() => assertValidSlug("-bad")).toThrow(/Invalid slug "-bad" — must match \^\[a-z0-9\]/);
   });
 
   test("throws on non-string input", () => {
@@ -87,9 +80,7 @@ describe("assertValidSlug", () => {
   });
 
   test("custom label is used in error message", () => {
-    expect(() => assertValidSlug("BAD", "post type slug")).toThrow(
-      /Invalid post type slug/,
-    );
+    expect(() => assertValidSlug("BAD", "post type slug")).toThrow(/Invalid post type slug/);
   });
 });
 

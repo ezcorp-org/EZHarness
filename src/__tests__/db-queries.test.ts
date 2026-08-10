@@ -3,9 +3,19 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 
 mockDbConnection();
 
-const { listProjects, getProject, createProject, updateProject, deleteProject, getProjectByName } = await import("../db/queries/projects");
-const { getAllSettings, getSetting, upsertSetting, deleteSetting, isInternalSettingKey, INTERNAL_SETTING_PREFIXES } = await import("../db/queries/settings");
-const { insertRun, updateRun, insertLog, listRuns, getRunWithLogs, toAgentRun } = await import("../db/queries/runs");
+const { listProjects, getProject, createProject, updateProject, deleteProject, getProjectByName } =
+  await import("../db/queries/projects");
+const {
+  getAllSettings,
+  getSetting,
+  upsertSetting,
+  deleteSetting,
+  isInternalSettingKey,
+  INTERNAL_SETTING_PREFIXES,
+} = await import("../db/queries/settings");
+const { insertRun, updateRun, insertLog, listRuns, getRunWithLogs, toAgentRun } = await import(
+  "../db/queries/runs"
+);
 
 describe("projects queries", () => {
   beforeEach(async () => await setupTestDb());
@@ -27,7 +37,12 @@ describe("projects queries", () => {
   });
 
   test("createProject with optional fields", async () => {
-    const p = await createProject({ name: "proj", path: "/p", icon: "icon.png", variables: { key: "val" } });
+    const p = await createProject({
+      name: "proj",
+      path: "/p",
+      icon: "icon.png",
+      variables: { key: "val" },
+    });
     expect(p.icon).toBe("icon.png");
     expect(p.variables).toEqual({ key: "val" });
   });
@@ -161,7 +176,17 @@ describe("runs queries", () => {
   beforeEach(async () => await setupTestDb());
   afterAll(async () => await closeTestDb());
 
-  function makeAgentRun(overrides: Partial<{ id: string; agentName: string; status: string; startedAt: number; finishedAt: number; logs: any[]; result: any }> = {}) {
+  function makeAgentRun(
+    overrides: Partial<{
+      id: string;
+      agentName: string;
+      status: string;
+      startedAt: number;
+      finishedAt: number;
+      logs: any[];
+      result: any;
+    }> = {},
+  ) {
     return {
       id: overrides.id ?? crypto.randomUUID(),
       agentName: overrides.agentName ?? "test-agent",

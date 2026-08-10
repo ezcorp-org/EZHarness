@@ -34,7 +34,11 @@ describe("pending-messages", () => {
 
     test("dequeue is FIFO — oldest message first", () => {
       enqueue(SUB_CONV_1, { messageId: "m1", content: "first", createdAt: "2026-01-01T00:00:00Z" });
-      enqueue(SUB_CONV_1, { messageId: "m2", content: "second", createdAt: "2026-01-01T00:00:01Z" });
+      enqueue(SUB_CONV_1, {
+        messageId: "m2",
+        content: "second",
+        createdAt: "2026-01-01T00:00:01Z",
+      });
       enqueue(SUB_CONV_1, { messageId: "m3", content: "third", createdAt: "2026-01-01T00:00:02Z" });
 
       expect(dequeue(SUB_CONV_1)!.messageId).toBe("m1");
@@ -44,8 +48,16 @@ describe("pending-messages", () => {
     });
 
     test("queues are independent per subConversationId", () => {
-      enqueue(SUB_CONV_1, { messageId: "m1", content: "for conv 1", createdAt: "2026-01-01T00:00:00Z" });
-      enqueue(SUB_CONV_2, { messageId: "m2", content: "for conv 2", createdAt: "2026-01-01T00:00:00Z" });
+      enqueue(SUB_CONV_1, {
+        messageId: "m1",
+        content: "for conv 1",
+        createdAt: "2026-01-01T00:00:00Z",
+      });
+      enqueue(SUB_CONV_2, {
+        messageId: "m2",
+        content: "for conv 2",
+        createdAt: "2026-01-01T00:00:00Z",
+      });
 
       expect(dequeue(SUB_CONV_1)!.content).toBe("for conv 1");
       expect(dequeue(SUB_CONV_2)!.content).toBe("for conv 2");
@@ -78,7 +90,11 @@ describe("pending-messages", () => {
 
     test("returns true when some messages remain", () => {
       enqueue(SUB_CONV_1, { messageId: "m1", content: "first", createdAt: "2026-01-01T00:00:00Z" });
-      enqueue(SUB_CONV_1, { messageId: "m2", content: "second", createdAt: "2026-01-01T00:00:01Z" });
+      enqueue(SUB_CONV_1, {
+        messageId: "m2",
+        content: "second",
+        createdAt: "2026-01-01T00:00:01Z",
+      });
       dequeue(SUB_CONV_1);
       expect(hasPending(SUB_CONV_1)).toBe(true);
     });

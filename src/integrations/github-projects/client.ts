@@ -524,9 +524,7 @@ class GithubClientImpl implements GithubClient {
       // (classic PAT). Fine-grained PATs expose no scope header → undefined.
       // Posting issue comments via addComment requires "repo" (or "public_repo").
       const canComment =
-        scopes.length === 0
-          ? undefined
-          : scopes.includes("repo") || scopes.includes("public_repo");
+        scopes.length === 0 ? undefined : scopes.includes("repo") || scopes.includes("public_repo");
       return { ok: true, scopes, missingScopes: [], canComment };
     } catch (err) {
       if (err instanceof GithubAuthError || err instanceof GithubNotFoundError) {

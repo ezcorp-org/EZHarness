@@ -7,33 +7,33 @@
  */
 import { describe, test, expect } from "vitest";
 import {
-	isRecognizedConfig,
-	parseDependencies,
-	setDependencies,
-	parseCapabilities,
-	setCapabilityPermissions,
-	unresolvedDependencies,
-	unmanagedCapabilities,
-	dependencySourceFor,
-	isPickableDependency,
-	toDependencyEntry,
-	PICKER_DEPENDENCY_SOURCES,
-	VIRTUAL_BUILTIN_EXTENSION_ID,
+  isRecognizedConfig,
+  parseDependencies,
+  setDependencies,
+  parseCapabilities,
+  setCapabilityPermissions,
+  unresolvedDependencies,
+  unmanagedCapabilities,
+  dependencySourceFor,
+  isPickableDependency,
+  toDependencyEntry,
+  PICKER_DEPENDENCY_SOURCES,
+  VIRTUAL_BUILTIN_EXTENSION_ID,
 } from "./ezcorp-config-edit";
 import type { DependencyEntry, ToggleableCapability } from "./ezcorp-config-edit";
 
 /** Naive balanced-brace check — asserts the edit output never orphans a
  *  nested object (the corruption class the brace-aware fix closes). */
 function bracesBalanced(s: string): boolean {
-	let depth = 0;
-	for (const ch of s) {
-		if (ch === "{") depth++;
-		else if (ch === "}") {
-			depth--;
-			if (depth < 0) return false;
-		}
-	}
-	return depth === 0;
+  let depth = 0;
+  for (const ch of s) {
+    if (ch === "{") depth++;
+    else if (ch === "}") {
+      depth--;
+      if (depth < 0) return false;
+    }
+  }
+  return depth === 0;
 }
 
 /** The scaffold's known config shape (mirrors templates/tool.ts). */
@@ -53,337 +53,344 @@ export default defineExtension({
 `;
 
 const SCAFFOLD_WITH_PERMS = SCAFFOLD.replace(
-	"permissions: {}",
-	`permissions: {\n    network: ["api.example.com"],\n  }`,
+  "permissions: {}",
+  `permissions: {\n    network: ["api.example.com"],\n  }`,
 );
 
 const DEP_A: DependencyEntry = { name: "ai-kit", source: "bundled", version: "^0.1.0" };
 const DEP_B: DependencyEntry = { name: "web-search", source: "bundled", version: "1.0.0" };
 
 function allCaps(over: Partial<Record<string, boolean>> = {}) {
-	return { search: false, memory: false, llm: false, ...over } as Record<ToggleableCapability, boolean>;
+  return { search: false, memory: false, llm: false, ...over } as Record<
+    ToggleableCapability,
+    boolean
+  >;
 }
 
 describe("isRecognizedConfig", () => {
-	test("true for a defineExtension config with a permissions field", () => {
-		expect(isRecognizedConfig(SCAFFOLD)).toBe(true);
-	});
-	test("false for arbitrary / hand-rolled source", () => {
-		expect(isRecognizedConfig("export const x = 1;")).toBe(false);
-		expect(isRecognizedConfig("export default defineExtension({ name: 'x' })")).toBe(false); // no permissions
-	});
+  test("true for a defineExtension config with a permissions field", () => {
+    expect(isRecognizedConfig(SCAFFOLD)).toBe(true);
+  });
+  test("false for arbitrary / hand-rolled source", () => {
+    expect(isRecognizedConfig("export const x = 1;")).toBe(false);
+    expect(isRecognizedConfig("export default defineExtension({ name: 'x' })")).toBe(false); // no permissions
+  });
 });
 
 describe("dependencies write + read round-trip", () => {
-	test("setDependencies inserts a managed block before permissions; parse reads it back", () => {
-		const { source, recognized } = setDependencies(SCAFFOLD, [DEP_A, DEP_B]);
-		expect(recognized).toBe(true);
-		expect(source).toContain("ezcorp:dependencies (managed)");
-		expect(source).toContain('"ai-kit": { source: "bundled", version: "^0.1.0" }');
-		// The block sits before permissions.
-		expect(source.indexOf("dependencies:")).toBeLessThan(source.indexOf("permissions:"));
-		expect(parseDependencies(source)).toEqual([DEP_A, DEP_B]);
-	});
+  test("setDependencies inserts a managed block before permissions; parse reads it back", () => {
+    const { source, recognized } = setDependencies(SCAFFOLD, [DEP_A, DEP_B]);
+    expect(recognized).toBe(true);
+    expect(source).toContain("ezcorp:dependencies (managed)");
+    expect(source).toContain('"ai-kit": { source: "bundled", version: "^0.1.0" }');
+    // The block sits before permissions.
+    expect(source.indexOf("dependencies:")).toBeLessThan(source.indexOf("permissions:"));
+    expect(parseDependencies(source)).toEqual([DEP_A, DEP_B]);
+  });
 
-	test("re-edit REPLACES the managed block (idempotent, no duplication)", () => {
-		const once = setDependencies(SCAFFOLD, [DEP_A, DEP_B]).source;
-		const twice = setDependencies(once, [DEP_A]).source;
-		expect(parseDependencies(twice)).toEqual([DEP_A]);
-		// Only ONE managed block.
-		expect(twice.split("ezcorp:dependencies (managed)").length - 1).toBe(1);
-	});
+  test("re-edit REPLACES the managed block (idempotent, no duplication)", () => {
+    const once = setDependencies(SCAFFOLD, [DEP_A, DEP_B]).source;
+    const twice = setDependencies(once, [DEP_A]).source;
+    expect(parseDependencies(twice)).toEqual([DEP_A]);
+    // Only ONE managed block.
+    expect(twice.split("ezcorp:dependencies (managed)").length - 1).toBe(1);
+  });
 
-	test("empty deps removes the managed block entirely", () => {
-		const withDeps = setDependencies(SCAFFOLD, [DEP_A]).source;
-		const cleared = setDependencies(withDeps, []).source;
-		expect(cleared).not.toContain("ezcorp:dependencies");
-		expect(parseDependencies(cleared)).toEqual([]);
-		// permissions still intact.
-		expect(isRecognizedConfig(cleared)).toBe(true);
-	});
+  test("empty deps removes the managed block entirely", () => {
+    const withDeps = setDependencies(SCAFFOLD, [DEP_A]).source;
+    const cleared = setDependencies(withDeps, []).source;
+    expect(cleared).not.toContain("ezcorp:dependencies");
+    expect(parseDependencies(cleared)).toEqual([]);
+    // permissions still intact.
+    expect(isRecognizedConfig(cleared)).toBe(true);
+  });
 
-	test("parseDependencies on a config with no managed block → []", () => {
-		expect(parseDependencies(SCAFFOLD)).toEqual([]);
-	});
+  test("parseDependencies on a config with no managed block → []", () => {
+    expect(parseDependencies(SCAFFOLD)).toEqual([]);
+  });
 
-	test("unrecognized config → unchanged + recognized:false", () => {
-		const res = setDependencies("export const x = 1;", [DEP_A]);
-		expect(res.recognized).toBe(false);
-		expect(res.source).toBe("export const x = 1;");
-	});
+  test("unrecognized config → unchanged + recognized:false", () => {
+    const res = setDependencies("export const x = 1;", [DEP_A]);
+    expect(res.recognized).toBe(false);
+    expect(res.source).toBe("export const x = 1;");
+  });
 
-	test("preserves the source TS validity markers (still a defineExtension call)", () => {
-		const { source } = setDependencies(SCAFFOLD, [DEP_A]);
-		expect(source).toContain("export default defineExtension({");
-		expect(source.trimEnd().endsWith("});")).toBe(true);
-	});
+  test("preserves the source TS validity markers (still a defineExtension call)", () => {
+    const { source } = setDependencies(SCAFFOLD, [DEP_A]);
+    expect(source).toContain("export default defineExtension({");
+    expect(source.trimEnd().endsWith("});")).toBe(true);
+  });
 });
 
 describe("capability permissions write + read", () => {
-	test("enabling search writes search:\"inherit\" into permissions; parse reads it on", () => {
-		const { source, recognized } = setCapabilityPermissions(SCAFFOLD, allCaps({ search: true }));
-		expect(recognized).toBe(true);
-		expect(source).toContain('search: "inherit"');
-		expect(parseCapabilities(source)).toEqual({ search: true, memory: false, llm: false });
-	});
+  test('enabling search writes search:"inherit" into permissions; parse reads it on', () => {
+    const { source, recognized } = setCapabilityPermissions(SCAFFOLD, allCaps({ search: true }));
+    expect(recognized).toBe(true);
+    expect(source).toContain('search: "inherit"');
+    expect(parseCapabilities(source)).toEqual({ search: true, memory: false, llm: false });
+  });
 
-	test("enabling multiple capabilities", () => {
-		const { source } = setCapabilityPermissions(SCAFFOLD, allCaps({ search: true, memory: true }));
-		expect(parseCapabilities(source)).toEqual({ search: true, memory: true, llm: false });
-	});
+  test("enabling multiple capabilities", () => {
+    const { source } = setCapabilityPermissions(SCAFFOLD, allCaps({ search: true, memory: true }));
+    expect(parseCapabilities(source)).toEqual({ search: true, memory: true, llm: false });
+  });
 
-	test("disabling a capability REMOVES it (absent = not requested)", () => {
-		const on = setCapabilityPermissions(SCAFFOLD, allCaps({ search: true, llm: true })).source;
-		const off = setCapabilityPermissions(on, allCaps({ llm: true })).source;
-		expect(parseCapabilities(off)).toEqual({ search: false, memory: false, llm: true });
-		expect(off).not.toContain('search:');
-	});
+  test("disabling a capability REMOVES it (absent = not requested)", () => {
+    const on = setCapabilityPermissions(SCAFFOLD, allCaps({ search: true, llm: true })).source;
+    const off = setCapabilityPermissions(on, allCaps({ llm: true })).source;
+    expect(parseCapabilities(off)).toEqual({ search: false, memory: false, llm: true });
+    expect(off).not.toContain("search:");
+  });
 
-	test("preserves OTHER permission fields (network) while toggling capabilities", () => {
-		const { source } = setCapabilityPermissions(SCAFFOLD_WITH_PERMS, allCaps({ search: true }));
-		expect(source).toContain('network: ["api.example.com"]');
-		expect(parseCapabilities(source)).toEqual({ search: true, memory: false, llm: false });
-	});
+  test("preserves OTHER permission fields (network) while toggling capabilities", () => {
+    const { source } = setCapabilityPermissions(SCAFFOLD_WITH_PERMS, allCaps({ search: true }));
+    expect(source).toContain('network: ["api.example.com"]');
+    expect(parseCapabilities(source)).toEqual({ search: true, memory: false, llm: false });
+  });
 
-	test("all-off → empty permissions, no capability keys", () => {
-		const on = setCapabilityPermissions(SCAFFOLD, allCaps({ search: true })).source;
-		const off = setCapabilityPermissions(on, allCaps()).source;
-		expect(parseCapabilities(off)).toEqual({ search: false, memory: false, llm: false });
-	});
+  test("all-off → empty permissions, no capability keys", () => {
+    const on = setCapabilityPermissions(SCAFFOLD, allCaps({ search: true })).source;
+    const off = setCapabilityPermissions(on, allCaps()).source;
+    expect(parseCapabilities(off)).toEqual({ search: false, memory: false, llm: false });
+  });
 
-	test("an explicit search:false in permissions reads as OFF", () => {
-		const src = SCAFFOLD.replace("permissions: {}", `permissions: {\n    search: false,\n  }`);
-		expect(parseCapabilities(src).search).toBe(false);
-	});
+  test("an explicit search:false in permissions reads as OFF", () => {
+    const src = SCAFFOLD.replace("permissions: {}", `permissions: {\n    search: false,\n  }`);
+    expect(parseCapabilities(src).search).toBe(false);
+  });
 
-	test("unrecognized config → unchanged + recognized:false", () => {
-		const res = setCapabilityPermissions("export const x = 1;", allCaps({ search: true }));
-		expect(res.recognized).toBe(false);
-		expect(res.source).toBe("export const x = 1;");
-	});
+  test("unrecognized config → unchanged + recognized:false", () => {
+    const res = setCapabilityPermissions("export const x = 1;", allCaps({ search: true }));
+    expect(res.recognized).toBe(false);
+    expect(res.source).toBe("export const x = 1;");
+  });
 
-	test("parseCapabilities on a config without permissions body → all false", () => {
-		expect(parseCapabilities("export const x = 1;")).toEqual({ search: false, memory: false, llm: false });
-	});
+  test("parseCapabilities on a config without permissions body → all false", () => {
+    expect(parseCapabilities("export const x = 1;")).toEqual({
+      search: false,
+      memory: false,
+      llm: false,
+    });
+  });
 
-	test("malformed permissions (unbalanced braces) degrades safely", () => {
-		// Recognized (has defineExtension({ + permissions:) but the
-		// permissions object never closes — the brace-matcher bails to null.
-		const malformed = `export default defineExtension({\n  permissions: {\n    search: "inherit",\n`;
-		// parse → no closing brace → all-false (no crash).
-		expect(parseCapabilities(malformed)).toEqual({ search: false, memory: false, llm: false });
-		// set → replacePermissionsBody returns null → recognized:false, unchanged.
-		const res = setCapabilityPermissions(malformed, allCaps({ memory: true }));
-		expect(res.recognized).toBe(false);
-		expect(res.source).toBe(malformed);
-	});
+  test("malformed permissions (unbalanced braces) degrades safely", () => {
+    // Recognized (has defineExtension({ + permissions:) but the
+    // permissions object never closes — the brace-matcher bails to null.
+    const malformed = `export default defineExtension({\n  permissions: {\n    search: "inherit",\n`;
+    // parse → no closing brace → all-false (no crash).
+    expect(parseCapabilities(malformed)).toEqual({ search: false, memory: false, llm: false });
+    // set → replacePermissionsBody returns null → recognized:false, unchanged.
+    const res = setCapabilityPermissions(malformed, allCaps({ memory: true }));
+    expect(res.recognized).toBe(false);
+    expect(res.source).toBe(malformed);
+  });
 });
 
 describe("object-valued capability (custom ceiling) — brace-aware, no corrupt / no widen", () => {
-	// A hand-written §3.1 object grant — the bug fixture: the old
-	// `[^,\n}]+` removal truncated at the nested `}`.
-	const OBJECT_CAP = SCAFFOLD.replace(
-		"permissions: {}",
-		`permissions: {\n    search: { quota: 500, maxResults: 10 },\n    network: ["api.example.com"],\n  }`,
-	);
+  // A hand-written §3.1 object grant — the bug fixture: the old
+  // `[^,\n}]+` removal truncated at the nested `}`.
+  const OBJECT_CAP = SCAFFOLD.replace(
+    "permissions: {}",
+    `permissions: {\n    search: { quota: 500, maxResults: 10 },\n    network: ["api.example.com"],\n  }`,
+  );
 
-	test("parseCapabilities reads an object-valued cap as ON (brace-aware)", () => {
-		expect(parseCapabilities(OBJECT_CAP)).toEqual({ search: true, memory: false, llm: false });
-	});
+  test("parseCapabilities reads an object-valued cap as ON (brace-aware)", () => {
+    expect(parseCapabilities(OBJECT_CAP)).toEqual({ search: true, memory: false, llm: false });
+  });
 
-	test("unmanagedCapabilities flags the object cap (toggle must be read-only)", () => {
-		expect(unmanagedCapabilities(OBJECT_CAP)).toEqual(["search"]);
-	});
+  test("unmanagedCapabilities flags the object cap (toggle must be read-only)", () => {
+    expect(unmanagedCapabilities(OBJECT_CAP)).toEqual(["search"]);
+  });
 
-	// Whitespace BETWEEN an object value's closing `}` and its comma — an input
-	// shape only an object value can produce (the non-object walk stops on the
-	// `,` itself). Previously untested; these two assert that the spacing
-	// changes neither the read nor a neighbouring cap's rewrite.
-	const OBJECT_CAP_SPACED = SCAFFOLD.replace(
-		"permissions: {}",
-		`permissions: {\n    search: { quota: 500 } ,\n    memory: "inherit",\n  }`,
-	);
+  // Whitespace BETWEEN an object value's closing `}` and its comma — an input
+  // shape only an object value can produce (the non-object walk stops on the
+  // `,` itself). Previously untested; these two assert that the spacing
+  // changes neither the read nor a neighbouring cap's rewrite.
+  const OBJECT_CAP_SPACED = SCAFFOLD.replace(
+    "permissions: {}",
+    `permissions: {\n    search: { quota: 500 } ,\n    memory: "inherit",\n  }`,
+  );
 
-	test("a space between an object cap's `}` and its comma is read correctly", () => {
-		expect(parseCapabilities(OBJECT_CAP_SPACED)).toEqual({
-			search: true,
-			memory: true,
-			llm: false,
-		});
-		expect(unmanagedCapabilities(OBJECT_CAP_SPACED)).toEqual(["search"]);
-	});
+  test("a space between an object cap's `}` and its comma is read correctly", () => {
+    expect(parseCapabilities(OBJECT_CAP_SPACED)).toEqual({
+      search: true,
+      memory: true,
+      llm: false,
+    });
+    expect(unmanagedCapabilities(OBJECT_CAP_SPACED)).toEqual(["search"]);
+  });
 
-	test("removing a managed cap next to a space-then-comma object cap leaves valid source", () => {
-		// `memory` is managed and gets rewritten; `search` is unmanaged and must
-		// survive byte-for-byte, its ` ,` included, with no orphaned comma.
-		const res = setCapabilityPermissions(OBJECT_CAP_SPACED, allCaps({ memory: false }));
-		expect(res.recognized).toBe(true);
-		expect(res.source).toContain("search: { quota: 500 }");
-		expect(res.source).not.toMatch(/,\s*,/);
-		expect(parseCapabilities(res.source)).toEqual({
-			search: true,
-			memory: false,
-			llm: false,
-		});
-	});
+  test("removing a managed cap next to a space-then-comma object cap leaves valid source", () => {
+    // `memory` is managed and gets rewritten; `search` is unmanaged and must
+    // survive byte-for-byte, its ` ,` included, with no orphaned comma.
+    const res = setCapabilityPermissions(OBJECT_CAP_SPACED, allCaps({ memory: false }));
+    expect(res.recognized).toBe(true);
+    expect(res.source).toContain("search: { quota: 500 }");
+    expect(res.source).not.toMatch(/,\s*,/);
+    expect(parseCapabilities(res.source)).toEqual({
+      search: true,
+      memory: false,
+      llm: false,
+    });
+  });
 
-	test("toggling OFF an object cap does NOT corrupt the file and does NOT widen it", () => {
-		// Author clicks the Search toggle (would-be off). The object ceiling
-		// is UNMANAGED → left byte-for-byte; the file stays valid TS.
-		const res = setCapabilityPermissions(OBJECT_CAP, allCaps({ search: false }));
-		expect(res.recognized).toBe(true);
-		expect(bracesBalanced(res.source)).toBe(true);
-		// The hand-written object ceiling survives verbatim — NOT clobbered
-		// to "inherit" (no silent widening) and NOT orphaned.
-		expect(res.source).toContain("search: { quota: 500, maxResults: 10 }");
-		expect(res.source).not.toContain('search: "inherit"');
-		expect(res.source).toContain('network: ["api.example.com"]');
-		// Re-parse round-trips (braces balanced, value intact).
-		expect(parseCapabilities(res.source)).toEqual({ search: true, memory: false, llm: false });
-	});
+  test("toggling OFF an object cap does NOT corrupt the file and does NOT widen it", () => {
+    // Author clicks the Search toggle (would-be off). The object ceiling
+    // is UNMANAGED → left byte-for-byte; the file stays valid TS.
+    const res = setCapabilityPermissions(OBJECT_CAP, allCaps({ search: false }));
+    expect(res.recognized).toBe(true);
+    expect(bracesBalanced(res.source)).toBe(true);
+    // The hand-written object ceiling survives verbatim — NOT clobbered
+    // to "inherit" (no silent widening) and NOT orphaned.
+    expect(res.source).toContain("search: { quota: 500, maxResults: 10 }");
+    expect(res.source).not.toContain('search: "inherit"');
+    expect(res.source).toContain('network: ["api.example.com"]');
+    // Re-parse round-trips (braces balanced, value intact).
+    expect(parseCapabilities(res.source)).toEqual({ search: true, memory: false, llm: false });
+  });
 
-	test("toggling ON an UNRELATED cap preserves the object ceiling verbatim", () => {
-		const res = setCapabilityPermissions(OBJECT_CAP, allCaps({ search: true, memory: true }));
-		expect(res.recognized).toBe(true);
-		expect(bracesBalanced(res.source)).toBe(true);
-		expect(res.source).toContain("search: { quota: 500, maxResults: 10 }");
-		expect(res.source).toContain('memory: "inherit"');
-	});
+  test("toggling ON an UNRELATED cap preserves the object ceiling verbatim", () => {
+    const res = setCapabilityPermissions(OBJECT_CAP, allCaps({ search: true, memory: true }));
+    expect(res.recognized).toBe(true);
+    expect(bracesBalanced(res.source)).toBe(true);
+    expect(res.source).toContain("search: { quota: 500, maxResults: 10 }");
+    expect(res.source).toContain('memory: "inherit"');
+  });
 
-	test("an explicit `false` cap is also UNMANAGED (toggle can't flip it ON silently)", () => {
-		const falseCap = SCAFFOLD.replace("permissions: {}", `permissions: {\n    search: false,\n  }`);
-		expect(unmanagedCapabilities(falseCap)).toEqual(["search"]);
-		const res = setCapabilityPermissions(falseCap, allCaps({ search: true }));
-		expect(res.recognized).toBe(true);
-		expect(res.source).toContain("search: false");
-		expect(res.source).not.toContain('search: "inherit"');
-	});
+  test("an explicit `false` cap is also UNMANAGED (toggle can't flip it ON silently)", () => {
+    const falseCap = SCAFFOLD.replace("permissions: {}", `permissions: {\n    search: false,\n  }`);
+    expect(unmanagedCapabilities(falseCap)).toEqual(["search"]);
+    const res = setCapabilityPermissions(falseCap, allCaps({ search: true }));
+    expect(res.recognized).toBe(true);
+    expect(res.source).toContain("search: false");
+    expect(res.source).not.toContain('search: "inherit"');
+  });
 });
 
 describe("edge-input floor (spec §7 Phase 4 — hand-written config preserved)", () => {
-	test("a comment line in permissions survives a capability toggle", () => {
-		const withComment = SCAFFOLD.replace(
-			"permissions: {}",
-			`permissions: {\n    // network access for the upstream API\n    network: ["api.example.com"],\n  }`,
-		);
-		const res = setCapabilityPermissions(withComment, allCaps({ search: true }));
-		expect(res.source).toContain("// network access for the upstream API");
-		expect(res.source).toContain('search: "inherit"');
-		expect(bracesBalanced(res.source)).toBe(true);
-	});
+  test("a comment line in permissions survives a capability toggle", () => {
+    const withComment = SCAFFOLD.replace(
+      "permissions: {}",
+      `permissions: {\n    // network access for the upstream API\n    network: ["api.example.com"],\n  }`,
+    );
+    const res = setCapabilityPermissions(withComment, allCaps({ search: true }));
+    expect(res.source).toContain("// network access for the upstream API");
+    expect(res.source).toContain('search: "inherit"');
+    expect(bracesBalanced(res.source)).toBe(true);
+  });
 
-	test("a multi-line array in a hand-written field survives a dependency edit", () => {
-		const withArray = SCAFFOLD.replace(
-			"permissions: {}",
-			`permissions: {\n    network: [\n      "a.example.com",\n      "b.example.com",\n    ],\n  }`,
-		);
-		const res = setDependencies(withArray, [DEP_A]);
-		expect(res.recognized).toBe(true);
-		expect(res.source).toContain('"a.example.com"');
-		expect(res.source).toContain('"b.example.com"');
-		expect(parseDependencies(res.source)).toEqual([DEP_A]);
-		expect(bracesBalanced(res.source)).toBe(true);
-	});
+  test("a multi-line array in a hand-written field survives a dependency edit", () => {
+    const withArray = SCAFFOLD.replace(
+      "permissions: {}",
+      `permissions: {\n    network: [\n      "a.example.com",\n      "b.example.com",\n    ],\n  }`,
+    );
+    const res = setDependencies(withArray, [DEP_A]);
+    expect(res.recognized).toBe(true);
+    expect(res.source).toContain('"a.example.com"');
+    expect(res.source).toContain('"b.example.com"');
+    expect(parseDependencies(res.source)).toEqual([DEP_A]);
+    expect(bracesBalanced(res.source)).toBe(true);
+  });
 
-	test("a trailing comma in the permissions block is preserved across a toggle", () => {
-		const trailing = SCAFFOLD.replace(
-			"permissions: {}",
-			`permissions: {\n    network: ["x.example.com"],\n  }`,
-		);
-		const res = setCapabilityPermissions(trailing, allCaps({ llm: true }));
-		expect(res.source).toContain('network: ["x.example.com"]');
-		expect(res.source).toContain('llm: "inherit"');
-		expect(bracesBalanced(res.source)).toBe(true);
-	});
+  test("a trailing comma in the permissions block is preserved across a toggle", () => {
+    const trailing = SCAFFOLD.replace(
+      "permissions: {}",
+      `permissions: {\n    network: ["x.example.com"],\n  }`,
+    );
+    const res = setCapabilityPermissions(trailing, allCaps({ llm: true }));
+    expect(res.source).toContain('network: ["x.example.com"]');
+    expect(res.source).toContain('llm: "inherit"');
+    expect(bracesBalanced(res.source)).toBe(true);
+  });
 });
 
 describe("unresolvedDependencies (non-fatal install warning)", () => {
-	const installed = [
-		{ name: "ai-kit", version: "0.1.0" },
-		{ name: "web-search", version: "1.0.0" },
-	];
+  const installed = [
+    { name: "ai-kit", version: "0.1.0" },
+    { name: "web-search", version: "1.0.0" },
+  ];
 
-	test("all declared deps installed → no warnings", () => {
-		expect(unresolvedDependencies([DEP_A, DEP_B], installed)).toEqual([]);
-	});
+  test("all declared deps installed → no warnings", () => {
+    expect(unresolvedDependencies([DEP_A, DEP_B], installed)).toEqual([]);
+  });
 
-	test("a declared dep absent from the installed set → flagged by name", () => {
-		const missing: DependencyEntry = { name: "ghost-ext", source: "bundled", version: "1.0.0" };
-		expect(unresolvedDependencies([DEP_A, missing], installed)).toEqual(["ghost-ext"]);
-	});
+  test("a declared dep absent from the installed set → flagged by name", () => {
+    const missing: DependencyEntry = { name: "ghost-ext", source: "bundled", version: "1.0.0" };
+    expect(unresolvedDependencies([DEP_A, missing], installed)).toEqual(["ghost-ext"]);
+  });
 
-	test("multiple missing → all flagged, declaration order, deduped", () => {
-		const m1: DependencyEntry = { name: "ghost-a", source: "x", version: "1.0.0" };
-		const m2: DependencyEntry = { name: "ghost-b", source: "x", version: "1.0.0" };
-		const m1dup: DependencyEntry = { name: "ghost-a", source: "x", version: "2.0.0" };
-		expect(unresolvedDependencies([m1, m2, m1dup], installed)).toEqual(["ghost-a", "ghost-b"]);
-	});
+  test("multiple missing → all flagged, declaration order, deduped", () => {
+    const m1: DependencyEntry = { name: "ghost-a", source: "x", version: "1.0.0" };
+    const m2: DependencyEntry = { name: "ghost-b", source: "x", version: "1.0.0" };
+    const m1dup: DependencyEntry = { name: "ghost-a", source: "x", version: "2.0.0" };
+    expect(unresolvedDependencies([m1, m2, m1dup], installed)).toEqual(["ghost-a", "ghost-b"]);
+  });
 
-	test("no declared deps → no warnings", () => {
-		expect(unresolvedDependencies([], installed)).toEqual([]);
-	});
+  test("no declared deps → no warnings", () => {
+    expect(unresolvedDependencies([], installed)).toEqual([]);
+  });
 
-	test("empty installed set → every declared dep flagged", () => {
-		expect(unresolvedDependencies([DEP_A, DEP_B], [])).toEqual(["ai-kit", "web-search"]);
-	});
+  test("empty installed set → every declared dep flagged", () => {
+    expect(unresolvedDependencies([DEP_A, DEP_B], [])).toEqual(["ai-kit", "web-search"]);
+  });
 });
 
 describe("combined: deps + capabilities coexist", () => {
-	test("writing deps then capabilities preserves both", () => {
-		const withDeps = setDependencies(SCAFFOLD, [DEP_A]).source;
-		const withBoth = setCapabilityPermissions(withDeps, allCaps({ search: true })).source;
-		expect(parseDependencies(withBoth)).toEqual([DEP_A]);
-		expect(parseCapabilities(withBoth)).toEqual({ search: true, memory: false, llm: false });
-	});
+  test("writing deps then capabilities preserves both", () => {
+    const withDeps = setDependencies(SCAFFOLD, [DEP_A]).source;
+    const withBoth = setCapabilityPermissions(withDeps, allCaps({ search: true })).source;
+    expect(parseDependencies(withBoth)).toEqual([DEP_A]);
+    expect(parseCapabilities(withBoth)).toEqual({ search: true, memory: false, llm: false });
+  });
 });
 
 describe("dependency picker — emitted source + what is pickable", () => {
-	test("PICKER_DEPENDENCY_SOURCES is the closed set the host validator knows", () => {
-		// Locksteped against `src/extensions/dependency-source.ts` by
-		// `src/__tests__/dependency-source-parity.test.ts`.
-		expect([...PICKER_DEPENDENCY_SOURCES].sort()).toEqual(["bundled", "local"]);
-	});
+  test("PICKER_DEPENDENCY_SOURCES is the closed set the host validator knows", () => {
+    // Locksteped against `src/extensions/dependency-source.ts` by
+    // `src/__tests__/dependency-source-parity.test.ts`.
+    expect([...PICKER_DEPENDENCY_SOURCES].sort()).toEqual(["bundled", "local"]);
+  });
 
-	test("dependencySourceFor maps a bundled row to 'bundled', anything else to 'local'", () => {
-		expect(dependencySourceFor({ isBundled: true })).toBe("bundled");
-		expect(dependencySourceFor({ isBundled: false })).toBe("local");
-		expect(dependencySourceFor({})).toBe("local");
-	});
+  test("dependencySourceFor maps a bundled row to 'bundled', anything else to 'local'", () => {
+    expect(dependencySourceFor({ isBundled: true })).toBe("bundled");
+    expect(dependencySourceFor({ isBundled: false })).toBe("local");
+    expect(dependencySourceFor({})).toBe("local");
+  });
 
-	test("toDependencyEntry builds the managed entry (caret-ranged on the installed version)", () => {
-		expect(
-			toDependencyEntry({ id: "e1", name: "ai-kit", version: "0.1.0", isBundled: true }),
-		).toEqual({ name: "ai-kit", source: "bundled", version: "^0.1.0" });
-		expect(
-			toDependencyEntry({ id: "e2", name: "mine", version: "2.3.4", isBundled: false }),
-		).toEqual({ name: "mine", source: "local", version: "^2.3.4" });
-	});
+  test("toDependencyEntry builds the managed entry (caret-ranged on the installed version)", () => {
+    expect(
+      toDependencyEntry({ id: "e1", name: "ai-kit", version: "0.1.0", isBundled: true }),
+    ).toEqual({ name: "ai-kit", source: "bundled", version: "^0.1.0" });
+    expect(
+      toDependencyEntry({ id: "e2", name: "mine", version: "2.3.4", isBundled: false }),
+    ).toEqual({ name: "mine", source: "local", version: "^2.3.4" });
+  });
 
-	test("a built entry round-trips through the managed block", () => {
-		const entry = toDependencyEntry({
-			id: "e1",
-			name: "ai-kit",
-			version: "0.1.0",
-			isBundled: true,
-		});
-		const written = setDependencies(SCAFFOLD, [entry]);
-		expect(written.recognized).toBe(true);
-		expect(parseDependencies(written.source)).toEqual([entry]);
-	});
+  test("a built entry round-trips through the managed block", () => {
+    const entry = toDependencyEntry({
+      id: "e1",
+      name: "ai-kit",
+      version: "0.1.0",
+      isBundled: true,
+    });
+    const written = setDependencies(SCAFFOLD, [entry]);
+    expect(written.recognized).toBe(true);
+    expect(parseDependencies(written.source)).toEqual([entry]);
+  });
 
-	test("the virtual builtin row is never pickable as a dependency", () => {
-		expect(isPickableDependency({ id: VIRTUAL_BUILTIN_EXTENSION_ID, source: "builtin" })).toBe(
-			false,
-		);
-		// Either marker alone is enough to exclude it.
-		expect(isPickableDependency({ id: "builtin", source: "local:/x" })).toBe(false);
-		expect(isPickableDependency({ id: "ext-9", source: "builtin" })).toBe(false);
-	});
+  test("the virtual builtin row is never pickable as a dependency", () => {
+    expect(isPickableDependency({ id: VIRTUAL_BUILTIN_EXTENSION_ID, source: "builtin" })).toBe(
+      false,
+    );
+    // Either marker alone is enough to exclude it.
+    expect(isPickableDependency({ id: "builtin", source: "local:/x" })).toBe(false);
+    expect(isPickableDependency({ id: "ext-9", source: "builtin" })).toBe(false);
+  });
 
-	test("real installed rows stay pickable", () => {
-		expect(isPickableDependency({ id: "ext-1", source: "local:/x" })).toBe(true);
-		expect(isPickableDependency({ id: "ext-2", source: "github:u/r" })).toBe(true);
-		expect(isPickableDependency({ id: "ext-3" })).toBe(true);
-		expect(isPickableDependency({ id: "ext-4", source: null })).toBe(true);
-	});
+  test("real installed rows stay pickable", () => {
+    expect(isPickableDependency({ id: "ext-1", source: "local:/x" })).toBe(true);
+    expect(isPickableDependency({ id: "ext-2", source: "github:u/r" })).toBe(true);
+    expect(isPickableDependency({ id: "ext-3" })).toBe(true);
+    expect(isPickableDependency({ id: "ext-4", source: null })).toBe(true);
+  });
 });

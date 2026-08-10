@@ -5,16 +5,49 @@ mockDbConnection();
 
 import { validateManifestV2, compareVersions, generateSlug } from "../extensions/manifest";
 import type { ExtensionManifestV2 } from "../extensions/types";
-import { createListing, getListingById, getListingBySlug, browseMarketplace, incrementInstallCount, getListingsByAuthor, getFeaturedListings } from "../db/queries/marketplace";
-import { createVersion, getLatestVersion, getVersion, listVersions } from "../db/queries/marketplace-versions";
-import { upsertRating, getUserRating, createFlag, resolveFlag, listFlags } from "../db/queries/marketplace-ratings";
-import { createAgentConfig, getAgentConfig, getAgentConfigByName } from "../db/queries/agent-configs";
+import {
+  createListing,
+  getListingById,
+  getListingBySlug,
+  browseMarketplace,
+  incrementInstallCount,
+  getListingsByAuthor,
+  getFeaturedListings,
+} from "../db/queries/marketplace";
+import {
+  createVersion,
+  getLatestVersion,
+  getVersion,
+  listVersions,
+} from "../db/queries/marketplace-versions";
+import {
+  upsertRating,
+  getUserRating,
+  createFlag,
+  resolveFlag,
+  listFlags,
+} from "../db/queries/marketplace-ratings";
+import {
+  createAgentConfig,
+  getAgentConfig,
+  getAgentConfigByName,
+} from "../db/queries/agent-configs";
 import { upsertSetting, getSetting } from "../db/queries/settings";
 import { getDb } from "../db/connection";
 import { users, marketplaceListings } from "../db/schema";
 import { eq } from "drizzle-orm";
 
-function buildV2Manifest(config: { name: string; description: string; prompt: string; capabilities?: string[] | null; category?: string | null }, author: { name: string; id: string }, version: string): ExtensionManifestV2 {
+function buildV2Manifest(
+  config: {
+    name: string;
+    description: string;
+    prompt: string;
+    capabilities?: string[] | null;
+    category?: string | null;
+  },
+  author: { name: string; id: string },
+  version: string,
+): ExtensionManifestV2 {
   return {
     schemaVersion: 2,
     // Mirror the production publish route (web/src/routes/api/marketplace/+server.ts):
@@ -42,11 +75,19 @@ beforeAll(async () => {
   authorId = crypto.randomUUID();
   installerId = crypto.randomUUID();
   adminId = crypto.randomUUID();
-  await getDb().insert(users).values([
-    { id: authorId, email: "author@e2e.com", passwordHash: "h", name: "Author", role: "member" },
-    { id: installerId, email: "installer@e2e.com", passwordHash: "h", name: "Installer", role: "member" },
-    { id: adminId, email: "admin@e2e.com", passwordHash: "h", name: "Admin", role: "admin" },
-  ]);
+  await getDb()
+    .insert(users)
+    .values([
+      { id: authorId, email: "author@e2e.com", passwordHash: "h", name: "Author", role: "member" },
+      {
+        id: installerId,
+        email: "installer@e2e.com",
+        passwordHash: "h",
+        name: "Installer",
+        role: "member",
+      },
+      { id: adminId, email: "admin@e2e.com", passwordHash: "h", name: "Admin", role: "admin" },
+    ]);
 });
 
 afterAll(async () => {

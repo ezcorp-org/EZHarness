@@ -52,10 +52,7 @@ type ToolResultShape = {
  * context) and for `fill_form` / `navigate_to` (fill outcome / navigation
  * destination) the detail must ride the text channel to reach the model.
  */
-export function panelResultToToolResult(
-  result: unknown,
-  toolName: string,
-): ToolResultShape {
+export function panelResultToToolResult(result: unknown, toolName: string): ToolResultShape {
   if (
     result &&
     typeof result === "object" &&
@@ -156,7 +153,13 @@ export async function runEzClientTool(args: {
     const message = err instanceof Error ? err.message : String(err);
     return {
       content: [{ type: "text" as const, text: `Error: ${message}` }],
-      details: { isError: true, clientSide: true, toolName, deferred: true, ...(errorDetails ?? {}) },
+      details: {
+        isError: true,
+        clientSide: true,
+        toolName,
+        deferred: true,
+        ...(errorDetails ?? {}),
+      },
     };
   } finally {
     signal?.removeEventListener("abort", onAbort);

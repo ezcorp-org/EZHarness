@@ -36,7 +36,10 @@ vi.mock("$lib/server/security/api-keys", () => ({
 
 vi.mock("$lib/server/http-errors", () => ({
   errorJson: (status: number, message: string) =>
-    new Response(JSON.stringify({ error: message }), { status, headers: { "Content-Type": "application/json" } }),
+    new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    }),
 }));
 
 let ownership: unknown = { conv: { projectId: "p1" }, root: {} };
@@ -64,7 +67,10 @@ vi.mock("$server/contexts/config", () => ({ ContextsUnavailableError }));
 
 const { POST } = await import("../routes/api/conversations/[id]/topics/[topicId]/extract/+server");
 
-function event(body: unknown = {}, locals: Record<string, unknown> = { user: { id: "u1", role: "user" } }) {
+function event(
+  body: unknown = {},
+  locals: Record<string, unknown> = { user: { id: "u1", role: "user" } },
+) {
   return {
     params: { id: "c1", topicId: "t1" },
     locals,

@@ -5,7 +5,12 @@ import { upsertProjectMember } from "./project-members";
 import { SELF_PROJECT_ID } from "../seed-self-project";
 
 export type Project = typeof projects.$inferSelect;
-export type NewProject = { name: string; path: string; icon?: string | null; variables?: Record<string, unknown> };
+export type NewProject = {
+  name: string;
+  path: string;
+  icon?: string | null;
+  variables?: Record<string, unknown>;
+};
 
 export async function listProjects(): Promise<Project[]> {
   // The seeded self project (dev-mode dogfooding workspace) is pinned first
@@ -15,7 +20,10 @@ export async function listProjects(): Promise<Project[]> {
   return getDb()
     .select()
     .from(projects)
-    .orderBy(sql`CASE WHEN ${projects.id} = ${SELF_PROJECT_ID} THEN 0 ELSE 1 END`, projects.createdAt);
+    .orderBy(
+      sql`CASE WHEN ${projects.id} = ${SELF_PROJECT_ID} THEN 0 ELSE 1 END`,
+      projects.createdAt,
+    );
 }
 
 export async function getProject(id: string): Promise<Project | undefined> {
@@ -64,7 +72,10 @@ export async function createProject(
   return row;
 }
 
-export async function updateProject(id: string, data: Partial<NewProject>): Promise<Project | undefined> {
+export async function updateProject(
+  id: string,
+  data: Partial<NewProject>,
+): Promise<Project | undefined> {
   const existing = await getProject(id);
   if (!existing) return undefined;
 

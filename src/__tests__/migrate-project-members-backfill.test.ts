@@ -67,7 +67,9 @@ async function addUser(db: Db, id: string, role: "admin" | "member", createdAt: 
 }
 
 async function addProject(db: Db, id: string) {
-  await db.execute(sql`INSERT INTO projects (id, name, path) VALUES (${id}, ${id}, ${`/tmp/${id}`})`);
+  await db.execute(
+    sql`INSERT INTO projects (id, name, path) VALUES (${id}, ${id}, ${`/tmp/${id}`})`,
+  );
 }
 
 describe("migrate() — ownerless project_members backfill", () => {

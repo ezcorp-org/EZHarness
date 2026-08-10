@@ -28,15 +28,9 @@ vi.mock("$lib/server/context", () => ({
 const { getAgentConfig, updateAgentConfig, deleteAgentConfig } = await import(
   "$server/db/queries/agent-configs"
 );
-const { GET, PUT, DELETE } = await import(
-  "../routes/api/agent-configs/[id]/+server.ts"
-);
+const { GET, PUT, DELETE } = await import("../routes/api/agent-configs/[id]/+server.ts");
 
-function makeEvent(opts: {
-  id?: string;
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { id?: string; locals?: Record<string, unknown>; body?: unknown }) {
   const id = opts.id ?? "cfg-1";
   const href = `http://localhost/api/agent-configs/${id}`;
   return {
@@ -127,10 +121,7 @@ describe("PUT /api/agent-configs/[id]", () => {
   });
 
   test("rejects 401 when unauthenticated", async () => {
-    await expectThrown(
-      () => PUT(makeEvent({ locals: {}, body: { name: "b" } })),
-      401,
-    );
+    await expectThrown(() => PUT(makeEvent({ locals: {}, body: { name: "b" } })), 401);
   });
 
   test("returns 404 when config is missing", async () => {
@@ -207,7 +198,9 @@ describe("PUT /api/agent-configs/[id]", () => {
       prompt: "p",
       capabilities: [],
     } as any);
-    const res = await PUT(makeEvent({ id: "cfg-sys", locals: { user: admin }, body: { description: "tuned" } }));
+    const res = await PUT(
+      makeEvent({ id: "cfg-sys", locals: { user: admin }, body: { description: "tuned" } }),
+    );
     expect(res.status).toBe(200);
     expect(updateAgentConfig).toHaveBeenCalledTimes(1);
   });

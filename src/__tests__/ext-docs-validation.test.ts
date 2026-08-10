@@ -38,9 +38,7 @@ function lineCount(content: string): number {
 }
 
 /** Extract all relative markdown links like [text](relative-path.md) */
-function extractInternalLinks(
-  content: string,
-): Array<{ text: string; href: string }> {
+function extractInternalLinks(content: string): Array<{ text: string; href: string }> {
   const links: Array<{ text: string; href: string }> = [];
   const regex = /\[([^\]]*)\]\(([^)]+)\)/g;
   let match: RegExpExecArray | null;
@@ -54,9 +52,7 @@ function extractInternalLinks(
 }
 
 /** Extract fenced code blocks with optional language tag */
-function extractCodeBlocks(
-  content: string,
-): Array<{ lang: string; code: string }> {
+function extractCodeBlocks(content: string): Array<{ lang: string; code: string }> {
   const blocks: Array<{ lang: string; code: string }> = [];
   const regex = /```(\w*)\n([\s\S]*?)```/g;
   let match: RegExpExecArray | null;
@@ -311,12 +307,7 @@ describe("manifest-schema.md", () => {
 // ── 2. Internal link validation ─────────────────────────────────
 
 describe("internal link integrity", () => {
-  const mdFiles = [
-    "README.md",
-    "getting-started.md",
-    "api-reference.md",
-    "manifest-schema.md",
-  ];
+  const mdFiles = ["README.md", "getting-started.md", "api-reference.md", "manifest-schema.md"];
 
   for (const file of mdFiles) {
     test(`all internal links in ${file} resolve to existing files`, async () => {
@@ -401,9 +392,7 @@ describe("example extension README content", () => {
   for (const name of EXAMPLES) {
     test(`${name}/README.md contains install command`, async () => {
       const content = await readText(join(EXAMPLES_DIR, name, "README.md"));
-      expect(content).toContain(
-        `ezcorp ext install ./docs/extensions/examples/${name}`,
-      );
+      expect(content).toContain(`ezcorp ext install ./docs/extensions/examples/${name}`);
     });
 
     test(`${name}/README.md mentions bun test`, async () => {
@@ -423,9 +412,7 @@ describe("github-stats/index.ts", () => {
 
 describe("code-review-delegator/index.ts", () => {
   test("references ezcorp/invoke", async () => {
-    const content = await readText(
-      join(EXAMPLES_DIR, "code-review-delegator", "index.ts"),
-    );
+    const content = await readText(join(EXAMPLES_DIR, "code-review-delegator", "index.ts"));
     expect(content).toContain("ezcorp/invoke");
   });
 });

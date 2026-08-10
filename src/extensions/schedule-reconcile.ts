@@ -36,17 +36,19 @@ export async function reconcileSchedules(
   // MANIFEST rows only — see the module header. This snapshot feeds both
   // the re-enable map and the `disabled` count, so filtering here is what
   // keeps a dynamic row out of BOTH.
-  const existing: ExtensionSchedule[] = await db.select().from(extensionSchedules)
-    .where(and(
-      eq(extensionSchedules.extensionId, extensionId),
-      eq(extensionSchedules.dynamic, false),
-    ));
+  const existing: ExtensionSchedule[] = await db
+    .select()
+    .from(extensionSchedules)
+    .where(
+      and(eq(extensionSchedules.extensionId, extensionId), eq(extensionSchedules.dynamic, false)),
+    );
   const existingByCron = new Map<string, ExtensionSchedule>(
     existing.map((row) => [row.cron, row] as const),
   );
   const validSet = new Set(valid);
 
-  let added = 0, preserved = 0;
+  let added = 0,
+    preserved = 0;
   // Deterministic `disabled` count from the pre-fetch snapshot, mirroring
   // reconcileWebhooks. The previous `rowCount` read is unreliable on PGlite
   // (it is why the webhook reconciler counts this way), and a dynamic row
@@ -61,14 +63,19 @@ export async function reconcileSchedules(
     const cur = existingByCron.get(cron);
     if (cur) {
       if (!cur.enabled) {
-        await db.update(extensionSchedules).set({ enabled: true, updatedAt: new Date() })
+        await db
+          .update(extensionSchedules)
+          .set({ enabled: true, updatedAt: new Date() })
           .where(eq(extensionSchedules.id, cur.id));
       }
       preserved++;
     } else {
       const nextFireAt = parseCron(cron).next(now());
       await db.insert(extensionSchedules).values({
-        extensionId, cron, nextFireAt, enabled: true,
+        extensionId,
+        cron,
+        nextFireAt,
+        enabled: true,
       });
       added++;
     }
@@ -78,23 +85,29 @@ export async function reconcileSchedules(
   // user-created row is never "removed from the manifest" because it was
   // never in it.
   if (valid.length > 0) {
-    await db.update(extensionSchedules)
+    await db
+      .update(extensionSchedules)
       .set({ enabled: false, updatedAt: new Date() })
-      .where(and(
-        eq(extensionSchedules.extensionId, extensionId),
-        eq(extensionSchedules.dynamic, false),
-        notInArray(extensionSchedules.cron, valid),
-        eq(extensionSchedules.enabled, true),
-      ));
+      .where(
+        and(
+          eq(extensionSchedules.extensionId, extensionId),
+          eq(extensionSchedules.dynamic, false),
+          notInArray(extensionSchedules.cron, valid),
+          eq(extensionSchedules.enabled, true),
+        ),
+      );
   } else if (existing.length > 0) {
     // Manifest declared no crons — disable all the MANIFEST ones.
-    await db.update(extensionSchedules)
+    await db
+      .update(extensionSchedules)
       .set({ enabled: false, updatedAt: new Date() })
-      .where(and(
-        eq(extensionSchedules.extensionId, extensionId),
-        eq(extensionSchedules.dynamic, false),
-        eq(extensionSchedules.enabled, true),
-      ));
+      .where(
+        and(
+          eq(extensionSchedules.extensionId, extensionId),
+          eq(extensionSchedules.dynamic, false),
+          eq(extensionSchedules.enabled, true),
+        ),
+      );
   }
 
   log.debug("reconciled", { extensionId, added, disabled, preserved, totalManifest: valid.length });

@@ -17,34 +17,51 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock, spyOn } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
 
 import {
-  handleTriggersRpc, dynamicTriggersDisabled,
+  handleTriggersRpc,
+  dynamicTriggersDisabled,
   _resetTriggersRateLimitForTests,
   type TriggersHandlerContext,
 } from "../triggers-handler";
 import { mintWebhookSlug } from "../triggers-store";
+import { getWebhookSecret, ensureWebhookSecret, deleteWebhookSecret } from "../webhook-secret";
 import {
-  getWebhookSecret, ensureWebhookSecret, deleteWebhookSecret,
-} from "../webhook-secret";
-import {
-  extensionSchedules, extensionWebhooks, extensions, auditLog, users,
+  extensionSchedules,
+  extensionWebhooks,
+  extensions,
+  auditLog,
+  users,
 } from "../../db/schema";
 import { eq, and } from "drizzle-orm";
 import type {
-  ExtensionManifestV2, ExtensionPermissions, JsonRpcRequest, JsonRpcResponse,
+  ExtensionManifestV2,
+  ExtensionPermissions,
+  JsonRpcRequest,
+  JsonRpcResponse,
 } from "../types";
 
 const EXT_NAME = "trig-handler-ext";
@@ -54,15 +71,21 @@ let userId: string;
 const NOW = new Date("2026-07-29T12:00:00.000Z");
 
 const GRANT: NonNullable<ExtensionPermissions["triggers"]> = {
-  maxCron: 3, maxWebhooks: 2, webhookPrefix: "factory-", maxRunsPerDay: 90,
+  maxCron: 3,
+  maxWebhooks: 2,
+  webhookPrefix: "factory-",
+  maxRunsPerDay: 90,
 };
 
 /** Captured `recordCapabilityCall` rows — the `sdk_capability_calls` half
  *  of the trail, injected so the assertions do not depend on the DB write
  *  path (which is separately covered). */
 type Captured = {
-  capability: string; action: string; success: boolean;
-  errorCode?: string; resourceId?: string;
+  capability: string;
+  action: string;
+  success: boolean;
+  errorCode?: string;
+  resourceId?: string;
   after?: Record<string, unknown>;
 };
 let captured: Captured[] = [];
@@ -82,13 +105,20 @@ const deps = {
     return { sdkCapabilityCallId: "cap-1" };
   }) as unknown as TriggersHandlerDepsRecord,
 };
-type TriggersHandlerDepsRecord = Parameters<typeof handleTriggersRpc>[2] extends
-  { recordCapabilityCall: infer R } ? R : never;
+type TriggersHandlerDepsRecord = Parameters<typeof handleTriggersRpc>[2] extends {
+  recordCapabilityCall: infer R;
+}
+  ? R
+  : never;
 
 function manifestWith(triggers: unknown): ExtensionManifestV2 {
   return {
-    schemaVersion: 2, name: EXT_NAME, version: "1.0.0", description: "d",
-    author: { name: "a" }, entrypoint: "./index.ts",
+    schemaVersion: 2,
+    name: EXT_NAME,
+    version: "1.0.0",
+    description: "d",
+    author: { name: "a" },
+    entrypoint: "./index.ts",
     permissions: triggers === undefined ? {} : { triggers },
   } as unknown as ExtensionManifestV2;
 }
@@ -117,7 +147,11 @@ function call(
   return handleTriggersRpc(req(params), ctxWith(over), deps as never);
 }
 
-function errOf(res: JsonRpcResponse): { code: number; reason: string; data: Record<string, unknown> } {
+function errOf(res: JsonRpcResponse): {
+  code: number;
+  reason: string;
+  data: Record<string, unknown>;
+} {
   const e = (res as { error?: { code: number; data?: Record<string, unknown> } }).error;
   return {
     code: e!.code,
@@ -137,15 +171,28 @@ async function auditRows(action: string) {
 
 beforeAll(async () => {
   await setupTestDb();
-  const [u] = await getTestDb().insert(users).values({
-    email: "trig@example.com", name: "Trig", passwordHash: "x", role: "admin",
-  }).returning({ id: users.id });
+  const [u] = await getTestDb()
+    .insert(users)
+    .values({
+      email: "trig@example.com",
+      name: "Trig",
+      passwordHash: "x",
+      role: "admin",
+    })
+    .returning({ id: users.id });
   userId = u!.id;
-  const [row] = await getTestDb().insert(extensions).values({
-    name: EXT_NAME, version: "1.0.0", description: "",
-    manifest: manifestWith({ webhookPrefix: "factory-" }) as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name: EXT_NAME,
+      version: "1.0.0",
+      description: "",
+      manifest: manifestWith({ webhookPrefix: "factory-" }) as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    })
+    .returning({ id: extensions.id });
   extId = row!.id;
 });
 
@@ -173,7 +220,9 @@ describe("rung 1 — kill switches", () => {
     expect(errOf(res).reason).toBe("TRIGGERS_DISABLED");
     expect(captured).toHaveLength(1);
     expect(captured[0]).toMatchObject({
-      capability: "triggers", success: false, errorCode: "TRIGGERS_DISABLED",
+      capability: "triggers",
+      success: false,
+      errorCode: "TRIGGERS_DISABLED",
     });
   });
 
@@ -211,7 +260,8 @@ describe("rung 2 — structural grant check", () => {
       { action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1" },
       {
         grantedPermissions: {
-          triggers: { ...GRANT, maxCron: 0, maxWebhooks: 0 }, grantedAt: {},
+          triggers: { ...GRANT, maxCron: 0, maxWebhooks: 0 },
+          grantedAt: {},
         },
       },
     );
@@ -223,7 +273,8 @@ describe("rung 2 — structural grant check", () => {
       { action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1" },
       {
         grantedPermissions: {
-          triggers: { ...GRANT, webhookPrefix: "" }, grantedAt: {},
+          triggers: { ...GRANT, webhookPrefix: "" },
+          grantedAt: {},
         },
       },
     );
@@ -300,10 +351,7 @@ describe("rung 5 — PDP authorize, per kind", () => {
     expect((ok as { result?: unknown }).result).toBeDefined();
 
     captured = [];
-    const denied = await call(
-      { action: "register", kind: "webhook", key: "job:2" },
-      { engine },
-    );
+    const denied = await call({ action: "register", kind: "webhook", key: "job:2" }, { engine });
     expect(errOf(denied).reason).toBe("TRIGGERS_PERM_DENIED");
   });
 });
@@ -344,14 +392,21 @@ describe("rung 6 — cron validation, and the reason reaching the caller", () =>
 
   test("a non-string timezone is TRIGGER_BAD_PAYLOAD", async () => {
     const res = await call({
-      action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1", timezone: 5,
+      action: "register",
+      kind: "cron",
+      key: "job:1",
+      cron: "0 9 * * 1",
+      timezone: 5,
     });
     expect(errOf(res).reason).toBe("TRIGGER_BAD_PAYLOAD");
   });
 
   test("an unresolvable timezone is TRIGGER_CRON_INVALID", async () => {
     const res = await call({
-      action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1",
+      action: "register",
+      kind: "cron",
+      key: "job:1",
+      cron: "0 9 * * 1",
       timezone: "Mars/Olympus_Mons",
     });
     expect(errOf(res).reason).toBe("TRIGGER_CRON_INVALID");
@@ -361,7 +416,10 @@ describe("rung 6 — cron validation, and the reason reaching the caller", () =>
     // Relaxing the spend bound for the tier that can create the most jobs
     // would be exactly backwards.
     const res = await call({
-      action: "register", kind: "cron", key: "job:1", cron: "*/1 * * * *",
+      action: "register",
+      kind: "cron",
+      key: "job:1",
+      cron: "*/1 * * * *",
     });
     expect(errOf(res).data.cronReason).toBe("min-5-min-interval-required");
   });
@@ -373,13 +431,19 @@ describe("rung 7 — per-kind caps", () => {
   test("cron registrations beyond maxCron are TRIGGERS_QUOTA_EXCEEDED", async () => {
     for (let i = 0; i < GRANT.maxCron; i++) {
       const res = await call({
-        action: "register", kind: "cron", key: `job:${i}`, cron: "0 9 * * 1",
+        action: "register",
+        kind: "cron",
+        key: `job:${i}`,
+        cron: "0 9 * * 1",
       });
       expect((res as { result?: unknown }).result).toBeDefined();
     }
     captured = [];
     const over = await call({
-      action: "register", kind: "cron", key: "job:over", cron: "0 9 * * 1",
+      action: "register",
+      kind: "cron",
+      key: "job:over",
+      cron: "0 9 * * 1",
     });
     expect(errOf(over).reason).toBe("TRIGGERS_QUOTA_EXCEEDED");
     expect(errOf(over).code).toBe(-32103);
@@ -396,10 +460,15 @@ describe("rung 7 — per-kind caps", () => {
       await call({ action: "register", kind: "cron", key: `job:${i}`, cron: "0 9 * * 1" });
     }
     const res = await call({
-      action: "register", kind: "cron", key: "job:0", cron: "0 10 * * 2",
+      action: "register",
+      kind: "cron",
+      key: "job:0",
+      cron: "0 10 * * 2",
     });
     expect((res as { result?: unknown }).result).toBeDefined();
-    const rows = await getTestDb().select().from(extensionSchedules)
+    const rows = await getTestDb()
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.extensionId, extId));
     expect(rows).toHaveLength(GRANT.maxCron);
   });
@@ -407,7 +476,8 @@ describe("rung 7 — per-kind caps", () => {
   test("a zero cron cap refuses cron while webhooks still work", async () => {
     const over = { grantedPermissions: { triggers: { ...GRANT, maxCron: 0 }, grantedAt: {} } };
     const denied = await call(
-      { action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1" }, over,
+      { action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1" },
+      over,
     );
     expect(errOf(denied).reason).toBe("TRIGGERS_QUOTA_EXCEEDED");
     const ok = await call({ action: "register", kind: "webhook", key: "job:2" }, over);
@@ -427,7 +497,8 @@ describe("rung 7 — per-kind caps", () => {
     const denied = await call({ action: "register", kind: "webhook", key: "hook:1" }, over);
     expect(errOf(denied).reason).toBe("TRIGGERS_QUOTA_EXCEEDED");
     const ok = await call(
-      { action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1" }, over,
+      { action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1" },
+      over,
     );
     expect((ok as { result?: unknown }).result).toBeDefined();
   });
@@ -483,7 +554,9 @@ describe("rung 8 — instantaneous rate limit", () => {
     const writes = await withFrozenClock(async () => {
       const out: JsonRpcResponse[] = [];
       for (let i = 0; i < 60; i++) {
-        out.push(await call({ action: "register", kind: "cron", key: `job:${i}`, cron: "0 9 * * 1" }));
+        out.push(
+          await call({ action: "register", kind: "cron", key: `job:${i}`, cron: "0 9 * * 1" }),
+        );
       }
       return out;
     });
@@ -491,9 +564,9 @@ describe("rung 8 — instantaneous rate limit", () => {
 
     // Exactly one token per write: 50 pass the rung, the remaining 10 are shed.
     expect(shed).toHaveLength(60 - BUCKET_TOKENS);
-    expect(writes.slice(0, BUCKET_TOKENS).some((r) => reasonOf(r) === "TRIGGERS_RATE_LIMITED")).toBe(
-      false,
-    );
+    expect(
+      writes.slice(0, BUCKET_TOKENS).some((r) => reasonOf(r) === "TRIGGERS_RATE_LIMITED"),
+    ).toBe(false);
     expect(errOf(shed[0] as JsonRpcResponse).code).toBe(-32029);
   });
 });
@@ -503,27 +576,43 @@ describe("rung 8 — instantaneous rate limit", () => {
 describe("register — cron", () => {
   test("writes a dynamic row with a per-key cap and audits BOTH destinations", async () => {
     const res = await call({
-      action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1",
+      action: "register",
+      kind: "cron",
+      key: "job:1",
+      cron: "0 9 * * 1",
       timezone: "America/New_York",
     });
     expect((res as { result: Record<string, unknown> }).result).toMatchObject({
-      v: 1, key: "job:1", kind: "cron", cron: "0 9 * * 1",
+      v: 1,
+      key: "job:1",
+      kind: "cron",
+      cron: "0 9 * * 1",
     });
 
-    const rows = await getTestDb().select().from(extensionSchedules)
+    const rows = await getTestDb()
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.extensionId, extId));
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
-      dynamic: true, key: "job:1", cron: "0 9 * * 1",
-      timezone: "America/New_York", enabled: true,
+      dynamic: true,
+      key: "job:1",
+      cron: "0 9 * * 1",
+      timezone: "America/New_York",
+      enabled: true,
     });
     // floor(90 / 3) — an equal share of the envelope, not the envelope.
     expect(rows[0]!.maxRunsPerDay).toBe(30);
 
     // Destination 1: sdk_capability_calls.
-    expect(captured).toContainEqual(expect.objectContaining({
-      capability: "triggers", action: "register", success: true, resourceId: "job:1",
-    }));
+    expect(captured).toContainEqual(
+      expect.objectContaining({
+        capability: "triggers",
+        action: "register",
+        success: true,
+        resourceId: "job:1",
+      }),
+    );
     // Destination 2: audit_log.
     const audits = await auditRows("ext:sdk-trigger-registered");
     expect(audits).toHaveLength(1);
@@ -533,7 +622,9 @@ describe("register — cron", () => {
   test("two keys may share one cron expression", async () => {
     await call({ action: "register", kind: "cron", key: "job:a", cron: "0 9 * * 1" });
     await call({ action: "register", kind: "cron", key: "job:b", cron: "0 9 * * 1" });
-    const rows = await getTestDb().select().from(extensionSchedules)
+    const rows = await getTestDb()
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.extensionId, extId));
     expect(rows).toHaveLength(2);
     expect(new Set(rows.map((r) => r.key))).toEqual(new Set(["job:a", "job:b"]));
@@ -546,7 +637,10 @@ describe("register — webhook", () => {
     const result = (res as { result: Record<string, unknown> }).result;
     const expected = mintWebhookSlug("factory-", EXT_NAME, "job:1");
     expect(result).toMatchObject({
-      v: 1, key: "job:1", kind: "webhook", slug: expected,
+      v: 1,
+      key: "job:1",
+      kind: "webhook",
+      slug: expected,
       url: `/api/hooks/${EXT_NAME}/${expected}`,
     });
     // The token is shown once via the existing rotate route; echoing it in
@@ -558,7 +652,10 @@ describe("register — webhook", () => {
 
   test("a slug supplied on the wire is IGNORED — the host mints its own", async () => {
     const res = await call({
-      action: "register", kind: "webhook", key: "job:1", slug: "victim-hook",
+      action: "register",
+      kind: "webhook",
+      key: "job:1",
+      slug: "victim-hook",
     });
     const result = (res as { result: Record<string, string> }).result;
     expect(result.slug).toBe(mintWebhookSlug("factory-", EXT_NAME, "job:1"));
@@ -567,9 +664,13 @@ describe("register — webhook", () => {
 
   test("audits both destinations", async () => {
     await call({ action: "register", kind: "webhook", key: "job:1" });
-    expect(captured).toContainEqual(expect.objectContaining({
-      capability: "triggers", action: "register", success: true,
-    }));
+    expect(captured).toContainEqual(
+      expect.objectContaining({
+        capability: "triggers",
+        action: "register",
+        success: true,
+      }),
+    );
     expect(await auditRows("ext:sdk-trigger-registered")).toHaveLength(1);
   });
 
@@ -587,7 +688,9 @@ describe("T4 — idempotent registration", () => {
   test("registering a cron twice yields ONE row", async () => {
     await call({ action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1" });
     await call({ action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1" });
-    const rows = await getTestDb().select().from(extensionSchedules)
+    const rows = await getTestDb()
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.extensionId, extId));
     expect(rows).toHaveLength(1);
   });
@@ -603,7 +706,9 @@ describe("T4 — idempotent registration", () => {
     const second = await call({ action: "register", kind: "webhook", key: "job:1" });
     expect((second as { result: { slug: string } }).result.slug).toBe(slug);
 
-    const rows = await getTestDb().select().from(extensionWebhooks)
+    const rows = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
       .where(eq(extensionWebhooks.extensionId, EXT_NAME));
     expect(rows).toHaveLength(1);
     expect(await getWebhookSecret(EXT_NAME, slug)).toBe(secret!);
@@ -617,10 +722,16 @@ describe("unregister", () => {
     await call({ action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1" });
     captured = [];
     const res = await call({ action: "unregister", kind: "cron", key: "job:1" });
-    expect((res as { result: Record<string, unknown> }).result)
-      .toMatchObject({ key: "job:1", removed: true });
-    expect(await getTestDb().select().from(extensionSchedules)
-      .where(eq(extensionSchedules.extensionId, extId))).toHaveLength(0);
+    expect((res as { result: Record<string, unknown> }).result).toMatchObject({
+      key: "job:1",
+      removed: true,
+    });
+    expect(
+      await getTestDb()
+        .select()
+        .from(extensionSchedules)
+        .where(eq(extensionSchedules.extensionId, extId)),
+    ).toHaveLength(0);
     expect(captured[0]).toMatchObject({ action: "unregister", success: true });
     expect(await auditRows("ext:sdk-trigger-unregistered")).toHaveLength(1);
   });
@@ -634,7 +745,9 @@ describe("unregister", () => {
 
     // The ROW survives (its delivery history would CASCADE on a hard
     // delete) but is disabled and its key freed.
-    const rows = await getTestDb().select().from(extensionWebhooks)
+    const rows = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
       .where(eq(extensionWebhooks.extensionId, EXT_NAME));
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ enabled: false, key: null });
@@ -662,14 +775,16 @@ describe("list", () => {
     captured = [];
 
     const res = await call({ action: "list" });
-    const triggers = (res as { result: { triggers: Record<string, unknown>[] } })
-      .result.triggers;
+    const triggers = (res as { result: { triggers: Record<string, unknown>[] } }).result.triggers;
     expect(triggers).toHaveLength(2);
     expect(triggers.find((t) => t.kind === "cron")).toMatchObject({
-      key: "job:1", cron: "0 9 * * 1", enabled: true,
+      key: "job:1",
+      cron: "0 9 * * 1",
+      enabled: true,
     });
     expect(triggers.find((t) => t.kind === "webhook")).toMatchObject({
-      key: "hook:1", enabled: true,
+      key: "hook:1",
+      enabled: true,
     });
     expect(captured[0]).toMatchObject({ action: "list", success: true });
   });
@@ -680,8 +795,11 @@ describe("list", () => {
     await call({ action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1" });
     const other = await ensureOtherExtension();
     await getTestDb().insert(extensionSchedules).values({
-      extensionId: other, cron: "0 9 * * 1", nextFireAt: NOW,
-      dynamic: true, key: "job:secret",
+      extensionId: other,
+      cron: "0 9 * * 1",
+      nextFireAt: NOW,
+      dynamic: true,
+      key: "job:secret",
     });
 
     const res = await call({ action: "list", extensionId: other, extensionName: "other-ext" });
@@ -700,11 +818,18 @@ describe("list", () => {
 let otherExtId: string | undefined;
 async function ensureOtherExtension(): Promise<string> {
   if (otherExtId) return otherExtId;
-  const [row] = await getTestDb().insert(extensions).values({
-    name: "trig-other-ext", version: "1.0.0", description: "",
-    manifest: manifestWith({ webhookPrefix: "other-" }) as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name: "trig-other-ext",
+      version: "1.0.0",
+      description: "",
+      manifest: manifestWith({ webhookPrefix: "other-" }) as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    })
+    .returning({ id: extensions.id });
   otherExtId = row!.id;
   return otherExtId;
 }
@@ -744,20 +869,27 @@ describe("write and secret safeguards", () => {
       { action: "register", kind: "webhook", key: "job:1" },
       {
         grantedPermissions: {
-          triggers: { ...GRANT, webhookPrefix: "BAD_PREFIX!" }, grantedAt: {},
+          triggers: { ...GRANT, webhookPrefix: "BAD_PREFIX!" },
+          grantedAt: {},
         },
       },
     );
     expect(errOf(res).reason).toBe("TRIGGERS_WRITE_FAILED");
     // Nothing was written.
-    expect(await getTestDb().select().from(extensionWebhooks)
-      .where(eq(extensionWebhooks.extensionId, EXT_NAME))).toHaveLength(0);
+    expect(
+      await getTestDb()
+        .select()
+        .from(extensionWebhooks)
+        .where(eq(extensionWebhooks.extensionId, EXT_NAME)),
+    ).toHaveLength(0);
   });
 
   test("a secret-mint failure REFUSES the registration (fail-closed)", async () => {
     const failing = {
       ...deps,
-      ensureWebhookSecret: async () => { throw new Error("AEAD store down"); },
+      ensureWebhookSecret: async () => {
+        throw new Error("AEAD store down");
+      },
     };
     const res = await handleTriggersRpc(
       req({ action: "register", kind: "webhook", key: "job:1" }),
@@ -776,16 +908,19 @@ describe("write and secret safeguards", () => {
     await call({ action: "register", kind: "webhook", key: "job:1" });
     const failing = {
       ...deps,
-      deleteWebhookSecret: async () => { throw new Error("AEAD store down"); },
+      deleteWebhookSecret: async () => {
+        throw new Error("AEAD store down");
+      },
     };
     const res = await handleTriggersRpc(
       req({ action: "unregister", kind: "webhook", key: "job:1" }),
       ctxWith(),
       failing as never,
     );
-    expect((res as { result: Record<string, unknown> }).result)
-      .toMatchObject({ removed: true });
-    const rows = await getTestDb().select().from(extensionWebhooks)
+    expect((res as { result: Record<string, unknown> }).result).toMatchObject({ removed: true });
+    const rows = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
       .where(eq(extensionWebhooks.extensionId, EXT_NAME));
     expect(rows[0]).toMatchObject({ enabled: false, key: null });
   });
@@ -797,8 +932,12 @@ describe("write and secret safeguards", () => {
       { userId: MISSING_EXT },
     );
     expect((res as { result?: unknown }).result).toBeDefined();
-    expect(await getTestDb().select().from(extensionSchedules)
-      .where(eq(extensionSchedules.extensionId, extId))).toHaveLength(1);
+    expect(
+      await getTestDb()
+        .select()
+        .from(extensionSchedules)
+        .where(eq(extensionSchedules.extensionId, extId)),
+    ).toHaveLength(1);
   });
 });
 
@@ -806,7 +945,9 @@ describe("audit resilience", () => {
   test("an audit failure never turns a successful register into an error", async () => {
     const throwing = {
       ...deps,
-      recordCapabilityCall: async () => { throw new Error("audit sink down"); },
+      recordCapabilityCall: async () => {
+        throw new Error("audit sink down");
+      },
     };
     const res = await handleTriggersRpc(
       req({ action: "register", kind: "cron", key: "job:1", cron: "0 9 * * 1" }),
@@ -815,10 +956,11 @@ describe("audit resilience", () => {
     );
     expect((res as { result?: unknown }).result).toBeDefined();
     // The row still landed.
-    expect(await getTestDb().select().from(extensionSchedules)
-      .where(and(
-        eq(extensionSchedules.extensionId, extId),
-        eq(extensionSchedules.key, "job:1"),
-      ))).toHaveLength(1);
+    expect(
+      await getTestDb()
+        .select()
+        .from(extensionSchedules)
+        .where(and(eq(extensionSchedules.extensionId, extId), eq(extensionSchedules.key, "job:1"))),
+    ).toHaveLength(1);
   });
 });

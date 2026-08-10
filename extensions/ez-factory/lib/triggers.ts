@@ -47,11 +47,7 @@
 // exists precisely so the ownerless decision can be re-taken at rung D7
 // against a consent row a human wrote.
 
-import type {
-  BackgroundTriggerKind,
-  FactoryJob,
-  JobTrigger,
-} from "./jobs";
+import type { BackgroundTriggerKind, FactoryJob, JobTrigger } from "./jobs";
 import { BACKGROUND_TRIGGER_KINDS, isBackgroundTrigger, isValidJobId } from "./jobs";
 
 // ── The key is the job ───────────────────────────────────────────────
@@ -182,8 +178,7 @@ export function triggerPlan(job: FactoryJob, before: JobTrigger | null): Trigger
 
 /** Every background kind, for a caller that must retire a job's rows
  *  wholesale without knowing which one it held. */
-export const ALL_BACKGROUND_KINDS: readonly BackgroundTriggerKind[] =
-  BACKGROUND_TRIGGER_KINDS;
+export const ALL_BACKGROUND_KINDS: readonly BackgroundTriggerKind[] = BACKGROUND_TRIGGER_KINDS;
 
 // ── Describing a refusal to the person who has to fix it ─────────────
 
@@ -204,13 +199,7 @@ export const ALL_BACKGROUND_KINDS: readonly BackgroundTriggerKind[] =
  *   - `unknown`  — a reason this build has never heard of. Reported
  *                  VERBATIM rather than guessed at.
  */
-export type FireRefusalKind =
-  | "consent"
-  | "quota"
-  | "platform"
-  | "install"
-  | "job"
-  | "unknown";
+export type FireRefusalKind = "consent" | "quota" | "platform" | "install" | "job" | "unknown";
 
 /** One classified refusal, ready for the audit trail and the console. */
 export interface FireRefusal {
@@ -282,8 +271,7 @@ export const FIRE_REFUSAL_TABLE: Readonly<
   },
   WORKFLOWS_QUOTA_EXCEEDED: {
     kind: "quota",
-    remedy:
-      "The extension hit its hourly run ceiling across every job. It clears within the hour.",
+    remedy: "The extension hit its hourly run ceiling across every job. It clears within the hour.",
   },
   DELEGATION_SPEND_EXCEEDED: {
     kind: "quota",

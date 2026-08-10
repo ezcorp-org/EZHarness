@@ -46,11 +46,11 @@
  */
 
 export interface EzActionResultLike {
-	card?: {
-		title?: unknown;
-		body?: unknown;
-		variant?: unknown;
-	};
+  card?: {
+    title?: unknown;
+    body?: unknown;
+    variant?: unknown;
+  };
 }
 
 export type GoalRowKind = "status" | "achieved" | "cleared" | "paused" | "rejected";
@@ -74,16 +74,16 @@ export type GoalRowKind = "status" | "achieved" | "cleared" | "paused" | "reject
  *     "this didn't arm a goal" outcome — same UX class as reject).
  */
 const TITLE_PREFIX_TO_KIND: ReadonlyArray<readonly [string, GoalRowKind]> = [
-	// More-specific titles must come first so "Goal stopped" doesn't
-	// accidentally match a future "Goal" prefix entry.
-	["Goal stopped — reached turn cap", "cleared"],
-	["Goal condition too long", "rejected"],
-	["Goal achieved", "achieved"],
-	["Goal cleared", "cleared"],
-	["Goal paused", "paused"],
-	["Goal active", "status"],
-	["No active goal", "status"],
-	["/goal disabled", "rejected"],
+  // More-specific titles must come first so "Goal stopped" doesn't
+  // accidentally match a future "Goal" prefix entry.
+  ["Goal stopped — reached turn cap", "cleared"],
+  ["Goal condition too long", "rejected"],
+  ["Goal achieved", "achieved"],
+  ["Goal cleared", "cleared"],
+  ["Goal paused", "paused"],
+  ["Goal active", "status"],
+  ["No active goal", "status"],
+  ["/goal disabled", "rejected"],
 ];
 
 /**
@@ -92,11 +92,11 @@ const TITLE_PREFIX_TO_KIND: ReadonlyArray<readonly [string, GoalRowKind]> = [
  * adding goal-specific markup). See module doc for the title fixtures.
  */
 export function inferGoalKind(content: EzActionResultLike | null | undefined): GoalRowKind | null {
-	if (!content) return null;
-	const title = content.card?.title;
-	if (typeof title !== "string" || title.length === 0) return null;
-	for (const [prefix, kind] of TITLE_PREFIX_TO_KIND) {
-		if (title.startsWith(prefix)) return kind;
-	}
-	return null;
+  if (!content) return null;
+  const title = content.card?.title;
+  if (typeof title !== "string" || title.length === 0) return null;
+  for (const [prefix, kind] of TITLE_PREFIX_TO_KIND) {
+    if (title.startsWith(prefix)) return kind;
+  }
+  return null;
 }

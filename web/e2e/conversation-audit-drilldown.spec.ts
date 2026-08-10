@@ -19,22 +19,22 @@ import { test, expect } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 
 test.describe("Per-conversation audit drill-down", () => {
-	const proj = makeProject({ id: "proj-1" });
+  const proj = makeProject({ id: "proj-1" });
 
-	test("unauthenticated request is rejected (4xx)", async ({ page, mockApi }) => {
-		// Under PI_SKIP_INIT=1 the preview server's hooks short-circuit
-		// the auth check (see hooks.server.ts:367-372 — getUserCount()
-		// throws and the request continues with locals.user undefined).
-		// This spec verifies the SvelteKit error boundary surfaces a
-		// 4xx for the unauthenticated route fetch — the proper RBAC
-		// surface (admin / owner gating) is covered by the unit suite
-		// `web/src/__tests__/api-conversations-id-audit.server.test.ts`.
-		await mockApi({
-			projects: [proj],
-			extensions: [],
-		});
+  test("unauthenticated request is rejected (4xx)", async ({ page, mockApi }) => {
+    // Under PI_SKIP_INIT=1 the preview server's hooks short-circuit
+    // the auth check (see hooks.server.ts:367-372 — getUserCount()
+    // throws and the request continues with locals.user undefined).
+    // This spec verifies the SvelteKit error boundary surfaces a
+    // 4xx for the unauthenticated route fetch — the proper RBAC
+    // surface (admin / owner gating) is covered by the unit suite
+    // `web/src/__tests__/api-conversations-id-audit.server.test.ts`.
+    await mockApi({
+      projects: [proj],
+      extensions: [],
+    });
 
-		const res = await page.goto("/project/proj-1/chat/conv-not-mine/audit");
-		expect(res?.status()).toBeGreaterThanOrEqual(400);
-	});
+    const res = await page.goto("/project/proj-1/chat/conv-not-mine/audit");
+    expect(res?.status()).toBeGreaterThanOrEqual(400);
+  });
 });

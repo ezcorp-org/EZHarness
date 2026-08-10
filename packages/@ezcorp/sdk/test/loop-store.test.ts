@@ -138,7 +138,9 @@ describe("transitionIf — compare-and-set", () => {
   test("returns null for a missing run", async () => {
     const kv = makeKv();
     const store = createLoopRunStore("ezc", APPROVAL_CONTRACT, kv.factory);
-    expect(await store.transitionIf("nope", "awaiting_approval", { status: "approved" })).toBeNull();
+    expect(
+      await store.transitionIf("nope", "awaiting_approval", { status: "approved" }),
+    ).toBeNull();
   });
 
   test("only ONE of two concurrent CAS flips wins", async () => {
@@ -467,7 +469,12 @@ describe("skip journal — durable decline audit", () => {
     const kv = makeKv();
     const store = createLoopRunStore("ezc", CONTRACT, kv.factory);
     await store.recordSkip({ at: "t1", reason: "no_new_commits", trigger: "cron", logLines: [] });
-    await store.recordSkip({ at: "t2", reason: "settings_disabled", trigger: "event", logLines: ["[info] hi"] });
+    await store.recordSkip({
+      at: "t2",
+      reason: "settings_disabled",
+      trigger: "event",
+      logLines: ["[info] hi"],
+    });
     const skips = await store.listSkips();
     expect(skips.map((s) => s.reason)).toEqual(["settings_disabled", "no_new_commits"]);
     // Persisted to the dedicated skips key — never mixed into runs/meta/cursor.
@@ -568,9 +575,6 @@ describe("concurrency — withLock serializes interleaved claims", () => {
     const ids = (await store.list()).map((r) => r.id);
     // BOTH ids present — no clobber.
     expect(ids.sort()).toEqual(["r1", "r2"]);
-    expect((kv.map.get("loop:ezc:index") as string[]).sort()).toEqual([
-      "r1",
-      "r2",
-    ]);
+    expect((kv.map.get("loop:ezc:index") as string[]).sort()).toEqual(["r1", "r2"]);
   });
 });

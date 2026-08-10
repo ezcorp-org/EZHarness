@@ -15,12 +15,8 @@ import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
 mockDbConnection();
 
 const { createProject } = await import("../projects");
-const {
-  upsertLink,
-  insertProposalIfNew,
-  updateProposal,
-  countActiveProposalsForProject,
-} = await import("../github-projects");
+const { upsertLink, insertProposalIfNew, updateProposal, countActiveProposalsForProject } =
+  await import("../github-projects");
 const { githubProposalDedupeKey } = await import("../../../integrations/github-projects/types");
 
 function proposalInput(projectId: string, linkId: string, itemNodeId: string) {
@@ -45,8 +41,13 @@ async function seed(): Promise<{ projectId: string; linkId: string }> {
 }
 
 describe("countActiveProposalsForProject — SQL COUNT over mid-flight statuses", () => {
-  beforeEach(async () => { await setupTestDb(); });
-  afterAll(async () => { await closeTestDb(); restoreModuleMocks(); });
+  beforeEach(async () => {
+    await setupTestDb();
+  });
+  afterAll(async () => {
+    await closeTestDb();
+    restoreModuleMocks();
+  });
 
   test("empty projectId short-circuits to 0", async () => {
     expect(await countActiveProposalsForProject("")).toBe(0);

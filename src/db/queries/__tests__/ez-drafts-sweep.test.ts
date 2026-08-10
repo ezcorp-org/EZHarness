@@ -11,7 +11,12 @@ import { test, expect, describe, beforeAll, afterAll, beforeEach, afterEach } fr
 import { mkdirSync, existsSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "../../../__tests__/helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
+} from "../../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
 import { __resetProjectRootCacheForTests } from "../../../extensions/bundled";
 
@@ -28,12 +33,15 @@ let savedRootEnv: string | undefined;
 
 beforeAll(async () => {
   await setupTestDb();
-  await getTestDb().insert(users).values({
-    id: USER,
-    email: `${USER}@t.local`,
-    passwordHash: "x",
-    name: USER,
-  } as never).onConflictDoNothing();
+  await getTestDb()
+    .insert(users)
+    .values({
+      id: USER,
+      email: `${USER}@t.local`,
+      passwordHash: "x",
+      name: USER,
+    } as never)
+    .onConflictDoNothing();
 });
 
 afterAll(async () => {
@@ -61,7 +69,11 @@ afterEach(async () => {
   if (savedRootEnv === undefined) delete process.env.EZCORP_PROJECT_ROOT;
   else process.env.EZCORP_PROJECT_ROOT = savedRootEnv;
   __resetProjectRootCacheForTests();
-  try { rmSync(TMP, { recursive: true, force: true }); } catch { /* swallow */ }
+  try {
+    rmSync(TMP, { recursive: true, force: true });
+  } catch {
+    /* swallow */
+  }
   // Clear all drafts between tests so each run is isolated.
   await getTestDb().delete(ezDrafts);
 });
@@ -182,7 +194,11 @@ describe("sweepExpired — extension-author dir cleanup", () => {
 
   test("multiple expired drafts of mixed kinds — only author dirs removed", async () => {
     const a = await insertDraft({ kind: "extension", payload: { mode: "author" }, expired: true });
-    const b = await insertDraft({ kind: "extension", payload: { mode: "marketplace" }, expired: true });
+    const b = await insertDraft({
+      kind: "extension",
+      payload: { mode: "marketplace" },
+      expired: true,
+    });
     const c = await insertDraft({ kind: "agent", payload: {}, expired: true });
     const dirA = seedDraftDir(a.id);
     const dirB = seedDraftDir(b.id);
@@ -191,8 +207,8 @@ describe("sweepExpired — extension-author dir cleanup", () => {
     const deleted = await sweepExpired();
     expect(deleted).toBe(3);
     expect(existsSync(dirA)).toBe(false); // author → removed
-    expect(existsSync(dirB)).toBe(true);  // marketplace → kept
-    expect(existsSync(dirC)).toBe(true);  // agent kind → kept
+    expect(existsSync(dirB)).toBe(true); // marketplace → kept
+    expect(existsSync(dirC)).toBe(true); // agent kind → kept
   });
 
   test("non-expired author draft → row + dir both survive", async () => {

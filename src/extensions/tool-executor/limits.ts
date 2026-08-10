@@ -141,7 +141,10 @@ export function _peekConversationCallDepthMapSizeForTests(): number {
  * the audit row + UI surface name the offending conversation.
  */
 export class MaxToolCallsExceededError extends Error {
-  constructor(public readonly conversationId: string, public readonly count: number) {
+  constructor(
+    public readonly conversationId: string,
+    public readonly count: number,
+  ) {
     super(
       `Max tool calls per turn exceeded for conversation "${conversationId}" ` +
         `(count=${count}, limit=${MAX_TOOL_CALLS_PER_TURN})`,

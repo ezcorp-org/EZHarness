@@ -75,10 +75,7 @@ export interface ClassifyOptions {
  * HOST side, not in the wrapper. This is correct: the wrapper can't
  * trust its own env for SSRF carve-outs.
  */
-export function classifyFetch(
-  urlStr: string,
-  opts: ClassifyOptions,
-): NetworkDecision {
+export function classifyFetch(urlStr: string, opts: ClassifyOptions): NetworkDecision {
   let url: URL;
   try {
     url = new URL(urlStr);
@@ -114,9 +111,7 @@ export function classifyFetch(
   if (opts.toolName && Object.hasOwn(opts.toolCaps, opts.toolName)) {
     const allowedForTool = opts.toolCaps[opts.toolName] ?? [];
     if (!allowedForTool.includes(host)) {
-      const allowedClause = allowedForTool.length
-        ? allowedForTool.join(", ")
-        : "none";
+      const allowedClause = allowedForTool.length ? allowedForTool.join(", ") : "none";
       return {
         kind: "deny",
         reason:

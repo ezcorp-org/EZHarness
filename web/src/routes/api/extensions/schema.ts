@@ -16,10 +16,9 @@ const gitUrlSchema = z
   .refine((u) => !u.startsWith("-"), {
     message: "url must not start with '-'",
   })
-  .refine(
-    (u) => /^https?:\/\//.test(u) || /^git@[^:]+:.+\.git$/.test(u),
-    { message: "url must be http(s) or ssh (git@host:user/repo.git)" },
-  );
+  .refine((u) => /^https?:\/\//.test(u) || /^git@[^:]+:.+\.git$/.test(u), {
+    message: "url must be http(s) or ssh (git@host:user/repo.git)",
+  });
 
 // ref is optional — if present, must be a plausible git ref. Keep the
 // validation conservative: no whitespace, no shell metachars. `parseSource`

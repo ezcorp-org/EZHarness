@@ -24,11 +24,7 @@ import { migrate } from "../db/migrate";
 import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgentsStatic } from "../runtime/loader";
-import type {
-  AgentEvents,
-  WorkflowDefinition,
-  WorkflowStep,
-} from "../types";
+import type { AgentEvents, WorkflowDefinition, WorkflowStep } from "../types";
 import type { ToolCallResult } from "../extensions/types";
 
 let pglite: PGlite;
@@ -46,9 +42,7 @@ mock.module("../db/connection", () => ({
 const { WorkflowExecutor, nestedRunKey, resumeArgsFromRow } = await import(
   "../runtime/workflow-executor"
 );
-const { getWorkflowRunRow, workflowRunNestingDepth } = await import(
-  "../db/queries/workflow-runs"
-);
+const { getWorkflowRunRow, workflowRunNestingDepth } = await import("../db/queries/workflow-runs");
 const { getWorkflowApproval, recordWorkflowApprovalAnswer } = await import(
   "../db/queries/workflow-approvals"
 );
@@ -81,10 +75,7 @@ function def(name: string, steps: WorkflowStep[]): WorkflowDefinition {
 }
 
 /** Executor over a fixed set of nestable definitions. */
-function makeExecutor(
-  defs: WorkflowDefinition[],
-  opts: { tool?: () => ToolCallResult } = {},
-) {
+function makeExecutor(defs: WorkflowDefinition[], opts: { tool?: () => ToolCallResult } = {}) {
   const bus = new EventBus<AgentEvents>();
   const agentExec = new AgentExecutor(loadAgentsStatic([]), bus);
   return new WorkflowExecutor(agentExec, bus, {
@@ -304,9 +295,7 @@ describe("the nesting depth cap", () => {
 
 describe("`loop` on a `workflow` step", () => {
   test("each iteration is a SEPARATE child run with its own parent_run_id", async () => {
-    const kid = def("kid-loop", [
-      { name: "t", kind: "transform", output: { i: "$input.i" } },
-    ]);
+    const kid = def("kid-loop", [{ name: "t", kind: "transform", output: { i: "$input.i" } }]);
     const mum = def("mum-loop", [
       {
         name: "attempt",
@@ -333,9 +322,7 @@ describe("`loop` on a `workflow` step", () => {
   });
 
   test("`until` sees the child's result, and `$loop.last` composes with it", async () => {
-    const kid = def("kid-until", [
-      { name: "t", kind: "transform", output: { n: "$input.n" } },
-    ]);
+    const kid = def("kid-until", [{ name: "t", kind: "transform", output: { n: "$input.n" } }]);
     const mum = def("mum-until", [
       {
         name: "attempt",
@@ -484,13 +471,9 @@ describe("a nested run uses the SAME executor instance", () => {
 
 describe("validateWorkflow — nesting", () => {
   test("a `workflow` step requires a target and rejects agent/tool alongside it", () => {
-    const errors = validateWorkflow(
-      def("v", [{ name: "n", kind: "workflow", agent: "a" }]),
-    );
+    const errors = validateWorkflow(def("v", [{ name: "n", kind: "workflow", agent: "a" }]));
     expect(errors).toContain('Step "n" (kind "workflow") requires a "workflow"');
-    expect(errors).toContain(
-      'Step "n" (kind "workflow") cannot also specify an "agent" or "tool"',
-    );
+    expect(errors).toContain('Step "n" (kind "workflow") cannot also specify an "agent" or "tool"');
   });
 
   test("the nested target is a LITERAL name — a ref is a definition-time error", () => {
@@ -557,8 +540,9 @@ describe("validateWorkflow — nesting", () => {
     // every extension-shipped workflow would be nestable in principle and
     // rejected at definition time in practice — and neither function's own
     // tests would notice, because each is correct in isolation.
-    const { namespacedWorkflowName, isResolvableWorkflowName, isValidWorkflowName } =
-      await import("../runtime/workflow-name");
+    const { namespacedWorkflowName, isResolvableWorkflowName, isValidWorkflowName } = await import(
+      "../runtime/workflow-name"
+    );
 
     for (const declared of ["draft-and-verify", "a", "x.y_z-1"]) {
       // Precondition: the loader only ever namespaces a name it accepted.
@@ -567,9 +551,9 @@ describe("validateWorkflow — nesting", () => {
       expect(full).toBe(`ez-factory:${declared}`);
       expect(isResolvableWorkflowName(full)).toBe(true);
       // And the validator agrees, which is the property that actually ships.
-      expect(
-        validateWorkflow(def("v", [{ name: "n", kind: "workflow", workflow: full }])),
-      ).toEqual([]);
+      expect(validateWorkflow(def("v", [{ name: "n", kind: "workflow", workflow: full }]))).toEqual(
+        [],
+      );
     }
   });
 

@@ -39,15 +39,12 @@ const { POST } = await import(
 
 function makeEvent(opts: { locals?: Record<string, unknown> }) {
   return {
-    url: new URL(
-      "http://localhost/api/conversations/c1/tasks/t1/assignments/as1/stop",
-    ),
+    url: new URL("http://localhost/api/conversations/c1/tasks/t1/assignments/as1/stop"),
     locals: opts.locals ?? {},
     params: { id: "c1", taskId: "t1", assignmentId: "as1" },
-    request: new Request(
-      "http://localhost/api/conversations/c1/tasks/t1/assignments/as1/stop",
-      { method: "POST" },
-    ),
+    request: new Request("http://localhost/api/conversations/c1/tasks/t1/assignments/as1/stop", {
+      method: "POST",
+    }),
   } as any;
 }
 
@@ -102,9 +99,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
     getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
     getTaskSnapshotForConversation.mockResolvedValue({
       conversationId: "c1",
-      tasks: [
-        { id: "t1", status: "active", assignments: [], subtasks: [] },
-      ],
+      tasks: [{ id: "t1", status: "active", assignments: [], subtasks: [] }],
     });
     const res = await POST(makeEvent({ locals: { user } }));
     expect(res.status).toBe(404);

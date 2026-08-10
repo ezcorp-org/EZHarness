@@ -40,12 +40,15 @@ beforeEach(async () => {
   await db.delete(users);
 
   const hash = await hashPassword("password123");
-  const [user] = await db.insert(users).values({
-    email: "user@test.local",
-    passwordHash: hash,
-    name: "Test User",
-    role: "member",
-  }).returning();
+  const [user] = await db
+    .insert(users)
+    .values({
+      email: "user@test.local",
+      passwordHash: hash,
+      name: "Test User",
+      role: "member",
+    })
+    .returning();
   testUserId = user!.id;
   testUser = { id: testUserId, email: "user@test.local", name: "Test User", role: "member" };
 });
@@ -178,7 +181,7 @@ describe("PUT /api/account", () => {
     await accountPut(event);
 
     const logs = await db.select().from(auditLog);
-    const nameLog = logs.find(l => l.action === "auth:name_changed");
+    const nameLog = logs.find((l) => l.action === "auth:name_changed");
     expect(nameLog).toBeDefined();
   });
 
@@ -196,7 +199,7 @@ describe("PUT /api/account", () => {
     await accountPut(event);
 
     const logs = await db.select().from(auditLog);
-    const emailLog = logs.find(l => l.action === "auth:email_changed");
+    const emailLog = logs.find((l) => l.action === "auth:email_changed");
     expect(emailLog).toBeDefined();
   });
 });
@@ -299,7 +302,7 @@ describe("PUT /api/account/password", () => {
     await passwordPut(event);
 
     const logs = await db.select().from(auditLog);
-    const pwLog = logs.find(l => l.action === "auth:password_changed");
+    const pwLog = logs.find((l) => l.action === "auth:password_changed");
     expect(pwLog).toBeDefined();
   });
 });

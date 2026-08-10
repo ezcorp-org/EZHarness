@@ -136,11 +136,7 @@ describe("AF-2: bundled flag is provenance-based, not name-based", () => {
       })};\n`,
     );
 
-    const row = await installFromLocal(
-      dir,
-      { grantedAt: {} },
-      false,
-    );
+    const row = await installFromLocal(dir, { grantedAt: {} }, false);
 
     // The row must not carry bundled trust. `createExtension` in the mock
     // above mirrors the schema default — any future refactor of the
@@ -294,10 +290,7 @@ describe("AF-3b: loadManifest wires validateMcpManifest for kind:'mcp'", () => {
   // directory, which can be passed to loadManifest().
   function writeManifestFixture(config: Record<string, unknown>): string {
     const dir = mkdtempSync(join(tmpdir(), "af3b-"));
-    writeFileSync(
-      join(dir, "ezcorp.config.ts"),
-      `export default ${JSON.stringify(config)};\n`,
-    );
+    writeFileSync(join(dir, "ezcorp.config.ts"), `export default ${JSON.stringify(config)};\n`);
     return dir;
   }
 
@@ -315,9 +308,7 @@ describe("AF-3b: loadManifest wires validateMcpManifest for kind:'mcp'", () => {
       kind: "mcp",
       mcpServers: [],
     });
-    await expect(loadManifest(dir)).rejects.toThrow(
-      /exactly one mcpServers entry/,
-    );
+    await expect(loadManifest(dir)).rejects.toThrow(/exactly one mcpServers entry/);
   });
 
   test("MCP manifest with multiple mcpServers entries is rejected", async () => {
@@ -334,9 +325,7 @@ describe("AF-3b: loadManifest wires validateMcpManifest for kind:'mcp'", () => {
         { name: "b", transport: "stdio", command: "bun" },
       ],
     });
-    await expect(loadManifest(dir)).rejects.toThrow(
-      /exactly one mcpServers entry/,
-    );
+    await expect(loadManifest(dir)).rejects.toThrow(/exactly one mcpServers entry/);
   });
 
   test("MCP manifest that also declares entrypoint is rejected", async () => {
@@ -403,4 +392,3 @@ describe("AF-3b: loadManifest wires validateMcpManifest for kind:'mcp'", () => {
     expect(m.name).toBe("plain-ext");
   });
 });
-

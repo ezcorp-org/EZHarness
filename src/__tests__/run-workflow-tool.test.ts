@@ -299,9 +299,7 @@ describe("run_workflow — argument validation returns error results, never thro
     expect(textOf(await makeTool().execute("tc-1", { name: "   " }))).toBe(
       "Error: `name` is required",
     );
-    expect(textOf(await makeTool().execute("tc-1", { name: 7 }))).toBe(
-      "Error: `name` is required",
-    );
+    expect(textOf(await makeTool().execute("tc-1", { name: 7 }))).toBe("Error: `name` is required");
   });
 
   test("undefined params are handled (no destructuring crash)", async () => {

@@ -3,13 +3,8 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 
 mockDbConnection();
 
-const {
-  getAllSettings,
-  getSetting,
-  upsertSetting,
-  deleteSetting,
-  isListingInstalled,
-} = await import("../db/queries/settings");
+const { getAllSettings, getSetting, upsertSetting, deleteSetting, isListingInstalled } =
+  await import("../db/queries/settings");
 
 describe("settings queries", () => {
   beforeEach(async () => await setupTestDb());
@@ -72,7 +67,10 @@ describe("settings queries", () => {
   });
 
   test("isListingInstalled detects matching marketplace install record", async () => {
-    await upsertSetting("marketplace:installed:abc", { listingId: "listing-123", version: "1.0.0" });
+    await upsertSetting("marketplace:installed:abc", {
+      listingId: "listing-123",
+      version: "1.0.0",
+    });
     expect(await isListingInstalled("listing-123")).toBe(true);
     expect(await isListingInstalled("listing-other")).toBe(false);
   });

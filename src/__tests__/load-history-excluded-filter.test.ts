@@ -29,11 +29,9 @@ mockDbConnection();
 const { loadHistory } = await import("../runtime/stream-chat/load-history");
 const { createUser } = await import("../db/queries/users");
 const { createProject } = await import("../db/queries/projects");
-const {
-  createConversation,
-  createMessage,
-  setMessageExcluded,
-} = await import("../db/queries/conversations");
+const { createConversation, createMessage, setMessageExcluded } = await import(
+  "../db/queries/conversations"
+);
 import type { StreamChatContext } from "../runtime/stream-chat/context";
 
 const SAFE_CWD = tmpdir();

@@ -12,19 +12,25 @@ type ToolCallResult = {
 /** Minimal EventBus that records emissions for assertions. */
 class MockEventBus {
   emissions: Array<{ type: string; data: Record<string, unknown> }> = [];
-  on() { return () => {}; }
+  on() {
+    return () => {};
+  }
   off() {}
   emit(type: string, data: Record<string, unknown>) {
     this.emissions.push({ type, data });
   }
-  clear() { this.emissions = []; }
+  clear() {
+    this.emissions = [];
+  }
   getEmissions(type: string) {
-    return this.emissions.filter(e => e.type === type);
+    return this.emissions.filter((e) => e.type === type);
   }
 }
 
 /** Stub process returned by registry.getProcess(). */
-function makeStubProcess(result: ToolCallResult = { content: [{ type: "text", text: "ok" }], isError: false }) {
+function makeStubProcess(
+  result: ToolCallResult = { content: [{ type: "text", text: "ok" }], isError: false },
+) {
   return {
     callTool: mock(async (_name: string, _args: unknown) => result),
     setRequestHandler: mock((_handler: () => void) => {}),
@@ -32,12 +38,14 @@ function makeStubProcess(result: ToolCallResult = { content: [{ type: "text", te
 }
 
 /** Minimal registry mock. */
-function makeRegistry(opts: {
-  toolExists?: boolean;
-  extensionId?: string;
-  originalName?: string;
-  process?: ReturnType<typeof makeStubProcess>;
-} = {}) {
+function makeRegistry(
+  opts: {
+    toolExists?: boolean;
+    extensionId?: string;
+    originalName?: string;
+    process?: ReturnType<typeof makeStubProcess>;
+  } = {},
+) {
   const {
     toolExists = true,
     extensionId = "ext-test",
@@ -62,13 +70,20 @@ function makeRegistry(opts: {
 // ---------------------------------------------------------------------------
 
 class PermissionDeniedError extends Error {
-  constructor(public readonly extensionId: string, public readonly toolName: string) {
+  constructor(
+    public readonly extensionId: string,
+    public readonly toolName: string,
+  ) {
     super(`Permission denied for tool "${toolName}" from extension "${extensionId}"`);
     this.name = "PermissionDeniedError";
   }
 }
 
-type PermissionChecker = (extId: string, toolName: string, input: Record<string, unknown>) => Promise<boolean>;
+type PermissionChecker = (
+  extId: string,
+  toolName: string,
+  input: Record<string, unknown>,
+) => Promise<boolean>;
 
 class ToolExecutor {
   private permissionChecker?: PermissionChecker;
@@ -106,7 +121,11 @@ class ToolExecutor {
     const startTime = Date.now();
     const meta = _opts?.metadata;
     this.bus?.emit("tool:start", {
-      conversationId, extensionId, toolName, input, timestamp: startTime,
+      conversationId,
+      extensionId,
+      toolName,
+      input,
+      timestamp: startTime,
       ...(meta?.source && { source: meta.source }),
       ...(meta?.invocationId && { invocationId: meta.invocationId }),
     });
@@ -120,7 +139,12 @@ class ToolExecutor {
       const result = await proc.callTool(originalName, input);
       const duration = Date.now() - startTime;
       this.bus?.emit("tool:complete", {
-        conversationId, extensionId, toolName, output: result, duration, success: !result.isError,
+        conversationId,
+        extensionId,
+        toolName,
+        output: result,
+        duration,
+        success: !result.isError,
         ...(meta?.source && { source: meta.source }),
         ...(meta?.invocationId && { invocationId: meta.invocationId }),
       });
@@ -132,8 +156,11 @@ class ToolExecutor {
       };
       const duration = Date.now() - startTime;
       this.bus?.emit("tool:error", {
-        conversationId, extensionId, toolName,
-        error: error instanceof Error ? error.message : String(error), duration,
+        conversationId,
+        extensionId,
+        toolName,
+        error: error instanceof Error ? error.message : String(error),
+        duration,
         ...(meta?.source && { source: meta.source }),
         ...(meta?.invocationId && { invocationId: meta.invocationId }),
       });
@@ -154,18 +181,33 @@ async function invokeWithRetry(
   input: Record<string, unknown>,
   conversationId: string,
   invocationId: string,
-): Promise<{ success: boolean; output?: string; error?: string; retryCount: number; durationMs: number }> {
+): Promise<{
+  success: boolean;
+  output?: string;
+  error?: string;
+  retryCount: number;
+  durationMs: number;
+}> {
   const metadata = { invocationId, source: "inline" as const };
   const startTime = Date.now();
-  let lastResult: ToolCallResult = { content: [{ type: "text", text: "Unknown error" }], isError: true };
+  let lastResult: ToolCallResult = {
+    content: [{ type: "text", text: "Unknown error" }],
+    isError: true,
+  };
   let retryCount = 0;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const result = await executor.executeToolCall(toolName, input ?? {}, conversationId, invocationId, { metadata });
+    const result = await executor.executeToolCall(
+      toolName,
+      input ?? {},
+      conversationId,
+      invocationId,
+      { metadata },
+    );
     if (!result.isError) {
       return {
         success: true,
-        output: result.content.map(c => c.text).join("\n"),
+        output: result.content.map((c) => c.text).join("\n"),
         retryCount: attempt,
         durationMs: Date.now() - startTime,
       };
@@ -176,7 +218,7 @@ async function invokeWithRetry(
 
   return {
     success: false,
-    error: lastResult.content.map(c => c.text).join("\n"),
+    error: lastResult.content.map((c) => c.text).join("\n"),
     retryCount,
     durationMs: Date.now() - startTime,
   };
@@ -230,7 +272,9 @@ describe("ToolExecutor inline invocation path", () => {
 
     test("tool:error includes source and invocationId when metadata provided", async () => {
       const failProcess = makeStubProcess();
-      failProcess.callTool = mock(async () => { throw new Error("subprocess died"); });
+      failProcess.callTool = mock(async () => {
+        throw new Error("subprocess died");
+      });
       registry = makeRegistry({ process: failProcess });
       const executor = new ToolExecutor(registry, { bus });
 
@@ -276,7 +320,9 @@ describe("ToolExecutor inline invocation path", () => {
 
     test("tool:error does NOT include source or invocationId when metadata absent", async () => {
       const failProcess = makeStubProcess();
-      failProcess.callTool = mock(async () => { throw new Error("boom"); });
+      failProcess.callTool = mock(async () => {
+        throw new Error("boom");
+      });
       registry = makeRegistry({ process: failProcess });
       const executor = new ToolExecutor(registry, { bus });
 
@@ -324,7 +370,9 @@ describe("ToolExecutor inline invocation path", () => {
 
       try {
         await executor.executeToolCall("ext-test.doThing", {}, "conv-1", "msg-1");
-      } catch { /* expected */ }
+      } catch {
+        /* expected */
+      }
 
       expect(bus.emissions).toHaveLength(0);
     });
@@ -398,7 +446,10 @@ describe("inline invoke retry loop", () => {
   });
 
   test("failure after MAX_RETRIES=2 returns success=false with retryCount=2", async () => {
-    const proc = makeStubProcess({ content: [{ type: "text", text: "always fails" }], isError: true });
+    const proc = makeStubProcess({
+      content: [{ type: "text", text: "always fails" }],
+      isError: true,
+    });
     const registry = makeRegistry({ process: proc });
     const executor = new ToolExecutor(registry, { bus });
 

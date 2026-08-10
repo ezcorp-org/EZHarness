@@ -17,7 +17,13 @@
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { agentSessionEntries, agentSessions, conversations, messages, projects } from "../db/schema";
+import {
+  agentSessionEntries,
+  agentSessions,
+  conversations,
+  messages,
+  projects,
+} from "../db/schema";
 
 mockDbConnection();
 
@@ -41,34 +47,46 @@ const at = (i: number): Date => new Date(BASE + i * 1000);
 
 async function newConversation(): Promise<string> {
   const db = getTestDb();
-  await db.insert(projects).values({ id: PROJECT_ID, name: "P", path: "/tmp/p" }).onConflictDoNothing();
+  await db
+    .insert(projects)
+    .values({ id: PROJECT_ID, name: "P", path: "/tmp/p" })
+    .onConflictDoNothing();
   const convId = `sync-conv-${++convSeq}`;
   await db.insert(conversations).values({ id: convId, projectId: PROJECT_ID, title: "C" });
   return convId;
 }
 
-async function seedMsg(convId: string, m: {
-  id: string;
-  role: string;
-  content: string;
-  parentId?: string | null;
-  excluded?: boolean;
-  createdAt: Date;
-}): Promise<void> {
-  await getTestDb().insert(messages).values({
-    id: m.id,
-    conversationId: convId,
-    role: m.role,
-    content: m.content,
-    parentMessageId: m.parentId ?? null,
-    excluded: m.excluded ?? false,
-    createdAt: m.createdAt,
-  });
+async function seedMsg(
+  convId: string,
+  m: {
+    id: string;
+    role: string;
+    content: string;
+    parentId?: string | null;
+    excluded?: boolean;
+    createdAt: Date;
+  },
+): Promise<void> {
+  await getTestDb()
+    .insert(messages)
+    .values({
+      id: m.id,
+      conversationId: convId,
+      role: m.role,
+      content: m.content,
+      parentMessageId: m.parentId ?? null,
+      excluded: m.excluded ?? false,
+      createdAt: m.createdAt,
+    });
 }
 
 describe("isSessionHistoryProducerEnabled — default ON (kill-switch)", () => {
-  beforeEach(async () => { await setupTestDb(); }, 30_000);
-  afterAll(async () => { await closeTestDb(); });
+  beforeEach(async () => {
+    await setupTestDb();
+  }, 30_000);
+  afterAll(async () => {
+    await closeTestDb();
+  });
 
   test("unset → true; true → true; explicit false → false; garbage → true", async () => {
     // Default ON: an absent setting reads as the session-tree producer.
@@ -87,11 +105,12 @@ describe("isSessionHistoryProducerEnabled — default ON (kill-switch)", () => {
 describe("withConvSessionLock — per-conversation serialization", () => {
   test("serializes ops on the same conversation in call order", async () => {
     const order: number[] = [];
-    const mk = (n: number, ms: number) => withConvSessionLock("lock-a", async () => {
-      await new Promise((r) => setTimeout(r, ms));
-      order.push(n);
-      return n;
-    });
+    const mk = (n: number, ms: number) =>
+      withConvSessionLock("lock-a", async () => {
+        await new Promise((r) => setTimeout(r, ms));
+        order.push(n);
+        return n;
+      });
     // First op is slow; if they weren't serialized, 2 would land before 1.
     const [a, b] = await Promise.all([mk(1, 20), mk(2, 1)]);
     expect(a).toBe(1);
@@ -100,7 +119,9 @@ describe("withConvSessionLock — per-conversation serialization", () => {
   });
 
   test("a rejected op does not wedge the chain (next op still runs)", async () => {
-    const p1 = withConvSessionLock("lock-b", async () => { throw new Error("boom"); });
+    const p1 = withConvSessionLock("lock-b", async () => {
+      throw new Error("boom");
+    });
     const p2 = withConvSessionLock("lock-b", async () => "ok");
     await expect(p1).rejects.toThrow("boom");
     expect(await p2).toBe("ok");
@@ -108,8 +129,13 @@ describe("withConvSessionLock — per-conversation serialization", () => {
 
   test("map self-prunes: an op finishing while a newer op is queued does not delete the entry", async () => {
     let release: () => void = () => {};
-    const gate = new Promise<void>((r) => { release = r; });
-    const p1 = withConvSessionLock("lock-c", async () => { await gate; return 1; });
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const p1 = withConvSessionLock("lock-c", async () => {
+      await gate;
+      return 1;
+    });
     // p2 chains synchronously, overwriting the map entry before p1's finally.
     const p2 = withConvSessionLock("lock-c", async () => 2);
     release();
@@ -119,16 +145,28 @@ describe("withConvSessionLock — per-conversation serialization", () => {
 });
 
 describe("syncSessionForConversation — catch-up from the messages table", () => {
-  beforeEach(async () => { await setupTestDb(); }, 30_000);
-  afterAll(async () => { await closeTestDb(); });
+  beforeEach(async () => {
+    await setupTestDb();
+  }, 30_000);
+  afterAll(async () => {
+    await closeTestDb();
+  });
 
   test("first use backfills; a later sync appends only the delta (idempotent)", async () => {
     const c = await newConversation();
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg(c, {
+      id: "a1",
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
 
     const { storage: first } = await syncSessionForConversation(c);
-    const firstIds = (await first.getEntries()).map((e) => e.id).filter((id) => id === "u1" || id === "a1");
+    const firstIds = (await first.getEntries())
+      .map((e) => e.id)
+      .filter((id) => id === "u1" || id === "a1");
     expect(firstIds.sort()).toEqual(["a1", "u1"]);
 
     // A new turn arrives (route wrote the messages row; live-append never ran).
@@ -142,7 +180,12 @@ describe("syncSessionForConversation — catch-up from the messages table", () =
     const rows = await getTestDb()
       .select()
       .from(agentSessionEntries)
-      .where(and(eq(agentSessionEntries.sessionId, (await second.getMetadata()).id), eq(agentSessionEntries.entryId, "u1")));
+      .where(
+        and(
+          eq(agentSessionEntries.sessionId, (await second.getMetadata()).id),
+          eq(agentSessionEntries.entryId, "u1"),
+        ),
+      );
     expect(rows.length).toBe(1);
   });
 
@@ -153,7 +196,13 @@ describe("syncSessionForConversation — catch-up from the messages table", () =
 
     // Simulate a crash between the assistant messages-write and its session
     // append: the row exists, no entry does.
-    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg(c, {
+      id: "a1",
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
 
     const { storage: healed } = await syncSessionForConversation(c);
     const ids = (await healed.getEntries()).filter((e) => e.type === "message").map((e) => e.id);
@@ -163,8 +212,21 @@ describe("syncSessionForConversation — catch-up from the messages table", () =
   test("excluded/synthetic rows sync as non-emitting custom entries", async () => {
     const c = await newConversation();
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg(c, { id: "x1", role: "assistant", content: "x", parentId: "u1", excluded: true, createdAt: at(1) });
-    await seedMsg(c, { id: "pr", role: "preprocess-result", content: "{}", parentId: "x1", createdAt: at(2) });
+    await seedMsg(c, {
+      id: "x1",
+      role: "assistant",
+      content: "x",
+      parentId: "u1",
+      excluded: true,
+      createdAt: at(1),
+    });
+    await seedMsg(c, {
+      id: "pr",
+      role: "preprocess-result",
+      content: "{}",
+      parentId: "x1",
+      createdAt: at(2),
+    });
     const { storage: s } = await syncSessionForConversation(c);
     const custom = (await s.getEntries()).filter((e) => e.type === "custom").map((e) => e.id);
     expect(custom.sort()).toEqual(["pr", "x1"]);
@@ -173,8 +235,20 @@ describe("syncSessionForConversation — catch-up from the messages table", () =
   test("topology reconcile: an existing entry's parentId follows a messages reparent", async () => {
     const c = await newConversation();
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
-    await seedMsg(c, { id: "s1", role: "user", content: "steer", parentId: "u1", createdAt: at(2) });
+    await seedMsg(c, {
+      id: "a1",
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
+    await seedMsg(c, {
+      id: "s1",
+      role: "user",
+      content: "steer",
+      parentId: "u1",
+      createdAt: at(2),
+    });
     await syncSessionForConversation(c); // s1 entry parent = u1
 
     // Delivery reparents s1 under a1 (a same-id parentMessageId UPDATE).
@@ -190,13 +264,24 @@ describe("syncSessionForConversation — catch-up from the messages table", () =
 });
 
 describe("computeSessionBranch — session-backed branch", () => {
-  beforeEach(async () => { await setupTestDb(); }, 30_000);
-  afterAll(async () => { await closeTestDb(); });
+  beforeEach(async () => {
+    await setupTestDb();
+  }, 30_000);
+  afterAll(async () => {
+    await closeTestDb();
+  });
 
   test("explicit parentMessageId leaf → root→leaf message rows, custom entries dropped", async () => {
     const c = await newConversation();
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg(c, { id: "x1", role: "assistant", content: "x", parentId: "u1", excluded: true, createdAt: at(1) });
+    await seedMsg(c, {
+      id: "x1",
+      role: "assistant",
+      content: "x",
+      parentId: "u1",
+      excluded: true,
+      createdAt: at(1),
+    });
     await seedMsg(c, { id: "u2", role: "user", content: "u2", parentId: "x1", createdAt: at(2) });
 
     const branch = await computeSessionBranch(c, "u2");
@@ -209,7 +294,13 @@ describe("computeSessionBranch — session-backed branch", () => {
   test("no parentMessageId → uses the latest leaf", async () => {
     const c = await newConversation();
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg(c, {
+      id: "a1",
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
     const branch = await computeSessionBranch(c, undefined);
     expect(branch.map((r) => r.id)).toEqual(["u1", "a1"]);
   });
@@ -222,7 +313,13 @@ describe("computeSessionBranch — session-backed branch", () => {
   test("live excluded flag is honoured at read time (not the entry's stale classification)", async () => {
     const c = await newConversation();
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg(c, {
+      id: "a1",
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
     await seedMsg(c, { id: "u2", role: "user", content: "u2", parentId: "a1", createdAt: at(2) });
     await syncSessionForConversation(c); // a1 backfilled as a NON-excluded message entry
     // Exclude a1 IN PLACE — the entry stays a `message` entry, but the producer
@@ -234,7 +331,13 @@ describe("computeSessionBranch — session-backed branch", () => {
   test("a branch entry whose live messages row was deleted is skipped (graceful)", async () => {
     const c = await newConversation();
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg(c, {
+      id: "a1",
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
     await syncSessionForConversation(c); // a1 entry created
     // Delete a1's messages row; its session entry remains (ez_message_id → null).
     await getTestDb().delete(messages).where(eq(messages.id, "a1"));
@@ -244,15 +347,26 @@ describe("computeSessionBranch — session-backed branch", () => {
 });
 
 describe("appendSavedMessageEntry — O(1) idempotent live-append", () => {
-  beforeEach(async () => { await setupTestDb(); }, 30_000);
-  afterAll(async () => { await closeTestDb(); });
+  beforeEach(async () => {
+    await setupTestDb();
+  }, 30_000);
+  afterAll(async () => {
+    await closeTestDb();
+  });
 
   test("no-op when no session exists yet", async () => {
     const c = await newConversation();
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
     // No session backfilled → append must silently do nothing.
-    await appendSavedMessageEntry(c, { id: "u1", role: "user", content: "u1", createdAt: at(0) }, null);
-    const sess = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, c));
+    await appendSavedMessageEntry(
+      c,
+      { id: "u1", role: "user", content: "u1", createdAt: at(0) },
+      null,
+    );
+    const sess = await getTestDb()
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.conversationId, c));
     expect(sess.length).toBe(0);
   });
 
@@ -260,17 +374,36 @@ describe("appendSavedMessageEntry — O(1) idempotent live-append", () => {
     const c = await newConversation();
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
     await backfillSessionForConversation(c);
-    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg(c, {
+      id: "a1",
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
 
-    await appendSavedMessageEntry(c, { id: "a1", role: "assistant", content: "a1", createdAt: at(1) }, "u1");
-    await appendSavedMessageEntry(c, { id: "a1", role: "assistant", content: "a1", createdAt: at(1) }, "u1"); // idempotent
+    await appendSavedMessageEntry(
+      c,
+      { id: "a1", role: "assistant", content: "a1", createdAt: at(1) },
+      "u1",
+    );
+    await appendSavedMessageEntry(
+      c,
+      { id: "a1", role: "assistant", content: "a1", createdAt: at(1) },
+      "u1",
+    ); // idempotent
 
-    const [session] = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, c));
+    const [session] = await getTestDb()
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.conversationId, c));
     expect(session.leafEntryId).toBe("a1");
     const rows = await getTestDb()
       .select()
       .from(agentSessionEntries)
-      .where(and(eq(agentSessionEntries.sessionId, session.id), eq(agentSessionEntries.entryId, "a1")));
+      .where(
+        and(eq(agentSessionEntries.sessionId, session.id), eq(agentSessionEntries.entryId, "a1")),
+      );
     expect(rows.length).toBe(1);
     expect(rows[0]!.ezMessageId).toBe("a1");
     // The appended row reads back as a message entry on the branch.
@@ -292,19 +425,34 @@ describe("appendSavedMessageEntry — O(1) idempotent live-append", () => {
     const rows = await getTestDb()
       .select()
       .from(agentSessionEntries)
-      .where(and(eq(agentSessionEntries.sessionId, (await storage.getMetadata()).id), eq(agentSessionEntries.entryId, "ghost-not-in-messages")));
+      .where(
+        and(
+          eq(agentSessionEntries.sessionId, (await storage.getMetadata()).id),
+          eq(agentSessionEntries.entryId, "ghost-not-in-messages"),
+        ),
+      );
     expect(rows.length).toBe(0); // swallowed; nothing persisted
   });
 });
 
 describe("computeSessionTree — whole tree + durable leaf pointer (P4)", () => {
-  beforeEach(async () => { await setupTestDb(); }, 30_000);
-  afterAll(async () => { await closeTestDb(); });
+  beforeEach(async () => {
+    await setupTestDb();
+  }, 30_000);
+  afterAll(async () => {
+    await closeTestDb();
+  });
 
   test("nodes carry topology + live substance; currentLeaf = the session leaf", async () => {
     const c = await newConversation();
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg(c, {
+      id: "a1",
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
     await seedMsg(c, { id: "u2", role: "user", content: "u2", parentId: "a1", createdAt: at(2) });
 
     const tree = await computeSessionTree(c);
@@ -321,7 +469,14 @@ describe("computeSessionTree — whole tree + durable leaf pointer (P4)", () => 
   test("excluded rows are KEPT as nodes (excluded: true), unlike the producer branch", async () => {
     const c = await newConversation();
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", excluded: true, createdAt: at(1) });
+    await seedMsg(c, {
+      id: "a1",
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      excluded: true,
+      createdAt: at(1),
+    });
 
     const tree = await computeSessionTree(c);
     const a1 = tree.nodes.find((n) => n.id === "a1");
@@ -332,15 +487,31 @@ describe("computeSessionTree — whole tree + durable leaf pointer (P4)", () => 
 });
 
 describe("rewindSession — moveTo the durable leaf + optional branch_summary (P4)", () => {
-  beforeEach(async () => { await setupTestDb(); }, 30_000);
-  afterAll(async () => { await closeTestDb(); });
+  beforeEach(async () => {
+    await setupTestDb();
+  }, 30_000);
+  afterAll(async () => {
+    await closeTestDb();
+  });
 
   // Build: u1 → a1 → u2 → a2 (the "abandoned tail" once we rewind to a1).
   async function seedLinearFour(c: string): Promise<void> {
     await seedMsg(c, { id: "u1", role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg(c, { id: "a1", role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg(c, {
+      id: "a1",
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
     await seedMsg(c, { id: "u2", role: "user", content: "u2", parentId: "a1", createdAt: at(2) });
-    await seedMsg(c, { id: "a2", role: "assistant", content: "a2", parentId: "u2", createdAt: at(3) });
+    await seedMsg(c, {
+      id: "a2",
+      role: "assistant",
+      content: "a2",
+      parentId: "u2",
+      createdAt: at(3),
+    });
   }
 
   test("moves the leaf pointer to the target via a `leaf` entry; message-entry parents untouched", async () => {
@@ -357,8 +528,14 @@ describe("rewindSession — moveTo the durable leaf + optional branch_summary (P
 
     // A `leaf` pointer entry was appended; the message entries kept their parents
     // (rewind never reparents a message entry — messages stays the authority).
-    const [session] = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, c));
-    const entries = await getTestDb().select().from(agentSessionEntries).where(eq(agentSessionEntries.sessionId, session.id));
+    const [session] = await getTestDb()
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.conversationId, c));
+    const entries = await getTestDb()
+      .select()
+      .from(agentSessionEntries)
+      .where(eq(agentSessionEntries.sessionId, session.id));
     expect(entries.some((e) => e.type === "leaf")).toBe(true);
     expect(session.leafEntryId).toBe("a1");
     const a2 = entries.find((e) => e.entryId === "a2");
@@ -373,7 +550,12 @@ describe("rewindSession — moveTo the durable leaf + optional branch_summary (P
     // The client carries parentMessageId = the rewound leaf → context ends at a1.
     expect((await computeSessionBranch(c, "a1")).map((r) => r.id)).toEqual(["u1", "a1"]);
     // Switching back to the abandoned tail recovers the full branch.
-    expect((await computeSessionBranch(c, "a2")).map((r) => r.id)).toEqual(["u1", "a1", "u2", "a2"]);
+    expect((await computeSessionBranch(c, "a2")).map((r) => r.id)).toEqual([
+      "u1",
+      "a1",
+      "u2",
+      "a2",
+    ]);
   });
 
   test("a real next-send off the rewound leaf forks a sibling of the abandoned tail", async () => {
@@ -384,12 +566,19 @@ describe("rewindSession — moveTo the durable leaf + optional branch_summary (P
     // Simulate the next turn: a new user row parented to the rewound leaf a1
     // (the client passes parentMessageId=a1), then the live-append seam mirrors it.
     await seedMsg(c, { id: "u2b", role: "user", content: "u2b", parentId: "a1", createdAt: at(4) });
-    await appendSavedMessageEntry(c, { id: "u2b", role: "user", content: "u2b", createdAt: at(4) }, "a1");
+    await appendSavedMessageEntry(
+      c,
+      { id: "u2b", role: "user", content: "u2b", createdAt: at(4) },
+      "a1",
+    );
 
     // The new branch ends at u2b; a1 now has two children (u2 abandoned, u2b active).
     expect((await computeSessionBranch(c, "u2b")).map((r) => r.id)).toEqual(["u1", "a1", "u2b"]);
     const tree = await computeSessionTree(c);
-    const childrenOfA1 = tree.nodes.filter((n) => n.parentId === "a1").map((n) => n.id).sort();
+    const childrenOfA1 = tree.nodes
+      .filter((n) => n.parentId === "a1")
+      .map((n) => n.id)
+      .sort();
     expect(childrenOfA1).toEqual(["u2", "u2b"]);
     expect(tree.currentLeaf).toBe("u2b"); // live-append bumped the durable leaf
   });
@@ -403,11 +592,19 @@ describe("rewindSession — moveTo the durable leaf + optional branch_summary (P
     if (!outcome.ok) throw new Error("unreachable");
     expect(outcome.tree.currentLeaf).toBe("a1");
 
-    const [session] = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, c));
-    const entries = await getTestDb().select().from(agentSessionEntries).where(eq(agentSessionEntries.sessionId, session.id));
+    const [session] = await getTestDb()
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.conversationId, c));
+    const entries = await getTestDb()
+      .select()
+      .from(agentSessionEntries)
+      .where(eq(agentSessionEntries.sessionId, session.id));
     const summaryEntry = entries.find((e) => e.type === "branch_summary");
     expect(summaryEntry).toBeDefined();
-    expect((summaryEntry!.payload as { summary?: string }).summary).toBe("abandoned a plan that went sideways"); // trimmed
+    expect((summaryEntry!.payload as { summary?: string }).summary).toBe(
+      "abandoned a plan that went sideways",
+    ); // trimmed
     // The summary never joins a messages row → absent from the tree nodes.
     expect(outcome.tree.nodes.some((n) => n.id === summaryEntry!.entryId)).toBe(false);
     // Leaf still at the target despite the branch_summary append.
@@ -418,8 +615,14 @@ describe("rewindSession — moveTo the durable leaf + optional branch_summary (P
     const c = await newConversation();
     await seedLinearFour(c);
     await rewindSession(c, "a1", "   ");
-    const [session] = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, c));
-    const entries = await getTestDb().select().from(agentSessionEntries).where(eq(agentSessionEntries.sessionId, session.id));
+    const [session] = await getTestDb()
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.conversationId, c));
+    const entries = await getTestDb()
+      .select()
+      .from(agentSessionEntries)
+      .where(eq(agentSessionEntries.sessionId, session.id));
     expect(entries.some((e) => e.type === "branch_summary")).toBe(false);
   });
 

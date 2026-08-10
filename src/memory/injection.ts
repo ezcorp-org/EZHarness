@@ -54,7 +54,7 @@ export async function buildSystemPromptWithMemories(
   const isolateToProject = Boolean(isolationSetting);
 
   // Reuse pre-computed embedding if provided, otherwise generate
-  const embedding = opts?.queryEmbedding ?? await generateEmbedding(query);
+  const embedding = opts?.queryEmbedding ?? (await generateEmbedding(query));
 
   // Hybrid search for relevant memories
   const results = await hybridSearch(query, embedding, {

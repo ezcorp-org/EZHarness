@@ -11,11 +11,11 @@ export type RawConnState = "connected" | "disconnected" | "reconnecting" | "fail
  * window) and is terminal.
  */
 export function gatedConnectionState(
-	raw: RawConnState,
-	msSinceProblemStart: number,
-	graceMs = CONNECTION_GRACE_MS,
+  raw: RawConnState,
+  msSinceProblemStart: number,
+  graceMs = CONNECTION_GRACE_MS,
 ): RawConnState {
-	if (raw === "connected") return "connected";
-	if (raw === "failed") return "failed";
-	return msSinceProblemStart >= graceMs ? raw : "connected";
+  if (raw === "connected") return "connected";
+  if (raw === "failed") return "failed";
+  return msSinceProblemStart >= graceMs ? raw : "connected";
 }

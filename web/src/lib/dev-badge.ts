@@ -8,8 +8,8 @@
  */
 
 export interface DevBadgeInfo {
-	branch: string;
-	commit: string;
+  branch: string;
+  commit: string;
 }
 
 /**
@@ -18,14 +18,14 @@ export interface DevBadgeInfo {
  * Trimmed values fall back to `"HEAD"` / `"unknown"` so rendering is total.
  */
 export function readDevBadge(dataset: DOMStringMap): DevBadgeInfo | null {
-	if (dataset.devIndicator !== "1") return null;
+  if (dataset.devIndicator !== "1") return null;
 
-	const branch = (dataset.devBranch ?? "").trim();
-	const commit = (dataset.devCommit ?? "").trim();
-	if (!branch && !commit) return null;
+  const branch = (dataset.devBranch ?? "").trim();
+  const commit = (dataset.devCommit ?? "").trim();
+  if (!branch && !commit) return null;
 
-	return {
-		branch: branch || "HEAD",
-		commit: commit || "unknown",
-	};
+  return {
+    branch: branch || "HEAD",
+    commit: commit || "unknown",
+  };
 }

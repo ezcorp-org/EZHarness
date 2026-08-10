@@ -24,7 +24,8 @@ describe("agent-shares queries", () => {
   beforeEach(async () => {
     await setupTestDb();
     ownerId = (await createUser({ email: "owner@test.com", passwordHash: "h", name: "Owner" })).id;
-    recipientId = (await createUser({ email: "recv@test.com", passwordHash: "h", name: "Recv" })).id;
+    recipientId = (await createUser({ email: "recv@test.com", passwordHash: "h", name: "Recv" }))
+      .id;
     const team = await createTeam("devs");
     teamId = team.id;
     await addTeamMember(teamId, recipientId, "viewer");

@@ -24,10 +24,7 @@ import {
   wireBriefingChatToolsForTurn,
   BRIEFING_CHAT_TOOL_NAMES,
 } from "../runtime/briefing/chat-tools";
-import {
-  getBriefingConfig,
-  upsertBriefingConfig,
-} from "../db/queries/briefing-configs";
+import { getBriefingConfig, upsertBriefingConfig } from "../db/queries/briefing-configs";
 import { MAX_WATCHLIST_TOPICS, MAX_TOPIC_LENGTH } from "../runtime/briefing/config-validation";
 import { ensureBriefingAgentConfig } from "../runtime/briefing/agent-config";
 import { users, briefingConfigs, projects, conversations } from "../db/schema";
@@ -50,7 +47,10 @@ beforeEach(async () => {
   const db = getTestDb();
   await db.delete(briefingConfigs);
   await db.delete(users);
-  const [u] = await db.insert(users).values({ email: "w@t.local", passwordHash: "x", name: "W" }).returning();
+  const [u] = await db
+    .insert(users)
+    .values({ email: "w@t.local", passwordHash: "x", name: "W" })
+    .returning();
   userId = u!.id;
 });
 
@@ -78,9 +78,7 @@ describe("briefing_watch", () => {
     const row = await getBriefingConfig(userId);
     expect(row).not.toBeNull();
     expect(row!.enabled).toBe(false); // default-off is preserved (locked decision §7.1)
-    expect(row!.watchlist).toEqual([
-      { topic: "Bun 2.0 release", addedAt: expect.any(String) },
-    ]);
+    expect(row!.watchlist).toEqual([{ topic: "Bun 2.0 release", addedAt: expect.any(String) }]);
   });
 
   test("no disabled hint when the briefing is already enabled", async () => {
@@ -312,7 +310,10 @@ describe("unexpected throws fold into clean tool errors", () => {
 // ── wireBriefingChatToolsForTurn ──────────────────────────────────
 
 describe("wireBriefingChatToolsForTurn", () => {
-  function freshTurn(): { agentTools: AgentTool[]; builtinToolDefsMap: Map<string, BuiltinToolDef> } {
+  function freshTurn(): {
+    agentTools: AgentTool[];
+    builtinToolDefsMap: Map<string, BuiltinToolDef>;
+  } {
     return { agentTools: [], builtinToolDefsMap: new Map() };
   }
 
@@ -365,7 +366,11 @@ describe("briefing_status", () => {
   });
 
   test("configured: schedule description, never-ran, empty watchlist, no briefings", async () => {
-    await upsertBriefingConfig(userId, { enabled: true, cron: "0 7 * * 1-5", timezone: "Europe/Berlin" });
+    await upsertBriefingConfig(userId, {
+      enabled: true,
+      cron: "0 7 * * 1-5",
+      timezone: "Europe/Berlin",
+    });
     const r = await tool().execute("tc-s2", {});
     const text = resultText(r);
     expect(text).toContain("enabled");
@@ -419,7 +424,10 @@ describe("briefing_status", () => {
     await upsertBriefingConfig(userId, { enabled: true, cron: "0 7 * * *", timezone: "UTC" });
     await getTestDb()
       .update(briefingConfigs)
-      .set({ lastFireAt: new Date("2026-06-11T07:00:00Z"), lastFireStatus: "weird" as unknown as "ok" })
+      .set({
+        lastFireAt: new Date("2026-06-11T07:00:00Z"),
+        lastFireStatus: "weird" as unknown as "ok",
+      })
       .where(eq(briefingConfigs.userId, userId));
     const r = await tool().execute("tc-s5", {});
     expect(resultText(r)).toContain("Last run: weird at");
@@ -428,7 +436,10 @@ describe("briefing_status", () => {
   test("lists only the user's own briefing conversations, newest first, capped at 5", async () => {
     await upsertBriefingConfig(userId, { enabled: true, cron: "0 7 * * *", timezone: "UTC" });
     const db = getTestDb();
-    const [other] = await db.insert(users).values({ email: "o@t.local", passwordHash: "x", name: "O" }).returning();
+    const [other] = await db
+      .insert(users)
+      .values({ email: "o@t.local", passwordHash: "x", name: "O" })
+      .returning();
     const agent = await ensureBriefingAgentConfig();
     const [project] = await db.insert(projects).values({ name: "p", path: "/tmp/p" }).returning();
 
@@ -442,8 +453,15 @@ describe("briefing_status", () => {
       });
     }
     // Another user's briefing + a regular conversation: both invisible.
-    await db.insert(conversations).values({ projectId: project!.id, title: "theirs", userId: other!.id, agentConfigId: agent.id });
-    await db.insert(conversations).values({ projectId: project!.id, title: "not a briefing", userId });
+    await db.insert(conversations).values({
+      projectId: project!.id,
+      title: "theirs",
+      userId: other!.id,
+      agentConfigId: agent.id,
+    });
+    await db
+      .insert(conversations)
+      .values({ projectId: project!.id, title: "not a briefing", userId });
 
     const r = await tool().execute("tc-s6", {});
     expect(isError(r)).toBe(false);
@@ -474,7 +492,10 @@ describe("briefing_status", () => {
 describe("user scoping", () => {
   test("two users' watchlists never cross — each tool writes only its own ctx.userId row", async () => {
     const db = getTestDb();
-    const [u2] = await db.insert(users).values({ email: "z@t.local", passwordHash: "x", name: "Z" }).returning();
+    const [u2] = await db
+      .insert(users)
+      .values({ email: "z@t.local", passwordHash: "x", name: "Z" })
+      .returning();
 
     await createBriefingWatchTool({ userId }).execute("tc-1", { topic: "mine" });
     await createBriefingWatchTool({ userId: u2!.id }).execute("tc-2", { topic: "theirs" });

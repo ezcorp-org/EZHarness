@@ -1,9 +1,5 @@
 import { test, expect, describe, afterEach } from "bun:test";
-import {
-  importPreview,
-  importCommit,
-  uninstallExtension,
-} from "../../web/src/lib/api";
+import { importPreview, importCommit, uninstallExtension } from "../../web/src/lib/api";
 
 const realFetch = globalThis.fetch;
 afterEach(() => {

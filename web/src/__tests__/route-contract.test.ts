@@ -33,7 +33,10 @@ const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
 function fileToRoutePath(rel: string): string {
   let p = rel.replace(/\/\+server\.ts$/, "");
   // Drop SvelteKit route groups: "(group)" segments don't appear in URLs.
-  p = p.split("/").filter((seg) => !(seg.startsWith("(") && seg.endsWith(")"))).join("/");
+  p = p
+    .split("/")
+    .filter((seg) => !(seg.startsWith("(") && seg.endsWith(")")))
+    .join("/");
   // [...rest] -> :rest ; [param] -> :param  (registry uses Express syntax).
   p = p.replace(/\[\.\.\.([^\]]+)\]/g, ":$1").replace(/\[([^\]]+)\]/g, ":$1");
   return "/" + p;
@@ -42,14 +45,19 @@ function fileToRoutePath(rel: string): string {
 function exportedMethods(src: string): string[] {
   const found = new Set<string>();
   for (const m of METHODS) {
-    if (new RegExp(`export\\s+(?:const|function|async\\s+function)\\s+${m}\\b`).test(src)) found.add(m);
+    if (new RegExp(`export\\s+(?:const|function|async\\s+function)\\s+${m}\\b`).test(src))
+      found.add(m);
     // re-export form: export { GET, POST }
     if (new RegExp(`export\\s*\\{[^}]*\\b${m}\\b[^}]*\\}`).test(src)) found.add(m);
   }
   return [...found];
 }
 
-interface DiskRoute { method: string; path: string; file: string }
+interface DiskRoute {
+  method: string;
+  path: string;
+  file: string;
+}
 
 function discoverDiskRoutes(): DiskRoute[] {
   const out: DiskRoute[] = [];
@@ -358,7 +366,9 @@ describe("inline admin gates (F4 — the pairing scan's blind spot)", () => {
       `(user.role ?? "x") !== "admin"`,
     ]);
     expect(ifConditions(stripComments(`// if (user.role !== "admin")\nif (a) {}`))).toEqual(["a"]);
-    expect(ifConditions(stripComments(`/* if (user.role !== "admin") */ if (b) {}`))).toEqual(["b"]);
+    expect(ifConditions(stripComments(`/* if (user.role !== "admin") */ if (b) {}`))).toEqual([
+      "b",
+    ]);
   });
 });
 
@@ -420,8 +430,7 @@ describe("thrown-Response denials (500-instead-of-403 regression guard)", () => 
     // matching anything — the same vacuous-pass hazard the admin-gate scan
     // above defends with its own self-check.
     const offending = `const admin = requireRole(locals, "admin");`;
-    const converted =
-      `try { requireRole(locals, "admin"); } catch (e) { if (e instanceof Response) return e; throw e; }`;
+    const converted = `try { requireRole(locals, "admin"); } catch (e) { if (e instanceof Response) return e; throw e; }`;
     const nonThrowing = `const admin = checkRole(locals, "admin"); if (admin instanceof Response) return admin;`;
     expect(ROLE_THROW.test(offending)).toBe(true);
     expect(CONVERTS_THROW.test(offending)).toBe(false);
@@ -488,9 +497,7 @@ describe("registry ⇄ filesystem parity", () => {
   function currentlyUnregistered(): Set<string> {
     const registered = new Set(registeredKeys);
     return new Set(
-      controlDisk
-        .map((r) => `${r.method} ${r.path}`)
-        .filter((k) => !registered.has(k)),
+      controlDisk.map((r) => `${r.method} ${r.path}`).filter((k) => !registered.has(k)),
     );
   }
 
@@ -505,7 +512,9 @@ describe("registry ⇄ filesystem parity", () => {
     // actually cover the disk rather than merely not contradicting it.
     expect(controlDisk.length).toBeGreaterThan(100);
     expect(registeredKeys.length).toBeGreaterThan(100);
-    expect(registeredKeys.length).toBeGreaterThanOrEqual(new Set(controlDisk.map((r) => `${r.method} ${r.path}`)).size);
+    expect(registeredKeys.length).toBeGreaterThanOrEqual(
+      new Set(controlDisk.map((r) => `${r.method} ${r.path}`)).size,
+    );
   });
 
   // ── THE SECOND HALF OF THE INVARIANT: registered WITH A SCOPE ────────────
@@ -730,9 +739,7 @@ describe("controllable ⇄ harness-client route-table parity", () => {
       .map((r) => `${r.httpMethod} ${r.pathTemplate}`),
   );
   const controllableRegistered = new Set(
-    apiRegistry
-      .filter((e) => e.harness?.controllable === true)
-      .map((e) => `${e.method} ${e.path}`),
+    apiRegistry.filter((e) => e.harness?.controllable === true).map((e) => `${e.method} ${e.path}`),
   );
 
   test("both sides are non-empty (guards against a vacuous pass)", () => {
@@ -741,12 +748,16 @@ describe("controllable ⇄ harness-client route-table parity", () => {
   });
 
   test("every controllable registry route has a harness-client method", () => {
-    const missingFromClient = [...controllableRegistered].filter((k) => !clientRoutes.has(k)).sort();
+    const missingFromClient = [...controllableRegistered]
+      .filter((k) => !clientRoutes.has(k))
+      .sort();
     expect(missingFromClient).toEqual([]);
   });
 
   test("every harness-client route is a registered controllable route", () => {
-    const missingFromRegistry = [...clientRoutes].filter((k) => !controllableRegistered.has(k)).sort();
+    const missingFromRegistry = [...clientRoutes]
+      .filter((k) => !controllableRegistered.has(k))
+      .sort();
     expect(missingFromRegistry).toEqual([]);
   });
 });

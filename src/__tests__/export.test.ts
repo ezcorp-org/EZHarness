@@ -71,10 +71,7 @@ describe("exportToMarkdown", () => {
   });
 
   test("handles assistant with no model", () => {
-    const msgs = [
-      { ...mockMessages[0]! },
-      { ...mockMessages[1]!, model: null },
-    ];
+    const msgs = [{ ...mockMessages[0]! }, { ...mockMessages[1]!, model: null }];
     const md = exportToMarkdown(mockConversation, msgs);
     expect(md).toContain("### **Assistant** (unknown)");
   });

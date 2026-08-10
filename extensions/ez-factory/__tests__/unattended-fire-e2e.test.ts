@@ -147,7 +147,10 @@ class BridgeRpcError extends Error {
 
 /** Turn a host `JsonRpcResponse` into a resolve or a reject, exactly as
  *  `HostChannelImpl` does for an inbound response frame. */
-function settle(res: { result?: unknown; error?: { code: number; message: string; data?: unknown } }): unknown {
+function settle(res: {
+  result?: unknown;
+  error?: { code: number; message: string; data?: unknown };
+}): unknown {
   if (res.error) throw new BridgeRpcError(res.error.code, res.error.message, res.error.data);
   return res.result;
 }
@@ -157,7 +160,11 @@ let handleTriggersRpc: typeof import("../../../src/extensions/triggers-handler")
 
 const GRANTED = {
   grantedAt: { workflows: Date.now(), triggers: Date.now() },
-  workflows: { names: ["docs-factory", "etl-factory", "draft-and-verify"], maxRunsPerHour: 60, allowDelegated: true },
+  workflows: {
+    names: ["docs-factory", "etl-factory", "draft-and-verify"],
+    maxRunsPerHour: 60,
+    allowDelegated: true,
+  },
   triggers: { maxCron: 25, maxWebhooks: 25, webhookPrefix: "factory-", maxRunsPerDay: 500 },
 } as never;
 
@@ -168,7 +175,11 @@ const MANIFEST = {
   description: "",
   author: { name: "EZCorp" },
   permissions: {
-    workflows: { names: ["docs-factory", "etl-factory", "draft-and-verify"], maxRunsPerHour: 60, allowDelegated: true },
+    workflows: {
+      names: ["docs-factory", "etl-factory", "draft-and-verify"],
+      maxRunsPerHour: 60,
+      allowDelegated: true,
+    },
     triggers: { maxCron: 25, maxWebhooks: 25, webhookPrefix: "factory-", maxRunsPerDay: 500 },
   },
 } as never;
@@ -248,12 +259,8 @@ const { systemCachedWorkflow } = await import("../../../src/runtime/workflow-sco
 const { computeDelegationConsentRecord } = await import(
   "../../../src/runtime/workflow-delegation-record"
 );
-const { delegationPrincipal } = await import(
-  "../../../src/runtime/workflow-delegation-consent"
-);
-const { createWorkflowDelegation } = await import(
-  "../../../src/db/queries/workflow-delegations"
-);
+const { delegationPrincipal } = await import("../../../src/runtime/workflow-delegation-consent");
+const { createWorkflowDelegation } = await import("../../../src/db/queries/workflow-delegations");
 const {
   _resetWorkflowTriggerQuotaForTests,
   _resetWorkflowRateLimitForTests,
@@ -266,10 +273,8 @@ const { registerFireCallProvenance } = await import("../../../src/extensions/cal
 const { resolveReverseRpcMeta, resolveDelegatedProvenance, resolveStorageProvenance } =
   await import("../../../src/extensions/tool-executor/provenance");
 
-handleWorkflowsRpc = (await import("../../../src/extensions/workflows-handler"))
-  .handleWorkflowsRpc;
-handleTriggersRpc = (await import("../../../src/extensions/triggers-handler"))
-  .handleTriggersRpc;
+handleWorkflowsRpc = (await import("../../../src/extensions/workflows-handler")).handleWorkflowsRpc;
+handleTriggersRpc = (await import("../../../src/extensions/triggers-handler")).handleTriggersRpc;
 
 const {
   __resetStateForTests,
@@ -281,13 +286,8 @@ const {
   liveTriggerKeys,
 } = await import("../index");
 
-const {
-  EDIT_SCOPE_FIELD,
-  EDIT_SCOPE_TRIGGER,
-  inputFieldId,
-  JOB_FORM_FIELDS,
-  JOB_RUN_EVENT,
-} = await import("../lib/page");
+const { EDIT_SCOPE_FIELD, EDIT_SCOPE_TRIGGER, inputFieldId, JOB_FORM_FIELDS, JOB_RUN_EVENT } =
+  await import("../lib/page");
 const { triggerKeyForJob } = await import("../lib/triggers");
 
 /**
@@ -383,10 +383,7 @@ async function save(payload: Record<string, unknown>): Promise<void> {
 /** The schedule form's half of a save. Split out because the console's job
  *  page really does submit two forms — the host caps a form at 10 fields —
  *  and `edit_scope` is what tells the handler which half arrived. */
-async function saveSchedule(
-  jobId: string,
-  trigger: Record<string, unknown>,
-): Promise<void> {
+async function saveSchedule(jobId: string, trigger: Record<string, unknown>): Promise<void> {
   await save({
     [JOB_FORM_FIELDS.jobId]: jobId,
     [EDIT_SCOPE_FIELD]: EDIT_SCOPE_TRIGGER,
@@ -927,11 +924,7 @@ describe("the fire's own rungs", () => {
     expect(agentInvocations).toBe(0);
     // No job to mark, so the trail is the only destination.
     const trail = await auditLog().readDay(new Date().toISOString().slice(0, 10));
-    expect(
-      trail.some(
-        (e) => "kind" in e && e.kind === "job-fire-refused",
-      ),
-    ).toBe(true);
+    expect(trail.some((e) => "kind" in e && e.kind === "job-fire-refused")).toBe(true);
   });
 
   test("a cron row that fires at a job which is now WEBHOOK-triggered runs nothing", async () => {
@@ -991,9 +984,7 @@ describe("a registration that the host REFUSES", () => {
     const job = await jobStore().getJob(jobId);
     expect(job?.trigger.kind).toBe("manual");
     const trail = await auditLog().readDay(new Date().toISOString().slice(0, 10));
-    expect(
-      trail.some((e) => "kind" in e && e.kind === "trigger-already-gone"),
-    ).toBe(true);
+    expect(trail.some((e) => "kind" in e && e.kind === "trigger-already-gone")).toBe(true);
   });
 
   test("an unregister refused for ANY OTHER reason is recorded as a failure", async () => {
@@ -1003,9 +994,7 @@ describe("a registration that the host REFUSES", () => {
     delete process.env.EZCORP_DISABLE_DYNAMIC_TRIGGERS;
 
     const trail = await auditLog().readDay(new Date().toISOString().slice(0, 10));
-    expect(
-      trail.some((e) => "kind" in e && e.kind === "trigger-unregister-failed"),
-    ).toBe(true);
+    expect(trail.some((e) => "kind" in e && e.kind === "trigger-unregister-failed")).toBe(true);
     // The row is still live, so the fire path's own rungs are what stop it
     // running — which is exactly why they exist.
     expect(await cronRows()).toHaveLength(1);

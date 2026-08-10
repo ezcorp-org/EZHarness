@@ -8,9 +8,7 @@
  * need an encryption key, so it is set before any secrets-store import runs.
  */
 import { test, expect, describe, beforeAll, beforeEach, afterAll } from "bun:test";
-import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
-} from "./helpers/test-pglite";
+import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 process.env.EZCORP_ENCRYPTION_SECRET ??= "0".repeat(64);
 
@@ -42,11 +40,24 @@ import { eq } from "drizzle-orm";
 let extId: string;
 
 async function ensureExtension(name: string): Promise<string> {
-  await getTestDb().insert(extensions).values({
-    name, version: "0.0.1", description: "",
-    manifest: { schemaVersion: 2, name, version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  });
+  await getTestDb()
+    .insert(extensions)
+    .values({
+      name,
+      version: "0.0.1",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    });
   return name;
 }
 
@@ -125,7 +136,9 @@ describe("reconcileWebhooks", () => {
   test("new slugs → enabled rows + initial secret minted", async () => {
     const r = await reconcileWebhooks(extId, ["tickets", "alerts"]);
     expect(r).toEqual({ added: 2, disabled: 0, preserved: 0 });
-    const rows = await getTestDb().select().from(extensionWebhooks)
+    const rows = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
       .where(eq(extensionWebhooks.extensionId, extId));
     expect(rows.map((x) => x.slug).sort()).toEqual(["alerts", "tickets"]);
     expect(rows.every((x) => x.enabled)).toBe(true);
@@ -139,7 +152,10 @@ describe("reconcileWebhooks", () => {
     const r = await reconcileWebhooks(extId, ["tickets"]);
     expect(r.preserved).toBe(1);
     expect(r.disabled).toBe(1);
-    const alerts = await getTestDb().select().from(extensionWebhooks).where(eq(extensionWebhooks.slug, "alerts"));
+    const alerts = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
+      .where(eq(extensionWebhooks.slug, "alerts"));
     expect(alerts[0]!.enabled).toBe(false);
     // The kept slug's secret is NOT rotated by re-reconcile.
     expect(await getWebhookSecret(extId, "tickets")).toBe(secretBefore);
@@ -151,11 +167,17 @@ describe("reconcileWebhooks", () => {
     await reconcileWebhooks(extId, ["tickets"]);
     const secret = await getWebhookSecret(extId, "tickets");
     await reconcileWebhooks(extId, []); // disable all
-    const disabled = await getTestDb().select().from(extensionWebhooks).where(eq(extensionWebhooks.slug, "tickets"));
+    const disabled = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
+      .where(eq(extensionWebhooks.slug, "tickets"));
     expect(disabled[0]!.enabled).toBe(false);
     const r = await reconcileWebhooks(extId, ["tickets"]);
     expect(r.preserved).toBe(1);
-    const reenabled = await getTestDb().select().from(extensionWebhooks).where(eq(extensionWebhooks.slug, "tickets"));
+    const reenabled = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
+      .where(eq(extensionWebhooks.slug, "tickets"));
     expect(reenabled[0]!.enabled).toBe(true);
     expect(await getWebhookSecret(extId, "tickets")).toBe(secret);
   });
@@ -173,7 +195,10 @@ describe("reconcileWebhooks", () => {
       throw new Error("simulated secrets-store failure");
     });
     expect(r.added).toBe(1);
-    const rows = await getTestDb().select().from(extensionWebhooks).where(eq(extensionWebhooks.slug, "resilient"));
+    const rows = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
+      .where(eq(extensionWebhooks.slug, "resilient"));
     expect(rows[0]!.enabled).toBe(true);
   });
 
@@ -181,7 +206,10 @@ describe("reconcileWebhooks", () => {
     const r = await reconcileWebhooks(extId, ["ok", "ok", "../bad", "UP", "a/b"]);
     // Only "ok" survives, once.
     expect(r.added).toBe(1);
-    const rows = await getTestDb().select().from(extensionWebhooks).where(eq(extensionWebhooks.extensionId, extId));
+    const rows = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
+      .where(eq(extensionWebhooks.extensionId, extId));
     expect(rows.map((x) => x.slug)).toEqual(["ok"]);
   });
 });
@@ -214,7 +242,10 @@ describe("webhook-store", () => {
       receivedAt: at,
     });
     expect(typeof id).toBe("string");
-    const rows = await getTestDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, id));
+    const rows = await getTestDb()
+      .select()
+      .from(webhookDeliveries)
+      .where(eq(webhookDeliveries.id, id));
     expect(rows[0]!.status).toBe("pending");
     expect(rows[0]!.body).toBe('{"x":1}');
     expect(rows[0]!.catchUp).toBe(false);
@@ -227,8 +258,12 @@ describe("webhook-store", () => {
     const yesterday = new Date("2026-07-15T12:00:00.000Z");
     for (const at of [today, today, yesterday]) {
       await insertDelivery({
-        webhookId: hook.id, extensionId: extId, slug: "tickets",
-        contentType: null, body: "x", receivedAt: at,
+        webhookId: hook.id,
+        extensionId: extId,
+        slug: "tickets",
+        contentType: null,
+        body: "x",
+        receivedAt: at,
       });
     }
     const since = startOfUtcDay(today);
@@ -242,21 +277,34 @@ describe("webhook-store", () => {
     const hook = (await getEnabledWebhook(extId, "tickets"))!;
     const old = new Date(Date.now() - 60 * 86_400_000); // 60 days ago
     const recent = new Date();
-    async function ins(status: "pending" | "running" | "ok" | "error", receivedAt: Date): Promise<string> {
-      const [r] = await getTestDb().insert(webhookDeliveries).values({
-        webhookId: hook.id, extensionId: extId, slug: "tickets", status,
-        contentType: null, body: "x", receivedAt,
-      }).returning({ id: webhookDeliveries.id });
+    async function ins(
+      status: "pending" | "running" | "ok" | "error",
+      receivedAt: Date,
+    ): Promise<string> {
+      const [r] = await getTestDb()
+        .insert(webhookDeliveries)
+        .values({
+          webhookId: hook.id,
+          extensionId: extId,
+          slug: "tickets",
+          status,
+          contentType: null,
+          body: "x",
+          receivedAt,
+        })
+        .returning({ id: webhookDeliveries.id });
       return r!.id;
     }
     const oldOk = await ins("ok", old);
     const oldErr = await ins("error", old);
-    const oldPending = await ins("pending", old);   // live — NEVER swept
-    const oldRunning = await ins("running", old);   // live — NEVER swept
-    const recentOk = await ins("ok", recent);       // within retention — kept
+    const oldPending = await ins("pending", old); // live — NEVER swept
+    const oldRunning = await ins("running", old); // live — NEVER swept
+    const recentOk = await ins("ok", recent); // within retention — kept
     const deleted = await cleanupOldWebhookDeliveries(30);
     expect(deleted).toBe(2); // only the two OLD terminal rows
-    const ids = (await getTestDb().select({ id: webhookDeliveries.id }).from(webhookDeliveries)).map((r) => r.id);
+    const ids = (
+      await getTestDb().select({ id: webhookDeliveries.id }).from(webhookDeliveries)
+    ).map((r) => r.id);
     expect(ids.sort()).toEqual([oldPending, oldRunning, recentOk].sort());
     expect(ids).not.toContain(oldOk);
     expect(ids).not.toContain(oldErr);
@@ -269,9 +317,23 @@ describe("webhook-store", () => {
     const today = new Date("2026-07-16T12:00:00.000Z");
     // 3 deliveries to `tickets`, 1 to `alerts`.
     for (let i = 0; i < 3; i++) {
-      await insertDelivery({ webhookId: tickets.id, extensionId: extId, slug: "tickets", contentType: null, body: "x", receivedAt: today });
+      await insertDelivery({
+        webhookId: tickets.id,
+        extensionId: extId,
+        slug: "tickets",
+        contentType: null,
+        body: "x",
+        receivedAt: today,
+      });
     }
-    await insertDelivery({ webhookId: alerts.id, extensionId: extId, slug: "alerts", contentType: null, body: "x", receivedAt: today });
+    await insertDelivery({
+      webhookId: alerts.id,
+      extensionId: extId,
+      slug: "alerts",
+      contentType: null,
+      body: "x",
+      receivedAt: today,
+    });
     const since = startOfUtcDay(today);
     // Each hook's count reflects ONLY its own slug — a flood on `tickets` never
     // consumes `alerts`'s budget.

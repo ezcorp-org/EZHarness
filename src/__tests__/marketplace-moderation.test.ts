@@ -14,42 +14,108 @@ mockServerAlias();
 
 import { POST as flagPOST } from "../../web/src/routes/api/marketplace/[id]/flag/+server";
 import { GET as pendingFlagsGET } from "../../web/src/routes/api/marketplace/flags/+server";
-import { GET as flagHistoryGET, PATCH as flagResolvePATCH } from "../../web/src/routes/api/marketplace/[id]/flags/+server";
+import {
+  GET as flagHistoryGET,
+  PATCH as flagResolvePATCH,
+} from "../../web/src/routes/api/marketplace/[id]/flags/+server";
 import { DELETE as hardDELETE } from "../../web/src/routes/api/marketplace/[id]/delete/+server";
 import { getDb } from "../db/connection";
-import { users, marketplaceListings, } from "../db/schema";
+import { users, marketplaceListings } from "../db/schema";
 import {
   createFlag,
   countPendingFlagsByUser,
   getFlagHistory,
   resolveFlag,
 } from "../db/queries/marketplace-ratings";
-import {
-  deleteListing,
-  browseMarketplace,
-  createListing,
-} from "../db/queries/marketplace";
+import { deleteListing, browseMarketplace, createListing } from "../db/queries/marketplace";
 import { eq } from "drizzle-orm";
 
-const AUTHOR: AuthUser = { id: "mod-author-001", email: "author@mod.test", name: "Mod Author", role: "member" };
-const FLAGGER1: AuthUser = { id: "mod-flagger-001", email: "flagger1@mod.test", name: "Flagger 1", role: "member" };
-const FLAGGER2: AuthUser = { id: "mod-flagger-002", email: "flagger2@mod.test", name: "Flagger 2", role: "member" };
-const FLAGGER3: AuthUser = { id: "mod-flagger-003", email: "flagger3@mod.test", name: "Flagger 3", role: "member" };
-const ROUTE_FLAGGER: AuthUser = { id: "mod-route-flagger-001", email: "routeflagger@mod.test", name: "Route Flagger", role: "member" };
-const RATE_LIMIT_USER: AuthUser = { id: "mod-ratelimit-001", email: "ratelimit@mod.test", name: "Rate Limit User", role: "member" };
-const ADMIN: AuthUser = { id: "mod-admin-001", email: "admin@mod.test", name: "Mod Admin", role: "admin" };
+const AUTHOR: AuthUser = {
+  id: "mod-author-001",
+  email: "author@mod.test",
+  name: "Mod Author",
+  role: "member",
+};
+const FLAGGER1: AuthUser = {
+  id: "mod-flagger-001",
+  email: "flagger1@mod.test",
+  name: "Flagger 1",
+  role: "member",
+};
+const FLAGGER2: AuthUser = {
+  id: "mod-flagger-002",
+  email: "flagger2@mod.test",
+  name: "Flagger 2",
+  role: "member",
+};
+const FLAGGER3: AuthUser = {
+  id: "mod-flagger-003",
+  email: "flagger3@mod.test",
+  name: "Flagger 3",
+  role: "member",
+};
+const ROUTE_FLAGGER: AuthUser = {
+  id: "mod-route-flagger-001",
+  email: "routeflagger@mod.test",
+  name: "Route Flagger",
+  role: "member",
+};
+const RATE_LIMIT_USER: AuthUser = {
+  id: "mod-ratelimit-001",
+  email: "ratelimit@mod.test",
+  name: "Rate Limit User",
+  role: "member",
+};
+const ADMIN: AuthUser = {
+  id: "mod-admin-001",
+  email: "admin@mod.test",
+  name: "Mod Admin",
+  role: "admin",
+};
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values([
-    { id: AUTHOR.id, email: AUTHOR.email, passwordHash: "h", name: AUTHOR.name, role: "member" },
-    { id: FLAGGER1.id, email: FLAGGER1.email, passwordHash: "h", name: FLAGGER1.name, role: "member" },
-    { id: FLAGGER2.id, email: FLAGGER2.email, passwordHash: "h", name: FLAGGER2.name, role: "member" },
-    { id: FLAGGER3.id, email: FLAGGER3.email, passwordHash: "h", name: FLAGGER3.name, role: "member" },
-    { id: ROUTE_FLAGGER.id, email: ROUTE_FLAGGER.email, passwordHash: "h", name: ROUTE_FLAGGER.name, role: "member" },
-    { id: RATE_LIMIT_USER.id, email: RATE_LIMIT_USER.email, passwordHash: "h", name: RATE_LIMIT_USER.name, role: "member" },
-    { id: ADMIN.id, email: ADMIN.email, passwordHash: "h", name: ADMIN.name, role: "admin" },
-  ]);
+  await getDb()
+    .insert(users)
+    .values([
+      { id: AUTHOR.id, email: AUTHOR.email, passwordHash: "h", name: AUTHOR.name, role: "member" },
+      {
+        id: FLAGGER1.id,
+        email: FLAGGER1.email,
+        passwordHash: "h",
+        name: FLAGGER1.name,
+        role: "member",
+      },
+      {
+        id: FLAGGER2.id,
+        email: FLAGGER2.email,
+        passwordHash: "h",
+        name: FLAGGER2.name,
+        role: "member",
+      },
+      {
+        id: FLAGGER3.id,
+        email: FLAGGER3.email,
+        passwordHash: "h",
+        name: FLAGGER3.name,
+        role: "member",
+      },
+      {
+        id: ROUTE_FLAGGER.id,
+        email: ROUTE_FLAGGER.email,
+        passwordHash: "h",
+        name: ROUTE_FLAGGER.name,
+        role: "member",
+      },
+      {
+        id: RATE_LIMIT_USER.id,
+        email: RATE_LIMIT_USER.email,
+        passwordHash: "h",
+        name: RATE_LIMIT_USER.name,
+        role: "member",
+      },
+      { id: ADMIN.id, email: ADMIN.email, passwordHash: "h", name: ADMIN.name, role: "admin" },
+    ]);
 });
 
 afterAll(async () => {
@@ -85,7 +151,10 @@ describe("createFlag", () => {
   test("single flag auto-hides listing (threshold is 1)", async () => {
     const listing = await createTestListing("Flag Status Test");
     await createFlag(listing.id, FLAGGER1.id, "problematic", "misleading");
-    const [updated] = await getDb().select().from(marketplaceListings).where(eq(marketplaceListings.id, listing.id));
+    const [updated] = await getDb()
+      .select()
+      .from(marketplaceListings)
+      .where(eq(marketplaceListings.id, listing.id));
     expect(updated.status).toBe("flagged");
   });
 
@@ -93,7 +162,10 @@ describe("createFlag", () => {
     const listing = await createTestListing("Flag Count Test");
     await createFlag(listing.id, FLAGGER1.id, "reason1", "spam");
     await createFlag(listing.id, FLAGGER2.id, "reason2", "spam");
-    const [updated] = await getDb().select().from(marketplaceListings).where(eq(marketplaceListings.id, listing.id));
+    const [updated] = await getDb()
+      .select()
+      .from(marketplaceListings)
+      .where(eq(marketplaceListings.id, listing.id));
     expect(updated.flagCount).toBe(2);
   });
 });
@@ -106,7 +178,10 @@ describe("auto-hide threshold", () => {
     await createFlag(listing.id, FLAGGER1.id, "r1", "spam");
     await createFlag(listing.id, FLAGGER2.id, "r2", "spam");
     await createFlag(listing.id, FLAGGER3.id, "r3", "spam");
-    const [updated] = await getDb().select().from(marketplaceListings).where(eq(marketplaceListings.id, listing.id));
+    const [updated] = await getDb()
+      .select()
+      .from(marketplaceListings)
+      .where(eq(marketplaceListings.id, listing.id));
     expect(updated.flagCount).toBe(3);
     expect(updated.status).toBe("flagged");
   });
@@ -130,7 +205,10 @@ describe("resolveFlag", () => {
     const listing = await createTestListing("Dismiss Test");
     const flag = await createFlag(listing.id, FLAGGER1.id, "reason", "spam");
     await resolveFlag(flag.id, ADMIN.id, "dismissed");
-    const [updated] = await getDb().select().from(marketplaceListings).where(eq(marketplaceListings.id, listing.id));
+    const [updated] = await getDb()
+      .select()
+      .from(marketplaceListings)
+      .where(eq(marketplaceListings.id, listing.id));
     expect(updated.status).toBe("active");
   });
 
@@ -138,9 +216,15 @@ describe("resolveFlag", () => {
     const listing = await createTestListing("Dismiss Removed Test");
     const flag = await createFlag(listing.id, FLAGGER1.id, "reason", "spam");
     // Manually set to removed
-    await getDb().update(marketplaceListings).set({ status: "removed" }).where(eq(marketplaceListings.id, listing.id));
+    await getDb()
+      .update(marketplaceListings)
+      .set({ status: "removed" })
+      .where(eq(marketplaceListings.id, listing.id));
     await resolveFlag(flag.id, ADMIN.id, "dismissed");
-    const [updated] = await getDb().select().from(marketplaceListings).where(eq(marketplaceListings.id, listing.id));
+    const [updated] = await getDb()
+      .select()
+      .from(marketplaceListings)
+      .where(eq(marketplaceListings.id, listing.id));
     expect(updated.status).toBe("removed");
   });
 
@@ -148,7 +232,10 @@ describe("resolveFlag", () => {
     const listing = await createTestListing("Remove Test");
     const flag = await createFlag(listing.id, FLAGGER1.id, "reason", "malicious");
     await resolveFlag(flag.id, ADMIN.id, "removed");
-    const [updated] = await getDb().select().from(marketplaceListings).where(eq(marketplaceListings.id, listing.id));
+    const [updated] = await getDb()
+      .select()
+      .from(marketplaceListings)
+      .where(eq(marketplaceListings.id, listing.id));
     expect(updated.status).toBe("removed");
   });
 
@@ -157,7 +244,10 @@ describe("resolveFlag", () => {
     const flag1 = await createFlag(listing.id, FLAGGER1.id, "r1", "spam");
     await createFlag(listing.id, FLAGGER2.id, "r2", "spam");
     await resolveFlag(flag1.id, ADMIN.id, "dismissed");
-    const [updated] = await getDb().select().from(marketplaceListings).where(eq(marketplaceListings.id, listing.id));
+    const [updated] = await getDb()
+      .select()
+      .from(marketplaceListings)
+      .where(eq(marketplaceListings.id, listing.id));
     // Only flagger2's pending flag remains
     expect(updated.flagCount).toBe(1);
   });
@@ -186,7 +276,10 @@ describe("deleteListing", () => {
     const listing = await createTestListing("Delete Test");
     const result = await deleteListing(listing.id);
     expect(result).toBe(true);
-    const [gone] = await getDb().select().from(marketplaceListings).where(eq(marketplaceListings.id, listing.id));
+    const [gone] = await getDb()
+      .select()
+      .from(marketplaceListings)
+      .where(eq(marketplaceListings.id, listing.id));
     expect(gone).toBeUndefined();
   });
 
@@ -203,8 +296,14 @@ describe("browseMarketplace", () => {
     const active = await createTestListing("Browse Active");
     const flagged = await createTestListing("Browse Flagged");
     const removed = await createTestListing("Browse Removed");
-    await getDb().update(marketplaceListings).set({ status: "flagged" }).where(eq(marketplaceListings.id, flagged.id));
-    await getDb().update(marketplaceListings).set({ status: "removed" }).where(eq(marketplaceListings.id, removed.id));
+    await getDb()
+      .update(marketplaceListings)
+      .set({ status: "flagged" })
+      .where(eq(marketplaceListings.id, flagged.id));
+    await getDb()
+      .update(marketplaceListings)
+      .set({ status: "removed" })
+      .where(eq(marketplaceListings.id, removed.id));
 
     const results = await browseMarketplace({});
     const ids = results.map((r) => r.id);

@@ -26,15 +26,26 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -53,14 +64,25 @@ const noSecret = async (): Promise<string | null> => null;
 
 beforeAll(async () => {
   await setupTestDb();
-  const [row] = await getTestDb().insert(extensions).values({
-    name: EXT_NAME, version: "0.0.1", description: "",
-    manifest: {
-      schemaVersion: 2, name: EXT_NAME, version: "0.0.1", description: "",
-      author: { name: "t" }, permissions: {},
-    } as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name: EXT_NAME,
+      version: "0.0.1",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name: EXT_NAME,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    })
+    .returning({ id: extensions.id });
   extId = row!.id;
 });
 
@@ -76,18 +98,32 @@ afterAll(async () => {
 
 /** Insert one dynamic cron row, as `ctx.triggers.register` would. */
 async function seedDynamicSchedule(key: string, cron = "0 9 * * 1"): Promise<string> {
-  const [row] = await getTestDb().insert(extensionSchedules).values({
-    extensionId: extId, cron, nextFireAt: new Date(),
-    enabled: true, dynamic: true, key,
-  }).returning({ id: extensionSchedules.id });
+  const [row] = await getTestDb()
+    .insert(extensionSchedules)
+    .values({
+      extensionId: extId,
+      cron,
+      nextFireAt: new Date(),
+      enabled: true,
+      dynamic: true,
+      key,
+    })
+    .returning({ id: extensionSchedules.id });
   return row!.id;
 }
 
 /** Insert one dynamic webhook row, as `ctx.triggers.register` would. */
 async function seedDynamicWebhook(key: string, slug: string): Promise<string> {
-  const [row] = await getTestDb().insert(extensionWebhooks).values({
-    extensionId: EXT_NAME, slug, enabled: true, dynamic: true, key,
-  }).returning({ id: extensionWebhooks.id });
+  const [row] = await getTestDb()
+    .insert(extensionWebhooks)
+    .values({
+      extensionId: EXT_NAME,
+      slug,
+      enabled: true,
+      dynamic: true,
+      key,
+    })
+    .returning({ id: extensionWebhooks.id });
   return row!.id;
 }
 
@@ -100,17 +136,18 @@ describe("reconcileSchedules leaves dynamic rows alone", () => {
 
     const result = await reconcileSchedules(extId, []);
 
-    const dyn = await getTestDb().select().from(extensionSchedules)
+    const dyn = await getTestDb()
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.id, dynId));
     expect(dyn[0]!.enabled).toBe(true);
     // The manifest row was disabled; the dynamic one was not counted.
     expect(result.disabled).toBe(1);
 
-    const manifestRows = await getTestDb().select().from(extensionSchedules)
-      .where(and(
-        eq(extensionSchedules.extensionId, extId),
-        eq(extensionSchedules.dynamic, false),
-      ));
+    const manifestRows = await getTestDb()
+      .select()
+      .from(extensionSchedules)
+      .where(and(eq(extensionSchedules.extensionId, extId), eq(extensionSchedules.dynamic, false)));
     expect(manifestRows.every((r) => !r.enabled)).toBe(true);
   });
 
@@ -122,7 +159,9 @@ describe("reconcileSchedules leaves dynamic rows alone", () => {
 
     const result = await reconcileSchedules(extId, []);
 
-    const dyn = await getTestDb().select().from(extensionSchedules)
+    const dyn = await getTestDb()
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.id, dynId));
     expect(dyn[0]!.enabled).toBe(true);
     expect(result.disabled).toBe(0);
@@ -137,7 +176,9 @@ describe("reconcileSchedules leaves dynamic rows alone", () => {
 
     const result = await reconcileSchedules(extId, ["0 3 * * *"]);
 
-    const dyn = await getTestDb().select().from(extensionSchedules)
+    const dyn = await getTestDb()
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.id, dynId));
     expect(dyn[0]!.enabled).toBe(true);
     expect(dyn[0]!.key).toBe("job:shares");
@@ -161,7 +202,9 @@ describe("reconcileWebhooks leaves dynamic rows alone", () => {
 
     const result = await reconcileWebhooks(EXT_NAME, [], () => new Date(), noSecret);
 
-    const dyn = await getTestDb().select().from(extensionWebhooks)
+    const dyn = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
       .where(eq(extensionWebhooks.id, dynId));
     expect(dyn[0]!.enabled).toBe(true);
     expect(result.disabled).toBe(1); // the manifest "tickets" only
@@ -175,7 +218,9 @@ describe("reconcileWebhooks leaves dynamic rows alone", () => {
 
     const result = await reconcileWebhooks(EXT_NAME, [], () => new Date(), noSecret);
 
-    const dyn = await getTestDb().select().from(extensionWebhooks)
+    const dyn = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
       .where(eq(extensionWebhooks.id, dynId));
     expect(dyn[0]!.enabled).toBe(true);
     expect(result.disabled).toBe(0);
@@ -187,7 +232,9 @@ describe("reconcileWebhooks leaves dynamic rows alone", () => {
 
     const result = await reconcileWebhooks(EXT_NAME, ["tickets"], () => new Date(), noSecret);
 
-    const dyn = await getTestDb().select().from(extensionWebhooks)
+    const dyn = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
       .where(eq(extensionWebhooks.id, dynId));
     expect(dyn[0]!.enabled).toBe(true);
     expect(result.disabled).toBe(1); // only "alerts"
@@ -199,13 +246,16 @@ describe("reconcileWebhooks leaves dynamic rows alone", () => {
     // that — the re-enable loop keys on the GRANT, which a dynamic slug is
     // never in, but assert it so a future refactor cannot regress it.
     const dynId = await seedDynamicWebhook("job:off", "factory-dddddddddddd");
-    await getTestDb().update(extensionWebhooks)
+    await getTestDb()
+      .update(extensionWebhooks)
       .set({ enabled: false })
       .where(eq(extensionWebhooks.id, dynId));
 
     await reconcileWebhooks(EXT_NAME, ["tickets"], () => new Date(), noSecret);
 
-    const dyn = await getTestDb().select().from(extensionWebhooks)
+    const dyn = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
       .where(eq(extensionWebhooks.id, dynId));
     expect(dyn[0]!.enabled).toBe(false);
   });

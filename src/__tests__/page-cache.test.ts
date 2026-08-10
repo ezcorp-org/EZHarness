@@ -16,7 +16,13 @@ const TREE2: HubPageTree = { title: "T2", nodes: [] };
 function makeCache(startMs = 1_000) {
   let now = startMs;
   const cache = new ExtensionPageCache(PAGE_CACHE_TTL_MS, () => now);
-  return { cache, advance: (ms: number) => { now += ms; }, nowMs: () => now };
+  return {
+    cache,
+    advance: (ms: number) => {
+      now += ms;
+    },
+    nowMs: () => now,
+  };
 }
 
 describe("ExtensionPageCache", () => {

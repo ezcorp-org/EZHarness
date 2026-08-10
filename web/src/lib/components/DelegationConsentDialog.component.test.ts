@@ -94,7 +94,13 @@ const PREVIEW: ConsentPreview = {
   consentHash: "hash-1",
   definitionVersionId: "v1",
   effortNoops: [
-    { workflowName: "ship-it", stepName: "draft", provider: "ollama", model: "llama3", effort: "high" },
+    {
+      workflowName: "ship-it",
+      stepName: "draft",
+      provider: "ollama",
+      model: "llama3",
+      effort: "high",
+    },
   ],
   maxToolCallsPerRun: 100,
   maxNestingDepth: 3,
@@ -110,9 +116,7 @@ const BARE_PREVIEW: ConsentPreview = {
   ...PREVIEW,
   material: {
     ...PREVIEW.material,
-    graph: [
-      { name: "ship-it", identity: "v1", defaultModel: "null", steps: [], capabilities: [] },
-    ],
+    graph: [{ name: "ship-it", identity: "v1", defaultModel: "null", steps: [], capabilities: [] }],
     unresolved: [],
     cycles: [],
     tooDeep: [],
@@ -253,7 +257,9 @@ describe("the owner-kind picker (Ruling 1)", () => {
     expect(getByTestId("owner-kind-user")).toBeChecked();
     expect(getByTestId("owner-kind-service")).not.toBeChecked();
     // Nothing to warn about while running as yourself.
-    expect(getByTestId("owner-kind-picker").querySelector('[data-testid="reach-warning"]')).toBeNull();
+    expect(
+      getByTestId("owner-kind-picker").querySelector('[data-testid="reach-warning"]'),
+    ).toBeNull();
   });
 
   test("choosing a service account surfaces the SERVER's reach sentence, verbatim", async () => {
@@ -412,7 +418,9 @@ describe("nothing is pre-approved", () => {
 
     await fireEvent.input(getByTestId("max-tokens-per-run"), { target: { value: "200000" } });
     expect(approve).toBeDisabled();
-    expect(getByTestId("consent-blocked-reason")).toHaveTextContent("maximum number of runs per day");
+    expect(getByTestId("consent-blocked-reason")).toHaveTextContent(
+      "maximum number of runs per day",
+    );
 
     await fireEvent.input(getByTestId("max-runs-per-day"), { target: { value: "24" } });
     expect(approve).toBeEnabled();

@@ -80,9 +80,7 @@ vi.mock("$server/chat/attachments/clone", () => ({
   cloneAttachmentsForFork,
 }));
 
-const { GET, POST } = await import(
-  "../routes/api/conversations/[id]/messages/+server.ts"
-);
+const { GET, POST } = await import("../routes/api/conversations/[id]/messages/+server.ts");
 
 function makeEvent(opts: {
   method?: string;
@@ -102,9 +100,7 @@ function makeEvent(opts: {
     params: { id: "c1" },
     request: new Request(href, {
       method,
-      headers: hasBody
-        ? { "content-type": opts.contentType ?? "application/json" }
-        : undefined,
+      headers: hasBody ? { "content-type": opts.contentType ?? "application/json" } : undefined,
       body: hasBody ? JSON.stringify(opts.body) : undefined,
     }),
   } as any;
@@ -168,9 +164,7 @@ describe("POST /api/conversations/[id]/messages", () => {
   test("rejects 401 when unauthenticated", async () => {
     let res: Response | undefined;
     try {
-      await POST(
-        makeEvent({ method: "POST", body: { content: "hi" } }),
-      );
+      await POST(makeEvent({ method: "POST", body: { content: "hi" } }));
       expect.fail("should have thrown");
     } catch (thrown) {
       expect(thrown).toBeInstanceOf(Response);
@@ -283,9 +277,7 @@ describe("POST /api/conversations/[id]/messages — parent resolution", () => {
     expect(getLatestLeaf).toHaveBeenCalledWith("c1", {
       excludeCapabilityEvents: true,
     });
-    expect(createMessage.mock.calls[0]![1].parentMessageId).toBe(
-      "assistant-leaf",
-    );
+    expect(createMessage.mock.calls[0]![1].parentMessageId).toBe("assistant-leaf");
   });
 
   test("first message in a conversation (no leaf) stays root", async () => {
@@ -380,7 +372,9 @@ describe("POST /api/conversations/[id]/messages — Auto sentinel + route-once",
     );
     expect(res.status).toBe(200);
     expect(streamChat).toHaveBeenCalledTimes(1);
-    const opts = (streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }])[2];
+    const opts = (
+      streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }]
+    )[2];
     expect(opts.provider).toBeUndefined();
     expect(opts.model).toBeUndefined();
   });
@@ -390,7 +384,9 @@ describe("POST /api/conversations/[id]/messages — Auto sentinel + route-once",
       makeEvent({ method: "POST", locals: { user }, body: { content: "hi" } }),
     );
     expect(res.status).toBe(200);
-    const opts = (streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }])[2];
+    const opts = (
+      streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }]
+    )[2];
     expect(opts.provider).toBe("openai");
     expect(opts.model).toBe("gpt-4o");
     // Absent-field turns never trigger the route-once pin.
@@ -407,7 +403,9 @@ describe("POST /api/conversations/[id]/messages — Auto sentinel + route-once",
       }),
     );
     expect(res.status).toBe(200);
-    const opts = (streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }])[2];
+    const opts = (
+      streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }]
+    )[2];
     expect(opts.provider).toBe("anthropic");
     expect(opts.model).toBe("claude-opus");
     await flushRouteOnce();
@@ -423,7 +421,13 @@ describe("POST /api/conversations/[id]/messages — Auto sentinel + route-once",
     getMessages.mockImplementation(async () => [
       { id: "u-row", role: "user", runId: null, provider: null, model: null },
       // Served assistant row persisted by the runtime for THIS run.
-      { id: "a-row", role: "assistant", runId: seenRunId, provider: "anthropic", model: "claude-sonnet" },
+      {
+        id: "a-row",
+        role: "assistant",
+        runId: seenRunId,
+        provider: "anthropic",
+        model: "claude-sonnet",
+      },
       // A later row from another run must not win.
       { id: "a-other", role: "assistant", runId: "other-run", provider: "openai", model: "gpt-4o" },
     ]);

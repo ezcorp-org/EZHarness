@@ -41,9 +41,7 @@ export interface SearchPolicy {
 }
 
 /** `false` grant → the resolver reports DENIED rather than a policy. */
-export type ResolvedSearchPolicy =
-  | { denied: true }
-  | ({ denied: false } & SearchPolicy);
+export type ResolvedSearchPolicy = { denied: true } | ({ denied: false } & SearchPolicy);
 
 /** Hard defaults (code) — §3.3. The floor every other layer falls back to. */
 export const HARD_SEARCH_DEFAULTS: SearchPolicy = {

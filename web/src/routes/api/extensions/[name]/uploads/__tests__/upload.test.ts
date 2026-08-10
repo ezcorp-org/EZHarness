@@ -8,11 +8,17 @@
 
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
-import { mockServerAlias, MEMBER_USER } from "../../../../../../../../src/__tests__/helpers/mock-request";
+import {
+  mockServerAlias,
+  MEMBER_USER,
+} from "../../../../../../../../src/__tests__/helpers/mock-request";
 
 mockServerAlias();
 
-mock.module("../../../../../../../../web/src/routes/api/extensions/[name]/uploads/$types", () => ({}));
+mock.module(
+  "../../../../../../../../web/src/routes/api/extensions/[name]/uploads/$types",
+  () => ({}),
+);
 mock.module("$lib/server/security/api-keys", () => ({
   requireScope: () => null,
 }));
@@ -24,9 +30,22 @@ mock.module("$lib/server/http-errors", () => httpErrorsActual);
 
 // ── Mocked DB modules ────────────────────────────────────────────
 
-interface MockConv { id: string; userId: string; projectId: string }
-interface MockExt { id: string; name: string; enabled: boolean; grantedPermissions: Record<string, unknown> }
-interface MockMsg { id: string; conversationId: string; role: string }
+interface MockConv {
+  id: string;
+  userId: string;
+  projectId: string;
+}
+interface MockExt {
+  id: string;
+  name: string;
+  enabled: boolean;
+  grantedPermissions: Record<string, unknown>;
+}
+interface MockMsg {
+  id: string;
+  conversationId: string;
+  role: string;
+}
 
 let mockConv: MockConv | null = null;
 let mockExt: MockExt | null = null;
@@ -56,7 +75,10 @@ mock.module("$server/db/queries/projects", () => ({
 mock.module("$server/chat/attachments/storage", () => ({
   writeAttachment: async (opts: Record<string, unknown>) => {
     writeCalls.push(opts);
-    return { storagePath: `/tmp/p/.ezcorp/attachments/x.wav`, sizeBytes: (opts.bytes as Uint8Array).byteLength };
+    return {
+      storagePath: `/tmp/p/.ezcorp/attachments/x.wav`,
+      sizeBytes: (opts.bytes as Uint8Array).byteLength,
+    };
   },
 }));
 
@@ -122,7 +144,9 @@ function makeForm(opts: {
   if (!opts.omitFile) {
     const mime = opts.mime ?? "audio/wav";
     const filename = opts.filename ?? defaultFilenameFor(mime);
-    const blob = new Blob([(opts.bytes ?? new Uint8Array([1, 2, 3, 4])) as BlobPart], { type: mime });
+    const blob = new Blob([(opts.bytes ?? new Uint8Array([1, 2, 3, 4])) as BlobPart], {
+      type: mime,
+    });
     form.append("file", new File([blob], filename, { type: mime }));
   }
   form.append("conversationId", opts.conversationId ?? "conv-1");
@@ -234,7 +258,9 @@ describe("uploads — MIME whitelist", () => {
     expect(insertCalls[0]!.kind).toBe("audio");
     // Bun's multipart parser may normalize audio/wav → audio/x-wav;
     // we only assert it's one of the allowed audio aliases.
-    expect(["audio/wav", "audio/x-wav", "audio/wave"]).toContain(insertCalls[0]!.mimeType as string);
+    expect(["audio/wav", "audio/x-wav", "audio/wave"]).toContain(
+      insertCalls[0]!.mimeType as string,
+    );
   });
 
   test("audio/mpeg accepted", async () => {

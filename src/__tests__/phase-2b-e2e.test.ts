@@ -52,7 +52,10 @@ mock.module("$server/extensions/registry", async () => {
 
 mock.module("../../web/src/routes/api/extensions/[id]/permissions/$types", () => ({}));
 
-import { PUT as permissionsPut, GET as permissionsGet } from "../../web/src/routes/api/extensions/[id]/permissions/+server";
+import {
+  PUT as permissionsPut,
+  GET as permissionsGet,
+} from "../../web/src/routes/api/extensions/[id]/permissions/+server";
 import { listAuditForExtension } from "../db/queries/audit-log";
 import { handleEmitTaskEventRpc } from "../extensions/task-events-handler";
 import { handleAgentConfigsRpc } from "../extensions/agent-configs-handler";
@@ -98,72 +101,108 @@ function getEvent(): any {
   };
 }
 
-function makeBus(): { bus: EventBus<AgentEvents>; calls: Array<{ event: string; payload: unknown }> } {
+function makeBus(): {
+  bus: EventBus<AgentEvents>;
+  calls: Array<{ event: string; payload: unknown }>;
+} {
   const calls: Array<{ event: string; payload: unknown }> = [];
   const bus = {
-    emit: (event: string, payload: unknown) => { calls.push({ event, payload }); },
+    emit: (event: string, payload: unknown) => {
+      calls.push({ event, payload });
+    },
     on: () => () => {},
     off: () => {},
   } as unknown as EventBus<AgentEvents>;
   return { bus, calls };
 }
 
-function rpc(method: string, params: Record<string, unknown>, id: number | string = 1): JsonRpcRequest {
+function rpc(
+  method: string,
+  params: Record<string, unknown>,
+  id: number | string = 1,
+): JsonRpcRequest {
   return { jsonrpc: "2.0", id, method, params };
 }
 
 beforeAll(async () => {
   await setupTestDb();
 
-  await getDb().insert(users).values({
-    id: USER_ID, email: "u@t.local", passwordHash: "x", name: "U",
-  } as any);
-  await getDb().insert(users).values({
-    id: ADMIN.id, email: "a2@t.local", passwordHash: "x", name: "A", role: "admin",
-  } as any);
+  await getDb()
+    .insert(users)
+    .values({
+      id: USER_ID,
+      email: "u@t.local",
+      passwordHash: "x",
+      name: "U",
+    } as any);
+  await getDb()
+    .insert(users)
+    .values({
+      id: ADMIN.id,
+      email: "a2@t.local",
+      passwordHash: "x",
+      name: "A",
+      role: "admin",
+    } as any);
 
-  await getDb().insert(projects).values({
-    id: "proj-2b-e2e", name: "proj", path: "/tmp/proj-2b-e2e",
-  } as any);
-  await getDb().insert(conversations).values({
-    id: CONV_ID, projectId: "proj-2b-e2e", title: "e2e",
-  } as any);
+  await getDb()
+    .insert(projects)
+    .values({
+      id: "proj-2b-e2e",
+      name: "proj",
+      path: "/tmp/proj-2b-e2e",
+    } as any);
+  await getDb()
+    .insert(conversations)
+    .values({
+      id: CONV_ID,
+      projectId: "proj-2b-e2e",
+      title: "e2e",
+    } as any);
 
-  await getDb().insert(extensionsTable).values({
-    id: EXT_ID,
-    name: EXT_ID,
-    version: "1.0.0",
-    description: "e2e fixture",
-    manifest: {
-      schemaVersion: 2,
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id: EXT_ID,
       name: EXT_ID,
       version: "1.0.0",
-      description: "e2e",
-      author: { name: "e2e" },
-      permissions: {
-        taskEvents: true,
-        agentConfig: "read",
+      description: "e2e fixture",
+      manifest: {
+        schemaVersion: 2,
+        name: EXT_ID,
+        version: "1.0.0",
+        description: "e2e",
+        author: { name: "e2e" },
+        permissions: {
+          taskEvents: true,
+          agentConfig: "read",
+        },
       },
-    },
-    source: `test:${EXT_ID}`,
-    installPath: `/tmp/${EXT_ID}`,
-    enabled: true,
-    grantedPermissions: { grantedAt: {} },
-  } as any);
+      source: `test:${EXT_ID}`,
+      installPath: `/tmp/${EXT_ID}`,
+      enabled: true,
+      grantedPermissions: { grantedAt: {} },
+    } as any);
 
-  await getDb().insert(conversationExtensions).values({
-    conversationId: CONV_ID, extensionId: EXT_ID,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(conversationExtensions)
+    .values({
+      conversationId: CONV_ID,
+      extensionId: EXT_ID,
+    } as any)
+    .onConflictDoNothing();
 
-  await getDb().insert(agentConfigs).values({
-    id: crypto.randomUUID(),
-    name: "e2e-helper",
-    description: "for e2e",
-    prompt: "p",
-    capabilities: ["llm"],
-    references: { agents: [], extensions: [] },
-    userId: USER_ID,
-  } as any);
+  await getDb()
+    .insert(agentConfigs)
+    .values({
+      id: crypto.randomUUID(),
+      name: "e2e-helper",
+      description: "for e2e",
+      prompt: "p",
+      capabilities: ["llm"],
+      references: { agents: [], extensions: [] },
+      userId: USER_ID,
+    } as any);
 });
 
 afterAll(async () => {
@@ -173,11 +212,13 @@ afterAll(async () => {
 
 describe("Phase 2b e2e: install → clamp → audit → RPC routing → revoke → kill-switch", () => {
   test("PUT grants taskEvents + agentConfig when manifest declares them; clampToManifest preserves", async () => {
-    const res = await permissionsPut(makeEvent({
-      permissions: { taskEvents: true, agentConfig: "read" },
-    }));
+    const res = await permissionsPut(
+      makeEvent({
+        permissions: { taskEvents: true, agentConfig: "read" },
+      }),
+    );
     expect(res.status).toBe(200);
-    const body = await res.json() as { grantedPermissions: ExtensionPermissions };
+    const body = (await res.json()) as { grantedPermissions: ExtensionPermissions };
     expect(body.grantedPermissions.taskEvents).toBe(true);
     expect(body.grantedPermissions.agentConfig).toBe("read");
   });
@@ -185,44 +226,57 @@ describe("Phase 2b e2e: install → clamp → audit → RPC routing → revoke �
   test("audit log gains CAPABILITY_GRANTED rows for each capability field", async () => {
     const entries = await listAuditForExtension(EXT_ID);
     const caps = entries.filter((e) => e.action === "ext:capability-granted");
-    const fields = new Set(caps.map((e) => (e.metadata as { permission: string } | null)?.permission));
+    const fields = new Set(
+      caps.map((e) => (e.metadata as { permission: string } | null)?.permission),
+    );
     expect(fields.has("taskEvents")).toBe(true);
     expect(fields.has("agentConfig")).toBe(true);
   });
 
   test("GET echoes the clamped grants", async () => {
     const res = await permissionsGet(getEvent());
-    const body = await res.json() as ExtensionPermissions;
+    const body = (await res.json()) as ExtensionPermissions;
     expect(body.taskEvents).toBe(true);
     expect(body.agentConfig).toBe("read");
   });
 
   test("attempting to grant a non-manifest capability (shell) is silently clamped → PERMISSION_REJECTED audit", async () => {
-    const res = await permissionsPut(makeEvent({
-      permissions: { taskEvents: true, agentConfig: "read", shell: true },
-    }));
+    const res = await permissionsPut(
+      makeEvent({
+        permissions: { taskEvents: true, agentConfig: "read", shell: true },
+      }),
+    );
     expect(res.status).toBe(200);
-    const body = await res.json() as { grantedPermissions: ExtensionPermissions };
+    const body = (await res.json()) as { grantedPermissions: ExtensionPermissions };
     // shell was NOT in the manifest → clamp drops it.
     expect(body.grantedPermissions.shell).toBeUndefined();
     const entries = await listAuditForExtension(EXT_ID);
     const rejected = entries.filter((e) => e.action === "ext:permission-rejected");
-    const shellAttempts = rejected.filter((e) => (e.metadata as { permission: string } | null)?.permission === "shell");
+    const shellAttempts = rejected.filter(
+      (e) => (e.metadata as { permission: string } | null)?.permission === "shell",
+    );
     expect(shellAttempts.length).toBeGreaterThanOrEqual(1);
   });
 
   test("handleEmitTaskEventRpc routes off the granted permissions → bus fires", async () => {
     const res = await permissionsGet(getEvent());
-    const granted = await res.json() as ExtensionPermissions;
+    const granted = (await res.json()) as ExtensionPermissions;
 
     const { bus, calls } = makeBus();
-    const resp = await handleEmitTaskEventRpc(EXT_ID, rpc("ezcorp/emit-task-event", {
-      v: 1, type: "snapshot",
-      payload: { tasks: [], activeTaskId: undefined },
-    }), {
-      conversationId: CONV_ID, userId: USER_ID,
-      grantedPermissions: granted, bus,
-    });
+    const resp = await handleEmitTaskEventRpc(
+      EXT_ID,
+      rpc("ezcorp/emit-task-event", {
+        v: 1,
+        type: "snapshot",
+        payload: { tasks: [], activeTaskId: undefined },
+      }),
+      {
+        conversationId: CONV_ID,
+        userId: USER_ID,
+        grantedPermissions: granted,
+        bus,
+      },
+    );
     expect(resp.error).toBeUndefined();
     expect(calls).toHaveLength(1);
     expect((calls[0]!.payload as { conversationId: string }).conversationId).toBe(CONV_ID);
@@ -230,11 +284,16 @@ describe("Phase 2b e2e: install → clamp → audit → RPC routing → revoke �
 
   test("handleAgentConfigsRpc routes off the granted permissions → returns user's configs", async () => {
     const res = await permissionsGet(getEvent());
-    const granted = await res.json() as ExtensionPermissions;
+    const granted = (await res.json()) as ExtensionPermissions;
 
-    const resp = await handleAgentConfigsRpc(EXT_ID, rpc("ezcorp/agent-configs", {
-      v: 1, action: "list",
-    }), { userId: USER_ID, grantedPermissions: granted });
+    const resp = await handleAgentConfigsRpc(
+      EXT_ID,
+      rpc("ezcorp/agent-configs", {
+        v: 1,
+        action: "list",
+      }),
+      { userId: USER_ID, grantedPermissions: granted },
+    );
     expect(resp.error).toBeUndefined();
     const { configs } = resp.result as { configs: Array<{ name: string }> };
     expect(configs.some((c) => c.name === "e2e-helper")).toBe(true);
@@ -244,34 +303,46 @@ describe("Phase 2b e2e: install → clamp → audit → RPC routing → revoke �
     // Revoke all.
     await permissionsPut(makeEvent({ permissions: {} }));
     const getRes = await permissionsGet(getEvent());
-    const granted = await getRes.json() as ExtensionPermissions;
+    const granted = (await getRes.json()) as ExtensionPermissions;
     expect(granted.taskEvents).toBeUndefined();
     expect(granted.agentConfig).toBeUndefined();
 
     // Audit log must have CAPABILITY_REVOKED rows.
     const entries = await listAuditForExtension(EXT_ID);
     const revoked = entries.filter((e) => e.action === "ext:capability-revoked");
-    const fields = new Set(revoked.map((e) => (e.metadata as { permission: string } | null)?.permission));
+    const fields = new Set(
+      revoked.map((e) => (e.metadata as { permission: string } | null)?.permission),
+    );
     expect(fields.has("taskEvents")).toBe(true);
     expect(fields.has("agentConfig")).toBe(true);
 
     // Handler refusal.
     const { bus, calls } = makeBus();
-    const resp = await handleEmitTaskEventRpc(EXT_ID, rpc("ezcorp/emit-task-event", {
-      v: 1, type: "snapshot", payload: { tasks: [] },
-    }), {
-      conversationId: CONV_ID, userId: USER_ID,
-      grantedPermissions: granted, bus,
-    });
+    const resp = await handleEmitTaskEventRpc(
+      EXT_ID,
+      rpc("ezcorp/emit-task-event", {
+        v: 1,
+        type: "snapshot",
+        payload: { tasks: [] },
+      }),
+      {
+        conversationId: CONV_ID,
+        userId: USER_ID,
+        grantedPermissions: granted,
+        bus,
+      },
+    );
     expect(resp.error?.code).toBe(-32001);
     expect(calls).toHaveLength(0);
   });
 
   test("kill-switch EZCORP_DISABLE_CAPABILITY_TOOLS=1 refuses even when DB grants are present", async () => {
     // Re-grant.
-    await permissionsPut(makeEvent({
-      permissions: { taskEvents: true, agentConfig: "read" },
-    }));
+    await permissionsPut(
+      makeEvent({
+        permissions: { taskEvents: true, agentConfig: "read" },
+      }),
+    );
 
     const prev = process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"];
     process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"] = "1";
@@ -284,14 +355,25 @@ describe("Phase 2b e2e: install → clamp → audit → RPC routing → revoke �
       };
 
       const { bus, calls } = makeBus();
-      const r1 = await handleEmitTaskEventRpc(EXT_ID, rpc("ezcorp/emit-task-event", {
-        v: 1, type: "snapshot", payload: { tasks: [] },
-      }), { conversationId: CONV_ID, userId: USER_ID, grantedPermissions: granted, bus });
+      const r1 = await handleEmitTaskEventRpc(
+        EXT_ID,
+        rpc("ezcorp/emit-task-event", {
+          v: 1,
+          type: "snapshot",
+          payload: { tasks: [] },
+        }),
+        { conversationId: CONV_ID, userId: USER_ID, grantedPermissions: granted, bus },
+      );
       expect(r1.error?.code).toBe(-32001);
 
-      const r2 = await handleAgentConfigsRpc(EXT_ID, rpc("ezcorp/agent-configs", {
-        v: 1, action: "list",
-      }), { userId: USER_ID, grantedPermissions: granted });
+      const r2 = await handleAgentConfigsRpc(
+        EXT_ID,
+        rpc("ezcorp/agent-configs", {
+          v: 1,
+          action: "list",
+        }),
+        { userId: USER_ID, grantedPermissions: granted },
+      );
       expect(r2.error?.code).toBe(-32001);
 
       expect(calls).toHaveLength(0);

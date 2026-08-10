@@ -50,11 +50,7 @@ const { POST } = await import("../routes/api/ez-actions/[name]/+server");
 
 const USER = { id: "u1", email: "u@x", name: "u", role: "user" } as const;
 
-function makeEvent(opts: {
-  name: string;
-  body?: unknown;
-  locals?: Record<string, unknown>;
-}) {
+function makeEvent(opts: { name: string; body?: unknown; locals?: Record<string, unknown> }) {
   const href = `http://localhost/api/ez-actions/${opts.name}`;
   return {
     params: { name: opts.name },
@@ -326,9 +322,7 @@ describe("POST /api/ez-actions/[name]", () => {
       }),
     );
 
-    expect(handlerSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ projectId: "TRUE_PROJECT" }),
-    );
+    expect(handlerSpy).toHaveBeenCalledWith(expect.objectContaining({ projectId: "TRUE_PROJECT" }));
     expect(handlerSpy).not.toHaveBeenCalledWith(
       expect.objectContaining({ projectId: "ATTACKER_PROJECT" }),
     );

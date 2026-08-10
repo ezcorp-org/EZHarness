@@ -32,22 +32,10 @@ import type {
 } from "../extensions/types";
 import type { AuditEntry } from "../db/schema";
 
-const PROBE_DIR = resolve(
-  import.meta.dir,
-  "..",
-  "..",
-  "tests",
-  "fixtures",
-  "synthetic-mcp",
-);
+const PROBE_DIR = resolve(import.meta.dir, "..", "..", "tests", "fixtures", "synthetic-mcp");
 const PROBE_C_PATH = resolve(PROBE_DIR, "probe-ptrace.c");
 const PROBE_BIN_PATH = resolve(PROBE_DIR, "probe-ptrace");
-const BPF_PATH = resolve(
-  import.meta.dir,
-  "..",
-  "extensions",
-  "mcp-seccomp.bpf",
-);
+const BPF_PATH = resolve(import.meta.dir, "..", "extensions", "mcp-seccomp.bpf");
 
 const PROBE_C_SOURCE = `/*
  * probe-ptrace.c — Phase 58 / MCP-04 enforce-integration probe.
@@ -89,9 +77,7 @@ beforeAll(() => {
     stdout: "pipe",
   });
   if (proc.exitCode !== 0) {
-    throw new Error(
-      `probe-ptrace compile failed: ${new TextDecoder().decode(proc.stderr)}`,
-    );
+    throw new Error(`probe-ptrace compile failed: ${new TextDecoder().decode(proc.stderr)}`);
   }
 });
 
@@ -99,9 +85,7 @@ test.skipIf(SHOULD_SKIP)(
   "ptrace under enforce returns EPERM/ENOSYS, emits MCP_SECCOMP_VIOLATION with code=0x00050001",
   async () => {
     if (SHOULD_SKIP) {
-      console.warn(
-        `mcp-seccomp-enforce-integration SKIPPED: ${GATE_REASONS.join(", ")}`,
-      );
+      console.warn(`mcp-seccomp-enforce-integration SKIPPED: ${GATE_REASONS.join(", ")}`);
       return;
     }
     // Lazy-import the SUT only on Linux to avoid pulling DB modules into
@@ -109,9 +93,7 @@ test.skipIf(SHOULD_SKIP)(
     const { buildSandboxedMcpSpec, runMcpSeccompSoakReader } = await import(
       "../extensions/mcp-sandbox"
     );
-    const { openSeccompBpfFd } = await import(
-      "../extensions/runtime/seccomp-loader"
-    );
+    const { openSeccompBpfFd } = await import("../extensions/runtime/seccomp-loader");
     const { listAuditForExtension } = await import("../db/queries/audit-log");
 
     const seccompFd = openSeccompBpfFd();
@@ -146,9 +128,7 @@ test.skipIf(SHOULD_SKIP)(
     // .command / .args / .env are visible. (buildSandboxedMcpSpec
     // preserves the inbound transport; we passed stdio in.)
     if (spec.transport !== "stdio") {
-      throw new Error(
-        `unexpected non-stdio spec from buildSandboxedMcpSpec: ${spec.transport}`,
-      );
+      throw new Error(`unexpected non-stdio spec from buildSandboxedMcpSpec: ${spec.transport}`);
     }
     // We don't have an McpClient to drive — spawn the probe ourselves
     // via Bun.spawn using the spec's command/args/env.
@@ -183,9 +163,7 @@ test.skipIf(SHOULD_SKIP)(
       await new Promise((res) => setTimeout(res, 200));
     }
     expect(matchedRow).not.toBeNull();
-    const code =
-      (matchedRow?.metadata as { code?: string } | null | undefined)?.code ??
-      "";
+    const code = (matchedRow?.metadata as { code?: string } | null | undefined)?.code ?? "";
     expect(code).toMatch(/^0x000?5000?1$/i);
   },
 );

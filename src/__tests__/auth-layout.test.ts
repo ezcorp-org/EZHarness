@@ -110,7 +110,12 @@ describe("Login page load", () => {
     // session. Historically this test only signed a JWT; now it must also
     // persist the row, otherwise the sec-C2 loop-guard in /login's loader
     // (which bounces row-less JWTs to the login form) would fire instead.
-    const admin = await createUser({ email: "admin@test.com", passwordHash: "hash", name: "Admin", role: "admin" });
+    const admin = await createUser({
+      email: "admin@test.com",
+      passwordHash: "hash",
+      name: "Admin",
+      role: "admin",
+    });
 
     const token = await makeValidSessionCookie();
     await persistSessionFor(token, admin.id);
@@ -169,7 +174,12 @@ describe("Signup page load", () => {
     await db.delete(invites);
     await db.delete(settings);
     await db.delete(users);
-    const creator = await createUser({ email: "admin@test.com", passwordHash: "hash", name: "Admin", role: "admin" });
+    const creator = await createUser({
+      email: "admin@test.com",
+      passwordHash: "hash",
+      name: "Admin",
+      role: "admin",
+    });
     creatorId = creator.id;
   });
 
@@ -199,7 +209,11 @@ describe("Signup page load", () => {
   });
 
   test("returns invite data and token when token is valid", async () => {
-    const invite = await createInvite({ email: "new@test.com", role: "member", createdBy: creatorId });
+    const invite = await createInvite({
+      email: "new@test.com",
+      role: "member",
+      createdBy: creatorId,
+    });
 
     const event = createMockEvent({
       url: `http://localhost/signup/${invite.token}`,
@@ -233,12 +247,19 @@ describe("Signup page load", () => {
 
 describe("Hooks auth enforcement", () => {
   // Mirror the exact PUBLIC_PATHS logic from hooks.server.ts
-  const PUBLIC_PATHS = ["/login", "/setup", "/signup", "/api/auth/login", "/api/auth/setup", "/api/auth/invite"];
+  const PUBLIC_PATHS = [
+    "/login",
+    "/setup",
+    "/signup",
+    "/api/auth/login",
+    "/api/auth/setup",
+    "/api/auth/invite",
+  ];
   const isPublic = (pathname: string) =>
-    PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + "/"))
-    || pathname.startsWith("/_app/")
-    || pathname.startsWith("/favicon")
-    || pathname === "/ws";
+    PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
+    pathname.startsWith("/_app/") ||
+    pathname.startsWith("/favicon") ||
+    pathname === "/ws";
 
   test("auth pages are public (not redirected)", () => {
     expect(isPublic("/login")).toBe(true);
@@ -312,7 +333,12 @@ describe("Hooks auth enforcement", () => {
     expect(payload!.role).toBe("admin");
 
     // Hooks sets event.locals.user from this payload
-    const user = { id: payload!.id, email: payload!.email, name: payload!.name, role: payload!.role };
+    const user = {
+      id: payload!.id,
+      email: payload!.email,
+      name: payload!.name,
+      role: payload!.role,
+    };
     expect(user).toEqual({
       id: ADMIN_USER.id,
       email: ADMIN_USER.email,

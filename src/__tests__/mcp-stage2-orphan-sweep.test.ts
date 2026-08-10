@@ -18,15 +18,7 @@
  *   3. Non-matching name `mcp-deadbeefXX` (14 chars) is NOT swept
  */
 
-import {
-  test,
-  expect,
-  describe,
-  beforeEach,
-  afterEach,
-  afterAll,
-  mock,
-} from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 // ── Audit mock — captures rows written by sweepOrphanVeths ───────────
@@ -92,114 +84,93 @@ function deleteIfExists(name: string): void {
   });
 }
 
-describe.skipIf(SKIP_REASON !== null)(
-  "Stage 2 boot orphan veth sweep (RC#5)",
-  () => {
-    // Defensive cleanup names we touch across cases.
-    const CLEANUP_NAMES = [
-      "mcp-deadbeef",
-      "mcp-deadbeefXX",
-      "mcp-12345678",
-    ];
+describe.skipIf(SKIP_REASON !== null)("Stage 2 boot orphan veth sweep (RC#5)", () => {
+  // Defensive cleanup names we touch across cases.
+  const CLEANUP_NAMES = ["mcp-deadbeef", "mcp-deadbeefXX", "mcp-12345678"];
 
-    beforeEach(() => {
-      auditCalls.length = 0;
-      for (const n of CLEANUP_NAMES) deleteIfExists(n);
+  beforeEach(() => {
+    auditCalls.length = 0;
+    for (const n of CLEANUP_NAMES) deleteIfExists(n);
+  });
+
+  afterEach(() => {
+    for (const n of CLEANUP_NAMES) deleteIfExists(n);
+  });
+
+  afterAll(() => {
+    restoreModuleMocks();
+  });
+
+  test("pre-seeded mcp-deadbeef is swept + MCP_VETH_ORPHAN_SWEPT row fires count=1", async () => {
+    // Seed a dangling host-side veth `mcp-deadbeef`.
+    const seed = Bun.spawnSync({
+      cmd: ["ip", "link", "add", "mcp-deadbeef", "type", "veth", "peer", "name", "mcp-deadbeef-ns"],
+      stdout: "ignore",
+      stderr: "pipe",
     });
+    expect(seed.success).toBe(true);
 
-    afterEach(() => {
-      for (const n of CLEANUP_NAMES) deleteIfExists(n);
+    const result = await sweepOrphanVeths(null);
+    expect(result.count).toBe(1);
+    expect(result.names).toContain("mcp-deadbeef");
+    expect(result.error).toBeUndefined();
+
+    // Verify deletion.
+    const post = Bun.spawnSync({
+      cmd: ["ip", "link", "show", "mcp-deadbeef"],
+      stdout: "ignore",
+      stderr: "ignore",
     });
+    expect(post.success).toBe(false);
 
-    afterAll(() => {
-      restoreModuleMocks();
+    const row = auditCalls.find((c) => c.action === EXT_AUDIT_ACTIONS.MCP_VETH_ORPHAN_SWEPT);
+    expect(row).toBeDefined();
+    expect(row?.metadata?.count).toBe(1);
+    const sweptNames = row?.metadata?.names as string[] | undefined;
+    expect(sweptNames?.[0]).toBe("mcp-deadbeef");
+  }, 30_000);
+
+  test("zero orphans → row STILL fires with count=0 (operator-visibility contract)", async () => {
+    // beforeEach removed any mcp-* leftovers. Sweep should fire row count=0.
+    const result = await sweepOrphanVeths(null);
+    expect(result.count).toBe(0);
+    expect(result.names).toEqual([]);
+    expect(result.error).toBeUndefined();
+
+    const row = auditCalls.find((c) => c.action === EXT_AUDIT_ACTIONS.MCP_VETH_ORPHAN_SWEPT);
+    expect(row).toBeDefined();
+    expect(row?.metadata?.count).toBe(0);
+    expect(row?.metadata?.names).toEqual([]);
+  }, 30_000);
+
+  test("non-matching name `mcp-deadbeefXX` (14 chars) is NOT swept", async () => {
+    // Seed a non-matching veth that should NOT be swept (14 chars total).
+    const seed = Bun.spawnSync({
+      cmd: [
+        "ip",
+        "link",
+        "add",
+        "mcp-deadbeefXX",
+        "type",
+        "veth",
+        "peer",
+        "name",
+        "mcp-deadbeefXX-p",
+      ],
+      stdout: "ignore",
+      stderr: "pipe",
     });
+    expect(seed.success).toBe(true);
 
-    test("pre-seeded mcp-deadbeef is swept + MCP_VETH_ORPHAN_SWEPT row fires count=1", async () => {
-      // Seed a dangling host-side veth `mcp-deadbeef`.
-      const seed = Bun.spawnSync({
-        cmd: [
-          "ip",
-          "link",
-          "add",
-          "mcp-deadbeef",
-          "type",
-          "veth",
-          "peer",
-          "name",
-          "mcp-deadbeef-ns",
-        ],
-        stdout: "ignore",
-        stderr: "pipe",
-      });
-      expect(seed.success).toBe(true);
+    const result = await sweepOrphanVeths(null);
+    expect(result.names).not.toContain("mcp-deadbeefXX");
 
-      const result = await sweepOrphanVeths(null);
-      expect(result.count).toBe(1);
-      expect(result.names).toContain("mcp-deadbeef");
-      expect(result.error).toBeUndefined();
-
-      // Verify deletion.
-      const post = Bun.spawnSync({
-        cmd: ["ip", "link", "show", "mcp-deadbeef"],
-        stdout: "ignore",
-        stderr: "ignore",
-      });
-      expect(post.success).toBe(false);
-
-      const row = auditCalls.find(
-        (c) => c.action === EXT_AUDIT_ACTIONS.MCP_VETH_ORPHAN_SWEPT,
-      );
-      expect(row).toBeDefined();
-      expect(row?.metadata?.count).toBe(1);
-      const sweptNames = row?.metadata?.names as string[] | undefined;
-      expect(sweptNames?.[0]).toBe("mcp-deadbeef");
-    }, 30_000);
-
-    test("zero orphans → row STILL fires with count=0 (operator-visibility contract)", async () => {
-      // beforeEach removed any mcp-* leftovers. Sweep should fire row count=0.
-      const result = await sweepOrphanVeths(null);
-      expect(result.count).toBe(0);
-      expect(result.names).toEqual([]);
-      expect(result.error).toBeUndefined();
-
-      const row = auditCalls.find(
-        (c) => c.action === EXT_AUDIT_ACTIONS.MCP_VETH_ORPHAN_SWEPT,
-      );
-      expect(row).toBeDefined();
-      expect(row?.metadata?.count).toBe(0);
-      expect(row?.metadata?.names).toEqual([]);
-    }, 30_000);
-
-    test("non-matching name `mcp-deadbeefXX` (14 chars) is NOT swept", async () => {
-      // Seed a non-matching veth that should NOT be swept (14 chars total).
-      const seed = Bun.spawnSync({
-        cmd: [
-          "ip",
-          "link",
-          "add",
-          "mcp-deadbeefXX",
-          "type",
-          "veth",
-          "peer",
-          "name",
-          "mcp-deadbeefXX-p",
-        ],
-        stdout: "ignore",
-        stderr: "pipe",
-      });
-      expect(seed.success).toBe(true);
-
-      const result = await sweepOrphanVeths(null);
-      expect(result.names).not.toContain("mcp-deadbeefXX");
-
-      // Verify `mcp-deadbeefXX` still exists.
-      const post = Bun.spawnSync({
-        cmd: ["ip", "link", "show", "mcp-deadbeefXX"],
-        stdout: "ignore",
-        stderr: "ignore",
-      });
-      expect(post.success).toBe(true);
-    }, 30_000);
-  },
-);
+    // Verify `mcp-deadbeefXX` still exists.
+    const post = Bun.spawnSync({
+      cmd: ["ip", "link", "show", "mcp-deadbeefXX"],
+      stdout: "ignore",
+      stderr: "ignore",
+    });
+    expect(post.success).toBe(true);
+  }, 30_000);
+});

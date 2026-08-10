@@ -157,7 +157,9 @@ function doDecrypt(ciphertext: string, aad: Buffer | null): string {
   const key = getAppSecret();
   const iv = Buffer.from(ivHex, "hex");
   if (iv.length !== expectedIvLength) {
-    throw new Error(`Invalid encrypted format: IV length ${iv.length} does not match expected ${expectedIvLength}`);
+    throw new Error(
+      `Invalid encrypted format: IV length ${iv.length} does not match expected ${expectedIvLength}`,
+    );
   }
   const authTag = Buffer.from(tagHex, "hex");
 

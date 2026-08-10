@@ -148,10 +148,7 @@ export function requireString(input: Record<string, unknown>, field: string): st
 
 /** An optional string field. Absent/undefined/null → `undefined`; present
  *  but not a string → rejected (never coerced). */
-export function optionalString(
-  input: Record<string, unknown>,
-  field: string,
-): string | undefined {
+export function optionalString(input: Record<string, unknown>, field: string): string | undefined {
   const value = input[field];
   if (value === undefined || value === null) return undefined;
   if (typeof value !== "string") {
@@ -255,7 +252,10 @@ export function requireStringList(
   const out: string[] = [];
   for (const entry of entries) {
     if (typeof entry !== "string" || entry.trim() === "") {
-      throw new ToolInputError("invalid-input", `every "${field}" entry must be a non-empty string`);
+      throw new ToolInputError(
+        "invalid-input",
+        `every "${field}" entry must be a non-empty string`,
+      );
     }
     if (entry.length > maxLen) {
       throw new ToolInputError(
@@ -354,11 +354,7 @@ export function resolveWithinRoot(root: string, relPath: string, field: string):
  */
 const SLUG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-export function requireSlug(
-  input: Record<string, unknown>,
-  field: string,
-  maxLen: number,
-): string {
+export function requireSlug(input: Record<string, unknown>, field: string, maxLen: number): string {
   return assertSlug(requireString(input, field), field, maxLen);
 }
 
@@ -523,9 +519,7 @@ export type ToolPayload = Record<string, unknown>;
  * `./index.ts` has two reachable branches instead of three, one of which
  * could never happen and could never be tested.
  */
-export type ToolOutcome =
-  | { ok: true; text: string }
-  | { ok: false; text: string; code: string };
+export type ToolOutcome = { ok: true; text: string } | { ok: false; text: string; code: string };
 
 /**
  * Serialize a tool's payload, enforcing the output ceiling, and convert a

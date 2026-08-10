@@ -226,9 +226,7 @@ describe("resolveModelTierAndCredential — mode binding precedence at the seam"
     );
 
     expect(result.effectiveTier).toBe("powerful");
-    expect(resolveModelArgs).toEqual([
-      { provider: undefined, model: undefined, tier: "powerful" },
-    ]);
+    expect(resolveModelArgs).toEqual([{ provider: undefined, model: undefined, tier: "powerful" }]);
     expect(result.routingSignals?.reason).toBe("hint");
     // Still a routed (unpinned) turn, so provenance IS stamped.
     expect(result.routingConfig?.defaultTier).toBe("balanced");

@@ -229,8 +229,7 @@ async function checkConversationGate(
   // Strict path — manual / per-turn invocation: the calling extension's
   // conversation context must equal the requested id.
   const strictOk =
-    ctx.currentConversationId !== null &&
-    conversationId === ctx.currentConversationId;
+    ctx.currentConversationId !== null && conversationId === ctx.currentConversationId;
   if (strictOk) {
     return { ok: true, conversationId };
   }
@@ -415,13 +414,16 @@ async function handleTriggerGate(
   //   sees). Preserved verbatim for callers that send no run scope.
   const userMessageTexts =
     runStartedAtMs === undefined
-      ? messages.slice(-20).filter((m) => m.role === "user").map(messageText)
+      ? messages
+          .slice(-20)
+          .filter((m) => m.role === "user")
+          .map(messageText)
       : latestUserMessageText(messages);
 
   const triggerInput = {
     toolCallCount: toolCallRows.length,
     errorRecoveryObserved: detectErrorRecovery(
-      toolCallRows.map((r) => ({ status: r.success ? "ok" as const : "error" as const })),
+      toolCallRows.map((r) => ({ status: r.success ? ("ok" as const) : ("error" as const) })),
     ),
     userCorrectionObserved: detectUserCorrection(userMessageTexts),
     explicitlyTagged: detectExplicitTag(userMessageTexts),
@@ -452,9 +454,7 @@ async function handleTriggerGate(
  * run-scoped `detectUserCorrection` / `detectExplicitTag` scans, which
  * take an array so the legacy multi-message window still works.
  */
-function latestUserMessageText(
-  messages: readonly { role: string; content: unknown }[],
-): string[] {
+function latestUserMessageText(messages: readonly { role: string; content: unknown }[]): string[] {
   const latest = messages.findLast((m) => m.role === "user");
   return latest ? [messageText(latest)] : [];
 }
@@ -467,11 +467,7 @@ async function handleGetMySettings(
   // `resolveExtensionSettings(extensionId, null, schema)` contract.
   let resolved: Record<string, unknown>;
   try {
-    resolved = await resolveExtensionSettings(
-      ctx.extensionId,
-      ctx.userId,
-      ctx.settingsSchema,
-    );
+    resolved = await resolveExtensionSettings(ctx.extensionId, ctx.userId, ctx.settingsSchema);
   } catch (err) {
     return {
       jsonrpc: "2.0",
@@ -609,8 +605,7 @@ async function handleDedupMemoryWrite(
       id: req.id,
       error: {
         code: -32602,
-        message:
-          "category must be one of preferences|biographical|technical|decisions_goals",
+        message: "category must be one of preferences|biographical|technical|decisions_goals",
       },
     };
   }
@@ -644,7 +639,11 @@ async function handleDedupMemoryWrite(
         extractedAt: new Date(),
         confidence: fact.confidence ?? "medium",
         history: [
-          { action, timestamp: new Date(), reason: "Extracted via runtime.memory.dedupMemoryWrite" },
+          {
+            action,
+            timestamp: new Date(),
+            reason: "Extracted via runtime.memory.dedupMemoryWrite",
+          },
         ],
         // Stamp extension provenance so the bundled extractor's writes
         // are distinguishable from the legacy pipeline's. Caller

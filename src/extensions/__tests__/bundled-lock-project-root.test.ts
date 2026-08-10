@@ -42,11 +42,7 @@ import {
   canonicalizeAndHash,
   verifyManifestAgainstLock,
 } from "../bundled-lock";
-import {
-  __resetProjectRootCacheForTests,
-  getProjectRoot,
-  resolveProjectRoot,
-} from "../bundled";
+import { __resetProjectRootCacheForTests, getProjectRoot, resolveProjectRoot } from "../bundled";
 import type { ExtensionManifestV2, ToolDefinition } from "../types";
 
 const tmpDirs: string[] = [];
@@ -128,7 +124,11 @@ afterEach(() => {
   clearLockfileCache();
   __resetProjectRootCacheForTests();
   for (const d of tmpDirs) {
-    try { rmSync(d, { recursive: true, force: true }); } catch { /* swallow */ }
+    try {
+      rmSync(d, { recursive: true, force: true });
+    } catch {
+      /* swallow */
+    }
   }
   tmpDirs.length = 0;
 });

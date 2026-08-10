@@ -64,9 +64,7 @@ describe("MobileTabBar active tab logic", () => {
   });
 
   test("/project/p1/settings/other activates Settings (nested)", () => {
-    expect(getActiveTab(projectId, "/project/p1/settings/other")).toBe(
-      "Settings",
-    );
+    expect(getActiveTab(projectId, "/project/p1/settings/other")).toBe("Settings");
   });
 
   test("only one tab is active at a time for each path", () => {
@@ -178,8 +176,7 @@ describe("PullToRefresh touch logic", () => {
 // ─── Viewport meta tag ──────────────────────────────────────────────────────
 
 describe("Viewport meta tag", () => {
-  const viewportContent =
-    "width=device-width, initial-scale=1, interactive-widget=resizes-content";
+  const viewportContent = "width=device-width, initial-scale=1, interactive-widget=resizes-content";
 
   test("does not restrict zoom (WCAG compliance)", () => {
     expect(viewportContent).not.toContain("maximum-scale=1");

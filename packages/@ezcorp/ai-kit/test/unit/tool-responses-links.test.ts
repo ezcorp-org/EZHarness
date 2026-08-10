@@ -34,7 +34,7 @@ describe("tool responses include entity links", () => {
   });
 
   const textOf = (res: unknown): string =>
-    ((res as { content: Array<{ type: string; text: string }> }).content)[0]?.text ?? "{}";
+    (res as { content: Array<{ type: string; text: string }> }).content[0]?.text ?? "{}";
 
   test("start_chat response includes url pointing at publicUrl", async () => {
     const res = await mcpClient.callTool({
@@ -153,9 +153,7 @@ describe("tool responses include entity links", () => {
       subConversationUrl: string;
       runUrl: string;
     };
-    expect(body.subConversationUrl).toBe(
-      `${PUBLIC}/project/global/chat/${body.subConversationId}`,
-    );
+    expect(body.subConversationUrl).toBe(`${PUBLIC}/project/global/chat/${body.subConversationId}`);
     expect(body.runUrl).toBe(`${PUBLIC}/runs/${body.runId}`);
   });
 

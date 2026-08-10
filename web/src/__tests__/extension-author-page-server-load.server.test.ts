@@ -20,7 +20,10 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const draftStore = new Map<string, { userId: string; kind: string; payload: unknown; consumedAt: Date | null }>();
+const draftStore = new Map<
+  string,
+  { userId: string; kind: string; payload: unknown; consumedAt: Date | null }
+>();
 
 vi.mock("$server/auth/middleware", () => ({
   requireAuth: vi.fn((locals: { user?: { id: string } }) => {
@@ -46,9 +49,7 @@ vi.mock("$server/db/queries/ez-drafts", async () => {
         consumedAt: r.consumedAt,
       };
     }),
-    getExtensionAuthorDraftDir: vi.fn((id: string, userId: string) =>
-      join(DRAFT_ROOT, userId, id),
-    ),
+    getExtensionAuthorDraftDir: vi.fn((id: string, userId: string) => join(DRAFT_ROOT, userId, id)),
   };
 });
 
@@ -77,10 +78,7 @@ function seedDraft(id: string, userId: string, files: Record<string, string>): v
  * but `load()` here only reads `url`, `locals`. Anything else can be
  * `never`-typed.
  */
-function makeEvent(opts: {
-  prefill?: string | null;
-  user?: typeof USER | null;
-}): never {
+function makeEvent(opts: { prefill?: string | null; user?: typeof USER | null }): never {
   const url = new URL("http://x/extensions/author");
   if (opts.prefill !== undefined && opts.prefill !== null) {
     url.searchParams.set("prefill", opts.prefill);
@@ -108,7 +106,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  try { rmSync(TMP, { recursive: true, force: true }); } catch { /* swallow */ }
+  try {
+    rmSync(TMP, { recursive: true, force: true });
+  } catch {
+    /* swallow */
+  }
 });
 
 describe("+page.server.ts load() — 400 path", () => {
@@ -137,7 +139,9 @@ describe("+page.server.ts load() — 400 path", () => {
 
 describe("+page.server.ts load() — 404 path (opaque)", () => {
   test("missing draftId → throws error(404)", async () => {
-    await expect(load(makeEvent({ prefill: "nonexistent" }))).rejects.toMatchObject({ status: 404 });
+    await expect(load(makeEvent({ prefill: "nonexistent" }))).rejects.toMatchObject({
+      status: 404,
+    });
   });
 
   test("wrong-owner draftId → throws error(404) (same as missing, opaque)", async () => {
@@ -152,7 +156,7 @@ describe("+page.server.ts load() — happy path", () => {
       "ezcorp.config.ts": "// stub manifest",
       "README.md": "# Happy",
     });
-    const result = await load(makeEvent({ prefill: "happy" })) as {
+    const result = (await load(makeEvent({ prefill: "happy" }))) as {
       draft: { id: string; kind: string };
       files: Record<string, string>;
     };
@@ -164,7 +168,7 @@ describe("+page.server.ts load() — happy path", () => {
 
   test("file mutation reflected on subsequent load (fresh-read, not cached)", async () => {
     seedDraft("fresh", USER.id, { "README.md": "original" });
-    const r1 = await load(makeEvent({ prefill: "fresh" })) as { files: Record<string, string> };
+    const r1 = (await load(makeEvent({ prefill: "fresh" }))) as { files: Record<string, string> };
     expect(r1.files["README.md"]).toBe("original");
 
     // Mutate the file on disk WITHOUT going through the API. The next
@@ -172,7 +176,7 @@ describe("+page.server.ts load() — happy path", () => {
     // cache.
     writeFileSync(join(DRAFT_ROOT, USER.id, "fresh", "README.md"), "edited", "utf8");
 
-    const r2 = await load(makeEvent({ prefill: "fresh" })) as { files: Record<string, string> };
+    const r2 = (await load(makeEvent({ prefill: "fresh" }))) as { files: Record<string, string> };
     expect(r2.files["README.md"]).toBe("edited");
   });
 
@@ -183,7 +187,9 @@ describe("+page.server.ts load() — happy path", () => {
     // Drop a non-allowlisted file directly on disk.
     writeFileSync(join(DRAFT_ROOT, USER.id, "filt", "secret.key"), "shhh", "utf8");
 
-    const result = await load(makeEvent({ prefill: "filt" })) as { files: Record<string, string> };
+    const result = (await load(makeEvent({ prefill: "filt" }))) as {
+      files: Record<string, string>;
+    };
     expect(result.files["ezcorp.config.ts"]).toBe("// stub");
     expect("secret.key" in result.files).toBe(false);
   });

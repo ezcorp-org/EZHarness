@@ -1,6 +1,12 @@
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { setupTestDb, closeTestDb, mockDbConnection, getTestDb, getTestPglite } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
+  getTestPglite,
+} from "./helpers/test-pglite";
 
 mockDbConnection();
 
@@ -58,7 +64,13 @@ async function seed(): Promise<void> {
   projectB = projRows[1]!.id;
   await db.insert(users).values([
     { id: USER_ID, email: "rbac-grantee@example.com", passwordHash: "x", name: "Grantee" },
-    { id: GRANTOR_ID, email: "rbac-grantor@example.com", passwordHash: "x", name: "Grantor", role: "admin" },
+    {
+      id: GRANTOR_ID,
+      email: "rbac-grantor@example.com",
+      passwordHash: "x",
+      name: "Grantor",
+      role: "admin",
+    },
   ]);
 }
 
@@ -108,7 +120,9 @@ describe("scope-name validation", () => {
     expect(validateRbacScopes(["use", "use", "configure"])).toEqual(["use", "configure"]);
     expect(() => validateRbacScopes([])).toThrow(InvalidRbacScopeError);
     expect(() => validateRbacScopes(["use", "Nope"])).toThrow(InvalidRbacScopeError);
-    expect(() => validateRbacScopes(["use", 42] as unknown as string[])).toThrow(InvalidRbacScopeError);
+    expect(() => validateRbacScopes(["use", 42] as unknown as string[])).toThrow(
+      InvalidRbacScopeError,
+    );
   });
 });
 
@@ -131,7 +145,9 @@ describe("getGrant", () => {
     await upsertGrant(grantInput({ scopes: ["use"] }));
     await upsertGrant(grantInput({ projectId: projectA, scopes: ["configure"] }));
     await upsertGrant(grantInput({ extensionId: EXT_A, scopes: ["secrets"] }));
-    await upsertGrant(grantInput({ projectId: projectA, extensionId: EXT_A, scopes: ["approve-runs"] }));
+    await upsertGrant(
+      grantInput({ projectId: projectA, extensionId: EXT_A, scopes: ["approve-runs"] }),
+    );
 
     expect((await getGrant(USER_ID, null, null))!.scopes).toEqual(["use"]);
     expect((await getGrant(USER_ID, projectA, null))!.scopes).toEqual(["configure"]);
@@ -155,7 +171,9 @@ describe("upsertGrant", () => {
 
   test("update path: replaces scopes + grantor, stamps updatedAt, keeps the id", async () => {
     const first = await upsertGrant(grantInput({ scopes: ["use"] }));
-    const second = await upsertGrant(grantInput({ scopes: ["configure", "approve-runs"], grantedByUserId: null }));
+    const second = await upsertGrant(
+      grantInput({ scopes: ["configure", "approve-runs"], grantedByUserId: null }),
+    );
     expect(second.id).toBe(first.id);
     expect(second.scopes).toEqual(["configure", "approve-runs"]);
     expect(second.grantedByUserId).toBeNull();
@@ -165,7 +183,9 @@ describe("upsertGrant", () => {
   });
 
   test("validates scope names BEFORE any write — invalid list leaves no row", async () => {
-    await expect(upsertGrant(grantInput({ scopes: ["use", "NOT-VALID"] }))).rejects.toThrow(InvalidRbacScopeError);
+    await expect(upsertGrant(grantInput({ scopes: ["use", "NOT-VALID"] }))).rejects.toThrow(
+      InvalidRbacScopeError,
+    );
     await expect(upsertGrant(grantInput({ scopes: [] }))).rejects.toThrow(InvalidRbacScopeError);
     expect(await listGrantsForUser(USER_ID)).toHaveLength(0);
   });
@@ -235,7 +255,9 @@ describe("listGrants / listGrantsForUser", () => {
     await upsertGrant(grantInput({ scopes: ["use"] }));
     await upsertGrant(grantInput({ projectId: projectA, scopes: ["configure"] }));
     await upsertGrant(grantInput({ projectId: projectA, extensionId: EXT_A, scopes: ["secrets"] }));
-    await upsertGrant(grantInput({ userId: GRANTOR_ID, extensionId: EXT_B, scopes: ["approve-runs"] }));
+    await upsertGrant(
+      grantInput({ userId: GRANTOR_ID, extensionId: EXT_B, scopes: ["approve-runs"] }),
+    );
   }
 
   test("no filter returns every row", async () => {

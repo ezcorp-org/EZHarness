@@ -9,104 +9,109 @@ import { openChatWithTasks } from "./fixtures/task-seed.js";
 // here against the TaskPanel → AssignmentPill render path.
 
 interface TestAssignment {
-	id: string;
-	agentConfigId: string;
-	agentName: string;
-	isTeam: boolean;
-	status: "assigned" | "running" | "completed" | "failed";
-	assignedAt: string;
-	startedAt?: string;
-	subConversationId?: string;
-	agentRunId?: string;
-	autonomousCycle?: number;
-	autonomousMaxCycles?: number;
+  id: string;
+  agentConfigId: string;
+  agentName: string;
+  isTeam: boolean;
+  status: "assigned" | "running" | "completed" | "failed";
+  assignedAt: string;
+  startedAt?: string;
+  subConversationId?: string;
+  agentRunId?: string;
+  autonomousCycle?: number;
+  autonomousMaxCycles?: number;
 }
 
 function makeAssignment(
-	overrides: Partial<TestAssignment> & { id: string; agentName: string },
+  overrides: Partial<TestAssignment> & { id: string; agentName: string },
 ): TestAssignment {
-	return {
-		agentConfigId: "cfg-default",
-		isTeam: false,
-		status: "assigned",
-		assignedAt: "2026-01-01T00:00:00.000Z",
-		...overrides,
-	};
+  return {
+    agentConfigId: "cfg-default",
+    isTeam: false,
+    status: "assigned",
+    assignedAt: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
 }
 
 function snapshotWith(assignments: TestAssignment[]) {
-	return {
-		conversationId: "conv-auto",
-		tasks: [
-			{
-				id: "t1",
-				title: "Open-ended objective",
-				description: "",
-				status: "active" as const,
-				priority: 0,
-				subtasks: [],
-				assignments,
-				createdAt: "2026-01-01T00:00:00.000Z",
-			},
-		],
-		activeTaskId: "t1",
-	};
+  return {
+    conversationId: "conv-auto",
+    tasks: [
+      {
+        id: "t1",
+        title: "Open-ended objective",
+        description: "",
+        status: "active" as const,
+        priority: 0,
+        subtasks: [],
+        assignments,
+        createdAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+    activeTaskId: "t1",
+  };
 }
 
 test.describe("Autonomous continuation — observable + stoppable", () => {
-	const proj = makeProject({ id: "proj-auto", name: "Autonomous Project" });
-	const conv = makeConversation({ id: "conv-auto", projectId: "proj-auto", title: "Autonomous Convo" });
+  const proj = makeProject({ id: "proj-auto", name: "Autonomous Project" });
+  const conv = makeConversation({
+    id: "conv-auto",
+    projectId: "proj-auto",
+    title: "Autonomous Convo",
+  });
 
-	test("running autonomous assignment shows the cycle counter and a Stop button", async ({ page, mockApi }) => {
-		const snapshot = snapshotWith([
-			makeAssignment({
-				id: "a1",
-				agentName: "worker",
-				status: "running",
-				startedAt: "2026-01-01T00:00:00.000Z",
-				subConversationId: "sub-1",
-				agentRunId: "run-1",
-				autonomousCycle: 2,
-				autonomousMaxCycles: 8,
-			}),
-		]);
+  test("running autonomous assignment shows the cycle counter and a Stop button", async ({
+    page,
+    mockApi,
+  }) => {
+    const snapshot = snapshotWith([
+      makeAssignment({
+        id: "a1",
+        agentName: "worker",
+        status: "running",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        subConversationId: "sub-1",
+        agentRunId: "run-1",
+        autonomousCycle: 2,
+        autonomousMaxCycles: 8,
+      }),
+    ]);
 
-		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
+    await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
-		await expect(page.getByText("@worker")).toBeVisible();
+    await expect(page.getByText("@worker")).toBeVisible();
 
-		// Cycle counter is visible and reports n/m.
-		const cycle = page.getByTestId("autonomous-cycle");
-		await expect(cycle).toBeVisible();
-		await expect(cycle).toHaveText("↻2/8");
-		await expect(cycle).toHaveAttribute(
-			"title",
-			"Autonomous self-continuation cycle 2 of 8",
-		);
+    // Cycle counter is visible and reports n/m.
+    const cycle = page.getByTestId("autonomous-cycle");
+    await expect(cycle).toBeVisible();
+    await expect(cycle).toHaveText("↻2/8");
+    await expect(cycle).toHaveAttribute("title", "Autonomous self-continuation cycle 2 of 8");
 
-		// Kill switch: a running assignment exposes Stop (halts the loop
-		// host-side via run:cancel → the status guard in start-assignment).
-		await expect(
-			page.getByTitle("Stop assignment (preserves context for resume)"),
-		).toBeVisible();
-	});
+    // Kill switch: a running assignment exposes Stop (halts the loop
+    // host-side via run:cancel → the status guard in start-assignment).
+    await expect(page.getByTitle("Stop assignment (preserves context for resume)")).toBeVisible();
+  });
 
-	test("non-autonomous running assignment does NOT show the cycle counter", async ({ page, mockApi }) => {
-		const snapshot = snapshotWith([
-			makeAssignment({
-				id: "a1",
-				agentName: "worker",
-				status: "running",
-				startedAt: "2026-01-01T00:00:00.000Z",
-				subConversationId: "sub-1",
-				agentRunId: "run-1",
-				// no autonomousCycle → opt-in is off
-			}),
-		]);
+  test("non-autonomous running assignment does NOT show the cycle counter", async ({
+    page,
+    mockApi,
+  }) => {
+    const snapshot = snapshotWith([
+      makeAssignment({
+        id: "a1",
+        agentName: "worker",
+        status: "running",
+        startedAt: "2026-01-01T00:00:00.000Z",
+        subConversationId: "sub-1",
+        agentRunId: "run-1",
+        // no autonomousCycle → opt-in is off
+      }),
+    ]);
 
-		await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
+    await openChatWithTasks(page, mockApi, { project: proj, conversation: conv, snapshot });
 
-		await expect(page.getByText("@worker")).toBeVisible();
-		await expect(page.getByTestId("autonomous-cycle")).not.toBeVisible();
-	});
+    await expect(page.getByText("@worker")).toBeVisible();
+    await expect(page.getByTestId("autonomous-cycle")).not.toBeVisible();
+  });
 });

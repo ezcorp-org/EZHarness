@@ -31,11 +31,7 @@
  */
 
 import { statSync } from "node:fs";
-import type {
-  JsonRpcRequest,
-  JsonRpcResponse,
-  ExtensionPermissions,
-} from "./types";
+import type { JsonRpcRequest, JsonRpcResponse, ExtensionPermissions } from "./types";
 import type { EventBus } from "../runtime/events";
 import type { AgentEvents, TeamMemberOverrides, TeamToolScope } from "../types";
 import type { AgentExecutor } from "../runtime/executor";
@@ -130,19 +126,14 @@ async function auditReject(
   extra?: Record<string, unknown>,
 ): Promise<void> {
   try {
-    await insertAuditEntry(
-      userId,
-      EXT_AUDIT_ACTIONS.SPAWN_QUOTA_EXCEEDED,
-      extensionId,
-      {
-        permission: "spawnAgents",
-        oldValue: undefined,
-        newValue: undefined,
-        actor: "system",
-        reason,
-        ...(extra ?? {}),
-      },
-    );
+    await insertAuditEntry(userId, EXT_AUDIT_ACTIONS.SPAWN_QUOTA_EXCEEDED, extensionId, {
+      permission: "spawnAgents",
+      oldValue: undefined,
+      newValue: undefined,
+      actor: "system",
+      reason,
+      ...(extra ?? {}),
+    });
   } catch {
     // Audit failure must never break the response path.
   }
@@ -173,9 +164,7 @@ export async function handleSpawnAssignmentRpc(
         extensionId,
         userId: auditUser,
         conversationId:
-          ctx.conversationId && ctx.conversationId !== "unknown"
-            ? ctx.conversationId
-            : null,
+          ctx.conversationId && ctx.conversationId !== "unknown" ? ctx.conversationId : null,
         toolName: "ezcorp/spawn-assignment",
       },
       [{ kind: "ezcorp:agent:spawn" }],
@@ -241,9 +230,14 @@ export async function handleSpawnAssignmentRpc(
   if (!idOrName) {
     return rpcError(req.id, -32602, "One of 'agentConfigId' or 'agentName' is required");
   }
-  const title = typeof params.title === "string" && params.title.trim() ? params.title.trim() : undefined;
-  const callerTaskId = typeof params.taskId === "string" && params.taskId.trim() ? params.taskId : undefined;
-  const callerAssignmentId = typeof params.assignmentId === "string" && params.assignmentId.trim() ? params.assignmentId : undefined;
+  const title =
+    typeof params.title === "string" && params.title.trim() ? params.title.trim() : undefined;
+  const callerTaskId =
+    typeof params.taskId === "string" && params.taskId.trim() ? params.taskId : undefined;
+  const callerAssignmentId =
+    typeof params.assignmentId === "string" && params.assignmentId.trim()
+      ? params.assignmentId
+      : undefined;
   const reuseSubConversationFor =
     typeof params.reuseSubConversationFor === "string" && params.reuseSubConversationFor.trim()
       ? params.reuseSubConversationFor
@@ -257,7 +251,9 @@ export async function handleSpawnAssignmentRpc(
       ? (params.overrides as TeamMemberOverrides)
       : undefined;
   const callerTeamToolScope =
-    params.teamToolScope && typeof params.teamToolScope === "object" && !Array.isArray(params.teamToolScope)
+    params.teamToolScope &&
+    typeof params.teamToolScope === "object" &&
+    !Array.isArray(params.teamToolScope)
       ? (params.teamToolScope as TeamToolScope)
       : undefined;
   // A spawn that arrives over reverse-RPC is BY DEFINITION a nested turn, so
@@ -302,9 +298,7 @@ export async function handleSpawnAssignmentRpc(
     const ac = params.autonomousContinuation;
     if (!ac || typeof ac !== "object" || Array.isArray(ac)) return undefined;
     const mc = (ac as { maxCycles?: unknown }).maxCycles;
-    return typeof mc === "number" && Number.isFinite(mc) && mc > 0
-      ? { maxCycles: mc }
-      : {};
+    return typeof mc === "number" && Number.isFinite(mc) && mc > 0 ? { maxCycles: mc } : {};
   })();
   // workingDir (containment pin, ez-code-factory drive-3): the absolute
   // directory the child's built-in file/shell tools root at instead of the
@@ -318,12 +312,7 @@ export async function handleSpawnAssignmentRpc(
   let callerWorkingDir: string | undefined;
   if (params.workingDir !== undefined) {
     const wd = params.workingDir;
-    if (
-      typeof wd !== "string" ||
-      !wd.trim() ||
-      !wd.startsWith("/") ||
-      wd.includes("\0")
-    ) {
+    if (typeof wd !== "string" || !wd.trim() || !wd.startsWith("/") || wd.includes("\0")) {
       return rpcError(req.id, -32602, "'workingDir' must be an absolute path");
     }
     let isDir = false;
@@ -463,7 +452,9 @@ export async function handleSpawnAssignmentRpc(
       },
       ...(ctx.parentModel !== undefined ? { parentModel: ctx.parentModel } : {}),
       ...(ctx.parentProvider !== undefined ? { parentProvider: ctx.parentProvider } : {}),
-      ...(preResolvedSubConversationId ? { reuseSubConversationId: preResolvedSubConversationId } : {}),
+      ...(preResolvedSubConversationId
+        ? { reuseSubConversationId: preResolvedSubConversationId }
+        : {}),
       ...(callerParentMessageId ? { parentMessageId: callerParentMessageId } : {}),
       ...(callerOverrides ? { overrides: callerOverrides } : {}),
       ...(callerTeamToolScope ? { teamToolScope: callerTeamToolScope } : {}),
@@ -568,8 +559,7 @@ export async function handleSpawnAssignmentRpc(
           continue;
         }
         const childManifest = registry.getManifest(sharedExtId);
-        const childManifestPerms =
-          (childManifest?.permissions ?? {}) as ExtensionPermissions;
+        const childManifestPerms = (childManifest?.permissions ?? {}) as ExtensionPermissions;
         // Mirror the manifest's ceiling-shape onto the
         // `ExtensionPermissions` shape — `manifest.permissions` is
         // structurally compatible (modulo the missing `grantedAt`).
@@ -730,9 +720,7 @@ export async function handleQueueAgentMessageRpc(
         extensionId,
         userId: auditUser,
         conversationId:
-          ctx.conversationId && ctx.conversationId !== "unknown"
-            ? ctx.conversationId
-            : null,
+          ctx.conversationId && ctx.conversationId !== "unknown" ? ctx.conversationId : null,
         toolName: "ezcorp/queue-agent-message",
       },
       [{ kind: "ezcorp:agent:spawn" }],

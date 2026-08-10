@@ -64,8 +64,12 @@ export async function up(db: MigrationDb): Promise<void> {
     )
   `);
 
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_lessons_project_owner ON lessons(project_id, owner_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_lessons_visibility ON lessons(project_id, visibility)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_lessons_project_owner ON lessons(project_id, owner_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_lessons_visibility ON lessons(project_id, visibility)`,
+  );
 
   // Partial unique indexes — slug uniqueness is visibility-scoped.
   await db.execute(sql`

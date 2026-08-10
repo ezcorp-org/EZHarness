@@ -32,16 +32,14 @@ describe("migration on Postgres-compatible backend", () => {
   });
 
   test("pgvector extension is created", async () => {
-    const result = await pg.query(
-      "SELECT extname FROM pg_extension WHERE extname = 'vector'"
-    );
+    const result = await pg.query("SELECT extname FROM pg_extension WHERE extname = 'vector'");
     expect(result.rows.length).toBe(1);
     expect((result.rows[0] as any).extname).toBe("vector");
   });
 
   test("all expected tables are created", async () => {
     const result = await pg.query(
-      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name"
+      "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name",
     );
     const names = result.rows.map((r: any) => r.table_name);
 
@@ -119,7 +117,7 @@ describe("migration on Postgres-compatible backend", () => {
 
   test("analytics performance indexes are created", async () => {
     const result = await pg.query(
-      "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' ORDER BY indexname"
+      "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' ORDER BY indexname",
     );
     const indexNames = result.rows.map((r: any) => r.indexname);
 
@@ -138,7 +136,7 @@ describe("migration on Postgres-compatible backend", () => {
 
     // Tables still exist
     const result = await pg.query(
-      "SELECT count(*) as cnt FROM information_schema.tables WHERE table_schema = 'public'"
+      "SELECT count(*) as cnt FROM information_schema.tables WHERE table_schema = 'public'",
     );
     expect(Number((result.rows[0] as any).cnt)).toBeGreaterThan(20);
   });
@@ -149,7 +147,7 @@ describe("migration on Postgres-compatible backend", () => {
 
     // All 4 analytics indexes must still exist after re-run
     const result = await pg.query(
-      "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname LIKE 'idx_%' ORDER BY indexname"
+      "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND indexname LIKE 'idx_%' ORDER BY indexname",
     );
     const indexNames = result.rows.map((r: any) => r.indexname);
 
@@ -167,8 +165,15 @@ describe("migration on Postgres-compatible backend", () => {
   test("schema objects are queryable after migration", async () => {
     // Verify we can query each core table without errors
     const tables = [
-      "projects", "settings", "runs", "conversations", "messages",
-      "memories", "extensions", "users", "sessions",
+      "projects",
+      "settings",
+      "runs",
+      "conversations",
+      "messages",
+      "memories",
+      "extensions",
+      "users",
+      "sessions",
     ];
 
     for (const table of tables) {
@@ -178,7 +183,7 @@ describe("migration on Postgres-compatible backend", () => {
 
     // Verify vector column exists on memories table
     const colResult = await pg.query(
-      "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'memories' AND column_name = 'embedding'"
+      "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'memories' AND column_name = 'embedding'",
     );
     expect(colResult.rows.length).toBe(1);
     expect((colResult.rows[0] as any).data_type).toBe("USER-DEFINED"); // vector type
@@ -295,7 +300,9 @@ describe.skipIf(!PG_URL)("external Postgres via Bun.sql (real server)", () => {
     // withPostgresMigrateLock wraps migrate; a second full run must not throw
     // (DROP/CREATE TRIGGER, DROP/ADD CONSTRAINT pairs are re-applied cleanly).
     await conn.__test.withPostgresMigrateLock(() => migrate(conn.getDb()));
-    const { rows } = await conn.rawQuery("SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'");
+    const { rows } = await conn.rawQuery(
+      "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema = 'public'",
+    );
     expect((rows[0] as { n: number }).n).toBeGreaterThan(20);
   });
 
@@ -306,7 +313,8 @@ describe.skipIf(!PG_URL)("external Postgres via Bun.sql (real server)", () => {
   });
 
   test("jsonb column round-trips as an object (mapToDriverValue identity fix)", async () => {
-    await conn.getDb()
+    await conn
+      .getDb()
       .insert(schema.settings)
       .values({ key: "pg-jsonb-probe", value: { hello: "world", n: 7 } })
       .onConflictDoNothing();
@@ -336,11 +344,18 @@ describe.skipIf(!PG_URL)("external Postgres via Bun.sql (real server)", () => {
   });
 
   test("a real 23505 unique-violation is recognized by isUniqueViolation", async () => {
-    await conn.getDb().insert(schema.settings).values({ key: "dup-23505", value: { a: 1 } }).onConflictDoNothing();
+    await conn
+      .getDb()
+      .insert(schema.settings)
+      .values({ key: "dup-23505", value: { a: 1 } })
+      .onConflictDoNothing();
     let caught: unknown;
     try {
       // No onConflict → the second insert of the same PK raises 23505.
-      await conn.getDb().insert(schema.settings).values({ key: "dup-23505", value: { a: 2 } });
+      await conn
+        .getDb()
+        .insert(schema.settings)
+        .values({ key: "dup-23505", value: { a: 2 } });
     } catch (err) {
       caught = err;
     }

@@ -27,7 +27,10 @@ function setupAgentMock(textChunks: string[] = ["anchored"]) {
     Agent: class MockAgent {
       private _subs: any[] = [];
       state: Record<string, any> = {};
-      subscribe(cb: any) { this._subs.push(cb); return () => {}; }
+      subscribe(cb: any) {
+        this._subs.push(cb);
+        return () => {};
+      }
       abort() {}
       async prompt(message: string) {
         let accumulated = "";
@@ -199,9 +202,13 @@ mock.module("../extensions/tool-executor", () => ({
   MAX_TOOL_CALLS_PER_TURN: 10,
   extensionToAgentTool: () => ({}),
   ToolExecutor: class {
-    createToolsContext() { return { invoke: async () => ({}) }; }
+    createToolsContext() {
+      return { invoke: async () => ({}) };
+    }
     setPermissionChecker() {}
-    async executeToolCall() { return { content: [{ text: "result" }] }; }
+    async executeToolCall() {
+      return { content: [{ text: "result" }] };
+    }
   },
 }));
 
@@ -240,12 +247,12 @@ describe("tool call anchoring", () => {
     const run = await exec.streamChat("conv-1", "Hi", {});
 
     expect(run.status).toBe("success");
-    const assistantMsg = createdMessages.find(m => m.role === "assistant");
+    const assistantMsg = createdMessages.find((m) => m.role === "assistant");
     expect(assistantMsg).toBeDefined();
 
     // tool_calls UPDATE was issued to anchor messageId
     expect(toolCallUpdates.length).toBeGreaterThanOrEqual(1);
-    const anchorUpdate = toolCallUpdates.find(u => u.set?.messageId === assistantMsg!.id);
+    const anchorUpdate = toolCallUpdates.find((u) => u.set?.messageId === assistantMsg!.id);
     expect(anchorUpdate).toBeDefined();
   });
 
@@ -274,7 +281,10 @@ describe("tool call anchoring", () => {
       Agent: class MockAgent {
         private _subs: any[] = [];
         state: Record<string, any> = {};
-        subscribe(cb: any) { this._subs.push(cb); return () => {}; }
+        subscribe(cb: any) {
+          this._subs.push(cb);
+          return () => {};
+        }
         abort() {}
         async prompt() {
           throw new Error("provider crash");
@@ -288,11 +298,13 @@ describe("tool call anchoring", () => {
     const run = await exec.streamChat("conv-err", "test", {});
 
     expect(run.status).toBe("error");
-    const errorMsg = createdMessages.find(m => m.role === "assistant" && m.conversationId === "conv-err");
+    const errorMsg = createdMessages.find(
+      (m) => m.role === "assistant" && m.conversationId === "conv-err",
+    );
     expect(errorMsg).toBeDefined();
 
     // tool_calls anchoring was called with the error message's real ID
-    const anchorUpdate = toolCallUpdates.find(u => u.set?.messageId === errorMsg!.id);
+    const anchorUpdate = toolCallUpdates.find((u) => u.set?.messageId === errorMsg!.id);
     expect(anchorUpdate).toBeDefined();
 
     // Restore default mock
@@ -309,7 +321,7 @@ describe("tool call anchoring", () => {
 
     expect(run.status).toBe("success");
     expect(toolCallUpdates.length).toBeGreaterThanOrEqual(1);
-    const anchorUpdate = toolCallUpdates.find(u => u.set?.messageId != null);
+    const anchorUpdate = toolCallUpdates.find((u) => u.set?.messageId != null);
     expect(anchorUpdate).toBeDefined();
     expect(anchorUpdate!.set.messageId).toMatch(/^real-msg-/);
   });

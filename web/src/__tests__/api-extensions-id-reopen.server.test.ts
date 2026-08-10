@@ -25,12 +25,8 @@ vi.mock("$server/extensions/reopen-extension", () => ({
   ReopenError,
 }));
 
-const { reopenInstalledAsDraft } = await import(
-  "$server/extensions/reopen-extension"
-);
-const { POST } = await import(
-  "../routes/api/extensions/[id]/reopen/+server.ts"
-);
+const { reopenInstalledAsDraft } = await import("$server/extensions/reopen-extension");
+const { POST } = await import("../routes/api/extensions/[id]/reopen/+server.ts");
 
 function makeEvent(opts: { id?: string; locals?: Record<string, unknown> }) {
   const id = opts.id ?? "ext-1";
@@ -64,10 +60,7 @@ describe("POST /api/extensions/[id]/reopen", () => {
     const res = await POST(makeEvent({ locals: { user: owner } }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ draftId: "draft-9", name: "weather" });
-    expect(vi.mocked(reopenInstalledAsDraft)).toHaveBeenCalledWith(
-      "ext-1",
-      owner.id,
-    );
+    expect(vi.mocked(reopenInstalledAsDraft)).toHaveBeenCalledWith("ext-1", owner.id);
   });
 
   test("NOT_FOUND_OR_NOT_MODIFIABLE → opaque 404", async () => {

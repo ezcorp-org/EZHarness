@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { chunkText, isAllowedFile, } from "../memory/chunking";
+import { chunkText, isAllowedFile } from "../memory/chunking";
 
 describe("chunkText", () => {
   test("returns single chunk for short text", () => {

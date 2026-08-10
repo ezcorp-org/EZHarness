@@ -33,14 +33,9 @@ vi.mock("$server/db/queries/modes", () => ({
 const { complete } = await import("@earendil-works/pi-ai/compat");
 const { resolveModel } = await import("$server/providers/router");
 const { getCredential } = await import("$server/providers/credentials");
-const { POST } = await import(
-  "../routes/api/agent-configs/generate/+server.ts"
-);
+const { POST } = await import("../routes/api/agent-configs/generate/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown }) {
   const href = "http://localhost/api/agent-configs/generate";
   return {
     url: new URL(href),
@@ -92,9 +87,7 @@ describe("POST /api/agent-configs/generate", () => {
   });
 
   test("rejects 400 when messages array is empty", async () => {
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { messages: [] } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { messages: [] } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Validation failed");
@@ -154,8 +147,7 @@ describe("POST /api/agent-configs/generate", () => {
       content: [
         {
           type: "text",
-          text:
-            'Here is your agent: <agent_config>{"name":"test-agent","prompt":"do things"}</agent_config>',
+          text: 'Here is your agent: <agent_config>{"name":"test-agent","prompt":"do things"}</agent_config>',
         },
       ],
     } as any);
@@ -217,8 +209,7 @@ describe("POST /api/agent-configs/generate", () => {
       content: [
         {
           type: "text",
-          text:
-            "Here is a draft: <agent_config>{ name: not-quoted, prompt }</agent_config> — sorry, malformed.",
+          text: "Here is a draft: <agent_config>{ name: not-quoted, prompt }</agent_config> — sorry, malformed.",
         },
       ],
     } as any);

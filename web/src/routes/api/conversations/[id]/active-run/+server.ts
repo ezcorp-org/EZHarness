@@ -13,14 +13,18 @@ import { resolveRootConversationForOwnership } from "$lib/server/conversation-ow
 // `action`, which must be one of two literal strings. Keep the schema
 // strict so unknown fields fail loud rather than silently — this route
 // is small enough that any drift would be intentional.
-const activeRunActionSchema = z.object({
-  action: z.enum(["cancel", "force-cancel"]),
-}).strict();
+const activeRunActionSchema = z
+  .object({
+    action: z.enum(["cancel", "force-cancel"]),
+  })
+  .strict();
 
 /** Compute "how long since this run last emitted a heartbeat" in ms. Treats the row's
  *  startedAt as a fallback when last_heartbeat is missing. Used by the client to drive
  *  the stuck-run banner. */
-function stalenessFor(dbRun: { startedAt: Date; lastHeartbeat: Date | null } | null): number | null {
+function stalenessFor(
+  dbRun: { startedAt: Date; lastHeartbeat: Date | null } | null,
+): number | null {
   if (!dbRun) return null;
   const ref = dbRun.lastHeartbeat ?? dbRun.startedAt;
   return Date.now() - ref.getTime();

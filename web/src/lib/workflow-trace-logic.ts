@@ -179,9 +179,7 @@ export function statusLabel(status: string): string {
  * Returns null when there is nothing to say, so the template renders no
  * empty element.
  */
-export function pauseNote(
-  run: Pick<RunTrace["run"], "status" | "suspendedReason">,
-): string | null {
+export function pauseNote(run: Pick<RunTrace["run"], "status" | "suspendedReason">): string | null {
   if (run.suspendedReason === null) return null;
   return run.status === "suspended"
     ? `paused: ${run.suspendedReason}`
@@ -285,10 +283,9 @@ export interface TimelineBar {
 
 export function timelineBars(trace: RunTrace): TimelineBar[] {
   const runStart = Date.parse(trace.run.startedAt);
-  const ends = trace.steps.map(
-    (s) => Date.parse(s.startedAt) + (s.durationMs ?? 0),
-  );
-  const runEnd = trace.run.finishedAt !== null ? Date.parse(trace.run.finishedAt) : Math.max(runStart, ...ends);
+  const ends = trace.steps.map((s) => Date.parse(s.startedAt) + (s.durationMs ?? 0));
+  const runEnd =
+    trace.run.finishedAt !== null ? Date.parse(trace.run.finishedAt) : Math.max(runStart, ...ends);
   // A run whose steps all landed in the same millisecond (every test
   // fixture, and any all-transform workflow) would divide by zero.
   const span = Math.max(runEnd - runStart, 1);
@@ -326,7 +323,5 @@ export function dagRanks(steps: TraceStep[]): TraceStep[][] {
     const t = Date.parse(step.startedAt);
     byStart.set(t, [...(byStart.get(t) ?? []), step]);
   }
-  return [...byStart.entries()]
-    .sort((a, b) => a[0] - b[0])
-    .map(([, group]) => group);
+  return [...byStart.entries()].sort((a, b) => a[0] - b[0]).map(([, group]) => group);
 }

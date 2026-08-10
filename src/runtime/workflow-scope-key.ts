@@ -75,9 +75,7 @@ export function isWorkflowScopeKey(id: string | null | undefined): boolean {
  * including a bare prefix with no id after it, which names no run and must
  * not be reported as one.
  */
-export function workflowRunIdFromScopeKey(
-  id: string | null | undefined,
-): string | null {
+export function workflowRunIdFromScopeKey(id: string | null | undefined): string | null {
   if (!isWorkflowScopeKey(id)) return null;
   const runId = (id as string).slice(WORKFLOW_SCOPE_KEY_PREFIX.length);
   return runId.length > 0 ? runId : null;
@@ -91,9 +89,7 @@ export function workflowRunIdFromScopeKey(
  * to a conversation-FK column that can be reached from inside a workflow
  * MUST go through this; a raw pass-through is the defect it replaces.
  */
-export function persistableConversationId(
-  id: string | null | undefined,
-): string | null {
+export function persistableConversationId(id: string | null | undefined): string | null {
   if (id === null || id === undefined || id === "") return null;
   return isWorkflowScopeKey(id) ? null : id;
 }

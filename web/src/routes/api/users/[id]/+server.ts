@@ -11,9 +11,11 @@ import { errorJson } from "$lib/server/http-errors";
 // "Status must be 'active' or 'inactive'" message is test-pinned, so
 // `status` stays a permissive string in the schema and the inline
 // enum check below fires for invalid values.
-const updateUserSchema = z.object({
-  status: z.string().optional(),
-}).strict();
+const updateUserSchema = z
+  .object({
+    status: z.string().optional(),
+  })
+  .strict();
 
 export const PUT: RequestHandler = async ({ params, request, locals }) => {
   const scopeErr = requireScope(locals, "admin");

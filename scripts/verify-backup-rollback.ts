@@ -42,8 +42,13 @@ function section(title: string) {
   step += 1;
   console.log(`\n${bold(`Step ${step}: ${title}`)}`);
 }
-function ok(msg: string) { console.log(green(`  ✓ ${msg}`)); }
-function fail(msg: string): never { console.log(red(`  ✗ ${msg}`)); process.exit(1); }
+function ok(msg: string) {
+  console.log(green(`  ✓ ${msg}`));
+}
+function fail(msg: string): never {
+  console.log(red(`  ✗ ${msg}`));
+  process.exit(1);
+}
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) fail(msg);
@@ -63,14 +68,15 @@ try {
   await conn.initDb();
   assert(existsSync(DB_PATH), `DB dir created at ${DB_PATH}`);
   assert(
-    !existsSync(BACKUP_DIR) || readdirSync(BACKUP_DIR).filter((f) => f.startsWith("pre-boot-")).length === 0,
+    !existsSync(BACKUP_DIR) ||
+      readdirSync(BACKUP_DIR).filter((f) => f.startsWith("pre-boot-")).length === 0,
     "No pre-boot snapshot on first boot (empty DB skipped)",
   );
   assert(readiness.getReadiness().state === "ready", `Readiness = ready`);
 
-  await conn.getDb().execute(
-    sql`INSERT INTO settings (key, value) VALUES ('verify-key', '"verify-value"'::jsonb)`,
-  );
+  await conn
+    .getDb()
+    .execute(sql`INSERT INTO settings (key, value) VALUES ('verify-key', '"verify-value"'::jsonb)`);
   ok("Seeded row (key=verify-key) into settings table");
   await conn.closeDb();
 
@@ -78,26 +84,35 @@ try {
   await conn.initDb();
   const snapshots2 = readdirSync(BACKUP_DIR).filter((f) => f.startsWith("pre-boot-"));
   assert(snapshots2.length === 1, `Exactly 1 pre-boot snapshot created: ${snapshots2[0]}`);
-  assert(snapshots2[0]!.includes("verify-sha"), `Snapshot filename contains image SHA: ${snapshots2[0]}`);
+  assert(
+    snapshots2[0]!.includes("verify-sha"),
+    `Snapshot filename contains image SHA: ${snapshots2[0]}`,
+  );
   const snap2Dir = join(BACKUP_DIR, snapshots2[0]!);
-  assert(readdirSync(snap2Dir).length > 0, `Snapshot has ${readdirSync(snap2Dir).length} entries (non-empty copy)`);
-  assert(backup.latestPreBootSnapshot() === snap2Dir, "latestPreBootSnapshot() returns the new snapshot");
+  assert(
+    readdirSync(snap2Dir).length > 0,
+    `Snapshot has ${readdirSync(snap2Dir).length} entries (non-empty copy)`,
+  );
+  assert(
+    backup.latestPreBootSnapshot() === snap2Dir,
+    "latestPreBootSnapshot() returns the new snapshot",
+  );
 
   // Re-verify the seeded row survived reboot
-  const rows2 = (await conn.getDb().execute(
-    sql`SELECT value FROM settings WHERE key = 'verify-key'`,
-  )).rows;
+  const rows2 = (
+    await conn.getDb().execute(sql`SELECT value FROM settings WHERE key = 'verify-key'`)
+  ).rows;
   assert(rows2.length === 1, "Seeded row survived reboot");
 
   section("Simulated migration failure: rollback restores the snapshot");
   // Insert a row that WILL be lost by rollback (it was inserted after the
   // snapshot was taken at the start of this boot).
-  await conn.getDb().execute(
-    sql`INSERT INTO settings (key, value) VALUES ('will-be-lost', '"x"'::jsonb)`,
-  );
-  const preRollback = (await conn.getDb().execute(
-    sql`SELECT key FROM settings ORDER BY key`,
-  )).rows.map((r: { key: string }) => r.key);
+  await conn
+    .getDb()
+    .execute(sql`INSERT INTO settings (key, value) VALUES ('will-be-lost', '"x"'::jsonb)`);
+  const preRollback = (
+    await conn.getDb().execute(sql`SELECT key FROM settings ORDER BY key`)
+  ).rows.map((r: { key: string }) => r.key);
   assert(
     preRollback.length === 2 && preRollback.includes("will-be-lost"),
     `Pre-rollback DB has 2 rows: [${preRollback.join(", ")}]`,
@@ -110,7 +125,10 @@ try {
     await conn.__test.rollbackMigration(new Error("VERIFY: simulated migration failure"));
   } catch (err) {
     threw = true;
-    assert(String(err).includes("simulated migration failure"), "rollbackMigration rethrew in test mode");
+    assert(
+      String(err).includes("simulated migration failure"),
+      "rollbackMigration rethrew in test mode",
+    );
   }
   assert(threw, "rollbackMigration honors EZCORP_NO_EXIT=1");
 
@@ -119,11 +137,17 @@ try {
   assert(existsSync(markerPath), "Circuit-breaker marker written to <dbDir>/../.migration-failed");
   const marker = JSON.parse(readFileSync(markerPath, "utf8"));
   assert(marker.imageSha === "verify-sha-0001", `Marker imageSha = ${marker.imageSha}`);
-  assert(marker.error.includes("simulated migration failure"), "Marker error contains the thrown message");
+  assert(
+    marker.error.includes("simulated migration failure"),
+    "Marker error contains the thrown message",
+  );
 
   // Failed DB preserved
   const failedDirs = readdirSync(TMP).filter((f) => f.startsWith("db.failed."));
-  assert(failedDirs.length === 1, `Failed DB preserved at db.failed.* (${failedDirs[0]}) for forensics`);
+  assert(
+    failedDirs.length === 1,
+    `Failed DB preserved at db.failed.* (${failedDirs[0]}) for forensics`,
+  );
 
   section("Next boot with marker present: circuit breaker engages, data preserved");
   await conn.initDb();
@@ -135,9 +159,9 @@ try {
     readiness.getReadiness().reason === "migration-blocked",
     `Readiness reason = migration-blocked`,
   );
-  const restoredRows = (await conn.getDb().execute(
-    sql`SELECT key FROM settings ORDER BY key`,
-  )).rows.map((r: { key: string }) => r.key);
+  const restoredRows = (
+    await conn.getDb().execute(sql`SELECT key FROM settings ORDER BY key`)
+  ).rows.map((r: { key: string }) => r.key);
   assert(
     restoredRows.length === 1 && restoredRows[0] === "verify-key",
     `Restored DB has ONLY pre-snapshot data: [${restoredRows.join(", ")}] — "will-be-lost" correctly gone`,
@@ -156,13 +180,18 @@ try {
     readiness.getReadiness().state === "ready",
     `Post-recovery readiness = ready (got ${readiness.getReadiness().state})`,
   );
-  const finalRows = (await conn.getDb().execute(
-    sql`SELECT key FROM settings ORDER BY key`,
-  )).rows.map((r: { key: string }) => r.key);
-  assert(finalRows.length === 1 && finalRows[0] === "verify-key", "Data still intact after recovery");
+  const finalRows = (
+    await conn.getDb().execute(sql`SELECT key FROM settings ORDER BY key`)
+  ).rows.map((r: { key: string }) => r.key);
+  assert(
+    finalRows.length === 1 && finalRows[0] === "verify-key",
+    "Data still intact after recovery",
+  );
   await conn.closeDb();
 
-  console.log(`\n${bold(green("ALL VERIFIED"))} — snapshot, rollback, circuit breaker, and recovery all work end-to-end.`);
+  console.log(
+    `\n${bold(green("ALL VERIFIED"))} — snapshot, rollback, circuit breaker, and recovery all work end-to-end.`,
+  );
   console.log(dim(`Temp dir retained for inspection: ${TMP}`));
   console.log(dim(`(remove with: rm -rf ${TMP})`));
   rmSync(TMP, { recursive: true, force: true });

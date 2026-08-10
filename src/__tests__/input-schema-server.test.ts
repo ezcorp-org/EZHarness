@@ -3,7 +3,13 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgents } from "../runtime/loader";
 import { startTestServer as startServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings, restoreFetch } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+  restoreFetch,
+} from "./helpers/test-pglite";
 import type { AgentCapability, AgentEvents } from "../types";
 
 mockDbConnection();
@@ -39,7 +45,7 @@ describe("GET /api/agents inputSchema", () => {
   test("agents include inputSchema in response", async () => {
     const res = await fetch(`${baseUrl}/api/agents`);
     expect(res.status).toBe(200);
-    const agents = await res.json() as any;
+    const agents = (await res.json()) as any;
 
     const summarizer = agents.find((a: any) => a.name === "summarizer");
     const shellRunner = agents.find((a: any) => a.name === "shell-runner");
@@ -56,7 +62,7 @@ describe("GET /api/agents inputSchema", () => {
 
   test("summarizer schema shape", async () => {
     const res = await fetch(`${baseUrl}/api/agents`);
-    const agents = await res.json() as any;
+    const agents = (await res.json()) as any;
     const schema = agents.find((a: any) => a.name === "summarizer").inputSchema;
 
     // text field
@@ -73,7 +79,13 @@ describe("GET /api/agents inputSchema", () => {
     // provider field
     expect(schema.provider.type).toBe("select");
     expect(schema.provider.label).toBe("Provider");
-    expect(schema.provider.options).toEqual(["anthropic", "google", "openai", "openrouter", "kilo"]);
+    expect(schema.provider.options).toEqual([
+      "anthropic",
+      "google",
+      "openai",
+      "openrouter",
+      "kilo",
+    ]);
     expect(schema.provider.default).toBe("anthropic");
 
     // model field
@@ -84,7 +96,7 @@ describe("GET /api/agents inputSchema", () => {
 
   test("shell-runner schema shape", async () => {
     const res = await fetch(`${baseUrl}/api/agents`);
-    const agents = await res.json() as any;
+    const agents = (await res.json()) as any;
     const schema = agents.find((a: any) => a.name === "shell-runner").inputSchema;
 
     // command field
@@ -101,7 +113,7 @@ describe("GET /api/agents inputSchema", () => {
 
   test("schema field properties are complete", async () => {
     const res = await fetch(`${baseUrl}/api/agents`);
-    const agents = await res.json() as any;
+    const agents = (await res.json()) as any;
 
     for (const agent of agents) {
       if (!agent.inputSchema) continue;
@@ -130,7 +142,7 @@ describe("POST /api/agents/:name/run with schema-matching input", () => {
       body: JSON.stringify({ command: "echo schema-test" }),
     });
     expect(res.status).toBe(200);
-    const run = await res.json() as any;
+    const run = (await res.json()) as any;
     expect(run.agentName).toBe("shell-runner");
     expect(run.status).toBe("success");
     expect(run.result.success).toBe(true);
@@ -143,11 +155,11 @@ describe("POST /api/agents/:name/run with schema-matching input", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command: "echo retrieve-test" }),
     });
-    const postRun = await postRes.json() as any;
+    const postRun = (await postRes.json()) as any;
 
     const getRes = await fetch(`${baseUrl}/api/runs/${postRun.id}`);
     expect(getRes.status).toBe(200);
-    const getRun = await getRes.json() as any;
+    const getRun = (await getRes.json()) as any;
     expect(getRun.id).toBe(postRun.id);
     expect(getRun.agentName).toBe("shell-runner");
     expect(getRun.result.output.stdout.trim()).toBe("retrieve-test");
@@ -163,7 +175,7 @@ describe("POST /api/agents/:name/run with schema-matching input", () => {
       body: JSON.stringify({ command: "pwd", cwd: "/tmp" }),
     });
     expect(res.status).toBe(200);
-    const run = await res.json() as any;
+    const run = (await res.json()) as any;
     expect(run.status).toBe("success");
     expect(run.result.output.stdout.trim()).toBe(realTmp);
   });
@@ -175,7 +187,7 @@ describe("POST /api/agents/:name/run with schema-matching input", () => {
       body: JSON.stringify({}),
     });
     expect(res.status).toBe(200);
-    const run = await res.json() as any;
+    const run = (await res.json()) as any;
     expect(run.result.success).toBe(false);
     expect(run.result.error).toContain("command");
   });
@@ -208,7 +220,7 @@ describe("agents without inputSchema via API", () => {
 
   test("API omits inputSchema when agent has none", async () => {
     const res = await fetch(`${noSchemaUrl}/api/agents`);
-    const agents = await res.json() as any;
+    const agents = (await res.json()) as any;
     const bare = agents.find((a: any) => a.name === "bare-agent");
     expect(bare).toBeDefined();
     expect(bare.inputSchema).toBeUndefined();
@@ -223,7 +235,7 @@ describe("agents without inputSchema via API", () => {
       body: JSON.stringify({ anything: "goes" }),
     });
     expect(res.status).toBe(200);
-    const run = await res.json() as any;
+    const run = (await res.json()) as any;
     expect(run.status).toBe("success");
     expect(run.result.output).toBe("ok");
   });
@@ -242,7 +254,7 @@ describe("additional inputSchema and run tests", () => {
 
   test("all field types are valid", async () => {
     const res = await fetch(`${baseUrl}/api/agents`);
-    const agents = await res.json() as any;
+    const agents = (await res.json()) as any;
 
     for (const agent of agents) {
       if (!agent.inputSchema) continue;
@@ -259,7 +271,7 @@ describe("additional inputSchema and run tests", () => {
       body: JSON.stringify({ command: "echo hi", extraField: "ignored" }),
     });
     expect(res.status).toBe(200);
-    const run = await res.json() as any;
+    const run = (await res.json()) as any;
     expect(run.status).toBe("success");
     expect(run.result.output.stdout.trim()).toBe("hi");
   });
@@ -271,7 +283,7 @@ describe("additional inputSchema and run tests", () => {
       body: JSON.stringify({ command: "echo minimal" }),
     });
     expect(res.status).toBe(200);
-    const run = await res.json() as any;
+    const run = (await res.json()) as any;
     expect(run.status).toBe("success");
     expect(run.result.output.stdout.trim()).toBe("minimal");
   });
@@ -279,28 +291,31 @@ describe("additional inputSchema and run tests", () => {
   test("multiple sequential runs appear in GET /api/runs", async () => {
     const headers = { "Content-Type": "application/json" };
     await fetch(`${baseUrl}/api/agents/shell-runner/run`, {
-      method: "POST", headers,
+      method: "POST",
+      headers,
       body: JSON.stringify({ command: "echo run1" }),
     });
     await fetch(`${baseUrl}/api/agents/shell-runner/run`, {
-      method: "POST", headers,
+      method: "POST",
+      headers,
       body: JSON.stringify({ command: "echo run2" }),
     });
     await fetch(`${baseUrl}/api/agents/shell-runner/run`, {
-      method: "POST", headers,
+      method: "POST",
+      headers,
       body: JSON.stringify({ command: "echo run3" }),
     });
 
     const res = await fetch(`${baseUrl}/api/runs`);
     expect(res.status).toBe(200);
-    const runs = await res.json() as any;
+    const runs = (await res.json()) as any;
     expect(runs.length).toBeGreaterThanOrEqual(3);
   });
 
   test("GET /api/agents response shape", async () => {
     const res = await fetch(`${baseUrl}/api/agents`);
     expect(res.status).toBe(200);
-    const agents = await res.json() as any;
+    const agents = (await res.json()) as any;
 
     expect(agents.length).toBeGreaterThan(0);
     for (const agent of agents) {

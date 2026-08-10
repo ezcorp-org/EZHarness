@@ -27,7 +27,9 @@ mockDbConnection();
 
 // ── pi-agent-core: a loop stand-in that drives the turn boundary ─────
 
-interface TurnUpdate { context: { tools?: Array<{ name: string }> } }
+interface TurnUpdate {
+  context: { tools?: Array<{ name: string }> };
+}
 
 let capturedAgentOpts: { initialState: { tools: Array<{ name: string }> } } | null = null;
 /** Runs at the simulated turn boundary — tests use it to "install". */
@@ -88,7 +90,11 @@ mock.module("../providers/shell", () => ({
   createShellProvider: () => ({ run: async () => ({ stdout: "", stderr: "", exitCode: 0 }) }),
 }));
 mock.module("../providers/file", () => ({
-  createFileProvider: () => ({ read: async () => "", write: async () => {}, exists: async () => false }),
+  createFileProvider: () => ({
+    read: async () => "",
+    write: async () => {},
+    exists: async () => false,
+  }),
 }));
 mock.module("../observability/collector", () => ({ startCollector: () => {} }));
 mock.module("../db/queries/runs", () => ({ insertRun: async () => {}, updateRun: async () => {} }));
@@ -99,7 +105,9 @@ mock.module("../db/queries/active-runs", () => ({
   updateHeartbeat: async () => {},
   updatePartialResponse: async () => {},
 }));
-mock.module("../memory/embeddings", () => ({ generateEmbedding: async () => new Float32Array(384) }));
+mock.module("../memory/embeddings", () => ({
+  generateEmbedding: async () => new Float32Array(384),
+}));
 mock.module("../memory/injection", () => ({
   buildSystemPromptWithMemories: async (sys: string | undefined) => ({
     systemPrompt: sys ?? "",
@@ -109,14 +117,20 @@ mock.module("../memory/injection", () => ({
 
 // ── Registry stub with a live `generation` counter ───────────────────
 
-interface StubToolDef { name: string; description: string; inputSchema: Record<string, unknown> }
+interface StubToolDef {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
 
 const agentToolsMap = new Map<string, StubToolDef[]>();
 const extensionToolsMap = new Map<string, StubToolDef[]>();
 let registryGeneration = 0;
 
 const registryStub = {
-  get generation() { return registryGeneration; },
+  get generation() {
+    return registryGeneration;
+  },
   getToolsForAgent: async (agentConfigId: string) => agentToolsMap.get(agentConfigId) ?? [],
   getToolsForExtension: (extId: string) => extensionToolsMap.get(extId) ?? [],
 };
@@ -196,14 +210,19 @@ let agentConfigId: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  const project = await createProject({ name: "Mid-run reassembly", path: "/tmp/midrun-reassembly" });
+  const project = await createProject({
+    name: "Mid-run reassembly",
+    path: "/tmp/midrun-reassembly",
+  });
   projectId = project.id;
   convId = (await createConversation(projectId)).id;
-  agentConfigId = (await createAgentConfig({
-    name: "reassembly-agent",
-    description: "Agent whose toolset is re-assembled mid-run",
-    prompt: "You are a re-assembly test agent.",
-  })).id;
+  agentConfigId = (
+    await createAgentConfig({
+      name: "reassembly-agent",
+      description: "Agent whose toolset is re-assembled mid-run",
+      prompt: "You are a re-assembly test agent.",
+    })
+  ).id;
 });
 
 afterAll(async () => {

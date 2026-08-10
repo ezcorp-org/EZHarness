@@ -31,9 +31,7 @@ mock.module("../db/queries/extensions", () => ({
 afterAll(() => restoreModuleMocks());
 
 const { scaffoldExtension } = await import("@ezcorp/sdk");
-const { validateManifestV2, validateSmokeTest } = await import(
-  "../extensions/manifest"
-);
+const { validateManifestV2, validateSmokeTest } = await import("../extensions/manifest");
 const { verifyExtension } = await import("../extensions/sdk/verify");
 
 function evalManifest(src: string): Record<string, unknown> {
@@ -61,15 +59,11 @@ describe("scaffold — smokeTest + real test (tool/multi)", () => {
 
       // smokeTest present + structurally valid against declared tools.
       expect(manifest.smokeTest).toBeDefined();
-      const toolNames = (manifest.tools as Array<{ name: string }>).map(
-        (t) => t.name,
-      );
+      const toolNames = (manifest.tools as Array<{ name: string }>).map((t) => t.name);
       const errs: string[] = [];
       validateSmokeTest(manifest.smokeTest, toolNames, errs);
       expect(errs).toEqual([]);
-      expect(toolNames).toContain(
-        (manifest.smokeTest as { tool: string }).tool,
-      );
+      expect(toolNames).toContain((manifest.smokeTest as { tool: string }).tool);
     });
 
     test(`${type}: generated index.test.ts has a REAL test (no test.todo)`, () => {
@@ -101,14 +95,10 @@ describe("scaffold — verifyExtension passes on a fresh dir", () => {
       }
       const r = await verifyExtension({ extDir: dir });
       if (!r.pass) {
-        throw new Error(
-          `scaffold failed verify: ${JSON.stringify(r.steps, null, 2)}`,
-        );
+        throw new Error(`scaffold failed verify: ${JSON.stringify(r.steps, null, 2)}`);
       }
       expect(r.pass).toBe(true);
-      expect(r.steps.some((s) => s.name === "smoke-test-roundtrip" && s.ok)).toBe(
-        true,
-      );
+      expect(r.steps.some((s) => s.name === "smoke-test-roundtrip" && s.ok)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -128,9 +118,7 @@ describe("scaffold — verifyExtension passes on a fresh dir", () => {
       }
       const r = await verifyExtension({ extDir: dir });
       if (!r.pass) {
-        throw new Error(
-          `multi scaffold failed verify: ${JSON.stringify(r.steps, null, 2)}`,
-        );
+        throw new Error(`multi scaffold failed verify: ${JSON.stringify(r.steps, null, 2)}`);
       }
       expect(r.pass).toBe(true);
     } finally {

@@ -34,9 +34,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 
   const KNOWN_CAPS = new Set(["llm", "memory", "lessons", "schedule", "events"]);
   const cap = url.searchParams.get("capability");
-  const capability = cap && KNOWN_CAPS.has(cap)
-    ? (cap as "llm" | "memory" | "lessons" | "schedule" | "events")
-    : undefined;
+  const capability =
+    cap && KNOWN_CAPS.has(cap)
+      ? (cap as "llm" | "memory" | "lessons" | "schedule" | "events")
+      : undefined;
   const extensionId = url.searchParams.get("extensionId") ?? undefined;
   const action = url.searchParams.get("action") ?? undefined;
   const onBehalfOf = url.searchParams.get("onBehalfOf") ?? undefined;

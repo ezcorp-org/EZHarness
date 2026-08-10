@@ -37,28 +37,22 @@ if (SKIP_REASON !== null) {
   console.warn(`[mcp-stage2-conntrack-soak] SKIPPING — ${SKIP_REASON}`);
 }
 
-describe.skipIf(SKIP_REASON !== null)(
-  "Stage 2 conntrack soak (RC#2 CI proxy)",
-  () => {
-    test.todo(
-      "scaled 4×100 synthetic load: max(count) < 0.5 * max + zero `nf_conntrack: table full` in dmesg",
-      () => {
-        // PSEUDOCODE for GREEN on a Linux+NET_ADMIN+CI runner with full
-        // Stage 2 stack operational:
-        //
-        //   1. Baseline:
-        //      - max = parseInt(readFileSync('/proc/sys/net/netfilter/nf_conntrack_max'))
-        //      - dmesg_baseline_lines = (await dmesg()).split('\n').length
-        //   2. Spawn 4 concurrent Bun.spawn instances, each running
-        //      tests/fixtures/synthetic-mcp/loop.ts 100 — fixture loops
-        //      `fetch('http://example.com')` via the per-MCP proxy.
-        //   3. Every 10s for the duration, snapshot the count file into
-        //      a samples array.
-        //   4. Wait for all 4 fixtures to exit (or test.setTimeout(360_000)).
-        //   5. Assert max(samples) < 0.5 * max.
-        //   6. Assert dmesg lines AFTER baseline contain ZERO matches
-        //      for /nf_conntrack:.+table full/.
-      },
-    );
-  },
-);
+describe.skipIf(SKIP_REASON !== null)("Stage 2 conntrack soak (RC#2 CI proxy)", () => {
+  test.todo("scaled 4×100 synthetic load: max(count) < 0.5 * max + zero `nf_conntrack: table full` in dmesg", () => {
+    // PSEUDOCODE for GREEN on a Linux+NET_ADMIN+CI runner with full
+    // Stage 2 stack operational:
+    //
+    //   1. Baseline:
+    //      - max = parseInt(readFileSync('/proc/sys/net/netfilter/nf_conntrack_max'))
+    //      - dmesg_baseline_lines = (await dmesg()).split('\n').length
+    //   2. Spawn 4 concurrent Bun.spawn instances, each running
+    //      tests/fixtures/synthetic-mcp/loop.ts 100 — fixture loops
+    //      `fetch('http://example.com')` via the per-MCP proxy.
+    //   3. Every 10s for the duration, snapshot the count file into
+    //      a samples array.
+    //   4. Wait for all 4 fixtures to exit (or test.setTimeout(360_000)).
+    //   5. Assert max(samples) < 0.5 * max.
+    //   6. Assert dmesg lines AFTER baseline contain ZERO matches
+    //      for /nf_conntrack:.+table full/.
+  });
+});

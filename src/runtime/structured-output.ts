@@ -324,9 +324,7 @@ export function validateStructuredOutput(
 ): StructuredOutcome {
   const extracted = extractJsonCandidate(text);
   if (!extracted.found) {
-    const issues: SchemaIssue[] = [
-      { path: "", message: "no JSON value found in the response" },
-    ];
+    const issues: SchemaIssue[] = [{ path: "", message: "no JSON value found in the response" }];
     return { ok: false, issues, summary: summarizeIssues(issues) };
   }
   const issues: SchemaIssue[] = [];

@@ -18,7 +18,12 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
-import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../../__tests__/helpers/test-pglite";
+import {
+  closeTestDb,
+  getTestDb,
+  mockDbConnection,
+  setupTestDb,
+} from "../../__tests__/helpers/test-pglite";
 
 mockDbConnection();
 
@@ -67,10 +72,17 @@ function makeRegistry(captured: { meta?: Record<string, unknown> }): ExtensionRe
     getRegisteredTool: (toolName: string) => {
       const t = manifest.tools?.find((x) => x.name === toolName);
       if (!t) return null;
-      return { extensionId: EXT_ID, originalName: toolName, name: toolName, description: "", inputSchema: { type: "object" } };
+      return {
+        extensionId: EXT_ID,
+        originalName: toolName,
+        name: toolName,
+        description: "",
+        inputSchema: { type: "object" },
+      };
     },
     getManifest: () => manifest,
-    getGrantedPermissions: () => ({ grantedAt: {} }) as unknown as ReturnType<ExtensionRegistry["getGrantedPermissions"]>,
+    getGrantedPermissions: () =>
+      ({ grantedAt: {} }) as unknown as ReturnType<ExtensionRegistry["getGrantedPermissions"]>,
     getProcess: async () => fakeProc,
     getInstallPath: () => "/tmp/ext",
     getMcpClient: async () => {

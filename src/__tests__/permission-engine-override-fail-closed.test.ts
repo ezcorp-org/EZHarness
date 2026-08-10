@@ -34,18 +34,14 @@ mockRealSettings();
 // when the override cache misses. We make it throw to simulate the
 // post-cache DB failure path.
 
-let getEffectiveGrantsImpl: (
-  conversationId: string,
-  extensionId: string,
-) => Promise<unknown> = async () => {
-  throw new Error("PGlite ECONNRESET (simulated)");
-};
+let getEffectiveGrantsImpl: (conversationId: string, extensionId: string) => Promise<unknown> =
+  async () => {
+    throw new Error("PGlite ECONNRESET (simulated)");
+  };
 
 mock.module("../db/queries/conversation-extensions", () => ({
-  getConversationExtensionEffectiveGrants: (
-    conversationId: string,
-    extensionId: string,
-  ) => getEffectiveGrantsImpl(conversationId, extensionId),
+  getConversationExtensionEffectiveGrants: (conversationId: string, extensionId: string) =>
+    getEffectiveGrantsImpl(conversationId, extensionId),
   addConversationExtensions: async () => {},
   getConversationExtensionIds: async () => [],
   getEffectiveGrantsForConversation: async () => ({ grantedAt: {} }),

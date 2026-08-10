@@ -23,7 +23,9 @@ export async function createPasswordResetToken(data: {
   return rows[0]!;
 }
 
-export async function claimPasswordResetToken(token: string): Promise<PasswordResetToken | undefined> {
+export async function claimPasswordResetToken(
+  token: string,
+): Promise<PasswordResetToken | undefined> {
   const tokenHash = await hashToken(token);
   const rows = await getDb()
     .update(passwordResetTokens)
@@ -32,15 +34,13 @@ export async function claimPasswordResetToken(token: string): Promise<PasswordRe
       and(
         eq(passwordResetTokens.token, tokenHash),
         isNull(passwordResetTokens.usedAt),
-        gt(passwordResetTokens.expiresAt, new Date())
-      )
+        gt(passwordResetTokens.expiresAt, new Date()),
+      ),
     )
     .returning();
   return rows[0];
 }
 
 export async function deleteExpiredResetTokens(): Promise<void> {
-  await getDb()
-    .delete(passwordResetTokens)
-    .where(lt(passwordResetTokens.expiresAt, new Date()));
+  await getDb().delete(passwordResetTokens).where(lt(passwordResetTokens.expiresAt, new Date()));
 }

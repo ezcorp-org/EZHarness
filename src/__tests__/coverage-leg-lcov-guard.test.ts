@@ -435,13 +435,18 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     // The coverage verdict keeps exit 1 so existing consumers are unchanged…
     expect(tail).toContain('if [ "$COVERAGE_FAILED" != "0" ]; then exit 1; fi');
     // …and a tests-failed run exits with the dedicated code, never 0.
-    expect(tail).toMatch(/if \[ "\$\{#STILL_FAILED\[@\]\}" -gt 0 \]; then[\s\S]*exit "\$EXIT_TESTS_FAILED"/);
+    expect(tail).toMatch(
+      /if \[ "\$\{#STILL_FAILED\[@\]\}" -gt 0 \]; then[\s\S]*exit "\$EXIT_TESTS_FAILED"/,
+    );
   });
 
   test("EXIT_TESTS_FAILED is a distinct non-zero code", async () => {
     const src = await runner;
     const m = src.match(/^EXIT_TESTS_FAILED=(\d+)$/m);
-    expect(m, "EXIT_TESTS_FAILED must be defined as a literal so it can't drift to 0").not.toBeNull();
+    expect(
+      m,
+      "EXIT_TESTS_FAILED must be defined as a literal so it can't drift to 0",
+    ).not.toBeNull();
     const code = Number(m?.[1]);
     expect(code).toBeGreaterThan(0);
     expect(code).not.toBe(1); // distinct from the coverage verdict
@@ -574,9 +579,11 @@ describe("test-coverage.sh: vitest leg allowlists point at real things", () => {
     const includes = await includePatterns();
     expect(includes).toContain("src/hooks.server.ts");
 
-    const onDisk = [...new Glob("hooks-server-*.server.test.ts").scanSync({
-      cwd: join(WEB_ROOT, "src/__tests__"),
-    })].map((f) => `src/__tests__/${f}`);
+    const onDisk = [
+      ...new Glob("hooks-server-*.server.test.ts").scanSync({
+        cwd: join(WEB_ROOT, "src/__tests__"),
+      }),
+    ].map((f) => `src/__tests__/${f}`);
     expect(onDisk.length).toBeGreaterThanOrEqual(9);
 
     const listed = new Set(await listedTestFiles());

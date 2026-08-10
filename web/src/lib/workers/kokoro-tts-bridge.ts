@@ -83,10 +83,7 @@ function defaultWorkerFactory(): WorkerLike {
   // bundles `kokoro-tts-worker.ts` (plus its kokoro-js dynamic
   // import) as a separate worker entry. `type: "module"` is required
   // for the worker's top-level `import "kokoro-js"`.
-  const w = new Worker(
-    new URL("./kokoro-tts-worker.ts", import.meta.url),
-    { type: "module" },
-  );
+  const w = new Worker(new URL("./kokoro-tts-worker.ts", import.meta.url), { type: "module" });
   return w as unknown as WorkerLike;
 }
 
@@ -99,8 +96,7 @@ function ensureWorker(): WorkerLike {
       // Worker-level error (uncaught throw). Reject every pending
       // promise so callers don't hang forever.
       const errEv = ev as ErrorEvent;
-      const message =
-        errEv.message ?? "kokoro-tts worker crashed";
+      const message = errEv.message ?? "kokoro-tts worker crashed";
       console.info("[kokoro-tts-flow][bridge] worker error", { message });
       for (const [, slot] of pending) {
         slot.reject(new Error(message));
@@ -155,10 +151,7 @@ function makeId(): string {
  * here once — the worker only ever sees clean prose, never `**`/`#`/
  * link URLs/code fences spoken aloud.
  */
-export function synthesize(
-  text: string,
-  opts: SynthesizeOptions = {},
-): Promise<Blob> {
+export function synthesize(text: string, opts: SynthesizeOptions = {}): Promise<Blob> {
   const w = ensureWorker();
   const id = makeId();
   const speech = markdownToSpeech(text);

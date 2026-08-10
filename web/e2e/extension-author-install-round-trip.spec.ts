@@ -88,19 +88,19 @@
  */
 import { test, expect } from "./fixtures/hydration.js";
 import {
-	cleanupExtensionAuthorDraft,
-	cleanupInstalledExtension,
-	seedExtensionAuthorDraft,
+  cleanupExtensionAuthorDraft,
+  cleanupInstalledExtension,
+  seedExtensionAuthorDraft,
 } from "./fixtures/db-seed";
 
 function makeName(slug: string): string {
-	return `e2e-${slug}-${Date.now().toString(36)}`;
+  return `e2e-${slug}-${Date.now().toString(36)}`;
 }
 
 interface InstalledRow {
-	id: string;
-	name: string;
-	source: string;
+  id: string;
+  name: string;
+  source: string;
 }
 
 /**
@@ -112,9 +112,7 @@ interface InstalledRow {
 const VIRTUAL_BUILTIN_EXTENSION_ID = "builtin";
 
 function isPickable(row: InstalledRow): boolean {
-	return (
-		row.id !== VIRTUAL_BUILTIN_EXTENSION_ID && row.source !== VIRTUAL_BUILTIN_EXTENSION_ID
-	);
+  return row.id !== VIRTUAL_BUILTIN_EXTENSION_ID && row.source !== VIRTUAL_BUILTIN_EXTENSION_ID;
 }
 
 // DOCKER_TEST is the harness selector for this suite (see the header):
@@ -122,150 +120,148 @@ function isPickable(row: InstalledRow): boolean {
 // `src/__tests__/e2e-lanes.test.ts` requires every docker-lane member to
 // name it.
 test.describe("extension-author dependency-install round trip", () => {
-	let draftId: string | null = null;
-	let extensionName: string | null = null;
+  let draftId: string | null = null;
+  let extensionName: string | null = null;
 
-	test.afterEach(async ({ request }) => {
-		if (extensionName) {
-			await cleanupInstalledExtension(request, extensionName).catch(() => {});
-		}
-		if (draftId) {
-			await cleanupExtensionAuthorDraft(request, draftId).catch(() => {});
-		}
-		draftId = null;
-		extensionName = null;
-	});
+  test.afterEach(async ({ request }) => {
+    if (extensionName) {
+      await cleanupInstalledExtension(request, extensionName).catch(() => {});
+    }
+    if (draftId) {
+      await cleanupExtensionAuthorDraft(request, draftId).catch(() => {});
+    }
+    draftId = null;
+    extensionName = null;
+  });
 
-	test("compose a dependency → save → install → detail page shows the Uses chip + persisted manifest.dependencies", async ({
-		page,
-		request,
-	}) => {
-		extensionName = makeName("composed");
+  test("compose a dependency → save → install → detail page shows the Uses chip + persisted manifest.dependencies", async ({
+    page,
+    request,
+  }) => {
+    extensionName = makeName("composed");
 
-		// 1) Pick a dependency target — the first REAL installed extension
-		//    the public list returns (every real server boots the bundled
-		//    set). The virtual `builtin` row is excluded: it is a seeded
-		//    placeholder for native tool calls, not a dependable
-		//    extension, and the picker does not offer it.
-		const listRes = await request.get("/api/extensions");
-		expect(listRes.ok()).toBe(true);
-		const listJson = (await listRes.json()) as unknown;
-		const allRows: InstalledRow[] = (
-			Array.isArray(listJson)
-				? listJson
-				: Array.isArray((listJson as { extensions?: unknown[] }).extensions)
-					? (listJson as { extensions: unknown[] }).extensions
-					: []
-		).map((e) => {
-			const r = e as Record<string, unknown>;
-			return {
-				id: String(r.id ?? ""),
-				name: String(r.name ?? ""),
-				source: String(r.source ?? ""),
-			};
-		});
-		const installed = allRows.filter(isPickable);
-		expect(installed.length).toBeGreaterThan(0);
-		const dep = installed[0]!;
+    // 1) Pick a dependency target — the first REAL installed extension
+    //    the public list returns (every real server boots the bundled
+    //    set). The virtual `builtin` row is excluded: it is a seeded
+    //    placeholder for native tool calls, not a dependable
+    //    extension, and the picker does not offer it.
+    const listRes = await request.get("/api/extensions");
+    expect(listRes.ok()).toBe(true);
+    const listJson = (await listRes.json()) as unknown;
+    const allRows: InstalledRow[] = (
+      Array.isArray(listJson)
+        ? listJson
+        : Array.isArray((listJson as { extensions?: unknown[] }).extensions)
+          ? (listJson as { extensions: unknown[] }).extensions
+          : []
+    ).map((e) => {
+      const r = e as Record<string, unknown>;
+      return {
+        id: String(r.id ?? ""),
+        name: String(r.name ?? ""),
+        source: String(r.source ?? ""),
+      };
+    });
+    const installed = allRows.filter(isPickable);
+    expect(installed.length).toBeGreaterThan(0);
+    const dep = installed[0]!;
 
-		// 2) Seed a draft (the scaffold carries a `permissions:` field, so
-		//    the composition panel recognizes the shape and enables itself).
-		const seeded = await seedExtensionAuthorDraft({
-			request,
-			name: extensionName,
-			type: "tool",
-			description: "E2E composed extension",
-		});
-		draftId = seeded.draftId;
-		expect(seeded.files).toContain("ezcorp.config.ts");
+    // 2) Seed a draft (the scaffold carries a `permissions:` field, so
+    //    the composition panel recognizes the shape and enables itself).
+    const seeded = await seedExtensionAuthorDraft({
+      request,
+      name: extensionName,
+      type: "tool",
+      description: "E2E composed extension",
+    });
+    draftId = seeded.draftId;
+    expect(seeded.files).toContain("ezcorp.config.ts");
 
-		// 3) Load the author preview page → composition panel mounts.
-		const previewResp = await page.goto(`/extensions/author?prefill=${seeded.draftId}`);
-		expect(previewResp?.ok()).toBe(true);
-		await expect(page.getByTestId("author-composition-panel")).toBeVisible();
+    // 3) Load the author preview page → composition panel mounts.
+    const previewResp = await page.goto(`/extensions/author?prefill=${seeded.draftId}`);
+    expect(previewResp?.ok()).toBe(true);
+    await expect(page.getByTestId("author-composition-panel")).toBeVisible();
 
-		// 4) Open the picker, select the dependency, submit. The panel
-		//    writes the managed dependencies block + PUTs the draft.
-		const putPromise = page.waitForRequest(
-			(req) =>
-				req.method() === "PUT" &&
-				req.url().includes(`/api/extensions/author/draft/${seeded.draftId}`),
-			{ timeout: 10_000 },
-		);
-		await page.getByTestId("author-use-extensions-open").click();
-		await expect(page.getByTestId("extension-attach-picker")).toBeVisible();
-		// The virtual `builtin` row is never offered — it used to be the
-		// FIRST card in this grid, which is how a composed dependency on a
-		// non-extension ("Built-in Tools") got written in the first place.
-		await expect(
-			page.locator(
-				`[data-testid="extension-attach-picker-card"][data-ext-id="${VIRTUAL_BUILTIN_EXTENSION_ID}"]`,
-			),
-		).toHaveCount(0);
-		// Toggle-select the chosen dependency's card, then submit.
-		await page
-			.locator(`[data-testid="extension-attach-picker-card"][data-ext-id="${dep.id}"] button`)
-			.first()
-			.click();
-		await page.getByTestId("extension-attach-picker-submit").click();
-		await putPromise;
+    // 4) Open the picker, select the dependency, submit. The panel
+    //    writes the managed dependencies block + PUTs the draft.
+    const putPromise = page.waitForRequest(
+      (req) =>
+        req.method() === "PUT" &&
+        req.url().includes(`/api/extensions/author/draft/${seeded.draftId}`),
+      { timeout: 10_000 },
+    );
+    await page.getByTestId("author-use-extensions-open").click();
+    await expect(page.getByTestId("extension-attach-picker")).toBeVisible();
+    // The virtual `builtin` row is never offered — it used to be the
+    // FIRST card in this grid, which is how a composed dependency on a
+    // non-extension ("Built-in Tools") got written in the first place.
+    await expect(
+      page.locator(
+        `[data-testid="extension-attach-picker-card"][data-ext-id="${VIRTUAL_BUILTIN_EXTENSION_ID}"]`,
+      ),
+    ).toHaveCount(0);
+    // Toggle-select the chosen dependency's card, then submit.
+    await page
+      .locator(`[data-testid="extension-attach-picker-card"][data-ext-id="${dep.id}"] button`)
+      .first()
+      .click();
+    await page.getByTestId("extension-attach-picker-submit").click();
+    await putPromise;
 
-		// The dependency chip is now in the composition panel.
-		await expect(
-			page.locator(`[data-testid="author-dep-chip"][data-dep-name="${dep.name}"]`),
-		).toBeVisible({ timeout: 10_000 });
+    // The dependency chip is now in the composition panel.
+    await expect(
+      page.locator(`[data-testid="author-dep-chip"][data-dep-name="${dep.name}"]`),
+    ).toBeVisible({ timeout: 10_000 });
 
-		// 5) Install → POST → navigate to /extensions/<name>.
-		const installResp = page.waitForResponse(
-			(r) =>
-				r.url().includes("/api/extensions/author/install") &&
-				r.request().method() === "POST",
-			{ timeout: 30_000 },
-		);
-		const navigation = page.waitForURL(`**/extensions/${extensionName}`, { timeout: 30_000 });
-		await page.getByTestId("install-btn").click();
-		const installResult = await installResp;
-		expect(installResult.ok()).toBe(true);
-		await navigation;
-		expect(new URL(page.url()).pathname).toBe(`/extensions/${extensionName}`);
+    // 5) Install → POST → navigate to /extensions/<name>.
+    const installResp = page.waitForResponse(
+      (r) => r.url().includes("/api/extensions/author/install") && r.request().method() === "POST",
+      { timeout: 30_000 },
+    );
+    const navigation = page.waitForURL(`**/extensions/${extensionName}`, { timeout: 30_000 });
+    await page.getByTestId("install-btn").click();
+    const installResult = await installResp;
+    expect(installResult.ok()).toBe(true);
+    await navigation;
+    expect(new URL(page.url()).pathname).toBe(`/extensions/${extensionName}`);
 
-		// 6) Resolve the new extension's row id from the public list. The
-		//    install redirect above lands on `/extensions/<name>`, but the
-		//    detail ROUTE resolves its param with `getExtension(id)` — a UUID
-		//    lookup with no name fallback — so the id is what actually renders
-		//    that page (the Extensions library links `/extensions/{ext.id}`
-		//    for the same reason). Asserting the rendered detail page
-		//    therefore navigates by id.
-		const afterList = await request.get(
-			`/api/extensions?name=${encodeURIComponent(extensionName)}`,
-		);
-		expect(afterList.ok()).toBe(true);
-		const afterRows = (await afterList.json()) as Array<{ id: string; name: string }>;
-		const row = afterRows.find((e) => e.name === extensionName);
-		expect(row).toBeDefined();
+    // 6) Resolve the new extension's row id from the public list. The
+    //    install redirect above lands on `/extensions/<name>`, but the
+    //    detail ROUTE resolves its param with `getExtension(id)` — a UUID
+    //    lookup with no name fallback — so the id is what actually renders
+    //    that page (the Extensions library links `/extensions/{ext.id}`
+    //    for the same reason). Asserting the rendered detail page
+    //    therefore navigates by id.
+    const afterList = await request.get(
+      `/api/extensions?name=${encodeURIComponent(extensionName)}`,
+    );
+    expect(afterList.ok()).toBe(true);
+    const afterRows = (await afterList.json()) as Array<{ id: string; name: string }>;
+    const row = afterRows.find((e) => e.name === extensionName);
+    expect(row).toBeDefined();
 
-		// 6a) The detail page's UsesList renders the dependency chip.
-		await page.goto(`/extensions/${row!.id}`);
-		await expect(
-			page.locator(`[data-testid="extension-uses-chip"][data-dep-name="${dep.name}"]`),
-		).toBeVisible({ timeout: 10_000 });
+    // 6a) The detail page's UsesList renders the dependency chip.
+    await page.goto(`/extensions/${row!.id}`);
+    await expect(
+      page.locator(`[data-testid="extension-uses-chip"][data-dep-name="${dep.name}"]`),
+    ).toBeVisible({ timeout: 10_000 });
 
-		// 6b) manifest.dependencies persisted server-side.
-		const detail = await request.get(`/api/extensions/${row!.id}`);
-		expect(detail.ok()).toBe(true);
-		const detailBody = (await detail.json()) as {
-			manifest?: { dependencies?: Record<string, { source?: string; version?: string }> };
-		};
-		const persistedDeps = detailBody.manifest?.dependencies ?? {};
-		expect(Object.keys(persistedDeps)).toContain(dep.name);
-		// The persisted source is one of the PREINSTALLED forms — the only
-		// thing the picker can honestly declare, since it exclusively
-		// offers extensions that are already installed. This is the exact
-		// value that used to 422 the install.
-		expect(["bundled", "local"]).toContain(persistedDeps[dep.name]?.source);
+    // 6b) manifest.dependencies persisted server-side.
+    const detail = await request.get(`/api/extensions/${row!.id}`);
+    expect(detail.ok()).toBe(true);
+    const detailBody = (await detail.json()) as {
+      manifest?: { dependencies?: Record<string, { source?: string; version?: string }> };
+    };
+    const persistedDeps = detailBody.manifest?.dependencies ?? {};
+    expect(Object.keys(persistedDeps)).toContain(dep.name);
+    // The persisted source is one of the PREINSTALLED forms — the only
+    // thing the picker can honestly declare, since it exclusively
+    // offers extensions that are already installed. This is the exact
+    // value that used to 422 the install.
+    expect(["bundled", "local"]).toContain(persistedDeps[dep.name]?.source);
 
-		// Install consumed the draft — clear the handle so afterEach doesn't
-		// DELETE an already-consumed row.
-		draftId = null;
-	});
+    // Install consumed the draft — clear the handle so afterEach doesn't
+    // DELETE an already-consumed row.
+    draftId = null;
+  });
 });

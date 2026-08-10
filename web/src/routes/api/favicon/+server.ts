@@ -8,14 +8,9 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   const rawUrl = url.searchParams.get("url");
   if (!rawUrl) return errorJson(400, "url parameter required");
   try {
-    const domain = new URL(
-      rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`,
-    ).hostname;
-    const faviconRes = await fetch(
-      `https://www.google.com/s2/favicons?domain=${domain}&sz=128`,
-    );
-    if (!faviconRes.ok)
-      return errorJson(502, "Failed to fetch favicon");
+    const domain = new URL(rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`).hostname;
+    const faviconRes = await fetch(`https://www.google.com/s2/favicons?domain=${domain}&sz=128`);
+    if (!faviconRes.ok) return errorJson(502, "Failed to fetch favicon");
     const buf = await faviconRes.arrayBuffer();
     const base64 = Buffer.from(buf).toString("base64");
     return json({ icon: `data:image/png;base64,${base64}` });

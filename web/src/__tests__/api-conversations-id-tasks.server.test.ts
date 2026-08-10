@@ -32,9 +32,7 @@ vi.mock("$server/runtime/task-tracking-host", () => ({
   TaskTrackingNotInstalledError,
 }));
 
-const { GET } = await import(
-  "../routes/api/conversations/[id]/tasks/+server.ts"
-);
+const { GET } = await import("../routes/api/conversations/[id]/tasks/+server.ts");
 
 function makeEvent(opts: { locals?: Record<string, unknown> }) {
   return {

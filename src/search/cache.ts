@@ -44,7 +44,12 @@ export class SearchCache {
    *  normalized (trim + lowercase) so trivially-different queries share
    *  a slot; the `extra` segment carries result-count / char-cap so a
    *  maxResults change doesn't serve a stale-sized payload. */
-  static key(provider: string, kind: "search" | "read", query: string, extra: string | number): string {
+  static key(
+    provider: string,
+    kind: "search" | "read",
+    query: string,
+    extra: string | number,
+  ): string {
     return `${provider}:${kind}:${query.trim().toLowerCase()}:${extra}`;
   }
 

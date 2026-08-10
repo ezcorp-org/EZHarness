@@ -19,9 +19,11 @@ import type { RequestHandler } from "./$types";
 // path ("permissions required") fires for missing OR non-object values,
 // so the schema accepts `unknown` and the post-parse runtime check
 // preserves both error message and behaviour exactly.
-const permissionsPutSchema = z.object({
-  permissions: z.unknown(),
-}).passthrough();
+const permissionsPutSchema = z
+  .object({
+    permissions: z.unknown(),
+  })
+  .passthrough();
 
 /** Returns true for the capability-tier permission fields so the audit
  *  loop can route them through CAPABILITY_GRANTED/CAPABILITY_REVOKED
@@ -88,10 +90,17 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
       granted: clamped,
     });
     const fields = [
-      "network", "filesystem", "shell", "env", "storage",
+      "network",
+      "filesystem",
+      "shell",
+      "env",
+      "storage",
       // Capability tier — audited under CAPABILITY_* actions so the detail
       // page can surface them with elevated (red) badges.
-      "taskEvents", "spawnAgents", "agentConfig", "eventSubscriptions",
+      "taskEvents",
+      "spawnAgents",
+      "agentConfig",
+      "eventSubscriptions",
     ] as const;
     const submitted = permissions as Record<string, unknown>;
     for (const f of fields) {
@@ -107,8 +116,12 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
           (Array.isArray(newValue) && newValue.length === 0)
         );
         const action = isCapabilityField(f)
-          ? (isGranting ? EXT_AUDIT_ACTIONS.CAPABILITY_GRANTED : EXT_AUDIT_ACTIONS.CAPABILITY_REVOKED)
-          : (isGranting ? EXT_AUDIT_ACTIONS.PERMISSION_GRANTED : EXT_AUDIT_ACTIONS.PERMISSION_REVOKED);
+          ? isGranting
+            ? EXT_AUDIT_ACTIONS.CAPABILITY_GRANTED
+            : EXT_AUDIT_ACTIONS.CAPABILITY_REVOKED
+          : isGranting
+            ? EXT_AUDIT_ACTIONS.PERMISSION_GRANTED
+            : EXT_AUDIT_ACTIONS.PERMISSION_REVOKED;
         const meta: ExtensionAuditMetadata = {
           permission: f,
           oldValue,
@@ -117,7 +130,10 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
           reason: `admin-${isGranting ? "grant" : "revoke"}${isCapabilityField(f) ? " (capability-tier)" : ""}`,
         };
         await insertAuditEntry(admin.id, action, params.id, meta);
-      } else if (submittedValue !== undefined && JSON.stringify(submittedValue) !== JSON.stringify(newValue)) {
+      } else if (
+        submittedValue !== undefined &&
+        JSON.stringify(submittedValue) !== JSON.stringify(newValue)
+      ) {
         // The admin tried to grant something that `clampExtensionPermissions`
         // dropped (field not declared in manifest, or beyond its scope).
         // Log the attempt so we have visibility into thwarted elevations.
@@ -152,10 +168,17 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
           reason: "admin-policy-write",
           route: "permissions",
         };
-        await insertAuditEntry(admin.id, EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE, params.id, meta);
+        await insertAuditEntry(
+          admin.id,
+          EXT_AUDIT_ACTIONS.CAPABILITY_POLICY_WRITE,
+          params.id,
+          meta,
+        );
       }
     }
-  } catch { /* swallow */ }
+  } catch {
+    /* swallow */
+  }
 
   return json(updated);
 };

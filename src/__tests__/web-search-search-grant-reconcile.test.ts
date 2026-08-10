@@ -29,20 +29,9 @@
  * `db/queries/extensions` + `db/queries/audit-log`, seed a stale row,
  * drive the real `ensureBundledExtensions`).
  */
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import type {
-  ExtensionPermissions,
-  ExtensionManifestV2,
-} from "../extensions/types";
+import type { ExtensionPermissions, ExtensionManifestV2 } from "../extensions/types";
 
 interface StoredExtension {
   id: string;
@@ -144,9 +133,7 @@ beforeEach(() => {
  *  - grant is MISSING the `search` key entirely (the bug) — i.e. exactly
  *    what `search-handler.ts`'s `isSearchGrantAbsent` rejects.
  */
-function seedStaleWebSearch(
-  overrides: Partial<StoredExtension> = {},
-): StoredExtension {
+function seedStaleWebSearch(overrides: Partial<StoredExtension> = {}): StoredExtension {
   const row: StoredExtension = {
     id: "ext-stale-websearch",
     name: "web-search",
@@ -154,9 +141,7 @@ function seedStaleWebSearch(
     enabled: true,
     isBundled: true,
     version: DISK_WEBSEARCH_MANIFEST.version,
-    manifest: JSON.parse(
-      JSON.stringify(DISK_WEBSEARCH_MANIFEST),
-    ) as StoredExtension["manifest"],
+    manifest: JSON.parse(JSON.stringify(DISK_WEBSEARCH_MANIFEST)) as StoredExtension["manifest"],
     // The pre-capability grant: NO `search` key. (A real legacy row also
     // carried `network`/`env`; those are out-of-ceiling now and the
     // reconcile drops them — covered by the ceiling-clamp assertion.)
@@ -191,10 +176,9 @@ describe("ensureBundledExtensions — web-search `search` capability self-heal",
     );
     // Guard: the on-disk web-search manifest must actually declare the
     // search capability, else this whole regression is vacuous.
-    expect(
-      (DISK_WEBSEARCH_MANIFEST.permissions as ExtensionPermissions | undefined)
-        ?.search,
-    ).toBe("inherit");
+    expect((DISK_WEBSEARCH_MANIFEST.permissions as ExtensionPermissions | undefined)?.search).toBe(
+      "inherit",
+    );
   });
 
   test("stale ENABLED row missing `search` → backfilled to `inherit` + regrant audit + stays enabled", async () => {
@@ -289,9 +273,7 @@ describe("ensureBundledExtensions — web-search `search` capability self-heal",
 
     const row = store.get("web-search")!;
     // Proof the S6 drift WARN fired (network/env diverged) yet never disabled.
-    const driftAudits = auditCalls.filter(
-      (c) => c.action === EXT_AUDIT_ACTIONS.MANIFEST_DRIFTED,
-    );
+    const driftAudits = auditCalls.filter((c) => c.action === EXT_AUDIT_ACTIONS.MANIFEST_DRIFTED);
     expect(driftAudits.length).toBeGreaterThanOrEqual(1);
     expect(row.enabled).toBe(true);
     // The capability is still healed despite the drift WARN.

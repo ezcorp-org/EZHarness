@@ -469,16 +469,26 @@ describe("ObservabilityCollector — stop() cleanup", () => {
 
     // Emit all three event types — none should be persisted
     bus.emit("tool:complete", {
-      conversationId: CONV_ID, extensionId: EXT_ID, toolName: "a",
-      output: {}, duration: 1, success: true,
+      conversationId: CONV_ID,
+      extensionId: EXT_ID,
+      toolName: "a",
+      output: {},
+      duration: 1,
+      success: true,
     });
     bus.emit("tool:error", {
-      conversationId: CONV_ID, extensionId: EXT_ID, toolName: "b",
-      error: "e", duration: 1,
+      conversationId: CONV_ID,
+      extensionId: EXT_ID,
+      toolName: "b",
+      error: "e",
+      duration: 1,
     });
     bus.emit("obs:turn", {
-      conversationId: CONV_ID, llmDurationMs: 1, toolDurationMs: 0,
-      totalDurationMs: 1, tokenUsage: { input: 0, output: 0 },
+      conversationId: CONV_ID,
+      llmDurationMs: 1,
+      toolDurationMs: 0,
+      totalDurationMs: 1,
+      tokenUsage: { input: 0, output: 0 },
     });
 
     await new Promise((r) => setTimeout(r, 20));

@@ -12,12 +12,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:tes
 import { mkdtempSync, rmSync, writeFileSync, mkdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  closeTestDb,
-  getTestDb,
-  mockDbConnection,
-  setupTestDb,
-} from "./helpers/test-pglite";
+import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 
@@ -108,10 +103,7 @@ describe("resolveFilePlaceholders — pure helper", () => {
     const dir = mkdtempSync(join(tmpdir(), "ph-pure-"));
     try {
       writeFileSync(join(dir, "x.md"), "hello world", "utf-8");
-      const out = resolveFilePlaceholders(
-        { systemPrompt: "{file:./x.md}", name: "X" },
-        dir,
-      );
+      const out = resolveFilePlaceholders({ systemPrompt: "{file:./x.md}", name: "X" }, dir);
       expect(out).toEqual({ systemPrompt: "hello world", name: "X" });
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -145,10 +137,7 @@ describe("resolveFilePlaceholders — pure helper", () => {
     const dir = mkdtempSync(join(tmpdir(), "ph-embed-"));
     try {
       writeFileSync(join(dir, "x.md"), "X", "utf-8");
-      const out = resolveFilePlaceholders(
-        { x: "Hello {file:./x.md} world" },
-        dir,
-      );
+      const out = resolveFilePlaceholders({ x: "Hello {file:./x.md} world" }, dir);
       expect(out).toEqual({ x: "Hello {file:./x.md} world" });
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -158,9 +147,9 @@ describe("resolveFilePlaceholders — pure helper", () => {
   test("throws FilePlaceholderError for missing file", () => {
     const dir = mkdtempSync(join(tmpdir(), "ph-miss-"));
     try {
-      expect(() =>
-        resolveFilePlaceholders({ x: "{file:./missing.md}" }, dir),
-      ).toThrow(FilePlaceholderError);
+      expect(() => resolveFilePlaceholders({ x: "{file:./missing.md}" }, dir)).toThrow(
+        FilePlaceholderError,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -169,9 +158,9 @@ describe("resolveFilePlaceholders — pure helper", () => {
   test("throws for absolute path placeholder", () => {
     const dir = mkdtempSync(join(tmpdir(), "ph-abs-"));
     try {
-      expect(() =>
-        resolveFilePlaceholders({ x: "{file:/etc/passwd}" }, dir),
-      ).toThrow(/Absolute paths/);
+      expect(() => resolveFilePlaceholders({ x: "{file:/etc/passwd}" }, dir)).toThrow(
+        /Absolute paths/,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
@@ -181,9 +170,9 @@ describe("resolveFilePlaceholders — pure helper", () => {
     const dir = mkdtempSync(join(tmpdir(), "ph-escape-"));
     try {
       writeFileSync(join(dir, "..", "escape.md"), "X", "utf-8");
-      expect(() =>
-        resolveFilePlaceholders({ x: "{file:../escape.md}" }, dir),
-      ).toThrow(/escapes source dir/);
+      expect(() => resolveFilePlaceholders({ x: "{file:../escape.md}" }, dir)).toThrow(
+        /escapes source dir/,
+      );
     } finally {
       rmSync(dir, { recursive: true, force: true });
       try {
@@ -206,9 +195,9 @@ describe("resolveFilePlaceholders — pure helper", () => {
       writeFileSync(escapeFile, "SECRET", "utf-8");
       // Create a symlink INSIDE sourceDir pointing at the outside file.
       symlinkSync(escapeFile, join(sourceDir, "escape.md"));
-      expect(() =>
-        resolveFilePlaceholders({ x: "{file:./escape.md}" }, sourceDir),
-      ).toThrow(/symlink/i);
+      expect(() => resolveFilePlaceholders({ x: "{file:./escape.md}" }, sourceDir)).toThrow(
+        /symlink/i,
+      );
     } finally {
       rmSync(sourceDir, { recursive: true, force: true });
       try {
@@ -253,8 +242,7 @@ describe("runEntitySeed — file placeholders integrated", () => {
         undefined as any,
       );
     const recRow = rows.find(
-      (r) =>
-        r.extensionId === extId && r.key === "__entity:post-type:weekly",
+      (r) => r.extensionId === extId && r.key === "__entity:post-type:weekly",
     );
     expect(recRow?.value).toEqual({
       name: "Weekly",

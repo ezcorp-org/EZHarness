@@ -1,9 +1,5 @@
 import crypto from "node:crypto";
-import {
-  getAllSettings,
-  getSetting,
-  upsertSetting,
-} from "$server/db/queries/settings";
+import { getAllSettings, getSetting, upsertSetting } from "$server/db/queries/settings";
 import {
   type ApiKeyEntry,
   type ApiKeyHashIndexEntry,
@@ -56,13 +52,11 @@ export async function verifyApiKey(raw: string): Promise<VerifiedKey | null> {
   // Fast path: O(1) lookup via the hash index written at mint time. The
   // pointer tells us exactly which per-user row to load, so we avoid
   // scanning the whole settings table on every Bearer request.
-  const pointer = (await getSetting(apiKeyHashIndexKey(hash))) as
-    | ApiKeyHashIndexEntry
-    | undefined;
+  const pointer = (await getSetting(apiKeyHashIndexKey(hash))) as ApiKeyHashIndexEntry | undefined;
   if (pointer) {
-    const entry = (await getSetting(
-      `apikey:${pointer.userId}:${pointer.keyId}`,
-    )) as ApiKeyEntry | undefined;
+    const entry = (await getSetting(`apikey:${pointer.userId}:${pointer.keyId}`)) as
+      | ApiKeyEntry
+      | undefined;
     // Defend against a dangling pointer (canonical row deleted out from
     // under a stale index): still verify the hash with constant-time
     // comparison before trusting the row.
@@ -145,9 +139,7 @@ export function requireScope(
  * `requireRole(locals,"admin")`); the route-contract meta-test enforces
  * that pairing so this whole class of bug can't reappear.
  */
-export function requireAdmin(
-  locals: { user?: { role?: string } },
-): Response | null {
+export function requireAdmin(locals: { user?: { role?: string } }): Response | null {
   if (locals.user?.role === "admin") return null;
   return Response.json({ error: "Admin role required" }, { status: 403 });
 }

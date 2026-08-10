@@ -22,12 +22,12 @@ export const LAST_CHAT_PREFIX = "ezcorp-last-chat:";
 export const GLOBAL_PROJECT_ID = "global";
 
 export interface ResumeInput {
-	/** Raw value of `localStorage["ezcorp-last-path"]` (null when unset). */
-	lastPath: string | null;
-	/** Raw value of `localStorage["activeProjectId"]` (null when unset). */
-	savedProjectId: string | null;
-	/** Project ids from `GET /api/projects` ("global" is implicit/always valid). */
-	validProjectIds: string[];
+  /** Raw value of `localStorage["ezcorp-last-path"]` (null when unset). */
+  lastPath: string | null;
+  /** Raw value of `localStorage["activeProjectId"]` (null when unset). */
+  savedProjectId: string | null;
+  /** Project ids from `GET /api/projects` ("global" is implicit/always valid). */
+  validProjectIds: string[];
 }
 
 /**
@@ -35,13 +35,13 @@ export interface ResumeInput {
  * path that is not project-scoped.
  */
 export function projectIdFromPath(path: string): string | null {
-	const m = /^\/project\/([^/?#]+)/.exec(path);
-	return m ? decodeURIComponent(m[1]) : null;
+  const m = /^\/project\/([^/?#]+)/.exec(path);
+  return m ? decodeURIComponent(m[1]) : null;
 }
 
 /** True if `id` names a project we can safely navigate into. */
 function isKnownProject(id: string, validProjectIds: string[]): boolean {
-	return id === GLOBAL_PROJECT_ID || validProjectIds.includes(id);
+  return id === GLOBAL_PROJECT_ID || validProjectIds.includes(id);
 }
 
 /**
@@ -50,11 +50,11 @@ function isKnownProject(id: string, validProjectIds: string[]): boolean {
  * deleted project never strands the user on a dead route.
  */
 export function isResumablePath(path: string | null, validProjectIds: string[]): boolean {
-	if (!path?.startsWith("/") || path === "/") return false;
-	const projectId = projectIdFromPath(path);
-	if (projectId !== null) return isKnownProject(projectId, validProjectIds);
-	// Non-project app route (/hub, /settings, /agents, …) — always resumable.
-	return true;
+  if (!path?.startsWith("/") || path === "/") return false;
+  const projectId = projectIdFromPath(path);
+  if (projectId !== null) return isKnownProject(projectId, validProjectIds);
+  // Non-project app route (/hub, /settings, /agents, …) — always resumable.
+  return true;
 }
 
 /**
@@ -63,14 +63,14 @@ export function isResumablePath(path: string | null, validProjectIds: string[]):
  * Falls back last-path → saved project → global so the result is always valid.
  */
 export function resolveResumeTarget(input: ResumeInput): string {
-	const { lastPath, savedProjectId, validProjectIds } = input;
-	if (isResumablePath(lastPath, validProjectIds)) {
-		return lastPath as string;
-	}
-	if (savedProjectId && isKnownProject(savedProjectId, validProjectIds)) {
-		return `/project/${savedProjectId}/chat`;
-	}
-	return `/project/${GLOBAL_PROJECT_ID}/chat`;
+  const { lastPath, savedProjectId, validProjectIds } = input;
+  if (isResumablePath(lastPath, validProjectIds)) {
+    return lastPath as string;
+  }
+  if (savedProjectId && isKnownProject(savedProjectId, validProjectIds)) {
+    return `/project/${savedProjectId}/chat`;
+  }
+  return `/project/${GLOBAL_PROJECT_ID}/chat`;
 }
 
 /**
@@ -79,12 +79,12 @@ export function resolveResumeTarget(input: ResumeInput): string {
  * workspace / conversation.
  */
 export function clearResumeState(storage: Storage): void {
-	storage.removeItem(LAST_PATH_KEY);
-	storage.removeItem(ACTIVE_PROJECT_KEY);
-	for (let i = storage.length - 1; i >= 0; i--) {
-		const key = storage.key(i);
-		if (key?.startsWith(LAST_CHAT_PREFIX)) {
-			storage.removeItem(key);
-		}
-	}
+  storage.removeItem(LAST_PATH_KEY);
+  storage.removeItem(ACTIVE_PROJECT_KEY);
+  for (let i = storage.length - 1; i >= 0; i--) {
+    const key = storage.key(i);
+    if (key?.startsWith(LAST_CHAT_PREFIX)) {
+      storage.removeItem(key);
+    }
+  }
 }

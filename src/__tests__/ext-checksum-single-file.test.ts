@@ -23,12 +23,10 @@ afterAll(async () => {
 
 /** SHA-256("") — the canonical empty-string digest. Hard-coded so the
  *  test asserts against a known constant, not the implementation. */
-const SHA256_EMPTY =
-  "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+const SHA256_EMPTY = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
 /** SHA-256("hello") — another well-known fixture. */
-const SHA256_HELLO =
-  "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
+const SHA256_HELLO = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824";
 
 describe("computeChecksum", () => {
   test("returns SHA-256 hex of empty file", async () => {

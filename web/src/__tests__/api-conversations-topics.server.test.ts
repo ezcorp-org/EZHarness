@@ -36,7 +36,10 @@ vi.mock("$lib/server/security/api-keys", () => ({
 
 vi.mock("$lib/server/http-errors", () => ({
   errorJson: (status: number, message: string) =>
-    new Response(JSON.stringify({ error: message }), { status, headers: { "Content-Type": "application/json" } }),
+    new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    }),
 }));
 
 let ownership: unknown = { conv: { projectId: "p1" }, root: {} };
@@ -71,7 +74,10 @@ const { GET, POST } = await import("../routes/api/conversations/[id]/topics/+ser
 function getEvent(locals: Record<string, unknown> = { user: { id: "u1", role: "user" } }) {
   return { params: { id: "c1" }, locals } as never;
 }
-function postEvent(body: unknown, locals: Record<string, unknown> = { user: { id: "u1", role: "user" } }) {
+function postEvent(
+  body: unknown,
+  locals: Record<string, unknown> = { user: { id: "u1", role: "user" } },
+) {
   return {
     params: { id: "c1" },
     locals,
@@ -121,11 +127,17 @@ describe("GET topics", () => {
   test("cached shape + stale=false when watermark matches", async () => {
     topicsRows = [{ id: "t1", label: "Auth", typeId: "feature", messageIds: ["m1"] }];
     watermark = { count: 2, lastMessageId: "m2" };
-    stateRow = { messageCount: 2, lastMessageId: "m2", analyzedAt: new Date("2026-07-13T00:00:00Z") };
+    stateRow = {
+      messageCount: 2,
+      lastMessageId: "m2",
+      analyzedAt: new Date("2026-07-13T00:00:00Z"),
+    };
     const res = await GET(getEvent());
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
-    expect(body.topics).toEqual([{ id: "t1", label: "Auth", typeId: "feature", messageIds: ["m1"] }]);
+    expect(body.topics).toEqual([
+      { id: "t1", label: "Auth", typeId: "feature", messageIds: ["m1"] },
+    ]);
     expect(body.stale).toBe(false);
     expect(body.analyzedAt).toBe("2026-07-13T00:00:00.000Z");
   });
@@ -157,7 +169,9 @@ describe("GET topics", () => {
 
 describe("POST topics", () => {
   test("403 when API-key scope lacks 'chat'", async () => {
-    const res = await POST(postEvent({}, { user: { id: "u1", role: "user" }, apiKeyScopes: ["read"] }));
+    const res = await POST(
+      postEvent({}, { user: { id: "u1", role: "user" }, apiKeyScopes: ["read"] }),
+    );
     expect(res.status).toBe(403);
   });
 
@@ -188,7 +202,9 @@ describe("POST topics", () => {
     const res = await POST(postEvent({ force: true }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as any;
-    expect(body.topics).toEqual([{ id: "t1", label: "Auth", typeId: "feature", messageIds: ["m1"] }]);
+    expect(body.topics).toEqual([
+      { id: "t1", label: "Auth", typeId: "feature", messageIds: ["m1"] },
+    ]);
     expect(body.stale).toBe(false);
     expect(body.analyzedAt).toBe("2026-07-13T01:00:00.000Z");
     expect(detectTopics).toHaveBeenCalledWith("c1");

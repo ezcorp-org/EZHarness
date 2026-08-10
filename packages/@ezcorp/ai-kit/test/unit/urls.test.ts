@@ -5,9 +5,9 @@ describe("entityUrl", () => {
   const base = "http://localhost:5173";
 
   test("builds a conversation URL under its project", () => {
-    expect(
-      entityUrl(base, { kind: "conversation", id: "conv-1", projectId: "global" }),
-    ).toBe("http://localhost:5173/project/global/chat/conv-1");
+    expect(entityUrl(base, { kind: "conversation", id: "conv-1", projectId: "global" })).toBe(
+      "http://localhost:5173/project/global/chat/conv-1",
+    );
   });
 
   test("builds an agent URL by name", () => {
@@ -35,15 +35,15 @@ describe("entityUrl", () => {
   });
 
   test("strips a trailing slash from the base", () => {
-    expect(
-      entityUrl("https://example.com/", { kind: "run", id: "r1" }),
-    ).toBe("https://example.com/runs/r1");
+    expect(entityUrl("https://example.com/", { kind: "run", id: "r1" })).toBe(
+      "https://example.com/runs/r1",
+    );
   });
 
   test("strips multiple trailing slashes", () => {
-    expect(
-      entityUrl("https://example.com///", { kind: "run", id: "r1" }),
-    ).toBe("https://example.com/runs/r1");
+    expect(entityUrl("https://example.com///", { kind: "run", id: "r1" })).toBe(
+      "https://example.com/runs/r1",
+    );
   });
 
   test("works with a cross-domain HTTPS base", () => {
@@ -57,8 +57,8 @@ describe("entityUrl", () => {
   });
 
   test("preserves a path prefix on the base", () => {
-    expect(
-      entityUrl("https://ezcorp.example.com/app", { kind: "run", id: "r1" }),
-    ).toBe("https://ezcorp.example.com/app/runs/r1");
+    expect(entityUrl("https://ezcorp.example.com/app", { kind: "run", id: "r1" })).toBe(
+      "https://ezcorp.example.com/app/runs/r1",
+    );
   });
 });

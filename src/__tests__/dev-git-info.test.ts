@@ -133,9 +133,7 @@ describe("devPageTransform", () => {
   test("leaves an already-prefixed DEV title untouched", () => {
     process.env.EZCORP_DEV_INDICATOR = "1";
     const transform = devPageTransform(REPO_DIR)!;
-    expect(transform({ html: "<title>DEV EZCorp</title>" })).toBe(
-      "<title>DEV EZCorp</title>",
-    );
+    expect(transform({ html: "<title>DEV EZCorp</title>" })).toBe("<title>DEV EZCorp</title>");
   });
 
   test("safely no-ops on markup lacking the <html>, <title> and favicon anchors", () => {

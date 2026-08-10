@@ -5,14 +5,14 @@
  * hash, outside the browser, or when the anchor doesn't exist.
  */
 export function scrollToLocationHash(delay = 100): void {
-	if (typeof window === "undefined") return;
-	const hash = window.location.hash;
-	if (!hash || hash === "#") return;
-	setTimeout(() => {
-		try {
-			document.querySelector(hash)?.scrollIntoView({ behavior: "smooth" });
-		} catch {
-			/* invalid selector in hash — ignore */
-		}
-	}, delay);
+  if (typeof window === "undefined") return;
+  const hash = window.location.hash;
+  if (!hash || hash === "#") return;
+  setTimeout(() => {
+    try {
+      document.querySelector(hash)?.scrollIntoView({ behavior: "smooth" });
+    } catch {
+      /* invalid selector in hash — ignore */
+    }
+  }, delay);
 }

@@ -42,7 +42,9 @@ mock.module("../db/queries/active-runs", () => ({
 // a closure so we can also assert the bridge ran the success/end path.
 const persisted: Array<Record<string, unknown>> = [];
 mock.module("../db/queries/tool-calls", () => ({
-  persistToolCall: async (row: Record<string, unknown>) => { persisted.push(row); },
+  persistToolCall: async (row: Record<string, unknown>) => {
+    persisted.push(row);
+  },
   listToolCallOutputsForMessages: async () => [],
   getToolCallConversationById: async () => null,
 }));
@@ -106,7 +108,10 @@ async function advanceAndTick(deltaMs: number): Promise<void> {
 
 // ── Harness helpers ────────────────────────────────────────────────────
 
-interface CapturedEvent { type: keyof AgentEvents & string; data: unknown }
+interface CapturedEvent {
+  type: keyof AgentEvents & string;
+  data: unknown;
+}
 
 function makePiAgent() {
   let cb: (e: { type: string; [k: string]: unknown }) => void = () => {};
@@ -115,7 +120,9 @@ function makePiAgent() {
       cb = fn;
       return () => {};
     },
-    fire(e: { type: string; [k: string]: unknown }) { cb(e); },
+    fire(e: { type: string; [k: string]: unknown }) {
+      cb(e);
+    },
     abort() {},
   };
 }
@@ -181,7 +188,10 @@ function buildHarness(): IntegrationHarness {
   };
   const runs = new Map([[RUN_ID, run]]);
   const controllers = new Map([[RUN_ID, new AbortController()]]);
-  const pendingPermissions = new Map<string, { conversationId: string; toolCallId: string; toolName: string; input: unknown }>();
+  const pendingPermissions = new Map<
+    string,
+    { conversationId: string; toolCallId: string; toolName: string; input: unknown }
+  >();
 
   const watchdogHost: WatchdogHost = {
     runs,
@@ -230,9 +240,27 @@ function buildHarness(): IntegrationHarness {
   };
 
   const piAgent = makePiAgent();
-  subscribeBridge(ctx, host, piAgent as unknown as Parameters<typeof subscribeBridge>[2], CONV_ID, {}, null);
+  subscribeBridge(
+    ctx,
+    host,
+    piAgent as unknown as Parameters<typeof subscribeBridge>[2],
+    CONV_ID,
+    {},
+    null,
+  );
 
-  return { bus, events, watchdog, ctx, host, piAgent, run, conversationId: CONV_ID, controllers, runs };
+  return {
+    bus,
+    events,
+    watchdog,
+    ctx,
+    host,
+    piAgent,
+    run,
+    conversationId: CONV_ID,
+    controllers,
+    runs,
+  };
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -266,13 +294,7 @@ describe("subscribe-bridge → WatchdogManager: extension callTimeoutMs from man
   });
 
   test("manifest callTimeoutMs=30000 (short budget) kills with a tool-specific tool:error AND run:error after the budget elapses", async () => {
-    registerFakeExtension(
-      "fast-ext__quick",
-      "fast-ext",
-      30_000,
-      "result-card",
-      "dock",
-    );
+    registerFakeExtension("fast-ext__quick", "fast-ext", 30_000, "result-card", "dock");
     const h = buildHarness();
 
     h.piAgent.fire({ type: "turn_start" });

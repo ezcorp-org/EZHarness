@@ -247,7 +247,10 @@ export function evaluateCandidate(
 }
 
 /** The candidate grid, with today's thresholds guaranteed present. */
-export function candidateGrid(fast: readonly number[], powerful: readonly number[]): TierThresholds[] {
+export function candidateGrid(
+  fast: readonly number[],
+  powerful: readonly number[],
+): TierThresholds[] {
   const seen = new Set<string>();
   const out: TierThresholds[] = [];
   const push = (fastMaxTokens: number, powerfulMinTokens: number) => {
@@ -328,17 +331,15 @@ export async function loadSweepTurns(days: number): Promise<SweepTurn[]> {
   `);
   const turns: SweepTurn[] = [];
   for (const row of res.rows as Record<string, unknown>[]) {
-    const usage = row.usage as
-      | {
-          inputTokens?: number;
-          outputTokens?: number;
-          cacheReadTokens?: number;
-          cacheWriteTokens?: number;
-          cacheWrite1hTokens?: number;
-          routedTier?: RoutingTier;
-          routingSignals?: StoredRoutingSignals;
-        }
-      | null;
+    const usage = row.usage as {
+      inputTokens?: number;
+      outputTokens?: number;
+      cacheReadTokens?: number;
+      cacheWriteTokens?: number;
+      cacheWrite1hTokens?: number;
+      routedTier?: RoutingTier;
+      routingSignals?: StoredRoutingSignals;
+    } | null;
     const signals = usage?.routingSignals;
     if (!signals) continue;
     const provider = String(row.provider ?? "");

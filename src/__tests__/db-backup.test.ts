@@ -1,6 +1,15 @@
 import { test, expect, describe, beforeEach, afterEach, mock, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { mkdtempSync, rmSync, readdirSync, existsSync, writeFileSync, mkdirSync, readFileSync, utimesSync } from "node:fs";
+import {
+  mkdtempSync,
+  rmSync,
+  readdirSync,
+  existsSync,
+  writeFileSync,
+  mkdirSync,
+  readFileSync,
+  utimesSync,
+} from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -62,7 +71,9 @@ describe("backup module lifecycle", () => {
     backup.startBackups();
     backup.startBackups(); // second start must not double-schedule or throw
     backup.stopBackups(); // final backup
-    expect(readdirSync(backupDir).filter((f) => f.startsWith("ezcorp-db-")).length).toBeGreaterThanOrEqual(1);
+    expect(
+      readdirSync(backupDir).filter((f) => f.startsWith("ezcorp-db-")).length,
+    ).toBeGreaterThanOrEqual(1);
     backup.stopBackups(); // idempotent — safe to call again
   });
 });
@@ -110,7 +121,9 @@ describe("snapshotPreBoot", () => {
     mkdirSync(backupDir, { recursive: true });
     // Seed 4 existing snapshots then take one more — should end with 3.
     for (let i = 0; i < 4; i++) {
-      mkdirSync(join(backupDir, `pre-boot-sha-2026-01-0${i + 1}T00-00-00-000Z`), { recursive: true });
+      mkdirSync(join(backupDir, `pre-boot-sha-2026-01-0${i + 1}T00-00-00-000Z`), {
+        recursive: true,
+      });
     }
     mkdirSync(dbPath, { recursive: true });
     writeFileSync(join(dbPath, "marker"), "x");
@@ -147,14 +160,14 @@ describe("latestPreBootSnapshot", () => {
     // the answer — SHA `abc...` would lose to `xyz...` under lex sort, but
     // the `abc` snapshot is the newest by mtime so should win.
     const older = join(backupDir, "pre-boot-xyz999-2026-01-01T00-00-00-000Z");
-    const mid   = join(backupDir, "pre-boot-mmm555-2026-02-01T00-00-00-000Z");
+    const mid = join(backupDir, "pre-boot-mmm555-2026-02-01T00-00-00-000Z");
     const newer = join(backupDir, "pre-boot-abc123-2026-03-15T12-34-56-000Z");
     mkdirSync(older);
     mkdirSync(mid);
     mkdirSync(newer);
     // Set mtimes explicitly (seconds since epoch) so order is deterministic.
     utimesSync(older, new Date("2026-01-01T00:00:00Z"), new Date("2026-01-01T00:00:00Z"));
-    utimesSync(mid,   new Date("2026-02-01T00:00:00Z"), new Date("2026-02-01T00:00:00Z"));
+    utimesSync(mid, new Date("2026-02-01T00:00:00Z"), new Date("2026-02-01T00:00:00Z"));
     utimesSync(newer, new Date("2026-03-15T12:34:56Z"), new Date("2026-03-15T12:34:56Z"));
 
     const backup = await import("../db/backup");
@@ -290,7 +303,8 @@ describe("performBackup (real interval + daily tiers)", () => {
   test("falls back to the default interval cap when the env override is non-numeric", async () => {
     seedDb();
     mkdirSync(backupDir, { recursive: true });
-    for (let i = 1; i <= 2; i++) mkdirSync(join(backupDir, `ezcorp-db-2026-05-0${i}T00-00-00-000Z`));
+    for (let i = 1; i <= 2; i++)
+      mkdirSync(join(backupDir, `ezcorp-db-2026-05-0${i}T00-00-00-000Z`));
     process.env.EZCORP_BACKUP_INTERVAL_KEEP = "not-a-number";
 
     const backup = await import("../db/backup");

@@ -22,9 +22,7 @@ afterAll(async () => {
 
 describe("installMcpExtension", () => {
   test("creates an MCP-kind extension row with null installPath and cached tools", async () => {
-    const tools = [
-      { name: "ping", description: "ping tool", inputSchema: { type: "object" } },
-    ];
+    const tools = [{ name: "ping", description: "ping tool", inputSchema: { type: "object" } }];
     const ext = await installMcpExtension({
       name: "query-mcp-1",
       description: "Remote MCP",
@@ -122,10 +120,7 @@ describe("updateMcpExtension", () => {
     expect(updated!.manifest.author.name).toBe(originalAuthor);
 
     const roundtrip = await getExtension(ext.id);
-    expect((roundtrip!.manifest as any).tools).toEqual([
-      { name: "new-tool" },
-      { name: "second" },
-    ]);
+    expect((roundtrip!.manifest as any).tools).toEqual([{ name: "new-tool" }, { name: "second" }]);
   });
 
   test("keeps the existing description when omitted", async () => {

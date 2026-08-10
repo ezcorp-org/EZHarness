@@ -26,10 +26,12 @@ describe("parseProposeCardResult", () => {
 
   test("parses agent + extension propose urls too", () => {
     expect(
-      parseProposeCardResult(JSON.stringify({ draftId: "d", openUrl: "/agents/new?prefill=d" }))?.openUrl,
+      parseProposeCardResult(JSON.stringify({ draftId: "d", openUrl: "/agents/new?prefill=d" }))
+        ?.openUrl,
     ).toBe("/agents/new?prefill=d");
     expect(
-      parseProposeCardResult(JSON.stringify({ draftId: "d2", openUrl: "/marketplace?q=foo" }))?.openUrl,
+      parseProposeCardResult(JSON.stringify({ draftId: "d2", openUrl: "/marketplace?q=foo" }))
+        ?.openUrl,
     ).toBe("/marketplace?q=foo");
   });
 

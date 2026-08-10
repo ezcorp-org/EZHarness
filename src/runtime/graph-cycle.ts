@@ -25,10 +25,7 @@
  * @returns The cycle path `[node, …, node]` (repeated node at both ends), or
  *          `null` when no cycle is reachable from `start`.
  */
-export function detectCycle(
-  start: string,
-  edgesOf: (node: string) => string[],
-): string[] | null {
+export function detectCycle(start: string, edgesOf: (node: string) => string[]): string[] | null {
   const visited = new Set<string>();
   const path: string[] = [];
 

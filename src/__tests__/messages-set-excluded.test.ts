@@ -35,13 +35,8 @@ mockDbConnection();
 
 const { createUser } = await import("../db/queries/users");
 const { createProject } = await import("../db/queries/projects");
-const {
-  createConversation,
-  createMessage,
-  getMessages,
-  getConversationPath,
-  setMessageExcluded,
-} = await import("../db/queries/conversations");
+const { createConversation, createMessage, getMessages, getConversationPath, setMessageExcluded } =
+  await import("../db/queries/conversations");
 
 let userId = "";
 let projectId = "";

@@ -104,11 +104,7 @@ import type { JobFireOutcome } from "./triggers";
  * which is exactly why an extension cannot address a host workflow or another
  * extension's.
  */
-export const FACTORY_WORKFLOWS = [
-  "docs-factory",
-  "etl-factory",
-  "draft-and-verify",
-] as const;
+export const FACTORY_WORKFLOWS = ["docs-factory", "etl-factory", "draft-and-verify"] as const;
 
 export type FactoryWorkflow = (typeof FACTORY_WORKFLOWS)[number];
 
@@ -149,9 +145,7 @@ export function isFactoryWorkflow(name: unknown): name is FactoryWorkflow {
  * checks the templates against it — by import once the branches merge, so the
  * two cannot drift. Keep it a directly importable named export.
  */
-export const JOB_SETTABLE_INPUT_KEYS: Readonly<
-  Record<FactoryWorkflow, readonly string[]>
-> = {
+export const JOB_SETTABLE_INPUT_KEYS: Readonly<Record<FactoryWorkflow, readonly string[]>> = {
   // Source globs to read, and where the accepted doc is written.
   "docs-factory": ["globs", "outPath"],
   // The same two. NOT `now`: the design's `ingestedAt: "{{ $input.now }}"`
@@ -173,9 +167,7 @@ export const JOB_SETTABLE_INPUT_KEYS: Readonly<
 };
 
 /** The allowlisted input keys for one workflow. */
-export function jobSettableInputKeys(
-  workflow: FactoryWorkflow,
-): readonly string[] {
+export function jobSettableInputKeys(workflow: FactoryWorkflow): readonly string[] {
   return JOB_SETTABLE_INPUT_KEYS[workflow];
 }
 
@@ -207,9 +199,7 @@ export const RESERVED_CONTROL_FLOW_FIELDS: readonly string[] = [
   "loop",
 ] as const;
 
-const RESERVED_FIELD_SET: ReadonlySet<string> = new Set(
-  RESERVED_CONTROL_FLOW_FIELDS,
-);
+const RESERVED_FIELD_SET: ReadonlySet<string> = new Set(RESERVED_CONTROL_FLOW_FIELDS);
 
 // ── Bounds ──────────────────────────────────────────────────────────
 
@@ -385,10 +375,7 @@ export const BACKGROUND_TRIGGER_KINDS = ["cron", "webhook"] as const;
 export type BackgroundTriggerKind = (typeof BACKGROUND_TRIGGER_KINDS)[number];
 
 /** A trigger that fires unattended, narrowed so callers get the bounds. */
-export type BackgroundJobTrigger = Extract<
-  JobTrigger,
-  { kind: BackgroundTriggerKind }
->;
+export type BackgroundJobTrigger = Extract<JobTrigger, { kind: BackgroundTriggerKind }>;
 
 /**
  * True when `trigger` fires without a human present.
@@ -398,9 +385,7 @@ export type BackgroundJobTrigger = Extract<
  * kind === "webhook"` checks is how one of them ends up disagreeing the day
  * a third background kind lands.
  */
-export function isBackgroundTrigger(
-  trigger: JobTrigger,
-): trigger is BackgroundJobTrigger {
+export function isBackgroundTrigger(trigger: JobTrigger): trigger is BackgroundJobTrigger {
   return trigger.kind === "cron" || trigger.kind === "webhook";
 }
 
@@ -615,9 +600,7 @@ export function runRecordsFromHostRuns(
  *
  * Pure, for the same reason the mapper is.
  */
-export function latestRunPerJob(
-  records: readonly JobRunRecord[],
-): Map<string, JobRunRecord> {
+export function latestRunPerJob(records: readonly JobRunRecord[]): Map<string, JobRunRecord> {
   const latest = new Map<string, JobRunRecord>();
   for (const record of records) {
     const current = latest.get(record.jobId);
@@ -749,11 +732,7 @@ function validateInput(
  * numeric string"). Over-cap input is REJECTED, never clamped — a coercion
  * that accepts `"20"` must not become one that accepts anything.
  */
-function boundedCount(
-  raw: unknown,
-  field: string,
-  max: number,
-): JobResult<number> {
+function boundedCount(raw: unknown, field: string, max: number): JobResult<number> {
   let value: number;
   if (typeof raw === "number") {
     value = raw;
@@ -813,7 +792,8 @@ function validateCronExpr(raw: unknown): JobResult<string> {
   if (cron.startsWith("@")) {
     return {
       ok: false,
-      error: "trigger.cron does not accept @shorthand — write a 5-field expression (min hour dom month dow)",
+      error:
+        "trigger.cron does not accept @shorthand — write a 5-field expression (min hour dom month dow)",
     };
   }
   const fields = cron.split(/\s+/);
@@ -953,7 +933,10 @@ function boundedText(
   const trimmed = raw.trim();
   if (required && trimmed === "") return { ok: false, error: `${field} is required` };
   if (trimmed.length > max) {
-    return { ok: false, error: `${field} must be ${max} characters or fewer (got ${trimmed.length})` };
+    return {
+      ok: false,
+      error: `${field} must be ${max} characters or fewer (got ${trimmed.length})`,
+    };
   }
   return { ok: true, value: trimmed };
 }
@@ -990,12 +973,7 @@ export function validateJobDraft(draft: unknown): JobResult<ValidatedJobDraft> {
 
   const name = boundedText(raw.name, "name", MAX_JOB_NAME_LEN, true);
   if (!name.ok) return name;
-  const description = boundedText(
-    raw.description,
-    "description",
-    MAX_JOB_DESCRIPTION_LEN,
-    false,
-  );
+  const description = boundedText(raw.description, "description", MAX_JOB_DESCRIPTION_LEN, false);
   if (!description.ok) return description;
 
   if (!isFactoryWorkflow(raw.workflow)) {
@@ -1104,8 +1082,7 @@ const RUN_INDEX_PREFIX = "run-index:";
 export const JOB_STORAGE_SCOPE = "global" as const;
 
 const jobKey = (id: string): string => `${JOB_KEY_PREFIX}${id}`;
-const runKey = (jobId: string, runId: string): string =>
-  `${RUN_KEY_PREFIX}${jobId}:${runId}`;
+const runKey = (jobId: string, runId: string): string => `${RUN_KEY_PREFIX}${jobId}:${runId}`;
 const runIndexKey = (jobId: string): string => `${RUN_INDEX_PREFIX}${jobId}`;
 
 /** Lock names are namespaced: `withLock` keys are process-global across every
@@ -1194,10 +1171,7 @@ export function createJobStore(): JobStore {
    * rather than a convention — `jobs.test.ts` asserts there is exactly one
    * call site for each of `set` and `delete`, and that it lives here.
    */
-  async function rmw<T>(
-    key: string,
-    edit: (current: T | null) => T | null,
-  ): Promise<T | null> {
+  async function rmw<T>(key: string, edit: (current: T | null) => T | null): Promise<T | null> {
     return withLock(lockName(key), async () => {
       const read = await storage.get<T>(key);
       const current = read.exists && read.value !== undefined ? read.value : null;
@@ -1223,9 +1197,7 @@ export function createJobStore(): JobStore {
     edit: (job: FactoryJob) => FactoryJob,
   ): Promise<FactoryJob | null> => {
     if (!isValidJobId(id)) return null;
-    return rmw<FactoryJob>(jobKey(id), (current) =>
-      current === null ? null : edit(current),
-    );
+    return rmw<FactoryJob>(jobKey(id), (current) => (current === null ? null : edit(current)));
   };
 
   return {
@@ -1329,9 +1301,7 @@ export function createJobStore(): JobStore {
         return null;
       });
       if (!existed) return false;
-      await rmw<string[]>(JOB_INDEX_KEY, (ids) =>
-        (ids ?? []).filter((x) => x !== id),
-      );
+      await rmw<string[]>(JOB_INDEX_KEY, (ids) => (ids ?? []).filter((x) => x !== id));
       // The job's run records go with it, index first so nothing is left
       // pointing at a deleted run.
       const runIds = await readList(runIndexKey(id));

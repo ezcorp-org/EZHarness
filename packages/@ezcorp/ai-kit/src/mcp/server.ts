@@ -32,9 +32,7 @@ import { register as registerOrchestrate } from "./tools/orchestrate.js";
  *  that explicit value win over the inherited default. */
 function wrapToolRegistrationsWithContext(server: McpServer): void {
   const original = server.tool.bind(server);
-  (server as unknown as { tool: (...args: unknown[]) => unknown }).tool = (
-    ...args: unknown[]
-  ) => {
+  (server as unknown as { tool: (...args: unknown[]) => unknown }).tool = (...args: unknown[]) => {
     // `server.tool` has several overloads — the callback is always the
     // LAST argument (a function). We replace it in-place with an ALS-
     // wrapping proxy.

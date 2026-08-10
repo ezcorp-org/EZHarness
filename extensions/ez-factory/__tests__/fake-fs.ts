@@ -47,10 +47,7 @@ export interface FakeFs {
 const bytesOf = (text: string): number => new TextEncoder().encode(text).length;
 
 /** @param files absolute path → contents */
-export function makeFakeFs(
-  files: Record<string, string>,
-  opts: FakeFsOptions = {},
-): FakeFs {
+export function makeFakeFs(files: Record<string, string>, opts: FakeFsOptions = {}): FakeFs {
   const store = new Map(Object.entries(files));
   const mkdirs: string[] = [];
   const explicitDirs = new Set<string>();

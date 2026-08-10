@@ -1,8 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import {
-  AUTO_ENABLE_ON_INSTALL,
-  shouldAutoEnableOnInstall,
-} from "../installer";
+import { AUTO_ENABLE_ON_INSTALL, shouldAutoEnableOnInstall } from "../installer";
 
 describe("AUTO_ENABLE_ON_INSTALL allowlist", () => {
   const listed = [

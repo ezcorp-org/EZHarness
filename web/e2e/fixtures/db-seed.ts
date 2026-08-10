@@ -65,9 +65,7 @@ export async function getCurrentUser(request: APIRequestContext): Promise<Authed
  * of relpaths the scaffolder produced (so a spec can `expect()` the
  * exact file-tree shape without re-deriving it from the SDK).
  */
-export async function seedExtensionAuthorDraft(
-  opts: SeedDraftOptions,
-): Promise<SeededDraft> {
+export async function seedExtensionAuthorDraft(opts: SeedDraftOptions): Promise<SeededDraft> {
   const { request, name, type, description } = opts;
   const res = await request.post("/api/__test/seed-extension-author-draft", {
     data: { name, type, description: description ?? "E2E seeded extension" },

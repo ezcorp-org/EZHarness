@@ -54,9 +54,7 @@ mockServerAlias();
 
 mock.module("../../../web/src/routes/api/knowledge-base/[id]/$types", () => ({}));
 mock.module("../../../web/src/routes/api/knowledge-base/[id]/share/$types", () => ({}));
-mock.module("$lib/server/http-errors", () =>
-  require("../../../web/src/lib/server/http-errors"),
-);
+mock.module("$lib/server/http-errors", () => require("../../../web/src/lib/server/http-errors"));
 
 // The scope axis (`requireScope`) has its own suites; neutralised so a scope
 // failure can never masquerade as an ownership result.
@@ -79,8 +77,9 @@ const authMiddlewareMock = () => ({
 mock.module("$server/auth/middleware", authMiddlewareMock);
 mock.module("../../auth/middleware", authMiddlewareMock);
 
-const { insertKBFile, updateKBFile, insertKBChunk, hasKBChunks } =
-  await import("../../db/queries/knowledge-base");
+const { insertKBFile, updateKBFile, insertKBChunk, hasKBChunks } = await import(
+  "../../db/queries/knowledge-base"
+);
 const { searchKBChunksForQuery } = await import("../../memory/retrieval");
 const { createProject } = await import("../../db/queries/projects");
 const { createUser } = await import("../../db/queries/users");
@@ -125,17 +124,31 @@ beforeAll(async () => {
   otherProjectId = (await createProject({ name: "kb-scope-b", path: "/tmp/kb-scope-b" })).id;
 
   uploader = (await createUser({
-    email: "uploader@test.local", name: "Uploader", passwordHash: "x", role: "member",
+    email: "uploader@test.local",
+    name: "Uploader",
+    passwordHash: "x",
+    role: "member",
   })) as typeof uploader;
   other = (await createUser({
-    email: "other@test.local", name: "Other", passwordHash: "x", role: "member",
+    email: "other@test.local",
+    name: "Other",
+    passwordHash: "x",
+    role: "member",
   })) as typeof other;
   admin = (await createUser({
-    email: "admin@test.local", name: "Admin", passwordHash: "x", role: "admin",
+    email: "admin@test.local",
+    name: "Admin",
+    passwordHash: "x",
+    role: "admin",
   })) as typeof admin;
 
   sharedFileId = await readyFileWithChunk(projectId, "team-handbook.md", SHARED_TEXT, null);
-  ownedFileId = await readyFileWithChunk(projectId, "uploader-private.md", PRIVATE_TEXT, uploader.id);
+  ownedFileId = await readyFileWithChunk(
+    projectId,
+    "uploader-private.md",
+    PRIVATE_TEXT,
+    uploader.id,
+  );
 
   // The share route gates on real project membership (PR #89).
   for (const u of [uploader, other]) await upsertProjectMember(projectId, u.id, "member");
@@ -158,7 +171,11 @@ async function detailReadableFor(user: unknown, id: string): Promise<boolean> {
   let res: Response;
   try {
     res = (await (kbDetail as any)(
-      createMockEvent({ url: `http://localhost/api/knowledge-base/${id}`, params: { id }, user: user as any }),
+      createMockEvent({
+        url: `http://localhost/api/knowledge-base/${id}`,
+        params: { id },
+        user: user as any,
+      }),
     )) as Response;
   } catch (e) {
     if (e instanceof Response) res = e;
@@ -173,7 +190,10 @@ async function detailReadableFor(user: unknown, id: string): Promise<boolean> {
 /** Did any of this file's chunks reach the prompt? */
 async function retrievedFileFor(userId: string | null, id: string): Promise<boolean> {
   const texts = await retrievedBy(userId);
-  return (id === sharedFileId && texts.has(SHARED_TEXT)) || (id === ownedFileId && texts.has(PRIVATE_TEXT));
+  return (
+    (id === sharedFileId && texts.has(SHARED_TEXT)) ||
+    (id === ownedFileId && texts.has(PRIVATE_TEXT))
+  );
 }
 
 // ── (A) The load-bearing invariant ────────────────────────────────
@@ -199,7 +219,10 @@ describe("INVARIANT: what retrieval injects === what the API would let the calle
         // tightened on ownerless rows without retrieval, it fails the other
         // way. Neither side can move alone.
         expect({ caller: c.label, file: f.label, injected, readable }).toEqual({
-          caller: c.label, file: f.label, injected: readable, readable,
+          caller: c.label,
+          file: f.label,
+          injected: readable,
+          readable,
         });
       }
     }
@@ -300,7 +323,9 @@ describe("BEHAVIOUR: sharing a file through the API moves it across the SAME bou
       const injected = (await retrievedBy(caller.id)).has(NEW_TEXT);
       const readable = await detailReadableFor(caller, newFileId);
       expect({ caller: caller.name, injected, readable }).toEqual({
-        caller: caller.name, injected: true, readable: true,
+        caller: caller.name,
+        injected: true,
+        readable: true,
       });
     }
     // And a null actor (agent/CLI run) too — an ownerless row is ownerless for
@@ -315,7 +340,9 @@ describe("BEHAVIOUR: sharing a file through the API moves it across the SAME bou
       const injected = (await retrievedBy(caller.id)).has(NEW_TEXT);
       const readable = await detailReadableFor(caller, newFileId);
       expect({ caller: caller.name, injected, readable }).toEqual({
-        caller: caller.name, injected: false, readable: false,
+        caller: caller.name,
+        injected: false,
+        readable: false,
       });
     }
     // The file went back to its ORIGINAL owner — un-sharing is not a transfer.

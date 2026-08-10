@@ -12,7 +12,12 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { errorJson } from "$lib/server/http-errors";
-import { authGithubRoute, resolveProposal, requireGithubScope, publicProposalView } from "../../../_shared";
+import {
+  authGithubRoute,
+  resolveProposal,
+  requireGithubScope,
+  publicProposalView,
+} from "../../../_shared";
 import {
   dismissProposal,
   GithubProposalNotPendingError,

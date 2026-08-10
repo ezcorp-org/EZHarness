@@ -71,10 +71,18 @@ export async function up(db: MigrationDb): Promise<void> {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_ext_created ON sdk_capability_calls(extension_id, created_at DESC)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_conv_created ON sdk_capability_calls(conversation_id, created_at DESC) WHERE conversation_id IS NOT NULL`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_user_capability_created ON sdk_capability_calls(on_behalf_of, capability, created_at DESC)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_created ON sdk_capability_calls(created_at DESC)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_ext_created ON sdk_capability_calls(extension_id, created_at DESC)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_conv_created ON sdk_capability_calls(conversation_id, created_at DESC) WHERE conversation_id IS NOT NULL`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_user_capability_created ON sdk_capability_calls(on_behalf_of, capability, created_at DESC)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_created ON sdk_capability_calls(created_at DESC)`,
+  );
 
   // lessons_audit_log
   await db.execute(sql`
@@ -92,8 +100,12 @@ export async function up(db: MigrationDb): Promise<void> {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_lessons_audit_lesson_created ON lessons_audit_log(lesson_id, created_at DESC)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_lessons_audit_actor_ext_created ON lessons_audit_log(actor_extension_id, created_at DESC)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_lessons_audit_lesson_created ON lessons_audit_log(lesson_id, created_at DESC)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_lessons_audit_actor_ext_created ON lessons_audit_log(actor_extension_id, created_at DESC)`,
+  );
 
   // lessons.author_extension_id
   await db.execute(sql`

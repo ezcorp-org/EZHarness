@@ -43,6 +43,10 @@ export async function addSuggestionFeedback(db: {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_created ON suggestion_feedback(created_at)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_kind_action ON suggestion_feedback(kind, action, created_at)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_created ON suggestion_feedback(created_at)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_kind_action ON suggestion_feedback(kind, action, created_at)`,
+  );
 }

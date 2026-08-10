@@ -13,11 +13,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
 import { Events, registerEventHandler } from "../src/runtime/events";
-import {
-  __resetChannelForTests,
-  getChannel,
-  type HostChannel,
-} from "../src/runtime/channel";
+import { __resetChannelForTests, getChannel, type HostChannel } from "../src/runtime/channel";
 
 afterEach(() => {
   __resetChannelForTests();

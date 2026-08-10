@@ -11,8 +11,16 @@ import { BriefingDaemon } from "../runtime/briefing/daemon";
 import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 import { WorkflowRunner } from "../runtime/workflow-runner";
 import { EmbedWorker } from "../extensions/embed-worker";
-import { FileOrganizerDaemon, DEFAULT_SETTINGS, mergeFileOrganizerSettings, type FileOrganizerSettings } from "../extensions/file-organizer-daemon";
-import { getGithubProjectsDaemon, reconcileOrphanedProposals } from "../integrations/github-projects/daemon";
+import {
+  FileOrganizerDaemon,
+  DEFAULT_SETTINGS,
+  mergeFileOrganizerSettings,
+  type FileOrganizerSettings,
+} from "../extensions/file-organizer-daemon";
+import {
+  getGithubProjectsDaemon,
+  reconcileOrphanedProposals,
+} from "../integrations/github-projects/daemon";
 import type { GithubProjectsDaemon } from "../integrations/github-projects/daemon";
 import { PreviewPortWatcher } from "../runtime/preview/preview-port-watcher";
 import { NetnsPortSource, ProcPortSource } from "../runtime/preview/preview-port-source";
@@ -170,12 +178,22 @@ export async function startBackgroundTimers(): Promise<void> {
   }
 
   // Session + error-log cleanup (hourly, 30-day retention on errors)
-  intervals.push(setInterval(() => {
-    deleteExpiredSessions().catch(() => {});
-  }, 60 * 60 * 1000));
-  intervals.push(setInterval(() => {
-    cleanupOldErrors(30).catch(() => {});
-  }, 60 * 60 * 1000));
+  intervals.push(
+    setInterval(
+      () => {
+        deleteExpiredSessions().catch(() => {});
+      },
+      60 * 60 * 1000,
+    ),
+  );
+  intervals.push(
+    setInterval(
+      () => {
+        cleanupOldErrors(30).catch(() => {});
+      },
+      60 * 60 * 1000,
+    ),
+  );
 
   // Phase 50: SDK capability-call retention sweep (hourly).
   // Per-capability retention thresholds are read on every tick so
@@ -193,17 +211,28 @@ export async function startBackgroundTimers(): Promise<void> {
   // Style mirrors `cleanupOldErrors` above. Failures swallowed —
   // retention is an opportunistic background sweep; an audit row that
   // outlives its window for one tick isn't a correctness problem.
-  intervals.push(setInterval(() => {
-    (async () => {
-      const llmDays = clampDays(Number((await getSetting("global:sdkLlmRetentionDays")) ?? 90));
-      const memoryDays = clampDays(Number((await getSetting("global:sdkMemoryRetentionDays")) ?? 30));
-      const lessonsDays = clampDays(Number((await getSetting("global:sdkLessonsRetentionDays")) ?? 30));
-      const scheduleDays = clampDays(Number((await getSetting("global:sdkScheduleRetentionDays")) ?? 90));
-      await cleanupOldSdkCapabilityCalls({ llmDays, memoryDays, lessonsDays, scheduleDays });
-    })().catch((e: unknown) => {
-      log.warn("sdk-capability-calls cleanup failed", { error: String(e) });
-    });
-  }, 60 * 60 * 1000));
+  intervals.push(
+    setInterval(
+      () => {
+        (async () => {
+          const llmDays = clampDays(Number((await getSetting("global:sdkLlmRetentionDays")) ?? 90));
+          const memoryDays = clampDays(
+            Number((await getSetting("global:sdkMemoryRetentionDays")) ?? 30),
+          );
+          const lessonsDays = clampDays(
+            Number((await getSetting("global:sdkLessonsRetentionDays")) ?? 30),
+          );
+          const scheduleDays = clampDays(
+            Number((await getSetting("global:sdkScheduleRetentionDays")) ?? 90),
+          );
+          await cleanupOldSdkCapabilityCalls({ llmDays, memoryDays, lessonsDays, scheduleDays });
+        })().catch((e: unknown) => {
+          log.warn("sdk-capability-calls cleanup failed", { error: String(e) });
+        });
+      },
+      60 * 60 * 1000,
+    ),
+  );
 
   // Memory compaction (configurable, default 6h).
   //
@@ -221,11 +250,13 @@ export async function startBackgroundTimers(): Promise<void> {
   try {
     const intervalHours = ((await getSetting("global:compactionIntervalHours")) as number) ?? 6;
     const intervalMs = intervalHours * 60 * 60 * 1000;
-    intervals.push(setInterval(() => {
-      runCompaction().catch((e: unknown) => {
-        log.error("Compaction error", { error: String(e) });
-      });
-    }, intervalMs));
+    intervals.push(
+      setInterval(() => {
+        runCompaction().catch((e: unknown) => {
+          log.error("Compaction error", { error: String(e) });
+        });
+      }, intervalMs),
+    );
     log.info("Compaction started", { intervalHours });
   } catch (e) {
     log.warn("Failed to start compaction timer", { error: String(e) });
@@ -302,7 +333,9 @@ export async function startBackgroundTimers(): Promise<void> {
   // lockfile (the DB status-CAS is the concurrency guard), so `start()` is total
   // — no sibling-refusal branch or start-throw to guard against.
   if (process.env.EZCORP_DISABLE_WEBHOOK_DAEMON !== "1") {
-    webhookDeliveryDaemon = new WebhookDeliveryDaemon({ registry: ExtensionRegistry.getInstance() });
+    webhookDeliveryDaemon = new WebhookDeliveryDaemon({
+      registry: ExtensionRegistry.getInstance(),
+    });
     await webhookDeliveryDaemon.start();
     log.info("WebhookDeliveryDaemon started");
   } else {
@@ -403,12 +436,7 @@ export async function startBackgroundTimers(): Promise<void> {
         const { join } = await import("node:path");
         const { getPermissionEngine } = await import("../extensions/permission-engine");
         const { getPageCache } = await import("../extensions/page-cache");
-        const dataDir = join(
-          getProjectRoot(),
-          ".ezcorp",
-          "extension-data",
-          "file-organizer",
-        );
+        const dataDir = join(getProjectRoot(), ".ezcorp", "extension-data", "file-organizer");
         const pageCache = getPageCache();
         fileOrganizerDaemon = new FileOrganizerDaemon({
           dataDir,
@@ -576,11 +604,13 @@ export async function startBackgroundTimers(): Promise<void> {
     const intervalHours = ((await getSetting("global:auditIntervalHours")) as number) ?? 0;
     if (intervalHours > 0) {
       const intervalMs = intervalHours * 60 * 60 * 1000;
-      intervals.push(setInterval(() => {
-        runScheduledSurfaceAudit().catch((e: unknown) => {
-          log.error("Surface audit error", { error: String(e) });
-        });
-      }, intervalMs));
+      intervals.push(
+        setInterval(() => {
+          runScheduledSurfaceAudit().catch((e: unknown) => {
+            log.error("Surface audit error", { error: String(e) });
+          });
+        }, intervalMs),
+      );
       log.info("Surface audit started", { intervalHours });
     }
   } catch (e) {
@@ -602,15 +632,29 @@ async function runScheduledSurfaceAudit(): Promise<void> {
   const ctx = {
     input: {},
     llm,
-    shell: { async run() { return { stdout: "", stderr: "", exitCode: 0 }; } },
-    file: {
-      async read(path: string) { return await Bun.file(path).text(); },
-      async write(path: string, content: string) { await Bun.write(path, content); },
-      async exists(path: string) { return await Bun.file(path).exists(); },
+    shell: {
+      async run() {
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
     },
-    log(message: string) { log.info(message); },
+    file: {
+      async read(path: string) {
+        return await Bun.file(path).text();
+      },
+      async write(path: string, content: string) {
+        await Bun.write(path, content);
+      },
+      async exists(path: string) {
+        return await Bun.file(path).exists();
+      },
+    },
+    log(message: string) {
+      log.info(message);
+    },
     signal: new AbortController().signal,
-    async run() { return { success: true, output: null }; },
+    async run() {
+      return { success: true, output: null };
+    },
   };
   await runScheduledAudit(ctx as never);
 }
@@ -634,9 +678,15 @@ async function resolveFileOrganizerSettings(extensionId: string): Promise<FileOr
       .select({ manifest: extensions.manifest })
       .from(extensions)
       .where(eq(extensions.id, extensionId));
-    const schema = (manifestRows[0]?.manifest as { settings?: Record<string, { default?: unknown }> } | undefined)?.settings ?? {};
+    const schema =
+      (
+        manifestRows[0]?.manifest as
+          | { settings?: Record<string, { default?: unknown }> }
+          | undefined
+      )?.settings ?? {};
     const declared: Record<string, unknown> = {};
-    for (const [k, f] of Object.entries(schema)) if (f.default !== undefined) declared[k] = f.default;
+    for (const [k, f] of Object.entries(schema))
+      if (f.default !== undefined) declared[k] = f.default;
 
     const userRows = await db
       .select({ values: extensionSettingsUser.values })
@@ -713,19 +763,35 @@ export async function stopBackgroundTimers(): Promise<void> {
     permSweepDaemon = undefined;
   }
   if (embedWorker) {
-    try { embedWorker.stop(); } catch (e) { log.warn("EmbedWorker.stop() failed", { error: String(e) }); }
+    try {
+      embedWorker.stop();
+    } catch (e) {
+      log.warn("EmbedWorker.stop() failed", { error: String(e) });
+    }
     embedWorker = undefined;
   }
   if (fileOrganizerDaemon) {
-    try { fileOrganizerDaemon.stop(); } catch (e) { log.warn("FileOrganizerDaemon.stop() failed", { error: String(e) }); }
+    try {
+      fileOrganizerDaemon.stop();
+    } catch (e) {
+      log.warn("FileOrganizerDaemon.stop() failed", { error: String(e) });
+    }
     fileOrganizerDaemon = undefined;
   }
   if (githubProjectsDaemon) {
-    try { githubProjectsDaemon.stop(); } catch (e) { log.warn("GithubProjectsDaemon.stop() failed", { error: String(e) }); }
+    try {
+      githubProjectsDaemon.stop();
+    } catch (e) {
+      log.warn("GithubProjectsDaemon.stop() failed", { error: String(e) });
+    }
     githubProjectsDaemon = undefined;
   }
   if (previewPortWatcher) {
-    try { previewPortWatcher.stop(); } catch (e) { log.warn("PreviewPortWatcher.stop() failed", { error: String(e) }); }
+    try {
+      previewPortWatcher.stop();
+    } catch (e) {
+      log.warn("PreviewPortWatcher.stop() failed", { error: String(e) });
+    }
     previewPortWatcher = undefined;
   }
 
@@ -794,7 +860,11 @@ export function _resetForTests(): void {
   for (const handle of intervals) clearInterval(handle);
   intervals.length = 0;
   for (const dispose of disposers) {
-    try { dispose(); } catch { /* swallow */ }
+    try {
+      dispose();
+    } catch {
+      /* swallow */
+    }
   }
   disposers.length = 0;
 }

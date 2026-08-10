@@ -21,12 +21,21 @@ export const __rateLimiter = new RateLimiter(3, 60 * 60_000);
 
 export const POST: RequestHandler = async ({ request, cookies, getClientAddress }) => {
   let ip = "unknown";
-  try { ip = getClientAddress(); } catch { /* proxy not configured */ }
+  try {
+    ip = getClientAddress();
+  } catch {
+    /* proxy not configured */
+  }
   const rl = __rateLimiter.check(ip);
   if (!rl.allowed) {
-    return errorJson(429, "Too many requests", { retryAfter: rl.retryAfter }, {
-      "Retry-After": String(rl.retryAfter ?? 1),
-    });
+    return errorJson(
+      429,
+      "Too many requests",
+      { retryAfter: rl.retryAfter },
+      {
+        "Retry-After": String(rl.retryAfter ?? 1),
+      },
+    );
   }
 
   const count = await getUserCount();
@@ -68,12 +77,19 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
   const expiresAt = new Date(Date.now() + cfg.lifetimeSeconds * 1000);
   const userAgent = request.headers.get("user-agent");
   let ipAddress: string | null = null;
-  try { ipAddress = getClientAddress(); } catch { /* proxy not configured */ }
+  try {
+    ipAddress = getClientAddress();
+  } catch {
+    /* proxy not configured */
+  }
   await createSession({ userId: user.id, tokenHash, userAgent, ipAddress, expiresAt });
 
   setSessionCookie(cookies, token);
 
-  return json({
-    user: { id: user.id, name: user.name, email: user.email, role: user.role },
-  }, { status: 201 });
+  return json(
+    {
+      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+    },
+    { status: 201 },
+  );
 };

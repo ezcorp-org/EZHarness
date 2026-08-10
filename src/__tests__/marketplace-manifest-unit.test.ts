@@ -293,10 +293,17 @@ describe("MARKETPLACE_CATEGORIES", () => {
     }
   });
 
-  test.each(["Productivity", "Development", "Writing", "Research", "Education", "Creative", "Data & Analysis", "Communication", "Other"])(
-    "contains '%s'",
-    (category) => {
-      expect(MARKETPLACE_CATEGORIES).toContain(category);
-    },
-  );
+  test.each([
+    "Productivity",
+    "Development",
+    "Writing",
+    "Research",
+    "Education",
+    "Creative",
+    "Data & Analysis",
+    "Communication",
+    "Other",
+  ])("contains '%s'", (category) => {
+    expect(MARKETPLACE_CATEGORIES).toContain(category);
+  });
 });

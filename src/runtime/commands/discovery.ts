@@ -127,10 +127,7 @@ async function collectMarkdown(
   }
 }
 
-async function parseOne(
-  absPath: string,
-  source: CommandSource,
-): Promise<CommandRecord | null> {
+async function parseOne(absPath: string, source: CommandSource): Promise<CommandRecord | null> {
   // Enforce size cap *before* reading into memory.
   let size: number;
   try {
@@ -162,10 +159,7 @@ async function parseOne(
   };
 }
 
-async function scanRoot(
-  absRootDir: string,
-  source: CommandSource,
-): Promise<CommandRecord[]> {
+async function scanRoot(absRootDir: string, source: CommandSource): Promise<CommandRecord[]> {
   let realRoot: string;
   try {
     realRoot = await realpath(absRootDir);
@@ -190,9 +184,7 @@ async function scanRoot(
  * Returns merged results across roots, deduplicated only within each
  * source (collisions across sources are preserved and namespaced).
  */
-export async function discoverProjectCommands(
-  projectPath: string,
-): Promise<CommandRecord[]> {
+export async function discoverProjectCommands(projectPath: string): Promise<CommandRecord[]> {
   const out: CommandRecord[] = [];
   for (const { rel, source } of PROJECT_ROOTS) {
     const recs = await scanRoot(join(projectPath, rel), source);
@@ -206,9 +198,7 @@ export async function discoverProjectCommands(
  * locations. Caller is responsible for gating this on the deployment's
  * multi-tenancy policy (see `EZCORP_SCAN_GLOBAL_COMMANDS`).
  */
-export async function discoverHomeCommands(
-  homePath: string,
-): Promise<CommandRecord[]> {
+export async function discoverHomeCommands(homePath: string): Promise<CommandRecord[]> {
   const out: CommandRecord[] = [];
   for (const { rel, source } of HOME_ROOTS) {
     const recs = await scanRoot(join(homePath, rel), source);

@@ -3,12 +3,9 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 
 mockDbConnection();
 
-const {
-  persistError,
-  countErrors,
-  listErrors,
-  cleanupOldErrors,
-} = await import("../db/queries/error-logs");
+const { persistError, countErrors, listErrors, cleanupOldErrors } = await import(
+  "../db/queries/error-logs"
+);
 
 describe("error-logs queries", () => {
   beforeEach(async () => await setupTestDb());

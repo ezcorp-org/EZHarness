@@ -18,17 +18,17 @@
 import { expect, test } from "vitest";
 
 test("the sandbox landlock-ffi chain loads under vitest (bun:ffi is stubbed)", async () => {
-	// Direct import of the module that pulls in `bun:ffi`. If the alias/stub
-	// regresses, the dynamic import rejects here with the bundling/resolve
-	// error rather than silently breaking unrelated suites.
-	const mod = await import("$server/extensions/sandbox/landlock-ffi");
-	// Sanity: the pure exports are present (proves the module body evaluated,
-	// not just that the import didn't throw).
-	expect(typeof mod.landlockAbiVersion).toBe("function");
-	expect(typeof mod.applyReadWriteJail).toBe("function");
+  // Direct import of the module that pulls in `bun:ffi`. If the alias/stub
+  // regresses, the dynamic import rejects here with the bundling/resolve
+  // error rather than silently breaking unrelated suites.
+  const mod = await import("$server/extensions/sandbox/landlock-ffi");
+  // Sanity: the pure exports are present (proves the module body evaluated,
+  // not just that the import didn't throw).
+  expect(typeof mod.landlockAbiVersion).toBe("function");
+  expect(typeof mod.applyReadWriteJail).toBe("function");
 });
 
 test("the capability-probe (transitive bun:ffi importer) loads", async () => {
-	const mod = await import("$server/extensions/sandbox/capability-probe");
-	expect(mod).toBeTruthy();
+  const mod = await import("$server/extensions/sandbox/capability-probe");
+  expect(mod).toBeTruthy();
 });

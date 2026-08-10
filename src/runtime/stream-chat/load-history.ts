@@ -1,9 +1,9 @@
-import type {
-  AssistantMessage,
-  Message,
-  UserMessage,
-} from "../../types";
-import { getConversationPath, getLatestLeaf, resolveSystemPrompt } from "../../db/queries/conversations";
+import type { AssistantMessage, Message, UserMessage } from "../../types";
+import {
+  getConversationPath,
+  getLatestLeaf,
+  resolveSystemPrompt,
+} from "../../db/queries/conversations";
 import { computeSessionBranch, isSessionHistoryProducerEnabled } from "../../db/session-sync";
 import type { HistoryUserRow } from "../../chat/attachments/history-rehydrate";
 import { logger } from "../../logger";
@@ -38,10 +38,7 @@ export const MAX_REHYDRATED_IMAGE_BYTES = 5 * 1024 * 1024;
  * Find the index of the first user message after `fromIdx`, or -1 if none.
  * Exported for unit coverage.
  */
-export function findNextUserIndex(
-  branch: Array<{ role: string }>,
-  fromIdx: number,
-): number {
+export function findNextUserIndex(branch: Array<{ role: string }>, fromIdx: number): number {
   for (let i = fromIdx + 1; i < branch.length; i++) {
     if (branch[i]!.role === "user") return i;
   }
@@ -68,8 +65,9 @@ export async function collectRehydratedImages(
   const maxImages = limits.maxImages ?? MAX_REHYDRATED_IMAGES;
   const maxBytes = limits.maxBytes ?? MAX_REHYDRATED_IMAGE_BYTES;
 
-  const { extractExtFilesUrls, statExtFilesImage, loadExtFilesImage } =
-    await import("../../chat/attachments/history-rehydrate");
+  const { extractExtFilesUrls, statExtFilesImage, loadExtFilesImage } = await import(
+    "../../chat/attachments/history-rehydrate"
+  );
   const { listToolCallOutputsForMessages } = await import("../../db/queries/tool-calls");
   const { extractOutputText } = await import("../../db/queries/conversations");
 
@@ -121,7 +119,10 @@ export async function collectRehydratedImages(
     for (const url of urls) {
       if (imageCount >= maxImages || totalBytes >= maxBytes) break;
       const info = await statExtFilesImage(url);
-      if (!info) { statMisses++; continue; }
+      if (!info) {
+        statMisses++;
+        continue;
+      }
       if (seen.has(info.absPath)) continue; // cross-turn dedupe
       // Stop early if adding this image would blow past the byte cap.
       // We don't "skip and keep scanning" — the walker commits to newest
@@ -160,7 +161,8 @@ export async function collectRehydratedImages(
     totalBytes,
     cwd: process.cwd(),
   };
-  if (statMisses > 0) log.warn("walked — some ext-files URLs could not be resolved on disk", payload);
+  if (statMisses > 0)
+    log.warn("walked — some ext-files URLs could not be resolved on disk", payload);
   else log.info("walked", payload);
 }
 
@@ -242,10 +244,13 @@ async function computeBranch(
       // Recovery hint: a PERMANENT fail-open (a truly poisoned tree) is cleared
       // by deleting this conversation's `agent_sessions` row(s) — the next read
       // then backfills a fresh tree from the messages table.
-      log.warn("session history producer failed — using legacy branch for this turn (delete the conversation's agent_sessions row to force a fresh backfill)", {
-        conversationId,
-        error: String(err),
-      });
+      log.warn(
+        "session history producer failed — using legacy branch for this turn (delete the conversation's agent_sessions row to force a fresh backfill)",
+        {
+          conversationId,
+          error: String(err),
+        },
+      );
     }
   }
   return computeLegacyBranch(conversationId, options);
@@ -277,7 +282,8 @@ export async function loadHistory(
     // Resolve system prompt (conversation > project > global)
     (async () => {
       if (options.system) return options.system;
-      if (options.projectId) return resolveSystemPrompt(conversationId, options.projectId, options.modeId);
+      if (options.projectId)
+        return resolveSystemPrompt(conversationId, options.projectId, options.modeId);
       return undefined;
     })(),
   ]);
@@ -286,11 +292,16 @@ export async function loadHistory(
   // earlier turns (and their `ez-attachment://` handles) remain visible +
   // resolvable on the current turn. Server-only code path — storagePath
   // never leaks past the pi-ai call below.
-  const { loadPastAttachments, rehydrateUserMessageContent } =
-    await import("../../chat/attachments/history-rehydrate");
-  const pastCaps = options.provider && options.model
-    ? (await import("../../providers/model-capabilities")).getCapabilities(options.provider, options.model)
-    : null;
+  const { loadPastAttachments, rehydrateUserMessageContent } = await import(
+    "../../chat/attachments/history-rehydrate"
+  );
+  const pastCaps =
+    options.provider && options.model
+      ? (await import("../../providers/model-capabilities")).getCapabilities(
+          options.provider,
+          options.model,
+        )
+      : null;
   const { byMessage: pastByMessage, all: allPastAttachments } = pastCaps
     ? await loadPastAttachments(branchMessages).catch(() => ({ byMessage: new Map(), all: [] }))
     : { byMessage: new Map(), all: [] };
@@ -305,7 +316,10 @@ export async function loadHistory(
   // is hit. Prefers recency (the "edit the image you just made" flow)
   // while still including older images if they fit under the caps.
   const supportsImageInput = pastCaps?.kinds.includes("image") === true;
-  const injectedImages = new Map<number, Array<{ type: "image"; data: string; mimeType: string }>>();
+  const injectedImages = new Map<
+    number,
+    Array<{ type: "image"; data: string; mimeType: string }>
+  >();
   if (supportsImageInput) {
     await collectRehydratedImages(branchMessages, injectedImages);
   } else {
@@ -329,55 +343,63 @@ export async function loadHistory(
   // POST-mapping role — by then `ez-action-result` would have been mapped to
   // `"user"` (the fall-through branch below) and the JSON-encoded card
   // would leak into the prompt as a fake user turn. Filter at the source.
-  const mapped = await Promise.all(branchMessages.map(async (m, idx): Promise<Message | null> => {
-    // EZ action result rows are UI-only — never send the JSON-encoded
-    // EzActionResult payload to the LLM. Spec invariant.
-    if (m.role === "ez-action-result") return null;
-    // Deterministic-preprocess result rows are UI-only tool cards. The
-    // CURRENT turn is grounded via a system note added in setup-tools;
-    // history replay would inject the JSON payload as a fake user turn.
-    // Same filter-at-the-source shape as ez-action-result above.
-    if (m.role === PREPROCESS_RESULT_ROLE) return null;
-    // Phase 50 capability-event rows are the chat-pill renderings of an
-    // sdk_capability_calls row (recordCapabilityCall write 3). The
-    // content is a JSON sentinel for the UI's pill component, NOT a
-    // turn the model should see — falling through to the user-message
-    // mapper below would inject the JSON sentinel as a fake user turn.
-    // Spec invariant: filter at the source, same shape as ez-action-result.
-    if (m.role === "capability-event") return null;
-    if (m.role === "assistant") {
+  const mapped = await Promise.all(
+    branchMessages.map(async (m, idx): Promise<Message | null> => {
+      // EZ action result rows are UI-only — never send the JSON-encoded
+      // EzActionResult payload to the LLM. Spec invariant.
+      if (m.role === "ez-action-result") return null;
+      // Deterministic-preprocess result rows are UI-only tool cards. The
+      // CURRENT turn is grounded via a system note added in setup-tools;
+      // history replay would inject the JSON payload as a fake user turn.
+      // Same filter-at-the-source shape as ez-action-result above.
+      if (m.role === PREPROCESS_RESULT_ROLE) return null;
+      // Phase 50 capability-event rows are the chat-pill renderings of an
+      // sdk_capability_calls row (recordCapabilityCall write 3). The
+      // content is a JSON sentinel for the UI's pill component, NOT a
+      // turn the model should see — falling through to the user-message
+      // mapper below would inject the JSON sentinel as a fake user turn.
+      // Spec invariant: filter at the source, same shape as ez-action-result.
+      if (m.role === "capability-event") return null;
+      if (m.role === "assistant") {
+        return {
+          role: "assistant" as const,
+          // pi-ai's `Api` is `KnownApi | (string & {})` — "unknown" fits the
+          // branded-string escape hatch without needing a cast. Used for
+          // rehydrated history turns where we never had the original api name.
+          content: [{ type: "text" as const, text: m.content }],
+          api: "unknown",
+          provider: "unknown",
+          model: "unknown",
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "stop" as const,
+          timestamp: Date.now(),
+        } satisfies AssistantMessage;
+      }
+      const attsForMsg = pastByMessage.get(m.id) ?? [];
+      const injected = injectedImages.get(idx) ?? [];
+      let content: string | import("../../chat/attachments/content-builder").PiContentPart[] =
+        pastCaps ? await rehydrateUserMessageContent(m.content, attsForMsg, pastCaps) : m.content;
+      if (injected.length > 0) {
+        // Lift plain-string content into a parts array so we can append the
+        // injected images without losing the user's typed text.
+        const base: import("../../chat/attachments/content-builder").PiContentPart[] =
+          typeof content === "string" ? [{ type: "text", text: content }] : content;
+        content = [...base, ...injected];
+      }
       return {
-        role: "assistant" as const,
-        // pi-ai's `Api` is `KnownApi | (string & {})` — "unknown" fits the
-        // branded-string escape hatch without needing a cast. Used for
-        // rehydrated history turns where we never had the original api name.
-        content: [{ type: "text" as const, text: m.content }],
-        api: "unknown",
-        provider: "unknown",
-        model: "unknown",
-        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
-        stopReason: "stop" as const,
+        role: "user" as const,
+        content,
         timestamp: Date.now(),
-      } satisfies AssistantMessage;
-    }
-    const attsForMsg = pastByMessage.get(m.id) ?? [];
-    const injected = injectedImages.get(idx) ?? [];
-    let content: string | import("../../chat/attachments/content-builder").PiContentPart[] = pastCaps
-      ? await rehydrateUserMessageContent(m.content, attsForMsg, pastCaps)
-      : m.content;
-    if (injected.length > 0) {
-      // Lift plain-string content into a parts array so we can append the
-      // injected images without losing the user's typed text.
-      const base: import("../../chat/attachments/content-builder").PiContentPart[] =
-        typeof content === "string" ? [{ type: "text", text: content }] : content;
-      content = [...base, ...injected];
-    }
-    return {
-      role: "user" as const,
-      content,
-      timestamp: Date.now(),
-    } satisfies UserMessage;
-  }));
+      } satisfies UserMessage;
+    }),
+  );
   const history: Message[] = mapped.filter((m): m is Message => m !== null);
 
   // System prompt lives on the per-call context so the memory/KB injection

@@ -51,10 +51,11 @@ describe("ExtensionRegistry.reload process invalidation", () => {
     const registry = ExtensionRegistry.getInstance();
     const state = registry as unknown as RegistryInternals;
     const killed: string[] = [];
-    const fakeProcess = (id: string) => ({
-      isRunning: true,
-      kill: () => killed.push(id),
-    }) as unknown as ExtensionProcess;
+    const fakeProcess = (id: string) =>
+      ({
+        isRunning: true,
+        kill: () => killed.push(id),
+      }) as unknown as ExtensionProcess;
 
     state.processes.set("changed", fakeProcess("changed"));
     state.processes.set("unchanged", fakeProcess("unchanged"));
@@ -82,7 +83,9 @@ describe("ExtensionRegistry.reload process invalidation", () => {
     state.processes.set("ext", {
       isRunning: true,
       inFlightCallCount: 0,
-      kill: () => { killedCount++; },
+      kill: () => {
+        killedCount++;
+      },
     } as unknown as ExtensionProcess);
     seed(state, "ext", manifest("1.0.0", "hash-before-edit"));
 
@@ -103,13 +106,19 @@ describe("ExtensionRegistry.reload process invalidation", () => {
 describe("ExtensionRegistry.reload MCP invalidation", () => {
   afterEach(() => ExtensionRegistry.resetInstance());
 
-  const fakeProxy = (log: string[], id: string) => ({
-    stop: async () => { log.push(`stop:${id}`); },
-  }) as unknown as McpProxyHandle;
-  const fakeClient = (log: string[], id: string) => ({
-    isConnected: true,
-    close: async () => { log.push(`close:${id}`); },
-  }) as unknown as McpClient;
+  const fakeProxy = (log: string[], id: string) =>
+    ({
+      stop: async () => {
+        log.push(`stop:${id}`);
+      },
+    }) as unknown as McpProxyHandle;
+  const fakeClient = (log: string[], id: string) =>
+    ({
+      isConnected: true,
+      close: async () => {
+        log.push(`close:${id}`);
+      },
+    }) as unknown as McpClient;
 
   test("an UPGRADED mcp extension drops its stale proxy and client", async () => {
     const registry = ExtensionRegistry.getInstance();
@@ -166,17 +175,24 @@ describe("ExtensionRegistry.reload does not interrupt an in-flight call", () => 
   /** Stand-in for a subprocess that is blocked serving a host call. */
   function busyProcess(onKill: () => void) {
     let settle!: () => void;
-    const settled = new Promise<void>((resolve) => { settle = resolve; });
+    const settled = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
     let inFlight = 1;
     const proc = {
       isRunning: true,
-      get inFlightCallCount() { return inFlight; },
+      get inFlightCallCount() {
+        return inFlight;
+      },
       whenCallsSettled: () => settled,
       kill: onKill,
     };
     return {
       proc: proc as unknown as ExtensionProcess,
-      finishCall: () => { inFlight = 0; settle(); },
+      finishCall: () => {
+        inFlight = 0;
+        settle();
+      },
     };
   }
 
@@ -226,7 +242,9 @@ describe("ExtensionRegistry.reload does not interrupt an in-flight call", () => 
       isRunning: true,
       inFlightCallCount: 0,
       whenCallsSettled: () => Promise.resolve(),
-      kill: () => { killed = true; },
+      kill: () => {
+        killed = true;
+      },
     } as unknown as ExtensionProcess);
     seed(state, "idle", manifest("1.0.0", "old"));
 

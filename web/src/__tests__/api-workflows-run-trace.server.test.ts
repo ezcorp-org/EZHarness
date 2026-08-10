@@ -193,14 +193,11 @@ describe("GET /api/workflows/runs — query validation", () => {
     },
   );
 
-  test.each([["0"], ["201"], ["-5"], ["1.5"], ["abc"]])(
-    "rejects limit=%s",
-    async (limit) => {
-      const res = await LIST(listEvent(`?limit=${limit}`));
-      expect(res.status).toBe(400);
-      expect(trace.listWorkflowRunsForCaller).not.toHaveBeenCalled();
-    },
-  );
+  test.each([["0"], ["201"], ["-5"], ["1.5"], ["abc"]])("rejects limit=%s", async (limit) => {
+    const res = await LIST(listEvent(`?limit=${limit}`));
+    expect(res.status).toBe(400);
+    expect(trace.listWorkflowRunsForCaller).not.toHaveBeenCalled();
+  });
 
   test("accepts a complete cursor", async () => {
     await LIST(listEvent("?cursorStartedAt=2026-01-01T00:00:00.000Z&cursorId=r7"));

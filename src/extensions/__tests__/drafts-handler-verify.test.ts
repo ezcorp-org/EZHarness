@@ -13,11 +13,7 @@
  */
 
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
-import {
-  setupTestDb,
-  closeTestDb,
-  getTestPglite,
-} from "../../__tests__/helpers/test-pglite";
+import { setupTestDb, closeTestDb, getTestPglite } from "../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
   useTempProjectRoot,
@@ -143,11 +139,7 @@ afterAll(async () => {
 
 describe("ezcorp/drafts.verify — param + ownership", () => {
   test("missing draftId → -32602", async () => {
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "verify" }),
-      makeCtx(),
-    );
+    const resp = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "verify" }), makeCtx());
     expect(resp.error?.code).toBe(-32602);
   });
 
@@ -176,11 +168,7 @@ describe("ezcorp/drafts.verify — VerifyResult shape", () => {
   test("scaffolded tool draft ⇒ pass:true + steps[]", async () => {
     const draftId = await makeAuthorDraft();
     writeScaffold(draftId, "tool");
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "verify", draftId }),
-      makeCtx(),
-    );
+    const resp = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "verify", draftId }), makeCtx());
     expect(resp.error).toBeUndefined();
     const result = resp.result as {
       pass: boolean;
@@ -188,9 +176,7 @@ describe("ezcorp/drafts.verify — VerifyResult shape", () => {
     };
     expect(result.pass).toBe(true);
     expect(Array.isArray(result.steps)).toBe(true);
-    expect(result.steps.some((s) => s.name === "smoke-test-roundtrip" && s.ok)).toBe(
-      true,
-    );
+    expect(result.steps.some((s) => s.name === "smoke-test-roundtrip" && s.ok)).toBe(true);
   }, 25_000);
 
   test("draft with a broken smokeTest tool ⇒ pass:false + failing step", async () => {
@@ -204,11 +190,7 @@ describe("ezcorp/drafts.verify — VerifyResult shape", () => {
         'tool: "ghost-tool"',
       );
     });
-    const resp = await handleDraftsRpc(
-      ALLOWED_NAME,
-      rpc({ action: "verify", draftId }),
-      makeCtx(),
-    );
+    const resp = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "verify", draftId }), makeCtx());
     expect(resp.error).toBeUndefined();
     const result = resp.result as {
       pass: boolean;

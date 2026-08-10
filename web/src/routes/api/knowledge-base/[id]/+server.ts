@@ -22,7 +22,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   //
   // Note the asymmetry with DELETE below and treat it as intentional: sharing
   // is read-only. A null owner grants READ to everyone, never destruction.
-  if (file.userId && file.userId !== user.id) return errorJson(404, "Knowledge base file not found");
+  if (file.userId && file.userId !== user.id)
+    return errorJson(404, "Knowledge base file not found");
   return json(file);
 };
 

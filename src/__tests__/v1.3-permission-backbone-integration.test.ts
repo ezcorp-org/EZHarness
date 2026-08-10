@@ -36,30 +36,15 @@
  * downstream mocked-tests can pass against an inconsistent shape.
  */
 
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  test,
-} from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import {
-  closeTestDb,
-  mockDbConnection,
-  setupTestDb,
-} from "./helpers/test-pglite";
+import { closeTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 
 import { getDb } from "../db/connection";
-import {
-  BUNDLED_CEILING,
-  clampToBundledCeiling,
-  getCeiling,
-} from "../extensions/bundled-ceiling";
+import { BUNDLED_CEILING, clampToBundledCeiling, getCeiling } from "../extensions/bundled-ceiling";
 import {
   intersect,
   intersectPermissions,
@@ -132,7 +117,7 @@ describe("A: bundled-ceiling clamp on reapprove (HIGH 2)", () => {
         } as ExtensionPermissions,
       },
       installedPermissions: null, // legacy bundled row — exercises the
-                                  // bundled-ceiling second-stage clamp on its own.
+      // bundled-ceiling second-stage clamp on its own.
       grantedPermissions: { grantedAt: {} },
     });
 
@@ -155,10 +140,7 @@ describe("A: bundled-ceiling clamp on reapprove (HIGH 2)", () => {
     // route's `installedPermissions ?? manifest.permissions` resolve
     // to the manifest itself.
     const stage1 = intersectPermissions(manifestPerms, manifestPerms);
-    const { effective: clamped, clamped: didClamp } = clampToBundledCeiling(
-      "github-stats",
-      stage1,
-    );
+    const { effective: clamped, clamped: didClamp } = clampToBundledCeiling("github-stats", stage1);
 
     // The ceiling drops `api.attacker.com`; `api.github.com` survives.
     expect(clamped.network).toEqual(["api.github.com"]);
@@ -441,7 +423,9 @@ describe("D: confused-deputy intersection — non-deputy callee gets caps inters
     const rows = await db.select().from(extensions).where(eq(extensions.id, callee.id));
     const row = rows[0];
     expect(row).toBeDefined();
-    expect((row?.manifest as { acceptsCallerCaps?: boolean } | undefined)?.acceptsCallerCaps).toBe(true);
+    expect((row?.manifest as { acceptsCallerCaps?: boolean } | undefined)?.acceptsCallerCaps).toBe(
+      true,
+    );
 
     await callee.clear();
   });

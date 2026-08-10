@@ -10,11 +10,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
 import { PanelBuilder } from "../src/runtime/panel";
-import {
-  __resetChannelForTests,
-  getChannel,
-  type HostChannel,
-} from "../src/runtime/channel";
+import { __resetChannelForTests, getChannel, type HostChannel } from "../src/runtime/channel";
 
 afterEach(() => {
   __resetChannelForTests();
@@ -52,9 +48,7 @@ describe("PanelBuilder chainable components — all optional branches", () => {
   test("title(title, subtitle) → header carries both", async () => {
     const { calls } = stubNotify();
     await new PanelBuilder().title("T1", "sub").send();
-    expect(getComponents(calls)).toEqual([
-      { type: "header", title: "T1", subtitle: "sub" },
-    ]);
+    expect(getComponents(calls)).toEqual([{ type: "header", title: "T1", subtitle: "sub" }]);
   });
 
   test("markdown(content) without variant", async () => {
@@ -77,7 +71,13 @@ describe("PanelBuilder chainable components — all optional branches", () => {
     const { calls } = stubNotify();
     const items = [
       { label: "a" },
-      { label: "b", status: "active" as const, detail: "d", badge: "B", badgeColor: "green" as const },
+      {
+        label: "b",
+        status: "active" as const,
+        detail: "d",
+        badge: "B",
+        badgeColor: "green" as const,
+      },
     ];
     await new PanelBuilder("h").list(items).send();
     expect(getComponents(calls)).toContainEqual({ type: "list", items });
@@ -180,11 +180,7 @@ describe("PanelBuilder chainable components — all optional branches", () => {
 
   test("components accumulate in insertion order across chained calls", async () => {
     const { calls } = stubNotify();
-    await new PanelBuilder("h")
-      .markdown("first")
-      .divider()
-      .badge("tag")
-      .send();
+    await new PanelBuilder("h").markdown("first").divider().badge("tag").send();
     const comps = getComponents(calls);
     expect(comps).toHaveLength(3);
     expect((comps[0] as { type: string }).type).toBe("text");

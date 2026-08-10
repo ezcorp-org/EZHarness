@@ -15,7 +15,13 @@
  */
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { setupTestDb, getTestDb, getTestPglite, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  getTestDb,
+  getTestPglite,
+  closeTestDb,
+  mockDbConnection,
+} from "./helpers/test-pglite";
 
 mockDbConnection();
 
@@ -118,7 +124,10 @@ describe("schema-migrations: FK + UNIQUE invariants", () => {
       await pg.query(`DELETE FROM users WHERE id = $1`, ["u-sdk-restrict"]);
     } catch (e) {
       blocked = true;
-      const text = [String((e as { message?: string }).message ?? ""), String((e as { cause?: unknown }).cause ?? "")].join(" | ");
+      const text = [
+        String((e as { message?: string }).message ?? ""),
+        String((e as { cause?: unknown }).cause ?? ""),
+      ].join(" | ");
       expect(text).toMatch(/violates foreign key|restrict|still referenced/i);
     }
     expect(blocked).toBe(true);
@@ -153,7 +162,10 @@ describe("schema-migrations: FK + UNIQUE invariants", () => {
       );
     } catch (e) {
       failed = true;
-      const text = [String((e as { message?: string }).message ?? ""), String((e as { cause?: unknown }).cause ?? "")].join(" | ");
+      const text = [
+        String((e as { message?: string }).message ?? ""),
+        String((e as { cause?: unknown }).cause ?? ""),
+      ].join(" | ");
       expect(text).toMatch(/unique|duplicate/i);
     }
     expect(failed).toBe(true);
@@ -182,7 +194,10 @@ describe("schema-migrations: FK + UNIQUE invariants", () => {
       );
     } catch (e) {
       failed = true;
-      const text = [String((e as { message?: string }).message ?? ""), String((e as { cause?: unknown }).cause ?? "")].join(" | ");
+      const text = [
+        String((e as { message?: string }).message ?? ""),
+        String((e as { cause?: unknown }).cause ?? ""),
+      ].join(" | ");
       expect(text).toMatch(/unique|duplicate/i);
     }
     expect(failed).toBe(true);

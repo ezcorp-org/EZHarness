@@ -65,11 +65,15 @@ export function extensionToAgentTool(
       // — which carries no `cardType`, breaking specialized cards
       // like AskUserQuestionCard.
       const result = await toolExecutor.executeToolCall(
-        dispatchName, params as Record<string, unknown>, conversationId, messageId,
-        { metadata: { invocationId: toolCallId } }, callMetadata,
+        dispatchName,
+        params as Record<string, unknown>,
+        conversationId,
+        messageId,
+        { metadata: { invocationId: toolCallId } },
+        callMetadata,
       );
       return {
-        content: result.content.map(c => ({ type: "text" as const, text: c.text })),
+        content: result.content.map((c) => ({ type: "text" as const, text: c.text })),
         details: { isError: result.isError },
       };
     },

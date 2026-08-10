@@ -19,7 +19,9 @@ mockRealSettings();
 
 const { mintApiKeyForUser, deleteApiKeyForUser } = await import("../auth/mint-api-key");
 const { getAllSettings, getSetting } = await import("../db/queries/settings");
-const { hashApiKey, apiKeySettingsKey, apiKeySettingsPrefix, apiKeyHashIndexKey } = await import("../auth/api-key");
+const { hashApiKey, apiKeySettingsKey, apiKeySettingsPrefix, apiKeyHashIndexKey } = await import(
+  "../auth/api-key"
+);
 
 beforeAll(async () => {
   await setupTestDb();
@@ -69,7 +71,12 @@ describe("mintApiKeyForUser (real DB)", () => {
   });
 
   test("persists an explicit admin role when passed", async () => {
-    const { keyId } = await mintApiKeyForUser("u-admin-role", ["read", "admin"], "admin-key", "admin");
+    const { keyId } = await mintApiKeyForUser(
+      "u-admin-role",
+      ["read", "admin"],
+      "admin-key",
+      "admin",
+    );
     const all = await getAllSettings();
     const entry = all[apiKeySettingsKey("u-admin-role", keyId)] as { role: string };
     expect(entry.role).toBe("admin");

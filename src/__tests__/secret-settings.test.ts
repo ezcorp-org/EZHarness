@@ -15,12 +15,7 @@
  */
 
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
-import {
-  setupTestDb,
-  closeTestDb,
-  mockDbConnection,
-  getTestDb,
-} from "./helpers/test-pglite";
+import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 // Deterministic key material — mirrors storage-handler-coverage.test.ts.
 process.env.EZCORP_ENCRYPTION_SECRET ??= "0".repeat(64);
@@ -160,10 +155,7 @@ describe("secretFieldEntries", () => {
 
   test("returns only secret-typed entries with their keys", () => {
     expect(secretFieldEntries(schema)).toEqual([
-      [
-        "psa_api_token",
-        { type: "secret", label: "Token", storageKey: "psa-token" },
-      ],
+      ["psa_api_token", { type: "secret", label: "Token", storageKey: "psa-token" }],
     ]);
   });
 
@@ -192,9 +184,7 @@ describe("secret-settings storage round-trip (PGlite)", () => {
     // The raw persisted value must not contain the plaintext anywhere.
     expect(JSON.stringify(row!.value)).not.toContain(SECRET);
     // Size accounting matches the RPC path (plaintext serialized bytes).
-    expect(row!.sizeBytes).toBe(
-      Buffer.byteLength(JSON.stringify(SECRET), "utf-8"),
-    );
+    expect(row!.sizeBytes).toBe(Buffer.byteLength(JSON.stringify(SECRET), "utf-8"));
     // And it decrypts back to the exact plaintext.
     expect(JSON.parse(decrypt(row!.value as string))).toBe(SECRET);
   });
@@ -303,8 +293,6 @@ describe("secret-settings storage round-trip (PGlite)", () => {
     expect(hostRow!.encrypted).toBe(true);
     expect(rpcRow!.encrypted).toBe(true);
     expect(hostRow!.sizeBytes).toBe(rpcRow!.sizeBytes);
-    expect(decrypt(hostRow!.value as string)).toBe(
-      decrypt(rpcRow!.value as string),
-    );
+    expect(decrypt(hostRow!.value as string)).toBe(decrypt(rpcRow!.value as string));
   });
 });

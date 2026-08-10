@@ -33,11 +33,28 @@ mock.module("../providers/router", () => ({
   resolveModel: async () => ({
     provider: "anthropic",
     model: "test-model",
-    piModel: { id: "test-model", provider: "anthropic", api: "anthropic-messages", baseUrl: "", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 4096 },
+    piModel: {
+      id: "test-model",
+      provider: "anthropic",
+      api: "anthropic-messages",
+      baseUrl: "",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200000,
+      maxTokens: 4096,
+    },
   }),
   ProviderUnavailableError: class extends Error {
-    failedProvider: string; failedModel: string; suggestion: any;
-    constructor(msg: string, fp: string, fm: string, sug: any) { super(msg); this.failedProvider = fp; this.failedModel = fm; this.suggestion = sug; }
+    failedProvider: string;
+    failedModel: string;
+    suggestion: any;
+    constructor(msg: string, fp: string, fm: string, sug: any) {
+      super(msg);
+      this.failedProvider = fp;
+      this.failedModel = fm;
+      this.suggestion = sug;
+    }
   },
 }));
 
@@ -64,7 +81,10 @@ const MOCK_MODEL: Model<Api> = {
 };
 
 mock.module("@earendil-works/pi-ai/compat", () => ({
-  stream: () => ({ [Symbol.asyncIterator]: async function* () {}, result: async () => stubAssistantMessage() }),
+  stream: () => ({
+    [Symbol.asyncIterator]: async function* () {},
+    result: async () => stubAssistantMessage(),
+  }),
   complete: async () => stubAssistantMessage(),
   getModel: () => MOCK_MODEL,
   getModels: () => [],
@@ -77,8 +97,13 @@ mock.module("@earendil-works/pi-agent-core", () => ({
     state = { error: null };
     private _subs: any[] = [];
     private _tools: any[] = [];
-    constructor(opts: any) { this._tools = opts.initialState?.tools ?? []; }
-    subscribe(cb: any) { this._subs.push(cb); return () => {}; }
+    constructor(opts: any) {
+      this._tools = opts.initialState?.tools ?? [];
+    }
+    subscribe(cb: any) {
+      this._subs.push(cb);
+      return () => {};
+    }
     abort() {}
     async prompt() {
       if (this._tools.length === 0) return;
@@ -92,18 +117,37 @@ mock.module("@earendil-works/pi-agent-core", () => ({
         lastToolResult = { error: String(err) };
       }
       for (const sub of this._subs) {
-        sub({ type: "tool_execution_end", toolName: tool.name, result: lastToolResult, isError: false });
+        sub({
+          type: "tool_execution_end",
+          toolName: tool.name,
+          result: lastToolResult,
+          isError: false,
+        });
       }
       for (const sub of this._subs) {
         sub({
           type: "message_update",
-          assistantMessageEvent: { type: "text_delta", contentIndex: 0, delta: "done", partial: stubAssistantMessage("done") },
+          assistantMessageEvent: {
+            type: "text_delta",
+            contentIndex: 0,
+            delta: "done",
+            partial: stubAssistantMessage("done"),
+          },
         });
       }
       for (const sub of this._subs) {
         sub({
           type: "turn_end",
-          message: stubAssistantMessage("done", { usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } }),
+          message: stubAssistantMessage("done", {
+            usage: {
+              input: 1,
+              output: 1,
+              cacheRead: 0,
+              cacheWrite: 0,
+              totalTokens: 2,
+              cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+            },
+          }),
         });
       }
     }
@@ -144,11 +188,18 @@ beforeAll(async () => {
     version: "1.0.0",
     manifest: {
       schemaVersion: "2.0",
-      name: "e2e-echo", version: "1.0.0",
+      name: "e2e-echo",
+      version: "1.0.0",
       author: "e2e-test",
       description: "E2E test extension",
       entrypoint: "./entrypoint.ts",
-      tools: [{ name: "echo", description: "Echoes text back", inputSchema: { type: "object", properties: { text: { type: "string" } } } }],
+      tools: [
+        {
+          name: "echo",
+          description: "Echoes text back",
+          inputSchema: { type: "object", properties: { text: { type: "string" } } },
+        },
+      ],
       permissions: {},
     } as any,
     source: "local:/test",
@@ -192,8 +243,12 @@ describe("streamChat attachment-handle integration", () => {
   test("handle echoed by the LLM reaches the subprocess as a data URI", async () => {
     const conv = await createConversation(projectId, { title: "integration", userId: undefined });
     const written = await writeAttachment({
-      projectRoot, conversationId: conv.id, messageId: "will-assign",
-      filename: "cow.png", mimeType: "image/png", bytes: IMAGE_BYTES,
+      projectRoot,
+      conversationId: conv.id,
+      messageId: "will-assign",
+      filename: "cow.png",
+      mimeType: "image/png",
+      bytes: IMAGE_BYTES,
     });
     const staged: StagedAttachment = {
       id: "int-att-1",
@@ -222,8 +277,12 @@ describe("streamChat attachment-handle integration", () => {
   test("unknown handle passes through verbatim (tool sees the raw handle)", async () => {
     const conv = await createConversation(projectId, { title: "int-unknown", userId: undefined });
     const written = await writeAttachment({
-      projectRoot, conversationId: conv.id, messageId: "will-assign",
-      filename: "cow.png", mimeType: "image/png", bytes: IMAGE_BYTES,
+      projectRoot,
+      conversationId: conv.id,
+      messageId: "will-assign",
+      filename: "cow.png",
+      mimeType: "image/png",
+      bytes: IMAGE_BYTES,
     });
     const staged: StagedAttachment = {
       id: "int-att-known",

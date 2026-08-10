@@ -88,7 +88,12 @@ describe("redactExtensionSecrets (row-level, for read responses)", () => {
         kind: "mcp",
         name: "legacy",
         mcpServers: [
-          { transport: "sse", name: "legacy", url: "https://x/sse", headers: { Authorization: "Bearer LEAK" } },
+          {
+            transport: "sse",
+            name: "legacy",
+            url: "https://x/sse",
+            headers: { Authorization: "Bearer LEAK" },
+          },
         ],
         tools: [],
         permissions: {},
@@ -188,7 +193,11 @@ describe("installMcpExtension — stdio env", () => {
     });
     expect(secretRow).toBeUndefined();
 
-    const server: McpServerDefinition = { transport: "stdio", name: "mcp-sec-none", command: "node" };
+    const server: McpServerDefinition = {
+      transport: "stdio",
+      name: "mcp-sec-none",
+      command: "node",
+    };
     expect(await rehydrateMcpServerSecrets("mcp-sec-none", server)).toEqual(server);
   });
 });
@@ -248,7 +257,12 @@ describe("rehydrateMcpServerSecrets edge cases", () => {
   test("corrupt (non-JSON) store blob → server returned unchanged", async () => {
     const ext = await installMcpExtension({
       name: "mcp-sec-corrupt",
-      server: { transport: "http", name: "mcp-sec-corrupt", url: "https://x/mcp", headers: { Authorization: "Bearer X" } },
+      server: {
+        transport: "http",
+        name: "mcp-sec-corrupt",
+        url: "https://x/mcp",
+        headers: { Authorization: "Bearer X" },
+      },
       cachedTools: [],
     });
     // Overwrite the auth blob with a non-JSON string.

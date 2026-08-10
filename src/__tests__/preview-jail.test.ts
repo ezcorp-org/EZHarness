@@ -222,9 +222,15 @@ describe("buildPreviewJailBwrapArgs", () => {
   });
 
   test("rejects empty required inputs", () => {
-    expect(() => buildPreviewJailBwrapArgs({ workDir: "", projectRoot: ROOT, command: "bun" })).toThrow(/workDir/);
-    expect(() => buildPreviewJailBwrapArgs({ workDir: WORK, projectRoot: "", command: "bun" })).toThrow(/projectRoot/);
-    expect(() => buildPreviewJailBwrapArgs({ workDir: WORK, projectRoot: ROOT, command: "" })).toThrow(/command/);
+    expect(() =>
+      buildPreviewJailBwrapArgs({ workDir: "", projectRoot: ROOT, command: "bun" }),
+    ).toThrow(/workDir/);
+    expect(() =>
+      buildPreviewJailBwrapArgs({ workDir: WORK, projectRoot: "", command: "bun" }),
+    ).toThrow(/projectRoot/);
+    expect(() =>
+      buildPreviewJailBwrapArgs({ workDir: WORK, projectRoot: ROOT, command: "" }),
+    ).toThrow(/command/);
   });
 });
 
@@ -289,7 +295,15 @@ describe("buildMcpJailBwrapArgs", () => {
   test("terminates with -- then the inner prlimit chain; --seccomp passthrough", () => {
     const args = buildMcp({ seccompFd: 3 });
     const dd = args.indexOf("--");
-    expect(args.slice(dd)).toEqual(["--", "prlimit", "--rss=1", "--as=2", "/usr/bin/python3", "-m", "srv"]);
+    expect(args.slice(dd)).toEqual([
+      "--",
+      "prlimit",
+      "--rss=1",
+      "--as=2",
+      "/usr/bin/python3",
+      "-m",
+      "srv",
+    ]);
     expect(args[args.indexOf("--seccomp") + 1]).toBe("3");
   });
 

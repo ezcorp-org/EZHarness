@@ -2,10 +2,7 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import {
-  resolveFileMentions,
-  formatFileMentionSystemNotes,
-} from "../runtime/mention-wiring";
+import { resolveFileMentions, formatFileMentionSystemNotes } from "../runtime/mention-wiring";
 
 let projectRoot: string;
 
@@ -29,10 +26,7 @@ afterAll(async () => {
 
 describe("resolveFileMentions", () => {
   test("happy path: resolves a root-level file", async () => {
-    const result = await resolveFileMentions(
-      "read @[file:foo.ts] please",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("read @[file:foo.ts] please", projectRoot);
     expect(result).toHaveLength(1);
     expect(result[0]!.kind).toBe("file");
     expect(result[0]!.relPath).toBe("foo.ts");
@@ -41,10 +35,7 @@ describe("resolveFileMentions", () => {
   });
 
   test("resolves a subdirectory file", async () => {
-    const result = await resolveFileMentions(
-      "look at @[file:src/app.ts]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("look at @[file:src/app.ts]", projectRoot);
     expect(result).toHaveLength(1);
     expect(result[0]!.relPath).toBe("src/app.ts");
     expect(result[0]!.absPath).toBe(resolve(projectRoot, "src/app.ts"));
@@ -57,36 +48,24 @@ describe("resolveFileMentions", () => {
   });
 
   test("returns empty when only !-sigil mentions are present", async () => {
-    const result = await resolveFileMentions(
-      "![agent:Bot] ![ext:lint] ![team:Dev]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("![agent:Bot] ![ext:lint] ![team:Dev]", projectRoot);
     expect(result).toEqual([]);
   });
 
   test("missing file returns entry with exists=false (does not throw)", async () => {
-    const result = await resolveFileMentions(
-      "see @[file:ghost.ts]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("see @[file:ghost.ts]", projectRoot);
     expect(result).toHaveLength(1);
     expect(result[0]!.relPath).toBe("ghost.ts");
     expect(result[0]!.exists).toBe(false);
   });
 
   test("path traversal `../..` is rejected (skipped)", async () => {
-    const result = await resolveFileMentions(
-      "try @[file:../../etc/passwd]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("try @[file:../../etc/passwd]", projectRoot);
     expect(result).toEqual([]);
   });
 
   test("absolute paths are rejected", async () => {
-    const result = await resolveFileMentions(
-      "try @[file:/etc/passwd]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("try @[file:/etc/passwd]", projectRoot);
     expect(result).toEqual([]);
   });
 
@@ -110,10 +89,7 @@ describe("resolveFileMentions", () => {
   });
 
   test("resolves multiple distinct file mentions", async () => {
-    const result = await resolveFileMentions(
-      "@[file:foo.ts] and @[file:README.md]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("@[file:foo.ts] and @[file:README.md]", projectRoot);
     expect(result).toHaveLength(2);
     const paths = result.map((r) => r.relPath).sort();
     expect(paths).toEqual(["README.md", "foo.ts"]);
@@ -129,10 +105,7 @@ describe("resolveFileMentions", () => {
   });
 
   test("ignores legacy @[agent:…] tokens", async () => {
-    const result = await resolveFileMentions(
-      "@[agent:Old] hello @[file:foo.ts]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("@[agent:Old] hello @[file:foo.ts]", projectRoot);
     expect(result).toHaveLength(1);
     expect(result[0]!.relPath).toBe("foo.ts");
   });
@@ -147,10 +120,7 @@ describe("resolveFileMentions", () => {
 
 describe("resolveFileMentions — @[dir:…] support", () => {
   test("resolves an existing directory with kind='dir'", async () => {
-    const result = await resolveFileMentions(
-      "store output in @[dir:src] please",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("store output in @[dir:src] please", projectRoot);
     expect(result).toHaveLength(1);
     expect(result[0]!.kind).toBe("dir");
     expect(result[0]!.relPath).toBe("src");
@@ -159,10 +129,7 @@ describe("resolveFileMentions — @[dir:…] support", () => {
   });
 
   test("missing directory returns exists=false (not thrown)", async () => {
-    const result = await resolveFileMentions(
-      "@[dir:does-not-exist]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("@[dir:does-not-exist]", projectRoot);
     expect(result).toHaveLength(1);
     expect(result[0]!.kind).toBe("dir");
     expect(result[0]!.exists).toBe(false);
@@ -170,10 +137,7 @@ describe("resolveFileMentions — @[dir:…] support", () => {
 
   test("@[dir:src] against a file-not-dir path reports exists=false", async () => {
     // `foo.ts` exists as a file, not a directory — the dir assertion should fail.
-    const result = await resolveFileMentions(
-      "@[dir:foo.ts]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("@[dir:foo.ts]", projectRoot);
     expect(result).toHaveLength(1);
     expect(result[0]!.kind).toBe("dir");
     expect(result[0]!.exists).toBe(false);
@@ -181,20 +145,14 @@ describe("resolveFileMentions — @[dir:…] support", () => {
 
   test("@[file:src] against a directory reports exists=false (kind mismatch)", async () => {
     // Mirror of above: file token pointing at a directory — should not pass.
-    const result = await resolveFileMentions(
-      "@[file:src]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("@[file:src]", projectRoot);
     expect(result).toHaveLength(1);
     expect(result[0]!.kind).toBe("file");
     expect(result[0]!.exists).toBe(false);
   });
 
   test("trailing slash on a dir path is stripped before validation", async () => {
-    const result = await resolveFileMentions(
-      "@[dir:src/]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("@[dir:src/]", projectRoot);
     expect(result).toHaveLength(1);
     expect(result[0]!.relPath).toBe("src");
     expect(result[0]!.exists).toBe(true);
@@ -214,18 +172,12 @@ describe("resolveFileMentions — @[dir:…] support", () => {
   });
 
   test("absolute dir path is rejected", async () => {
-    const result = await resolveFileMentions(
-      "@[dir:/etc]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("@[dir:/etc]", projectRoot);
     expect(result).toEqual([]);
   });
 
   test("path traversal on dir is rejected", async () => {
-    const result = await resolveFileMentions(
-      "@[dir:../../etc]",
-      projectRoot,
-    );
+    const result = await resolveFileMentions("@[dir:../../etc]", projectRoot);
     expect(result).toEqual([]);
   });
 

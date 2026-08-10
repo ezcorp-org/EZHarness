@@ -35,9 +35,11 @@ function extractObject(output: unknown): Record<string, unknown> | null {
     const content = obj.content;
     if (Array.isArray(content)) {
       const text = content
-        .map((c) => (c && typeof c === "object" && typeof (c as { text?: unknown }).text === "string"
-          ? (c as { text: string }).text
-          : ""))
+        .map((c) =>
+          c && typeof c === "object" && typeof (c as { text?: unknown }).text === "string"
+            ? (c as { text: string }).text
+            : "",
+        )
         .join("");
       if (text) return extractObject(text);
       return obj;
@@ -63,12 +65,12 @@ export function parseConsentCardResult(output: unknown): PreviewConsentCardData 
   const conversationId = typeof obj.conversationId === "string" ? obj.conversationId : "";
   const port = typeof obj.port === "number" ? obj.port : NaN;
   if (!conversationId || !Number.isInteger(port) || port <= 0) return null;
-  const title = typeof obj.title === "string" && obj.title
-    ? obj.title
-    : `A site started on port ${port}`;
-  const summary = typeof obj.summary === "string" && obj.summary
-    ? obj.summary
-    : "Expose it to your browser? Nothing is served until you choose.";
+  const title =
+    typeof obj.title === "string" && obj.title ? obj.title : `A site started on port ${port}`;
+  const summary =
+    typeof obj.summary === "string" && obj.summary
+      ? obj.summary
+      : "Expose it to your browser? Nothing is served until you choose.";
   return { conversationId, port, title, summary };
 }
 
@@ -90,7 +92,12 @@ export function buildConsentRequest(
  * call time (the card passes window.location.host). Returns the
  * `/__open?c=<code>` handoff URL the browser opens to set the cookie.
  */
-export function buildOpenUrl(subdomainLabel: string, code: string, appHost: string, protocol = "https:"): string {
+export function buildOpenUrl(
+  subdomainLabel: string,
+  code: string,
+  appHost: string,
+  protocol = "https:",
+): string {
   // Reuse the app's host suffix: <label>.preview.<host-without-port>.
   // appHost may include a port (dev). Strip the app's own port and host
   // prefix down to the registrable suffix used for *.preview.<host>.

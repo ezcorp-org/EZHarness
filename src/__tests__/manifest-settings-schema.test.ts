@@ -8,15 +8,9 @@ import {
   SECRET_SETTING_MAX_LENGTH,
   validateManifestV2,
 } from "../extensions/manifest";
-import type {
-  ExtensionManifestV2,
-  SettingsField,
-  SettingsSchema,
-} from "../extensions/types";
+import type { ExtensionManifestV2, SettingsField, SettingsSchema } from "../extensions/types";
 
-function makeManifest(
-  extra: Partial<ExtensionManifestV2> = {},
-): ExtensionManifestV2 {
+function makeManifest(extra: Partial<ExtensionManifestV2> = {}): ExtensionManifestV2 {
   return {
     schemaVersion: 2,
     name: "ext-name",
@@ -142,25 +136,19 @@ describe("validateSettingsSchema — accepts each field type", () => {
 
 describe("validateSettingsSchema — top-level shape", () => {
   test("rejects settings as null", () => {
-    const r = validateManifestV2(
-      makeManifest({ settings: null as unknown as SettingsSchema }),
-    );
+    const r = validateManifestV2(makeManifest({ settings: null as unknown as SettingsSchema }));
     expect(r.valid).toBe(false);
     expect(r.errors).toContain("settings must be a plain object");
   });
 
   test("rejects settings as array", () => {
-    const r = validateManifestV2(
-      makeManifest({ settings: [] as unknown as SettingsSchema }),
-    );
+    const r = validateManifestV2(makeManifest({ settings: [] as unknown as SettingsSchema }));
     expect(r.valid).toBe(false);
     expect(r.errors).toContain("settings must be a plain object");
   });
 
   test("rejects settings as a primitive", () => {
-    const r = validateManifestV2(
-      makeManifest({ settings: 7 as unknown as SettingsSchema }),
-    );
+    const r = validateManifestV2(makeManifest({ settings: 7 as unknown as SettingsSchema }));
     expect(r.valid).toBe(false);
     expect(r.errors).toContain("settings must be a plain object");
   });
@@ -177,13 +165,9 @@ describe("validateSettingsSchema — bad keys", () => {
     ["", "empty"],
   ])("rejects key %p (%s)", (key) => {
     const settings = { [key]: { type: "boolean", label: "X" } as SettingsField };
-    const r = validateManifestV2(
-      makeManifest({ settings: settings as SettingsSchema }),
-    );
+    const r = validateManifestV2(makeManifest({ settings: settings as SettingsSchema }));
     expect(r.valid).toBe(false);
-    expect(
-      r.errors.some((e) => e.includes(`settings key "${key}"`)),
-    ).toBe(true);
+    expect(r.errors.some((e) => e.includes(`settings key "${key}"`))).toBe(true);
   });
 });
 
@@ -246,9 +230,7 @@ describe("validateSettingsSchema — field-level type/label", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(
-      r.errors.some((e) => e.includes("settings.v.label is required")),
-    ).toBe(true);
+    expect(r.errors.some((e) => e.includes("settings.v.label is required"))).toBe(true);
   });
 
   test("rejects empty label", () => {
@@ -260,9 +242,7 @@ describe("validateSettingsSchema — field-level type/label", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(
-      r.errors.some((e) => e.includes("settings.v.label is required")),
-    ).toBe(true);
+    expect(r.errors.some((e) => e.includes("settings.v.label is required"))).toBe(true);
   });
 
   test("rejects non-string description", () => {
@@ -323,9 +303,7 @@ describe("validateSettingsSchema — select", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(
-      r.errors.some((e) => e.includes('"x" is duplicated')),
-    ).toBe(true);
+    expect(r.errors.some((e) => e.includes('"x" is duplicated'))).toBe(true);
   });
 
   test("rejects default not in options", () => {
@@ -343,9 +321,7 @@ describe("validateSettingsSchema — select", () => {
     );
     expect(r.valid).toBe(false);
     expect(
-      r.errors.some((e) =>
-        e.includes('settings.v.default "z" must be one of the option values'),
-      ),
+      r.errors.some((e) => e.includes('settings.v.default "z" must be one of the option values')),
     ).toBe(true);
   });
 
@@ -426,9 +402,7 @@ describe("validateSettingsSchema — text", () => {
     );
     expect(r.valid).toBe(false);
     expect(
-      r.errors.some(
-        (e) => e.includes("settings.v.pattern") && e.toLowerCase().includes("regex"),
-      ),
+      r.errors.some((e) => e.includes("settings.v.pattern") && e.toLowerCase().includes("regex")),
     ).toBe(true);
   });
 
@@ -465,9 +439,7 @@ describe("validateSettingsSchema — text", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(r.errors).toContain(
-      "settings.v.minLength must be a non-negative integer",
-    );
+    expect(r.errors).toContain("settings.v.minLength must be a non-negative integer");
   });
 
   test("rejects non-integer maxLength", () => {
@@ -479,9 +451,7 @@ describe("validateSettingsSchema — text", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(r.errors).toContain(
-      "settings.v.maxLength must be a non-negative integer",
-    );
+    expect(r.errors).toContain("settings.v.maxLength must be a non-negative integer");
   });
 
   test("rejects default failing pattern", () => {
@@ -560,9 +530,7 @@ describe("validateSettingsSchema — number", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(r.errors).toContain(
-      "settings.v.default must be an integer when integer is true",
-    );
+    expect(r.errors).toContain("settings.v.default must be an integer when integer is true");
   });
 
   test("rejects default < min", () => {
@@ -681,9 +649,7 @@ describe("validateSettingsSchema — secret", () => {
     );
     expect(r.valid).toBe(false);
     expect(
-      r.errors.some((e) =>
-        e.includes("settings.tok.storageKey is required on secret fields"),
-      ),
+      r.errors.some((e) => e.includes("settings.tok.storageKey is required on secret fields")),
     ).toBe(true);
   });
 
@@ -710,9 +676,7 @@ describe("validateSettingsSchema — secret", () => {
     );
     expect(r.valid).toBe(false);
     expect(
-      r.errors.some((e) =>
-        e.includes("settings.tok.storageKey is required on secret fields"),
-      ),
+      r.errors.some((e) => e.includes("settings.tok.storageKey is required on secret fields")),
     ).toBe(true);
   });
 
@@ -730,9 +694,7 @@ describe("validateSettingsSchema — secret", () => {
     );
     expect(r.valid).toBe(false);
     expect(
-      r.errors.some((e) =>
-        e.includes("settings.tok.storageKey is required on secret fields"),
-      ),
+      r.errors.some((e) => e.includes("settings.tok.storageKey is required on secret fields")),
     ).toBe(true);
   });
 
@@ -750,19 +712,14 @@ describe("validateSettingsSchema — secret", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(r.errors).toContain(
-      "settings.tok.default is not allowed on secret fields",
-    );
+    expect(r.errors).toContain("settings.tok.default is not allowed on secret fields");
   });
 
   test.each([
     ["text", { type: "text", label: "T" }],
     ["number", { type: "number", label: "N" }],
     ["boolean", { type: "boolean", label: "B" }],
-    [
-      "select",
-      { type: "select", label: "S", options: [{ value: "a", label: "A" }] },
-    ],
+    ["select", { type: "select", label: "S", options: [{ value: "a", label: "A" }] }],
   ])("rejects storageKey on %s fields", (_kind, base) => {
     const r = validateManifestV2(
       makeManifest({
@@ -772,9 +729,7 @@ describe("validateSettingsSchema — secret", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(r.errors).toContain(
-      "settings.v.storageKey is only allowed on secret fields",
-    );
+    expect(r.errors).toContain("settings.v.storageKey is only allowed on secret fields");
   });
 
   test("secret still requires a label", () => {
@@ -786,9 +741,7 @@ describe("validateSettingsSchema — secret", () => {
       }),
     );
     expect(r.valid).toBe(false);
-    expect(
-      r.errors.some((e) => e.includes("settings.tok.label is required")),
-    ).toBe(true);
+    expect(r.errors.some((e) => e.includes("settings.tok.label is required"))).toBe(true);
   });
 
   test("unknown-type error message lists secret", () => {
@@ -802,9 +755,7 @@ describe("validateSettingsSchema — secret", () => {
     expect(r.valid).toBe(false);
     expect(
       r.errors.some((e) =>
-        e.includes(
-          'settings.v.type must be one of "select"|"text"|"number"|"boolean"|"secret"',
-        ),
+        e.includes('settings.v.type must be one of "select"|"text"|"number"|"boolean"|"secret"'),
       ),
     ).toBe(true);
   });
@@ -822,9 +773,7 @@ describe("isValidForField — secret", () => {
   });
 
   test("accepts a string of exactly the max length", () => {
-    expect(isValidForField(field, "x".repeat(SECRET_SETTING_MAX_LENGTH))).toBe(
-      true,
-    );
+    expect(isValidForField(field, "x".repeat(SECRET_SETTING_MAX_LENGTH))).toBe(true);
   });
 
   test("rejects the empty string", () => {
@@ -832,9 +781,7 @@ describe("isValidForField — secret", () => {
   });
 
   test("rejects a string over the max length", () => {
-    expect(
-      isValidForField(field, "x".repeat(SECRET_SETTING_MAX_LENGTH + 1)),
-    ).toBe(false);
+    expect(isValidForField(field, "x".repeat(SECRET_SETTING_MAX_LENGTH + 1))).toBe(false);
   });
 
   test.each([

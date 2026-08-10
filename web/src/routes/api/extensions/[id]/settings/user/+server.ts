@@ -94,10 +94,7 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
       continue;
     }
     if (!isValidForField(field, raw)) {
-      return errorJson(
-        400,
-        `values.${key} must be a non-empty string of at most 512 characters`,
-      );
+      return errorJson(400, `values.${key} must be a non-empty string of at most 512 characters`);
     }
     secretOps.push({ key, storageKey: field.storageKey, action: "set", value: raw });
   }
@@ -135,7 +132,9 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
       secretsSet: secretOps.filter((o) => o.action === "set").map((o) => o.key),
       secretsCleared: secretOps.filter((o) => o.action === "clear").map((o) => o.key),
     });
-  } catch { /* swallow */ }
+  } catch {
+    /* swallow */
+  }
 
   // `secrets` mirrors the GET payload (post-apply existence probes) so the
   // client can refresh its Set/Not-set affordances without a second fetch.
@@ -175,7 +174,9 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
       reason: "user-reset",
       before,
     });
-  } catch { /* swallow */ }
+  } catch {
+    /* swallow */
+  }
 
   return json({ ok: true });
 };

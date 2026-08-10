@@ -102,7 +102,10 @@ export function buildLabelsById(entries: SessionTreeEntry[]): Map<string, string
  *  calls), retried on collision, with a full uuidv7 as the
  *  after-100-tries fallback. `gen` is a testability seam only — the
  *  default is pi's exact `uuidv7`, so behaviour is identical. */
-export function generateEntryId(byId: Map<string, SessionTreeEntry>, gen: () => string = uuidv7): string {
+export function generateEntryId(
+  byId: Map<string, SessionTreeEntry>,
+  gen: () => string = uuidv7,
+): string {
   for (let i = 0; i < 100; i++) {
     const id = gen().slice(-8);
     if (!byId.has(id)) return id;
@@ -118,6 +121,7 @@ export function entryToRow(
   entry: SessionTreeEntry,
   ezMessageId: string | null = null,
 ): NewAgentSessionEntryRow {
+  // biome-ignore format: kept on one line because bun's coverage emitter puts a zero-hit DA record on the continuation line of a split `as` TYPE, which no test can ever reach — splitting this drops the file below its 100% threshold for a purely cosmetic reason.
   const { type, id, parentId, timestamp, ...payload } = entry as SessionTreeEntry & Record<string, unknown>;
   return {
     sessionId,
@@ -207,7 +211,10 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
   ) {}
 
   /** Insert a fresh `agent_sessions` row and return empty storage over it. */
-  static async create(options: DbSessionCreateOptions = {}, db: Db = getDb()): Promise<DbSessionStorage> {
+  static async create(
+    options: DbSessionCreateOptions = {},
+    db: Db = getDb(),
+  ): Promise<DbSessionStorage> {
     const row: AgentSessionRow = {
       id: options.id ?? crypto.randomUUID(),
       conversationId: options.conversationId ?? null,
@@ -317,7 +324,12 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
     await this.db
       .update(agentSessionEntries)
       .set({ parentId: newParentId })
-      .where(and(eq(agentSessionEntries.sessionId, this.sessionRow.id), eq(agentSessionEntries.entryId, entryId)));
+      .where(
+        and(
+          eq(agentSessionEntries.sessionId, this.sessionRow.id),
+          eq(agentSessionEntries.entryId, entryId),
+        ),
+      );
   }
 
   async findEntries<TType extends SessionTreeEntry["type"]>(
@@ -350,7 +362,13 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
    *  over the INSERTION axis (every entry, not just the active branch — pi
    *  counts what the session cost, including abandoned tails). */
   async getSessionStats(): Promise<SessionStats> {
-    const stats: SessionStats = { messageCount: 0, cachedTokens: 0, uncachedTokens: 0, totalTokens: 0, costTotal: 0 };
+    const stats: SessionStats = {
+      messageCount: 0,
+      cachedTokens: 0,
+      uncachedTokens: 0,
+      totalTokens: 0,
+      costTotal: 0,
+    };
     for (const entry of this.entries) {
       if (entry.type === "message") stats.messageCount += 1;
       const usage = completeUsage(entryUsage(entry));
@@ -426,7 +444,9 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
    *  duplicate rejects here BEFORE any in-memory mutation) then mirror it
    *  into the in-memory maps in append order. */
   private async persist(entry: SessionTreeEntry, ezMessageId: string | null = null): Promise<void> {
-    await this.db.insert(agentSessionEntries).values(entryToRow(this.sessionRow.id, entry, ezMessageId));
+    await this.db
+      .insert(agentSessionEntries)
+      .values(entryToRow(this.sessionRow.id, entry, ezMessageId));
     this.entries.push(entry);
     this.byId.set(entry.id, entry);
   }
@@ -435,6 +455,9 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
    *  leaf is always re-derivable by replaying entries on open; this is a
    *  convenience for future readers that don't want to load the tree. */
   private async writeLeafCache(): Promise<void> {
-    await this.db.update(agentSessions).set({ leafEntryId: this.currentLeafId }).where(eq(agentSessions.id, this.sessionRow.id));
+    await this.db
+      .update(agentSessions)
+      .set({ leafEntryId: this.currentLeafId })
+      .where(eq(agentSessions.id, this.sessionRow.id));
   }
 }

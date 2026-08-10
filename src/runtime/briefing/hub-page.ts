@@ -26,11 +26,7 @@ import {
 } from "../../db/queries/briefing-configs";
 import { listRecentConversationsForUser } from "../../db/queries/conversations";
 import { getBriefingAgentConfigId } from "./agent-config";
-import {
-  registerHubPageProvider,
-  HubPageActionError,
-  type HubPageProvider,
-} from "../hub-pages";
+import { registerHubPageProvider, HubPageActionError, type HubPageProvider } from "../hub-pages";
 import type { HubPageTree, PageNode } from "../../extensions/page-schema";
 import { addWatchlistTopic, removeWatchlistTopic } from "./watchlist";
 
@@ -44,7 +40,9 @@ const WATCHLIST_TOPIC_MAX_LENGTH = 120;
 
 export interface BriefingHubPageDeps {
   /** Shared run-now trigger (web layer owns the rate bucket). */
-  triggerRunNow: (userId: string) => Promise<
+  triggerRunNow: (
+    userId: string,
+  ) => Promise<
     | { ok: true }
     | { ok: false; reason: "unavailable" }
     | { ok: false; reason: "rate-limited"; retryAfter?: number }
@@ -115,9 +113,7 @@ async function renderBriefingPage(userId: string): Promise<HubPageTree> {
         { key: "Schedule", value: config.cron },
         { key: "Timezone", value: config.timezone },
         ...(config.model ? [{ key: "Model", value: config.model }] : []),
-        ...(config.instructions
-          ? [{ key: "Instructions", value: config.instructions }]
-          : []),
+        ...(config.instructions ? [{ key: "Instructions", value: config.instructions }] : []),
       ],
     },
     {
@@ -212,9 +208,7 @@ async function renderBriefingPage(userId: string): Promise<HubPageTree> {
  * the run-now trigger can be injected from the web layer and tests can
  * substitute a stub.
  */
-export function createBriefingHubPageProvider(
-  deps: BriefingHubPageDeps,
-): HubPageProvider {
+export function createBriefingHubPageProvider(deps: BriefingHubPageDeps): HubPageProvider {
   return {
     id: BRIEFING_HUB_PAGE_ID,
     title: "Daily Briefing",

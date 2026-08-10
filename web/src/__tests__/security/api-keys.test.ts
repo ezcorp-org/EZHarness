@@ -1,5 +1,11 @@
 import { test, expect, mock, beforeEach } from "bun:test";
-import { generateApiKey, hashApiKey, verifyApiKey, requireScope, requireAdmin } from "../../lib/server/security/api-keys";
+import {
+  generateApiKey,
+  hashApiKey,
+  verifyApiKey,
+  requireScope,
+  requireAdmin,
+} from "../../lib/server/security/api-keys";
 import { apiKeyHashIndexKey, apiKeySettingsKey } from "../../../../src/auth/api-key";
 
 // Mock settings queries
@@ -69,7 +75,12 @@ test("verifyApiKey surfaces a stored admin role (fast path)", async () => {
   const { raw, hash, keyId } = generateApiKey();
   const userId = "user-admin-role";
   mockSettings[apiKeySettingsKey(userId, keyId)] = {
-    hash, userId, scopes: ["read", "admin"], role: "admin", name: "Admin Key", createdAt: 1,
+    hash,
+    userId,
+    scopes: ["read", "admin"],
+    role: "admin",
+    name: "Admin Key",
+    createdAt: 1,
   };
   mockSettings[apiKeyHashIndexKey(hash)] = { userId, keyId };
 
@@ -82,7 +93,11 @@ test("verifyApiKey defaults a role-less legacy row to member (slow path)", async
   const userId = "user-no-role";
   // Legacy row: no `role`, no index pointer → slow path + default.
   mockSettings[apiKeySettingsKey(userId, keyId)] = {
-    hash, userId, scopes: ["read"], name: "Legacy", createdAt: 1,
+    hash,
+    userId,
+    scopes: ["read"],
+    name: "Legacy",
+    createdAt: 1,
   };
 
   const result = await verifyApiKey(raw);
@@ -143,7 +158,11 @@ test("verifyApiKey takes the O(1) fast path via the hash index (no full scan)", 
   const { raw, hash, keyId } = generateApiKey();
   const userId = "user-fast";
   mockSettings[apiKeySettingsKey(userId, keyId)] = {
-    hash, userId, scopes: ["read"], name: "Fast", createdAt: 1,
+    hash,
+    userId,
+    scopes: ["read"],
+    name: "Fast",
+    createdAt: 1,
   };
   // Index pointer written at mint time → verify resolves WITHOUT scanning.
   mockSettings[apiKeyHashIndexKey(hash)] = { userId, keyId };
@@ -161,7 +180,11 @@ test("verifyApiKey falls back to legacy scan AND lazily writes the index", async
   const userId = "user-legacy";
   // Legacy key: per-user row exists but NO hash-index pointer.
   mockSettings[apiKeySettingsKey(userId, keyId)] = {
-    hash, userId, scopes: ["chat"], name: "Legacy", createdAt: 1,
+    hash,
+    userId,
+    scopes: ["chat"],
+    name: "Legacy",
+    createdAt: 1,
   };
 
   const first = await verifyApiKey(raw);
@@ -199,7 +222,11 @@ test("verifyApiKey rejects a key whose index pointer row has a mismatched hash",
   const userId = "user-mismatch";
   const keyId = "kid-mismatch";
   mockSettings[apiKeySettingsKey(userId, keyId)] = {
-    hash: other.hash, userId, scopes: ["read"], name: "X", createdAt: 1,
+    hash: other.hash,
+    userId,
+    scopes: ["read"],
+    name: "X",
+    createdAt: 1,
   };
   mockSettings[apiKeyHashIndexKey(hash)] = { userId, keyId };
 

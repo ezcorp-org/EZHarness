@@ -120,9 +120,32 @@ export function maxExampleCosine(
 /** Function words that carry no tool-intent signal. Kept deliberately small
  *  and English-only — a miss just means slightly noisier lexical scores. */
 const STOP_WORDS = new Set([
-  "the", "and", "for", "with", "that", "this", "from", "into", "onto",
-  "are", "was", "were", "will", "can", "could", "should", "would",
-  "about", "please", "you", "your", "our", "their", "its", "get", "use",
+  "the",
+  "and",
+  "for",
+  "with",
+  "that",
+  "this",
+  "from",
+  "into",
+  "onto",
+  "are",
+  "was",
+  "were",
+  "will",
+  "can",
+  "could",
+  "should",
+  "would",
+  "about",
+  "please",
+  "you",
+  "your",
+  "our",
+  "their",
+  "its",
+  "get",
+  "use",
 ]);
 
 /** Lowercased alphanumeric content tokens (length ≥ 3, stop-words dropped). */

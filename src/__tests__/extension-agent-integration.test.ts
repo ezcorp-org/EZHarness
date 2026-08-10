@@ -1,6 +1,10 @@
 import { test, expect, describe, mock } from "bun:test";
 import type { AssistantMessageEvent, Tool, AgentContext } from "../types";
-import { ToolExecutor, MAX_TOOL_CALLS_PER_TURN, PermissionDeniedError } from "../extensions/tool-executor";
+import {
+  ToolExecutor,
+  MAX_TOOL_CALLS_PER_TURN,
+  PermissionDeniedError,
+} from "../extensions/tool-executor";
 import type { ExtensionRegistry } from "../extensions/registry";
 import type { ToolCallResult } from "../extensions/types";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
@@ -14,7 +18,14 @@ function stubAssistantMessage(overrides: Record<string, unknown> = {}) {
     api: "anthropic-messages",
     provider: "anthropic",
     model: "test",
-    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
     stopReason: "stop",
     timestamp: Date.now(),
     ...overrides,
@@ -108,10 +119,12 @@ describe("pi-ai tool-use types", () => {
 // ── ToolExecutor ─────────────────────────────────────────────────────
 
 function createMockRegistry(): ExtensionRegistry {
-  const mockCallTool = mock(async (_toolName: string, _args: Record<string, unknown>): Promise<ToolCallResult> => ({
-    content: [{ type: "text", text: "file contents here" }],
-    isError: false,
-  }));
+  const mockCallTool = mock(
+    async (_toolName: string, _args: Record<string, unknown>): Promise<ToolCallResult> => ({
+      content: [{ type: "text", text: "file contents here" }],
+      isError: false,
+    }),
+  );
 
   const mockProcess = {
     callTool: mockCallTool,
@@ -120,13 +133,26 @@ function createMockRegistry(): ExtensionRegistry {
   };
 
   return {
-    getToolExtension: (name: string) => name === "read_file" ? "ext-123" : null,
-    getRegisteredTool: (name: string) => name === "read_file" ? { name: "read_file", originalName: "read_file", extensionId: "ext-123", description: "Read file", inputSchema: {} } : null,
-    getToolsForAgent: async () => [{ name: "read_file", description: "Read file", inputSchema: {} }],
+    getToolExtension: (name: string) => (name === "read_file" ? "ext-123" : null),
+    getRegisteredTool: (name: string) =>
+      name === "read_file"
+        ? {
+            name: "read_file",
+            originalName: "read_file",
+            extensionId: "ext-123",
+            description: "Read file",
+            inputSchema: {},
+          }
+        : null,
+    getToolsForAgent: async () => [
+      { name: "read_file", description: "Read file", inputSchema: {} },
+    ],
     // Non-mcp manifest so executeToolCall takes the subprocess path.
     getManifest: () => ({ kind: "local" as const }),
     getProcess: () => mockProcess as any,
-    getMcpClient: () => { throw new Error("not an mcp ext"); },
+    getMcpClient: () => {
+      throw new Error("not an mcp ext");
+    },
     getAllTools: () => [],
     loadFromDb: async () => {},
     reload: async () => {},
@@ -139,7 +165,12 @@ describe("ToolExecutor", () => {
     const registry = createMockRegistry();
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
 
-    const result = await executor.executeToolCall("read_file", { path: "/test" }, "conv-1", "msg-1");
+    const result = await executor.executeToolCall(
+      "read_file",
+      { path: "/test" },
+      "conv-1",
+      "msg-1",
+    );
 
     expect(result.isError).toBe(false);
     expect(result.content[0]!.text).toBe("file contents here");
@@ -175,9 +206,9 @@ describe("ToolExecutor", () => {
 
     // Flip the stub to deny-all → next call rejects
     engine.setMode("deny-all");
-    expect(
-      executor.executeToolCall("read_file", {}, "conv-1", "msg-1"),
-    ).rejects.toThrow(PermissionDeniedError);
+    expect(executor.executeToolCall("read_file", {}, "conv-1", "msg-1")).rejects.toThrow(
+      PermissionDeniedError,
+    );
   });
 
   test("createToolsContext returns invoke function", async () => {

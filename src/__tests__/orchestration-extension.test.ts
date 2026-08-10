@@ -62,11 +62,13 @@ class FakeAgentConfigs {
 
 type SpawnCall = { input: SpawnAssignmentInput };
 
-function makeFakeSpawn(opts: {
-  mode?: "happy" | "throw-dispatch";
-  throwMessage?: string;
-  assignmentIdPrefix?: string;
-} = {}) {
+function makeFakeSpawn(
+  opts: {
+    mode?: "happy" | "throw-dispatch";
+    throwMessage?: string;
+    assignmentIdPrefix?: string;
+  } = {},
+) {
   const calls: SpawnCall[] = [];
   const mode = opts.mode ?? "happy";
   let counter = 0;
@@ -100,7 +102,9 @@ function expectIsError(out: unknown): boolean {
   return o.isError === true;
 }
 
-function expectAgentMeta(out: unknown): { subConversationId: string; agentName: string; agentConfigId: string } | undefined {
+function expectAgentMeta(
+  out: unknown,
+): { subConversationId: string; agentName: string; agentConfigId: string } | undefined {
   const o = out as { details?: { _agentMeta?: unknown } };
   return o.details?._agentMeta as
     | { subConversationId: string; agentName: string; agentConfigId: string }
@@ -155,7 +159,10 @@ describe("orchestration extension — invoke_agent happy path", () => {
     const { fn, calls } = makeFakeSpawn();
     _setSpawnForTests(fn);
 
-    const invocation = tools.invoke_agent!({ agentConfigId: "agent-builder", task: "Build a thing" });
+    const invocation = tools.invoke_agent!({
+      agentConfigId: "agent-builder",
+      task: "Build a thing",
+    });
 
     // Drive the subscription handler directly with a synthetic event.
     // Poll briefly because the handler awaits `spawn` before registering.
@@ -890,10 +897,12 @@ describe("orchestration extension — reap child on give-up", () => {
   test("cancelRun resolving { cancelled: false } notes the reason in the error", async () => {
     _setDefaultTimeoutMsForTests(20);
     _setSpawnForTests(makeFakeSpawn().fn);
-    _setCancelRunForTests(async (): Promise<CancelRunResult> => ({
-      cancelled: false,
-      reason: "missing-run",
-    }));
+    _setCancelRunForTests(
+      async (): Promise<CancelRunResult> => ({
+        cancelled: false,
+        reason: "missing-run",
+      }),
+    );
 
     const out = await tools.invoke_agent!({ agentConfigId: "agent-builder", task: "x" });
     expect(expectIsError(out)).toBe(true);
@@ -1192,12 +1201,14 @@ function expectAgentMetaBg(out: unknown): {
   agentConfigId: string;
   assignmentId: string;
 } {
-  const meta = expectAgentMeta(out) as {
-    subConversationId: string;
-    agentName: string;
-    agentConfigId: string;
-    assignmentId: string;
-  } | undefined;
+  const meta = expectAgentMeta(out) as
+    | {
+        subConversationId: string;
+        agentName: string;
+        agentConfigId: string;
+        assignmentId: string;
+      }
+    | undefined;
   if (!meta) throw new Error("tool-result has no _agentMeta");
   return meta;
 }
@@ -1320,9 +1331,7 @@ function collect(
 ) {
   return tools.collect_agent_result!(
     { assignmentId, ...(waitSeconds !== undefined ? { waitSeconds } : {}) },
-    conversationId === null
-      ? undefined
-      : { invocationMetadata: { conversationId } },
+    conversationId === null ? undefined : { invocationMetadata: { conversationId } },
   );
 }
 
@@ -1335,9 +1344,7 @@ function send(
 ) {
   return tools.send_to_agent!(
     args,
-    conversationId === null
-      ? undefined
-      : { invocationMetadata: { conversationId, ...extraMeta } },
+    conversationId === null ? undefined : { invocationMetadata: { conversationId, ...extraMeta } },
   );
 }
 
@@ -1877,7 +1884,12 @@ describe("orchestration extension — backgroundSpawns bounding", () => {
     for (let i = 0; i < MAX; i++) {
       const asn = `bg-${i}`;
       _internals.registerBackgroundSpawn(
-        { assignmentId: asn, subConversationId: `sub-${asn}`, agentRunId: `run-${asn}`, taskId: `task-${asn}` },
+        {
+          assignmentId: asn,
+          subConversationId: `sub-${asn}`,
+          agentRunId: `run-${asn}`,
+          taskId: `task-${asn}`,
+        },
         "builder",
         "agent-builder",
       );
@@ -1892,7 +1904,12 @@ describe("orchestration extension — backgroundSpawns bounding", () => {
 
     // One more → oldest terminal (bg-0) evicted; size holds at MAX.
     _internals.registerBackgroundSpawn(
-      { assignmentId: "bg-new", subConversationId: "sub-new", agentRunId: "run-new", taskId: "task-new" },
+      {
+        assignmentId: "bg-new",
+        subConversationId: "sub-new",
+        agentRunId: "run-new",
+        taskId: "task-new",
+      },
       "builder",
       "agent-builder",
     );
@@ -1907,14 +1924,24 @@ describe("orchestration extension — backgroundSpawns bounding", () => {
     for (let i = 0; i < MAX; i++) {
       const asn = `live-${i}`;
       _internals.registerBackgroundSpawn(
-        { assignmentId: asn, subConversationId: `sub-${asn}`, agentRunId: `run-${asn}`, taskId: `task-${asn}` },
+        {
+          assignmentId: asn,
+          subConversationId: `sub-${asn}`,
+          agentRunId: `run-${asn}`,
+          taskId: `task-${asn}`,
+        },
         "builder",
         "agent-builder",
       );
     }
     // One more: no terminal entry to evict → the live one is kept; size = MAX+1.
     _internals.registerBackgroundSpawn(
-      { assignmentId: "live-extra", subConversationId: "sub-extra", agentRunId: "run-extra", taskId: "task-extra" },
+      {
+        assignmentId: "live-extra",
+        subConversationId: "sub-extra",
+        agentRunId: "run-extra",
+        taskId: "task-extra",
+      },
       "builder",
       "agent-builder",
     );
@@ -1929,7 +1956,12 @@ describe("orchestration extension — backgroundSpawns bounding", () => {
     for (let i = 0; i < MAX; i++) {
       const asn = `bg-${i}`;
       _internals.registerBackgroundSpawn(
-        { assignmentId: asn, subConversationId: `sub-${asn}`, agentRunId: `run-${asn}`, taskId: `task-${asn}` },
+        {
+          assignmentId: asn,
+          subConversationId: `sub-${asn}`,
+          agentRunId: `run-${asn}`,
+          taskId: `task-${asn}`,
+        },
         "builder",
         "agent-builder",
         OWNER_CONV,
@@ -1949,7 +1981,12 @@ describe("orchestration extension — backgroundSpawns bounding", () => {
 
     // Register one more → the COLLECTED bg-5 is evicted first, NOT the older bg-0.
     _internals.registerBackgroundSpawn(
-      { assignmentId: "bg-new", subConversationId: "sub-new", agentRunId: "run-new", taskId: "task-new" },
+      {
+        assignmentId: "bg-new",
+        subConversationId: "sub-new",
+        agentRunId: "run-new",
+        taskId: "task-new",
+      },
       "builder",
       "agent-builder",
       OWNER_CONV,

@@ -33,11 +33,26 @@ beforeAll(async () => {
   // underscore (`a_b`) and one where the underscore-slot is a different
   // char (`axb`). If `_` were treated as a wildcard, a `q=a_b` search
   // would match BOTH; with escaping it matches only the literal `a_b`.
-  await createUser({ email: "lit-underscore@page-test.local", passwordHash: "hashed", name: "a_b literal", role: "member" });
-  await createUser({ email: "wildcard-trap@page-test.local", passwordHash: "hashed", name: "axb decoy", role: "member" });
+  await createUser({
+    email: "lit-underscore@page-test.local",
+    passwordHash: "hashed",
+    name: "a_b literal",
+    role: "member",
+  });
+  await createUser({
+    email: "wildcard-trap@page-test.local",
+    passwordHash: "hashed",
+    name: "axb decoy",
+    role: "member",
+  });
   // A user whose name contains a literal `%` — `q=50%` must not match
   // every row via the `%` any-run wildcard.
-  await createUser({ email: "percent@page-test.local", passwordHash: "hashed", name: "50% complete", role: "member" });
+  await createUser({
+    email: "percent@page-test.local",
+    passwordHash: "hashed",
+    name: "50% complete",
+    role: "member",
+  });
 });
 
 afterAll(async () => {

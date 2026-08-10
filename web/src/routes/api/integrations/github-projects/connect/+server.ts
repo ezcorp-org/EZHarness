@@ -28,7 +28,14 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { errorJson } from "$lib/server/http-errors";
-import { authGithubRoute, resolveProject, requireGithubScope, parseDefaultModelInput, parsePermissionModeInput, parseTokenScope } from "../_shared";
+import {
+  authGithubRoute,
+  resolveProject,
+  requireGithubScope,
+  parseDefaultModelInput,
+  parsePermissionModeInput,
+  parseTokenScope,
+} from "../_shared";
 import { createGithubClient } from "$server/integrations/github-projects/client";
 import type {
   GithubAuth,
@@ -188,11 +195,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     // default. Body-ABSENT on a re-connect means "keep the existing value"
     // (the replace-token flow doesn't send it); body-PRESENT (incl. null/"")
     // still applies — the connect form legitimately sets or clears it.
-    defaultModel: body.defaultModel !== undefined ? dmParsed.value : (existing?.defaultModel ?? null),
+    defaultModel:
+      body.defaultModel !== undefined ? dmParsed.value : (existing?.defaultModel ?? null),
     // Optional per-board default permission mode ("ask"|"auto-edit"|"yolo");
     // null = the spawn bridge's "yolo" fallback. Same body-absent = keep rule.
     defaultPermissionMode:
-      body.defaultPermissionMode !== undefined ? pmParsed.value : (existing?.defaultPermissionMode ?? null),
+      body.defaultPermissionMode !== undefined
+        ? pmParsed.value
+        : (existing?.defaultPermissionMode ?? null),
     // Re-connect preserves the board's user-edited config (column mapping,
     // poll cadence, paused state); a fresh connect leaves them undefined so
     // upsertLink applies its defaults ({}, 60, true).

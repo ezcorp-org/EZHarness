@@ -214,7 +214,14 @@ describe("parseJobView", () => {
     // `:` could forge a key belonging to another job. Rejecting at the parse
     // boundary means the handler never sees a shape the store has to defend
     // against a second time.
-    for (const bad of ["job:", "job:   ", "job:a:b", "job:../x", "job:with space", `job:${"x".repeat(65)}`]) {
+    for (const bad of [
+      "job:",
+      "job:   ",
+      "job:a:b",
+      "job:../x",
+      "job:with space",
+      `job:${"x".repeat(65)}`,
+    ]) {
       expect(parseJobView(bad)).toEqual({ kind: "unknown" });
     }
   });
@@ -268,9 +275,7 @@ describe("page ids", () => {
   test("match the manifest's declared pages exactly", () => {
     // A page id the manifest does not declare renders nowhere: the events
     // route 404s an undeclared `pageId` and the Hub has nothing to pull.
-    expect(manifest.pages?.map((p) => p.id).sort()).toEqual(
-      [FACTORY_PAGE_ID, JOB_PAGE_ID].sort(),
-    );
+    expect(manifest.pages?.map((p) => p.id).sort()).toEqual([FACTORY_PAGE_ID, JOB_PAGE_ID].sort());
     expect(FACTORY_FULL_PAGE_ID).toBe(`ext:${EXTENSION_NAME}:${FACTORY_PAGE_ID}`);
     expect(JOB_FULL_PAGE_ID).toBe(`ext:${EXTENSION_NAME}:${JOB_PAGE_ID}`);
   });
@@ -333,9 +338,7 @@ describe("jobStateCell — why an unattended job stopped", () => {
   });
 
   test("a clean unattended fire adds nothing — silence means working", () => {
-    expect(jobStateCell(job({ lastFire: { at: NOW, ok: true } }))).toEqual(
-      enabledCell(true),
-    );
+    expect(jobStateCell(job({ lastFire: { at: NOW, ok: true } }))).toEqual(enabledCell(true));
   });
 
   test("THE REQUIREMENT: a stale consent reads differently from a broken job", () => {
@@ -376,7 +379,9 @@ describe("jobStateCell — why an unattended job stopped", () => {
     // red cell would train operators to ignore red cells.
     expect(
       jobStateCell(
-        job({ lastFire: { at: NOW, ok: false, reason: "DELEGATION_QUOTA_EXCEEDED", kind: "quota" } }),
+        job({
+          lastFire: { at: NOW, ok: false, reason: "DELEGATION_QUOTA_EXCEEDED", kind: "quota" },
+        }),
       ),
     ).toBe("✓ enabled · paused by a limit");
     expect(
@@ -465,9 +470,9 @@ describe("triggerLabel", () => {
         maxTokensPerRun: 50_000,
       }),
     ).toBe("cron · 0 2 * * * · UTC · ≤4/day · ≤50000 tok/run");
-    expect(
-      triggerLabel({ kind: "webhook", maxRunsPerDay: 20, maxTokensPerRun: 1000 }),
-    ).toBe("webhook · ≤20/day · ≤1000 tok/run");
+    expect(triggerLabel({ kind: "webhook", maxRunsPerDay: 20, maxTokensPerRun: 1000 })).toBe(
+      "webhook · ≤20/day · ≤1000 tok/run",
+    );
   });
 });
 
@@ -603,10 +608,13 @@ describe("buildFactoryPage — templates view", () => {
   test("describes exactly the three shipped workflows", () => {
     const tree = buildFactoryPage({ view: { kind: "templates" }, jobs: [], runs: [] });
     const table = firstTable(tree);
-    expect(table.rows.map((r) => r.cells[0])).toEqual([...FACTORY_WORKFLOWS].sort((a, b) =>
-      TEMPLATE_BLURBS.findIndex((t) => t.workflow === a) -
-      TEMPLATE_BLURBS.findIndex((t) => t.workflow === b),
-    ));
+    expect(table.rows.map((r) => r.cells[0])).toEqual(
+      [...FACTORY_WORKFLOWS].sort(
+        (a, b) =>
+          TEMPLATE_BLURBS.findIndex((t) => t.workflow === a) -
+          TEMPLATE_BLURBS.findIndex((t) => t.workflow === b),
+      ),
+    );
   });
 
   test("each row shows that workflow's job-settable input keys, from the store's allowlist", () => {
@@ -728,10 +736,7 @@ describe("buildJobPage", () => {
     // the overflow is silent: field 11 is dropped and the `visibleWhen` of
     // whatever pointed at it is deleted too, so the page renders looking
     // finished with inputs shown on the wrong workflow.
-    for (const view of [
-      { kind: "new" as const },
-      { kind: "edit" as const, jobId: "j1" },
-    ]) {
+    for (const view of [{ kind: "new" as const }, { kind: "edit" as const, jobId: "j1" }]) {
       const tree = buildJobPage({ view, job: view.kind === "edit" ? job() : null });
       for (const form of nodesOfType(tree, "form") as { fields: unknown[] }[]) {
         expect(form.fields.length).toBeLessThanOrEqual(10);
@@ -1063,18 +1068,24 @@ describe("draftFromFormPayload", () => {
 
 describe("editScopeFromActionPayload", () => {
   test("reads the trigger scope only from the exact marker", () => {
-    expect(
-      editScopeFromActionPayload({ [EDIT_SCOPE_FIELD]: EDIT_SCOPE_TRIGGER }),
-    ).toBe(EDIT_SCOPE_TRIGGER);
-    expect(editScopeFromActionPayload({ [EDIT_SCOPE_FIELD]: EDIT_SCOPE_JOB })).toBe(
-      EDIT_SCOPE_JOB,
+    expect(editScopeFromActionPayload({ [EDIT_SCOPE_FIELD]: EDIT_SCOPE_TRIGGER })).toBe(
+      EDIT_SCOPE_TRIGGER,
     );
+    expect(editScopeFromActionPayload({ [EDIT_SCOPE_FIELD]: EDIT_SCOPE_JOB })).toBe(EDIT_SCOPE_JOB);
   });
 
   test("anything unrecognised reads as the JOB scope, which carries every field", () => {
     // Fails toward the scope that submits the whole job, so a garbled
     // marker cannot be used to skip a check by omission.
-    for (const bad of [{}, { [EDIT_SCOPE_FIELD]: "TRIGGER" }, { [EDIT_SCOPE_FIELD]: 1 }, null, [], "trigger", undefined]) {
+    for (const bad of [
+      {},
+      { [EDIT_SCOPE_FIELD]: "TRIGGER" },
+      { [EDIT_SCOPE_FIELD]: 1 },
+      null,
+      [],
+      "trigger",
+      undefined,
+    ]) {
       expect(editScopeFromActionPayload(bad)).toBe(EDIT_SCOPE_JOB);
     }
   });
@@ -1111,9 +1122,8 @@ describe("triggerFormFields", () => {
   test("offers only the kinds something actually dispatches", () => {
     // `event` and `workflow` are modelled by the store and dispatched by
     // nothing; offering them would build a job that saves and never fires.
-    const options = triggerFormFields(job()).find(
-      (f) => f.field === JOB_FORM_FIELDS.triggerKind,
-    )!.options!;
+    const options = triggerFormFields(job()).find((f) => f.field === JOB_FORM_FIELDS.triggerKind)!
+      .options!;
     expect(options.map((o) => o.value)).toEqual([...OFFERED_TRIGGER_KINDS]);
     expect(options.map((o) => o.value)).not.toContain("event");
     expect(options.map((o) => o.value)).not.toContain("workflow");
@@ -1402,9 +1412,7 @@ describe("invariant J — job/run strings never reach the markdown ({@html}) sin
     return {
       probeIsCarried: hit.length > 0,
       carriersInSink: hit.filter((n) => n.type === "markdown").length,
-      carriersNotEscaped: hit
-        .map((n) => String(n.type))
-        .filter((t) => !ESCAPED_PAGE_TYPES.has(t)),
+      carriersNotEscaped: hit.map((n) => String(n.type)).filter((t) => !ESCAPED_PAGE_TYPES.has(t)),
       markdownNodesExist: markdown.length > 0,
       markdownCarryingProbe: markdown.filter((n) => ownContent(n).includes(PROBE)).length,
     };
@@ -1497,9 +1505,7 @@ describe("invariant J — job/run strings never reach the markdown ({@html}) sin
     // The detector itself must be shown to work, or "no markdown node
     // carries the payload" could be passing because `carriers` is blind.
     const rigged = {
-      nodes: [
-        { type: "section", nodes: [{ type: "markdown", content: `x ${PROBE} y` }] },
-      ],
+      nodes: [{ type: "section", nodes: [{ type: "markdown", content: `x ${PROBE} y` }] }],
     };
     const hit = carriers(rigged);
     expect(hit).toHaveLength(1);
@@ -1826,12 +1832,7 @@ describe("delegationConsentHref", () => {
     // Exactly four parameters survive: an injected fifth would be a link
     // that says one thing and prefills another.
     const params = new URL(href, "https://x").searchParams;
-    expect([...params.keys()]).toEqual([
-      "extensionId",
-      "jobRef",
-      "workflowName",
-      "triggerKind",
-    ]);
+    expect([...params.keys()]).toEqual(["extensionId", "jobRef", "workflowName", "triggerKind"]);
     expect(params.get("jobRef")).toBe("a&triggerKind=cron&x=/../evil");
     expect(params.get("triggerKind")).toBe("cron");
   });
@@ -1976,12 +1977,7 @@ describe("the job editor's schedule section", () => {
 
 describe("input fields render as the right control", () => {
   const fieldsByName = (): Map<string, Record<string, unknown>> =>
-    new Map(
-      jobFormFields(null).map((f) => [
-        f.field,
-        f as unknown as Record<string, unknown>,
-      ]),
-    );
+    new Map(jobFormFields(null).map((f) => [f.field, f as unknown as Record<string, unknown>]));
 
   test("a single-value path is a single line, not a 3-row textarea", () => {
     // Every input used to be `multiline: true`, so "Output path" — one

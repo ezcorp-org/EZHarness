@@ -20,10 +20,7 @@
 import { sql, eq } from "drizzle-orm";
 import { extensions } from "../../db/schema";
 import { getDb } from "../../db/connection";
-import type {
-  ExtensionManifestV2,
-  ExtensionPermissions,
-} from "../../extensions/types";
+import type { ExtensionManifestV2, ExtensionPermissions } from "../../extensions/types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -75,9 +72,7 @@ export interface TestExtensionRow {
  * call `clear()` in `afterEach` (or wipe the whole table via raw SQL
  * before insert — both patterns work).
  */
-export async function makeTestExtension(
-  input: TestExtensionInput,
-): Promise<TestExtensionRow> {
+export async function makeTestExtension(input: TestExtensionInput): Promise<TestExtensionRow> {
   const db = getDb();
 
   const manifest: ExtensionManifestV2 = {
@@ -111,8 +106,7 @@ export async function makeTestExtension(
     enabled: input.enabled ?? true,
     grantedPermissions: sql`${JSON.stringify(grantedPermissions)}::jsonb`,
     installedPermissions:
-      input.installedPermissions === undefined ||
-      input.installedPermissions === null
+      input.installedPermissions === undefined || input.installedPermissions === null
         ? null
         : (sql`${JSON.stringify(input.installedPermissions)}::jsonb` as unknown as ExtensionPermissions),
     checksumVerified: false,
@@ -123,10 +117,7 @@ export async function makeTestExtension(
   return {
     id: input.id,
     async forceExpire(capability: string): Promise<void> {
-      const rows = await db
-        .select()
-        .from(extensions)
-        .where(eq(extensions.id, input.id));
+      const rows = await db.select().from(extensions).where(eq(extensions.id, input.id));
       const row = rows[0];
       if (!row) throw new Error(`Extension ${input.id} not found`);
       const current = (row.grantedPermissions ?? {}) as ExtensionPermissions;
@@ -141,22 +132,17 @@ export async function makeTestExtension(
       await db
         .update(extensions)
         .set({
-          grantedPermissions: sql`${JSON.stringify(next)}::jsonb` as unknown as ExtensionPermissions,
+          grantedPermissions:
+            sql`${JSON.stringify(next)}::jsonb` as unknown as ExtensionPermissions,
         })
         .where(eq(extensions.id, input.id));
     },
     async getGrants(): Promise<ExtensionPermissions | null> {
-      const rows = await db
-        .select()
-        .from(extensions)
-        .where(eq(extensions.id, input.id));
+      const rows = await db.select().from(extensions).where(eq(extensions.id, input.id));
       return (rows[0]?.grantedPermissions ?? null) as ExtensionPermissions | null;
     },
     async getInstalled(): Promise<ExtensionPermissions | null> {
-      const rows = await db
-        .select()
-        .from(extensions)
-        .where(eq(extensions.id, input.id));
+      const rows = await db.select().from(extensions).where(eq(extensions.id, input.id));
       return (rows[0]?.installedPermissions ?? null) as ExtensionPermissions | null;
     },
     async clear(): Promise<void> {

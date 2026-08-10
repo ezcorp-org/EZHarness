@@ -45,19 +45,28 @@ mock.module("../runtime/start-assignment", () => ({
       typeof opts.reuseSubConversationId === "string" && opts.reuseSubConversationId
         ? (opts.reuseSubConversationId as string)
         : `sub-${runId}`;
-    const assignment = opts.assignment as { id: string; status: string; agentRunId?: string; subConversationId?: string; startedAt?: string };
+    const assignment = opts.assignment as {
+      id: string;
+      status: string;
+      agentRunId?: string;
+      subConversationId?: string;
+      startedAt?: string;
+    };
     assignment.status = "running";
     assignment.agentRunId = runId;
     assignment.subConversationId = subConversationId;
     assignment.startedAt = new Date().toISOString();
     const { getDb } = await import("../db/connection");
     const { conversations } = await import("../db/schema");
-    await getDb().insert(conversations).values({
-      id: subConversationId,
-      projectId: opts.projectId as string,
-      parentConversationId: opts.conversationId as string,
-      title: "sub",
-    } as any).onConflictDoNothing();
+    await getDb()
+      .insert(conversations)
+      .values({
+        id: subConversationId,
+        projectId: opts.projectId as string,
+        parentConversationId: opts.conversationId as string,
+        title: "sub",
+      } as any)
+      .onConflictDoNothing();
     return { subConversationId, agentRunId: runId };
   },
 }));
@@ -82,12 +91,20 @@ mock.module("../db/queries/agent-configs", () => ({
 }));
 
 // Dynamic imports AFTER mocks are registered.
-const { handleSpawnAssignmentRpc, MAX_SPAWN_DEPTH } = await import("../extensions/spawn-assignment-handler");
+const { handleSpawnAssignmentRpc, MAX_SPAWN_DEPTH } = await import(
+  "../extensions/spawn-assignment-handler"
+);
 const { createSpawnQuota } = await import("../extensions/spawn-quota");
 const { EventBus } = await import("../runtime/events");
 const { getDb } = await import("../db/connection");
-const { conversations, extensions: extensionsTable, projects, users, conversationExtensions, auditLog } =
-  await import("../db/schema");
+const {
+  conversations,
+  extensions: extensionsTable,
+  projects,
+  users,
+  conversationExtensions,
+  auditLog,
+} = await import("../db/schema");
 
 import type { JsonRpcRequest } from "../extensions/types";
 import type { SpawnAssignmentContext } from "../extensions/spawn-assignment-handler";
@@ -101,13 +118,14 @@ const EXT_WIRED = "ext-sa-wired";
 const EXT_UNWIRED = "ext-sa-unwired";
 const CONV_WIRED = "conv-sa-wired";
 
-function makePerms(spawnAgents?: { maxPerHour: number; maxConcurrent?: number }): ExtensionPermissions {
+function makePerms(spawnAgents?: {
+  maxPerHour: number;
+  maxConcurrent?: number;
+}): ExtensionPermissions {
   return { ...(spawnAgents ? { spawnAgents } : {}), grantedAt: {} };
 }
 
-function makeCtx(
-  overrides: Partial<SpawnAssignmentContext> = {},
-): SpawnAssignmentContext {
+function makeCtx(overrides: Partial<SpawnAssignmentContext> = {}): SpawnAssignmentContext {
   const bus = new EventBus<AgentEvents>();
   const quota = createSpawnQuota(bus);
   return {
@@ -124,7 +142,8 @@ function makeCtx(
     // so the rate-limiter (not the PDP) gates tight-loop behaviour.
     // Tests that explicitly need lower ceilings (L214/L339/L354/L372)
     // pass their own grantedPermissions overrides — unchanged.
-    grantedPermissions: overrides.grantedPermissions ?? makePerms({ maxPerHour: 1000, maxConcurrent: 100 }),
+    grantedPermissions:
+      overrides.grantedPermissions ?? makePerms({ maxPerHour: 1000, maxConcurrent: 100 }),
     executor: overrides.executor ?? ({} as unknown as AgentExecutor),
     bus: overrides.bus ?? bus,
     quota: overrides.quota ?? quota,
@@ -142,34 +161,61 @@ function rpc(params: Record<string, unknown>, id: number | string = 1): JsonRpcR
 }
 
 async function ensureExtension(id: string): Promise<void> {
-  await getDb().insert(extensionsTable).values({
-    id,
-    name: id,
-    version: "1.0.0",
-    description: "t",
-    manifest: { schemaVersion: 2, name: id, version: "1.0.0", description: "t", author: { name: "t" }, permissions: {} },
-    source: `test:${id}`,
-    installPath: `/tmp/${id}`,
-    enabled: true,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id,
+      name: id,
+      version: "1.0.0",
+      description: "t",
+      manifest: {
+        schemaVersion: 2,
+        name: id,
+        version: "1.0.0",
+        description: "t",
+        author: { name: "t" },
+        permissions: {},
+      },
+      source: `test:${id}`,
+      installPath: `/tmp/${id}`,
+      enabled: true,
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function wireConversation(convId: string, extId: string): Promise<void> {
   await ensureExtension(extId);
-  await getDb().insert(conversationExtensions).values({ conversationId: convId, extensionId: extId } as any).onConflictDoNothing();
+  await getDb()
+    .insert(conversationExtensions)
+    .values({ conversationId: convId, extensionId: extId } as any)
+    .onConflictDoNothing();
 }
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values({
-    id: "user-alice", email: "a@t.local", passwordHash: "x", name: "Alice",
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({
-    id: "proj-sa", name: "proj-sa", path: "/tmp/proj-sa",
-  } as any);
-  await getDb().insert(conversations).values({
-    id: CONV_WIRED, projectId: "proj-sa", title: "sa",
-  } as any);
+  await getDb()
+    .insert(users)
+    .values({
+      id: "user-alice",
+      email: "a@t.local",
+      passwordHash: "x",
+      name: "Alice",
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({
+      id: "proj-sa",
+      name: "proj-sa",
+      path: "/tmp/proj-sa",
+    } as any);
+  await getDb()
+    .insert(conversations)
+    .values({
+      id: CONV_WIRED,
+      projectId: "proj-sa",
+      title: "sa",
+    } as any);
   await wireConversation(CONV_WIRED, EXT_WIRED);
   await ensureExtension(EXT_UNWIRED);
 });
@@ -188,10 +234,12 @@ async function lastAudit(extId: string): Promise<Record<string, unknown> | undef
   const rows = await getDb()
     .select()
     .from(auditLog)
-    .where((await import("drizzle-orm")).and(
-      (await import("drizzle-orm")).eq(auditLog.target, extId),
-      (await import("drizzle-orm")).eq(auditLog.action, "ext:spawn-quota-exceeded"),
-    ))
+    .where(
+      (await import("drizzle-orm")).and(
+        (await import("drizzle-orm")).eq(auditLog.target, extId),
+        (await import("drizzle-orm")).eq(auditLog.action, "ext:spawn-quota-exceeded"),
+      ),
+    )
     .orderBy((await import("drizzle-orm")).desc(auditLog.createdAt))
     .limit(1);
   return rows[0] as any;
@@ -236,7 +284,8 @@ describe("spawn-assignment — scope gates", () => {
 
   test('conversationId="unknown" → -32602', async () => {
     const resp = await handleSpawnAssignmentRpc(
-      EXT_WIRED, rpc(validParams, "s1"),
+      EXT_WIRED,
+      rpc(validParams, "s1"),
       makeCtx({ conversationId: "unknown" }),
     );
     expect(resp.error?.code).toBe(-32602);
@@ -244,16 +293,15 @@ describe("spawn-assignment — scope gates", () => {
 
   test("projectId=null → -32602", async () => {
     const resp = await handleSpawnAssignmentRpc(
-      EXT_WIRED, rpc(validParams, "s2"),
+      EXT_WIRED,
+      rpc(validParams, "s2"),
       makeCtx({ projectId: null }),
     );
     expect(resp.error?.code).toBe(-32602);
   });
 
   test("extension not wired → -32001 + audit not-wired", async () => {
-    const resp = await handleSpawnAssignmentRpc(
-      EXT_UNWIRED, rpc(validParams, "s3"), makeCtx(),
-    );
+    const resp = await handleSpawnAssignmentRpc(EXT_UNWIRED, rpc(validParams, "s3"), makeCtx());
     expect(resp.error?.code).toBe(-32001);
     const a = await lastAudit(EXT_UNWIRED);
     expect(a?.metadata).toMatchObject({ reason: "not-wired" });
@@ -272,9 +320,7 @@ describe("spawn-assignment — rate + depth", () => {
     // this test so we still measure rate-limiter behavior, not Phase
     // 4 overhead. Production stays on the default sync path with the
     // warn enabled.
-    const { _setSyncAuditChainForTests } = await import(
-      "../extensions/spawn-assignment-handler"
-    );
+    const { _setSyncAuditChainForTests } = await import("../extensions/spawn-assignment-handler");
     _setSyncAuditChainForTests(false);
     const originalWarn = console.warn;
     console.warn = () => {};
@@ -305,7 +351,8 @@ describe("spawn-assignment — rate + depth", () => {
 
   test("spawnDepth >= MAX_SPAWN_DEPTH → -32000 + audit depth-exceeded", async () => {
     const resp = await handleSpawnAssignmentRpc(
-      EXT_WIRED, rpc(validParams, "d1"),
+      EXT_WIRED,
+      rpc(validParams, "d1"),
       makeCtx({ spawnDepth: MAX_SPAWN_DEPTH }),
     );
     expect(resp.error?.code).toBe(-32000);
@@ -334,7 +381,9 @@ describe("spawn-assignment — payload validation", () => {
 
   test("missing both agentConfigId and agentName → -32602", async () => {
     const resp = await handleSpawnAssignmentRpc(
-      EXT_WIRED, rpc({ v: 1, task: "hi" }, "a-miss"), makeCtx(),
+      EXT_WIRED,
+      rpc({ v: 1, task: "hi" }, "a-miss"),
+      makeCtx(),
     );
     expect(resp.error?.code).toBe(-32602);
   });
@@ -366,7 +415,10 @@ describe("spawn-assignment — payload validation", () => {
   test("workingDir relative path → -32602", async () => {
     const resp = await handleSpawnAssignmentRpc(
       EXT_WIRED,
-      rpc({ v: 1, task: "hi", agentConfigId: "cfg-alice-helper", workingDir: "relative/dir" }, "wd-rel"),
+      rpc(
+        { v: 1, task: "hi", agentConfigId: "cfg-alice-helper", workingDir: "relative/dir" },
+        "wd-rel",
+      ),
       makeCtx(),
     );
     expect(resp.error?.code).toBe(-32602);
@@ -376,7 +428,10 @@ describe("spawn-assignment — payload validation", () => {
   test("workingDir with embedded NUL → -32602", async () => {
     const resp = await handleSpawnAssignmentRpc(
       EXT_WIRED,
-      rpc({ v: 1, task: "hi", agentConfigId: "cfg-alice-helper", workingDir: "/tmp/bad\0dir" }, "wd-nul"),
+      rpc(
+        { v: 1, task: "hi", agentConfigId: "cfg-alice-helper", workingDir: "/tmp/bad\0dir" },
+        "wd-nul",
+      ),
       makeCtx(),
     );
     expect(resp.error?.code).toBe(-32602);
@@ -387,7 +442,12 @@ describe("spawn-assignment — payload validation", () => {
     const resp = await handleSpawnAssignmentRpc(
       EXT_WIRED,
       rpc(
-        { v: 1, task: "hi", agentConfigId: "cfg-alice-helper", workingDir: `/tmp/definitely-missing-${crypto.randomUUID()}` },
+        {
+          v: 1,
+          task: "hi",
+          agentConfigId: "cfg-alice-helper",
+          workingDir: `/tmp/definitely-missing-${crypto.randomUUID()}`,
+        },
         "wd-miss",
       ),
       makeCtx(),
@@ -465,7 +525,12 @@ describe("spawn-assignment — quota", () => {
 // ── Dispatch path ──────────────────────────────────────────────────
 
 describe("spawn-assignment — dispatch", () => {
-  const validParams = { v: 1, task: "build a thing", agentConfigId: "cfg-alice-helper", title: "My task" };
+  const validParams = {
+    v: 1,
+    task: "build a thing",
+    agentConfigId: "cfg-alice-helper",
+    title: "My task",
+  };
 
   test("happy path returns {subConvId, agentRunId, taskId, assignmentId}; startAssignment called with parent conversationId", async () => {
     const ext = `ok-ext-${crypto.randomUUID().slice(0, 8)}`;
@@ -617,11 +682,7 @@ describe("spawn-assignment — dispatch", () => {
     const ext = `fo-ext-${crypto.randomUUID().slice(0, 8)}`;
     await wireConversation(CONV_WIRED, ext);
     const paramsWithForged = { ...validParams, conversationId: "attacker-conv" };
-    const resp = await handleSpawnAssignmentRpc(
-      ext,
-      rpc(paramsWithForged, "fo-1"),
-      makeCtx(),
-    );
+    const resp = await handleSpawnAssignmentRpc(ext, rpc(paramsWithForged, "fo-1"), makeCtx());
     expect(resp.error).toBeUndefined();
     const call = startAssignmentCalls[0]!;
     expect(call.conversationId).toBe(CONV_WIRED);
@@ -637,9 +698,7 @@ describe("spawn-assignment — dispatch", () => {
     await wireConversation(CONV_WIRED, ext);
     await wireConversation(CONV_WIRED, sib);
 
-    const resp = await handleSpawnAssignmentRpc(
-      ext, rpc(validParams, "wi-1"), makeCtx(),
-    );
+    const resp = await handleSpawnAssignmentRpc(ext, rpc(validParams, "wi-1"), makeCtx());
     expect(resp.error).toBeUndefined();
     const { subConversationId } = resp.result as { subConversationId: string };
     const { getConversationExtensionIds } = await import("../db/queries/conversation-extensions");
@@ -669,9 +728,7 @@ describe("spawn-assignment — dispatch", () => {
   test("missing taskId/assignmentId falls back to generated UUIDs (back-compat)", async () => {
     const ext = `gen-ext-${crypto.randomUUID().slice(0, 8)}`;
     await wireConversation(CONV_WIRED, ext);
-    const resp = await handleSpawnAssignmentRpc(
-      ext, rpc(validParams, "gen-1"), makeCtx(),
-    );
+    const resp = await handleSpawnAssignmentRpc(ext, rpc(validParams, "gen-1"), makeCtx());
     expect(resp.error).toBeUndefined();
     const result = resp.result as { taskId: string; assignmentId: string };
     expect(result.taskId).toMatch(/^[0-9a-f-]{36}$/);
@@ -682,7 +739,9 @@ describe("spawn-assignment — dispatch", () => {
     const ext = `dp-ext-${crypto.randomUUID().slice(0, 8)}`;
     await wireConversation(CONV_WIRED, ext);
     const resp = await handleSpawnAssignmentRpc(
-      ext, rpc(validParams, "dp-1"), makeCtx({ spawnDepth: 5 }),
+      ext,
+      rpc(validParams, "dp-1"),
+      makeCtx({ spawnDepth: 5 }),
     );
     expect(resp.error).toBeUndefined();
     const { subConversationId } = resp.result as { subConversationId: string };
@@ -704,25 +763,34 @@ describe("spawn-assignment — Phase 4 pass-through fields", () => {
     // (The resolveAgentConfigForUser path uses a separate mock list — the
     // fixture id "cfg-alice-helper" is what the handler actually resolves.)
     const { agentConfigs } = await import("../db/schema");
-    await getDb().insert(agentConfigs).values({
-      id: "cfg-alice-helper",
-      name: "alice-helper",
-      prompt: "p",
-      userId: "user-alice",
-    } as any).onConflictDoNothing();
+    await getDb()
+      .insert(agentConfigs)
+      .values({
+        id: "cfg-alice-helper",
+        name: "alice-helper",
+        prompt: "p",
+        userId: "user-alice",
+      } as any)
+      .onConflictDoNothing();
 
     const parentConv = `conv-reuse-${crypto.randomUUID().slice(0, 8)}`;
     const seededSubConvId = `seeded-sub-${crypto.randomUUID().slice(0, 8)}`;
-    await getDb().insert(conversations).values({
-      id: parentConv, projectId: "proj-sa", title: "parent",
-    } as any);
-    await getDb().insert(conversations).values({
-      id: seededSubConvId,
-      projectId: "proj-sa",
-      parentConversationId: parentConv,
-      agentConfigId: "cfg-alice-helper",
-      title: "pre-existing",
-    } as any);
+    await getDb()
+      .insert(conversations)
+      .values({
+        id: parentConv,
+        projectId: "proj-sa",
+        title: "parent",
+      } as any);
+    await getDb()
+      .insert(conversations)
+      .values({
+        id: seededSubConvId,
+        projectId: "proj-sa",
+        parentConversationId: parentConv,
+        agentConfigId: "cfg-alice-helper",
+        title: "pre-existing",
+      } as any);
     await wireConversation(parentConv, ext);
 
     const resp = await handleSpawnAssignmentRpc(
@@ -856,9 +924,7 @@ describe("spawn-assignment — outputSchema (structured output)", () => {
   test("absent outputSchema → no outputSchema key on the startAssignment opts", async () => {
     const ext = `os2-ext-${crypto.randomUUID().slice(0, 8)}`;
     await wireConversation(CONV_WIRED, ext);
-    const resp = await handleSpawnAssignmentRpc(
-      ext, rpc(baseParams, "os-2"), makeCtx(),
-    );
+    const resp = await handleSpawnAssignmentRpc(ext, rpc(baseParams, "os-2"), makeCtx());
     expect(resp.error).toBeUndefined();
     expect(startAssignmentCalls).toHaveLength(1);
     expect(startAssignmentCalls[0]!).not.toHaveProperty("outputSchema");
@@ -981,10 +1047,7 @@ describe("spawn-assignment — orchestration depth is normalized, never caller-c
   const base = { v: 1, task: "hi", agentConfigId: "cfg-alice-helper" };
 
   /** Dispatch a spawn and return the depth `startAssignment` actually got. */
-  async function depthReaching(
-    params: Record<string, unknown>,
-    id: string,
-  ): Promise<unknown> {
+  async function depthReaching(params: Record<string, unknown>, id: string): Promise<unknown> {
     const before = startAssignmentCalls.length;
     const resp = await handleSpawnAssignmentRpc(EXT_WIRED, rpc(params, id), makeCtx());
     expect(resp.error).toBeUndefined();
@@ -1044,7 +1107,10 @@ describe("spawn-assignment — orchestration depth is normalized, never caller-c
         convRecord: { userId: "user-alice", kind: "regular" },
         orchestrationDepth: depth as number,
       });
-      expect(agentTools.map((t) => t.name), label).not.toContain(RUN_WORKFLOW_TOOL_NAME);
+      expect(
+        agentTools.map((t) => t.name),
+        label,
+      ).not.toContain(RUN_WORKFLOW_TOOL_NAME);
       expect(builtinToolDefsMap.size, label).toBe(0);
     }
   });

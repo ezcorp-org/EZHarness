@@ -19,9 +19,7 @@ export function getSetting<T = unknown>(
   ctx: ToolHandlerContext | undefined,
   key: string,
 ): T | undefined {
-  const settings = ctx?.invocationMetadata?.settings as
-    | Record<string, unknown>
-    | undefined;
+  const settings = ctx?.invocationMetadata?.settings as Record<string, unknown> | undefined;
   if (!settings) return undefined;
   return settings[key] as T | undefined;
 }
@@ -30,11 +28,7 @@ export function getSetting<T = unknown>(
  *  invocation, or an empty object when none was attached. Each call returns
  *  a new object — mutating the result is safe and will not affect
  *  subsequent reads or other helpers reading the same context. */
-export function getAllSettings(
-  ctx: ToolHandlerContext | undefined,
-): Record<string, unknown> {
-  const settings = ctx?.invocationMetadata?.settings as
-    | Record<string, unknown>
-    | undefined;
+export function getAllSettings(ctx: ToolHandlerContext | undefined): Record<string, unknown> {
+  const settings = ctx?.invocationMetadata?.settings as Record<string, unknown> | undefined;
   return { ...(settings ?? {}) };
 }

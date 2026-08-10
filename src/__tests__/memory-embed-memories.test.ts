@@ -48,10 +48,13 @@ function unitVec(dim: number): number[] {
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values([
-    { id: OWNER_A, email: "mem-a@test.local", name: "A", passwordHash: "h" },
-    { id: OWNER_B, email: "mem-b@test.local", name: "B", passwordHash: "h" },
-  ]).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values([
+      { id: OWNER_A, email: "mem-a@test.local", name: "A", passwordHash: "h" },
+      { id: OWNER_B, email: "mem-b@test.local", name: "B", passwordHash: "h" },
+    ])
+    .onConflictDoNothing();
   const p1 = await createProject({ name: "mem-p1", path: "/tmp/mem-p1" });
   const p2 = await createProject({ name: "mem-p2", path: "/tmp/mem-p2" });
   projectP1 = p1.id;
@@ -81,7 +84,10 @@ describe("insertMemory — atomic row + junction + audit", () => {
     ).rejects.toThrow();
 
     // No memory row survived.
-    const rows = await getDb().select().from(memories).where(eq(memories.content, "atomic-insert-fact"));
+    const rows = await getDb()
+      .select()
+      .from(memories)
+      .where(eq(memories.content, "atomic-insert-fact"));
     expect(rows.length).toBe(0);
     // No dangling audit row.
     const audits = await getDb().select().from(memoryAuditLog);
@@ -96,7 +102,10 @@ describe("insertMemory — atomic row + junction + audit", () => {
       projectIds: [projectP1],
     } as never);
     expect(await getMemoryProjectIds(mem.id)).toEqual([projectP1]);
-    const audits = await getDb().select().from(memoryAuditLog).where(eq(memoryAuditLog.memoryId, mem.id));
+    const audits = await getDb()
+      .select()
+      .from(memoryAuditLog)
+      .where(eq(memoryAuditLog.memoryId, mem.id));
     expect(audits.length).toBe(1);
     expect(audits[0]!.action).toBe("created");
   });
@@ -155,9 +164,10 @@ describe("deleteMemory / updateMemory — mutation + audit atomicity", () => {
 
     const after = await getMemoryById(mem.id);
     expect(after!.content).toBe("after-update");
-    const audits = await getDb().select().from(memoryAuditLog).where(
-      eq(memoryAuditLog.memoryId, mem.id),
-    );
+    const audits = await getDb()
+      .select()
+      .from(memoryAuditLog)
+      .where(eq(memoryAuditLog.memoryId, mem.id));
     expect(audits.some((a: (typeof audits)[number]) => a.action === "updated")).toBe(true);
     // The embedding is now retrievable by findSimilarMemory.
     const hit = await findSimilarMemory(unitVec(0), 0.5);
@@ -166,7 +176,11 @@ describe("deleteMemory / updateMemory — mutation + audit atomicity", () => {
 });
 
 describe("findSimilarMemory — index-friendly distance order + threshold in TS", () => {
-  async function seedMemoryWithEmbedding(content: string, vec: number[], userId?: string): Promise<string> {
+  async function seedMemoryWithEmbedding(
+    content: string,
+    vec: number[],
+    userId?: string,
+  ): Promise<string> {
     const mem = await insertMemory({
       content,
       category: "preferences",
@@ -215,9 +229,18 @@ describe("findSimilarMemory — index-friendly distance order + threshold in TS"
 describe("scope queries still treat a zero-junction memory as global", () => {
   test("a global (no-junction) memory shows under scope='all' but a scoped one does not leak", async () => {
     // Global memory: no projectIds.
-    await insertMemory({ content: "global-mem", category: "preferences", userId: OWNER_A } as never);
+    await insertMemory({
+      content: "global-mem",
+      category: "preferences",
+      userId: OWNER_A,
+    } as never);
     // Scoped memory: P2 only.
-    await insertMemory({ content: "p2-mem", category: "preferences", userId: OWNER_A, projectIds: [projectP2] } as never);
+    await insertMemory({
+      content: "p2-mem",
+      category: "preferences",
+      userId: OWNER_A,
+      projectIds: [projectP2],
+    } as never);
 
     const p1All = await searchMemories({ scope: "all", projectId: projectP1, userId: OWNER_A });
     const contents = p1All.map((m) => m.content);

@@ -4,14 +4,7 @@ import * as nodeFs from "node:fs";
 import * as nodeOs from "node:os";
 
 /** Absolute path to the CLI entry point so Bun.spawn can invoke it directly. */
-const CLI_PATH = nodePath.resolve(
-  nodePath.dirname(Bun.main),
-  "..",
-  "..",
-  "src",
-  "cli",
-  "index.ts",
-);
+const CLI_PATH = nodePath.resolve(nodePath.dirname(Bun.main), "..", "..", "src", "cli", "index.ts");
 
 function makeTmpDir(): string {
   return nodeFs.mkdtempSync(nodePath.join(nodeOs.tmpdir(), "ai-kit-integ-"));
@@ -26,7 +19,10 @@ async function readJson(filePath: string): Promise<unknown> {
   return JSON.parse(text);
 }
 
-async function spawnCli(args: string[], env: Record<string, string> = {}): Promise<{
+async function spawnCli(
+  args: string[],
+  env: Record<string, string> = {},
+): Promise<{
   exitCode: number;
   stdout: string;
   stderr: string;
@@ -49,7 +45,9 @@ async function spawnCli(args: string[], env: Record<string, string> = {}): Promi
 describe("CLI install claude-code (spawned process)", () => {
   let home: string;
 
-  beforeEach(() => { home = makeTmpDir(); });
+  beforeEach(() => {
+    home = makeTmpDir();
+  });
   afterEach(() => rmTmpDir(home));
 
   test("exits 0 and writes ~/.claude.json", async () => {
@@ -63,7 +61,7 @@ describe("CLI install claude-code (spawned process)", () => {
   test("written config has valid JSON shape", async () => {
     await spawnCli(["install", "claude-code"], { HOME: home });
 
-    const cfg = await readJson(nodePath.join(home, ".claude.json")) as Record<string, unknown>;
+    const cfg = (await readJson(nodePath.join(home, ".claude.json"))) as Record<string, unknown>;
     expect(cfg).toHaveProperty("mcpServers");
     const servers = cfg["mcpServers"] as Record<string, Record<string, unknown>>;
     expect(servers).toHaveProperty("ezcorp-ai-kit");
@@ -181,7 +179,7 @@ describe("CLI install file-based targets (spawned)", () => {
         const cfgPath = getPath(home);
         expect(nodeFs.existsSync(cfgPath)).toBe(true);
 
-        const cfg = await readJson(cfgPath) as Record<string, unknown>;
+        const cfg = (await readJson(cfgPath)) as Record<string, unknown>;
         expect(cfg).toHaveProperty(key);
         const servers = cfg[key] as Record<string, Record<string, unknown>>;
         expect(servers).toHaveProperty("ezcorp-ai-kit");

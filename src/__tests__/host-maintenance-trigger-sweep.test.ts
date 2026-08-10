@@ -27,10 +27,7 @@ mockDbConnection();
 import { eq } from "drizzle-orm";
 import { HostMaintenanceDaemon } from "../extensions/host-maintenance-daemon";
 import type { SweepRegistry, SyncTarget } from "../extensions/triggers-sweep";
-import {
-  upsertDynamicCron,
-  getDynamicCron,
-} from "../extensions/triggers-store";
+import { upsertDynamicCron, getDynamicCron } from "../extensions/triggers-store";
 import { extensionSchedules, extensionWebhooks, extensions, auditLog } from "../db/schema";
 
 const EXT_NAME = "tick-sweep-ext";

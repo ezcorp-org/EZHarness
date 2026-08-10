@@ -17,22 +17,18 @@
 import { isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
 
-const LOOPBACK_HOSTNAMES = new Set([
-	"localhost",
-	"ip6-localhost",
-	"ip6-loopback",
-]);
+const LOOPBACK_HOSTNAMES = new Set(["localhost", "ip6-localhost", "ip6-loopback"]);
 
 function isPrivateIPv4(octets: number[]): boolean {
-	const [a, b] = octets;
-	if (a === undefined || b === undefined) return true;
-	if (a === 0) return true; // 0.0.0.0/8 — "this network"
-	if (a === 127) return true; // 127.0.0.0/8 — loopback
-	if (a === 10) return true; // 10.0.0.0/8 — private
-	if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 — private
-	if (a === 192 && b === 168) return true; // 192.168.0.0/16 — private
-	if (a === 169 && b === 254) return true; // 169.254.0.0/16 — link-local (cloud metadata)
-	return false;
+  const [a, b] = octets;
+  if (a === undefined || b === undefined) return true;
+  if (a === 0) return true; // 0.0.0.0/8 — "this network"
+  if (a === 127) return true; // 127.0.0.0/8 — loopback
+  if (a === 10) return true; // 10.0.0.0/8 — private
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 — private
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16 — private
+  if (a === 169 && b === 254) return true; // 169.254.0.0/16 — link-local (cloud metadata)
+  return false;
 }
 
 /**
@@ -40,69 +36,72 @@ function isPrivateIPv4(octets: number[]): boolean {
  * Returns null if the address cannot be parsed as IPv6.
  */
 function expandIPv6(addr: string): number[] | null {
-	// Support embedded dotted-quad IPv4 form (e.g. ::ffff:127.0.0.1).
-	let source = addr;
-	const lastColon = source.lastIndexOf(":");
-	if (lastColon >= 0 && source.indexOf(".", lastColon) > 0) {
-		const tail = source.slice(lastColon + 1);
-		const head = source.slice(0, lastColon + 1);
-		if (isIP(tail) !== 4) return null;
-		const octets = tail.split(".").map(Number);
-		const hi = ((octets[0]! << 8) | octets[1]!).toString(16);
-		const lo = ((octets[2]! << 8) | octets[3]!).toString(16);
-		source = `${head}${hi}:${lo}`;
-	}
+  // Support embedded dotted-quad IPv4 form (e.g. ::ffff:127.0.0.1).
+  let source = addr;
+  const lastColon = source.lastIndexOf(":");
+  if (lastColon >= 0 && source.indexOf(".", lastColon) > 0) {
+    const tail = source.slice(lastColon + 1);
+    const head = source.slice(0, lastColon + 1);
+    if (isIP(tail) !== 4) return null;
+    const octets = tail.split(".").map(Number);
+    const hi = ((octets[0]! << 8) | octets[1]!).toString(16);
+    const lo = ((octets[2]! << 8) | octets[3]!).toString(16);
+    source = `${head}${hi}:${lo}`;
+  }
 
-	const parts = source.split("::");
-	if (parts.length > 2) return null;
+  const parts = source.split("::");
+  if (parts.length > 2) return null;
 
-	const head = parts[0] === "" ? [] : parts[0]!.split(":");
-	const tail = parts.length === 2 ? (parts[1] === "" ? [] : parts[1]!.split(":")) : [];
-	const fillCount = 8 - head.length - tail.length;
-	if (fillCount < 0) return null;
-	if (parts.length === 1 && fillCount !== 0) return null;
+  const head = parts[0] === "" ? [] : parts[0]!.split(":");
+  const tail = parts.length === 2 ? (parts[1] === "" ? [] : parts[1]!.split(":")) : [];
+  const fillCount = 8 - head.length - tail.length;
+  if (fillCount < 0) return null;
+  if (parts.length === 1 && fillCount !== 0) return null;
 
-	const filled = [
-		...head,
-		...new Array<string>(fillCount).fill("0"),
-		...tail,
-	];
-	if (filled.length !== 8) return null;
+  const filled = [...head, ...new Array<string>(fillCount).fill("0"), ...tail];
+  if (filled.length !== 8) return null;
 
-	const values: number[] = [];
-	for (const group of filled) {
-		if (!/^[0-9a-f]{1,4}$/i.test(group)) return null;
-		values.push(parseInt(group, 16));
-	}
-	return values;
+  const values: number[] = [];
+  for (const group of filled) {
+    if (!/^[0-9a-f]{1,4}$/i.test(group)) return null;
+    values.push(parseInt(group, 16));
+  }
+  return values;
 }
 
 function isPrivateIPv6(addr: string): boolean {
-	const groups = expandIPv6(addr.toLowerCase());
-	if (!groups) return true; // unparseable — fail closed
-	const [g0, g1, g2, g3, g4, g5, g6, g7] = groups as [
-		number, number, number, number, number, number, number, number
-	];
+  const groups = expandIPv6(addr.toLowerCase());
+  if (!groups) return true; // unparseable — fail closed
+  const [g0, g1, g2, g3, g4, g5, g6, g7] = groups as [
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+    number,
+  ];
 
-	// :: (all zeros) and ::1
-	if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0 && g6 === 0) {
-		return g7 === 0 || g7 === 1;
-	}
+  // :: (all zeros) and ::1
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0 && g6 === 0) {
+    return g7 === 0 || g7 === 1;
+  }
 
-	// IPv4-mapped IPv6: ::ffff:a.b.c.d — first 5 groups zero, 6th is ffff,
-	// last 32 bits encode the IPv4. Apply the IPv4 private-range rules.
-	if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0xffff) {
-		const v4 = [(g6 >> 8) & 0xff, g6 & 0xff, (g7 >> 8) & 0xff, g7 & 0xff];
-		return isPrivateIPv4(v4);
-	}
+  // IPv4-mapped IPv6: ::ffff:a.b.c.d — first 5 groups zero, 6th is ffff,
+  // last 32 bits encode the IPv4. Apply the IPv4 private-range rules.
+  if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0xffff) {
+    const v4 = [(g6 >> 8) & 0xff, g6 & 0xff, (g7 >> 8) & 0xff, g7 & 0xff];
+    return isPrivateIPv4(v4);
+  }
 
-	// fc00::/7 — unique local addresses. First 7 bits are 1111110.
-	if ((g0 & 0xfe00) === 0xfc00) return true;
+  // fc00::/7 — unique local addresses. First 7 bits are 1111110.
+  if ((g0 & 0xfe00) === 0xfc00) return true;
 
-	// fe80::/10 — link-local. First 10 bits are 1111111010.
-	if ((g0 & 0xffc0) === 0xfe80) return true;
+  // fe80::/10 — link-local. First 10 bits are 1111111010.
+  if ((g0 & 0xffc0) === 0xfe80) return true;
 
-	return false;
+  return false;
 }
 
 /**
@@ -118,21 +117,21 @@ function isPrivateIPv6(addr: string): boolean {
  * the caller is responsible for any additional allowlist/DNS pinning.
  */
 export function isPrivateOrLoopback(hostname: string): boolean {
-	if (!hostname) return true;
-	let lower = hostname.toLowerCase();
-	// URL parsers wrap IPv6 literals in brackets: "[::1]". Strip them.
-	if (lower.startsWith("[") && lower.endsWith("]")) {
-		lower = lower.slice(1, -1);
-	}
-	if (LOOPBACK_HOSTNAMES.has(lower)) return true;
-	const version = isIP(lower);
-	if (version === 4) {
-		return isPrivateIPv4(lower.split(".").map(Number));
-	}
-	if (version === 6) {
-		return isPrivateIPv6(lower);
-	}
-	return false;
+  if (!hostname) return true;
+  let lower = hostname.toLowerCase();
+  // URL parsers wrap IPv6 literals in brackets: "[::1]". Strip them.
+  if (lower.startsWith("[") && lower.endsWith("]")) {
+    lower = lower.slice(1, -1);
+  }
+  if (LOOPBACK_HOSTNAMES.has(lower)) return true;
+  const version = isIP(lower);
+  if (version === 4) {
+    return isPrivateIPv4(lower.split(".").map(Number));
+  }
+  if (version === 6) {
+    return isPrivateIPv6(lower);
+  }
+  return false;
 }
 
 /**
@@ -150,30 +149,37 @@ export function isPrivateOrLoopback(hostname: string): boolean {
  *            literal is not resolved, so only literals qualify.
  */
 export function isLoopbackLiteral(hostname: string): boolean {
-	if (!hostname) return false;
-	let lower = hostname.toLowerCase();
-	if (lower.startsWith("[") && lower.endsWith("]")) {
-		lower = lower.slice(1, -1);
-	}
-	if (LOOPBACK_HOSTNAMES.has(lower)) return true;
-	const version = isIP(lower);
-	if (version === 4) return lower.split(".")[0] === "127";
-	if (version === 6) {
-		const groups = expandIPv6(lower);
-		if (!groups) return false;
-		const [g0, g1, g2, g3, g4, g5, g6, g7] = groups as [
-			number, number, number, number, number, number, number, number
-		];
-		// ::1 — the IPv6 loopback. `::` (all-zero, "unspecified") is NOT it.
-		if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0 && g6 === 0) {
-			return g7 === 1;
-		}
-		// ::ffff:127.a.b.c — IPv4-mapped loopback, same interface.
-		if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0xffff) {
-			return ((g6 >> 8) & 0xff) === 127;
-		}
-	}
-	return false;
+  if (!hostname) return false;
+  let lower = hostname.toLowerCase();
+  if (lower.startsWith("[") && lower.endsWith("]")) {
+    lower = lower.slice(1, -1);
+  }
+  if (LOOPBACK_HOSTNAMES.has(lower)) return true;
+  const version = isIP(lower);
+  if (version === 4) return lower.split(".")[0] === "127";
+  if (version === 6) {
+    const groups = expandIPv6(lower);
+    if (!groups) return false;
+    const [g0, g1, g2, g3, g4, g5, g6, g7] = groups as [
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+      number,
+    ];
+    // ::1 — the IPv6 loopback. `::` (all-zero, "unspecified") is NOT it.
+    if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0 && g6 === 0) {
+      return g7 === 1;
+    }
+    // ::ffff:127.a.b.c — IPv4-mapped loopback, same interface.
+    if (g0 === 0 && g1 === 0 && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0xffff) {
+      return ((g6 >> 8) & 0xff) === 127;
+    }
+  }
+  return false;
 }
 
 /**
@@ -188,12 +194,12 @@ export const BLOCK_LOOPBACK_ENV = "EZCORP_BLOCK_LOOPBACK_PROVIDERS";
 
 /** True when {@link BLOCK_LOOPBACK_ENV} is set to `1` or `true` (any case). */
 export function loopbackProvidersBlocked(
-	env: Record<string, string | undefined> = process.env,
+  env: Record<string, string | undefined> = process.env,
 ): boolean {
-	const raw = env[BLOCK_LOOPBACK_ENV];
-	if (raw === undefined) return false;
-	const lower = raw.trim().toLowerCase();
-	return lower === "1" || lower === "true";
+  const raw = env[BLOCK_LOOPBACK_ENV];
+  if (raw === undefined) return false;
+  const lower = raw.trim().toLowerCase();
+  return lower === "1" || lower === "true";
 }
 
 /** {@link checkLocalProviderTarget}'s verdict: proceed, or the 400 to return. */
@@ -229,43 +235,41 @@ export type LocalProviderTargetCheck = { ok: true } | { ok: false; error: string
  * extension/tool surface, so the carve-out grants no reach they lacked — which
  * is precisely why it stops at loopback and does not extend one bit further.
  */
-export async function checkLocalProviderTarget(
-	baseUrl: string,
-): Promise<LocalProviderTargetCheck> {
-	let parsed: URL;
-	try {
-		parsed = new URL(baseUrl);
-	} catch {
-		return { ok: false, error: "Invalid baseUrl" };
-	}
+export async function checkLocalProviderTarget(baseUrl: string): Promise<LocalProviderTargetCheck> {
+  let parsed: URL;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    return { ok: false, error: "Invalid baseUrl" };
+  }
 
-	if (isLoopbackLiteral(parsed.hostname) && !loopbackProvidersBlocked()) {
-		return { ok: true };
-	}
+  if (isLoopbackLiteral(parsed.hostname) && !loopbackProvidersBlocked()) {
+    return { ok: true };
+  }
 
-	// sec-H1: reject loopback/private/link-local targets to block SSRF
-	// against cloud metadata, local Redis/Postgres, internal k8s services, etc.
-	if (isPrivateOrLoopback(parsed.hostname)) {
-		return { ok: false, error: "baseUrl targets a private or loopback address" };
-	}
+  // sec-H1: reject loopback/private/link-local targets to block SSRF
+  // against cloud metadata, local Redis/Postgres, internal k8s services, etc.
+  if (isPrivateOrLoopback(parsed.hostname)) {
+    return { ok: false, error: "baseUrl targets a private or loopback address" };
+  }
 
-	// sec-H1 DNS pinning: resolve the hostname and re-check every A/AAAA
-	// address. Blocks the rebinding case where "evil.example" → 127.0.0.1
-	// via attacker-controlled DNS. `lookup` throws for NXDOMAIN; treat any
-	// resolution failure as a block rather than leaking the error.
-	try {
-		const dnsCheck = await resolveAndValidateHostname(parsed.hostname);
-		if (!dnsCheck.ok) {
-			return {
-				ok: false,
-				error: dnsCheck.reason ?? "baseUrl targets a private or loopback address",
-			};
-		}
-	} catch {
-		return { ok: false, error: "hostname could not be resolved" };
-	}
+  // sec-H1 DNS pinning: resolve the hostname and re-check every A/AAAA
+  // address. Blocks the rebinding case where "evil.example" → 127.0.0.1
+  // via attacker-controlled DNS. `lookup` throws for NXDOMAIN; treat any
+  // resolution failure as a block rather than leaking the error.
+  try {
+    const dnsCheck = await resolveAndValidateHostname(parsed.hostname);
+    if (!dnsCheck.ok) {
+      return {
+        ok: false,
+        error: dnsCheck.reason ?? "baseUrl targets a private or loopback address",
+      };
+    }
+  } catch {
+    return { ok: false, error: "hostname could not be resolved" };
+  }
 
-	return { ok: true };
+  return { ok: true };
 }
 
 /**
@@ -282,16 +286,16 @@ export async function checkLocalProviderTarget(
  * or if the lookup returned zero addresses.
  */
 export async function resolveAndValidateHostname(
-	hostname: string,
+  hostname: string,
 ): Promise<{ ok: boolean; reason?: string }> {
-	const addrs = await dnsLookup(hostname, { all: true });
-	if (!Array.isArray(addrs) || addrs.length === 0) {
-		return { ok: false, reason: "hostname could not be resolved" };
-	}
-	for (const entry of addrs) {
-		if (isPrivateOrLoopback(entry.address)) {
-			return { ok: false, reason: "hostname resolves to private/loopback" };
-		}
-	}
-	return { ok: true };
+  const addrs = await dnsLookup(hostname, { all: true });
+  if (!Array.isArray(addrs) || addrs.length === 0) {
+    return { ok: false, reason: "hostname could not be resolved" };
+  }
+  for (const entry of addrs) {
+    if (isPrivateOrLoopback(entry.address)) {
+      return { ok: false, reason: "hostname resolves to private/loopback" };
+    }
+  }
+  return { ok: true };
 }

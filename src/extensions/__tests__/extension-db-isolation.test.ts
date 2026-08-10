@@ -113,7 +113,12 @@ function parseImports(src: string): ParsedImport[] {
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean)
-          .map((s) => s.replace(/^type\s+/, "").split(/\s+as\s+/)[0]!.trim())
+          .map((s) =>
+            s
+              .replace(/^type\s+/, "")
+              .split(/\s+as\s+/)[0]!
+              .trim(),
+          )
           .filter(Boolean)
       : [];
     out.push({ module, names });
@@ -252,7 +257,9 @@ describe("extension DB isolation — no raw security-table references", () => {
           seenAllowlisted.add(rel);
           continue;
         }
-        offences.push(`${rel}: imports security schema symbol(s) [${forbidden.join(", ")}] from '${imp.module}'`);
+        offences.push(
+          `${rel}: imports security schema symbol(s) [${forbidden.join(", ")}] from '${imp.module}'`,
+        );
       }
     }
     expect(offences).toEqual([]);

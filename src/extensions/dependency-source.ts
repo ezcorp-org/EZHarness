@@ -52,8 +52,7 @@ import { parseSource } from "./source-parser";
  */
 export const PREINSTALLED_DEPENDENCY_SOURCES = ["bundled", "local"] as const;
 
-export type PreinstalledDependencySource =
-  (typeof PREINSTALLED_DEPENDENCY_SOURCES)[number];
+export type PreinstalledDependencySource = (typeof PREINSTALLED_DEPENDENCY_SOURCES)[number];
 
 const PREINSTALLED = new Set<string>(PREINSTALLED_DEPENDENCY_SOURCES);
 

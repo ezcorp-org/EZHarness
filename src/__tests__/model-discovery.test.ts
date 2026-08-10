@@ -10,10 +10,7 @@
  */
 
 import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
-import {
-  fetchProviderModels,
-  _resetCatalogCache,
-} from "../providers/model-discovery";
+import { fetchProviderModels, _resetCatalogCache } from "../providers/model-discovery";
 import type { ProviderCredential } from "../providers/credentials";
 
 // ── Fixtures ──────────────────────────────────────────────────────────
@@ -131,11 +128,7 @@ describe("provider-direct discovery", () => {
   test("openai: lists from /v1/models with Bearer auth, enriched by catalog", async () => {
     route({
       openaiModels: {
-        data: [
-          { id: "gpt-5.2" },
-          { id: "gpt-4o" },
-          { id: "text-embedding-3-large" },
-        ],
+        data: [{ id: "gpt-5.2" }, { id: "gpt-4o" }, { id: "text-embedding-3-large" }],
       },
     });
 
@@ -157,9 +150,7 @@ describe("provider-direct discovery", () => {
     expect(gpt52.cost.input).toBe(0);
 
     // Bearer header was sent to the provider endpoint
-    const providerCall = calls.find((c) =>
-      c.url.includes("api.openai.com/v1/models"),
-    )!;
+    const providerCall = calls.find((c) => c.url.includes("api.openai.com/v1/models"))!;
     const headers = providerCall.init?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer sk-test-123");
   });
@@ -170,9 +161,7 @@ describe("provider-direct discovery", () => {
     const models = await fetchProviderModels("anthropic", APIKEY);
     expect(models.map((m) => m.id)).toEqual(["claude-sonnet-4"]);
 
-    const providerCall = calls.find((c) =>
-      c.url.includes("api.anthropic.com/v1/models"),
-    )!;
+    const providerCall = calls.find((c) => c.url.includes("api.anthropic.com/v1/models"))!;
     const headers = providerCall.init?.headers as Record<string, string>;
     expect(headers["x-api-key"]).toBe("sk-test-123");
     expect(headers["anthropic-version"]).toBe("2023-06-01");
@@ -197,9 +186,7 @@ describe("provider-direct discovery", () => {
     }
 
     // Bearer header was sent to the openrouter endpoint (DIRECT path used)
-    const providerCall = calls.find((c) =>
-      c.url.includes("openrouter.ai/api/v1/models"),
-    )!;
+    const providerCall = calls.find((c) => c.url.includes("openrouter.ai/api/v1/models"))!;
     const headers = providerCall.init?.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer sk-test-123");
   });
@@ -295,8 +282,7 @@ describe("guards and cache", () => {
     route({});
     await fetchProviderModels("google", APIKEY);
     await fetchProviderModels("google", APIKEY);
-    const catalogHits = () =>
-      calls.filter((c) => c.url.includes("models.dev")).length;
+    const catalogHits = () => calls.filter((c) => c.url.includes("models.dev")).length;
     expect(catalogHits()).toBe(1);
 
     _resetCatalogCache();

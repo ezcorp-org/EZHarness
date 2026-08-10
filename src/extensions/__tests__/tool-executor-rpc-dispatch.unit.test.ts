@@ -7,10 +7,7 @@
 //      stub-based dispatch test can't reach (no other suite exercises them).
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
-import {
-  REVERSE_RPC_ROUTES,
-  routeReverseRpc,
-} from "../tool-executor/rpc-handlers";
+import { REVERSE_RPC_ROUTES, routeReverseRpc } from "../tool-executor/rpc-handlers";
 import { GITHUB_PROJECTS_RPC_PREFIX } from "../../integrations/github-projects/types";
 import { ToolExecutor } from "../tool-executor";
 import { createStubPermissionEngine } from "../../__tests__/helpers/permission-engine-stub";
@@ -216,7 +213,11 @@ describe("handlePiLessons / handlePiSearch real delegate bodies", () => {
 
   test("handlePiSearch with an unknown extension short-circuits (-32603)", async () => {
     const noExtExecutor = new ToolExecutor(
-      { getGrantedPermissions: () => undefined, getManifest: () => undefined, getRegisteredTool: () => null } as unknown as ExtensionRegistry,
+      {
+        getGrantedPermissions: () => undefined,
+        getManifest: () => undefined,
+        getRegisteredTool: () => null,
+      } as unknown as ExtensionRegistry,
       createStubPermissionEngine("allow-all"),
     );
     const resp = (await noExtExecutor.handlePiSearch("ext-x", {

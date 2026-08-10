@@ -29,10 +29,7 @@
 
 import { getDb } from "../../db/connection";
 import { getSetting, upsertSetting } from "../../db/queries/settings";
-import {
-  setUserSettings,
-  getUserSettings,
-} from "../../db/queries/extension-settings";
+import { setUserSettings, getUserSettings } from "../../db/queries/extension-settings";
 import { users } from "../../db/schema";
 import { logger } from "../../logger";
 

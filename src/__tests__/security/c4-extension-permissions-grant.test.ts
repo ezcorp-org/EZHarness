@@ -36,21 +36,13 @@
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "../helpers/mock-cleanup";
-import {
-  mockServerAlias,
-  createMockEvent,
-  ADMIN_USER,
-  MEMBER_USER,
-} from "../helpers/mock-request";
+import { mockServerAlias, createMockEvent, ADMIN_USER, MEMBER_USER } from "../helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
 mockServerAlias();
 
 // SvelteKit generated $types stub — not present at test time.
-mock.module(
-  "../../../web/src/routes/api/extensions/[id]/permissions/$types",
-  () => ({}),
-);
+mock.module("../../../web/src/routes/api/extensions/[id]/permissions/$types", () => ({}));
 
 // requireScope must stay a no-op passthrough — we're exercising the NEW
 // requireRole gate, not an api-key scope check.
@@ -141,10 +133,7 @@ mock.module("../../extensions/registry", registryMock);
 import { PUT } from "../../../web/src/routes/api/extensions/[id]/permissions/+server";
 
 // SvelteKit handlers may throw a Response on auth failure; unwrap.
-async function call(
-  handler: (ev: any) => unknown,
-  event: any,
-): Promise<Response> {
+async function call(handler: (ev: any) => unknown, event: any): Promise<Response> {
   try {
     return (await handler(event)) as Response;
   } catch (e) {
@@ -228,10 +217,7 @@ describe("sec-C4: submitted permissions are clamped to manifest", () => {
     expect(res.status).toBe(200);
 
     expect(updateCalls.length).toBe(1);
-    const stored = updateCalls[0]!.data.grantedPermissions as Record<
-      string,
-      unknown
-    >;
+    const stored = updateCalls[0]!.data.grantedPermissions as Record<string, unknown>;
 
     // Everything the manifest did NOT declare must have been dropped.
     expect(stored.shell).toBeUndefined();
@@ -269,10 +255,7 @@ describe("sec-C4: submitted permissions are clamped to manifest", () => {
     expect(res.status).toBe(200);
 
     expect(updateCalls.length).toBe(1);
-    const stored = updateCalls[0]!.data.grantedPermissions as Record<
-      string,
-      unknown
-    >;
+    const stored = updateCalls[0]!.data.grantedPermissions as Record<string, unknown>;
 
     expect(stored.shell).toBeUndefined(); // not granted, even though manifest asked
     expect(stored.network).toEqual(["api.example.com"]);
@@ -304,10 +287,7 @@ describe("sec-C4: submitted permissions are clamped to manifest", () => {
     const res = await call(PUT, event);
     expect(res.status).toBe(200);
 
-    const stored = updateCalls[0]!.data.grantedPermissions as Record<
-      string,
-      unknown
-    >;
+    const stored = updateCalls[0]!.data.grantedPermissions as Record<string, unknown>;
     expect(stored.filesystem).toEqual(["/var/data", "/var/cache"]);
     expect(stored.env).toEqual(["API_TOKEN", "LOG_LEVEL"]);
   });
@@ -331,10 +311,7 @@ describe("sec-C4: submitted permissions are clamped to manifest", () => {
     const res = await call(PUT, event);
     expect(res.status).toBe(200);
 
-    const stored = updateCalls[0]!.data.grantedPermissions as Record<
-      string,
-      unknown
-    >;
+    const stored = updateCalls[0]!.data.grantedPermissions as Record<string, unknown>;
     expect(stored.network).toEqual(["api.example.com"]);
   });
 
@@ -354,10 +331,7 @@ describe("sec-C4: submitted permissions are clamped to manifest", () => {
     const res = await call(PUT, event);
     expect(res.status).toBe(200);
 
-    const stored = updateCalls[0]!.data.grantedPermissions as Record<
-      string,
-      unknown
-    >;
+    const stored = updateCalls[0]!.data.grantedPermissions as Record<string, unknown>;
     expect(stored.shell).toBeUndefined();
     expect(stored.filesystem).toBeUndefined();
     expect(stored.network).toBeUndefined();

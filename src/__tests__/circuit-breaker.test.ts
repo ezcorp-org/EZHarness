@@ -1,6 +1,6 @@
 import { test, expect, beforeEach } from "bun:test";
 
-const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 import {
   CircuitBreaker,
   getCircuitBreaker,

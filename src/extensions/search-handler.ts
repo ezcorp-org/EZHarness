@@ -169,7 +169,8 @@ export async function handlePiSearch(
       }
       // maxResults: the request may ask for FEWER than the policy ceiling
       // but never more — clamp to `min(requested, policy.maxResults)`.
-      const requested = typeof params.maxResults === "number" ? params.maxResults : policy.maxResults;
+      const requested =
+        typeof params.maxResults === "number" ? params.maxResults : policy.maxResults;
       const result = await doSearch(params.query, {
         maxResults: Math.min(requested, policy.maxResults),
         allowedProviders: policy.providers,

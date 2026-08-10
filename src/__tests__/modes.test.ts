@@ -34,7 +34,9 @@ mock.module("../db/queries/settings", () => {
       await getDb().delete(tbl).where(eq(tbl.key, key));
       return true;
     },
-    async isListingInstalled() { return false; },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -75,9 +77,9 @@ afterAll(async () => {
 describe("modes CRUD", () => {
   test("listModes returns seeded built-in modes", async () => {
     const modes = await listModes();
-    const builtins = modes.filter(m => m.builtin);
+    const builtins = modes.filter((m) => m.builtin);
     expect(builtins.length).toBeGreaterThanOrEqual(2);
-    const slugs = builtins.map(m => m.slug);
+    const slugs = builtins.map((m) => m.slug);
     expect(slugs).toContain("plan");
     expect(slugs).toContain("code-review");
   });
@@ -228,8 +230,8 @@ describe("modes CRUD", () => {
 
   test("listModes without userId returns all modes", async () => {
     const allModes = await listModes();
-    const builtins = allModes.filter(m => m.builtin);
-    const custom = allModes.filter(m => !m.builtin);
+    const builtins = allModes.filter((m) => m.builtin);
+    const custom = allModes.filter((m) => !m.builtin);
 
     expect(builtins.length).toBeGreaterThanOrEqual(2);
     // Custom modes created in earlier tests should appear
@@ -733,7 +735,7 @@ describe("tool restriction filtering", () => {
     restriction: "all" | "read-only" | "none",
   ): MockTool[] {
     if (restriction === "read-only") {
-      return tools.filter(t => {
+      return tools.filter((t) => {
         const def = toolDefs.get(t.name);
         return def ? def.category === "read" : false;
       });
@@ -766,7 +768,7 @@ describe("tool restriction filtering", () => {
   test("toolRestriction 'read-only' filters to read category only", async () => {
     const result = applyToolRestriction(allTools, toolDefs, "read-only");
     expect(result).toHaveLength(3);
-    expect(result.map(t => t.name)).toEqual(["readFile", "grep", "glob"]);
+    expect(result.map((t) => t.name)).toEqual(["readFile", "grep", "glob"]);
   });
 
   test("toolRestriction 'none' removes all tools", async () => {
@@ -775,13 +777,10 @@ describe("tool restriction filtering", () => {
   });
 
   test("read-only excludes extension tools (not in builtinToolDefsMap)", async () => {
-    const toolsWithExtension: MockTool[] = [
-      ...allTools,
-      { name: "ext-custom-tool" },
-    ];
+    const toolsWithExtension: MockTool[] = [...allTools, { name: "ext-custom-tool" }];
     const result = applyToolRestriction(toolsWithExtension, toolDefs, "read-only");
     // Extension tool not in toolDefs → excluded
-    expect(result.map(t => t.name)).not.toContain("ext-custom-tool");
+    expect(result.map((t) => t.name)).not.toContain("ext-custom-tool");
     expect(result).toHaveLength(3);
   });
 
@@ -807,7 +806,7 @@ describe("tool restriction filtering", () => {
 
   test("read-only keeps only read tools, excludes write and execute", () => {
     const result = applyToolRestriction(allTools, toolDefs, "read-only");
-    const names = result.map(t => t.name);
+    const names = result.map((t) => t.name);
     expect(names).toContain("readFile");
     expect(names).toContain("grep");
     expect(names).toContain("glob");

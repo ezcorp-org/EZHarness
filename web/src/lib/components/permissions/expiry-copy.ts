@@ -24,13 +24,13 @@
 import { humanizeDuration } from "$lib/utils/relative-time";
 
 export interface ExpiryCopy {
-	title: string;
-	body: string;
-	approveDefault: string;
-	approveForever: string;
-	cancel: string;
-	ageText: string;
-	ttlText: string;
+  title: string;
+  body: string;
+  approveDefault: string;
+  approveForever: string;
+  cancel: string;
+  ageText: string;
+  ttlText: string;
 }
 
 /**
@@ -44,13 +44,13 @@ export interface ExpiryCopy {
  * `"Never"`) are the display text for the <option> element.
  */
 export const TTL_OPTIONS = [
-	{ value: 1 * 60 * 60 * 1000, code: "1h", ms: 1 * 60 * 60 * 1000 },
-	{ value: 6 * 60 * 60 * 1000, code: "6h", ms: 6 * 60 * 60 * 1000 },
-	{ value: 1 * 24 * 60 * 60 * 1000, code: "1d", ms: 1 * 24 * 60 * 60 * 1000 },
-	{ value: 7 * 24 * 60 * 60 * 1000, code: "7d", ms: 7 * 24 * 60 * 60 * 1000 },
-	{ value: 30 * 24 * 60 * 60 * 1000, code: "30d", ms: 30 * 24 * 60 * 60 * 1000 },
-	{ value: 90 * 24 * 60 * 60 * 1000, code: "90d", ms: 90 * 24 * 60 * 60 * 1000 },
-	{ value: null, code: "Never", ms: null },
+  { value: 1 * 60 * 60 * 1000, code: "1h", ms: 1 * 60 * 60 * 1000 },
+  { value: 6 * 60 * 60 * 1000, code: "6h", ms: 6 * 60 * 60 * 1000 },
+  { value: 1 * 24 * 60 * 60 * 1000, code: "1d", ms: 1 * 24 * 60 * 60 * 1000 },
+  { value: 7 * 24 * 60 * 60 * 1000, code: "7d", ms: 7 * 24 * 60 * 60 * 1000 },
+  { value: 30 * 24 * 60 * 60 * 1000, code: "30d", ms: 30 * 24 * 60 * 60 * 1000 },
+  { value: 90 * 24 * 60 * 60 * 1000, code: "90d", ms: 90 * 24 * 60 * 60 * 1000 },
+  { value: null, code: "Never", ms: null },
 ] as const satisfies readonly { value: number | null; code: string; ms: number | null }[];
 
 /**
@@ -87,20 +87,20 @@ export const DEFAULT_TTL_FIRST_USE_MS = 30 * 24 * 60 * 60 * 1000;
  *                       (Phase 56 picker Never branch).
  */
 export function expiryCopy(
-	extensionName: string,
-	capability: string,
-	ageMs: number,
-	newTtlMs: number | null,
+  extensionName: string,
+  capability: string,
+  ageMs: number,
+  newTtlMs: number | null,
 ): ExpiryCopy {
-	const ageText = humanizeDuration(ageMs);
-	const ttlText = newTtlMs === null ? "forever" : humanizeDuration(newTtlMs);
-	return {
-		title: `Re-approve ${extensionName}: ${capability}`,
-		body: `Your permission for ${capability} expired ${ageText} ago. Continue to grant for another ${ttlText}, or cancel.`,
-		approveDefault: `Approve ${ttlText}`,
-		approveForever: "Approve forever (admin only)",
-		cancel: "Cancel",
-		ageText,
-		ttlText,
-	};
+  const ageText = humanizeDuration(ageMs);
+  const ttlText = newTtlMs === null ? "forever" : humanizeDuration(newTtlMs);
+  return {
+    title: `Re-approve ${extensionName}: ${capability}`,
+    body: `Your permission for ${capability} expired ${ageText} ago. Continue to grant for another ${ttlText}, or cancel.`,
+    approveDefault: `Approve ${ttlText}`,
+    approveForever: "Approve forever (admin only)",
+    cancel: "Cancel",
+    ageText,
+    ttlText,
+  };
 }

@@ -91,7 +91,10 @@ interface ScriptedRun {
  * → column. The adapter → `AgentRun` hop is pinned separately in
  * `executor-usage-accumulation.test.ts`.
  */
-function scriptedExecutor(script: ScriptedRun[], opts: { toolHandler?: () => ToolCallResult } = {}) {
+function scriptedExecutor(
+  script: ScriptedRun[],
+  opts: { toolHandler?: () => ToolCallResult } = {},
+) {
   const bus = new EventBus<AgentEvents>();
   const seen: Array<Record<string, unknown>> = [];
   let i = 0;
@@ -351,7 +354,12 @@ describe("cost_usd is written, and NULL still means unmeasurable", () => {
       // A model the live catalog really prices. Asserted as "> 0" rather
       // than as a figure, so a pi-ai price change cannot make a
       // correctness test red.
-      { inputTokens: 1_000_000, outputTokens: 500, provider: "anthropic", model: "claude-sonnet-4-5" },
+      {
+        inputTokens: 1_000_000,
+        outputTokens: 500,
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+      },
     ]);
     const run = await wf.runWorkflow(agentStep("draft"), {});
     const row = await stepRow(run.id, "draft");
@@ -369,7 +377,12 @@ describe("cost_usd is written, and NULL still means unmeasurable", () => {
     // never priceable. See {@link UNPRICED_MODEL} for why the fixture is a
     // catalog-absent id rather than a real one.
     const { wf } = scriptedExecutor([
-      { inputTokens: 1_000_000, outputTokens: 500_000, provider: "anthropic", model: UNPRICED_MODEL },
+      {
+        inputTokens: 1_000_000,
+        outputTokens: 500_000,
+        provider: "anthropic",
+        model: UNPRICED_MODEL,
+      },
     ]);
     const run = await wf.runWorkflow(agentStep("draft"), {});
     const row = await stepRow(run.id, "draft");
@@ -501,7 +514,9 @@ describe("resolved_input is stored redacted", () => {
   test("a tool step's resolved input is recorded and redacted too", async () => {
     // Tool args are the other untrusted-payload surface — an extension
     // tool's input is exactly what an author threads secrets into.
-    const { wf } = scriptedExecutor([], { toolHandler: () => ({ content: [{ type: "text", text: "{}" }], isError: false }) });
+    const { wf } = scriptedExecutor([], {
+      toolHandler: () => ({ content: [{ type: "text", text: "{}" }], isError: false }),
+    });
     const def: WorkflowDefinition = {
       name: `wf-tool-${crypto.randomUUID().slice(0, 8)}`,
       description: "",
@@ -715,7 +730,12 @@ describe("per-iteration child rows", () => {
     // parent's LAST binding would misprice exactly that case — here it
     // would erase the first iteration's real cost.
     const { wf } = scriptedExecutor([
-      { model: "claude-sonnet-4-5", provider: "anthropic", inputTokens: 1_000_000, outputTokens: 0 },
+      {
+        model: "claude-sonnet-4-5",
+        provider: "anthropic",
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+      },
       { model: UNPRICED_MODEL, provider: "anthropic", inputTokens: 1_000_000, outputTokens: 0 },
     ]);
     const def: WorkflowDefinition = {
@@ -789,7 +809,12 @@ describe("skipped_reason survives a reload", () => {
     // surfaced by `getWorkflowRunTrace` is invisible to every reader that
     // matters — the run page reads this, not the row.
     const { wf } = scriptedExecutor([
-      { inputTokens: 1_000_000, outputTokens: 0, provider: "anthropic", model: "claude-sonnet-4-5" },
+      {
+        inputTokens: 1_000_000,
+        outputTokens: 0,
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+      },
     ]);
     const def: WorkflowDefinition = {
       name: `wf-trace-${crypto.randomUUID().slice(0, 8)}`,

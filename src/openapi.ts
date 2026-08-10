@@ -57,7 +57,8 @@ export function buildOpenApiSpec(opts: OpenApiOptions = {}): Record<string, unkn
     info: {
       title: opts.title ?? "EZCorp API",
       version: opts.version ?? "0.1.0",
-      description: "Generated from src/api-registry.ts. Bearer auth uses ezk_* API keys; scope names appear in each operation's security requirement.",
+      description:
+        "Generated from src/api-registry.ts. Bearer auth uses ezk_* API keys; scope names appear in each operation's security requirement.",
     },
     ...(opts.serverUrl ? { servers: [{ url: opts.serverUrl }] } : {}),
     components: {

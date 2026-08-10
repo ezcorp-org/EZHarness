@@ -68,7 +68,12 @@ function parseMask(entry: string): { target: string; options: Set<string> } {
   if (idx === -1) return { target: entry, options: new Set() };
   return {
     target: entry.slice(0, idx),
-    options: new Set(entry.slice(idx + 1).split(",").filter(Boolean)),
+    options: new Set(
+      entry
+        .slice(idx + 1)
+        .split(",")
+        .filter(Boolean),
+    ),
   };
 }
 
@@ -173,9 +178,7 @@ describe("tmpfs secret masks — base file (Docker)", () => {
     // very hazard this suite exists for.
     const masks = masksOf(await parse("docker-compose.yml"));
     for (const [target, options] of masks) {
-      expect(options.has("notmpcopyup"), `${target} carries a Docker-fatal option`).toBe(
-        false,
-      );
+      expect(options.has("notmpcopyup"), `${target} carries a Docker-fatal option`).toBe(false);
     }
   });
 });
@@ -277,9 +280,7 @@ describe("tmpfs secret masks — Podman override", () => {
   test("every masked path disables tmpcopyup under Podman", async () => {
     const override = masksOf(await parse("compose.podman.yml"));
     for (const [target, options] of override) {
-      expect(options.has("notmpcopyup"), `${target} would copy up under Podman`).toBe(
-        true,
-      );
+      expect(options.has("notmpcopyup"), `${target} would copy up under Podman`).toBe(true);
     }
   });
 

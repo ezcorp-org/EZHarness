@@ -47,9 +47,15 @@ async function seedOutbox(opts: {
   const pid = `p-boot-${seedCounter}`;
   const cid = `c-boot-${seedCounter}`;
   const mid = `m-boot-${seedCounter}`;
-  await db.execute(sql`INSERT INTO projects (id, name, path) VALUES (${pid}, 'p', ${`/tmp/${pid}`}) ON CONFLICT (id) DO NOTHING`);
-  await db.execute(sql`INSERT INTO conversations (id, project_id, title) VALUES (${cid}, ${pid}, 'c') ON CONFLICT (id) DO NOTHING`);
-  await db.execute(sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${mid}, ${cid}, 'user', 'x') ON CONFLICT (id) DO NOTHING`);
+  await db.execute(
+    sql`INSERT INTO projects (id, name, path) VALUES (${pid}, 'p', ${`/tmp/${pid}`}) ON CONFLICT (id) DO NOTHING`,
+  );
+  await db.execute(
+    sql`INSERT INTO conversations (id, project_id, title) VALUES (${cid}, ${pid}, 'c') ON CONFLICT (id) DO NOTHING`,
+  );
+  await db.execute(
+    sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${mid}, ${cid}, 'user', 'x') ON CONFLICT (id) DO NOTHING`,
+  );
   await db.execute(sql`
     INSERT INTO message_embed_outbox (message_id, conversation_id, status, updated_at)
     VALUES (${mid}, ${cid}, ${opts.status}, ${opts.updatedAt.toISOString()})
@@ -83,7 +89,10 @@ describe("runBacklogRecovery — stale-scoped in_progress reset", () => {
   });
 
   test("re-pends a STALE in_progress row (crashed prior worker)", async () => {
-    const stale = await seedOutbox({ status: "in_progress", updatedAt: new Date(Date.now() - STALE - 60_000) });
+    const stale = await seedOutbox({
+      status: "in_progress",
+      updatedAt: new Date(Date.now() - STALE - 60_000),
+    });
     const count = await runBacklogRecovery(getTestDb());
     expect(count).toBe(1);
     expect(await statusOf(stale)).toBe("pending");
@@ -97,7 +106,10 @@ describe("runBacklogRecovery — stale-scoped in_progress reset", () => {
   });
 
   test("resets stale but leaves fresh in the same sweep", async () => {
-    const stale = await seedOutbox({ status: "in_progress", updatedAt: new Date(Date.now() - STALE - 60_000) });
+    const stale = await seedOutbox({
+      status: "in_progress",
+      updatedAt: new Date(Date.now() - STALE - 60_000),
+    });
     const fresh = await seedOutbox({ status: "in_progress", updatedAt: new Date() });
     const count = await runBacklogRecovery(getTestDb());
     expect(count).toBe(1);
@@ -123,7 +135,10 @@ describe("EmbedWorker.start — retention sweep purges aged terminal failures", 
 
   test("start() deletes 'failed' rows older than the retention window", async () => {
     const retention = _embedWorkerInternals.DEFAULT_FAILED_RETENTION_MS;
-    const agedFailed = await seedOutbox({ status: "failed", updatedAt: new Date(Date.now() - retention - 24 * 60 * 60_000) });
+    const agedFailed = await seedOutbox({
+      status: "failed",
+      updatedAt: new Date(Date.now() - retention - 24 * 60 * 60_000),
+    });
     const freshFailed = await seedOutbox({ status: "failed", updatedAt: new Date() });
 
     const worker = new EmbedWorker({ skipLockfile: true, wakeIntervalMs: 60_000 });

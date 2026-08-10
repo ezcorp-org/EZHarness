@@ -39,7 +39,9 @@ export async function runAudit(
   const truncated = allFeatures.length > MAX_FEATURES_PER_RUN;
   const prev = await listLatestClassifications(projectId);
 
-  ctx.log(`Auditing ${features.length} feature(s) in ${project.name}${truncated ? ` (truncated from ${allFeatures.length})` : ""}`);
+  ctx.log(
+    `Auditing ${features.length} feature(s) in ${project.name}${truncated ? ` (truncated from ${allFeatures.length})` : ""}`,
+  );
 
   const verdicts: FeatureVerdict[] = [];
   let cacheHits = 0;
@@ -83,7 +85,9 @@ export async function runAudit(
     truncated,
   });
 
-  ctx.log(`Audit complete: ${verdicts.length} verdicts (${cacheHits} cached, ${llmCalls} LLM), report at ${reportPath}`);
+  ctx.log(
+    `Audit complete: ${verdicts.length} verdicts (${cacheHits} cached, ${llmCalls} LLM), report at ${reportPath}`,
+  );
   return { reportPath, featureCount: verdicts.length, cacheHits, llmCalls, truncated };
 }
 

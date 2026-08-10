@@ -1,10 +1,15 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { JsonRpcTransport } from "../extensions/json-rpc";
 import { ExtensionProcess } from "../extensions/subprocess";
-import { ExtensionRegistry, } from "../extensions/registry";
+import { ExtensionRegistry } from "../extensions/registry";
 import { ToolExecutor } from "../extensions/tool-executor";
 import { parseArgs } from "../cli";
-import type { JsonRpcRequest, JsonRpcResponse, ExtensionManifestV2, DependencySpec } from "../extensions/types";
+import type {
+  JsonRpcRequest,
+  JsonRpcResponse,
+  ExtensionManifestV2,
+  DependencySpec,
+} from "../extensions/types";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 
 // ── Helpers ──────────────────────────────────────────────────────────
@@ -26,7 +31,9 @@ function makeManifest(
     author: { name: "test" },
     permissions: {},
     entrypoint: opts?.entrypoint ?? "./index.ts",
-    tools: opts?.tools ?? [{ name: "doStuff", description: "does stuff", inputSchema: { type: "object" } }],
+    tools: opts?.tools ?? [
+      { name: "doStuff", description: "does stuff", inputSchema: { type: "object" } },
+    ],
     ...(opts?.deps ? { dependencies: opts.deps } : {}),
   };
 }
@@ -45,7 +52,12 @@ describe("JsonRpcTransport request detection", () => {
     };
 
     // Create a readable stream that emits a JSON-RPC request
-    const request: JsonRpcRequest = { jsonrpc: "2.0", id: 1, method: "ezcorp/invoke", params: { tool: "dep.doStuff" } };
+    const request: JsonRpcRequest = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "ezcorp/invoke",
+      params: { tool: "dep.doStuff" },
+    };
     const encoded = JSON.stringify(request) + "\n";
 
     const stream = new ReadableStream<Uint8Array>({
@@ -106,9 +118,15 @@ describe("JsonRpcTransport request detection", () => {
       },
     };
 
-    const incomingRequest: JsonRpcRequest = { jsonrpc: "2.0", id: 100, method: "ezcorp/invoke", params: {} };
+    const incomingRequest: JsonRpcRequest = {
+      jsonrpc: "2.0",
+      id: 100,
+      method: "ezcorp/invoke",
+      params: {},
+    };
     const incomingResponse: JsonRpcResponse = { jsonrpc: "2.0", id: 99, result: "hello" };
-    const encoded = JSON.stringify(incomingRequest) + "\n" + JSON.stringify(incomingResponse) + "\n";
+    const encoded =
+      JSON.stringify(incomingRequest) + "\n" + JSON.stringify(incomingResponse) + "\n";
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
@@ -152,9 +170,7 @@ describe("Registry dependency routing", () => {
 
     // Manually set up the dep routes for testing
     // (In real code, buildDepRoutes does this from DB data)
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
 
     // Manually register a tool for dep-ext-id
     registry.registerToolForTest("dep-pkg__doStuff", {
@@ -290,9 +306,7 @@ describe("ToolExecutor.handlePiInvoke", () => {
     const registry = ExtensionRegistry.getInstance();
 
     // Set up dep route
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
 
     registry.registerToolForTest("dep-pkg__doStuff", {
       name: "dep-pkg__doStuff",
@@ -348,9 +362,7 @@ describe("ToolExecutor.handlePiInvoke", () => {
 
   test("rejects call at depth >= 10", async () => {
     const registry = ExtensionRegistry.getInstance();
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
     registry.registerToolForTest("dep-pkg__doStuff", {
       name: "dep-pkg__doStuff",
       originalName: "doStuff",
@@ -376,9 +388,7 @@ describe("ToolExecutor.handlePiInvoke", () => {
 
   test("callerExtensionId is passed to executeToolCall", async () => {
     const registry = ExtensionRegistry.getInstance();
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
     registry.registerToolForTest("dep-pkg__doStuff", {
       name: "dep-pkg__doStuff",
       originalName: "doStuff",
@@ -413,9 +423,7 @@ describe("ToolExecutor.handlePiInvoke", () => {
     // (set in `executeToolCall` immediately before dispatch) and
     // threads it through.
     const registry = ExtensionRegistry.getInstance();
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
     registry.registerToolForTest("dep-pkg__doStuff", {
       name: "dep-pkg__doStuff",
       originalName: "doStuff",
@@ -459,9 +467,7 @@ describe("ToolExecutor.handlePiInvoke", () => {
     // pass through.
     const { handleStorageRpc } = await import("../extensions/storage-handler");
     const registry = ExtensionRegistry.getInstance();
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
     registry.registerToolForTest("dep-pkg__storeIt", {
       name: "dep-pkg__storeIt",
       originalName: "storeIt",
@@ -520,9 +526,7 @@ describe("resolveDepTool edge cases", () => {
 
   test("non-namespaced tool name (no dot) returns null", () => {
     const registry = ExtensionRegistry.getInstance();
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
 
     const result = registry.resolveDepTool("caller-ext", "noDotsHere");
     expect(result).toBeNull();
@@ -555,9 +559,7 @@ describe("ToolExecutor.handlePiInvoke edge cases", () => {
   test("executeToolCall throws returns JSON-RPC error", async () => {
     const registry = ExtensionRegistry.getInstance();
 
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
     registry.registerToolForTest("dep-pkg__doStuff", {
       name: "dep-pkg__doStuff",
       originalName: "doStuff",
@@ -606,9 +608,7 @@ describe("ToolExecutor.handlePiInvoke edge cases", () => {
   test("missing arguments parameter defaults to empty object", async () => {
     const registry = ExtensionRegistry.getInstance();
 
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
     registry.registerToolForTest("dep-pkg__doStuff", {
       name: "dep-pkg__doStuff",
       originalName: "doStuff",
@@ -640,9 +640,7 @@ describe("ToolExecutor.handlePiInvoke edge cases", () => {
   test("depth just below limit (depth=9) succeeds", async () => {
     const registry = ExtensionRegistry.getInstance();
 
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
     registry.registerToolForTest("dep-pkg__doStuff", {
       name: "dep-pkg__doStuff",
       originalName: "doStuff",
@@ -677,9 +675,7 @@ describe("ToolExecutor.handlePiInvoke edge cases", () => {
   test("non-deputy callee (acceptsCallerCaps absent) → capContext = intersect(caller, callee) [HIGH 3]", async () => {
     const registry = ExtensionRegistry.getInstance();
 
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
     registry.registerToolForTest("dep-pkg__doStuff", {
       name: "dep-pkg__doStuff",
       originalName: "doStuff",
@@ -716,17 +712,13 @@ describe("ToolExecutor.handlePiInvoke edge cases", () => {
     await executor.handlePiInvoke("caller-ext", req);
     // HIGH 3 — flag absent → DEFAULT = intersection. capContext is
     // intersect(caller's [foo], callee's [foo,bar]) = [foo].
-    expect(capturedOpts?.capContext).toEqual([
-      { kind: "network", value: "foo.com" },
-    ]);
+    expect(capturedOpts?.capContext).toEqual([{ kind: "network", value: "foo.com" }]);
   });
 
   test("opt-OUT callee (acceptsCallerCaps: true on grant) → capContext UNDEFINED (callee runs with own grants)", async () => {
     const registry = ExtensionRegistry.getInstance();
 
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
     registry.registerToolForTest("dep-pkg__doStuff", {
       name: "dep-pkg__doStuff",
       originalName: "doStuff",
@@ -772,9 +764,7 @@ describe("ToolExecutor.handlePiInvoke edge cases", () => {
   test("opt-OUT callee with caller having no overlap → capContext UNDEFINED (callee's grants in effect)", async () => {
     const registry = ExtensionRegistry.getInstance();
 
-    registry.setDepRoutes(new Map([
-      ["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])],
-    ]));
+    registry.setDepRoutes(new Map([["caller-ext", new Map([["dep-pkg", "dep-ext-id"]])]]));
     registry.registerToolForTest("dep-pkg__doStuff", {
       name: "dep-pkg__doStuff",
       originalName: "doStuff",
@@ -848,7 +838,7 @@ describe("CLI dependency lifecycle logic", () => {
       {
         name: "consumer",
         manifest: makeManifest("consumer", "1.0.0", {
-          deps: { "provider": { source: "github:test/provider", version: "^1.0.0" } },
+          deps: { provider: { source: "github:test/provider", version: "^1.0.0" } },
         }),
       },
       {

@@ -28,19 +28,15 @@ const TITLE_PREFIX = /^(?:DEV )?(?:\(\d+\+?\) )?/;
  * re-adding them means re-running it (e.g. when the MutationObserver re-fires)
  * never accumulates `(3) (3) …`. A no-op when not dev and count is 0.
  */
-export function decorateTitle(
-	title: string,
-	count: number,
-	isDev: boolean,
-): string {
-	const base = title.replace(TITLE_PREFIX, "");
-	const dev = isDev ? "DEV " : "";
-	const badge = count > 0 ? `(${formatBadgeCount(count)}) ` : "";
-	return `${dev}${badge}${base}`;
+export function decorateTitle(title: string, count: number, isDev: boolean): string {
+  const base = title.replace(TITLE_PREFIX, "");
+  const dev = isDev ? "DEV " : "";
+  const badge = count > 0 ? `(${formatBadgeCount(count)}) ` : "";
+  return `${dev}${badge}${base}`;
 }
 
 function faviconBase(dev: boolean): string {
-	return dev ? "/favicon-dev-192.png" : "/favicon-192.png";
+  return dev ? "/favicon-dev-192.png" : "/favicon-192.png";
 }
 
 /**
@@ -59,87 +55,79 @@ function faviconBase(dev: boolean): string {
  * watch, so painting can never feed back into a re-decorate loop.
  */
 function ensureManagedLink(initialHref: string): HTMLLinkElement | null {
-	if (typeof document === "undefined") return null;
-	const head = document.head;
-	if (!head) return null;
+  if (typeof document === "undefined") return null;
+  const head = document.head;
+  if (!head) return null;
 
-	let link = document.getElementById(
-		MANAGED_LINK_ID,
-	) as HTMLLinkElement | null;
-	if (!link) {
-		link = document.createElement("link");
-		link.id = MANAGED_LINK_ID;
-		link.rel = "icon";
-		link.type = "image/png";
-		link.href = initialHref;
-		head.appendChild(link);
-	}
+  let link = document.getElementById(MANAGED_LINK_ID) as HTMLLinkElement | null;
+  if (!link) {
+    link = document.createElement("link");
+    link.id = MANAGED_LINK_ID;
+    link.rel = "icon";
+    link.type = "image/png";
+    link.href = initialHref;
+    head.appendChild(link);
+  }
 
-	// Drop the static competitors so the browser must use our link.
-	for (const other of head.querySelectorAll<HTMLLinkElement>(
-		'link[rel~="icon"]',
-	)) {
-		if (other.id !== MANAGED_LINK_ID) other.remove();
-	}
+  // Drop the static competitors so the browser must use our link.
+  for (const other of head.querySelectorAll<HTMLLinkElement>('link[rel~="icon"]')) {
+    if (other.id !== MANAGED_LINK_ID) other.remove();
+  }
 
-	return link;
+  return link;
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {
-	return new Promise((resolve, reject) => {
-		const img = new Image();
-		img.onload = () => resolve(img);
-		img.onerror = () => reject(new Error(`favicon load failed: ${src}`));
-		img.src = src;
-	});
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`favicon load failed: ${src}`));
+    img.src = src;
+  });
 }
 
-function drawBubble(
-	ctx: CanvasRenderingContext2D,
-	size: number,
-	text: string,
-): void {
-	const wide = text.length >= 3; // "99+"
-	const h = size * 0.62;
-	const w = wide ? size * 0.92 : h;
-	const x = size - w;
-	const y = size - h;
-	const r = h / 2;
+function drawBubble(ctx: CanvasRenderingContext2D, size: number, text: string): void {
+  const wide = text.length >= 3; // "99+"
+  const h = size * 0.62;
+  const w = wide ? size * 0.92 : h;
+  const x = size - w;
+  const y = size - h;
+  const r = h / 2;
 
-	// Cut a transparent moat so the bubble reads against a busy icon.
-	ctx.save();
-	ctx.globalCompositeOperation = "destination-out";
-	roundRect(ctx, x - 3, y - 3, w + 6, h + 6, r + 3);
-	ctx.fill();
-	ctx.restore();
+  // Cut a transparent moat so the bubble reads against a busy icon.
+  ctx.save();
+  ctx.globalCompositeOperation = "destination-out";
+  roundRect(ctx, x - 3, y - 3, w + 6, h + 6, r + 3);
+  ctx.fill();
+  ctx.restore();
 
-	ctx.fillStyle = "#ef4444";
-	roundRect(ctx, x, y, w, h, r);
-	ctx.fill();
+  ctx.fillStyle = "#ef4444";
+  roundRect(ctx, x, y, w, h, r);
+  ctx.fill();
 
-	ctx.fillStyle = "#ffffff";
-	ctx.font = `bold ${Math.round(wide ? h * 0.62 : h * 0.74)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-	ctx.textAlign = "center";
-	ctx.textBaseline = "middle";
-	ctx.fillText(text, x + w / 2, y + h / 2 + size * 0.02);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `bold ${Math.round(wide ? h * 0.62 : h * 0.74)}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x + w / 2, y + h / 2 + size * 0.02);
 }
 
 function roundRect(
-	ctx: CanvasRenderingContext2D,
-	x: number,
-	y: number,
-	w: number,
-	h: number,
-	r: number,
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
 ): void {
-	const rr = Math.min(r, w / 2, h / 2);
-	ctx.beginPath();
-	ctx.moveTo(x + rr, y);
-	ctx.arcTo(x + w, y, x + w, y + h, rr);
-	ctx.arcTo(x + w, y + h, x, y + h, rr);
-	ctx.arcTo(x, y + h, x, y, rr);
-	ctx.arcTo(x, y, x + w, y, rr);
-	ctx.closePath();
+  const rr = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  ctx.moveTo(x + rr, y);
+  ctx.arcTo(x + w, y, x + w, y + h, rr);
+  ctx.arcTo(x + w, y + h, x, y + h, rr);
+  ctx.arcTo(x, y + h, x, y, rr);
+  ctx.arcTo(x, y, x + w, y, rr);
+  ctx.closePath();
 }
 
 let paintSeq = 0;
@@ -149,42 +137,39 @@ let paintSeq = 0;
  * unsupported/failed path it leaves (or restores) the plain base favicon so
  * the title badge remains the user-visible signal.
  */
-export async function paintFavicon(
-	count: number,
-	opts: { dev?: boolean } = {},
-): Promise<void> {
-	const seq = ++paintSeq;
-	const base = faviconBase(opts.dev ?? false);
-	const link = ensureManagedLink(base);
-	if (!link) return;
+export async function paintFavicon(count: number, opts: { dev?: boolean } = {}): Promise<void> {
+  const seq = ++paintSeq;
+  const base = faviconBase(opts.dev ?? false);
+  const link = ensureManagedLink(base);
+  if (!link) return;
 
-	if (count <= 0) {
-		link.href = base;
-		return;
-	}
+  if (count <= 0) {
+    link.href = base;
+    return;
+  }
 
-	if (typeof document === "undefined" || typeof Image === "undefined") {
-		link.href = base;
-		return;
-	}
+  if (typeof document === "undefined" || typeof Image === "undefined") {
+    link.href = base;
+    return;
+  }
 
-	try {
-		const canvas = document.createElement("canvas");
-		canvas.width = 64;
-		canvas.height = 64;
-		const ctx = canvas.getContext("2d");
-		if (!ctx) {
-			link.href = base; // canvas unsupported (e.g. jsdom) → title fallback
-			return;
-		}
-		const img = await loadImage(base);
-		if (seq !== paintSeq) return; // a newer paint superseded us
-		ctx.drawImage(img, 0, 0, 64, 64);
-		drawBubble(ctx, 64, formatBadgeCount(count));
-		link.href = canvas.toDataURL("image/png");
-	} catch {
-		if (seq === paintSeq) link.href = base;
-	}
+  try {
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      link.href = base; // canvas unsupported (e.g. jsdom) → title fallback
+      return;
+    }
+    const img = await loadImage(base);
+    if (seq !== paintSeq) return; // a newer paint superseded us
+    ctx.drawImage(img, 0, 0, 64, 64);
+    drawBubble(ctx, 64, formatBadgeCount(count));
+    link.href = canvas.toDataURL("image/png");
+  } catch {
+    if (seq === paintSeq) link.href = base;
+  }
 }
 
 /**
@@ -194,40 +179,40 @@ export async function paintFavicon(
  * this supersedes it). Returns a disposer.
  */
 export function installFaviconBadge(): () => void {
-	if (typeof document === "undefined") return () => {};
+  if (typeof document === "undefined") return () => {};
 
-	const isDev = document.documentElement.dataset.devIndicator === "1";
-	let count = unreadStore.getTotalUnreadCount();
+  const isDev = document.documentElement.dataset.devIndicator === "1";
+  let count = unreadStore.getTotalUnreadCount();
 
-	// Create the managed link (and drop the static competitors) up front so
-	// the childList changes happen before the observer is watching.
-	ensureManagedLink(faviconBase(isDev));
+  // Create the managed link (and drop the static competitors) up front so
+  // the childList changes happen before the observer is watching.
+  ensureManagedLink(faviconBase(isDev));
 
-	let observer: MutationObserver | null = null;
+  let observer: MutationObserver | null = null;
 
-	const redecorate = () => {
-		observer?.disconnect();
-		const next = decorateTitle(document.title, count, isDev);
-		if (next !== document.title) document.title = next;
-		void paintFavicon(count, { dev: isDev });
-		observer?.observe(document.head, {
-			childList: true,
-			subtree: true,
-			characterData: true,
-		});
-	};
+  const redecorate = () => {
+    observer?.disconnect();
+    const next = decorateTitle(document.title, count, isDev);
+    if (next !== document.title) document.title = next;
+    void paintFavicon(count, { dev: isDev });
+    observer?.observe(document.head, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  };
 
-	observer = new MutationObserver(redecorate);
-	const unsub = unreadStore.subscribe(() => {
-		count = unreadStore.getTotalUnreadCount();
-		redecorate();
-	});
+  observer = new MutationObserver(redecorate);
+  const unsub = unreadStore.subscribe(() => {
+    count = unreadStore.getTotalUnreadCount();
+    redecorate();
+  });
 
-	redecorate();
+  redecorate();
 
-	return () => {
-		observer?.disconnect();
-		observer = null;
-		unsub();
-	};
+  return () => {
+    observer?.disconnect();
+    observer = null;
+    unsub();
+  };
 }

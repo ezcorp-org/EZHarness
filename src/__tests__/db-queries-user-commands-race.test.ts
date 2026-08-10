@@ -4,9 +4,7 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 mockDbConnection();
 
 const connection = await import("../db/connection");
-const { createUserCommand, listUserCommands } = await import(
-  "../db/queries/user-commands"
-);
+const { createUserCommand, listUserCommands } = await import("../db/queries/user-commands");
 const { createUser } = await import("../db/queries/users");
 
 /**

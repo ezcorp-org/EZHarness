@@ -36,9 +36,9 @@ const otherProject = makeProject({ id: OTHER_ID, name: OTHER_NAME });
 const conversation = makeConversation({ id: CONV_ID, projectId: PROJ_ID, title: "Hello" });
 
 const extension = makeExtension({
-	id: EXT_ID,
-	name: EXT_NAME,
-	description: "A handy extension for testing",
+  id: EXT_ID,
+  name: EXT_NAME,
+  description: "A handy extension for testing",
 });
 
 const sidebar = (page: Page) => page.getByTestId("desktop-sidebar");
@@ -50,87 +50,83 @@ const contextName = (page: Page) => sidebar(page).getByTestId("active-context-na
 const chatNavLink = (page: Page) => sidebar(page).getByRole("link", { name: "Chat", exact: true });
 
 const readActiveProjectId = (page: Page) =>
-	page.evaluate(() => localStorage.getItem("activeProjectId"));
+  page.evaluate(() => localStorage.getItem("activeProjectId"));
 
 /** Assert every surface that reads `activeProjectId` still names `proj-1`. */
 async function expectStillInProject(page: Page) {
-	await expect(contextName(page)).toHaveText(PROJ_NAME);
-	await expect(chatNavLink(page)).toHaveAttribute("href", `/project/${PROJ_ID}/chat`);
-	await expect(page.getByTestId("deck-statusbar")).toContainText(PROJ_NAME);
-	expect(await readActiveProjectId(page)).toBe(PROJ_ID);
+  await expect(contextName(page)).toHaveText(PROJ_NAME);
+  await expect(chatNavLink(page)).toHaveAttribute("href", `/project/${PROJ_ID}/chat`);
+  await expect(page.getByTestId("deck-statusbar")).toContainText(PROJ_NAME);
+  expect(await readActiveProjectId(page)).toBe(PROJ_ID);
 }
 
 test.describe("Project context survives non-project [id] routes @ desktop", () => {
-	test.use({ viewport: { width: 1280, height: 800 } });
+  test.use({ viewport: { width: 1280, height: 800 } });
 
-	test.beforeEach(async ({ page, mockApi }) => {
-		await mockApi({
-			projects: [project, otherProject],
-			conversations: [conversation],
-			extensions: [extension],
-		});
-		// Registered AFTER mockApi so it wins, and scoped to the exact path so
-		// the `/settings`, `/violations`, `/audit`, `/expired-grants` sub-routes
-		// still fall through to the fixture's own handlers.
-		await page.route("**/api/extensions/ext-1", (route) =>
-			route.fulfill({ json: extension }),
-		);
-	});
+  test.beforeEach(async ({ page, mockApi }) => {
+    await mockApi({
+      projects: [project, otherProject],
+      conversations: [conversation],
+      extensions: [extension],
+    });
+    // Registered AFTER mockApi so it wins, and scoped to the exact path so
+    // the `/settings`, `/violations`, `/audit`, `/expired-grants` sub-routes
+    // still fall through to the fixture's own handlers.
+    await page.route("**/api/extensions/ext-1", (route) => route.fulfill({ json: extension }));
+  });
 
-	test("clicking an extension card keeps the project open @evidence", async ({
-		page,
-	}, testInfo) => {
-		await page.goto(`/project/${PROJ_ID}/chat/${CONV_ID}`);
-		await expectStillInProject(page);
+  test("clicking an extension card keeps the project open @evidence", async ({
+    page,
+  }, testInfo) => {
+    await page.goto(`/project/${PROJ_ID}/chat/${CONV_ID}`);
+    await expectStillInProject(page);
 
-		// Walk the real navigation: sidebar → Extensions → the card's title link.
-		await sidebar(page).getByRole("link", { name: "Extensions" }).click();
-		await expect(page).toHaveURL(/\/extensions$/);
-		await expectStillInProject(page);
+    // Walk the real navigation: sidebar → Extensions → the card's title link.
+    await sidebar(page).getByRole("link", { name: "Extensions" }).click();
+    await expect(page).toHaveURL(/\/extensions$/);
+    await expectStillInProject(page);
 
-		const card = page.locator(`[data-testid="ext-card"][data-ext-id="${EXT_ID}"]`);
-		await expect(card).toBeVisible();
-		await card.getByRole("link", { name: EXT_NAME }).click();
+    const card = page.locator(`[data-testid="ext-card"][data-ext-id="${EXT_ID}"]`);
+    await expect(card).toBeVisible();
+    await card.getByRole("link", { name: EXT_NAME }).click();
 
-		await expect(page).toHaveURL(new RegExp(`/extensions/${EXT_ID}$`));
-		// The bug: `activeProjectId` became "ext-1" here, blanking the sidebar.
-		await expectStillInProject(page);
+    await expect(page).toHaveURL(new RegExp(`/extensions/${EXT_ID}$`));
+    // The bug: `activeProjectId` became "ext-1" here, blanking the sidebar.
+    await expectStillInProject(page);
 
-		await captureEvidence(page, testInfo, "extension-detail-keeps-project");
-	});
+    await captureEvidence(page, testInfo, "extension-detail-keeps-project");
+  });
 
-	test("a direct link to the extension detail page keeps the saved project", async ({
-		page,
-	}) => {
-		await page.goto(`/project/${PROJ_ID}/chat/${CONV_ID}`);
-		await expectStillInProject(page);
+  test("a direct link to the extension detail page keeps the saved project", async ({ page }) => {
+    await page.goto(`/project/${PROJ_ID}/chat/${CONV_ID}`);
+    await expectStillInProject(page);
 
-		// Full reload straight into the detail route — the layout re-runs its
-		// URL sync against a pathname that carries no project segment.
-		await page.goto(`/extensions/${EXT_ID}`);
-		await expect(page.getByRole("heading", { name: EXT_NAME })).toBeVisible();
-		await expectStillInProject(page);
-	});
+    // Full reload straight into the detail route — the layout re-runs its
+    // URL sync against a pathname that carries no project segment.
+    await page.goto(`/extensions/${EXT_ID}`);
+    await expect(page.getByRole("heading", { name: EXT_NAME })).toBeVisible();
+    await expectStillInProject(page);
+  });
 
-	test("the extension audit sub-route keeps the project too", async ({ page }) => {
-		await page.goto(`/project/${PROJ_ID}/chat/${CONV_ID}`);
-		await expectStillInProject(page);
+  test("the extension audit sub-route keeps the project too", async ({ page }) => {
+    await page.goto(`/project/${PROJ_ID}/chat/${CONV_ID}`);
+    await expectStillInProject(page);
 
-		await page.goto(`/extensions/${EXT_ID}/audit`);
-		await expect(page).toHaveURL(new RegExp(`/extensions/${EXT_ID}/audit$`));
-		await expectStillInProject(page);
-	});
+    await page.goto(`/extensions/${EXT_ID}/audit`);
+    await expect(page).toHaveURL(new RegExp(`/extensions/${EXT_ID}/audit$`));
+    await expectStillInProject(page);
+  });
 
-	test("a real project route still switches the workspace", async ({ page }) => {
-		// The other half of the fix: the sync must still FIRE for project
-		// routes, otherwise a deep link would strand the sidebar on the old one.
-		await page.goto(`/project/${PROJ_ID}/chat/${CONV_ID}`);
-		await expectStillInProject(page);
+  test("a real project route still switches the workspace", async ({ page }) => {
+    // The other half of the fix: the sync must still FIRE for project
+    // routes, otherwise a deep link would strand the sidebar on the old one.
+    await page.goto(`/project/${PROJ_ID}/chat/${CONV_ID}`);
+    await expectStillInProject(page);
 
-		await page.goto(`/project/${OTHER_ID}/chat`);
+    await page.goto(`/project/${OTHER_ID}/chat`);
 
-		await expect(contextName(page)).toHaveText(OTHER_NAME);
-		await expect(chatNavLink(page)).toHaveAttribute("href", `/project/${OTHER_ID}/chat`);
-		expect(await readActiveProjectId(page)).toBe(OTHER_ID);
-	});
+    await expect(contextName(page)).toHaveText(OTHER_NAME);
+    await expect(chatNavLink(page)).toHaveAttribute("href", `/project/${OTHER_ID}/chat`);
+    expect(await readActiveProjectId(page)).toBe(OTHER_ID);
+  });
 });

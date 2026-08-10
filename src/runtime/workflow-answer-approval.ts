@@ -62,10 +62,7 @@ import { claimWorkflowRun, getWorkflowRunRow } from "../db/queries/workflow-runs
 import { findDelegationHoldingAuthority } from "../db/queries/workflow-delegations";
 import { requireItemConsent } from "./workflow-approval-guard";
 import { resumeClaimedRun } from "./workflow-executor";
-import {
-  getWorkflowRuntime,
-  type WorkflowRuntime,
-} from "./workflow/runtime-registry";
+import { getWorkflowRuntime, type WorkflowRuntime } from "./workflow/runtime-registry";
 import { logger } from "../logger";
 
 const log = logger.child("workflow.approval");
@@ -214,9 +211,7 @@ export interface AnswerApprovalDeps {
  * granted the answer is how a delegated answer ends up unattributed (or, in
  * the other direction, attributed to somebody the row never named).
  */
-type UnscopedVerdict =
-  | { allowed: false }
-  | { allowed: true; answeredBy: string | null };
+type UnscopedVerdict = { allowed: false } | { allowed: true; answeredBy: string | null };
 
 /** What the decision is allowed to know about the run being answered. */
 interface RunFacts {
@@ -305,9 +300,7 @@ function mayAnswerUnscopedApproval(
         run.delegationId === actor.delegationId &&
         delegation !== undefined &&
         delegation.consentedByUserId === actor.answeringUserId;
-      return proved
-        ? { allowed: true, answeredBy: actor.answeringUserId }
-        : { allowed: false };
+      return proved ? { allowed: true, answeredBy: actor.answeringUserId } : { allowed: false };
     }
   }
 }
@@ -576,12 +569,7 @@ export async function answerApproval(
   // Through the shared sequence, which RE-READS the row under the claim
   // rather than resuming off the snapshot taken before it. See
   // {@link resumeClaimedRun}.
-  const run = await resumeClaimedRun(
-    runtime.workflowExecutor,
-    workflow,
-    runRow.id,
-    claimedBy,
-  );
+  const run = await resumeClaimedRun(runtime.workflowExecutor, workflow, runRow.id, claimedBy);
   // A resume that came back `error` is NOT a successful answer. Returning
   // `ok: true` here mapped to HTTP 200, telling the user their approval
   // landed while the workflow was dead and their answer already spent.

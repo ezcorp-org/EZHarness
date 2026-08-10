@@ -1,8 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import {
-  getDeclaredDefaults,
-  clampSettings,
-} from "../extension-settings";
+import { getDeclaredDefaults, clampSettings } from "../extension-settings";
 import type { SettingsSchema } from "../../../extensions/types";
 
 const FULL_SCHEMA: SettingsSchema = {
@@ -133,9 +130,7 @@ describe("clampSettings — accepts valid values across all field types", () => 
 
 describe("clampSettings — select rules", () => {
   test("drops value not in options", () => {
-    expect(
-      clampSettings(FULL_SCHEMA, { voice: "bx_unknown" }),
-    ).toEqual({});
+    expect(clampSettings(FULL_SCHEMA, { voice: "bx_unknown" })).toEqual({});
   });
 
   test("drops non-string select value", () => {
@@ -153,9 +148,7 @@ describe("clampSettings — text rules", () => {
   });
 
   test("drops too-long string", () => {
-    expect(
-      clampSettings(FULL_SCHEMA, { greeting: "abcdefghi" }),
-    ).toEqual({});
+    expect(clampSettings(FULL_SCHEMA, { greeting: "abcdefghi" })).toEqual({});
   });
 
   test("drops string failing pattern", () => {

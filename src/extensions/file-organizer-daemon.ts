@@ -140,7 +140,10 @@ export function mergeFileOrganizerSettings(
     merged.default_mode === "approve-non-destructive-only" ||
     merged.default_mode === "fully-auto";
   return {
-    daemonEnabled: typeof merged.daemon_enabled === "boolean" ? merged.daemon_enabled : DEFAULT_SETTINGS.daemonEnabled,
+    daemonEnabled:
+      typeof merged.daemon_enabled === "boolean"
+        ? merged.daemon_enabled
+        : DEFAULT_SETTINGS.daemonEnabled,
     defaultMode: validMode ? (merged.default_mode as Mode) : DEFAULT_SETTINGS.defaultMode,
     quarantineTtlDays: numOr(merged.quarantine_ttl_days, DEFAULT_SETTINGS.quarantineTtlDays),
     quarantineCapGb: numOr(merged.quarantine_cap_gb, DEFAULT_SETTINGS.quarantineCapGb),
@@ -241,9 +244,9 @@ export class FileOrganizerDaemon {
     }
 
     const intervalMs =
-      this.opts.wakeIntervalMsOverride ??
-      clampInterval(settings.scanIntervalSec) * 1000;
+      this.opts.wakeIntervalMsOverride ?? clampInterval(settings.scanIntervalSec) * 1000;
     this.timer = setInterval(() => {
+      // biome-ignore format: kept on one line because bun's coverage emitter mis-attributes hits across a split call — the arrow's head line reports 0 while its own body reports 62, which is incoherent and unreachable by any test. Splitting drops the file below its 100% threshold for a purely cosmetic reason.
       void this.tick().catch((err) => log.warn("file-organizer tick failed", { error: String(err) }));
     }, intervalMs);
     if (typeof this.timer === "object" && "unref" in this.timer) {
@@ -299,7 +302,9 @@ export class FileOrganizerDaemon {
       // Fail-closed: an unreachable watch root holds the folder (never
       // treat a missing/disconnected mount as "all files gone").
       if (!(await this.reachable(folder.path))) {
-        log.warn("file-organizer watch root unreachable — skipping (fail-closed)", { path: folder.path });
+        log.warn("file-organizer watch root unreachable — skipping (fail-closed)", {
+          path: folder.path,
+        });
         continue;
       }
       const ignores = effectiveIgnores(config, folder);
@@ -334,12 +339,20 @@ export class FileOrganizerDaemon {
         if (isUnstableName(entry.name)) continue; // partial download
 
         // First-run backlog: new-only skips pre-existing files.
-        if (folder.backlogPolicy === "new-only" && folder.epochMs !== undefined && entry.mtimeMs < folder.epochMs) {
+        if (
+          folder.backlogPolicy === "new-only" &&
+          folder.epochMs !== undefined &&
+          entry.mtimeMs < folder.epochMs
+        ) {
           continue;
         }
 
         // Stability gate — act only after N quiescent ticks.
-        const { state, stable } = tickStability(this.stability[entry.path], entry, settings.stabilityTicks);
+        const { state, stable } = tickStability(
+          this.stability[entry.path],
+          entry,
+          settings.stabilityTicks,
+        );
         this.stability[entry.path] = state;
         if (!stable) continue;
 
@@ -350,7 +363,12 @@ export class FileOrganizerDaemon {
           sha256 = nextCache[entry.path]!.sha256;
         } else if (decision === "miss") {
           sha256 = await this.hashFile(entry.path);
-          if (sha256) nextCache = updateHashCache(nextCache, entry.path, { size: entry.size, mtimeMs: entry.mtimeMs, sha256 });
+          if (sha256)
+            nextCache = updateHashCache(nextCache, entry.path, {
+              size: entry.size,
+              mtimeMs: entry.mtimeMs,
+              sha256,
+            });
         }
 
         const facts: FileFacts = {
@@ -370,7 +388,10 @@ export class FileOrganizerDaemon {
         const matched = firstMatch(rules, facts, nowMs, isDuplicate, folder.path);
         // Tally destructive (quarantine) matches per rule for the breaker.
         if (matched && matched.kind === "delete-quarantine" && matched.ruleId !== null) {
-          destructiveMatchCounts.set(matched.ruleId, (destructiveMatchCounts.get(matched.ruleId) ?? 0) + 1);
+          destructiveMatchCounts.set(
+            matched.ruleId,
+            (destructiveMatchCounts.get(matched.ruleId) ?? 0) + 1,
+          );
         }
         scanned.push({ entry, facts, sha256, decision, matched });
       }
@@ -421,7 +442,13 @@ export class FileOrganizerDaemon {
           // large) files can't be dup-checked, so they flag on pattern alone.
           if (decision !== "skip" && hashcache[entry.path] === undefined) continue;
           if (sha256 !== undefined && dupeHashes.has(sha256)) continue;
-          const candidate = { kind: "unclassified" as ProposalKind, src: entry.path, dst: null, ruleId: null, contentHash: sha256 ?? null };
+          const candidate = {
+            kind: "unclassified" as ProposalKind,
+            src: entry.path,
+            dst: null,
+            ruleId: null,
+            contentHash: sha256 ?? null,
+          };
           if (shouldSkipCandidate(file, candidate, nowMs)) continue;
           const proposal: Proposal = {
             id: cryptoId(),
@@ -432,9 +459,22 @@ export class FileOrganizerDaemon {
             ruleId: null,
             ruleLabel: null,
             folderId: folder.id,
-            snapshot: { size: entry.size, mtimeMs: entry.mtimeMs, ...(sha256 ? { sha256 } : {}), isSymlink: entry.isSymlink, dev: 0, ino: 0, nlink: entry.nlink },
+            snapshot: {
+              size: entry.size,
+              mtimeMs: entry.mtimeMs,
+              ...(sha256 ? { sha256 } : {}),
+              isSymlink: entry.isSymlink,
+              dev: 0,
+              ino: 0,
+              nlink: entry.nlink,
+            },
             status: "pending",
-            dedupeKey: computeDedupeKey({ kind: "unclassified", src: entry.path, dst: null, ruleId: null }),
+            dedupeKey: computeDedupeKey({
+              kind: "unclassified",
+              src: entry.path,
+              dst: null,
+              ruleId: null,
+            }),
             createdAt: new Date(nowMs).toISOString(),
             version: 0,
           };
@@ -444,7 +484,13 @@ export class FileOrganizerDaemon {
         }
 
         const { kind, dst, ruleId, ruleLabel, reason } = matched;
-        if (shouldSkipCandidate(file, { kind, src: entry.path, dst, ruleId, contentHash: sha256 ?? null }, nowMs)) {
+        if (
+          shouldSkipCandidate(
+            file,
+            { kind, src: entry.path, dst, ruleId, contentHash: sha256 ?? null },
+            nowMs,
+          )
+        ) {
           continue;
         }
 
@@ -457,7 +503,15 @@ export class FileOrganizerDaemon {
           ruleId,
           ruleLabel,
           folderId: folder.id,
-          snapshot: { size: entry.size, mtimeMs: entry.mtimeMs, ...(sha256 ? { sha256 } : {}), isSymlink: entry.isSymlink, dev: 0, ino: 0, nlink: entry.nlink },
+          snapshot: {
+            size: entry.size,
+            mtimeMs: entry.mtimeMs,
+            ...(sha256 ? { sha256 } : {}),
+            isSymlink: entry.isSymlink,
+            dev: 0,
+            ino: 0,
+            nlink: entry.nlink,
+          },
           status: "pending",
           dedupeKey: computeDedupeKey({ kind, src: entry.path, dst, ruleId }),
           createdAt: new Date(nowMs).toISOString(),
@@ -516,10 +570,20 @@ export class FileOrganizerDaemon {
       const outcome = await applyProposal(this.toApplierProposal(p), ctx);
       const updated = this.applyOutcomeToProposal(p, outcome, batchId);
       if (updated) {
-        working = { ...working, proposals: working.proposals.map((x) => (x.id === p.id ? updated : x)) };
+        working = {
+          ...working,
+          proposals: working.proposals.map((x) => (x.id === p.id ? updated : x)),
+        };
         if (outcome.status === "applied") {
           applied++;
-          if (outcome.quarantineId) await this.recordQuarantineEntry(p, outcome.quarantineId, outcome.resolvedPath ?? "", batchId, settings);
+          if (outcome.quarantineId)
+            await this.recordQuarantineEntry(
+              p,
+              outcome.quarantineId,
+              outcome.resolvedPath ?? "",
+              batchId,
+              settings,
+            );
         }
       }
     }
@@ -533,7 +597,12 @@ export class FileOrganizerDaemon {
   ): Proposal | null {
     switch (outcome.status) {
       case "applied":
-        return transition(p, "applied", { by: "daemon", at: new Date(this.now()).toISOString(), ...(batchId ? { batchId } : {}), ...(outcome.quarantineId ? { quarantineId: outcome.quarantineId } : {}) });
+        return transition(p, "applied", {
+          by: "daemon",
+          at: new Date(this.now()).toISOString(),
+          ...(batchId ? { batchId } : {}),
+          ...(outcome.quarantineId ? { quarantineId: outcome.quarantineId } : {}),
+        });
       case "failed":
         return transition(p, "failed");
       case "stale-source":
@@ -609,7 +678,12 @@ export class FileOrganizerDaemon {
       kind: p.kind,
       src: p.src,
       dst: p.dst,
-      snapshot: { size: p.snapshot.size, mtimeMs: p.snapshot.mtimeMs, isSymlink: p.snapshot.isSymlink, nlink: p.snapshot.nlink },
+      snapshot: {
+        size: p.snapshot.size,
+        mtimeMs: p.snapshot.mtimeMs,
+        isSymlink: p.snapshot.isSymlink,
+        nlink: p.snapshot.nlink,
+      },
       ...(p.quarantineId ? { quarantineId: p.quarantineId } : {}),
     };
   }
@@ -695,7 +769,9 @@ export class FileOrganizerDaemon {
       const f = Bun.file(this.manifestPath);
       if (!(await f.exists())) return emptyManifest();
       const parsed = JSON.parse(await f.text());
-      return parsed && Array.isArray(parsed.entries) ? (parsed as QuarantineManifest) : emptyManifest();
+      return parsed && Array.isArray(parsed.entries)
+        ? (parsed as QuarantineManifest)
+        : emptyManifest();
     } catch {
       // Corrupt manifest ⇒ keep (fail-safe), never auto-prune.
       return emptyManifest();
@@ -708,8 +784,14 @@ export class FileOrganizerDaemon {
 
   private async writeBadge(file: ProposalsFile): Promise<void> {
     const pending = file.proposals.filter((p) => p.status === "pending").length;
-    const unclassified = file.proposals.filter((p) => p.kind === "unclassified" && p.status === "pending").length;
-    const badge: BadgeFile = { pending, unclassified, lastScanAt: new Date(this.now()).toISOString() };
+    const unclassified = file.proposals.filter(
+      (p) => p.kind === "unclassified" && p.status === "pending",
+    ).length;
+    const badge: BadgeFile = {
+      pending,
+      unclassified,
+      lastScanAt: new Date(this.now()).toISOString(),
+    };
     await atomicWrite(this.badgePath, JSON.stringify(badge, null, 2));
   }
 
@@ -759,11 +841,23 @@ function firstMatch(
   now: number,
   isDuplicate: boolean,
   watchedRoot: string,
-): { kind: ProposalKind; dst: string | null; ruleId: string | null; ruleLabel: string | null; reason: string } | null {
+): {
+  kind: ProposalKind;
+  dst: string | null;
+  ruleId: string | null;
+  ruleLabel: string | null;
+  reason: string;
+} | null {
   for (const rule of rules) {
     if (!ruleMatches(rule, facts, { now, isDuplicate })) continue;
     if (rule.action === "quarantine") {
-      return { kind: "delete-quarantine", dst: null, ruleId: rule.id, ruleLabel: rule.label, reason: rule.label };
+      return {
+        kind: "delete-quarantine",
+        dst: null,
+        ruleId: rule.id,
+        ruleLabel: rule.label,
+        reason: rule.label,
+      };
     }
     // Idempotent routing: a `route`/`move` rule must NOT re-fire on a file
     // already living inside its own destination dir. Without this, the

@@ -180,9 +180,7 @@ describe("dependency denylist", () => {
   test("the web/** override drops only vitest and restates everything else", async () => {
     const cfg = await readBiomeConfig();
     const base = cfg.linter?.rules?.style?.noRestrictedImports as RestrictedImports | undefined;
-    const override = cfg.overrides?.find((o) =>
-      (o.includes ?? []).some((g) => g === "web/**"),
-    );
+    const override = cfg.overrides?.find((o) => (o.includes ?? []).some((g) => g === "web/**"));
     expect(override).toBeDefined();
 
     const overrideRule = override?.linter?.rules?.style?.noRestrictedImports as
@@ -293,9 +291,7 @@ describe("biome lint policy", () => {
     //     in made the files measurable, at which point four of the sixteen
     //     `any`s were typed away outright and the rest took an ordinary
     //     inline `biome-ignore` with a reason.
-    const unmeasurable = globs.filter(
-      (g) => !g.startsWith("**/") && !g.startsWith("web/e2e"),
-    );
+    const unmeasurable = globs.filter((g) => !g.startsWith("**/") && !g.startsWith("web/e2e"));
     expect(unmeasurable.sort()).toEqual([]);
   });
 

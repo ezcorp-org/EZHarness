@@ -3,11 +3,7 @@ import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import { requireTeamRole } from "$server/auth/middleware";
-import {
-  getTeamMembers,
-  addTeamMember,
-  removeTeamMember,
-} from "$server/db/queries/teams";
+import { getTeamMembers, addTeamMember, removeTeamMember } from "$server/db/queries/teams";
 import { requireScope } from "$lib/server/security/api-keys";
 
 // Boundary validation. POST adds a member, DELETE removes one. Both
@@ -15,14 +11,18 @@ import { requireScope } from "$lib/server/security/api-keys";
 // inline 400 messages — `"userId is required"` and `"Invalid role"` —
 // are test-pinned, so `role` stays a permissive string in the schema
 // and the inline enum check fires for invalid values.
-const addMemberSchema = z.object({
-  userId: z.string().optional(),
-  role: z.string().optional(),
-}).strict();
+const addMemberSchema = z
+  .object({
+    userId: z.string().optional(),
+    role: z.string().optional(),
+  })
+  .strict();
 
-const removeMemberSchema = z.object({
-  userId: z.string().optional(),
-}).strict();
+const removeMemberSchema = z
+  .object({
+    userId: z.string().optional(),
+  })
+  .strict();
 
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");

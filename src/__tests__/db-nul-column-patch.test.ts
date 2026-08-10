@@ -9,11 +9,7 @@
  * state.
  */
 import { test, expect, describe, afterEach } from "bun:test";
-import {
-  patchJsonColumns,
-  patchTextColumns,
-  applyPgliteNulPatches,
-} from "../db/nul-column-patch";
+import { patchJsonColumns, patchTextColumns, applyPgliteNulPatches } from "../db/nul-column-patch";
 
 const NUL = String.fromCharCode(0);
 const FFFD = String.fromCharCode(0xfffd);

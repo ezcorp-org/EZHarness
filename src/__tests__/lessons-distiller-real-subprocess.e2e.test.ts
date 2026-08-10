@@ -35,14 +35,7 @@ afterAll(() => restoreModuleMocks());
 import { ExtensionProcess } from "../extensions/subprocess";
 import type { JsonRpcResponse } from "../extensions/types";
 
-const ENTRYPOINT = join(
-  import.meta.dir,
-  "..",
-  "..",
-  "extensions",
-  "lessons-distiller",
-  "index.ts",
-);
+const ENTRYPOINT = join(import.meta.dir, "..", "..", "extensions", "lessons-distiller", "index.ts");
 
 const CONV_ID = "conv-distill-1";
 const PROJECT_ID = "proj-1";
@@ -194,7 +187,11 @@ const GOOD_LESSON = JSON.stringify({
   slug: "prefer-bun-over-npm",
   title: "Use bun, not npm, in this project",
   body: "The project standardises on bun. Reach for `bun install` / `bun run`.",
-  frontmatter: { trigger: ["package manager choice"], applies_to: ["tool:bun"], confidence: "high" },
+  frontmatter: {
+    trigger: ["package manager choice"],
+    applies_to: ["tool:bun"],
+    confidence: "high",
+  },
 });
 
 describe("lessons-distiller — real subprocess auto-distill", () => {
@@ -295,7 +292,8 @@ describe("lessons-distiller — real subprocess auto-distill", () => {
     // message read, not two.
     expect(
       state.calls.filter(
-        (c) => c.method === "ezcorp/invoke" && c.params.tool === "runtime.conversations.getMessages",
+        (c) =>
+          c.method === "ezcorp/invoke" && c.params.tool === "runtime.conversations.getMessages",
       ).length,
     ).toBe(1);
   }, 20_000);
@@ -325,21 +323,20 @@ describe("lessons-distiller — real subprocess auto-distill", () => {
     // and start time differ per turn, which is what lets the host stop
     // re-scoring the whole conversation.
     const gateArgs = state.calls
-      .filter((c) => c.method === "ezcorp/invoke" && c.params.tool === "runtime.lessons.triggerGate")
+      .filter(
+        (c) => c.method === "ezcorp/invoke" && c.params.tool === "runtime.lessons.triggerGate",
+      )
       .map((c) => c.params.arguments);
     expect(gateArgs.length).toBe(3);
-    expect(
-      [...gateArgs]
-        .map((a) => (a as { runId?: string }).runId)
-        .sort(),
-    ).toEqual(runIds);
+    expect([...gateArgs].map((a) => (a as { runId?: string }).runId).sort()).toEqual(runIds);
     expect(
       new Set(gateArgs.map((a) => (a as { runStartedAtMs?: number }).runStartedAtMs)).size,
     ).toBe(3);
     // Still one message read per fire, never two.
     expect(
       state.calls.filter(
-        (c) => c.method === "ezcorp/invoke" && c.params.tool === "runtime.conversations.getMessages",
+        (c) =>
+          c.method === "ezcorp/invoke" && c.params.tool === "runtime.conversations.getMessages",
       ).length,
     ).toBe(3);
   }, 30_000);
@@ -365,10 +362,7 @@ describe("lessons-distiller — real subprocess auto-distill", () => {
       conversationId: CONV_ID,
       run: { id: "run-e", agentName: "chat", status: "success" },
     });
-    await waitFor(
-      () => state.calls.some((c) => c.method === "ezcorp/llm-complete"),
-      6000,
-    );
+    await waitFor(() => state.calls.some((c) => c.method === "ezcorp/llm-complete"), 6000);
     await new Promise((r) => setTimeout(r, 300));
     expect(state.written.length).toBe(0);
     // The subprocess must still be alive and serving tools.

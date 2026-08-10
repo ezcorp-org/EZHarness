@@ -197,13 +197,7 @@ export class GithubRateLimitError extends Error {
 // (jail-readable — issue #60); every host importer resolves it here unchanged.
 export { GITHUB_PROJECTS_RPC_PREFIX } from "../../../docs/extensions/examples/github-projects/contract";
 
-export type GithubProjectsRpcVerb =
-  | "list"
-  | "create"
-  | "update"
-  | "move"
-  | "archive"
-  | "comment";
+export type GithubProjectsRpcVerb = "list" | "create" | "update" | "move" | "archive" | "comment";
 
 export interface GithubRpcListParams {
   status?: string;

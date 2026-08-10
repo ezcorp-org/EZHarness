@@ -52,20 +52,14 @@ vi.mock("$server/runtime/task-tracking-host", () => ({
 // future tests can do identity comparisons if the PDP wiring needs to
 // be asserted; for now the only requirement is "don't throw at L92".
 const MOCK_ENGINE = { __mock: "permission-engine-singleton" };
-const getPermissionEngineSpy = vi.fn(
-  (..._args: unknown[]): Record<string, unknown> => MOCK_ENGINE,
-);
+const getPermissionEngineSpy = vi.fn((..._args: unknown[]): Record<string, unknown> => MOCK_ENGINE);
 vi.mock("$server/extensions/permission-engine", () => ({
   getPermissionEngine: (...args: unknown[]) => getPermissionEngineSpy(...args),
 }));
 
 const { POST } = await import("../routes/api/tool-invoke/+server");
 
-function makeEvent(opts: {
-  body?: unknown;
-  locals?: Record<string, unknown>;
-  bodyRaw?: string;
-}) {
+function makeEvent(opts: { body?: unknown; locals?: Record<string, unknown>; bodyRaw?: string }) {
   const init: RequestInit = { method: "POST" };
   if (opts.bodyRaw !== undefined) {
     init.body = opts.bodyRaw;
@@ -144,9 +138,7 @@ describe("POST /api/tool-invoke", () => {
   });
 
   test("rejects 400 when body is not valid JSON", async () => {
-    const res = await POST(
-      makeEvent({ locals: authedUser, bodyRaw: "not-json" }),
-    );
+    const res = await POST(makeEvent({ locals: authedUser, bodyRaw: "not-json" }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Invalid JSON body");

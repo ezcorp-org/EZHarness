@@ -101,7 +101,9 @@ afterAll(() => restoreModuleMocks());
 
 describe("POST /api/conversations/[id]/extensions — gates", () => {
   test("403 when an API key lacks the 'extensions' scope", async () => {
-    const res = await POST(postEvent({ locals: { user, apiKeyScopes: ["read", "chat"] }, body: { names: ["a"] } }));
+    const res = await POST(
+      postEvent({ locals: { user, apiKeyScopes: ["read", "chat"] }, body: { names: ["a"] } }),
+    );
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error?: string; required?: string };
     expect(body.error).toBe("Insufficient scope");
@@ -188,7 +190,9 @@ describe("POST — wiring", () => {
   test("200 happy path writes rows and returns wired + extensionIds", async () => {
     extByName.set("a", { id: "id-a", name: "a" });
     extByName.set("b", { id: "id-b", name: "b" });
-    const res = await POST(postEvent({ locals: { user, apiKeyScopes: ["extensions"] }, body: { names: ["a", "b"] } }));
+    const res = await POST(
+      postEvent({ locals: { user, apiKeyScopes: ["extensions"] }, body: { names: ["a", "b"] } }),
+    );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { wired: string[]; extensionIds: string[] };
     expect(body.wired).toEqual(["a", "b"]);

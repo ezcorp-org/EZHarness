@@ -50,10 +50,7 @@ export function systemUserIdFor(extensionName: string): string {
   // refuses shell/path-metacharacter-like characters outright. Length
   // cap 63 keeps the final `sys-<name>` fits in 67 chars (plenty of
   // headroom for any DB id column, log-line formatters, and URL paths).
-  if (
-    !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(extensionName) ||
-    extensionName.length > 63
-  ) {
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(extensionName) || extensionName.length > 63) {
     throw new Error(
       `systemUserIdFor: invalid extensionName ${JSON.stringify(extensionName)} — must be lowercase kebab`,
     );

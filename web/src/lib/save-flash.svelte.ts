@@ -11,50 +11,50 @@
  *   // flash.error after a failed save (until the next run starts)
  */
 export interface SaveFlash {
-	readonly saving: boolean;
-	readonly saved: boolean;
-	readonly error: boolean;
-	/** Resolves true on success, false on failure (never rethrows). */
-	run(fn: () => Promise<unknown>): Promise<boolean>;
+  readonly saving: boolean;
+  readonly saved: boolean;
+  readonly error: boolean;
+  /** Resolves true on success, false on failure (never rethrows). */
+  run(fn: () => Promise<unknown>): Promise<boolean>;
 }
 
 export function createSaveFlash(timeoutMs = 2000): SaveFlash {
-	let saving = $state(false);
-	let saved = $state(false);
-	let error = $state(false);
-	let timer: ReturnType<typeof setTimeout> | undefined;
+  let saving = $state(false);
+  let saved = $state(false);
+  let error = $state(false);
+  let timer: ReturnType<typeof setTimeout> | undefined;
 
-	return {
-		get saving() {
-			return saving;
-		},
-		get saved() {
-			return saved;
-		},
-		get error() {
-			return error;
-		},
-		async run(fn: () => Promise<unknown>): Promise<boolean> {
-			saving = true;
-			saved = false;
-			error = false;
-			if (timer) clearTimeout(timer);
-			try {
-				await fn();
-				saved = true;
-				timer = setTimeout(() => {
-					saved = false;
-				}, timeoutMs);
-				return true;
-			} catch {
-				// Surface via the error state — callers roll back their
-				// optimistic mutation on `false`; the control itself is
-				// the retry affordance.
-				error = true;
-				return false;
-			} finally {
-				saving = false;
-			}
-		},
-	};
+  return {
+    get saving() {
+      return saving;
+    },
+    get saved() {
+      return saved;
+    },
+    get error() {
+      return error;
+    },
+    async run(fn: () => Promise<unknown>): Promise<boolean> {
+      saving = true;
+      saved = false;
+      error = false;
+      if (timer) clearTimeout(timer);
+      try {
+        await fn();
+        saved = true;
+        timer = setTimeout(() => {
+          saved = false;
+        }, timeoutMs);
+        return true;
+      } catch {
+        // Surface via the error state — callers roll back their
+        // optimistic mutation on `false`; the control itself is
+        // the retry affordance.
+        error = true;
+        return false;
+      } finally {
+        saving = false;
+      }
+    },
+  };
 }

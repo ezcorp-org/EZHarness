@@ -28,15 +28,21 @@ describe("clampSearchPermission", () => {
     expect(clampSearchPermission(undefined, {} as ManifestSearch)).toBe("inherit");
   });
 
-  test("an `\"inherit\"` ceiling normalizes to unrestricted (object override clamps to defaults)", () => {
+  test('an `"inherit"` ceiling normalizes to unrestricted (object override clamps to defaults)', () => {
     const out = clampSearchPermission({ quota: 50, maxResults: 3 }, "inherit" as never);
     expect(out).toEqual({ quota: 50, maxResults: 3 });
   });
 
   test("numeric override clamps to the narrower of submitted and manifest", () => {
     const manifest: ManifestSearch = { quota: 100, maxResults: 10 };
-    expect(clampSearchPermission({ quota: 500, maxResults: 20 }, manifest)).toEqual({ quota: 100, maxResults: 10 });
-    expect(clampSearchPermission({ quota: 30, maxResults: 4 }, manifest)).toEqual({ quota: 30, maxResults: 4 });
+    expect(clampSearchPermission({ quota: 500, maxResults: 20 }, manifest)).toEqual({
+      quota: 100,
+      maxResults: 10,
+    });
+    expect(clampSearchPermission({ quota: 30, maxResults: 4 }, manifest)).toEqual({
+      quota: 30,
+      maxResults: 4,
+    });
   });
 
   test("providers intersect submitted ∩ manifest ∩ KNOWN", () => {
@@ -52,14 +58,19 @@ describe("clampSearchPermission", () => {
     expect(out).toEqual({});
   });
 
-  test("submitted providers \"inherit\" passes through", () => {
-    const out = clampSearchPermission({ providers: "inherit", quota: 10 }, { quota: 100 } as ManifestSearch);
+  test('submitted providers "inherit" passes through', () => {
+    const out = clampSearchPermission({ providers: "inherit", quota: 10 }, {
+      quota: 100,
+    } as ManifestSearch);
     expect(out).toEqual({ quota: 10, providers: "inherit" });
   });
 
-  test("manifest providers \"inherit\" allows any KNOWN provider", () => {
+  test('manifest providers "inherit" allows any KNOWN provider', () => {
     const manifest: ManifestSearch = { providers: "inherit" };
-    const out = clampSearchPermission({ providers: [...KNOWN_SEARCH_PROVIDERS, "bogus"] }, manifest);
+    const out = clampSearchPermission(
+      { providers: [...KNOWN_SEARCH_PROVIDERS, "bogus"] },
+      manifest,
+    );
     expect(out).toEqual({ providers: [...KNOWN_SEARCH_PROVIDERS] });
   });
 

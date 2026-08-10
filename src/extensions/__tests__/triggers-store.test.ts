@@ -6,31 +6,54 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
 
 import {
-  mintWebhookSlug, defaultPerKeyCap, isMintableSlug,
-  TRIGGER_KEY_RE, WEBHOOK_PREFIX_RE,
-  listDynamicCrons, listDynamicWebhooks,
-  getDynamicCron, getDynamicWebhook,
-  upsertDynamicCron, upsertDynamicWebhook,
-  deleteDynamicCron, softDeleteDynamicWebhook,
-  disableDynamicCrons, disableDynamicWebhooks,
-  manifestSlugExists, todaysFireCountForSchedule,
+  mintWebhookSlug,
+  defaultPerKeyCap,
+  isMintableSlug,
+  TRIGGER_KEY_RE,
+  WEBHOOK_PREFIX_RE,
+  listDynamicCrons,
+  listDynamicWebhooks,
+  getDynamicCron,
+  getDynamicWebhook,
+  upsertDynamicCron,
+  upsertDynamicWebhook,
+  deleteDynamicCron,
+  softDeleteDynamicWebhook,
+  disableDynamicCrons,
+  disableDynamicWebhooks,
+  manifestSlugExists,
+  todaysFireCountForSchedule,
 } from "../triggers-store";
 import {
-  extensionSchedules, extensionScheduleFires, extensionWebhooks, extensions,
+  extensionSchedules,
+  extensionScheduleFires,
+  extensionWebhooks,
+  extensions,
 } from "../../db/schema";
 import { eq } from "drizzle-orm";
 
@@ -43,14 +66,25 @@ const NOW = new Date("2026-07-29T12:00:00.000Z");
 const NEXT = new Date("2026-07-30T09:00:00.000Z");
 
 async function ensureExtension(name: string): Promise<string> {
-  const [row] = await getTestDb().insert(extensions).values({
-    name, version: "0.0.1", description: "",
-    manifest: {
-      schemaVersion: 2, name, version: "0.0.1", description: "",
-      author: { name: "t" }, permissions: {},
-    } as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name,
+      version: "0.0.1",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    })
+    .returning({ id: extensions.id });
   return row!.id;
 }
 
@@ -73,8 +107,13 @@ afterAll(async () => {
 
 function cron(key: string, expr = "0 9 * * 1") {
   return {
-    extensionId: extIdA, key, cron: expr, timezone: null,
-    nextFireAt: NEXT, maxRunsPerDay: 10, now: NOW,
+    extensionId: extIdA,
+    key,
+    cron: expr,
+    timezone: null,
+    nextFireAt: NEXT,
+    maxRunsPerDay: 10,
+    now: NOW,
   };
 }
 
@@ -95,8 +134,9 @@ describe("mintWebhookSlug", () => {
   });
 
   test("diverges across keys under one extension", () => {
-    expect(mintWebhookSlug("factory-", EXT_A, "job:1"))
-      .not.toBe(mintWebhookSlug("factory-", EXT_A, "job:2"));
+    expect(mintWebhookSlug("factory-", EXT_A, "job:1")).not.toBe(
+      mintWebhookSlug("factory-", EXT_A, "job:2"),
+    );
   });
 
   test("always satisfies WEBHOOK_SLUG_RE, including at the longest prefix", () => {
@@ -134,11 +174,11 @@ describe("key + prefix shapes", () => {
   test("WEBHOOK_PREFIX_RE requires a trailing hyphen and bounds length", () => {
     expect(WEBHOOK_PREFIX_RE.test("factory-")).toBe(true);
     expect(WEBHOOK_PREFIX_RE.test("f-")).toBe(true);
-    expect(WEBHOOK_PREFIX_RE.test("factory")).toBe(false);   // no trailing -
+    expect(WEBHOOK_PREFIX_RE.test("factory")).toBe(false); // no trailing -
     expect(WEBHOOK_PREFIX_RE.test("-factory-")).toBe(false); // leading -
-    expect(WEBHOOK_PREFIX_RE.test("Factory-")).toBe(false);  // caps
+    expect(WEBHOOK_PREFIX_RE.test("Factory-")).toBe(false); // caps
     // 17 is the ceiling: 1 head + 15 body + the trailing hyphen.
-    expect(WEBHOOK_PREFIX_RE.test("abcdefghijklmnop-")).toBe(true);  // 17
+    expect(WEBHOOK_PREFIX_RE.test("abcdefghijklmnop-")).toBe(true); // 17
     expect(WEBHOOK_PREFIX_RE.test("abcdefghijklmnopq-")).toBe(false); // 18
   });
 
@@ -186,7 +226,9 @@ describe("cron rows", () => {
 
   test("list excludes MANIFEST rows", async () => {
     await getTestDb().insert(extensionSchedules).values({
-      extensionId: extIdA, cron: "0 3 * * *", nextFireAt: NEXT,
+      extensionId: extIdA,
+      cron: "0 3 * * *",
+      nextFireAt: NEXT,
     });
     await upsertDynamicCron(cron("job:1"));
     const listed = await listDynamicCrons(extIdA);
@@ -204,7 +246,8 @@ describe("cron rows", () => {
   test("re-register UPDATES IN PLACE (same row id) — T4 idempotency", async () => {
     const first = await upsertDynamicCron(cron("job:1", "0 9 * * 1"));
     const second = await upsertDynamicCron({
-      ...cron("job:1", "0 10 * * 2"), maxRunsPerDay: 7,
+      ...cron("job:1", "0 10 * * 2"),
+      maxRunsPerDay: 7,
     });
     expect(second.id).toBe(first.id);
     expect(second.cron).toBe("0 10 * * 2");
@@ -216,7 +259,8 @@ describe("cron rows", () => {
     // A job auto-disabled after 5 handler throws must come back when the
     // user saves it again, or "save" silently does nothing.
     const first = await upsertDynamicCron(cron("job:1"));
-    await getTestDb().update(extensionSchedules)
+    await getTestDb()
+      .update(extensionSchedules)
       .set({ enabled: false, consecutiveErrors: 5 })
       .where(eq(extensionSchedules.id, first.id));
 
@@ -235,7 +279,8 @@ describe("cron rows", () => {
 
   test("timezone round-trips", async () => {
     const row = await upsertDynamicCron({
-      ...cron("job:tz"), timezone: "America/New_York",
+      ...cron("job:tz"),
+      timezone: "America/New_York",
     });
     expect(row.timezone).toBe("America/New_York");
   });
@@ -250,7 +295,9 @@ describe("cron rows", () => {
 
   test("getDynamicCron never returns a manifest row", async () => {
     await getTestDb().insert(extensionSchedules).values({
-      extensionId: extIdA, cron: "0 3 * * *", nextFireAt: NEXT,
+      extensionId: extIdA,
+      cron: "0 3 * * *",
+      nextFireAt: NEXT,
     });
     expect(await getDynamicCron(extIdA, "job:1")).toBeUndefined();
   });
@@ -268,7 +315,10 @@ describe("webhook rows", () => {
 
   test("register inserts a dynamic row with the minted slug", async () => {
     const row = await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+      extensionName: EXT_A,
+      key: "job:1",
+      slug: slug1,
+      now: NOW,
     });
     expect(row.dynamic).toBe(true);
     expect(row.slug).toBe(slug1);
@@ -278,10 +328,16 @@ describe("webhook rows", () => {
 
   test("re-register keeps the SAME row and slug — T4 idempotency", async () => {
     const first = await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+      extensionName: EXT_A,
+      key: "job:1",
+      slug: slug1,
+      now: NOW,
     });
     const second = await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+      extensionName: EXT_A,
+      key: "job:1",
+      slug: slug1,
+      now: NOW,
     });
     expect(second.id).toBe(first.id);
     expect(second.slug).toBe(first.slug);
@@ -290,26 +346,40 @@ describe("webhook rows", () => {
 
   test("re-register re-enables a disabled row", async () => {
     const first = await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+      extensionName: EXT_A,
+      key: "job:1",
+      slug: slug1,
+      now: NOW,
     });
-    await getTestDb().update(extensionWebhooks)
-      .set({ enabled: false }).where(eq(extensionWebhooks.id, first.id));
+    await getTestDb()
+      .update(extensionWebhooks)
+      .set({ enabled: false })
+      .where(eq(extensionWebhooks.id, first.id));
     const again = await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+      extensionName: EXT_A,
+      key: "job:1",
+      slug: slug1,
+      now: NOW,
     });
     expect(again.enabled).toBe(true);
   });
 
   test("list excludes manifest rows and soft-deleted tombstones", async () => {
     await getTestDb().insert(extensionWebhooks).values({
-      extensionId: EXT_A, slug: "tickets",
+      extensionId: EXT_A,
+      slug: "tickets",
     });
     await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+      extensionName: EXT_A,
+      key: "job:1",
+      slug: slug1,
+      now: NOW,
     });
     await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:2",
-      slug: mintWebhookSlug("factory-", EXT_A, "job:2"), now: NOW,
+      extensionName: EXT_A,
+      key: "job:2",
+      slug: mintWebhookSlug("factory-", EXT_A, "job:2"),
+      now: NOW,
     });
     await softDeleteDynamicWebhook(EXT_A, "job:2", NOW);
 
@@ -320,7 +390,10 @@ describe("webhook rows", () => {
 
   test("getDynamicWebhook finds, misses, and is extension-scoped", async () => {
     await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+      extensionName: EXT_A,
+      key: "job:1",
+      slug: slug1,
+      now: NOW,
     });
     expect((await getDynamicWebhook(EXT_A, "job:1"))?.slug).toBe(slug1);
     expect(await getDynamicWebhook(EXT_A, "job:absent")).toBeUndefined();
@@ -329,12 +402,17 @@ describe("webhook rows", () => {
 
   test("soft delete preserves the row + delivery history and frees the key", async () => {
     const row = await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+      extensionName: EXT_A,
+      key: "job:1",
+      slug: slug1,
+      now: NOW,
     });
     const freed = await softDeleteDynamicWebhook(EXT_A, "job:1", NOW);
     expect(freed).toBe(slug1);
 
-    const after = await getTestDb().select().from(extensionWebhooks)
+    const after = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
       .where(eq(extensionWebhooks.id, row.id));
     // Row survives (its `webhook_deliveries` would CASCADE on a hard delete).
     expect(after).toHaveLength(1);
@@ -353,18 +431,26 @@ describe("webhook rows", () => {
     // collide with it forever; reviving both fixes that and hands the job
     // back its `webhook_deliveries` history.
     const first = await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+      extensionName: EXT_A,
+      key: "job:1",
+      slug: slug1,
+      now: NOW,
     });
     await softDeleteDynamicWebhook(EXT_A, "job:1", NOW);
 
     const again = await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+      extensionName: EXT_A,
+      key: "job:1",
+      slug: slug1,
+      now: NOW,
     });
 
     expect(again.id).toBe(first.id); // the SAME row came back
     expect(again.key).toBe("job:1");
     expect(again.enabled).toBe(true);
-    const all = await getTestDb().select().from(extensionWebhooks)
+    const all = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
       .where(eq(extensionWebhooks.extensionId, EXT_A));
     expect(all).toHaveLength(1);
   });
@@ -373,17 +459,25 @@ describe("webhook rows", () => {
     // Revival keys on the SLUG, and a different key mints a different slug,
     // so the two can never be confused.
     await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1", slug: slug1, now: NOW,
+      extensionName: EXT_A,
+      key: "job:1",
+      slug: slug1,
+      now: NOW,
     });
     await softDeleteDynamicWebhook(EXT_A, "job:1", NOW);
 
     const other = mintWebhookSlug("factory-", EXT_A, "job:2");
     const fresh = await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:2", slug: other, now: NOW,
+      extensionName: EXT_A,
+      key: "job:2",
+      slug: other,
+      now: NOW,
     });
 
     expect(fresh.key).toBe("job:2");
-    const all = await getTestDb().select().from(extensionWebhooks)
+    const all = await getTestDb()
+      .select()
+      .from(extensionWebhooks)
       .where(eq(extensionWebhooks.extensionId, EXT_A));
     expect(all).toHaveLength(2); // the tombstone plus the new row
   });
@@ -391,7 +485,8 @@ describe("webhook rows", () => {
   test("manifestSlugExists detects a colliding author-declared slug", async () => {
     expect(await manifestSlugExists(EXT_A, slug1)).toBe(false);
     await getTestDb().insert(extensionWebhooks).values({
-      extensionId: EXT_A, slug: slug1,
+      extensionId: EXT_A,
+      slug: slug1,
     });
     expect(await manifestSlugExists(EXT_A, slug1)).toBe(true);
     // A DYNAMIC row holding the slug is not a manifest collision.
@@ -428,8 +523,10 @@ describe("disable sweeps", () => {
   test("disableDynamicWebhooks disables only the named keys and counts them", async () => {
     for (const k of ["job:1", "job:2"]) {
       await upsertDynamicWebhook({
-        extensionName: EXT_A, key: k,
-        slug: mintWebhookSlug("factory-", EXT_A, k), now: NOW,
+        extensionName: EXT_A,
+        key: k,
+        slug: mintWebhookSlug("factory-", EXT_A, k),
+        now: NOW,
       });
     }
     expect(await disableDynamicWebhooks(EXT_A, ["job:1"], NOW)).toBe(1);
@@ -439,8 +536,10 @@ describe("disable sweeps", () => {
 
   test("disableDynamicWebhooks skips already-disabled and unknown keys", async () => {
     await upsertDynamicWebhook({
-      extensionName: EXT_A, key: "job:1",
-      slug: mintWebhookSlug("factory-", EXT_A, "job:1"), now: NOW,
+      extensionName: EXT_A,
+      key: "job:1",
+      slug: mintWebhookSlug("factory-", EXT_A, "job:1"),
+      now: NOW,
     });
     await disableDynamicWebhooks(EXT_A, ["job:1"], NOW);
     expect(await disableDynamicWebhooks(EXT_A, ["job:1", "job:ghost"], NOW)).toBe(0);
@@ -454,7 +553,10 @@ describe("disable sweeps", () => {
 describe("todaysFireCountForSchedule", () => {
   async function seedFire(scheduleId: string, firedAt: Date) {
     await getTestDb().insert(extensionScheduleFires).values({
-      scheduleId, scheduledAt: firedAt, firedAt, status: "ok",
+      scheduleId,
+      scheduledAt: firedAt,
+      firedAt,
+      status: "ok",
     });
   }
 

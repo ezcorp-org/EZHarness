@@ -67,16 +67,12 @@ function fireTimeout(): void {
 // ── Stubs ──────────────────────────────────────────────────────────────
 
 interface StubProc {
-  installedRequestHandler:
-    | ((req: JsonRpcRequest) => Promise<JsonRpcResponse>)
-    | null;
+  installedRequestHandler: ((req: JsonRpcRequest) => Promise<JsonRpcResponse>) | null;
 }
 
 function makeStubProc(): StubProc & ExtensionProcess {
   const proc: StubProc & {
-    setRequestHandler: (
-      h: (req: JsonRpcRequest) => Promise<JsonRpcResponse>,
-    ) => void;
+    setRequestHandler: (h: (req: JsonRpcRequest) => Promise<JsonRpcResponse>) => void;
     setNotificationHandler: (h: (n: unknown) => void) => void;
   } = {
     installedRequestHandler: null,
@@ -101,10 +97,7 @@ async function wire(): Promise<{
   handler: (req: JsonRpcRequest) => Promise<JsonRpcResponse>;
   executor: ToolExecutor;
 }> {
-  const executor = new ToolExecutor(
-    makeStubRegistry(),
-    createStubPermissionEngine(),
-  );
+  const executor = new ToolExecutor(makeStubRegistry(), createStubPermissionEngine());
   const proc = makeStubProc();
   await executor.ensureSubprocessRpcWired("ext-1", proc);
   return { handler: proc.installedRequestHandler!, executor };
@@ -120,13 +113,12 @@ describe("bounded host reverse-RPC handler dispatch (Phase 1)", () => {
     // We override the instance's `handlePiStorage` (the `route` closure
     // dispatches to `this.handlePiStorage`) with a never-resolving
     // promise so the bound is the ONLY thing that can settle it.
-    const executor = new ToolExecutor(
-      makeStubRegistry(),
-      createStubPermissionEngine(),
-    );
-    (executor as unknown as {
-      handlePiStorage: () => Promise<JsonRpcResponse>;
-    }).handlePiStorage = () => new Promise<JsonRpcResponse>(() => {});
+    const executor = new ToolExecutor(makeStubRegistry(), createStubPermissionEngine());
+    (
+      executor as unknown as {
+        handlePiStorage: () => Promise<JsonRpcResponse>;
+      }
+    ).handlePiStorage = () => new Promise<JsonRpcResponse>(() => {});
     const proc = makeStubProc();
     await executor.ensureSubprocessRpcWired("ext-1", proc);
     const handler = proc.installedRequestHandler!;
@@ -148,9 +140,7 @@ describe("bounded host reverse-RPC handler dispatch (Phase 1)", () => {
       id: 7,
       error: {
         code: -32603,
-        message: expect.stringMatching(
-          /Host handler for "ezcorp\/storage" timed out after \d+ms/,
-        ),
+        message: expect.stringMatching(/Host handler for "ezcorp\/storage" timed out after \d+ms/),
       },
     });
     expect("result" in resp).toBe(false);
@@ -189,10 +179,7 @@ describe("bounded host reverse-RPC handler dispatch (Phase 1)", () => {
     // ezcorp/invoke is exempt — even with NO captured-timeout fired and
     // a registry that would make a bounded handler hang, the exempt path
     // must run unbounded and resolve on its own.
-    const executor = new ToolExecutor(
-      makeStubRegistry(),
-      createStubPermissionEngine(),
-    );
+    const executor = new ToolExecutor(makeStubRegistry(), createStubPermissionEngine());
     const proc = makeStubProc();
     await executor.ensureSubprocessRpcWired("ext-1", proc);
     const handler = proc.installedRequestHandler!;

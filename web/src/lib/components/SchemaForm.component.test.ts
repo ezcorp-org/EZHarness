@@ -240,9 +240,7 @@ describe("SchemaForm — secret field", () => {
       values: {},
       secrets: { psa_api_token: { isSet: false } },
     });
-    expect(getByTestId("schema-secret-status-psa_api_token")).toHaveTextContent(
-      "Not set",
-    );
+    expect(getByTestId("schema-secret-status-psa_api_token")).toHaveTextContent("Not set");
     expect(getByTestId("schema-secret-hint-psa_api_token")).toHaveTextContent(
       "Stored encrypted. Once saved, the value is never shown again.",
     );
@@ -254,9 +252,7 @@ describe("SchemaForm — secret field", () => {
       values: {},
       secrets: { psa_api_token: { isSet: true } },
     });
-    expect(getByTestId("schema-secret-status-psa_api_token")).toHaveTextContent(
-      "Set",
-    );
+    expect(getByTestId("schema-secret-status-psa_api_token")).toHaveTextContent("Set");
     expect(getByTestId("schema-secret-hint-psa_api_token")).toHaveTextContent(
       "A value is set. It is stored encrypted and never shown again — enter a new value to replace it.",
     );
@@ -264,9 +260,7 @@ describe("SchemaForm — secret field", () => {
 
   test("badge defaults to Not set when no secrets prop is supplied", () => {
     const { getByTestId } = render(SchemaForm, { schema, values: {} });
-    expect(getByTestId("schema-secret-status-psa_api_token")).toHaveTextContent(
-      "Not set",
-    );
+    expect(getByTestId("schema-secret-status-psa_api_token")).toHaveTextContent("Not set");
   });
 
   test("typing emits oninput with the new value merged", async () => {
@@ -341,13 +335,10 @@ describe("SchemaForm — secret field", () => {
       secrets: { psa_api_token: { isSet: true } },
       disabled: true,
     });
-    expect(
-      (getByTestId("schema-input-psa_api_token") as HTMLInputElement).disabled,
-    ).toBe(true);
-    expect(
-      (getByTestId("schema-secret-clear-psa_api_token") as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    expect((getByTestId("schema-input-psa_api_token") as HTMLInputElement).disabled).toBe(true);
+    expect((getByTestId("schema-secret-clear-psa_api_token") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 
   test("disabled form disables the Undo button during a pending clear", () => {
@@ -357,10 +348,9 @@ describe("SchemaForm — secret field", () => {
       secrets: { psa_api_token: { isSet: true } },
       disabled: true,
     });
-    expect(
-      (getByTestId("schema-secret-undo-psa_api_token") as HTMLButtonElement)
-        .disabled,
-    ).toBe(true);
+    expect((getByTestId("schema-secret-undo-psa_api_token") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
   });
 });
 

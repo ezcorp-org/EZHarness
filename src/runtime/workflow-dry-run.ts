@@ -436,7 +436,9 @@ export async function dryRunWorkflow(
     stubbed,
     gatesOnStubs,
     ...(run.result?.error !== undefined
-      ? { error: typeof run.result.error === "string" ? run.result.error : run.result.error.message }
+      ? {
+          error: typeof run.result.error === "string" ? run.result.error : run.result.error.message,
+        }
       : {}),
     output: renderStubs(run.result?.output),
   };

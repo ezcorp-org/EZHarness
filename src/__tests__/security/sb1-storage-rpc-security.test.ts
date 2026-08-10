@@ -99,28 +99,38 @@ function uniqueExtId(prefix = "ext"): string {
 }
 
 async function insertExtension(id: string, manifest: ExtensionManifestV2): Promise<void> {
-  await getDb().insert(extensions).values({
-    id,
-    name: id, // unique constraint
-    version: manifest.version,
-    description: manifest.description,
-    manifest,
-    source: `test:${id}`,
-    installPath: `/tmp/${id}`,
-    enabled: true,
-    grantedPermissions: makePerms(true),
-  } as any);
+  await getDb()
+    .insert(extensions)
+    .values({
+      id,
+      name: id, // unique constraint
+      version: manifest.version,
+      description: manifest.description,
+      manifest,
+      source: `test:${id}`,
+      installPath: `/tmp/${id}`,
+      enabled: true,
+      grantedPermissions: makePerms(true),
+    } as any);
 }
 
 async function insertProject(id: string): Promise<void> {
-  await getDb().insert(projects).values({ id, name: id, path: `/tmp/${id}` } as any);
+  await getDb()
+    .insert(projects)
+    .values({ id, name: id, path: `/tmp/${id}` } as any);
 }
 
 async function insertConversation(id: string, projectId: string): Promise<void> {
-  await getDb().insert(conversations).values({ id, projectId, title: "test" } as any);
+  await getDb()
+    .insert(conversations)
+    .values({ id, projectId, title: "test" } as any);
 }
 
-function rpc(action: string, params: Record<string, unknown> = {}, id: number | string = 1): JsonRpcRequest {
+function rpc(
+  action: string,
+  params: Record<string, unknown> = {},
+  id: number | string = 1,
+): JsonRpcRequest {
   return {
     jsonrpc: "2.0",
     id,
@@ -175,10 +185,12 @@ beforeAll(async () => {
   await insertConversation(c2, projId);
 
   const { conversationExtensions } = await import("../../db/schema");
-  await getDb().insert(conversationExtensions).values([
-    { conversationId: c1, extensionId: extScope },
-    { conversationId: c2, extensionId: extScope },
-  ] as any);
+  await getDb()
+    .insert(conversationExtensions)
+    .values([
+      { conversationId: c1, extensionId: extScope },
+      { conversationId: c2, extensionId: extScope },
+    ] as any);
 
   extPolicy = uniqueExtId("ext-policy");
   // Tight 10KB quota so the quota test doesn't have to move megabytes.
@@ -192,10 +204,13 @@ afterAll(async () => {
 });
 
 describe("sec-SB1: storage RPC cross-extension isolation", () => {
-
   test("extension A cannot read extension B's global keys via 'get'", async () => {
     // Ext B writes a secret.
-    const setResp = await handleStorageRpc(extB, rpc("set", { key: "secret", value: "B-only" }), makeCtx(manifestB));
+    const setResp = await handleStorageRpc(
+      extB,
+      rpc("set", { key: "secret", value: "B-only" }),
+      makeCtx(manifestB),
+    );
     expect(setResp.error).toBeUndefined();
 
     // Ext A tries to fetch B's key — same key name, different extension.
@@ -207,11 +222,19 @@ describe("sec-SB1: storage RPC cross-extension isolation", () => {
 
   test("extension A cannot overwrite extension B's global keys via 'set'", async () => {
     // Ext B owns key "shared".
-    await handleStorageRpc(extB, rpc("set", { key: "shared", value: "B-value" }), makeCtx(manifestB));
+    await handleStorageRpc(
+      extB,
+      rpc("set", { key: "shared", value: "B-value" }),
+      makeCtx(manifestB),
+    );
 
     // Ext A writes its own value under the same key — must live in its own
     // partition, not stomp B's.
-    const setA = await handleStorageRpc(extA, rpc("set", { key: "shared", value: "A-value" }), makeCtx(manifestA));
+    const setA = await handleStorageRpc(
+      extA,
+      rpc("set", { key: "shared", value: "A-value" }),
+      makeCtx(manifestA),
+    );
     expect(setA.error).toBeUndefined();
 
     // Ext B still sees its original value.
@@ -231,11 +254,19 @@ describe("sec-SB1: storage RPC cross-extension isolation", () => {
     await handleStorageRpc(extB, rpc("set", { key: "list-b-3", value: 3 }), makeCtx(manifestB));
     await handleStorageRpc(extA, rpc("set", { key: "list-a-1", value: 1 }), makeCtx(manifestA));
 
-    const listA = await handleStorageRpc(extA, rpc("list", { prefix: "list-b-" }), makeCtx(manifestA));
+    const listA = await handleStorageRpc(
+      extA,
+      rpc("list", { prefix: "list-b-" }),
+      makeCtx(manifestA),
+    );
     expect(listA.error).toBeUndefined();
     expect((listA.result as any).keys).toEqual([]);
 
-    const listB = await handleStorageRpc(extB, rpc("list", { prefix: "list-b-" }), makeCtx(manifestB));
+    const listB = await handleStorageRpc(
+      extB,
+      rpc("list", { prefix: "list-b-" }),
+      makeCtx(manifestB),
+    );
     const keys = (listB.result as any).keys.map((k: any) => k.key).sort();
     expect(keys).toEqual(["list-b-1", "list-b-2", "list-b-3"]);
   });
@@ -343,37 +374,53 @@ describe("sec-SB1: storage RPC quota, rate-limiting, key validation, batch, encr
 
   test("key validation: empty, too-long, bad chars, reserved prefix are rejected", async () => {
     const bad = [
-      "",                                     // empty
-      "x".repeat(300),                        // too long
-      "has space",                            // regex — space not allowed
-      "has@illegal!",                         // regex — @ and ! not allowed
-      ".leading-dot",                         // cannot start with .
-      "trailing-dot.",                        // cannot end with .
-      "/leading-slash",                       // cannot start with /
-      "trailing-slash/",                      // cannot end with /
-      "__internal",                           // reserved prefix (non-builtin)
-      "ezcorp/thing",                         // reserved prefix (non-builtin)
+      "", // empty
+      "x".repeat(300), // too long
+      "has space", // regex — space not allowed
+      "has@illegal!", // regex — @ and ! not allowed
+      ".leading-dot", // cannot start with .
+      "trailing-dot.", // cannot end with .
+      "/leading-slash", // cannot start with /
+      "trailing-slash/", // cannot end with /
+      "__internal", // reserved prefix (non-builtin)
+      "ezcorp/thing", // reserved prefix (non-builtin)
     ];
     for (const key of bad) {
-      const resp = await handleStorageRpc(extPolicy, rpc("set", { key, value: 1 }), makeCtx(manifestPolicy));
+      const resp = await handleStorageRpc(
+        extPolicy,
+        rpc("set", { key, value: 1 }),
+        makeCtx(manifestPolicy),
+      );
       expect(resp.error).toBeDefined();
       expect(resp.error!.code).toBe(-32602);
     }
     // Control: a valid key is NOT rejected.
-    const okResp = await handleStorageRpc(extPolicy, rpc("set", { key: "good_key.1-2/a:b", value: 1 }), makeCtx(manifestPolicy));
+    const okResp = await handleStorageRpc(
+      extPolicy,
+      rpc("set", { key: "good_key.1-2/a:b", value: 1 }),
+      makeCtx(manifestPolicy),
+    );
     expect(okResp.error).toBeUndefined();
   });
 
   test("batch: >100 operations returns -32602", async () => {
     const ops = Array.from({ length: 101 }, (_, i) => ({ action: "set", key: `b-${i}`, value: i }));
-    const resp = await handleStorageRpc(extPolicy, rpc("batch", { operations: ops }), makeCtx(manifestPolicy));
+    const resp = await handleStorageRpc(
+      extPolicy,
+      rpc("batch", { operations: ops }),
+      makeCtx(manifestPolicy),
+    );
     expect(resp.error).toBeDefined();
     expect(resp.error!.code).toBe(-32602);
     expect(resp.error!.message).toMatch(/100/);
   });
 
   test("batch: empty operations array is rejected", async () => {
-    const resp = await handleStorageRpc(extPolicy, rpc("batch", { operations: [] }), makeCtx(manifestPolicy));
+    const resp = await handleStorageRpc(
+      extPolicy,
+      rpc("batch", { operations: [] }),
+      makeCtx(manifestPolicy),
+    );
     expect(resp.error).toBeDefined();
     expect(resp.error!.code).toBe(-32602);
   });
@@ -398,9 +445,7 @@ describe("sec-SB1: storage RPC quota, rate-limiting, key validation, batch, encr
     const rows = await getDb()
       .select()
       .from(extensionStorage)
-      .where(
-        and(eq(extensionStorage.extensionId, encExt), eq(extensionStorage.key, "api-token")),
-      );
+      .where(and(eq(extensionStorage.extensionId, encExt), eq(extensionStorage.key, "api-token")));
     expect(rows.length).toBe(1);
     const row = rows[0]!;
     expect(row.encrypted).toBe(true);

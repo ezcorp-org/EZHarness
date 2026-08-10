@@ -18,30 +18,16 @@
  * `src/db/queries/__tests__/extension-settings-*`).
  */
 
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 const mockResolve = mock(
-  async (
-    _extensionId: string,
-    _userId: string | null,
-    _schema?: unknown,
-  ) => ({} as Record<string, unknown>),
+  async (_extensionId: string, _userId: string | null, _schema?: unknown) =>
+    ({}) as Record<string, unknown>,
 );
 mock.module("../db/queries/extension-settings", () => ({
-  resolveExtensionSettings: (
-    extensionId: string,
-    userId: string | null,
-    schema?: unknown,
-  ) => mockResolve(extensionId, userId, schema),
+  resolveExtensionSettings: (extensionId: string, userId: string | null, schema?: unknown) =>
+    mockResolve(extensionId, userId, schema),
 }));
 
 // Bun's `mock.module` leaks across files — without this, the CRUD test
@@ -144,18 +130,17 @@ describe("ToolExecutor — _meta.invocationMetadata.settings injection", () => {
       speed: 1.2,
     }));
 
-    const execu = new ToolExecutor(makeFakeRegistry(captured, settingsManifest), createStubPermissionEngine());
+    const execu = new ToolExecutor(
+      makeFakeRegistry(captured, settingsManifest),
+      createStubPermissionEngine(),
+    );
     execu.setCurrentUserId("user-1");
 
     await execu.executeToolCall("speak", { text: "hello" }, "conv-1", "msg-1");
 
     expect(mockResolve).toHaveBeenCalledTimes(1);
     // Schema is now passed in-band so the resolver skips its DB lookup.
-    expect(mockResolve.mock.calls[0]).toEqual([
-      "ext-1",
-      "user-1",
-      settingsManifest.settings,
-    ]);
+    expect(mockResolve.mock.calls[0]).toEqual(["ext-1", "user-1", settingsManifest.settings]);
 
     const meta = captured[0]!.meta!;
     expect(meta.invocationMetadata).toEqual({
@@ -164,7 +149,10 @@ describe("ToolExecutor — _meta.invocationMetadata.settings injection", () => {
   });
 
   test("manifest with no settings block → resolver NOT called and invocationMetadata absent", async () => {
-    const execu = new ToolExecutor(makeFakeRegistry(captured, baseManifest), createStubPermissionEngine());
+    const execu = new ToolExecutor(
+      makeFakeRegistry(captured, baseManifest),
+      createStubPermissionEngine(),
+    );
     execu.setCurrentUserId("user-1");
 
     await execu.executeToolCall("speak", { text: "hello" }, "conv-1", "msg-1");
@@ -180,19 +168,17 @@ describe("ToolExecutor — _meta.invocationMetadata.settings injection", () => {
       speed: 1.0,
     }));
 
-    const execu = new ToolExecutor(makeFakeRegistry(captured, settingsManifest), createStubPermissionEngine());
+    const execu = new ToolExecutor(
+      makeFakeRegistry(captured, settingsManifest),
+      createStubPermissionEngine(),
+    );
     execu.setCurrentUserId("user-1");
 
     // Caller pre-binds an override for `voice`; resolved value should
     // fill in `speed` but NOT clobber `voice`.
-    await execu.executeToolCall(
-      "speak",
-      { text: "hello" },
-      "conv-1",
-      "msg-1",
-      undefined,
-      { settings: { voice: "am_adam" } },
-    );
+    await execu.executeToolCall("speak", { text: "hello" }, "conv-1", "msg-1", undefined, {
+      settings: { voice: "am_adam" },
+    });
 
     const meta = captured[0]!.meta!;
     expect(meta.invocationMetadata).toEqual({
@@ -203,17 +189,15 @@ describe("ToolExecutor — _meta.invocationMetadata.settings injection", () => {
   test("caller-supplied invocationMetadata.settings preserved when resolver returns {}", async () => {
     mockResolve.mockImplementationOnce(async () => ({}));
 
-    const execu = new ToolExecutor(makeFakeRegistry(captured, settingsManifest), createStubPermissionEngine());
+    const execu = new ToolExecutor(
+      makeFakeRegistry(captured, settingsManifest),
+      createStubPermissionEngine(),
+    );
     execu.setCurrentUserId("user-1");
 
-    await execu.executeToolCall(
-      "speak",
-      { text: "hello" },
-      "conv-1",
-      "msg-1",
-      undefined,
-      { settings: { voice: "am_adam" } },
-    );
+    await execu.executeToolCall("speak", { text: "hello" }, "conv-1", "msg-1", undefined, {
+      settings: { voice: "am_adam" },
+    });
 
     const meta = captured[0]!.meta!;
     expect(meta.invocationMetadata).toEqual({
@@ -224,17 +208,16 @@ describe("ToolExecutor — _meta.invocationMetadata.settings injection", () => {
   test("non-settings keys in caller invocationMetadata pass through alongside settings", async () => {
     mockResolve.mockImplementationOnce(async () => ({ voice: "af_bella" }));
 
-    const execu = new ToolExecutor(makeFakeRegistry(captured, settingsManifest), createStubPermissionEngine());
+    const execu = new ToolExecutor(
+      makeFakeRegistry(captured, settingsManifest),
+      createStubPermissionEngine(),
+    );
     execu.setCurrentUserId("user-1");
 
-    await execu.executeToolCall(
-      "speak",
-      { text: "hello" },
-      "conv-1",
-      "msg-1",
-      undefined,
-      { toolCallId: "tc-1", parentMessageId: "msg-parent" },
-    );
+    await execu.executeToolCall("speak", { text: "hello" }, "conv-1", "msg-1", undefined, {
+      toolCallId: "tc-1",
+      parentMessageId: "msg-parent",
+    });
 
     const meta = captured[0]!.meta!;
     expect(meta.invocationMetadata).toEqual({
@@ -247,16 +230,15 @@ describe("ToolExecutor — _meta.invocationMetadata.settings injection", () => {
   test("resolver receives null userId when no current user is set", async () => {
     mockResolve.mockImplementationOnce(async () => ({ voice: "af_bella" }));
 
-    const execu = new ToolExecutor(makeFakeRegistry(captured, settingsManifest), createStubPermissionEngine());
+    const execu = new ToolExecutor(
+      makeFakeRegistry(captured, settingsManifest),
+      createStubPermissionEngine(),
+    );
     // No setCurrentUserId() call.
 
     await execu.executeToolCall("speak", { text: "hello" }, "conv-1", "msg-1");
 
-    expect(mockResolve.mock.calls[0]).toEqual([
-      "ext-1",
-      null,
-      settingsManifest.settings,
-    ]);
+    expect(mockResolve.mock.calls[0]).toEqual(["ext-1", null, settingsManifest.settings]);
   });
 
   test("caller-supplied invocationMetadata.settings preserves keys not in the manifest schema", async () => {
@@ -268,17 +250,15 @@ describe("ToolExecutor — _meta.invocationMetadata.settings injection", () => {
       speed: 1.0,
     }));
 
-    const execu = new ToolExecutor(makeFakeRegistry(captured, settingsManifest), createStubPermissionEngine());
+    const execu = new ToolExecutor(
+      makeFakeRegistry(captured, settingsManifest),
+      createStubPermissionEngine(),
+    );
     execu.setCurrentUserId("user-1");
 
-    await execu.executeToolCall(
-      "speak",
-      { text: "hello" },
-      "conv-1",
-      "msg-1",
-      undefined,
-      { settings: { voice: "af_sarah", _orchestrator_trace: "abc-123" } },
-    );
+    await execu.executeToolCall("speak", { text: "hello" }, "conv-1", "msg-1", undefined, {
+      settings: { voice: "af_sarah", _orchestrator_trace: "abc-123" },
+    });
 
     const meta = captured[0]!.meta!;
     const inv = meta.invocationMetadata as Record<string, unknown>;
@@ -313,17 +293,15 @@ describe("ToolExecutor — _meta.invocationMetadata.settings injection", () => {
         prefix: "",
       }));
 
-      const execu = new ToolExecutor(makeFakeRegistry(captured, FALSY_MANIFEST), createStubPermissionEngine());
+      const execu = new ToolExecutor(
+        makeFakeRegistry(captured, FALSY_MANIFEST),
+        createStubPermissionEngine(),
+      );
       execu.setCurrentUserId("user-1");
 
-      await execu.executeToolCall(
-        "speak",
-        { text: "hi" },
-        "conv-1",
-        "msg-1",
-        undefined,
-        { settings: {} },
-      );
+      await execu.executeToolCall("speak", { text: "hi" }, "conv-1", "msg-1", undefined, {
+        settings: {},
+      });
 
       const inv = captured[0]!.meta!.invocationMetadata as Record<string, unknown>;
       const s = inv.settings as Record<string, unknown>;
@@ -338,17 +316,15 @@ describe("ToolExecutor — _meta.invocationMetadata.settings injection", () => {
         retries: 5,
       }));
 
-      const execu = new ToolExecutor(makeFakeRegistry(captured, FALSY_MANIFEST), createStubPermissionEngine());
+      const execu = new ToolExecutor(
+        makeFakeRegistry(captured, FALSY_MANIFEST),
+        createStubPermissionEngine(),
+      );
       execu.setCurrentUserId("user-1");
 
-      await execu.executeToolCall(
-        "speak",
-        { text: "hi" },
-        "conv-1",
-        "msg-1",
-        undefined,
-        { settings: { prefix: "", retries: 0 } },
-      );
+      await execu.executeToolCall("speak", { text: "hi" }, "conv-1", "msg-1", undefined, {
+        settings: { prefix: "", retries: 0 },
+      });
 
       const inv = captured[0]!.meta!.invocationMetadata as Record<string, unknown>;
       const s = inv.settings as Record<string, unknown>;

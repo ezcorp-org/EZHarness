@@ -18,7 +18,9 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 const mockSettings = new Map<string, unknown>();
 mock.module("../db/queries/settings", () => ({
   getSetting: async (key: string) => mockSettings.get(key),
-  upsertSetting: async (key: string, value: unknown) => { mockSettings.set(key, value); },
+  upsertSetting: async (key: string, value: unknown) => {
+    mockSettings.set(key, value);
+  },
   getAllSettings: async () => Object.fromEntries(mockSettings),
   deleteSetting: async (key: string) => mockSettings.delete(key),
   isListingInstalled: async () => false,
@@ -28,7 +30,9 @@ let failureCount = 0;
 mock.module("../db/queries/extensions", () => ({
   incrementFailures: async () => ++failureCount,
   disableExtension: async () => {},
-  resetFailures: async () => { failureCount = 0; },
+  resetFailures: async () => {
+    failureCount = 0;
+  },
   listExtensions: async () => [],
 }));
 
@@ -380,18 +384,28 @@ describe("ExtensionProcess constructor and getSpawnArgs", () => {
 
   test("getSpawnArgs with custom memory limit", () => {
     const oneGB = 1024 * 1024 * 1024;
-    const ep = new ExtensionProcess("test-id", "/path/ext.ts", {}, {
-      memoryLimitBytes: oneGB,
-    });
+    const ep = new ExtensionProcess(
+      "test-id",
+      "/path/ext.ts",
+      {},
+      {
+        memoryLimitBytes: oneGB,
+      },
+    );
     const args = ep.getSpawnArgs();
     expect(args[1]).toBe(`--rss=${oneGB}`);
   });
 
   test("memory limit floor is enforced", () => {
     const tinyLimit = 32 * 1024 * 1024; // 32MB
-    const ep = new ExtensionProcess("test-id", "/path/ext.ts", {}, {
-      memoryLimitBytes: tinyLimit,
-    });
+    const ep = new ExtensionProcess(
+      "test-id",
+      "/path/ext.ts",
+      {},
+      {
+        memoryLimitBytes: tinyLimit,
+      },
+    );
     expect(ep.memoryLimitBytes).toBe(512 * 1024 * 1024); // MIN is 512MB
   });
 
@@ -439,9 +453,7 @@ describe("ExtensionProcess subprocess (echo extension)", () => {
       this.proc = null;
       this.transport = null;
       try {
-        const { incrementFailures, disableExtension } = await import(
-          "../db/queries/extensions"
-        );
+        const { incrementFailures, disableExtension } = await import("../db/queries/extensions");
         const count = await incrementFailures(this.extensionId);
         if (count >= 3) await disableExtension(this.extensionId);
       } catch {}
@@ -541,7 +553,10 @@ describe("runExtensionTests", () => {
   });
 
   test("throws when manifest is invalid", async () => {
-    await writeFile(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify({ bad: true })};\n`);
+    await writeFile(
+      join(tempDir, "ezcorp.config.ts"),
+      `export default ${JSON.stringify({ bad: true })};\n`,
+    );
     await expect(runExtensionTests({ extDir: tempDir })).rejects.toThrow("Invalid manifest");
   });
 
@@ -554,13 +569,19 @@ describe("runExtensionTests", () => {
       author: { name: "Test" },
       permissions: {},
     };
-    await writeFile(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
+    await writeFile(
+      join(tempDir, "ezcorp.config.ts"),
+      `export default ${JSON.stringify(manifest, null, 2)};\n`,
+    );
 
     // Create a simple passing test file
-    await writeFile(join(tempDir, "index.test.ts"), `
+    await writeFile(
+      join(tempDir, "index.test.ts"),
+      `
 import { test, expect } from "bun:test";
 test("pass", () => { expect(1 + 1).toBe(2); });
-`);
+`,
+    );
 
     const exitCode = await runExtensionTests({ extDir: tempDir, timeout: 30000 });
     expect(exitCode).toBe(0);
@@ -587,7 +608,10 @@ describe("createTestExtension", () => {
   });
 
   test("throws when manifest is invalid", async () => {
-    await writeFile(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify({ bad: true })};\n`);
+    await writeFile(
+      join(tempDir, "ezcorp.config.ts"),
+      `export default ${JSON.stringify({ bad: true })};\n`,
+    );
     await expect(createTestExtension(tempDir)).rejects.toThrow("Invalid manifest");
   });
 
@@ -601,7 +625,10 @@ describe("createTestExtension", () => {
       permissions: {},
       // No entrypoint field
     };
-    await writeFile(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
+    await writeFile(
+      join(tempDir, "ezcorp.config.ts"),
+      `export default ${JSON.stringify(manifest, null, 2)};\n`,
+    );
     await expect(createTestExtension(tempDir)).rejects.toThrow("must declare an entrypoint");
   });
 
@@ -639,7 +666,10 @@ main();
       tools: [{ name: "echo", description: "Echo tool", inputSchema: { type: "object" } }],
       permissions: {},
     };
-    await writeFile(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
+    await writeFile(
+      join(tempDir, "ezcorp.config.ts"),
+      `export default ${JSON.stringify(manifest, null, 2)};\n`,
+    );
 
     const proc = await createTestExtension(tempDir);
     try {
@@ -692,7 +722,10 @@ main();
       tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" } }],
       permissions: {},
     };
-    await writeFile(join(tempDir, "ezcorp.config.ts"), `export default ${JSON.stringify(manifest, null, 2)};\n`);
+    await writeFile(
+      join(tempDir, "ezcorp.config.ts"),
+      `export default ${JSON.stringify(manifest, null, 2)};\n`,
+    );
   });
 
   afterEach(async () => {

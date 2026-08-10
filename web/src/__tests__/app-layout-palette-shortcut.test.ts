@@ -28,25 +28,22 @@
 import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 
-const layoutSrc = readFileSync(
-	new URL("../routes/(app)/+layout.svelte", import.meta.url),
-	"utf-8",
-);
+const layoutSrc = readFileSync(new URL("../routes/(app)/+layout.svelte", import.meta.url), "utf-8");
 
 describe("(app) layout — Phase 67 palette initial-view routing", () => {
-	test("has a `case \"palette-commands\"` arm (command-first initial view)", () => {
-		// Plan 04 adds this arm distinct from the existing `case "palette"`.
-		expect(layoutSrc).toMatch(/case\s+["']palette-commands["']\s*:/);
-	});
+  test('has a `case "palette-commands"` arm (command-first initial view)', () => {
+    // Plan 04 adds this arm distinct from the existing `case "palette"`.
+    expect(layoutSrc).toMatch(/case\s+["']palette-commands["']\s*:/);
+  });
 
-	test("retains the `case \"palette\"` arm (search-first initial view)", () => {
-		expect(layoutSrc).toMatch(/case\s+["']palette["']\s*:/);
-	});
+  test('retains the `case "palette"` arm (search-first initial view)', () => {
+    expect(layoutSrc).toMatch(/case\s+["']palette["']\s*:/);
+  });
 
-	test("the CommandPalette mount receives an initial-view prop wired from layout state", () => {
-		// Plan 04 threads the chosen initial view into the palette mount, e.g.
-		// `<CommandPalette ... initialView={paletteInitialView} ... />`. Pin the
-		// prop pass-through without over-constraining the exact state var name.
-		expect(layoutSrc).toMatch(/initialView\s*=\s*\{/);
-	});
+  test("the CommandPalette mount receives an initial-view prop wired from layout state", () => {
+    // Plan 04 threads the chosen initial view into the palette mount, e.g.
+    // `<CommandPalette ... initialView={paletteInitialView} ... />`. Pin the
+    // prop pass-through without over-constraining the exact state var name.
+    expect(layoutSrc).toMatch(/initialView\s*=\s*\{/);
+  });
 });

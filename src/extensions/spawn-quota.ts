@@ -98,8 +98,8 @@ export function createSpawnQuota(bus: EventBus<AgentEvents>): SpawnQuota {
   // all three fire with `{ run: { id } }` payloads that identify the
   // agentRunId the handler swapped in post-dispatch.
   const unsubComplete = bus.on("run:complete", (d) => release(d.run.id));
-  const unsubError    = bus.on("run:error",    (d) => release(d.run.id));
-  const unsubCancel   = bus.on("run:cancel",   (d) => release(d.run.id));
+  const unsubError = bus.on("run:error", (d) => release(d.run.id));
+  const unsubCancel = bus.on("run:cancel", (d) => release(d.run.id));
 
   function prune(extId: string, now: number): void {
     const arr = hourly.get(extId);
@@ -136,10 +136,16 @@ export function createSpawnQuota(bus: EventBus<AgentEvents>): SpawnQuota {
     reserve(extensionId, reservationToken) {
       const now = Date.now();
       let arr = hourly.get(extensionId);
-      if (!arr) { arr = []; hourly.set(extensionId, arr); }
+      if (!arr) {
+        arr = [];
+        hourly.set(extensionId, arr);
+      }
       arr.push(now);
       let set = concurrent.get(extensionId);
-      if (!set) { set = new Set(); concurrent.set(extensionId, set); }
+      if (!set) {
+        set = new Set();
+        concurrent.set(extensionId, set);
+      }
       set.add(reservationToken);
       tokenToExt.set(reservationToken, extensionId);
     },
@@ -161,7 +167,10 @@ export function createSpawnQuota(bus: EventBus<AgentEvents>): SpawnQuota {
         tokenToExt.delete(oldToken);
       }
       let set = concurrent.get(extensionId);
-      if (!set) { set = new Set(); concurrent.set(extensionId, set); }
+      if (!set) {
+        set = new Set();
+        concurrent.set(extensionId, set);
+      }
       set.add(newToken);
       tokenToExt.set(newToken, extensionId);
       // NOTE: hourly entry is NOT touched — the spawn still happened; a cycle

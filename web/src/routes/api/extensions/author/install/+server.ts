@@ -17,10 +17,7 @@ import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
-import {
-  installAuthoredDraft,
-  AuthorInstallError,
-} from "$server/extensions/author-install";
+import { installAuthoredDraft, AuthorInstallError } from "$server/extensions/author-install";
 import { verifyExtension } from "$server/extensions/sdk/verify";
 import type { RequestHandler } from "./$types";
 
@@ -99,10 +96,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         case "NAME_COLLISION":
           return errorJson(409, e.message);
         case "MANIFEST_INVALID":
-          return json(
-            { message: e.message, errors: d.errors ?? [e.message] },
-            { status: 422 },
-          );
+          return json({ message: e.message, errors: d.errors ?? [e.message] }, { status: 422 });
         case "VERIFY_FAILED":
           return json(
             {
@@ -117,10 +111,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
         // installable as written" class as MANIFEST_INVALID, with the
         // per-dependency reasons in `errors`.
         case "DEPENDENCY_UNSATISFIED":
-          return json(
-            { message: e.message, errors: d.errors ?? [e.message] },
-            { status: 422 },
-          );
+          return json({ message: e.message, errors: d.errors ?? [e.message] }, { status: 422 });
         case "ENV_KEY_LEAK":
           return json(
             {
@@ -131,15 +122,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
             { status: 422 },
           );
         case "INSTALL_FAILED":
-          return json(
-            { message: e.message, errors: d.errors ?? [e.message] },
-            { status: 422 },
-          );
+          return json({ message: e.message, errors: d.errors ?? [e.message] }, { status: 422 });
         case "ROLLBACK_FAILED":
-          return json(
-            { message: e.message, errors: d.errors ?? [e.message] },
-            { status: 500 },
-          );
+          return json({ message: e.message, errors: d.errors ?? [e.message] }, { status: 500 });
         // Post-install failures: the files landed and the row exists,
         // but the extension is NOT in the requested state (not enabled
         // / not loaded). 500 — the request did not do what it says on

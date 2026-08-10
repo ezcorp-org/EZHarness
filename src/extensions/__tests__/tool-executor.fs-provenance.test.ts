@@ -164,14 +164,8 @@ describe("ToolExecutor fs.* reverse-RPC provenance (GAP 1)", () => {
       // Both reverse-RPCs are "in flight" at the same time — the old
       // singleton would smear whichever fired last across both.
       const [respA, respB] = await Promise.all([
-        executor.handlePiFsMkdir(
-          "ext-1",
-          fsReq("ezcorp/fs.mkdir", join(installDir, "a"), tokA),
-        ),
-        executor.handlePiFsMkdir(
-          "ext-1",
-          fsReq("ezcorp/fs.mkdir", join(installDir, "b"), tokB),
-        ),
+        executor.handlePiFsMkdir("ext-1", fsReq("ezcorp/fs.mkdir", join(installDir, "a"), tokA)),
+        executor.handlePiFsMkdir("ext-1", fsReq("ezcorp/fs.mkdir", join(installDir, "b"), tokB)),
       ]);
       expect("error" in respA && respA.error).toBeFalsy();
       expect("error" in respB && respB.error).toBeFalsy();

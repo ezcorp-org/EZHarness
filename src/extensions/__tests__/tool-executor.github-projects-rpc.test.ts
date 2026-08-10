@@ -18,11 +18,7 @@ import { ToolExecutor } from "../tool-executor";
 import { createStubPermissionEngine } from "../../__tests__/helpers/permission-engine-stub";
 import type { ExtensionProcess } from "../subprocess";
 import type { ExtensionRegistry } from "../registry";
-import type {
-  JsonRpcNotification,
-  JsonRpcRequest,
-  JsonRpcResponse,
-} from "../types";
+import type { JsonRpcNotification, JsonRpcRequest, JsonRpcResponse } from "../types";
 
 // ── Stub subprocess: capture the handler ensureSubprocessRpcWired installs ──
 interface StubProc {
@@ -102,10 +98,7 @@ describe("ToolExecutor · github-projects reverse-RPC entry", () => {
 
   test("unknown extensionId (no granted permissions) → -32603 'not found' (direct call)", async () => {
     // getGrantedPermissions → null. The `!granted` half of the guard fires.
-    const res: JsonRpcResponse = await executor.handlePiGithubProjects(
-      "ghost-ext",
-      ghRequest(42),
-    );
+    const res: JsonRpcResponse = await executor.handlePiGithubProjects("ghost-ext", ghRequest(42));
     expect(res.id).toBe(42);
     expect(res.error?.code).toBe(-32603);
     expect(res.error?.message).toMatch(/not found/i);
@@ -118,9 +111,7 @@ describe("ToolExecutor · github-projects reverse-RPC entry", () => {
     const exec = new ToolExecutor(
       makeRegistry({
         getGrantedPermissions: () =>
-          ({ grantedAt: {} }) as unknown as ReturnType<
-            ExtensionRegistry["getGrantedPermissions"]
-          >,
+          ({ grantedAt: {} }) as unknown as ReturnType<ExtensionRegistry["getGrantedPermissions"]>,
         getManifest: () => undefined,
       }),
       createStubPermissionEngine(),

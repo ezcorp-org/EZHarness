@@ -58,9 +58,7 @@ export function snakeCaseToolSegment(label: string): string {
     .replace(/^_+|_+$/g, "")
     .replace(/_+/g, "_");
   if (snake.length === 0) {
-    throw new Error(
-      `Cannot derive tool name from label ${JSON.stringify(label)}`,
-    );
+    throw new Error(`Cannot derive tool name from label ${JSON.stringify(label)}`);
   }
   return snake;
 }
@@ -121,9 +119,7 @@ function summarizeSchemaForDescription(decl: EntityDeclaration): string {
   return lines.length === 0 ? "" : `\nFields:\n${lines.join("\n")}`;
 }
 
-export function buildEntityToolDefinitions(
-  decl: EntityDeclaration,
-): ToolDefinition[] {
+export function buildEntityToolDefinitions(decl: EntityDeclaration): ToolDefinition[] {
   const names = entityToolNames(decl);
   const fields = summarizeSchemaForDescription(decl);
   // Cast to the LLM-facing JSON-Schema shape — ToolDefinition.inputSchema
@@ -247,9 +243,7 @@ export function buildEntityToolHandlers(
       });
       return toolResult(JSON.stringify({ items: enriched }, null, 2));
     } catch (err) {
-      return toolError(
-        `${entityToolNames(decl).list} failed: ${(err as Error).message}`,
-      );
+      return toolError(`${entityToolNames(decl).list} failed: ${(err as Error).message}`);
     }
   };
 
@@ -257,31 +251,22 @@ export function buildEntityToolHandlers(
   const get: ToolHandler = async (args): Promise<ToolCallResult> => {
     const slug = (args as { slug?: unknown }).slug;
     if (typeof slug !== "string") {
-      return toolError(
-        `${entityToolNames(decl).get} requires a string 'slug'`,
-      );
+      return toolError(`${entityToolNames(decl).get} requires a string 'slug'`);
     }
     if (!isValidSlug(slug)) {
-      return toolError(
-        `${entityToolNames(decl).get}: invalid slug ${JSON.stringify(slug)}`,
-      );
+      return toolError(`${entityToolNames(decl).get}: invalid slug ${JSON.stringify(slug)}`);
     }
     try {
       const rec = await readEntityRecord(store, type, slug);
       if (rec === null) {
-        return toolError(
-          `${decl.label} ${JSON.stringify(slug)} not found`,
-          "NOT_FOUND",
-        );
+        return toolError(`${decl.label} ${JSON.stringify(slug)} not found`, "NOT_FOUND");
       }
       const out = softRead
         ? attachWarning(rec.slug, rec.data, validateRecord(decl.schema, rec.data))
         : rec;
       return toolResult(JSON.stringify(out, null, 2));
     } catch (err) {
-      return toolError(
-        `${entityToolNames(decl).get} failed: ${(err as Error).message}`,
-      );
+      return toolError(`${entityToolNames(decl).get} failed: ${(err as Error).message}`);
     }
   };
 
@@ -299,11 +284,7 @@ export function buildEntityToolHandlers(
         `${toolName}: invalid slug ${JSON.stringify(slug)} — must match ^[a-z0-9]([a-z0-9-]{0,62}[a-z0-9])?$`,
       );
     }
-    if (
-      data === null ||
-      typeof data !== "object" ||
-      Array.isArray(data)
-    ) {
+    if (data === null || typeof data !== "object" || Array.isArray(data)) {
       return toolError(`${toolName} requires an object 'data'`);
     }
 
@@ -313,17 +294,11 @@ export function buildEntityToolHandlers(
       // a record exists without an index entry (post-migration repair).
       const indexSlugs = await readEntityIndex(store, type);
       if (indexSlugs.includes(slug)) {
-        return toolError(
-          `${decl.label} ${JSON.stringify(slug)} already exists`,
-          "ALREADY_EXISTS",
-        );
+        return toolError(`${decl.label} ${JSON.stringify(slug)} already exists`, "ALREADY_EXISTS");
       }
       const existing = await readEntityRecord(store, type, slug);
       if (existing !== null) {
-        return toolError(
-          `${decl.label} ${JSON.stringify(slug)} already exists`,
-          "ALREADY_EXISTS",
-        );
+        return toolError(`${decl.label} ${JSON.stringify(slug)} already exists`, "ALREADY_EXISTS");
       }
 
       // Hard-fail validation
@@ -337,9 +312,7 @@ export function buildEntityToolHandlers(
       }
 
       await writeEntityRecord(store, type, slug, data);
-      return toolResult(
-        JSON.stringify({ slug, data }, null, 2),
-      );
+      return toolResult(JSON.stringify({ slug, data }, null, 2));
     } catch (err) {
       return toolError(`${toolName} failed: ${(err as Error).message}`);
     }
@@ -355,15 +328,9 @@ export function buildEntityToolHandlers(
       return toolError(`${toolName} requires a string 'slug'`);
     }
     if (!isValidSlug(slug)) {
-      return toolError(
-        `${toolName}: invalid slug ${JSON.stringify(slug)}`,
-      );
+      return toolError(`${toolName}: invalid slug ${JSON.stringify(slug)}`);
     }
-    if (
-      patch === null ||
-      typeof patch !== "object" ||
-      Array.isArray(patch)
-    ) {
+    if (patch === null || typeof patch !== "object" || Array.isArray(patch)) {
       return toolError(`${toolName} requires an object 'patch'`);
     }
     if ((patch as { slug?: unknown }).slug !== undefined) {
@@ -376,10 +343,7 @@ export function buildEntityToolHandlers(
     try {
       const current = await readEntityRecord(store, type, slug);
       if (current === null) {
-        return toolError(
-          `${decl.label} ${JSON.stringify(slug)} not found`,
-          "NOT_FOUND",
-        );
+        return toolError(`${decl.label} ${JSON.stringify(slug)} not found`, "NOT_FOUND");
       }
 
       // Shallow merge — matches substack-pilot pre-port semantics.
@@ -415,9 +379,7 @@ export function buildEntityToolHandlers(
       return toolError(`${toolName} requires a string 'slug'`);
     }
     if (!isValidSlug(slug)) {
-      return toolError(
-        `${toolName}: invalid slug ${JSON.stringify(slug)}`,
-      );
+      return toolError(`${toolName}: invalid slug ${JSON.stringify(slug)}`);
     }
 
     try {

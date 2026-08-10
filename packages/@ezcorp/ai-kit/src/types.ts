@@ -27,9 +27,7 @@ export const sendMessageInput = z.object({
 });
 
 export const generateAgentInput = z.object({
-  messages: z
-    .array(z.object({ role: z.string().min(1), content: z.string().min(1) }))
-    .min(1),
+  messages: z.array(z.object({ role: z.string().min(1), content: z.string().min(1) })).min(1),
   provider: z.string().min(1).optional(),
   model: z.string().min(1).optional(),
   thinkingLevel: z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]).optional(),

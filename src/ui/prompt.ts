@@ -25,7 +25,10 @@ export function askLine(prompt: string): Promise<string> {
   });
 }
 
-async function ask(rl: ReturnType<typeof createInterface>, question: string): Promise<string | null> {
+async function ask(
+  rl: ReturnType<typeof createInterface>,
+  question: string,
+): Promise<string | null> {
   try {
     const answer = await rl.question(question);
     return answer.trim();

@@ -111,8 +111,7 @@ export async function syncBriefingAgentWebSearch(
       const id = webSearch.extensionId;
       const wantedSubset = webSearch.toolNames;
       const alreadyReferenced = current.includes(id);
-      const subsetInSync =
-        JSON.stringify(currentTools[id] ?? []) === JSON.stringify(wantedSubset);
+      const subsetInSync = JSON.stringify(currentTools[id] ?? []) === JSON.stringify(wantedSubset);
       if (alreadyReferenced && subsetInSync) return;
       await updateAgentConfig(agent.id, {
         extensions: alreadyReferenced ? current : [...current, id],

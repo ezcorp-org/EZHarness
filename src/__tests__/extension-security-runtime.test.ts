@@ -71,10 +71,12 @@ function makeManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionMa
 
 function createMockProcess(overrides: Record<string, unknown> = {}) {
   return {
-    callTool: mock(async (_toolName: string, _args: Record<string, unknown>): Promise<ToolCallResult> => ({
-      content: [{ type: "text" as const, text: "mock result" }],
-      isError: false,
-    })),
+    callTool: mock(
+      async (_toolName: string, _args: Record<string, unknown>): Promise<ToolCallResult> => ({
+        content: [{ type: "text" as const, text: "mock result" }],
+        isError: false,
+      }),
+    ),
     setRequestHandler: mock(() => {}),
     isRunning: true,
     kill: mock(() => {}),
@@ -577,7 +579,10 @@ describe("registry loads only enabled extensions", () => {
         name: "enabled-ext",
         version: "1.0.0",
         description: "Enabled",
-        manifest: makeManifest({ name: "enabled-ext", tools: [{ name: "tool-a", description: "A", inputSchema: {} }] }),
+        manifest: makeManifest({
+          name: "enabled-ext",
+          tools: [{ name: "tool-a", description: "A", inputSchema: {} }],
+        }),
         source: "local:/test",
         installPath: installDir,
         enabled: true,
@@ -592,7 +597,10 @@ describe("registry loads only enabled extensions", () => {
         name: "disabled-ext",
         version: "1.0.0",
         description: "Disabled",
-        manifest: makeManifest({ name: "disabled-ext", tools: [{ name: "tool-b", description: "B", inputSchema: {} }] }),
+        manifest: makeManifest({
+          name: "disabled-ext",
+          tools: [{ name: "tool-b", description: "B", inputSchema: {} }],
+        }),
         source: "local:/test2",
         installPath: installDir,
         enabled: false,
@@ -622,7 +630,10 @@ describe("registry loads only enabled extensions", () => {
         name: "disabled-only-ext",
         version: "1.0.0",
         description: "Disabled",
-        manifest: makeManifest({ name: "disabled-only-ext", tools: [{ name: "secret-tool", description: "Secret", inputSchema: {} }] }),
+        manifest: makeManifest({
+          name: "disabled-only-ext",
+          tools: [{ name: "secret-tool", description: "Secret", inputSchema: {} }],
+        }),
         source: "local:/test",
         installPath: installDir,
         enabled: false,
@@ -777,7 +788,9 @@ describe("ToolExecutor request handler routing", () => {
 
     let capturedHandler: ((req: JsonRpcRequest) => Promise<any>) | null = null;
     const mockProc = createMockProcess({
-      setRequestHandler: mock((handler: any) => { capturedHandler = handler; }),
+      setRequestHandler: mock((handler: any) => {
+        capturedHandler = handler;
+      }),
     });
     (registry as any).getProcess = async () => mockProc;
 
@@ -814,7 +827,9 @@ describe("ToolExecutor request handler routing", () => {
 
     let capturedHandler: ((req: JsonRpcRequest) => Promise<any>) | null = null;
     const mockProc = createMockProcess({
-      setRequestHandler: mock((handler: any) => { capturedHandler = handler; }),
+      setRequestHandler: mock((handler: any) => {
+        capturedHandler = handler;
+      }),
     });
     (registry as any).getProcess = async () => mockProc;
 

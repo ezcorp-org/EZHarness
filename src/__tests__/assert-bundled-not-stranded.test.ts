@@ -37,37 +37,37 @@ const lines: LogLine[] = [];
 let stderrSpy: ReturnType<typeof spyOn> | null = null;
 
 function captureStderr(): void {
-  stderrSpy = spyOn(process.stderr, "write").mockImplementation(
-    ((chunk: string | Uint8Array): boolean => {
-      const s = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
-      for (const rawLine of s.split("\n")) {
-        const line = rawLine.trim();
-        if (!line) continue;
-        try {
-          const parsed = JSON.parse(line) as {
-            level?: string;
-            msg?: string;
-            subsystem?: string;
-            stranded?: string[];
-          };
-          if (
-            (parsed.level === "error" || parsed.level === "warn") &&
-            typeof parsed.msg === "string" &&
-            parsed.subsystem === "startup/assert-bundled-not-stranded"
-          ) {
-            lines.push({
-              level: parsed.level,
-              msg: parsed.msg,
-              ...(parsed.stranded ? { stranded: parsed.stranded } : {}),
-            });
-          }
-        } catch {
-          // Non-JSON stderr noise — ignore.
+  stderrSpy = spyOn(process.stderr, "write").mockImplementation(((
+    chunk: string | Uint8Array,
+  ): boolean => {
+    const s = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+    for (const rawLine of s.split("\n")) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      try {
+        const parsed = JSON.parse(line) as {
+          level?: string;
+          msg?: string;
+          subsystem?: string;
+          stranded?: string[];
+        };
+        if (
+          (parsed.level === "error" || parsed.level === "warn") &&
+          typeof parsed.msg === "string" &&
+          parsed.subsystem === "startup/assert-bundled-not-stranded"
+        ) {
+          lines.push({
+            level: parsed.level,
+            msg: parsed.msg,
+            ...(parsed.stranded ? { stranded: parsed.stranded } : {}),
+          });
         }
+      } catch {
+        // Non-JSON stderr noise — ignore.
       }
-      return true;
-    }) as typeof process.stderr.write,
-  );
+    }
+    return true;
+  }) as typeof process.stderr.write);
 }
 
 // ── Bundled entry list + extension rows ─────────────────────────────
@@ -118,9 +118,7 @@ function warnings(): LogLine[] {
 
 describe("assertBundledNotStranded", () => {
   test("all enabled → no stranded, and NO warning (no boot spam)", async () => {
-    const { assertBundledNotStranded } = await import(
-      "../startup/assert-bundled-not-stranded"
-    );
+    const { assertBundledNotStranded } = await import("../startup/assert-bundled-not-stranded");
     const r = await assertBundledNotStranded();
 
     expect(r.stranded).toEqual([]);
@@ -132,9 +130,7 @@ describe("assertBundledNotStranded", () => {
 
   test("a disabled bundled row is reported as stranded", async () => {
     rows.set("web-search", { id: "ext-ws", enabled: false });
-    const { assertBundledNotStranded } = await import(
-      "../startup/assert-bundled-not-stranded"
-    );
+    const { assertBundledNotStranded } = await import("../startup/assert-bundled-not-stranded");
     const r = await assertBundledNotStranded();
 
     expect(r.stranded).toEqual(["web-search"]);
@@ -149,9 +145,7 @@ describe("assertBundledNotStranded", () => {
 
   test("reports but NEVER remediates — the S9 disable awaits human consent", async () => {
     rows.set("web-search", { id: "ext-ws", enabled: false });
-    const { assertBundledNotStranded } = await import(
-      "../startup/assert-bundled-not-stranded"
-    );
+    const { assertBundledNotStranded } = await import("../startup/assert-bundled-not-stranded");
     await assertBundledNotStranded();
 
     expect(updateCalls).toEqual([]);
@@ -161,9 +155,7 @@ describe("assertBundledNotStranded", () => {
   test("several stranded extensions collapse into ONE aggregate line", async () => {
     rows.set("web-search", { id: "ext-ws", enabled: false });
     rows.set("scratchpad", { id: "ext-sp", enabled: false });
-    const { assertBundledNotStranded } = await import(
-      "../startup/assert-bundled-not-stranded"
-    );
+    const { assertBundledNotStranded } = await import("../startup/assert-bundled-not-stranded");
     const r = await assertBundledNotStranded();
 
     expect(r.stranded).toEqual(["web-search", "scratchpad"]);
@@ -173,9 +165,7 @@ describe("assertBundledNotStranded", () => {
 
   test("a missing row is classified, not counted as stranded", async () => {
     rows.set("scratchpad", null);
-    const { assertBundledNotStranded } = await import(
-      "../startup/assert-bundled-not-stranded"
-    );
+    const { assertBundledNotStranded } = await import("../startup/assert-bundled-not-stranded");
     const r = await assertBundledNotStranded();
 
     expect(r.missing).toEqual(["scratchpad"]);
@@ -185,9 +175,7 @@ describe("assertBundledNotStranded", () => {
 
   test("a lookup failure is non-fatal and lands in `unknown`", async () => {
     lookupThrowsFor.add("scratchpad");
-    const { assertBundledNotStranded } = await import(
-      "../startup/assert-bundled-not-stranded"
-    );
+    const { assertBundledNotStranded } = await import("../startup/assert-bundled-not-stranded");
     const r = await assertBundledNotStranded();
 
     expect(r.unknown).toEqual(["scratchpad"]);
@@ -203,9 +191,7 @@ describe("assertBundledNotStranded", () => {
     // for a name that isn't in the resolved list must not be reported.
     entries = [{ name: "scratchpad", path: "docs/extensions/examples/scratchpad" }];
     rows.set("web-search", { id: "ext-ws", enabled: false });
-    const { assertBundledNotStranded } = await import(
-      "../startup/assert-bundled-not-stranded"
-    );
+    const { assertBundledNotStranded } = await import("../startup/assert-bundled-not-stranded");
     const r = await assertBundledNotStranded();
 
     expect(r.checked).toEqual(["scratchpad"]);

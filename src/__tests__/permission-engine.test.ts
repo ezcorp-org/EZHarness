@@ -18,7 +18,13 @@
  */
 
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { mockDbConnection, mockRealSettings, setupTestDb, closeTestDb, getTestDb } from "./helpers/test-pglite";
+import {
+  mockDbConnection,
+  mockRealSettings,
+  setupTestDb,
+  closeTestDb,
+  getTestDb,
+} from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 mockDbConnection();
@@ -183,7 +189,12 @@ describe("authorize — deny when granted missing a cap", () => {
   test("denies and names the missing network host", async () => {
     const engine = makeEngine({ granted: { grantedAt: {}, network: ["a.com"] } });
     const decision = await engine.authorize(
-      { extensionId: HELLO_EXT, userId: HELLO_USER, conversationId: HELLO_CONV, toolName: "fetcher" },
+      {
+        extensionId: HELLO_EXT,
+        userId: HELLO_USER,
+        conversationId: HELLO_CONV,
+        toolName: "fetcher",
+      },
       [{ kind: "network", value: "evil.com" }],
     );
     expect(decision.decision).toBe("deny");
@@ -277,7 +288,12 @@ describe("authorize — audit log row per decision", () => {
       granted: { grantedAt: {}, storage: true },
     });
     await engine.authorize(
-      { extensionId: HELLO_EXT, userId: HELLO_USER, conversationId: HELLO_CONV, toolName: "writer" },
+      {
+        extensionId: HELLO_EXT,
+        userId: HELLO_USER,
+        conversationId: HELLO_CONV,
+        toolName: "writer",
+      },
       [{ kind: "storage" }],
     );
     const rows = await getTestDb()
@@ -628,7 +644,9 @@ describe("always-allow is kind-only for sensitive caps", () => {
 describe("always-allow row shape — direct DB-key inspection", () => {
   async function settingsRowsForExt(extensionId: string) {
     const all = await getTestDb().select().from(settings);
-    return all.filter((r) => r.key.startsWith(`ext:${extensionId}:`) && r.key.includes(":always_allow:"));
+    return all.filter(
+      (r) => r.key.startsWith(`ext:${extensionId}:`) && r.key.includes(":always_allow:"),
+    );
   }
 
   test("resolvePrompt(fs.write) writes EXACTLY one row at the kind-only key (no path in the key)", async () => {
@@ -777,16 +795,12 @@ describe("authorize — ezcorp:extension:install carve-out", () => {
   test("install approval is one-shot: resolvePrompt(true) is NOT persisted; next install re-prompts", async () => {
     const engine = makeBundledEngine(DRAFTS_GRANT);
     const ctx = { extensionId: HELLO_EXT, userId: HELLO_USER, conversationId: HELLO_CONV };
-    const first = await engine.authorize(ctx, [
-      { kind: "ezcorp:extension:install" },
-    ]);
+    const first = await engine.authorize(ctx, [{ kind: "ezcorp:extension:install" }]);
     if (first.decision !== "prompt") throw new Error("expected prompt");
     // Even with the broadest scope, this must NOT persist.
     await engine.resolvePrompt(first.promptId, true, "forever", "*");
 
-    const second = await engine.authorize(ctx, [
-      { kind: "ezcorp:extension:install" },
-    ]);
+    const second = await engine.authorize(ctx, [{ kind: "ezcorp:extension:install" }]);
     expect(second.decision).toBe("prompt");
 
     // No always-allow settings row was written for the install cap.
@@ -797,10 +811,7 @@ describe("authorize — ezcorp:extension:install carve-out", () => {
       scopeId: "*",
       capability: "ezcorp:extension:install",
     });
-    const rows = await getTestDb()
-      .select()
-      .from(settings)
-      .where(eq(settings.key, key));
+    const rows = await getTestDb().select().from(settings).where(eq(settings.key, key));
     expect(rows.length).toBe(0);
   });
 

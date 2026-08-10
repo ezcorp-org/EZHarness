@@ -35,7 +35,9 @@ mock.module("../db/queries/settings", () => {
       await getDb().delete(tbl).where(eq(tbl.key, key));
       return true;
     },
-    async isListingInstalled() { return false; },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -103,7 +105,9 @@ describe("conversations", () => {
     expect(convs.length).toBeGreaterThanOrEqual(2);
     // Verify descending order
     for (let i = 1; i < convs.length; i++) {
-      expect(convs[i - 1]!.updatedAt.getTime()).toBeGreaterThanOrEqual(convs[i]!.updatedAt.getTime());
+      expect(convs[i - 1]!.updatedAt.getTime()).toBeGreaterThanOrEqual(
+        convs[i]!.updatedAt.getTime(),
+      );
     }
   });
 
@@ -130,7 +134,10 @@ describe("conversations", () => {
 
   test("updateConversation updates model and provider", async () => {
     const conv = await createConversation(projectId);
-    const updated = await updateConversation(conv.id, { model: "claude-sonnet-4-20250514", provider: "anthropic" });
+    const updated = await updateConversation(conv.id, {
+      model: "claude-sonnet-4-20250514",
+      provider: "anthropic",
+    });
     expect(updated!.model).toBe("claude-sonnet-4-20250514");
     expect(updated!.provider).toBe("anthropic");
   });
@@ -233,13 +240,13 @@ describe("branching", () => {
 
   test("getConversationPath walks from leaf to root and returns ordered path", async () => {
     const msg1 = await createMessage(conversationId, { role: "user", content: "First" });
-    await new Promise(r => setTimeout(r, 10)); // ensure distinct timestamps
+    await new Promise((r) => setTimeout(r, 10)); // ensure distinct timestamps
     const msg2 = await createMessage(conversationId, {
       role: "assistant",
       content: "Second",
       parentMessageId: msg1.id,
     });
-    await new Promise(r => setTimeout(r, 10));
+    await new Promise((r) => setTimeout(r, 10));
     const msg3 = await createMessage(conversationId, {
       role: "user",
       content: "Third",
@@ -337,21 +344,26 @@ describe("memoriesUsed attachment", () => {
   // `run.result.output.memoriesUsed` on assistant rows.
   async function seedRun(
     runId: string,
-    output: { memoriesUsed?: { id: string; content: string; category: string }[]; fullText?: string } | null,
+    output: {
+      memoriesUsed?: { id: string; content: string; category: string }[];
+      fullText?: string;
+    } | null,
   ) {
     const { getDb } = await import("../db/connection");
     const { runs } = await import("../db/schema");
-    await getDb().insert(runs).values({
-      id: runId,
-      agentName: "chat",
-      projectId: null,
-      status: "success",
-      input: null,
-      startedAt: new Date(),
-      finishedAt: new Date(),
-      result: output === null ? null : { success: true, output },
-      createdAt: new Date(),
-    });
+    await getDb()
+      .insert(runs)
+      .values({
+        id: runId,
+        agentName: "chat",
+        projectId: null,
+        status: "success",
+        input: null,
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        result: output === null ? null : { success: true, output },
+        createdAt: new Date(),
+      });
   }
 
   beforeEach(async () => {
@@ -549,11 +561,20 @@ describe("search", () => {
 
     const conv1 = await createConversation(searchProjectId, { title: "Recipe discussion" });
     await createMessage(conv1.id, { role: "user", content: "How do I make chocolate cake?" });
-    await createMessage(conv1.id, { role: "assistant", content: "Here is a recipe for delicious chocolate cake with frosting." });
+    await createMessage(conv1.id, {
+      role: "assistant",
+      content: "Here is a recipe for delicious chocolate cake with frosting.",
+    });
 
     const conv2 = await createConversation(searchProjectId, { title: "TypeScript help" });
-    await createMessage(conv2.id, { role: "user", content: "How do I use generics in TypeScript?" });
-    await createMessage(conv2.id, { role: "assistant", content: "Generics allow you to create reusable components." });
+    await createMessage(conv2.id, {
+      role: "user",
+      content: "How do I use generics in TypeScript?",
+    });
+    await createMessage(conv2.id, {
+      role: "assistant",
+      content: "Generics allow you to create reusable components.",
+    });
   });
 
   test("searchConversations finds matches in message content and returns snippets", async () => {
@@ -582,7 +603,10 @@ describe("search", () => {
     // host-internal; a title/message hit must not leak it (the ne(kind,'ext-service')
     // guard in the search CTE, mirroring listConversations). A sanity control (a
     // regular conversation with the same tokens) proves the query itself matches.
-    const svc = await createConversation(searchProjectId, { title: "zebrafish service marker", kind: "ext-service" });
+    const svc = await createConversation(searchProjectId, {
+      title: "zebrafish service marker",
+      kind: "ext-service",
+    });
     await createMessage(svc.id, { role: "user", content: "quokka platypus service transcript" });
     const control = await createConversation(searchProjectId, { title: "zebrafish control" });
     await createMessage(control.id, { role: "user", content: "quokka platypus control" });
@@ -698,7 +722,11 @@ describe("getOrCreateExtServiceConversation + getProjectByPath", () => {
     svcProjectPath = `/repos/svc-${crypto.randomUUID()}`;
     const project = await createProject({ name: "Svc App", path: svcProjectPath });
     svcProjectId = project.id;
-    const user = await createUser({ email: `gate-${crypto.randomUUID()}@t.com`, passwordHash: "h", name: "Gate" });
+    const user = await createUser({
+      email: `gate-${crypto.randomUUID()}@t.com`,
+      passwordHash: "h",
+      name: "Gate",
+    });
     gateUserId = user.id;
   });
 
@@ -767,7 +795,10 @@ describe("getOrCreateExtServiceConversation + getProjectByPath", () => {
       title: "list-ext gate — Svc App",
     });
     // A regular conversation in the same project DOES list.
-    const regular = await createConversation(svcProjectId, { title: "Regular", userId: gateUserId });
+    const regular = await createConversation(svcProjectId, {
+      title: "Regular",
+      userId: gateUserId,
+    });
     const listed = await listConversations(svcProjectId);
     const ids = listed.map((c) => c.id);
     expect(ids).toContain(regular.id);
@@ -775,7 +806,10 @@ describe("getOrCreateExtServiceConversation + getProjectByPath", () => {
   });
 
   test("createConversation honors kind:'ext-service'", async () => {
-    const conv = await createConversation(svcProjectId, { title: "Direct svc", kind: "ext-service" });
+    const conv = await createConversation(svcProjectId, {
+      title: "Direct svc",
+      kind: "ext-service",
+    });
     expect(conv.kind).toBe("ext-service");
   });
 

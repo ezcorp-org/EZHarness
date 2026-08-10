@@ -29,11 +29,22 @@ import {
   _resetBriefingRuntimeForTests,
   type BriefingExecutor,
 } from "../runtime/briefing/runtime-registry";
-import { _resetBriefingAgentCacheForTests, BRIEFING_AGENT_NAME } from "../runtime/briefing/agent-config";
+import {
+  _resetBriefingAgentCacheForTests,
+  BRIEFING_AGENT_NAME,
+} from "../runtime/briefing/agent-config";
 import { createMessage, getMessages, getConversation } from "../db/queries/conversations";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
-import { users, projects, conversations, messages, agentConfigs, briefingConfigs, extensions } from "../db/schema";
+import {
+  users,
+  projects,
+  conversations,
+  messages,
+  agentConfigs,
+  briefingConfigs,
+  extensions,
+} from "../db/schema";
 import type { BriefingConfig } from "../db/queries/briefing-configs";
 import { eq } from "drizzle-orm";
 
@@ -80,7 +91,11 @@ function makeExecutor(opts: {
   const calls: StubCall[] = [];
   const cancelled: string[] = [];
   const executor = {
-    async streamChat(conversationId: string, userMessage: string, options: Record<string, unknown>) {
+    async streamChat(
+      conversationId: string,
+      userMessage: string,
+      options: Record<string, unknown>,
+    ) {
       calls.push({ conversationId, userMessage, options });
       if (opts.neverResolve) return new Promise<never>(() => {});
       if (opts.assistantContent) {
@@ -93,7 +108,9 @@ function makeExecutor(opts: {
         status,
         startedAt: Date.now(),
         logs: [],
-        ...(status !== "success" ? { result: { success: false, output: null, error: opts.error ?? "boom" } } : {}),
+        ...(status !== "success"
+          ? { result: { success: false, output: null, error: opts.error ?? "boom" } }
+          : {}),
       } as AgentRun;
     },
     cancelRun(id: string) {
@@ -125,7 +142,10 @@ beforeEach(async () => {
   await db.delete(projects);
   await db.delete(users);
 
-  const [u] = await db.insert(users).values({ email: "a@t.local", passwordHash: "x", name: "A" }).returning();
+  const [u] = await db
+    .insert(users)
+    .values({ email: "a@t.local", passwordHash: "x", name: "A" })
+    .returning();
   userId = u!.id;
   const [p] = await db.insert(projects).values({ name: "P", path: "/tmp/p" }).returning();
   projectId = p!.id;
@@ -141,7 +161,11 @@ describe("prompt/title builders", () => {
   });
 
   test("buildBriefingSystemPrompt embeds the section contract, date, tz, and user instructions", () => {
-    const prompt = buildBriefingSystemPrompt({ now: NOW, timezone: "UTC", instructions: "focus on work, skip chit-chat" });
+    const prompt = buildBriefingSystemPrompt({
+      now: NOW,
+      timezone: "UTC",
+      instructions: "focus on work, skip chit-chat",
+    });
     expect(prompt).toContain("Unfinished business");
     expect(prompt).toContain("Open tasks");
     expect(prompt).toContain("by title, never by id");
@@ -268,7 +292,9 @@ describe("resolveBriefingProject", () => {
 
 describe("runBriefingForUser", () => {
   test("happy path: conversation + synthetic message + assistant reply, events emitted, correct identity", async () => {
-    const { executor, calls } = makeExecutor({ assistantContent: "Good morning — 2 open threads." });
+    const { executor, calls } = makeExecutor({
+      assistantContent: "Good morning — 2 open threads.",
+    });
     const bus = new EventBus<AgentEvents>();
     const created: unknown[] = [];
     const delivered: unknown[] = [];
@@ -289,13 +315,20 @@ describe("runBriefingForUser", () => {
 
     // The shared briefing agent was bootstrapped + attached.
     const db = getTestDb();
-    const agents = await db.select().from(agentConfigs).where(eq(agentConfigs.name, BRIEFING_AGENT_NAME));
+    const agents = await db
+      .select()
+      .from(agentConfigs)
+      .where(eq(agentConfigs.name, BRIEFING_AGENT_NAME));
     expect(agents).toHaveLength(1);
     expect(conv!.agentConfigId).toBe(agents[0]!.id);
 
     const msgs = await getMessages(result.conversationId!);
-    expect(msgs.some((m) => m.role === "user" && m.content.startsWith("[Scheduled briefing —"))).toBe(true);
-    expect(msgs.some((m) => m.role === "assistant" && m.content.includes("Good morning"))).toBe(true);
+    expect(
+      msgs.some((m) => m.role === "user" && m.content.startsWith("[Scheduled briefing —")),
+    ).toBe(true);
+    expect(msgs.some((m) => m.role === "assistant" && m.content.includes("Good morning"))).toBe(
+      true,
+    );
 
     // streamChat received the executor contract: runId + parent anchored
     // on the synthetic message + the briefing agent config.
@@ -352,7 +385,11 @@ describe("runBriefingForUser", () => {
     const bus = new EventBus<AgentEvents>();
     const events: unknown[] = [];
     bus.on("briefing:delivered", (e) => events.push(e));
-    const result = await runBriefingForUser(makeConfig({ projectId: null }), {}, { executor, bus, now: () => NOW });
+    const result = await runBriefingForUser(
+      makeConfig({ projectId: null }),
+      {},
+      { executor, bus, now: () => NOW },
+    );
     expect(result.status).toBe("skipped");
     expect(calls).toHaveLength(0);
     expect(events).toHaveLength(0);
@@ -360,7 +397,11 @@ describe("runBriefingForUser", () => {
   });
 
   test("run error with NO assistant content deletes the conversation (empty-failure hygiene)", async () => {
-    const { executor } = makeExecutor({ assistantContent: null, status: "error", error: "provider key missing" });
+    const { executor } = makeExecutor({
+      assistantContent: null,
+      status: "error",
+      error: "provider key missing",
+    });
     const bus = new EventBus<AgentEvents>();
     const events: unknown[] = [];
     bus.on("briefing:delivered", (e) => events.push(e));
@@ -378,7 +419,10 @@ describe("runBriefingForUser", () => {
     // real (non-synthetic) user message as preservable content.
     const executor = {
       async streamChat(conversationId: string) {
-        await createMessage(conversationId, { role: "user", content: "actually, focus on the launch plan" });
+        await createMessage(conversationId, {
+          role: "user",
+          content: "actually, focus on the launch plan",
+        });
         return {
           id: "run-1",
           agentName: "chat",
@@ -388,7 +432,9 @@ describe("runBriefingForUser", () => {
           result: { success: false, output: null, error: "provider exploded" },
         } as AgentRun;
       },
-      cancelRun() { return true; },
+      cancelRun() {
+        return true;
+      },
     } as unknown as BriefingExecutor;
     const bus = new EventBus<AgentEvents>();
 
@@ -410,7 +456,10 @@ describe("runBriefingForUser", () => {
   });
 
   test("structured run errors are stringified", async () => {
-    const { executor } = makeExecutor({ status: "error", error: { code: "cancelled", message: "run cancelled" } });
+    const { executor } = makeExecutor({
+      status: "error",
+      error: { code: "cancelled", message: "run cancelled" },
+    });
     const bus = new EventBus<AgentEvents>();
     const result = await runBriefingForUser(makeConfig(), {}, { executor, bus, now: () => NOW });
     expect(result.status).toBe("error");
@@ -420,12 +469,16 @@ describe("runBriefingForUser", () => {
   test("timeout cancels the run and deletes the empty conversation", async () => {
     const { executor, cancelled, calls } = makeExecutor({ neverResolve: true });
     const bus = new EventBus<AgentEvents>();
-    const result = await runBriefingForUser(makeConfig(), {}, {
-      executor,
-      bus,
-      now: () => NOW,
-      runTimeoutMs: 20,
-    });
+    const result = await runBriefingForUser(
+      makeConfig(),
+      {},
+      {
+        executor,
+        bus,
+        now: () => NOW,
+        runTimeoutMs: 20,
+      },
+    );
     expect(result.status).toBe("error");
     expect(result.error).toMatch(/timed out/);
     expect(cancelled).toEqual([calls[0]!.options.runId as string]);
@@ -434,16 +487,24 @@ describe("runBriefingForUser", () => {
 
   test("a throwing cancelRun after timeout is swallowed (run still errors + cleans up)", async () => {
     const executor = {
-      streamChat() { return new Promise(() => {}); },
-      cancelRun() { throw new Error("cancel exploded"); },
+      streamChat() {
+        return new Promise(() => {});
+      },
+      cancelRun() {
+        throw new Error("cancel exploded");
+      },
     } as unknown as BriefingExecutor;
     const bus = new EventBus<AgentEvents>();
-    const result = await runBriefingForUser(makeConfig(), {}, {
-      executor,
-      bus,
-      now: () => NOW,
-      runTimeoutMs: 20,
-    });
+    const result = await runBriefingForUser(
+      makeConfig(),
+      {},
+      {
+        executor,
+        bus,
+        now: () => NOW,
+        runTimeoutMs: 20,
+      },
+    );
     expect(result.status).toBe("error");
     expect(result.error).toMatch(/timed out/);
     expect(await getTestDb().select().from(conversations)).toHaveLength(0);
@@ -462,9 +523,17 @@ describe("runBriefingForUser", () => {
     const executor = {
       async streamChat(conversationId: string) {
         await createMessage(conversationId, { role: "user", content: "are you there?" });
-        return { id: "run-1", agentName: "chat", status: "success", startedAt: Date.now(), logs: [] } as AgentRun;
+        return {
+          id: "run-1",
+          agentName: "chat",
+          status: "success",
+          startedAt: Date.now(),
+          logs: [],
+        } as AgentRun;
       },
-      cancelRun() { return true; },
+      cancelRun() {
+        return true;
+      },
     } as unknown as BriefingExecutor;
     const bus = new EventBus<AgentEvents>();
     const result = await runBriefingForUser(makeConfig(), {}, { executor, bus, now: () => NOW });
@@ -475,8 +544,12 @@ describe("runBriefingForUser", () => {
 
   test("streamChat throwing is folded into an error result + delete-if-empty", async () => {
     const executor = {
-      async streamChat() { throw new Error("connection refused"); },
-      cancelRun() { return true; },
+      async streamChat() {
+        throw new Error("connection refused");
+      },
+      cancelRun() {
+        return true;
+      },
     } as unknown as BriefingExecutor;
     const bus = new EventBus<AgentEvents>();
     const result = await runBriefingForUser(makeConfig(), {}, { executor, bus, now: () => NOW });
@@ -511,12 +584,18 @@ describe("runBriefingForUser", () => {
 describe("deleteBriefingConversationIfEmpty", () => {
   test("deletes when there is no assistant content; keeps otherwise", async () => {
     const db = getTestDb();
-    const [empty] = await db.insert(conversations).values({ projectId, title: "Empty", userId }).returning();
+    const [empty] = await db
+      .insert(conversations)
+      .values({ projectId, title: "Empty", userId })
+      .returning();
     await createMessage(empty!.id, { role: "user", content: buildSyntheticPrompt(NOW, false) });
     expect(await deleteBriefingConversationIfEmpty(empty!.id)).toBe(true);
     expect(await getConversation(empty!.id)).toBeNull();
 
-    const [full] = await db.insert(conversations).values({ projectId, title: "Full", userId }).returning();
+    const [full] = await db
+      .insert(conversations)
+      .values({ projectId, title: "Full", userId })
+      .returning();
     await createMessage(full!.id, { role: "assistant", content: "content" });
     expect(await deleteBriefingConversationIfEmpty(full!.id)).toBe(false);
     expect(await getConversation(full!.id)).not.toBeNull();
@@ -526,19 +605,29 @@ describe("deleteBriefingConversationIfEmpty", () => {
     // A malformed conversationId makes the underlying message query throw;
     // the cleanup must fold that into `false` + a warn, never propagate — a
     // thrown error here would break the failed-run cleanup path.
-    const badId = { toString() { throw new Error("boom id"); } } as unknown as string;
+    const badId = {
+      toString() {
+        throw new Error("boom id");
+      },
+    } as unknown as string;
     expect(await deleteBriefingConversationIfEmpty(badId)).toBe(false);
   });
 
   test("a real user reply counts as content; the synthetic prompt alone does not", async () => {
     const db = getTestDb();
     // Synthetic prompt only → still "empty".
-    const [synthetic] = await db.insert(conversations).values({ projectId, title: "Synthetic", userId }).returning();
+    const [synthetic] = await db
+      .insert(conversations)
+      .values({ projectId, title: "Synthetic", userId })
+      .returning();
     await createMessage(synthetic!.id, { role: "user", content: buildSyntheticPrompt(NOW, false) });
     expect(await deleteBriefingConversationIfEmpty(synthetic!.id)).toBe(true);
 
     // Synthetic prompt + a real user reply → preserved.
-    const [replied] = await db.insert(conversations).values({ projectId, title: "Replied", userId }).returning();
+    const [replied] = await db
+      .insert(conversations)
+      .values({ projectId, title: "Replied", userId })
+      .returning();
     await createMessage(replied!.id, { role: "user", content: buildSyntheticPrompt(NOW, false) });
     await createMessage(replied!.id, { role: "user", content: "hold on — what about the demo?" });
     expect(await deleteBriefingConversationIfEmpty(replied!.id)).toBe(false);
@@ -586,8 +675,12 @@ describe("notifyBriefingAutoDisabled", () => {
   test("swallows a throwing bus emit (notification already persisted)", async () => {
     const { executor } = makeExecutor({});
     const bus = {
-      emit() { throw new Error("bus exploded"); },
-      on() { return () => {}; },
+      emit() {
+        throw new Error("bus exploded");
+      },
+      on() {
+        return () => {};
+      },
       off() {},
       clear() {},
     } as never;

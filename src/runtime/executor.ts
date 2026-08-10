@@ -37,14 +37,8 @@ import { createFileProvider } from "../providers/file";
 import { getProject } from "../db/queries/projects";
 import { getAllSettings, getSetting } from "../db/queries/settings";
 import type { CompactionConfig } from "./stream-chat/context-compaction";
-import {
-  TOOL_RESULT_CAP_SETTING_KEY,
-  parseToolResultCap,
-} from "./stream-chat/tool-result-cap";
-import {
-  resolveCacheRetentionSetting,
-  type CacheRetention,
-} from "./stream-chat/cache-retention";
+import { TOOL_RESULT_CAP_SETTING_KEY, parseToolResultCap } from "./stream-chat/tool-result-cap";
+import { resolveCacheRetentionSetting, type CacheRetention } from "./stream-chat/cache-retention";
 import * as dbRuns from "../db/queries/runs";
 import { getConversation } from "../db/queries/conversations";
 import { ExtensionRegistry } from "../extensions/registry";
@@ -53,7 +47,11 @@ import { logger } from "../logger";
 const log = logger.child("executor");
 import * as activeRunsDb from "../db/queries/active-runs";
 import { WatchdogManager } from "./executor-watchdog";
-import { createPiLlmAdapter, persistErrorMessage, resolveFailoverAttempt } from "./executor-helpers";
+import {
+  createPiLlmAdapter,
+  persistErrorMessage,
+  resolveFailoverAttempt,
+} from "./executor-helpers";
 
 export interface ExecutorOptions {
   shell?: ShellProvider;
@@ -314,7 +312,9 @@ export class AgentExecutor {
     // same terminal seam as steerShadows / childRuns so the map can't leak
     // across the many short-lived cycle runs a long autonomous/schema
     // assignment mints (the same map-eviction discipline as registerChildRun).
-    const clearMode = (runId: string): void => { this.runModes.delete(runId); };
+    const clearMode = (runId: string): void => {
+      this.runModes.delete(runId);
+    };
     const cancelOrphanedChildren = (runId: string): void => {
       const children = [...(this.childRuns.get(runId) ?? [])];
       if (children.length === 0) return;
@@ -678,7 +678,9 @@ export class AgentExecutor {
    * Returns `{ userId: null, conversationId: null }` for a run with no
    * attribution — the route denies that for non-admins (fail closed).
    */
-  async getRunOwnership(id: string): Promise<{ userId: string | null; conversationId: string | null }> {
+  async getRunOwnership(
+    id: string,
+  ): Promise<{ userId: string | null; conversationId: string | null }> {
     const memConv = this.runConversations.get(id) ?? null;
     if (this.persist) {
       const row = await dbRuns.getRunOwnership(id);
@@ -709,7 +711,7 @@ export class AgentExecutor {
   }
 
   getPendingPermissions(conversationId: string): PendingPermissionInfo[] {
-    return [...this.pendingPermissions.values()].filter(p => p.conversationId === conversationId);
+    return [...this.pendingPermissions.values()].filter((p) => p.conversationId === conversationId);
   }
 
   /**
@@ -786,7 +788,11 @@ export class AgentExecutor {
     // autonomous loop runs before schema validation each cycle).
     const mode = this.runModes.get(run.id);
     if (mode && (mode.autonomous || mode.schema)) {
-      return { status: "guarded", runId: run.id, reason: mode.autonomous ? "autonomous" : "schema" };
+      return {
+        status: "guarded",
+        runId: run.id,
+        reason: mode.autonomous ? "autonomous" : "schema",
+      };
     }
     const agent = this.activeAgents.get(run.id);
     if (!agent) return { status: "no-agent", runId: run.id };
@@ -966,7 +972,29 @@ export class AgentExecutor {
   async streamChat(
     conversationId: string,
     userMessage: string,
-    options: { projectId?: string; workingDir?: string; provider?: string; model?: string; tier?: import("./tier-classifier").RoutingTier; system?: string; runId?: string; parentMessageId?: string; agentConfigId?: string; permissionMode?: import("./tools/types").PermissionMode; thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"; modeId?: string; orchestrationDepth?: number; toolRestriction?: "all" | "read-only" | "none"; allowedTools?: string[]; deniedTools?: string[]; readOnlyAllowedTools?: string[]; memberOverrides?: Map<string, import("../types").TeamMemberOverrides>; subAgentMembers?: import("../types").TeamMember[]; attachments?: import("../chat/attachments/content-builder").StagedAttachment[]; commandResolver?: import("./mention-wiring").CommandResolver },
+    options: {
+      projectId?: string;
+      workingDir?: string;
+      provider?: string;
+      model?: string;
+      tier?: import("./tier-classifier").RoutingTier;
+      system?: string;
+      runId?: string;
+      parentMessageId?: string;
+      agentConfigId?: string;
+      permissionMode?: import("./tools/types").PermissionMode;
+      thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+      modeId?: string;
+      orchestrationDepth?: number;
+      toolRestriction?: "all" | "read-only" | "none";
+      allowedTools?: string[];
+      deniedTools?: string[];
+      readOnlyAllowedTools?: string[];
+      memberOverrides?: Map<string, import("../types").TeamMemberOverrides>;
+      subAgentMembers?: import("../types").TeamMember[];
+      attachments?: import("../chat/attachments/content-builder").StagedAttachment[];
+      commandResolver?: import("./mention-wiring").CommandResolver;
+    },
   ): Promise<AgentRun> {
     const run: AgentRun = {
       id: options.runId ?? crypto.randomUUID(),
@@ -1025,7 +1053,7 @@ export class AgentExecutor {
 
     // Persist active run to DB for crash recovery (fire-and-forget — not on critical path)
     if (this.persist) {
-      activeRunsDb.createActiveRun(run.id, conversationId).catch(err => {
+      activeRunsDb.createActiveRun(run.id, conversationId).catch((err) => {
         log.error("createActiveRun failed", { error: String(err) });
       });
     }
@@ -1033,311 +1061,320 @@ export class AgentExecutor {
     // Top-level safety net: ensures run:error is emitted and active_run is cleaned up
     // for ANY error (e.g. credential failures that happen before the inner try-catch).
     try {
+      const { history, allPastAttachments } = await loadHistory(ctx, conversationId, options);
 
-    const { history, allPastAttachments } = await loadHistory(ctx, conversationId, options);
+      // ── Credential context: sub-conversations inherit parent's credentials ──
+      const convRecord = await getConversation(conversationId);
+      const credentialConversationId = convRecord?.parentConversationId ?? conversationId;
 
-    // ── Credential context: sub-conversations inherit parent's credentials ──
-    const convRecord = await getConversation(conversationId);
-    const credentialConversationId = convRecord?.parentConversationId ?? conversationId;
-
-    const resolvedModel = await setupTools(
-      ctx,
-      host,
-      conversationId,
-      userMessage,
-      options,
-      allPastAttachments,
-      convRecord ?? null,
-      credentialConversationId,
-      // WS5: the tier classifier scores the WHOLE turn, not just the user's
-      // message. `history` is already resolved (awaited above) — passing it
-      // adds no I/O and no await, and it is what lets a short follow-up
-      // inside a tool loop route as the context-heavy turn it really is.
-      history,
-    );
-
-    // Stash the resolved endpoint so the error-finalize path can name the
-    // unreachable host in a friendly provider-connection error instead of
-    // leaking the runtime's raw "Was there a typo in the url or port?" text.
-    ctx.modelBaseUrl = resolvedModel.resolved.piModel?.baseUrl;
-
-    // Start the activity-based watchdog. Replaces the dumb setInterval heartbeat — it only
-    // refreshes last_heartbeat while progress signals are bumping activity, and auto-cancels
-    // the run if it stays idle for WATCHDOG_IDLE_MS (90s) with no pending permission.
-    // The closure reads `ctx.allTurnsText` lazily so it captures the latest partial response.
-    //
-    // The persistError closure lets the watchdog-trip branch write a
-    // SINGLE visible assistant error message (Defect 2) — it closes
-    // over this run's options for model/provider and uses the latest
-    // saved message id as the parent so the bubble threads correctly.
-    // Re-checks the shared guard so it's idempotent even if invoked
-    // after a finalize path already claimed the slot.
-    this.watchdog.startWatchdog(
-      run.id,
-      conversationId,
-      () => ctx.allTurnsText,
-      async (convId, errorContent) => {
-        await persistErrorMessage(
-          convId,
-          errorContent,
-          {
-            model: options.model,
-            provider: options.provider,
-            parentMessageId: ctx.lastSavedMessageId ?? options.parentMessageId,
-          },
-          run.id,
-          this.persist,
-        );
-      },
-    );
-
-    // Auto-spin-up team members (if setupTools flagged the run) and inject
-    // the orchestrator prompt onto ctx.system. Done AFTER Promise.all so the
-    // model is resolved + tools are ready.
-    await applyAutoSpinUp(ctx, host, userMessage);
-
-    // Apply mode tool restrictions (filter tools by category + allowlist).
-    // Phase 48 extends the contract: when a mode declares
-    // toolRestriction='allowlist' it also sets mode.allowedTools to the
-    // exact set of permitted tool names (orchestration tools always
-    // survive). The Ez concierge uses this path; legacy modes pass through
-    // with toolRestriction in {'all','read-only','none'} and a NULL
-    // allowedTools — applyToolFilters treats that as a no-op for the
-    // allow-step.
-    //
-    // Mode-extensions extension: when mode.extensionIds is non-empty, the
-    // mode authors declared its tool surface via attached extensions. We
-    // resolve those IDs to the union of tool names and feed them as an
-    // allowlist (toolRestriction='allowlist'), which supersedes any legacy
-    // toolRestriction/allowedTools values for that mode. Built-in modes
-    // with extensionIds=null/empty (e.g. seeded Ez mode) keep their
-    // existing toolRestriction='allowlist' + allowedTools behaviour.
-    const { applyToolFilters } = await import("./tools/filter");
-    // Every scope narrowing applied to this run's toolset, in order. Kept
-    // so the mid-run re-assembly seam (an extension installed by a tool
-    // call during the turn) can put freshly registered tools through the
-    // SAME narrowing — a mode allowlist or a team deny-list must not be
-    // widenable by installing something.
-    const runToolScopes: import("./tools/filter").ToolFilterOptions[] = [];
-    try {
-      const { computeModeToolScope } = await import("./tools/mode-tool-scope");
-      let mode = null;
-      if (options.modeId) {
-        const { getMode } = await import("../db/queries/modes");
-        mode = (await getMode(options.modeId)) ?? null;
-      }
-      // Shared with the /api/tools listing endpoint — the header badge
-      // shows exactly the surface this filter grants. Allowlist union +
-      // per-extension subset + per-conversation narrow-only intersection
-      // all live in computeModeToolScope. Runs even without a mode: the
-      // conversation's extensionTools map (the composer's Tools toggles)
-      // narrows the loaded set on its own.
-      const scope = computeModeToolScope(
-        mode,
-        convRecord?.extensionTools ?? null,
-        ExtensionRegistry.getInstance(),
-      );
-      if (scope) {
-        runToolScopes.push(scope);
-        ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, scope);
-      }
-    } catch { /* Mode lookup failure is non-fatal — keep all tools */ }
-
-    // Apply invocation-level scoping (member override restriction + team-level
-    // allow/deny). Takes precedence over mode restriction. allowedTools /
-    // deniedTools carry the team-level TeamToolScope when set.
-    if (options.toolRestriction || options.allowedTools?.length || options.deniedTools?.length) {
-      const invocationScope = {
-        toolRestriction: options.toolRestriction,
-        allowedTools: options.allowedTools,
-        deniedTools: options.deniedTools,
-        // Host-vouched read-safe extension tools (Daily Briefing passes
-        // the web-search names so watchlist research survives the
-        // unattended run's read-only restriction — see tools/filter.ts).
-        readOnlyAllowedTools: options.readOnlyAllowedTools,
-      };
-      runToolScopes.push(invocationScope);
-      ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, invocationScope);
-    }
-
-    /**
-     * Re-assemble the toolset between agentic-loop iterations.
-     *
-     * `setupTools` runs exactly once per run, and pi-agent COPIES the tool
-     * array at construction — so an extension installed by a tool call
-     * mid-turn could never be invoked in that turn, even though
-     * `install_draft` tells the model it lands enabled "so it can be tested
-     * immediately". pi's `prepareNextTurn` seam is the one place a turn's
-     * context (including its tools) can be swapped between iterations.
-     *
-     * Additive + scope-preserving: only tools missing from the live list
-     * are added, and they go through this run's scope narrowings first.
-     * Returning `undefined` leaves the loop's context untouched, which is
-     * what happens on every iteration where nothing was installed.
-     *
-     * pi's contract for this hook is "must not throw"; the catch honours it.
-     */
-    const prepareNextTurnWithContext = async (
-      turnContext: import("@earendil-works/pi-agent-core").PrepareNextTurnContext,
-    ) => {
-      try {
-        const current = turnContext.context.tools ?? [];
-        const added = (await ctx.refreshExtensionTools?.(
-          new Set(current.map((t) => t.name)),
-        )) ?? [];
-        if (added.length === 0) return undefined;
-        const scoped = runToolScopes.reduce(
-          (tools, s) => applyToolFilters(tools, ctx.builtinToolDefsMap, s),
-          added,
-        );
-        if (scoped.length === 0) return undefined;
-        const tools = [...current, ...scoped];
-        ctx.agentTools = tools;
-        log.info("re-assembled toolset mid-run", {
-          runId: run.id,
-          added: scoped.map((t) => t.name),
-        });
-        return { context: { ...turnContext.context, tools } };
-      } catch (refreshErr) {
-        log.warn("mid-run toolset re-assembly failed — tool list unchanged", {
-          runId: run.id,
-          error: String(refreshErr),
-        });
-        return undefined;
-      }
-    };
-
-    // Wire tool:kill handler to abort running tools
-    ctx.unsubKill = this.bus.on("tool:kill", ({ toolCallId }) => {
-      const ctrl = ctx.toolAbortControllers.get(toolCallId);
-      if (ctrl) ctrl.abort();
-    });
-
-    const compaction = await resolveCompactionConfig();
-    const cacheRetention: CacheRetention | undefined = resolveCacheRetentionSetting(
-      await getSetting("compaction:cacheRetention"),
-    );
-    // Resolve the history-producer kill-switch ONCE per run. When on, the
-    // subscribe seam live-appends each saved turn to the pi session tree
-    // (design §5) — the read path (loadHistory) already synced/created the
-    // session for this conversation. Off ⇒ the append seam is a strict no-op.
-    const sessionHistoryProducer = await isSessionHistoryProducerEnabled();
-    // Streaming state lives entirely on the per-call context. Re-zero
-    // allTurnsText here — the watchdog already captured the closure
-    // earlier and reads it lazily on each tick. runWithFailover also resets
-    // it per attempt, so a failed pre-token attempt leaves nothing behind.
-    ctx.allTurnsText = "";
-    ctx.turnStart = Date.now();
-
-    try {
-      this.bus.emit("run:status", { runId: run.id, status: "Generating response..." });
-
-      const { text: promptInput, images: attachmentImages } = await buildPromptInput(userMessage, {
-        ...options,
-        conversationId,
-        // ownerId drives `%[lesson:…]` visibility scoping inside
-        // buildPromptInput. Falls back to undefined when convRecord is
-        // missing or the row has no userId — the lesson block silently
-        // no-ops in that case (mirrors the projectId-missing path).
-        ownerId: convRecord?.userId ?? undefined,
-      });
-
-      // WS2 — pre-stream provider failover. runWithFailover builds the
-      // pi-agent, wires the event bridge, and prompts it; if the FIRST token
-      // never streams and the provider fails with an availability error
-      // (429/5xx/connection), it feeds the provider's circuit breaker,
-      // asks the router for a fallback, rebuilds the agent on it, and
-      // retries. Once a token/tool card has reached the client it rethrows
-      // and the `catch` below (existing error handling) takes over —
-      // mid-stream failover is a documented follow-up (see
-      // docs/plans/2026-07-07-pi-caching-routing-integration.md §5).
-      // The initial (already-resolved) attempt. Captured as a stable
-      // reference so `subscribe` can distinguish it from a fallback attempt.
-      const initialAttempt = {
-        provider: resolvedModel.resolved.provider,
-        model: resolvedModel.resolved.model,
-        resolved: resolvedModel,
-      };
-      await runWithFailover({
+      const resolvedModel = await setupTools(
         ctx,
         host,
-        runId: run.id,
-        // Fallback quality tier: the tier that actually produced this turn's
-        // model (setup-tools). A pinned model carries its OWN inferred tier
-        // (a pinned Opus fails over to a powerful-tier peer, never silently
-        // to "balanced"); a routed turn carries the classifier/default tier.
-        // The failover loop re-passes this tier to suggestFallback on every
-        // iteration, so a chained 2nd failover stays in-tier too.
-        tier: resolvedModel.effectiveTier,
-        // Scope circuit-breaker state to the conversation owner's credentials
-        // so one user's provider outage never degrades another's routing.
-        credentialScope: convRecord?.userId ?? undefined,
-        initial: initialAttempt,
-        buildAgent: (resolved) => {
-          const agent = buildPiAgent(ctx, history, { ...options, compaction, cacheRetention }, resolved, credentialConversationId, conversationId);
-          // Every failover attempt builds a fresh Agent, so each one gets
-          // the seam — the toolset must stay live across a provider swap.
-          agent.prepareNextTurnWithContext = prepareNextTurnWithContext;
-          return agent;
-        },
-        // Bridge pi-agent-core events into the local EventBus + persist tool
-        // calls / per-turn assistant messages. EVERY attempt (initial AND
-        // fallback) passes the attempt's own provider/model — the SERVED
-        // identity — so a routed turn persists the model that actually
-        // served it (previously the initial attempt passed options verbatim
-        // and routed turns persisted undefined + metered as "unknown").
-        // The requested*/routedTier/failover fields are provenance for the
-        // messages.usage JSONB (requested pin vs served, and whether a
-        // pre-stream failover rebuilt the agent).
-        subscribe: (agent, attempt) =>
-          subscribeBridge(
-            ctx,
-            host,
-            agent,
-            conversationId,
+        conversationId,
+        userMessage,
+        options,
+        allPastAttachments,
+        convRecord ?? null,
+        credentialConversationId,
+        // WS5: the tier classifier scores the WHOLE turn, not just the user's
+        // message. `history` is already resolved (awaited above) — passing it
+        // adds no I/O and no await, and it is what lets a short follow-up
+        // inside a tool loop route as the context-heavy turn it really is.
+        history,
+      );
+
+      // Stash the resolved endpoint so the error-finalize path can name the
+      // unreachable host in a friendly provider-connection error instead of
+      // leaking the runtime's raw "Was there a typo in the url or port?" text.
+      ctx.modelBaseUrl = resolvedModel.resolved.piModel?.baseUrl;
+
+      // Start the activity-based watchdog. Replaces the dumb setInterval heartbeat — it only
+      // refreshes last_heartbeat while progress signals are bumping activity, and auto-cancels
+      // the run if it stays idle for WATCHDOG_IDLE_MS (90s) with no pending permission.
+      // The closure reads `ctx.allTurnsText` lazily so it captures the latest partial response.
+      //
+      // The persistError closure lets the watchdog-trip branch write a
+      // SINGLE visible assistant error message (Defect 2) — it closes
+      // over this run's options for model/provider and uses the latest
+      // saved message id as the parent so the bubble threads correctly.
+      // Re-checks the shared guard so it's idempotent even if invoked
+      // after a finalize path already claimed the slot.
+      this.watchdog.startWatchdog(
+        run.id,
+        conversationId,
+        () => ctx.allTurnsText,
+        async (convId, errorContent) => {
+          await persistErrorMessage(
+            convId,
+            errorContent,
             {
-              ...options,
-              provider: attempt.provider,
-              model: attempt.model,
-              requestedProvider: options.provider ?? null,
-              requestedModel: options.model ?? null,
-              routedTier: options.model ? undefined : resolvedModel.effectiveTier,
-              failover: attempt !== initialAttempt,
-              // WS5: the raw classifier inputs + the tier they produced, and
-              // the effective routing config. Both are already undefined on a
-              // pinned turn (setup-tools only computes them when routing
-              // fired), so no extra guard is needed here — subscribeBridge's
-              // conditional spread drops absent values.
-              routingSignals: resolvedModel.routingSignals,
-              routingConfig: resolvedModel.routingConfig,
-              sessionHistoryProducer,
+              model: options.model,
+              provider: options.provider,
+              parentMessageId: ctx.lastSavedMessageId ?? options.parentMessageId,
             },
-            convRecord ?? null,
-          ),
-        runPrompt: (agent) =>
-          attachmentImages.length > 0
-            ? agent.prompt(promptInput, attachmentImages)
-            : agent.prompt(promptInput),
-        suggestFallback,
-        resolveAttempt: async (suggestion) => {
-          const attempt = await resolveFailoverAttempt(suggestion, credentialConversationId);
-          run.provider = attempt.provider;
-          return attempt;
+            run.id,
+            this.persist,
+          );
         },
+      );
+
+      // Auto-spin-up team members (if setupTools flagged the run) and inject
+      // the orchestrator prompt onto ctx.system. Done AFTER Promise.all so the
+      // model is resolved + tools are ready.
+      await applyAutoSpinUp(ctx, host, userMessage);
+
+      // Apply mode tool restrictions (filter tools by category + allowlist).
+      // Phase 48 extends the contract: when a mode declares
+      // toolRestriction='allowlist' it also sets mode.allowedTools to the
+      // exact set of permitted tool names (orchestration tools always
+      // survive). The Ez concierge uses this path; legacy modes pass through
+      // with toolRestriction in {'all','read-only','none'} and a NULL
+      // allowedTools — applyToolFilters treats that as a no-op for the
+      // allow-step.
+      //
+      // Mode-extensions extension: when mode.extensionIds is non-empty, the
+      // mode authors declared its tool surface via attached extensions. We
+      // resolve those IDs to the union of tool names and feed them as an
+      // allowlist (toolRestriction='allowlist'), which supersedes any legacy
+      // toolRestriction/allowedTools values for that mode. Built-in modes
+      // with extensionIds=null/empty (e.g. seeded Ez mode) keep their
+      // existing toolRestriction='allowlist' + allowedTools behaviour.
+      const { applyToolFilters } = await import("./tools/filter");
+      // Every scope narrowing applied to this run's toolset, in order. Kept
+      // so the mid-run re-assembly seam (an extension installed by a tool
+      // call during the turn) can put freshly registered tools through the
+      // SAME narrowing — a mode allowlist or a team deny-list must not be
+      // widenable by installing something.
+      const runToolScopes: import("./tools/filter").ToolFilterOptions[] = [];
+      try {
+        const { computeModeToolScope } = await import("./tools/mode-tool-scope");
+        let mode = null;
+        if (options.modeId) {
+          const { getMode } = await import("../db/queries/modes");
+          mode = (await getMode(options.modeId)) ?? null;
+        }
+        // Shared with the /api/tools listing endpoint — the header badge
+        // shows exactly the surface this filter grants. Allowlist union +
+        // per-extension subset + per-conversation narrow-only intersection
+        // all live in computeModeToolScope. Runs even without a mode: the
+        // conversation's extensionTools map (the composer's Tools toggles)
+        // narrows the loaded set on its own.
+        const scope = computeModeToolScope(
+          mode,
+          convRecord?.extensionTools ?? null,
+          ExtensionRegistry.getInstance(),
+        );
+        if (scope) {
+          runToolScopes.push(scope);
+          ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, scope);
+        }
+      } catch {
+        /* Mode lookup failure is non-fatal — keep all tools */
+      }
+
+      // Apply invocation-level scoping (member override restriction + team-level
+      // allow/deny). Takes precedence over mode restriction. allowedTools /
+      // deniedTools carry the team-level TeamToolScope when set.
+      if (options.toolRestriction || options.allowedTools?.length || options.deniedTools?.length) {
+        const invocationScope = {
+          toolRestriction: options.toolRestriction,
+          allowedTools: options.allowedTools,
+          deniedTools: options.deniedTools,
+          // Host-vouched read-safe extension tools (Daily Briefing passes
+          // the web-search names so watchlist research survives the
+          // unattended run's read-only restriction — see tools/filter.ts).
+          readOnlyAllowedTools: options.readOnlyAllowedTools,
+        };
+        runToolScopes.push(invocationScope);
+        ctx.agentTools = applyToolFilters(ctx.agentTools, ctx.builtinToolDefsMap, invocationScope);
+      }
+
+      /**
+       * Re-assemble the toolset between agentic-loop iterations.
+       *
+       * `setupTools` runs exactly once per run, and pi-agent COPIES the tool
+       * array at construction — so an extension installed by a tool call
+       * mid-turn could never be invoked in that turn, even though
+       * `install_draft` tells the model it lands enabled "so it can be tested
+       * immediately". pi's `prepareNextTurn` seam is the one place a turn's
+       * context (including its tools) can be swapped between iterations.
+       *
+       * Additive + scope-preserving: only tools missing from the live list
+       * are added, and they go through this run's scope narrowings first.
+       * Returning `undefined` leaves the loop's context untouched, which is
+       * what happens on every iteration where nothing was installed.
+       *
+       * pi's contract for this hook is "must not throw"; the catch honours it.
+       */
+      const prepareNextTurnWithContext = async (
+        turnContext: import("@earendil-works/pi-agent-core").PrepareNextTurnContext,
+      ) => {
+        try {
+          const current = turnContext.context.tools ?? [];
+          const added =
+            (await ctx.refreshExtensionTools?.(new Set(current.map((t) => t.name)))) ?? [];
+          if (added.length === 0) return undefined;
+          const scoped = runToolScopes.reduce(
+            (tools, s) => applyToolFilters(tools, ctx.builtinToolDefsMap, s),
+            added,
+          );
+          if (scoped.length === 0) return undefined;
+          const tools = [...current, ...scoped];
+          ctx.agentTools = tools;
+          log.info("re-assembled toolset mid-run", {
+            runId: run.id,
+            added: scoped.map((t) => t.name),
+          });
+          return { context: { ...turnContext.context, tools } };
+        } catch (refreshErr) {
+          log.warn("mid-run toolset re-assembly failed — tool list unchanged", {
+            runId: run.id,
+            error: String(refreshErr),
+          });
+          return undefined;
+        }
+      };
+
+      // Wire tool:kill handler to abort running tools
+      ctx.unsubKill = this.bus.on("tool:kill", ({ toolCallId }) => {
+        const ctrl = ctx.toolAbortControllers.get(toolCallId);
+        if (ctrl) ctrl.abort();
       });
 
-      // Scratchpad cleanup is no longer needed — Phase 1 moved the
-      // scratchpad to a bundled extension whose entries auto-expire via
-      // TTL (24h) in extension_storage. Per-run isolation was traded
-      // for conversation-scoped sharing (Plan-agent recommendation; the
-      // previous built-in had zero production consumers).
-      await finalizeSuccess(ctx, host, conversationId, options);
-    } catch (err) {
-      await finalizeError(ctx, host, conversationId, options, err);
-    } finally {
-      await finalizeCleanup(ctx, host);
-    }
+      const compaction = await resolveCompactionConfig();
+      const cacheRetention: CacheRetention | undefined = resolveCacheRetentionSetting(
+        await getSetting("compaction:cacheRetention"),
+      );
+      // Resolve the history-producer kill-switch ONCE per run. When on, the
+      // subscribe seam live-appends each saved turn to the pi session tree
+      // (design §5) — the read path (loadHistory) already synced/created the
+      // session for this conversation. Off ⇒ the append seam is a strict no-op.
+      const sessionHistoryProducer = await isSessionHistoryProducerEnabled();
+      // Streaming state lives entirely on the per-call context. Re-zero
+      // allTurnsText here — the watchdog already captured the closure
+      // earlier and reads it lazily on each tick. runWithFailover also resets
+      // it per attempt, so a failed pre-token attempt leaves nothing behind.
+      ctx.allTurnsText = "";
+      ctx.turnStart = Date.now();
 
+      try {
+        this.bus.emit("run:status", { runId: run.id, status: "Generating response..." });
+
+        const { text: promptInput, images: attachmentImages } = await buildPromptInput(
+          userMessage,
+          {
+            ...options,
+            conversationId,
+            // ownerId drives `%[lesson:…]` visibility scoping inside
+            // buildPromptInput. Falls back to undefined when convRecord is
+            // missing or the row has no userId — the lesson block silently
+            // no-ops in that case (mirrors the projectId-missing path).
+            ownerId: convRecord?.userId ?? undefined,
+          },
+        );
+
+        // WS2 — pre-stream provider failover. runWithFailover builds the
+        // pi-agent, wires the event bridge, and prompts it; if the FIRST token
+        // never streams and the provider fails with an availability error
+        // (429/5xx/connection), it feeds the provider's circuit breaker,
+        // asks the router for a fallback, rebuilds the agent on it, and
+        // retries. Once a token/tool card has reached the client it rethrows
+        // and the `catch` below (existing error handling) takes over —
+        // mid-stream failover is a documented follow-up (see
+        // docs/plans/2026-07-07-pi-caching-routing-integration.md §5).
+        // The initial (already-resolved) attempt. Captured as a stable
+        // reference so `subscribe` can distinguish it from a fallback attempt.
+        const initialAttempt = {
+          provider: resolvedModel.resolved.provider,
+          model: resolvedModel.resolved.model,
+          resolved: resolvedModel,
+        };
+        await runWithFailover({
+          ctx,
+          host,
+          runId: run.id,
+          // Fallback quality tier: the tier that actually produced this turn's
+          // model (setup-tools). A pinned model carries its OWN inferred tier
+          // (a pinned Opus fails over to a powerful-tier peer, never silently
+          // to "balanced"); a routed turn carries the classifier/default tier.
+          // The failover loop re-passes this tier to suggestFallback on every
+          // iteration, so a chained 2nd failover stays in-tier too.
+          tier: resolvedModel.effectiveTier,
+          // Scope circuit-breaker state to the conversation owner's credentials
+          // so one user's provider outage never degrades another's routing.
+          credentialScope: convRecord?.userId ?? undefined,
+          initial: initialAttempt,
+          buildAgent: (resolved) => {
+            const agent = buildPiAgent(
+              ctx,
+              history,
+              { ...options, compaction, cacheRetention },
+              resolved,
+              credentialConversationId,
+              conversationId,
+            );
+            // Every failover attempt builds a fresh Agent, so each one gets
+            // the seam — the toolset must stay live across a provider swap.
+            agent.prepareNextTurnWithContext = prepareNextTurnWithContext;
+            return agent;
+          },
+          // Bridge pi-agent-core events into the local EventBus + persist tool
+          // calls / per-turn assistant messages. EVERY attempt (initial AND
+          // fallback) passes the attempt's own provider/model — the SERVED
+          // identity — so a routed turn persists the model that actually
+          // served it (previously the initial attempt passed options verbatim
+          // and routed turns persisted undefined + metered as "unknown").
+          // The requested*/routedTier/failover fields are provenance for the
+          // messages.usage JSONB (requested pin vs served, and whether a
+          // pre-stream failover rebuilt the agent).
+          subscribe: (agent, attempt) =>
+            subscribeBridge(
+              ctx,
+              host,
+              agent,
+              conversationId,
+              {
+                ...options,
+                provider: attempt.provider,
+                model: attempt.model,
+                requestedProvider: options.provider ?? null,
+                requestedModel: options.model ?? null,
+                routedTier: options.model ? undefined : resolvedModel.effectiveTier,
+                failover: attempt !== initialAttempt,
+                // WS5: the raw classifier inputs + the tier they produced, and
+                // the effective routing config. Both are already undefined on a
+                // pinned turn (setup-tools only computes them when routing
+                // fired), so no extra guard is needed here — subscribeBridge's
+                // conditional spread drops absent values.
+                routingSignals: resolvedModel.routingSignals,
+                routingConfig: resolvedModel.routingConfig,
+                sessionHistoryProducer,
+              },
+              convRecord ?? null,
+            ),
+          runPrompt: (agent) =>
+            attachmentImages.length > 0
+              ? agent.prompt(promptInput, attachmentImages)
+              : agent.prompt(promptInput),
+          suggestFallback,
+          resolveAttempt: async (suggestion) => {
+            const attempt = await resolveFailoverAttempt(suggestion, credentialConversationId);
+            run.provider = attempt.provider;
+            return attempt;
+          },
+        });
+
+        // Scratchpad cleanup is no longer needed — Phase 1 moved the
+        // scratchpad to a bundled extension whose entries auto-expire via
+        // TTL (24h) in extension_storage. Per-run isolation was traded
+        // for conversation-scoped sharing (Plan-agent recommendation; the
+        // previous built-in had zero production consumers).
+        await finalizeSuccess(ctx, host, conversationId, options);
+      } catch (err) {
+        await finalizeError(ctx, host, conversationId, options, err);
+      } finally {
+        await finalizeCleanup(ctx, host);
+      }
     } catch (setupErr) {
       // Safety net: handle errors that escape before the inner try-catch
       // (e.g. credential failures, model resolution errors, OAuth errors)

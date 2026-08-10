@@ -46,10 +46,7 @@ mockDbConnection();
 import { sql } from "drizzle-orm";
 import { PermissionDeniedError, ToolExecutor } from "../tool-executor";
 import { createStubPermissionEngine } from "../../__tests__/helpers/permission-engine-stub";
-import {
-  _resetCallProvenanceForTests,
-  registerCallProvenance,
-} from "../call-provenance";
+import { _resetCallProvenanceForTests, registerCallProvenance } from "../call-provenance";
 import { upsertGrant } from "../../db/queries/extension-rbac";
 import { conversations, extensions, projects, users } from "../../db/schema";
 import type { ExtensionRegistry } from "../registry";
@@ -141,7 +138,11 @@ function makeExecutor(): {
 }
 
 /** Host-issued provenance token for the advisory `ctx.rbac.check` path. */
-function rbacCheckRequest(onBehalfOf: string, conversationId: string, scope: string): JsonRpcRequest {
+function rbacCheckRequest(
+  onBehalfOf: string,
+  conversationId: string,
+  scope: string,
+): JsonRpcRequest {
   const token = registerCallProvenance({
     onBehalfOf,
     conversationId,
@@ -318,9 +319,9 @@ describe("ToolExecutor · extension-RBAC enforcement gate", () => {
     );
     expect(advisoryDenied.result).toEqual({ granted: false });
     // … and the host ENFORCES the same answer (dispatch is blocked).
-    await expect(
-      noExec.executeToolCall("write_tool", {}, convA, null),
-    ).rejects.toBeInstanceOf(PermissionDeniedError);
+    await expect(noExec.executeToolCall("write_tool", {}, convA, null)).rejects.toBeInstanceOf(
+      PermissionDeniedError,
+    );
     expect(noCap).toHaveLength(0);
   });
 });

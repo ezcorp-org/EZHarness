@@ -143,12 +143,7 @@ function redactString(value: string): { value: string; matched: boolean } {
  * values replaced. Path tracking uses dot/bracket notation so the
  * caller can see exactly where redactions happened.
  */
-function walk(
-  node: unknown,
-  path: string,
-  fields: string[],
-  visited: WeakSet<object>,
-): unknown {
+function walk(node: unknown, path: string, fields: string[], visited: WeakSet<object>): unknown {
   // Primitives.
   if (node === null || node === undefined) return node;
   if (typeof node === "string") {
@@ -230,9 +225,15 @@ function walk(
 function sha256Hex(input: string): string {
   // Bun fast path; node:crypto fallback. Mirrors the pattern at
   // `src/runtime/lessons/distiller.ts:505-517`.
-  const BunGlobal = (globalThis as unknown as {
-    Bun?: { CryptoHasher: new (algo: string) => { update(s: string): void; digest(enc: string): string } };
-  }).Bun;
+  const BunGlobal = (
+    globalThis as unknown as {
+      Bun?: {
+        CryptoHasher: new (
+          algo: string,
+        ) => { update(s: string): void; digest(enc: string): string };
+      };
+    }
+  ).Bun;
   if (BunGlobal?.CryptoHasher) {
     const h = new BunGlobal.CryptoHasher("sha256");
     h.update(input);
@@ -262,10 +263,7 @@ function safeStringify(value: unknown): string {
   });
 }
 
-export function redactForAudit(
-  payload: unknown,
-  opts: RedactionOptions = {},
-): RedactionResult {
+export function redactForAudit(payload: unknown, opts: RedactionOptions = {}): RedactionResult {
   const maxBytes = opts.maxBytes ?? DEFAULT_MAX_BYTES;
 
   try {

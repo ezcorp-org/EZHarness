@@ -94,28 +94,24 @@ export async function parseAndEmitSeccompViolations(
       const syscallStr = syscallMatch[1];
       const code = codeMatch[1];
       const arch = archMatch[1];
-      if (pid === undefined || syscallStr === undefined || code === undefined || arch === undefined) continue;
+      if (pid === undefined || syscallStr === undefined || code === undefined || arch === undefined)
+        continue;
       if (pid !== targetPid) continue;
       const syscall = Number.parseInt(syscallStr, 10);
       if (!Number.isFinite(syscall)) continue;
       // Fire-and-forget per the established pattern. Audit failures
       // must not throw from a post-shutdown hook.
-      void insertAuditEntry(
-        ctx.userId,
-        EXT_AUDIT_ACTIONS.MCP_SECCOMP_VIOLATION,
-        ctx.extensionId,
-        {
-          permission: "network",
-          oldValue: null,
-          newValue: null,
-          actor: "system",
-          extensionName: ctx.extensionName,
-          syscall,
-          code,
-          pid,
-          arch,
-        },
-      ).catch(() => {
+      void insertAuditEntry(ctx.userId, EXT_AUDIT_ACTIONS.MCP_SECCOMP_VIOLATION, ctx.extensionId, {
+        permission: "network",
+        oldValue: null,
+        newValue: null,
+        actor: "system",
+        extensionName: ctx.extensionName,
+        syscall,
+        code,
+        pid,
+        arch,
+      }).catch(() => {
         // Swallowed — see fire-and-forget contract above.
       });
     } catch {

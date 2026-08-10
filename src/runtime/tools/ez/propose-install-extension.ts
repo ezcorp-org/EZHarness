@@ -14,7 +14,7 @@
  * `searchQuery` (free-text browse). At least one is required.
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import type { BuiltinToolDef } from "../types";
 import { createDraft } from "../../../db/queries/ez-drafts";
 import { browseMarketplace, getListingBySlug } from "../../../db/queries/marketplace";
 import type { EzToolContext } from "./propose-create-project";
@@ -35,17 +35,27 @@ export function createProposeInstallExtensionTool(ctx: EzToolContext): BuiltinTo
     parameters: Type.Unsafe({
       type: "object",
       properties: {
-        extensionName: { type: "string", description: "Exact extension slug or display name to look up." },
-        searchQuery: { type: "string", description: "Free-text search query for browsing the marketplace." },
+        extensionName: {
+          type: "string",
+          description: "Exact extension slug or display name to look up.",
+        },
+        searchQuery: {
+          type: "string",
+          description: "Free-text search query for browsing the marketplace.",
+        },
       },
     }),
     execute: async (_toolCallId, params: ToolParams) => {
       try {
-        const extensionName = typeof params?.extensionName === "string" ? params.extensionName.trim() : "";
-        const searchQuery = typeof params?.searchQuery === "string" ? params.searchQuery.trim() : "";
+        const extensionName =
+          typeof params?.extensionName === "string" ? params.extensionName.trim() : "";
+        const searchQuery =
+          typeof params?.searchQuery === "string" ? params.searchQuery.trim() : "";
         if (!extensionName && !searchQuery) {
           return {
-            content: [{ type: "text" as const, text: "Error: provide extensionName or searchQuery" }],
+            content: [
+              { type: "text" as const, text: "Error: provide extensionName or searchQuery" },
+            ],
             details: { isError: true },
           };
         }
@@ -57,16 +67,28 @@ export function createProposeInstallExtensionTool(ctx: EzToolContext): BuiltinTo
           // Try exact slug first, fall back to name browse.
           const exact = await getListingBySlug(extensionName).catch(() => undefined);
           if (exact) {
-            extensions = [{ id: exact.id, slug: exact.slug, name: exact.name, description: exact.description }];
+            extensions = [
+              { id: exact.id, slug: exact.slug, name: exact.name, description: exact.description },
+            ];
             openUrl = `/marketplace?slug=${encodeURIComponent(exact.slug)}`;
           } else {
             const browsed = await browseMarketplace({ query: extensionName, limit: MAX_RESULTS });
-            extensions = browsed.map((l) => ({ id: l.id, slug: l.slug, name: l.name, description: l.description }));
+            extensions = browsed.map((l) => ({
+              id: l.id,
+              slug: l.slug,
+              name: l.name,
+              description: l.description,
+            }));
             openUrl = `/marketplace?q=${encodeURIComponent(extensionName)}`;
           }
         } else {
           const browsed = await browseMarketplace({ query: searchQuery, limit: MAX_RESULTS });
-          extensions = browsed.map((l) => ({ id: l.id, slug: l.slug, name: l.name, description: l.description }));
+          extensions = browsed.map((l) => ({
+            id: l.id,
+            slug: l.slug,
+            name: l.name,
+            description: l.description,
+          }));
           openUrl = `/marketplace?q=${encodeURIComponent(searchQuery)}`;
         }
 
@@ -82,7 +104,12 @@ export function createProposeInstallExtensionTool(ctx: EzToolContext): BuiltinTo
           details: { draftId: draft.id, openUrl, kind: "extension" as const, extensions },
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return {
+          content: [
+            { type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` },
+          ],
+          details: { isError: true },
+        };
       }
     },
   };

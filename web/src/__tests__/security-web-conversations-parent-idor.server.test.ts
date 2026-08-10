@@ -26,9 +26,7 @@ vi.mock("$lib/server/conversation-ownership", () => ({
 }));
 
 const { createConversation } = await import("$server/db/queries/conversations");
-const { resolveRootConversationForOwnership } = await import(
-  "$lib/server/conversation-ownership"
-);
+const { resolveRootConversationForOwnership } = await import("$lib/server/conversation-ownership");
 const { POST } = await import("../routes/api/conversations/+server");
 
 const PROJECT_ID = "00000000-0000-4000-8000-000000000001";
@@ -56,16 +54,11 @@ describe("IDOR: POST /api/conversations parentConversationId ownership", () => {
   test("parent not owned by caller → 404 and no conversation is created", async () => {
     vi.mocked(resolveRootConversationForOwnership).mockResolvedValue(null);
 
-    const res = await POST(
-      makeEvent({ projectId: PROJECT_ID, parentConversationId: PARENT_ID }),
-    );
+    const res = await POST(makeEvent({ projectId: PROJECT_ID, parentConversationId: PARENT_ID }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Parent conversation not found");
-    expect(vi.mocked(resolveRootConversationForOwnership)).toHaveBeenCalledWith(
-      PARENT_ID,
-      user,
-    );
+    expect(vi.mocked(resolveRootConversationForOwnership)).toHaveBeenCalledWith(PARENT_ID, user);
     expect(vi.mocked(createConversation)).not.toHaveBeenCalled();
   });
 
@@ -76,9 +69,7 @@ describe("IDOR: POST /api/conversations parentConversationId ownership", () => {
     } as any);
     vi.mocked(createConversation).mockResolvedValue({ id: "c-new" } as any);
 
-    const res = await POST(
-      makeEvent({ projectId: PROJECT_ID, parentConversationId: PARENT_ID }),
-    );
+    const res = await POST(makeEvent({ projectId: PROJECT_ID, parentConversationId: PARENT_ID }));
     expect(res.status).toBe(201);
     const calledOpts = vi.mocked(createConversation).mock.calls[0]![1]!;
     expect(calledOpts.parentConversationId).toBe(PARENT_ID);

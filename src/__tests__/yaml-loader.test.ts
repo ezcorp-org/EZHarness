@@ -48,10 +48,7 @@ outputFormat: text
   });
 
   test("defaults capabilities and description", async () => {
-    writeFileSync(
-      join(dir, "minimal.agent.yaml"),
-      `name: minimal\nprompt: Do something.\n`,
-    );
+    writeFileSync(join(dir, "minimal.agent.yaml"), `name: minimal\nprompt: Do something.\n`);
 
     const agents = await loadYamlAgents(dir);
 

@@ -142,7 +142,9 @@ describe("getUpdateCheck — cache behavior", () => {
 
   test("fresh call without cache hits GitHub and persists the result", async () => {
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ tag_name: "v0.2.0", html_url: "https://example.com/r" }), { status: 200 })) as any;
+      new Response(JSON.stringify({ tag_name: "v0.2.0", html_url: "https://example.com/r" }), {
+        status: 200,
+      })) as any;
 
     const { getUpdateCheck } = await import("../update-check");
     const r = await getUpdateCheck();
@@ -164,7 +166,11 @@ describe("getUpdateCheck — cache behavior", () => {
     const recent = new Date().toISOString();
     writeFileSync(
       join(tempDir, ".update-check.json"),
-      JSON.stringify({ latest: "v0.5.0", releaseUrl: "https://example.com/cached", checkedAt: recent }),
+      JSON.stringify({
+        latest: "v0.5.0",
+        releaseUrl: "https://example.com/cached",
+        checkedAt: recent,
+      }),
     );
 
     let fetchCalled = false;
@@ -200,7 +206,10 @@ describe("getUpdateCheck — cache behavior", () => {
   test("GitHub fetch failure falls back to cached latest if any", async () => {
     writeFileSync(
       join(tempDir, ".update-check.json"),
-      JSON.stringify({ latest: "v0.3.0", checkedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString() }),
+      JSON.stringify({
+        latest: "v0.3.0",
+        checkedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+      }),
     );
     globalThis.fetch = (async () => {
       throw new Error("network down");
@@ -249,7 +258,9 @@ describe("getUpdateCheck — cache behavior", () => {
       JSON.stringify({ latest: "v0.0.1" }), // no checkedAt
     );
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ tag_name: "v0.7.0", html_url: "https://example.com/fresh" }), { status: 200 })) as any;
+      new Response(JSON.stringify({ tag_name: "v0.7.0", html_url: "https://example.com/fresh" }), {
+        status: 200,
+      })) as any;
 
     const { getUpdateCheck } = await import("../update-check");
     const r = await getUpdateCheck();
@@ -263,7 +274,9 @@ describe("getUpdateCheck — cache behavior", () => {
     // a broken cache file never wedges the check.
     writeFileSync(join(tempDir, ".update-check.json"), "{ not valid json ");
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ tag_name: "v0.8.0", html_url: "https://example.com/fresh" }), { status: 200 })) as any;
+      new Response(JSON.stringify({ tag_name: "v0.8.0", html_url: "https://example.com/fresh" }), {
+        status: 200,
+      })) as any;
 
     const { getUpdateCheck } = await import("../update-check");
     const r = await getUpdateCheck();
@@ -278,7 +291,9 @@ describe("getUpdateCheck — cache behavior", () => {
     // catch + log rather than throw.
     mkdirSync(join(tempDir, ".update-check.json"), { recursive: true });
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ tag_name: "v0.9.1", html_url: "https://example.com/fresh" }), { status: 200 })) as any;
+      new Response(JSON.stringify({ tag_name: "v0.9.1", html_url: "https://example.com/fresh" }), {
+        status: 200,
+      })) as any;
 
     const { getUpdateCheck } = await import("../update-check");
     const r = await getUpdateCheck();

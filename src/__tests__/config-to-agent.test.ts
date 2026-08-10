@@ -135,8 +135,9 @@ describe("what `$steps.<name>.output.valid` actually resolves to", () => {
   async function outputFor(text: string, outputFormat?: "text" | "json") {
     const agent = configToAgent(makeConfig(outputFormat ? { outputFormat } : {}));
     const ctx = makeMockCtx();
-    (ctx.llm.complete as unknown as { mockImplementation: (f: () => unknown) => void })
-      .mockImplementation(async () => ({ text }));
+    (
+      ctx.llm.complete as unknown as { mockImplementation: (f: () => unknown) => void }
+    ).mockImplementation(async () => ({ text }));
     return agent.execute(ctx);
   }
 
@@ -192,8 +193,9 @@ describe("json-mode parse failure preserves the evidence", () => {
   async function errorFor(text: string): Promise<string> {
     const agent = configToAgent(makeConfig({ outputFormat: "json" }));
     const ctx = makeMockCtx();
-    (ctx.llm.complete as unknown as { mockImplementation: (f: () => unknown) => void })
-      .mockImplementation(async () => ({ text }));
+    (
+      ctx.llm.complete as unknown as { mockImplementation: (f: () => unknown) => void }
+    ).mockImplementation(async () => ({ text }));
     const result = await agent.execute(ctx);
     expect(result.success).toBe(false);
     expect(result.output).toBeNull();
@@ -266,8 +268,9 @@ describe("json-mode parse failure preserves the evidence", () => {
     // error this whole change exists to remove.
     const agent = configToAgent(makeConfig({ outputFormat: "json" }));
     const ctx = makeMockCtx();
-    (ctx.llm.complete as unknown as { mockImplementation: (f: () => unknown) => void })
-      .mockImplementation(async () => ({ text: undefined }));
+    (
+      ctx.llm.complete as unknown as { mockImplementation: (f: () => unknown) => void }
+    ).mockImplementation(async () => ({ text: undefined }));
 
     const result = await agent.execute(ctx);
     expect(result.success).toBe(false);

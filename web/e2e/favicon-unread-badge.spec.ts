@@ -25,137 +25,127 @@ const NEUTRAL_CONV_ID = "neutral-conv";
 const countToken = (n: number) => new RegExp(`\\(${n}\\) `);
 
 test.describe("favicon + title unread badge", () => {
-	test("title shows the unread count and the favicon becomes a data URL", async ({
-		page,
-		mockApi,
-	}) => {
-		await page.addInitScript(({ key }) => {
-			localStorage.setItem(
-				key,
-				JSON.stringify({
-					"conv-a1": "proj-a",
-					"conv-a2": "proj-a",
-					"conv-a3": "proj-a",
-				}),
-			);
-		}, { key: STORAGE_KEY });
+  test("title shows the unread count and the favicon becomes a data URL", async ({
+    page,
+    mockApi,
+  }) => {
+    await page.addInitScript(
+      ({ key }) => {
+        localStorage.setItem(
+          key,
+          JSON.stringify({
+            "conv-a1": "proj-a",
+            "conv-a2": "proj-a",
+            "conv-a3": "proj-a",
+          }),
+        );
+      },
+      { key: STORAGE_KEY },
+    );
 
-		await mockApi({
-			projects: [makeProject({ id: "proj-a", name: "Alpha" })],
-			conversations: [
-				makeConversation({
-					id: NEUTRAL_CONV_ID,
-					projectId: "proj-a",
-					title: "Neutral",
-				}),
-			],
-		});
-		await page.goto(`/project/proj-a/chat/${NEUTRAL_CONV_ID}`);
+    await mockApi({
+      projects: [makeProject({ id: "proj-a", name: "Alpha" })],
+      conversations: [
+        makeConversation({
+          id: NEUTRAL_CONV_ID,
+          projectId: "proj-a",
+          title: "Neutral",
+        }),
+      ],
+    });
+    await page.goto(`/project/proj-a/chat/${NEUTRAL_CONV_ID}`);
 
-		// Anchor: the rail badge proves the store loaded + layout mounted.
-		await expect(
-			page.locator(
-				'[data-testid="project-unread-badge"][data-project-id="proj-a"]',
-			),
-		).toHaveText("3");
+    // Anchor: the rail badge proves the store loaded + layout mounted.
+    await expect(
+      page.locator('[data-testid="project-unread-badge"][data-project-id="proj-a"]'),
+    ).toHaveText("3");
 
-		await expect.poll(async () => await page.title()).toMatch(countToken(3));
-		await expect(page.locator("#ez-favicon")).toHaveAttribute(
-			"href",
-			/^data:image\/png/,
-		);
+    await expect.poll(async () => await page.title()).toMatch(countToken(3));
+    await expect(page.locator("#ez-favicon")).toHaveAttribute("href", /^data:image\/png/);
 
-		// The visible-favicon guarantee: app.html's competing static icon
-		// links must be gone, leaving ours as the only one the browser can
-		// render (a 3rd appended link does NOT override Chrome otherwise).
-		await expect.poll(async () =>
-			page.evaluate(
-				() => document.querySelectorAll('link[rel~="icon"]').length,
-			),
-		).toBe(1);
-		await expect.poll(async () =>
-			page.evaluate(() => {
-				const l = document.querySelector('link[rel~="icon"]');
-				return l ? l.id : null;
-			}),
-		).toBe("ez-favicon");
-	});
+    // The visible-favicon guarantee: app.html's competing static icon
+    // links must be gone, leaving ours as the only one the browser can
+    // render (a 3rd appended link does NOT override Chrome otherwise).
+    await expect
+      .poll(async () => page.evaluate(() => document.querySelectorAll('link[rel~="icon"]').length))
+      .toBe(1);
+    await expect
+      .poll(async () =>
+        page.evaluate(() => {
+          const l = document.querySelector('link[rel~="icon"]');
+          return l ? l.id : null;
+        }),
+      )
+      .toBe("ez-favicon");
+  });
 
-	test("no unread → no count in the title and the plain favicon", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi({
-			projects: [makeProject({ id: "proj-a", name: "Alpha" })],
-			conversations: [
-				makeConversation({
-					id: NEUTRAL_CONV_ID,
-					projectId: "proj-a",
-					title: "Neutral",
-				}),
-			],
-		});
-		await page.goto(`/project/proj-a/chat/${NEUTRAL_CONV_ID}`);
+  test("no unread → no count in the title and the plain favicon", async ({ page, mockApi }) => {
+    await mockApi({
+      projects: [makeProject({ id: "proj-a", name: "Alpha" })],
+      conversations: [
+        makeConversation({
+          id: NEUTRAL_CONV_ID,
+          projectId: "proj-a",
+          title: "Neutral",
+        }),
+      ],
+    });
+    await page.goto(`/project/proj-a/chat/${NEUTRAL_CONV_ID}`);
 
-		// No global unread → no Home badge (confirms app mounted, store empty).
-		await expect(
-			page.locator('[data-testid="project-unread-badge-home"]'),
-		).toHaveCount(0);
+    // No global unread → no Home badge (confirms app mounted, store empty).
+    await expect(page.locator('[data-testid="project-unread-badge-home"]')).toHaveCount(0);
 
-		expect(await page.title()).not.toMatch(/\(\d+\) /);
-		await expect(page.locator("#ez-favicon")).toHaveAttribute(
-			"href",
-			/\/favicon(-dev)?-192\.png$/,
-		);
-	});
+    expect(await page.title()).not.toMatch(/\(\d+\) /);
+    await expect(page.locator("#ez-favicon")).toHaveAttribute("href", /\/favicon(-dev)?-192\.png$/);
+  });
 
-	test("opening an unread chat decrements the title count", async ({
-		page,
-		mockApi,
-	}) => {
-		// addInitScript runs on every navigation — guard so only the first
-		// seeds, otherwise markRead progress would be masked.
-		await page.addInitScript(({ key, payload }) => {
-			if (localStorage.getItem(key) === null) {
-				localStorage.setItem(key, payload);
-			}
-		}, {
-			key: STORAGE_KEY,
-			payload: JSON.stringify({
-				"conv-a1": "proj-a",
-				"conv-a2": "proj-a",
-			}),
-		});
+  test("opening an unread chat decrements the title count", async ({ page, mockApi }) => {
+    // addInitScript runs on every navigation — guard so only the first
+    // seeds, otherwise markRead progress would be masked.
+    await page.addInitScript(
+      ({ key, payload }) => {
+        if (localStorage.getItem(key) === null) {
+          localStorage.setItem(key, payload);
+        }
+      },
+      {
+        key: STORAGE_KEY,
+        payload: JSON.stringify({
+          "conv-a1": "proj-a",
+          "conv-a2": "proj-a",
+        }),
+      },
+    );
 
-		await mockApi({
-			projects: [makeProject({ id: "proj-a", name: "Alpha" })],
-			conversations: [
-				makeConversation({
-					id: "conv-a1",
-					projectId: "proj-a",
-					title: "First",
-				}),
-				makeConversation({
-					id: "conv-a2",
-					projectId: "proj-a",
-					title: "Second",
-				}),
-				makeConversation({
-					id: NEUTRAL_CONV_ID,
-					projectId: "proj-a",
-					title: "Neutral",
-				}),
-			],
-		});
+    await mockApi({
+      projects: [makeProject({ id: "proj-a", name: "Alpha" })],
+      conversations: [
+        makeConversation({
+          id: "conv-a1",
+          projectId: "proj-a",
+          title: "First",
+        }),
+        makeConversation({
+          id: "conv-a2",
+          projectId: "proj-a",
+          title: "Second",
+        }),
+        makeConversation({
+          id: NEUTRAL_CONV_ID,
+          projectId: "proj-a",
+          title: "Neutral",
+        }),
+      ],
+    });
 
-		await page.goto(`/project/proj-a/chat/${NEUTRAL_CONV_ID}`);
-		await expect.poll(async () => await page.title()).toMatch(countToken(2));
+    await page.goto(`/project/proj-a/chat/${NEUTRAL_CONV_ID}`);
+    await expect.poll(async () => await page.title()).toMatch(countToken(2));
 
-		// Opening conv-a1 calls markRead → store shrinks → badge re-decorates.
-		await page.goto("/project/proj-a/chat/conv-a1");
-		await expect.poll(async () => await page.title()).toMatch(countToken(1));
+    // Opening conv-a1 calls markRead → store shrinks → badge re-decorates.
+    await page.goto("/project/proj-a/chat/conv-a1");
+    await expect.poll(async () => await page.title()).toMatch(countToken(1));
 
-		await page.goto("/project/proj-a/chat/conv-a2");
-		await expect.poll(async () => await page.title()).not.toMatch(/\(\d+\) /);
-	});
+    await page.goto("/project/proj-a/chat/conv-a2");
+    await expect.poll(async () => await page.title()).not.toMatch(/\(\d+\) /);
+  });
 });

@@ -160,9 +160,7 @@ export function createCanvas<TEvents extends DefaultCanvasEvents = DefaultCanvas
 
   for (const [eventName, handler] of Object.entries(opts.events)) {
     if (typeof handler !== "function") {
-      throw new Error(
-        `[@ezcorp/sdk] createCanvas: handler for "${eventName}" must be a function`,
-      );
+      throw new Error(`[@ezcorp/sdk] createCanvas: handler for "${eventName}" must be a function`);
     }
     const fullName = `${opts.namespace}:${eventName}`;
     ch.onRequest(`${EVENT_METHOD_PREFIX}${fullName}`, async (params: unknown) => {
@@ -183,8 +181,7 @@ export function createCanvas<TEvents extends DefaultCanvasEvents = DefaultCanvas
       // "if (toolCallId)" guards already short-circuit on.
       const frame = (params ?? {}) as Record<string, unknown>;
       const toolCallId = typeof frame.toolCallId === "string" ? frame.toolCallId : "";
-      const conversationId =
-        typeof frame.conversationId === "string" ? frame.conversationId : "";
+      const conversationId = typeof frame.conversationId === "string" ? frame.conversationId : "";
       if (!conversationId) {
         // Drop silently — the dispatcher already gates on conversationId
         // before delivery, so the only way to hit this is a host bug or

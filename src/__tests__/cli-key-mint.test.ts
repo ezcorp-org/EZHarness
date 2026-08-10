@@ -7,7 +7,11 @@
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
-interface FakeUser { id: string; email: string; role: string }
+interface FakeUser {
+  id: string;
+  email: string;
+  role: string;
+}
 
 let users: FakeUser[] = [];
 let byEmail: Record<string, FakeUser> = {};
@@ -25,8 +29,9 @@ function installUserMocks(): void {
 installUserMocks();
 
 const { parseArgs, parseKeyScopes, parseKeyRole, resolveKeyMintUser } = await import("../cli");
-const { scopesOverCeiling, canMintRole, isApiKeyRole, adminRoleScopeWarning } =
-  await import("../auth/api-key");
+const { scopesOverCeiling, canMintRole, isApiKeyRole, adminRoleScopeWarning } = await import(
+  "../auth/api-key"
+);
 
 beforeEach(() => {
   users = [];
@@ -69,7 +74,18 @@ describe("parseArgs: key mint", () => {
   });
 
   test("all flags parsed", () => {
-    const p = parseArgs(["key", "mint", "--scopes", "read,admin", "--user", "a@b.com", "--name", "ci", "--role", "admin"]);
+    const p = parseArgs([
+      "key",
+      "mint",
+      "--scopes",
+      "read,admin",
+      "--user",
+      "a@b.com",
+      "--name",
+      "ci",
+      "--role",
+      "admin",
+    ]);
     expect(p.command).toBe("key:mint");
     expect(p.scopes).toBe("read,admin");
     expect(p.userRef).toBe("a@b.com");
@@ -142,7 +158,11 @@ describe("resolveKeyMintUser", () => {
   // can be enforced in the key:mint dispatch.
   test("--user matches by email (carries role)", async () => {
     byEmail["a@b.com"] = { id: "u1", email: "a@b.com", role: "member" };
-    expect(await resolveKeyMintUser("a@b.com")).toEqual({ id: "u1", email: "a@b.com", role: "member" });
+    expect(await resolveKeyMintUser("a@b.com")).toEqual({
+      id: "u1",
+      email: "a@b.com",
+      role: "member",
+    });
   });
 
   test("--user falls back to id lookup when email misses (carries role)", async () => {

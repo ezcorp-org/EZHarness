@@ -34,9 +34,7 @@ describe("MessageToolbar — mobile tap-to-reveal (group-data variant)", () => {
     // The shared hover class must reveal on EITHER group-hover OR the
     // host row's data-toolbar-revealed attribute.
     expect(wrapper?.className).toContain("group-hover:opacity-100");
-    expect(wrapper?.className).toContain(
-      "group-data-[toolbar-revealed=true]:opacity-100",
-    );
+    expect(wrapper?.className).toContain("group-data-[toolbar-revealed=true]:opacity-100");
     // Default (no hover, no reveal, no inflight) is still hidden.
     expect(wrapper?.className).toContain("opacity-0");
   });
@@ -59,9 +57,7 @@ describe("MessageToolbar — mobile tap-to-reveal (group-data variant)", () => {
       expect(host.querySelector('button[aria-label="Copy message"]')).not.toBeNull();
       // Class contract: opacity-100 is applied via the group-data variant
       // when the ancestor .group has data-toolbar-revealed=true.
-      expect(wrapper.className).toContain(
-        "group-data-[toolbar-revealed=true]:opacity-100",
-      );
+      expect(wrapper.className).toContain("group-data-[toolbar-revealed=true]:opacity-100");
     } finally {
       host.remove();
     }
@@ -90,9 +86,7 @@ describe("MessageToolbar — mobile tap-to-reveal (group-data variant)", () => {
         },
       ],
     });
-    const btn = container.querySelector(
-      '[data-extension-action="ext:act"]',
-    ) as HTMLButtonElement;
+    const btn = container.querySelector('[data-extension-action="ext:act"]') as HTMLButtonElement;
     expect(btn).not.toBeNull();
     btn.click();
     // Flush the synchronous inflight flag flip.
@@ -124,12 +118,8 @@ describe("MessageToolbar — mobile tap-to-reveal (group-data variant)", () => {
       onregenerate: () => {},
     });
     const wrapper = container.querySelector("div");
-    expect(wrapper?.className).toContain(
-      "group-data-[toolbar-revealed=true]:opacity-100",
-    );
+    expect(wrapper?.className).toContain("group-data-[toolbar-revealed=true]:opacity-100");
     // Regenerate (assistant-only) is reachable once revealed.
-    expect(
-      container.querySelector('button[aria-label="Regenerate response"]'),
-    ).not.toBeNull();
+    expect(container.querySelector('button[aria-label="Regenerate response"]')).not.toBeNull();
   });
 });

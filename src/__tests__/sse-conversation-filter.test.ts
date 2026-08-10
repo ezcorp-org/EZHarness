@@ -48,12 +48,20 @@ describe("DIRECT_CARRIER_EVENT_TYPES", () => {
     // optional carriers).
     expect(DIRECT_CARRIER_EVENT_TYPES.size).toBe(22);
     for (const name of [
-      "run:complete", "run:error", "run:cancel", "run:turn_saved",
-      "tool:start", "tool:complete", "tool:error",
-      "tool:permission_request", "tool:permission_mode_change",
-      "obs:turn", "ask-user:answer",
+      "run:complete",
+      "run:error",
+      "run:cancel",
+      "run:turn_saved",
+      "tool:start",
+      "tool:complete",
+      "tool:error",
+      "tool:permission_request",
+      "tool:permission_mode_change",
+      "obs:turn",
+      "ask-user:answer",
       "ez:client-tool",
-      "task:snapshot", "task:assignment_update",
+      "task:snapshot",
+      "task:assignment_update",
       "extensions:installed",
       "goal:update",
       "conversation:created",
@@ -81,11 +89,20 @@ describe("DIRECT_CARRIER_EVENT_TYPES", () => {
 
   test("does NOT include runId-only events (pass-through tier)", () => {
     for (const name of [
-      "run:start", "run:log", "run:status", "run:token", "run:usage",
+      "run:start",
+      "run:log",
+      "run:status",
+      "run:token",
+      "run:usage",
       "run:turn_text_reset",
-      "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
+      "workflow:start",
+      "workflow:step",
+      "workflow:complete",
+      "workflow:error",
       "tool:kill",
-      "agent:spawn", "agent:status", "agent:complete",
+      "agent:spawn",
+      "agent:status",
+      "agent:complete",
       "ext:state",
     ]) {
       expect(DIRECT_CARRIER_EVENT_TYPES.has(name as never)).toBe(false);
@@ -110,7 +127,9 @@ describe("isAuthorizedForConversation", () => {
   });
 
   test("fails OPEN on DB error (returns true) — avoids UI black-out on transient infra failure", async () => {
-    const getThrowing = async () => { throw new Error("db is down"); };
+    const getThrowing = async () => {
+      throw new Error("db is down");
+    };
     expect(isAuthorizedForConversation("user-1", "conv-A", getThrowing)).resolves.toBe(true);
   });
 
@@ -131,7 +150,14 @@ describe("shouldDeliverEvent — direct-carrier filtering", () => {
     const get = makeGetConversation({ "conv-A": { userId: "user-1" } });
     const deliver = await shouldDeliverEvent(
       "tool:complete",
-      { conversationId: "conv-A", extensionId: "ext", toolName: "t", output: {}, duration: 0, success: true },
+      {
+        conversationId: "conv-A",
+        extensionId: "ext",
+        toolName: "t",
+        output: {},
+        duration: 0,
+        success: true,
+      },
       { userId: "user-1" },
       get,
     );
@@ -341,7 +367,9 @@ describe("shouldDeliverEvent — conversation:tree-changed (Sessions P4 rewind)"
     // black-out). A tree-changed nudge instead fails CLOSED: a missed nudge
     // self-heals on reconnect/refetch, so dropping beats leaking the
     // conversation + rewound-leaf ids cross-user under DB stress.
-    const getThrowing = async () => { throw new Error("db is down"); };
+    const getThrowing = async () => {
+      throw new Error("db is down");
+    };
     const deliver = await shouldDeliverEvent(
       "conversation:tree-changed",
       { conversationId: "conv-A", currentLeaf: "m-1" },
@@ -439,16 +467,31 @@ describe("shouldDeliverEvent — pass-through tier", () => {
   test("agent:* events are scoped by parentConversationId (Wave 0 — previously broadcast)", async () => {
     const owned = makeGetConversation({ pc: { userId: "user-1" } });
     const foreign = makeGetConversation({ pc: { userId: "user-2" } });
-    const payload = { runId: "r", agentRunId: "ar", subConversationId: "sc", agentName: "a", agentConfigId: "ac", success: true, resultPreview: "", parentConversationId: "pc" };
-    expect(await shouldDeliverEvent("agent:complete", payload, { userId: "user-1" }, owned)).toBe(true);
+    const payload = {
+      runId: "r",
+      agentRunId: "ar",
+      subConversationId: "sc",
+      agentName: "a",
+      agentConfigId: "ac",
+      success: true,
+      resultPreview: "",
+      parentConversationId: "pc",
+    };
+    expect(await shouldDeliverEvent("agent:complete", payload, { userId: "user-1" }, owned)).toBe(
+      true,
+    );
     __clearMembershipCacheForTests();
-    expect(await shouldDeliverEvent("agent:complete", payload, { userId: "user-1" }, foreign)).toBe(false);
+    expect(await shouldDeliverEvent("agent:complete", payload, { userId: "user-1" }, foreign)).toBe(
+      false,
+    );
     // Phase B2: a background child's terminal agent:complete (success=false)
     // is scoped identically — the emit is now fired from start-assignment on
     // every terminal, so the failure variant must reach the owning parent too.
     __clearMembershipCacheForTests();
     const failurePayload = { ...payload, success: false, resultPreview: "Run was cancelled" };
-    expect(await shouldDeliverEvent("agent:complete", failurePayload, { userId: "user-1" }, owned)).toBe(true);
+    expect(
+      await shouldDeliverEvent("agent:complete", failurePayload, { userId: "user-1" }, owned),
+    ).toBe(true);
   });
 });
 
@@ -569,23 +612,43 @@ describe("shouldDeliverEvent — briefing events (user-scoped, fail-closed)", ()
 
   for (const eventType of ["conversation:created", "briefing:delivered"] as const) {
     test(`${eventType}: delivered to the owning user's own session`, async () => {
-      const deliver = await shouldDeliverEvent(eventType, payload, { userId: "user-1" }, neverCalled);
+      const deliver = await shouldDeliverEvent(
+        eventType,
+        payload,
+        { userId: "user-1" },
+        neverCalled,
+      );
       expect(deliver).toBe(true);
     });
 
     test(`${eventType}: user B never receives user A's event`, async () => {
-      const deliver = await shouldDeliverEvent(eventType, payload, { userId: "user-B" }, neverCalled);
+      const deliver = await shouldDeliverEvent(
+        eventType,
+        payload,
+        { userId: "user-B" },
+        neverCalled,
+      );
       expect(deliver).toBe(false);
     });
 
     test(`${eventType}: absent userId → dropped (fail-closed, never broadcast)`, async () => {
       const { userId: _drop, ...withoutUser } = payload;
-      const deliver = await shouldDeliverEvent(eventType, withoutUser, { userId: "user-1" }, neverCalled);
+      const deliver = await shouldDeliverEvent(
+        eventType,
+        withoutUser,
+        { userId: "user-1" },
+        neverCalled,
+      );
       expect(deliver).toBe(false);
     });
 
     test(`${eventType}: empty-string userId → dropped (fail-closed)`, async () => {
-      const deliver = await shouldDeliverEvent(eventType, { ...payload, userId: "" }, { userId: "user-1" }, neverCalled);
+      const deliver = await shouldDeliverEvent(
+        eventType,
+        { ...payload, userId: "" },
+        { userId: "user-1" },
+        neverCalled,
+      );
       expect(deliver).toBe(false);
     });
 
@@ -809,10 +872,19 @@ describe("shouldDeliverEvent — extension events", () => {
 
 describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
   const MEMBERS = [
-    "run:start", "run:log", "run:status", "run:token", "run:usage",
+    "run:start",
+    "run:log",
+    "run:status",
+    "run:token",
+    "run:usage",
     "run:turn_text_reset",
-    "agent:spawn", "agent:status", "agent:complete",
-    "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
+    "agent:spawn",
+    "agent:status",
+    "agent:complete",
+    "workflow:start",
+    "workflow:step",
+    "workflow:complete",
+    "workflow:error",
     "workflow:approval_request",
   ] as const;
 
@@ -844,57 +916,117 @@ describe("SCOPED_RUNTIME_EVENT_TYPES", () => {
 });
 
 describe("shouldDeliverEvent — scoped runtime events (Wave 0)", () => {
-  const makeRunScope = (map: Record<string, { conversationId?: string | null; userId?: string | null } | null>): GetRunScope =>
-    async (runId: string) => map[runId] ?? null;
+  const makeRunScope =
+    (
+      map: Record<string, { conversationId?: string | null; userId?: string | null } | null>,
+    ): GetRunScope =>
+    async (runId: string) =>
+      map[runId] ?? null;
 
   test("run:token reaches ONLY the run's conversation owner (leak regression)", async () => {
     const get = makeGetConversation({ "conv-A": { userId: "owner" } });
     const getRunScope = makeRunScope({ "run-1": { conversationId: "conv-A" } });
     const payload = { runId: "run-1", token: "s3cret-stream", kind: "text" };
-    expect(await shouldDeliverEvent("run:token", payload, { userId: "owner" }, get, getRunScope)).toBe(true);
-    expect(await shouldDeliverEvent("run:token", payload, { userId: "intruder" }, get, getRunScope)).toBe(false);
+    expect(
+      await shouldDeliverEvent("run:token", payload, { userId: "owner" }, get, getRunScope),
+    ).toBe(true);
+    expect(
+      await shouldDeliverEvent("run:token", payload, { userId: "intruder" }, get, getRunScope),
+    ).toBe(false);
   });
 
   test("conversation-less run resolves to the initiating user (agent/CLI runs)", async () => {
     const get = makeGetConversation({});
     const getRunScope = makeRunScope({ "run-2": { userId: "runner" } });
     const payload = { runId: "run-2", status: "working" };
-    expect(await shouldDeliverEvent("run:status", payload, { userId: "runner" }, get, getRunScope)).toBe(true);
-    expect(await shouldDeliverEvent("run:status", payload, { userId: "other" }, get, getRunScope)).toBe(false);
+    expect(
+      await shouldDeliverEvent("run:status", payload, { userId: "runner" }, get, getRunScope),
+    ).toBe(true);
+    expect(
+      await shouldDeliverEvent("run:status", payload, { userId: "other" }, get, getRunScope),
+    ).toBe(false);
   });
 
   test("unknown run (resolver returns null) is DROPPED", async () => {
     const get = makeGetConversation({});
     const getRunScope = makeRunScope({});
-    expect(await shouldDeliverEvent("run:token", { runId: "ghost", token: "x" }, { userId: "u" }, get, getRunScope)).toBe(false);
+    expect(
+      await shouldDeliverEvent(
+        "run:token",
+        { runId: "ghost", token: "x" },
+        { userId: "u" },
+        get,
+        getRunScope,
+      ),
+    ).toBe(false);
   });
 
   test("resolver failure is DROPPED (fail-closed), not broadcast", async () => {
     const get = makeGetConversation({});
-    const getRunScope: GetRunScope = async () => { throw new Error("db down"); };
-    expect(await shouldDeliverEvent("run:token", { runId: "run-1", token: "x" }, { userId: "u" }, get, getRunScope)).toBe(false);
+    const getRunScope: GetRunScope = async () => {
+      throw new Error("db down");
+    };
+    expect(
+      await shouldDeliverEvent(
+        "run:token",
+        { runId: "run-1", token: "x" },
+        { userId: "u" },
+        get,
+        getRunScope,
+      ),
+    ).toBe(false);
   });
 
   test("missing resolver is DROPPED (legacy callers cannot broadcast scoped events)", async () => {
     const get = makeGetConversation({});
-    expect(await shouldDeliverEvent("run:token", { runId: "run-1", token: "x" }, { userId: "u" }, get)).toBe(false);
+    expect(
+      await shouldDeliverEvent("run:token", { runId: "run-1", token: "x" }, { userId: "u" }, get),
+    ).toBe(false);
   });
 
   test("scoped conversation authorization fails CLOSED on DB error (contrast: legacy carriers fail open)", async () => {
-    const getThrowing = async (): Promise<FakeRow> => { throw new Error("db down"); };
+    const getThrowing = async (): Promise<FakeRow> => {
+      throw new Error("db down");
+    };
     const getRunScope = makeRunScope({ "run-1": { conversationId: "conv-A" } });
-    expect(await shouldDeliverEvent("run:token", { runId: "run-1", token: "x" }, { userId: "u" }, getThrowing, getRunScope)).toBe(false);
+    expect(
+      await shouldDeliverEvent(
+        "run:token",
+        { runId: "run-1", token: "x" },
+        { userId: "u" },
+        getThrowing,
+        getRunScope,
+      ),
+    ).toBe(false);
     // Legacy carrier keeps its documented fail-open contract.
-    expect(await shouldDeliverEvent("tool:complete", { conversationId: "conv-A" }, { userId: "u" }, getThrowing)).toBe(true);
+    expect(
+      await shouldDeliverEvent(
+        "tool:complete",
+        { conversationId: "conv-A" },
+        { userId: "u" },
+        getThrowing,
+      ),
+    ).toBe(true);
   });
 
   test("workflow:* events are scoped to the initiating userId, fail-closed when absent", async () => {
     const get = makeGetConversation({});
     const payload = { workflowRun: { id: "p1" }, userId: "runner" };
-    expect(await shouldDeliverEvent("workflow:start", payload, { userId: "runner" }, get)).toBe(true);
-    expect(await shouldDeliverEvent("workflow:start", payload, { userId: "other" }, get)).toBe(false);
+    expect(await shouldDeliverEvent("workflow:start", payload, { userId: "runner" }, get)).toBe(
+      true,
+    );
+    expect(await shouldDeliverEvent("workflow:start", payload, { userId: "other" }, get)).toBe(
+      false,
+    );
     // CLI-triggered workflow (no userId) → dropped, never broadcast.
-    expect(await shouldDeliverEvent("workflow:complete", { workflowRun: { id: "p2" } }, { userId: "runner" }, get)).toBe(false);
+    expect(
+      await shouldDeliverEvent(
+        "workflow:complete",
+        { workflowRun: { id: "p2" } },
+        { userId: "runner" },
+        get,
+      ),
+    ).toBe(false);
   });
 
   test("workflow:approval_request reaches ONLY the run's owner, and nobody at all when the run is unowned", async () => {
@@ -915,12 +1047,18 @@ describe("shouldDeliverEvent — scoped runtime events (Wave 0)", () => {
       expiresAt: null,
       userId: "owner",
     };
-    expect(await shouldDeliverEvent("workflow:approval_request", payload, { userId: "owner" }, get)).toBe(true);
-    expect(await shouldDeliverEvent("workflow:approval_request", payload, { userId: "nosy" }, get)).toBe(false);
+    expect(
+      await shouldDeliverEvent("workflow:approval_request", payload, { userId: "owner" }, get),
+    ).toBe(true);
+    expect(
+      await shouldDeliverEvent("workflow:approval_request", payload, { userId: "nosy" }, get),
+    ).toBe(false);
     // Unowned run (CLI / extension trigger with no acting user): there is
     // nobody whose decision this is, so it goes to NOBODY.
     const { userId: _dropped, ...unowned } = payload;
-    expect(await shouldDeliverEvent("workflow:approval_request", unowned, { userId: "owner" }, get)).toBe(false);
+    expect(
+      await shouldDeliverEvent("workflow:approval_request", unowned, { userId: "owner" }, get),
+    ).toBe(false);
   });
 
   test("agent:status without parent carrier is scoped via subConversationId, walking to the parent owner", async () => {
@@ -931,7 +1069,9 @@ describe("shouldDeliverEvent — scoped runtime events (Wave 0)", () => {
     const payload = { runId: "r-x", subConversationId: "sub-1", agentName: "a", status: "running" };
     expect(await shouldDeliverEvent("agent:status", payload, { userId: "owner" }, get)).toBe(true);
     __clearMembershipCacheForTests();
-    expect(await shouldDeliverEvent("agent:status", payload, { userId: "intruder" }, get)).toBe(false);
+    expect(await shouldDeliverEvent("agent:status", payload, { userId: "intruder" }, get)).toBe(
+      false,
+    );
   });
 
   test("run-scope resolution is cached — one resolver call serves a token burst", async () => {
@@ -942,7 +1082,13 @@ describe("shouldDeliverEvent — scoped runtime events (Wave 0)", () => {
     };
     const get = makeGetConversation({ "conv-A": { userId: "owner" } });
     for (let i = 0; i < 5; i++) {
-      await shouldDeliverEvent("run:token", { runId: "run-1", token: `t${i}` }, { userId: "owner" }, get, getRunScope);
+      await shouldDeliverEvent(
+        "run:token",
+        { runId: "run-1", token: `t${i}` },
+        { userId: "owner" },
+        get,
+        getRunScope,
+      );
     }
     expect(calls).toBe(1);
   });
@@ -955,8 +1101,24 @@ describe("shouldDeliverEvent — scoped runtime events (Wave 0)", () => {
       return answers.shift() ?? null;
     };
     const get = makeGetConversation({ "conv-A": { userId: "owner" } });
-    expect(await shouldDeliverEvent("run:token", { runId: "run-1", token: "a" }, { userId: "owner" }, get, getRunScope)).toBe(false);
-    expect(await shouldDeliverEvent("run:token", { runId: "run-1", token: "b" }, { userId: "owner" }, get, getRunScope)).toBe(true);
+    expect(
+      await shouldDeliverEvent(
+        "run:token",
+        { runId: "run-1", token: "a" },
+        { userId: "owner" },
+        get,
+        getRunScope,
+      ),
+    ).toBe(false);
+    expect(
+      await shouldDeliverEvent(
+        "run:token",
+        { runId: "run-1", token: "b" },
+        { userId: "owner" },
+        get,
+        getRunScope,
+      ),
+    ).toBe(true);
     expect(calls).toBe(2);
   });
 });
@@ -991,36 +1153,56 @@ describe("isAuthorizedForConversation — sub-conversation ownership walk", () =
 
   test("cyclic parent chain terminates at the depth cap and denies", async () => {
     const get = makeGetConversation({
-      "a": { userId: null, parentConversationId: "b" },
-      "b": { userId: null, parentConversationId: "a" },
+      a: { userId: null, parentConversationId: "b" },
+      b: { userId: null, parentConversationId: "a" },
     });
     expect(await isAuthorizedForConversation("anyone", "a", get)).toBe(false);
   });
 });
 
 describe("shouldDeliverEvent — run terminal events runId upgrade (Wave 0)", () => {
-  const makeRunScope = (map: Record<string, { conversationId?: string | null; userId?: string | null } | null>): GetRunScope =>
-    async (runId: string) => map[runId] ?? null;
+  const makeRunScope =
+    (
+      map: Record<string, { conversationId?: string | null; userId?: string | null } | null>,
+    ): GetRunScope =>
+    async (runId: string) =>
+      map[runId] ?? null;
 
   test("run:complete without conversationId is scoped via runId when a resolver is wired", async () => {
     const get = makeGetConversation({ "conv-A": { userId: "owner" } });
     const getRunScope = makeRunScope({ "run-1": { conversationId: "conv-A" } });
     const payload = { run: { id: "run-1", result: { output: "private" } } };
-    expect(await shouldDeliverEvent("run:complete", payload, { userId: "owner" }, get, getRunScope)).toBe(true);
-    expect(await shouldDeliverEvent("run:complete", payload, { userId: "intruder" }, get, getRunScope)).toBe(false);
+    expect(
+      await shouldDeliverEvent("run:complete", payload, { userId: "owner" }, get, getRunScope),
+    ).toBe(true);
+    expect(
+      await shouldDeliverEvent("run:complete", payload, { userId: "intruder" }, get, getRunScope),
+    ).toBe(false);
   });
 
   test("run:complete falls back to the initiating user for conversation-less runs", async () => {
     const get = makeGetConversation({});
     const getRunScope = makeRunScope({ "run-2": { userId: "runner" } });
     const payload = { run: { id: "run-2" } };
-    expect(await shouldDeliverEvent("run:complete", payload, { userId: "runner" }, get, getRunScope)).toBe(true);
-    expect(await shouldDeliverEvent("run:complete", payload, { userId: "other" }, get, getRunScope)).toBe(false);
+    expect(
+      await shouldDeliverEvent("run:complete", payload, { userId: "runner" }, get, getRunScope),
+    ).toBe(true);
+    expect(
+      await shouldDeliverEvent("run:complete", payload, { userId: "other" }, get, getRunScope),
+    ).toBe(false);
   });
 
   test("genuinely unresolvable run:complete keeps the historical pass-through", async () => {
     const get = makeGetConversation({});
     const getRunScope = makeRunScope({});
-    expect(await shouldDeliverEvent("run:complete", { run: { id: "ghost" } }, { userId: "u" }, get, getRunScope)).toBe(true);
+    expect(
+      await shouldDeliverEvent(
+        "run:complete",
+        { run: { id: "ghost" } },
+        { userId: "u" },
+        get,
+        getRunScope,
+      ),
+    ).toBe(true);
   });
 });

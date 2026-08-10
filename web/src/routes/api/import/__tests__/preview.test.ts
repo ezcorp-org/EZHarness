@@ -9,10 +9,7 @@ import { mkdtemp, mkdir, writeFile, rm, stat, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { restoreModuleMocks } from "../../../../../../src/__tests__/helpers/mock-cleanup";
-import {
-  mockServerAlias,
-  MEMBER_USER,
-} from "../../../../../../src/__tests__/helpers/mock-request";
+import { mockServerAlias, MEMBER_USER } from "../../../../../../src/__tests__/helpers/mock-request";
 
 mockServerAlias();
 
@@ -75,10 +72,7 @@ function evt(
   return { request, url: new URL(request.url), locals: { user: user ?? undefined } };
 }
 
-function dirForm(
-  files: Array<[string, string]>,
-  projectId = "proj-1",
-): FormData {
+function dirForm(files: Array<[string, string]>, projectId = "proj-1"): FormData {
   const form = new FormData();
   form.append("projectId", projectId);
   for (const [path, content] of files) {
@@ -136,9 +130,7 @@ describe("preview — guards", () => {
   });
 
   test("a non-StagingError from staging surfaces as 500", async () => {
-    const res = await POST(
-      evt(dirForm([[".claude/commands/a.md", "x"]], "unwritable")),
-    );
+    const res = await POST(evt(dirForm([[".claude/commands/a.md", "x"]], "unwritable")));
     expect(res.status).toBe(500);
   });
 
@@ -163,7 +155,10 @@ describe("preview — directory upload", () => {
         dirForm([
           [".claude/commands/foo.md", "---\ndescription: Foo cmd\n---\nbody"],
           [".codex/prompts/bar.md", "bar body"],
-          [".claude/skills/baz/SKILL.md", "---\nname: Baz\ndescription: Baz skill\n---\nbaz instructions"],
+          [
+            ".claude/skills/baz/SKILL.md",
+            "---\nname: Baz\ndescription: Baz skill\n---\nbaz instructions",
+          ],
           [".claude/skills/baz/run.sh", "echo hi"],
         ]),
       ),
@@ -176,12 +171,7 @@ describe("preview — directory upload", () => {
     expect(data.skills[0].name).toBe("baz");
     expect(data.skills[0].scriptCount).toBe(1);
     // Staging dir kept for the commit step.
-    const dir = join(
-      projectRoot,
-      ".ezcorp",
-      "import-staging",
-      data.sessionId,
-    );
+    const dir = join(projectRoot, ".ezcorp", "import-staging", data.sessionId);
     expect((await stat(dir)).isDirectory()).toBe(true);
   });
 });
@@ -200,10 +190,7 @@ describe("preview — archive upload", () => {
 
       const form = new FormData();
       form.append("projectId", "proj-1");
-      form.append(
-        "archive",
-        new File([await Bun.file(out).arrayBuffer()], "u.tar.gz"),
-      );
+      form.append("archive", new File([await Bun.file(out).arrayBuffer()], "u.tar.gz"));
       const res = await POST(evt(form));
       expect(res.status).toBe(200);
       const data = await res.json();

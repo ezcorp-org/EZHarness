@@ -67,7 +67,9 @@ describe("resolveInputRef", () => {
   test("$loop.last returns the whole previous result or a nested field", () => {
     const last: AgentResult = { success: true, output: { n: 7 } };
     expect(resolveInputRef("k", "$loop.last", ctx({ loop: { iteration: 2, last } }))).toEqual(last);
-    expect(resolveInputRef("k", "$loop.last.output.n", ctx({ loop: { iteration: 2, last } }))).toBe(7);
+    expect(resolveInputRef("k", "$loop.last.output.n", ctx({ loop: { iteration: 2, last } }))).toBe(
+      7,
+    );
   });
 
   test("$loop.last throws outside a loop, or on a missing field", () => {
@@ -103,9 +105,9 @@ describe("resolveInputRef", () => {
     expect(resolveInputRef("k", "$steps.fetch.output.title", ctx({ stepResults: results }))).toBe(
       "Hi",
     );
-    expect(() => resolveInputRef("k", "$steps.ghost.output", ctx({ stepResults: results }))).toThrow(
-      /step "ghost" has not produced a result/,
-    );
+    expect(() =>
+      resolveInputRef("k", "$steps.ghost.output", ctx({ stepResults: results })),
+    ).toThrow(/step "ghost" has not produced a result/);
     expect(() =>
       resolveInputRef("k", "$steps.fetch.output.nope", ctx({ stepResults: results })),
     ).toThrow(/field "output.nope" is missing/);
@@ -167,9 +169,13 @@ describe("resolveConditionRef", () => {
 
   test("$steps whole and nested (deep missing field is lenient → undefined)", () => {
     const results = new Map<string, AgentResult>([["s", { success: true, output: { n: 1 } }]]);
-    expect(resolveConditionRef("$steps.s", ctx({ stepResults: results }))).toEqual(results.get("s"));
+    expect(resolveConditionRef("$steps.s", ctx({ stepResults: results }))).toEqual(
+      results.get("s"),
+    );
     expect(resolveConditionRef("$steps.s.output.n", ctx({ stepResults: results }))).toBe(1);
-    expect(resolveConditionRef("$steps.s.output.gone", ctx({ stepResults: results }))).toBeUndefined();
+    expect(
+      resolveConditionRef("$steps.s.output.gone", ctx({ stepResults: results })),
+    ).toBeUndefined();
     expect(() => resolveConditionRef("$steps.ghost", ctx({ stepResults: results }))).toThrow(
       /step "ghost" has not produced a result/,
     );
@@ -182,14 +188,22 @@ describe("resolveConditionRef", () => {
 
 describe("interpolateTemplate", () => {
   test("resolves placeholders and stringifies", () => {
-    const results = new Map<string, AgentResult>([["s", { success: true, output: { obj: { a: 1 } } }]]);
+    const results = new Map<string, AgentResult>([
+      ["s", { success: true, output: { obj: { a: 1 } } }],
+    ]);
     expect(
-      interpolateTemplate("k", "n={{$input.n}} obj={{$steps.s.output.obj}}", ctx({ input: { n: 4 }, stepResults: results })),
+      interpolateTemplate(
+        "k",
+        "n={{$input.n}} obj={{$steps.s.output.obj}}",
+        ctx({ input: { n: 4 }, stepResults: results }),
+      ),
     ).toBe('n=4 obj={"a":1}');
   });
 
   test("OMIT and null/undefined placeholders render as empty string", () => {
-    expect(interpolateTemplate("k", "[{{$loop.last}}]", ctx({ loop: { iteration: 1 } }))).toBe("[]");
+    expect(interpolateTemplate("k", "[{{$loop.last}}]", ctx({ loop: { iteration: 1 } }))).toBe(
+      "[]",
+    );
     expect(interpolateTemplate("k", "[{{$input.missing}}]", ctx())).toBe("[]");
   });
 

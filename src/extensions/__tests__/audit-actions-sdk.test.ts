@@ -10,18 +10,30 @@ import { EXT_AUDIT_ACTIONS, type ExtensionAuditMetadata } from "../audit-actions
 
 describe("EXT_AUDIT_ACTIONS SDK_* wire strings", () => {
   test("SDK_LLM_CALL", () => expect(EXT_AUDIT_ACTIONS.SDK_LLM_CALL).toBe("ext:sdk-llm-call"));
-  test("SDK_LLM_REJECTED", () => expect(EXT_AUDIT_ACTIONS.SDK_LLM_REJECTED).toBe("ext:sdk-llm-rejected"));
-  test("SDK_MEMORY_READ", () => expect(EXT_AUDIT_ACTIONS.SDK_MEMORY_READ).toBe("ext:sdk-memory-read"));
-  test("SDK_MEMORY_WRITE", () => expect(EXT_AUDIT_ACTIONS.SDK_MEMORY_WRITE).toBe("ext:sdk-memory-write"));
-  test("SDK_MEMORY_REJECTED", () => expect(EXT_AUDIT_ACTIONS.SDK_MEMORY_REJECTED).toBe("ext:sdk-memory-rejected"));
-  test("SDK_LESSONS_READ", () => expect(EXT_AUDIT_ACTIONS.SDK_LESSONS_READ).toBe("ext:sdk-lessons-read"));
-  test("SDK_LESSONS_WRITE", () => expect(EXT_AUDIT_ACTIONS.SDK_LESSONS_WRITE).toBe("ext:sdk-lessons-write"));
-  test("SDK_LESSONS_REJECTED", () => expect(EXT_AUDIT_ACTIONS.SDK_LESSONS_REJECTED).toBe("ext:sdk-lessons-rejected"));
-  test("SDK_SCHEDULE_REGISTERED", () => expect(EXT_AUDIT_ACTIONS.SDK_SCHEDULE_REGISTERED).toBe("ext:sdk-schedule-registered"));
-  test("SDK_SCHEDULE_FIRE", () => expect(EXT_AUDIT_ACTIONS.SDK_SCHEDULE_FIRE).toBe("ext:sdk-schedule-fire"));
-  test("SDK_SCHEDULE_REJECTED", () => expect(EXT_AUDIT_ACTIONS.SDK_SCHEDULE_REJECTED).toBe("ext:sdk-schedule-rejected"));
-  test("SDK_EVENT_SUBSCRIBED", () => expect(EXT_AUDIT_ACTIONS.SDK_EVENT_SUBSCRIBED).toBe("ext:sdk-event-subscribed"));
-  test("SDK_EVENT_DELIVERY_REJECTED", () => expect(EXT_AUDIT_ACTIONS.SDK_EVENT_DELIVERY_REJECTED).toBe("ext:sdk-event-delivery-rejected"));
+  test("SDK_LLM_REJECTED", () =>
+    expect(EXT_AUDIT_ACTIONS.SDK_LLM_REJECTED).toBe("ext:sdk-llm-rejected"));
+  test("SDK_MEMORY_READ", () =>
+    expect(EXT_AUDIT_ACTIONS.SDK_MEMORY_READ).toBe("ext:sdk-memory-read"));
+  test("SDK_MEMORY_WRITE", () =>
+    expect(EXT_AUDIT_ACTIONS.SDK_MEMORY_WRITE).toBe("ext:sdk-memory-write"));
+  test("SDK_MEMORY_REJECTED", () =>
+    expect(EXT_AUDIT_ACTIONS.SDK_MEMORY_REJECTED).toBe("ext:sdk-memory-rejected"));
+  test("SDK_LESSONS_READ", () =>
+    expect(EXT_AUDIT_ACTIONS.SDK_LESSONS_READ).toBe("ext:sdk-lessons-read"));
+  test("SDK_LESSONS_WRITE", () =>
+    expect(EXT_AUDIT_ACTIONS.SDK_LESSONS_WRITE).toBe("ext:sdk-lessons-write"));
+  test("SDK_LESSONS_REJECTED", () =>
+    expect(EXT_AUDIT_ACTIONS.SDK_LESSONS_REJECTED).toBe("ext:sdk-lessons-rejected"));
+  test("SDK_SCHEDULE_REGISTERED", () =>
+    expect(EXT_AUDIT_ACTIONS.SDK_SCHEDULE_REGISTERED).toBe("ext:sdk-schedule-registered"));
+  test("SDK_SCHEDULE_FIRE", () =>
+    expect(EXT_AUDIT_ACTIONS.SDK_SCHEDULE_FIRE).toBe("ext:sdk-schedule-fire"));
+  test("SDK_SCHEDULE_REJECTED", () =>
+    expect(EXT_AUDIT_ACTIONS.SDK_SCHEDULE_REJECTED).toBe("ext:sdk-schedule-rejected"));
+  test("SDK_EVENT_SUBSCRIBED", () =>
+    expect(EXT_AUDIT_ACTIONS.SDK_EVENT_SUBSCRIBED).toBe("ext:sdk-event-subscribed"));
+  test("SDK_EVENT_DELIVERY_REJECTED", () =>
+    expect(EXT_AUDIT_ACTIONS.SDK_EVENT_DELIVERY_REJECTED).toBe("ext:sdk-event-delivery-rejected"));
 });
 
 describe("EXT_AUDIT_ACTIONS — all SDK_* values share the ext:sdk- prefix", () => {
@@ -77,7 +89,12 @@ describe("ExtensionAuditMetadata — optional permission + new capability field"
     // The literal-union typing means an invalid value would fail
     // type-check; runtime asserts only the populated value.
     const buckets: ExtensionAuditMetadata["capability"][] = [
-      "llm", "memory", "lessons", "schedule", "events", undefined,
+      "llm",
+      "memory",
+      "lessons",
+      "schedule",
+      "events",
+      undefined,
     ];
     expect(buckets.length).toBe(6);
   });

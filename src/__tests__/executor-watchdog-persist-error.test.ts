@@ -140,10 +140,7 @@ function makeHarness(): Harness {
 const RUN_ID = "run-1";
 const CONV_ID = "conv-1";
 
-function startWithPersist(
-  h: Harness,
-  persistError?: WatchdogPersistError,
-): AgentRun {
+function startWithPersist(h: Harness, persistError?: WatchdogPersistError): AgentRun {
   const run = makeRun(RUN_ID, fakeNow);
   h.runs.set(RUN_ID, run);
   h.controllers.set(RUN_ID, new AbortController());
@@ -170,9 +167,7 @@ describe("watchdog trip persists one visible error (P1)", () => {
     expect(h.persistCalls).toHaveLength(1);
     expect(h.persistCalls[0]!.conversationId).toBe(CONV_ID);
     expect(h.persistCalls[0]!.errorContent).toMatch(/^Error: /);
-    expect(h.persistCalls[0]!.errorContent).toMatch(
-      /Watchdog: no activity for \d+s/,
-    );
+    expect(h.persistCalls[0]!.errorContent).toMatch(/Watchdog: no activity for \d+s/);
     // run:error still emitted (rendering path unchanged).
     expect(h.events.filter((e) => e.type === "run:error")).toHaveLength(1);
   });
@@ -193,9 +188,7 @@ describe("watchdog trip persists one visible error (P1)", () => {
 
     expect(run.status).toBe("error");
     expect(h.persistCalls).toHaveLength(1);
-    expect(h.persistCalls[0]!.errorContent).toContain(
-      "extension-author__create_extension",
-    );
+    expect(h.persistCalls[0]!.errorContent).toContain("extension-author__create_extension");
     expect(h.persistCalls[0]!.errorContent).toMatch(/exceeded.*call timeout/i);
   });
 });
@@ -331,7 +324,11 @@ describe("watchdog trip — in-memory map hygiene", () => {
     const h = makeHarness();
     const run = startWithPersist(h, recordingPersist(h));
     let aborted = false;
-    h.activeAgents.set(RUN_ID, { abort: () => { aborted = true; } });
+    h.activeAgents.set(RUN_ID, {
+      abort: () => {
+        aborted = true;
+      },
+    });
     h.runConversations.set(RUN_ID, CONV_ID);
 
     await advanceAndTick(95_000);

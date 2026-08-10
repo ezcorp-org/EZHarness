@@ -26,7 +26,10 @@ vi.mock("$lib/server/security/api-keys", () => ({
 
 vi.mock("$lib/server/http-errors", () => ({
   errorJson: (status: number, message: string) =>
-    new Response(JSON.stringify({ error: message }), { status, headers: { "Content-Type": "application/json" } }),
+    new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    }),
 }));
 
 let searchArgs: any;
@@ -39,16 +42,23 @@ vi.mock("$server/db/queries/contexts", () => ({
     return searchReturn;
   }),
   getSavedContext: vi.fn(async () => savedRow),
-  deleteSavedContext: (...args: unknown[]) => (deleteSavedContext as (...a: unknown[]) => unknown)(...args),
+  deleteSavedContext: (...args: unknown[]) =>
+    (deleteSavedContext as (...a: unknown[]) => unknown)(...args),
 }));
 
 const { GET } = await import("../routes/api/contexts/+server");
 const { DELETE } = await import("../routes/api/contexts/[id]/+server");
 
-function getEvent(query = "", locals: Record<string, unknown> = { user: { id: "u1", role: "user" } }) {
+function getEvent(
+  query = "",
+  locals: Record<string, unknown> = { user: { id: "u1", role: "user" } },
+) {
   return { url: new URL(`http://x/api/contexts${query}`), locals } as never;
 }
-function delEvent(id = "sc1", locals: Record<string, unknown> = { user: { id: "u1", role: "user" } }) {
+function delEvent(
+  id = "sc1",
+  locals: Record<string, unknown> = { user: { id: "u1", role: "user" } },
+) {
   return { params: { id }, locals } as never;
 }
 async function orThrown(fn: () => Promise<Response> | Response): Promise<Response> {
@@ -69,7 +79,9 @@ beforeEach(() => {
 
 describe("GET /api/contexts", () => {
   test("403 when API-key scope lacks 'read'", async () => {
-    const res = await GET(getEvent("", { user: { id: "u1", role: "user" }, apiKeyScopes: ["chat"] }));
+    const res = await GET(
+      getEvent("", { user: { id: "u1", role: "user" }, apiKeyScopes: ["chat"] }),
+    );
     expect(res.status).toBe(403);
   });
 
@@ -135,7 +147,9 @@ describe("GET /api/contexts", () => {
 
 describe("DELETE /api/contexts/[id]", () => {
   test("403 when API-key scope lacks 'read'", async () => {
-    const res = await DELETE(delEvent("sc1", { user: { id: "u1", role: "user" }, apiKeyScopes: ["chat"] }));
+    const res = await DELETE(
+      delEvent("sc1", { user: { id: "u1", role: "user" }, apiKeyScopes: ["chat"] }),
+    );
     expect(res.status).toBe(403);
   });
 

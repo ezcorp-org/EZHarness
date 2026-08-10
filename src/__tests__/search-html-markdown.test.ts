@@ -21,9 +21,7 @@ describe("decodeHtmlEntities", () => {
     expect(decodeHtmlEntities("1 &lt; 2 &gt; 0, &quot;q&quot; &apos;a&apos;&nbsp;end")).toBe(
       `1 < 2 > 0, "q" 'a' end`,
     );
-    expect(decodeHtmlEntities("&mdash;&ndash;&hellip;&copy;&trade;&rsquo;&euro;")).toBe(
-      "—–…©™’€",
-    );
+    expect(decodeHtmlEntities("&mdash;&ndash;&hellip;&copy;&trade;&rsquo;&euro;")).toBe("—–…©™’€");
   });
 
   test("leaves an unknown named entity untouched", () => {
@@ -57,7 +55,9 @@ describe("htmlToMarkdown — structure", () => {
   });
 
   test("the document <title> becomes the leading H1", async () => {
-    const md = await htmlToMarkdown("<html><head><title>Doc &amp; Title</title></head><body><p>x</p></body></html>");
+    const md = await htmlToMarkdown(
+      "<html><head><title>Doc &amp; Title</title></head><body><p>x</p></body></html>",
+    );
     expect(md).toBe("# Doc & Title\n\nx");
   });
 
@@ -205,9 +205,7 @@ describe("htmlToMarkdown — <pre> blocks", () => {
     const md = await htmlToMarkdown(
       "<p>before</p><pre><code>const a = 1;\nif (a &lt; 2) {\n  go();\n}</code></pre><p>after</p>",
     );
-    expect(md).toBe(
-      "before\n\n```\nconst a = 1;\nif (a < 2) {\n  go();\n}\n```\n\nafter",
-    );
+    expect(md).toBe("before\n\n```\nconst a = 1;\nif (a < 2) {\n  go();\n}\n```\n\nafter");
   });
 
   test("block tags inside <pre> are literal, not structure", async () => {

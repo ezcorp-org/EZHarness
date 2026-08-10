@@ -23,7 +23,9 @@ mock.module("../providers/encryption", () => ({
   decrypt: (text: string) =>
     text.startsWith("encrypted:")
       ? text.slice("encrypted:".length)
-      : (() => { throw new Error("bad"); })(),
+      : (() => {
+          throw new Error("bad");
+        })(),
   _resetKeyCache: () => {},
 }));
 
@@ -36,10 +38,7 @@ import { getModelRegistry, type ModelEntry } from "../providers/registry";
  *   const isLocal = !!m.baseUrl;
  *   result.push(mapModel(m, isLocal || (availability.get(m.provider) ?? false)));
  */
-function simulateAvailability(
-  models: ModelEntry[],
-  providerAvailability: Map<string, boolean>,
-) {
+function simulateAvailability(models: ModelEntry[], providerAvailability: Map<string, boolean>) {
   return models.map((m) => ({
     ...m,
     available: !!m.baseUrl || (providerAvailability.get(m.provider) ?? false),
@@ -172,8 +171,8 @@ describe("models API local availability logic", () => {
 
     const result = simulateAvailability(models, providerAvailability);
 
-    expect(result[0]!.available).toBe(true);  // ollama local -> always available
-    expect(result[1]!.available).toBe(true);  // openai has credentials
+    expect(result[0]!.available).toBe(true); // ollama local -> always available
+    expect(result[1]!.available).toBe(true); // openai has credentials
     expect(result[2]!.available).toBe(false); // anthropic has no credentials
   });
 

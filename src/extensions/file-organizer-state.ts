@@ -125,7 +125,9 @@ async function readManifest(p: string): Promise<QuarantineManifest> {
     const f = Bun.file(p);
     if (!(await f.exists())) return emptyManifest();
     const parsed = JSON.parse(await f.text());
-    return parsed && Array.isArray(parsed.entries) ? (parsed as QuarantineManifest) : emptyManifest();
+    return parsed && Array.isArray(parsed.entries)
+      ? (parsed as QuarantineManifest)
+      : emptyManifest();
   } catch {
     return emptyManifest();
   }
@@ -153,7 +155,12 @@ function toApplierProposal(p: Proposal): ApplierProposal {
     kind: p.kind,
     src: p.src,
     dst: p.dst,
-    snapshot: { size: p.snapshot.size, mtimeMs: p.snapshot.mtimeMs, isSymlink: p.snapshot.isSymlink, nlink: p.snapshot.nlink },
+    snapshot: {
+      size: p.snapshot.size,
+      mtimeMs: p.snapshot.mtimeMs,
+      isSymlink: p.snapshot.isSymlink,
+      nlink: p.snapshot.nlink,
+    },
     ...(p.quarantineId ? { quarantineId: p.quarantineId } : {}),
   };
 }
@@ -184,7 +191,8 @@ export async function acceptProposal(deps: StateDeps, proposalId: string): Promi
   const { file } = await loadProposals(io);
   const proposal = findProposal(file, proposalId);
   if (!proposal) return { ok: false, message: "Proposal not found", changed: false };
-  if (proposal.status !== "pending") return { ok: true, message: "Already resolved", changed: false }; // CAS no-op
+  if (proposal.status !== "pending")
+    return { ok: true, message: "Already resolved", changed: false }; // CAS no-op
 
   const config = await readConfig(p.config);
   const watchedRoot = watchedRootFor(config, proposal);
@@ -205,7 +213,13 @@ export async function acceptProposal(deps: StateDeps, proposalId: string): Promi
 
   // Record a quarantine manifest entry on a successful delete.
   if (outcome.status === "applied" && outcome.quarantineId) {
-    await recordQuarantineEntry(deps, proposal, outcome.quarantineId, outcome.resolvedPath ?? "", null);
+    await recordQuarantineEntry(
+      deps,
+      proposal,
+      outcome.quarantineId,
+      outcome.resolvedPath ?? "",
+      null,
+    );
   }
   await saveProposals(io, updatedFile);
   return {
@@ -252,7 +266,15 @@ export async function rejectSegment(deps: StateDeps, segment: string): Promise<H
     if (rejected) {
       working = {
         ...replaceProposal(working, rejected),
-        suppressed: addSuppressed(working.suppressed, { src: proposal.src, ruleId: proposal.ruleId, contentHash: proposal.snapshot.sha256 ?? null }, nowIso(deps)),
+        suppressed: addSuppressed(
+          working.suppressed,
+          {
+            src: proposal.src,
+            ruleId: proposal.ruleId,
+            contentHash: proposal.snapshot.sha256 ?? null,
+          },
+          nowIso(deps),
+        ),
       };
       count++;
     }
@@ -286,7 +308,13 @@ export async function confirmDeletes(deps: StateDeps): Promise<HandlerResult> {
     if (next) working = replaceProposal(working, next);
     if (outcome.status === "applied" && outcome.quarantineId) {
       applied++;
-      await recordQuarantineEntry(deps, proposal, outcome.quarantineId, outcome.resolvedPath ?? "", batchId);
+      await recordQuarantineEntry(
+        deps,
+        proposal,
+        outcome.quarantineId,
+        outcome.resolvedPath ?? "",
+        batchId,
+      );
     }
   }
   await saveProposals(io, working);
@@ -304,7 +332,10 @@ export async function undoBatch(deps: StateDeps, batchId: string): Promise<Handl
   let restored = 0;
   for (const entry of inBatch) {
     const ctx = applierCtx(deps, rootForRestore(config, entry.originalPath));
-    const outcome = await restoreFromQuarantine({ trashPath: entry.trashPath, restorePath: entry.originalPath }, ctx);
+    const outcome = await restoreFromQuarantine(
+      { trashPath: entry.trashPath, restorePath: entry.originalPath },
+      ctx,
+    );
     if (outcome.status === "applied") {
       working = removeEntry(working, entry.id);
       restored++;
@@ -315,18 +346,28 @@ export async function undoBatch(deps: StateDeps, batchId: string): Promise<Handl
 }
 
 /** Restore one quarantined file (or all) BY ID. */
-export async function restore(deps: StateDeps, opts: { quarantineId?: string; all?: boolean }): Promise<HandlerResult> {
+export async function restore(
+  deps: StateDeps,
+  opts: { quarantineId?: string; all?: boolean },
+): Promise<HandlerResult> {
   const p = paths(deps.dataDir);
   const manifest = await readManifest(p.manifest);
   const config = await readConfig(p.config);
-  const ids = opts.all ? manifest.entries.map((e) => e.id) : opts.quarantineId ? [opts.quarantineId] : [];
+  const ids = opts.all
+    ? manifest.entries.map((e) => e.id)
+    : opts.quarantineId
+      ? [opts.quarantineId]
+      : [];
   let working = manifest;
   let restored = 0;
   for (const id of ids) {
     const plan = planRestore(working, id, () => false);
     if (!plan) continue;
     const ctx = applierCtx(deps, rootForRestore(config, plan.entry.originalPath));
-    const outcome = await restoreFromQuarantine({ trashPath: plan.entry.trashPath, restorePath: plan.entry.originalPath }, ctx);
+    const outcome = await restoreFromQuarantine(
+      { trashPath: plan.entry.trashPath, restorePath: plan.entry.originalPath },
+      ctx,
+    );
     if (outcome.status === "applied") {
       working = removeEntry(working, id);
       restored++;
@@ -360,7 +401,8 @@ export async function emptyQuarantine(deps: StateDeps): Promise<HandlerResult> {
 export async function purgeExpired(deps: StateDeps): Promise<HandlerResult> {
   const p = paths(deps.dataDir);
   const manifest = await readManifest(p.manifest);
-  const capBytes = deps.settings.quarantineCapGb > 0 ? deps.settings.quarantineCapGb * 1024 ** 3 : 0;
+  const capBytes =
+    deps.settings.quarantineCapGb > 0 ? deps.settings.quarantineCapGb * 1024 ** 3 : 0;
   const victims = selectPruneVictims(manifest, { now: now(deps), capBytes });
   let working = manifest;
   for (const id of victims) {
@@ -401,7 +443,8 @@ export async function dismissStale(deps: StateDeps, proposalId: string): Promise
   const io = proposalsIO(p.proposals);
   const { file } = await loadProposals(io);
   const proposal = findProposal(file, proposalId);
-  if (!proposal || proposal.status !== "stale-source") return { ok: true, message: "Nothing to dismiss", changed: false };
+  if (!proposal || proposal.status !== "stale-source")
+    return { ok: true, message: "Nothing to dismiss", changed: false };
   const rejected = transition(proposal, "rejected", { by: deps.userId, at: nowIso(deps) });
   if (!rejected) return { ok: false, message: "Could not dismiss", changed: false };
   await saveProposals(io, replaceProposal(file, rejected));
@@ -414,19 +457,30 @@ async function writeConfig(deps: StateDeps, config: Config): Promise<void> {
   await atomicWrite(paths(deps.dataDir).config, JSON.stringify(config, null, 2));
 }
 
-export async function setMode(deps: StateDeps, folderId: string, mode: Mode): Promise<HandlerResult> {
+export async function setMode(
+  deps: StateDeps,
+  folderId: string,
+  mode: Mode,
+): Promise<HandlerResult> {
   const config = await readConfig(paths(deps.dataDir).config);
   await writeConfig(deps, setFolderMode(config, folderId, mode));
   return { ok: true, message: `Mode set to ${mode}`, changed: true };
 }
 
-export async function togglePreset(deps: StateDeps, folderId: string, preset: string): Promise<HandlerResult> {
+export async function togglePreset(
+  deps: StateDeps,
+  folderId: string,
+  preset: string,
+): Promise<HandlerResult> {
   const config = await readConfig(paths(deps.dataDir).config);
   await writeConfig(deps, toggleFolderPreset(config, folderId, preset));
   return { ok: true, message: `Toggled ${preset}`, changed: true };
 }
 
-export async function addWatchedFolder(deps: StateDeps, input: { path: string; backlogPolicy?: BacklogPolicy }): Promise<HandlerResult> {
+export async function addWatchedFolder(
+  deps: StateDeps,
+  input: { path: string; backlogPolicy?: BacklogPolicy },
+): Promise<HandlerResult> {
   // Container-visibility exists-probe FIRST: an unreachable host folder
   // (not bind-mounted into the container) gets the "mount it + restart"
   // message instead of silently watching nothing. Runs host-side, so the
@@ -447,25 +501,40 @@ export async function addWatchedFolder(deps: StateDeps, input: { path: string; b
   return { ok: true, message: "Folder added", changed: true };
 }
 
-export async function setFolderBacklog(deps: StateDeps, folderId: string, policy: BacklogPolicy): Promise<HandlerResult> {
+export async function setFolderBacklog(
+  deps: StateDeps,
+  folderId: string,
+  policy: BacklogPolicy,
+): Promise<HandlerResult> {
   const config = await readConfig(paths(deps.dataDir).config);
   await writeConfig(deps, setBacklogPolicy(config, folderId, policy, now(deps)));
   return { ok: true, message: `Backlog: ${policy}`, changed: true };
 }
 
-export async function removeWatchedFolder(deps: StateDeps, folderId: string): Promise<HandlerResult> {
+export async function removeWatchedFolder(
+  deps: StateDeps,
+  folderId: string,
+): Promise<HandlerResult> {
   const config = await readConfig(paths(deps.dataDir).config);
   await writeConfig(deps, removeFolder(config, folderId));
   return { ok: true, message: "Folder removed", changed: true };
 }
 
-export async function addIgnore(deps: StateDeps, folderId: string, entry: string): Promise<HandlerResult> {
+export async function addIgnore(
+  deps: StateDeps,
+  folderId: string,
+  entry: string,
+): Promise<HandlerResult> {
   const config = await readConfig(paths(deps.dataDir).config);
   await writeConfig(deps, addFolderIgnore(config, folderId, entry));
   return { ok: true, message: "Ignore added", changed: true };
 }
 
-export async function addRule(deps: StateDeps, folderId: string, ruleLine: string): Promise<HandlerResult> {
+export async function addRule(
+  deps: StateDeps,
+  folderId: string,
+  ruleLine: string,
+): Promise<HandlerResult> {
   const parsed = parseDsl(ruleLine);
   if (!parsed.ok) return { ok: false, message: parsed.error, changed: false };
   const config = await readConfig(paths(deps.dataDir).config);
@@ -483,7 +552,12 @@ function applyOutcomeToProposal(
 ): Proposal | null {
   switch (outcome.status) {
     case "applied":
-      return transition(p, "applied", { by: deps.userId, at: nowIso(deps), ...(batchId ? { batchId } : {}), ...(outcome.quarantineId ? { quarantineId: outcome.quarantineId } : {}) });
+      return transition(p, "applied", {
+        by: deps.userId,
+        at: nowIso(deps),
+        ...(batchId ? { batchId } : {}),
+        ...(outcome.quarantineId ? { quarantineId: outcome.quarantineId } : {}),
+      });
     case "failed":
       return transition(p, "failed");
     case "stale-source":
@@ -497,21 +571,31 @@ function applyOutcomeToProposal(
 
 function applyMessage(status: string, reason?: string): string {
   switch (status) {
-    case "applied": return "Applied";
-    case "blocked": return `Blocked: ${reason ?? "denied"}`;
-    case "failed": return `Failed: ${reason ?? "error"}`;
-    case "stale-source": return "Source gone";
-    default: return status;
+    case "applied":
+      return "Applied";
+    case "blocked":
+      return `Blocked: ${reason ?? "denied"}`;
+    case "failed":
+      return `Failed: ${reason ?? "error"}`;
+    case "stale-source":
+      return "Source gone";
+    default:
+      return status;
   }
 }
 
 function segmentKind(segment: string): Proposal["kind"] | null {
   switch (segment) {
-    case "moves": return "move";
-    case "renames": return "rename";
-    case "deletes": return "delete-quarantine";
-    case "unclassified": return "unclassified";
-    default: return null;
+    case "moves":
+      return "move";
+    case "renames":
+      return "rename";
+    case "deletes":
+      return "delete-quarantine";
+    case "unclassified":
+      return "unclassified";
+    default:
+      return null;
   }
 }
 
@@ -551,7 +635,10 @@ async function recordQuarantineEntry(
     size: p.snapshot.size,
     expiresAtMs: now(deps) + ttlMs,
   };
-  await atomicWrite(paths_.manifest, JSON.stringify({ ...manifest, entries: [...manifest.entries, entry] }, null, 2));
+  await atomicWrite(
+    paths_.manifest,
+    JSON.stringify({ ...manifest, entries: [...manifest.entries, entry] }, null, 2),
+  );
 }
 
 function now(deps: StateDeps): number {

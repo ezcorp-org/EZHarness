@@ -10,9 +10,7 @@ describe("parseArgs - extended coverage", () => {
   });
 
   test("run command with both --input and --project", () => {
-    const parsed = parseArgs([
-      "run", "agent", "--input", '{"key":"val"}', "--project", "proj",
-    ]);
+    const parsed = parseArgs(["run", "agent", "--input", '{"key":"val"}', "--project", "proj"]);
     expect(parsed.command).toBe("run");
     expect(parsed.agentName).toBe("agent");
     expect(parsed.input).toEqual({ key: "val" });
@@ -20,9 +18,7 @@ describe("parseArgs - extended coverage", () => {
   });
 
   test("run command with --project before --input", () => {
-    const parsed = parseArgs([
-      "run", "agent", "--project", "proj", "--input", '{"a":1}',
-    ]);
+    const parsed = parseArgs(["run", "agent", "--project", "proj", "--input", '{"a":1}']);
     expect(parsed.command).toBe("run");
     expect(parsed.agentName).toBe("agent");
     expect(parsed.project).toBe("proj");

@@ -16,28 +16,25 @@ import { render, fireEvent, cleanup, waitFor } from "@testing-library/svelte";
 import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import MessageToolbar from "./MessageToolbar.svelte";
-import {
-	__resetIconCache,
-	__setIconLoader,
-} from "$lib/lucide-resolver.js";
+import { __resetIconCache, __setIconLoader } from "$lib/lucide-resolver.js";
 import StubLucideIcon from "../../__tests__/stubs/StubLucideIcon.svelte";
 
 beforeEach(() => {
-	// Inject a stub component for the LucideIcon resolver. The stub
-	// emits a real SVG with width/height matching the `size` prop —
-	// the same legacy-mode contract real lucide icons honour, but
-	// inspectable from jsdom without bundling lucide-svelte's icons
-	// through Vite's `import.meta.glob` (which doesn't run in vitest's
-	// transform pipeline for our setup).
-	__setIconLoader(async () => ({
-		default: StubLucideIcon as never,
-	}));
+  // Inject a stub component for the LucideIcon resolver. The stub
+  // emits a real SVG with width/height matching the `size` prop —
+  // the same legacy-mode contract real lucide icons honour, but
+  // inspectable from jsdom without bundling lucide-svelte's icons
+  // through Vite's `import.meta.glob` (which doesn't run in vitest's
+  // transform pipeline for our setup).
+  __setIconLoader(async () => ({
+    default: StubLucideIcon as never,
+  }));
 });
 
 afterEach(() => {
-	cleanup();
-	__setIconLoader(null);
-	__resetIconCache();
+  cleanup();
+  __setIconLoader(null);
+  __resetIconCache();
 });
 
 const baseProps = {
@@ -55,7 +52,13 @@ describe("MessageToolbar — extensionActions slot", () => {
     const { getByTestId } = render(MessageToolbar, {
       ...baseProps,
       extensionActions: [
-        { extName: "kokoro-tts", id: "speak", icon: "Volume2", tooltip: "Read aloud", onclick: () => {} },
+        {
+          extName: "kokoro-tts",
+          id: "speak",
+          icon: "Volume2",
+          tooltip: "Read aloud",
+          onclick: () => {},
+        },
       ],
     });
     expect(getByTestId("ext-action-kokoro-tts-speak")).toBeInTheDocument();
@@ -75,9 +78,7 @@ describe("MessageToolbar — extensionActions slot", () => {
     const onclick = vi.fn();
     const { getByTestId } = render(MessageToolbar, {
       ...baseProps,
-      extensionActions: [
-        { extName: "x", id: "y", icon: "Volume2", tooltip: "T", onclick },
-      ],
+      extensionActions: [{ extName: "x", id: "y", icon: "Volume2", tooltip: "T", onclick }],
     });
     await fireEvent.click(getByTestId("ext-action-x-y"));
     expect(onclick).toHaveBeenCalledTimes(1);
@@ -188,9 +189,7 @@ describe("MessageToolbar — extensionActions slot", () => {
     const { getByTestId } = render(MessageToolbar, {
       role: "assistant" as const,
       content: "hello",
-      extensionActions: [
-        { extName: "x", id: "y", icon: "Volume2", tooltip: "T", onclick },
-      ],
+      extensionActions: [{ extName: "x", id: "y", icon: "Volume2", tooltip: "T", onclick }],
     });
     await fireEvent.click(getByTestId("ext-action-x-y"));
     expect(onclick).toHaveBeenCalledTimes(1);
@@ -213,9 +212,7 @@ describe("MessageToolbar — extensionActions slot", () => {
     // The class must be on the BUTTON itself — the previous code put
     // it on the icon wrapper, which didn't reliably forward through
     // LucideIcon's dynamic `<Resolved>` in Svelte 5.
-    expect(btn.getAttribute("class") ?? "").toContain(
-      "text-[var(--color-text-primary)]",
-    );
+    expect(btn.getAttribute("class") ?? "").toContain("text-[var(--color-text-primary)]");
   });
 
   test("idle state forwards size={14} into the resolved lucide icon (width=14, height=14)", async () => {

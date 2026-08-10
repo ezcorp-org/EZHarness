@@ -54,7 +54,9 @@ const TAILS = [
   "\n\n## Relevant Memories\n- The user is auditing prompt-cache economics today.\n- The user ships with Bun, not Node.",
 ];
 
-async function runTurn(turn: number): Promise<{ cacheRead: number; cacheWrite: number; cacheWrite1h: number }> {
+async function runTurn(
+  turn: number,
+): Promise<{ cacheRead: number; cacheWrite: number; cacheWrite1h: number }> {
   // MODEL_ID is operator input — validate at runtime, bypass the literal-union
   // constraint the generated MODELS map imposes at compile time.
   const model = (getModel as (p: string, id: string) => ReturnType<typeof getModel> | undefined)(
@@ -74,7 +76,9 @@ async function runTurn(turn: number): Promise<{ cacheRead: number; cacheWrite: n
       // Legacy mode reproduces the pre-fix wire shape: the volatile tail is
       // part of the single cached system block.
       systemPrompt: LEGACY ? FROZEN_BASE + tail : FROZEN_BASE,
-      messages: [{ role: "user", content: "Reply with the single word: ok", timestamp: Date.now() }],
+      messages: [
+        { role: "user", content: "Reply with the single word: ok", timestamp: Date.now() },
+      ],
     },
     {
       apiKey: process.env.ANTHROPIC_API_KEY,
@@ -90,7 +94,11 @@ async function runTurn(turn: number): Promise<{ cacheRead: number; cacheWrite: n
   console.log(
     `turn ${turn + 1}: input=${u.input} cacheRead=${u.cacheRead} cacheWrite=${u.cacheWrite} cacheWrite1h=${u.cacheWrite1h ?? 0}`,
   );
-  return { cacheRead: u.cacheRead ?? 0, cacheWrite: u.cacheWrite ?? 0, cacheWrite1h: u.cacheWrite1h ?? 0 };
+  return {
+    cacheRead: u.cacheRead ?? 0,
+    cacheWrite: u.cacheWrite ?? 0,
+    cacheWrite1h: u.cacheWrite1h ?? 0,
+  };
 }
 
 function dryRun(): void {
@@ -108,7 +116,8 @@ function dryRun(): void {
   const [a, b] = [paint(TAILS[0]!), paint(TAILS[1]!)];
   const frozenStable = a.system[0]!.text === b.system[0]!.text;
   const frozenIs1h = a.system[0]!.cache_control?.ttl === "1h";
-  const tailUncached = LEGACY || (a.system.length === 2 && a.system[1]!.cache_control === undefined);
+  const tailUncached =
+    LEGACY || (a.system.length === 2 && a.system[1]!.cache_control === undefined);
   const tailVaries = LEGACY || a.system[1]!.text !== b.system[1]!.text;
   console.log(`dry-run (${LEGACY ? "legacy" : "split"} mode):`);
   console.log(`  frozen block byte-identical across turns: ${frozenStable}`);
@@ -137,7 +146,9 @@ if (DRY_RUN) {
   const readOnTurn2 = two.cacheRead > 0;
   console.log(`\nprefix written on turn 1:   ${wrotePrefix}`);
   console.log(`1h TTL accepted (1h split): ${accepted1h}`);
-  console.log(`prefix READ on turn 2:      ${readOnTurn2}${LEGACY ? "  (legacy mode expects false)" : ""}`);
+  console.log(
+    `prefix READ on turn 2:      ${readOnTurn2}${LEGACY ? "  (legacy mode expects false)" : ""}`,
+  );
   const pass = LEGACY ? wrotePrefix && !readOnTurn2 : wrotePrefix && accepted1h && readOnTurn2;
   console.log(pass ? "\nPROOF PASS" : "\nPROOF FAIL");
   process.exit(pass ? 0 : 1);

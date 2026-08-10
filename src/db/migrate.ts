@@ -156,7 +156,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // Definition-level model binding inherited by steps that declare none.
   // Nullable with no default: NULL means "every step keeps its agent's own
   // binding", which is exactly what every pre-existing row meant.
-  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS default_model JSONB`);
+  await db.execute(
+    sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS default_model JSONB`,
+  );
   // NOTE: the C6 ownership columns and `workflow_definition_versions` do
   // NOT live here, even though this is where the rest of this table's DDL
   // is. They reference `users`, which is not created until much further
@@ -191,12 +193,16 @@ export async function migrate(db: MigrateDb): Promise<void> {
   `);
 
   // Phase 2 migrations (idempotent — for DBs created before parent_message_id was in CREATE TABLE)
-  await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS parent_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL`);
+  await db.execute(
+    sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS parent_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL`,
+  );
   await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS thinking_content TEXT`);
   // Per-message exclude-from-context toggle. Drives the strike-through UI
   // affordance + filtering in load-history. NOT NULL DEFAULT FALSE so old
   // rows are equivalent to "included" without backfill.
-  await db.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT FALSE`);
+  await db.execute(
+    sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS excluded BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
   await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS system_prompt TEXT`);
 
   // Backfill: link existing messages in chronological order within each
@@ -233,16 +239,28 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_runs_project_id ON runs(project_id)`);
   // db-audit (query-core): listRuns filters project_id and ORDER BY started_at
   // DESC + LIMIT; a composite serves the WHERE + ORDER + LIMIT without a sort.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_runs_project_started ON runs(project_id, started_at DESC)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_runs_project_started ON runs(project_id, started_at DESC)`,
+  );
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_runs_agent_name ON runs(agent_name)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_run_logs_run_id ON run_logs(run_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_project_id ON conversations(project_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_message_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conversations_project_id ON conversations(project_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_messages_parent ON messages(parent_message_id)`,
+  );
 
   // Full-text search indexes
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_messages_fts ON messages USING GIN (to_tsvector('english', content))`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_title_fts ON conversations USING GIN (to_tsvector('english', title))`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_messages_fts ON messages USING GIN (to_tsvector('english', content))`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conversations_title_fts ON conversations USING GIN (to_tsvector('english', title))`,
+  );
 
   // ── Memory System Tables ──────────────────────────────────────────
 
@@ -280,20 +298,36 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // FK index — deleting a conversation fires the ON DELETE SET NULL referential
   // action on memories.conversation_id; without this index that action is a
   // sequential scan of `memories` per deleted conversation.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memories_conversation_id ON memories(conversation_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_memories_conversation_id ON memories(conversation_id)`,
+  );
   // memory_audit_log has an ON DELETE CASCADE FK on memory_id (deleting a
   // memory seq-scans this table without an index) AND is read by
   // audit-merge.ts filtered on `reason = ext:<id>` ordered by created_at DESC.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memory_audit_memory_created ON memory_audit_log(memory_id, created_at)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memory_audit_reason_created ON memory_audit_log(reason, created_at)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memories_embedding_hnsw ON memories USING hnsw (embedding vector_cosine_ops)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memories_content_fts ON memories USING GIN (to_tsvector('english', content))`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_memory_audit_memory_created ON memory_audit_log(memory_id, created_at)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_memory_audit_reason_created ON memory_audit_log(reason, created_at)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_memories_embedding_hnsw ON memories USING hnsw (embedding vector_cosine_ops)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_memories_content_fts ON memories USING GIN (to_tsvector('english', content))`,
+  );
 
   // ── Phase 4: Memory Lifecycle Columns ──────────────────────────
-  await db.execute(sql`ALTER TABLE memories ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`);
-  await db.execute(sql`ALTER TABLE memories ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()`);
+  await db.execute(
+    sql`ALTER TABLE memories ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'`,
+  );
+  await db.execute(
+    sql`ALTER TABLE memories ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()`,
+  );
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memories_status ON memories(status)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed_at)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed_at)`,
+  );
 
   // ── Phase 4: Knowledge Base Tables ─────────────────────────────
   await db.execute(sql`
@@ -321,8 +355,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
     )
   `);
 
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_kb_chunks_file_id ON knowledge_base_chunks(file_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_kb_chunks_embedding ON knowledge_base_chunks USING hnsw (embedding vector_cosine_ops)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_kb_chunks_file_id ON knowledge_base_chunks(file_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_kb_chunks_embedding ON knowledge_base_chunks USING hnsw (embedding vector_cosine_ops)`,
+  );
 
   // ── Phase 63: Message Chunks + Embed Outbox (hybrid chat search) ──
   // message_chunks mirrors knowledge_base_chunks with the FK retargeted
@@ -346,9 +384,15 @@ export async function migrate(db: MigrateDb): Promise<void> {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_message_chunks_message ON message_chunks(message_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_message_chunks_conversation ON message_chunks(conversation_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_message_chunks_embedding ON message_chunks USING hnsw (embedding vector_cosine_ops)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_message_chunks_message ON message_chunks(message_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_message_chunks_conversation ON message_chunks(conversation_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_message_chunks_embedding ON message_chunks USING hnsw (embedding vector_cosine_ops)`,
+  );
 
   // message_embed_outbox — LEAN, one row per message. message_id is the
   // PRIMARY KEY (the one-row-per-message guarantee AND the
@@ -378,15 +422,21 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // the embed-worker backlog probe both filter `status='pending' AND
   // (next_attempt_after IS NULL OR next_attempt_after <= NOW())`. Without this
   // the drain tick seq-scans the whole outbox each poll.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_message_embed_outbox_claim ON message_embed_outbox(status, next_attempt_after)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_message_embed_outbox_claim ON message_embed_outbox(status, next_attempt_after)`,
+  );
 
   // Run ownership: link chat runs to their conversation so /api/runs/[id]
   // can enforce per-user ownership (closes a cross-tenant IDOR).
-  await db.execute(sql`ALTER TABLE runs ADD COLUMN IF NOT EXISTS conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`);
+  await db.execute(
+    sql`ALTER TABLE runs ADD COLUMN IF NOT EXISTS conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`,
+  );
 
   // ── Phase 6: Agent Personas ─────────────────────────────────────
   await db.execute(sql`ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS category TEXT`);
-  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS agent_config_id TEXT REFERENCES agent_configs(id) ON DELETE SET NULL`);
+  await db.execute(
+    sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS agent_config_id TEXT REFERENCES agent_configs(id) ON DELETE SET NULL`,
+  );
 
   // Seed global project (used for agent conversations not tied to a specific project)
   await db.execute(sql`
@@ -426,7 +476,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // Provenance flag (audit finding #2). See schema.ts for why name-based
   // lookup was insufficient. New rows default to false; bundled.ts flips
   // the flag on install and backfills existing bundled rows at startup.
-  await db.execute(sql`ALTER TABLE extensions ADD COLUMN IF NOT EXISTS is_bundled BOOLEAN NOT NULL DEFAULT FALSE`);
+  await db.execute(
+    sql`ALTER TABLE extensions ADD COLUMN IF NOT EXISTS is_bundled BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS tool_calls (
@@ -443,15 +495,25 @@ export async function migrate(db: MigrateDb): Promise<void> {
     )
   `);
 
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_extension ON tool_calls(extension_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_conversation ON tool_calls(conversation_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_extension ON tool_calls(extension_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_conversation ON tool_calls(conversation_id)`,
+  );
   // message_id is a hot-path filter (listToolCallExtensionIdsForMessage) AND an
   // ON DELETE SET NULL FK — deleting a message would otherwise seq-scan
   // tool_calls per row. Previously unindexed.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_message ON tool_calls(message_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_message ON tool_calls(message_id)`,
+  );
 
-  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS test BOOLEAN DEFAULT FALSE`);
-  await db.execute(sql`ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS extensions JSONB DEFAULT '[]'`);
+  await db.execute(
+    sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS test BOOLEAN DEFAULT FALSE`,
+  );
+  await db.execute(
+    sql`ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS extensions JSONB DEFAULT '[]'`,
+  );
 
   // ── Phase 7: Observability Events ────────────────────────────────
   await db.execute(sql`
@@ -489,11 +551,17 @@ export async function migrate(db: MigrateDb): Promise<void> {
     sql`ALTER TABLE observability_events ALTER COLUMN conversation_id DROP NOT NULL`,
   );
 
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_obs_events_conversation ON observability_events(conversation_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_obs_events_type ON observability_events(event_type)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_obs_events_conversation ON observability_events(conversation_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_obs_events_type ON observability_events(event_type)`,
+  );
   // FK index for the ON DELETE SET NULL on message_id (message delete would
   // otherwise seq-scan observability_events per deleted message).
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_obs_events_message ON observability_events(message_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_obs_events_message ON observability_events(message_id)`,
+  );
 
   // ── Phase 8: Users & Auth ──────────────────────────────────────────
   await db.execute(sql`
@@ -516,8 +584,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // table is created/altered earlier — see the is_bundled ALTER). Both
   // idempotent — re-run is a no-op. ON DELETE SET NULL so deleting a
   // user does not drop their extensions.
-  await db.execute(sql`ALTER TABLE extensions ADD COLUMN IF NOT EXISTS creator_user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
-  await db.execute(sql`ALTER TABLE extensions ADD COLUMN IF NOT EXISTS modifiable BOOLEAN NOT NULL DEFAULT FALSE`);
+  await db.execute(
+    sql`ALTER TABLE extensions ADD COLUMN IF NOT EXISTS creator_user_id TEXT REFERENCES users(id) ON DELETE SET NULL`,
+  );
+  await db.execute(
+    sql`ALTER TABLE extensions ADD COLUMN IF NOT EXISTS modifiable BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
 
   // ── Extension state root normalization ─────────────────────────────
   // SINGLE SOURCE OF TRUTH: the rewrite lives in
@@ -557,10 +629,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   try {
     await upNormalizeExtensionStateRoot(db, getProjectRoot());
   } catch (err) {
-    log.warn(
-      "Skipped extension-state-root normalization — could not resolve the project root",
-      { error: String(err) },
-    );
+    log.warn("Skipped extension-state-root normalization — could not resolve the project root", {
+      error: String(err),
+    });
   }
 
   await db.execute(sql`
@@ -585,17 +656,31 @@ export async function migrate(db: MigrateDb): Promise<void> {
       used_at TIMESTAMP WITH TIME ZONE
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_token ON password_reset_tokens(token)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_user_id ON password_reset_tokens(user_id)`,
+  );
 
   // First-time onboarding: per-user wizard completion stamp.
-  await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarded_at TIMESTAMP WITH TIME ZONE`);
+  await db.execute(
+    sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarded_at TIMESTAMP WITH TIME ZONE`,
+  );
 
   // Add user_id to existing tables for multi-user ownership
-  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
-  await db.execute(sql`ALTER TABLE memories ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
-  await db.execute(sql`ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
-  await db.execute(sql`ALTER TABLE knowledge_base_files ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
+  await db.execute(
+    sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`,
+  );
+  await db.execute(
+    sql`ALTER TABLE memories ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`,
+  );
+  await db.execute(
+    sql`ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`,
+  );
+  await db.execute(
+    sql`ALTER TABLE knowledge_base_files ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`,
+  );
   // Sharing provenance. NOT an access predicate — `user_id IS NULL` is still the
   // only "shared" signal (see `knowledgeBaseFiles.sharedBy` in schema.ts). It
   // records whom `POST /api/knowledge-base/[id]/share` took the file from, so
@@ -604,18 +689,32 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // shipped have no recoverable owner, and inventing one would hand a stranger's
   // document to the first admin — exactly the un-sharing-by-restart bug that
   // `claim-ownerless-kb-files-once.ts` exists to stop. They stay un-shareable.
-  await db.execute(sql`ALTER TABLE knowledge_base_files ADD COLUMN IF NOT EXISTS shared_by TEXT REFERENCES users(id) ON DELETE SET NULL`);
+  await db.execute(
+    sql`ALTER TABLE knowledge_base_files ADD COLUMN IF NOT EXISTS shared_by TEXT REFERENCES users(id) ON DELETE SET NULL`,
+  );
 
   // Phase 8 Plan 03: Backfill ownerless data to first admin user (idempotent)
   try {
-    await db.execute(sql`UPDATE conversations SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1) WHERE user_id IS NULL`);
-  } catch { /* no-op if no admin user exists yet */ }
+    await db.execute(
+      sql`UPDATE conversations SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1) WHERE user_id IS NULL`,
+    );
+  } catch {
+    /* no-op if no admin user exists yet */
+  }
   try {
-    await db.execute(sql`UPDATE memories SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1) WHERE user_id IS NULL`);
-  } catch { /* no-op if no admin user exists yet */ }
+    await db.execute(
+      sql`UPDATE memories SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1) WHERE user_id IS NULL`,
+    );
+  } catch {
+    /* no-op if no admin user exists yet */
+  }
   try {
-    await db.execute(sql`UPDATE agent_configs SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1) WHERE user_id IS NULL`);
-  } catch { /* no-op if no admin user exists yet */ }
+    await db.execute(
+      sql`UPDATE agent_configs SET user_id = (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1) WHERE user_id IS NULL`,
+    );
+  } catch {
+    /* no-op if no admin user exists yet */
+  }
   // KB is the ONE exception to the every-boot reclaim above: `user_id IS NULL`
   // is the knowledge base's only sharing mechanism (KB-SHARED-NULL-OWNER), so
   // re-claiming it on every open un-shares files behind the operator's back.
@@ -633,7 +732,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // Placed AFTER the `users` CREATE so the FK target exists, and AFTER the
   // conversations.user_id backfill above so the root-owner lookup sees the
   // admin-assigned owner for previously-ownerless conversations.
-  await db.execute(sql`ALTER TABLE runs ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
+  await db.execute(
+    sql`ALTER TABLE runs ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`,
+  );
   // The backfill below reads `conversations.parent_conversation_id`, which the
   // Phase 33 block adds far later in this same migrate() run. On the FIRST
   // migrate() of any DB whose conversations table predates that column (every
@@ -641,7 +742,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // the recursive CTE would throw undefined-column. Hoist the ADD COLUMN here
   // so the column exists before the read — the Phase 33 ADD COLUMN is now
   // redundant (idempotent IF NOT EXISTS) and was removed there.
-  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS parent_conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE`);
+  await db.execute(
+    sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS parent_conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE`,
+  );
   // Backfill historical chat runs from the ROOT conversation's owner. A
   // recursive CTE walks parent_conversation_id to the top (depth-capped at 16
   // to defuse any corrupt cycle) and takes the root's user_id. Agent/CLI runs
@@ -683,15 +786,23 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // FK index — deleting a conversation fires ON DELETE SET NULL on
   // runs.conversation_id (runs is append-only and grows unboundedly, so an
   // unindexed referential scan here is the worst offender on conversation delete).
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_runs_conversation_id ON runs(conversation_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_runs_conversation_id ON runs(conversation_id)`,
+  );
 
   // User-related indexes
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_invites_token ON invites(token)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id)`,
+  );
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memories_user_id ON memories(user_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_configs_user_id ON agent_configs(user_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_kb_files_user_id ON knowledge_base_files(user_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_agent_configs_user_id ON agent_configs(user_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_kb_files_user_id ON knowledge_base_files(user_id)`,
+  );
 
   // ── Phase 8: Teams ──────────────────────────────────────────────────
   await db.execute(sql`
@@ -712,9 +823,15 @@ export async function migrate(db: MigrateDb): Promise<void> {
     )
   `);
 
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_team_members_team_id ON team_members(team_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_team_members_user_id ON team_members(user_id)`);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_team_members_team_user ON team_members(team_id, user_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_team_members_team_id ON team_members(team_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_team_members_user_id ON team_members(user_id)`,
+  );
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_team_members_team_user ON team_members(team_id, user_id)`,
+  );
 
   // ── Phase 8: Agent Shares ────────────────────────────────────────
   await db.execute(sql`
@@ -727,15 +844,27 @@ export async function migrate(db: MigrateDb): Promise<void> {
     )
   `);
 
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_shares_agent_team ON agent_shares(agent_id, team_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_shares_team_id ON agent_shares(team_id)`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_shares_agent_team ON agent_shares(agent_id, team_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_agent_shares_team_id ON agent_shares(team_id)`,
+  );
 
   // ── Phase 26: User-to-user agent sharing ────────────────────────
   await db.execute(sql`ALTER TABLE agent_shares ALTER COLUMN team_id DROP NOT NULL`);
-  await db.execute(sql`ALTER TABLE agent_shares ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE CASCADE`);
-  await db.execute(sql`ALTER TABLE agent_shares ADD COLUMN IF NOT EXISTS permission TEXT NOT NULL DEFAULT 'read'`);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS agent_shares_agent_user_unique ON agent_shares(agent_id, user_id) WHERE user_id IS NOT NULL`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_shares_user_id ON agent_shares(user_id)`);
+  await db.execute(
+    sql`ALTER TABLE agent_shares ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE CASCADE`,
+  );
+  await db.execute(
+    sql`ALTER TABLE agent_shares ADD COLUMN IF NOT EXISTS permission TEXT NOT NULL DEFAULT 'read'`,
+  );
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS agent_shares_agent_user_unique ON agent_shares(agent_id, user_id) WHERE user_id IS NOT NULL`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_agent_shares_user_id ON agent_shares(user_id)`,
+  );
 
   // ── Phase 8: Audit Log ──────────────────────────────────────────
   await db.execute(sql`
@@ -750,7 +879,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   `);
 
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at)`,
+  );
   // audit-global.ts filters governance rows by `target = <extensionId>` for the
   // per-extension audit drill-down; `target` was previously unindexed.
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_target ON audit_log(target)`);
@@ -815,17 +946,35 @@ export async function migrate(db: MigrateDb): Promise<void> {
   `);
 
   // Marketplace indexes
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_marketplace_listings_category ON marketplace_listings(category)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_marketplace_listings_status ON marketplace_listings(status)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_marketplace_listings_slug ON marketplace_listings(slug)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_marketplace_versions_listing ON marketplace_versions(listing_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_marketplace_ratings_listing ON marketplace_ratings(listing_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_marketplace_flags_listing ON marketplace_flags(listing_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_marketplace_flags_status ON marketplace_flags(status)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_marketplace_listings_category ON marketplace_listings(category)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_marketplace_listings_status ON marketplace_listings(status)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_marketplace_listings_slug ON marketplace_listings(slug)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_marketplace_versions_listing ON marketplace_versions(listing_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_marketplace_ratings_listing ON marketplace_ratings(listing_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_marketplace_flags_listing ON marketplace_flags(listing_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_marketplace_flags_status ON marketplace_flags(status)`,
+  );
 
   // ── Phase 26: Marketplace Moderation ──────────────────────────────
-  await db.execute(sql`ALTER TABLE marketplace_flags ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'other'`);
-  await db.execute(sql`ALTER TABLE marketplace_listings ADD COLUMN IF NOT EXISTS flag_count INTEGER NOT NULL DEFAULT 0`);
+  await db.execute(
+    sql`ALTER TABLE marketplace_flags ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'other'`,
+  );
+  await db.execute(
+    sql`ALTER TABLE marketplace_listings ADD COLUMN IF NOT EXISTS flag_count INTEGER NOT NULL DEFAULT 0`,
+  );
 
   // ── Phase 37: Conversation Extensions (dynamic tool wiring) ────
   await db.execute(sql`
@@ -838,11 +987,17 @@ export async function migrate(db: MigrateDb): Promise<void> {
       UNIQUE(conversation_id, extension_id)
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conv_ext_conversation ON conversation_extensions(conversation_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conv_ext_extension ON conversation_extensions(extension_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conv_ext_conversation ON conversation_extensions(conversation_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conv_ext_extension ON conversation_extensions(extension_id)`,
+  );
   // FK index for the ON DELETE SET NULL on added_by_message_id (message delete
   // would otherwise seq-scan conversation_extensions per deleted message).
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conv_ext_added_by_message ON conversation_extensions(added_by_message_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conv_ext_added_by_message ON conversation_extensions(added_by_message_id)`,
+  );
 
   // ── Phase 4: per-conversation effective grant override ───────────
   // Spawn-assignment writes here when the parent's caps need to clip
@@ -872,7 +1027,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
       partial_response TEXT
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_active_runs_conversation ON active_runs(conversation_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_active_runs_conversation ON active_runs(conversation_id)`,
+  );
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_active_runs_status ON active_runs(status)`);
 
   // ── Phase 33: Sub-conversations & Agent References ─────────────
@@ -881,17 +1038,27 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // ADD COLUMN IF NOT EXISTS previously here would be a no-op, so it was
   // removed to keep a single authoritative ADD site.
   await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS parent_message_id TEXT`);
-  await db.execute(sql`ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS "references" JSONB DEFAULT '{"agents":[],"extensions":[]}'`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id)`);
+  await db.execute(
+    sql`ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS "references" JSONB DEFAULT '{"agents":[],"extensions":[]}'`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conversations_parent ON conversations(parent_conversation_id)`,
+  );
 
   // ── Fork tracking: link cloned conversations back to their source ──
   // Distinct from parent_conversation_id (which is reserved for sub-conversations
   // and excluded from the sidebar). Forks are root-level chats with a back-pointer
   // so the sidebar can group them under their source. SET NULL on delete so a
   // fork survives if its source is removed.
-  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS forked_from_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`);
-  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS forked_from_message_id TEXT`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_forked_from ON conversations(forked_from_conversation_id)`);
+  await db.execute(
+    sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS forked_from_conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL`,
+  );
+  await db.execute(
+    sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS forked_from_message_id TEXT`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conversations_forked_from ON conversations(forked_from_conversation_id)`,
+  );
 
   // ── Phase 2d: Conversation metadata (runtime-only flags) ────────
   // Nullable JSONB bag. Currently holds `spawnDepth` for the ezcorp/spawn-assignment
@@ -929,7 +1096,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // partial index keeps the lookup cheap without indexing the dominant
   // NULL state. See web/src/hooks.server.ts sliding-refresh path.
   await db.execute(sql`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS previous_token_hash TEXT`);
-  await db.execute(sql`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS previous_token_expires_at TIMESTAMP WITH TIME ZONE`);
+  await db.execute(
+    sql`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS previous_token_expires_at TIMESTAMP WITH TIME ZONE`,
+  );
   await db.execute(sql`
     CREATE INDEX IF NOT EXISTS idx_sessions_previous_token_hash
     ON sessions(previous_token_hash)
@@ -947,7 +1116,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_error_logs_created_at ON error_logs(created_at)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_error_logs_created_at ON error_logs(created_at)`,
+  );
 
   // ── Custom Modes ──────────────────────────────────────────────────
   await db.execute(sql`
@@ -972,7 +1143,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   `);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_modes_slug ON modes(slug)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_modes_user_id ON modes(user_id)`);
-  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS mode_id TEXT REFERENCES modes(id) ON DELETE SET NULL`);
+  await db.execute(
+    sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS mode_id TEXT REFERENCES modes(id) ON DELETE SET NULL`,
+  );
 
   // Seed built-in modes
   await db.execute(sql`
@@ -1008,13 +1181,21 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // ── Phase 44: Analytics query performance indexes ──────────────────
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_audit_log_user_id ON audit_log(user_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_project_id_created ON conversations(project_id, created_at)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conversations_project_id_created ON conversations(project_id, created_at)`,
+  );
   // FK indexes — deleting an agent_config / mode fires ON DELETE SET NULL on
   // these conversations columns; both were previously unindexed, making each
   // agent/mode delete a full seq-scan of conversations.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_agent_config_id ON conversations(agent_config_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversations_mode_id ON conversations(mode_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conversations_agent_config_id ON conversations(agent_config_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conversations_mode_id ON conversations(mode_id)`,
+  );
 
   // ── Default agents to current chat model ──────────────────────────
   await db.execute(sql`UPDATE agent_configs SET provider = '__current__' WHERE provider IS NULL`);
@@ -1083,9 +1264,15 @@ export async function migrate(db: MigrateDb): Promise<void> {
       `);
     }
   }
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_ext_storage_lookup ON extension_storage(extension_id, scope, scope_id, key)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_ext_storage_extension ON extension_storage(extension_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_ext_storage_expires ON extension_storage(expires_at)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_ext_storage_lookup ON extension_storage(extension_id, scope, scope_id, key)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_ext_storage_extension ON extension_storage(extension_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_ext_storage_expires ON extension_storage(expires_at)`,
+  );
 
   // Cleanup triggers: cascade scope_id references that aren't FKs
   await db.execute(sql`
@@ -1133,8 +1320,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
       UNIQUE(memory_id, project_id)
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memory_projects_memory ON memory_projects(memory_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_memory_projects_project ON memory_projects(project_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_memory_projects_memory ON memory_projects(memory_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_memory_projects_project ON memory_projects(project_id)`,
+  );
 
   // Backfill: migrate existing single-project assignments to junction table
   await db.execute(sql`
@@ -1157,8 +1348,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_msg_attachments_message ON message_attachments(message_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_msg_attachments_conversation ON message_attachments(conversation_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_msg_attachments_message ON message_attachments(message_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_msg_attachments_conversation ON message_attachments(conversation_id)`,
+  );
 
   // ── Agent session-tree storage (pi SessionStorage port) ────────────
   // Backs src/db/session-storage.ts (DbSessionStorage) — a faithful port
@@ -1190,17 +1385,31 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // shards, reading as an uncovered changed line (patch-coverage gate).
   // Single-line executes get one hit DA record, matching the CREATE INDEX
   // statements below (proven-covered).
-  await db.execute(sql`CREATE TABLE IF NOT EXISTS agent_sessions (id TEXT PRIMARY KEY, conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE, cwd TEXT, parent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL, leaf_entry_id TEXT, metadata JSONB, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW())`);
+  await db.execute(
+    sql`CREATE TABLE IF NOT EXISTS agent_sessions (id TEXT PRIMARY KEY, conversation_id TEXT REFERENCES conversations(id) ON DELETE CASCADE, cwd TEXT, parent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL, leaf_entry_id TEXT, metadata JSONB, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW())`,
+  );
   // Partial unique index — a conversation maps to at most one session, but
   // many sessions may have no conversation (unwired P1 sessions).
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS agent_sessions_conversation_unique ON agent_sessions(conversation_id) WHERE conversation_id IS NOT NULL`);
-  await db.execute(sql`CREATE TABLE IF NOT EXISTS agent_session_entries (session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE, entry_id TEXT NOT NULL, seq BIGSERIAL, type TEXT NOT NULL, parent_id TEXT, timestamp TEXT NOT NULL, payload JSONB NOT NULL DEFAULT '{}', ez_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL, PRIMARY KEY (session_id, entry_id))`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_seq ON agent_session_entries(session_id, seq)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_type ON agent_session_entries(session_id, type)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_parent ON agent_session_entries(session_id, parent_id)`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS agent_sessions_conversation_unique ON agent_sessions(conversation_id) WHERE conversation_id IS NOT NULL`,
+  );
+  await db.execute(
+    sql`CREATE TABLE IF NOT EXISTS agent_session_entries (session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE, entry_id TEXT NOT NULL, seq BIGSERIAL, type TEXT NOT NULL, parent_id TEXT, timestamp TEXT NOT NULL, payload JSONB NOT NULL DEFAULT '{}', ez_message_id TEXT REFERENCES messages(id) ON DELETE SET NULL, PRIMARY KEY (session_id, entry_id))`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_seq ON agent_session_entries(session_id, seq)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_type ON agent_session_entries(session_id, type)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_parent ON agent_session_entries(session_id, parent_id)`,
+  );
   // FK index for the ON DELETE SET NULL on ez_message_id (message delete would
   // otherwise seq-scan agent_session_entries per deleted message).
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_ez_message ON agent_session_entries(ez_message_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_agent_session_entries_ez_message ON agent_session_entries(ez_message_id)`,
+  );
 
   // Fix temperature columns — originally created as INTEGER but semantically a
   // float (0.0–2.0 with 0.1 increments). Any save with a non-integer temperature
@@ -1215,10 +1424,14 @@ export async function migrate(db: MigrateDb): Promise<void> {
     `)) as { rows: Array<{ table_name: string; data_type: string }> };
     const typeOf = (t: string) => tempCols.rows.find((r) => r.table_name === t)?.data_type;
     if (typeOf("agent_configs") && typeOf("agent_configs") !== "real") {
-      await db.execute(sql`ALTER TABLE agent_configs ALTER COLUMN temperature TYPE REAL USING temperature::REAL`);
+      await db.execute(
+        sql`ALTER TABLE agent_configs ALTER COLUMN temperature TYPE REAL USING temperature::REAL`,
+      );
     }
     if (typeOf("modes") && typeOf("modes") !== "real") {
-      await db.execute(sql`ALTER TABLE modes ALTER COLUMN temperature TYPE REAL USING temperature::REAL`);
+      await db.execute(
+        sql`ALTER TABLE modes ALTER COLUMN temperature TYPE REAL USING temperature::REAL`,
+      );
     }
   }
 
@@ -1236,7 +1449,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
       UNIQUE(user_id, name)
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_user_commands_user_id ON user_commands(user_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_user_commands_user_id ON user_commands(user_id)`,
+  );
 
   // ── user_commands UNIQUE(user_id, name) ────────────────────────────
   // SINGLE SOURCE OF TRUTH: the pre-flight dedup rename + idempotent unique
@@ -1279,7 +1494,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // when empty/null the existing tool_restriction + allowed_tools fallback
   // governs (see src/runtime/executor.ts). Idempotent.
   await db.execute(sql`ALTER TABLE modes ADD COLUMN IF NOT EXISTS extension_ids TEXT[]`);
-  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'regular'`);
+  await db.execute(
+    sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'regular'`,
+  );
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS ez_drafts (
       id TEXT PRIMARY KEY,
@@ -1327,19 +1544,31 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // are already in scope at both write sites (executor.ts, tool-executor.ts);
   // populating at insert time is free. Existing rows are backfilled by
   // joining through conversations + messages.
-  await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
-  await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS agent_config_id TEXT REFERENCES agent_configs(id) ON DELETE SET NULL`);
+  await db.execute(
+    sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`,
+  );
+  await db.execute(
+    sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS agent_config_id TEXT REFERENCES agent_configs(id) ON DELETE SET NULL`,
+  );
   await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS model TEXT`);
   await db.execute(sql`ALTER TABLE tool_calls ADD COLUMN IF NOT EXISTS provider TEXT`);
   // Plain created_at index — the leading column every analytics query filters on.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_created_at ON tool_calls(created_at)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_created_at ON tool_calls(created_at)`,
+  );
   // Drop the leading-tool_name composite if a prior install created it:
   // it's unreachable by the by-tool query (no tool_name predicate) and is
   // superseded by idx_tool_calls_created_at for every other query.
   await db.execute(sql`DROP INDEX IF EXISTS idx_tool_calls_tool_created`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_user_created ON tool_calls(user_id, created_at)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_agent_created ON tool_calls(agent_config_id, created_at)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_model_created ON tool_calls(model, created_at)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_user_created ON tool_calls(user_id, created_at)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_agent_created ON tool_calls(agent_config_id, created_at)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_tool_calls_model_created ON tool_calls(model, created_at)`,
+  );
   // One-shot backfill. Only touches rows where at least one new dim is
   // still NULL — re-runs are cheap no-ops once the columns are populated.
   // Implementation note: Postgres forbids referencing the UPDATE target
@@ -1409,14 +1638,18 @@ export async function migrate(db: MigrateDb): Promise<void> {
       PRIMARY KEY (feature_id, relpath)
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_feature_files_feature ON feature_files(feature_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_feature_files_feature ON feature_files(feature_id)`,
+  );
 
   // origin_path: directory the scanner derived the feature from. Lets
   // a rescan re-link a user-renamed feature to its source dir instead
   // of creating a fresh duplicate. Nullable: legacy rows + hand-created
   // user features have no scanner origin.
   await db.execute(sql`ALTER TABLE features ADD COLUMN IF NOT EXISTS origin_path TEXT`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_features_origin_path ON features(project_id, origin_path)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_features_origin_path ON features(project_id, origin_path)`,
+  );
 
   // ── Extension Settings (per-user) ────────────────────────────────
   // Backs the manifest `settings` schema. resolveExtensionSettings()
@@ -1448,7 +1681,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
       PRIMARY KEY (feature_id, content_hash)
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_feature_classifications_feature ON feature_classifications(feature_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_feature_classifications_feature ON feature_classifications(feature_id)`,
+  );
 
   // ── Lessons-Keeper v1 (per-user-per-project + promotion ladder) ───
   // See src/db/migrations/add-lessons.ts for the rationale.
@@ -1474,8 +1709,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_lessons_project_owner ON lessons(project_id, owner_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_lessons_visibility ON lessons(project_id, visibility)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_lessons_project_owner ON lessons(project_id, owner_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_lessons_visibility ON lessons(project_id, visibility)`,
+  );
   await db.execute(sql`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_lessons_user_slug_unique
       ON lessons(project_id, owner_id, slug)
@@ -1525,10 +1764,18 @@ export async function migrate(db: MigrateDb): Promise<void> {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_ext_created ON sdk_capability_calls(extension_id, created_at DESC)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_conv_created ON sdk_capability_calls(conversation_id, created_at DESC) WHERE conversation_id IS NOT NULL`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_user_capability_created ON sdk_capability_calls(on_behalf_of, capability, created_at DESC)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_created ON sdk_capability_calls(created_at DESC)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_ext_created ON sdk_capability_calls(extension_id, created_at DESC)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_conv_created ON sdk_capability_calls(conversation_id, created_at DESC) WHERE conversation_id IS NOT NULL`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_user_capability_created ON sdk_capability_calls(on_behalf_of, capability, created_at DESC)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_created ON sdk_capability_calls(created_at DESC)`,
+  );
 
   // Defensive FK upgrade for sdk_capability_calls.on_behalf_of
   // (validator CR-2): the previous spec declared ON DELETE SET NULL,
@@ -1553,8 +1800,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
       LIMIT 1
     `)) as { rows: Array<{ confdeltype: string }> };
     if (fk.rows.length === 0 || fk.rows[0]?.confdeltype !== "r") {
-      await db.execute(sql`ALTER TABLE sdk_capability_calls DROP CONSTRAINT IF EXISTS sdk_capability_calls_on_behalf_of_fkey`);
-      await db.execute(sql`ALTER TABLE sdk_capability_calls ADD CONSTRAINT sdk_capability_calls_on_behalf_of_fkey FOREIGN KEY (on_behalf_of) REFERENCES users(id) ON DELETE RESTRICT`);
+      await db.execute(
+        sql`ALTER TABLE sdk_capability_calls DROP CONSTRAINT IF EXISTS sdk_capability_calls_on_behalf_of_fkey`,
+      );
+      await db.execute(
+        sql`ALTER TABLE sdk_capability_calls ADD CONSTRAINT sdk_capability_calls_on_behalf_of_fkey FOREIGN KEY (on_behalf_of) REFERENCES users(id) ON DELETE RESTRICT`,
+      );
     }
   }
 
@@ -1574,8 +1825,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_lessons_audit_lesson_created ON lessons_audit_log(lesson_id, created_at DESC)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_lessons_audit_actor_ext_created ON lessons_audit_log(actor_extension_id, created_at DESC)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_lessons_audit_lesson_created ON lessons_audit_log(lesson_id, created_at DESC)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_lessons_audit_actor_ext_created ON lessons_audit_log(actor_extension_id, created_at DESC)`,
+  );
 
   // lessons.author_extension_id — additive column, idempotent
   await db.execute(sql`
@@ -1606,7 +1861,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   `);
   // `output_tokens` now records TOTAL tokens (input + output) counted
   // toward `maxTokensPerDay`; `cost_cents` enforces `maxCostCentsPerDay`.
-  await db.execute(sql`ALTER TABLE extension_llm_usage ADD COLUMN IF NOT EXISTS cost_cents INTEGER NOT NULL DEFAULT 0`);
+  await db.execute(
+    sql`ALTER TABLE extension_llm_usage ADD COLUMN IF NOT EXISTS cost_cents INTEGER NOT NULL DEFAULT 0`,
+  );
 
   // (3) extension_memory_writes_daily — same shape, memory-write quota.
   await db.execute(sql`
@@ -1658,8 +1915,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule ON extension_schedules(extension_id, cron)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_schedule_ready ON extension_schedules(enabled, next_fire_at) WHERE enabled = TRUE`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule ON extension_schedules(extension_id, cron)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_schedule_ready ON extension_schedules(enabled, next_fire_at) WHERE enabled = TRUE`,
+  );
 
   // (6) extension_schedule_fires — per-fire history.
   await db.execute(sql`
@@ -1675,7 +1936,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
       catch_up BOOLEAN NOT NULL DEFAULT FALSE
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_schedule_fires_pending ON extension_schedule_fires(status, scheduled_at)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_schedule_fires_pending ON extension_schedule_fires(status, scheduled_at)`,
+  );
 
   // (5b) Loops EZ Mode Phase 4 — webhook trigger registry + delivery queue.
   //      Idempotent CREATE-IF-NOT-EXISTS (mirrors extension_schedules). The
@@ -1692,8 +1955,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_webhook ON extension_webhooks(extension_id, slug)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_webhook_enabled ON extension_webhooks(enabled)`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_webhook ON extension_webhooks(extension_id, slug)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_webhook_enabled ON extension_webhooks(enabled)`,
+  );
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS webhook_deliveries (
@@ -1719,10 +1986,18 @@ export async function migrate(db: MigrateDb): Promise<void> {
   `);
   // Idempotent add for dev DBs created before the poison-delivery bound landed
   // (the column caps failed-dispatch retries → dead-letter after N attempts).
-  await db.execute(sql`ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending ON webhook_deliveries(status, received_at)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_hook ON webhook_deliveries(webhook_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_ext_received ON webhook_deliveries(extension_id, received_at)`);
+  await db.execute(
+    sql`ALTER TABLE webhook_deliveries ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_pending ON webhook_deliveries(status, received_at)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_hook ON webhook_deliveries(webhook_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_webhook_deliveries_ext_received ON webhook_deliveries(extension_id, received_at)`,
+  );
 
   // (7) Composite slug uniqueness for lessons. Replace the legacy
   //     partial indexes on (project_id, owner_id, slug) and
@@ -1876,9 +2151,15 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // audit table it seq-scans. GIN trigram indexes (same pg_trgm pattern as the
   // marketplace index above) let the planner BitmapOr the three column scans.
   // Placed AFTER `CREATE EXTENSION pg_trgm` so gin_trgm_ops is registered.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_resource_id_trgm ON sdk_capability_calls USING GIN (resource_id gin_trgm_ops)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_error_message_trgm ON sdk_capability_calls USING GIN (error_message gin_trgm_ops)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_model_trgm ON sdk_capability_calls USING GIN (model gin_trgm_ops)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_resource_id_trgm ON sdk_capability_calls USING GIN (resource_id gin_trgm_ops)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_error_message_trgm ON sdk_capability_calls USING GIN (error_message gin_trgm_ops)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_sdk_cap_model_trgm ON sdk_capability_calls USING GIN (model gin_trgm_ops)`,
+  );
 
   // ── Secure User-Site Preview / Port Exposure (Phase 1) ────────────
   // The preview registry. One row per exposed site. `id` is BOTH the
@@ -1907,8 +2188,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
       revoked_at TIMESTAMP WITH TIME ZONE
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_preview_sessions_user ON preview_sessions(user_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_preview_sessions_conversation ON preview_sessions(conversation_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_preview_sessions_user ON preview_sessions(user_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_preview_sessions_conversation ON preview_sessions(conversation_id)`,
+  );
 
   // Per-extension tool subset for modes. Keyed by extension id → selected tool
   // names. An extension attached via extension_ids but absent here (or mapped
@@ -1965,7 +2250,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_briefing_ready ON briefing_configs(enabled, next_fire_at)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_briefing_ready ON briefing_configs(enabled, next_fire_at)`,
+  );
 
   // ── Extension secrets (scope-isolated, AEAD-bound credential store) ──
   // See src/db/migrations/add-extension-secrets.ts for the rationale.
@@ -1990,7 +2277,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
       rotated_at   TIMESTAMP WITH TIME ZONE
     )
   `);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_extension_secrets_scope ON extension_secrets (extension_id, COALESCE(project_id,''), COALESCE(user_id,''), name)`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_extension_secrets_scope ON extension_secrets (extension_id, COALESCE(project_id,''), COALESCE(user_id,''), name)`,
+  );
 
   // ── Extension RBAC grants (per-user, per-project/per-extension scopes) ──
   // See src/db/migrations/add-extension-rbac.ts for the rationale. Governs
@@ -2015,7 +2304,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_extension_rbac_grants_scope ON extension_rbac_grants (user_id, COALESCE(project_id,''), COALESCE(extension_id,''))`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_extension_rbac_grants_scope ON extension_rbac_grants (user_id, COALESCE(project_id,''), COALESCE(extension_id,''))`,
+  );
 
   // ── Project membership (project ↔ user, with a role) ──────────────
   //
@@ -2038,10 +2329,14 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // plain UNIQUE — none of the COALESCE-collapse the nullable-scope tables
   // (`extension_secrets`, `extension_rbac_grants`) need, and the query layer
   // can therefore use a real `ON CONFLICT DO NOTHING`.
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_project_members_unique ON project_members(project_id, user_id)`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS idx_project_members_unique ON project_members(project_id, user_id)`,
+  );
   // The hot read is "every project this user belongs to" — the workflow
   // read/run ladder asks it per authorization, so it must not seq-scan.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id)`,
+  );
 
   // BACKFILL — what happens to projects that predate this table.
   //
@@ -2218,13 +2513,21 @@ export async function migrate(db: MigrateDb): Promise<void> {
       ON github_projects_proposals(link_id, item_node_id)
       WHERE status IN ('pending','approved','spawned','running')
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_project_status ON github_projects_proposals(project_id, status)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_link ON github_projects_proposals(link_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_project_status ON github_projects_proposals(project_id, status)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_link ON github_projects_proposals(link_id)`,
+  );
   // Point-lookup indexes: the spawn bridge resolves a proposal by its spawned
   // agent_run_id (findProposalByAgentRunId) and by its conversation_id
   // (findProposalByConversationId) — both were unindexed seq-scans.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_agent_run ON github_projects_proposals(agent_run_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_conversation ON github_projects_proposals(conversation_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_agent_run ON github_projects_proposals(agent_run_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_gh_proposals_conversation ON github_projects_proposals(conversation_id)`,
+  );
 
   // ── Composer suggestions: telemetry table ─────────────────────────
   // See src/db/migrations/add-suggestion-feedback.ts for the rationale.
@@ -2243,11 +2546,17 @@ export async function migrate(db: MigrateDb): Promise<void> {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_created ON suggestion_feedback(created_at)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_kind_action ON suggestion_feedback(kind, action, created_at)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_created ON suggestion_feedback(created_at)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_kind_action ON suggestion_feedback(kind, action, created_at)`,
+  );
   // FK index for the ON DELETE SET NULL on conversation_id (conversation delete
   // would otherwise seq-scan suggestion_feedback).
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_conversation ON suggestion_feedback(conversation_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_suggestion_feedback_conversation ON suggestion_feedback(conversation_id)`,
+  );
 
   // ── Topic Contexts v1 ─────────────────────────────────────────────
   // See src/db/migrations/add-topic-contexts.ts for the full rationale.
@@ -2268,8 +2577,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // Open type taxonomy: `source` distinguishes the 10 seeded types from
   // LLM-proposed `auto` types; `created_at` orders autos after seeds. Additive
   // ADD COLUMN IF NOT EXISTS upgrades DBs created before this change.
-  await db.execute(sql`ALTER TABLE context_types ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'seed'`);
-  await db.execute(sql`ALTER TABLE context_types ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()`);
+  await db.execute(
+    sql`ALTER TABLE context_types ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'seed'`,
+  );
+  await db.execute(
+    sql`ALTER TABLE context_types ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()`,
+  );
   // Seed the 10 canonical types. ON CONFLICT DO NOTHING so a re-run (or an
   // operator who tuned a description) is never clobbered. Keep this data
   // identical to CONTEXT_TYPE_SEED in add-topic-contexts.ts.
@@ -2280,7 +2593,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // migration below the patch-coverage bar even though the seed runs on every
   // migrate(). A single-line statement instruments as one line — hit here, the
   // same shape as the CREATE INDEX statements above.
-  await db.execute(sql`INSERT INTO context_types (id, label, description, sort_order) VALUES ('feature', 'Feature', 'A capability or piece of functionality to build, or one that already exists.', 1), ('idea', 'Idea', 'A proposal, suggestion, or brainstormed concept that has not been decided yet.', 2), ('decision', 'Decision', 'A choice that was made, together with the reasoning behind it.', 3), ('bug-fix', 'Bug Fix', 'A defect and how it was, or should be, resolved.', 4), ('requirement', 'Requirement', 'A constraint or condition the solution must satisfy.', 5), ('how-to', 'How-To', 'Step-by-step instructions or a procedure for accomplishing something.', 6), ('code-snippet', 'Code Snippet', 'A concrete block of code, configuration, or command.', 7), ('fact', 'Fact', 'A piece of reference information or an established truth worth remembering.', 8), ('question', 'Question', 'An open question or unresolved inquiry raised in the conversation.', 9), ('plan', 'Plan', 'A sequence of steps or a strategy toward a goal.', 10) ON CONFLICT (id) DO NOTHING`);
+  await db.execute(
+    sql`INSERT INTO context_types (id, label, description, sort_order) VALUES ('feature', 'Feature', 'A capability or piece of functionality to build, or one that already exists.', 1), ('idea', 'Idea', 'A proposal, suggestion, or brainstormed concept that has not been decided yet.', 2), ('decision', 'Decision', 'A choice that was made, together with the reasoning behind it.', 3), ('bug-fix', 'Bug Fix', 'A defect and how it was, or should be, resolved.', 4), ('requirement', 'Requirement', 'A constraint or condition the solution must satisfy.', 5), ('how-to', 'How-To', 'Step-by-step instructions or a procedure for accomplishing something.', 6), ('code-snippet', 'Code Snippet', 'A concrete block of code, configuration, or command.', 7), ('fact', 'Fact', 'A piece of reference information or an established truth worth remembering.', 8), ('question', 'Question', 'An open question or unresolved inquiry raised in the conversation.', 9), ('plan', 'Plan', 'A sequence of steps or a strategy toward a goal.', 10) ON CONFLICT (id) DO NOTHING`,
+  );
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS conversation_topics (
@@ -2293,7 +2608,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_conversation_topics_conversation ON conversation_topics(conversation_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_conversation_topics_conversation ON conversation_topics(conversation_id)`,
+  );
   // Case-insensitive label uniqueness per conversation — migration-only
   // (drizzle has no portable functional-index helper; mirrors the lessons
   // partial-unique pattern). Keeps re-detection from spawning duplicate
@@ -2329,9 +2646,15 @@ export async function migrate(db: MigrateDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_user_created ON saved_contexts(user_id, created_at DESC)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_project ON saved_contexts(project_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_type ON saved_contexts(type_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_user_created ON saved_contexts(user_id, created_at DESC)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_project ON saved_contexts(project_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_saved_contexts_type ON saved_contexts(type_id)`,
+  );
   // Re-extract upserts (latest snapshot wins). All three columns are
   // non-null at insert time (extract always runs on a real conversation),
   // so a plain composite UNIQUE is a valid ON CONFLICT arbiter.
@@ -2362,14 +2685,22 @@ export async function migrate(db: MigrateDb): Promise<void> {
   //
   // The unique index on `name` is untouched: ownership authorizes a
   // workflow, it never namespaces one.
-  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id) ON DELETE CASCADE`);
-  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`);
-  await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'system'`);
+  await db.execute(
+    sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS project_id TEXT REFERENCES projects(id) ON DELETE CASCADE`,
+  );
+  await db.execute(
+    sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS user_id TEXT REFERENCES users(id) ON DELETE SET NULL`,
+  );
+  await db.execute(
+    sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'system'`,
+  );
   // Fork provenance: the SOURCE's fully qualified name as a string
   // snapshot, never an FK — the source is often an extension asset with no
   // row, and the extension may later be uninstalled.
   await db.execute(sql`ALTER TABLE workflow_definitions ADD COLUMN IF NOT EXISTS forked_from TEXT`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_definitions_scope ON workflow_definitions(visibility, project_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_definitions_scope ON workflow_definitions(visibility, project_id)`,
+  );
 
   // ── Definition versions (C6) ─────────────────────────────────────
   //
@@ -2395,8 +2726,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_definition_version ON workflow_definition_versions(workflow_definition_id, version)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_definition_versions_author ON workflow_definition_versions(created_by_user_id)`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_definition_version ON workflow_definition_versions(workflow_definition_id, version)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_definition_versions_author ON workflow_definition_versions(created_by_user_id)`,
+  );
 
   // `workflow_definitions.created_by` was a SECOND owner column, from a
   // parallel authorization model that briefly co-existed with the
@@ -2452,10 +2787,14 @@ export async function migrate(db: MigrateDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_service_account_name ON service_accounts(name)`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_service_account_name ON service_accounts(name)`,
+  );
   // FK index — ON DELETE RESTRICT scans this on every user delete to
   // decide whether to refuse. Required, not nice-to-have.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_service_accounts_created_by ON service_accounts(created_by_user_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_service_accounts_created_by ON service_accounts(created_by_user_id)`,
+  );
 
   // The authority for a delegated run. Every FK choice here is a security
   // decision; the full reasoning lives beside each column in schema.ts.
@@ -2550,28 +2889,42 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // fire and heals it there, carrying consent forward unless its reach
   // actually grew. Self-contained: one ADD COLUMN IF NOT EXISTS, no data
   // movement, trivially re-orderable against any concurrent migration.
-  await db.execute(sql`ALTER TABLE workflow_delegations ADD COLUMN IF NOT EXISTS definition_hash TEXT`);
+  await db.execute(
+    sql`ALTER TABLE workflow_delegations ADD COLUMN IF NOT EXISTS definition_hash TEXT`,
+  );
 
   // PARTIAL unique — one LIVE delegation per (extension, job). Revoked
   // rows are tombstones kept as history and must be free to accumulate, so
   // a total unique index would make re-consenting a revoked job impossible.
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_delegation ON workflow_delegations(extension_id, job_ref) WHERE revoked_at IS NULL`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_owner_user ON workflow_delegations(owner_user_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_owner_service ON workflow_delegations(owner_service_account_id)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_enabled ON workflow_delegations(extension_id, enabled) WHERE revoked_at IS NULL`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_delegation ON workflow_delegations(extension_id, job_ref) WHERE revoked_at IS NULL`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_owner_user ON workflow_delegations(owner_user_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_owner_service ON workflow_delegations(owner_service_account_id)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_enabled ON workflow_delegations(extension_id, enabled) WHERE revoked_at IS NULL`,
+  );
   // Not in the original spec's index list and required twice over: the
   // RESTRICT above scans this column on every user delete, and it is the
   // driving predicate of the approvals-inbox disjunct that lets the
   // consenting human answer a service-account run's approval. Without the
   // disjunct that authority exists and can never be exercised — so without
   // the index it exists and is a sequential scan.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_consented_by ON workflow_delegations(consented_by_user_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_consented_by ON workflow_delegations(consented_by_user_id)`,
+  );
   // Likewise absent from the spec and required by the RESTRICT: the
   // version retention sweep asks "is this version pinned by a live
   // delegation?" on every reap, and the FK scans this column to decide
   // whether to refuse. The same argument already justifies
   // `idx_workflow_runs_definition_version`, whose action is only SET NULL.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_version ON workflow_delegations(definition_version_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_delegations_version ON workflow_delegations(definition_version_id)`,
+  );
 
   // ── Workflow run history ─────────────────────────────────────────
   //
@@ -2598,8 +2951,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
       created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_name_started ON workflow_runs(workflow_name, started_at DESC)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_user ON workflow_runs(user_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_name_started ON workflow_runs(workflow_name, started_at DESC)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_user ON workflow_runs(user_id)`,
+  );
 
   // Per-step history. `run_id` is a NULLABLE FK to runs(id): only an
   // `agent` step mints a real run — transform / gate / tool steps carry
@@ -2617,7 +2974,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_step_run ON workflow_step_runs(workflow_run_id, step_name)`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_step_run ON workflow_step_runs(workflow_run_id, step_name)`,
+  );
   // Per-step model telemetry (per-step model overrides). Nullable with no
   // default: NULL means "this step ran no LLM" (transform / gate / tool) or
   // "the LLM had not resolved yet", which is exactly true of every row
@@ -2648,13 +3007,25 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // `workflowStepRuns.costUsd` in `schema.ts` for why NULL here can never
   // be read as "free".
   await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS attempt INTEGER`);
-  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS input_tokens INTEGER`);
-  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS output_tokens INTEGER`);
-  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(12,6)`);
-  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS duration_ms INTEGER`);
+  await db.execute(
+    sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS input_tokens INTEGER`,
+  );
+  await db.execute(
+    sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS output_tokens INTEGER`,
+  );
+  await db.execute(
+    sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS cost_usd NUMERIC(12,6)`,
+  );
+  await db.execute(
+    sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS duration_ms INTEGER`,
+  );
   await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS error_code TEXT`);
-  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS resolved_input JSONB`);
-  await db.execute(sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS skipped_reason TEXT`);
+  await db.execute(
+    sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS resolved_input JSONB`,
+  );
+  await db.execute(
+    sql`ALTER TABLE workflow_step_runs ADD COLUMN IF NOT EXISTS skipped_reason TEXT`,
+  );
 
   // Per-iteration detail for a looped step. A child table rather than a
   // widened `uniq_workflow_step_run`, because the arbiter is
@@ -2684,8 +3055,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
   `);
   // `attempt` is in the arbiter because a retried iteration is a distinct
   // event, not an overwrite of the try that failed.
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_step_iteration ON workflow_step_iterations(workflow_step_run_id, iteration, attempt)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_step_iterations_step ON workflow_step_iterations(workflow_step_run_id)`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_step_iteration ON workflow_step_iterations(workflow_step_run_id, iteration, attempt)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_step_iterations_step ON workflow_step_iterations(workflow_step_run_id)`,
+  );
 
   // `run_phase` is NOT NULL DEFAULT 'boundary' and that default is what
   // makes this migration backward-safe: every pre-existing row reads as
@@ -2694,11 +3069,17 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // Every other column is nullable with no default — NULL means "this run
   // predates durable resume", which is exactly true.
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS cursor JSONB`);
-  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS run_phase TEXT NOT NULL DEFAULT 'boundary'`);
+  await db.execute(
+    sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS run_phase TEXT NOT NULL DEFAULT 'boundary'`,
+  );
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS suspended_reason TEXT`);
-  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS resumable BOOLEAN NOT NULL DEFAULT FALSE`);
+  await db.execute(
+    sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS resumable BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS claimed_by TEXT`);
-  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMP WITH TIME ZONE`);
+  await db.execute(
+    sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS lease_expires_at TIMESTAMP WITH TIME ZONE`,
+  );
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS definition_hash TEXT`);
   // Intended to be authoritative over `definition_hash` above — a contract
   // nothing implements yet; `workflow-versions.ts` states it once and says
@@ -2708,18 +3089,26 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // historical runs: we genuinely do not know which version they executed,
   // and inventing one would be a lie in an audit surface. The trace renders
   // NULL as "version unknown (pre-versioning)".
-  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS definition_version_id TEXT REFERENCES workflow_definition_versions(id) ON DELETE SET NULL`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_definition_version ON workflow_runs(definition_version_id)`);
+  await db.execute(
+    sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS definition_version_id TEXT REFERENCES workflow_definition_versions(id) ON DELETE SET NULL`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_definition_version ON workflow_runs(definition_version_id)`,
+  );
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS job_ref TEXT`);
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS idempotency_key TEXT`);
   // Shared by the daemon's claim scan and the recovery sweep — both read
   // `status` + `lease_expires_at` and both only ever care about the two
   // live statuses, so the partial index stays small on a table that grows
   // without bound.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_claimable ON workflow_runs(status, lease_expires_at) WHERE status IN ('running','suspended')`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_claimable ON workflow_runs(status, lease_expires_at) WHERE status IN ('running','suspended')`,
+  );
   // PARTIAL unique — a run with no idempotency key must never collide
   // with another keyless run, and the index stays off every such row.
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_runs_idem ON workflow_runs(workflow_name, idempotency_key) WHERE idempotency_key IS NOT NULL`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_runs_idem ON workflow_runs(workflow_name, idempotency_key) WHERE idempotency_key IS NOT NULL`,
+  );
 
   // ── C7: composition — a run dispatched by another run's step ─────
   //
@@ -2736,14 +3125,20 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // tagged template leaves its interpolation-free lines as orphan coverable
   // lines that never receive a hit (documented at `:125-131`).
   {
-    const parentFk = (await db.execute(sql`SELECT 1 AS present FROM pg_constraint WHERE conname = 'workflow_runs_parent_run_id_fkey' AND conrelid = 'workflow_runs'::regclass LIMIT 1`)) as { rows: Array<{ present: number }> };
+    const parentFk = (await db.execute(
+      sql`SELECT 1 AS present FROM pg_constraint WHERE conname = 'workflow_runs_parent_run_id_fkey' AND conrelid = 'workflow_runs'::regclass LIMIT 1`,
+    )) as { rows: Array<{ present: number }> };
     if (parentFk.rows.length === 0) {
-      await db.execute(sql`ALTER TABLE workflow_runs ADD CONSTRAINT workflow_runs_parent_run_id_fkey FOREIGN KEY (parent_run_id) REFERENCES workflow_runs(id) ON DELETE SET NULL`);
+      await db.execute(
+        sql`ALTER TABLE workflow_runs ADD CONSTRAINT workflow_runs_parent_run_id_fkey FOREIGN KEY (parent_run_id) REFERENCES workflow_runs(id) ON DELETE SET NULL`,
+      );
     }
   }
   // Required, not nice-to-have: ON DELETE SET NULL scans this column on
   // every parent delete, and the child lookup reads it directly.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_parent ON workflow_runs(parent_run_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_parent ON workflow_runs(parent_run_id)`,
+  );
 
   // ── C3: which principal a run executed as ────────────────────────
   //
@@ -2769,14 +3164,20 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // reference resolves on a fresh install and on an upgrade alike.
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS run_as_kind TEXT`);
   await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS run_as TEXT`);
-  await db.execute(sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS delegation_id TEXT REFERENCES workflow_delegations(id) ON DELETE SET NULL`);
+  await db.execute(
+    sql`ALTER TABLE workflow_runs ADD COLUMN IF NOT EXISTS delegation_id TEXT REFERENCES workflow_delegations(id) ON DELETE SET NULL`,
+  );
   // Backs the "jobs running as me" page.
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_run_as ON workflow_runs(run_as_kind, run_as, started_at DESC)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_run_as ON workflow_runs(run_as_kind, run_as, started_at DESC)`,
+  );
   // Required for the same reason `idx_workflow_runs_parent` is — ON DELETE
   // SET NULL scans this column on every delegation delete. Composite with
   // `started_at` so the same index also serves the per-job daily quota
   // count (`delegation_id = $1 AND started_at >= startOfUtcDay(now())`).
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_delegation ON workflow_runs(delegation_id, started_at DESC)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_runs_delegation ON workflow_runs(delegation_id, started_at DESC)`,
+  );
 
   // Parked `approval` steps. CASCADE on the run because an approval
   // without its run is meaningless — unlike run HISTORY, which is
@@ -2807,9 +3208,15 @@ export async function migrate(db: MigrateDb): Promise<void> {
   `);
   // One live approval per step: a resumed-then-re-suspended step updates
   // in place instead of accumulating rows the inbox would double-render.
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_approval ON workflow_approvals(workflow_run_id, step_name)`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_approvals_pending ON workflow_approvals(status, expires_at) WHERE status = 'pending'`);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_workflow_approvals_answered_by ON workflow_approvals(answered_by)`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_workflow_approval ON workflow_approvals(workflow_run_id, step_name)`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_approvals_pending ON workflow_approvals(status, expires_at) WHERE status = 'pending'`,
+  );
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_workflow_approvals_answered_by ON workflow_approvals(answered_by)`,
+  );
 
   // ── C2: dynamic cron + webhook triggers (`ctx.triggers`) ─────────
   //
@@ -2829,11 +3236,17 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // `max_runs_per_day` is the PER-KEY daily cap. The extension-wide
   // envelope alone lets one busy job starve every other job under the same
   // install, and the only signal would be a quota audit row naming no job.
-  await db.execute(sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS dynamic BOOLEAN NOT NULL DEFAULT FALSE`);
+  await db.execute(
+    sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS dynamic BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
   await db.execute(sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS key TEXT`);
   await db.execute(sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS timezone TEXT`);
-  await db.execute(sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS max_runs_per_day INTEGER`);
-  await db.execute(sql`ALTER TABLE extension_webhooks ADD COLUMN IF NOT EXISTS dynamic BOOLEAN NOT NULL DEFAULT FALSE`);
+  await db.execute(
+    sql`ALTER TABLE extension_schedules ADD COLUMN IF NOT EXISTS max_runs_per_day INTEGER`,
+  );
+  await db.execute(
+    sql`ALTER TABLE extension_webhooks ADD COLUMN IF NOT EXISTS dynamic BOOLEAN NOT NULL DEFAULT FALSE`,
+  );
   await db.execute(sql`ALTER TABLE extension_webhooks ADD COLUMN IF NOT EXISTS key TEXT`);
 
   // The ONLY non-additive statements in C2. `(extension_id, cron)` unique
@@ -2852,8 +3265,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // phase can add a second dynamic kind (`event`, …) additively, with no
   // second DROP INDEX.
   await db.execute(sql`DROP INDEX IF EXISTS uniq_ext_schedule`);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule_manifest ON extension_schedules(extension_id, cron) WHERE dynamic = FALSE`);
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule_dynamic ON extension_schedules(extension_id, key) WHERE key IS NOT NULL`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule_manifest ON extension_schedules(extension_id, cron) WHERE dynamic = FALSE`,
+  );
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_schedule_dynamic ON extension_schedules(extension_id, key) WHERE key IS NOT NULL`,
+  );
   // Webhooks are NOT symmetric with schedules, and the total index STAYS.
   // Schedules needed widening because two dynamic jobs sharing `0 9 * * 1` is
   // the normal case. Webhooks have no equivalent: a dynamic slug is
@@ -2864,7 +3281,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // `getEnabledWebhook` returns `rows[0] ?? null` with no ORDER BY, so two
   // matching rows would let a public inbound route resolve non-
   // deterministically. Dropping it would remove a real constraint for nothing.
-  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_webhook_dynamic ON extension_webhooks(extension_id, key) WHERE key IS NOT NULL`);
+  await db.execute(
+    sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_ext_webhook_dynamic ON extension_webhooks(extension_id, key) WHERE key IS NOT NULL`,
+  );
 
   // One-shot, idempotent backfill: move any pre-existing github-projects PATs
   // out of the broadly-readable `settings` table into the scope-isolated,

@@ -21,19 +21,19 @@ import type { ClientCapabilities } from "$lib/chat/attachment-client";
 
 /** A complete, well-formed capabilities row (text-only, no attachments). */
 export function makeClientCapabilities(
-	provider = "openai",
-	model = "gpt-4o",
-	overrides: Partial<ClientCapabilities> = {},
+  provider = "openai",
+  model = "gpt-4o",
+  overrides: Partial<ClientCapabilities> = {},
 ): ClientCapabilities {
-	return {
-		provider,
-		model,
-		kinds: ["text"],
-		acceptedMimeTypes: [],
-		maxBytesPerFile: 0,
-		maxFilesPerMessage: 0,
-		...overrides,
-	};
+  return {
+    provider,
+    model,
+    kinds: ["text"],
+    acceptedMimeTypes: [],
+    maxBytesPerFile: 0,
+    maxFilesPerMessage: 0,
+    ...overrides,
+  };
 }
 
 /**
@@ -45,27 +45,23 @@ export function makeClientCapabilities(
  *   const caps = makeCapabilitiesFetch();
  *   g.fetch = vi.fn(async (input) => caps(input) ?? defaultResponse);
  */
-export function makeCapabilitiesFetch(
-	models: Array<Record<string, unknown>> = [],
-) {
-	return (input: RequestInfo | URL): Response | null => {
-		const url = String(
-			typeof input === "string" || input instanceof URL
-				? input
-				: (input as Request).url,
-		);
-		if (url.includes("/api/models/capabilities")) {
-			return new Response(JSON.stringify(makeClientCapabilities()), {
-				status: 200,
-				headers: { "content-type": "application/json" },
-			});
-		}
-		if (/\/api\/models(\?|$)/.test(url)) {
-			return new Response(JSON.stringify(models), {
-				status: 200,
-				headers: { "content-type": "application/json" },
-			});
-		}
-		return null;
-	};
+export function makeCapabilitiesFetch(models: Array<Record<string, unknown>> = []) {
+  return (input: RequestInfo | URL): Response | null => {
+    const url = String(
+      typeof input === "string" || input instanceof URL ? input : (input as Request).url,
+    );
+    if (url.includes("/api/models/capabilities")) {
+      return new Response(JSON.stringify(makeClientCapabilities()), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (/\/api\/models(\?|$)/.test(url)) {
+      return new Response(JSON.stringify(models), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return null;
+  };
 }

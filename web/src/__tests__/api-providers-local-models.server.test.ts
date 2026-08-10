@@ -19,11 +19,7 @@ vi.mock("$server/providers/local-model-check", () => ({
 const { listModels } = await import("$server/providers/local-model-check");
 const { POST } = await import("../routes/api/providers/local/models/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-  rawBody?: string;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown; rawBody?: string }) {
   const body = opts.rawBody ?? (opts.body !== undefined ? JSON.stringify(opts.body) : undefined);
   return {
     url: new URL("http://localhost/api/providers/local/models"),
@@ -58,19 +54,21 @@ describe("POST /api/providers/local/models", () => {
   });
 
   test("rejects non-admin authenticated user with 403", async () => {
-    const res = await expectDenied(() => POST(
-            makeEvent({
-              locals: { user: { id: "u1", email: "u@x", name: "u", role: "user" } },
-              body: { baseUrl: "https://api.example.com" },
-            }),
-          ), 403);
+    const res = await expectDenied(
+      () =>
+        POST(
+          makeEvent({
+            locals: { user: { id: "u1", email: "u@x", name: "u", role: "user" } },
+            body: { baseUrl: "https://api.example.com" },
+          }),
+        ),
+      403,
+    );
     expect(res.status).toBe(403);
   });
 
   test("rejects non-object JSON body with 400", async () => {
-    const res = await POST(
-      makeEvent({ locals: adminUser, rawBody: "not-json{" }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, rawBody: "not-json{" }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Invalid JSON body");
@@ -129,9 +127,7 @@ describe("POST /api/providers/local/models", () => {
   });
 
   test("rejects RFC1918 private hostname with 400 (SSRF guard)", async () => {
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: { baseUrl: "http://10.0.0.1" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, body: { baseUrl: "http://10.0.0.1" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("private or loopback");
@@ -169,9 +165,7 @@ describe("POST /api/providers/local/models", () => {
   });
 
   test("rejects unparseable baseUrl with 400", async () => {
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: { baseUrl: "https://" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, body: { baseUrl: "https://" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Invalid baseUrl");

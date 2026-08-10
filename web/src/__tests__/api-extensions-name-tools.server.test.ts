@@ -24,17 +24,10 @@ vi.mock("$server/runtime/tools/builtin-registry", () => ({
   getBuiltInToolsByCategory: vi.fn(),
 }));
 
-const { getBuiltInToolsByCategory } = await import(
-  "$server/runtime/tools/builtin-registry"
-);
-const { GET } = await import(
-  "../routes/api/extensions/[name]/tools/+server.ts"
-);
+const { getBuiltInToolsByCategory } = await import("$server/runtime/tools/builtin-registry");
+const { GET } = await import("../routes/api/extensions/[name]/tools/+server.ts");
 
-function makeEvent(opts: {
-  name?: string;
-  locals?: Record<string, unknown>;
-}) {
+function makeEvent(opts: { name?: string; locals?: Record<string, unknown> }) {
   const name = opts.name ?? "my-ext";
   return {
     url: new URL(`http://localhost/api/extensions/${name}/tools`),
@@ -79,9 +72,7 @@ describe("GET /api/extensions/[name]/tools", () => {
     vi.mocked(getBuiltInToolsByCategory).mockReturnValue([
       { name: "scratch-set", description: "d", inputSchema: {} },
     ]);
-    const res = await GET(
-      makeEvent({ locals: { user }, name: "scratchpad" }),
-    );
+    const res = await GET(makeEvent({ locals: { user }, name: "scratchpad" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { tools: Array<{ name: string }> };
     expect(body.tools).toHaveLength(1);

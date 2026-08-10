@@ -116,10 +116,7 @@ mock.module("../../db/queries/audit-log", auditLogMock);
 import { POST, DELETE } from "../../../web/src/routes/api/providers/+server";
 
 // SvelteKit handlers may throw a Response on auth failure; unwrap.
-async function call(
-  handler: (ev: any) => unknown,
-  event: any,
-): Promise<Response> {
+async function call(handler: (ev: any) => unknown, event: any): Promise<Response> {
   try {
     return (await handler(event)) as Response;
   } catch (e) {

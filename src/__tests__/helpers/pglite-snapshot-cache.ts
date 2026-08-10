@@ -81,7 +81,15 @@
  * fingerprinting is a synchronous whole-closure read of ~380 small files
  * (~6ms), and awaiting each one individually is strictly slower.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 
 /**
@@ -195,7 +203,13 @@ type CacheOptions = {
  */
 export function resolveRelativeSpecifier(fromFile: string, spec: string): string | undefined {
   const base = resolve(dirname(fromFile), spec);
-  const candidates = [base, `${base}.ts`, `${base}.tsx`, join(base, "index.ts"), base.replace(/\.js$/, ".ts")];
+  const candidates = [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    join(base, "index.ts"),
+    base.replace(/\.js$/, ".ts"),
+  ];
   for (const candidate of candidates) {
     if (!existsSync(candidate)) continue;
     if (statSync(candidate).isFile()) return candidate;
@@ -293,7 +307,9 @@ export function schemaFingerprint(
 }
 
 /** `EZ_PGLITE_SNAPSHOT_CACHE=0` turns the cache off completely. */
-export function isSnapshotCacheEnabled(env: Record<string, string | undefined> = process.env): boolean {
+export function isSnapshotCacheEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
   return env.EZ_PGLITE_SNAPSHOT_CACHE !== "0";
 }
 
@@ -312,14 +328,19 @@ export function snapshotEntryPath(dir: string, key: string): string {
  * disabled cache, or an unreadable entry, so the caller always has the option
  * of building for real.
  */
-export async function readCachedSnapshot(key: string, options: CacheOptions = {}): Promise<File | undefined> {
+export async function readCachedSnapshot(
+  key: string,
+  options: CacheOptions = {},
+): Promise<File | undefined> {
   const env = options.env ?? process.env;
   if (!isSnapshotCacheEnabled(env)) return undefined;
   const path = snapshotEntryPath(options.dir ?? snapshotCacheDir(env), key);
   try {
     if (Date.now() - statSync(path).mtimeMs > CACHE_MAX_AGE_MS) return undefined;
     // Name and type restored, not dropped — see SNAPSHOT_FILE_NAME.
-    return new File([await Bun.file(path).arrayBuffer()], SNAPSHOT_FILE_NAME, { type: SNAPSHOT_MIME_TYPE });
+    return new File([await Bun.file(path).arrayBuffer()], SNAPSHOT_FILE_NAME, {
+      type: SNAPSHOT_MIME_TYPE,
+    });
   } catch {
     // Miss, or an entry that raced with a prune. Either way the caller
     // migrates for real — the cache is never load-bearing for correctness.

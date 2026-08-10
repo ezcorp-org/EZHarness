@@ -12,7 +12,8 @@ import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import { EventBus } from "../../runtime/events";
 import type { AgentEvents } from "../../types";
 
-const auditCalls: Array<{ action: string; target?: string; metadata?: Record<string, unknown> }> = [];
+const auditCalls: Array<{ action: string; target?: string; metadata?: Record<string, unknown> }> =
+  [];
 mock.module("../../db/queries/audit-log", () => ({
   insertAuditEntry: async (
     _userId: string | null,
@@ -20,7 +21,11 @@ mock.module("../../db/queries/audit-log", () => ({
     target?: string,
     metadata?: Record<string, unknown>,
   ) => {
-    auditCalls.push({ action, ...(target !== undefined ? { target } : {}), ...(metadata !== undefined ? { metadata } : {}) });
+    auditCalls.push({
+      action,
+      ...(target !== undefined ? { target } : {}),
+      ...(metadata !== undefined ? { metadata } : {}),
+    });
   },
   listAuditLog: async () => [],
   listAuditForExtension: async () => [],
@@ -36,7 +41,10 @@ afterAll(() => {
   restoreModuleMocks();
 });
 
-interface SendCall { method: string; params: Record<string, unknown> }
+interface SendCall {
+  method: string;
+  params: Record<string, unknown>;
+}
 
 function mockProc() {
   const calls: SendCall[] = [];
@@ -62,8 +70,12 @@ function wireLookup(map: Record<string, string[]>): (convId: string) => Promise<
   return async (convId: string) => map[convId] ?? [];
 }
 
-beforeEach(() => { auditCalls.length = 0; });
-afterEach(() => { auditCalls.length = 0; });
+beforeEach(() => {
+  auditCalls.length = 0;
+});
+afterEach(() => {
+  auditCalls.length = 0;
+});
 
 describe("payload allowlist", () => {
   test("tool:complete strips `output` by default", async () => {
@@ -72,7 +84,7 @@ describe("payload allowlist", () => {
     const d = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     d.registerExtension("ext-a", ["tool:complete"]);
     d.start();
@@ -101,7 +113,7 @@ describe("payload allowlist", () => {
     const d = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-b", proc]])),
-      wireLookup({ "c1": ["ext-b"] }),
+      wireLookup({ c1: ["ext-b"] }),
     );
     d.registerExtension("ext-b", ["tool:complete"]);
     d.setIncludeFullPayload("ext-b", true);
@@ -127,7 +139,7 @@ describe("payload allowlist", () => {
     const d = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-ts", proc]])),
-      wireLookup({ "c1": ["ext-ts"] }),
+      wireLookup({ c1: ["ext-ts"] }),
     );
     d.registerExtension("ext-ts", ["tool:start"]);
     d.start();
@@ -150,7 +162,7 @@ describe("payload allowlist", () => {
     const d = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-ts2", proc]])),
-      wireLookup({ "c1": ["ext-ts2"] }),
+      wireLookup({ c1: ["ext-ts2"] }),
     );
     d.registerExtension("ext-ts2", ["tool:start"]);
     d.setIncludeFullPayload("ext-ts2", true);
@@ -172,7 +184,7 @@ describe("payload allowlist", () => {
     const d = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-c", proc]])),
-      wireLookup({ "c1": ["ext-c"] }),
+      wireLookup({ c1: ["ext-c"] }),
     );
     d.registerExtension("ext-c", ["run:complete"]);
     d.start();
@@ -194,7 +206,7 @@ describe("sampled audit", () => {
     const d = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-s", proc]])),
-      wireLookup({ "c1": ["ext-s"] }),
+      wireLookup({ c1: ["ext-s"] }),
     );
     d.registerExtension("ext-s", ["run:complete"]);
     d.setAuditSampleN(1);
@@ -215,7 +227,7 @@ describe("sampled audit", () => {
     const d = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-x", proc]])),
-      wireLookup({ "c1": ["ext-x"] }),
+      wireLookup({ c1: ["ext-x"] }),
     );
     d.registerExtension("ext-x", ["run:complete"]);
     d.setAuditSampleN(10000);

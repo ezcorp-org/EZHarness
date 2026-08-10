@@ -17,11 +17,7 @@ export interface ToolTextResponse {
 /** Wrap a payload with `url` + `markdownLink` fields and render to MCP
  *  text-content shape. When `payload` is an object, fields merge in;
  *  when it's a primitive/array/null, it's preserved under `result`. */
-export function withLink(
-  payload: unknown,
-  url: string,
-  label: string,
-): ToolTextResponse {
+export function withLink(payload: unknown, url: string, label: string): ToolTextResponse {
   const augmented =
     payload && typeof payload === "object" && !Array.isArray(payload)
       ? { ...(payload as Record<string, unknown>), url, markdownLink: `[${label}](${url})` }

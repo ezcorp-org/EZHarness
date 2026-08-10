@@ -35,11 +35,7 @@
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "../helpers/mock-cleanup";
-import {
-  mockServerAlias,
-  createMockEvent,
-  jsonFromResponse,
-} from "../helpers/mock-request";
+import { mockServerAlias, createMockEvent, jsonFromResponse } from "../helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
 mockServerAlias();

@@ -85,7 +85,9 @@ describe("assertNoLiveHolder", () => {
     // Right after spawn (pre-exec) /proc/<pid>/cmdline is briefly empty;
     // wait until the kernel exposes the real argv before asserting.
     for (let i = 0; i < 50; i++) {
-      const cmdline = await Bun.file(`/proc/${child.pid}/cmdline`).text().catch(() => "");
+      const cmdline = await Bun.file(`/proc/${child.pid}/cmdline`)
+        .text()
+        .catch(() => "");
       if (cmdline.includes("bun")) break;
       await Bun.sleep(100);
     }

@@ -126,9 +126,7 @@ describe("prepareStepOutput", () => {
     });
     expect(isTruncatedStepOutput(prepared)).toBe(true);
     // The recorded size is what tells an operator how far over it went.
-    expect((prepared as { bytes: number }).bytes).toBeGreaterThan(
-      MAX_STEP_OUTPUT_BYTES,
-    );
+    expect((prepared as { bytes: number }).bytes).toBeGreaterThan(MAX_STEP_OUTPUT_BYTES);
   });
 
   test("redacts BEFORE measuring, so redaction can bring a payload under the cap", () => {
@@ -161,10 +159,7 @@ describe("prepareStepOutput", () => {
     // Boundary is `> cap`, not `>= cap`.
     const filler = "y".repeat(MAX_STEP_OUTPUT_BYTES);
     const prepared = prepareStepOutput({ success: true, output: filler });
-    const exact = Buffer.byteLength(
-      JSON.stringify({ success: true, output: filler }),
-      "utf8",
-    );
+    const exact = Buffer.byteLength(JSON.stringify({ success: true, output: filler }), "utf8");
     // Sanity: the JSON wrapper pushes this over, so it must truncate...
     expect(exact).toBeGreaterThan(MAX_STEP_OUTPUT_BYTES);
     expect(isTruncatedStepOutput(prepared)).toBe(true);
@@ -199,7 +194,10 @@ describe("prepareStepOutput", () => {
       "utf8",
     );
     const redactedBytes = Buffer.byteLength(
-      JSON.stringify({ success: true, output: Array.from({ length: entries }, () => "[REDACTED]") }),
+      JSON.stringify({
+        success: true,
+        output: Array.from({ length: entries }, () => "[REDACTED]"),
+      }),
       "utf8",
     );
     // Both are over the cap, so this discriminates the two orderings
@@ -255,9 +253,9 @@ describe("prepareResolvedInput", () => {
     // once each collapses to `[REDACTED]`.
     const secret = "sk-aaaaaaaaaaaaaaaaaaaaa";
     const values = Array.from({ length: 2500 }, () => secret);
-    expect(
-      Buffer.byteLength(JSON.stringify({ values }), "utf8"),
-    ).toBeGreaterThan(MAX_RESOLVED_INPUT_BYTES);
+    expect(Buffer.byteLength(JSON.stringify({ values }), "utf8")).toBeGreaterThan(
+      MAX_RESOLVED_INPUT_BYTES,
+    );
 
     const prepared = prepareResolvedInput({ values });
     expect(isTruncatedStepOutput(prepared)).toBe(false);

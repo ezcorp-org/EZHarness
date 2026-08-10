@@ -24,10 +24,7 @@ import {
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
 mockServerAlias();
 
-mock.module(
-  "../../web/src/routes/api/extensions/[id]/$types",
-  () => ({}),
-);
+mock.module("../../web/src/routes/api/extensions/[id]/$types", () => ({}));
 
 mock.module("$lib/server/security/api-keys", () => ({
   requireScope: () => null,
@@ -104,8 +101,12 @@ let killAllCount = 0;
 const registryMock = () => ({
   ExtensionRegistry: {
     getInstance: () => ({
-      reload: async () => { reloadCount++; },
-      killAll: () => { killAllCount++; },
+      reload: async () => {
+        reloadCount++;
+      },
+      killAll: () => {
+        killAllCount++;
+      },
     }),
   },
 });
@@ -124,10 +125,7 @@ import type { HubPageTree } from "../extensions/page-schema";
 
 const FAKE_TREE: HubPageTree = { title: "T", nodes: [] };
 
-async function call(
-  handler: (ev: any) => unknown,
-  event: any,
-): Promise<Response> {
+async function call(handler: (ev: any) => unknown, event: any): Promise<Response> {
   try {
     return (await handler(event)) as Response;
   } catch (e) {

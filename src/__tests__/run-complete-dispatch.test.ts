@@ -130,9 +130,7 @@ describe("run:complete dispatch — event-only bundled extension", () => {
       // run:complete is NOT in HEAVY_PAYLOAD_EVENTS so no fields are
       // stripped (regression guard: a future sanitize() change must
       // not silently filter run:complete).
-      expect(
-        (proc.calls[0]!.params as { conversationId?: string }).conversationId,
-      ).toBe(CONV_ID);
+      expect((proc.calls[0]!.params as { conversationId?: string }).conversationId).toBe(CONV_ID);
     } finally {
       dispatcher.stop();
     }
@@ -145,10 +143,8 @@ describe("run:complete dispatch — event-only bundled extension", () => {
     // hits the `if (!proc) continue;` line, and the event vanishes.
     const registry = makeRegistry({ proc: null });
 
-    const dispatcher = new EventSubscriptionDispatcher(
-      bus,
-      registry,
-      async (convId: string) => (convId === CONV_ID ? [EXT_ID] : []),
+    const dispatcher = new EventSubscriptionDispatcher(bus, registry, async (convId: string) =>
+      convId === CONV_ID ? [EXT_ID] : [],
     );
     dispatcher.registerExtension(EXT_ID, ["run:complete"]);
     dispatcher.start();
@@ -190,11 +186,7 @@ describe("run:complete dispatch — event-only bundled extension", () => {
     const proc = mockProc();
     const registry = makeRegistry({ proc });
 
-    const dispatcher = new EventSubscriptionDispatcher(
-      bus,
-      registry,
-      async () => [EXT_ID],
-    );
+    const dispatcher = new EventSubscriptionDispatcher(bus, registry, async () => [EXT_ID]);
     dispatcher.registerExtension(EXT_ID, ["run:complete"]);
     dispatcher.start();
 

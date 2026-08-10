@@ -330,17 +330,14 @@ export async function discardDraftAndDir(
  * sweep, if the cause was transient) cleans them up.
  */
 export async function sweepExpired(now: Date = new Date()): Promise<number> {
-  const rows = await getDb()
-    .delete(ezDrafts)
-    .where(lt(ezDrafts.expiresAt, now))
-    .returning({
-      id: ezDrafts.id,
-      // userId is needed for the userId-namespaced draft-dir layout
-      // (drafts/<userId>/<draftId>). Missing it would leave dirs orphan.
-      userId: ezDrafts.userId,
-      kind: ezDrafts.kind,
-      payload: ezDrafts.payload,
-    });
+  const rows = await getDb().delete(ezDrafts).where(lt(ezDrafts.expiresAt, now)).returning({
+    id: ezDrafts.id,
+    // userId is needed for the userId-namespaced draft-dir layout
+    // (drafts/<userId>/<draftId>). Missing it would leave dirs orphan.
+    userId: ezDrafts.userId,
+    kind: ezDrafts.kind,
+    payload: ezDrafts.payload,
+  });
 
   // Best-effort fs cleanup for extension-author drafts. The directory
   // path is conventional (matches what `extension-author/index.ts`

@@ -25,20 +25,14 @@ vi.mock("$server/runtime/task-tracking-host", () => ({
   getTaskSnapshotForConversation,
 }));
 
-const { GET } = await import(
-  "../routes/api/conversations/[id]/tasks/[taskId]/messages/+server.ts"
-);
+const { GET } = await import("../routes/api/conversations/[id]/tasks/[taskId]/messages/+server.ts");
 
 function makeEvent(opts: { locals?: Record<string, unknown> }) {
   return {
-    url: new URL(
-      "http://localhost/api/conversations/c1/tasks/t1/messages",
-    ),
+    url: new URL("http://localhost/api/conversations/c1/tasks/t1/messages"),
     locals: opts.locals ?? {},
     params: { id: "c1", taskId: "t1" },
-    request: new Request(
-      "http://localhost/api/conversations/c1/tasks/t1/messages",
-    ),
+    request: new Request("http://localhost/api/conversations/c1/tasks/t1/messages"),
   } as any;
 }
 
@@ -126,9 +120,7 @@ describe("GET /api/conversations/[id]/tasks/[taskId]/messages", () => {
       ],
     });
     getMessagesWithToolCalls.mockImplementation(async (sid: string) => ({
-      messages: [
-        { id: `m-${sid}`, role: "assistant", content: "hi", toolCalls: [] },
-      ],
+      messages: [{ id: `m-${sid}`, role: "assistant", content: "hi", toolCalls: [] }],
       subConversations: [],
       orphanedToolCalls: [],
     }));

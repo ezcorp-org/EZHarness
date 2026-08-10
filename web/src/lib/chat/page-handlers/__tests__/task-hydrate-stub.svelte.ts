@@ -8,13 +8,13 @@
  * while covering nothing. Same trap as `store-stub.svelte.ts`.
  */
 export const hydrationStub = $state({
-	/** Mirrors `store.wsReconnectCount`. */
-	reconnects: 0,
-	/** Mirrors `store.taskHydrationRequests`. */
-	requests: 0,
+  /** Mirrors `store.wsReconnectCount`. */
+  reconnects: 0,
+  /** Mirrors `store.taskHydrationRequests`. */
+  requests: 0,
 });
 
 export function resetHydrationStub(): void {
-	hydrationStub.reconnects = 0;
-	hydrationStub.requests = 0;
+  hydrationStub.reconnects = 0;
+  hydrationStub.requests = 0;
 }

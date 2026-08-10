@@ -46,7 +46,12 @@ afterAll(() => {
   if (savedEnv === undefined) delete process.env.EZCORP_PROJECT_ROOT;
   else process.env.EZCORP_PROJECT_ROOT = savedEnv;
   __resetProjectRootCacheForTests();
-  if (root) try { rmSync(root, { recursive: true, force: true }); } catch { /* best effort */ }
+  if (root)
+    try {
+      rmSync(root, { recursive: true, force: true });
+    } catch {
+      /* best effort */
+    }
 });
 
 const DRAFT = "draft-abc";
@@ -91,8 +96,6 @@ describe("extension-author draft dirs anchor on the project root", () => {
 
   test("an explicit projectRoot argument still wins", () => {
     // The sweep passes a resolved root explicitly; that must not regress.
-    expect(getExtensionAuthorDraftDir(DRAFT, USER, "/srv/custom")).toBe(
-      expectedDir("/srv/custom"),
-    );
+    expect(getExtensionAuthorDraftDir(DRAFT, USER, "/srv/custom")).toBe(expectedDir("/srv/custom"));
   });
 });

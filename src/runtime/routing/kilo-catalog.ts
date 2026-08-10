@@ -137,13 +137,16 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 /** Kilo prices in USD per token, as a decimal string. `undefined`/garbage → 0,
  *  which the repo reports as UNPRICED rather than as "$0.00". */
 function perMillion(value: unknown): number {
-  const n = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  const n =
+    typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
   if (!Number.isFinite(n) || n < 0) return 0;
   return n * 1_000_000;
 }
 
 function positiveInt(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : fallback;
 }
 
 /** Context window assumed for a row that omits one — the same 128k stand-in
@@ -160,7 +163,9 @@ export const KILO_DEFAULT_MAX_TOKENS = 8_192;
  */
 function isChatCapable(id: string, outputModalities: readonly string[]): boolean {
   if (outputModalities.length > 0 && !outputModalities.includes("text")) return false;
-  return !/embedding|whisper|tts|moderation|dall-e|image-gen|audio-preview|lyria/.test(id.toLowerCase());
+  return !/embedding|whisper|tts|moderation|dall-e|image-gen|audio-preview|lyria/.test(
+    id.toLowerCase(),
+  );
 }
 
 function stringArray(value: unknown): string[] {
@@ -186,9 +191,7 @@ function stringArray(value: unknown): string[] {
  */
 function isPersistedShape(raw: Record<string, unknown>): boolean {
   return (
-    typeof raw.contextWindow === "number" ||
-    isPlainObject(raw.cost) ||
-    Array.isArray(raw.input)
+    typeof raw.contextWindow === "number" || isPlainObject(raw.cost) || Array.isArray(raw.input)
   );
 }
 
@@ -196,7 +199,8 @@ function isPersistedShape(raw: Record<string, unknown>): boolean {
 function normalizePersistedKiloModel(raw: Record<string, unknown>, id: string): KiloModel {
   const cost = isPlainObject(raw.cost) ? raw.cost : {};
   const input = stringArray(raw.input);
-  const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0);
+  const num = (v: unknown): number =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : 0;
   return {
     id,
     name: typeof raw.name === "string" && raw.name.trim() !== "" ? raw.name : id,
@@ -305,10 +309,7 @@ export function parseKiloCatalog(payload: unknown): KiloModel[] {
  * rows the gateway serves anonymously. Callers get a list they can hand
  * straight to the picker or the router without re-checking anything.
  */
-export function kiloModelsForAccess(
-  models: readonly KiloModel[],
-  access: KiloAccess,
-): KiloModel[] {
+export function kiloModelsForAccess(models: readonly KiloModel[], access: KiloAccess): KiloModel[] {
   return access === "full" ? [...models] : models.filter((m) => m.free);
 }
 

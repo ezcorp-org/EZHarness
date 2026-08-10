@@ -61,14 +61,20 @@ describe("checksum", () => {
   test("verifyChecksum returns true for matching hash", async () => {
     const filePath = join(tempDir, "test2.txt");
     await Bun.write(filePath, "hello world");
-    const result = await verifyChecksum(filePath, "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9");
+    const result = await verifyChecksum(
+      filePath,
+      "b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9",
+    );
     expect(result).toBe(true);
   });
 
   test("verifyChecksum returns false for mismatched hash", async () => {
     const filePath = join(tempDir, "test3.txt");
     await Bun.write(filePath, "hello world");
-    const result = await verifyChecksum(filePath, "0000000000000000000000000000000000000000000000000000000000000000");
+    const result = await verifyChecksum(
+      filePath,
+      "0000000000000000000000000000000000000000000000000000000000000000",
+    );
     expect(result).toBe(false);
   });
 });
@@ -217,17 +223,26 @@ describe("installFromGitHub", () => {
     const mockFetch = async (input: any, _init?: any) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("api.github.com/repos/test/repo/releases/latest")) {
-        return new Response(JSON.stringify({
-          tag_name: "v2.0.0",
-          assets: [{ name: "extension.tar.gz", browser_download_url: "https://example.com/release.tar.gz" }],
-        }));
+        return new Response(
+          JSON.stringify({
+            tag_name: "v2.0.0",
+            assets: [
+              {
+                name: "extension.tar.gz",
+                browser_download_url: "https://example.com/release.tar.gz",
+              },
+            ],
+          }),
+        );
       }
       if (url.includes("example.com/release.tar.gz")) {
         return new Response(tarData);
       }
       return originalFetch(input, _init);
     };
-    globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
+    globalThis.fetch = Object.assign(mockFetch, {
+      preconnect: originalFetch.preconnect,
+    }) as typeof fetch;
 
     try {
       const granted: ExtensionPermissions = { grantedAt: {} };
@@ -265,17 +280,23 @@ describe("installFromGitHub", () => {
     const mockFetch = async (input: any, _init?: any) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("api.github.com/repos/bad/repo/releases/latest")) {
-        return new Response(JSON.stringify({
-          tag_name: "v1.0.0",
-          assets: [{ name: "ext.tar.gz", browser_download_url: "https://example.com/bad.tar.gz" }],
-        }));
+        return new Response(
+          JSON.stringify({
+            tag_name: "v1.0.0",
+            assets: [
+              { name: "ext.tar.gz", browser_download_url: "https://example.com/bad.tar.gz" },
+            ],
+          }),
+        );
       }
       if (url.includes("example.com/bad.tar.gz")) {
         return new Response(tarData);
       }
       return originalFetch(input, _init);
     };
-    globalThis.fetch = Object.assign(mockFetch, { preconnect: originalFetch.preconnect }) as typeof fetch;
+    globalThis.fetch = Object.assign(mockFetch, {
+      preconnect: originalFetch.preconnect,
+    }) as typeof fetch;
 
     try {
       const granted: ExtensionPermissions = { grantedAt: {} };

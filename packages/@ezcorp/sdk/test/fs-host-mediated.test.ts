@@ -15,15 +15,7 @@
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 
-import {
-  fsRead,
-  fsWrite,
-  fsList,
-  fsStat,
-  fsExists,
-  fsMkdir,
-  fsUnlink,
-} from "../src/runtime/fs";
+import { fsRead, fsWrite, fsList, fsStat, fsExists, fsMkdir, fsUnlink } from "../src/runtime/fs";
 import {
   __resetChannelForTests,
   createHostChannelForTests,
@@ -40,19 +32,15 @@ interface RequestCall {
   timeoutMs: number | undefined;
 }
 
-function stubRequest(
-  impl: (call: RequestCall) => Promise<unknown>,
-): { calls: RequestCall[] } {
+function stubRequest(impl: (call: RequestCall) => Promise<unknown>): { calls: RequestCall[] } {
   const ch: HostChannel = getChannel();
   const calls: RequestCall[] = [];
   const spy = spyOn(ch, "request");
-  spy.mockImplementation(
-    (async (method: string, params: unknown, timeoutMs?: number) => {
-      const call: RequestCall = { method, params, timeoutMs };
-      calls.push(call);
-      return impl(call);
-    }) as HostChannel["request"],
-  );
+  spy.mockImplementation((async (method: string, params: unknown, timeoutMs?: number) => {
+    const call: RequestCall = { method, params, timeoutMs };
+    calls.push(call);
+    return impl(call);
+  }) as HostChannel["request"]);
   return { calls };
 }
 
@@ -305,7 +293,10 @@ describe("fsExists", () => {
 
   test("rethrows host -32001 (out-of-grant existence is a deny, not a leak)", async () => {
     stubRequest(async () => {
-      throw new JsonRpcError(-32001, "Filesystem access denied: /etc/passwd is outside declared permission paths.");
+      throw new JsonRpcError(
+        -32001,
+        "Filesystem access denied: /etc/passwd is outside declared permission paths.",
+      );
     });
     await expect(fsExists("/etc/passwd")).rejects.toThrow(/access denied/);
   });
@@ -371,16 +362,21 @@ describe("fsRead — streaming round-trip via real channel", () => {
     const stdoutWrites: string[] = [];
     const ch = createHostChannelForTests({
       stdin: stdinIterable,
-      stdout: { write: (s) => { stdoutWrites.push(s); } },
+      stdout: {
+        write: (s) => {
+          stdoutWrites.push(s);
+        },
+      },
     });
     ch.start();
 
-    type ReadResult = { encoding: "utf-8" | "binary"; body: string; bytes: number; resolvedPath: string };
-    const requestPromise = ch.request<ReadResult>(
-      "ezcorp/fs.read",
-      { path: "/tmp/big" },
-      120_000,
-    );
+    type ReadResult = {
+      encoding: "utf-8" | "binary";
+      body: string;
+      bytes: number;
+      resolvedPath: string;
+    };
+    const requestPromise = ch.request<ReadResult>("ezcorp/fs.read", { path: "/tmp/big" }, 120_000);
 
     // Wait for the request frame to be written so we know the
     // pending entry is registered (and grab the id).
@@ -436,9 +432,7 @@ describe("fsRead — streaming round-trip via real channel", () => {
     // through the closure when we reassign it to null. Materialize
     // the call inline before the reassignment, casting through unknown
     // when none, to keep the type system out of the way.
-    const resolver = pendingResolve as
-      | ((v: IteratorResult<string>) => void)
-      | null;
+    const resolver = pendingResolve as ((v: IteratorResult<string>) => void) | null;
     pendingResolve = null;
     if (resolver !== null) {
       (resolver as (v: IteratorResult<string>) => void)({ value: "", done: true });
@@ -467,7 +461,11 @@ describe("fsRead — streaming round-trip via real channel", () => {
     const stdoutWrites: string[] = [];
     const ch = createHostChannelForTests({
       stdin: stdinIterable,
-      stdout: { write: (s) => { stdoutWrites.push(s); } },
+      stdout: {
+        write: (s) => {
+          stdoutWrites.push(s);
+        },
+      },
     });
     ch.start();
 
@@ -496,9 +494,7 @@ describe("fsRead — streaming round-trip via real channel", () => {
     // through the closure when we reassign it to null. Materialize
     // the call inline before the reassignment, casting through unknown
     // when none, to keep the type system out of the way.
-    const resolver = pendingResolve as
-      | ((v: IteratorResult<string>) => void)
-      | null;
+    const resolver = pendingResolve as ((v: IteratorResult<string>) => void) | null;
     pendingResolve = null;
     if (resolver !== null) {
       (resolver as (v: IteratorResult<string>) => void)({ value: "", done: true });
@@ -527,7 +523,11 @@ describe("fsRead — streaming round-trip via real channel", () => {
     const stdoutWrites: string[] = [];
     const ch = createHostChannelForTests({
       stdin: stdinIterable,
-      stdout: { write: (s) => { stdoutWrites.push(s); } },
+      stdout: {
+        write: (s) => {
+          stdoutWrites.push(s);
+        },
+      },
     });
     ch.start();
 
@@ -556,9 +556,7 @@ describe("fsRead — streaming round-trip via real channel", () => {
     // through the closure when we reassign it to null. Materialize
     // the call inline before the reassignment, casting through unknown
     // when none, to keep the type system out of the way.
-    const resolver = pendingResolve as
-      | ((v: IteratorResult<string>) => void)
-      | null;
+    const resolver = pendingResolve as ((v: IteratorResult<string>) => void) | null;
     pendingResolve = null;
     if (resolver !== null) {
       (resolver as (v: IteratorResult<string>) => void)({ value: "", done: true });

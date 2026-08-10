@@ -6,7 +6,14 @@ import type { MemoryProvenance } from "../memory/types";
 mockDbConnection();
 mockEmbeddingsModule();
 
-const { insertMemory, searchMemories, updateMemoryStatus, deleteMemory, getMemoryById, touchMemoryAccess } = await import("../db/queries/memories");
+const {
+  insertMemory,
+  searchMemories,
+  updateMemoryStatus,
+  deleteMemory,
+  getMemoryById,
+  touchMemoryAccess,
+} = await import("../db/queries/memories");
 const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
 const { getDb } = await import("../db/connection");
@@ -49,7 +56,10 @@ async function insertTestMemory(content: string, opts?: { category?: string; sta
   });
   if (opts?.status && opts.status !== "active") {
     const db = getDb();
-    await db.update(memories).set({ status: opts.status } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ status: opts.status } as any)
+      .where(eq(memories.id, mem.id));
   }
   return mem;
 }
@@ -57,7 +67,9 @@ async function insertTestMemory(content: string, opts?: { category?: string; sta
 describe("Memory Management", () => {
   test("searchMemories filters by status", async () => {
     const active = await insertTestMemory("Active memory for status filter");
-    const archived = await insertTestMemory("Archived memory for status filter", { status: "archived" });
+    const archived = await insertTestMemory("Archived memory for status filter", {
+      status: "archived",
+    });
 
     // Default: excludes archived
     const defaultResults = await searchMemories({ projectId });
@@ -100,10 +112,7 @@ describe("Memory Management", () => {
     expect((updated as any).status).toBe("stale");
 
     const db = getDb();
-    const logs = await db
-      .select()
-      .from(memoryAuditLog)
-      .where(eq(memoryAuditLog.memoryId, mem.id));
+    const logs = await db.select().from(memoryAuditLog).where(eq(memoryAuditLog.memoryId, mem.id));
     const statusLog = logs.find((l: any) => l.action === "status_change");
     expect(statusLog).toBeDefined();
     expect(statusLog!.reason).toBe("test reason");
@@ -124,7 +133,10 @@ describe("Memory Management", () => {
 
     const oldDate = new Date("2020-01-01");
     const db = getDb();
-    await db.update(memories).set({ lastAccessedAt: oldDate } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ lastAccessedAt: oldDate } as any)
+      .where(eq(memories.id, mem.id));
 
     const before = await getMemoryById(mem.id);
     expect((before as any).lastAccessedAt).toEqual(oldDate);

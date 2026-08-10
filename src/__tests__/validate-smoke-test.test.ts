@@ -27,9 +27,7 @@ describe("validateSmokeTest — direct", () => {
   });
 
   test("valid with only isError ⇒ no errors", () => {
-    expect(run({ tool: "ping", input: {}, expect: { isError: true } })).toEqual(
-      [],
-    );
+    expect(run({ tool: "ping", input: {}, expect: { isError: true } })).toEqual([]);
   });
 
   test("non-object ⇒ error", () => {
@@ -40,16 +38,14 @@ describe("validateSmokeTest — direct", () => {
 
   test("missing tool ⇒ error", () => {
     const errs = run({ input: {}, expect: { isError: false } });
-    expect(errs.some((e) => e.includes("smokeTest.tool is required"))).toBe(
-      true,
-    );
+    expect(errs.some((e) => e.includes("smokeTest.tool is required"))).toBe(true);
   });
 
   test("tool not declared ⇒ error naming declared set", () => {
-    const errs = run(
-      { tool: "frobnicate", input: {}, expect: { isError: false } },
-      ["ping", "pong"],
-    );
+    const errs = run({ tool: "frobnicate", input: {}, expect: { isError: false } }, [
+      "ping",
+      "pong",
+    ]);
     expect(
       errs.some(
         (e) =>
@@ -65,12 +61,12 @@ describe("validateSmokeTest — direct", () => {
   });
 
   test("bad input (not object) ⇒ error", () => {
-    expect(
-      run({ tool: "ping", input: "x", expect: { isError: false } }),
-    ).toContain("smokeTest.input is required and must be an object");
-    expect(
-      run({ tool: "ping", input: [], expect: { isError: false } }),
-    ).toContain("smokeTest.input is required and must be an object");
+    expect(run({ tool: "ping", input: "x", expect: { isError: false } })).toContain(
+      "smokeTest.input is required and must be an object",
+    );
+    expect(run({ tool: "ping", input: [], expect: { isError: false } })).toContain(
+      "smokeTest.input is required and must be an object",
+    );
   });
 
   test("missing expect ⇒ error", () => {
@@ -80,15 +76,15 @@ describe("validateSmokeTest — direct", () => {
   });
 
   test("expect with bad isError type ⇒ error", () => {
-    expect(
-      run({ tool: "ping", input: {}, expect: { isError: "true" } }),
-    ).toContain("smokeTest.expect.isError must be a boolean when set");
+    expect(run({ tool: "ping", input: {}, expect: { isError: "true" } })).toContain(
+      "smokeTest.expect.isError must be a boolean when set",
+    );
   });
 
   test("expect with bad textIncludes type ⇒ error", () => {
-    expect(
-      run({ tool: "ping", input: {}, expect: { textIncludes: 42 } }),
-    ).toContain("smokeTest.expect.textIncludes must be a string when set");
+    expect(run({ tool: "ping", input: {}, expect: { textIncludes: 42 } })).toContain(
+      "smokeTest.expect.textIncludes must be a string when set",
+    );
   });
 
   test("expect with neither isError nor textIncludes ⇒ error", () => {
@@ -106,9 +102,7 @@ describe("validateManifestV2 — smokeTest integration", () => {
     description: "x",
     author: { name: "t" },
     entrypoint: "./index.ts",
-    tools: [
-      { name: "ping", description: "p", inputSchema: { type: "object" } },
-    ],
+    tools: [{ name: "ping", description: "p", inputSchema: { type: "object" } }],
     permissions: {},
   };
 
@@ -139,17 +133,13 @@ describe("validateManifestV2 — smokeTest integration", () => {
       },
     });
     expect(r.valid).toBe(false);
-    expect(
-      r.errors.some((e) => e.includes('"nope" is not a declared tool')),
-    ).toBe(true);
+    expect(r.errors.some((e) => e.includes('"nope" is not a declared tool'))).toBe(true);
   });
 
   test("smokeTest cross-check sees declared tool names from m.tools", () => {
     const r = validateManifestV2({
       ...base,
-      tools: [
-        { name: "alpha", description: "a", inputSchema: { type: "object" } },
-      ],
+      tools: [{ name: "alpha", description: "a", inputSchema: { type: "object" } }],
       smokeTest: { tool: "alpha", input: {}, expect: { isError: false } },
     });
     expect(r.valid).toBe(true);

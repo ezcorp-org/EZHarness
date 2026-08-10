@@ -54,13 +54,10 @@ vi.mock("$lib/workers/kokoro-tts-bridge", () => {
 
 beforeEach(() => {
   // Default behaviour: resolve with a silent WAV after a microtask.
-  mockSynthesizeImpl = async (_text: string, _opts?: unknown) =>
-    silentWavBlob();
+  mockSynthesizeImpl = async (_text: string, _opts?: unknown) => silentWavBlob();
   mockSynthesize = vi
     .fn()
-    .mockImplementation((text: string, opts?: unknown) =>
-      mockSynthesizeImpl(text, opts),
-    );
+    .mockImplementation((text: string, opts?: unknown) => mockSynthesizeImpl(text, opts));
 
   // jsdom's URL.createObjectURL is undefined; stub both create + revoke
   // so the component's blob-URL lifecycle works.
@@ -153,9 +150,7 @@ describe("KokoroTtsPlayerCard — persisted state", () => {
     const toolCall = makeToolCall({
       status: "complete",
       output: {
-        content: [
-          { type: "text", text: '{"attachmentId":"att-envelope-3"}' },
-        ],
+        content: [{ type: "text", text: '{"attachmentId":"att-envelope-3"}' }],
       },
     });
     const { getByTestId } = render(KokoroTtsPlayerCard, { toolCall });
@@ -216,9 +211,7 @@ describe("KokoroTtsPlayerCard — running state", () => {
     // `routes/api/extensions/[name]/events/[event]/+server.ts`)
     // anchors the ownership check on it before the finalize-tool-call
     // handler runs — omitting it produces 400 "Invalid body".
-    const saveCall = fetchMock.mock.calls.find((c) =>
-      String(c[0]).includes("/events/save"),
-    );
+    const saveCall = fetchMock.mock.calls.find((c) => String(c[0]).includes("/events/save"));
     expect(saveCall).toBeTruthy();
     const body = JSON.parse((saveCall![1] as { body: string }).body) as {
       conversationId: string;
@@ -245,10 +238,12 @@ describe("KokoroTtsPlayerCard — running state", () => {
     // Synthesize hangs after firing onLoading("model") — gives the
     // test a chance to observe the intermediate "Loading model…"
     // label that the worker exposes during the WASM-compile phase.
-    mockSynthesize = vi.fn().mockImplementation((_text, opts: { onLoading?: (p: string) => void }) => {
-      opts?.onLoading?.("model");
-      return new Promise(() => {});
-    });
+    mockSynthesize = vi
+      .fn()
+      .mockImplementation((_text, opts: { onLoading?: (p: string) => void }) => {
+        opts?.onLoading?.("model");
+        return new Promise(() => {});
+      });
     const { findByTestId } = render(KokoroTtsPlayerCard, {
       toolCall: makeToolCall(),
     });

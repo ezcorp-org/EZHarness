@@ -2,11 +2,7 @@
 
 export const EMBEDDING_DIMENSIONS = 384;
 
-export type MemoryCategory =
-  | "preferences"
-  | "biographical"
-  | "technical"
-  | "decisions_goals";
+export type MemoryCategory = "preferences" | "biographical" | "technical" | "decisions_goals";
 
 export type MemoryConfidence = "high" | "medium" | "low";
 

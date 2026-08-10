@@ -38,20 +38,9 @@ import {
 // install. We re-walk the schema here at install time and reject
 // anything we can't validate at write time.
 
-const SUPPORTED_TYPES = new Set([
-  "object",
-  "string",
-  "number",
-  "boolean",
-  "array",
-]);
+const SUPPORTED_TYPES = new Set(["object", "string", "number", "boolean", "array"]);
 
-function checkSchemaShape(
-  schema: unknown,
-  path: string,
-  errors: string[],
-  depth = 0,
-): void {
+function checkSchemaShape(schema: unknown, path: string, errors: string[], depth = 0): void {
   if (depth > 8) {
     errors.push(`${path}: schema nests too deeply (max 8 levels)`);
     return;
@@ -62,23 +51,15 @@ function checkSchemaShape(
   }
   const s = schema as Record<string, unknown>;
   if (typeof s.type !== "string" || !SUPPORTED_TYPES.has(s.type)) {
-    errors.push(
-      `${path}.type must be one of "object"|"string"|"number"|"boolean"|"array"`,
-    );
+    errors.push(`${path}.type must be one of "object"|"string"|"number"|"boolean"|"array"`);
     return;
   }
   if (s.type === "object") {
     if (s.properties !== undefined) {
-      if (
-        !s.properties ||
-        typeof s.properties !== "object" ||
-        Array.isArray(s.properties)
-      ) {
+      if (!s.properties || typeof s.properties !== "object" || Array.isArray(s.properties)) {
         errors.push(`${path}.properties must be an object map`);
       } else {
-        for (const [k, sub] of Object.entries(
-          s.properties as Record<string, unknown>,
-        )) {
+        for (const [k, sub] of Object.entries(s.properties as Record<string, unknown>)) {
           checkSchemaShape(sub, `${path}.properties.${k}`, errors, depth + 1);
         }
       }
@@ -94,10 +75,7 @@ function checkSchemaShape(
         }
       }
     }
-    if (
-      s.additionalProperties !== undefined &&
-      typeof s.additionalProperties !== "boolean"
-    ) {
+    if (s.additionalProperties !== undefined && typeof s.additionalProperties !== "boolean") {
       errors.push(`${path}.additionalProperties must be a boolean`);
     }
   } else if (s.type === "array") {
@@ -123,9 +101,7 @@ function checkSchemaShape(
         try {
           new RegExp(s.pattern);
         } catch (err) {
-          errors.push(
-            `${path}.pattern is not a valid regex: ${(err as Error).message}`,
-          );
+          errors.push(`${path}.pattern is not a valid regex: ${(err as Error).message}`);
         }
       }
     }
@@ -141,15 +117,10 @@ function checkSchemaShape(
 
 function isReservedKeyName(name: unknown): boolean {
   if (typeof name !== "string") return false;
-  return (
-    name.startsWith(ENTITY_KEY_PREFIX) || name.startsWith(ENTITY_INDEX_PREFIX)
-  );
+  return name.startsWith(ENTITY_KEY_PREFIX) || name.startsWith(ENTITY_INDEX_PREFIX);
 }
 
-function checkReservedKeys(
-  manifest: Record<string, unknown>,
-  errors: string[],
-): void {
+function checkReservedKeys(manifest: Record<string, unknown>, errors: string[]): void {
   // settings keys
   const settings = manifest.settings;
   if (settings && typeof settings === "object" && !Array.isArray(settings)) {
@@ -170,9 +141,7 @@ function checkReservedKeys(
     for (let i = 0; i < tools.length; i++) {
       const t = tools[i] as Record<string, unknown> | null;
       if (t && typeof t.name === "string" && isReservedKeyName(t.name)) {
-        errors.push(
-          `tools[${i}].name "${t.name}" uses reserved entity namespace`,
-        );
+        errors.push(`tools[${i}].name "${t.name}" uses reserved entity namespace`);
       }
     }
   }
@@ -214,9 +183,7 @@ export function validateEntitiesArray(
     typeof manifest.settings === "object" &&
     !Array.isArray(manifest.settings)
   ) {
-    for (const k of Object.keys(
-      manifest.settings as Record<string, unknown>,
-    )) {
+    for (const k of Object.keys(manifest.settings as Record<string, unknown>)) {
       declaredSettingsKeys.add(k);
     }
   }
@@ -241,9 +208,7 @@ export function validateEntitiesArray(
       continue;
     }
     if (seenTypes.has(decl.type)) {
-      errors.push(
-        `${path}.type ${JSON.stringify(decl.type)} is declared more than once`,
-      );
+      errors.push(`${path}.type ${JSON.stringify(decl.type)} is declared more than once`);
       // Continue checking the other rules anyway; duplicate type isn't
       // a blocker for label/schema validation.
     }
@@ -253,13 +218,8 @@ export function validateEntitiesArray(
     if (typeof decl.label !== "string" || decl.label.trim().length === 0) {
       errors.push(`${path}.label is required and must be a non-empty string`);
     }
-    if (
-      typeof decl.pluralLabel !== "string" ||
-      decl.pluralLabel.trim().length === 0
-    ) {
-      errors.push(
-        `${path}.pluralLabel is required and must be a non-empty string`,
-      );
+    if (typeof decl.pluralLabel !== "string" || decl.pluralLabel.trim().length === 0) {
+      errors.push(`${path}.pluralLabel is required and must be a non-empty string`);
     }
 
     // ── scope ──
@@ -269,16 +229,11 @@ export function validateEntitiesArray(
       decl.scope !== "project" &&
       decl.scope !== "conversation"
     ) {
-      errors.push(
-        `${path}.scope must be one of "user"|"project"|"conversation"`,
-      );
+      errors.push(`${path}.scope must be one of "user"|"project"|"conversation"`);
     }
 
     // ── cascadeOnUninstall ──
-    if (
-      decl.cascadeOnUninstall !== undefined &&
-      typeof decl.cascadeOnUninstall !== "boolean"
-    ) {
+    if (decl.cascadeOnUninstall !== undefined && typeof decl.cascadeOnUninstall !== "boolean") {
       errors.push(`${path}.cascadeOnUninstall must be a boolean`);
     }
 
@@ -288,11 +243,7 @@ export function validateEntitiesArray(
     }
 
     // ── schema (must be an object schema; recursively in the subset) ──
-    if (
-      !decl.schema ||
-      typeof decl.schema !== "object" ||
-      Array.isArray(decl.schema)
-    ) {
+    if (!decl.schema || typeof decl.schema !== "object" || Array.isArray(decl.schema)) {
       errors.push(`${path}.schema is required and must be a JSON Schema object`);
     } else {
       const s = decl.schema as Record<string, unknown>;
@@ -317,11 +268,7 @@ export function validateEntitiesArray(
           if (typeof sd.slug !== "string" || sd.slug.length === 0) {
             errors.push(`${path}.seed[${j}].slug is required and must be a string`);
           }
-          if (
-            !sd.data ||
-            typeof sd.data !== "object" ||
-            Array.isArray(sd.data)
-          ) {
+          if (!sd.data || typeof sd.data !== "object" || Array.isArray(sd.data)) {
             errors.push(`${path}.seed[${j}].data must be an object`);
           }
         }
@@ -334,10 +281,7 @@ export function validateEntitiesArray(
     // label + pluralLabel. If derivation throws (e.g. labels strip to
     // empty), surface a friendly error rather than letting the throw
     // propagate to the host validator.
-    if (
-      typeof decl.label === "string" &&
-      typeof decl.pluralLabel === "string"
-    ) {
+    if (typeof decl.label === "string" && typeof decl.pluralLabel === "string") {
       let names: ReturnType<typeof entityToolNames>;
       try {
         // The SDK's entityToolNames only reads label, pluralLabel,
@@ -350,13 +294,7 @@ export function validateEntitiesArray(
         continue;
       }
       // Collide-with-tools and collide-with-settings checks.
-      const autoNames = [
-        names.list,
-        names.get,
-        names.create,
-        names.update,
-        names.delete,
-      ];
+      const autoNames = [names.list, names.get, names.create, names.update, names.delete];
       for (const n of autoNames) {
         if (declaredToolNames.has(n)) {
           errors.push(

@@ -66,8 +66,10 @@ export async function listToolCallOutputsForMessages(
     .from(toolCalls)
     .where(inArray(toolCalls.messageId, messageIds));
   return rows.filter(
-    (r: { messageId: string | null; output: unknown }): r is { messageId: string; output: unknown } =>
-      r.messageId !== null,
+    (r: {
+      messageId: string | null;
+      output: unknown;
+    }): r is { messageId: string; output: unknown } => r.messageId !== null,
   );
 }
 
@@ -104,11 +106,7 @@ export async function listToolCallsByConversation(
   const rows: Array<{ success: boolean }> = await db
     .select({ success: toolCalls.success })
     .from(toolCalls)
-    .where(
-      sinceMs === undefined
-        ? scope
-        : and(scope, gte(toolCalls.createdAt, new Date(sinceMs))),
-    )
+    .where(sinceMs === undefined ? scope : and(scope, gte(toolCalls.createdAt, new Date(sinceMs))))
     .orderBy(toolCalls.createdAt);
   return rows;
 }
@@ -147,9 +145,7 @@ export async function getToolCallConversationById(
  * bind a target message to the uploading extension — a message with no
  * tool-call rows has no recorded identity and binds to nothing.
  */
-export async function listToolCallExtensionIdsForMessage(
-  messageId: string,
-): Promise<string[]> {
+export async function listToolCallExtensionIdsForMessage(messageId: string): Promise<string[]> {
   if (!messageId) return [];
   const rows: Array<{ extensionId: string }> = await getDb()
     .select({ extensionId: toolCalls.extensionId })
@@ -185,25 +181,27 @@ export async function listToolCallExtensionIdsForMessage(
  */
 export async function persistToolCall(row: ToolCallRow): Promise<void> {
   try {
-    await getDb().insert(toolCalls).values({
-      ...(row.id ? { id: row.id } : {}),
-      conversationId: persistableConversationId(row.conversationId),
-      messageId: row.messageId,
-      extensionId: row.extensionId,
-      toolName: row.toolName,
-      input: row.input,
-      output: {
-        content: redactToolCallOutputContent("content" in row.output ? row.output.content : []),
-      } as Record<string, unknown>,
-      success: row.success,
-      durationMs: row.durationMs,
-      cardType: row.cardType ?? null,
-      cardLayout: row.cardLayout ?? null,
-      userId: row.userId ?? null,
-      agentConfigId: row.agentConfigId ?? null,
-      model: row.model ?? null,
-      provider: row.provider ?? null,
-    });
+    await getDb()
+      .insert(toolCalls)
+      .values({
+        ...(row.id ? { id: row.id } : {}),
+        conversationId: persistableConversationId(row.conversationId),
+        messageId: row.messageId,
+        extensionId: row.extensionId,
+        toolName: row.toolName,
+        input: row.input,
+        output: {
+          content: redactToolCallOutputContent("content" in row.output ? row.output.content : []),
+        } as Record<string, unknown>,
+        success: row.success,
+        durationMs: row.durationMs,
+        cardType: row.cardType ?? null,
+        cardLayout: row.cardLayout ?? null,
+        userId: row.userId ?? null,
+        agentConfigId: row.agentConfigId ?? null,
+        model: row.model ?? null,
+        provider: row.provider ?? null,
+      });
   } catch (err) {
     // Never-throw contract preserved: a DB persistence failure must not break
     // tool execution (the caller has already returned data to the LLM/user).
@@ -215,7 +213,7 @@ export async function persistToolCall(row: ToolCallRow): Promise<void> {
     await persistError({
       level: "warn",
       message: "tool-call-persist-failed: tool_calls",
-      stack: err instanceof Error ? err.stack ?? null : null,
+      stack: err instanceof Error ? (err.stack ?? null) : null,
       metadata: {
         conversationId: row.conversationId,
         messageId: row.messageId,

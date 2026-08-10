@@ -1,10 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import {
-  encrypt,
-  decrypt,
-  encryptWithAad,
-  decryptWithAad,
-} from "../providers/encryption";
+import { encrypt, decrypt, encryptWithAad, decryptWithAad } from "../providers/encryption";
 
 // providers/** is EXCLUDES'd from the coverage gate — this suite is for
 // correctness only. It proves the AAD variants bind a ciphertext to its scope

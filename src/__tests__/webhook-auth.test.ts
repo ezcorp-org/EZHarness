@@ -42,7 +42,10 @@ describe("parseBearer", () => {
 
 describe("verifyWebhookAuth — bearer", () => {
   test("valid bearer → ok:bearer", () => {
-    expect(verifyWebhookAuth(SECRET, { bearer: SECRET }, "")).toEqual({ ok: true, method: "bearer" });
+    expect(verifyWebhookAuth(SECRET, { bearer: SECRET }, "")).toEqual({
+      ok: true,
+      method: "bearer",
+    });
   });
 
   test("wrong bearer → not ok", () => {
@@ -61,7 +64,10 @@ describe("verifyWebhookAuth — HMAC (X-Hub-Signature-256)", () => {
     const body = '{"ticket":42}';
     const sig = webhookSignature(SECRET, body);
     expect(sig.startsWith("sha256=")).toBe(true);
-    expect(verifyWebhookAuth(SECRET, { signature: sig }, body)).toEqual({ ok: true, method: "hmac" });
+    expect(verifyWebhookAuth(SECRET, { signature: sig }, body)).toEqual({
+      ok: true,
+      method: "hmac",
+    });
   });
 
   test("signature over a DIFFERENT body → rejected (tamper detection)", () => {

@@ -286,11 +286,7 @@ function continuationChild(idx: TreeIndex, id: string): LabelMessage | undefined
  * Walks the tree only (no I/O); the visited set makes it total even against a
  * corrupt parent link that points back up.
  */
-function assistantChainAfter(
-  idx: TreeIndex,
-  from: LabelMessage,
-  max: number,
-): LabelMessage[] {
+function assistantChainAfter(idx: TreeIndex, from: LabelMessage, max: number): LabelMessage[] {
   const out: LabelMessage[] = [];
   const seen = new Set<string>([from.id]);
   let cur: LabelMessage = from;
@@ -443,22 +439,17 @@ function labelTurn(
 
   // 2. Fail-closed on unresolvable facts: without them neither capability check
   //    can run, and an unchecked switch is exactly the label that poisons.
-  const facts = servedProvider && servedModel
-    ? resolveModelFacts(servedProvider, servedModel)
-    : undefined;
+  const facts =
+    servedProvider && servedModel ? resolveModelFacts(servedProvider, servedModel) : undefined;
   if (!facts) return excluded("model-facts-unknown", carried);
   const withTier: Partial<LabelledSample> = { ...carried, servedTier: facts.tier };
 
   /** Shared escalation adjudication for both comparison shapes. */
-  const adjudicate = (
-    other: LabelMessage,
-    kind: "switch" | "retry",
-  ): LabelledSample => {
+  const adjudicate = (other: LabelMessage, kind: "switch" | "retry"): LabelledSample => {
     const otherProvider = other.provider ?? "";
     const otherModel = other.model ?? "";
-    const otherFacts = otherProvider && otherModel
-      ? resolveModelFacts(otherProvider, otherModel)
-      : undefined;
+    const otherFacts =
+      otherProvider && otherModel ? resolveModelFacts(otherProvider, otherModel) : undefined;
     if (!otherFacts) return excluded("model-facts-unknown", withTier);
     const compared: Partial<LabelledSample> = {
       ...withTier,

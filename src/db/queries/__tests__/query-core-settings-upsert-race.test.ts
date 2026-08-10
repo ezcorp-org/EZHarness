@@ -56,10 +56,7 @@ describe("upsertSetting ON CONFLICT DO UPDATE", () => {
     // Two simultaneous PUTs writing the same new key: with select-then-insert
     // and no 23505 retry, the loser would surface an unhandled duplicate-key
     // 500 on external Postgres. The single ON CONFLICT statement is race-free.
-    await Promise.all([
-      upsertSetting("k:race", true),
-      upsertSetting("k:race", true),
-    ]);
+    await Promise.all([upsertSetting("k:race", true), upsertSetting("k:race", true)]);
     expect(await getSetting("k:race")).toBe(true);
 
     // Stored jsonb type is a real boolean (encoding preserved through the fix).

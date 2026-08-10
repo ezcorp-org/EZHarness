@@ -39,59 +39,59 @@ const HEAVY_PATTERNS = ["**/worktrees", "**/node_modules", ".claude", ".cache"] 
 const SECRET_PATTERNS = [".env", ".env.*", "**/.pi-secret", "**/.pi-salt"] as const;
 
 async function ignoreLines(file: string): Promise<string[]> {
-	const text = await Bun.file(`${ROOT}${file}`).text();
-	return text
-		.split("\n")
-		.map((l) => l.trim())
-		.filter((l) => l.length > 0 && !l.startsWith("#"));
+  const text = await Bun.file(`${ROOT}${file}`).text();
+  return text
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0 && !l.startsWith("#"));
 }
 
 describe("docker build-context excludes", () => {
-	for (const file of IGNORE_FILES) {
-		describe(file, () => {
-			test("excludes the heavy local-only trees", async () => {
-				const lines = await ignoreLines(file);
-				for (const pattern of HEAVY_PATTERNS) {
-					expect(lines).toContain(pattern);
-				}
-			});
+  for (const file of IGNORE_FILES) {
+    describe(file, () => {
+      test("excludes the heavy local-only trees", async () => {
+        const lines = await ignoreLines(file);
+        for (const pattern of HEAVY_PATTERNS) {
+          expect(lines).toContain(pattern);
+        }
+      });
 
-			test("excludes host secrets", async () => {
-				const lines = await ignoreLines(file);
-				for (const pattern of SECRET_PATTERNS) {
-					expect(lines).toContain(pattern);
-				}
-			});
+      test("excludes host secrets", async () => {
+        const lines = await ignoreLines(file);
+        for (const pattern of SECRET_PATTERNS) {
+          expect(lines).toContain(pattern);
+        }
+      });
 
-			test("a bare `worktrees` is never the only spelling", async () => {
-				// The exact regression: `worktrees` alone leaves `.claude/worktrees`
-				// in the context. If the bare form is present, the recursive form
-				// must be too.
-				const lines = await ignoreLines(file);
-				if (lines.includes("worktrees")) {
-					expect(lines).toContain("**/worktrees");
-				}
-			});
-		});
-	}
+      test("a bare `worktrees` is never the only spelling", async () => {
+        // The exact regression: `worktrees` alone leaves `.claude/worktrees`
+        // in the context. If the bare form is present, the recursive form
+        // must be too.
+        const lines = await ignoreLines(file);
+        if (lines.includes("worktrees")) {
+          expect(lines).toContain("**/worktrees");
+        }
+      });
+    });
+  }
 
-	test("every tracked dockerignore is covered by this test", async () => {
-		// A new per-dockerfile ignore file REPLACES the root one, so it silently
-		// opts out of every exclude above. Fail here until it is added to
-		// IGNORE_FILES rather than discovering it via a 12-minute build.
-		const { stdout } = Bun.spawnSync({
-			cmd: ["git", "ls-files", "--", "*.dockerignore", ".dockerignore"],
-			cwd: ROOT,
-		});
-		const tracked = stdout
-			.toString()
-			.split("\n")
-			.map((l) => l.trim())
-			.filter(Boolean);
+  test("every tracked dockerignore is covered by this test", async () => {
+    // A new per-dockerfile ignore file REPLACES the root one, so it silently
+    // opts out of every exclude above. Fail here until it is added to
+    // IGNORE_FILES rather than discovering it via a 12-minute build.
+    const { stdout } = Bun.spawnSync({
+      cmd: ["git", "ls-files", "--", "*.dockerignore", ".dockerignore"],
+      cwd: ROOT,
+    });
+    const tracked = stdout
+      .toString()
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
 
-		expect(tracked.length).toBeGreaterThan(0);
-		for (const file of tracked) {
-			expect(IGNORE_FILES as readonly string[]).toContain(file);
-		}
-	});
+    expect(tracked.length).toBeGreaterThan(0);
+    for (const file of tracked) {
+      expect(IGNORE_FILES as readonly string[]).toContain(file);
+    }
+  });
 });

@@ -87,11 +87,19 @@ ${ORCHESTRATION_PATTERNS}`;
 export function buildTeamOrchestratorPrompt(
   teamName: string,
   teamPrompt: string,
-  members: Array<{ name: string; id: string; description: string; overrides?: TeamMemberOverrides }>,
+  members: Array<{
+    name: string;
+    id: string;
+    description: string;
+    overrides?: TeamMemberOverrides;
+  }>,
   autoSpinUpResults?: Array<{ name: string; output: string }>,
   teamToolScope?: TeamToolScope,
 ): string {
-  const scopeActive = !!(teamToolScope && ((teamToolScope.allowedTools?.length ?? 0) > 0 || (teamToolScope.deniedTools?.length ?? 0) > 0));
+  const scopeActive = !!(
+    teamToolScope &&
+    ((teamToolScope.allowedTools?.length ?? 0) > 0 || (teamToolScope.deniedTools?.length ?? 0) > 0)
+  );
   const memberList = members
     .map((m) => {
       const tags: string[] = [];
@@ -132,11 +140,15 @@ When invoking a member agent, provide a clear, self-contained task description i
 
 Follow the team's coordination instructions above. They define the workflow, priorities, and decision-making rules for this team.
 
-${autoSpinUpResults?.length ? `### Pre-computed Member Results
+${
+  autoSpinUpResults?.length
+    ? `### Pre-computed Member Results
 
 All team members have already been invoked with the user's message. Their responses are below. Synthesize these results into a coherent, unified response for the user. Do NOT call \`invoke_agent\` again for these members unless you need follow-up or clarification.
 
-${autoSpinUpResults.map(r => `#### ${r.name}\n${r.output}`).join("\n\n")}
+${autoSpinUpResults.map((r) => `#### ${r.name}\n${r.output}`).join("\n\n")}
 
-` : ""}${ORCHESTRATION_PATTERNS}`;
+`
+    : ""
+}${ORCHESTRATION_PATTERNS}`;
 }

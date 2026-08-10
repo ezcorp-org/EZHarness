@@ -1,5 +1,10 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { mockEmbedding, mockEmbeddingsModule } from "./helpers/mock-vectors";
 import type { MemoryProvenance } from "../memory/types";
 
@@ -23,7 +28,10 @@ const projectAMemoryIds: string[] = [];
 const projectBMemoryIds: string[] = [];
 let archivedGlobalMemoryId: string;
 
-async function insertTestMemory(content: string, opts?: { projectId?: string | null; category?: string; status?: string }) {
+async function insertTestMemory(
+  content: string,
+  opts?: { projectId?: string | null; category?: string; status?: string },
+) {
   const embedding = mockEmbedding();
   const provenance: MemoryProvenance = {
     sourceConversationId: conversationId,
@@ -44,7 +52,10 @@ async function insertTestMemory(content: string, opts?: { projectId?: string | n
   });
   if (opts?.status && opts.status !== "active") {
     const db = getDb();
-    await db.update(memories).set({ status: opts.status } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ status: opts.status } as any)
+      .where(eq(memories.id, mem.id));
   }
   return mem;
 }
@@ -77,13 +88,19 @@ beforeAll(async () => {
   }
 
   // 1 archived global memory
-  const archived = await insertTestMemory("Archived global memory", { projectId: null, status: "archived" });
+  const archived = await insertTestMemory("Archived global memory", {
+    projectId: null,
+    status: "archived",
+  });
   archivedGlobalMemoryId = archived.id;
 });
 
 afterAll(async () => {
   await closeTestDb();
-  try { const { restoreModuleMocks } = require("./helpers/mock-cleanup"); restoreModuleMocks(); } catch {}
+  try {
+    const { restoreModuleMocks } = require("./helpers/mock-cleanup");
+    restoreModuleMocks();
+  } catch {}
 });
 
 describe("searchMemories scope filtering", () => {
@@ -152,10 +169,20 @@ describe("searchMemories scope filtering", () => {
 
   test("scope=all + category filter works together", async () => {
     // Insert a preferences memory in Project A and a global one
-    const prefA = await insertTestMemory("Pref in A for scope test", { projectId: projectAId, category: "preferences" });
-    const prefGlobal = await insertTestMemory("Pref global for scope test", { projectId: null, category: "preferences" });
+    const prefA = await insertTestMemory("Pref in A for scope test", {
+      projectId: projectAId,
+      category: "preferences",
+    });
+    const prefGlobal = await insertTestMemory("Pref global for scope test", {
+      projectId: null,
+      category: "preferences",
+    });
 
-    const results = await searchMemories({ scope: "all", projectId: projectAId, category: "preferences" });
+    const results = await searchMemories({
+      scope: "all",
+      projectId: projectAId,
+      category: "preferences",
+    });
     const ids = results.map((m) => m.id);
 
     expect(ids).toContain(prefA.id);
@@ -165,9 +192,15 @@ describe("searchMemories scope filtering", () => {
   });
 
   test("scope=project + search filter works together", async () => {
-    const searchable = await insertTestMemory("Kubernetes deployment orchestration strategy", { projectId: projectAId });
+    const searchable = await insertTestMemory("Kubernetes deployment orchestration strategy", {
+      projectId: projectAId,
+    });
 
-    const results = await searchMemories({ scope: "project", projectId: projectAId, search: "Kubernetes deployment" });
+    const results = await searchMemories({
+      scope: "project",
+      projectId: projectAId,
+      search: "Kubernetes deployment",
+    });
     const ids = results.map((m) => m.id);
 
     expect(ids).toContain(searchable.id);

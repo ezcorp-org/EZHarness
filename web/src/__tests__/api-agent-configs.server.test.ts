@@ -24,15 +24,10 @@ vi.mock("$lib/server/context", () => ({
   getExecutor: () => ({ registerAgent }),
 }));
 
-const { listAgentConfigs, createAgentConfig } = await import(
-  "$server/db/queries/agent-configs"
-);
+const { listAgentConfigs, createAgentConfig } = await import("$server/db/queries/agent-configs");
 const { GET, POST } = await import("../routes/api/agent-configs/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown }) {
   const href = "http://localhost/api/agent-configs";
   return {
     url: new URL(href),
@@ -65,9 +60,7 @@ describe("GET /api/agent-configs", () => {
   });
 
   test("returns list from DB query", async () => {
-    vi.mocked(listAgentConfigs).mockResolvedValue([
-      { id: "c1", name: "a", prompt: "p" },
-    ] as any);
+    vi.mocked(listAgentConfigs).mockResolvedValue([{ id: "c1", name: "a", prompt: "p" }] as any);
     const res = await GET(makeEvent({ locals: { user } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string; name: string }>;
@@ -96,18 +89,14 @@ describe("POST /api/agent-configs", () => {
   });
 
   test("rejects 400 when name missing", async () => {
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { prompt: "p" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { prompt: "p" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Validation failed");
   });
 
   test("rejects 400 when prompt missing", async () => {
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { name: "a" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { name: "a" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Validation failed");
@@ -137,9 +126,7 @@ describe("POST /api/agent-configs", () => {
       temperature: null,
       maxTokens: null,
     } as any);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { name: "a", prompt: "p" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { name: "a", prompt: "p" } }));
     expect(res.status).toBe(201);
     const body = (await res.json()) as { id?: string };
     expect(body.id).toBe("new-cfg");
@@ -149,15 +136,24 @@ describe("POST /api/agent-configs", () => {
 
   test("forwards extensions + extensionTools through to the query layer", async () => {
     vi.mocked(createAgentConfig).mockResolvedValue({
-      id: "cfg-et", name: "a", prompt: "p", description: null, capabilities: [],
-      inputSchema: null, outputFormat: null, provider: null, model: null,
-      temperature: null, maxTokens: null,
+      id: "cfg-et",
+      name: "a",
+      prompt: "p",
+      description: null,
+      capabilities: [],
+      inputSchema: null,
+      outputFormat: null,
+      provider: null,
+      model: null,
+      temperature: null,
+      maxTokens: null,
     } as any);
     const res = await POST(
       makeEvent({
         locals: { user },
         body: {
-          name: "a", prompt: "p",
+          name: "a",
+          prompt: "p",
           extensions: ["ext-1"],
           extensionTools: { "ext-1": ["alpha"] },
         },

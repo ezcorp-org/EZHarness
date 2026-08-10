@@ -13,11 +13,7 @@
 // userId; `dashboard-data` then returns it.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import {
-  setupTestDb,
-  closeTestDb,
-  mockDbConnection,
-} from "../../__tests__/helpers/test-pglite";
+import { setupTestDb, closeTestDb, mockDbConnection } from "../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import type { GithubClient, GithubFetchPage } from "../../integrations/github-projects/types";
 import type { GithubProjectsProposal } from "../../db/schema";
@@ -43,7 +39,12 @@ mock.module("../../integrations/github-projects/client", () => ({
     }),
     validateAuth: async () => ({ ok: true, scopes: [], missingScopes: [] }),
     fetchBoardItems: async (): Promise<GithubFetchPage> => ({ items: [], cursor: {} }),
-    createIssueOnBoard: async () => ({ itemNodeId: "x", contentNodeId: null, url: null, title: "x" }),
+    createIssueOnBoard: async () => ({
+      itemNodeId: "x",
+      contentNodeId: null,
+      url: null,
+      title: "x",
+    }),
     updateItem: async () => ({ itemNodeId: "x", contentNodeId: null, url: null, title: "x" }),
     setItemStatus: async () => undefined,
     archiveItem: async () => undefined,
@@ -51,8 +52,8 @@ mock.module("../../integrations/github-projects/client", () => ({
   }),
 }));
 mock.module("../../integrations/github-projects/spawn", () => ({
-  approveProposal: async (id: string) => ({ id, status: "spawned" } as GithubProjectsProposal),
-  dismissProposal: async (id: string) => ({ id, status: "dismissed" } as GithubProjectsProposal),
+  approveProposal: async (id: string) => ({ id, status: "spawned" }) as GithubProjectsProposal,
+  dismissProposal: async (id: string) => ({ id, status: "dismissed" }) as GithubProjectsProposal,
 }));
 
 const { handleGithubProjectsRpc, _setLinksByUserForTests } = await import(
@@ -120,7 +121,12 @@ describe("dashboard-data — default links-by-user impl (real DB)", () => {
 
     const res = await handleGithubProjectsRpc(
       "dashboard-data",
-      { jsonrpc: "2.0" as const, id: 1, method: `${GITHUB_PROJECTS_RPC_PREFIX}dashboard-data`, params: {} },
+      {
+        jsonrpc: "2.0" as const,
+        id: 1,
+        method: `${GITHUB_PROJECTS_RPC_PREFIX}dashboard-data`,
+        params: {},
+      },
       {
         extensionName: "github-projects",
         extensionId: "ext-gp",
@@ -165,7 +171,12 @@ describe("dashboard-data — default links-by-user impl (real DB)", () => {
 
     const res = await handleGithubProjectsRpc(
       "dashboard-data",
-      { jsonrpc: "2.0" as const, id: 1, method: `${GITHUB_PROJECTS_RPC_PREFIX}dashboard-data`, params: {} },
+      {
+        jsonrpc: "2.0" as const,
+        id: 1,
+        method: `${GITHUB_PROJECTS_RPC_PREFIX}dashboard-data`,
+        params: {},
+      },
       {
         extensionName: "github-projects",
         extensionId: "ext-gp",

@@ -32,9 +32,7 @@ describe("landlock applyReadWriteJail — in-process grant body coverage", () =>
       const abi = probeLandlockAbi()!;
       // rw + ro + list + traverse ALL granted on "/": every grant() branch runs;
       // the WRITE_ACCESS union over "/" leaves the runner fully unrestricted.
-      expect(() =>
-        applyReadWriteJail(["/"], ["/"], abi, ["/"], ["/"]),
-      ).not.toThrow();
+      expect(() => applyReadWriteJail(["/"], ["/"], abi, ["/"], ["/"])).not.toThrow();
 
       // Proof the jail did NOT actually confine this process (granting "/" =
       // no-op): a post-restrict file read still succeeds.
@@ -43,12 +41,9 @@ describe("landlock applyReadWriteJail — in-process grant body coverage", () =>
     },
   );
 
-  test.if(!LANDLOCK_OK)(
-    "ABI guard: applyReadWriteJail throws on an unsupported kernel",
-    () => {
-      // No landlock here — exercise the ABI<1 fail-closed path instead so the
-      // file still has a live assertion on a non-landlock host.
-      expect(() => applyReadWriteJail([], ["/usr"], 0, [], [])).toThrow();
-    },
-  );
+  test.if(!LANDLOCK_OK)("ABI guard: applyReadWriteJail throws on an unsupported kernel", () => {
+    // No landlock here — exercise the ABI<1 fail-closed path instead so the
+    // file still has a live assertion on a non-landlock host.
+    expect(() => applyReadWriteJail([], ["/usr"], 0, [], [])).toThrow();
+  });
 });

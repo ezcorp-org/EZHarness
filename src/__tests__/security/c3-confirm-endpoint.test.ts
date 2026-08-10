@@ -35,10 +35,7 @@ import {
 mockServerAlias();
 
 // SvelteKit generated $types stub — not present at test time.
-mock.module(
-  "../../../web/src/routes/api/extensions/[id]/activate/$types",
-  () => ({}),
-);
+mock.module("../../../web/src/routes/api/extensions/[id]/activate/$types", () => ({}));
 
 // requireScope no-op passthrough.
 mock.module("$lib/server/security/api-keys", () => ({
@@ -137,10 +134,7 @@ mock.module("../../extensions/registry", registryMock);
 import { POST } from "../../../web/src/routes/api/extensions/[id]/activate/+server";
 
 // SvelteKit handlers may throw a Response on auth failure; unwrap.
-async function call(
-  handler: (ev: any) => unknown,
-  event: any,
-): Promise<Response> {
+async function call(handler: (ev: any) => unknown, event: any): Promise<Response> {
   try {
     return (await handler(event)) as Response;
   } catch (e) {

@@ -43,6 +43,4 @@ export const KNOWN_CARD_TYPES: ReadonlySet<string> = new Set([
 
 /** Sorted list for error messages — stable ordering so the text a user
  *  sees does not shuffle between runs. */
-export const KNOWN_CARD_TYPES_SORTED: readonly string[] = [
-  ...KNOWN_CARD_TYPES,
-].sort();
+export const KNOWN_CARD_TYPES_SORTED: readonly string[] = [...KNOWN_CARD_TYPES].sort();

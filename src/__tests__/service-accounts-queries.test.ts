@@ -211,10 +211,7 @@ describe("service-accounts query layer", () => {
       // disagree, `serviceAccountReach` has stopped deriving and started
       // asserting.
       const probe = (visibility: "system" | "project" | "private") => ({
-        ...systemCachedWorkflow(
-          { name: "p", steps: [] } as never,
-          "yaml",
-        ),
+        ...systemCachedWorkflow({ name: "p", steps: [] } as never, "yaml"),
         visibility,
       });
       expect(authorizeWorkflow(probe("system"), SERVICE_ACCOUNT_CALLER, "run").ok).toBe(true);
@@ -582,7 +579,9 @@ describe("service-accounts query layer", () => {
     test("once the delegations are revoked the account deletes", async () => {
       const created = (await mint({ name: "freed" })).account;
       await insertDelegation({ id: "d-3", kind: "service", ownerId: created.id, jobRef: "j1" });
-      await getTestDb().execute(sql`UPDATE workflow_delegations SET revoked_at = now() WHERE id = 'd-3'`);
+      await getTestDb().execute(
+        sql`UPDATE workflow_delegations SET revoked_at = now() WHERE id = 'd-3'`,
+      );
       expect(await deleteServiceAccount(created.id)).toEqual({ ok: true });
     });
   });

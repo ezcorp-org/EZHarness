@@ -25,14 +25,7 @@
  * them; production omits the arg and gets `DEFAULT_LIMITS`.
  */
 
-import {
-  mkdir,
-  mkdtemp,
-  readdir,
-  realpath,
-  rm,
-  stat,
-} from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, realpath, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, dirname, resolve, sep } from "node:path";
 import { realpathInsideRoot } from "../fs/scan-fs";
@@ -59,15 +52,10 @@ export const DEFAULT_LIMITS: Limits = {
 };
 
 /** Session ids are UUIDs — anything else is a traversal attempt. */
-export const SESSION_ID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Top-level dirs that mark "this is the config root, stop descending". */
-const SCAN_ROOT_MARKERS: ReadonlySet<string> = new Set([
-  ".claude",
-  ".codex",
-  "agents",
-]);
+const SCAN_ROOT_MARKERS: ReadonlySet<string> = new Set([".claude", ".codex", "agents"]);
 
 const TAR_EXTS = [".tar.gz", ".tgz"];
 const ZIP_EXT = ".zip";
@@ -146,10 +134,7 @@ export async function resolveStagingDir(
 }
 
 /** `rm -rf` the session dir. Swallows errors. Validates the id first. */
-export async function cleanupStagingDir(
-  projectRoot: string,
-  sessionId: string,
-): Promise<void> {
+export async function cleanupStagingDir(projectRoot: string, sessionId: string): Promise<void> {
   let dir: string;
   try {
     dir = stagingDirFor(projectRoot, sessionId);
@@ -165,10 +150,7 @@ export async function cleanupStagingDir(
  * Removes session dirs whose mtime is older than `maxAgeMs`. Never
  * throws — called opportunistically at the top of `preview`.
  */
-export async function sweepStaleStaging(
-  projectRoot: string,
-  maxAgeMs: number,
-): Promise<number> {
+export async function sweepStaleStaging(projectRoot: string, maxAgeMs: number): Promise<number> {
   const parent = stagingParent(projectRoot);
   let entries: import("node:fs").Dirent[];
   try {
@@ -218,9 +200,7 @@ export function sanitizeRelPath(rel: string): string[] {
   return segs;
 }
 
-async function mkSessionDir(
-  projectRoot: string,
-): Promise<{ sessionId: string; dir: string }> {
+async function mkSessionDir(projectRoot: string): Promise<{ sessionId: string; dir: string }> {
   const sessionId = newSessionId();
   const dir = stagingDirFor(projectRoot, sessionId);
   await mkdir(dir, { recursive: true });
@@ -256,11 +236,19 @@ export async function stageDirectoryUpload(opts: {
   for (let i = 0; i < files.length; i++) {
     const file = files[i]!;
     if (file.size > limits.maxFileBytes) {
-      throw new StagingError(413, "FILE_TOO_LARGE", `"${paths[i]}" exceeds ${limits.maxFileBytes} bytes`);
+      throw new StagingError(
+        413,
+        "FILE_TOO_LARGE",
+        `"${paths[i]}" exceeds ${limits.maxFileBytes} bytes`,
+      );
     }
     totalBytes += file.size;
     if (totalBytes > limits.maxTotalBytes) {
-      throw new StagingError(413, "UPLOAD_TOO_LARGE", `Upload exceeds ${limits.maxTotalBytes} bytes`);
+      throw new StagingError(
+        413,
+        "UPLOAD_TOO_LARGE",
+        `Upload exceeds ${limits.maxTotalBytes} bytes`,
+      );
     }
     const segs = sanitizeRelPath(paths[i]!);
     const target = join(dir, ...segs);
@@ -297,13 +285,8 @@ function archiveEntryUnsafe(entry: string): boolean {
  * still runs post-extraction as defence-in-depth for escaping
  * *symlink* members (whose targets don't appear in the listing).
  */
-function assertArchiveEntriesConfined(
-  archivePath: string,
-  isZip: boolean,
-): void {
-  const cmd = isZip
-    ? ["unzip", "-Z1", archivePath]
-    : ["tar", "-tzf", archivePath];
+function assertArchiveEntriesConfined(archivePath: string, isZip: boolean): void {
+  const cmd = isZip ? ["unzip", "-Z1", archivePath] : ["tar", "-tzf", archivePath];
   const proc = Bun.spawnSync(cmd, { stdio: ["ignore", "pipe", "pipe"] });
   if (proc.exitCode !== 0) {
     const stderr = proc.stderr?.toString().trim() ?? "";
@@ -352,7 +335,11 @@ export async function stageArchiveUpload(opts: {
     throw new StagingError(400, "EMPTY_UPLOAD", "Archive is empty");
   }
   if (archive.size > limits.maxTotalBytes) {
-    throw new StagingError(413, "UPLOAD_TOO_LARGE", `Archive exceeds ${limits.maxTotalBytes} bytes`);
+    throw new StagingError(
+      413,
+      "UPLOAD_TOO_LARGE",
+      `Archive exceeds ${limits.maxTotalBytes} bytes`,
+    );
   }
 
   const { sessionId, dir } = await mkSessionDir(projectRoot);
@@ -422,15 +409,27 @@ export async function assertConfinedAndCapped(
       if (!e.isFile()) continue;
       const size = (await stat(child)).size;
       if (size > limits.maxFileBytes) {
-        throw new StagingError(413, "FILE_TOO_LARGE", `"${e.name}" exceeds ${limits.maxFileBytes} bytes`);
+        throw new StagingError(
+          413,
+          "FILE_TOO_LARGE",
+          `"${e.name}" exceeds ${limits.maxFileBytes} bytes`,
+        );
       }
       fileCount++;
       totalBytes += size;
       if (fileCount > limits.maxFileCount) {
-        throw new StagingError(413, "TOO_MANY_FILES", `Too many files (max ${limits.maxFileCount})`);
+        throw new StagingError(
+          413,
+          "TOO_MANY_FILES",
+          `Too many files (max ${limits.maxFileCount})`,
+        );
       }
       if (totalBytes > limits.maxTotalBytes) {
-        throw new StagingError(413, "UPLOAD_TOO_LARGE", `Upload exceeds ${limits.maxTotalBytes} bytes`);
+        throw new StagingError(
+          413,
+          "UPLOAD_TOO_LARGE",
+          `Upload exceeds ${limits.maxTotalBytes} bytes`,
+        );
       }
     }
   }

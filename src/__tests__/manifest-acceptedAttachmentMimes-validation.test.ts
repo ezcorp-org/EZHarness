@@ -8,9 +8,7 @@ import { validateManifestV2 } from "../extensions/manifest";
 // every test below starts from a known-valid baseline and only varies
 // the `acceptedAttachmentMimes` field.
 
-function makeValidManifest(
-  overrides: Partial<ExtensionManifestV2> = {},
-): ExtensionManifestV2 {
+function makeValidManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionManifestV2 {
   return {
     schemaVersion: 2,
     name: "test-package",
@@ -85,9 +83,7 @@ describe("validateManifestV2 — acceptedAttachmentMimes", () => {
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(false);
     expect(
-      result.errors.some((e) =>
-        e.includes("acceptedAttachmentMimes must be an array of strings"),
-      ),
+      result.errors.some((e) => e.includes("acceptedAttachmentMimes must be an array of strings")),
     ).toBe(true);
   });
 
@@ -98,9 +94,7 @@ describe("validateManifestV2 — acceptedAttachmentMimes", () => {
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(false);
     expect(
-      result.errors.some((e) =>
-        e.includes("acceptedAttachmentMimes must be an array of strings"),
-      ),
+      result.errors.some((e) => e.includes("acceptedAttachmentMimes must be an array of strings")),
     ).toBe(true);
   });
 
@@ -111,9 +105,7 @@ describe("validateManifestV2 — acceptedAttachmentMimes", () => {
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(false);
     expect(
-      result.errors.some((e) =>
-        e.includes("acceptedAttachmentMimes must be an array of strings"),
-      ),
+      result.errors.some((e) => e.includes("acceptedAttachmentMimes must be an array of strings")),
     ).toBe(true);
   });
 

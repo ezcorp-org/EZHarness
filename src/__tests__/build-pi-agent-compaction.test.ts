@@ -27,8 +27,9 @@ mock.module("@earendil-works/pi-agent-core", () => ({
 
 // Import AFTER the mock registers so build-pi-agent binds the stub.
 const { buildPiAgent } = await import("../runtime/stream-chat/build-pi-agent");
-const { estimateTokens, computeInputBudget, isCompactionMarker, DEFAULTS } =
-  await import("../runtime/stream-chat/context-compaction");
+const { estimateTokens, computeInputBudget, isCompactionMarker, DEFAULTS } = await import(
+  "../runtime/stream-chat/context-compaction"
+);
 
 const userMsg = (text: string): any => ({ role: "user", content: text, timestamp: 1 });
 
@@ -67,10 +68,7 @@ const anthropicModel = () => ({
  */
 const anthropicWireFromSystemPrompt = (systemPrompt: string) => ({
   system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
-  tools: [
-    { name: "a" },
-    { name: "b", cache_control: { type: "ephemeral" } },
-  ],
+  tools: [{ name: "a" }, { name: "b", cache_control: { type: "ephemeral" } }],
   messages: [
     { role: "user", content: [{ type: "text", text: "hi", cache_control: { type: "ephemeral" } }] },
   ],
@@ -109,7 +107,12 @@ describe("buildPiAgent + compaction", () => {
   test("wired transformContext trims a long history below budget + marks it", async () => {
     const piModel = { id: "small", contextWindow: 1_000, maxTokens: 128_000 };
     // Anchor is opt-in (default 0); this test exercises the anchor layout.
-    const compaction = { safetyFraction: 0, responseReserveFloor: 0, responseReserveCap: 0, cacheAnchorFraction: 0.5 };
+    const compaction = {
+      safetyFraction: 0,
+      responseReserveFloor: 0,
+      responseReserveCap: 0,
+      cacheAnchorFraction: 0.5,
+    };
     build(piModel, compaction);
 
     const budget = computeInputBudget(piModel, { ...DEFAULTS, ...compaction });
@@ -131,10 +134,7 @@ describe("buildPiAgent + compaction", () => {
 describe("buildPiAgent + cache retention (onPayload)", () => {
   const anthropicPayload = () => ({
     system: [{ type: "text", text: "sys", cache_control: { type: "ephemeral" } }],
-    tools: [
-      { name: "a" },
-      { name: "b", cache_control: { type: "ephemeral" } },
-    ],
+    tools: [{ name: "a" }, { name: "b", cache_control: { type: "ephemeral" } }],
     messages: [
       {
         role: "user",
@@ -206,7 +206,11 @@ describe("buildPiAgent + system-block cache split (memory tail)", () => {
     // a cache_control breakpoint.
     const oauthWire: any = {
       system: [
-        { type: "text", text: "You are Claude Code, Anthropic's official CLI for Claude.", cache_control: { type: "ephemeral" } },
+        {
+          type: "text",
+          text: "You are Claude Code, Anthropic's official CLI for Claude.",
+          cache_control: { type: "ephemeral" },
+        },
         { type: "text", text: "frozen base", cache_control: { type: "ephemeral" } },
       ],
     };
@@ -232,7 +236,16 @@ describe("buildPiAgent + system-block cache split (memory tail)", () => {
 
   test("non-Anthropic: tail merged into systemPrompt; onPayload leaves body.system untouched", async () => {
     const tail = "\n\n## Relevant Memories\n- [d] non-anthropic recall";
-    buildWithTail({ id: "gpt-5.5", provider: "openai", api: "openai-responses", contextWindow: 272_000, maxTokens: 128_000 }, tail);
+    buildWithTail(
+      {
+        id: "gpt-5.5",
+        provider: "openai",
+        api: "openai-responses",
+        contextWindow: 272_000,
+        maxTokens: 128_000,
+      },
+      tail,
+    );
 
     // Memory is NOT dropped: it rides the plain systemPrompt string.
     expect(capturedOpts.initialState.systemPrompt).toBe(`frozen base${tail}`);

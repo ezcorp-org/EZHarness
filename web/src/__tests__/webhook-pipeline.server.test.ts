@@ -59,12 +59,24 @@ vi.mock("$server/extensions/webhook-store", () => ({
     const r = registry.get(slug);
     return r?.enabled ? { id: r.id, extensionId: ext, slug, enabled: true } : null;
   },
-  insertDelivery: async (input: Omit<DeliveryRow, "id" | "status" | "claimedAt" | "deliveredAt" | "error"> & { catchUp?: boolean }) => {
+  insertDelivery: async (
+    input: Omit<DeliveryRow, "id" | "status" | "claimedAt" | "deliveredAt" | "error"> & {
+      catchUp?: boolean;
+    },
+  ) => {
     const id = `del-${deliveries.length + 1}`;
     deliveries.push({
-      id, webhookId: input.webhookId, extensionId: input.extensionId, slug: input.slug,
-      status: "pending", contentType: input.contentType, body: input.body,
-      receivedAt: input.receivedAt, claimedAt: null, deliveredAt: null, error: null,
+      id,
+      webhookId: input.webhookId,
+      extensionId: input.extensionId,
+      slug: input.slug,
+      status: "pending",
+      contentType: input.contentType,
+      body: input.body,
+      receivedAt: input.receivedAt,
+      claimedAt: null,
+      deliveredAt: null,
+      error: null,
       catchUp: input.catchUp ?? false,
     });
     return id;
@@ -100,7 +112,10 @@ vi.mock("$server/db/queries/settings", () => ({ getSetting: async () => undefine
 let storedExtension: Record<string, unknown>;
 vi.mock("$server/db/queries/extensions", () => ({
   getExtension: async () => storedExtension,
-  updateExtension: async (_id: string, update: Record<string, unknown>) => ({ ...storedExtension, ...update }),
+  updateExtension: async (_id: string, update: Record<string, unknown>) => ({
+    ...storedExtension,
+    ...update,
+  }),
   resetFailures: async () => {},
 }));
 vi.mock("$server/extensions/registry", () => ({
@@ -108,7 +123,9 @@ vi.mock("$server/extensions/registry", () => ({
 }));
 vi.mock("$server/extensions/security", () => ({ hasSecurityViolation: async () => false }));
 vi.mock("$lib/server/extension-helpers", () => ({
-  clampExtensionPermissions: (submitted: { webhooks?: string[] }) => ({ webhooks: submitted.webhooks ?? [] }),
+  clampExtensionPermissions: (submitted: { webhooks?: string[] }) => ({
+    webhooks: submitted.webhooks ?? [],
+  }),
 }));
 vi.mock("$server/extensions/clamp-permissions", () => ({ emitEnvKeyLeakWarnings: async () => {} }));
 vi.mock("$server/extensions/schedule-reconcile", () => ({ reconcileSchedules: async () => {} }));
@@ -129,7 +146,11 @@ function deliver(headers: Record<string, string>, body: string): Promise<Respons
   return POST({
     params: { extensionId: EXT_NAME, slug: "tickets" },
     getClientAddress: () => "pipe-ip",
-    request: new Request(`http://localhost/api/hooks/${EXT_NAME}/tickets`, { method: "POST", headers, body }),
+    request: new Request(`http://localhost/api/hooks/${EXT_NAME}/tickets`, {
+      method: "POST",
+      headers,
+      body,
+    }),
   } as never) as Promise<Response>;
 }
 
@@ -152,7 +173,11 @@ beforeEach(() => {
 describe("webhook pipeline: activate → route → fire", () => {
   test("activate wires reconcile → registry row + secret minted → POST accepted → fire is the wrapped WebhookInput", async () => {
     // 1. Activate with a webhook grant (the wiring under test).
-    const result = await activateExtension("ext-uuid-1", { submittedPermissions: { webhooks: ["tickets"] } }, "admin-1");
+    const result = await activateExtension(
+      "ext-uuid-1",
+      { submittedPermissions: { webhooks: ["tickets"] } },
+      "admin-1",
+    );
     expect(result.ok).toBe(true);
     // Wiring guard — activate MUST call reconcileWebhooks with the NAME (not the
     // row UUID) and the clamped granted slug. Removing item 5 fails this.
@@ -164,7 +189,10 @@ describe("webhook pipeline: activate → route → fire", () => {
 
     // 2. A real inbound POST with the minted token is accepted + persisted.
     const body = '{"id":"T-1","priority":"high"}';
-    const res = await deliver({ authorization: `Bearer ${token}`, "content-type": "application/json" }, body);
+    const res = await deliver(
+      { authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body,
+    );
     expect(res.status).toBe(202);
     const accepted = (await res.json()) as { accepted: boolean; deliveryId: string };
     expect(accepted.accepted).toBe(true);
@@ -188,7 +216,11 @@ describe("webhook pipeline: activate → route → fire", () => {
   });
 
   test("an HMAC-signed delivery on the activated hook is also accepted", async () => {
-    await activateExtension("ext-uuid-1", { submittedPermissions: { webhooks: ["tickets"] } }, "admin-1");
+    await activateExtension(
+      "ext-uuid-1",
+      { submittedPermissions: { webhooks: ["tickets"] } },
+      "admin-1",
+    );
     const token = registry.get("tickets")!.secret;
     const body = '{"id":"T-2"}';
     const res = await deliver(

@@ -40,20 +40,22 @@ const USER_ID = "33333333-3333-3333-3333-333333333333";
 let projectId: string;
 
 async function seedExtension(name: string): Promise<void> {
-  await getTestDb().insert(extensions).values({
-    name,
-    version: "1.0.0",
-    source: "test:fixture",
-    manifest: sql`${JSON.stringify({
-      schemaVersion: 2,
+  await getTestDb()
+    .insert(extensions)
+    .values({
       name,
       version: "1.0.0",
-      description: "",
-      author: { name: "test" },
-      kind: "subprocess",
-      entrypoint: { command: ["true"] },
-    })}::jsonb`,
-  });
+      source: "test:fixture",
+      manifest: sql`${JSON.stringify({
+        schemaVersion: 2,
+        name,
+        version: "1.0.0",
+        description: "",
+        author: { name: "test" },
+        kind: "subprocess",
+        entrypoint: { command: ["true"] },
+      })}::jsonb`,
+    });
 }
 
 async function seed(): Promise<void> {
@@ -115,7 +117,12 @@ describe("setSecret / getSecret", () => {
     // Project-scoped: a no-userId (daemon-style) read HITS it.
     expect(await getSecret(EXT_ID, projectId, "apiToken")).toBe("ghp_proj");
     // The stored row carries NO scope userId — actorUserId is never the scope.
-    const row = await getSecretRow({ extensionId: EXT_ID, projectId, userId: null, name: "apiToken" });
+    const row = await getSecretRow({
+      extensionId: EXT_ID,
+      projectId,
+      userId: null,
+      name: "apiToken",
+    });
     expect(row!.userId).toBeNull();
     // …yet the SECRET_SET audit row is attributed to the acting user.
     const sets = await auditRows("ext:secret-set");
@@ -124,7 +131,12 @@ describe("setSecret / getSecret", () => {
 
   test("ciphertext is AAD-bound to the scope (stored row decrypts only under its scope)", async () => {
     await setSecret(EXT_ID, projectId, "apiToken", "ghp_live");
-    const row = await getSecretRow({ extensionId: EXT_ID, projectId, userId: null, name: "apiToken" });
+    const row = await getSecretRow({
+      extensionId: EXT_ID,
+      projectId,
+      userId: null,
+      name: "apiToken",
+    });
     expect(decryptWithAad(row!.ciphertext, `${EXT_ID}:${projectId}`)).toBe("ghp_live");
     expect(() => decryptWithAad(row!.ciphertext, `${EXT_ID}:other`)).toThrow();
   });
@@ -163,7 +175,12 @@ describe("getSecret lastUsedAt debounce", () => {
     expect(await getSecret(EXT_ID, projectId, "apiToken")).toBe("ghp_live");
     const used = await auditRows("ext:secret-used");
     expect(used).toHaveLength(1);
-    const row = await getSecretRow({ extensionId: EXT_ID, projectId, userId: null, name: "apiToken" });
+    const row = await getSecretRow({
+      extensionId: EXT_ID,
+      projectId,
+      userId: null,
+      name: "apiToken",
+    });
     expect(row!.lastUsedAt!.getTime()).toBeGreaterThan(twoMinAgo.getTime());
   });
 
@@ -234,13 +251,20 @@ describe("backfillGithubProjectsApiTokens", () => {
   test("migrates a decryptable PAT, deletes the settings key, returns counts", async () => {
     await seedExtension(GH_EXT);
     const key = `githubProjects:${projectId}:apiToken`;
-    await getTestDb().insert(settings).values({ key, value: encrypt("ghp_live") });
+    await getTestDb()
+      .insert(settings)
+      .values({ key, value: encrypt("ghp_live") });
 
     const result = await backfillGithubProjectsApiTokens();
     expect(result).toEqual({ migrated: 1, cleared: 1 });
 
     // The migrated secret decrypts under the github-projects scope AAD.
-    const row = await getSecretRow({ extensionId: GH_EXT, projectId, userId: null, name: "apiToken" });
+    const row = await getSecretRow({
+      extensionId: GH_EXT,
+      projectId,
+      userId: null,
+      name: "apiToken",
+    });
     expect(row).toBeDefined();
     expect(decryptWithAad(row!.ciphertext, `${GH_EXT}:${projectId}`)).toBe("ghp_live");
 
@@ -257,7 +281,12 @@ describe("backfillGithubProjectsApiTokens", () => {
     const result = await backfillGithubProjectsApiTokens();
     expect(result).toEqual({ migrated: 0, cleared: 1 });
 
-    const row = await getSecretRow({ extensionId: GH_EXT, projectId, userId: null, name: "apiToken" });
+    const row = await getSecretRow({
+      extensionId: GH_EXT,
+      projectId,
+      userId: null,
+      name: "apiToken",
+    });
     expect(row).toBeUndefined();
     const left = await getTestDb().select().from(settings).where(eq(settings.key, key));
     expect(left).toHaveLength(0);
@@ -270,12 +299,19 @@ describe("backfillGithubProjectsApiTokens", () => {
     // row is skipped (not migrated) and the settings key is STILL deleted
     // (policy: the credential leaves the broadly-readable table regardless).
     const key = `githubProjects:${projectId}:apiToken`;
-    await getTestDb().insert(settings).values({ key, value: encrypt("ghp_orphan") });
+    await getTestDb()
+      .insert(settings)
+      .values({ key, value: encrypt("ghp_orphan") });
 
     const result = await backfillGithubProjectsApiTokens();
     expect(result).toEqual({ migrated: 0, cleared: 1 });
 
-    const row = await getSecretRow({ extensionId: GH_EXT, projectId, userId: null, name: "apiToken" });
+    const row = await getSecretRow({
+      extensionId: GH_EXT,
+      projectId,
+      userId: null,
+      name: "apiToken",
+    });
     expect(row).toBeUndefined();
     const left = await getTestDb().select().from(settings).where(eq(settings.key, key));
     expect(left).toHaveLength(0);
@@ -288,19 +324,33 @@ describe("backfillGithubProjectsApiTokens", () => {
     // NOTHING skips it, so `migrated` must stay 0 (real inserts only, not
     // attempts) while the legacy settings key is still cleared.
     await setSecret(GH_EXT, projectId, "apiToken", "ghp_already_migrated");
-    const before = await getSecretRow({ extensionId: GH_EXT, projectId, userId: null, name: "apiToken" });
+    const before = await getSecretRow({
+      extensionId: GH_EXT,
+      projectId,
+      userId: null,
+      name: "apiToken",
+    });
     const key = `githubProjects:${projectId}:apiToken`;
-    await getTestDb().insert(settings).values({ key, value: encrypt("ghp_stale_legacy") });
+    await getTestDb()
+      .insert(settings)
+      .values({ key, value: encrypt("ghp_stale_legacy") });
 
     const result = await backfillGithubProjectsApiTokens();
     expect(result).toEqual({ migrated: 0, cleared: 1 });
 
     // The existing row won — same id, same ciphertext, still decrypts to the
     // already-migrated value (the stale legacy blob did not clobber it).
-    const after = await getSecretRow({ extensionId: GH_EXT, projectId, userId: null, name: "apiToken" });
+    const after = await getSecretRow({
+      extensionId: GH_EXT,
+      projectId,
+      userId: null,
+      name: "apiToken",
+    });
     expect(after!.id).toBe(before!.id);
     expect(after!.ciphertext).toBe(before!.ciphertext);
-    expect(decryptWithAad(after!.ciphertext, `${GH_EXT}:${projectId}`)).toBe("ghp_already_migrated");
+    expect(decryptWithAad(after!.ciphertext, `${GH_EXT}:${projectId}`)).toBe(
+      "ghp_already_migrated",
+    );
     const left = await getTestDb().select().from(settings).where(eq(settings.key, key));
     expect(left).toHaveLength(0);
   });
@@ -320,29 +370,55 @@ describe("backfillGithubProjectsApiTokens", () => {
     const goodKey = `githubProjects:${projectId}:apiToken`;
     const orphanKey = `githubProjects:${orphanPid}:apiToken`;
     const badBlobKey = `githubProjects:${project2Id}:apiToken`;
-    await getTestDb().insert(settings).values([
-      { key: goodKey, value: encrypt("ghp_good") },
-      { key: orphanKey, value: encrypt("ghp_orphan") },
-      { key: badBlobKey, value: "not-a-valid-ciphertext" },
-    ]);
+    await getTestDb()
+      .insert(settings)
+      .values([
+        { key: goodKey, value: encrypt("ghp_good") },
+        { key: orphanKey, value: encrypt("ghp_orphan") },
+        { key: badBlobKey, value: "not-a-valid-ciphertext" },
+      ]);
 
     const result = await backfillGithubProjectsApiTokens();
     // migrated counts REAL inserts only (1); cleared counts every key (3).
     expect(result).toEqual({ migrated: 1, cleared: 3 });
 
-    const good = await getSecretRow({ extensionId: GH_EXT, projectId, userId: null, name: "apiToken" });
+    const good = await getSecretRow({
+      extensionId: GH_EXT,
+      projectId,
+      userId: null,
+      name: "apiToken",
+    });
     expect(decryptWithAad(good!.ciphertext, `${GH_EXT}:${projectId}`)).toBe("ghp_good");
-    expect(await getSecretRow({ extensionId: GH_EXT, projectId: orphanPid, userId: null, name: "apiToken" })).toBeUndefined();
-    expect(await getSecretRow({ extensionId: GH_EXT, projectId: project2Id, userId: null, name: "apiToken" })).toBeUndefined();
+    expect(
+      await getSecretRow({
+        extensionId: GH_EXT,
+        projectId: orphanPid,
+        userId: null,
+        name: "apiToken",
+      }),
+    ).toBeUndefined();
+    expect(
+      await getSecretRow({
+        extensionId: GH_EXT,
+        projectId: project2Id,
+        userId: null,
+        name: "apiToken",
+      }),
+    ).toBeUndefined();
     // Every legacy key left the broadly-readable table.
-    const left = await getTestDb().select().from(settings).where(sql`${settings.key} LIKE 'githubProjects:%'`);
+    const left = await getTestDb()
+      .select()
+      .from(settings)
+      .where(sql`${settings.key} LIKE 'githubProjects:%'`);
     expect(left).toHaveLength(0);
   });
 
   test("idempotent: a second run finds no matching keys", async () => {
     await seedExtension(GH_EXT);
     const key = `githubProjects:${projectId}:apiToken`;
-    await getTestDb().insert(settings).values({ key, value: encrypt("ghp_live") });
+    await getTestDb()
+      .insert(settings)
+      .values({ key, value: encrypt("ghp_live") });
 
     await backfillGithubProjectsApiTokens();
     const second = await backfillGithubProjectsApiTokens();
@@ -353,12 +429,19 @@ describe("backfillGithubProjectsApiTokens", () => {
     await seedExtension(GH_EXT);
     const key = `githubProjects:${projectId}:apiToken`;
     // A valid PAT encrypted with the PLAIN encrypt() (the legacy on-disk form).
-    await getTestDb().insert(settings).values({ key, value: encrypt("ghp_via_handle") });
+    await getTestDb()
+      .insert(settings)
+      .values({ key, value: encrypt("ghp_via_handle") });
     // Pass an explicit executor handle — proves the parameter path (the
     // migrate pass supplies its own db handle rather than relying on getDb()).
     const result = await backfillGithubProjectsApiTokens(getTestDb());
     expect(result).toEqual({ migrated: 1, cleared: 1 });
-    const row = await getSecretRow({ extensionId: GH_EXT, projectId, userId: null, name: "apiToken" });
+    const row = await getSecretRow({
+      extensionId: GH_EXT,
+      projectId,
+      userId: null,
+      name: "apiToken",
+    });
     expect(decryptWithAad(row!.ciphertext, `${GH_EXT}:${projectId}`)).toBe("ghp_via_handle");
     const left = await getTestDb().select().from(settings).where(eq(settings.key, key));
     expect(left).toHaveLength(0);

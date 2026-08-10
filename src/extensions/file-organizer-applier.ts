@@ -114,7 +114,9 @@ async function writeJournal(path: string, entries: JournalEntry[]): Promise<void
  * `copy-pending` entry means the copy may be incomplete — leave the
  * original intact (fail-safe) and drop the half-written destination.
  */
-export async function replayJournal(journalPath: string): Promise<{ finished: number; rolledBack: number }> {
+export async function replayJournal(
+  journalPath: string,
+): Promise<{ finished: number; rolledBack: number }> {
   const entries = await readJournal(journalPath);
   let finished = 0;
   let rolledBack = 0;
@@ -313,7 +315,10 @@ async function applyMove(proposal: ApplierProposal, ctx: ApplierContext): Promis
   // Containment: destination must stay inside the watched root and must
   // never touch `.ezcorp/data` (refuse `../` escapes).
   if (!isWithin(ctx.watchedRoot, dstForCheck) || touchesDataDir(dstForCheck, ctx.dataDirRoot)) {
-    return { status: "blocked", reason: "destination escapes the watched root or targets .ezcorp/data" };
+    return {
+      status: "blocked",
+      reason: "destination escapes the watched root or targets .ezcorp/data",
+    };
   }
 
   // Audit gate (writes the audit row; deny ⇒ blocked).
@@ -328,7 +333,13 @@ async function applyMove(proposal: ApplierProposal, ctx: ApplierContext): Promis
     await mkdir(destDir, { recursive: true });
     // Journal BEFORE the copy so a crash leaves a replayable intent.
     await writeJournal(ctx.journalPath, [
-      { op: "move", src: proposal.src, dst: resolvedDst, quarantineId: null, phase: "copy-pending" },
+      {
+        op: "move",
+        src: proposal.src,
+        dst: resolvedDst,
+        quarantineId: null,
+        phase: "copy-pending",
+      },
     ]);
     await copyVerified(proposal.src, resolvedDst, proposal.snapshot.size);
     // Copy verified — advance the journal so a crash now finishes the unlink.
@@ -345,12 +356,20 @@ async function applyMove(proposal: ApplierProposal, ctx: ApplierContext): Promis
     // ENOSPC (or any copy failure) — original is intact by construction
     // (we never unlink before a verified copy). Clear the journal.
     await writeJournal(ctx.journalPath, []).catch(() => {});
-    log.warn("file-organizer move failed", { src: proposal.src, dst: resolvedDst, code, error: String(err) });
+    log.warn("file-organizer move failed", {
+      src: proposal.src,
+      dst: resolvedDst,
+      code,
+      error: String(err),
+    });
     return { status: "failed", reason: String((err as Error)?.message ?? err) };
   }
 }
 
-async function applyQuarantine(proposal: ApplierProposal, ctx: ApplierContext): Promise<ApplyOutcome> {
+async function applyQuarantine(
+  proposal: ApplierProposal,
+  ctx: ApplierContext,
+): Promise<ApplyOutcome> {
   const quarantineId = proposal.quarantineId ?? proposal.id;
   const trashDir = join(ctx.trashRoot, quarantineId);
   const desired = join(trashDir, basename(proposal.src));

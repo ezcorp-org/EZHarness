@@ -25,22 +25,18 @@ interface RequestCall {
   params: Record<string, unknown>;
 }
 
-function stubRequest(
-  impl: (call: RequestCall) => Promise<unknown>,
-): { calls: RequestCall[] } {
+function stubRequest(impl: (call: RequestCall) => Promise<unknown>): { calls: RequestCall[] } {
   const ch: HostChannel = getChannel();
   const calls: RequestCall[] = [];
   const spy = spyOn(ch, "request");
-  spy.mockImplementation(
-    (async (method: string, params: unknown) => {
-      const call: RequestCall = {
-        method,
-        params: (params ?? {}) as Record<string, unknown>,
-      };
-      calls.push(call);
-      return impl(call);
-    }) as HostChannel["request"],
-  );
+  spy.mockImplementation((async (method: string, params: unknown) => {
+    const call: RequestCall = {
+      method,
+      params: (params ?? {}) as Record<string, unknown>,
+    };
+    calls.push(call);
+    return impl(call);
+  }) as HostChannel["request"]);
   return { calls };
 }
 

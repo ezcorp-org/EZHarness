@@ -22,11 +22,7 @@
 
 import { test, expect, describe } from "bun:test";
 import { JsonRpcTransport } from "../extensions/json-rpc";
-import type {
-  JsonRpcRequest,
-  JsonRpcResponse,
-  JsonRpcNotification,
-} from "../extensions/types";
+import type { JsonRpcRequest, JsonRpcResponse, JsonRpcNotification } from "../extensions/types";
 
 // ── Test rig: in-memory stdio pipe ─────────────────────────────────
 
@@ -50,10 +46,7 @@ function makeMockStdio(): MockStdio {
   let captured = "";
   const stdin = {
     write(data: string | Uint8Array): number {
-      const s =
-        typeof data === "string"
-          ? data
-          : new TextDecoder().decode(data);
+      const s = typeof data === "string" ? data : new TextDecoder().decode(data);
       captured += s;
       return s.length;
     },
@@ -80,7 +73,11 @@ function makeMockStdio(): MockStdio {
       controller?.enqueue(bytes);
     },
     closeInbound() {
-      try { controller?.close(); } catch { /* already closed */ }
+      try {
+        controller?.close();
+      } catch {
+        /* already closed */
+      }
     },
   };
 }
@@ -232,9 +229,7 @@ describe("json-rpc transport — back-compat (Day-1 sanity)", () => {
 
     io.pushInbound("{not valid json}\n");
     await Promise.resolve();
-    io.pushInbound(
-      JSON.stringify({ jsonrpc: "2.0", id: 11, result: "ok" }) + "\n",
-    );
+    io.pushInbound(JSON.stringify({ jsonrpc: "2.0", id: 11, result: "ok" }) + "\n");
 
     const got = await pending;
     expect(got.result).toBe("ok");
@@ -309,9 +304,7 @@ describe("json-rpc transport — chunked-frame streaming", () => {
     transport.startReading();
 
     const pending = transport.send({ jsonrpc: "2.0", id: 1, method: "x" });
-    io.pushInbound(
-      JSON.stringify({ jsonrpc: "2.0", id: 1, result: { tiny: true } }) + "\n",
-    );
+    io.pushInbound(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { tiny: true } }) + "\n");
     const r = await pending;
     expect(r.result).toEqual({ tiny: true });
 
@@ -455,9 +448,7 @@ describe("json-rpc transport — chunked-frame streaming", () => {
       id: 1,
       method: "after-cancel",
     });
-    io.pushInbound(
-      JSON.stringify({ jsonrpc: "2.0", id: 1, result: "ok" }) + "\n",
-    );
+    io.pushInbound(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "ok" }) + "\n");
     expect((await pending).result).toBe("ok");
 
     io.closeInbound();

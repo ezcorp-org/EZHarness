@@ -68,9 +68,7 @@ describe("isLiveSibling", () => {
   const deadAll = () => false;
 
   test("dead stored PID ⇒ NOT a sibling (stale, reclaim)", () => {
-    expect(
-      isLiveSibling({ pid: 999, token: "t" }, 1, "self", deadAll, () => "t"),
-    ).toBe(false);
+    expect(isLiveSibling({ pid: 999, token: "t" }, 1, "self", deadAll, () => "t")).toBe(false);
   });
 
   test("self-PID (reused on restart) ⇒ NOT a sibling (reclaim) even with a different token", () => {
@@ -81,9 +79,9 @@ describe("isLiveSibling", () => {
   });
 
   test("live foreign PID with a MATCHING token ⇒ genuine sibling (refuse)", () => {
-    expect(
-      isLiveSibling({ pid: 7, token: "match" }, 1, "self", aliveAll, () => "match"),
-    ).toBe(true);
+    expect(isLiveSibling({ pid: 7, token: "match" }, 1, "self", aliveAll, () => "match")).toBe(
+      true,
+    );
   });
 
   test("live foreign PID with a MISMATCHED token (PID reused) ⇒ NOT a sibling (reclaim)", () => {
@@ -96,16 +94,12 @@ describe("isLiveSibling", () => {
     // A tokenless file is from old code / a prior boot; a genuine sibling
     // running this code always stamps a token. Reclaim to avoid the
     // cross-restart self-deadlock on a coincidentally-live reused PID.
-    expect(
-      isLiveSibling({ pid: 7, token: "" }, 1, "self", aliveAll, () => "anything"),
-    ).toBe(false);
+    expect(isLiveSibling({ pid: 7, token: "" }, 1, "self", aliveAll, () => "anything")).toBe(false);
   });
 
   test("tokenized lock but live token unrecomputable ('') ⇒ NOT a sibling (reclaim)", () => {
     // Can't confirm the PID wasn't reused → reclaim rather than wedge.
-    expect(
-      isLiveSibling({ pid: 7, token: "stored" }, 1, "self", aliveAll, () => ""),
-    ).toBe(false);
+    expect(isLiveSibling({ pid: 7, token: "stored" }, 1, "self", aliveAll, () => "")).toBe(false);
   });
 });
 

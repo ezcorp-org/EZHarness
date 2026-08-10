@@ -187,10 +187,7 @@ export async function previewBundledDrift(
     if (key !== "grantedAt") grantedAt[key] = now;
   }
   const requested: ExtensionPermissions = { ...rawPerms, grantedAt };
-  const { effective: grant, clamped: ceilingClamped } = clampToBundledCeiling(
-    ext.name,
-    requested,
-  );
+  const { effective: grant, clamped: ceilingClamped } = clampToBundledCeiling(ext.name, requested);
   const priorGrant = (ext.grantedPermissions ?? { grantedAt: {} }) as ExtensionPermissions;
 
   return {
@@ -219,8 +216,7 @@ export async function reapproveBundledDrift(
 
   const { manifest: diskManifest, grant: clamped, diffs, ceilingClamped: wasClamped } = preview;
   const priorGrant = (ext.grantedPermissions ?? { grantedAt: {} }) as ExtensionPermissions;
-  const oldVersion =
-    ext.version ?? (ext.manifest as ExtensionManifestV2 | undefined)?.version;
+  const oldVersion = ext.version ?? (ext.manifest as ExtensionManifestV2 | undefined)?.version;
 
   const updated = await updateExtension(ext.id, {
     grantedPermissions: clamped,
@@ -273,12 +269,7 @@ export async function reapproveBundledDrift(
       diffs,
       ceilingClamped: wasClamped,
     };
-    await insertAuditEntry(
-      actorUserId,
-      EXT_AUDIT_ACTIONS.BUNDLED_DRIFT_REAPPROVED,
-      ext.id,
-      meta,
-    );
+    await insertAuditEntry(actorUserId, EXT_AUDIT_ACTIONS.BUNDLED_DRIFT_REAPPROVED, ext.id, meta);
 
     // Typed capability-POLICY rows (additive — the summary row above is
     // kept). For each brokered-capability policy field whose value

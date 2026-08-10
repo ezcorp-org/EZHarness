@@ -169,10 +169,7 @@ interface JailVariantOptions {
  *   - `--die-with-parent` so the child can't outlive the host process.
  *   - `--new-session` to defend against TIOCSTI terminal injection.
  */
-function buildJailArgsCore(
-  input: PreviewJailInput,
-  variant: JailVariantOptions,
-): string[] {
+function buildJailArgsCore(input: PreviewJailInput, variant: JailVariantOptions): string[] {
   if (!input.workDir) throw new Error("preview jail: workDir is required");
   if (!input.projectRoot) throw new Error("preview jail: projectRoot is required");
   if (!input.command) throw new Error("preview jail: command is required");
@@ -195,8 +192,10 @@ function buildJailArgsCore(
     ...(variant.unshareAll ? ["--unshare-all"] : []),
     "--die-with-parent",
     "--new-session",
-    "--proc", "/proc",
-    "--dev", "/dev",
+    "--proc",
+    "/proc",
+    "--dev",
+    "/dev",
     // Private tmpfs at /tmp. `--size` MUST precede `--tmpfs` (bwrap is a
     // sequential state machine; reversal silently drops the cap). On a
     // setuid-root bwrap (`omitTmpfsSize`) the `--size` flag is rejected
@@ -204,12 +203,7 @@ function buildJailArgsCore(
     // instead — every other confinement flag is unchanged.
     ...(input.omitTmpfsSize
       ? (["--tmpfs", "/tmp"] as const)
-      : ([
-          "--size",
-          String(input.tmpfsBytes ?? DEFAULT_TMPFS_BYTES),
-          "--tmpfs",
-          "/tmp",
-        ] as const)),
+      : (["--size", String(input.tmpfsBytes ?? DEFAULT_TMPFS_BYTES), "--tmpfs", "/tmp"] as const)),
   ];
 
   // `--dir` mkdirs inside the jail — AFTER the /tmp tmpfs so each target
@@ -218,9 +212,7 @@ function buildJailArgsCore(
   for (const d of variant.tmpDirs ?? []) {
     const abs = resolve(d);
     if (!abs.startsWith("/tmp" + sep)) {
-      throw new Error(
-        `preview jail: --dir target must live under the private /tmp tmpfs: ${d}`,
-      );
+      throw new Error(`preview jail: --dir target must live under the private /tmp tmpfs: ${d}`);
     }
     args.push("--dir", abs);
   }
@@ -290,11 +282,14 @@ export function buildMcpJailBwrapArgs(input: McpJailInput): string[] {
  * contains the catch-all `--bind / /` and exposes nothing under the data
  * dir. Returns the argv unchanged on success; throws otherwise.
  */
-export function assertJailArgsSafe(args: readonly string[], projectRoot: string): readonly string[] {
+export function assertJailArgsSafe(
+  args: readonly string[],
+  projectRoot: string,
+): readonly string[] {
   const forbidden = forbiddenDataDir(projectRoot);
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if ((a === "--bind" || a === "--ro-bind") && args[i + 1] === "/" ) {
+    if ((a === "--bind" || a === "--ro-bind") && args[i + 1] === "/") {
       throw new Error("preview jail: argv contains a root bind ('/') — hole not closed");
     }
     if (a === "--bind" || a === "--ro-bind") {

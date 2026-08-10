@@ -82,12 +82,10 @@ const mockGetMessagesWithToolCalls = mock(
     orphanedToolCalls: [],
   }),
 );
-const mockCreateSubConversation = mock(
-  async (_projectId: string | null, opts: any) => ({
-    id: "sub-conv-" + crypto.randomUUID().slice(0, 8),
-    ...opts,
-  }),
-);
+const mockCreateSubConversation = mock(async (_projectId: string | null, opts: any) => ({
+  id: "sub-conv-" + crypto.randomUUID().slice(0, 8),
+  ...opts,
+}));
 
 mock.module("$server/db/queries/conversations", () => ({
   getConversation: mockGetConversation,
@@ -206,9 +204,7 @@ mock.module("$server/types", () => ({ CURRENT_MODEL_SENTINEL: "__current__" }));
 
 // ── Import handlers AFTER mocks ─────────────────────────────────────
 
-const assignMod = await import(
-  "../routes/api/conversations/[id]/tasks/[taskId]/assign/+server"
-);
+const assignMod = await import("../routes/api/conversations/[id]/tasks/[taskId]/assign/+server");
 const startMod = await import(
   "../routes/api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start/+server"
 );
@@ -253,11 +249,7 @@ function makeAssignment(overrides: Partial<TaskAssignment> = {}): TaskAssignment
   };
 }
 
-function makeAssignEvent(
-  conversationId: string,
-  taskId: string,
-  body: Record<string, unknown>,
-) {
+function makeAssignEvent(conversationId: string, taskId: string, body: Record<string, unknown>) {
   return {
     request: new Request(
       `http://localhost/api/conversations/${conversationId}/tasks/${taskId}/assign`,
@@ -291,11 +283,7 @@ function makeDeleteAssignEvent(
   } as any;
 }
 
-function makeStartEvent(
-  conversationId: string,
-  taskId: string,
-  assignmentId: string,
-) {
+function makeStartEvent(conversationId: string, taskId: string, assignmentId: string) {
   return {
     request: new Request(
       `http://localhost/api/conversations/${conversationId}/tasks/${taskId}/assignments/${assignmentId}/start`,
@@ -383,12 +371,10 @@ function resetMocks() {
     orphanedToolCalls: [],
   }));
   mockCreateSubConversation.mockReset();
-  mockCreateSubConversation.mockImplementation(
-    async (_projectId: string | null, opts: any) => ({
-      id: "sub-conv-" + crypto.randomUUID().slice(0, 8),
-      ...opts,
-    }),
-  );
+  mockCreateSubConversation.mockImplementation(async (_projectId: string | null, opts: any) => ({
+    id: "sub-conv-" + crypto.randomUUID().slice(0, 8),
+    ...opts,
+  }));
   mockEmitSnapshot.mockClear();
   mockEmitAssignmentUpdate.mockClear();
   mockPersistToDb.mockClear();
@@ -461,9 +447,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assign", () => {
     // Assignment should be on the subtask, not the task
     expect(taskStore.tasks[0].assignments).toHaveLength(0);
     expect(taskStore.tasks[0].subtasks[0].assignments).toHaveLength(1);
-    expect(taskStore.tasks[0].subtasks[0].assignments![0].id).toBe(
-      body.assignment.id,
-    );
+    expect(taskStore.tasks[0].subtasks[0].assignments![0].id).toBe(body.assignment.id);
   });
 
   test("returns 404 for missing task", async () => {
@@ -600,9 +584,7 @@ describe("DELETE /api/conversations/[id]/tasks/[taskId]/assign", () => {
       }),
     );
 
-    const snapshotCalls = mockBusEmit.mock.calls.filter(
-      (c: any[]) => c[0] === "task:snapshot",
-    );
+    const snapshotCalls = mockBusEmit.mock.calls.filter((c: any[]) => c[0] === "task:snapshot");
     expect(snapshotCalls.length).toBeGreaterThanOrEqual(1);
   });
 });
@@ -616,12 +598,10 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
     const assignment = makeAssignment({ id: "assign-1" });
     taskStore.tasks[0].assignments = [assignment];
     // createSubConversation returns a stable id for assertions
-    mockCreateSubConversation.mockImplementation(
-      async (_projectId: string | null, opts: any) => ({
-        id: "sub-conv-new",
-        ...opts,
-      }),
-    );
+    mockCreateSubConversation.mockImplementation(async (_projectId: string | null, opts: any) => ({
+      id: "sub-conv-new",
+      ...opts,
+    }));
   });
 
   test("updates assignment to 'running' with lifecycle fields", async () => {
@@ -662,9 +642,18 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
 
   test("passes full plan context including all tasks and assignments", async () => {
     // Set up multiple tasks to verify plan context
-    const task2 = makeTask({ id: "task-2", title: "Second task", status: "pending", priority: 1, assignments: [] });
+    const task2 = makeTask({
+      id: "task-2",
+      title: "Second task",
+      status: "pending",
+      priority: 1,
+      assignments: [],
+    });
     const task3 = makeTask({
-      id: "task-3", title: "Third task", status: "completed", priority: 2,
+      id: "task-3",
+      title: "Third task",
+      status: "completed",
+      priority: 2,
       assignments: [makeAssignment({ id: "a3", agentName: "OtherAgent", status: "completed" })],
     });
     taskStore.tasks = [
@@ -728,18 +717,14 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
   });
 
   test("returns 404 for missing assignment", async () => {
-    const res = await POST_start(
-      makeStartEvent("conv-1", "task-1", "nonexistent"),
-    );
+    const res = await POST_start(makeStartEvent("conv-1", "task-1", "nonexistent"));
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Assignment not found");
   });
 
   test("returns 404 for missing task", async () => {
-    const res = await POST_start(
-      makeStartEvent("conv-1", "nonexistent-task", "assign-1"),
-    );
+    const res = await POST_start(makeStartEvent("conv-1", "nonexistent-task", "assign-1"));
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Task not found");
@@ -752,9 +737,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
     expect(calls.some((c: any[]) => c[0] === "task:snapshot")).toBe(true);
     expect(
       calls.some(
-        (c: any[]) =>
-          c[0] === "task:assignment_update" &&
-          c[1]?.assignment?.status === "running",
+        (c: any[]) => c[0] === "task:assignment_update" && c[1]?.assignment?.status === "running",
       ),
     ).toBe(true);
   });
@@ -827,11 +810,12 @@ describe("GET /api/conversations/[id]/tasks/[taskId]/messages", () => {
     taskStore.tasks[0].assignments = [assignment1, assignment2];
 
     mockGetMessagesWithToolCalls.mockImplementation(async (convId: string) => ({
-      messages: convId === "sub-conv-1"
-        ? [{ id: "msg-1", content: "Hello", toolCalls: [] }]
-        : convId === "sub-conv-2"
-          ? [{ id: "msg-2", content: "Done", toolCalls: [] }]
-          : [],
+      messages:
+        convId === "sub-conv-1"
+          ? [{ id: "msg-1", content: "Hello", toolCalls: [] }]
+          : convId === "sub-conv-2"
+            ? [{ id: "msg-2", content: "Done", toolCalls: [] }]
+            : [],
       subConversations: [],
       orphanedToolCalls: [],
     }));
@@ -908,9 +892,7 @@ describe("GET /api/conversations/[id]/tasks/[taskId]/messages", () => {
   });
 
   test("returns 404 for missing task", async () => {
-    const res = await GET_taskMessages(
-      makeGetMessagesEvent("conv-1", "nonexistent"),
-    );
+    const res = await GET_taskMessages(makeGetMessagesEvent("conv-1", "nonexistent"));
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Task not found");
@@ -928,10 +910,7 @@ describe("GET /api/conversations/[id]/team/[agentConfigId]/messages", () => {
       name: "TestTeam",
       prompt: "Team prompt",
       references: {
-        members: [
-          { agentConfigId: "member-1" },
-          { agentConfigId: "member-2" },
-        ],
+        members: [{ agentConfigId: "member-1" }, { agentConfigId: "member-2" }],
       },
     };
   });
@@ -949,9 +928,7 @@ describe("GET /api/conversations/[id]/team/[agentConfigId]/messages", () => {
       "member-1": { id: "member-1", name: "MemberOne", prompt: "" },
       "member-2": { id: "member-2", name: "MemberTwo", prompt: "" },
     };
-    mockGetAgentConfig.mockImplementation(async (id: string) =>
-      memberConfigs[id] ?? null,
-    );
+    mockGetAgentConfig.mockImplementation(async (id: string) => memberConfigs[id] ?? null);
 
     // Handler uses getMessagesWithToolCalls (returns { messages, subConversations,
     // orphanedToolCalls }), then maps each message to include a toolCalls array.
@@ -989,9 +966,7 @@ describe("GET /api/conversations/[id]/team/[agentConfigId]/messages", () => {
       return { messages: [], subConversations: [], orphanedToolCalls: [] };
     });
 
-    const res = await GET_teamMessages(
-      makeTeamMessagesEvent("conv-1", "team-cfg-1"),
-    );
+    const res = await GET_teamMessages(makeTeamMessagesEvent("conv-1", "team-cfg-1"));
     expect(res.status).toBe(200);
     const body = await res.json();
 
@@ -1018,13 +993,9 @@ describe("GET /api/conversations/[id]/team/[agentConfigId]/messages", () => {
       "member-1": { id: "member-1", name: "MemberOne", prompt: "" },
       "member-2": { id: "member-2", name: "MemberTwo", prompt: "" },
     };
-    mockGetAgentConfig.mockImplementation(async (id: string) =>
-      memberConfigs[id] ?? null,
-    );
+    mockGetAgentConfig.mockImplementation(async (id: string) => memberConfigs[id] ?? null);
 
-    const res = await GET_teamMessages(
-      makeTeamMessagesEvent("conv-1", "team-cfg-1"),
-    );
+    const res = await GET_teamMessages(makeTeamMessagesEvent("conv-1", "team-cfg-1"));
     expect(res.status).toBe(200);
     const body = await res.json();
 
@@ -1040,9 +1011,7 @@ describe("GET /api/conversations/[id]/team/[agentConfigId]/messages", () => {
   test("returns 404 for missing team config", async () => {
     mockGetAgentConfig.mockImplementation(async () => null);
 
-    const res = await GET_teamMessages(
-      makeTeamMessagesEvent("conv-1", "nonexistent"),
-    );
+    const res = await GET_teamMessages(makeTeamMessagesEvent("conv-1", "nonexistent"));
     expect(res.status).toBe(404);
     const body = await res.json();
     expect(body.error).toBe("Team config not found");
@@ -1056,9 +1025,7 @@ describe("GET /api/conversations/[id]/team/[agentConfigId]/messages", () => {
       references: { members: [] },
     };
 
-    const res = await GET_teamMessages(
-      makeTeamMessagesEvent("conv-1", "team-cfg-1"),
-    );
+    const res = await GET_teamMessages(makeTeamMessagesEvent("conv-1", "team-cfg-1"));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.team.name).toBe("EmptyTeam");
@@ -1076,12 +1043,10 @@ describe("POST /start — __current__ model sentinel resolution", () => {
     const assignment = makeAssignment({ id: "assign-1" });
     taskStore.tasks[0].assignments = [assignment];
     // createSubConversation returns a stable id for assertions
-    mockCreateSubConversation.mockImplementation(
-      async (_projectId: string | null, opts: any) => ({
-        id: "sub-conv-new",
-        ...opts,
-      }),
-    );
+    mockCreateSubConversation.mockImplementation(async (_projectId: string | null, opts: any) => ({
+      id: "sub-conv-new",
+      ...opts,
+    }));
   });
 
   test("when config.model is __current__ and body has model, uses body model", async () => {
@@ -1125,9 +1090,7 @@ describe("POST /start — __current__ model sentinel resolution", () => {
       references: null,
     };
 
-    const res = await POST_start(
-      makeStartEventWithBody("conv-1", "task-1", "assign-1"),
-    );
+    const res = await POST_start(makeStartEventWithBody("conv-1", "task-1", "assign-1"));
     expect(res.status).toBe(200);
 
     expect(mockStreamChat).toHaveBeenCalledTimes(1);
@@ -1262,12 +1225,10 @@ describe("POST /start — auto-continue with pending messages", () => {
 
     const assignment = makeAssignment({ id: "assign-1" });
     taskStore.tasks[0].assignments = [assignment];
-    mockCreateSubConversation.mockImplementation(
-      async (_projectId: string | null, opts: any) => ({
-        id: "sub-conv-new",
-        ...opts,
-      }),
-    );
+    mockCreateSubConversation.mockImplementation(async (_projectId: string | null, opts: any) => ({
+      id: "sub-conv-new",
+      ...opts,
+    }));
 
     // Capture the bus.on("run:complete") callback so we can invoke it manually
     mockBusOn.mockImplementation((event: string, cb: (...args: unknown[]) => unknown) => {
@@ -1300,9 +1261,7 @@ describe("POST /start — auto-continue with pending messages", () => {
     // transition. The run:complete listener's only remaining job is
     // emitting `task:assignment_update` with status="completed".
     const updateCalls = mockBusEmit.mock.calls.filter(
-      (c: any[]) =>
-        c[0] === "task:assignment_update" &&
-        c[1]?.assignment?.status === "completed",
+      (c: any[]) => c[0] === "task:assignment_update" && c[1]?.assignment?.status === "completed",
     );
     expect(updateCalls.length).toBeGreaterThanOrEqual(1);
   });

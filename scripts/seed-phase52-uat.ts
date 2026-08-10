@@ -23,12 +23,7 @@
  */
 import { sql } from "drizzle-orm";
 import { getDb } from "../src/db/connection";
-import {
-  extensions,
-  sdkCapabilityCalls,
-  auditLog,
-  messages,
-} from "../src/db/schema";
+import { extensions, sdkCapabilityCalls, auditLog, messages } from "../src/db/schema";
 import { EXT_AUDIT_ACTIONS } from "../src/extensions/audit-actions";
 
 const BUNDLED_ID = "seed-uat-bundled";
@@ -54,7 +49,9 @@ async function pickAnchorIds() {
 
 async function clearOldSeed() {
   const db = getDb();
-  await db.execute(sql`DELETE FROM sdk_capability_calls WHERE extension_id IN (${BUNDLED_ID}, ${INSTALLED_ID})`);
+  await db.execute(
+    sql`DELETE FROM sdk_capability_calls WHERE extension_id IN (${BUNDLED_ID}, ${INSTALLED_ID})`,
+  );
   await db.execute(sql`DELETE FROM audit_log WHERE target IN (${BUNDLED_ID}, ${INSTALLED_ID})`);
   await db.execute(sql`DELETE FROM messages WHERE metadata->>'seedTag' = ${SEED_TAG}`);
   await db.execute(sql`DELETE FROM extensions WHERE id IN (${BUNDLED_ID}, ${INSTALLED_ID})`);
@@ -70,7 +67,10 @@ async function ensureExtensionRows() {
       version: "1.0.0",
       installPath: "/dev/null/seed-uat-bundled",
       manifestJson: { name: "seed-uat-bundled", version: "1.0.0", schemaVersion: 2 },
-      grantedPermissions: { llm: { allowedProviders: ["anthropic"], allowedModels: ["claude-3-*"] }, memory: { selfOnly: true } },
+      grantedPermissions: {
+        llm: { allowedProviders: ["anthropic"], allowedModels: ["claude-3-*"] },
+        memory: { selfOnly: true },
+      },
       enabled: true,
       isBundled: true,
       installedAt: now,
@@ -82,7 +82,10 @@ async function ensureExtensionRows() {
       version: "0.1.0",
       installPath: "/dev/null/seed-uat-installed",
       manifestJson: { name: "seed-uat-installed", version: "0.1.0", schemaVersion: 2 },
-      grantedPermissions: { llm: { allowedProviders: ["openai"], allowedModels: ["gpt-4o-mini"] }, memory: { selfOnly: true } },
+      grantedPermissions: {
+        llm: { allowedProviders: ["openai"], allowedModels: ["gpt-4o-mini"] },
+        memory: { selfOnly: true },
+      },
       enabled: true,
       isBundled: false,
       installedAt: now,
@@ -112,26 +115,150 @@ interface SeedRow {
 
 const SEED_ROWS: SeedRow[] = [
   // Bundled extension — happy LLM calls
-  { extensionId: BUNDLED_ID, capability: "llm", action: "complete", success: true, durationMs: 845, tokensUsed: 1200, costUsd: 0.003, provider: "anthropic", model: "claude-3-haiku", minutesAgo: 5 },
-  { extensionId: BUNDLED_ID, capability: "llm", action: "complete", success: true, durationMs: 1230, tokensUsed: 2400, costUsd: 0.012, provider: "anthropic", model: "claude-3-sonnet", minutesAgo: 14 },
-  { extensionId: BUNDLED_ID, capability: "llm", action: "complete", success: true, durationMs: 720, tokensUsed: 800, costUsd: 0.002, provider: "anthropic", model: "claude-3-haiku", minutesAgo: 22 },
+  {
+    extensionId: BUNDLED_ID,
+    capability: "llm",
+    action: "complete",
+    success: true,
+    durationMs: 845,
+    tokensUsed: 1200,
+    costUsd: 0.003,
+    provider: "anthropic",
+    model: "claude-3-haiku",
+    minutesAgo: 5,
+  },
+  {
+    extensionId: BUNDLED_ID,
+    capability: "llm",
+    action: "complete",
+    success: true,
+    durationMs: 1230,
+    tokensUsed: 2400,
+    costUsd: 0.012,
+    provider: "anthropic",
+    model: "claude-3-sonnet",
+    minutesAgo: 14,
+  },
+  {
+    extensionId: BUNDLED_ID,
+    capability: "llm",
+    action: "complete",
+    success: true,
+    durationMs: 720,
+    tokensUsed: 800,
+    costUsd: 0.002,
+    provider: "anthropic",
+    model: "claude-3-haiku",
+    minutesAgo: 22,
+  },
 
   // Bundled — memory writes (with safe before/after)
-  { extensionId: BUNDLED_ID, capability: "memory", action: "write", success: true, durationMs: 12, resourceType: "memory", resourceId: "mem-uat-1", before: null, after: { content: "User prefers terse responses", category: "preferences" }, minutesAgo: 8 },
-  { extensionId: BUNDLED_ID, capability: "memory", action: "read", success: true, durationMs: 3, resourceType: "memory", resourceId: "mem-uat-1", minutesAgo: 7 },
+  {
+    extensionId: BUNDLED_ID,
+    capability: "memory",
+    action: "write",
+    success: true,
+    durationMs: 12,
+    resourceType: "memory",
+    resourceId: "mem-uat-1",
+    before: null,
+    after: { content: "User prefers terse responses", category: "preferences" },
+    minutesAgo: 8,
+  },
+  {
+    extensionId: BUNDLED_ID,
+    capability: "memory",
+    action: "read",
+    success: true,
+    durationMs: 3,
+    resourceType: "memory",
+    resourceId: "mem-uat-1",
+    minutesAgo: 7,
+  },
 
   // Bundled — schedule registration
-  { extensionId: BUNDLED_ID, capability: "schedule", action: "register", success: true, durationMs: 5, resourceType: "schedule", resourceId: "sched-daily-digest", after: { cron: "0 9 * * *", maxRunsPerDay: 1 }, minutesAgo: 60 },
-  { extensionId: BUNDLED_ID, capability: "schedule", action: "fire", success: true, durationMs: 1100, resourceType: "schedule", resourceId: "sched-daily-digest", minutesAgo: 30 },
+  {
+    extensionId: BUNDLED_ID,
+    capability: "schedule",
+    action: "register",
+    success: true,
+    durationMs: 5,
+    resourceType: "schedule",
+    resourceId: "sched-daily-digest",
+    after: { cron: "0 9 * * *", maxRunsPerDay: 1 },
+    minutesAgo: 60,
+  },
+  {
+    extensionId: BUNDLED_ID,
+    capability: "schedule",
+    action: "fire",
+    success: true,
+    durationMs: 1100,
+    resourceType: "schedule",
+    resourceId: "sched-daily-digest",
+    minutesAgo: 30,
+  },
 
   // Installed extension — mix of success + denials (so denial filter has data)
-  { extensionId: INSTALLED_ID, capability: "llm", action: "complete", success: true, durationMs: 2100, tokensUsed: 4500, costUsd: 0.027, provider: "openai", model: "gpt-4o-mini", minutesAgo: 3 },
-  { extensionId: INSTALLED_ID, capability: "llm", action: "complete", success: false, durationMs: 18, errorCode: "LLM_PROVIDER_NOT_GRANTED", errorMessage: "provider 'cohere' is not in allowedProviders", provider: "cohere", model: "command-r", minutesAgo: 11 },
-  { extensionId: INSTALLED_ID, capability: "llm", action: "complete", success: false, durationMs: 12, errorCode: "LLM_QUOTA_EXCEEDED", errorMessage: "calls-per-hour quota exceeded", provider: "openai", model: "gpt-4o-mini", minutesAgo: 18 },
-  { extensionId: INSTALLED_ID, capability: "memory", action: "write", success: false, durationMs: 8, errorCode: "MEMORY_SCOPE_DENIED", errorMessage: "selfOnly extension cannot write cross-extension memory", resourceType: "memory", minutesAgo: 25 },
+  {
+    extensionId: INSTALLED_ID,
+    capability: "llm",
+    action: "complete",
+    success: true,
+    durationMs: 2100,
+    tokensUsed: 4500,
+    costUsd: 0.027,
+    provider: "openai",
+    model: "gpt-4o-mini",
+    minutesAgo: 3,
+  },
+  {
+    extensionId: INSTALLED_ID,
+    capability: "llm",
+    action: "complete",
+    success: false,
+    durationMs: 18,
+    errorCode: "LLM_PROVIDER_NOT_GRANTED",
+    errorMessage: "provider 'cohere' is not in allowedProviders",
+    provider: "cohere",
+    model: "command-r",
+    minutesAgo: 11,
+  },
+  {
+    extensionId: INSTALLED_ID,
+    capability: "llm",
+    action: "complete",
+    success: false,
+    durationMs: 12,
+    errorCode: "LLM_QUOTA_EXCEEDED",
+    errorMessage: "calls-per-hour quota exceeded",
+    provider: "openai",
+    model: "gpt-4o-mini",
+    minutesAgo: 18,
+  },
+  {
+    extensionId: INSTALLED_ID,
+    capability: "memory",
+    action: "write",
+    success: false,
+    durationMs: 8,
+    errorCode: "MEMORY_SCOPE_DENIED",
+    errorMessage: "selfOnly extension cannot write cross-extension memory",
+    resourceType: "memory",
+    minutesAgo: 25,
+  },
 
   // Installed — events (sampled delivery)
-  { extensionId: INSTALLED_ID, capability: "events", action: "subscribe", success: true, durationMs: 4, resourceType: "event", resourceId: "task.completed", minutesAgo: 90 },
+  {
+    extensionId: INSTALLED_ID,
+    capability: "events",
+    action: "subscribe",
+    success: true,
+    durationMs: 4,
+    resourceType: "event",
+    resourceId: "task.completed",
+    minutesAgo: 90,
+  },
 ];
 
 async function seed() {
@@ -199,11 +326,13 @@ async function seed() {
   // Insert a capability-event message so the in-chat pill renders, if a
   // conversation exists.
   if (conversationId) {
-    const sdkRow = (await db
-      .select({ id: sdkCapabilityCalls.id })
-      .from(sdkCapabilityCalls)
-      .where(sql`extension_id = ${BUNDLED_ID} AND capability = 'llm'`)
-      .limit(1))[0];
+    const sdkRow = (
+      await db
+        .select({ id: sdkCapabilityCalls.id })
+        .from(sdkCapabilityCalls)
+        .where(sql`extension_id = ${BUNDLED_ID} AND capability = 'llm'`)
+        .limit(1)
+    )[0];
     if (sdkRow) {
       await db.insert(messages).values({
         conversationId,
@@ -229,12 +358,20 @@ async function seed() {
   console.log(`Installed extension id: ${INSTALLED_ID}`);
   console.log("");
   console.log("UAT walkthrough:");
-  console.log("  1. /extensions                                          → see Built-ins + Installed tabs");
+  console.log(
+    "  1. /extensions                                          → see Built-ins + Installed tabs",
+  );
   console.log(`  2. /extensions/${BUNDLED_ID}/audit                  → 7 happy rows, no red`);
-  console.log(`  3. /extensions/${INSTALLED_ID}/audit                → mix of green + red; click "Denials" filter`);
-  console.log("  4. /audit                                               → admin feed + 24h stats strip");
+  console.log(
+    `  3. /extensions/${INSTALLED_ID}/audit                → mix of green + red; click "Denials" filter`,
+  );
+  console.log(
+    "  4. /audit                                               → admin feed + 24h stats strip",
+  );
   if (conversationId) {
-    console.log(`  5. open the seeded conversation                          → capability-event pill should render`);
+    console.log(
+      `  5. open the seeded conversation                          → capability-event pill should render`,
+    );
   }
 }
 

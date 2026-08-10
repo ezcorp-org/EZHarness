@@ -106,7 +106,10 @@ export async function resolveEffectiveScopes(
 /** One-scope convenience over {@link resolveEffectiveScopes}: true for
  *  admins without a DB hit (the sentinel path), else true iff the resolved
  *  union contains `scope`. Scope names are case-sensitive. */
-export async function hasExtensionScope(user: RbacUser, query: ExtensionScopeQuery): Promise<boolean> {
+export async function hasExtensionScope(
+  user: RbacUser,
+  query: ExtensionScopeQuery,
+): Promise<boolean> {
   const scopes = await resolveEffectiveScopes(user, query.projectId, query.extensionId);
   return scopes.has(query.scope);
 }

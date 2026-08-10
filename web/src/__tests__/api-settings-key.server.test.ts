@@ -17,12 +17,8 @@ vi.mock("$server/db/queries/settings", () => ({
   deleteSetting: vi.fn(async () => true),
 }));
 
-const { getSetting, upsertSetting, deleteSetting } = await import(
-  "$server/db/queries/settings"
-);
-const { GET, PUT, DELETE } = await import(
-  "../routes/api/settings/[key]/+server.ts"
-);
+const { getSetting, upsertSetting, deleteSetting } = await import("$server/db/queries/settings");
+const { GET, PUT, DELETE } = await import("../routes/api/settings/[key]/+server.ts");
 
 function makeEvent(opts: {
   key: string;
@@ -115,9 +111,7 @@ describe("GET /api/settings/[key]", () => {
   });
 
   test("sensitive key (instance:jwtSecret) returns 403", async () => {
-    const res = await GET(
-      makeEvent({ key: "instance:jwtSecret", locals: adminLocals }),
-    );
+    const res = await GET(makeEvent({ key: "instance:jwtSecret", locals: adminLocals }));
     expect(res).toBeInstanceOf(Response);
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error?: string };
@@ -127,18 +121,14 @@ describe("GET /api/settings/[key]", () => {
   });
 
   test("sensitive key (provider:apiKey:*) returns 403", async () => {
-    const res = await GET(
-      makeEvent({ key: "provider:apiKey:openai", locals: adminLocals }),
-    );
+    const res = await GET(makeEvent({ key: "provider:apiKey:openai", locals: adminLocals }));
     expect(res.status).toBe(403);
   });
 
   // API-key store rows are deny-listed so an admin can't read/forge key rows
   // via the generic settings API (bypassing canMintRole / the hash index).
   test("API-key store key (apikey:*) returns 403 even for an admin", async () => {
-    const res = await GET(
-      makeEvent({ key: "apikey:u1:kid", locals: adminLocals }),
-    );
+    const res = await GET(makeEvent({ key: "apikey:u1:kid", locals: adminLocals }));
     expect(res.status).toBe(403);
   });
 });
@@ -300,9 +290,7 @@ describe("GET /api/settings/[key] — value paths (mocked queries)", () => {
 
   test("returns 404 when the key is not stored", async () => {
     vi.mocked(getSetting).mockResolvedValueOnce(undefined as any);
-    const res = await GET(
-      makeEvent({ key: "ui:theme", locals: adminLocals }),
-    );
+    const res = await GET(makeEvent({ key: "ui:theme", locals: adminLocals }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Not found");
@@ -310,9 +298,7 @@ describe("GET /api/settings/[key] — value paths (mocked queries)", () => {
 
   test("returns 200 with { value } on success", async () => {
     vi.mocked(getSetting).mockResolvedValueOnce("dark" as any);
-    const res = await GET(
-      makeEvent({ key: "ui:theme", locals: adminLocals }),
-    );
+    const res = await GET(makeEvent({ key: "ui:theme", locals: adminLocals }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { value?: unknown };
     expect(body.value).toBe("dark");

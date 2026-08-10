@@ -57,10 +57,7 @@ describe("loadManifest", () => {
   test("throws on invalid manifest (missing required fields)", async () => {
     const dir = await makeTempDir();
     try {
-      await Bun.write(
-        join(dir, "ezcorp.config.ts"),
-        `export default { schemaVersion: 2 };\n`,
-      );
+      await Bun.write(join(dir, "ezcorp.config.ts"), `export default { schemaVersion: 2 };\n`);
       await expect(loadManifest(dir)).rejects.toThrow(/Invalid manifest/);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -70,10 +67,7 @@ describe("loadManifest", () => {
   test("throws when default export is not an object", async () => {
     const dir = await makeTempDir();
     try {
-      await Bun.write(
-        join(dir, "ezcorp.config.ts"),
-        `export default "not an object";\n`,
-      );
+      await Bun.write(join(dir, "ezcorp.config.ts"), `export default "not an object";\n`);
       await expect(loadManifest(dir)).rejects.toThrow(/must have a default export/);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -138,12 +132,14 @@ describe("defineExtension", () => {
     const handler = () => {};
     const config = defineExtension({
       ...VALID_MANIFEST,
-      tools: [{
-        name: "t",
-        description: "d",
-        inputSchema: { type: "object" as const, properties: {} },
-        handler,
-      }],
+      tools: [
+        {
+          name: "t",
+          description: "d",
+          inputSchema: { type: "object" as const, properties: {} },
+          handler,
+        },
+      ],
     });
     expect((config.tools![0] as any).handler).toBe(handler);
   });

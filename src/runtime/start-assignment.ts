@@ -30,23 +30,14 @@ import {
 } from "../db/queries/conversations";
 import { getSetting } from "../db/queries/settings";
 import { dequeue, enqueue } from "./pending-messages";
-import {
-  TASK_DONE_RE,
-  TASK_BLOCKED_RE,
-  TASK_DONE_RE_G,
-  TASK_BLOCKED_RE_G,
-} from "./sentinels";
+import { TASK_DONE_RE, TASK_BLOCKED_RE, TASK_DONE_RE_G, TASK_BLOCKED_RE_G } from "./sentinels";
 import { logger } from "../logger";
 import {
   validateStructuredOutput,
   buildSchemaInstruction,
   buildSchemaCorrection,
 } from "./structured-output";
-import type {
-  TaskAssignment,
-  TaskSnapshot,
-  TrackedTask,
-} from "./task-tracking-host";
+import type { TaskAssignment, TaskSnapshot, TrackedTask } from "./task-tracking-host";
 
 const log = logger.child("start-assignment");
 
@@ -247,10 +238,7 @@ export interface StartAssignmentResult {
   agentRunId: string;
 }
 
-function emitTaskSnapshot(
-  bus: EventBus<AgentEvents>,
-  snapshot: TaskSnapshot,
-): void {
+function emitTaskSnapshot(bus: EventBus<AgentEvents>, snapshot: TaskSnapshot): void {
   bus.emit("task:snapshot", {
     conversationId: snapshot.conversationId,
     tasks: snapshot.tasks,
@@ -304,11 +292,29 @@ function emitAssignmentUpdate(
  */
 export async function startAssignment(opts: StartAssignmentOpts): Promise<StartAssignmentResult> {
   const {
-    executor, bus, conversationId, taskId, assignment, task, snapshot,
-    projectId, workingDir, agentConfig, parentModel, parentProvider,
-    reuseSubConversationId, parentMessageId, overrides, teamToolScope,
-    orchestrationDepth, autonomousContinuation, parentRunId,
-    onCycleRunIdChange, outputSchema, notifyParentOnTerminal, detached,
+    executor,
+    bus,
+    conversationId,
+    taskId,
+    assignment,
+    task,
+    snapshot,
+    projectId,
+    workingDir,
+    agentConfig,
+    parentModel,
+    parentProvider,
+    reuseSubConversationId,
+    parentMessageId,
+    overrides,
+    teamToolScope,
+    orchestrationDepth,
+    autonomousContinuation,
+    parentRunId,
+    onCycleRunIdChange,
+    outputSchema,
+    notifyParentOnTerminal,
+    detached,
   } = opts;
 
   // Master kill-switch (Advanced Settings → "Agent goal pinning &
@@ -317,12 +323,10 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   // objective in the system prompt and no autonomous self-continuation,
   // regardless of any per-spawn opt-in. Gating here covers EVERY spawn
   // path (manual route, spawn-assignment reverse-RPC, future callers).
-  const autonomyFeatureEnabled =
-    (await getSetting("global:agentAutonomyEnabled")) !== false;
+  const autonomyFeatureEnabled = (await getSetting("global:agentAutonomyEnabled")) !== false;
 
   const autonomousEnabled = autonomyFeatureEnabled && !!autonomousContinuation;
-  const maxAutoCycles =
-    autonomousContinuation?.maxCycles ?? DEFAULT_MAX_AUTONOMOUS_CYCLES;
+  const maxAutoCycles = autonomousContinuation?.maxCycles ?? DEFAULT_MAX_AUTONOMOUS_CYCLES;
   let autoCycle = 0;
   // Structured-output re-prompt state (Phase B1). Independent of the
   // autonomy kill-switch: schema validation is its own feature.
@@ -380,8 +384,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   }
   const teamScopeActive = !!(
     teamToolScope &&
-    ((teamToolScope.allowedTools?.length ?? 0) > 0 ||
-      (teamToolScope.deniedTools?.length ?? 0) > 0)
+    ((teamToolScope.allowedTools?.length ?? 0) > 0 || (teamToolScope.deniedTools?.length ?? 0) > 0)
   );
 
   const agentRunId = crypto.randomUUID();
@@ -411,7 +414,10 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     .map((t) => {
       const status = t.id === task.id ? ">> THIS TASK" : t.status.toUpperCase();
       const agents = t.assignments
-        .map((a) => `@${a.agentName}${a.status === "running" ? " (running)" : a.status === "completed" ? " (done)" : ""}`)
+        .map(
+          (a) =>
+            `@${a.agentName}${a.status === "running" ? " (running)" : a.status === "completed" ? " (done)" : ""}`,
+        )
         .join(", ");
       return `- [${status}] ${t.title}${agents ? ` — ${agents}` : ""}`;
     })
@@ -432,16 +438,18 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     `## Your Task\n${taskBody}\n\n## Full Plan Context\nThis task is part of a larger plan. Here are all tasks:\n${planContext}\n\nFocus on completing YOUR task. If you need information from other tasks, note it in your output.\n\nIMPORTANT: Do NOT call task_complete, task_fail, or task_plan in this run. Your parent conversation tracks your completion automatically when this run ends — calling those tools here only writes to your own (empty) sub-conversation storage and wastes turns. Just finish the work and stop.` +
     (outputSchema ? buildSchemaInstruction(outputSchema) : "");
 
-  const resolveSentinel = (value: string | undefined | null, fallback: string | undefined): string | undefined =>
-    value === CURRENT_MODEL_SENTINEL ? fallback : value ?? undefined;
+  const resolveSentinel = (
+    value: string | undefined | null,
+    fallback: string | undefined,
+  ): string | undefined => (value === CURRENT_MODEL_SENTINEL ? fallback : (value ?? undefined));
   const resolveModel = () =>
-    resolveSentinel(overrides?.model as string | undefined, parentModel)
-    ?? resolveSentinel(agentConfig.model, parentModel)
-    ?? parentModel;
+    resolveSentinel(overrides?.model as string | undefined, parentModel) ??
+    resolveSentinel(agentConfig.model, parentModel) ??
+    parentModel;
   const resolveProvider = () =>
-    resolveSentinel(overrides?.provider as string | undefined, parentProvider)
-    ?? resolveSentinel(agentConfig.provider, parentProvider)
-    ?? parentProvider;
+    resolveSentinel(overrides?.provider as string | undefined, parentProvider) ??
+    resolveSentinel(agentConfig.provider, parentProvider) ??
+    parentProvider;
   const resolveSystem = () => {
     const base = overrides?.systemPromptAppend
       ? `${agentConfig.prompt}\n\n${overrides.systemPromptAppend}`
@@ -488,11 +496,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
   // double-fire `agent:complete` + a duplicate parent notify. Set on the first
   // terminal; subsequent calls early-return.
   let terminalized = false;
-  function emitTerminal(
-    cycleRunId: string,
-    success: boolean,
-    resultPreview: string,
-  ): void {
+  function emitTerminal(cycleRunId: string, success: boolean, resultPreview: string): void {
     if (terminalized) return;
     terminalized = true;
     bus.emit("agent:complete", {
@@ -565,7 +569,10 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     if (parentRunId && !executor.registerChildRun(parentRunId, runId)) {
       if (detached) {
         log.info("Detached child outlived terminal parent — streaming unparented", {
-          conversationId, taskId, parentRunId, runId,
+          conversationId,
+          taskId,
+          parentRunId,
+          runId,
         });
         // Fall through (no return): re-key the cycle quota reservation below
         // and stream the cycle as normal, just without a parent to cascade to.
@@ -575,12 +582,18 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
         assignment.resultPreview = "Parent run ended before this agent could start";
         emitTaskSnapshot(bus, snapshot);
         emitAssignmentUpdate(
-          bus, conversationId, taskId, assignment,
+          bus,
+          conversationId,
+          taskId,
+          assignment,
           "Parent run ended before this agent could start — child was not started.",
         );
         emitTerminal(runId, false, "Parent run ended before this agent could start");
         log.info("Refused to start child of terminal parent run", {
-          conversationId, taskId, parentRunId, runId,
+          conversationId,
+          taskId,
+          parentRunId,
+          runId,
         });
         return;
       }
@@ -624,7 +637,9 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
           }
         : {
             ...(overrides?.toolRestriction ? { toolRestriction: overrides.toolRestriction } : {}),
-            ...(overrides?.allowedTools ? { allowedTools: overrides.allowedTools as string[] } : {}),
+            ...(overrides?.allowedTools
+              ? { allowedTools: overrides.allowedTools as string[] }
+              : {}),
             ...(overrides?.deniedTools ? { deniedTools: overrides.deniedTools as string[] } : {}),
           }),
     });
@@ -632,7 +647,11 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
     let unsubComplete: () => void = () => {};
     let unsubError: () => void = () => {};
     let unsubCancel: () => void = () => {};
-    const cleanup = () => { unsubComplete(); unsubError(); unsubCancel(); };
+    const cleanup = () => {
+      unsubComplete();
+      unsubError();
+      unsubCancel();
+    };
 
     unsubComplete = bus.on("run:complete", (data) => {
       if (data.run.id !== runId) return;
@@ -656,14 +675,20 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
         emitAssignmentUpdate(bus, conversationId, taskId, assignment);
 
         bus.emit("agent:spawn", {
-          runId: newRunId, agentRunId: newRunId, subConversationId,
-          agentName: agentConfig.name, agentConfigId: assignment.agentConfigId,
-          task: pending.content, parentConversationId: conversationId,
+          runId: newRunId,
+          agentRunId: newRunId,
+          subConversationId,
+          agentName: agentConfig.name,
+          agentConfigId: assignment.agentConfigId,
+          task: pending.content,
+          parentConversationId: conversationId,
         });
 
         startRun(newRunId, pending.content, pending.messageId, runId);
         log.info("Auto-continue with pending message", {
-          conversationId, taskId, newRunId,
+          conversationId,
+          taskId,
+          newRunId,
         });
         return;
       }
@@ -680,9 +705,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       // continuation and discard the correction (see schemaRepromptInFlight).
       let autonomousNote: string | undefined;
       if (autonomousEnabled && assignment.status === "running" && !schemaRepromptInFlight) {
-        const signal = detectDoneSignal(
-          extractFullText(data.run.result?.output),
-        );
+        const signal = detectDoneSignal(extractFullText(data.run.result?.output));
         if (signal === null && autoCycle < maxAutoCycles) {
           autoCycle++;
           assignment.autonomousCycle = autoCycle;
@@ -693,25 +716,29 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
           emitAssignmentUpdate(bus, conversationId, taskId, assignment);
 
           bus.emit("agent:spawn", {
-            runId: newRunId, agentRunId: newRunId, subConversationId,
-            agentName: agentConfig.name, agentConfigId: assignment.agentConfigId,
-            task: CONTINUATION_PROMPT, parentConversationId: conversationId,
+            runId: newRunId,
+            agentRunId: newRunId,
+            subConversationId,
+            agentName: agentConfig.name,
+            agentConfigId: assignment.agentConfigId,
+            task: CONTINUATION_PROMPT,
+            parentConversationId: conversationId,
           });
 
           startRun(newRunId, CONTINUATION_PROMPT, undefined, runId);
           log.info("Autonomous continuation", {
-            conversationId, taskId, newRunId,
-            cycle: autoCycle, maxCycles: maxAutoCycles,
+            conversationId,
+            taskId,
+            newRunId,
+            cycle: autoCycle,
+            maxCycles: maxAutoCycles,
           });
           return;
         }
         if (signal?.kind === "blocked") {
-          autonomousNote = signal.reason
-            ? `[blocked] ${signal.reason}`
-            : "[blocked]";
+          autonomousNote = signal.reason ? `[blocked] ${signal.reason}` : "[blocked]";
         } else if (signal === null) {
-          autonomousNote =
-            `[stopped after ${autoCycle} autonomous cycle${autoCycle === 1 ? "" : "s"}]`;
+          autonomousNote = `[stopped after ${autoCycle} autonomous cycle${autoCycle === 1 ? "" : "s"}]`;
         }
         // signal.kind === "done" → no note; normal completion below.
       }
@@ -762,15 +789,22 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
           emitAssignmentUpdate(bus, conversationId, taskId, assignment);
 
           bus.emit("agent:spawn", {
-            runId: newRunId, agentRunId: newRunId, subConversationId,
-            agentName: agentConfig.name, agentConfigId: assignment.agentConfigId,
-            task: correction, parentConversationId: conversationId,
+            runId: newRunId,
+            agentRunId: newRunId,
+            subConversationId,
+            agentName: agentConfig.name,
+            agentConfigId: assignment.agentConfigId,
+            task: correction,
+            parentConversationId: conversationId,
           });
 
           startRun(newRunId, correction, undefined, runId);
           log.info("Structured-output re-prompt", {
-            conversationId, taskId, newRunId,
-            retry: schemaRetries, maxRetries: MAX_SCHEMA_RETRIES,
+            conversationId,
+            taskId,
+            newRunId,
+            retry: schemaRetries,
+            maxRetries: MAX_SCHEMA_RETRIES,
           });
           return;
         } else {
@@ -825,9 +859,7 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
       }
 
       emitTaskSnapshot(bus, snapshot);
-      emitAssignmentUpdate(
-        bus, conversationId, taskId, assignment, resultFull, structuredArg,
-      );
+      emitAssignmentUpdate(bus, conversationId, taskId, assignment, resultFull, structuredArg);
       emitTerminal(runId, true, assignment.resultPreview ?? "");
     });
 
@@ -837,7 +869,8 @@ export async function startAssignment(opts: StartAssignmentOpts): Promise<StartA
 
       assignment.status = "failed";
       assignment.failedAt = new Date().toISOString();
-      const errorMsg = typeof data.error === "string" ? data.error : String(data.error ?? "Unknown error");
+      const errorMsg =
+        typeof data.error === "string" ? data.error : String(data.error ?? "Unknown error");
       assignment.resultPreview = errorMsg.slice(0, 200);
 
       emitTaskSnapshot(bus, snapshot);

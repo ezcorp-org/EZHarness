@@ -6,12 +6,36 @@ import { assignTaskInput, startAssignmentInput, spawnChatsInput } from "../../ty
 import { withLink, withLinks } from "./_response.js";
 
 export const TOOLS = [
-  { name: "list_sub_conversations", description: "List all sub-conversations spawned from a parent conversation. Use this to track fan-out progress after sending a multi-agent message." },
-  { name: "assign_task", description: "Assign a task to an agent within a conversation. Use this to programmatically fan out work via the task-assignment mechanism." },
-  { name: "start_assignment", description: "Start a previously created task assignment, spawning a sub-conversation. Use this after assign_task to kick off the agent's execution." },
-  { name: "spawn_chats", description: "Use when you need N independent root-level chats in parallel — NOT for fan-out within a single chat (use spawn_agents/spawn_team/assign_task for that)." },
-  { name: "spawn_agents", description: "Fan out within a single conversation by composing multiple ![agent:name] mentions into one message. Use this when you want parallel sub-conversations under the current chat." },
-  { name: "spawn_team", description: "Fan out within a single conversation by sending a ![team:name] mention to invoke an entire team. Use this to invoke a named team with autoSpinUp semantics." },
+  {
+    name: "list_sub_conversations",
+    description:
+      "List all sub-conversations spawned from a parent conversation. Use this to track fan-out progress after sending a multi-agent message.",
+  },
+  {
+    name: "assign_task",
+    description:
+      "Assign a task to an agent within a conversation. Use this to programmatically fan out work via the task-assignment mechanism.",
+  },
+  {
+    name: "start_assignment",
+    description:
+      "Start a previously created task assignment, spawning a sub-conversation. Use this after assign_task to kick off the agent's execution.",
+  },
+  {
+    name: "spawn_chats",
+    description:
+      "Use when you need N independent root-level chats in parallel — NOT for fan-out within a single chat (use spawn_agents/spawn_team/assign_task for that).",
+  },
+  {
+    name: "spawn_agents",
+    description:
+      "Fan out within a single conversation by composing multiple ![agent:name] mentions into one message. Use this when you want parallel sub-conversations under the current chat.",
+  },
+  {
+    name: "spawn_team",
+    description:
+      "Fan out within a single conversation by sending a ![team:name] mention to invoke an entire team. Use this to invoke a named team with autoSpinUp semantics.",
+  },
 ] as const;
 
 export type ToolName = (typeof TOOLS)[number]["name"];
@@ -40,9 +64,13 @@ export function register(server: McpServer, client: EzcorpClient): void {
     "assign_task",
     "Assign a task to an agent within a conversation. Use this to programmatically fan out work via the task-assignment mechanism.",
     {
-      conversationId: assignTaskInput.shape.conversationId.describe("UUID of the conversation containing the task"),
+      conversationId: assignTaskInput.shape.conversationId.describe(
+        "UUID of the conversation containing the task",
+      ),
       taskId: assignTaskInput.shape.taskId.describe("ID of the task to assign"),
-      agentConfigId: assignTaskInput.shape.agentConfigId.describe("UUID of the agent to assign the task to"),
+      agentConfigId: assignTaskInput.shape.agentConfigId.describe(
+        "UUID of the agent to assign the task to",
+      ),
       subtaskId: assignTaskInput.shape.subtaskId.describe("Optional subtask ID within the task"),
     },
     async (args) => {
@@ -56,10 +84,16 @@ export function register(server: McpServer, client: EzcorpClient): void {
     "start_assignment",
     "Start a previously created task assignment, spawning a sub-conversation. Use this after assign_task to kick off the agent's execution.",
     {
-      conversationId: startAssignmentInput.shape.conversationId.describe("UUID of the parent conversation"),
+      conversationId: startAssignmentInput.shape.conversationId.describe(
+        "UUID of the parent conversation",
+      ),
       taskId: startAssignmentInput.shape.taskId.describe("ID of the task"),
-      assignmentId: startAssignmentInput.shape.assignmentId.describe("ID of the assignment to start"),
-      model: startAssignmentInput.shape.model.describe("Optional model override for this assignment"),
+      assignmentId: startAssignmentInput.shape.assignmentId.describe(
+        "ID of the assignment to start",
+      ),
+      model: startAssignmentInput.shape.model.describe(
+        "Optional model override for this assignment",
+      ),
       provider: startAssignmentInput.shape.provider.describe("Optional provider override"),
     },
     async (args) => {
@@ -83,7 +117,9 @@ export function register(server: McpServer, client: EzcorpClient): void {
     "spawn_chats",
     "Use when you need N independent root-level chats in parallel — NOT for fan-out within a single chat (use spawn_agents/spawn_team/assign_task for that).",
     {
-      chats: spawnChatsInput.shape.chats.describe("Array of chat specs to spawn (max 20). Each needs projectId and initialMessage."),
+      chats: spawnChatsInput.shape.chats.describe(
+        "Array of chat specs to spawn (max 20). Each needs projectId and initialMessage.",
+      ),
     },
     async (args) => {
       const result = await client.spawnChats(args);
@@ -98,7 +134,9 @@ export function register(server: McpServer, client: EzcorpClient): void {
           runUrl: client.entityUrl({ kind: "run", id: c.runId }),
         };
       });
-      return { content: [{ type: "text" as const, text: JSON.stringify({ chats: chatsWithUrls }) }] };
+      return {
+        content: [{ type: "text" as const, text: JSON.stringify({ chats: chatsWithUrls }) }],
+      };
     },
   );
 
@@ -107,7 +145,10 @@ export function register(server: McpServer, client: EzcorpClient): void {
     "Fan out within a single conversation by composing multiple ![agent:name] mentions into one message. Use this when you want parallel sub-conversations under the current chat.",
     {
       conversationId: z.string().describe("UUID of the parent conversation to fan out from"),
-      agents: z.array(z.string().min(1)).min(1).describe("Agent names to mention; each becomes ![agent:name] in the composed message"),
+      agents: z
+        .array(z.string().min(1))
+        .min(1)
+        .describe("Agent names to mention; each becomes ![agent:name] in the composed message"),
       task: z.string().min(1).describe("The task/prompt to give all agents"),
       model: z.string().optional().describe("Optional model override"),
       provider: z.string().optional().describe("Optional provider override"),

@@ -3,11 +3,8 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 
 mockDbConnection();
 
-const {
-  createPasswordResetToken,
-  claimPasswordResetToken,
-  deleteExpiredResetTokens,
-} = await import("../db/queries/password-resets");
+const { createPasswordResetToken, claimPasswordResetToken, deleteExpiredResetTokens } =
+  await import("../db/queries/password-resets");
 const { createUser } = await import("../db/queries/users");
 
 describe("password-resets queries", () => {

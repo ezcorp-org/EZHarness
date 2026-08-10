@@ -94,18 +94,17 @@ async function loadModel(id: string): Promise<KokoroLike> {
     const mod = await import("kokoro-js");
     const KokoroTTS = (mod as { KokoroTTS: KokoroTtsCtor }).KokoroTTS;
     TextSplitterStreamCtor =
-      (mod as { TextSplitterStream?: new () => TextSplitterStreamLike })
-        .TextSplitterStream ?? null;
+      (mod as { TextSplitterStream?: new () => TextSplitterStreamLike }).TextSplitterStream ?? null;
     if (!KokoroTTS || typeof KokoroTTS.from_pretrained !== "function") {
       throw new Error("kokoro-js exports unexpected shape");
     }
     if (typeof TextSplitterStreamCtor !== "function") {
       throw new Error("kokoro-js exports unexpected shape");
     }
-    return KokoroTTS.from_pretrained(
-      "onnx-community/Kokoro-82M-v1.0-ONNX",
-      { dtype: "q8", device: "wasm" },
-    );
+    return KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX", {
+      dtype: "q8",
+      device: "wasm",
+    });
   })();
   try {
     const tts = await ttsPromise;
@@ -120,10 +119,7 @@ async function loadModel(id: string): Promise<KokoroLike> {
 }
 
 type KokoroTtsCtor = {
-  from_pretrained: (
-    model: string,
-    opts: { dtype: string; device: string },
-  ) => Promise<KokoroLike>;
+  from_pretrained: (model: string, opts: { dtype: string; device: string }) => Promise<KokoroLike>;
 };
 
 function postLoading(id: string, phase: "model" | "voice"): void {

@@ -52,9 +52,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       if (archive instanceof File) {
         staged = await stageArchiveUpload({ projectRoot: root, archive });
       } else {
-        const files = form
-          .getAll("files")
-          .filter((x): x is File => x instanceof File);
+        const files = form.getAll("files").filter((x): x is File => x instanceof File);
         const paths = form.getAll("paths").map(String);
         staged = await stageDirectoryUpload({ projectRoot: root, files, paths });
       }

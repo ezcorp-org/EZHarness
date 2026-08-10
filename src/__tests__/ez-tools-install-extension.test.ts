@@ -31,7 +31,9 @@ interface ToolErrorDetails {
 mockDbConnection();
 
 const { createUser } = await import("../db/queries/users");
-const { createProposeInstallExtensionTool } = await import("../runtime/tools/ez/propose-install-extension");
+const { createProposeInstallExtensionTool } = await import(
+  "../runtime/tools/ez/propose-install-extension"
+);
 const { getDraft } = await import("../db/queries/ez-drafts");
 const { getDb } = await import("../db/connection");
 const { marketplaceListings } = await import("../db/schema");
@@ -44,24 +46,26 @@ beforeAll(async () => {
   userId = u.id;
 
   // Seed a couple of marketplace listings so the lookup paths have data.
-  await getDb().insert(marketplaceListings).values([
-    {
-      authorId: userId,
-      name: "PDF Reader",
-      description: "Read PDFs in chat.",
-      slug: "pdf-reader",
-      category: "files",
-      latestVersion: "1.0.0",
-    },
-    {
-      authorId: userId,
-      name: "Web Crawler",
-      description: "Crawl web pages.",
-      slug: "web-crawler",
-      category: "tools",
-      latestVersion: "1.0.0",
-    },
-  ]);
+  await getDb()
+    .insert(marketplaceListings)
+    .values([
+      {
+        authorId: userId,
+        name: "PDF Reader",
+        description: "Read PDFs in chat.",
+        slug: "pdf-reader",
+        category: "files",
+        latestVersion: "1.0.0",
+      },
+      {
+        authorId: userId,
+        name: "Web Crawler",
+        description: "Crawl web pages.",
+        slug: "web-crawler",
+        category: "tools",
+        latestVersion: "1.0.0",
+      },
+    ]);
 });
 
 afterAll(async () => {

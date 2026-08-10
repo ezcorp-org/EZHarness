@@ -53,9 +53,7 @@ mock.module("../extensions/bundled-ceiling", () => ({
   getCeiling: () => null,
 }));
 
-const { assertCriticalExtensions } = await import(
-  "../startup/assert-critical-extensions"
-);
+const { assertCriticalExtensions } = await import("../startup/assert-critical-extensions");
 const { getCriticalBundledExtensions } = await import("../extensions/bundled");
 
 afterAll(() => restoreModuleMocks());
@@ -78,10 +76,8 @@ describe("assertCriticalExtensions — ceiling EXCEEDS (security floor)", () => 
     expect(r.remediated).not.toContain("ask-user");
     expect(r.unremediated).toContain("ask-user");
     expect(rows.get("ask-user")!.enabled).toBe(false);
-    expect(
-      auditEntries.some(
-        (a) => a.action === "ext:bundled:critical-auto-reapproved",
-      ),
-    ).toBe(false);
+    expect(auditEntries.some((a) => a.action === "ext:bundled:critical-auto-reapproved")).toBe(
+      false,
+    );
   }, 20_000);
 });

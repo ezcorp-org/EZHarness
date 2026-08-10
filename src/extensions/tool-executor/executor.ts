@@ -18,7 +18,11 @@ import { getProject } from "../../db/queries/projects";
 import { persistToolCall } from "../../db/queries/tool-calls";
 import { resolveExtensionSettings } from "../../db/queries/extension-settings";
 import type { Decision, PermissionEngine } from "../permission-engine";
-import { capabilityDeclarationToSet, type Capability, type CapabilitySet } from "../capability-types";
+import {
+  capabilityDeclarationToSet,
+  type Capability,
+  type CapabilitySet,
+} from "../capability-types";
 import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-context";
 import {
   createExtensionPermissionGate,
@@ -29,10 +33,7 @@ import { buildEntityToolHandlers } from "@ezcorp/sdk/entities";
 import { createHostEntityStore } from "../entities/host-store";
 import { redactLargeDataUris } from "../audit-redaction";
 import { logger } from "../../logger";
-import {
-  registerCallProvenance,
-  releaseCallProvenance,
-} from "../call-provenance";
+import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 
 // ── extracted sibling modules ──────────────────────────────────────────
 import {
@@ -126,9 +127,7 @@ export class ToolExecutor {
     options?: ToolExecutorOptions,
   ) {
     if (!engine) {
-      throw new Error(
-        "ToolExecutor requires a PermissionEngine (Phase 1 fail-closed contract)",
-      );
+      throw new Error("ToolExecutor requires a PermissionEngine (Phase 1 fail-closed contract)");
     }
     this.bus = options?.bus;
     this.eventDriven = options?.eventDriven === true;
@@ -415,8 +414,7 @@ export class ToolExecutor {
     // `parentAuditId` as undefined; nested invokes pick it up from
     // the surrounding ALS scope.
     const upstreamCtx = getRuntimeToolContext();
-    const inheritedParentAuditId =
-      _opts?.parentAuditId ?? upstreamCtx?.currentAuditId;
+    const inheritedParentAuditId = _opts?.parentAuditId ?? upstreamCtx?.currentAuditId;
 
     // Explicit `Decision` (not `typeof this.engine.authorize`): the
     // `typeof this` type query is fragile under the backend-only tsc
@@ -437,17 +435,15 @@ export class ToolExecutor {
           toolName: originalName,
           callerExtensionId: _opts?.callerExtensionId,
           capContext: _opts?.capContext,
-          ...(inheritedParentAuditId !== undefined ? { parentAuditId: inheritedParentAuditId } : {}),
+          ...(inheritedParentAuditId !== undefined
+            ? { parentAuditId: inheritedParentAuditId }
+            : {}),
         },
         needed,
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new PermissionDeniedError(
-        extensionId,
-        toolName,
-        `engine error: ${msg}`,
-      );
+      throw new PermissionDeniedError(extensionId, toolName, `engine error: ${msg}`);
     }
 
     if (decision.decision === "deny") {
@@ -562,11 +558,7 @@ export class ToolExecutor {
         // failure (e.g. server restart). Treat as deny.
         const msg = err instanceof Error ? err.message : String(err);
         await terminalizePromptCard(`permission gate error: ${msg}`);
-        throw new PermissionDeniedError(
-          extensionId,
-          toolName,
-          `permission gate error: ${msg}`,
-        );
+        throw new PermissionDeniedError(extensionId, toolName, `permission gate error: ${msg}`);
       } finally {
         // Runs on every exit — gate resolved (allow/deny), gate threw
         // (catch above), or any unexpected throw. Race-safe: the key is
@@ -577,11 +569,7 @@ export class ToolExecutor {
 
       if (!resolution.allowed) {
         await terminalizePromptCard("User declined permission prompt");
-        throw new PermissionDeniedError(
-          extensionId,
-          toolName,
-          "User declined permission prompt",
-        );
+        throw new PermissionDeniedError(extensionId, toolName, "User declined permission prompt");
       }
 
       // Persist always-allow at the user-chosen scope (default session
@@ -657,289 +645,285 @@ export class ToolExecutor {
     emitToolStart(startTime);
 
     return withRuntimeToolContext(runtimeCtxForCall, async () => {
-    try {
-      // Resolve shared variables (x-shared) before dispatching to either
-      // subprocess or MCP client.
-      const resolvedInput = resolveSharedVariables(
-        registered.inputSchema,
-        input,
-      );
+      try {
+        // Resolve shared variables (x-shared) before dispatching to either
+        // subprocess or MCP client.
+        const resolvedInput = resolveSharedVariables(registered.inputSchema, input);
 
-      const manifest = this.registry.getManifest(extensionId);
-      const isMcp = manifest?.kind === "mcp";
+        const manifest = this.registry.getManifest(extensionId);
+        const isMcp = manifest?.kind === "mcp";
 
-      // Phase 3 SDK-served branch — entity CRUD tools dispatch directly
-      // to the SDK's auto-generated handler (bypassing the subprocess
-      // and the MCP client entirely). The registry tagged these with
-      // `entityKind` + `entityType`; dispatch finds the declaration on
-      // the manifest, binds an EntityStoreLike to the acting scope, and
-      // returns the SDK's `ToolCallResult` directly. The audit log
-      // (`recordToolCall` below) still runs uniformly so SDK-served
-      // calls appear in the same row as subprocess-served ones — only
-      // the bytes between PDP and audit differ.
-      if (registered.entityKind && registered.entityType && manifest) {
-        const decl = manifest.entities?.find(
-          (e) => e.type === registered.entityType,
-        );
-        if (!decl) {
-          throw new Error(
-            `Entity declaration "${registered.entityType}" not found on manifest for extension ${extensionId}`,
+        // Phase 3 SDK-served branch — entity CRUD tools dispatch directly
+        // to the SDK's auto-generated handler (bypassing the subprocess
+        // and the MCP client entirely). The registry tagged these with
+        // `entityKind` + `entityType`; dispatch finds the declaration on
+        // the manifest, binds an EntityStoreLike to the acting scope, and
+        // returns the SDK's `ToolCallResult` directly. The audit log
+        // (`recordToolCall` below) still runs uniformly so SDK-served
+        // calls appear in the same row as subprocess-served ones — only
+        // the bytes between PDP and audit differ.
+        if (registered.entityKind && registered.entityType && manifest) {
+          const decl = manifest.entities?.find((e) => e.type === registered.entityType);
+          if (!decl) {
+            throw new Error(
+              `Entity declaration "${registered.entityType}" not found on manifest for extension ${extensionId}`,
+            );
+          }
+          const scope = decl.scope ?? "user";
+          // Bind the host store to the acting scope. For "user", we use
+          // the acting user (currentUserId). For "conversation", we use
+          // the conversation id. "project" maps onto conversation per the
+          // host-store adapter (v1 has no project tier).
+          const scopeId =
+            scope === "user" ? (this.currentUserId ?? null) : (conversationId ?? null);
+          if (!scopeId) {
+            throw new Error(
+              `Cannot dispatch entity tool ${toolName}: no ${scope}-scope id available`,
+            );
+          }
+          const store = createHostEntityStore({
+            extensionId,
+            scope,
+            scopeId,
+          });
+          const handlers = buildEntityToolHandlers(decl, store);
+          const handler = handlers[registered.entityKind];
+          const entityResult = await handler(resolvedInput);
+          await this.recordToolCall(
+            conversationId,
+            messageId,
+            extensionId,
+            toolName,
+            input,
+            entityResult,
+            startTime,
+            registered.cardType,
+            registered.cardLayout,
           );
+          const duration = Date.now() - startTime;
+          this.bus?.emit("tool:complete", {
+            conversationId,
+            extensionId,
+            toolName,
+            output: entityResult,
+            duration,
+            success: !entityResult.isError,
+            ...(registered.cardType && { cardType: registered.cardType }),
+            ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
+            ...(meta?.source && { source: meta.source }),
+            ...(meta?.invocationId && { invocationId: meta.invocationId }),
+          });
+          return entityResult;
         }
-        const scope = decl.scope ?? "user";
-        // Bind the host store to the acting scope. For "user", we use
-        // the acting user (currentUserId). For "conversation", we use
-        // the conversation id. "project" maps onto conversation per the
-        // host-store adapter (v1 has no project tier).
-        const scopeId =
-          scope === "user"
-            ? (this.currentUserId ?? null)
-            : (conversationId ?? null);
-        if (!scopeId) {
-          throw new Error(
-            `Cannot dispatch entity tool ${toolName}: no ${scope}-scope id available`,
-          );
+
+        let result: ToolCallResult;
+        if (isMcp) {
+          const client = await this.registry.getMcpClient(extensionId);
+          result = await client.callTool(originalName, resolvedInput);
+        } else {
+          const proc = await this.registry.getProcess(extensionId);
+
+          // Wire handlers if not already wired for this extension
+          await this.ensureSubprocessRpcWired(extensionId, proc);
+
+          // Use originalName for RPC call to subprocess, not the namespaced name
+          const callArgs =
+            _opts?._callDepth != null && _opts._callDepth > 0
+              ? { ...resolvedInput, _depth: _opts._callDepth }
+              : resolvedInput;
+          // Propagate the acting-user id through the JSON-RPC `_meta`
+          // side-channel. The subprocess sees it in `extra._meta.ezOnBehalfOf`
+          // and bundled extensions (like ai-kit) forward it as the
+          // X-Ezcorp-On-Behalf-Of header on any outbound call back into
+          // this server. This is the ONLY path by which the conversation
+          // owner's id reaches a tool handler — it is never part of the
+          // LLM-visible arguments (see bearer-auth.ts for the reason).
+          const meta: Record<string, unknown> = {};
+          if (this.currentUserId) meta.ezOnBehalfOf = this.currentUserId;
+          if (conversationId) {
+            meta.ezConversationId = conversationId;
+            // Resolve the conversation's ACTIVE project root so filesystem-
+            // scoping extensions (ez-code-factory's gate) target the RIGHT
+            // project. A single persistent subprocess serves every
+            // conversation, so the subprocess-wide `EZCORP_PROJECT_ROOT` env
+            // var only ever names ONE project — structurally wrong. The host
+            // owns the truth (`conversations.projectId` → `projects.path`),
+            // so we resolve it per-call and forward it on `_meta`. Best-effort:
+            // any failure leaves it undefined (the SDK/ext fall back to the
+            // env var) rather than failing the tool call.
+            try {
+              const conv = await getConversation(conversationId);
+              if (conv?.projectId) {
+                const project = await getProject(conv.projectId);
+                if (project?.path) meta.ezProjectRoot = project.path;
+              }
+            } catch {
+              // leave meta.ezProjectRoot unset — resolve defensively
+            }
+          }
+          if (this.currentModel) meta.ezModel = this.currentModel;
+          if (this.currentProvider) meta.ezProvider = this.currentProvider;
+          // Public origin of the EZCorp UI — bundled MCP tools (ai-kit)
+          // use it to build clickable deep-links in tool responses. Safe
+          // to pass to every subprocess; non-URL-building tools ignore it.
+          const publicUrl = process.env.EZCORP_PUBLIC_URL;
+          if (publicUrl) meta.ezPublicUrl = publicUrl;
+          // Phase 4 §5.1a: opaque per-turn invocation metadata rides in
+          // `_meta.invocationMetadata`. The SDK's tools/call dispatcher
+          // surfaces it on the handler ctx.
+          //
+          // Per-extension user/global settings (lazy-foraging-hammock):
+          // when the manifest declares a `settings` schema, resolve the
+          // effective values for the acting user and merge them under
+          // `invocationMetadata.settings`. Caller-supplied settings win
+          // over resolved values (the host orchestrator may pre-bind
+          // overrides at wire time); resolved values fill the gaps.
+          let mergedInvocationMetadata = invocationMetadata;
+          if (manifest?.settings) {
+            // Pass the in-memory schema so the resolver skips the
+            // per-call `extensions.manifest` DB query — N+1 fix.
+            const resolved = await resolveExtensionSettings(
+              extensionId,
+              this.currentUserId ?? null,
+              manifest.settings,
+            );
+            const callerSettings = (invocationMetadata?.settings ?? undefined) as
+              | Record<string, unknown>
+              | undefined;
+            mergedInvocationMetadata = {
+              ...invocationMetadata,
+              settings: { ...resolved, ...(callerSettings ?? {}) },
+            };
+          }
+          if (mergedInvocationMetadata && Object.keys(mergedInvocationMetadata).length > 0) {
+            meta.invocationMetadata = mergedInvocationMetadata;
+          }
+          // Per-call reverse-RPC provenance. The subprocess echoes ONLY
+          // this opaque, host-issued token back on its capability calls;
+          // the host resolves the real {onBehalfOf, conversationId, runId,
+          // parentCallId} from the registry — never from mutable singleton
+          // state. The snapshot is taken from THIS call's values, so it
+          // stays correct under concurrency and for long-running tools.
+          const im = mergedInvocationMetadata as
+            | { runId?: unknown; parentCallId?: unknown }
+            | undefined;
+          const ezCallId = registerCallProvenance({
+            onBehalfOf: this.currentUserId ?? null,
+            conversationId: conversationId ?? null,
+            runId: typeof im?.runId === "string" ? im.runId : null,
+            parentCallId: typeof im?.parentCallId === "string" ? im.parentCallId : null,
+            actorExtensionId: extensionId,
+            kind: "tool",
+            ownerless: !this.currentUserId,
+          });
+          meta.ezCallId = ezCallId;
+          // Only pass the fourth `options` arg when there's something to set —
+          // keeps the 3-arg call shape for the common case (tests assert with
+          // strict `toHaveBeenCalledWith` arity). The token is released the
+          // moment the forward call returns — all reverse-RPCs for it have
+          // necessarily completed by then.
+          // Long-blocking exemption from the flat per-call subprocess RPC timeout
+          // (subprocess.ts kills the process on any call exceeding callTimeoutMs,
+          // default 30s). Two host-controlled cases opt out:
+          //   1. `requiresUserInput` — human-in-the-loop (ask-user); bounded by the
+          //      user.
+          //   2. A BUNDLED orchestration tool that legitimately awaits async events
+          //      (invoke_agent / collect_agent_result — see
+          //      LONG_BLOCKING_ORCHESTRATION_TOOLS). Without this, a >30s wait kills
+          //      the SHARED orchestration subprocess, dropping every backgroundSpawn
+          //      + in-flight invoke across all conversations.
+          // Gated on `registry.isBundled` so a third-party manifest cannot self-grant
+          // supervision evasion (the bare-name set is host-produced; see filter.ts).
+          // Unbounded here (not a raised finite cap) because the activity-sliding
+          // give-up deadline + configurable maxCycles exceed any fixed cap; the tool
+          // self-bounds via its own reap/gate, and the parent-run watchdog provides
+          // the run-level bound (bounded for collect; agent:* liveness for invoke).
+          const skipCallTimeout =
+            registered.requiresUserInput === true ||
+            (LONG_BLOCKING_ORCHESTRATION_TOOLS.has(originalName) &&
+              this.registry.isBundled?.(extensionId) === true);
+          try {
+            result = skipCallTimeout
+              ? await proc.callTool(originalName, callArgs, meta, { skipTimeout: true })
+              : await proc.callTool(originalName, callArgs, meta);
+          } finally {
+            releaseCallProvenance(ezCallId);
+          }
         }
-        const store = createHostEntityStore({
-          extensionId,
-          scope,
-          scopeId,
-        });
-        const handlers = buildEntityToolHandlers(decl, store);
-        const handler = handlers[registered.entityKind];
-        const entityResult = await handler(resolvedInput);
+
+        // Record to tool_calls table
         await this.recordToolCall(
           conversationId,
           messageId,
           extensionId,
           toolName,
           input,
-          entityResult,
+          result,
           startTime,
           registered.cardType,
           registered.cardLayout,
         );
+
         const duration = Date.now() - startTime;
         this.bus?.emit("tool:complete", {
           conversationId,
           extensionId,
           toolName,
-          output: entityResult,
+          output: result,
           duration,
-          success: !entityResult.isError,
+          success: !result.isError,
           ...(registered.cardType && { cardType: registered.cardType }),
           ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
           ...(meta?.source && { source: meta.source }),
           ...(meta?.invocationId && { invocationId: meta.invocationId }),
         });
-        return entityResult;
-      }
 
-      let result: ToolCallResult;
-      if (isMcp) {
-        const client = await this.registry.getMcpClient(extensionId);
-        result = await client.callTool(originalName, resolvedInput);
-      } else {
-        const proc = await this.registry.getProcess(extensionId);
+        return result;
+      } catch (error) {
+        const errorMsg =
+          error instanceof Error
+            ? error.message
+            : typeof error === "string"
+              ? error
+              : JSON.stringify(error);
+        const errorResult: ToolCallResult = {
+          content: [{ type: "text", text: errorMsg }],
+          isError: true,
+        };
 
-        // Wire handlers if not already wired for this extension
-        await this.ensureSubprocessRpcWired(extensionId, proc);
+        // Record error to tool_calls table
+        await this.recordToolCall(
+          conversationId,
+          messageId,
+          extensionId,
+          toolName,
+          input,
+          errorResult,
+          startTime,
+          registered.cardType,
+          registered.cardLayout,
+        );
 
-        // Use originalName for RPC call to subprocess, not the namespaced name
-        const callArgs = _opts?._callDepth != null && _opts._callDepth > 0
-          ? { ...resolvedInput, _depth: _opts._callDepth }
-          : resolvedInput;
-        // Propagate the acting-user id through the JSON-RPC `_meta`
-        // side-channel. The subprocess sees it in `extra._meta.ezOnBehalfOf`
-        // and bundled extensions (like ai-kit) forward it as the
-        // X-Ezcorp-On-Behalf-Of header on any outbound call back into
-        // this server. This is the ONLY path by which the conversation
-        // owner's id reaches a tool handler — it is never part of the
-        // LLM-visible arguments (see bearer-auth.ts for the reason).
-        const meta: Record<string, unknown> = {};
-        if (this.currentUserId) meta.ezOnBehalfOf = this.currentUserId;
-        if (conversationId) {
-          meta.ezConversationId = conversationId;
-          // Resolve the conversation's ACTIVE project root so filesystem-
-          // scoping extensions (ez-code-factory's gate) target the RIGHT
-          // project. A single persistent subprocess serves every
-          // conversation, so the subprocess-wide `EZCORP_PROJECT_ROOT` env
-          // var only ever names ONE project — structurally wrong. The host
-          // owns the truth (`conversations.projectId` → `projects.path`),
-          // so we resolve it per-call and forward it on `_meta`. Best-effort:
-          // any failure leaves it undefined (the SDK/ext fall back to the
-          // env var) rather than failing the tool call.
-          try {
-            const conv = await getConversation(conversationId);
-            if (conv?.projectId) {
-              const project = await getProject(conv.projectId);
-              if (project?.path) meta.ezProjectRoot = project.path;
-            }
-          } catch {
-            // leave meta.ezProjectRoot unset — resolve defensively
-          }
-        }
-        if (this.currentModel) meta.ezModel = this.currentModel;
-        if (this.currentProvider) meta.ezProvider = this.currentProvider;
-        // Public origin of the EZCorp UI — bundled MCP tools (ai-kit)
-        // use it to build clickable deep-links in tool responses. Safe
-        // to pass to every subprocess; non-URL-building tools ignore it.
-        const publicUrl = process.env.EZCORP_PUBLIC_URL;
-        if (publicUrl) meta.ezPublicUrl = publicUrl;
-        // Phase 4 §5.1a: opaque per-turn invocation metadata rides in
-        // `_meta.invocationMetadata`. The SDK's tools/call dispatcher
-        // surfaces it on the handler ctx.
-        //
-        // Per-extension user/global settings (lazy-foraging-hammock):
-        // when the manifest declares a `settings` schema, resolve the
-        // effective values for the acting user and merge them under
-        // `invocationMetadata.settings`. Caller-supplied settings win
-        // over resolved values (the host orchestrator may pre-bind
-        // overrides at wire time); resolved values fill the gaps.
-        let mergedInvocationMetadata = invocationMetadata;
-        if (manifest?.settings) {
-          // Pass the in-memory schema so the resolver skips the
-          // per-call `extensions.manifest` DB query — N+1 fix.
-          const resolved = await resolveExtensionSettings(
-            extensionId,
-            this.currentUserId ?? null,
-            manifest.settings,
-          );
-          const callerSettings = (invocationMetadata?.settings ?? undefined) as
-            | Record<string, unknown>
-            | undefined;
-          mergedInvocationMetadata = {
-            ...invocationMetadata,
-            settings: { ...resolved, ...(callerSettings ?? {}) },
-          };
-        }
-        if (mergedInvocationMetadata && Object.keys(mergedInvocationMetadata).length > 0) {
-          meta.invocationMetadata = mergedInvocationMetadata;
-        }
-        // Per-call reverse-RPC provenance. The subprocess echoes ONLY
-        // this opaque, host-issued token back on its capability calls;
-        // the host resolves the real {onBehalfOf, conversationId, runId,
-        // parentCallId} from the registry — never from mutable singleton
-        // state. The snapshot is taken from THIS call's values, so it
-        // stays correct under concurrency and for long-running tools.
-        const im = mergedInvocationMetadata as
-          | { runId?: unknown; parentCallId?: unknown }
-          | undefined;
-        const ezCallId = registerCallProvenance({
-          onBehalfOf: this.currentUserId ?? null,
-          conversationId: conversationId ?? null,
-          runId: typeof im?.runId === "string" ? im.runId : null,
-          parentCallId: typeof im?.parentCallId === "string" ? im.parentCallId : null,
-          actorExtensionId: extensionId,
-          kind: "tool",
-          ownerless: !this.currentUserId,
+        const duration = Date.now() - startTime;
+        this.bus?.emit("tool:error", {
+          conversationId,
+          extensionId,
+          toolName,
+          error: errorMsg,
+          duration,
+          ...(registered.cardType && { cardType: registered.cardType }),
+          ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
+          ...(meta?.source && { source: meta.source }),
+          ...(meta?.invocationId && { invocationId: meta.invocationId }),
         });
-        meta.ezCallId = ezCallId;
-        // Only pass the fourth `options` arg when there's something to set —
-        // keeps the 3-arg call shape for the common case (tests assert with
-        // strict `toHaveBeenCalledWith` arity). The token is released the
-        // moment the forward call returns — all reverse-RPCs for it have
-        // necessarily completed by then.
-        // Long-blocking exemption from the flat per-call subprocess RPC timeout
-        // (subprocess.ts kills the process on any call exceeding callTimeoutMs,
-        // default 30s). Two host-controlled cases opt out:
-        //   1. `requiresUserInput` — human-in-the-loop (ask-user); bounded by the
-        //      user.
-        //   2. A BUNDLED orchestration tool that legitimately awaits async events
-        //      (invoke_agent / collect_agent_result — see
-        //      LONG_BLOCKING_ORCHESTRATION_TOOLS). Without this, a >30s wait kills
-        //      the SHARED orchestration subprocess, dropping every backgroundSpawn
-        //      + in-flight invoke across all conversations.
-        // Gated on `registry.isBundled` so a third-party manifest cannot self-grant
-        // supervision evasion (the bare-name set is host-produced; see filter.ts).
-        // Unbounded here (not a raised finite cap) because the activity-sliding
-        // give-up deadline + configurable maxCycles exceed any fixed cap; the tool
-        // self-bounds via its own reap/gate, and the parent-run watchdog provides
-        // the run-level bound (bounded for collect; agent:* liveness for invoke).
-        const skipCallTimeout =
-          registered.requiresUserInput === true ||
-          (LONG_BLOCKING_ORCHESTRATION_TOOLS.has(originalName) &&
-            this.registry.isBundled?.(extensionId) === true);
-        try {
-          result = skipCallTimeout
-            ? await proc.callTool(originalName, callArgs, meta, { skipTimeout: true })
-            : await proc.callTool(originalName, callArgs, meta);
-        } finally {
-          releaseCallProvenance(ezCallId);
-        }
+
+        return errorResult;
       }
-
-      // Record to tool_calls table
-      await this.recordToolCall(
-        conversationId,
-        messageId,
-        extensionId,
-        toolName,
-        input,
-        result,
-        startTime,
-        registered.cardType,
-        registered.cardLayout,
-      );
-
-      const duration = Date.now() - startTime;
-      this.bus?.emit("tool:complete", {
-        conversationId,
-        extensionId,
-        toolName,
-        output: result,
-        duration,
-        success: !result.isError,
-        ...(registered.cardType && { cardType: registered.cardType }),
-        ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-        ...(meta?.source && { source: meta.source }),
-        ...(meta?.invocationId && { invocationId: meta.invocationId }),
-      });
-
-      return result;
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : (typeof error === 'string' ? error : JSON.stringify(error));
-      const errorResult: ToolCallResult = {
-        content: [{ type: "text", text: errorMsg }],
-        isError: true,
-      };
-
-      // Record error to tool_calls table
-      await this.recordToolCall(
-        conversationId,
-        messageId,
-        extensionId,
-        toolName,
-        input,
-        errorResult,
-        startTime,
-        registered.cardType,
-        registered.cardLayout,
-      );
-
-      const duration = Date.now() - startTime;
-      this.bus?.emit("tool:error", {
-        conversationId,
-        extensionId,
-        toolName,
-        error: errorMsg,
-        duration,
-        ...(registered.cardType && { cardType: registered.cardType }),
-        ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-        ...(meta?.source && { source: meta.source }),
-        ...(meta?.invocationId && { invocationId: meta.invocationId }),
-      });
-
-      return errorResult;
-    }
     });
   }
 
   /** Legacy `ezcorp/fs` path-check shim — see {@link fsHandlePiFs}. */
-  async handlePiFs(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiFs(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return fsHandlePiFs(this.registry, extensionId, req);
   }
 
@@ -985,10 +969,7 @@ export class ToolExecutor {
   }
 
   /** `ezcorp/invoke` cross-extension dispatch — see {@link rpcHandlePiInvoke}. */
-  async handlePiInvoke(
-    callerExtId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiInvoke(callerExtId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiInvoke(this.invokeHost(), callerExtId, req);
   }
 
@@ -1039,34 +1020,22 @@ export class ToolExecutor {
   }
 
   /** `ezcorp/storage` reverse-RPC — see {@link rpcHandlePiStorage}. */
-  async handlePiStorage(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiStorage(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiStorage(this.rpcDeps(), extensionId, req);
   }
 
   /** `ezcorp/AgentConfigs` reverse-RPC — see {@link rpcHandlePiAgentConfigs}. */
-  async handlePiAgentConfigs(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiAgentConfigs(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiAgentConfigs(this.rpcDeps(), extensionId, req);
   }
 
   /** `ezcorp/EmitTaskEvent` reverse-RPC — see {@link rpcHandlePiEmitTaskEvent}. */
-  async handlePiEmitTaskEvent(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiEmitTaskEvent(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiEmitTaskEvent(this.rpcDeps(), extensionId, req);
   }
 
   /** `ezcorp/EmitLoopEvent` reverse-RPC — see {@link rpcHandlePiEmitLoopEvent}. */
-  async handlePiEmitLoopEvent(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiEmitLoopEvent(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiEmitLoopEvent(this.rpcDeps(), extensionId, req);
   }
 
@@ -1079,10 +1048,7 @@ export class ToolExecutor {
   }
 
   /** `ezcorp/CancelRun` reverse-RPC — see {@link rpcHandlePiCancelRun}. */
-  async handlePiCancelRun(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiCancelRun(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiCancelRun(this.rpcDeps(), extensionId, req);
   }
 
@@ -1128,10 +1094,7 @@ export class ToolExecutor {
    * `this.registry` / static helpers — no per-turn state — so
    * re-wiring a fresh proc is always safe.
    */
-  async ensureSubprocessRpcWired(
-    extensionId: string,
-    proc: ExtensionProcess,
-  ): Promise<void> {
+  async ensureSubprocessRpcWired(extensionId: string, proc: ExtensionProcess): Promise<void> {
     if (this.wiredProcs.has(proc)) return;
     this.wiredProcs.add(proc);
 
@@ -1168,8 +1131,7 @@ export class ToolExecutor {
         req.method === "ezcorp/drafts"
           ? (req.params as { action?: unknown } | undefined)?.action
           : undefined;
-      const exempt =
-        draftsAction === "verify" || draftsAction === "install";
+      const exempt = draftsAction === "verify" || draftsAction === "install";
       return dispatchReverseRpcWithTimeout(
         req.method,
         extensionId,
@@ -1181,58 +1143,37 @@ export class ToolExecutor {
   }
 
   /** `ezcorp/LlmComplete` reverse-RPC — see {@link rpcHandlePiLlmComplete}. */
-  async handlePiLlmComplete(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiLlmComplete(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiLlmComplete(this.rpcDeps(), extensionId, req);
   }
 
   /** `ezcorp/Memory` reverse-RPC — see {@link rpcHandlePiMemory}. */
-  async handlePiMemory(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiMemory(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiMemory(this.rpcDeps(), extensionId, req);
   }
 
   /** `ezcorp/Lessons` reverse-RPC — see {@link rpcHandlePiLessons}. */
-  async handlePiLessons(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiLessons(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiLessons(this.rpcDeps(), extensionId, req);
   }
 
   /** `ezcorp/Search` reverse-RPC — see {@link rpcHandlePiSearch}. */
-  async handlePiSearch(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiSearch(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiSearch(this.rpcDeps(), extensionId, req);
   }
 
   /** `ezcorp/Schedule` reverse-RPC — see {@link rpcHandlePiSchedule}. */
-  async handlePiSchedule(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiSchedule(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiSchedule(this.rpcDeps(), extensionId, req);
   }
 
   /** `ezcorp/Drafts` reverse-RPC — see {@link rpcHandlePiDrafts}. */
-  async handlePiDrafts(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiDrafts(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiDrafts(this.rpcDeps(), extensionId, req);
   }
 
   /** `ezcorp/Workflows` reverse-RPC — see {@link rpcHandlePiWorkflows}. */
-  async handlePiWorkflows(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiWorkflows(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiWorkflows(this.rpcDeps(), extensionId, req);
   }
 
@@ -1246,26 +1187,17 @@ export class ToolExecutor {
   }
 
   /** `ezcorp/triggers` reverse-RPC — see {@link rpcHandlePiTriggers}. */
-  async handlePiTriggers(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiTriggers(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiTriggers(this.rpcDeps(), extensionId, req);
   }
 
   /** `ezcorp/GithubProjects` reverse-RPC — see {@link rpcHandlePiGithubProjects}. */
-  async handlePiGithubProjects(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiGithubProjects(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiGithubProjects(this.rpcDeps(), extensionId, req);
   }
 
   /** `ezcorp/RbacCheck` reverse-RPC — see {@link rpcHandlePiRbacCheck}. */
-  async handlePiRbacCheck(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiRbacCheck(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiRbacCheck(this.rpcDeps(), extensionId, req);
   }
 
@@ -1322,18 +1254,12 @@ export class ToolExecutor {
    * call the free `provResolveReverseRpcMeta` directly.
    */
   // biome-ignore lint/correctness/noUnusedPrivateClassMembers: test seam — exercised via cast in tool-executor.provenance.test.ts
-  private resolveReverseRpcMeta(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ) {
+  private resolveReverseRpcMeta(extensionId: string, req: JsonRpcRequest) {
     return provResolveReverseRpcMeta(extensionId, req);
   }
 
   /** `ezcorp/AppendMessage` reverse-RPC — see {@link rpcHandlePiAppendMessage}. */
-  async handlePiAppendMessage(
-    extensionId: string,
-    req: JsonRpcRequest,
-  ): Promise<JsonRpcResponse> {
+  async handlePiAppendMessage(extensionId: string, req: JsonRpcRequest): Promise<JsonRpcResponse> {
     return rpcHandlePiAppendMessage(this.rpcDeps(), extensionId, req);
   }
 

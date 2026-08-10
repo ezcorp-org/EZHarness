@@ -21,88 +21,93 @@ import { store, registerPendingPermission, type ToolCallState } from "$lib/store
 const fetchMock = vi.fn();
 
 beforeEach(() => {
-	store.pendingPermissions = [];
-	fetchMock.mockReset();
-	fetchMock.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
-	vi.stubGlobal("fetch", fetchMock);
+  store.pendingPermissions = [];
+  fetchMock.mockReset();
+  fetchMock.mockResolvedValue({ ok: true, json: async () => ({ ok: true }) });
+  vi.stubGlobal("fetch", fetchMock);
 });
 
 afterEach(() => {
-	vi.unstubAllGlobals();
-	store.pendingPermissions = [];
+  vi.unstubAllGlobals();
+  store.pendingPermissions = [];
 });
 
 function makeExtPrompt(overrides: Partial<ToolCallState> = {}): ToolCallState {
-	return {
-		id: "prompt-init-gate-1",
-		toolName: "ez-code-factory__init_gate",
-		status: "running",
-		startedAt: Date.now(),
-		permissionPending: true,
-		extensionId: "ez-code-factory",
-		capabilityKind: "shell",
-		...overrides,
-	};
+  return {
+    id: "prompt-init-gate-1",
+    toolName: "ez-code-factory__init_gate",
+    status: "running",
+    startedAt: Date.now(),
+    permissionPending: true,
+    extensionId: "ez-code-factory",
+    capabilityKind: "shell",
+    ...overrides,
+  };
 }
 
 describe("PendingPermissionTray", () => {
-	test("renders nothing when there are no pending prompts", () => {
-		const { queryByTestId } = render(PendingPermissionTray);
-		expect(queryByTestId("pending-permission-tray")).toBeNull();
-	});
+  test("renders nothing when there are no pending prompts", () => {
+    const { queryByTestId } = render(PendingPermissionTray);
+    expect(queryByTestId("pending-permission-tray")).toBeNull();
+  });
 
-	test("renders a PermissionGate card for a registered extension prompt", () => {
-		registerPendingPermission(makeExtPrompt());
-		const { getByTestId } = render(PendingPermissionTray);
-		expect(getByTestId("pending-permission-tray")).toBeInTheDocument();
-		// Extension-scoped prompt → four-scope chooser + extension badge.
-		expect(getByTestId("permission-scope-chooser")).toBeInTheDocument();
-		expect(getByTestId("permission-extension-badge")).toHaveTextContent("ez-code-factory");
-	});
+  test("renders a PermissionGate card for a registered extension prompt", () => {
+    registerPendingPermission(makeExtPrompt());
+    const { getByTestId } = render(PendingPermissionTray);
+    expect(getByTestId("pending-permission-tray")).toBeInTheDocument();
+    // Extension-scoped prompt → four-scope chooser + extension badge.
+    expect(getByTestId("permission-scope-chooser")).toBeInTheDocument();
+    expect(getByTestId("permission-extension-badge")).toHaveTextContent("ez-code-factory");
+  });
 
-	test("approving POSTs the decision and removes the card from the tray", async () => {
-		registerPendingPermission(makeExtPrompt());
-		const { getByTestId, queryByTestId } = render(PendingPermissionTray);
+  test("approving POSTs the decision and removes the card from the tray", async () => {
+    registerPendingPermission(makeExtPrompt());
+    const { getByTestId, queryByTestId } = render(PendingPermissionTray);
 
-		await fireEvent.click(getByTestId("permission-allow-session"));
+    await fireEvent.click(getByTestId("permission-allow-session"));
 
-		expect(fetchMock).toHaveBeenCalledWith(
-			"/api/tool-calls/prompt-init-gate-1/permission",
-			expect.objectContaining({
-				method: "POST",
-				body: JSON.stringify({ approved: true, scope: "session" }),
-			}),
-		);
-		// onResolved → dismissPendingPermission drops the entry.
-		expect(store.pendingPermissions).toHaveLength(0);
-		expect(queryByTestId("pending-permission-tray")).toBeNull();
-	});
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/tool-calls/prompt-init-gate-1/permission",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ approved: true, scope: "session" }),
+      }),
+    );
+    // onResolved → dismissPendingPermission drops the entry.
+    expect(store.pendingPermissions).toHaveLength(0);
+    expect(queryByTestId("pending-permission-tray")).toBeNull();
+  });
 
-	test("denying removes the card too", async () => {
-		registerPendingPermission(makeExtPrompt());
-		const { getByTestId } = render(PendingPermissionTray);
+  test("denying removes the card too", async () => {
+    registerPendingPermission(makeExtPrompt());
+    const { getByTestId } = render(PendingPermissionTray);
 
-		await fireEvent.click(getByTestId("permission-deny"));
+    await fireEvent.click(getByTestId("permission-deny"));
 
-		expect(fetchMock).toHaveBeenCalledWith(
-			"/api/tool-calls/prompt-init-gate-1/permission",
-			expect.objectContaining({
-				method: "POST",
-				body: JSON.stringify({ approved: false }),
-			}),
-		);
-		expect(store.pendingPermissions).toHaveLength(0);
-	});
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/tool-calls/prompt-init-gate-1/permission",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ approved: false }),
+      }),
+    );
+    expect(store.pendingPermissions).toHaveLength(0);
+  });
 
-	test("a built-in prompt (no extensionId) renders the legacy gate with no extension suffix", () => {
-		registerPendingPermission(
-			makeExtPrompt({ id: "prompt-builtin-1", extensionId: undefined, capabilityKind: undefined, category: "execute" }),
-		);
-		const { getByTestId, queryByTestId } = render(PendingPermissionTray);
-		expect(getByTestId("pending-permission-tray")).toBeInTheDocument();
-		// Legacy two-button gate, no scope chooser.
-		expect(getByTestId("permission-allow")).toBeInTheDocument();
-		expect(queryByTestId("permission-scope-chooser")).toBeNull();
-		expect(queryByTestId("permission-extension-badge")).toBeNull();
-	});
+  test("a built-in prompt (no extensionId) renders the legacy gate with no extension suffix", () => {
+    registerPendingPermission(
+      makeExtPrompt({
+        id: "prompt-builtin-1",
+        extensionId: undefined,
+        capabilityKind: undefined,
+        category: "execute",
+      }),
+    );
+    const { getByTestId, queryByTestId } = render(PendingPermissionTray);
+    expect(getByTestId("pending-permission-tray")).toBeInTheDocument();
+    // Legacy two-button gate, no scope chooser.
+    expect(getByTestId("permission-allow")).toBeInTheDocument();
+    expect(queryByTestId("permission-scope-chooser")).toBeNull();
+    expect(queryByTestId("permission-extension-badge")).toBeNull();
+  });
 });

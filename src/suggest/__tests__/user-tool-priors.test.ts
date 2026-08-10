@@ -71,17 +71,17 @@ describe("computeToolPriors (pure)", () => {
 
 describe("deriveExtensionPriors (pure)", () => {
   test("per extension: MAX over its `<name>__`-prefixed tool keys", () => {
-    const priors = { "a__x": 0.4, "a__y": 0.9, "b__z": 0.5 };
+    const priors = { a__x: 0.4, a__y: 0.9, b__z: 0.5 };
     expect(deriveExtensionPriors(priors, ["a", "b"])).toEqual({ a: 0.9, b: 0.5 });
   });
 
   test("built-in (un-namespaced) keys are ignored", () => {
-    const priors = { search_web: 1, read_page: 0.8, "a__x": 0.3 };
+    const priors = { search_web: 1, read_page: 0.8, a__x: 0.3 };
     expect(deriveExtensionPriors(priors, ["a"])).toEqual({ a: 0.3 });
   });
 
   test("unrequested extensions are omitted; empty names → {}", () => {
-    const priors = { "a__x": 1, "b__y": 0.6 };
+    const priors = { a__x: 1, b__y: 0.6 };
     expect(deriveExtensionPriors(priors, ["a"])).toEqual({ a: 1 });
     expect(deriveExtensionPriors(priors, [])).toEqual({});
   });
@@ -91,7 +91,7 @@ describe("deriveExtensionPriors (pure)", () => {
   });
 
   test("keeps the [0,1] normalization (max, not sum, of many tools)", () => {
-    const priors = { "multi__a": 0.6, "multi__b": 0.6, "multi__c": 0.6 };
+    const priors = { multi__a: 0.6, multi__b: 0.6, multi__c: 0.6 };
     expect(deriveExtensionPriors(priors, ["multi"])).toEqual({ multi: 0.6 });
   });
 });
@@ -106,12 +106,14 @@ describe("getUserToolPriors (DB)", () => {
   });
 
   async function seedUser(id: string): Promise<void> {
-    await getTestDb().insert(users).values({
-      id,
-      email: `${id}@test.dev`,
-      passwordHash: "x",
-      name: id,
-    });
+    await getTestDb()
+      .insert(users)
+      .values({
+        id,
+        email: `${id}@test.dev`,
+        passwordHash: "x",
+        name: id,
+      });
   }
 
   async function seedCall(userId: string, toolName: string, at: Date): Promise<void> {

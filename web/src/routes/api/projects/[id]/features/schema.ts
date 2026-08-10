@@ -34,10 +34,7 @@ export const createFeatureSchema = z.object({
     .min(1, "Feature name is required.")
     .max(120, "Feature name must be 120 characters or fewer.")
     .regex(SLUG_RE, SLUG_MESSAGE),
-  description: z
-    .string()
-    .max(2000, "Description must be 2000 characters or fewer.")
-    .optional(),
+  description: z.string().max(2000, "Description must be 2000 characters or fewer.").optional(),
 });
 
 /**
@@ -58,10 +55,7 @@ export const updateFeatureSchema = z
       .max(120, "Feature name must be 120 characters or fewer.")
       .regex(SLUG_RE, SLUG_MESSAGE)
       .optional(),
-    description: z
-      .string()
-      .max(2000, "Description must be 2000 characters or fewer.")
-      .optional(),
+    description: z.string().max(2000, "Description must be 2000 characters or fewer.").optional(),
     addFiles: z
       .array(
         z
@@ -86,5 +80,7 @@ export const updateFeatureSchema = z
       data.description !== undefined ||
       (data.addFiles && data.addFiles.length > 0) ||
       (data.removeFiles && data.removeFiles.length > 0),
-    { message: "Provide at least one field to change: name, description, addFiles, or removeFiles." },
+    {
+      message: "Provide at least one field to change: name, description, addFiles, or removeFiles.",
+    },
   );

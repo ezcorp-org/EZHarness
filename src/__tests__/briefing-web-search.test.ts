@@ -183,7 +183,10 @@ describe("syncBriefingAgentWebSearch", () => {
   };
 
   test("available + unreferenced → appends id + exact tool subset", async () => {
-    await syncBriefingAgentWebSearch(agent({ extensions: ["ext-other"] } as Partial<DbAgentConfig>), AVAILABLE);
+    await syncBriefingAgentWebSearch(
+      agent({ extensions: ["ext-other"] } as Partial<DbAgentConfig>),
+      AVAILABLE,
+    );
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0]!.id).toBe("agent-briefing-1");
     expect(updateCalls[0]!.data.extensions).toEqual(["ext-other", "ext-ws-1"]);
@@ -249,15 +252,16 @@ describe("syncBriefingAgentWebSearch", () => {
 
   test("update throw is swallowed — a sync failure never fails the run", async () => {
     updateThrow = new Error("write exploded");
-    await expect(
-      syncBriefingAgentWebSearch(agent(), AVAILABLE),
-    ).resolves.toBeUndefined();
+    await expect(syncBriefingAgentWebSearch(agent(), AVAILABLE)).resolves.toBeUndefined();
   });
 
   test("lookup throw on the removal path is swallowed too", async () => {
     extThrow = new Error("read exploded");
     await expect(
-      syncBriefingAgentWebSearch(agent({ extensions: ["ext-ws-1"] } as Partial<DbAgentConfig>), UNAVAILABLE),
+      syncBriefingAgentWebSearch(
+        agent({ extensions: ["ext-ws-1"] } as Partial<DbAgentConfig>),
+        UNAVAILABLE,
+      ),
     ).resolves.toBeUndefined();
   });
 });

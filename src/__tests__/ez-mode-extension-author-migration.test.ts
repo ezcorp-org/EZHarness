@@ -29,8 +29,9 @@ describe("Ez mode allowed_tools migration", () => {
   test("ez mode references the runtime-namespaced extension-author__create_extension", async () => {
     const rows = await getTestDb().execute(sql`SELECT allowed_tools FROM modes WHERE slug = 'ez'`);
     // PGlite returns an array of objects keyed by column name.
-    const r = (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows
-      ?? (rows as unknown as Array<{ allowed_tools: string[] }>);
+    const r =
+      (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows ??
+      (rows as unknown as Array<{ allowed_tools: string[] }>);
     const allowedTools = r[0]?.allowed_tools ?? [];
     expect(allowedTools).toContain("extension-author__create_extension");
     // The stale slash-separator form must NOT survive — it never matched
@@ -40,8 +41,9 @@ describe("Ez mode allowed_tools migration", () => {
 
   test("ez mode preserves the nine native Ez tools", async () => {
     const rows = await getTestDb().execute(sql`SELECT allowed_tools FROM modes WHERE slug = 'ez'`);
-    const r = (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows
-      ?? (rows as unknown as Array<{ allowed_tools: string[] }>);
+    const r =
+      (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows ??
+      (rows as unknown as Array<{ allowed_tools: string[] }>);
     const allowedTools = r[0]?.allowed_tools ?? [];
     for (const expected of [
       "propose_create_project",
@@ -76,8 +78,9 @@ describe("Ez mode allowed_tools migration", () => {
     await getTestDb().execute(appendStep);
     await getTestDb().execute(appendStep); // re-run — must not duplicate
     const rows = await getTestDb().execute(sql`SELECT allowed_tools FROM modes WHERE slug = 'ez'`);
-    const r = (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows
-      ?? (rows as unknown as Array<{ allowed_tools: string[] }>);
+    const r =
+      (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows ??
+      (rows as unknown as Array<{ allowed_tools: string[] }>);
     const allowedTools = r[0]?.allowed_tools ?? [];
     expect(allowedTools.filter((t) => t === "search_conversation").length).toBe(1);
   });
@@ -91,10 +94,13 @@ describe("Ez mode allowed_tools migration", () => {
         AND NOT ('extension-author__create_extension' = ANY(allowed_tools))
     `);
     const rows = await getTestDb().execute(sql`SELECT allowed_tools FROM modes WHERE slug = 'ez'`);
-    const r = (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows
-      ?? (rows as unknown as Array<{ allowed_tools: string[] }>);
+    const r =
+      (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows ??
+      (rows as unknown as Array<{ allowed_tools: string[] }>);
     const allowedTools = r[0]?.allowed_tools ?? [];
-    const occurrences = allowedTools.filter((t) => t === "extension-author__create_extension").length;
+    const occurrences = allowedTools.filter(
+      (t) => t === "extension-author__create_extension",
+    ).length;
     expect(occurrences).toBe(1);
   });
 
@@ -122,8 +128,9 @@ describe("Ez mode allowed_tools migration", () => {
         AND NOT ('extension-author__create_extension' = ANY(allowed_tools))
     `);
     const rows = await getTestDb().execute(sql`SELECT allowed_tools FROM modes WHERE slug = 'ez'`);
-    const r = (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows
-      ?? (rows as unknown as Array<{ allowed_tools: string[] }>);
+    const r =
+      (rows as unknown as { rows?: Array<{ allowed_tools: string[] }> }).rows ??
+      (rows as unknown as Array<{ allowed_tools: string[] }>);
     const allowedTools = r[0]?.allowed_tools ?? [];
     expect(allowedTools.filter((t) => t === "extension-author__create_extension").length).toBe(1);
     expect(allowedTools).not.toContain("extension-author/create_extension");

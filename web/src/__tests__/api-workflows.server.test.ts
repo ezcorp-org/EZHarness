@@ -66,14 +66,13 @@ beforeEach(() => {
   ctx.getCachedWorkflows.mockReset().mockReturnValue([]);
   ctx.reloadWorkflows.mockReset().mockResolvedValue(undefined);
   queries.createWorkflow.mockReset().mockImplementation(async (def: unknown) => def);
-  versions.ensureWorkflowVersion.mockReset().mockResolvedValue({ version: { version: 1 }, minted: true });
+  versions.ensureWorkflowVersion
+    .mockReset()
+    .mockResolvedValue({ version: { version: 1 }, minted: true });
   members.listProjectIdsForUser.mockReset().mockResolvedValue([]);
 });
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown }) {
   const body = opts.body !== undefined ? JSON.stringify(opts.body) : "{}";
   return {
     url: new URL("http://localhost/api/workflows"),
@@ -90,9 +89,7 @@ const authedUser = { user: { id: "u1", email: "u@x", name: "u", role: "member" }
 
 describe("GET /api/workflows", () => {
   test("returns 403 when API-key scope missing 'read'", async () => {
-    const res = await GET(
-      makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }));
     expect(res.status).toBe(403);
     const body = (await res.json()) as { required?: string };
     expect(body.required).toBe("read");
@@ -274,7 +271,9 @@ describe("POST /api/workflows", () => {
   });
 
   test("returns 400 when the body fails the strict schema (unknown top-level field)", async () => {
-    const res = await POST(makeEvent({ locals: authedUser, body: { name: "w1", steps: [], bogus: true } }));
+    const res = await POST(
+      makeEvent({ locals: authedUser, body: { name: "w1", steps: [], bogus: true } }),
+    );
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("name and steps required");
@@ -295,9 +294,7 @@ describe("POST /api/workflows", () => {
   });
 
   test("returns 400 when steps is empty array", async () => {
-    const res = await POST(
-      makeEvent({ locals: authedUser, body: { name: "w1", steps: [] } }),
-    );
+    const res = await POST(makeEvent({ locals: authedUser, body: { name: "w1", steps: [] } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("name and steps required");
@@ -355,7 +352,12 @@ describe("POST /api/workflows", () => {
         body: {
           name: "w1",
           steps: [
-            { name: "g", kind: "gate", condition: { ref: "$input.x", op: "truthy" }, loop: { maxIterations: 2 } },
+            {
+              name: "g",
+              kind: "gate",
+              condition: { ref: "$input.x", op: "truthy" },
+              loop: { maxIterations: 2 },
+            },
           ],
         },
       }),

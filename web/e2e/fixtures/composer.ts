@@ -29,7 +29,7 @@ export type ComposerScope = Pick<Page | Locator, "getByRole" | "locator">;
  * SIDEBAR row instead of the message.
  */
 export function threadMessages(scope: ComposerScope): Locator {
-	return scope.locator('[data-testid="chat-messages-container"]');
+  return scope.locator('[data-testid="chat-messages-container"]');
 }
 
 /**
@@ -69,18 +69,15 @@ export function threadMessages(scope: ComposerScope): Locator {
  * send button additionally needs `/api/models` to answer and the picker to
  * autoselect. The two gates are layered, not redundant.
  */
-export async function sendComposerMessage(
-	scope: ComposerScope,
-	text: string,
-): Promise<void> {
-	const sendBtn = scope.getByRole("button", { name: "Send message" });
-	// 1. Composer is hydrated and has resolved a model (NOT SSR-satisfiable).
-	await expect(sendBtn).toHaveAttribute("title", "Send message", {
-		timeout: 20_000,
-	});
-	// 2. Now the textarea is a live component, so the value will stick.
-	await scope.locator("textarea").fill(text);
-	// 3. Prove it stuck before clicking — a lost value fails here, loudly.
-	await expect(sendBtn).toBeEnabled({ timeout: 10_000 });
-	await sendBtn.click();
+export async function sendComposerMessage(scope: ComposerScope, text: string): Promise<void> {
+  const sendBtn = scope.getByRole("button", { name: "Send message" });
+  // 1. Composer is hydrated and has resolved a model (NOT SSR-satisfiable).
+  await expect(sendBtn).toHaveAttribute("title", "Send message", {
+    timeout: 20_000,
+  });
+  // 2. Now the textarea is a live component, so the value will stick.
+  await scope.locator("textarea").fill(text);
+  // 3. Prove it stuck before clicking — a lost value fails here, loudly.
+  await expect(sendBtn).toBeEnabled({ timeout: 10_000 });
+  await sendBtn.click();
 }

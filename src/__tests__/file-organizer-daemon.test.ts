@@ -79,8 +79,20 @@ async function writeConfig(input: ConfigInput = {}): Promise<void> {
 // explicitly to override this.
 const PAST_TMP_DWELL = () => Date.now() + 60 * 60 * 1000;
 
-function makeDaemon(opts: { settings?: Partial<FileOrganizerSettings>; engine?: PermissionEngine; now?: () => number; invalidations?: string[] } = {}): FileOrganizerDaemon {
-  const settings: FileOrganizerSettings = { ...DEFAULT_SETTINGS, scanIntervalSec: 5, stabilityTicks: 1, ...opts.settings };
+function makeDaemon(
+  opts: {
+    settings?: Partial<FileOrganizerSettings>;
+    engine?: PermissionEngine;
+    now?: () => number;
+    invalidations?: string[];
+  } = {},
+): FileOrganizerDaemon {
+  const settings: FileOrganizerSettings = {
+    ...DEFAULT_SETTINGS,
+    scanIntervalSec: 5,
+    stabilityTicks: 1,
+    ...opts.settings,
+  };
   return new FileOrganizerDaemon({
     dataDir,
     engine: opts.engine ?? fakeEngine("allow"),
@@ -169,7 +181,10 @@ describe("daemon — ask-everything mode", () => {
 
 describe("daemon — approve-non-destructive-only mode", () => {
   test("auto-applies a route (move) but leaves a delete pending", async () => {
-    await writeConfig({ mode: "approve-non-destructive-only", presets: ["downloads-router", "junk-sweep"] });
+    await writeConfig({
+      mode: "approve-non-destructive-only",
+      presets: ["downloads-router", "junk-sweep"],
+    });
     await writeFile(join(watched, "photo.png"), "img");
     await writeFile(join(watched, "junk.tmp"), "j");
     const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "ask-everything" } });
@@ -202,12 +217,23 @@ describe("daemon — fully-auto mode", () => {
     await writeFile(
       join(dataDir, "proposals.json"),
       JSON.stringify({
-        proposals: [{
-          id: "sl", kind: "move", src: link, dst: join(watched, "sub", "link.txt"),
-          reason: "r", ruleId: "r1", ruleLabel: "R", folderId: "f1",
-          snapshot: { size: 0, mtimeMs: 0, isSymlink: true, dev: 0, ino: 0, nlink: 1 },
-          status: "pending", dedupeKey: "k", createdAt: "2026-06-17T00:00:00Z", version: 0,
-        }],
+        proposals: [
+          {
+            id: "sl",
+            kind: "move",
+            src: link,
+            dst: join(watched, "sub", "link.txt"),
+            reason: "r",
+            ruleId: "r1",
+            ruleLabel: "R",
+            folderId: "f1",
+            snapshot: { size: 0, mtimeMs: 0, isSymlink: true, dev: 0, ino: 0, nlink: 1 },
+            status: "pending",
+            dedupeKey: "k",
+            createdAt: "2026-06-17T00:00:00Z",
+            version: 0,
+          },
+        ],
         suppressed: [],
         schemaVersion: 1,
       }),
@@ -281,7 +307,9 @@ describe("daemon — duplicate-killer keeps one canonical", () => {
     expect(dels).toHaveLength(1);
     expect(dels[0]!.src).toBe(newF); // the non-canonical (newer) copy
     // The canonical (oldest) copy is NEVER proposed for removal.
-    expect(file.proposals.some((p) => p.src === oldF && p.kind === "delete-quarantine")).toBe(false);
+    expect(file.proposals.some((p) => p.src === oldF && p.kind === "delete-quarantine")).toBe(
+      false,
+    );
   });
 
   test("fully-auto: the canonical copy survives on disk; only the duplicate is quarantined", async () => {
@@ -304,7 +332,11 @@ describe("daemon — unclassified alert for new unmatched files", () => {
   const EPOCH = 1_000_000;
 
   test("a NEW (mtime ≥ epoch) unmatched file → exactly one unclassified pending proposal", async () => {
-    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    await writeConfig({
+      presets: ["junk-sweep"],
+      backlogPolicy: "include-existing",
+      epochMs: EPOCH,
+    });
     const f = join(watched, "mystery.xyz"); // matches no rule
     await writeFile(f, "data");
     const future = new Date(EPOCH + 60_000);
@@ -323,7 +355,11 @@ describe("daemon — unclassified alert for new unmatched files", () => {
   });
 
   test("a rule-matching file is NOT flagged unclassified", async () => {
-    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    await writeConfig({
+      presets: ["junk-sweep"],
+      backlogPolicy: "include-existing",
+      epochMs: EPOCH,
+    });
     const f = join(watched, "junk.tmp"); // junk-sweep matches
     await writeFile(f, "j");
     const future = new Date(EPOCH + 60_000);
@@ -335,7 +371,11 @@ describe("daemon — unclassified alert for new unmatched files", () => {
   });
 
   test("an OLD (mtime < epoch) unmatched file is NOT flagged (no backlog spam)", async () => {
-    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    await writeConfig({
+      presets: ["junk-sweep"],
+      backlogPolicy: "include-existing",
+      epochMs: EPOCH,
+    });
     const f = join(watched, "ancient.xyz");
     await writeFile(f, "data");
     const past = new Date(EPOCH - 60_000);
@@ -355,18 +395,29 @@ describe("daemon — unclassified alert for new unmatched files", () => {
   });
 
   test("re-ticking does not re-propose the same unclassified file (deduped)", async () => {
-    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    await writeConfig({
+      presets: ["junk-sweep"],
+      backlogPolicy: "include-existing",
+      epochMs: EPOCH,
+    });
     const f = join(watched, "again.xyz");
     await writeFile(f, "data");
     const future = new Date(EPOCH + 60_000);
     await utimes(f, future, future);
     const d = makeDaemon({ settings: { stabilityTicks: 1 } });
     await tickN(d, 4); // extra ticks must not duplicate
-    expect((await readProposals()).proposals.filter((p) => p.kind === "unclassified")).toHaveLength(1);
+    expect((await readProposals()).proposals.filter((p) => p.kind === "unclassified")).toHaveLength(
+      1,
+    );
   });
 
   test("unclassified is never auto-applied, even in fully-auto (no dst)", async () => {
-    await writeConfig({ mode: "fully-auto", presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    await writeConfig({
+      mode: "fully-auto",
+      presets: ["junk-sweep"],
+      backlogPolicy: "include-existing",
+      epochMs: EPOCH,
+    });
     const f = join(watched, "untouched.xyz");
     await writeFile(f, "data");
     const future = new Date(EPOCH + 60_000);
@@ -387,7 +438,11 @@ describe("daemon — unclassified alert for new unmatched files", () => {
     // null, but the file's TYPE is recognized (the glob pattern-matches), so
     // it must NOT become an unclassified "unknown file". Use a clock just
     // past epoch so the tmp is new-since-watch yet still inside the dwell.
-    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    await writeConfig({
+      presets: ["junk-sweep"],
+      backlogPolicy: "include-existing",
+      epochMs: EPOCH,
+    });
     const tmp = join(watched, "fresh-save.tmp"); // matches *.tmp, too new
     await writeFile(tmp, "writing");
     const fresh = new Date(EPOCH + 500);
@@ -403,7 +458,11 @@ describe("daemon — unclassified alert for new unmatched files", () => {
     // Two identical files matching no rule pattern. They ARE a recognized
     // duplicate group, so NEITHER copy is flagged unclassified — even though
     // firstMatch is null for both (no duplicate-killer preset here).
-    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    await writeConfig({
+      presets: ["junk-sweep"],
+      backlogPolicy: "include-existing",
+      epochMs: EPOCH,
+    });
     const a = join(watched, "data-a.dat");
     const b = join(watched, "data-b.dat");
     await writeFile(a, "identical-payload");
@@ -422,7 +481,11 @@ describe("daemon — unclassified alert for new unmatched files", () => {
     // The end-to-end seed scenario. junk-tmp (deferred-fresh), a dup pair,
     // and a genuinely-unrecognized file all live together. Exactly one
     // unclassified proposal — for `mystery.xyz` — must result.
-    await writeConfig({ presets: ["junk-sweep"], backlogPolicy: "include-existing", epochMs: EPOCH });
+    await writeConfig({
+      presets: ["junk-sweep"],
+      backlogPolicy: "include-existing",
+      epochMs: EPOCH,
+    });
     const tmp = join(watched, "fresh-save.tmp");
     const dupA = join(watched, "data-copy-a.txt");
     const dupB = join(watched, "data-copy-b.txt");
@@ -497,7 +560,10 @@ describe("daemon — safety", () => {
   test("engine deny ⇒ proposal blocked in auto mode (file intact)", async () => {
     await writeConfig({ mode: "fully-auto", presets: ["junk-sweep"] });
     await writeFile(join(watched, "j.tmp"), "x");
-    const d = makeDaemon({ engine: fakeEngine("deny"), settings: { stabilityTicks: 1, defaultMode: "ask-everything" } });
+    const d = makeDaemon({
+      engine: fakeEngine("deny"),
+      settings: { stabilityTicks: 1, defaultMode: "ask-everything" },
+    });
     await tickN(d, 2);
     const file = await readProposals();
     expect(file.proposals[0]!.status).toBe("blocked");
@@ -799,7 +865,11 @@ describe("daemon — circuit breaker pauses a runaway destructive rule", () => {
   };
 
   test("fully-auto: a `* -> quarantine` rule over many files trips the breaker → ZERO quarantined, folder intact", async () => {
-    await writeConfig({ mode: "fully-auto", customRules: [broadQuarantineRule], backlogPolicy: "include-existing" });
+    await writeConfig({
+      mode: "fully-auto",
+      customRules: [broadQuarantineRule],
+      backlogPolicy: "include-existing",
+    });
     const names = ["a.dat", "b.dat", "c.dat", "d.dat", "e.dat"];
     for (const n of names) await writeFile(join(watched, n), n);
     const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "fully-auto" } });
@@ -822,7 +892,11 @@ describe("daemon — circuit breaker pauses a runaway destructive rule", () => {
   test("a narrow destructive rule matching a small fraction is UNAFFECTED (still proposes/applies)", async () => {
     // junk-sweep's *.bak over a folder where only 1 of 5 files is a .bak:
     // 1/5 = 0.2 ≤ 0.5 and matched < 2 → breaker does not trip.
-    await writeConfig({ mode: "fully-auto", presets: ["junk-sweep"], backlogPolicy: "include-existing" });
+    await writeConfig({
+      mode: "fully-auto",
+      presets: ["junk-sweep"],
+      backlogPolicy: "include-existing",
+    });
     await writeFile(join(watched, "keep1.txt"), "x");
     await writeFile(join(watched, "keep2.txt"), "x");
     await writeFile(join(watched, "keep3.txt"), "x");
@@ -841,7 +915,11 @@ describe("daemon — circuit breaker pauses a runaway destructive rule", () => {
   test("non-destructive routes are NEVER throttled by the breaker even over a whole folder", async () => {
     // downloads-router moving ALL 4 pngs (4/4 = 1.0 > 0.5) must still run —
     // the breaker only guards DESTRUCTIVE rules.
-    await writeConfig({ mode: "fully-auto", presets: ["downloads-router"], backlogPolicy: "include-existing" });
+    await writeConfig({
+      mode: "fully-auto",
+      presets: ["downloads-router"],
+      backlogPolicy: "include-existing",
+    });
     const pngs = ["p1.png", "p2.png", "p3.png", "p4.png"];
     for (const n of pngs) await writeFile(join(watched, n), n);
     const d = makeDaemon({ settings: { stabilityTicks: 1, defaultMode: "fully-auto" } });
@@ -868,7 +946,10 @@ describe("mergeFileOrganizerSettings", () => {
 
   test("stored values override declared defaults", () => {
     const declared = { default_mode: "ask-everything", scan_interval_sec: 45 };
-    const merged = mergeFileOrganizerSettings(declared, { default_mode: "fully-auto", scan_interval_sec: 10 });
+    const merged = mergeFileOrganizerSettings(declared, {
+      default_mode: "fully-auto",
+      scan_interval_sec: 10,
+    });
     expect(merged.defaultMode).toBe("fully-auto");
     expect(merged.scanIntervalSec).toBe(10);
   });
@@ -876,7 +957,12 @@ describe("mergeFileOrganizerSettings", () => {
   test("garbage values fall back to DEFAULT_SETTINGS per-field", () => {
     const merged = mergeFileOrganizerSettings(
       {},
-      { default_mode: "bogus", scan_interval_sec: "not a number", daemon_enabled: "yes", quarantine_ttl_days: NaN },
+      {
+        default_mode: "bogus",
+        scan_interval_sec: "not a number",
+        daemon_enabled: "yes",
+        quarantine_ttl_days: NaN,
+      },
     );
     expect(merged.defaultMode).toBe(DEFAULT_SETTINGS.defaultMode);
     expect(merged.scanIntervalSec).toBe(DEFAULT_SETTINGS.scanIntervalSec);

@@ -12,9 +12,8 @@ import { GithubAuthError } from "../types";
 
 afterAll(() => restoreModuleMocks());
 
-let getSecretMock = mock(
-  (_extensionId: string, _projectId: string | null, _name: string) =>
-    Promise.resolve<string | null>(null),
+let getSecretMock = mock((_extensionId: string, _projectId: string | null, _name: string) =>
+  Promise.resolve<string | null>(null),
 );
 
 // Superset export so a sibling spec in a shared local run can't freeze the
@@ -54,7 +53,11 @@ describe("resolveLinkAuth", () => {
     const auth = await resolveLinkAuth(patLink);
     expect(auth).toEqual({ mode: "pat", token: "ghp_shared" });
     // It probed the per-board override FIRST, then the shared token.
-    expect(getSecretMock).toHaveBeenCalledWith("github-projects", "proj-1", boardTokenName("link-1"));
+    expect(getSecretMock).toHaveBeenCalledWith(
+      "github-projects",
+      "proj-1",
+      boardTokenName("link-1"),
+    );
     expect(getSecretMock).toHaveBeenCalledWith("github-projects", "proj-1", "apiToken");
   });
 
@@ -67,7 +70,11 @@ describe("resolveLinkAuth", () => {
     const auth = await resolveLinkAuth(patLink);
     expect(auth).toEqual({ mode: "pat", token: "ghp_board" });
     // The override resolved → the shared token is never read.
-    expect(getSecretMock).toHaveBeenCalledWith("github-projects", "proj-1", boardTokenName("link-1"));
+    expect(getSecretMock).toHaveBeenCalledWith(
+      "github-projects",
+      "proj-1",
+      boardTokenName("link-1"),
+    );
     expect(getSecretMock).not.toHaveBeenCalledWith("github-projects", "proj-1", "apiToken");
   });
 

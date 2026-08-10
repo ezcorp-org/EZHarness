@@ -26,12 +26,7 @@ import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const PROFILE_PATH = resolve(
-  import.meta.dir,
-  "..",
-  "extensions",
-  "mcp-seccomp.json",
-);
+const PROFILE_PATH = resolve(import.meta.dir, "..", "extensions", "mcp-seccomp.json");
 
 type SeccompEntry = { names: string[]; action: string };
 type SeccompProfile = {

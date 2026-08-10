@@ -31,9 +31,10 @@ describe("EzcorpClient — auth + errors", () => {
 
   test("throws EzcorpApiError with status + url on non-2xx", async () => {
     server.state.nextConversationFailure = { status: 400, body: '{"error":"bad"}' };
-    const err = await client
-      .createConversation({ projectId: "global" })
-      .then(() => null, (e) => e);
+    const err = await client.createConversation({ projectId: "global" }).then(
+      () => null,
+      (e) => e,
+    );
     expect(err).toBeInstanceOf(EzcorpApiError);
     expect((err as EzcorpApiError).status).toBe(400);
     expect((err as EzcorpApiError).url).toContain("/api/conversations");
@@ -224,9 +225,8 @@ describe("EzcorpClient — call context", () => {
       }) as unknown as typeof fetch,
     });
     try {
-      await callContext.run(
-        { defaultModel: "sonnet", defaultProvider: "anthropic" },
-        () => c.createConversation({ projectId: "global", model: "opus" }),
+      await callContext.run({ defaultModel: "sonnet", defaultProvider: "anthropic" }, () =>
+        c.createConversation({ projectId: "global", model: "opus" }),
       );
       expect(captured[0]?.model).toBe("opus");
     } finally {

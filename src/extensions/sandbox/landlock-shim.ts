@@ -112,9 +112,7 @@ export function resolveRawSpecFromEnv(raw: string): LandlockJailSpec {
  *  ({@link LANDLOCK_SPEC_ENV}) wins; else a RAW input
  *  ({@link LANDLOCK_RAW_SPEC_ENV}) is resolved here — the sandboxed-
  *  subprocess handoff. Fail-closed on missing/invalid. */
-export function parseSpecFromEnv(
-  env: Record<string, string | undefined>,
-): LandlockJailSpec {
+export function parseSpecFromEnv(env: Record<string, string | undefined>): LandlockJailSpec {
   const raw = env[LANDLOCK_SPEC_ENV];
   if (!raw) {
     const rawInput = env[LANDLOCK_RAW_SPEC_ENV];

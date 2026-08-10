@@ -44,10 +44,7 @@
 
 import { getDb } from "../../db/connection";
 import { getSetting, upsertSetting } from "../../db/queries/settings";
-import {
-  setUserSettings,
-  getUserSettings,
-} from "../../db/queries/extension-settings";
+import { setUserSettings, getUserSettings } from "../../db/queries/extension-settings";
 import { users } from "../../db/schema";
 import { logger } from "../../logger";
 
@@ -186,13 +183,16 @@ export async function migrateMemoryExtractorEnabledSetting(
               migrated += 1;
             } catch (perUserErr) {
               perUserFailures += 1;
-              log.warn("per-user compaction_interval_hours migration failed; will retry next boot", {
-                userId: u.id,
-                extensionId: memoryExtractorExtensionId,
-                legacyValue: customInterval,
-                resolvedTo: supported,
-                error: perUserErr instanceof Error ? perUserErr.message : String(perUserErr),
-              });
+              log.warn(
+                "per-user compaction_interval_hours migration failed; will retry next boot",
+                {
+                  userId: u.id,
+                  extensionId: memoryExtractorExtensionId,
+                  legacyValue: customInterval,
+                  resolvedTo: supported,
+                  error: perUserErr instanceof Error ? perUserErr.message : String(perUserErr),
+                },
+              );
             }
           }
           log.info("Migrated compaction_interval_hours to per-user extension settings", {
@@ -213,10 +213,13 @@ export async function migrateMemoryExtractorEnabledSetting(
           });
         }
       } else {
-        log.warn("Legacy compaction_interval_hours not a finite positive number — skipping migration", {
-          legacyValue: customInterval,
-          extensionId: memoryExtractorExtensionId,
-        });
+        log.warn(
+          "Legacy compaction_interval_hours not a finite positive number — skipping migration",
+          {
+            legacyValue: customInterval,
+            extensionId: memoryExtractorExtensionId,
+          },
+        );
       }
     }
 

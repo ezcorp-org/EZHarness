@@ -42,7 +42,9 @@ export async function writeMemory(): Promise<{ memoryId: string }> {
 }
 
 /** Stub: write one lesson. */
-export async function writeLesson(projectId: string): Promise<{ lessonId: string | null; created: boolean }> {
+export async function writeLesson(
+  projectId: string,
+): Promise<{ lessonId: string | null; created: boolean }> {
   const r = await lessons.write({
     slug: "fixture-lesson",
     title: "Fixture",

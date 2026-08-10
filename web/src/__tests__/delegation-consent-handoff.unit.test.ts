@@ -47,9 +47,9 @@
 import { describe, expect, test } from "vitest";
 
 import {
-	DELEGATIONS_HREF,
-	EXTENSION_NAME,
-	delegationConsentHref,
+  DELEGATIONS_HREF,
+  EXTENSION_NAME,
+  delegationConsentHref,
 } from "../../../extensions/ez-factory/lib/page";
 import type { FactoryJob } from "../../../extensions/ez-factory/lib/jobs";
 import { GRANT_PARAMS, resolveGrantPrefill } from "../lib/workflow-delegations-logic";

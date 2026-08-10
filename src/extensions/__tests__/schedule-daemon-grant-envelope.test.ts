@@ -21,7 +21,12 @@
  */
 import { test, expect, describe, beforeAll, beforeEach, afterAll, afterEach } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
-import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "../../__tests__/helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
+} from "../../__tests__/helpers/test-pglite";
 
 mockDbConnection();
 
@@ -33,14 +38,25 @@ let extId: string;
 
 /** Install an extension carrying `granted` as its stored grant slice. */
 async function ensureExtension(name: string, granted: unknown): Promise<string> {
-  const [row] = await getTestDb().insert(extensions).values({
-    name, version: "0.0.1", description: "",
-    manifest: {
-      schemaVersion: 2, name, version: "0.0.1", description: "",
-      author: { name: "t" }, permissions: {},
-    } as never,
-    source: "test", enabled: true, grantedPermissions: granted as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name,
+      version: "0.0.1",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: granted as never,
+    })
+    .returning({ id: extensions.id });
   return row!.id;
 }
 
@@ -57,7 +73,12 @@ function captureStderr(): { lines: string[]; restore: () => void } {
     lines.push(String(chunk));
     return (orig as (...a: unknown[]) => boolean)(chunk, ...rest);
   }) as typeof process.stderr.write;
-  return { lines, restore: () => { process.stderr.write = orig; } };
+  return {
+    lines,
+    restore: () => {
+      process.stderr.write = orig;
+    },
+  };
 }
 
 beforeAll(async () => {
@@ -84,12 +105,21 @@ describe("readGrant — the registry-less read of extensions.granted_permissions
     // the declared 1/day was never enforced.
     extId = await ensureExtension("triggers-only", { triggers: { maxRunsPerDay: 1 } });
     const past = new Date(Date.now() - 60_000);
-    const [sched] = await getTestDb().insert(extensionSchedules).values({
-      extensionId: extId, cron: "0 * * * *", nextFireAt: past, enabled: true,
-    }).returning();
+    const [sched] = await getTestDb()
+      .insert(extensionSchedules)
+      .values({
+        extensionId: extId,
+        cron: "0 * * * *",
+        nextFireAt: past,
+        enabled: true,
+      })
+      .returning();
     // One fire already spent today — at a cap of 1 the next claim is refused.
     await getTestDb().insert(extensionScheduleFires).values({
-      scheduleId: sched!.id, scheduledAt: past, firedAt: new Date(), status: "ok",
+      scheduleId: sched!.id,
+      scheduledAt: past,
+      firedAt: new Date(),
+      status: "ok",
     });
 
     // No registry: readGrant MUST reach the extensions table.
@@ -116,11 +146,20 @@ describe("readGrant — the registry-less read of extensions.granted_permissions
       triggers: { maxRunsPerDay: 500 },
     });
     const past = new Date(Date.now() - 60_000);
-    const [sched] = await getTestDb().insert(extensionSchedules).values({
-      extensionId: extId, cron: "0 * * * *", nextFireAt: past, enabled: true,
-    }).returning();
+    const [sched] = await getTestDb()
+      .insert(extensionSchedules)
+      .values({
+        extensionId: extId,
+        cron: "0 * * * *",
+        nextFireAt: past,
+        enabled: true,
+      })
+      .returning();
     await getTestDb().insert(extensionScheduleFires).values({
-      scheduleId: sched!.id, scheduledAt: past, firedAt: new Date(), status: "ok",
+      scheduleId: sched!.id,
+      scheduledAt: past,
+      firedAt: new Date(),
+      status: "ok",
     });
 
     const daemon = new ScheduleDaemon({ wakeIntervalMs: 60_000 });
@@ -137,11 +176,20 @@ describe("readGrant — the registry-less read of extensions.granted_permissions
     // 24/day applies and one spent fire is nowhere near the cap.
     extId = await ensureExtension("bare", {});
     const past = new Date(Date.now() - 60_000);
-    const [sched] = await getTestDb().insert(extensionSchedules).values({
-      extensionId: extId, cron: "0 * * * *", nextFireAt: past, enabled: true,
-    }).returning();
+    const [sched] = await getTestDb()
+      .insert(extensionSchedules)
+      .values({
+        extensionId: extId,
+        cron: "0 * * * *",
+        nextFireAt: past,
+        enabled: true,
+      })
+      .returning();
     await getTestDb().insert(extensionScheduleFires).values({
-      scheduleId: sched!.id, scheduledAt: past, firedAt: new Date(), status: "ok",
+      scheduleId: sched!.id,
+      scheduledAt: past,
+      firedAt: new Date(),
+      status: "ok",
     });
 
     const daemon = new ScheduleDaemon({ wakeIntervalMs: 60_000 });
@@ -156,7 +204,9 @@ describe("readGrant — the registry-less read of extensions.granted_permissions
 describe("advancePastQuota — the advance write is fire-and-forget", () => {
   let capture: { lines: string[]; restore: () => void } | undefined;
   let unhandled: unknown[] = [];
-  const onUnhandled = (err: unknown) => { unhandled.push(err); };
+  const onUnhandled = (err: unknown) => {
+    unhandled.push(err);
+  };
 
   beforeEach(() => {
     unhandled = [];
@@ -172,9 +222,15 @@ describe("advancePastQuota — the advance write is fire-and-forget", () => {
   test("a REJECTED advance write is logged, never left unhandled, and does not fail the tick", async () => {
     extId = await ensureExtension("advance-fails", { schedule: { maxRunsPerDay: 0 } });
     const past = new Date(Date.now() - 60_000);
-    const [sched] = await getTestDb().insert(extensionSchedules).values({
-      extensionId: extId, cron: "0 * * * *", nextFireAt: past, enabled: true,
-    }).returning();
+    const [sched] = await getTestDb()
+      .insert(extensionSchedules)
+      .values({
+        extensionId: extId,
+        cron: "0 * * * *",
+        nextFireAt: past,
+        enabled: true,
+      })
+      .returning();
 
     // Break ONLY the schedules-table update, which on this path is the
     // advance write and nothing else (a quota-refused row `continue`s before
@@ -222,9 +278,15 @@ describe("advancePastQuota — the advance write is fire-and-forget", () => {
     // same warning is emitted without any DB round-trip.
     extId = await ensureExtension("bad-cron", { schedule: { maxRunsPerDay: 0 } });
     const past = new Date(Date.now() - 60_000);
-    const [sched] = await getTestDb().insert(extensionSchedules).values({
-      extensionId: extId, cron: "not a cron", nextFireAt: past, enabled: true,
-    }).returning();
+    const [sched] = await getTestDb()
+      .insert(extensionSchedules)
+      .values({
+        extensionId: extId,
+        cron: "not a cron",
+        nextFireAt: past,
+        enabled: true,
+      })
+      .returning();
 
     const db = getTestDb();
     const origUpdate = db.update.bind(db);
@@ -252,9 +314,15 @@ describe("advancePastQuota — the advance write is fire-and-forget", () => {
   test("a healthy advance moves next_fire_at forward and logs nothing", async () => {
     extId = await ensureExtension("advance-ok", { schedule: { maxRunsPerDay: 0 } });
     const past = new Date(Date.now() - 60_000);
-    const [sched] = await getTestDb().insert(extensionSchedules).values({
-      extensionId: extId, cron: "0 * * * *", nextFireAt: past, enabled: true,
-    }).returning();
+    const [sched] = await getTestDb()
+      .insert(extensionSchedules)
+      .values({
+        extensionId: extId,
+        cron: "0 * * * *",
+        nextFireAt: past,
+        enabled: true,
+      })
+      .returning();
 
     capture = captureStderr();
     const daemon = new ScheduleDaemon({ wakeIntervalMs: 60_000 });
@@ -262,7 +330,9 @@ describe("advancePastQuota — the advance write is fire-and-forget", () => {
     daemon.stop();
     await new Promise((r) => setTimeout(r, 20));
 
-    const [after] = await getTestDb().select().from(extensionSchedules)
+    const [after] = await getTestDb()
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.id, sched!.id));
     // Not re-picked 30s later — the whole point of the advance.
     expect(after!.nextFireAt.getTime()).toBeGreaterThan(past.getTime());

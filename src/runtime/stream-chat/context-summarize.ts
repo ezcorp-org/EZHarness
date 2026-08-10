@@ -34,11 +34,7 @@
  * threads should use `trim` with `cacheAnchorFraction > 0`.
  */
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
-import type {
-  Models,
-  Context,
-  SimpleStreamOptions,
-} from "@earendil-works/pi-ai";
+import type { Models, Context, SimpleStreamOptions } from "@earendil-works/pi-ai";
 import type { AnyModel } from "../../providers/model-types";
 import { logger } from "../../logger";
 import {
@@ -78,7 +74,8 @@ const SUMMARY_MEMO_CAP = 256;
 
 function memoSet(key: string, value: string): void {
   // Insertion-ordered eviction: drop the oldest entry once full.
-  if (SUMMARY_MEMO.size >= SUMMARY_MEMO_CAP && !SUMMARY_MEMO.has(key)) SUMMARY_MEMO.delete(SUMMARY_MEMO.keys().next().value as string);
+  if (SUMMARY_MEMO.size >= SUMMARY_MEMO_CAP && !SUMMARY_MEMO.has(key))
+    SUMMARY_MEMO.delete(SUMMARY_MEMO.keys().next().value as string);
   SUMMARY_MEMO.set(key, value);
 }
 
@@ -153,7 +150,12 @@ class SummarizeStrategy implements CompactionStrategy {
     // reserve (or the active turn alone is oversized), fall open to trim,
     // which truncates oversized toolResults as a last resort.
     if (ctx.estimateTokens(assembled) > ctx.budget) return trim();
-    return { messages: assembled, droppedCount: toSummarize.length, droppedTokens, strategy: this.name };
+    return {
+      messages: assembled,
+      droppedCount: toSummarize.length,
+      droppedTokens,
+      strategy: this.name,
+    };
   }
 }
 
@@ -225,9 +227,20 @@ export function makeSummarizer(
         completeSimple: (m: Model, context: Context, o?: SimpleStreamOptions) =>
           complete(m, context, { ...o, apiKey }),
       } as unknown as Models;
-      const result = await generateSummary(messages, models, model, opts.reserveTokens, opts.signal, undefined, undefined, "off");
+      const result = await generateSummary(
+        messages,
+        models,
+        model,
+        opts.reserveTokens,
+        opts.signal,
+        undefined,
+        undefined,
+        "off",
+      );
       if (!result.ok) {
-        log.warn("summary generation failed; falling back to trim", { reason: result.error.message });
+        log.warn("summary generation failed; falling back to trim", {
+          reason: result.error.message,
+        });
         return null;
       }
       const text = result.value.trim();

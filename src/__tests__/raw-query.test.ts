@@ -45,12 +45,12 @@ async function hybridSearch(
   const vectorLiteral = toVectorLiteral(embedding);
 
   const baseFilter = "status != 'archived'";
-  const isolationFilter = isolate && projectId
-    ? `WHERE ${baseFilter} AND project_id = $2`
-    : `WHERE ${baseFilter}`;
-  const boostExpr = !isolate && projectId
-    ? `CASE WHEN COALESCE(v.project_id, k.project_id) = $2 THEN 1.5 ELSE 1.0 END`
-    : "1.0";
+  const isolationFilter =
+    isolate && projectId ? `WHERE ${baseFilter} AND project_id = $2` : `WHERE ${baseFilter}`;
+  const boostExpr =
+    !isolate && projectId
+      ? `CASE WHEN COALESCE(v.project_id, k.project_id) = $2 THEN 1.5 ELSE 1.0 END`
+      : "1.0";
   const statusWeightExpr = `CASE WHEN COALESCE(v.status, k.status) = 'stale' THEN 0.5 ELSE 1.0 END`;
 
   const sql = `
@@ -109,7 +109,7 @@ function makeVector(seed: number): number[] {
   vec[(seed + 1) % EMBEDDING_DIMENSIONS] = 0.3;
   vec[(seed + 2) % EMBEDDING_DIMENSIONS] = 0.1;
   const norm = Math.sqrt(vec.reduce((s, v) => s + v * v, 0));
-  return vec.map(v => v / norm);
+  return vec.map((v) => v / norm);
 }
 
 describe("rawQuery", () => {
@@ -221,7 +221,7 @@ describe("hybridSearch via rawQuery", () => {
     const results = await hybridSearch("hybrid search test", queryVec, {});
 
     expect(results.length).toBeGreaterThanOrEqual(1);
-    expect(results.map(r => r.id)).toContain("hs-m1");
+    expect(results.map((r) => r.id)).toContain("hs-m1");
   });
 
   test("hybridSearch excludes archived memories", async () => {
@@ -238,7 +238,7 @@ describe("hybridSearch via rawQuery", () => {
     const queryVec = makeVector(31);
     const results = await hybridSearch("exclusion test", queryVec, {});
 
-    const ids = results.map(r => r.id);
+    const ids = results.map((r) => r.id);
     expect(ids).not.toContain("hs-archived");
     expect(ids).toContain("hs-active");
   });

@@ -96,16 +96,15 @@ export async function upsertBriefingConfig(
     cron: input.cron ?? existing?.cron ?? BRIEFING_CONFIG_DEFAULTS.cron,
     timezone: input.timezone ?? existing?.timezone ?? BRIEFING_CONFIG_DEFAULTS.timezone,
     projectId: input.projectId !== undefined ? input.projectId : (existing?.projectId ?? null),
-    instructions: input.instructions ?? existing?.instructions ?? BRIEFING_CONFIG_DEFAULTS.instructions,
+    instructions:
+      input.instructions ?? existing?.instructions ?? BRIEFING_CONFIG_DEFAULTS.instructions,
     watchlist: input.watchlist ?? existing?.watchlist ?? [],
     model: input.model !== undefined ? input.model : (existing?.model ?? null),
     provider: input.provider !== undefined ? input.provider : (existing?.provider ?? null),
   };
 
   // Throws on an invalid cron/timezone pair — intentional (see docblock).
-  const nextFireAt = merged.enabled
-    ? parseCron(merged.cron, merged.timezone).next(now)
-    : null;
+  const nextFireAt = merged.enabled ? parseCron(merged.cron, merged.timezone).next(now) : null;
 
   const reenabled = merged.enabled && existing?.enabled === false;
 
@@ -151,7 +150,10 @@ export interface ClaimedBriefing {
  * disabled in-place with `last_fire_status = 'error'` instead of
  * wedging the claim loop forever.
  */
-export async function claimDueBriefingConfigs(now: Date, limit: number): Promise<ClaimedBriefing[]> {
+export async function claimDueBriefingConfigs(
+  now: Date,
+  limit: number,
+): Promise<ClaimedBriefing[]> {
   if (limit <= 0) return [];
   const db = getDb();
   return db.transaction(async (tx: DbTransaction) => {

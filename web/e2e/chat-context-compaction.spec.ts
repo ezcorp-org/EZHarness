@@ -69,115 +69,121 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
+// biome-ignore format: kept on ONE line so gate-integrity's skip detector can still see it. Its STATIC_SKIP/ALWAYS_FORBIDDEN patterns match `.skip(` on the same line as the test/describe callee; the formatter's member-chain break (`test.describe` / `.skip(`) is semantically identical but makes this suppression INVISIBLE to the anti-cheat scan.
 test.describe.skip("Long conversation no longer dead-ends on context_length_exceeded", () => {
-	const proj = makeProject({ id: "proj-cc", name: "Compaction Project" });
-	const conv = makeConversation({ id: "conv-cc", projectId: "proj-cc", title: "Very Long Chat" });
+    const proj = makeProject({ id: "proj-cc", name: "Compaction Project" });
+    const conv = makeConversation({ id: "conv-cc", projectId: "proj-cc", title: "Very Long Chat" });
 
-	// A long branch: 60 chained turns of bulky content — the exact shape
-	// that used to overflow Codex's window on the next send.
-	const history: ReturnType<typeof makeMessage>[] = [];
-	let prev: string | null = null;
-	for (let i = 0; i < 60; i++) {
-		const role = i % 2 === 0 ? "user" : "assistant";
-		const id = `h-${i}`;
-		history.push(
-			makeMessage({
-				id,
-				conversationId: "conv-cc",
-				role,
-				content: `${role} turn ${i}: ` + "lorem ipsum ".repeat(80),
-				parentMessageId: prev,
-				runId: null,
-			}),
-		);
-		prev = id;
-	}
+    // A long branch: 60 chained turns of bulky content — the exact shape
+    // that used to overflow Codex's window on the next send.
+    const history: ReturnType<typeof makeMessage>[] = [];
+    let prev: string | null = null;
+    for (let i = 0; i < 60; i++) {
+      const role = i % 2 === 0 ? "user" : "assistant";
+      const id = `h-${i}`;
+      history.push(
+        makeMessage({
+          id,
+          conversationId: "conv-cc",
+          role,
+          content: `${role} turn ${i}: ` + "lorem ipsum ".repeat(80),
+          parentMessageId: prev,
+          runId: null,
+        }),
+      );
+      prev = id;
+    }
 
-	const ANSWER = "Here is a fresh answer despite the very long history.";
+    const ANSWER = "Here is a fresh answer despite the very long history.";
 
-	async function setupAndSend(page: any, mockApi: any) {
-		await mockApi({ projects: [proj], conversations: [conv], messages: history });
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		// Thread is genuinely long: the tail renders, older turns are
-		// paginated behind a "Load older messages" control.
-		await expect(page.getByText(/assistant turn 59:/)).toBeVisible({ timeout: 8000 });
-		await expect(
-			page.getByRole("button", { name: /load older messages/i }),
-		).toBeVisible();
+    async function setupAndSend(page: any, mockApi: any) {
+      await mockApi({ projects: [proj], conversations: [conv], messages: history });
+      await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+      // Thread is genuinely long: the tail renders, older turns are
+      // paginated behind a "Load older messages" control.
+      await expect(page.getByText(/assistant turn 59:/)).toBeVisible({ timeout: 8000 });
+      await expect(page.getByRole("button", { name: /load older messages/i })).toBeVisible();
 
-		const textarea = page.locator("textarea");
-		await textarea.fill("Given everything above, summarize.");
-		await Promise.all([
-			page.waitForResponse(
-				(r: any) => r.url().includes("/messages") && r.request().method() === "POST",
-			),
-			textarea.press("Enter"),
-		]);
-	}
+      const textarea = page.locator("textarea");
+      await textarea.fill("Given everything above, summarize.");
+      await Promise.all([
+        page.waitForResponse(
+          (r: any) => r.url().includes("/messages") && r.request().method() === "POST",
+        ),
+        textarea.press("Enter"),
+      ]);
+    }
 
-	test("huge thread → normal streamed reply, no Codex overflow card, composer stays usable", async ({
-		page,
-		mockApi,
-		emitSse,
-	}) => {
-		await setupAndSend(page, mockApi);
+    test("huge thread → normal streamed reply, no Codex overflow card, composer stays usable", async ({
+      page,
+      mockApi,
+      emitSse,
+    }) => {
+      await setupAndSend(page, mockApi);
 
-		// The real backend applied compaction and streamed a normal turn.
-		await emitSse({ type: "run:token", data: { runId: "run-cc", token: ANSWER, kind: "text" } });
-		await expect(page.getByText(ANSWER)).toBeVisible({ timeout: 8000 });
+      // The real backend applied compaction and streamed a normal turn.
+      await emitSse({ type: "run:token", data: { runId: "run-cc", token: ANSWER, kind: "text" } });
+      await expect(page.getByText(ANSWER)).toBeVisible({ timeout: 8000 });
 
-		await emitSse({
-			type: "run:turn_saved",
-			data: {
-				runId: "run-cc", conversationId: "conv-cc", messageId: "h-new",
-				parentMessageId: "h-59", content: ANSWER, final: true,
-			},
-		});
-		await emitSse({
-			type: "run:complete",
-			data: {
-				run: {
-					id: "run-cc", agentName: "chat", status: "success",
-					startedAt: "2026-01-01T00:00:00.000Z", logs: [],
-					result: { success: true, output: ANSWER },
-				},
-			},
-		});
+      await emitSse({
+        type: "run:turn_saved",
+        data: {
+          runId: "run-cc",
+          conversationId: "conv-cc",
+          messageId: "h-new",
+          parentMessageId: "h-59",
+          content: ANSWER,
+          final: true,
+        },
+      });
+      await emitSse({
+        type: "run:complete",
+        data: {
+          run: {
+            id: "run-cc",
+            agentName: "chat",
+            status: "success",
+            startedAt: "2026-01-01T00:00:00.000Z",
+            logs: [],
+            result: { success: true, output: ANSWER },
+          },
+        },
+      });
 
-		// THE CONTRACT: a normal reply rendered and the dead-end error is
-		// nowhere on the page.
-		await expect(page.getByText(ANSWER)).toBeVisible();
-		await expect(page.getByText(/context_length_exceeded/i)).toHaveCount(0);
-		await expect(page.getByText(/Codex error:/i)).toHaveCount(0);
-		await expect(page.getByText(/exceeds the context window/i)).toHaveCount(0);
+      // THE CONTRACT: a normal reply rendered and the dead-end error is
+      // nowhere on the page.
+      await expect(page.getByText(ANSWER)).toBeVisible();
+      await expect(page.getByText(/context_length_exceeded/i)).toHaveCount(0);
+      await expect(page.getByText(/Codex error:/i)).toHaveCount(0);
+      await expect(page.getByText(/exceeds the context window/i)).toHaveCount(0);
 
-		// The user is not trapped — composer is interactive again.
-		await expect(page.locator("textarea")).toBeEnabled();
-	});
+      // The user is not trapped — composer is interactive again.
+      await expect(page.locator("textarea")).toBeEnabled();
+    });
 
-	test("guard sanity: the pre-fix overflow WOULD surface a visible dead-end card", async ({
-		page,
-		mockApi,
-		emitSse,
-	}) => {
-		// If compaction regressed, the backend surfaces run:error with the
-		// Codex overflow. Asserting the harness can SEE that card makes the
-		// positive test a meaningful guard (not a vacuous pass).
-		await setupAndSend(page, mockApi);
+    test("guard sanity: the pre-fix overflow WOULD surface a visible dead-end card", async ({
+      page,
+      mockApi,
+      emitSse,
+    }) => {
+      // If compaction regressed, the backend surfaces run:error with the
+      // Codex overflow. Asserting the harness can SEE that card makes the
+      // positive test a meaningful guard (not a vacuous pass).
+      await setupAndSend(page, mockApi);
 
-		await emitSse({
-			type: "run:error",
-			data: {
-				runId: "run-cc-bad",
-				conversationId: "conv-cc",
-				error:
-					'Error: Codex error: {"type":"error","error":{"code":"context_length_exceeded","message":"Your input exceeds the context window of this model."}}',
-			},
-		});
+      await emitSse({
+        type: "run:error",
+        data: {
+          runId: "run-cc-bad",
+          conversationId: "conv-cc",
+          error:
+            'Error: Codex error: {"type":"error","error":{"code":"context_length_exceeded","message":"Your input exceeds the context window of this model."}}',
+        },
+      });
 
-		await expect(page.getByText(/context_length_exceeded/i)).toBeVisible({ timeout: 8000 });
-		// Even in the failure mode the run terminalized — composer is not
-		// permanently disabled.
-		await expect(page.locator("textarea")).toBeEnabled();
-	});
-});
+      await expect(page.getByText(/context_length_exceeded/i)).toBeVisible({ timeout: 8000 });
+      // Even in the failure mode the run terminalized — composer is not
+      // permanently disabled.
+      await expect(page.locator("textarea")).toBeEnabled();
+    });
+  });

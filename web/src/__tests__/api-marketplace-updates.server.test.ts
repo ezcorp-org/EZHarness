@@ -20,10 +20,7 @@ const { getSetting } = await import("$server/db/queries/settings");
 const { getListingById } = await import("$server/db/queries/marketplace");
 const { GET } = await import("../routes/api/marketplace/updates/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  ids?: string;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; ids?: string }) {
   const href = opts.ids
     ? `http://localhost/api/marketplace/updates?ids=${opts.ids}`
     : "http://localhost/api/marketplace/updates";
@@ -55,9 +52,7 @@ describe("GET /api/marketplace/updates", () => {
   });
 
   test("API-key scope check returns 403 when scope missing", async () => {
-    const res = await GET(
-      makeEvent({ locals: { user, apiKeyScopes: ["read"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { user, apiKeyScopes: ["read"] } }));
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error?: string; required?: string };
     expect(body.error).toBe("Insufficient scope");
@@ -73,9 +68,7 @@ describe("GET /api/marketplace/updates", () => {
 
   test("skips ids with no installed-marketplace setting", async () => {
     vi.mocked(getSetting).mockResolvedValue(undefined as any);
-    const res = await GET(
-      makeEvent({ locals: { user }, ids: "cfg-a,cfg-b" }),
-    );
+    const res = await GET(makeEvent({ locals: { user }, ids: "cfg-a,cfg-b" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toEqual({});
@@ -88,9 +81,7 @@ describe("GET /api/marketplace/updates", () => {
       installedAt: "now",
     } as any);
     vi.mocked(getListingById).mockResolvedValue(null as any);
-    const res = await GET(
-      makeEvent({ locals: { user }, ids: "cfg-a" }),
-    );
+    const res = await GET(makeEvent({ locals: { user }, ids: "cfg-a" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body).toEqual({});
@@ -106,9 +97,7 @@ describe("GET /api/marketplace/updates", () => {
       id: "l1",
       latestVersion: "1.2.0",
     } as any);
-    const res = await GET(
-      makeEvent({ locals: { user }, ids: "cfg-a" }),
-    );
+    const res = await GET(makeEvent({ locals: { user }, ids: "cfg-a" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<
       string,
@@ -130,14 +119,9 @@ describe("GET /api/marketplace/updates", () => {
       id: "l1",
       latestVersion: "1.2.0",
     } as any);
-    const res = await GET(
-      makeEvent({ locals: { user }, ids: "cfg-a" }),
-    );
+    const res = await GET(makeEvent({ locals: { user }, ids: "cfg-a" }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<
-      string,
-      { hasUpdate: boolean }
-    >;
+    const body = (await res.json()) as Record<string, { hasUpdate: boolean }>;
     expect(body["cfg-a"].hasUpdate).toBe(false);
   });
 });

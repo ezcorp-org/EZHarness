@@ -187,9 +187,15 @@ describe("sec-L5: oauth-callback-server hardening", () => {
     test("invalid port is rejected before spawn", () => {
       installSpawnStub();
 
-      expect(() => startOAuthCallbackServer(-1, "http://localhost/auth/callback")).toThrow(/invalid.*port/i);
-      expect(() => startOAuthCallbackServer(70000, "http://localhost/auth/callback")).toThrow(/invalid.*port/i);
-      expect(() => startOAuthCallbackServer(1.5, "http://localhost/auth/callback")).toThrow(/invalid.*port/i);
+      expect(() => startOAuthCallbackServer(-1, "http://localhost/auth/callback")).toThrow(
+        /invalid.*port/i,
+      );
+      expect(() => startOAuthCallbackServer(70000, "http://localhost/auth/callback")).toThrow(
+        /invalid.*port/i,
+      );
+      expect(() => startOAuthCallbackServer(1.5, "http://localhost/auth/callback")).toThrow(
+        /invalid.*port/i,
+      );
 
       expect(spawnCalls.length).toBe(0);
     });

@@ -172,9 +172,7 @@ export function customModelsForProvider(
  * the front — makes them reachable exactly when every configured cloud
  * provider has already been skipped for a missing credential.
  */
-export function providersWithCustomModels(
-  entries: readonly CustomModelEntry[],
-): string[] {
+export function providersWithCustomModels(entries: readonly CustomModelEntry[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const entry of entries) {

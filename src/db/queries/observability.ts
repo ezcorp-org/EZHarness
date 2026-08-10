@@ -37,7 +37,9 @@ export async function insertObservabilityEvent(data: {
 
 // ── Per-Conversation Queries ────────────────────────────────────────
 
-export async function getConversationObservability(conversationId: string): Promise<ObservabilityEvent[]> {
+export async function getConversationObservability(
+  conversationId: string,
+): Promise<ObservabilityEvent[]> {
   return getDb()
     .select()
     .from(observabilityEvents)
@@ -87,7 +89,11 @@ export async function getConversationStats(conversationId: string): Promise<Conv
       AND event_type = 'tool_call'
   `);
 
-  const msg = msgRows.rows[0] as { total_input_tokens: number | string; total_output_tokens: number | string; turn_count: number | string };
+  const msg = msgRows.rows[0] as {
+    total_input_tokens: number | string;
+    total_output_tokens: number | string;
+    turn_count: number | string;
+  };
   const dur = durRows.rows[0] as { avg_duration_ms: number | string };
   const tool = toolRows.rows[0] as { tool_count: number | string };
 
@@ -109,7 +115,12 @@ export interface GlobalStats {
   totalTurnCount: number;
   avgResponseMs: number;
   tokensByDay: { date: string; input: number; output: number }[];
-  topExtensions: { extensionId: string; callCount: number; successRate: number; avgDurationMs: number }[];
+  topExtensions: {
+    extensionId: string;
+    callCount: number;
+    successRate: number;
+    avgDurationMs: number;
+  }[];
 }
 
 export async function getGlobalStats(options?: { days?: number }): Promise<GlobalStats> {
@@ -180,12 +191,21 @@ export async function getGlobalStats(options?: { days?: number }): Promise<Globa
     LIMIT 10
   `);
 
-  const msg = msgRows.rows[0] as { total_input_tokens: number | string; total_output_tokens: number | string; turn_count: number | string };
+  const msg = msgRows.rows[0] as {
+    total_input_tokens: number | string;
+    total_output_tokens: number | string;
+    turn_count: number | string;
+  };
   const dur = durRows.rows[0] as { avg_response_ms: number | string };
   const tool = toolRows.rows[0] as { tool_count: number | string };
 
   type DayRow = { day: string; input_tokens: number | string; output_tokens: number | string };
-  type ExtRow = { extension_id: string; call_count: number | string; success_rate: number | string; avg_duration_ms: number | string };
+  type ExtRow = {
+    extension_id: string;
+    call_count: number | string;
+    success_rate: number | string;
+    avg_duration_ms: number | string;
+  };
 
   return {
     totalInputTokens: Number(msg.total_input_tokens),

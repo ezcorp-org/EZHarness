@@ -44,22 +44,20 @@ describe("registerHubPageProvider", () => {
 
   test("rejects malformed ids", () => {
     for (const bad of ["", "UPPER", "has space", "a".repeat(40), "-lead", "dots.bad", "slash/x"]) {
-      expect(() => registerHubPageProvider(makeProvider({ id: bad }))).toThrow(/Invalid hub page provider id/);
+      expect(() => registerHubPageProvider(makeProvider({ id: bad }))).toThrow(
+        /Invalid hub page provider id/,
+      );
     }
   });
 
   test("rejects malformed action names", () => {
     expect(() =>
-      registerHubPageProvider(
-        makeProvider({ actions: { "Bad Action": async () => undefined } }),
-      ),
+      registerHubPageProvider(makeProvider({ actions: { "Bad Action": async () => undefined } })),
     ).toThrow(/Invalid hub page action name/);
   });
 
   test("accepts valid action names and exposes them", () => {
-    registerHubPageProvider(
-      makeProvider({ actions: { "run-now": async () => undefined } }),
-    );
+    registerHubPageProvider(makeProvider({ actions: { "run-now": async () => undefined } }));
     expect(Object.keys(getHubPageProvider("demo")!.actions!)).toEqual(["run-now"]);
   });
 });

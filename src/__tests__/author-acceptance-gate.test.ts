@@ -72,7 +72,11 @@ beforeEach(() => {
   verifyCalls = 0;
 });
 afterEach(() => {
-  try { rmSync(DIR, { recursive: true, force: true }); } catch { /* best effort */ }
+  try {
+    rmSync(DIR, { recursive: true, force: true });
+  } catch {
+    /* best effort */
+  }
 });
 
 describe("runAuthorAcceptanceGate — manifest failures", () => {

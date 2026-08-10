@@ -82,26 +82,20 @@ describe("fetchPermitted (thin shim of globalThis.fetch)", () => {
 
   test("surfaces fetch's throw without modification (wrapper-deny pass-through)", async () => {
     // Simulate the sandbox-preload wrapper's deny throw.
-    fetchSpy.mockImplementation(
-      (async () => {
-        throw new Error(
-          "Extension sandbox: hostname 'evil.com' is not in the granted network allowlist",
-        );
-      }) as unknown as typeof fetch,
-    );
+    fetchSpy.mockImplementation((async () => {
+      throw new Error(
+        "Extension sandbox: hostname 'evil.com' is not in the granted network allowlist",
+      );
+    }) as unknown as typeof fetch);
     await expect(fetchPermitted("https://evil.com/")).rejects.toThrow(
       /Extension sandbox: hostname 'evil\.com' is not in the granted network allowlist/,
     );
   });
 
   test("surfaces fetch's throw for upstream failures", async () => {
-    fetchSpy.mockImplementation(
-      (async () => {
-        throw new TypeError("fetch failed");
-      }) as unknown as typeof fetch,
-    );
-    await expect(fetchPermitted("https://api.example.com/")).rejects.toThrow(
-      /fetch failed/,
-    );
+    fetchSpy.mockImplementation((async () => {
+      throw new TypeError("fetch failed");
+    }) as unknown as typeof fetch);
+    await expect(fetchPermitted("https://api.example.com/")).rejects.toThrow(/fetch failed/);
   });
 });

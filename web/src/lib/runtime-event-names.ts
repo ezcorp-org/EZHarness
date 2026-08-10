@@ -11,15 +11,32 @@
  * client lib code, and the standalone harness-client package alike.
  */
 export const RUNTIME_EVENT_NAMES = [
-  "run:start", "run:status", "run:log", "run:complete", "run:error", "run:cancel",
-  "run:token", "run:usage", "run:turn_saved", "run:turn_text_reset",
-  "workflow:start", "workflow:step", "workflow:complete", "workflow:error",
+  "run:start",
+  "run:status",
+  "run:log",
+  "run:complete",
+  "run:error",
+  "run:cancel",
+  "run:token",
+  "run:usage",
+  "run:turn_saved",
+  "run:turn_text_reset",
+  "workflow:start",
+  "workflow:step",
+  "workflow:complete",
+  "workflow:error",
   // A run parked on an `approval` step — drives the pending-decisions tray.
   // User-scoped and fail-closed (see SCOPED_RUNTIME_EVENT_TYPES).
   "workflow:approval_request",
-  "tool:start", "tool:complete", "tool:error", "tool:permission_request",
-  "agent:spawn", "agent:status", "agent:complete",
-  "task:snapshot", "task:assignment_update",
+  "tool:start",
+  "tool:complete",
+  "tool:error",
+  "tool:permission_request",
+  "agent:spawn",
+  "agent:status",
+  "agent:complete",
+  "task:snapshot",
+  "task:assignment_update",
   "ask-user:answer",
   // Ez concierge client-side tool delivery (fill_form / navigate_to).
   "ez:client-tool",

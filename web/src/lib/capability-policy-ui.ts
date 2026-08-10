@@ -46,9 +46,32 @@ export type SearchGrant =
 export interface CapabilitySettingsField {
   key: string;
   field:
-    | { type: "select"; label: string; description?: string; options: { value: string; label: string }[]; default?: string }
-    | { type: "text"; label: string; description?: string; default?: string; minLength?: number; maxLength?: number; pattern?: string }
-    | { type: "number"; label: string; description?: string; default?: number; min?: number; max?: number; step?: number; integer?: boolean }
+    | {
+        type: "select";
+        label: string;
+        description?: string;
+        options: { value: string; label: string }[];
+        default?: string;
+      }
+    | {
+        type: "text";
+        label: string;
+        description?: string;
+        default?: string;
+        minLength?: number;
+        maxLength?: number;
+        pattern?: string;
+      }
+    | {
+        type: "number";
+        label: string;
+        description?: string;
+        default?: number;
+        min?: number;
+        max?: number;
+        step?: number;
+        integer?: boolean;
+      }
     | { type: "boolean"; label: string; description?: string; default?: boolean };
 }
 
@@ -106,10 +129,7 @@ export function sameProviderSet(a: string[], b: string[]): boolean {
  *     with the available set (a stale/unknown provider is dropped — the
  *     server ceiling would drop it anyway).
  */
-export function seedProviders(
-  effectiveProviders: string[] | "all",
-  available: string[],
-): string[] {
+export function seedProviders(effectiveProviders: string[] | "all", available: string[]): string[] {
   if (effectiveProviders === "all") return [...available];
   const avail = new Set(available);
   return effectiveProviders.filter((p) => avail.has(p));

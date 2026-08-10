@@ -21,33 +21,31 @@ export type StreamSnapshot = Record<string, StreamSnapshotEntry>;
  * whatever was last captured.
  */
 export function recordSnapshot(
-	snapshot: StreamSnapshot,
-	runId: string | null,
-	streamingText: string | undefined,
-	streamingThinking: string | undefined,
+  snapshot: StreamSnapshot,
+  runId: string | null,
+  streamingText: string | undefined,
+  streamingThinking: string | undefined,
 ): StreamSnapshot {
-	if (!runId) return snapshot;
-	if (streamingText === undefined && streamingThinking === undefined) return snapshot;
+  if (!runId) return snapshot;
+  if (streamingText === undefined && streamingThinking === undefined) return snapshot;
 
-	const prev = snapshot[runId];
-	const nextContent = streamingText && streamingText.length > 0
-		? streamingText
-		: prev?.content ?? "";
-	const nextThinking = streamingThinking && streamingThinking.length > 0
-		? streamingThinking
-		: prev?.thinking ?? "";
+  const prev = snapshot[runId];
+  const nextContent =
+    streamingText && streamingText.length > 0 ? streamingText : (prev?.content ?? "");
+  const nextThinking =
+    streamingThinking && streamingThinking.length > 0 ? streamingThinking : (prev?.thinking ?? "");
 
-	if (prev && prev.content === nextContent && prev.thinking === nextThinking) {
-		return snapshot;
-	}
-	return { ...snapshot, [runId]: { content: nextContent, thinking: nextThinking } };
+  if (prev && prev.content === nextContent && prev.thinking === nextThinking) {
+    return snapshot;
+  }
+  return { ...snapshot, [runId]: { content: nextContent, thinking: nextThinking } };
 }
 
 /** Drop one entry from a snapshot. Same-reference fast path when absent. */
 export function clearSnapshot(snapshot: StreamSnapshot, runId: string | null): StreamSnapshot {
-	if (!runId || !(runId in snapshot)) return snapshot;
-	const { [runId]: _, ...rest } = snapshot;
-	return rest;
+  if (!runId || !(runId in snapshot)) return snapshot;
+  const { [runId]: _, ...rest } = snapshot;
+  return rest;
 }
 
 /**
@@ -56,16 +54,16 @@ export function clearSnapshot(snapshot: StreamSnapshot, runId: string | null): S
  * already accepts (no API change to the pure helper).
  */
 export function snapshotToMaps(
-	snapshot: StreamSnapshot,
-	runId: string | null,
+  snapshot: StreamSnapshot,
+  runId: string | null,
 ): { contentMap: Record<string, string>; thinkingMap: Record<string, string> } {
-	if (!runId) return { contentMap: {}, thinkingMap: {} };
-	const entry = snapshot[runId];
-	if (!entry) return { contentMap: {}, thinkingMap: {} };
-	return {
-		contentMap: entry.content ? { [runId]: entry.content } : {},
-		thinkingMap: entry.thinking ? { [runId]: entry.thinking } : {},
-	};
+  if (!runId) return { contentMap: {}, thinkingMap: {} };
+  const entry = snapshot[runId];
+  if (!entry) return { contentMap: {}, thinkingMap: {} };
+  return {
+    contentMap: entry.content ? { [runId]: entry.content } : {},
+    thinkingMap: entry.thinking ? { [runId]: entry.thinking } : {},
+  };
 }
 
 /**
@@ -83,30 +81,33 @@ export function snapshotToMaps(
  * earlier rows are empty.
  */
 export function patchAssistantContentFromStream(
-	messages: Message[],
-	runId: string | null,
-	streamingMessages: Record<string, string>,
-	streamingThinking: Record<string, string>,
+  messages: Message[],
+  runId: string | null,
+  streamingMessages: Record<string, string>,
+  streamingThinking: Record<string, string>,
 ): Message[] {
-	if (!runId) return messages;
+  if (!runId) return messages;
 
-	let lastIdx = -1;
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const m = messages[i]!;
-		if (m.runId === runId && m.role === "assistant") { lastIdx = i; break; }
-	}
-	if (lastIdx < 0) return messages;
+  let lastIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.runId === runId && m.role === "assistant") {
+      lastIdx = i;
+      break;
+    }
+  }
+  if (lastIdx < 0) return messages;
 
-	const target = messages[lastIdx]!;
-	const needsContent = !target.content?.trim() && !!streamingMessages[runId];
-	const needsThinking = !target.thinkingContent && !!streamingThinking[runId];
-	if (!needsContent && !needsThinking) return messages;
+  const target = messages[lastIdx]!;
+  const needsContent = !target.content?.trim() && !!streamingMessages[runId];
+  const needsThinking = !target.thinkingContent && !!streamingThinking[runId];
+  if (!needsContent && !needsThinking) return messages;
 
-	const result = messages.slice();
-	result[lastIdx] = {
-		...target,
-		...(needsContent ? { content: streamingMessages[runId]! } : {}),
-		...(needsThinking ? { thinkingContent: streamingThinking[runId]! } : {}),
-	};
-	return result;
+  const result = messages.slice();
+  result[lastIdx] = {
+    ...target,
+    ...(needsContent ? { content: streamingMessages[runId]! } : {}),
+    ...(needsThinking ? { thinkingContent: streamingThinking[runId]! } : {}),
+  };
+  return result;
 }

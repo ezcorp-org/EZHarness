@@ -90,10 +90,7 @@ export async function getLessonBySlug(
  * cheap at this row scale, and keeps the SQL portable across PGlite +
  * external Postgres without driver-specific quirks.
  */
-export async function listVisibleLessons(
-  projectId: string,
-  ownerId: string,
-): Promise<Lesson[]> {
+export async function listVisibleLessons(projectId: string, ownerId: string): Promise<Lesson[]> {
   if (!projectId || !ownerId) return [];
   const db = getDb();
   const rows = (await db
@@ -167,10 +164,7 @@ export async function searchLessons(
     // ILIKE on title OR slug. The escape character is the default `\`
     // (PG14+ treats it as the LIKE escape unless overridden).
     conditions.push(
-      or(
-        sql`${lessons.title} ILIKE ${pattern}`,
-        sql`${lessons.slug} ILIKE ${pattern}`,
-      )!,
+      or(sql`${lessons.title} ILIKE ${pattern}`, sql`${lessons.slug} ILIKE ${pattern}`)!,
     );
   }
 
@@ -261,10 +255,7 @@ export async function incrementDismissedCount(lessonId: string): Promise<void> {
  * hard delete" in the v1.5 admin spec. Schema is forward-compatible if
  * v2 adds a `deleted_at` column.
  */
-export async function deleteLessonAsOwner(
-  id: string,
-  ownerId: string,
-): Promise<boolean> {
+export async function deleteLessonAsOwner(id: string, ownerId: string): Promise<boolean> {
   if (!id || !ownerId) return false;
   const db = getDb();
   const rows = await db
@@ -283,11 +274,7 @@ export async function deleteLessonAsOwner(
 export async function getLessonByIdForOwnerCheck(id: string): Promise<Lesson | null> {
   if (!id) return null;
   const db = getDb();
-  const rows = (await db
-    .select()
-    .from(lessons)
-    .where(eq(lessons.id, id))
-    .limit(1)) as Lesson[];
+  const rows = (await db.select().from(lessons).where(eq(lessons.id, id)).limit(1)) as Lesson[];
   return rows[0] ?? null;
 }
 

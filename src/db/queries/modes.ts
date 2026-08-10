@@ -10,9 +10,10 @@ export type DbMode = typeof modes.$inferSelect;
 export async function listModes(userId?: string): Promise<DbMode[]> {
   const db = getDb();
   if (userId) {
-    return db.select().from(modes).where(
-      or(eq(modes.builtin, true), eq(modes.userId, userId))
-    );
+    return db
+      .select()
+      .from(modes)
+      .where(or(eq(modes.builtin, true), eq(modes.userId, userId)));
   }
   return db.select().from(modes);
 }
@@ -61,7 +62,10 @@ export async function createMode(data: {
     icon: data.icon ?? null,
     description: data.description ?? "",
     systemPromptInstruction: data.systemPromptInstruction,
-    instructionPosition: (data.instructionPosition ?? "prepend") as "prepend" | "append" | "replace",
+    instructionPosition: (data.instructionPosition ?? "prepend") as
+      | "prepend"
+      | "append"
+      | "replace",
     preferredModel: data.preferredModel ?? null,
     preferredProvider: data.preferredProvider ?? null,
     preferredTier: data.preferredTier ?? null,
@@ -81,23 +85,26 @@ export async function createMode(data: {
   return row;
 }
 
-export async function updateMode(id: string, data: Partial<{
-  name: string;
-  slug: string;
-  icon: string | null;
-  description: string;
-  systemPromptInstruction: string;
-  instructionPosition: "prepend" | "append" | "replace";
-  preferredModel: string | null;
-  preferredProvider: string | null;
-  preferredTier: RoutingTier | null;
-  preferredThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
-  temperature: number | null;
-  toolRestriction: "all" | "read-only" | "none" | "allowlist";
-  allowedTools: string[] | null;
-  extensionIds: string[] | null;
-  extensionTools: Record<string, string[]> | null;
-}>): Promise<DbMode | undefined> {
+export async function updateMode(
+  id: string,
+  data: Partial<{
+    name: string;
+    slug: string;
+    icon: string | null;
+    description: string;
+    systemPromptInstruction: string;
+    instructionPosition: "prepend" | "append" | "replace";
+    preferredModel: string | null;
+    preferredProvider: string | null;
+    preferredTier: RoutingTier | null;
+    preferredThinkingLevel: "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | null;
+    temperature: number | null;
+    toolRestriction: "all" | "read-only" | "none" | "allowlist";
+    allowedTools: string[] | null;
+    extensionIds: string[] | null;
+    extensionTools: Record<string, string[]> | null;
+  }>,
+): Promise<DbMode | undefined> {
   const existing = await getMode(id);
   if (!existing || existing.builtin) return undefined;
 

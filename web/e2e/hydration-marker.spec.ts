@@ -33,75 +33,75 @@ import { makeProject, makeConversation } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-1", name: "Hydration Project" });
 const conv = makeConversation({
-	id: "conv-1",
-	projectId: "proj-1",
-	title: "Hydration Test",
+  id: "conv-1",
+  projectId: "proj-1",
+  title: "Hydration Test",
 });
 
 test.describe("hydration marker", () => {
-	test("SSR sends data-hydrated=false — the raw HTML cannot false-pass", async ({
-		page,
-		request,
-	}) => {
-		// Raw HTTP, no browser, no JavaScript: exactly what the server emits.
-		const res = await request.get(`/project/${proj.id}/chat/${conv.id}`);
-		expect(res.status()).toBe(200);
-		const html = await res.text();
+  test("SSR sends data-hydrated=false — the raw HTML cannot false-pass", async ({
+    page,
+    request,
+  }) => {
+    // Raw HTTP, no browser, no JavaScript: exactly what the server emits.
+    const res = await request.get(`/project/${proj.id}/chat/${conv.id}`);
+    expect(res.status()).toBe(200);
+    const html = await res.text();
 
-		expect(html).toContain('data-hydrated="false"');
-		expect(html).not.toContain('data-hydrated="true"');
+    expect(html).toContain('data-hydrated="false"');
+    expect(html).not.toContain('data-hydrated="true"');
 
-		// The premise of the bug, pinned: the things specs used to gate on are
-		// ALREADY in this pre-JavaScript HTML, so they prove nothing.
-		expect(html).toContain("<textarea");
-		expect(html).toContain("Send a message to start the conversation");
+    // The premise of the bug, pinned: the things specs used to gate on are
+    // ALREADY in this pre-JavaScript HTML, so they prove nothing.
+    expect(html).toContain("<textarea");
+    expect(html).toContain("Send a message to start the conversation");
 
-		// And the marker survives on the error page too — app.html wraps every
-		// document the app serves, so "no marker" can only ever mean "not an
-		// app document", never "an app page that hasn't hydrated yet".
-		const missing = await request.get("/this-route-does-not-exist");
-		expect(missing.status()).toBe(404);
-		expect(await missing.text()).toContain('data-hydrated="false"');
+    // And the marker survives on the error page too — app.html wraps every
+    // document the app serves, so "no marker" can only ever mean "not an
+    // app document", never "an app page that hasn't hydrated yet".
+    const missing = await request.get("/this-route-does-not-exist");
+    expect(missing.status()).toBe(404);
+    expect(await missing.text()).toContain('data-hydrated="false"');
 
-		// Guard the escape hatch in waitForHydration(): a non-app document has
-		// NO marker at all, which is why gating it would otherwise hang.
-		const manifest = await request.get("/manifest.json");
-		expect(manifest.status()).toBe(200);
-		expect(await manifest.text()).not.toContain("data-hydrated");
+    // Guard the escape hatch in waitForHydration(): a non-app document has
+    // NO marker at all, which is why gating it would otherwise hang.
+    const manifest = await request.get("/manifest.json");
+    expect(manifest.status()).toBe(200);
+    expect(await manifest.text()).not.toContain("data-hydrated");
 
-		// `page` is unused for the request assertions above but the fixture is
-		// what makes `request` share the app's baseURL; keep it honest.
-		expect(page.url()).toBe("about:blank");
-	});
+    // `page` is unused for the request assertions above but the fixture is
+    // what makes `request` share the app's baseURL; keep it honest.
+    expect(page.url()).toBe("about:blank");
+  });
 
-	test("@evidence the client flips it to true, and the composer is live once goto returns", async ({
-		page,
-		mockApi,
-	}, testInfo) => {
-		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
+  test("@evidence the client flips it to true, and the composer is live once goto returns", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 
-		// The wrapped `goto` (fixtures/test-base.ts) already waits for this.
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		await expect(page.locator("html")).toHaveAttribute("data-hydrated", "true");
+    // The wrapped `goto` (fixtures/test-base.ts) already waits for this.
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+    await expect(page.locator("html")).toHaveAttribute("data-hydrated", "true");
 
-		// The whole point: typing straight after the gate STICKS. Pre-fix this
-		// raced hydration and the value was silently thrown away.
-		const textarea = page.locator("textarea").first();
-		await textarea.fill("hydrated input survives");
-		await expect(textarea).toHaveValue("hydrated input survives");
+    // The whole point: typing straight after the gate STICKS. Pre-fix this
+    // raced hydration and the value was silently thrown away.
+    const textarea = page.locator("textarea").first();
+    await textarea.fill("hydrated input survives");
+    await expect(textarea).toHaveValue("hydrated input survives");
 
-		// …and the send button therefore leaves its permanently-disabled state.
-		await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled();
+    // …and the send button therefore leaves its permanently-disabled state.
+    await expect(page.getByRole("button", { name: "Send message" })).toBeEnabled();
 
-		await captureEvidence(page, testInfo, "hydration-marker-chat-shell");
-	});
+    await captureEvidence(page, testInfo, "hydration-marker-chat-shell");
+  });
 
-	test("@evidence the SvelteKit error page hydrates too", async ({ page, mockApi }, testInfo) => {
-		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
+  test("@evidence the SvelteKit error page hydrates too", async ({ page, mockApi }, testInfo) => {
+    await mockApi({ projects: [proj], conversations: [conv], messages: [] });
 
-		await page.goto("/this-route-does-not-exist");
-		await expect(page.locator("html")).toHaveAttribute("data-hydrated", "true");
+    await page.goto("/this-route-does-not-exist");
+    await expect(page.locator("html")).toHaveAttribute("data-hydrated", "true");
 
-		await captureEvidence(page, testInfo, "hydration-marker-error-page");
-	});
+    await captureEvidence(page, testInfo, "hydration-marker-error-page");
+  });
 });

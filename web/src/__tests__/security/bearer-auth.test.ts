@@ -26,21 +26,35 @@ import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-clean
 // (which would persist across subsequent tests and cause order-dependent
 // failures).
 let verifyApiKeyCalls: string[];
-let verifyApiKeyImpl: (raw: string) => Promise<
-  { userId: string; name: string; scopes: readonly string[]; role: "member" | "admin" } | null
-> = async (raw: string) => {
+let verifyApiKeyImpl: (raw: string) => Promise<{
+  userId: string;
+  name: string;
+  scopes: readonly string[];
+  role: "member" | "admin";
+} | null> = async (raw: string) => {
   verifyApiKeyCalls.push(raw);
-  if (raw === "ezk_valid") return { userId: "user-1", name: "Test", scopes: ["chat"], role: "member" };
+  if (raw === "ezk_valid")
+    return { userId: "user-1", name: "Test", scopes: ["chat"], role: "member" };
   // A role-carrying admin key whose owner is a current admin.
-  if (raw === "ezk_admin") return { userId: "user-2", name: "Admin Key", scopes: ["read", "admin"], role: "admin" };
+  if (raw === "ezk_admin")
+    return { userId: "user-2", name: "Admin Key", scopes: ["read", "admin"], role: "admin" };
   // Admin-ROLE key whose owner has since been DEMOTED to member.
-  if (raw === "ezk_demoted") return { userId: "user-demoted", name: "Demoted Key", scopes: ["read", "admin"], role: "admin" };
+  if (raw === "ezk_demoted")
+    return {
+      userId: "user-demoted",
+      name: "Demoted Key",
+      scopes: ["read", "admin"],
+      role: "admin",
+    };
   // Admin-ROLE key whose owner has since been BANNED (status inactive).
-  if (raw === "ezk_banned") return { userId: "user-banned", name: "Banned Key", scopes: ["read", "admin"], role: "admin" };
+  if (raw === "ezk_banned")
+    return { userId: "user-banned", name: "Banned Key", scopes: ["read", "admin"], role: "admin" };
   // Key whose owner row no longer exists (deleted out of band).
-  if (raw === "ezk_orphan") return { userId: "user-orphan", name: "Orphan Key", scopes: ["read"], role: "admin" };
+  if (raw === "ezk_orphan")
+    return { userId: "user-orphan", name: "Orphan Key", scopes: ["read"], role: "admin" };
   // Member-ROLE key owned by a current admin — the min-clamp keeps it member.
-  if (raw === "ezk_member_adminowner") return { userId: "user-2", name: "Member Key", scopes: ["read"], role: "member" };
+  if (raw === "ezk_member_adminowner")
+    return { userId: "user-2", name: "Member Key", scopes: ["read"], role: "member" };
   return null;
 };
 mock.module("$lib/server/security/api-keys", () => ({
@@ -52,7 +66,12 @@ mock.module("$lib/server/security/api-keys", () => ({
 // NOT exist — used to assert the middleware refuses to override onto
 // non-existent users. The `status` field lets individual tests assert the
 // inactive-user rejection path.
-interface StubUser { id: string; name: string; role: string; status: string }
+interface StubUser {
+  id: string;
+  name: string;
+  role: string;
+  status: string;
+}
 const userStore = new Map<string, StubUser>();
 mock.module("$server/db/queries/users", () => ({
   getUserById: async (id: string) => userStore.get(id),
@@ -85,8 +104,18 @@ beforeEach(() => {
   // Owners for the ezk_ user-key fixtures. Owner re-validation loads these.
   userStore.set("user-1", { id: "user-1", name: "Test", role: "member", status: "active" });
   userStore.set("user-2", { id: "user-2", name: "Admin Owner", role: "admin", status: "active" });
-  userStore.set("user-demoted", { id: "user-demoted", name: "Demoted", role: "member", status: "active" });
-  userStore.set("user-banned", { id: "user-banned", name: "Banned", role: "admin", status: "inactive" });
+  userStore.set("user-demoted", {
+    id: "user-demoted",
+    name: "Demoted",
+    role: "member",
+    status: "active",
+  });
+  userStore.set("user-banned", {
+    id: "user-banned",
+    name: "Banned",
+    role: "admin",
+    status: "inactive",
+  });
   // `user-orphan` intentionally absent — models a deleted owner.
 });
 
@@ -311,7 +340,12 @@ describe("attachBearerAuth — on-behalf-of header", () => {
   });
 
   test("OBO header naming another sys-* identity is REJECTED (no cross-system pivot)", async () => {
-    userStore.set("sys-other-ext", { id: "sys-other-ext", name: "Other", role: "member", status: "active" });
+    userStore.set("sys-other-ext", {
+      id: "sys-other-ext",
+      name: "Other",
+      role: "member",
+      status: "active",
+    });
     const { raw } = provisionInternalKey("ai-kit", ["chat"], "sys-ai-kit");
     const evt = makeEvent("127.0.0.1", "sys-other-ext");
     await attachBearerAuth(evt, `Bearer ${raw}`);
@@ -443,14 +477,14 @@ describe("attachBearerAuth — OBO audit-log injection hardening", () => {
 
   // Payloads that would break a plain-text logger but must be safe in JSON.
   const injectionPayloads: Array<[string, string]> = [
-    ["LF newline",          "geff\nINFO: forged log line"],
-    ["CRLF newline",        "geff\r\nINFO: forged log line"],
-    ["null byte",           "geff\x00injected"],
-    ["ANSI escape",         "geff\x1b[31mred"],
-    ["Unicode LS (\\u2028)","geff\u2028injected"],
-    ["Unicode PS (\\u2029)","geff\u2029injected"],
-    ["JSON quote",          'geff"injected"'],
-    ["backslash",           "geff\\nfake"],
+    ["LF newline", "geff\nINFO: forged log line"],
+    ["CRLF newline", "geff\r\nINFO: forged log line"],
+    ["null byte", "geff\x00injected"],
+    ["ANSI escape", "geff\x1b[31mred"],
+    ["Unicode LS (\\u2028)", "geff\u2028injected"],
+    ["Unicode PS (\\u2029)", "geff\u2029injected"],
+    ["JSON quote", 'geff"injected"'],
+    ["backslash", "geff\\nfake"],
   ];
 
   for (const [label, userId] of injectionPayloads) {
@@ -464,9 +498,12 @@ describe("attachBearerAuth — OBO audit-log injection hardening", () => {
       await attachBearerAuth(evt, `Bearer ${raw}`);
 
       // Find the elevation audit entry.
-      const elevationLines = logLines.filter(l => {
-        try { return JSON.parse(l.trim()).msg === "internal-auth: on-behalf-of elevation"; }
-        catch { return false; }
+      const elevationLines = logLines.filter((l) => {
+        try {
+          return JSON.parse(l.trim()).msg === "internal-auth: on-behalf-of elevation";
+        } catch {
+          return false;
+        }
       });
       expect(elevationLines).toHaveLength(1);
 

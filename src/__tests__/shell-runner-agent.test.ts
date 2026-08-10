@@ -4,7 +4,10 @@ import type { AgentContext, InputField } from "../types";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
-function makeCtx(input: Record<string, unknown>, overrides: Partial<AgentContext> = {}): AgentContext {
+function makeCtx(
+  input: Record<string, unknown>,
+  overrides: Partial<AgentContext> = {},
+): AgentContext {
   const logs: string[] = [];
   return {
     input,
@@ -15,13 +18,21 @@ function makeCtx(input: Record<string, unknown>, overrides: Partial<AgentContext
       },
     },
     file: {
-      async read() { return ""; },
+      async read() {
+        return "";
+      },
       async write() {},
-      async exists() { return false; },
+      async exists() {
+        return false;
+      },
     },
-    log(message: string) { logs.push(message); },
+    log(message: string) {
+      logs.push(message);
+    },
     signal: new AbortController().signal,
-    async run() { return { success: true, output: null }; },
+    async run() {
+      return { success: true, output: null };
+    },
     ...overrides,
   };
 }
@@ -105,14 +116,17 @@ describe("shell-runner execute — input validation", () => {
 describe("shell-runner execute — success path", () => {
   test("runs command and returns success with stdout/stderr/exitCode", async () => {
     let capturedCommand: string | undefined;
-    const ctx = makeCtx({ command: "echo hello" }, {
-      shell: {
-        async run(cmd) {
-          capturedCommand = cmd;
-          return { stdout: "hello\n", stderr: "", exitCode: 0 };
+    const ctx = makeCtx(
+      { command: "echo hello" },
+      {
+        shell: {
+          async run(cmd) {
+            capturedCommand = cmd;
+            return { stdout: "hello\n", stderr: "", exitCode: 0 };
+          },
         },
       },
-    });
+    );
 
     const result = await shellRunnerAgent.execute(ctx);
 
@@ -124,14 +138,17 @@ describe("shell-runner execute — success path", () => {
 
   test("passes cwd option to shell.run when provided", async () => {
     let capturedOpts: { cwd?: string } | undefined;
-    const ctx = makeCtx({ command: "ls", cwd: "/tmp" }, {
-      shell: {
-        async run(_cmd, opts) {
-          capturedOpts = opts;
-          return { stdout: "", stderr: "", exitCode: 0 };
+    const ctx = makeCtx(
+      { command: "ls", cwd: "/tmp" },
+      {
+        shell: {
+          async run(_cmd, opts) {
+            capturedOpts = opts;
+            return { stdout: "", stderr: "", exitCode: 0 };
+          },
         },
       },
-    });
+    );
 
     await shellRunnerAgent.execute(ctx);
 
@@ -140,14 +157,17 @@ describe("shell-runner execute — success path", () => {
 
   test("does not pass cwd when not provided", async () => {
     let capturedOpts: { cwd?: string } | undefined;
-    const ctx = makeCtx({ command: "pwd" }, {
-      shell: {
-        async run(_cmd, opts) {
-          capturedOpts = opts;
-          return { stdout: "/home\n", stderr: "", exitCode: 0 };
+    const ctx = makeCtx(
+      { command: "pwd" },
+      {
+        shell: {
+          async run(_cmd, opts) {
+            capturedOpts = opts;
+            return { stdout: "/home\n", stderr: "", exitCode: 0 };
+          },
         },
       },
-    });
+    );
 
     await shellRunnerAgent.execute(ctx);
 
@@ -156,10 +176,19 @@ describe("shell-runner execute — success path", () => {
 
   test("logs the command before running", async () => {
     const logged: string[] = [];
-    const ctx = makeCtx({ command: "date" }, {
-      log(msg: string) { logged.push(msg); },
-      shell: { async run() { return { stdout: "", stderr: "", exitCode: 0 }; } },
-    });
+    const ctx = makeCtx(
+      { command: "date" },
+      {
+        log(msg: string) {
+          logged.push(msg);
+        },
+        shell: {
+          async run() {
+            return { stdout: "", stderr: "", exitCode: 0 };
+          },
+        },
+      },
+    );
 
     await shellRunnerAgent.execute(ctx);
 
@@ -171,13 +200,16 @@ describe("shell-runner execute — success path", () => {
 
 describe("shell-runner execute — non-zero exit", () => {
   test("returns success=false when exitCode is non-zero", async () => {
-    const ctx = makeCtx({ command: "false" }, {
-      shell: {
-        async run() {
-          return { stdout: "", stderr: "error output", exitCode: 1 };
+    const ctx = makeCtx(
+      { command: "false" },
+      {
+        shell: {
+          async run() {
+            return { stdout: "", stderr: "error output", exitCode: 1 };
+          },
         },
       },
-    });
+    );
 
     const result = await shellRunnerAgent.execute(ctx);
 
@@ -187,13 +219,16 @@ describe("shell-runner execute — non-zero exit", () => {
   });
 
   test("returns success=true only when exitCode is 0", async () => {
-    const ctx = makeCtx({ command: "true" }, {
-      shell: {
-        async run() {
-          return { stdout: "ok", stderr: "", exitCode: 0 };
+    const ctx = makeCtx(
+      { command: "true" },
+      {
+        shell: {
+          async run() {
+            return { stdout: "ok", stderr: "", exitCode: 0 };
+          },
         },
       },
-    });
+    );
 
     const result = await shellRunnerAgent.execute(ctx);
 

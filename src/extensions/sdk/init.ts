@@ -24,7 +24,9 @@ export interface InitOptions {
 
 export async function initExtension(opts: InitOptions): Promise<void> {
   if (!opts.extName) {
-    throw new Error('Extension name required. Usage: ezcorp ext init <name> [--type tool|skill|agent|multi]');
+    throw new Error(
+      "Extension name required. Usage: ezcorp ext init <name> [--type tool|skill|agent|multi]",
+    );
   }
 
   const cwd = opts.cwd ?? process.cwd();
@@ -42,7 +44,9 @@ export async function initExtension(opts: InitOptions): Promise<void> {
     const descAnswer = await askLine(`Description (${description}): `);
     if (descAnswer.trim()) description = descAnswer.trim();
 
-    log.info("Extension type: 1) Tool - MCP tool server, 2) Skill - Prompt & knowledge, 3) Agent - Conversational persona, 4) Multi - Combined");
+    log.info(
+      "Extension type: 1) Tool - MCP tool server, 2) Skill - Prompt & knowledge, 3) Agent - Conversational persona, 4) Multi - Combined",
+    );
 
     const typeAnswer = await askLine("\nSelect type [1-4]: ");
     const typeIdx = parseInt(typeAnswer.trim(), 10) - 1;

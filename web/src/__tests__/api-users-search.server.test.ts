@@ -15,10 +15,7 @@ vi.mock("$server/db/queries/users", () => ({
 const { listUsers } = await import("$server/db/queries/users");
 const { GET } = await import("../routes/api/users/search/+server");
 
-function makeEvent(opts: {
-  q?: string;
-  locals?: Record<string, unknown>;
-}) {
+function makeEvent(opts: { q?: string; locals?: Record<string, unknown> }) {
   const url =
     "http://localhost/api/users/search" +
     (opts.q !== undefined ? `?q=${encodeURIComponent(opts.q)}` : "");
@@ -90,9 +87,7 @@ describe("GET /api/users/search", () => {
       users?: Array<{ id: string; name: string; email: string }>;
     };
     expect(body.users).toHaveLength(10);
-    expect(body.users!.every((u) => u.name.toLowerCase().includes("ali"))).toBe(
-      true,
-    );
+    expect(body.users!.every((u) => u.name.toLowerCase().includes("ali"))).toBe(true);
     // Only exposes safe fields.
     for (const u of body.users!) {
       expect(Object.keys(u).sort()).toEqual(["email", "id", "name"]);

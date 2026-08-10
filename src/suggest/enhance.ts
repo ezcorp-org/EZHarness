@@ -84,10 +84,14 @@ const SYSTEM_PROMPT = [
 function buildUserMessage(draft: string, ctx: EnhanceContext): string {
   const parts: string[] = [];
   if (ctx.modeName) {
-    parts.push(`Active mode: ${ctx.modeName}${ctx.modeDescription ? ` — ${ctx.modeDescription}` : ""}`);
+    parts.push(
+      `Active mode: ${ctx.modeName}${ctx.modeDescription ? ` — ${ctx.modeDescription}` : ""}`,
+    );
   }
   if (ctx.tools.length > 0) {
-    parts.push(`Available tools:\n${ctx.tools.map((t) => `- ${t.name}: ${t.description}`).join("\n")}`);
+    parts.push(
+      `Available tools:\n${ctx.tools.map((t) => `- ${t.name}: ${t.description}`).join("\n")}`,
+    );
   }
   parts.push(`Draft prompt:\n"""\n${draft}\n"""`);
   return parts.join("\n\n");

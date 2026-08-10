@@ -34,10 +34,12 @@ export async function resolveRootConversationOwner(
      WHERE parent_conversation_id IS NULL
      ORDER BY depth DESC
      LIMIT 1
-  `)) as unknown as { rows?: Array<{ user_id: string | null }> } | Array<{ user_id: string | null }>;
+  `)) as unknown as
+    | { rows?: Array<{ user_id: string | null }> }
+    | Array<{ user_id: string | null }>;
   // getDb().execute returns a driver-shaped result; PGlite/Bun both expose
   // the row array either directly or under `.rows`.
-  const arr = Array.isArray(rows) ? rows : rows.rows ?? [];
+  const arr = Array.isArray(rows) ? rows : (rows.rows ?? []);
   return arr[0]?.user_id ?? undefined;
 }
 
@@ -60,7 +62,11 @@ export interface DbRun {
   input: Record<string, unknown> | null;
   startedAt: Date;
   finishedAt: Date | null;
-  result: { success: boolean; output: unknown; error?: string | { code: string; message: string } } | null;
+  result: {
+    success: boolean;
+    output: unknown;
+    error?: string | { code: string; message: string };
+  } | null;
   createdAt: Date;
 }
 
@@ -80,17 +86,19 @@ export async function insertRun(
   // migration backfill. NULL means unattributable ⇒ admin-only downstream.
   const resolvedUserId =
     userId ?? (conversationId ? await resolveRootConversationOwner(conversationId) : undefined);
-  await getDb().insert(runs).values({
-    id: run.id,
-    agentName: run.agentName,
-    projectId: projectId ?? null,
-    conversationId: conversationId ?? null,
-    userId: resolvedUserId ?? null,
-    status: run.status,
-    input: input ?? null,
-    startedAt: new Date(run.startedAt),
-    createdAt: new Date(),
-  });
+  await getDb()
+    .insert(runs)
+    .values({
+      id: run.id,
+      agentName: run.agentName,
+      projectId: projectId ?? null,
+      conversationId: conversationId ?? null,
+      userId: resolvedUserId ?? null,
+      status: run.status,
+      input: input ?? null,
+      startedAt: new Date(run.startedAt),
+      createdAt: new Date(),
+    });
 }
 
 /** Run-ownership attributes: the owning conversation id (null for agent/CLI
@@ -112,16 +120,22 @@ export async function getRunOwnership(
 /** Owning conversation id for a run (null for agent/CLI runs). Used to
  *  enforce per-user ownership on /api/runs/[id]. */
 export async function getRunConversationId(id: string): Promise<string | undefined> {
-  const rows = await getDb().select({ conversationId: runs.conversationId }).from(runs).where(eq(runs.id, id));
+  const rows = await getDb()
+    .select({ conversationId: runs.conversationId })
+    .from(runs)
+    .where(eq(runs.id, id));
   return rows[0]?.conversationId ?? undefined;
 }
 
 export async function updateRun(run: AgentRun): Promise<void> {
-  await getDb().update(runs).set({
-    status: run.status,
-    finishedAt: run.finishedAt ? new Date(run.finishedAt) : null,
-    result: run.result ?? null,
-  }).where(eq(runs.id, run.id));
+  await getDb()
+    .update(runs)
+    .set({
+      status: run.status,
+      finishedAt: run.finishedAt ? new Date(run.finishedAt) : null,
+      result: run.result ?? null,
+    })
+    .where(eq(runs.id, run.id));
 }
 
 /**
@@ -156,9 +170,7 @@ export async function finalizeRunRow(
     .set({
       status,
       finishedAt: sql`NOW()`,
-      ...(error !== undefined
-        ? { result: { success: false, output: null, error } }
-        : {}),
+      ...(error !== undefined ? { result: { success: false, output: null, error } } : {}),
     })
     .where(and(eq(runs.id, runId), eq(runs.status, "running")))
     .returning({ id: runs.id });
@@ -210,9 +222,7 @@ export async function terminalizeOrphanedRuns(): Promise<number> {
  * an assignment whose `agentRunId` maps to a run that is no longer `running`
  * (or is absent entirely) is dangling and gets failed.
  */
-export async function getRunStatusesByIds(
-  ids: readonly string[],
-): Promise<Map<string, string>> {
+export async function getRunStatusesByIds(ids: readonly string[]): Promise<Map<string, string>> {
   if (ids.length === 0) return new Map();
   const rows = await getDb()
     .select({ id: runs.id, status: runs.status })
@@ -250,7 +260,8 @@ export async function listRuns(
   const conds = [];
   if (projectId) conds.push(eq(runs.projectId, projectId));
   if (userId) conds.push(eq(runs.userId, userId));
-  const whereClause = conds.length === 0 ? undefined : conds.length === 1 ? conds[0] : and(...conds);
+  const whereClause =
+    conds.length === 0 ? undefined : conds.length === 1 ? conds[0] : and(...conds);
   const limit = opts?.limit ?? DEFAULT_RUNS_LIMIT;
   const q = db
     .select()
@@ -263,7 +274,9 @@ export async function listRuns(
   return q as Promise<DbRun[]>;
 }
 
-export async function getRunWithLogs(id: string): Promise<(DbRun & { logs: AgentLog[] }) | undefined> {
+export async function getRunWithLogs(
+  id: string,
+): Promise<(DbRun & { logs: AgentLog[] }) | undefined> {
   const db = getDb();
   const rows = await db.select().from(runs).where(eq(runs.id, id));
   const run = rows[0] as DbRun | undefined;
@@ -272,7 +285,11 @@ export async function getRunWithLogs(id: string): Promise<(DbRun & { logs: Agent
   const logs = await db.select().from(runLogs).where(eq(runLogs.runId, id));
   return {
     ...run,
-    logs: logs.map((l: DbRunLog) => ({ timestamp: l.timestamp, level: l.level as AgentLog["level"], message: l.message })),
+    logs: logs.map((l: DbRunLog) => ({
+      timestamp: l.timestamp,
+      level: l.level as AgentLog["level"],
+      message: l.message,
+    })),
   };
 }
 

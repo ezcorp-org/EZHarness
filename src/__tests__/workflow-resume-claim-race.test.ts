@@ -383,9 +383,9 @@ describe("the re-read under the claim is what the guard actually sees", () => {
     // Clear the step rows the setup run wrote, so anything present at the
     // end was written by the resume under test and nothing else.
     await db.execute(sql`DELETE FROM workflow_step_runs WHERE workflow_run_id = ${parked.id}`);
-    expect(
-      await claimWorkflowRun({ workflowRunId: parked.id, claimedBy: "inst-A", now: T0 }),
-    ).toBe(true);
+    expect(await claimWorkflowRun({ workflowRunId: parked.id, claimedBy: "inst-A", now: T0 })).toBe(
+      true,
+    );
 
     // The operator cancels between the claim and the resume.
     const cancelled = await cancelParkedRun(parked.id, { userId: "user-1" });

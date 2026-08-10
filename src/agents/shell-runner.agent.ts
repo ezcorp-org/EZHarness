@@ -5,7 +5,12 @@ export default {
   description: "Run shell commands",
   capabilities: ["shell"],
   inputSchema: {
-    command: { type: "string", label: "Command", description: "Shell command to run", required: true },
+    command: {
+      type: "string",
+      label: "Command",
+      description: "Shell command to run",
+      required: true,
+    },
     cwd: { type: "file-path", label: "Working Directory", description: "Directory to run in" },
   },
 

@@ -35,7 +35,10 @@ mock.module("$server/runtime/task-tracking-host", () => ({
 // ── Mock auth + scope middleware ────────────────────────────────────
 
 const mockUser: { id: string; email: string; name: string; role: string } = {
-  id: "user-1", email: "test@test.com", name: "Test", role: "member",
+  id: "user-1",
+  email: "test@test.com",
+  name: "Test",
+  role: "member",
 };
 mock.module("$server/auth/middleware", () => ({
   requireAuth: (locals: any) => locals?.user ?? mockUser,
@@ -79,7 +82,9 @@ describe("GET /api/conversations/[id]/tasks", () => {
     mockScopeResponse = null;
     mockGetConversation.mockClear();
     mockGetTaskSnapshotForConversation.mockClear();
-    mockGetTaskSnapshotForConversation.mockImplementation(async (id: string) => snapshotStore.get(id));
+    mockGetTaskSnapshotForConversation.mockImplementation(async (id: string) =>
+      snapshotStore.get(id),
+    );
   });
 
   test("returns empty snapshot when extension has no stored row", async () => {

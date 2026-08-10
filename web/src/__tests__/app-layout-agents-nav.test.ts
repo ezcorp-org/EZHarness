@@ -22,32 +22,28 @@
 import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 
-const layoutSrc = readFileSync(
-	new URL("../routes/(app)/+layout.svelte", import.meta.url),
-	"utf-8",
-);
+const layoutSrc = readFileSync(new URL("../routes/(app)/+layout.svelte", import.meta.url), "utf-8");
 
 describe("(app) layout — Phase 6 Agents nav link policy", () => {
-	test("global-project branch includes Agents link in Build group", () => {
-		// Must match the exact shape: href, label, group as a single object literal.
-		// Allow whitespace flexibility between fields, but pin all three keys.
-		expect(layoutSrc).toMatch(
-			/\{\s*href:\s*"\/agents",\s*label:\s*"Agents",\s*group:\s*"Build"\s*\}/,
-		);
-	});
+  test("global-project branch includes Agents link in Build group", () => {
+    // Must match the exact shape: href, label, group as a single object literal.
+    // Allow whitespace flexibility between fields, but pin all three keys.
+    expect(layoutSrc).toMatch(
+      /\{\s*href:\s*"\/agents",\s*label:\s*"Agents",\s*group:\s*"Build"\s*\}/,
+    );
+  });
 
-	test("per-project branch includes Agents link in Platform group", () => {
-		expect(layoutSrc).toMatch(
-			/\{\s*href:\s*"\/agents",\s*label:\s*"Agents",\s*group:\s*"Platform"\s*\}/,
-		);
-	});
+  test("per-project branch includes Agents link in Platform group", () => {
+    expect(layoutSrc).toMatch(
+      /\{\s*href:\s*"\/agents",\s*label:\s*"Agents",\s*group:\s*"Platform"\s*\}/,
+    );
+  });
 
-	test("Agents link appears exactly twice in the layout source", () => {
-		// Defensive: count occurrences of the href="/agents" with adjacent label="Agents".
-		// If a regression duplicates the link (e.g., into the API Docs spread or admin
-		// branch), we want to know.
-		const matches =
-			layoutSrc.match(/href:\s*"\/agents",\s*label:\s*"Agents"/g) ?? [];
-		expect(matches).toHaveLength(2);
-	});
+  test("Agents link appears exactly twice in the layout source", () => {
+    // Defensive: count occurrences of the href="/agents" with adjacent label="Agents".
+    // If a regression duplicates the link (e.g., into the API Docs spread or admin
+    // branch), we want to know.
+    const matches = layoutSrc.match(/href:\s*"\/agents",\s*label:\s*"Agents"/g) ?? [];
+    expect(matches).toHaveLength(2);
+  });
 });

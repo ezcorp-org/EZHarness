@@ -22,8 +22,12 @@ class TestSubConversationStore {
   subConvoMessages: SubConvoMessage[] = [];
   isStreaming = false;
 
-  get isInSubConversation(): boolean { return this.activeSubConversation !== null; }
-  get activeSubConversationId(): string | null { return this.activeSubConversation?.id ?? null; }
+  get isInSubConversation(): boolean {
+    return this.activeSubConversation !== null;
+  }
+  get activeSubConversationId(): string | null {
+    return this.activeSubConversation?.id ?? null;
+  }
 
   startSubConversation(opts: SubConversationState): void {
     this.activeSubConversation = opts;
@@ -43,7 +47,9 @@ class TestSubConversationStore {
     this.subConvoMessages = [...this.subConvoMessages, msg];
   }
 
-  setStreaming(streaming: boolean): void { this.isStreaming = streaming; }
+  setStreaming(streaming: boolean): void {
+    this.isStreaming = streaming;
+  }
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────
@@ -57,7 +63,10 @@ const makeState = (agent: string, id = `sub-${agent}`): SubConversationState => 
 });
 
 const makeMsg = (id: string, role: "user" | "assistant", content: string): SubConvoMessage => ({
-  id, role, content, createdAt: new Date(),
+  id,
+  role,
+  content,
+  createdAt: new Date(),
 });
 
 // ── Store Unit Tests ────────────────────────────────────────────────
@@ -97,7 +106,7 @@ describe("Sub-Conversation Store - Unit Tests", () => {
     expect(store.subConvoMessages[1]!.role).toBe("assistant");
     expect(store.subConvoMessages[4]!.id).toBe("m5");
     // Verify order preserved
-    const ids = store.subConvoMessages.map(m => m.id);
+    const ids = store.subConvoMessages.map((m) => m.id);
     expect(ids).toEqual(["m1", "m2", "m3", "m4", "m5"]);
   });
 
@@ -246,7 +255,7 @@ describe("Sub-Conversation Store - Integration Tests", () => {
     store.addMessage(makeMsg("c1", "user", "Code task"));
     expect(store.subConvoMessages.length).toBe(1);
     // No researcher messages leaked
-    expect(store.subConvoMessages.every(m => m.id.startsWith("c"))).toBe(true);
+    expect(store.subConvoMessages.every((m) => m.id.startsWith("c"))).toBe(true);
   });
 
   test("rapid start/end 3 times with different agents, verify clean each time", () => {

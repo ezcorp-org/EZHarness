@@ -102,7 +102,7 @@ describe("scratchpad e2e: install → mention-picker → audit → toggle", () =
     await ensureBundledExtensions();
     const event = makeRequest("/api/mentions/search?type=ext&q=scratch");
     const res = await mentionsSearchGet(event);
-    const body = await jsonFromResponse(res) as Array<{ name: string; kind: string }>;
+    const body = (await jsonFromResponse(res)) as Array<{ name: string; kind: string }>;
     const hit = body.find((r) => r.name === "scratchpad");
     expect(hit).toBeDefined();
     expect(hit!.kind).toBe("extension");
@@ -115,7 +115,7 @@ describe("scratchpad e2e: install → mention-picker → audit → toggle", () =
     await ensureBundledExtensions();
     const event = makeRequest("/api/mentions/search?type=ext&q=scratchpad");
     const res = await mentionsSearchGet(event);
-    const body = await jsonFromResponse(res) as Array<{ name: string; kind: string }>;
+    const body = (await jsonFromResponse(res)) as Array<{ name: string; kind: string }>;
     const scratchpadRows = body.filter((r) => r.name === "scratchpad");
     expect(scratchpadRows).toHaveLength(1);
   });
@@ -130,7 +130,9 @@ describe("scratchpad e2e: install → mention-picker → audit → toggle", () =
     } as any;
     const res = await extensionAuditGet(event);
     expect(res.status).toBe(200);
-    const body = await jsonFromResponse(res) as { entries: Array<{ action: string; target: string }> };
+    const body = (await jsonFromResponse(res)) as {
+      entries: Array<{ action: string; target: string }>;
+    };
     expect(Array.isArray(body.entries)).toBe(true);
     // Bundled install writes `ext:bundled-installed` rows (one per granted
     // permission). First install should have at least one row.
@@ -146,7 +148,7 @@ describe("scratchpad e2e: install → mention-picker → audit → toggle", () =
     try {
       const event = makeRequest("/api/mentions/search?type=ext&q=scratch");
       const res = await mentionsSearchGet(event);
-      const body = await jsonFromResponse(res) as Array<{ name: string }>;
+      const body = (await jsonFromResponse(res)) as Array<{ name: string }>;
       // Only enabled=true extensions appear in the picker
       // (per web/src/routes/api/mentions/search/+server.ts:282).
       expect(body.some((r) => r.name === "scratchpad")).toBe(false);

@@ -56,14 +56,12 @@ describe("getOrCreateEzConversation", () => {
     // sees the actual rejection.
     let caught: unknown;
     try {
-      await getDb()
-        .insert(conversations)
-        .values({
-          projectId: "global",
-          title: "Pretender",
-          userId,
-          kind: "ez",
-        });
+      await getDb().insert(conversations).values({
+        projectId: "global",
+        title: "Pretender",
+        userId,
+        kind: "ez",
+      });
     } catch (err) {
       caught = err;
     }

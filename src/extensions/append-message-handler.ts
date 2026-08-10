@@ -78,18 +78,29 @@ export interface AppendMessageContext {
 
 // ── Validation helpers ─────────────────────────────────────────────
 
-interface ValidationResult { ok: true; }
-interface ValidationFailure { ok: false; errors: string[]; }
+interface ValidationResult {
+  ok: true;
+}
+interface ValidationFailure {
+  ok: false;
+  errors: string[];
+}
 type Validation = ValidationResult | ValidationFailure;
 
-function isString(v: unknown): v is string { return typeof v === "string"; }
+function isString(v: unknown): v is string {
+  return typeof v === "string";
+}
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function validateToolCallSpec(tc: unknown, idx: number, errors: string[]): void {
-  if (!isObj(tc)) { errors.push(`toolCalls[${idx}]: not an object`); return; }
-  if (!isString(tc.name) || tc.name.length === 0) errors.push(`toolCalls[${idx}].name: required string`);
+  if (!isObj(tc)) {
+    errors.push(`toolCalls[${idx}]: not an object`);
+    return;
+  }
+  if (!isString(tc.name) || tc.name.length === 0)
+    errors.push(`toolCalls[${idx}].name: required string`);
   if (tc.input === undefined) errors.push(`toolCalls[${idx}].input: required`);
   if (tc.cardType !== undefined && !isString(tc.cardType))
     errors.push(`toolCalls[${idx}].cardType: must be string when present`);
@@ -113,7 +124,11 @@ function validateParams(params: Record<string, unknown>, forcedConvId: string): 
     errors.push(`role: must be "extension"`);
   }
 
-  if (!isString(params.content) || params.content.length === 0 || params.content.length > MAX_CONTENT_LEN) {
+  if (
+    !isString(params.content) ||
+    params.content.length === 0 ||
+    params.content.length > MAX_CONTENT_LEN
+  ) {
     errors.push(`content: required string of 1-${MAX_CONTENT_LEN} chars`);
   }
 
@@ -142,7 +157,8 @@ function validateParams(params: Record<string, unknown>, forcedConvId: string): 
       errors.push("attachmentIds: must be an array of strings when present");
     } else {
       params.attachmentIds.forEach((id, i) => {
-        if (!isString(id) || id.length === 0) errors.push(`attachmentIds[${i}]: must be a non-empty string`);
+        if (!isString(id) || id.length === 0)
+          errors.push(`attachmentIds[${i}]: must be a non-empty string`);
       });
     }
   }
@@ -161,11 +177,15 @@ function coerceToolCallOutput(output: unknown, isError: boolean): ToolCallResult
   if (output === undefined || output === null) {
     return { content: [], isError };
   }
-  if (typeof output === "object" && output !== null && Array.isArray((output as { content?: unknown }).content)) {
+  if (
+    typeof output === "object" &&
+    output !== null &&
+    Array.isArray((output as { content?: unknown }).content)
+  ) {
     // Already a ToolCallResult-shaped envelope — accept as-is, but
     // override `isError` from the caller's status (the explicit signal
     // wins over a stale flag inside the envelope).
-    return { content: ((output as ToolCallResult).content) ?? [], isError };
+    return { content: (output as ToolCallResult).content ?? [], isError };
   }
   const text = typeof output === "string" ? output : JSON.stringify(output);
   return { content: [{ type: "text", text }], isError };
@@ -202,9 +222,7 @@ export async function handleAppendMessageRpc(
         extensionId,
         userId: ctx.userId && ctx.userId !== "unknown" ? ctx.userId : null,
         conversationId:
-          ctx.conversationId && ctx.conversationId !== "unknown"
-            ? ctx.conversationId
-            : null,
+          ctx.conversationId && ctx.conversationId !== "unknown" ? ctx.conversationId : null,
         toolName: "ezcorp/append-message",
       },
       [{ kind: "ezcorp:chat:append" }],
@@ -306,9 +324,10 @@ export async function handleAppendMessageRpc(
       messageId: newMsg.id,
       extensionId,
       toolName: tc.name,
-      input: (typeof tc.input === "object" && tc.input !== null
-        ? (tc.input as Record<string, unknown>)
-        : { value: tc.input }),
+      input:
+        typeof tc.input === "object" && tc.input !== null
+          ? (tc.input as Record<string, unknown>)
+          : { value: tc.input },
       output: out,
       // Always start as success=true: a `running` call that errors out
       // later flips this via `ezcorp/finalize-tool-call`. The
@@ -331,10 +350,12 @@ export async function handleAppendMessageRpc(
     await getDb()
       .update(messageAttachments)
       .set({ messageId: newMsg.id })
-      .where(and(
-        inArray(messageAttachments.id, attachmentIds),
-        eq(messageAttachments.conversationId, effectiveConvId),
-      ));
+      .where(
+        and(
+          inArray(messageAttachments.id, attachmentIds),
+          eq(messageAttachments.conversationId, effectiveConvId),
+        ),
+      );
   }
 
   return rpcResult(req.id, { messageId: newMsg.id, toolCallIds });

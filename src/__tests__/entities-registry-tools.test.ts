@@ -6,12 +6,7 @@
 // to route to the SDK handler instead of the subprocess.
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import {
-  closeTestDb,
-  getTestDb,
-  mockDbConnection,
-  setupTestDb,
-} from "./helpers/test-pglite";
+import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 
@@ -64,9 +59,7 @@ describe("buildEntityRegisteredTools (pure helper)", () => {
       expect(t.entityType).toBe("post-type");
       expect(t.extensionId).toBe("ext-1");
       expect(t.originalName).toMatch(/_post_types?$/);
-      expect(["list", "get", "create", "update", "delete"]).toContain(
-        t.entityKind!,
-      );
+      expect(["list", "get", "create", "update", "delete"]).toContain(t.entityKind!);
     }
   });
 

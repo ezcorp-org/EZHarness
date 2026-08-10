@@ -1,7 +1,15 @@
 import { json } from "@sveltejs/kit";
 import { z } from "zod";
 import type { RequestHandler } from "./$types";
-import { getMemoryById, updateMemory, updateMemoryStatus, deleteMemory, getMemoryProjectIds, setMemoryProjects, updateMemoryInjectionEligibility } from "$server/db/queries/memories";
+import {
+  getMemoryById,
+  updateMemory,
+  updateMemoryStatus,
+  deleteMemory,
+  getMemoryProjectIds,
+  setMemoryProjects,
+  updateMemoryInjectionEligibility,
+} from "$server/db/queries/memories";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "$server/extensions/audit-actions";
 import { requireAuth } from "$server/auth/middleware";
@@ -21,12 +29,14 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // schema permits `projectIds` as `unknown` so the inline check fires
 // for non-array / over-50 / non-UUID inputs verbatim. Other fields
 // stay strictly typed (string/number).
-const updateMemorySchema = z.object({
-  content: z.string().optional(),
-  confidence: z.number().optional(),
-  status: z.string().optional(),
-  projectIds: z.unknown().optional(),
-}).strict();
+const updateMemorySchema = z
+  .object({
+    content: z.string().optional(),
+    confidence: z.number().optional(),
+    status: z.string().optional(),
+    projectIds: z.unknown().optional(),
+  })
+  .strict();
 
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");
@@ -57,14 +67,22 @@ export const PUT: RequestHandler = async ({ params, request, locals }) => {
 
   // Validate projectIds if provided
   if (rawProjectIds !== undefined) {
-    if (!Array.isArray(rawProjectIds) || rawProjectIds.length > 50 || !rawProjectIds.every((id: unknown) => typeof id === "string" && UUID_RE.test(id))) {
+    if (
+      !Array.isArray(rawProjectIds) ||
+      rawProjectIds.length > 50 ||
+      !rawProjectIds.every((id: unknown) => typeof id === "string" && UUID_RE.test(id))
+    ) {
       return errorJson(400, "projectIds must be an array of up to 50 valid UUIDs");
     }
   }
 
   // Handle status change separately (uses audit log)
   if (status && status !== memory.status) {
-    await updateMemoryStatus(params.id, status as "active" | "stale" | "archived", `Status changed to ${status}`);
+    await updateMemoryStatus(
+      params.id,
+      status as "active" | "stale" | "archived",
+      `Status changed to ${status}`,
+    );
   }
 
   // Handle content/metadata updates

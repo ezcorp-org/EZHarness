@@ -20,10 +20,7 @@
  */
 
 import { ExtensionRegistry } from "$server/extensions/registry";
-import {
-  provisionInternalKey,
-  revokeInternalKey,
-} from "$lib/server/security/internal-auth";
+import { provisionInternalKey, revokeInternalKey } from "$lib/server/security/internal-auth";
 import { ensureSystemUser } from "$lib/server/security/system-user";
 import type { ApiKeyScope } from "$lib/server/security/api-keys";
 
@@ -46,9 +43,7 @@ const BUNDLED_CRED_SPECS: readonly BundledCredSpec[] = [
  *  Uses the loopback IP (not `localhost`) to avoid the DNS mismatch
  *  class of bugs and to make the loopback-only security property
  *  unambiguous on the wire. */
-export function resolveInternalBaseUrl(
-  env: NodeJS.ProcessEnv = process.env,
-): string {
+export function resolveInternalBaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   const explicit = env["EZCORP_BASE_URL"];
   if (explicit) return explicit;
   const raw = env["EZCORP_PORT"];

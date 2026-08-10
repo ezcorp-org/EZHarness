@@ -1,4 +1,4 @@
-import { test, expect, describe, } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { detectCycle } from "../runtime/dag-validator";
 
 // Test DAG validation integration with agent config save
@@ -33,7 +33,12 @@ describe("Agent Composition - DAG Validation (COMP-01)", () => {
 describe("Agent Composition - Depth Limiting (COMP-03)", () => {
   test("runtime enforces max depth of 3", async () => {
     const { composeAgent } = await import("../runtime/config-to-agent");
-    const mockConfig = { name: "deep-agent", description: "test", capabilities: ["llm" as const], prompt: "test" };
+    const mockConfig = {
+      name: "deep-agent",
+      description: "test",
+      capabilities: ["llm" as const],
+      prompt: "test",
+    };
     const ctx = { depth: 3, maxDepth: 3, timeout: 30000 };
 
     const result = composeAgent(mockConfig, ctx);
@@ -42,7 +47,12 @@ describe("Agent Composition - Depth Limiting (COMP-03)", () => {
 
   test("depth < 3 succeeds", async () => {
     const { composeAgent } = await import("../runtime/config-to-agent");
-    const mockConfig = { name: "shallow-agent", description: "test", capabilities: ["llm" as const], prompt: "test" };
+    const mockConfig = {
+      name: "shallow-agent",
+      description: "test",
+      capabilities: ["llm" as const],
+      prompt: "test",
+    };
     const ctx = { depth: 1, maxDepth: 3, timeout: 30000 };
 
     const result = composeAgent(mockConfig, ctx);
@@ -52,7 +62,12 @@ describe("Agent Composition - Depth Limiting (COMP-03)", () => {
 
   test("depth counter propagates through async calls", async () => {
     const { composeAgent } = await import("../runtime/config-to-agent");
-    const mockConfig = { name: "mid-agent", description: "test", capabilities: ["llm" as const], prompt: "test" };
+    const mockConfig = {
+      name: "mid-agent",
+      description: "test",
+      capabilities: ["llm" as const],
+      prompt: "test",
+    };
 
     // At depth 2, should still work
     const result = composeAgent(mockConfig, { depth: 2, maxDepth: 3, timeout: 30000 });
@@ -65,7 +80,12 @@ describe("Agent Composition - Depth Limiting (COMP-03)", () => {
 
   test("per-invocation timeout aborts long-running agent calls", async () => {
     const { composeAgent } = await import("../runtime/config-to-agent");
-    const mockConfig = { name: "slow-agent", description: "test", capabilities: ["llm" as const], prompt: "test" };
+    const mockConfig = {
+      name: "slow-agent",
+      description: "test",
+      capabilities: ["llm" as const],
+      prompt: "test",
+    };
     const ctx = { depth: 0, maxDepth: 3, timeout: 100 };
 
     const result = composeAgent(mockConfig, ctx);

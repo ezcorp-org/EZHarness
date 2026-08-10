@@ -19,15 +19,11 @@ vi.mock("$server/db/queries/sessions", () => ({
 const { hashToken, listSessionsByUser, revokeSession } = await import(
   "$server/db/queries/sessions"
 );
-const { GET, DELETE } = await import(
-  "../routes/api/account/sessions/+server"
-);
+const { GET, DELETE } = await import("../routes/api/account/sessions/+server");
 
 function makeCookies(token?: string) {
   return {
-    get: vi.fn((name: string) =>
-      name === "ezcorp_session" ? token : undefined,
-    ),
+    get: vi.fn((name: string) => (name === "ezcorp_session" ? token : undefined)),
     set: vi.fn(),
     delete: vi.fn(),
   };
@@ -100,9 +96,7 @@ describe("GET /api/account/sessions", () => {
       },
     ] as any);
 
-    const res = await GET(
-      makeEvent({ method: "GET", locals: authedUser, token: "my-token" }),
-    );
+    const res = await GET(makeEvent({ method: "GET", locals: authedUser, token: "my-token" }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
       sessions?: { id: string; isCurrent: boolean }[];
@@ -121,9 +115,7 @@ describe("DELETE /api/account/sessions", () => {
   });
 
   test("rejects 401 when locals.user is missing", async () => {
-    const res = await DELETE(
-      makeEvent({ method: "DELETE", body: { sessionId: "s1" } }),
-    );
+    const res = await DELETE(makeEvent({ method: "DELETE", body: { sessionId: "s1" } }));
     expect(res.status).toBe(401);
   });
 
@@ -141,18 +133,14 @@ describe("DELETE /api/account/sessions", () => {
   });
 
   test("rejects 400 when sessionId is missing", async () => {
-    const res = await DELETE(
-      makeEvent({ method: "DELETE", locals: authedUser, body: {} }),
-    );
+    const res = await DELETE(makeEvent({ method: "DELETE", locals: authedUser, body: {} }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Validation failed");
   });
 
   test("returns 404 when session does not belong to caller", async () => {
-    vi.mocked(listSessionsByUser).mockResolvedValue([
-      { id: "s-mine", tokenHash: "hash:x" } as any,
-    ]);
+    vi.mocked(listSessionsByUser).mockResolvedValue([{ id: "s-mine", tokenHash: "hash:x" } as any]);
     const res = await DELETE(
       makeEvent({
         method: "DELETE",

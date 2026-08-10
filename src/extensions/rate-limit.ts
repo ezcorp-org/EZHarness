@@ -25,7 +25,10 @@ export interface RateLimiter {
 }
 
 export function createRateLimiter(maxOpsPerSecond: number): RateLimiter {
-  interface Bucket { tokens: number; lastRefill: number; }
+  interface Bucket {
+    tokens: number;
+    lastRefill: number;
+  }
   const buckets = new Map<string, Bucket>();
 
   const consumeTokens = function consumeTokens(id: string, count: number): boolean {
@@ -36,10 +39,7 @@ export function createRateLimiter(maxOpsPerSecond: number): RateLimiter {
       buckets.set(id, bucket);
     }
     const elapsed = (now - bucket.lastRefill) / 1000;
-    bucket.tokens = Math.min(
-      maxOpsPerSecond,
-      bucket.tokens + elapsed * maxOpsPerSecond,
-    );
+    bucket.tokens = Math.min(maxOpsPerSecond, bucket.tokens + elapsed * maxOpsPerSecond);
     bucket.lastRefill = now;
     if (bucket.tokens < count) return false;
     bucket.tokens -= count;

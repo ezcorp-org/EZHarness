@@ -15,23 +15,11 @@
  * same place).
  */
 
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { spawn } from "bun";
 import { eq } from "drizzle-orm";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import {
-  closeTestDb,
-  mockDbConnection,
-  setupTestDb,
-} from "./helpers/test-pglite";
+import { closeTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
 // Wire a real settings module backed by the test DB — needed by the
 // always-allow seed paths.
@@ -139,9 +127,7 @@ async function seedExtension(opts: {
 
 async function seedSetting(key: string, value: unknown) {
   const db = getDb();
-  await db
-    .insert(settings)
-    .values({ key, value: sql`${JSON.stringify(value)}::jsonb` });
+  await db.insert(settings).values({ key, value: sql`${JSON.stringify(value)}::jsonb` });
 }
 
 async function readExtension(id: string) {
@@ -265,9 +251,7 @@ describe("applySweepResult — always-allow rewrite", () => {
     expect(outcome.applied).toBe(1);
     expect(outcome.skippedConcurrent).toBe(0);
 
-    const stored = (await readSetting(key)) as
-      | { allowed: boolean; grantedAt: number }
-      | undefined;
+    const stored = (await readSetting(key)) as { allowed: boolean; grantedAt: number } | undefined;
     expect(stored?.allowed).toBe(false);
     expect(stored?.grantedAt).toBe(NOW);
 
@@ -532,9 +516,7 @@ describe("applySweepResult — race mitigation", () => {
                   set: () => ({
                     where: () => ({
                       returning: () =>
-                        Promise.reject(
-                          new Error("simulated DB failure (test stub)"),
-                        ),
+                        Promise.reject(new Error("simulated DB failure (test stub)")),
                     }),
                   }),
                 };
@@ -567,9 +549,7 @@ describe("applySweepResult — race mitigation", () => {
     const auditRows = await listAuditLog({
       action: "ext:permission-grant-expired",
     });
-    const ours = auditRows.filter(
-      (r) => r.target === "ext-fail-A" || r.target === "ext-fail-B",
-    );
+    const ours = auditRows.filter((r) => r.target === "ext-fail-A" || r.target === "ext-fail-B");
     expect(ours).toHaveLength(1);
   });
 });
@@ -689,9 +669,7 @@ describe("CLI smoke — scripts/sweep-perm-expiry.ts", () => {
       // Surface stderr in the failure message so a regression is
       // diagnosable from the test log alone (logger writes JSON to
       // stderr — search for "level":"error").
-      throw new Error(
-        `CLI exited ${code}; stderr:\n${stderr}\nstdout:\n${stdout}`,
-      );
+      throw new Error(`CLI exited ${code}; stderr:\n${stderr}\nstdout:\n${stdout}`);
     }
     // Summary is JSON-parseable. The connection layer's logger writes
     // info-level boot lines to stdout ahead of our summary; pull just
@@ -772,9 +750,7 @@ describe("CLI smoke — scripts/sweep-perm-expiry.ts", () => {
     const stderr = await new Response(proc.stderr).text();
     const code = await proc.exited;
     if (code !== 0) {
-      throw new Error(
-        `CLI exited ${code}; stderr:\n${stderr}\nstdout:\n${stdout}`,
-      );
+      throw new Error(`CLI exited ${code}; stderr:\n${stderr}\nstdout:\n${stdout}`);
     }
 
     // Summary contains swept: 1.
@@ -862,9 +838,7 @@ describe("CLI smoke — scripts/sweep-perm-expiry.ts", () => {
     const stderr = await new Response(proc.stderr).text();
     const code = await proc.exited;
     if (code !== 0) {
-      throw new Error(
-        `CLI exited ${code}; stderr:\n${stderr}\nstdout:\n${stdout}`,
-      );
+      throw new Error(`CLI exited ${code}; stderr:\n${stderr}\nstdout:\n${stdout}`);
     }
 
     // Stderr is a mix of connection-layer JSON log lines + our event
@@ -879,10 +853,11 @@ describe("CLI smoke — scripts/sweep-perm-expiry.ts", () => {
           return null;
         }
       })
-      .filter((obj): obj is { type: string; data: Record<string, unknown> } =>
-        obj !== null &&
-        typeof obj === "object" &&
-        (obj as Record<string, unknown>).type === "perm-expired",
+      .filter(
+        (obj): obj is { type: string; data: Record<string, unknown> } =>
+          obj !== null &&
+          typeof obj === "object" &&
+          (obj as Record<string, unknown>).type === "perm-expired",
       );
     expect(eventLines.length).toBeGreaterThanOrEqual(1);
     const ev = eventLines[0]!;

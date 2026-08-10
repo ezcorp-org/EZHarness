@@ -39,10 +39,7 @@ export async function getVersion(
     .select()
     .from(marketplaceVersions)
     .where(
-      and(
-        eq(marketplaceVersions.listingId, listingId),
-        eq(marketplaceVersions.version, version),
-      ),
+      and(eq(marketplaceVersions.listingId, listingId), eq(marketplaceVersions.version, version)),
     );
   return row;
 }

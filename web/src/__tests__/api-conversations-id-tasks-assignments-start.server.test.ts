@@ -50,24 +50,16 @@ const { POST } = await import(
   "../routes/api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]/start/+server.ts"
 );
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown }) {
   return {
-    url: new URL(
-      "http://localhost/api/conversations/c1/tasks/t1/assignments/as1/start",
-    ),
+    url: new URL("http://localhost/api/conversations/c1/tasks/t1/assignments/as1/start"),
     locals: opts.locals ?? {},
     params: { id: "c1", taskId: "t1", assignmentId: "as1" },
-    request: new Request(
-      "http://localhost/api/conversations/c1/tasks/t1/assignments/as1/start",
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: opts.body !== undefined ? JSON.stringify(opts.body) : "{}",
-      },
-    ),
+    request: new Request("http://localhost/api/conversations/c1/tasks/t1/assignments/as1/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: opts.body !== undefined ? JSON.stringify(opts.body) : "{}",
+    }),
   } as any;
 }
 
@@ -121,9 +113,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
     getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
     getTaskSnapshotForConversation.mockResolvedValue({
       conversationId: "c1",
-      tasks: [
-        { id: "t1", status: "pending", assignments: [], subtasks: [] },
-      ],
+      tasks: [{ id: "t1", status: "pending", assignments: [], subtasks: [] }],
     });
     const res = await POST(makeEvent({ locals: { user }, body: {} }));
     expect(res.status).toBe(404);
@@ -139,9 +129,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
         {
           id: "t1",
           status: "active",
-          assignments: [
-            { id: "as1", status: "running", agentConfigId: "a1" },
-          ],
+          assignments: [{ id: "as1", status: "running", agentConfigId: "a1" }],
           subtasks: [],
         },
       ],
@@ -169,9 +157,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
           title: "Child",
           status: "pending",
           dependsOn: ["t0"],
-          assignments: [
-            { id: "as1", status: "assigned", agentConfigId: "a1" },
-          ],
+          assignments: [{ id: "as1", status: "assigned", agentConfigId: "a1" }],
           subtasks: [],
         },
       ],
@@ -194,9 +180,7 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assignments/[assignmentId]
         {
           id: "t1",
           status: "pending",
-          assignments: [
-            { id: "as1", status: "assigned", agentConfigId: "a1" },
-          ],
+          assignments: [{ id: "as1", status: "assigned", agentConfigId: "a1" }],
           subtasks: [],
         },
       ],

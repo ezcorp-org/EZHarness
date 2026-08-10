@@ -7,11 +7,7 @@ import {
   stepToPayload,
   type StepDraft,
 } from "$lib/workflow-builder-logic";
-import {
-  definitionFields,
-  parseWorkflowYaml,
-  workflowToYaml,
-} from "$lib/workflow-yaml";
+import { definitionFields, parseWorkflowYaml, workflowToYaml } from "$lib/workflow-yaml";
 
 // ---------------------------------------------------------------------------
 // The editor's pure logic. The load-bearing property here is the ROUND
@@ -37,9 +33,17 @@ describe("definitionToDrafts ⇄ stepToPayload round-trip", () => {
     },
     {
       label: "a tool step",
-      step: { name: "publish", kind: "tool", tool: "ext__write_file", input: { path: "$prev.output" } },
+      step: {
+        name: "publish",
+        kind: "tool",
+        tool: "ext__write_file",
+        input: { path: "$prev.output" },
+      },
     },
-    { label: "a transform step", step: { name: "sum", kind: "transform", output: { n: "$input.n" } } },
+    {
+      label: "a transform step",
+      step: { name: "sum", kind: "transform", output: { n: "$input.n" } },
+    },
     {
       label: "a gate step",
       step: { name: "check", kind: "gate", condition: { ref: "$prev.output.ok", op: "truthy" } },
@@ -50,7 +54,11 @@ describe("definitionToDrafts ⇄ stepToPayload round-trip", () => {
         name: "refine",
         kind: undefined,
         agent: "writer",
-        loop: { maxIterations: 5, onExhausted: "pass", until: { ref: "$result.output.ok", op: "truthy" } },
+        loop: {
+          maxIterations: 5,
+          onExhausted: "pass",
+          until: { ref: "$result.output.ok", op: "truthy" },
+        },
       },
     },
     {
@@ -62,9 +70,7 @@ describe("definitionToDrafts ⇄ stepToPayload round-trip", () => {
   for (const { label, step } of cases) {
     test(`${label} survives load-then-save unchanged`, () => {
       // Strip explicitly-undefined members — the API shape never carries them.
-      const original = Object.fromEntries(
-        Object.entries(step).filter(([, v]) => v !== undefined),
-      );
+      const original = Object.fromEntries(Object.entries(step).filter(([, v]) => v !== undefined));
       const [draft] = definitionToDrafts([original]);
       expect(stepToPayload(draft!)).toEqual(original);
     });
@@ -141,7 +147,9 @@ describe("definitionToDrafts tolerates malformed input", () => {
   });
 
   test("dependsOn that is not an array becomes empty", () => {
-    expect(definitionToDrafts([{ name: "s", agent: "a", dependsOn: "b" }])[0]!.dependsOn).toEqual([]);
+    expect(definitionToDrafts([{ name: "s", agent: "a", dependsOn: "b" }])[0]!.dependsOn).toEqual(
+      [],
+    );
   });
 });
 
@@ -190,7 +198,9 @@ describe("defaultModelToText", () => {
 
 describe("the YAML tab", () => {
   test("parses a mapping into a definition", () => {
-    const result = parseWorkflowYaml("name: ship\ndescription: d\nsteps:\n  - name: s\n    agent: a\n");
+    const result = parseWorkflowYaml(
+      "name: ship\ndescription: d\nsteps:\n  - name: s\n    agent: a\n",
+    );
     expect(result).toEqual({
       ok: true,
       value: { name: "ship", description: "d", steps: [{ name: "s", agent: "a" }] },

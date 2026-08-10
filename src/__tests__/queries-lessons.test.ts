@@ -129,16 +129,12 @@ describe("lessons queries", () => {
 
     test("project-scoped slug unique per project — second insert rejects", async () => {
       await make({ slug: "shared-proj", visibility: "project" });
-      await expect(
-        make({ slug: "shared-proj", visibility: "project" }),
-      ).rejects.toThrow();
+      await expect(make({ slug: "shared-proj", visibility: "project" })).rejects.toThrow();
     });
 
     test("global-scoped slug unique per project — second insert rejects", async () => {
       await make({ slug: "shared-global", visibility: "global" });
-      await expect(
-        make({ slug: "shared-global", visibility: "global" }),
-      ).rejects.toThrow();
+      await expect(make({ slug: "shared-global", visibility: "global" })).rejects.toThrow();
     });
 
     test("project + global at the same slug COEXIST (visibility is now part of the shared unique index)", async () => {
@@ -578,9 +574,7 @@ describe("lessons queries", () => {
         visibility: "user",
         ownerId: otherOwnerId,
       });
-      expect(
-        await updateLessonVisibilityAsOwner(stranger.id, ownerId, "project"),
-      ).toBeNull();
+      expect(await updateLessonVisibilityAsOwner(stranger.id, ownerId, "project")).toBeNull();
       // Persistence check: row untouched.
       const reread = await getLessonByIdForOwnerCheck(stranger.id);
       expect(reread!.visibility).toBe("user");
@@ -594,9 +588,7 @@ describe("lessons queries", () => {
 
     test("guards empty inputs", async () => {
       expect(await updateLessonVisibilityAsOwner("", ownerId, "global")).toBeNull();
-      expect(
-        await updateLessonVisibilityAsOwner(crypto.randomUUID(), "", "global"),
-      ).toBeNull();
+      expect(await updateLessonVisibilityAsOwner(crypto.randomUUID(), "", "global")).toBeNull();
     });
   });
 });

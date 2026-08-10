@@ -62,10 +62,7 @@ import * as securityModule from "../extensions/security";
 import * as permissionsModule from "../extensions/permissions";
 import * as storageHandlerModule from "../extensions/storage-handler";
 import type { StorageContext } from "../extensions/storage-handler";
-import {
-  registerCallProvenance,
-  releaseCallProvenance,
-} from "../extensions/call-provenance";
+import { registerCallProvenance, releaseCallProvenance } from "../extensions/call-provenance";
 import * as cancelRunHandlerModule from "../extensions/cancel-run-handler";
 
 import {
@@ -74,7 +71,12 @@ import {
   ExtensionRegistry,
   type RegisteredTool,
 } from "../extensions/registry";
-import type { ExtensionManifestV2, ExtensionPermissions, JsonRpcRequest, ToolCallResult } from "../extensions/types";
+import type {
+  ExtensionManifestV2,
+  ExtensionPermissions,
+  JsonRpcRequest,
+  ToolCallResult,
+} from "../extensions/types";
 import {
   ToolExecutor,
   PermissionDeniedError,
@@ -104,9 +106,7 @@ function makeManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionMa
     description: "Test",
     author: { name: "Tester" },
     entrypoint: "./index.ts",
-    tools: [
-      { name: "echo", description: "Echo", inputSchema: { type: "object" } },
-    ],
+    tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object" } }],
     permissions: {},
     ...overrides,
   };
@@ -137,14 +137,16 @@ function makeMockProcess(callToolResult?: ToolCallResult) {
   };
 }
 
-function makeMockRegistry(opts: {
-  tools?: Map<string, RegisteredTool>;
-  process?: ReturnType<typeof makeMockProcess>;
-  grantedPerms?: Map<string, ExtensionPermissions>;
-  installPaths?: Map<string, string>;
-  depRoutes?: Map<string, Map<string, string>>;
-  manifests?: Map<string, ExtensionManifestV2>;
-} = {}) {
+function makeMockRegistry(
+  opts: {
+    tools?: Map<string, RegisteredTool>;
+    process?: ReturnType<typeof makeMockProcess>;
+    grantedPerms?: Map<string, ExtensionPermissions>;
+    installPaths?: Map<string, string>;
+    depRoutes?: Map<string, Map<string, string>>;
+    manifests?: Map<string, ExtensionManifestV2>;
+  } = {},
+) {
   const toolMap = opts.tools ?? new Map<string, RegisteredTool>();
   const proc = opts.process ?? makeMockProcess();
   const grantedPerms = opts.grantedPerms ?? new Map<string, ExtensionPermissions>();
@@ -446,18 +448,24 @@ describe("ExtensionRegistry", () => {
 
   test("getAllTools strips internal fields", () => {
     const registry = ExtensionRegistry.getInstance();
-    registry.registerToolForTest("pkg.tool-a", makeRegisteredTool({
-      name: "pkg.tool-a",
-      extensionId: "ext-1",
-      extensionName: "pkg",
-      originalName: "tool-a",
-    }));
-    registry.registerToolForTest("pkg.tool-b", makeRegisteredTool({
-      name: "pkg.tool-b",
-      extensionId: "ext-1",
-      extensionName: "pkg",
-      originalName: "tool-b",
-    }));
+    registry.registerToolForTest(
+      "pkg.tool-a",
+      makeRegisteredTool({
+        name: "pkg.tool-a",
+        extensionId: "ext-1",
+        extensionName: "pkg",
+        originalName: "tool-a",
+      }),
+    );
+    registry.registerToolForTest(
+      "pkg.tool-b",
+      makeRegisteredTool({
+        name: "pkg.tool-b",
+        extensionId: "ext-1",
+        extensionName: "pkg",
+        originalName: "tool-b",
+      }),
+    );
 
     const tools = registry.getAllTools();
     expect(tools.length).toBe(2);
@@ -530,29 +538,38 @@ describe("ExtensionRegistry", () => {
       const registry = ExtensionRegistry.getInstance();
 
       // Set up provider extension
-      registry.setManifestForTest("provider-ext-id", makeManifest({
-        name: "provider-pkg",
-        version: "1.2.0",
-        tools: [{ name: "fetch", description: "Fetch", inputSchema: {} }],
-      }));
+      registry.setManifestForTest(
+        "provider-ext-id",
+        makeManifest({
+          name: "provider-pkg",
+          version: "1.2.0",
+          tools: [{ name: "fetch", description: "Fetch", inputSchema: {} }],
+        }),
+      );
       registry.setInstallPathForTest("provider-ext-id", "/opt/ext/provider");
 
       // Set up consumer extension with dependency
-      registry.setManifestForTest("consumer-ext-id", makeManifest({
-        name: "consumer-pkg",
-        version: "1.0.0",
-        dependencies: {
-          "provider-pkg": { source: "github:test/provider", version: "^1.0.0" },
-        },
-      }));
+      registry.setManifestForTest(
+        "consumer-ext-id",
+        makeManifest({
+          name: "consumer-pkg",
+          version: "1.0.0",
+          dependencies: {
+            "provider-pkg": { source: "github:test/provider", version: "^1.0.0" },
+          },
+        }),
+      );
 
       // Register the tool so resolveDepTool can find it
-      registry.registerToolForTest("provider-pkg__fetch", makeRegisteredTool({
-        name: "provider-pkg__fetch",
-        originalName: "fetch",
-        extensionId: "provider-ext-id",
-        extensionName: "provider-pkg",
-      }));
+      registry.registerToolForTest(
+        "provider-pkg__fetch",
+        makeRegisteredTool({
+          name: "provider-pkg__fetch",
+          originalName: "fetch",
+          extensionId: "provider-ext-id",
+          extensionName: "provider-pkg",
+        }),
+      );
 
       registry.buildDepRoutes();
 
@@ -566,18 +583,24 @@ describe("ExtensionRegistry", () => {
       const registry = ExtensionRegistry.getInstance();
 
       // Provider has version 2.0.0 but consumer wants ^1.0.0
-      registry.setManifestForTest("provider-v2", makeManifest({
-        name: "some-pkg",
-        version: "2.0.0",
-      }));
+      registry.setManifestForTest(
+        "provider-v2",
+        makeManifest({
+          name: "some-pkg",
+          version: "2.0.0",
+        }),
+      );
 
-      registry.setManifestForTest("consumer-v1", makeManifest({
-        name: "consumer",
-        version: "1.0.0",
-        dependencies: {
-          "some-pkg": { source: "github:test/pkg", version: "^1.0.0" },
-        },
-      }));
+      registry.setManifestForTest(
+        "consumer-v1",
+        makeManifest({
+          name: "consumer",
+          version: "1.0.0",
+          dependencies: {
+            "some-pkg": { source: "github:test/pkg", version: "^1.0.0" },
+          },
+        }),
+      );
 
       registry.buildDepRoutes();
 
@@ -587,11 +610,14 @@ describe("ExtensionRegistry", () => {
     test("skips extensions without dependencies", () => {
       const registry = ExtensionRegistry.getInstance();
 
-      registry.setManifestForTest("no-deps", makeManifest({
-        name: "no-deps-ext",
-        version: "1.0.0",
-        // no dependencies field
-      }));
+      registry.setManifestForTest(
+        "no-deps",
+        makeManifest({
+          name: "no-deps-ext",
+          version: "1.0.0",
+          // no dependencies field
+        }),
+      );
 
       // Should not throw
       registry.buildDepRoutes();
@@ -645,13 +671,22 @@ describe("PermissionDeniedError", () => {
 
 describe("extensionToAgentTool", () => {
   test("creates AgentTool with correct name, label, description", () => {
-    const toolDef = { name: "my-ext.read", description: "Read a file", inputSchema: { type: "object" } };
+    const toolDef = {
+      name: "my-ext.read",
+      description: "Read a file",
+      inputSchema: { type: "object" },
+    };
     const mockRegistry = makeMockRegistry({
-      tools: new Map([["my-ext.read", makeRegisteredTool({
-        name: "my-ext.read",
-        originalName: "read",
-        extensionId: "ext-r",
-      })]]),
+      tools: new Map([
+        [
+          "my-ext.read",
+          makeRegisteredTool({
+            name: "my-ext.read",
+            originalName: "read",
+            extensionId: "ext-r",
+          }),
+        ],
+      ]),
     });
     const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
@@ -671,17 +706,26 @@ describe("extensionToAgentTool", () => {
       isError: false,
     });
     const mockRegistry = makeMockRegistry({
-      tools: new Map([["my-ext.read", makeRegisteredTool({
-        name: "my-ext.read",
-        originalName: "read",
-        extensionId: "ext-r",
-      })]]),
+      tools: new Map([
+        [
+          "my-ext.read",
+          makeRegisteredTool({
+            name: "my-ext.read",
+            originalName: "read",
+            extensionId: "ext-r",
+          }),
+        ],
+      ]),
       process: mockProc,
     });
     const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
     const agentTool = extensionToAgentTool(toolDef, executor, "conv-1", "msg-1");
 
-    const result = await agentTool.execute("call-1", { path: "/test" }, new AbortController().signal);
+    const result = await agentTool.execute(
+      "call-1",
+      { path: "/test" },
+      new AbortController().signal,
+    );
 
     expect(result.content).toEqual([{ type: "text", text: "file data" }]);
     expect(result.details).toEqual({ isError: false });
@@ -694,11 +738,16 @@ describe("extensionToAgentTool", () => {
       isError: true,
     });
     const mockRegistry = makeMockRegistry({
-      tools: new Map([["my-ext.bad", makeRegisteredTool({
-        name: "my-ext.bad",
-        originalName: "bad",
-        extensionId: "ext-b",
-      })]]),
+      tools: new Map([
+        [
+          "my-ext.bad",
+          makeRegisteredTool({
+            name: "my-ext.bad",
+            originalName: "bad",
+            extensionId: "ext-b",
+          }),
+        ],
+      ]),
       process: mockProc,
     });
     const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
@@ -707,7 +756,9 @@ describe("extensionToAgentTool", () => {
     const result = await agentTool.execute("call-1", {}, new AbortController().signal);
 
     expect(result.details).toEqual({ isError: true });
-    expect(textOf(result as { content: Array<{ type: string; text?: string }> })).toBe("something failed");
+    expect(textOf(result as { content: Array<{ type: string; text?: string }> })).toBe(
+      "something failed",
+    );
   });
 
   // ── Phase 4 §5.1a: 6-arg form — schemaOverride + invocationMetadata ──
@@ -721,9 +772,16 @@ describe("extensionToAgentTool", () => {
     };
     const toolDef = { name: "orch.invoke", description: "Invoke", inputSchema: manifestSchema };
     const mockRegistry = makeMockRegistry({
-      tools: new Map([["orch.invoke", makeRegisteredTool({
-        name: "orch.invoke", originalName: "invoke", extensionId: "ext-o",
-      })]]),
+      tools: new Map([
+        [
+          "orch.invoke",
+          makeRegisteredTool({
+            name: "orch.invoke",
+            originalName: "invoke",
+            extensionId: "ext-o",
+          }),
+        ],
+      ]),
     });
     const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
     const agentTool = extensionToAgentTool(toolDef, executor, "conv-1", "msg-1", override);
@@ -739,9 +797,16 @@ describe("extensionToAgentTool", () => {
   test("invocationMetadata: forwarded into executeToolCall's trailing metadata arg", async () => {
     const toolDef = { name: "orch.invoke", description: "Invoke", inputSchema: {} };
     const mockRegistry = makeMockRegistry({
-      tools: new Map([["orch.invoke", makeRegisteredTool({
-        name: "orch.invoke", originalName: "invoke", extensionId: "ext-o",
-      })]]),
+      tools: new Map([
+        [
+          "orch.invoke",
+          makeRegisteredTool({
+            name: "orch.invoke",
+            originalName: "invoke",
+            extensionId: "ext-o",
+          }),
+        ],
+      ]),
     });
     const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
     // Spy on executeToolCall to capture the trailing invocationMetadata arg.
@@ -766,9 +831,18 @@ describe("extensionToAgentTool", () => {
       parentMessageId: "msg-anchor",
     };
     const agentTool = extensionToAgentTool(
-      toolDef, executor, "conv-1", "msg-1", undefined, invocationMetadata,
+      toolDef,
+      executor,
+      "conv-1",
+      "msg-1",
+      undefined,
+      invocationMetadata,
     );
-    await agentTool.execute("call-1", { agentConfigId: "x", task: "t" }, new AbortController().signal);
+    await agentTool.execute(
+      "call-1",
+      { agentConfigId: "x", task: "t" },
+      new AbortController().signal,
+    );
 
     expect(capturedMetadata).toHaveLength(1);
     // Per the ask-user migration, the per-call seam adds toolCallId on
@@ -784,12 +858,20 @@ describe("extensionToAgentTool", () => {
     const manifestSchema = { type: "object", properties: { a: { type: "string" } } };
     const toolDef = { name: "legacy.tool", description: "Legacy", inputSchema: manifestSchema };
     const mockProc = makeMockProcess({
-      content: [{ type: "text", text: "ok" }], isError: false,
+      content: [{ type: "text", text: "ok" }],
+      isError: false,
     });
     const mockRegistry = makeMockRegistry({
-      tools: new Map([["legacy.tool", makeRegisteredTool({
-        name: "legacy.tool", originalName: "tool", extensionId: "ext-leg",
-      })]]),
+      tools: new Map([
+        [
+          "legacy.tool",
+          makeRegisteredTool({
+            name: "legacy.tool",
+            originalName: "tool",
+            extensionId: "ext-leg",
+          }),
+        ],
+      ]),
       process: mockProc,
     });
     const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
@@ -807,7 +889,11 @@ describe("extensionToAgentTool", () => {
     // field — `{ toolCallId }` — and nothing else (no overrides, no
     // parentMessageId). The 6-arg wrapper's invocationMetadata is
     // additive; the 4-arg form remains a single-field shape.
-    const callArgs = mockProc.callTool.mock.calls[0] as unknown as [string, Record<string, unknown>, Record<string, unknown>?];
+    const callArgs = mockProc.callTool.mock.calls[0] as unknown as [
+      string,
+      Record<string, unknown>,
+      Record<string, unknown>?,
+    ];
     const meta = callArgs?.[2];
     expect(meta?.invocationMetadata).toEqual({ toolCallId: "call-1" });
   });
@@ -831,16 +917,27 @@ describe("extensionToAgentTool", () => {
     };
 
     const mockProc = makeMockProcess({
-      content: [{ type: "text", text: "ok" }], isError: false,
+      content: [{ type: "text", text: "ok" }],
+      isError: false,
     });
     const mockRegistry = makeMockRegistry({
       tools: new Map([
-        ["legacy.tool", makeRegisteredTool({
-          name: "legacy.tool", originalName: "tool", extensionId: "ext-leg",
-        })],
-        ["orch.invoke", makeRegisteredTool({
-          name: "orch.invoke", originalName: "invoke", extensionId: "ext-orch",
-        })],
+        [
+          "legacy.tool",
+          makeRegisteredTool({
+            name: "legacy.tool",
+            originalName: "tool",
+            extensionId: "ext-leg",
+          }),
+        ],
+        [
+          "orch.invoke",
+          makeRegisteredTool({
+            name: "orch.invoke",
+            originalName: "invoke",
+            extensionId: "ext-orch",
+          }),
+        ],
       ]),
       process: mockProc,
     });
@@ -849,12 +946,18 @@ describe("extensionToAgentTool", () => {
     // Build the 6-arg wrapper first (with schemaOverride + invocationMetadata).
     const orchTool = extensionToAgentTool(
       { name: "orch.invoke", description: "Orch", inputSchema: manifestSchemaB },
-      executor, "conv-1", "msg-1", override, invocationMetadata,
+      executor,
+      "conv-1",
+      "msg-1",
+      override,
+      invocationMetadata,
     );
     // Then build the 4-arg wrapper — it must NOT inherit the metadata or override.
     const legacyTool = extensionToAgentTool(
       { name: "legacy.tool", description: "Legacy", inputSchema: manifestSchemaA },
-      executor, "conv-1", "msg-1",
+      executor,
+      "conv-1",
+      "msg-1",
     );
 
     // Parameters: each wrapper carries its own schema, no cross-pollination.
@@ -872,14 +975,24 @@ describe("extensionToAgentTool", () => {
     //
     // Order 1: legacy first.
     await legacyTool.execute("call-L1", { a: "x" }, new AbortController().signal);
-    const legacy1Meta = (mockProc.callTool.mock.calls[0] as unknown as
-      [string, Record<string, unknown>, Record<string, unknown>?])[2];
+    const legacy1Meta = (
+      mockProc.callTool.mock.calls[0] as unknown as [
+        string,
+        Record<string, unknown>,
+        Record<string, unknown>?,
+      ]
+    )[2];
     expect(legacy1Meta?.invocationMetadata).toEqual({ toolCallId: "call-L1" });
 
     // Order 2: orch next — should carry metadata + toolCallId.
     await orchTool.execute("call-O1", { agentConfigId: "alpha" }, new AbortController().signal);
-    const orch1Meta = (mockProc.callTool.mock.calls[1] as unknown as
-      [string, Record<string, unknown>, Record<string, unknown>?])[2];
+    const orch1Meta = (
+      mockProc.callTool.mock.calls[1] as unknown as [
+        string,
+        Record<string, unknown>,
+        Record<string, unknown>?,
+      ]
+    )[2];
     expect(orch1Meta?.invocationMetadata).toEqual({
       ...invocationMetadata,
       toolCallId: "call-O1",
@@ -889,15 +1002,25 @@ describe("extensionToAgentTool", () => {
     // toolCallId (prove the orch wrapper's closure did not
     // contaminate the legacy wrapper).
     await legacyTool.execute("call-L2", { a: "y" }, new AbortController().signal);
-    const legacy2Meta = (mockProc.callTool.mock.calls[2] as unknown as
-      [string, Record<string, unknown>, Record<string, unknown>?])[2];
+    const legacy2Meta = (
+      mockProc.callTool.mock.calls[2] as unknown as [
+        string,
+        Record<string, unknown>,
+        Record<string, unknown>?,
+      ]
+    )[2];
     expect(legacy2Meta?.invocationMetadata).toEqual({ toolCallId: "call-L2" });
 
     // Order 4: orch again — metadata still present (not consumed /
     // cleared after first use), plus the new per-call toolCallId.
     await orchTool.execute("call-O2", { agentConfigId: "beta" }, new AbortController().signal);
-    const orch2Meta = (mockProc.callTool.mock.calls[3] as unknown as
-      [string, Record<string, unknown>, Record<string, unknown>?])[2];
+    const orch2Meta = (
+      mockProc.callTool.mock.calls[3] as unknown as [
+        string,
+        Record<string, unknown>,
+        Record<string, unknown>?,
+      ]
+    )[2];
     expect(orch2Meta?.invocationMetadata).toEqual({
       ...invocationMetadata,
       toolCallId: "call-O2",
@@ -951,7 +1074,12 @@ describe("ToolExecutor", () => {
       });
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
-      const result = await executor.executeToolCall("ext.my-tool", { key: "val" }, "conv-1", "msg-1");
+      const result = await executor.executeToolCall(
+        "ext.my-tool",
+        { key: "val" },
+        "conv-1",
+        "msg-1",
+      );
 
       expect(result.isError).toBe(false);
       expect(textOf(result)).toBe("success result");
@@ -985,7 +1113,11 @@ describe("ToolExecutor", () => {
 
     test("argsResolver transforms input BEFORE process.callTool sees it", async () => {
       const mockProc = makeMockProcess();
-      const tool = makeRegisteredTool({ name: "ext.edit", originalName: "edit", extensionId: "ext-1" });
+      const tool = makeRegisteredTool({
+        name: "ext.edit",
+        originalName: "edit",
+        extensionId: "ext-1",
+      });
       const mockRegistry = makeMockRegistry({
         tools: new Map([["ext.edit", tool]]),
         process: mockProc,
@@ -1019,7 +1151,11 @@ describe("ToolExecutor", () => {
 
     test("argsResolver runs BEFORE PDP gate (subprocess sees resolved payload)", async () => {
       const mockProc = makeMockProcess();
-      const tool = makeRegisteredTool({ name: "ext.edit", originalName: "edit", extensionId: "ext-1" });
+      const tool = makeRegisteredTool({
+        name: "ext.edit",
+        originalName: "edit",
+        extensionId: "ext-1",
+      });
       const mockRegistry = makeMockRegistry({
         tools: new Map([["ext.edit", tool]]),
         process: mockProc,
@@ -1043,7 +1179,11 @@ describe("ToolExecutor", () => {
 
     test("no argsResolver → input passes through unchanged (back-compat)", async () => {
       const mockProc = makeMockProcess();
-      const tool = makeRegisteredTool({ name: "ext.echo", originalName: "echo", extensionId: "ext-1" });
+      const tool = makeRegisteredTool({
+        name: "ext.echo",
+        originalName: "echo",
+        extensionId: "ext-1",
+      });
       const mockRegistry = makeMockRegistry({
         tools: new Map([["ext.echo", tool]]),
         process: mockProc,
@@ -1110,7 +1250,11 @@ describe("ToolExecutor", () => {
 
       // `meta` (third arg) carries side-channel fields like ezConversationId /
       // ezPublicUrl. This assertion cares only about the tool name + args.
-      expect(mockProc.callTool).toHaveBeenCalledWith("tool", { foo: "bar", _depth: 3 }, expect.any(Object));
+      expect(mockProc.callTool).toHaveBeenCalledWith(
+        "tool",
+        { foo: "bar", _depth: 3 },
+        expect.any(Object),
+      );
     });
 
     test("does not add _depth when _callDepth is 0", async () => {
@@ -1225,10 +1369,13 @@ describe("ToolExecutor", () => {
       });
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
-      const response = await executor.handlePiFs("ext-unknown", makeRequest({
-        operation: "read",
-        path: "/tmp/test",
-      }));
+      const response = await executor.handlePiFs(
+        "ext-unknown",
+        makeRequest({
+          operation: "read",
+          path: "/tmp/test",
+        }),
+      );
 
       expect(response.error).toBeDefined();
       expect(response.error!.code).toBe(-32603);
@@ -1242,10 +1389,13 @@ describe("ToolExecutor", () => {
       const mockRegistry = makeMockRegistry({ grantedPerms });
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
-      const response = await executor.handlePiFs("ext-1", makeRequest({
-        operation: "read",
-        path: "/tmp/test",
-      }));
+      const response = await executor.handlePiFs(
+        "ext-1",
+        makeRequest({
+          operation: "read",
+          path: "/tmp/test",
+        }),
+      );
 
       expect(response.error).toBeDefined();
       expect(response.error!.code).toBe(-32603);
@@ -1253,7 +1403,9 @@ describe("ToolExecutor", () => {
 
     test("returns success when permission is allowed", async () => {
       const spy = spyOn(permissionsModule, "checkFilesystemPermission").mockResolvedValue({
-        allowed: true, resolvedPath: "/tmp/test", mode: "read",
+        allowed: true,
+        resolvedPath: "/tmp/test",
+        mode: "read",
       });
       const grantedPerms = new Map<string, ExtensionPermissions>();
       grantedPerms.set("ext-1", { filesystem: ["/tmp"], grantedAt: {} });
@@ -1262,10 +1414,13 @@ describe("ToolExecutor", () => {
       const mockRegistry = makeMockRegistry({ grantedPerms, installPaths });
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
-      const response = await executor.handlePiFs("ext-1", makeRequest({
-        operation: "read",
-        path: "/tmp/test",
-      }));
+      const response = await executor.handlePiFs(
+        "ext-1",
+        makeRequest({
+          operation: "read",
+          path: "/tmp/test",
+        }),
+      );
 
       expect(response.error).toBeUndefined();
       expect(response.result).toEqual({ allowed: true, resolvedPath: "/tmp/test" });
@@ -1277,10 +1432,16 @@ describe("ToolExecutor", () => {
         // `out-of-grant` is the ESCAPE denial — the only kind that may
         // trip denyAndDisable. A `reserved-carveout` denial must not
         // (see fs-reserved-carveout-not-a-violation.test.ts).
-        allowed: false, denial: "out-of-grant", resolvedPath: "/etc/passwd", mode: "read",
+        allowed: false,
+        denial: "out-of-grant",
+        resolvedPath: "/etc/passwd",
+        mode: "read",
       });
       const secSpy = spyOn(securityModule, "denyAndDisable").mockResolvedValue({
-        extensionId: "ext-1", reason: "denied", path: "/etc/passwd", timestamp: Date.now(),
+        extensionId: "ext-1",
+        reason: "denied",
+        path: "/etc/passwd",
+        timestamp: Date.now(),
       });
       const grantedPerms = new Map<string, ExtensionPermissions>();
       grantedPerms.set("ext-1", { grantedAt: {} });
@@ -1289,10 +1450,13 @@ describe("ToolExecutor", () => {
       const mockRegistry = makeMockRegistry({ grantedPerms, installPaths });
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
-      const response = await executor.handlePiFs("ext-1", makeRequest({
-        operation: "read",
-        path: "/etc/passwd",
-      }));
+      const response = await executor.handlePiFs(
+        "ext-1",
+        makeRequest({
+          operation: "read",
+          path: "/etc/passwd",
+        }),
+      );
 
       expect(response.error).toBeDefined();
       expect(response.error!.code).toBe(-32001);
@@ -1329,11 +1493,14 @@ describe("ToolExecutor", () => {
       const mockRegistry = makeMockRegistry();
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
-      const response = await executor.handlePiInvoke("caller-ext", makeInvokeRequest({
-        tool: "dep.tool",
-        arguments: {},
-        _depth: 10, // MAX_CALL_DEPTH is 10
-      }));
+      const response = await executor.handlePiInvoke(
+        "caller-ext",
+        makeInvokeRequest({
+          tool: "dep.tool",
+          arguments: {},
+          _depth: 10, // MAX_CALL_DEPTH is 10
+        }),
+      );
 
       expect(response.error).toBeDefined();
       expect(response.error!.code).toBe(-32000);
@@ -1344,10 +1511,13 @@ describe("ToolExecutor", () => {
       const mockRegistry = makeMockRegistry();
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
-      const response = await executor.handlePiInvoke("caller-ext", makeInvokeRequest({
-        tool: "dep.tool",
-        _depth: 15,
-      }));
+      const response = await executor.handlePiInvoke(
+        "caller-ext",
+        makeInvokeRequest({
+          tool: "dep.tool",
+          _depth: 15,
+        }),
+      );
 
       expect(response.error).toBeDefined();
       expect(response.error!.code).toBe(-32000);
@@ -1359,10 +1529,13 @@ describe("ToolExecutor", () => {
       });
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
-      const response = await executor.handlePiInvoke("caller-ext", makeInvokeRequest({
-        tool: "undeclared-dep__tool",
-        arguments: {},
-      }));
+      const response = await executor.handlePiInvoke(
+        "caller-ext",
+        makeInvokeRequest({
+          tool: "undeclared-dep__tool",
+          arguments: {},
+        }),
+      );
 
       expect(response.error).toBeDefined();
       expect(response.error!.code).toBe(-32001);
@@ -1374,10 +1547,13 @@ describe("ToolExecutor", () => {
       const mockRegistry = makeMockRegistry();
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
-      const response = await executor.handlePiInvoke("caller-ext", makeInvokeRequest({
-        tool: "bare-tool-name",
-        arguments: {},
-      }));
+      const response = await executor.handlePiInvoke(
+        "caller-ext",
+        makeInvokeRequest({
+          tool: "bare-tool-name",
+          arguments: {},
+        }),
+      );
 
       expect(response.error).toBeDefined();
       expect(response.error!.code).toBe(-32001);
@@ -1405,11 +1581,14 @@ describe("ToolExecutor", () => {
       });
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
-      const response = await executor.handlePiInvoke("caller-ext", makeInvokeRequest({
-        tool: "dep-pkg__fetch",
-        arguments: { url: "https://example.com" },
-        _depth: 0,
-      }));
+      const response = await executor.handlePiInvoke(
+        "caller-ext",
+        makeInvokeRequest({
+          tool: "dep-pkg__fetch",
+          arguments: { url: "https://example.com" },
+          _depth: 0,
+        }),
+      );
 
       expect(response.error).toBeUndefined();
       expect(response.result).toBeDefined();
@@ -1447,10 +1626,13 @@ describe("ToolExecutor", () => {
       };
       const executor = new ToolExecutor(mockRegistry, explodingEngine);
 
-      const response = await executor.handlePiInvoke("caller-ext", makeInvokeRequest({
-        tool: "dep-pkg__broken",
-        arguments: {},
-      }));
+      const response = await executor.handlePiInvoke(
+        "caller-ext",
+        makeInvokeRequest({
+          tool: "dep-pkg__broken",
+          arguments: {},
+        }),
+      );
 
       expect(response.error).toBeDefined();
       expect(response.error!.code).toBe(-32000);
@@ -1474,16 +1656,23 @@ describe("ToolExecutor", () => {
       });
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
-      const response = await executor.handlePiInvoke("caller-ext", makeInvokeRequest({
-        tool: "dep-pkg__tool",
-        arguments: { key: "val" },
-        // no _depth
-      }));
+      const response = await executor.handlePiInvoke(
+        "caller-ext",
+        makeInvokeRequest({
+          tool: "dep-pkg__tool",
+          arguments: { key: "val" },
+          // no _depth
+        }),
+      );
 
       expect(response.error).toBeUndefined();
       // The callTool should have been called with _depth: 1 (0 + 1). Third
       // arg (meta) carries ezConversationId / ezPublicUrl — opaque here.
-      expect(mockProc.callTool).toHaveBeenCalledWith("tool", { key: "val", _depth: 1 }, expect.any(Object));
+      expect(mockProc.callTool).toHaveBeenCalledWith(
+        "tool",
+        { key: "val", _depth: 1 },
+        expect.any(Object),
+      );
     });
 
     test("handles request with no params (tool is undefined string)", async () => {
@@ -1570,12 +1759,14 @@ describe("ToolExecutor", () => {
         tools: new Map([["test-ext__echo", tool]]),
         process: mockProc,
       });
-      const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine(), { bus: mockBus as any });
+      const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine(), {
+        bus: mockBus as any,
+      });
 
       await executor.executeToolCall("test-ext__echo", { x: 1 }, "conv-1", "msg-1");
 
-      const startEvent = events.find(e => e.type === "tool:start");
-      const completeEvent = events.find(e => e.type === "tool:complete");
+      const startEvent = events.find((e) => e.type === "tool:start");
+      const completeEvent = events.find((e) => e.type === "tool:complete");
 
       expect(startEvent).toBeDefined();
       expect(startEvent!.data.conversationId).toBe("conv-1");
@@ -1603,11 +1794,13 @@ describe("ToolExecutor", () => {
         tools: new Map([["test-ext__echo", tool]]),
         process: mockProc,
       });
-      const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine(), { bus: mockBus as any });
+      const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine(), {
+        bus: mockBus as any,
+      });
 
       await executor.executeToolCall("test-ext__echo", {}, "conv-1", "msg-1");
 
-      const errorEvent = events.find(e => e.type === "tool:error");
+      const errorEvent = events.find((e) => e.type === "tool:error");
       expect(errorEvent).toBeDefined();
       expect(errorEvent!.data.error).toBe("boom");
       expect(errorEvent!.data.duration).toBeGreaterThanOrEqual(0);
@@ -1698,7 +1891,9 @@ describe("ToolExecutor", () => {
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
       const spy = spyOn(permissionsModule, "checkFilesystemPermission").mockResolvedValue({
-        allowed: true, resolvedPath: "/tmp/file.txt", mode: "read",
+        allowed: true,
+        resolvedPath: "/tmp/file.txt",
+        mode: "read",
       });
 
       await executor.executeToolCall("test-ext__echo", {}, "conv-1", "msg-1");
@@ -1748,7 +1943,9 @@ describe("ToolExecutor", () => {
       } as any);
 
       const spy = spyOn(cancelRunHandlerModule, "handleCancelRunRpc").mockResolvedValue({
-        jsonrpc: "2.0", id: 600, result: { v: 1, cancelled: true },
+        jsonrpc: "2.0",
+        id: 600,
+        result: { v: 1, cancelled: true },
       });
 
       await executor.executeToolCall("test-ext__echo", {}, "conv-1", "msg-1");
@@ -1827,7 +2024,9 @@ describe("ToolExecutor", () => {
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
       const spy = spyOn(storageHandlerModule, "handleStorageRpc").mockResolvedValue({
-        jsonrpc: "2.0", id: 500, result: { value: null, exists: false },
+        jsonrpc: "2.0",
+        id: 500,
+        result: { value: null, exists: false },
       });
 
       await executor.executeToolCall("test-ext__echo", {}, "conv-1", "msg-1");
@@ -1890,7 +2089,9 @@ describe("ToolExecutor", () => {
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
       const spy = spyOn(storageHandlerModule, "handleStorageRpc").mockResolvedValue({
-        jsonrpc: "2.0", id: 2, result: { keys: [] },
+        jsonrpc: "2.0",
+        id: 2,
+        result: { keys: [] },
       });
 
       // Set the process-wide singleton to the WRONG user — under concurrency
@@ -1937,7 +2138,9 @@ describe("ToolExecutor", () => {
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
       const spy = spyOn(storageHandlerModule, "handleStorageRpc").mockResolvedValue({
-        jsonrpc: "2.0", id: 3, result: {},
+        jsonrpc: "2.0",
+        id: 3,
+        result: {},
       });
 
       // No `_meta.ezCallId` — an orphaned/forged reverse-RPC. Must fail fast
@@ -1968,7 +2171,9 @@ describe("ToolExecutor", () => {
       const executor = new ToolExecutor(mockRegistry, createStubPermissionEngine());
 
       const spy = spyOn(storageHandlerModule, "handleStorageRpc").mockResolvedValue({
-        jsonrpc: "2.0", id: 4, result: { value: null, exists: false },
+        jsonrpc: "2.0",
+        id: 4,
+        result: { value: null, exists: false },
       });
 
       // A cron fire carries an ownerless token. Storage MUST allow it through

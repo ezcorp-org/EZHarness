@@ -108,7 +108,9 @@ describe("SettingsCredentialStore — list", () => {
     expect(await store.list()).toEqual([]);
     seed("openai", CREDS);
     seed("anthropic", CREDS);
-    const listed = [...(await store.list())].sort((a, b) => a.providerId.localeCompare(b.providerId));
+    const listed = [...(await store.list())].sort((a, b) =>
+      a.providerId.localeCompare(b.providerId),
+    );
     expect(listed).toEqual([
       { providerId: "anthropic", type: "oauth" },
       { providerId: "openai-codex", type: "oauth" },
@@ -148,7 +150,10 @@ describe("SettingsCredentialStore — modify", () => {
 
   test("an unmapped provider is a no-op that writes nothing", async () => {
     const store = new SettingsCredentialStore();
-    const post = await store.modify("not-a-provider", async () => ({ ...CREDS, type: "oauth" as const }));
+    const post = await store.modify("not-a-provider", async () => ({
+      ...CREDS,
+      type: "oauth" as const,
+    }));
     expect(post).toBeUndefined();
     expect(Object.keys(settingsStore)).toEqual([]);
   });

@@ -20,33 +20,33 @@ export type WeekdayPreset = "daily" | "weekdays" | "weekends";
 
 /** Preset → cron day-of-week field. */
 export const PRESET_TO_DOW: Record<WeekdayPreset, string> = {
-	daily: "*",
-	weekdays: "1-5",
-	weekends: "0,6",
+  daily: "*",
+  weekdays: "1-5",
+  weekends: "0,6",
 };
 
 const DOW_TO_PRESET: Record<string, WeekdayPreset> = {
-	"*": "daily",
-	"1-5": "weekdays",
-	"0,6": "weekends",
+  "*": "daily",
+  "1-5": "weekdays",
+  "0,6": "weekends",
 };
 
 export const PRESET_LABELS: Record<WeekdayPreset, string> = {
-	daily: "Every day",
-	weekdays: "Weekdays",
-	weekends: "Weekends",
+  daily: "Every day",
+  weekdays: "Weekdays",
+  weekends: "Weekends",
 };
 
 export interface BriefingSchedule {
-	/** 24h wall-clock time, "HH:MM" (as produced by <input type="time">). */
-	time: string;
-	preset: WeekdayPreset;
+  /** 24h wall-clock time, "HH:MM" (as produced by <input type="time">). */
+  time: string;
+  preset: WeekdayPreset;
 }
 
 const TIME_RE = /^([01]?\d|2[0-3]):([0-5]\d)$/;
 
 function pad(n: number): string {
-	return String(n).padStart(2, "0");
+  return String(n).padStart(2, "0");
 }
 
 /**
@@ -55,11 +55,11 @@ function pad(n: number): string {
  * never produce one, but a null contract beats writing garbage cron).
  */
 export function buildBriefingCron(schedule: BriefingSchedule): string | null {
-	const m = TIME_RE.exec(schedule.time);
-	if (!m) return null;
-	const dow = PRESET_TO_DOW[schedule.preset];
-	if (!dow) return null;
-	return `${parseInt(m[2]!, 10)} ${parseInt(m[1]!, 10)} * * ${dow}`;
+  const m = TIME_RE.exec(schedule.time);
+  if (!m) return null;
+  const dow = PRESET_TO_DOW[schedule.preset];
+  if (!dow) return null;
+  return `${parseInt(m[2]!, 10)} ${parseInt(m[1]!, 10)} * * ${dow}`;
 }
 
 /**
@@ -69,18 +69,18 @@ export function buildBriefingCron(schedule: BriefingSchedule): string | null {
  * everything else (hand-edited cron → UI shows the raw string).
  */
 export function parseBriefingCron(cron: string): BriefingSchedule | null {
-	if (typeof cron !== "string") return null;
-	const parts = cron.trim().split(/\s+/);
-	if (parts.length !== 5) return null;
-	const [min, hour, dom, month, dow] = parts as [string, string, string, string, string];
-	if (dom !== "*" || month !== "*") return null;
-	const preset = DOW_TO_PRESET[dow];
-	if (!preset) return null;
-	if (!/^\d{1,2}$/.test(min) || !/^\d{1,2}$/.test(hour)) return null;
-	const m = parseInt(min, 10);
-	const h = parseInt(hour, 10);
-	if (m > 59 || h > 23) return null;
-	return { time: `${pad(h)}:${pad(m)}`, preset };
+  if (typeof cron !== "string") return null;
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [min, hour, dom, month, dow] = parts as [string, string, string, string, string];
+  if (dom !== "*" || month !== "*") return null;
+  const preset = DOW_TO_PRESET[dow];
+  if (!preset) return null;
+  if (!/^\d{1,2}$/.test(min) || !/^\d{1,2}$/.test(hour)) return null;
+  const m = parseInt(min, 10);
+  const h = parseInt(hour, 10);
+  if (m > 59 || h > 23) return null;
+  return { time: `${pad(h)}:${pad(m)}`, preset };
 }
 
 /**
@@ -88,9 +88,9 @@ export function parseBriefingCron(cron: string): BriefingSchedule | null {
  * ("Weekdays at 07:00"); `null` for hand-edited ones.
  */
 export function describeBriefingCron(cron: string): string | null {
-	const schedule = parseBriefingCron(cron);
-	if (!schedule) return null;
-	return `${PRESET_LABELS[schedule.preset]} at ${schedule.time}`;
+  const schedule = parseBriefingCron(cron);
+  if (!schedule) return null;
+  return `${PRESET_LABELS[schedule.preset]} at ${schedule.time}`;
 }
 
 /**
@@ -98,8 +98,8 @@ export function describeBriefingCron(cron: string): string | null {
  * Negative/fractional inputs clamp up to whole seconds ≥ 0.
  */
 export function formatRetrySeconds(seconds: number): string {
-	const s = Math.max(0, Math.ceil(seconds));
-	const m = Math.floor(s / 60);
-	const rem = s % 60;
-	return m > 0 ? `${m}m ${rem}s` : `${rem}s`;
+  const s = Math.max(0, Math.ceil(seconds));
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return m > 0 ? `${m}m ${rem}s` : `${rem}s`;
 }

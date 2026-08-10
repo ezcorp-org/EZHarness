@@ -50,14 +50,16 @@ beforeEach(() => _resetGooglePollenKeyResolverForTests());
 // ── Upstream fixtures (the suite never touches the network) ──────────
 
 const GEO_BODY = {
-  results: [{
-    name: "Austin",
-    admin1: "Texas",
-    country: "United States",
-    latitude: 30.267,
-    longitude: -97.743,
-    timezone: "America/Chicago",
-  }],
+  results: [
+    {
+      name: "Austin",
+      admin1: "Texas",
+      country: "United States",
+      latitude: 30.267,
+      longitude: -97.743,
+      timezone: "America/Chicago",
+    },
+  ],
 };
 
 const FORECAST_BODY = {
@@ -132,9 +134,7 @@ function executor(): WorkflowExecutor {
 }
 
 async function loadConditionsWorkflow(): Promise<WorkflowDefinition> {
-  const loaded = await loadExtensionWorkflows([
-    { extensionName: EXT_NAME, installPath: EXT_DIR },
-  ]);
+  const loaded = await loadExtensionWorkflows([{ extensionName: EXT_NAME, installPath: EXT_DIR }]);
   const wf = loaded.find((w) => w.name === `${EXT_NAME}:conditions`);
   if (!wf) throw new Error("conditions.workflow.yaml did not load");
   return wf;
@@ -355,7 +355,9 @@ describe("conditions workflow — end to end", () => {
       return json(FORECAST_BODY);
     }) as typeof fetch);
     try {
-      const run = await executor().runWorkflow(await loadConditionsWorkflow(), { city: "Atlantis" });
+      const run = await executor().runWorkflow(await loadConditionsWorkflow(), {
+        city: "Atlantis",
+      });
       expect(run.status).toBe("error");
       const error = run.result!.error;
       const message = typeof error === "string" ? error : error!.message;

@@ -64,13 +64,15 @@ const mockGetConversationPath = mock(async (_leaf: string, _cid: string) => [] a
 const mockGetMessages = mock(async (_cid: string) => [] as unknown[]);
 const mockGetMessagesWithToolCalls = mock(async (_cid: string) => ({ messages: [] }));
 const mockGetSubConversationToolCalls = mock(async (_cid: string) => ({}));
-const mockCreateMessage = mock(async (_cid: string, opts: { role: string; content: string; parentMessageId?: string }) => ({
-  id: "msg-new",
-  role: opts.role,
-  content: opts.content,
-  parentMessageId: opts.parentMessageId,
-  createdAt: new Date(),
-}));
+const mockCreateMessage = mock(
+  async (_cid: string, opts: { role: string; content: string; parentMessageId?: string }) => ({
+    id: "msg-new",
+    role: opts.role,
+    content: opts.content,
+    parentMessageId: opts.parentMessageId,
+    createdAt: new Date(),
+  }),
+);
 const mockUpdateMessageContent = mock(async (_cid: string, mid: string, content: string) => ({
   id: mid,
   content,
@@ -128,7 +130,10 @@ mock.module("$lib/server/security/resource-quotas", () => ({
 
 // ── executor / context / misc ──────────────────────────────────────────
 
-const mockStreamChat = mock(() => ({ catch: () => Promise.resolve(), then: () => Promise.resolve() }));
+const mockStreamChat = mock(() => ({
+  catch: () => Promise.resolve(),
+  then: () => Promise.resolve(),
+}));
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({ streamChat: mockStreamChat }),
   getBus: () => ({ emit: mock(() => {}) }),
@@ -174,12 +179,8 @@ mock.module("$server/runtime/ez-actions/registry", () => ({
 
 // ── Import handlers AFTER mocks ────────────────────────────────────────
 
-const { GET, POST } = await import(
-  "../routes/api/conversations/[id]/messages/+server"
-);
-const { PATCH } = await import(
-  "../routes/api/conversations/[id]/messages/[mid]/+server"
-);
+const { GET, POST } = await import("../routes/api/conversations/[id]/messages/+server");
+const { PATCH } = await import("../routes/api/conversations/[id]/messages/[mid]/+server");
 
 // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -249,17 +250,23 @@ function resetState() {
   mockGetMessages.mockReset();
   mockGetMessages.mockImplementation(async () => []);
   mockCreateMessage.mockReset();
-  mockCreateMessage.mockImplementation(async (_cid: string, opts: { role: string; content: string; parentMessageId?: string }) => ({
-    id: "msg-new",
-    role: opts.role,
-    content: opts.content,
-    parentMessageId: opts.parentMessageId,
-    createdAt: new Date(),
-  }));
+  mockCreateMessage.mockImplementation(
+    async (_cid: string, opts: { role: string; content: string; parentMessageId?: string }) => ({
+      id: "msg-new",
+      role: opts.role,
+      content: opts.content,
+      parentMessageId: opts.parentMessageId,
+      createdAt: new Date(),
+    }),
+  );
   mockUpdateMessageContent.mockReset();
-  mockUpdateMessageContent.mockImplementation(async (_cid: string, mid: string, content: string) => ({ id: mid, content }));
+  mockUpdateMessageContent.mockImplementation(
+    async (_cid: string, mid: string, content: string) => ({ id: mid, content }),
+  );
   mockSetMessageExcluded.mockReset();
-  mockSetMessageExcluded.mockImplementation(async (_cid: string, mid: string, excluded: boolean) => ({ id: mid, excluded }));
+  mockSetMessageExcluded.mockImplementation(
+    async (_cid: string, mid: string, excluded: boolean) => ({ id: mid, excluded }),
+  );
   mockGetActiveRun.mockReset();
   mockGetActiveRun.mockImplementation(async () => mockActiveRun);
   mockStreamChat.mockReset();
@@ -276,7 +283,9 @@ describe("BASELINE GET /api/conversations/[id]/messages — top-level ownership 
 
   test("owner: 200, returns path for latest leaf", async () => {
     mockLatestLeaf = { id: "leaf-1" };
-    mockGetConversationPath.mockImplementation(async () => [{ id: "leaf-1", role: "user", content: "hi" }]);
+    mockGetConversationPath.mockImplementation(async () => [
+      { id: "leaf-1", role: "user", content: "hi" },
+    ]);
     const res = await GET(getEvent(ownerUser));
     expect(res.status).toBe(200);
     const body = (await res.json()) as unknown[];

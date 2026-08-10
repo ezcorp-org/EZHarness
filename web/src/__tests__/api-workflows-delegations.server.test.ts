@@ -127,9 +127,7 @@ beforeEach(() => {
   db.getWorkflowDelegation.mockReset().mockResolvedValue(ROW);
   db.listWorkflowDelegationsConsentedBy.mockReset().mockResolvedValue([ROW]);
   db.revokeWorkflowDelegation.mockReset().mockResolvedValue(true);
-  db.setDelegationRunBounds
-    .mockReset()
-    .mockResolvedValue({ ...ROW, maxTokensPerRun: 99_000 });
+  db.setDelegationRunBounds.mockReset().mockResolvedValue({ ...ROW, maxTokensPerRun: 99_000 });
 });
 
 // `authMethod: "session"` is what `hooks.server.ts` stamps on a verified
@@ -162,7 +160,11 @@ function postEvent(locals: Record<string, unknown> = member, body: unknown = BOD
 }
 
 function listEvent(locals: Record<string, unknown> = member) {
-  return { url: new URL("http://localhost/api/workflows/delegations"), locals, params: {} } as never;
+  return {
+    url: new URL("http://localhost/api/workflows/delegations"),
+    locals,
+    params: {},
+  } as never;
 }
 
 function deleteEvent(locals: Record<string, unknown> = member, id = "del-1") {
@@ -255,8 +257,7 @@ describe("consent-time authorization", () => {
   test("a refusal is returned verbatim and NOTHING is written (T15)", async () => {
     const denial = new Response(
       JSON.stringify({
-        error:
-          'A service account can only run system-visible workflows, and "ship-it" is not one.',
+        error: 'A service account can only run system-visible workflows, and "ship-it" is not one.',
       }),
       { status: 403, headers: { "content-type": "application/json" } },
     );
@@ -307,9 +308,7 @@ describe("owner resolution", () => {
   });
 
   test("the row is always consented BY the session user", async () => {
-    await POST(
-      postEvent(admin, { ...BODY, ownerKind: "service", ownerServiceAccountId: "svc-1" }),
-    );
+    await POST(postEvent(admin, { ...BODY, ownerKind: "service", ownerServiceAccountId: "svc-1" }));
     expect(db.createWorkflowDelegation).toHaveBeenCalledWith(
       expect.objectContaining({ ownerKind: "service", ownerId: "svc-1", consentedByUserId: "a1" }),
     );
@@ -541,7 +540,9 @@ describe("PATCH — the workflow, the owner and the consent hash are NOT adjusta
   });
 
   test("the refusal names the remedy rather than saying 'invalid body'", async () => {
-    const res = (await PATCH(patchEvent(member, { maxTokensPerRun: 10, ownerKind: "service" }))) as Response;
+    const res = (await PATCH(
+      patchEvent(member, { maxTokensPerRun: 10, ownerKind: "service" }),
+    )) as Response;
     expect((await res.json()).error).toContain("re-consent");
   });
 
@@ -552,11 +553,14 @@ describe("PATCH — the workflow, the owner and the consent hash are NOT adjusta
     ["a string", "9000"],
   ];
 
-  test.each(badBounds)("a %s maxTokensPerRun is refused, exactly as the consent route refuses it", async (_l, cap) => {
-    const res = (await PATCH(patchEvent(member, { maxTokensPerRun: cap }))) as Response;
-    expect(res.status).toBe(400);
-    expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
-  });
+  test.each(badBounds)(
+    "a %s maxTokensPerRun is refused, exactly as the consent route refuses it",
+    async (_l, cap) => {
+      const res = (await PATCH(patchEvent(member, { maxTokensPerRun: cap }))) as Response;
+      expect(res.status).toBe(400);
+      expect(db.setDelegationRunBounds).not.toHaveBeenCalled();
+    },
+  );
 
   test.each(badBounds)("a %s maxRunsPerDay is refused on the SAME boundary", async (_l, quota) => {
     // The second bound gets the identical treatment. A field added to a
@@ -607,7 +611,9 @@ describe("PATCH — maxRunsPerDay", () => {
       maxTokensPerRun: 7,
       maxRunsPerDay: 3,
     });
-    const res = (await PATCH(patchEvent(member, { maxTokensPerRun: 7, maxRunsPerDay: 3 }))) as Response;
+    const res = (await PATCH(
+      patchEvent(member, { maxTokensPerRun: 7, maxRunsPerDay: 3 }),
+    )) as Response;
     expect(res.status).toBe(200);
     expect(db.setDelegationRunBounds).toHaveBeenCalledTimes(1);
     expect(db.setDelegationRunBounds).toHaveBeenCalledWith("del-1", {

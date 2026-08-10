@@ -17,12 +17,14 @@ export interface SuggestionFeedbackEvent {
 }
 
 export async function insertSuggestionFeedback(event: SuggestionFeedbackEvent): Promise<void> {
-  await getDb().insert(suggestionFeedback).values({
-    userId: event.userId,
-    conversationId: event.conversationId ?? null,
-    kind: event.kind,
-    action: event.action,
-    toolName: event.toolName ?? null,
-    latencyMs: event.latencyMs ?? null,
-  });
+  await getDb()
+    .insert(suggestionFeedback)
+    .values({
+      userId: event.userId,
+      conversationId: event.conversationId ?? null,
+      kind: event.kind,
+      action: event.action,
+      toolName: event.toolName ?? null,
+      latencyMs: event.latencyMs ?? null,
+    });
 }

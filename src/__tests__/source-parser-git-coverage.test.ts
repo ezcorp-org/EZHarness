@@ -141,8 +141,7 @@ describe("git.ts – coverage gaps", () => {
   let bareRepoDir: string;
 
   const env = { ...process.env };
-  const spawn = (cmd: string[], opts?: { cwd?: string }) =>
-    Bun.spawnSync(cmd, { ...opts, env });
+  const spawn = (cmd: string[], opts?: { cwd?: string }) => Bun.spawnSync(cmd, { ...opts, env });
 
   beforeAll(async () => {
     tempBase = await mkdtemp(join(tmpdir(), "git-cov-"));
@@ -272,9 +271,7 @@ describe("git.ts – coverage gaps", () => {
   // ── getCurrentRef ──
 
   test("getCurrentRef throws when git rev-parse fails", () => {
-    expect(() => getCurrentRef("/nonexistent-dir-xyz")).toThrow(
-      /Failed to get HEAD ref/,
-    );
+    expect(() => getCurrentRef("/nonexistent-dir-xyz")).toThrow(/Failed to get HEAD ref/);
   });
 
   test("getCurrentRef returns 40-char hash for valid repo", () => {

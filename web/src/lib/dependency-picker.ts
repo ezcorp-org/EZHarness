@@ -61,19 +61,12 @@ export interface PickableExtension {
  * Matched on both the id and the `source` column so the virtual row is
  * excluded however it is identified.
  */
-export function isPickableDependency(
-  ext: { id: string; source?: string | null },
-): boolean {
-  return (
-    ext.id !== VIRTUAL_BUILTIN_EXTENSION_ID &&
-    ext.source !== VIRTUAL_BUILTIN_EXTENSION_ID
-  );
+export function isPickableDependency(ext: { id: string; source?: string | null }): boolean {
+  return ext.id !== VIRTUAL_BUILTIN_EXTENSION_ID && ext.source !== VIRTUAL_BUILTIN_EXTENSION_ID;
 }
 
 /** The dependency `source` to declare for an installed extension. */
-export function dependencySourceFor(
-  ext: { isBundled?: boolean },
-): PickerDependencySource {
+export function dependencySourceFor(ext: { isBundled?: boolean }): PickerDependencySource {
   return ext.isBundled === true ? "bundled" : "local";
 }
 

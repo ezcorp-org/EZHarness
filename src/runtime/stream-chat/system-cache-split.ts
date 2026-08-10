@@ -44,7 +44,10 @@ interface SystemCarryingPayload {
  * (emoji etc.) are untouched.
  */
 function sanitizeTail(text: string): string {
-  return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
+  return text.replace(
+    /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g,
+    "",
+  );
 }
 
 /**

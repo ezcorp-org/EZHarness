@@ -239,9 +239,7 @@ export function wildcardTreeDropouts(
   for (const pat of wildcardPats) {
     const glob = new Glob(escapeGlob(pat));
     if (lcovFiles.some((f) => glob.match(f))) continue;
-    const onDisk = repoFilesForPattern(pat).filter(
-      (f) => !isTestOrTypeFile(f) && !isExcluded(f),
-    );
+    const onDisk = repoFilesForPattern(pat).filter((f) => !isTestOrTypeFile(f) && !isExcluded(f));
     if (onDisk.length > 0) {
       out.push(
         `${pat}: wildcard threshold matches ${onDisk.length} repo file(s) (e.g. ${onDisk[0]}) ` +

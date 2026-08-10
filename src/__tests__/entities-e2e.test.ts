@@ -25,12 +25,7 @@
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import {
-  closeTestDb,
-  getTestDb,
-  mockDbConnection,
-  setupTestDb,
-} from "./helpers/test-pglite";
+import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 
@@ -38,10 +33,7 @@ import { eq } from "drizzle-orm";
 import { extensions, extensionStorage, users } from "../db/schema";
 import { installFromLocal } from "../extensions/installer";
 import { ExtensionRegistry } from "../extensions/registry";
-import {
-  _resetToolCallsCounterForTests,
-  ToolExecutor,
-} from "../extensions/tool-executor";
+import { _resetToolCallsCounterForTests, ToolExecutor } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 
 const FIXTURE_PATH = join(import.meta.dir, "helpers", "test-entities-fixture");
@@ -112,18 +104,12 @@ describe("entities — install → seed → dispatch end-to-end", () => {
       .where(eq(extensionStorage.extensionId, extId));
     const keys = rows.map((r) => r.key).sort();
     expect(keys).toEqual(
-      [
-        "__entity-index:note",
-        "__entity:note:first",
-        "__entity:note:second",
-      ].sort(),
+      ["__entity-index:note", "__entity:note:first", "__entity:note:second"].sort(),
     );
 
     // {file:...} placeholders resolved at install time.
     const first = rows.find((r) => r.key === "__entity:note:first")!;
-    expect(
-      (first.value as { title: string; body: string }).body,
-    ).toMatch(/^First seed body/);
+    expect((first.value as { title: string; body: string }).body).toMatch(/^First seed body/);
   });
 
   test("list_notes through the dispatcher returns the 2 seeds", async () => {
@@ -137,10 +123,7 @@ describe("entities — install → seed → dispatch end-to-end", () => {
     const out = parse(res.content[0]!.text) as {
       items: Array<{ slug: string }>;
     };
-    expect(out.items.map((r) => r.slug).sort()).toEqual([
-      "first",
-      "second",
-    ]);
+    expect(out.items.map((r) => r.slug).sort()).toEqual(["first", "second"]);
   });
 
   test("get_note returns the requested record", async () => {
@@ -181,11 +164,7 @@ describe("entities — install → seed → dispatch end-to-end", () => {
     const out = parse(list.content[0]!.text) as {
       items: Array<{ slug: string }>;
     };
-    expect(out.items.map((r) => r.slug).sort()).toEqual([
-      "first",
-      "second",
-      "third",
-    ]);
+    expect(out.items.map((r) => r.slug).sort()).toEqual(["first", "second", "third"]);
   });
 
   test("create_note with invalid data returns isError", async () => {

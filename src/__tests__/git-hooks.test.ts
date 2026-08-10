@@ -121,30 +121,38 @@ afterAll(() => {
 });
 
 describe("pre-commit hook", () => {
-  test("BLOCKS a commit whose staged .ts file fails biome lint", () => {
-    const dir = repoWithPreCommit();
-    writeFileSync(join(dir, "bad.ts"), LINT_ERROR_TS);
-    sh(["git", "add", "bad.ts"], { cwd: dir });
+  test(
+    "BLOCKS a commit whose staged .ts file fails biome lint",
+    () => {
+      const dir = repoWithPreCommit();
+      writeFileSync(join(dir, "bad.ts"), LINT_ERROR_TS);
+      sh(["git", "add", "bad.ts"], { cwd: dir });
 
-    const res = sh(["git", "commit", "-m", "add bad"], { cwd: dir });
-    expect(res.exitCode).not.toBe(0);
-    expect(res.out).toContain("pre-commit");
-    expect(res.out.toLowerCase()).toContain("biome");
-    // Commit must NOT have landed.
-    const log = sh(["git", "log", "--oneline"], { cwd: dir });
-    expect(log.out).not.toContain("add bad");
-  }, BIOME_TIMEOUT_MS);
+      const res = sh(["git", "commit", "-m", "add bad"], { cwd: dir });
+      expect(res.exitCode).not.toBe(0);
+      expect(res.out).toContain("pre-commit");
+      expect(res.out.toLowerCase()).toContain("biome");
+      // Commit must NOT have landed.
+      const log = sh(["git", "log", "--oneline"], { cwd: dir });
+      expect(log.out).not.toContain("add bad");
+    },
+    BIOME_TIMEOUT_MS,
+  );
 
-  test("ALLOWS a commit whose staged .ts file is lint-clean", () => {
-    const dir = repoWithPreCommit();
-    writeFileSync(join(dir, "good.ts"), CLEAN_TS);
-    sh(["git", "add", "good.ts"], { cwd: dir });
+  test(
+    "ALLOWS a commit whose staged .ts file is lint-clean",
+    () => {
+      const dir = repoWithPreCommit();
+      writeFileSync(join(dir, "good.ts"), CLEAN_TS);
+      sh(["git", "add", "good.ts"], { cwd: dir });
 
-    const res = sh(["git", "commit", "-m", "add good"], { cwd: dir });
-    expect(res.exitCode).toBe(0);
-    const log = sh(["git", "log", "--oneline"], { cwd: dir });
-    expect(log.out).toContain("add good");
-  }, BIOME_TIMEOUT_MS);
+      const res = sh(["git", "commit", "-m", "add good"], { cwd: dir });
+      expect(res.exitCode).toBe(0);
+      const log = sh(["git", "log", "--oneline"], { cwd: dir });
+      expect(log.out).toContain("add good");
+    },
+    BIOME_TIMEOUT_MS,
+  );
 
   test("EZ_SKIP_HOOKS=1 bypasses the hook even for a lint-violating file", () => {
     const dir = repoWithPreCommit();

@@ -34,11 +34,7 @@ import {
   type Capability,
   type CapabilitySet,
 } from "./capability-types";
-import {
-  AUDIT_PERM_ALLOWED,
-  AUDIT_PERM_DENIED,
-  AUDIT_PERM_PROMPTED,
-} from "./audit-actions";
+import { AUDIT_PERM_ALLOWED, AUDIT_PERM_DENIED, AUDIT_PERM_PROMPTED } from "./audit-actions";
 import { insertAuditEntry } from "../db/queries/audit-log";
 import {
   createPermAuditCoalescer,
@@ -224,36 +220,31 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
   // Burst-folding for the step-4 allow row ONLY. Per-engine, not
   // module-global, so an engine built for a test cannot inherit another
   // one's open windows.
-  const allowCoalescer: PermAuditCoalescer = createPermAuditCoalescer(
-    (summary) => {
-      // Fire-and-forget: the timer that triggers this has no caller to
-      // await it, and `writeAuditRow` already swallows its own failures.
-      void writeAuditRow(
-        AUDIT_PERM_ALLOWED,
-        crypto.randomUUID(),
-        {
-          extensionId: summary.key.extensionId,
-          userId: summary.key.userId,
-          conversationId: summary.key.conversationId,
-          ...(summary.key.toolName !== null ? { toolName: summary.key.toolName } : {}),
-          ...(summary.key.callerExtensionId !== null
-            ? { callerExtensionId: summary.key.callerExtensionId }
-            : {}),
-        },
-        undefined,
-        // Self-describing, in the same spirit as the dispatcher's
-        // `sampled-1-in-N`: a reader must be able to tell a folded tail
-        // from an ordinary allow without knowing this code exists.
-        `coalesced-allow-tail (${summary.suppressed} suppressed in ${summary.windowMs}ms)`,
-        { suppressedAllows: summary.suppressed, headAuditId: summary.firstAuditId },
-      );
-    },
-  );
+  const allowCoalescer: PermAuditCoalescer = createPermAuditCoalescer((summary) => {
+    // Fire-and-forget: the timer that triggers this has no caller to
+    // await it, and `writeAuditRow` already swallows its own failures.
+    void writeAuditRow(
+      AUDIT_PERM_ALLOWED,
+      crypto.randomUUID(),
+      {
+        extensionId: summary.key.extensionId,
+        userId: summary.key.userId,
+        conversationId: summary.key.conversationId,
+        ...(summary.key.toolName !== null ? { toolName: summary.key.toolName } : {}),
+        ...(summary.key.callerExtensionId !== null
+          ? { callerExtensionId: summary.key.callerExtensionId }
+          : {}),
+      },
+      undefined,
+      // Self-describing, in the same spirit as the dispatcher's
+      // `sampled-1-in-N`: a reader must be able to tell a folded tail
+      // from an ordinary allow without knowing this code exists.
+      `coalesced-allow-tail (${summary.suppressed} suppressed in ${summary.windowMs}ms)`,
+      { suppressedAllows: summary.suppressed, headAuditId: summary.firstAuditId },
+    );
+  });
 
-  async function authorize(
-    ctx: AuthorizeContext,
-    needed: CapabilitySet,
-  ): Promise<Decision> {
+  async function authorize(ctx: AuthorizeContext, needed: CapabilitySet): Promise<Decision> {
     const auditId = crypto.randomUUID();
 
     // Phase 4 §M2 — resolve parentAuditId if the caller didn't set
@@ -292,10 +283,7 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     } else {
       let override: ExtensionPermissions | null;
       try {
-        override = await loadConversationOverride(
-          ctx.conversationId,
-          ctx.extensionId,
-        );
+        override = await loadConversationOverride(ctx.conversationId, ctx.extensionId);
       } catch (error) {
         // Phase 54 SEC-01 (swap) — post-cache DB failure → fail-closed
         // deny. Plan 01's cache absorbs warm-up lag; if we still throw
@@ -381,14 +369,9 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
           userId: ctx.userId ?? "",
           capability: sensitive,
         });
-        await writeAuditRow(
-          AUDIT_PERM_PROMPTED,
-          auditId,
-          ctxWithChain,
-          sensitive,
-          undefined,
-          { promptId },
-        );
+        await writeAuditRow(AUDIT_PERM_PROMPTED, auditId, ctxWithChain, sensitive, undefined, {
+          promptId,
+        });
         return { decision: "prompt", promptId, auditId, sensitive };
       }
     }
@@ -466,15 +449,8 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     const now = Date.now();
     const ttlOverrideMs = options?.ttlOverrideMs;
     const expiresAt =
-      ttlOverrideMs === null
-        ? null
-        : ttlOverrideMs !== undefined
-          ? now + ttlOverrideMs
-          : undefined;
-    await upsertSetting(
-      settingKey,
-      buildAlwaysAllowValue(true, now, { ttlOverrideMs, expiresAt }),
-    );
+      ttlOverrideMs === null ? null : ttlOverrideMs !== undefined ? now + ttlOverrideMs : undefined;
+    await upsertSetting(settingKey, buildAlwaysAllowValue(true, now, { ttlOverrideMs, expiresAt }));
 
     // Update cache for this exact tuple so the next authorize call
     // sees the new value without a DB round-trip.
@@ -628,9 +604,7 @@ async function loadConversationOverride(
  * `parentAuditId` for every authorize() inside a spawned child so
  * the audit chain reaches the spawn's root row.
  */
-async function loadSpawnParentAuditId(
-  conversationId: string | null,
-): Promise<string | null> {
+async function loadSpawnParentAuditId(conversationId: string | null): Promise<string | null> {
   if (!conversationId || conversationId === "unknown" || conversationId === "cross-ext") {
     return null;
   }

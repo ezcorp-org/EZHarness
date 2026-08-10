@@ -251,7 +251,13 @@ function fakeRuntime(overrides?: {
         resumed.push(row.id);
         overrides?.onResume?.(row.id);
         if (overrides?.gate) await overrides.gate;
-        return { id: row.id, workflowName: definition.name, status: "success", startedAt: T0.getTime(), steps: [] } as unknown as WorkflowRun;
+        return {
+          id: row.id,
+          workflowName: definition.name,
+          status: "success",
+          startedAt: T0.getTime(),
+          steps: [],
+        } as unknown as WorkflowRun;
       }) as WorkflowRuntime["workflowExecutor"]["resumeWorkflow"],
     },
   };
@@ -260,7 +266,12 @@ function fakeRuntime(overrides?: {
 
 function runner(
   runtime: WorkflowRuntime | null,
-  opts?: Partial<{ instanceId: string; maxConcurrentHost: number; maxConcurrentPerProject: number; now: () => Date }>,
+  opts?: Partial<{
+    instanceId: string;
+    maxConcurrentHost: number;
+    maxConcurrentPerProject: number;
+    now: () => Date;
+  }>,
 ) {
   return new WorkflowRunner({
     skipLockfile: true,
@@ -321,7 +332,9 @@ describe("claim is a CAS, so exactly one racer wins", () => {
     expect((await getWorkflowRunRow("r1"))?.claimedBy).toBe("A");
 
     // Past it → B takes over, which is how a dead instance's work resumes.
-    expect(await claimWorkflowRun({ workflowRunId: "r1", claimedBy: "B", now: T_LATER })).toBe(true);
+    expect(await claimWorkflowRun({ workflowRunId: "r1", claimedBy: "B", now: T_LATER })).toBe(
+      true,
+    );
     expect((await getWorkflowRunRow("r1"))?.claimedBy).toBe("B");
   });
 });
@@ -422,7 +435,6 @@ describe("lease renewal and release", () => {
     expect(row?.claimedBy).toBe("A");
   });
 });
-
 
 describe("WorkflowRunner.tick", () => {
   test("claims a parked run and resumes it through the registered executor", async () => {

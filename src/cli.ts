@@ -24,7 +24,13 @@ import {
   type ApiKeyScope,
 } from "./auth/api-key";
 import { mintApiKeyForUser } from "./auth/mint-api-key";
-import { installFromLocal, installWithDependencies, updateExtension as updateExt, removeExtension as removeExt, checkForUpdates } from "./extensions/installer";
+import {
+  installFromLocal,
+  installWithDependencies,
+  updateExtension as updateExt,
+  removeExtension as removeExt,
+  checkForUpdates,
+} from "./extensions/installer";
 import { satisfiesRange } from "./extensions/manifest";
 import type { DependencyTreeNode } from "./extensions/dependency-resolver";
 import { listExtensions, getExtensionByName } from "./db/queries/extensions";
@@ -66,19 +72,19 @@ export interface ParsedArgs {
   input?: Record<string, unknown>;
   port?: number;
   project?: string;
-  source?: string;       // for ext:install
-  extName?: string;      // for ext:update, ext:remove, ext:info
-  extDir?: string;       // for ext:dev, ext:test
+  source?: string; // for ext:install
+  extName?: string; // for ext:update, ext:remove, ext:info
+  extDir?: string; // for ext:dev, ext:test
   autoApprove?: boolean; // --yes flag for ext:install
-  force?: boolean;       // --force flag for ext:remove
-  filter?: string;       // for ext:test --filter
-  type?: string;         // for ext:init --type
-  token?: string;        // for ext:publish --token
-  json?: boolean;        // for ext:verify --json
-  scopes?: string;       // for key:mint --scopes (comma-separated)
-  userRef?: string;      // for key:mint --user (email or id)
-  keyName?: string;      // for key:mint --name
-  role?: string;         // for key:mint --role (member|admin)
+  force?: boolean; // --force flag for ext:remove
+  filter?: string; // for ext:test --filter
+  type?: string; // for ext:init --type
+  token?: string; // for ext:publish --token
+  json?: boolean; // for ext:verify --json
+  scopes?: string; // for key:mint --scopes (comma-separated)
+  userRef?: string; // for key:mint --user (email or id)
+  keyName?: string; // for key:mint --name
+  role?: string; // for key:mint --role (member|admin)
 }
 
 /**
@@ -279,8 +285,11 @@ async function setupRunHarness(agentsDir: string): Promise<{
 }
 
 /** Find all extensions that declare targetName as a dependency. */
-async function findDependents(targetName: string, allExts?: Awaited<ReturnType<typeof listExtensions>>): Promise<string[]> {
-  const exts = allExts ?? await listExtensions();
+async function findDependents(
+  targetName: string,
+  allExts?: Awaited<ReturnType<typeof listExtensions>>,
+): Promise<string[]> {
+  const exts = allExts ?? (await listExtensions());
   const dependents: string[] = [];
   for (const other of exts) {
     const otherManifest = other.manifest as ExtensionManifestV2;
@@ -305,7 +314,10 @@ const DEFAULT_KEY_SCOPES: ApiKeyScope[] = ["read", "write", "chat"];
 
 export function parseKeyScopes(raw: string | undefined): ApiKeyScope[] {
   if (!raw) return [...DEFAULT_KEY_SCOPES];
-  const parts = raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  const parts = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
   if (parts.length === 0) return [...DEFAULT_KEY_SCOPES];
   const invalid = parts.filter((p) => !isApiKeyScope(p));
   if (invalid.length > 0) {
@@ -333,9 +345,7 @@ export function parseKeyRole(raw: string | undefined): ApiKeyRole {
   if (!raw) return "member";
   const trimmed = raw.trim();
   if (!isApiKeyRole(trimmed)) {
-    console.error(
-      `Error: invalid role "${raw}". Valid roles: ${API_KEY_ROLES.join(", ")}`,
-    );
+    console.error(`Error: invalid role "${raw}". Valid roles: ${API_KEY_ROLES.join(", ")}`);
     process.exit(1);
   }
   return trimmed;
@@ -346,7 +356,9 @@ export function parseKeyRole(raw: string | undefined): ApiKeyRole {
  * a user id; with no flag we default to the first admin (or, failing that,
  * the first user). Exits(1) when no match / no users exist.
  */
-export async function resolveKeyMintUser(userRef: string | undefined): Promise<{ id: string; email: string; role: string }> {
+export async function resolveKeyMintUser(
+  userRef: string | undefined,
+): Promise<{ id: string; email: string; role: string }> {
   if (userRef) {
     const byEmail = await getUserByEmail(userRef);
     if (byEmail) return { id: byEmail.id, email: byEmail.email, role: byEmail.role };
@@ -510,7 +522,8 @@ export async function cli(args: string[]): Promise<void> {
         const { existsSync } = await import("node:fs");
         const { resolve } = await import("node:path");
         const resolvedPath = resolve(parsed.source);
-        const isLocalPath = existsSync(resolve(resolvedPath, "ezcorp.config.ts")) ||
+        const isLocalPath =
+          existsSync(resolve(resolvedPath, "ezcorp.config.ts")) ||
           existsSync(resolve(resolvedPath, "ezcorp.config.js"));
 
         if (isLocalPath) {
@@ -518,8 +531,13 @@ export async function cli(args: string[]): Promise<void> {
           const manifest = await loadManifest(resolvedPath);
           let permissions: ExtensionPermissions = { grantedAt: {} };
           try {
-            permissions = await promptForPermissions(manifest as unknown as ExtensionManifestV2, !!parsed.autoApprove);
-          } catch { /* use default empty permissions */ }
+            permissions = await promptForPermissions(
+              manifest as unknown as ExtensionManifestV2,
+              !!parsed.autoApprove,
+            );
+          } catch {
+            /* use default empty permissions */
+          }
           const ext = await installFromLocal(resolvedPath, permissions, true);
           console.log(`Installed ${ext.name} v${ext.version} from ${parsed.source}`);
         } else {
@@ -542,7 +560,9 @@ export async function cli(args: string[]): Promise<void> {
           );
 
           if (dependencies.length > 0) {
-            console.log(`Installed ${root.name} v${root.version} with ${dependencies.length} dependencies`);
+            console.log(
+              `Installed ${root.name} v${root.version} with ${dependencies.length} dependencies`,
+            );
           } else {
             console.log(`Installed ${root.name} v${root.version} from ${parsed.source}`);
           }
@@ -564,7 +584,9 @@ export async function cli(args: string[]): Promise<void> {
           if (!otherManifest.dependencies) continue;
           for (const [depName, depSpec] of Object.entries(otherManifest.dependencies)) {
             if (depName === updatedName && !satisfiesRange(newVersion, depSpec.version)) {
-              console.log(`Warning: ${other.name} requires ${updatedName} ${depSpec.version} but ${newVersion} is installed`);
+              console.log(
+                `Warning: ${other.name} requires ${updatedName} ${depSpec.version} but ${newVersion} is installed`,
+              );
             }
           }
         }
@@ -598,7 +620,9 @@ export async function cli(args: string[]): Promise<void> {
               updated++;
             }
           } catch (err: unknown) {
-            console.error(`Failed to update ${ext.name}: ${err instanceof Error ? err.message : String(err)}`);
+            console.error(
+              `Failed to update ${ext.name}: ${err instanceof Error ? err.message : String(err)}`,
+            );
           }
         }
 
@@ -620,7 +644,7 @@ export async function cli(args: string[]): Promise<void> {
 
       // Header
       console.log(
-        `${"Name".padEnd(25)} ${"Version".padEnd(10)} ${"Source".padEnd(35)} ${"Status".padEnd(10)} ${"Deps"}`
+        `${"Name".padEnd(25)} ${"Version".padEnd(10)} ${"Source".padEnd(35)} ${"Status".padEnd(10)} ${"Deps"}`,
       );
       console.log("-".repeat(88));
 
@@ -630,7 +654,7 @@ export async function cli(args: string[]): Promise<void> {
         const source = ext.source.length > 33 ? ext.source.slice(0, 30) + "..." : ext.source;
         const depCount = manifest.dependencies ? Object.keys(manifest.dependencies).length : 0;
         console.log(
-          `${ext.name.padEnd(25)} ${ext.version.padEnd(10)} ${source.padEnd(35)} ${status.padEnd(10)} ${depCount}`
+          `${ext.name.padEnd(25)} ${ext.version.padEnd(10)} ${source.padEnd(35)} ${status.padEnd(10)} ${depCount}`,
         );
       }
       break;
@@ -807,7 +831,7 @@ export async function cli(args: string[]): Promise<void> {
       if (over.length > 0) {
         console.error(
           `Error: cannot mint scope(s) ${over.join(", ")} for ${user.email} (role: ${user.role}). ` +
-          `Only an admin user may mint the "admin" scope.`,
+            `Only an admin user may mint the "admin" scope.`,
         );
         process.exit(1);
       }
@@ -818,7 +842,7 @@ export async function cli(args: string[]): Promise<void> {
       if (!canMintRole(user.role, role)) {
         console.error(
           `Error: cannot mint a "${role}"-role key for ${user.email} (role: ${user.role}). ` +
-          `Only an admin user may own an admin-role key.`,
+            `Only an admin user may own an admin-role key.`,
         );
         process.exit(1);
       }
@@ -838,7 +862,9 @@ export async function cli(args: string[]): Promise<void> {
       console.log(`  keyId:  ${keyId}`);
       console.log(`  name:   ${name}`);
       console.log(`\n  ${raw}\n`);
-      console.log("Store it now — only the hash is persisted, so this is the only time it is shown.");
+      console.log(
+        "Store it now — only the hash is persisted, so this is the only time it is shown.",
+      );
       console.log("Use it from a remote harness as:  Authorization: Bearer <key>");
       break;
     }

@@ -37,9 +37,7 @@ const singleToolStep: WorkflowDefinition = {
 };
 
 /** Run the workflow, failing loudly rather than hanging if the guard breaks. */
-async function runBounded(
-  runner: WorkflowToolRunner,
-): Promise<{ status: string; error: unknown }> {
+async function runBounded(runner: WorkflowToolRunner): Promise<{ status: string; error: unknown }> {
   const bus = new EventBus<AgentEvents>();
   const agentExec = new AgentExecutor(loadAgentsStatic([]), bus);
   const wf = new WorkflowExecutor(agentExec, bus, { toolRunnerFactory: () => runner });

@@ -15,7 +15,10 @@ import { mkdirSync, rmSync, writeFileSync, existsSync, readFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const draftStore = new Map<string, { userId: string; kind: string; payload: unknown; consumedAt: Date | null }>();
+const draftStore = new Map<
+  string,
+  { userId: string; kind: string; payload: unknown; consumedAt: Date | null }
+>();
 
 vi.mock("$server/auth/middleware", () => ({
   requireAuth: vi.fn((locals: { user?: { id: string } }) => {
@@ -64,9 +67,7 @@ vi.mock("$server/db/queries/ez-drafts", async () => {
     // The +server.ts and +page.server.ts modules now import this
     // helper to compute the userId-namespaced dir. Mirror the
     // production layout exactly so the tests touch the real path.
-    getExtensionAuthorDraftDir: vi.fn((id: string, userId: string) =>
-      join(DRAFT_ROOT, userId, id),
-    ),
+    getExtensionAuthorDraftDir: vi.fn((id: string, userId: string) => join(DRAFT_ROOT, userId, id)),
     discardDraftAndDir: vi.fn(async (id: string, userId: string) => {
       const r = draftStore.get(id);
       if (!r || r.userId !== userId) return { ok: false };
@@ -130,14 +131,16 @@ vi.mock("$server/extensions/loader", () => ({
 // install runs), which for a tool/multi draft spawns a sandboxed
 // round-trip. Mock the round-trip so these tests stay hermetic; each
 // case swaps `mockVerify` to drive PASS/FAIL.
-let mockVerify: () => { pass: boolean; steps: Array<{ name: string; ok: boolean; detail: string }> } =
-  () => ({
-    pass: true,
-    steps: [
-      { name: "load-manifest", ok: true, detail: "Loaded weather@0.1.0" },
-      { name: "smoke-test-roundtrip", ok: true, detail: "round-tripped" },
-    ],
-  });
+let mockVerify: () => {
+  pass: boolean;
+  steps: Array<{ name: string; ok: boolean; detail: string }>;
+} = () => ({
+  pass: true,
+  steps: [
+    { name: "load-manifest", ok: true, detail: "Loaded weather@0.1.0" },
+    { name: "smoke-test-roundtrip", ok: true, detail: "round-tripped" },
+  ],
+});
 vi.mock("$server/extensions/sdk/verify", () => ({
   verifyExtension: vi.fn(async () => mockVerify()),
 }));
@@ -217,7 +220,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  try { rmSync(TMP, { recursive: true, force: true }); } catch { /* swallow */ }
+  try {
+    rmSync(TMP, { recursive: true, force: true });
+  } catch {
+    /* swallow */
+  }
 });
 
 // ── PUT /api/extensions/author/draft/[id] ─────────────────────────

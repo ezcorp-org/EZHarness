@@ -16,25 +16,25 @@
 import { parseMentions } from "$lib/mention-logic";
 
 export interface SuggestedTool {
-	name: string;
-	extension: string;
-	extensionType: string;
-	description: string;
-	score: number;
+  name: string;
+  extension: string;
+  extensionType: string;
+  description: string;
+  score: number;
 }
 
 /** A whole-extension suggestion chip: an enabled-but-unwired extension whose
  *  intent matches the draft. Distinct from SuggestedTool — accepting it wires
  *  the extension (via `![ext:name]`) rather than a single tool. */
 export interface SuggestedExtension {
-	name: string;
-	description: string;
-	score: number;
+  name: string;
+  description: string;
+  score: number;
 }
 
 export interface Enhancement {
-	enhanced: string;
-	reason: string;
+  enhanced: string;
+  reason: string;
 }
 
 /** Longer than the mention autocomplete's 200ms: suggestions react to a
@@ -52,44 +52,44 @@ export const ENHANCE_BACKOFF_MS = 5 * 60_000;
 /** Normalized draft identity — whitespace-insensitive so trailing-space
  *  keystrokes don't refetch, and the staleness guard key. */
 export function suggestKey(draft: string): string {
-	return draft.trim().replace(/\s+/g, " ");
+  return draft.trim().replace(/\s+/g, " ");
 }
 
 export function isDraftEligible(
-	wire: string,
-	opts: { mentionOpen: boolean; inlineToolOpen: boolean; muted: boolean; minLength?: number },
+  wire: string,
+  opts: { mentionOpen: boolean; inlineToolOpen: boolean; muted: boolean; minLength?: number },
 ): boolean {
-	if (opts.muted || opts.mentionOpen || opts.inlineToolOpen) return false;
-	return suggestKey(wire).length >= (opts.minLength ?? MIN_SUGGEST_DRAFT_LENGTH);
+  if (opts.muted || opts.mentionOpen || opts.inlineToolOpen) return false;
+  return suggestKey(wire).length >= (opts.minLength ?? MIN_SUGGEST_DRAFT_LENGTH);
 }
 
 /** Staleness guard: only render a response that matches the current draft. */
 export function isFresh(responseKey: string, currentKey: string): boolean {
-	return responseKey === currentKey;
+  return responseKey === currentKey;
 }
 
 /** Apply-rewrite is plain-text-only: replacing a draft that carries mention
  *  tokens would silently destroy the user's chips. */
 export function canApplyEnhancement(wire: string): boolean {
-	return parseMentions(wire).length === 0;
+  return parseMentions(wire).length === 0;
 }
 
 export function enhanceAllowed(nowMs: number, backoffUntil: number): boolean {
-	return nowMs >= backoffUntil;
+  return nowMs >= backoffUntil;
 }
 
 export function nextEnhanceBackoff(nowMs: number, llmAvailable: boolean): number {
-	return llmAvailable ? 0 : nowMs + ENHANCE_BACKOFF_MS;
+  return llmAvailable ? 0 : nowMs + ENHANCE_BACKOFF_MS;
 }
 
 /** The popover renders only when it has something to show — an empty box
  *  (or a lone spinner) is noise, not a suggestion. */
 export function popoverVisible(state: {
-	tools: SuggestedTool[];
-	extensions: SuggestedExtension[];
-	enhancement: Enhancement | null;
+  tools: SuggestedTool[];
+  extensions: SuggestedExtension[];
+  enhancement: Enhancement | null;
 }): boolean {
-	return state.tools.length > 0 || state.extensions.length > 0 || state.enhancement !== null;
+  return state.tools.length > 0 || state.extensions.length > 0 || state.enhancement !== null;
 }
 
 /**
@@ -99,12 +99,12 @@ export function popoverVisible(state: {
  * replace, so the token lands at the end of the draft.
  */
 export function appendExtensionMention(
-	wire: string,
-	extension: string,
+  wire: string,
+  extension: string,
 ): { wire: string; cursor: number } {
-	const sep = wire.length > 0 && !/\s$/.test(wire) ? " " : "";
-	const next = `${wire}${sep}![ext:${extension}] `;
-	return { wire: next, cursor: next.length };
+  const sep = wire.length > 0 && !/\s$/.test(wire) ? " " : "";
+  const next = `${wire}${sep}![ext:${extension}] `;
+  return { wire: next, cursor: next.length };
 }
 
 /**
@@ -119,16 +119,16 @@ export function appendExtensionMention(
  *  - no tools → nothing to open
  */
 export function chooseInlineToolAction<T extends { name: string }>(
-	tools: T[],
-	preselectName?: string,
+  tools: T[],
+  preselectName?: string,
 ): { action: "form"; tool: T } | { action: "picker" } | { action: "none" } {
-	if (preselectName !== undefined) {
-		const match = tools.find((t) => t.name === preselectName);
-		if (match) return { action: "form", tool: match };
-	}
-	if (tools.length === 1) return { action: "form", tool: tools[0]! };
-	if (tools.length > 1) return { action: "picker" };
-	return { action: "none" };
+  if (preselectName !== undefined) {
+    const match = tools.find((t) => t.name === preselectName);
+    if (match) return { action: "form", tool: match };
+  }
+  if (tools.length === 1) return { action: "form", tool: tools[0]! };
+  if (tools.length > 1) return { action: "picker" };
+  return { action: "none" };
 }
 
 /**
@@ -138,20 +138,20 @@ export function chooseInlineToolAction<T extends { name: string }>(
  * /api/tools?modeId=.
  */
 export function buildSuggestBody(opts: {
-	draft: string;
-	conversationId?: string;
-	/** Per-project toggle fallback — only consulted server-side when no
-	 *  conversation scopes the call (the conversation's project wins). */
-	projectId?: string;
-	modeId: string | null;
-	include: Array<"tools" | "enhance" | "extensions">;
+  draft: string;
+  conversationId?: string;
+  /** Per-project toggle fallback — only consulted server-side when no
+   *  conversation scopes the call (the conversation's project wins). */
+  projectId?: string;
+  modeId: string | null;
+  include: Array<"tools" | "enhance" | "extensions">;
 }): string {
-	const body: Record<string, unknown> = {
-		draft: opts.draft,
-		modeId: opts.modeId,
-		include: opts.include,
-	};
-	if (opts.conversationId) body.conversationId = opts.conversationId;
-	if (opts.projectId) body.projectId = opts.projectId;
-	return JSON.stringify(body);
+  const body: Record<string, unknown> = {
+    draft: opts.draft,
+    modeId: opts.modeId,
+    include: opts.include,
+  };
+  if (opts.conversationId) body.conversationId = opts.conversationId;
+  if (opts.projectId) body.projectId = opts.projectId;
+  return JSON.stringify(body);
 }

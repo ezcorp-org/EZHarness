@@ -6,13 +6,7 @@ import { describe, test, expect, mock, beforeEach } from "bun:test";
  * keyboard events to MentionPopover or ToolPicker.
  */
 
-const MENU_NAV_KEYS = new Set([
-  "ArrowDown",
-  "ArrowUp",
-  "Enter",
-  "Tab",
-  "Escape",
-]);
+const MENU_NAV_KEYS = new Set(["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"]);
 
 interface MockMenu {
   handleKeydown: (e: { key: string }) => void;
@@ -114,17 +108,8 @@ describe("keyboard delegation routing", () => {
    *   }
    * Returns true if delegated, false if fell through.
    */
-  function simulateKeydown(
-    key: string,
-    mentionOpen: boolean,
-    showToolPicker: boolean,
-  ): boolean {
-    const activeMenu = getActiveMenu(
-      mentionOpen,
-      popover,
-      showToolPicker,
-      toolPicker,
-    );
+  function simulateKeydown(key: string, mentionOpen: boolean, showToolPicker: boolean): boolean {
+    const activeMenu = getActiveMenu(mentionOpen, popover, showToolPicker, toolPicker);
     if (activeMenu && MENU_NAV_KEYS.has(key)) {
       activeMenu.handleKeydown({ key });
       return true;
@@ -137,13 +122,7 @@ describe("keyboard delegation routing", () => {
       expect(simulateKeydown(key, true, false)).toBe(true);
     }
     expect(popover.handleKeydown).toHaveBeenCalledTimes(5);
-    expect(popover.calls).toEqual([
-      "ArrowDown",
-      "ArrowUp",
-      "Enter",
-      "Tab",
-      "Escape",
-    ]);
+    expect(popover.calls).toEqual(["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"]);
     expect(toolPicker.handleKeydown).not.toHaveBeenCalled();
   });
 
@@ -152,13 +131,7 @@ describe("keyboard delegation routing", () => {
       expect(simulateKeydown(key, false, true)).toBe(true);
     }
     expect(toolPicker.handleKeydown).toHaveBeenCalledTimes(5);
-    expect(toolPicker.calls).toEqual([
-      "ArrowDown",
-      "ArrowUp",
-      "Enter",
-      "Tab",
-      "Escape",
-    ]);
+    expect(toolPicker.calls).toEqual(["ArrowDown", "ArrowUp", "Enter", "Tab", "Escape"]);
     expect(popover.handleKeydown).not.toHaveBeenCalled();
   });
 

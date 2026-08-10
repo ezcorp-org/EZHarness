@@ -125,7 +125,9 @@ export function thresholdRatchetViolations(baseJson: string, headJson: string): 
     if (!(key in head)) {
       out.push(`threshold key removed: "${key}" (was ${baseVal}) — removing a key removes a gate`);
     } else if (head[key]! < baseVal) {
-      out.push(`threshold lowered: "${key}" ${baseVal} → ${head[key]} — ratchet allows increases only`);
+      out.push(
+        `threshold lowered: "${key}" ${baseVal} → ${head[key]} — ratchet allows increases only`,
+      );
     }
   }
   return out;
@@ -210,7 +212,7 @@ export function parseUnifiedDiff(diff: string): Map<string, DiffFile> {
 // and a STATIC suite skip (`describe.skip`). A test/it/bench `.skip` is handled
 // separately (STATIC_SKIP) because the runtime-conditional form is legitimate.
 const ALWAYS_FORBIDDEN =
-	/\b(?:describe|test|it|bench)\s*\.\s*(?:only|todo|failing)\b|\b(?:xdescribe|xit|xtest|fdescribe|fit)\b|\bdescribe\s*\.\s*skip\b/;
+  /\b(?:describe|test|it|bench)\s*\.\s*(?:only|todo|failing)\b|\b(?:xdescribe|xit|xtest|fdescribe|fit)\b|\bdescribe\s*\.\s*skip\b/;
 // A STATIC or UNCONDITIONAL test/it/bench `.skip`: `.skip("name", fn)` — after
 // stripNoise() removes the string literal the name slot collapses to `.skip( ,`
 // — or `.skip()` with no args. A runtime CONDITIONAL skip `.skip(<condition>, …)`
@@ -243,7 +245,7 @@ export function forbiddenTestAdditions(addedTexts: string[]): string[] {
 // `expect.soft(...)` (both produce real assertions; the bare `expect(` branch
 // alone misses them and flags a genuinely-asserting test as vacuous).
 const ASSERTION =
-	/\bexpect\s*\(|\bexpect\s*\.\s*(?:poll|soft)\b|\bassert\b|\.\s*(?:rejects|resolves)\b|\btoThrow\b|\bexpectTypeOf\b/;
+  /\bexpect\s*\(|\bexpect\s*\.\s*(?:poll|soft)\b|\bassert\b|\.\s*(?:rejects|resolves)\b|\btoThrow\b|\bexpectTypeOf\b/;
 const TEST_OPENER = /(?:^|[^.\w])(?:test|it)\s*\(/;
 
 /**
@@ -655,7 +657,12 @@ function collectBiomeLinterRecords(
 /** Flatten a parsed biome config into its (scope, rule) → severity facts. */
 function collectBiomeRecords(cfg: JsonObject): BiomeRuleRecord[] {
   const out: BiomeRuleRecord[] = [];
-  collectBiomeLinterRecords(out, cfg.linter, [{ scope: BIOME_ROOT_SCOPE, negated: false }], "linter");
+  collectBiomeLinterRecords(
+    out,
+    cfg.linter,
+    [{ scope: BIOME_ROOT_SCOPE, negated: false }],
+    "linter",
+  );
   const overrides = Array.isArray(cfg.overrides) ? cfg.overrides : [];
   for (let i = 0; i < overrides.length; i++) {
     const ov = asJsonObject(overrides[i]);
@@ -674,8 +681,7 @@ function collectBiomeRecords(cfg: JsonObject): BiomeRuleRecord[] {
   return out;
 }
 
-const biomeRecordKey = (r: BiomeRuleRecord): string =>
-  `${r.negated ? "!" : ""}${r.scope} ${r.rule}`;
+const biomeRecordKey = (r: BiomeRuleRecord): string => `${r.negated ? "!" : ""}${r.scope} ${r.rule}`;
 
 const biomeRecordAt = (r: BiomeRuleRecord): string =>
   r.scope === BIOME_ROOT_SCOPE ? "linter.rules" : `${r.where} (${r.negated ? "!" : ""}${r.scope})`;
@@ -908,7 +914,9 @@ async function main(): Promise<void> {
     .map((s) => s.trim())
     .filter(Boolean);
   if (changed.includes("coverage/lcov.info")) {
-    violations.push("coverage/lcov.info is committed — the report must be generated in CI, never checked in");
+    violations.push(
+      "coverage/lcov.info is committed — the report must be generated in CI, never checked in",
+    );
   }
 
   // 1. EXCLUDES growth.
@@ -921,7 +929,9 @@ async function main(): Promise<void> {
     if (baseSrc === null) baseSrc = await showAtBase(mergeBase, "scripts/check-coverage.ts");
     const headSrc = await Bun.file(resolve(REPO_ROOT, "scripts/coverage-config.ts")).text();
     for (const p of addedExcludes(baseSrc ?? "", headSrc)) {
-      violations.push(`EXCLUDES grew: "${p}" — un-gating a file needs the gate-change-approved label`);
+      violations.push(
+        `EXCLUDES grew: "${p}" — un-gating a file needs the gate-change-approved label`,
+      );
     }
   }
 
@@ -985,7 +995,8 @@ async function main(): Promise<void> {
       .text()
       .catch(() => "");
     if (content) {
-      for (const v of unassertedAddedBlocks(content, info.addedLines)) violations.push(`${file}: ${v}`);
+      for (const v of unassertedAddedBlocks(content, info.addedLines))
+        violations.push(`${file}: ${v}`);
     }
     // 8. In-place gutting — only meaningful for a file that EXISTED at the
     // merge-base (a brand-new file has no base assertions to gut) and STILL

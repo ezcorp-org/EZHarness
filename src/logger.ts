@@ -3,7 +3,14 @@ export type LogLevel = "error" | "warn" | "info" | "debug";
 const LEVELS: Record<LogLevel, number> = { error: 0, warn: 1, info: 2, debug: 3 };
 
 // Lazy-loaded error persistence to avoid circular dependency (logger -> DB -> logger)
-let _persistError: ((opts: { level: string; message: string; stack?: string | null; metadata?: Record<string, unknown> | null }) => Promise<void>) | null = null;
+let _persistError:
+  | ((opts: {
+      level: string;
+      message: string;
+      stack?: string | null;
+      metadata?: Record<string, unknown> | null;
+    }) => Promise<void>)
+  | null = null;
 let _persistingError = false;
 
 async function getPersistError() {
@@ -65,7 +72,8 @@ interface Logger {
 function createLogger(fields?: Record<string, unknown>): Logger {
   function emit(level: LogLevel, msg: string, extra?: Record<string, unknown>) {
     if (LEVELS[level] > thresholdFor(fields?.subsystem as string | undefined)) return;
-    const line = JSON.stringify({ ts: new Date().toISOString(), level, msg, ...fields, ...extra }) + "\n";
+    const line =
+      JSON.stringify({ ts: new Date().toISOString(), level, msg, ...fields, ...extra }) + "\n";
     if (level === "error" || level === "warn") {
       process.stderr.write(line);
     } else {
@@ -76,9 +84,18 @@ function createLogger(fields?: Record<string, unknown>): Logger {
     if (level === "error" && !_persistingError) {
       _persistingError = true;
       getPersistError()
-        .then(fn => fn({ level, message: msg, stack: extra?.stack as string, metadata: { ...fields, ...extra } }))
+        .then((fn) =>
+          fn({
+            level,
+            message: msg,
+            stack: extra?.stack as string,
+            metadata: { ...fields, ...extra },
+          }),
+        )
         .catch(() => {}) // never throw from logger
-        .finally(() => { _persistingError = false; });
+        .finally(() => {
+          _persistingError = false;
+        });
     }
   }
 

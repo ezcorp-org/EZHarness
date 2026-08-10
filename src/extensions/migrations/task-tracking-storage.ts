@@ -49,17 +49,10 @@ const LIVE_KEY = "tasks";
 const BACKUP_KEY = "__tasks_pre_migration";
 const SENTINEL_KEY = "__task_tracking_migration_done";
 
-export async function migrateBuiltinTaskStorage(
-  taskTrackingExtId: string,
-): Promise<void> {
+export async function migrateBuiltinTaskStorage(taskTrackingExtId: string): Promise<void> {
   try {
     // Sentinel check — stored under the real extension id, global scope.
-    const sentinel = await getStorageValue(
-      taskTrackingExtId,
-      "global",
-      null,
-      SENTINEL_KEY,
-    );
+    const sentinel = await getStorageValue(taskTrackingExtId, "global", null, SENTINEL_KEY);
     if (sentinel?.value) {
       return;
     }
@@ -110,9 +103,7 @@ export async function migrateBuiltinTaskStorage(
       );
       // Drop the original "builtin" row — it's dead weight after
       // migration and will confuse drift detectors if left in place.
-      await db
-        .delete(extensionStorage)
-        .where(eq(extensionStorage.id, row.id));
+      await db.delete(extensionStorage).where(eq(extensionStorage.id, row.id));
     }
 
     // Sentinel write — makes subsequent boots fast-path skip.

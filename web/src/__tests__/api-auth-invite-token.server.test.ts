@@ -36,15 +36,9 @@ vi.mock("$server/db/queries/sessions", () => ({
   createSession: vi.fn(async () => ({ id: "sess-1" })),
 }));
 
-const { getInviteByToken, markInviteUsed } = await import(
-  "$server/db/queries/invites"
-);
-const { createUser, getUserByEmail } = await import(
-  "$server/db/queries/users"
-);
-const { GET, POST, __rateLimiter } = await import(
-  "../routes/api/auth/invite/[token]/+server"
-);
+const { getInviteByToken, markInviteUsed } = await import("$server/db/queries/invites");
+const { createUser, getUserByEmail } = await import("$server/db/queries/users");
+const { GET, POST, __rateLimiter } = await import("../routes/api/auth/invite/[token]/+server");
 
 function makeCookies() {
   return {
@@ -54,12 +48,7 @@ function makeCookies() {
   };
 }
 
-function makeEvent(opts: {
-  token?: string;
-  body?: unknown;
-  method?: "GET" | "POST";
-  ip?: string;
-}) {
+function makeEvent(opts: { token?: string; body?: unknown; method?: "GET" | "POST"; ip?: string }) {
   const token = opts.token ?? "tok-1";
   const method = opts.method ?? "POST";
   const cookies = makeCookies();
@@ -132,9 +121,7 @@ describe("POST /api/auth/invite/[token]", () => {
       role: "member",
       email: null,
     } as any);
-    const res = await POST(
-      makeEvent({ body: { ...validBody, name: "" } }),
-    );
+    const res = await POST(makeEvent({ body: { ...validBody, name: "" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("Name is required");
@@ -146,9 +133,7 @@ describe("POST /api/auth/invite/[token]", () => {
       role: "member",
       email: null,
     } as any);
-    const res = await POST(
-      makeEvent({ body: { ...validBody, email: "not-email" } }),
-    );
+    const res = await POST(makeEvent({ body: { ...validBody, email: "not-email" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("Valid email is required");
@@ -160,9 +145,7 @@ describe("POST /api/auth/invite/[token]", () => {
       role: "member",
       email: null,
     } as any);
-    const res = await POST(
-      makeEvent({ body: { ...validBody, password: "abc" } }),
-    );
+    const res = await POST(makeEvent({ body: { ...validBody, password: "abc" } }));
     expect(res.status).toBe(400);
   });
 

@@ -54,10 +54,11 @@ async function runUnderPreload(
   if (opts.networkAllowed) env.EZCORP_NETWORK_ALLOWED = "1";
   if (opts.shellAllowed) env.EZCORP_SHELL_ALLOWED = "1";
 
-  const proc = Bun.spawn(
-    ["bun", "--preload", SANDBOX_PRELOAD_PATH, "-e", code],
-    { stdout: "pipe", stderr: "pipe", env },
-  );
+  const proc = Bun.spawn(["bun", "--preload", SANDBOX_PRELOAD_PATH, "-e", code], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env,
+  });
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -126,9 +127,7 @@ describe("sec-SB2: network modules blocked without permission", () => {
     // own-property poisoning catches `await import('http')` even though
     // the require patch does not fire. Accessing any property on the
     // returned module must throw.
-    const out = await runUnderPreload(
-      probeAsync(`const m = await import('http'); m.createServer`),
-    );
+    const out = await runUnderPreload(probeAsync(`const m = await import('http'); m.createServer`));
     expect(out.stdout).toMatch(NETWORK_DENY);
   });
 });
@@ -136,7 +135,9 @@ describe("sec-SB2: network modules blocked without permission", () => {
 describe("sec-SB2: network modules available WITH permission (no-op mode)", () => {
   test("require('http') succeeds when EZCORP_NETWORK_ALLOWED=1", async () => {
     const out = await runUnderPreload(
-      probeSync(`const http = require('http'); if (typeof http.createServer !== "function") throw new Error("createServer not a function")`),
+      probeSync(
+        `const http = require('http'); if (typeof http.createServer !== "function") throw new Error("createServer not a function")`,
+      ),
       { networkAllowed: true },
     );
     expect(out.stdout).toMatch(/^OK$/m);
@@ -145,7 +146,9 @@ describe("sec-SB2: network modules available WITH permission (no-op mode)", () =
 
   test("require('net') succeeds when EZCORP_NETWORK_ALLOWED=1", async () => {
     const out = await runUnderPreload(
-      probeSync(`const net = require('net'); if (typeof net.Socket !== "function") throw new Error("Socket not a function")`),
+      probeSync(
+        `const net = require('net'); if (typeof net.Socket !== "function") throw new Error("Socket not a function")`,
+      ),
       { networkAllowed: true },
     );
     expect(out.stdout).toMatch(/^OK$/m);
@@ -169,13 +172,13 @@ describe("sec-SB2: network modules available WITH permission (no-op mode)", () =
     const out = await runUnderPreload(
       probeAsync(
         `if (typeof fetch !== "function") throw new Error("fetch not a function"); ` +
-        `const p = fetch('https://api.example.com/'); ` +
-        `if (!(p instanceof Promise)) throw new Error("not promise"); ` +
-        `await p.then(() => { throw new Error("should have thrown") }, (e) => { ` +
-        `  if (!String(e.message).includes("not in the granted network allowlist")) { ` +
-        `    throw new Error("unexpected: " + e.message); ` +
-        `  } ` +
-        `})`,
+          `const p = fetch('https://api.example.com/'); ` +
+          `if (!(p instanceof Promise)) throw new Error("not promise"); ` +
+          `await p.then(() => { throw new Error("should have thrown") }, (e) => { ` +
+          `  if (!String(e.message).includes("not in the granted network allowlist")) { ` +
+          `    throw new Error("unexpected: " + e.message); ` +
+          `  } ` +
+          `})`,
       ),
       { networkAllowed: true },
     );
@@ -194,9 +197,9 @@ describe("sec-SB2: network modules available WITH permission (no-op mode)", () =
     const out = await runUnderPreload(
       probeAsync(
         `await fetch('https://api.example.com/').catch((e) => { ` +
-        `  if (String(e.message).includes("api.example.com")) console.log("OK"); ` +
-        `  else console.log("ERR:" + e.message); ` +
-        `})`,
+          `  if (String(e.message).includes("api.example.com")) console.log("OK"); ` +
+          `  else console.log("ERR:" + e.message); ` +
+          `})`,
       ),
       { networkAllowed: true },
     );
@@ -212,15 +215,16 @@ describe("sec-SB2: revoke cycle — a fresh subprocess respects a flipped env", 
     // dynamically revoked (and that is fine: permission changes take
     // effect on restart, which is what this test pins).
     const grantedRun = await runUnderPreload(
-      probeSync(`const http = require('http'); if (typeof http.createServer !== "function") throw new Error("missing")`),
+      probeSync(
+        `const http = require('http'); if (typeof http.createServer !== "function") throw new Error("missing")`,
+      ),
       { networkAllowed: true },
     );
     expect(grantedRun.stdout).toMatch(/^OK$/m);
 
-    const revokedRun = await runUnderPreload(
-      probeSync(`require('http').createServer`),
-      { networkAllowed: false },
-    );
+    const revokedRun = await runUnderPreload(probeSync(`require('http').createServer`), {
+      networkAllowed: false,
+    });
     expect(revokedRun.stdout).toMatch(NETWORK_DENY);
   });
 });
@@ -270,9 +274,7 @@ describe("sec-SB2/Phase2: Bun-namespace network primitives blocked without permi
 
   test("Bun.serve is restored when EZCORP_NETWORK_ALLOWED=1", async () => {
     const out = await runUnderPreload(
-      probeSync(
-        `if (typeof Bun.serve !== "function") throw new Error("Bun.serve not a function")`,
-      ),
+      probeSync(`if (typeof Bun.serve !== "function") throw new Error("Bun.serve not a function")`),
       { networkAllowed: true },
     );
     expect(out.stdout).toMatch(/^OK$/m);
@@ -289,10 +291,9 @@ describe("sec-SB2/Phase2: Bun-namespace network primitives blocked without permi
 
 describe("sec-SB2/Phase2: WebSocket/EventSource always denied", () => {
   test("WebSocket constructor throws even when network is granted", async () => {
-    const out = await runUnderPreload(
-      probeSync(`new WebSocket('ws://localhost:1/')`),
-      { networkAllowed: true },
-    );
+    const out = await runUnderPreload(probeSync(`new WebSocket('ws://localhost:1/')`), {
+      networkAllowed: true,
+    });
     expect(out.stdout).toMatch(NETWORK_DENY);
   });
 
@@ -375,10 +376,10 @@ describe("sec-SB2/Phase2: FFI always denied (no FFI permission)", () => {
   // import, real native execution — lives in `sb4-fs-egress.test.ts`; this
   // case owns the "regardless of granted permissions" angle.)
   test("bun:ffi throws regardless of network/shell permission", async () => {
-    const out = await runUnderPreload(
-      probeSync(`require('bun:ffi').dlopen('/lib/x.so', {})`),
-      { networkAllowed: true, shellAllowed: true },
-    );
+    const out = await runUnderPreload(probeSync(`require('bun:ffi').dlopen('/lib/x.so', {})`), {
+      networkAllowed: true,
+      shellAllowed: true,
+    });
     // FFI is unconditionally denied — the manifest has no permission
     // surface for it.
     expect(out.stdout).toMatch(/requires 'native' permission/);
@@ -410,27 +411,24 @@ describe("sec-SB2/Phase2: process.binding denylist (architectural-plan pillar 4)
   test("process.binding('fs') throws our denier even with network granted", async () => {
     // Pre-fix this returned a real fs primitives object — extension
     // could call its read/stat/write methods to bypass the sandbox.
-    const out = await runUnderPreload(
-      probeSync(`process.binding('fs').access`),
-      { networkAllowed: true },
-    );
+    const out = await runUnderPreload(probeSync(`process.binding('fs').access`), {
+      networkAllowed: true,
+    });
     expect(out.stdout).toMatch(/Extension sandbox.*process\.binding.*blocked|internal Node API/);
     expect(out.stdout).not.toMatch(/^OK$/m);
   });
 
   test("process.binding('natives') is denied (would expose internal-module loader)", async () => {
-    const out = await runUnderPreload(
-      probeSync(`process.binding('natives')._http_agent`),
-      { networkAllowed: true },
-    );
+    const out = await runUnderPreload(probeSync(`process.binding('natives')._http_agent`), {
+      networkAllowed: true,
+    });
     expect(out.stdout).toMatch(/Extension sandbox.*process\.binding.*blocked|internal Node API/);
   });
 
   test("process.binding('util') is denied", async () => {
-    const out = await runUnderPreload(
-      probeSync(`process.binding('util').isDate`),
-      { networkAllowed: true },
-    );
+    const out = await runUnderPreload(probeSync(`process.binding('util').isDate`), {
+      networkAllowed: true,
+    });
     expect(out.stdout).toMatch(/Extension sandbox.*process\.binding.*blocked|internal Node API/);
   });
 
@@ -438,10 +436,9 @@ describe("sec-SB2/Phase2: process.binding denylist (architectural-plan pillar 4)
     // Self-defending: tcp_wrap isn't on our denylist (Bun already
     // throws "not implemented"). A regression that REMOVED Bun's
     // throw would surface as `OK` here — flagging the new hole.
-    const out = await runUnderPreload(
-      probeSync(`process.binding('tcp_wrap')`),
-      { networkAllowed: true },
-    );
+    const out = await runUnderPreload(probeSync(`process.binding('tcp_wrap')`), {
+      networkAllowed: true,
+    });
     expect(out.stdout).toMatch(/not implemented|Extension sandbox.*process\.binding/);
     expect(out.stdout).not.toMatch(/^OK$/m);
   });
@@ -454,7 +451,7 @@ describe("sec-SB2/Phase2: process.binding denylist (architectural-plan pillar 4)
     const out = await runUnderPreload(
       probeSync(
         `const http = require('http'); ` +
-        `if (typeof http.createServer !== 'function') throw new Error('require broken')`,
+          `if (typeof http.createServer !== 'function') throw new Error('require broken')`,
       ),
       { networkAllowed: true },
     );
@@ -481,8 +478,8 @@ describe("sec-SB2/Phase2: createRequire factory derived requires also block", ()
     const out = await runUnderPreload(
       probeSync(
         `const { createRequire } = require('node:module'); ` +
-        `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
-        `r('http').createServer`,
+          `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
+          `r('http').createServer`,
       ),
     );
     expect(out.stdout).toMatch(NETWORK_DENY);
@@ -492,8 +489,8 @@ describe("sec-SB2/Phase2: createRequire factory derived requires also block", ()
     const out = await runUnderPreload(
       probeSync(
         `const { createRequire } = require('node:module'); ` +
-        `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
-        `r('child_process').spawn`,
+          `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
+          `r('child_process').spawn`,
       ),
     );
     expect(out.stdout).toMatch(/requires 'shell' permission/);
@@ -503,8 +500,8 @@ describe("sec-SB2/Phase2: createRequire factory derived requires also block", ()
     const out = await runUnderPreload(
       probeSync(
         `const { createRequire } = require('node:module'); ` +
-        `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
-        `r('node:http').createServer`,
+          `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
+          `r('node:http').createServer`,
       ),
     );
     expect(out.stdout).toMatch(NETWORK_DENY);
@@ -514,8 +511,8 @@ describe("sec-SB2/Phase2: createRequire factory derived requires also block", ()
     const out = await runUnderPreload(
       probeSync(
         `const { createRequire } = require('node:module'); ` +
-        `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
-        `if (typeof r('node:path').join !== "function") throw new Error("path.join not a function")`,
+          `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
+          `if (typeof r('node:path').join !== "function") throw new Error("path.join not a function")`,
       ),
       { networkAllowed: true },
     );

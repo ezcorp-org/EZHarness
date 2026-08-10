@@ -109,17 +109,28 @@ describe("write ⊆ read — nothing storable is unreadable", () => {
 
 describe("an accepted cap reaches the transform it configures", () => {
   const stale = (text: string): AgentMessage =>
-    ({ role: "toolResult", toolName: "read", toolCallId: "c1", content: [{ type: "text", text }] }) as
-      unknown as AgentMessage;
+    ({
+      role: "toolResult",
+      toolName: "read",
+      toolCallId: "c1",
+      content: [{ type: "text", text }],
+    }) as unknown as AgentMessage;
   const newest = (): AgentMessage =>
-    ({ role: "toolResult", toolName: "read", toolCallId: "c2", content: [{ type: "text", text: "z".repeat(5_000) }] }) as
-      unknown as AgentMessage;
+    ({
+      role: "toolResult",
+      toolName: "read",
+      toolCallId: "c2",
+      content: [{ type: "text", text: "z".repeat(5_000) }],
+    }) as unknown as AgentMessage;
 
   test("a small accepted cap actually shortens an older tool result", () => {
     const res = validateToolResultCap(200);
     if (!res.ok) throw new Error("expected 200 to be accepted");
     const messages = [stale("a".repeat(5_000)), newest()];
-    const out = capStaleToolResults(messages, { ...DEFAULTS, toolResultCap: parseToolResultCap(res.cap) });
+    const out = capStaleToolResults(messages, {
+      ...DEFAULTS,
+      toolResultCap: parseToolResultCap(res.cap),
+    });
 
     expect(out).not.toBe(messages);
     const capped = out[0] as { content: { type: string; text: string }[] };
@@ -132,8 +143,8 @@ describe("an accepted cap reaches the transform it configures", () => {
     const res = validateToolResultCap(0);
     if (!res.ok) throw new Error("expected 0 to be accepted");
     const messages = [stale("a".repeat(5_000)), newest()];
-    expect(capStaleToolResults(messages, { ...DEFAULTS, toolResultCap: parseToolResultCap(res.cap) })).toBe(
-      messages,
-    );
+    expect(
+      capStaleToolResults(messages, { ...DEFAULTS, toolResultCap: parseToolResultCap(res.cap) }),
+    ).toBe(messages);
   });
 });

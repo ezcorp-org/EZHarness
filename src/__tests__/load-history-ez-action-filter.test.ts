@@ -31,9 +31,7 @@ mockDbConnection();
 const { loadHistory } = await import("../runtime/stream-chat/load-history");
 const { createUser } = await import("../db/queries/users");
 const { createProject } = await import("../db/queries/projects");
-const { createConversation, createMessage } = await import(
-  "../db/queries/conversations"
-);
+const { createConversation, createMessage } = await import("../db/queries/conversations");
 import type { StreamChatContext } from "../runtime/stream-chat/context";
 
 const SAFE_CWD = tmpdir();
@@ -117,11 +115,7 @@ describe("loadHistory — ez-action-result filter", () => {
 
     // 4 DB rows, 1 filtered → 3 LLM messages.
     expect(result.history.length).toBe(3);
-    expect(result.history.map((m) => m.role)).toEqual([
-      "user",
-      "assistant",
-      "user",
-    ]);
+    expect(result.history.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
 
     // The JSON-encoded card payload MUST NOT have leaked into history,
     // either as a fake user turn or anywhere else.

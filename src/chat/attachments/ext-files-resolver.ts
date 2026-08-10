@@ -20,9 +20,7 @@ import { realpathSync } from "node:fs";
 // disk state to authenticated users AND feeds bytes into the LLM on every
 // subsequent turn. Pair new entries with a review of the extension's output
 // format.
-export const ALLOWED_EXTENSIONS: ReadonlySet<string> = new Set([
-  "openai-image-gen-2",
-]);
+export const ALLOWED_EXTENSIONS: ReadonlySet<string> = new Set(["openai-image-gen-2"]);
 
 export const MIME_BY_EXT: Readonly<Record<string, string>> = {
   png: "image/png",

@@ -14,10 +14,7 @@ import { ExtensionRegistry } from "../extensions/registry";
 import { ToolExecutor } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import { parseArgs } from "../cli";
-import type {
-  ExtensionManifestV2,
-  DependencySpec,
-} from "../extensions/types";
+import type { ExtensionManifestV2, DependencySpec } from "../extensions/types";
 
 // ── Shared helpers ─────────────────────────────────────────────────
 
@@ -38,7 +35,9 @@ function makeManifest(
     author: { name: "test" },
     permissions: {},
     entrypoint: opts?.entrypoint ?? "./index.ts",
-    tools: opts?.tools ?? [{ name: "doStuff", description: "does stuff", inputSchema: { type: "object" } }],
+    tools: opts?.tools ?? [
+      { name: "doStuff", description: "does stuff", inputSchema: { type: "object" } },
+    ],
     ...(opts?.deps ? { dependencies: opts.deps } : {}),
   };
 }
@@ -259,16 +258,26 @@ describe("Integration: Cross-Extension Composition", () => {
   test("full cross-ext call: A calls B's tool through buildDepRoutes + executor", async () => {
     const registry = ExtensionRegistry.getInstance();
 
-    registry.setManifestForTest("id-a", makeManifest("ext-a", "1.0.0", {
-      deps: { "ext-b": { source: "github:test/ext-b", version: "^1.0.0" } },
-    }));
-    registry.setManifestForTest("id-b", makeManifest("ext-b", "1.3.0", {
-      tools: [{ name: "compute", description: "computes", inputSchema: { type: "object" } }],
-    }));
+    registry.setManifestForTest(
+      "id-a",
+      makeManifest("ext-a", "1.0.0", {
+        deps: { "ext-b": { source: "github:test/ext-b", version: "^1.0.0" } },
+      }),
+    );
+    registry.setManifestForTest(
+      "id-b",
+      makeManifest("ext-b", "1.3.0", {
+        tools: [{ name: "compute", description: "computes", inputSchema: { type: "object" } }],
+      }),
+    );
 
     registry.registerToolForTest("ext-b__compute", {
-      name: "ext-b__compute", originalName: "compute", description: "computes",
-      inputSchema: { type: "object" }, extensionId: "id-b", extensionName: "ext-b",
+      name: "ext-b__compute",
+      originalName: "compute",
+      description: "computes",
+      inputSchema: { type: "object" },
+      extensionId: "id-b",
+      extensionName: "ext-b",
     });
 
     registry.buildDepRoutes();
@@ -281,7 +290,9 @@ describe("Integration: Cross-Extension Composition", () => {
     };
 
     const response = await executor.handlePiInvoke("id-a", {
-      jsonrpc: "2.0", id: 1, method: "ezcorp/invoke",
+      jsonrpc: "2.0",
+      id: 1,
+      method: "ezcorp/invoke",
       params: { tool: "ext-b__compute", arguments: { value: 42 } },
     });
 
@@ -295,23 +306,40 @@ describe("Integration: Cross-Extension Composition", () => {
   test("chained call: A -> B -> C with depth tracking", async () => {
     const registry = ExtensionRegistry.getInstance();
 
-    registry.setManifestForTest("id-a", makeManifest("ext-a", "1.0.0", {
-      deps: { "ext-b": { source: "github:test/ext-b", version: "^1.0.0" } },
-    }));
-    registry.setManifestForTest("id-b", makeManifest("ext-b", "1.0.0", {
-      deps: { "ext-c": { source: "github:test/ext-c", version: "^1.0.0" } },
-    }));
-    registry.setManifestForTest("id-c", makeManifest("ext-c", "1.0.0", {
-      tools: [{ name: "leaf", description: "leaf op", inputSchema: { type: "object" } }],
-    }));
+    registry.setManifestForTest(
+      "id-a",
+      makeManifest("ext-a", "1.0.0", {
+        deps: { "ext-b": { source: "github:test/ext-b", version: "^1.0.0" } },
+      }),
+    );
+    registry.setManifestForTest(
+      "id-b",
+      makeManifest("ext-b", "1.0.0", {
+        deps: { "ext-c": { source: "github:test/ext-c", version: "^1.0.0" } },
+      }),
+    );
+    registry.setManifestForTest(
+      "id-c",
+      makeManifest("ext-c", "1.0.0", {
+        tools: [{ name: "leaf", description: "leaf op", inputSchema: { type: "object" } }],
+      }),
+    );
 
     registry.registerToolForTest("ext-b__doStuff", {
-      name: "ext-b__doStuff", originalName: "doStuff", description: "does stuff",
-      inputSchema: { type: "object" }, extensionId: "id-b", extensionName: "ext-b",
+      name: "ext-b__doStuff",
+      originalName: "doStuff",
+      description: "does stuff",
+      inputSchema: { type: "object" },
+      extensionId: "id-b",
+      extensionName: "ext-b",
     });
     registry.registerToolForTest("ext-c__leaf", {
-      name: "ext-c__leaf", originalName: "leaf", description: "leaf op",
-      inputSchema: { type: "object" }, extensionId: "id-c", extensionName: "ext-c",
+      name: "ext-c__leaf",
+      originalName: "leaf",
+      description: "leaf op",
+      inputSchema: { type: "object" },
+      extensionId: "id-c",
+      extensionName: "ext-c",
     });
 
     registry.buildDepRoutes();
@@ -325,7 +353,9 @@ describe("Integration: Cross-Extension Composition", () => {
 
       if (toolName === "ext-b__doStuff") {
         const chainResp = await executor.handlePiInvoke("id-b", {
-          jsonrpc: "2.0", id: 2, method: "ezcorp/invoke",
+          jsonrpc: "2.0",
+          id: 2,
+          method: "ezcorp/invoke",
           params: { tool: "ext-c__leaf", arguments: {}, _depth: depth },
         });
         expect(chainResp.error).toBeUndefined();
@@ -335,7 +365,9 @@ describe("Integration: Cross-Extension Composition", () => {
     };
 
     const response = await executor.handlePiInvoke("id-a", {
-      jsonrpc: "2.0", id: 1, method: "ezcorp/invoke",
+      jsonrpc: "2.0",
+      id: 1,
+      method: "ezcorp/invoke",
       params: { tool: "ext-b__doStuff", arguments: {} },
     });
 
@@ -353,14 +385,20 @@ describe("Integration: Cross-Extension Composition", () => {
     registry.setManifestForTest("id-a", makeManifest("ext-a", "1.0.0"));
     registry.setManifestForTest("id-b", makeManifest("ext-b", "1.0.0"));
     registry.registerToolForTest("ext-b__doStuff", {
-      name: "ext-b__doStuff", originalName: "doStuff", description: "does stuff",
-      inputSchema: { type: "object" }, extensionId: "id-b", extensionName: "ext-b",
+      name: "ext-b__doStuff",
+      originalName: "doStuff",
+      description: "does stuff",
+      inputSchema: { type: "object" },
+      extensionId: "id-b",
+      extensionName: "ext-b",
     });
     registry.buildDepRoutes();
 
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
     const response = await executor.handlePiInvoke("id-a", {
-      jsonrpc: "2.0", id: 1, method: "ezcorp/invoke",
+      jsonrpc: "2.0",
+      id: 1,
+      method: "ezcorp/invoke",
       params: { tool: "ext-b__doStuff", arguments: {} },
     });
 
@@ -372,19 +410,28 @@ describe("Integration: Cross-Extension Composition", () => {
   test("depth limit through full pipeline", async () => {
     const registry = ExtensionRegistry.getInstance();
 
-    registry.setManifestForTest("id-a", makeManifest("ext-a", "1.0.0", {
-      deps: { "ext-b": { source: "github:test/ext-b", version: "^1.0.0" } },
-    }));
+    registry.setManifestForTest(
+      "id-a",
+      makeManifest("ext-a", "1.0.0", {
+        deps: { "ext-b": { source: "github:test/ext-b", version: "^1.0.0" } },
+      }),
+    );
     registry.setManifestForTest("id-b", makeManifest("ext-b", "1.0.0"));
     registry.registerToolForTest("ext-b__doStuff", {
-      name: "ext-b__doStuff", originalName: "doStuff", description: "does stuff",
-      inputSchema: { type: "object" }, extensionId: "id-b", extensionName: "ext-b",
+      name: "ext-b__doStuff",
+      originalName: "doStuff",
+      description: "does stuff",
+      inputSchema: { type: "object" },
+      extensionId: "id-b",
+      extensionName: "ext-b",
     });
     registry.buildDepRoutes();
 
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
     const response = await executor.handlePiInvoke("id-a", {
-      jsonrpc: "2.0", id: 1, method: "ezcorp/invoke",
+      jsonrpc: "2.0",
+      id: 1,
+      method: "ezcorp/invoke",
       params: { tool: "ext-b__doStuff", arguments: {}, _depth: 10 },
     });
 
@@ -396,15 +443,25 @@ describe("Integration: Cross-Extension Composition", () => {
   test("buildDepRoutes with version routing resolves semver-compatible dep", async () => {
     const registry = ExtensionRegistry.getInstance();
 
-    registry.setManifestForTest("id-a", makeManifest("ext-a", "1.0.0", {
-      deps: { lib: { source: "github:test/lib", version: "^1.0.0" } },
-    }));
-    registry.setManifestForTest("id-lib", makeManifest("lib", "1.2.0", {
-      tools: [{ name: "helper", description: "helps", inputSchema: { type: "object" } }],
-    }));
+    registry.setManifestForTest(
+      "id-a",
+      makeManifest("ext-a", "1.0.0", {
+        deps: { lib: { source: "github:test/lib", version: "^1.0.0" } },
+      }),
+    );
+    registry.setManifestForTest(
+      "id-lib",
+      makeManifest("lib", "1.2.0", {
+        tools: [{ name: "helper", description: "helps", inputSchema: { type: "object" } }],
+      }),
+    );
     registry.registerToolForTest("lib__helper", {
-      name: "lib__helper", originalName: "helper", description: "helps",
-      inputSchema: { type: "object" }, extensionId: "id-lib", extensionName: "lib",
+      name: "lib__helper",
+      originalName: "helper",
+      description: "helps",
+      inputSchema: { type: "object" },
+      extensionId: "id-lib",
+      extensionName: "lib",
     });
     registry.buildDepRoutes();
 
@@ -418,7 +475,9 @@ describe("Integration: Cross-Extension Composition", () => {
     };
 
     const response = await executor.handlePiInvoke("id-a", {
-      jsonrpc: "2.0", id: 1, method: "ezcorp/invoke",
+      jsonrpc: "2.0",
+      id: 1,
+      method: "ezcorp/invoke",
       params: { tool: "lib__helper", arguments: {} },
     });
 
@@ -441,9 +500,12 @@ describe("Integration: CLI Dependency Lifecycle", () => {
     const allExts = [
       { name: "ext-a", manifest: makeManifest("ext-a", "1.0.0") },
       { name: "ext-b", manifest: makeManifest("ext-b", "1.0.0") },
-      { name: "ext-c", manifest: makeManifest("ext-c", "1.0.0", {
-        deps: { "ext-a": { source: "github:user/ext-a", version: "^1.0.0" } },
-      }) },
+      {
+        name: "ext-c",
+        manifest: makeManifest("ext-c", "1.0.0", {
+          deps: { "ext-a": { source: "github:user/ext-a", version: "^1.0.0" } },
+        }),
+      },
     ];
 
     const dependents = findDependents("ext-a", allExts);

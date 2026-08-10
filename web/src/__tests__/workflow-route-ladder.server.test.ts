@@ -165,9 +165,10 @@ describe("the workflow ownership ladder lives in exactly one place", () => {
       const source = readFileSync(file, "utf8");
       if (NAME_LADDER_RESOLVERS.some((r) => source.includes(r))) continue;
       if (source.includes("requireAdmin")) continue;
-      expect({ file: file.slice(ROUTES_DIR.length + 1), delegates: AUTHORITIES.test(source) }).toEqual(
-        { file: file.slice(ROUTES_DIR.length + 1), delegates: true },
-      );
+      expect({
+        file: file.slice(ROUTES_DIR.length + 1),
+        delegates: AUTHORITIES.test(source),
+      }).toEqual({ file: file.slice(ROUTES_DIR.length + 1), delegates: true });
     }
   });
 

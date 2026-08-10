@@ -86,9 +86,7 @@ describe("ez-drafts queries", () => {
   });
 
   test("createDraft requires userId — empty throws", async () => {
-    expect(
-      drafts.createDraft({ userId: "", kind: "agent", payload: {} }),
-    ).rejects.toThrow();
+    expect(drafts.createDraft({ userId: "", kind: "agent", payload: {} })).rejects.toThrow();
   });
 
   test("getDraft returns the row to its owner", async () => {
@@ -227,7 +225,12 @@ describe("writeExtensionAuthorDraftFiles", () => {
     if (savedRootEnv === undefined) delete process.env.EZCORP_PROJECT_ROOT;
     else process.env.EZCORP_PROJECT_ROOT = savedRootEnv;
     __resetProjectRootCacheForTests();
-    if (root) try { rm3(root, { recursive: true, force: true }); } catch { /* */ }
+    if (root)
+      try {
+        rm3(root, { recursive: true, force: true });
+      } catch {
+        /* */
+      }
   });
 
   test("writes the allowlisted file map under the userId-namespaced dir", async () => {
@@ -249,12 +252,8 @@ describe("writeExtensionAuthorDraftFiles", () => {
       [".gitignore", "README.md", "ezcorp.config.ts", "index.ts"].sort(),
     );
     expect(existsSync(draftDir)).toBe(true);
-    expect(readFileSync(join3(draftDir, "ezcorp.config.ts"), "utf-8")).toBe(
-      "export default {};\n",
-    );
-    expect(readFileSync(join3(draftDir, ".gitignore"), "utf-8")).toBe(
-      "node_modules/\n",
-    );
+    expect(readFileSync(join3(draftDir, "ezcorp.config.ts"), "utf-8")).toBe("export default {};\n");
+    expect(readFileSync(join3(draftDir, ".gitignore"), "utf-8")).toBe("node_modules/\n");
   });
 
   test("rejects a non-allowlisted file name and writes NOTHING", async () => {
@@ -288,9 +287,7 @@ describe("writeExtensionAuthorDraftFiles", () => {
         "index.ts": 123 as unknown as string,
       }),
     ).rejects.toThrow(/content must be a string/);
-    expect(
-      drafts.writeExtensionAuthorDraftFiles("draft-bad4", userA, {}),
-    ).rejects.toThrow(/empty/);
+    expect(drafts.writeExtensionAuthorDraftFiles("draft-bad4", userA, {})).rejects.toThrow(/empty/);
   });
 
   test("invalid draftId shape is rejected (reuses getExtensionAuthorDraftDir gate)", async () => {

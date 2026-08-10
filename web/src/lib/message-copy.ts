@@ -14,28 +14,25 @@
  */
 
 interface ToolCallLike {
-	toolName: string;
-	input?: unknown;
-	output?: unknown;
+  toolName: string;
+  input?: unknown;
+  output?: unknown;
 }
 
-export function formatMessageForCopy(
-	content: string,
-	toolCalls?: ToolCallLike[],
-): string {
-	const parts: string[] = [];
-	if (content) parts.push(content);
-	if (toolCalls?.length) {
-		for (const tc of toolCalls) {
-			const header = `[Tool: ${tc.toolName}]`;
-			const input = tc.input
-				? `Input: ${typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input, null, 2)}`
-				: "";
-			const output = tc.output
-				? `Output: ${typeof tc.output === "string" ? tc.output : JSON.stringify(tc.output, null, 2)}`
-				: "";
-			parts.push([header, input, output].filter(Boolean).join("\n"));
-		}
-	}
-	return parts.join("\n\n");
+export function formatMessageForCopy(content: string, toolCalls?: ToolCallLike[]): string {
+  const parts: string[] = [];
+  if (content) parts.push(content);
+  if (toolCalls?.length) {
+    for (const tc of toolCalls) {
+      const header = `[Tool: ${tc.toolName}]`;
+      const input = tc.input
+        ? `Input: ${typeof tc.input === "string" ? tc.input : JSON.stringify(tc.input, null, 2)}`
+        : "";
+      const output = tc.output
+        ? `Output: ${typeof tc.output === "string" ? tc.output : JSON.stringify(tc.output, null, 2)}`
+        : "";
+      parts.push([header, input, output].filter(Boolean).join("\n"));
+    }
+  }
+  return parts.join("\n\n");
 }

@@ -37,9 +37,7 @@ const {
 
 const { migrateManifestV2ToV3 } = await import("../extensions/manifest");
 
-const { buildLockfile, diffLockfiles } = await import(
-  "../../scripts/regenerate-manifest-lock"
-);
+const { buildLockfile, diffLockfiles } = await import("../../scripts/regenerate-manifest-lock");
 
 // ── shared temp dir for the lockfile under test ─────────────────────
 
@@ -94,11 +92,16 @@ function fixtureManifest(overrides: Partial<ExtensionManifestV2> = {}): Extensio
   };
 }
 
-async function writeLockfile(extensions: Record<string, {
-  version: string;
-  entrypoint: string;
-  toolsHash: string;
-}>) {
+async function writeLockfile(
+  extensions: Record<
+    string,
+    {
+      version: string;
+      entrypoint: string;
+      toolsHash: string;
+    }
+  >,
+) {
   const lockfile = {
     schemaVersion: 1 as const,
     generatedAt: new Date().toISOString(),
@@ -131,11 +134,14 @@ describe("(b) added tool → toolsHash mismatch", () => {
       fixture: { version: "1.0.0", entrypoint: "./index.ts", toolsHash: baselineHash },
     });
     const tampered = fixtureManifest({
-      tools: [...(baseline.tools ?? []), {
-        name: "gamma",
-        description: "added later",
-        inputSchema: {},
-      }],
+      tools: [
+        ...(baseline.tools ?? []),
+        {
+          name: "gamma",
+          description: "added later",
+          inputSchema: {},
+        },
+      ],
     });
     const result = await verifyManifestAgainstLock("fixture", tampered);
     expect(result.ok).toBe(false);
@@ -327,10 +333,7 @@ describe("(i) lockfile malformed → fail-closed", () => {
   });
 
   test("missing extensions field fails the validity check", async () => {
-    await Bun.write(
-      lockfilePath,
-      JSON.stringify({ schemaVersion: 1, generatedAt: "now" }),
-    );
+    await Bun.write(lockfilePath, JSON.stringify({ schemaVersion: 1, generatedAt: "now" }));
     clearLockfileCache();
     const lock = await loadManifestLock();
     expect(lock).toBeNull();
@@ -514,11 +517,14 @@ describe("integration: edit manifest → regenerate → verify cycle", () => {
     // Edit the manifest: add a new tool. Must fail.
     const v2: ExtensionManifestV2 = {
       ...v1,
-      tools: [...(v1.tools ?? []), {
-        name: "delta",
-        description: "delta",
-        inputSchema: {},
-      }],
+      tools: [
+        ...(v1.tools ?? []),
+        {
+          name: "delta",
+          description: "delta",
+          inputSchema: {},
+        },
+      ],
     };
     const v2Result = await verifyManifestAgainstLock("round-trip", v2);
     expect(v2Result.ok).toBe(false);

@@ -69,10 +69,7 @@ mock.module("../db/queries/runs", () => ({
   updateRun: async () => {},
 }));
 
-import {
-  finalizeError,
-  finalizeSetupError,
-} from "../runtime/stream-chat/finalize";
+import { finalizeError, finalizeSetupError } from "../runtime/stream-chat/finalize";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
 import type { StreamChatHost } from "../runtime/stream-chat/host";

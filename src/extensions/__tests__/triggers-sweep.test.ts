@@ -13,34 +13,47 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
 
 import {
-  syncDynamicTriggers, revokeDynamicTriggers, parseClaimedKeys,
+  syncDynamicTriggers,
+  revokeDynamicTriggers,
+  parseClaimedKeys,
   sweepAllDynamicTriggers,
-  type SyncTarget, type SweepRegistry,
+  type SyncTarget,
+  type SweepRegistry,
 } from "../triggers-sweep";
+import { resolveCallProvenance, _resetCallProvenanceForTests } from "../call-provenance";
 import {
-  resolveCallProvenance, _resetCallProvenanceForTests,
-} from "../call-provenance";
-import {
-  upsertDynamicCron, upsertDynamicWebhook, mintWebhookSlug,
-  getDynamicCron, getDynamicWebhook,
+  upsertDynamicCron,
+  upsertDynamicWebhook,
+  mintWebhookSlug,
+  getDynamicCron,
+  getDynamicWebhook,
 } from "../triggers-store";
-import {
-  extensionSchedules, extensionWebhooks, extensions, auditLog,
-} from "../../db/schema";
+import { extensionSchedules, extensionWebhooks, extensions, auditLog } from "../../db/schema";
 import { eq } from "drizzle-orm";
 
 const EXT_NAME = "sweep-ext";
@@ -49,39 +62,59 @@ const NOW = new Date("2026-07-29T12:00:00.000Z");
 const NEXT = new Date("2026-07-30T09:00:00.000Z");
 
 /** A subprocess that answers `ezcorp/triggers-sync` with `keys`. */
-function target(reply: { result?: unknown; error?: { code: number; message: string } }): SyncTarget {
+function target(reply: {
+  result?: unknown;
+  error?: { code: number; message: string };
+}): SyncTarget {
   return { call: async () => reply };
 }
 
 async function seedCron(key: string) {
   return upsertDynamicCron({
-    extensionId: extId, key, cron: "0 9 * * 1", timezone: null,
-    nextFireAt: NEXT, maxRunsPerDay: 10, now: NOW,
+    extensionId: extId,
+    key,
+    cron: "0 9 * * 1",
+    timezone: null,
+    nextFireAt: NEXT,
+    maxRunsPerDay: 10,
+    now: NOW,
   });
 }
 
 async function seedHook(key: string) {
   return upsertDynamicWebhook({
-    extensionName: EXT_NAME, key,
-    slug: mintWebhookSlug("factory-", EXT_NAME, key), now: NOW,
+    extensionName: EXT_NAME,
+    key,
+    slug: mintWebhookSlug("factory-", EXT_NAME, key),
+    now: NOW,
   });
 }
 
 async function orphanAudits() {
-  return getTestDb().select().from(auditLog)
-    .where(eq(auditLog.action, "ext:sdk-trigger-orphaned"));
+  return getTestDb().select().from(auditLog).where(eq(auditLog.action, "ext:sdk-trigger-orphaned"));
 }
 
 beforeAll(async () => {
   await setupTestDb();
-  const [row] = await getTestDb().insert(extensions).values({
-    name: EXT_NAME, version: "1.0.0", description: "",
-    manifest: {
-      schemaVersion: 2, name: EXT_NAME, version: "1.0.0", description: "",
-      author: { name: "t" }, permissions: {},
-    } as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name: EXT_NAME,
+      version: "1.0.0",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name: EXT_NAME,
+        version: "1.0.0",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    })
+    .returning({ id: extensions.id });
   extId = row!.id;
 });
 
@@ -107,8 +140,15 @@ describe("parseClaimedKeys", () => {
     // Every one of these would otherwise read as "zero live keys" and
     // disable everything.
     for (const bad of [
-      null, undefined, "keys", 42, {}, { keys: null }, { keys: "a" },
-      { keys: [1, 2] }, { keys: ["ok", 7] },
+      null,
+      undefined,
+      "keys",
+      42,
+      {},
+      { keys: null },
+      { keys: "a" },
+      { keys: [1, 2] },
+      { keys: ["ok", 7] },
     ]) {
       expect(parseClaimedKeys(bad)).toBeNull();
     }
@@ -121,7 +161,10 @@ describe("syncDynamicTriggers — the sweep", () => {
     await seedCron("job:deleted");
 
     const res = await syncDynamicTriggers(
-      extId, EXT_NAME, target({ result: { v: 1, keys: ["job:live"] } }), NOW,
+      extId,
+      EXT_NAME,
+      target({ result: { v: 1, keys: ["job:live"] } }),
+      NOW,
     );
 
     expect(res).toEqual({ disabled: 1, skipped: false });
@@ -147,7 +190,10 @@ describe("syncDynamicTriggers — the sweep", () => {
     await seedCron("job:gone");
 
     const res = await syncDynamicTriggers(
-      extId, EXT_NAME, target({ result: { keys: ["hook:live"] } }), NOW,
+      extId,
+      EXT_NAME,
+      target({ result: { keys: ["hook:live"] } }),
+      NOW,
     );
 
     expect(res.disabled).toBe(2);
@@ -166,7 +212,10 @@ describe("syncDynamicTriggers — the sweep", () => {
     await seedCron("job:a");
     await seedHook("hook:b");
     const res = await syncDynamicTriggers(
-      extId, EXT_NAME, target({ result: { keys: ["job:a", "hook:b"] } }), NOW,
+      extId,
+      EXT_NAME,
+      target({ result: { keys: ["job:a", "hook:b"] } }),
+      NOW,
     );
     expect(res).toEqual({ disabled: 0, skipped: false });
     expect(await orphanAudits()).toHaveLength(0);
@@ -174,7 +223,12 @@ describe("syncDynamicTriggers — the sweep", () => {
 
   test("no dynamic rows ⇒ the extension is never even asked", async () => {
     let called = false;
-    const spy: SyncTarget = { call: async () => { called = true; return {}; } };
+    const spy: SyncTarget = {
+      call: async () => {
+        called = true;
+        return {};
+      },
+    };
     const res = await syncDynamicTriggers(extId, EXT_NAME, spy, NOW);
     expect(res).toEqual({ disabled: 0, skipped: false });
     expect(called).toBe(false);
@@ -182,12 +236,12 @@ describe("syncDynamicTriggers — the sweep", () => {
 
   test("already-disabled rows are not re-swept or re-audited", async () => {
     const row = await seedCron("job:off");
-    await getTestDb().update(extensionSchedules)
-      .set({ enabled: false }).where(eq(extensionSchedules.id, row.id));
+    await getTestDb()
+      .update(extensionSchedules)
+      .set({ enabled: false })
+      .where(eq(extensionSchedules.id, row.id));
 
-    const res = await syncDynamicTriggers(
-      extId, EXT_NAME, target({ result: { keys: [] } }), NOW,
-    );
+    const res = await syncDynamicTriggers(extId, EXT_NAME, target({ result: { keys: [] } }), NOW);
     expect(res).toEqual({ disabled: 0, skipped: false });
     expect(await orphanAudits()).toHaveLength(0);
   });
@@ -202,7 +256,8 @@ describe("syncDynamicTriggers — the FAIL-OPEN rule", () => {
     await seedCron("job:b");
 
     const res = await syncDynamicTriggers(
-      extId, EXT_NAME,
+      extId,
+      EXT_NAME,
       target({ error: { code: -32601, message: "Method not found" } }),
       NOW,
     );
@@ -218,7 +273,9 @@ describe("syncDynamicTriggers — the FAIL-OPEN rule", () => {
   test("a transport failure disables NOTHING", async () => {
     await seedCron("job:a");
     const throwing: SyncTarget = {
-      call: async () => { throw new Error("Transport closed"); },
+      call: async () => {
+        throw new Error("Transport closed");
+      },
     };
     const res = await syncDynamicTriggers(extId, EXT_NAME, throwing, NOW);
     expect(res.disabled).toBe(0);
@@ -231,7 +288,9 @@ describe("syncDynamicTriggers — the FAIL-OPEN rule", () => {
     await seedCron("job:a");
     const res = await syncDynamicTriggers(extId, EXT_NAME, null, NOW);
     expect(res).toEqual({
-      disabled: 0, skipped: true, reason: "subprocess-not-running",
+      disabled: 0,
+      skipped: true,
+      reason: "subprocess-not-running",
     });
     expect((await getDynamicCron(extId, "job:a"))!.enabled).toBe(true);
   });
@@ -239,7 +298,10 @@ describe("syncDynamicTriggers — the FAIL-OPEN rule", () => {
   test("a malformed reply disables NOTHING", async () => {
     await seedCron("job:a");
     const res = await syncDynamicTriggers(
-      extId, EXT_NAME, target({ result: { keys: "not-an-array" } }), NOW,
+      extId,
+      EXT_NAME,
+      target({ result: { keys: "not-an-array" } }),
+      NOW,
     );
     expect(res).toEqual({ disabled: 0, skipped: true, reason: "malformed-reply" });
     expect((await getDynamicCron(extId, "job:a"))!.enabled).toBe(true);
@@ -250,7 +312,10 @@ describe("syncDynamicTriggers — the FAIL-OPEN rule", () => {
     await seedHook("hook:b");
     let asked: Record<string, unknown> | undefined;
     const spy: SyncTarget = {
-      call: async (_m, params) => { asked = params; return { result: { keys: [] } }; },
+      call: async (_m, params) => {
+        asked = params;
+        return { result: { keys: [] } };
+      },
     };
     await syncDynamicTriggers(extId, EXT_NAME, spy, NOW);
     expect(asked?.v).toBe(1);
@@ -272,7 +337,10 @@ describe("syncDynamicTriggers — the frame carries a resolvable OWNERLESS token
     await seedCron("job:a");
     let asked: Record<string, unknown> | undefined;
     const spy: SyncTarget = {
-      call: async (_m, params) => { asked = params; return { result: { keys: ["job:a"] } }; },
+      call: async (_m, params) => {
+        asked = params;
+        return { result: { keys: ["job:a"] } };
+      },
     };
     await syncDynamicTriggers(extId, EXT_NAME, spy, NOW);
 
@@ -295,18 +363,28 @@ describe("syncDynamicTriggers — the frame carries a resolvable OWNERLESS token
     // so a host with a hundred trigger-less extensions does not churn the
     // provenance registry once an hour.
     let asked = false;
-    const spy: SyncTarget = { call: async () => { asked = true; return {}; } };
+    const spy: SyncTarget = {
+      call: async () => {
+        asked = true;
+        return {};
+      },
+    };
     await syncDynamicTriggers(extId, EXT_NAME, spy, NOW);
     expect(asked).toBe(false);
     // A token registered anyway would be a leak with no reader.
     await seedCron("job:a");
     let captured: string | undefined;
-    await syncDynamicTriggers(extId, EXT_NAME, {
-      call: async (_m, p) => {
-        captured = (p?._meta as { ezCallId?: string } | undefined)?.ezCallId;
-        return { result: { keys: ["job:a"] } };
+    await syncDynamicTriggers(
+      extId,
+      EXT_NAME,
+      {
+        call: async (_m, p) => {
+          captured = (p?._meta as { ezCallId?: string } | undefined)?.ezCallId;
+          return { result: { keys: ["job:a"] } };
+        },
       },
-    }, NOW);
+      NOW,
+    );
     // Exactly ONE token exists — the one this second call minted.
     expect(captured).toBeDefined();
     expect(resolveCallProvenance(captured!)).toBeDefined();
@@ -321,9 +399,9 @@ describe("sweepAllDynamicTriggers — the host-wide pass", () => {
   ): SweepRegistry {
     return {
       getAllManifests: () =>
-        entries.map(([id, name]) => [id, { name }] as [string, { name: string }])[
-          Symbol.iterator
-        ](),
+        entries
+          .map(([id, name]) => [id, { name }] as [string, { name: string }])
+          [Symbol.iterator](),
       getProcessIfRunning: (id) => procs[id] ?? null,
     };
   }
@@ -361,7 +439,12 @@ describe("sweepAllDynamicTriggers — the host-wide pass", () => {
     let asked = false;
     const res = await sweepAllDynamicTriggers(
       registryOf([[extId, EXT_NAME]], {
-        [extId]: { call: async () => { asked = true; return {}; } },
+        [extId]: {
+          call: async () => {
+            asked = true;
+            return {};
+          },
+        },
       }),
       NOW,
     );
@@ -377,7 +460,10 @@ describe("sweepAllDynamicTriggers — the host-wide pass", () => {
     // chose.
     await seedCron("job:gone");
     const base = registryOf(
-      [["boom", "boom-ext"], [extId, EXT_NAME]],
+      [
+        ["boom", "boom-ext"],
+        [extId, EXT_NAME],
+      ],
       { [extId]: target({ result: { keys: [] } }) },
     );
     const throwingRegistry: SweepRegistry = {
@@ -396,7 +482,10 @@ describe("sweepAllDynamicTriggers — the host-wide pass", () => {
 
   test("an empty registry is a clean no-op", async () => {
     expect(await sweepAllDynamicTriggers(registryOf([], {}), NOW)).toEqual({
-      scanned: 0, disabled: 0, skipped: 0, errored: 0,
+      scanned: 0,
+      disabled: 0,
+      skipped: 0,
+      errored: 0,
     });
   });
 });
@@ -414,7 +503,9 @@ describe("revokeDynamicTriggers — the capability itself is gone", () => {
     expect((await getDynamicCron(extId, "job:b"))!.enabled).toBe(false);
     expect((await getDynamicWebhook(EXT_NAME, "hook:c"))!.enabled).toBe(false);
 
-    const audits = await getTestDb().select().from(auditLog)
+    const audits = await getTestDb()
+      .select()
+      .from(auditLog)
       .where(eq(auditLog.action, "ext:sdk-trigger-capability-revoked"));
     expect(audits).toHaveLength(3);
     expect(audits.every((a) => a.userId === null)).toBe(true);
@@ -425,8 +516,12 @@ describe("revokeDynamicTriggers — the capability itself is gone", () => {
     await revokeDynamicTriggers(extId, EXT_NAME, NOW);
     // A re-grant can re-enable them; a delete would have lost the user's
     // configuration irrecoverably.
-    expect(await getTestDb().select().from(extensionSchedules)
-      .where(eq(extensionSchedules.extensionId, extId))).toHaveLength(1);
+    expect(
+      await getTestDb()
+        .select()
+        .from(extensionSchedules)
+        .where(eq(extensionSchedules.extensionId, extId)),
+    ).toHaveLength(1);
   });
 
   test("no dynamic rows ⇒ a clean no-op", async () => {
@@ -435,8 +530,10 @@ describe("revokeDynamicTriggers — the capability itself is gone", () => {
 
   test("already-disabled rows are not re-counted", async () => {
     const row = await seedCron("job:a");
-    await getTestDb().update(extensionSchedules)
-      .set({ enabled: false }).where(eq(extensionSchedules.id, row.id));
+    await getTestDb()
+      .update(extensionSchedules)
+      .set({ enabled: false })
+      .where(eq(extensionSchedules.id, row.id));
     expect(await revokeDynamicTriggers(extId, EXT_NAME, NOW)).toEqual({ disabled: 0 });
   });
 });

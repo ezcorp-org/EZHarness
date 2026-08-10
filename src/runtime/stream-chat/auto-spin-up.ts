@@ -141,7 +141,12 @@ export async function applyAutoSpinUp(
 
         const outcomes = new Array<MemberOutcome>(members.length);
         // Initial pass — every member, batched.
-        await runWaves(members, members.map((_, i) => i), invoke, outcomes);
+        await runWaves(
+          members,
+          members.map((_, i) => i),
+          invoke,
+          outcomes,
+        );
         // Retry wave — quota-deferred members get ONE more attempt now that
         // earlier members have freed their concurrent slots. Still batched.
         const retryIdx = outcomes
@@ -172,7 +177,10 @@ export async function applyAutoSpinUp(
         });
         log.info("Auto-spin-up complete", { resultCount: autoSpinUpResults.length });
       } catch (spinErr) {
-        log.error("Auto-spin-up failed", { error: String(spinErr), stack: spinErr instanceof Error ? spinErr.stack : undefined });
+        log.error("Auto-spin-up failed", {
+          error: String(spinErr),
+          stack: spinErr instanceof Error ? spinErr.stack : undefined,
+        });
       }
     }
     delete orchRun._pendingAutoSpinUp;
@@ -180,10 +188,18 @@ export async function applyAutoSpinUp(
 
   // Inject orchestrator prompt AFTER auto-spin-up (results available for prompt)
   if (mentionedAgents && mentionedAgents.length > 0) {
-    const { buildOrchestratorPrompt, buildTeamOrchestratorPrompt } = await import("../orchestrator-prompt");
+    const { buildOrchestratorPrompt, buildTeamOrchestratorPrompt } = await import(
+      "../orchestrator-prompt"
+    );
     const teamToolScopeForPrompt = orchRun._teamToolScope;
     const orchestratorBlock = teamConfig
-      ? buildTeamOrchestratorPrompt(teamConfig.name, teamConfig.prompt, mentionedAgents, autoSpinUpResults, teamToolScopeForPrompt)
+      ? buildTeamOrchestratorPrompt(
+          teamConfig.name,
+          teamConfig.prompt,
+          mentionedAgents,
+          autoSpinUpResults,
+          teamToolScopeForPrompt,
+        )
       : buildOrchestratorPrompt(mentionedAgents);
     ctx.system = ctx.system ? `${orchestratorBlock}\n\n${ctx.system}` : orchestratorBlock;
     delete orchRun._mentionedAgents;
@@ -198,6 +214,8 @@ export async function applyAutoSpinUp(
       const { buildTaskTrackingInstructions } = await import("../orchestrator-prompt");
       const taskBlock = buildTaskTrackingInstructions();
       ctx.system = ctx.system ? `${ctx.system}\n\n${taskBlock}` : taskBlock;
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
   }
 }

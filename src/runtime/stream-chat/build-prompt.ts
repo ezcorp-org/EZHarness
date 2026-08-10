@@ -90,7 +90,9 @@ export async function buildPromptInput(
     try {
       const { applyCommandExpansion } = await import("../mention-wiring");
       text = await applyCommandExpansion(strippedUserMessage, options.commandResolver);
-    } catch { /* Slash-command expansion failure is non-fatal */ }
+    } catch {
+      /* Slash-command expansion failure is non-fatal */
+    }
   }
 
   // Resolve @[file:…] mentions against the active project and prepend a
@@ -98,12 +100,16 @@ export async function buildPromptInput(
   // The agent can read them on demand via the readFile tool.
   if (options.projectId) {
     try {
-      const { resolveFileMentions, formatFileMentionSystemNotes } = await import("../mention-wiring");
+      const { resolveFileMentions, formatFileMentionSystemNotes } = await import(
+        "../mention-wiring"
+      );
       const project = await getProject(options.projectId);
       const fileMentions = await resolveFileMentions(userMessage, project?.path);
       const note = formatFileMentionSystemNotes(fileMentions);
       if (note) text = `${note}\n\n${text}`;
-    } catch { /* File mention resolution failure is non-fatal */ }
+    } catch {
+      /* File mention resolution failure is non-fatal */
+    }
   }
 
   // Resolve $[feature:…] mentions against the active project's Feature
@@ -127,7 +133,9 @@ export async function buildPromptInput(
         };
       });
       if (note) text = `${note}\n\n${text}`;
-    } catch { /* Feature mention resolution failure is non-fatal */ }
+    } catch {
+      /* Feature mention resolution failure is non-fatal */
+    }
   }
 
   // Resolve ![workflow:…] mentions against the merged (extension + YAML
@@ -180,12 +188,16 @@ export async function buildPromptInput(
     const { applyWorkflowExpansion } = await import("../mention-wiring");
     const { getWorkflowRuntime } = await import("../workflow/runtime-registry");
     const note = applyWorkflowExpansion(userMessage, (name) => {
-      const workflow = getWorkflowRuntime()?.getWorkflows().find((w) => w.name === name);
+      const workflow = getWorkflowRuntime()
+        ?.getWorkflows()
+        .find((w) => w.name === name);
       if (!workflow) return null;
       return { description: workflow.description, inputSchema: workflow.inputSchema };
     });
     if (note) text = `${note}\n\n${text}`;
-  } catch { /* Workflow mention resolution failure is non-fatal */ }
+  } catch {
+    /* Workflow mention resolution failure is non-fatal */
+  }
 
   // Resolve %[lesson:…] mentions against the lessons table. The resolver
   // delegates visibility precedence (user > project > global) to
@@ -223,7 +235,9 @@ export async function buildPromptInput(
         },
       );
       if (note) text = `${note}\n\n${text}`;
-    } catch { /* Lesson mention resolution failure is non-fatal */ }
+    } catch {
+      /* Lesson mention resolution failure is non-fatal */
+    }
   }
 
   // Multi-modal attachments for the current turn: convert to pi-ai parts.
@@ -239,9 +253,13 @@ export async function buildPromptInput(
     let extensionMimes: string[] = [];
     if (options.conversationId) {
       try {
-        const { getConversationExtensionMimes } = await import("../../db/queries/conversation-extensions");
+        const { getConversationExtensionMimes } = await import(
+          "../../db/queries/conversation-extensions"
+        );
         extensionMimes = await getConversationExtensionMimes(options.conversationId);
-      } catch { /* non-fatal: fall through with no extension overlay */ }
+      } catch {
+        /* non-fatal: fall through with no extension overlay */
+      }
     }
     const caps = getCapabilitiesWithExtensions(options.provider, options.model, extensionMimes);
     const built = await buildUserContent(text, options.attachments, caps);

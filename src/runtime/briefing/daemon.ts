@@ -84,7 +84,12 @@ export interface BriefingTickResult {
 }
 
 export class BriefingDaemon {
-  private readonly opts: Required<Pick<BriefingDaemonOptions, "wakeIntervalMs" | "maxConcurrent" | "runTimeoutMs" | "guardTimeoutMs">> & {
+  private readonly opts: Required<
+    Pick<
+      BriefingDaemonOptions,
+      "wakeIntervalMs" | "maxConcurrent" | "runTimeoutMs" | "guardTimeoutMs"
+    >
+  > & {
     now: () => Date;
     runPipeline?: BriefingDaemonOptions["runPipeline"];
     onAutoDisable?: BriefingDaemonOptions["onAutoDisable"];
@@ -174,7 +179,10 @@ export class BriefingDaemon {
       this.dispatch(c, now).catch((err) => {
         // dispatch() itself folds every failure — this is belt-and-
         // suspenders so one rejected dispatch can't break Promise.all.
-        log.warn("dispatch escaped its error fold", { userId: c.config.userId, error: String(err) });
+        log.warn("dispatch escaped its error fold", {
+          userId: c.config.userId,
+          error: String(err),
+        });
       }),
     );
 
@@ -198,7 +206,11 @@ export class BriefingDaemon {
       try {
         const guardPromise = new Promise<BriefingRunResult>((resolve) => {
           guard = setTimeout(
-            () => resolve({ status: "error", error: `briefing dispatch exceeded guard timeout (${this.opts.guardTimeoutMs}ms)` }),
+            () =>
+              resolve({
+                status: "error",
+                error: `briefing dispatch exceeded guard timeout (${this.opts.guardTimeoutMs}ms)`,
+              }),
             this.opts.guardTimeoutMs,
           );
           if (typeof guard === "object" && "unref" in guard) {
@@ -229,7 +241,10 @@ export class BriefingDaemon {
           const onAutoDisable = this.opts.onAutoDisable ?? this.defaultOnAutoDisable();
           await onAutoDisable(config, outcome.consecutiveErrors);
         } catch (notifyErr) {
-          log.warn("auto-disable notification failed", { userId: config.userId, error: String(notifyErr) });
+          log.warn("auto-disable notification failed", {
+            userId: config.userId,
+            error: String(notifyErr),
+          });
         }
       }
     } finally {

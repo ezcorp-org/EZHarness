@@ -219,9 +219,7 @@ describe("ask-user integration: real subprocess + RPC", () => {
         `[ask-user-integration] event-delivery latency ${latency}ms exceeds 500ms target`,
       );
     }
-    console.log(
-      `[ask-user-integration] event-delivery latency: ${latency}ms`,
-    );
+    console.log(`[ask-user-integration] event-delivery latency: ${latency}ms`);
   });
 
   test("regression — extension does NOT emit ezcorp/emit-task-event for ask_user_question", async () => {
@@ -245,9 +243,7 @@ describe("ask-user integration: real subprocess + RPC", () => {
     // ask_human handler emits within ~50ms of the tools/call landing.
     await new Promise((r) => setTimeout(r, 200));
 
-    const emitCalls = proc!.outbound.filter(
-      (m) => m.method === "ezcorp/emit-task-event",
-    );
+    const emitCalls = proc!.outbound.filter((m) => m.method === "ezcorp/emit-task-event");
     expect(emitCalls).toHaveLength(0);
 
     // Resolve the gate so the test cleanly tears down.
@@ -287,9 +283,7 @@ describe("ask-user integration: real subprocess + RPC", () => {
     });
 
     // Race against a sentinel: the gate should not resolve.
-    const sentinel = new Promise<"sentinel">((r) =>
-      setTimeout(() => r("sentinel"), 300),
-    );
+    const sentinel = new Promise<"sentinel">((r) => setTimeout(() => r("sentinel"), 300));
     const toolResolve = proc!
       .wait((m) => m.id === 302, 400)
       .then(() => "resolved" as const)

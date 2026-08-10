@@ -60,38 +60,38 @@ export const STICK_TO_BOTTOM_THRESHOLD_PX = 80;
  * module docstring for why a post-growth slack measurement is unsafe).
  */
 export function bottomSlack(el: {
-	scrollHeight: number;
-	scrollTop: number;
-	clientHeight: number;
+  scrollHeight: number;
+  scrollTop: number;
+  clientHeight: number;
 }): number {
-	return el.scrollHeight - el.scrollTop - el.clientHeight;
+  return el.scrollHeight - el.scrollTop - el.clientHeight;
 }
 
 export interface StickGateInput {
-	/**
-	 * False until the open-time scroll-restore effect has decided this
-	 * conversation's initial position. While false the gate is inert so the
-	 * observer never fights scroll-restore on open.
-	 */
-	initialScrollDone: boolean;
-	/** A rAF pin is already scheduled — don't double-schedule. */
-	rafPending: boolean;
-	/**
-	 * `stopAnchorWatch !== null` — an anchor-reapply restore is in progress.
-	 * Bottom-stick and anchor-restore are mutually exclusive scroll intents;
-	 * standing down here avoids tripping the anchor watch's onScroll
-	 * early-stop and leaving the restored anchor unconverged.
-	 */
-	anchorWatchActive: boolean;
-	/**
-	 * Synchronous "the user is following the bottom" intent, tracked by the
-	 * caller from real `scroll` events (and set directly on send / jump /
-	 * open-to-bottom). Unlike the old async `userScrolledUp` flag this is
-	 * never set by the bottom-sentinel IntersectionObserver, so a one-shot
-	 * large turn-completion insert cannot stale-flip it and the pin
-	 * decision no longer depends on observer ordering.
-	 */
-	stuck: boolean;
+  /**
+   * False until the open-time scroll-restore effect has decided this
+   * conversation's initial position. While false the gate is inert so the
+   * observer never fights scroll-restore on open.
+   */
+  initialScrollDone: boolean;
+  /** A rAF pin is already scheduled — don't double-schedule. */
+  rafPending: boolean;
+  /**
+   * `stopAnchorWatch !== null` — an anchor-reapply restore is in progress.
+   * Bottom-stick and anchor-restore are mutually exclusive scroll intents;
+   * standing down here avoids tripping the anchor watch's onScroll
+   * early-stop and leaving the restored anchor unconverged.
+   */
+  anchorWatchActive: boolean;
+  /**
+   * Synchronous "the user is following the bottom" intent, tracked by the
+   * caller from real `scroll` events (and set directly on send / jump /
+   * open-to-bottom). Unlike the old async `userScrolledUp` flag this is
+   * never set by the bottom-sentinel IntersectionObserver, so a one-shot
+   * large turn-completion insert cannot stale-flip it and the pin
+   * decision no longer depends on observer ordering.
+   */
+  stuck: boolean;
 }
 
 /**
@@ -106,23 +106,23 @@ export interface StickGateInput {
  * pins — regardless of ResizeObserver/IntersectionObserver ordering.
  */
 export function shouldStickToBottom(i: StickGateInput): boolean {
-	if (!i.initialScrollDone || i.rafPending) return false;
-	if (i.anchorWatchActive) return false;
-	return i.stuck;
+  if (!i.initialScrollDone || i.rafPending) return false;
+  if (i.anchorWatchActive) return false;
+  return i.stuck;
 }
 
 export interface FollowIntentInput {
-	/**
-	 * `scrollTop` as of the PREVIOUS scroll event on this container (the
-	 * element's value at listener-install time for the first event).
-	 */
-	previousScrollTop: number;
-	/** `scrollTop` at this scroll event. */
-	scrollTop: number;
-	/** {@link bottomSlack} measured at this scroll event. */
-	slack: number;
-	/** The follow intent going in. */
-	stuck: boolean;
+  /**
+   * `scrollTop` as of the PREVIOUS scroll event on this container (the
+   * element's value at listener-install time for the first event).
+   */
+  previousScrollTop: number;
+  /** `scrollTop` at this scroll event. */
+  scrollTop: number;
+  /** {@link bottomSlack} measured at this scroll event. */
+  slack: number;
+  /** The follow intent going in. */
+  stuck: boolean;
 }
 
 /**
@@ -157,6 +157,6 @@ export interface FollowIntentInput {
  * whoever put us there.
  */
 export function nextFollowIntent(i: FollowIntentInput): boolean {
-	if (i.slack < STICK_TO_BOTTOM_THRESHOLD_PX) return true;
-	return i.scrollTop < i.previousScrollTop ? false : i.stuck;
+  if (i.slack < STICK_TO_BOTTOM_THRESHOLD_PX) return true;
+  return i.scrollTop < i.previousScrollTop ? false : i.stuck;
 }

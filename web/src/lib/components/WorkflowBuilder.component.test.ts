@@ -158,7 +158,13 @@ describe("WorkflowBuilder", () => {
         dependsOn: ["compose"],
         condition: { ref: "$steps.compose.output.headline", op: "contains", value: "Report" },
       },
-      { name: "ask", agent: "beta", dependsOn: ["assert"], input: { q: "$prev.output" }, retries: 2 },
+      {
+        name: "ask",
+        agent: "beta",
+        dependsOn: ["assert"],
+        input: { q: "$prev.output" },
+        retries: 2,
+      },
     ];
     const { container, getByLabelText } = render(WorkflowBuilder, {
       props: { initial: { name: "wf", description: "d", steps }, agents, onsubmit },
@@ -233,9 +239,9 @@ describe("WorkflowBuilder", () => {
     });
 
     expect((getByLabelText("Workflow Name") as HTMLInputElement).value).toBe("docs");
-    expect((getByLabelText("Default model (JSON, optional)") as HTMLTextAreaElement).value).toContain(
-      "claude-sonnet-5",
-    );
+    expect(
+      (getByLabelText("Default model (JSON, optional)") as HTMLTextAreaElement).value,
+    ).toContain("claude-sonnet-5");
 
     await fireEvent.click(getByText("Save changes"));
     expect(onsubmit).toHaveBeenCalledWith({

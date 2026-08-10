@@ -20,15 +20,7 @@
  * Isolated file: `mock.module("../db/queries/extensions")` must run BEFORE
  * the subprocess module is imported (it transitively hits db/queries).
  */
-import {
-  test,
-  expect,
-  describe,
-  beforeEach,
-  afterEach,
-  afterAll,
-  mock,
-} from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, afterAll, mock } from "bun:test";
 import { join } from "path";
 import { tmpdir } from "os";
 import { mkdirSync } from "fs";
@@ -88,10 +80,7 @@ function ok(id: JsonRpcRequest["id"], result: unknown): JsonRpcResponse {
   return { jsonrpc: "2.0", id, result };
 }
 
-function handleStorage(
-  state: HostState,
-  params: Record<string, unknown>,
-): unknown {
+function handleStorage(state: HostState, params: Record<string, unknown>): unknown {
   const action = params.action as string;
   const key = params.key as string;
   switch (action) {
@@ -151,7 +140,11 @@ function wireHost(proc: ExtensionProcess, state: HostState): void {
       };
       return ok(req.id, handle);
     }
-    return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: `no handler: ${req.method}` } };
+    return {
+      jsonrpc: "2.0",
+      id: req.id,
+      error: { code: -32601, message: `no handler: ${req.method}` },
+    };
   });
 }
 

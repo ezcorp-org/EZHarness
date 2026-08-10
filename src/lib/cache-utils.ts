@@ -13,7 +13,7 @@ export async function etagFor(data: unknown): Promise<string> {
 export async function cacheableResponse(
   request: Request,
   data: unknown,
-  options?: { maxAge?: number; staleWhileRevalidate?: number }
+  options?: { maxAge?: number; staleWhileRevalidate?: number },
 ): Promise<Response> {
   const etag = await etagFor(data);
   const ifNoneMatch = request.headers.get("if-none-match");
@@ -24,8 +24,8 @@ export async function cacheableResponse(
   const swr = options?.staleWhileRevalidate ?? 300;
   return Response.json(data, {
     headers: {
-      "ETag": etag,
-      "Cache-Control": `private, max-age=${maxAge}, stale-while-revalidate=${swr}`
-    }
+      ETag: etag,
+      "Cache-Control": `private, max-age=${maxAge}, stale-while-revalidate=${swr}`,
+    },
   });
 }

@@ -20,11 +20,16 @@ export async function getEnabledWebhook(
   extensionId: string,
   slug: string,
 ): Promise<ExtensionWebhook | null> {
-  const rows = await getDb().select().from(extensionWebhooks).where(and(
-    eq(extensionWebhooks.extensionId, extensionId),
-    eq(extensionWebhooks.slug, slug),
-    eq(extensionWebhooks.enabled, true),
-  ));
+  const rows = await getDb()
+    .select()
+    .from(extensionWebhooks)
+    .where(
+      and(
+        eq(extensionWebhooks.extensionId, extensionId),
+        eq(extensionWebhooks.slug, slug),
+        eq(extensionWebhooks.enabled, true),
+      ),
+    );
   return rows[0] ?? null;
 }
 
@@ -46,19 +51,20 @@ export interface InsertDeliveryInput {
  * fire id. The row is written BEFORE any dispatch so a crash between accept and
  * dispatch is recoverable by the daemon's catch-up drain.
  */
-export async function insertDelivery(
-  input: InsertDeliveryInput,
-): Promise<string> {
-  const [row] = await getDb().insert(webhookDeliveries).values({
-    webhookId: input.webhookId,
-    extensionId: input.extensionId,
-    slug: input.slug,
-    status: "pending",
-    contentType: input.contentType,
-    body: input.body,
-    receivedAt: input.receivedAt,
-    catchUp: input.catchUp ?? false,
-  }).returning();
+export async function insertDelivery(input: InsertDeliveryInput): Promise<string> {
+  const [row] = await getDb()
+    .insert(webhookDeliveries)
+    .values({
+      webhookId: input.webhookId,
+      extensionId: input.extensionId,
+      slug: input.slug,
+      status: "pending",
+      contentType: input.contentType,
+      body: input.body,
+      receivedAt: input.receivedAt,
+      catchUp: input.catchUp ?? false,
+    })
+    .returning();
   return row!.id;
 }
 
@@ -77,13 +83,16 @@ export async function countDeliveriesSince(
   slug: string,
   since: Date,
 ): Promise<number> {
-  const rows = await getDb().select({ count: sql<number>`COUNT(*)`.as("count") })
+  const rows = await getDb()
+    .select({ count: sql<number>`COUNT(*)`.as("count") })
     .from(webhookDeliveries)
-    .where(and(
-      eq(webhookDeliveries.extensionId, extensionId),
-      eq(webhookDeliveries.slug, slug),
-      gte(webhookDeliveries.receivedAt, since),
-    ));
+    .where(
+      and(
+        eq(webhookDeliveries.extensionId, extensionId),
+        eq(webhookDeliveries.slug, slug),
+        gte(webhookDeliveries.receivedAt, since),
+      ),
+    );
   // PGlite/Postgres return COUNT as a string/bigint — coerce to a JS number.
   return Number(rows[0]?.count ?? 0);
 }
@@ -103,11 +112,14 @@ export function startOfUtcDay(at: Date): Date {
  * number of rows deleted.
  */
 export async function cleanupOldWebhookDeliveries(retentionDays = 30): Promise<number> {
-  const rows = await getDb().delete(webhookDeliveries)
-    .where(and(
-      inArray(webhookDeliveries.status, ["ok", "error"]),
-      lt(webhookDeliveries.receivedAt, nowMinusInterval(retentionDays, "days")),
-    ))
+  const rows = await getDb()
+    .delete(webhookDeliveries)
+    .where(
+      and(
+        inArray(webhookDeliveries.status, ["ok", "error"]),
+        lt(webhookDeliveries.receivedAt, nowMinusInterval(retentionDays, "days")),
+      ),
+    )
     .returning({ id: webhookDeliveries.id });
   return rows.length;
 }

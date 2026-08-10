@@ -32,253 +32,250 @@ import type { OAuthPending } from "$lib/oauth.js";
 import type { ToolDefinition } from "../../../../../../src/extensions/types";
 
 interface SubConvoRecord {
-	id: string;
-	agentConfigId: string;
-	agentName: string;
-	parentConversationId: string;
-	parentMessageId: string;
+  id: string;
+  agentConfigId: string;
+  agentName: string;
+  parentConversationId: string;
+  parentMessageId: string;
 }
 
 interface MentionToken {
-	kind: "agent" | "ext" | "team" | "file" | "dir" | "cmd";
-	name: string;
+  kind: "agent" | "ext" | "team" | "file" | "dir" | "cmd";
+  name: string;
 }
 
 // ── Mocks (hoisted so the vi.mock factories below may close over them) ──
 
 const h = vi.hoisted(() => {
-	const sendMessageMock = vi.fn(
-		async (
-			_convId: string,
-			_data: {
-				content: string;
-				provider?: string;
-				model?: string;
-				parentMessageId?: string;
-				editOf?: string;
-				permissionMode?: string;
-				thinkingLevel?: string;
-				attachments?: File[];
-			},
-		): Promise<{
-			userMessage: Message;
-			runId: string;
-			attachments?: unknown[];
-		}> => ({
-			userMessage: {
-				id: "real-user-id",
-				conversationId: "conv-1",
-				role: "user",
-				content: _data.content,
-				createdAt: "2024-01-01T00:00:00.000Z",
-				parentMessageId: _data.parentMessageId ?? null,
-				excluded: false,
-			} as Message,
-			runId: "run-1",
-		}),
-	);
+  const sendMessageMock = vi.fn(
+    async (
+      _convId: string,
+      _data: {
+        content: string;
+        provider?: string;
+        model?: string;
+        parentMessageId?: string;
+        editOf?: string;
+        permissionMode?: string;
+        thinkingLevel?: string;
+        attachments?: File[];
+      },
+    ): Promise<{
+      userMessage: Message;
+      runId: string;
+      attachments?: unknown[];
+    }> => ({
+      userMessage: {
+        id: "real-user-id",
+        conversationId: "conv-1",
+        role: "user",
+        content: _data.content,
+        createdAt: "2024-01-01T00:00:00.000Z",
+        parentMessageId: _data.parentMessageId ?? null,
+        excluded: false,
+      } as Message,
+      runId: "run-1",
+    }),
+  );
 
-	const retryMessageMock = vi.fn(
-		async (
-			_convId: string,
-			_messageId: string,
-			_opts?: { provider?: string; model?: string; thinkingLevel?: string },
-		): Promise<{
-			userMessage: Message;
-			retriedMessageId: string;
-			runId: string | null;
-		}> => ({
-			// The clean /retry returns the EXISTING user turn (no new row) — model
-			// it as a fixed anchor id so the placeholder-parent assertion is
-			// meaningful.
-			userMessage: {
-				id: "anchor-user-id",
-				conversationId: "conv-1",
-				role: "user",
-				content: "Q",
-				createdAt: "2024-01-01T00:00:00.000Z",
-				parentMessageId: null,
-				excluded: false,
-			} as Message,
-			retriedMessageId: _messageId,
-			runId: "run-1",
-		}),
-	);
+  const retryMessageMock = vi.fn(
+    async (
+      _convId: string,
+      _messageId: string,
+      _opts?: { provider?: string; model?: string; thinkingLevel?: string },
+    ): Promise<{
+      userMessage: Message;
+      retriedMessageId: string;
+      runId: string | null;
+    }> => ({
+      // The clean /retry returns the EXISTING user turn (no new row) — model
+      // it as a fixed anchor id so the placeholder-parent assertion is
+      // meaningful.
+      userMessage: {
+        id: "anchor-user-id",
+        conversationId: "conv-1",
+        role: "user",
+        content: "Q",
+        createdAt: "2024-01-01T00:00:00.000Z",
+        parentMessageId: null,
+        excluded: false,
+      } as Message,
+      retriedMessageId: _messageId,
+      runId: "run-1",
+    }),
+  );
 
-	const updateConversationMock = vi.fn(
-		async (_convId: string, _data: Record<string, unknown>) => ({ id: _convId }),
-	);
+  const updateConversationMock = vi.fn(async (_convId: string, _data: Record<string, unknown>) => ({
+    id: _convId,
+  }));
 
-	const createSubConversationMock = vi.fn(
-		async (
-			_parent: string,
-			_opts: {
-				parentMessageId: string;
-				agentConfigId: string;
-				title: string;
-				projectId: string;
-			},
-		) => ({ id: "sub-convo-1", agentConfigId: "agent-config-1" }),
-	);
+  const createSubConversationMock = vi.fn(
+    async (
+      _parent: string,
+      _opts: {
+        parentMessageId: string;
+        agentConfigId: string;
+        title: string;
+        projectId: string;
+      },
+    ) => ({ id: "sub-convo-1", agentConfigId: "agent-config-1" }),
+  );
 
-	const startOAuthFlowMock = vi.fn(async (_provider: string) => ({
-		authUrl: "https://example.com/oauth?x=1",
-		codeVerifier: "verifier",
-		state: "state-1",
-		provider: _provider,
-		redirectUri: "http://localhost/callback",
-	}));
+  const startOAuthFlowMock = vi.fn(async (_provider: string) => ({
+    authUrl: "https://example.com/oauth?x=1",
+    codeVerifier: "verifier",
+    state: "state-1",
+    provider: _provider,
+    redirectUri: "http://localhost/callback",
+  }));
 
-	const completeOAuthWithCodeMock = vi.fn(
-		async (_pending: { provider: string }, _input: string) => ({
-			provider: _pending.provider,
-			success: true,
-		}),
-	);
+  const completeOAuthWithCodeMock = vi.fn(
+    async (_pending: { provider: string }, _input: string) => ({
+      provider: _pending.provider,
+      success: true,
+    }),
+  );
 
-	const startStreamingMock = vi.fn((_runId: string, _convId: string): boolean => true);
+  const startStreamingMock = vi.fn((_runId: string, _convId: string): boolean => true);
 
-	const subConversationStoreState: {
-		active: SubConvoRecord | null;
-		streaming: boolean;
-		messages: Array<{ id: string; role: string; content: string; createdAt: Date }>;
-		addedMessages: Array<{ id: string; role: string; content: string; createdAt: Date }>;
-		startCalls: SubConvoRecord[];
-		endCalls: number;
-	} = {
-		active: null,
-		streaming: false,
-		messages: [],
-		addedMessages: [],
-		startCalls: [],
-		endCalls: 0,
-	};
+  const subConversationStoreState: {
+    active: SubConvoRecord | null;
+    streaming: boolean;
+    messages: Array<{ id: string; role: string; content: string; createdAt: Date }>;
+    addedMessages: Array<{ id: string; role: string; content: string; createdAt: Date }>;
+    startCalls: SubConvoRecord[];
+    endCalls: number;
+  } = {
+    active: null,
+    streaming: false,
+    messages: [],
+    addedMessages: [],
+    startCalls: [],
+    endCalls: 0,
+  };
 
-	const parseMentionsMock = vi.fn((_text: string): MentionToken[] => []);
+  const parseMentionsMock = vi.fn((_text: string): MentionToken[] => []);
 
-	const userFetchMock = vi.fn(
-		async (_url: string, _init?: RequestInit) =>
-			new Response(JSON.stringify({ id: "mem-1" }), {
-				status: 201,
-				headers: { "Content-Type": "application/json" },
-			}),
-	);
+  const userFetchMock = vi.fn(
+    async (_url: string, _init?: RequestInit) =>
+      new Response(JSON.stringify({ id: "mem-1" }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
 
-	return {
-		sendMessageMock,
-		retryMessageMock,
-		updateConversationMock,
-		createSubConversationMock,
-		startOAuthFlowMock,
-		completeOAuthWithCodeMock,
-		startStreamingMock,
-		subConversationStoreState,
-		parseMentionsMock,
-		userFetchMock,
-	};
+  return {
+    sendMessageMock,
+    retryMessageMock,
+    updateConversationMock,
+    createSubConversationMock,
+    startOAuthFlowMock,
+    completeOAuthWithCodeMock,
+    startStreamingMock,
+    subConversationStoreState,
+    parseMentionsMock,
+    userFetchMock,
+  };
 });
 
 vi.mock("$lib/api.js", () => ({
-	sendMessage: h.sendMessageMock,
-	retryMessage: h.retryMessageMock,
-	updateConversation: h.updateConversationMock,
-	createSubConversation: h.createSubConversationMock,
-	// Exports used by sibling page-handler modules — keep them present so
-	// transitive imports resolve.
-	cloneTurns: vi.fn(async () => ({
-		id: "x",
-		title: "x",
-		projectId: "p",
-		createdAt: "",
-		updatedAt: "",
-	})),
-	setMessageExcluded: vi.fn(async () => undefined),
-	fetchAllMessages: vi.fn(async () => []),
-	patchMessageContent: vi.fn(async () => ({ content: "" })),
+  sendMessage: h.sendMessageMock,
+  retryMessage: h.retryMessageMock,
+  updateConversation: h.updateConversationMock,
+  createSubConversation: h.createSubConversationMock,
+  // Exports used by sibling page-handler modules — keep them present so
+  // transitive imports resolve.
+  cloneTurns: vi.fn(async () => ({
+    id: "x",
+    title: "x",
+    projectId: "p",
+    createdAt: "",
+    updatedAt: "",
+  })),
+  setMessageExcluded: vi.fn(async () => undefined),
+  fetchAllMessages: vi.fn(async () => []),
+  patchMessageContent: vi.fn(async () => ({ content: "" })),
 }));
 
 vi.mock("$lib/oauth.js", () => ({
-	startOAuthFlow: h.startOAuthFlowMock,
-	completeOAuthWithCode: h.completeOAuthWithCodeMock,
-	// `isLoginCommand` is a pure parser — keep the real implementation so
-	// the `/login` arm exercises the real grammar instead of a stub.
-	isLoginCommand: (content: string) => {
-		const trimmed = content.trim();
-		const match = trimmed.match(/^\/login\s+(\S+)$/i);
-		if (!match) {
-			if (/^\/login\s*$/i.test(trimmed)) return { provider: "" };
-			return null;
-		}
-		return { provider: match[1]!.toLowerCase() };
-	},
-	listenForOAuthResult: vi.fn(() => () => {}),
+  startOAuthFlow: h.startOAuthFlowMock,
+  completeOAuthWithCode: h.completeOAuthWithCodeMock,
+  // `isLoginCommand` is a pure parser — keep the real implementation so
+  // the `/login` arm exercises the real grammar instead of a stub.
+  isLoginCommand: (content: string) => {
+    const trimmed = content.trim();
+    const match = trimmed.match(/^\/login\s+(\S+)$/i);
+    if (!match) {
+      if (/^\/login\s*$/i.test(trimmed)) return { provider: "" };
+      return null;
+    }
+    return { provider: match[1]!.toLowerCase() };
+  },
+  listenForOAuthResult: vi.fn(() => () => {}),
 }));
 
 vi.mock("$lib/commands.js", () => ({
-	// Real parser semantics.
-	isModelCommand: (content: string) => {
-		const trimmed = content.trim();
-		const match = trimmed.match(/^\/model(\s+.*)?$/i);
-		if (!match) return null;
-		const arg = match[1]?.trim();
-		if (!arg) return { type: "list" };
-		const slashIdx = arg.indexOf("/");
-		if (slashIdx !== -1) {
-			return {
-				type: "switch",
-				provider: arg.slice(0, slashIdx).toLowerCase(),
-				model: arg.slice(slashIdx + 1),
-			};
-		}
-		return { type: "switch", model: arg };
-	},
+  // Real parser semantics.
+  isModelCommand: (content: string) => {
+    const trimmed = content.trim();
+    const match = trimmed.match(/^\/model(\s+.*)?$/i);
+    if (!match) return null;
+    const arg = match[1]?.trim();
+    if (!arg) return { type: "list" };
+    const slashIdx = arg.indexOf("/");
+    if (slashIdx !== -1) {
+      return {
+        type: "switch",
+        provider: arg.slice(0, slashIdx).toLowerCase(),
+        model: arg.slice(slashIdx + 1),
+      };
+    }
+    return { type: "switch", model: arg };
+  },
 }));
 
 vi.mock("$lib/stores.svelte.js", () => ({
-	startStreaming: h.startStreamingMock,
-	stopStreaming: vi.fn(() => {}),
+  startStreaming: h.startStreamingMock,
+  stopStreaming: vi.fn(() => {}),
 }));
 
 vi.mock("$lib/sub-conversation-store.svelte.js", () => ({
-	subConversationStore: {
-		get activeSubConversation() {
-			return h.subConversationStoreState.active;
-		},
-		get isInSubConversation() {
-			return h.subConversationStoreState.active !== null;
-		},
-		startSubConversation(opts: SubConvoRecord) {
-			h.subConversationStoreState.active = opts;
-			h.subConversationStoreState.startCalls.push(opts);
-		},
-		endSubConversation() {
-			h.subConversationStoreState.endCalls += 1;
-			const msgs = h.subConversationStoreState.messages;
-			h.subConversationStoreState.active = null;
-			h.subConversationStoreState.messages = [];
-			return msgs;
-		},
-		addMessage(msg: { id: string; role: string; content: string; createdAt: Date }) {
-			h.subConversationStoreState.messages = [
-				...h.subConversationStoreState.messages,
-				msg,
-			];
-			h.subConversationStoreState.addedMessages.push(msg);
-		},
-		setStreaming(v: boolean) {
-			h.subConversationStoreState.streaming = v;
-		},
-	},
+  subConversationStore: {
+    get activeSubConversation() {
+      return h.subConversationStoreState.active;
+    },
+    get isInSubConversation() {
+      return h.subConversationStoreState.active !== null;
+    },
+    startSubConversation(opts: SubConvoRecord) {
+      h.subConversationStoreState.active = opts;
+      h.subConversationStoreState.startCalls.push(opts);
+    },
+    endSubConversation() {
+      h.subConversationStoreState.endCalls += 1;
+      const msgs = h.subConversationStoreState.messages;
+      h.subConversationStoreState.active = null;
+      h.subConversationStoreState.messages = [];
+      return msgs;
+    },
+    addMessage(msg: { id: string; role: string; content: string; createdAt: Date }) {
+      h.subConversationStoreState.messages = [...h.subConversationStoreState.messages, msg];
+      h.subConversationStoreState.addedMessages.push(msg);
+    },
+    setStreaming(v: boolean) {
+      h.subConversationStoreState.streaming = v;
+    },
+  },
 }));
 
 vi.mock("$lib/mention-logic.js", () => ({
-	parseMentions: h.parseMentionsMock,
+  parseMentions: h.parseMentionsMock,
 }));
 
 vi.mock("$lib/utils/fetch-policy.js", () => ({
-	userFetch: h.userFetchMock,
-	backgroundFetch: vi.fn(async () => null),
-	invalidate: vi.fn(() => {}),
+  userFetch: h.userFetchMock,
+  backgroundFetch: vi.fn(async () => null),
+  invalidate: vi.fn(() => {}),
 }));
 
 // Aliases back to the original local names so the test bodies below are
@@ -301,30 +298,32 @@ const userFetchMock = h.userFetchMock;
 // scheduler and let the test harness assert on the side-effect-free
 // host slots instead. (The sentinel ref check inside the rAF is also
 // safe since `host.sentinel()` returns null in tests.)
-(globalThis as unknown as { requestAnimationFrame: (cb: () => void) => number })
-	.requestAnimationFrame = (cb: () => void) => {
-	cb();
-	return 0;
+(
+  globalThis as unknown as { requestAnimationFrame: (cb: () => void) => number }
+).requestAnimationFrame = (cb: () => void) => {
+  cb();
+  return 0;
 };
 
 // Stub `window.open` — `/login <provider>` calls it. We assert via the
 // captured args instead of opening a real tab.
 const windowOpenCalls: Array<{ url: string; target: string }> = [];
 (globalThis as unknown as { window: Window }).window =
-	((globalThis as unknown as { window?: Window }).window ?? (globalThis as unknown as Window));
-(globalThis as unknown as { window: { open: (url: string, target: string) => void } })
-	.window.open = (url: string, target: string) => {
-	windowOpenCalls.push({ url, target });
-};
+  (globalThis as unknown as { window?: Window }).window ?? (globalThis as unknown as Window);
+(globalThis as unknown as { window: { open: (url: string, target: string) => void } }).window.open =
+  (url: string, target: string) => {
+    windowOpenCalls.push({ url, target });
+  };
 
 // Stub `fetch` for the `/api/models` and `/api/memories` endpoints used
 // by the `/model` arm and `handleSaveMemory` respectively. Tests
 // override per-call via `fetchMock.mockImplementationOnce`.
-const fetchMock = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) =>
-	new Response(JSON.stringify([]), {
-		status: 200,
-		headers: { "Content-Type": "application/json" },
-	}),
+const fetchMock = vi.fn(
+  async (_input: RequestInfo | URL, _init?: RequestInit) =>
+    new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
 );
 (globalThis as unknown as { fetch: typeof fetch }).fetch = fetchMock as unknown as typeof fetch;
 
@@ -336,1086 +335,1132 @@ type SendMessageHost = import("../send-message.js").SendMessageHost;
 // ── Helpers ──────────────────────────────────────────────────────────────
 
 function makeMessage(id: string, overrides: Partial<Message> = {}): Message {
-	return {
-		id,
-		conversationId: "conv-1",
-		role: "user",
-		content: `content-${id}`,
-		createdAt: "2024-01-01T00:00:00.000Z",
-		excluded: false,
-		parentMessageId: null,
-		...overrides,
-	} as Message;
+  return {
+    id,
+    conversationId: "conv-1",
+    role: "user",
+    content: `content-${id}`,
+    createdAt: "2024-01-01T00:00:00.000Z",
+    excluded: false,
+    parentMessageId: null,
+    ...overrides,
+  } as Message;
 }
 
 interface HostState {
-	convId: string;
-	projectId: string;
-	selectedModel: { provider: string; model: string } | null;
-	permissionModeOverride: "ask" | "auto-edit" | "yolo" | undefined;
-	thinkingLevel: string;
-	modelSupportsReasoning: boolean;
-	allMessages: Message[];
-	activeLeafId: string | null;
-	editingMessageId: string | null;
-	editContent: string;
-	activeRunId: string | null;
-	activeRunStartedAt: number | null;
-	serverStalenessMs: number | null;
-	resumedRun: boolean;
-	error: string | null;
-	chatOAuthPending: OAuthPending | null;
-	userScrolledUp: boolean;
-	stuck: boolean;
-	settingsOpen: boolean;
-	obsOpen: boolean;
-	editRetryCall: unknown;
-	editRetryTool: ToolDefinition | null;
-	savedMemories: Map<string, string>;
-	subConversations: SubConvoRecord[];
-	systemMessages: string[];
-	loadMessagesCalls: number;
-	convListRefreshCalls: number;
-	handleModelChangeCalls: Array<{ provider: string; model: string }>;
+  convId: string;
+  projectId: string;
+  selectedModel: { provider: string; model: string } | null;
+  permissionModeOverride: "ask" | "auto-edit" | "yolo" | undefined;
+  thinkingLevel: string;
+  modelSupportsReasoning: boolean;
+  allMessages: Message[];
+  activeLeafId: string | null;
+  editingMessageId: string | null;
+  editContent: string;
+  activeRunId: string | null;
+  activeRunStartedAt: number | null;
+  serverStalenessMs: number | null;
+  resumedRun: boolean;
+  error: string | null;
+  chatOAuthPending: OAuthPending | null;
+  userScrolledUp: boolean;
+  stuck: boolean;
+  settingsOpen: boolean;
+  obsOpen: boolean;
+  editRetryCall: unknown;
+  editRetryTool: ToolDefinition | null;
+  savedMemories: Map<string, string>;
+  subConversations: SubConvoRecord[];
+  systemMessages: string[];
+  loadMessagesCalls: number;
+  convListRefreshCalls: number;
+  handleModelChangeCalls: Array<{ provider: string; model: string }>;
 }
 
 function makeHost(initial: Partial<HostState> = {}): {
-	host: SendMessageHost;
-	state: HostState;
+  host: SendMessageHost;
+  state: HostState;
 } {
-	const state: HostState = {
-		convId: "conv-1",
-		projectId: "proj-1",
-		selectedModel: { provider: "openai", model: "gpt-4o" },
-		permissionModeOverride: undefined,
-		thinkingLevel: "medium",
-		modelSupportsReasoning: false,
-		allMessages: [],
-		activeLeafId: null,
-		editingMessageId: null,
-		editContent: "",
-		activeRunId: null,
-		activeRunStartedAt: null,
-		serverStalenessMs: null,
-		resumedRun: false,
-		error: null,
-		chatOAuthPending: null,
-		userScrolledUp: false,
-		stuck: false,
-		settingsOpen: false,
-		obsOpen: false,
-		editRetryCall: null,
-		editRetryTool: null,
-		savedMemories: new Map(),
-		subConversations: [],
-		systemMessages: [],
-		loadMessagesCalls: 0,
-		convListRefreshCalls: 0,
-		handleModelChangeCalls: [],
-		...initial,
-	};
-	const host: SendMessageHost = {
-		convId: () => state.convId,
-		projectId: () => state.projectId,
-		selectedModel: {
-			get: () => state.selectedModel,
-			set: (v) => { state.selectedModel = v; },
-		},
-		permissionModeOverride: {
-			get: () => state.permissionModeOverride,
-			set: (v) => { state.permissionModeOverride = v; },
-		},
-		thinkingLevel: {
-			get: () => state.thinkingLevel,
-			set: (v) => { state.thinkingLevel = v; },
-		},
-		modelSupportsReasoning: () => state.modelSupportsReasoning,
-		allMessages: {
-			get: () => state.allMessages,
-			set: (v) => { state.allMessages = v; },
-		},
-		activeLeafId: {
-			get: () => state.activeLeafId,
-			set: (v) => { state.activeLeafId = v; },
-		},
-		// Tests treat `messages` as the active path = `allMessages` (no
-		// branching in these scenarios, so the path is the full list).
-		messages: () => state.allMessages,
-		editingMessageId: {
-			get: () => state.editingMessageId,
-			set: (v) => { state.editingMessageId = v; },
-		},
-		editContent: {
-			get: () => state.editContent,
-			set: (v) => { state.editContent = v; },
-		},
-		activeRunId: {
-			get: () => state.activeRunId,
-			set: (v) => { state.activeRunId = v; },
-		},
-		activeRunStartedAt: {
-			get: () => state.activeRunStartedAt,
-			set: (v) => { state.activeRunStartedAt = v; },
-		},
-		serverStalenessMs: {
-			get: () => state.serverStalenessMs,
-			set: (v) => { state.serverStalenessMs = v; },
-		},
-		resumedRun: {
-			get: () => state.resumedRun,
-			set: (v) => { state.resumedRun = v; },
-		},
-		error: { get: () => state.error, set: (v) => { state.error = v; } },
-		chatOAuthPending: {
-			get: () => state.chatOAuthPending,
-			set: (v) => { state.chatOAuthPending = v; },
-		},
-		userScrolledUp: {
-			get: () => state.userScrolledUp,
-			set: (v) => { state.userScrolledUp = v; },
-		},
-		stuck: {
-			get: () => state.stuck,
-			set: (v) => { state.stuck = v; },
-		},
-		settingsOpen: {
-			get: () => state.settingsOpen,
-			set: (v) => { state.settingsOpen = v; },
-		},
-		obsOpen: { get: () => state.obsOpen, set: (v) => { state.obsOpen = v; } },
-		editRetryCall: {
-			get: () => state.editRetryCall as never,
-			set: (v) => { state.editRetryCall = v; },
-		},
-		editRetryTool: {
-			get: () => state.editRetryTool,
-			set: (v) => { state.editRetryTool = v; },
-		},
-		savedMemories: {
-			get: () => state.savedMemories,
-			set: (v) => { state.savedMemories = v; },
-		},
-		subConversations: {
-			get: () => state.subConversations,
-			set: (v) => { state.subConversations = v as SubConvoRecord[]; },
-		},
-		sentinel: () => null,
-		convList: () => ({ refresh: () => { state.convListRefreshCalls += 1; } }),
-		addSystemMessage: (text) => { state.systemMessages.push(text); },
-		loadMessages: async () => { state.loadMessagesCalls += 1; },
-		makeOptimisticMessage: (overrides) => ({
-			id: "",
-			role: "user",
-			content: "",
-			thinkingContent: null,
-			model: null,
-			provider: null,
-			usage: null,
-			runId: null,
-			parentMessageId: null,
-			excluded: false,
-			createdAt: new Date().toISOString(),
-			...overrides,
-		} as Message),
-		handleModelChange: (provider, model) => {
-			state.handleModelChangeCalls.push({ provider, model });
-			state.selectedModel = { provider, model };
-		},
-		// Picks the most-recently-created message id as the leaf — matches
-		// the page's actual `computeLatestLeaf` semantic on a flat list.
-		computeLatestLeaf: (messages) =>
-			messages.length === 0 ? null : messages[messages.length - 1]!.id,
-		findLeafByMessageId: (messages, id) => {
-			// Test-only stub: matches the real implementation's contract —
-			// always returns a string (falls back to input id when no
-			// children are found).
-			return messages.find((m) => m.id === id)?.id ?? id;
-		},
-	};
-	return { host, state };
+  const state: HostState = {
+    convId: "conv-1",
+    projectId: "proj-1",
+    selectedModel: { provider: "openai", model: "gpt-4o" },
+    permissionModeOverride: undefined,
+    thinkingLevel: "medium",
+    modelSupportsReasoning: false,
+    allMessages: [],
+    activeLeafId: null,
+    editingMessageId: null,
+    editContent: "",
+    activeRunId: null,
+    activeRunStartedAt: null,
+    serverStalenessMs: null,
+    resumedRun: false,
+    error: null,
+    chatOAuthPending: null,
+    userScrolledUp: false,
+    stuck: false,
+    settingsOpen: false,
+    obsOpen: false,
+    editRetryCall: null,
+    editRetryTool: null,
+    savedMemories: new Map(),
+    subConversations: [],
+    systemMessages: [],
+    loadMessagesCalls: 0,
+    convListRefreshCalls: 0,
+    handleModelChangeCalls: [],
+    ...initial,
+  };
+  const host: SendMessageHost = {
+    convId: () => state.convId,
+    projectId: () => state.projectId,
+    selectedModel: {
+      get: () => state.selectedModel,
+      set: (v) => {
+        state.selectedModel = v;
+      },
+    },
+    permissionModeOverride: {
+      get: () => state.permissionModeOverride,
+      set: (v) => {
+        state.permissionModeOverride = v;
+      },
+    },
+    thinkingLevel: {
+      get: () => state.thinkingLevel,
+      set: (v) => {
+        state.thinkingLevel = v;
+      },
+    },
+    modelSupportsReasoning: () => state.modelSupportsReasoning,
+    allMessages: {
+      get: () => state.allMessages,
+      set: (v) => {
+        state.allMessages = v;
+      },
+    },
+    activeLeafId: {
+      get: () => state.activeLeafId,
+      set: (v) => {
+        state.activeLeafId = v;
+      },
+    },
+    // Tests treat `messages` as the active path = `allMessages` (no
+    // branching in these scenarios, so the path is the full list).
+    messages: () => state.allMessages,
+    editingMessageId: {
+      get: () => state.editingMessageId,
+      set: (v) => {
+        state.editingMessageId = v;
+      },
+    },
+    editContent: {
+      get: () => state.editContent,
+      set: (v) => {
+        state.editContent = v;
+      },
+    },
+    activeRunId: {
+      get: () => state.activeRunId,
+      set: (v) => {
+        state.activeRunId = v;
+      },
+    },
+    activeRunStartedAt: {
+      get: () => state.activeRunStartedAt,
+      set: (v) => {
+        state.activeRunStartedAt = v;
+      },
+    },
+    serverStalenessMs: {
+      get: () => state.serverStalenessMs,
+      set: (v) => {
+        state.serverStalenessMs = v;
+      },
+    },
+    resumedRun: {
+      get: () => state.resumedRun,
+      set: (v) => {
+        state.resumedRun = v;
+      },
+    },
+    error: {
+      get: () => state.error,
+      set: (v) => {
+        state.error = v;
+      },
+    },
+    chatOAuthPending: {
+      get: () => state.chatOAuthPending,
+      set: (v) => {
+        state.chatOAuthPending = v;
+      },
+    },
+    userScrolledUp: {
+      get: () => state.userScrolledUp,
+      set: (v) => {
+        state.userScrolledUp = v;
+      },
+    },
+    stuck: {
+      get: () => state.stuck,
+      set: (v) => {
+        state.stuck = v;
+      },
+    },
+    settingsOpen: {
+      get: () => state.settingsOpen,
+      set: (v) => {
+        state.settingsOpen = v;
+      },
+    },
+    obsOpen: {
+      get: () => state.obsOpen,
+      set: (v) => {
+        state.obsOpen = v;
+      },
+    },
+    editRetryCall: {
+      get: () => state.editRetryCall as never,
+      set: (v) => {
+        state.editRetryCall = v;
+      },
+    },
+    editRetryTool: {
+      get: () => state.editRetryTool,
+      set: (v) => {
+        state.editRetryTool = v;
+      },
+    },
+    savedMemories: {
+      get: () => state.savedMemories,
+      set: (v) => {
+        state.savedMemories = v;
+      },
+    },
+    subConversations: {
+      get: () => state.subConversations,
+      set: (v) => {
+        state.subConversations = v as SubConvoRecord[];
+      },
+    },
+    sentinel: () => null,
+    convList: () => ({
+      refresh: () => {
+        state.convListRefreshCalls += 1;
+      },
+    }),
+    addSystemMessage: (text) => {
+      state.systemMessages.push(text);
+    },
+    loadMessages: async () => {
+      state.loadMessagesCalls += 1;
+    },
+    makeOptimisticMessage: (overrides) =>
+      ({
+        id: "",
+        role: "user",
+        content: "",
+        thinkingContent: null,
+        model: null,
+        provider: null,
+        usage: null,
+        runId: null,
+        parentMessageId: null,
+        excluded: false,
+        createdAt: new Date().toISOString(),
+        ...overrides,
+      }) as Message,
+    handleModelChange: (provider, model) => {
+      state.handleModelChangeCalls.push({ provider, model });
+      state.selectedModel = { provider, model };
+    },
+    // Picks the most-recently-created message id as the leaf — matches
+    // the page's actual `computeLatestLeaf` semantic on a flat list.
+    computeLatestLeaf: (messages) =>
+      messages.length === 0 ? null : messages[messages.length - 1]!.id,
+    findLeafByMessageId: (messages, id) => {
+      // Test-only stub: matches the real implementation's contract —
+      // always returns a string (falls back to input id when no
+      // children are found).
+      return messages.find((m) => m.id === id)?.id ?? id;
+    },
+  };
+  return { host, state };
 }
 
 // ── Per-test reset ──────────────────────────────────────────────────────
 
 beforeEach(() => {
-	sendMessageMock.mockClear();
-	retryMessageMock.mockClear();
-	updateConversationMock.mockClear();
-	createSubConversationMock.mockClear();
-	startOAuthFlowMock.mockClear();
-	completeOAuthWithCodeMock.mockClear();
-	startStreamingMock.mockClear();
-	parseMentionsMock.mockClear();
-	userFetchMock.mockClear();
-	fetchMock.mockClear();
-	windowOpenCalls.length = 0;
-	subConversationStoreState.active = null;
-	subConversationStoreState.streaming = false;
-	subConversationStoreState.messages = [];
-	subConversationStoreState.addedMessages = [];
-	subConversationStoreState.startCalls = [];
-	subConversationStoreState.endCalls = 0;
-	// Reset implementations to defaults — individual tests override per-call.
-	sendMessageMock.mockImplementation(async (_convId, data) => ({
-		userMessage: {
-			id: "real-user-id",
-			conversationId: "conv-1",
-			role: "user",
-			content: data.content,
-			createdAt: "2024-01-01T00:00:00.000Z",
-			parentMessageId: data.parentMessageId ?? null,
-			excluded: false,
-		} as Message,
-		runId: "run-1",
-	}));
-	completeOAuthWithCodeMock.mockImplementation(async (pending, _input) => ({
-		provider: pending.provider,
-		success: true,
-	}));
-	startOAuthFlowMock.mockImplementation(async (provider) => ({
-		authUrl: "https://example.com/oauth?x=1",
-		codeVerifier: "v",
-		state: "s",
-		provider,
-		redirectUri: "http://localhost/cb",
-	}));
-	startStreamingMock.mockImplementation(() => true);
-	parseMentionsMock.mockImplementation(() => []);
-	userFetchMock.mockImplementation(async () =>
-		new Response(JSON.stringify({ id: "mem-1" }), {
-			status: 201,
-			headers: { "Content-Type": "application/json" },
-		}),
-	);
-	fetchMock.mockImplementation(async () =>
-		new Response(JSON.stringify([]), {
-			status: 200,
-			headers: { "Content-Type": "application/json" },
-		}),
-	);
+  sendMessageMock.mockClear();
+  retryMessageMock.mockClear();
+  updateConversationMock.mockClear();
+  createSubConversationMock.mockClear();
+  startOAuthFlowMock.mockClear();
+  completeOAuthWithCodeMock.mockClear();
+  startStreamingMock.mockClear();
+  parseMentionsMock.mockClear();
+  userFetchMock.mockClear();
+  fetchMock.mockClear();
+  windowOpenCalls.length = 0;
+  subConversationStoreState.active = null;
+  subConversationStoreState.streaming = false;
+  subConversationStoreState.messages = [];
+  subConversationStoreState.addedMessages = [];
+  subConversationStoreState.startCalls = [];
+  subConversationStoreState.endCalls = 0;
+  // Reset implementations to defaults — individual tests override per-call.
+  sendMessageMock.mockImplementation(async (_convId, data) => ({
+    userMessage: {
+      id: "real-user-id",
+      conversationId: "conv-1",
+      role: "user",
+      content: data.content,
+      createdAt: "2024-01-01T00:00:00.000Z",
+      parentMessageId: data.parentMessageId ?? null,
+      excluded: false,
+    } as Message,
+    runId: "run-1",
+  }));
+  completeOAuthWithCodeMock.mockImplementation(async (pending, _input) => ({
+    provider: pending.provider,
+    success: true,
+  }));
+  startOAuthFlowMock.mockImplementation(async (provider) => ({
+    authUrl: "https://example.com/oauth?x=1",
+    codeVerifier: "v",
+    state: "s",
+    provider,
+    redirectUri: "http://localhost/cb",
+  }));
+  startStreamingMock.mockImplementation(() => true);
+  parseMentionsMock.mockImplementation(() => []);
+  userFetchMock.mockImplementation(
+    async () =>
+      new Response(JSON.stringify({ id: "mem-1" }), {
+        status: 201,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
+  fetchMock.mockImplementation(
+    async () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+  );
 });
 
 // ── Tests ────────────────────────────────────────────────────────────────
 
 describe("handleSend (happy path)", () => {
-	test("calls sendMessage with model + thinkingLevel + permissionMode and sets streaming state", async () => {
-		const { host, state } = makeHost({
-			modelSupportsReasoning: true,
-			thinkingLevel: "high",
-			permissionModeOverride: "yolo",
-		});
-		const handlers = makeSendMessage(host);
+  test("calls sendMessage with model + thinkingLevel + permissionMode and sets streaming state", async () => {
+    const { host, state } = makeHost({
+      modelSupportsReasoning: true,
+      thinkingLevel: "high",
+      permissionModeOverride: "yolo",
+    });
+    const handlers = makeSendMessage(host);
 
-		await handlers.handleSend("hello world");
+    await handlers.handleSend("hello world");
 
-		expect(sendMessageMock).toHaveBeenCalledTimes(1);
-		const [convArg, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(convArg).toBe("conv-1");
-		expect(dataArg.content).toBe("hello world");
-		expect(dataArg.provider).toBe("openai");
-		expect(dataArg.model).toBe("gpt-4o");
-		expect(dataArg.thinkingLevel).toBe("high");
-		expect(dataArg.permissionMode).toBe("yolo");
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    const [convArg, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(convArg).toBe("conv-1");
+    expect(dataArg.content).toBe("hello world");
+    expect(dataArg.provider).toBe("openai");
+    expect(dataArg.model).toBe("gpt-4o");
+    expect(dataArg.thinkingLevel).toBe("high");
+    expect(dataArg.permissionMode).toBe("yolo");
 
-		// Streaming bookkeeping.
-		expect(startStreamingMock).toHaveBeenCalledWith("run-1", "conv-1");
-		expect(state.activeRunId).toBe("run-1");
-		expect(state.activeRunStartedAt).not.toBeNull();
-		expect(state.serverStalenessMs).toBe(0);
-		expect(state.resumedRun).toBe(false);
-		expect(state.error).toBeNull();
-		expect(state.userScrolledUp).toBe(false);
-		// Send re-engages stick-to-bottom synchronously (initial false → true)
-		// so the new turn is followed regardless of the async sentinel IO.
-		expect(state.stuck).toBe(true);
+    // Streaming bookkeeping.
+    expect(startStreamingMock).toHaveBeenCalledWith("run-1", "conv-1");
+    expect(state.activeRunId).toBe("run-1");
+    expect(state.activeRunStartedAt).not.toBeNull();
+    expect(state.serverStalenessMs).toBe(0);
+    expect(state.resumedRun).toBe(false);
+    expect(state.error).toBeNull();
+    expect(state.userScrolledUp).toBe(false);
+    // Send re-engages stick-to-bottom synchronously (initial false → true)
+    // so the new turn is followed regardless of the async sentinel IO.
+    expect(state.stuck).toBe(true);
 
-		// Optimistic + real user msg + assistant placeholder = 2 (real user
-		// replaces optimistic in place + 1 assistant placeholder).
-		expect(state.allMessages.length).toBe(2);
-		expect(state.allMessages[0]!.id).toBe("real-user-id");
-		expect(state.allMessages[1]!.id).toBe("streaming-run-1");
-		expect(state.activeLeafId).toBe("streaming-run-1");
+    // Optimistic + real user msg + assistant placeholder = 2 (real user
+    // replaces optimistic in place + 1 assistant placeholder).
+    expect(state.allMessages.length).toBe(2);
+    expect(state.allMessages[0]!.id).toBe("real-user-id");
+    expect(state.allMessages[1]!.id).toBe("streaming-run-1");
+    expect(state.activeLeafId).toBe("streaming-run-1");
 
-		// Side-panel close on send.
-		expect(state.settingsOpen).toBe(false);
-		expect(state.obsOpen).toBe(false);
-	});
+    // Side-panel close on send.
+    expect(state.settingsOpen).toBe(false);
+    expect(state.obsOpen).toBe(false);
+  });
 
-	test("omits thinkingLevel when modelSupportsReasoning is false", async () => {
-		const { host } = makeHost({
-			modelSupportsReasoning: false,
-			thinkingLevel: "high",
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("hi");
-		const [, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(dataArg.thinkingLevel).toBeUndefined();
-	});
+  test("omits thinkingLevel when modelSupportsReasoning is false", async () => {
+    const { host } = makeHost({
+      modelSupportsReasoning: false,
+      thinkingLevel: "high",
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("hi");
+    const [, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(dataArg.thinkingLevel).toBeUndefined();
+  });
 
-	test("auto-titles conversation when sending the first user message", async () => {
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("First user prompt — should become the title");
-		// Title PATCH fires after the user-message count check.
-		await Promise.resolve();
-		expect(updateConversationMock).toHaveBeenCalled();
-		const [convArg, dataArg] = updateConversationMock.mock.calls[0]!;
-		expect(convArg).toBe("conv-1");
-		expect(dataArg).toMatchObject({
-			title: "First user prompt — should become the title",
-		});
-		// Wait one more microtask for the .then() chain to land.
-		await Promise.resolve();
-		expect(state.convListRefreshCalls).toBeGreaterThanOrEqual(0);
-	});
+  test("auto-titles conversation when sending the first user message", async () => {
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("First user prompt — should become the title");
+    // Title PATCH fires after the user-message count check.
+    await Promise.resolve();
+    expect(updateConversationMock).toHaveBeenCalled();
+    const [convArg, dataArg] = updateConversationMock.mock.calls[0]!;
+    expect(convArg).toBe("conv-1");
+    expect(dataArg).toMatchObject({
+      title: "First user prompt — should become the title",
+    });
+    // Wait one more microtask for the .then() chain to land.
+    await Promise.resolve();
+    expect(state.convListRefreshCalls).toBeGreaterThanOrEqual(0);
+  });
 
-	test("on sendMessage failure: rolls back optimistic message and sets error", async () => {
-		sendMessageMock.mockImplementationOnce(async () => {
-			throw new Error("network down");
-		});
-		const { host, state } = makeHost({
-			allMessages: [makeMessage("preexisting")],
-			activeLeafId: "preexisting",
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("oops");
-		expect(state.error).toBe("Failed to send message");
-		// Optimistic message removed; preexisting still present.
-		expect(state.allMessages.map((m) => m.id)).toEqual(["preexisting"]);
-		expect(state.activeLeafId).toBe("preexisting");
-	});
+  test("on sendMessage failure: rolls back optimistic message and sets error", async () => {
+    sendMessageMock.mockImplementationOnce(async () => {
+      throw new Error("network down");
+    });
+    const { host, state } = makeHost({
+      allMessages: [makeMessage("preexisting")],
+      activeLeafId: "preexisting",
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("oops");
+    expect(state.error).toBe("Failed to send message");
+    // Optimistic message removed; preexisting still present.
+    expect(state.allMessages.map((m) => m.id)).toEqual(["preexisting"]);
+    expect(state.activeLeafId).toBe("preexisting");
+  });
 
-	test("when startStreaming returns false (run already finished): clears active-run slots and reloads", async () => {
-		startStreamingMock.mockImplementationOnce(() => false);
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("hi");
-		expect(state.activeRunId).toBeNull();
-		expect(state.activeRunStartedAt).toBeNull();
-		expect(state.serverStalenessMs).toBeNull();
-		expect(state.loadMessagesCalls).toBe(1);
-	});
+  test("when startStreaming returns false (run already finished): clears active-run slots and reloads", async () => {
+    startStreamingMock.mockImplementationOnce(() => false);
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("hi");
+    expect(state.activeRunId).toBeNull();
+    expect(state.activeRunStartedAt).toBeNull();
+    expect(state.serverStalenessMs).toBeNull();
+    expect(state.loadMessagesCalls).toBe(1);
+  });
 
-	test("activeLeafId pointing at a streaming placeholder sends no parent (server anchors to latest leaf)", async () => {
-		// A `streaming-<runId>` placeholder is never persisted server-side,
-		// so it can't be a parent. The client must NOT fall back to the
-		// placeholder's parent (the prior *user* message) — that forked a
-		// spurious side branch when a follow-up was sent in the post-stream
-		// pre-reconcile window. Sending no parent lets the server anchor
-		// the turn to the conversation's real latest leaf instead.
-		const { host } = makeHost({
-			allMessages: [
-				makeMessage("u1"),
-				makeMessage("streaming-runX", {
-					id: "streaming-runX",
-					parentMessageId: "u1",
-				}),
-			],
-			activeLeafId: "streaming-runX",
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("follow up");
-		const [, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(dataArg.parentMessageId).toBeUndefined();
-	});
+  test("activeLeafId pointing at a streaming placeholder sends no parent (server anchors to latest leaf)", async () => {
+    // A `streaming-<runId>` placeholder is never persisted server-side,
+    // so it can't be a parent. The client must NOT fall back to the
+    // placeholder's parent (the prior *user* message) — that forked a
+    // spurious side branch when a follow-up was sent in the post-stream
+    // pre-reconcile window. Sending no parent lets the server anchor
+    // the turn to the conversation's real latest leaf instead.
+    const { host } = makeHost({
+      allMessages: [
+        makeMessage("u1"),
+        makeMessage("streaming-runX", {
+          id: "streaming-runX",
+          parentMessageId: "u1",
+        }),
+      ],
+      activeLeafId: "streaming-runX",
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("follow up");
+    const [, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(dataArg.parentMessageId).toBeUndefined();
+  });
 });
 
 describe("handleSend (/login arm)", () => {
-	test("`/login` with no provider shows usage", async () => {
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("/login");
-		expect(state.systemMessages).toEqual([
-			"Usage: /login openai or /login google",
-		]);
-		expect(sendMessageMock).not.toHaveBeenCalled();
-		expect(startOAuthFlowMock).not.toHaveBeenCalled();
-	});
+  test("`/login` with no provider shows usage", async () => {
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("/login");
+    expect(state.systemMessages).toEqual(["Usage: /login openai or /login google"]);
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(startOAuthFlowMock).not.toHaveBeenCalled();
+  });
 
-	test("`/login anthropic` returns the Settings hint", async () => {
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("/login anthropic");
-		expect(state.systemMessages[0]).toContain("OAuth is not available for Anthropic");
-		expect(sendMessageMock).not.toHaveBeenCalled();
-	});
+  test("`/login anthropic` returns the Settings hint", async () => {
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("/login anthropic");
+    expect(state.systemMessages[0]).toContain("OAuth is not available for Anthropic");
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
 
-	test("`/login openai` opens OAuth, sets pending, opens auth URL", async () => {
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("/login openai");
-		expect(startOAuthFlowMock).toHaveBeenCalledWith("openai");
-		expect(state.chatOAuthPending).not.toBeNull();
-		expect(state.chatOAuthPending?.provider).toBe("openai");
-		expect(windowOpenCalls.length).toBe(1);
-		expect(windowOpenCalls[0]!.url).toContain("https://example.com/oauth");
-		expect(state.systemMessages[0]).toContain("Opening OpenAI login");
-		expect(sendMessageMock).not.toHaveBeenCalled();
-	});
+  test("`/login openai` opens OAuth, sets pending, opens auth URL", async () => {
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("/login openai");
+    expect(startOAuthFlowMock).toHaveBeenCalledWith("openai");
+    expect(state.chatOAuthPending).not.toBeNull();
+    expect(state.chatOAuthPending?.provider).toBe("openai");
+    expect(windowOpenCalls.length).toBe(1);
+    expect(windowOpenCalls[0]!.url).toContain("https://example.com/oauth");
+    expect(state.systemMessages[0]).toContain("Opening OpenAI login");
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
 
-	test("`/login bogus` (unknown provider) shows usage, does not OAuth", async () => {
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("/login bogus");
-		// `isLoginCommand` returns `{ provider: 'bogus' }` so we hit the
-		// final unknown-provider arm.
-		expect(state.systemMessages.at(-1)).toBe(
-			"Usage: /login openai or /login google",
-		);
-		expect(startOAuthFlowMock).not.toHaveBeenCalled();
-		expect(sendMessageMock).not.toHaveBeenCalled();
-	});
+  test("`/login bogus` (unknown provider) shows usage, does not OAuth", async () => {
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("/login bogus");
+    // `isLoginCommand` returns `{ provider: 'bogus' }` so we hit the
+    // final unknown-provider arm.
+    expect(state.systemMessages.at(-1)).toBe("Usage: /login openai or /login google");
+    expect(startOAuthFlowMock).not.toHaveBeenCalled();
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("handleSend (/model arm)", () => {
-	test("`/model` (no arg) lists available models", async () => {
-		fetchMock.mockImplementationOnce(async () =>
-			new Response(
-				JSON.stringify([
-					{ provider: "openai", model: "gpt-4o", available: true },
-					{ provider: "anthropic", model: "claude-4", available: false },
-				]),
-				{ status: 200, headers: { "Content-Type": "application/json" } },
-			),
-		);
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("/model");
-		expect(state.systemMessages.length).toBe(1);
-		expect(state.systemMessages[0]).toContain("Available models");
-		expect(state.systemMessages[0]).toContain("openai/gpt-4o");
-		// Unavailable models filtered out.
-		expect(state.systemMessages[0]).not.toContain("claude-4");
-		expect(sendMessageMock).not.toHaveBeenCalled();
-	});
+  test("`/model` (no arg) lists available models", async () => {
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Response(
+          JSON.stringify([
+            { provider: "openai", model: "gpt-4o", available: true },
+            { provider: "anthropic", model: "claude-4", available: false },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("/model");
+    expect(state.systemMessages.length).toBe(1);
+    expect(state.systemMessages[0]).toContain("Available models");
+    expect(state.systemMessages[0]).toContain("openai/gpt-4o");
+    // Unavailable models filtered out.
+    expect(state.systemMessages[0]).not.toContain("claude-4");
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
 
-	test("`/model` with no available models shows the API-key hint", async () => {
-		fetchMock.mockImplementationOnce(async () =>
-			new Response(JSON.stringify([]), {
-				status: 200,
-				headers: { "Content-Type": "application/json" },
-			}),
-		);
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("/model");
-		expect(state.systemMessages[0]).toContain("No models available");
-	});
+  test("`/model` with no available models shows the API-key hint", async () => {
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify([]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("/model");
+    expect(state.systemMessages[0]).toContain("No models available");
+  });
 
-	test("`/model openai/gpt-4o` switches model when found", async () => {
-		fetchMock.mockImplementationOnce(async () =>
-			new Response(
-				JSON.stringify([
-					{ provider: "openai", model: "gpt-4o", available: true },
-				]),
-				{ status: 200, headers: { "Content-Type": "application/json" } },
-			),
-		);
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("/model openai/gpt-4o");
-		expect(state.handleModelChangeCalls).toEqual([
-			{ provider: "openai", model: "gpt-4o" },
-		]);
-		expect(state.systemMessages[0]).toBe("Switched to openai/gpt-4o");
-		expect(sendMessageMock).not.toHaveBeenCalled();
-	});
+  test("`/model openai/gpt-4o` switches model when found", async () => {
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify([{ provider: "openai", model: "gpt-4o", available: true }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("/model openai/gpt-4o");
+    expect(state.handleModelChangeCalls).toEqual([{ provider: "openai", model: "gpt-4o" }]);
+    expect(state.systemMessages[0]).toBe("Switched to openai/gpt-4o");
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
 
-	test("`/model nonexistent` shows not-found", async () => {
-		fetchMock.mockImplementationOnce(async () =>
-			new Response(
-				JSON.stringify([
-					{ provider: "openai", model: "gpt-4o", available: true },
-				]),
-				{ status: 200, headers: { "Content-Type": "application/json" } },
-			),
-		);
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("/model bogus/model");
-		expect(state.systemMessages[0]).toContain("Model not found");
-		expect(state.handleModelChangeCalls).toEqual([]);
-		expect(sendMessageMock).not.toHaveBeenCalled();
-	});
+  test("`/model nonexistent` shows not-found", async () => {
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify([{ provider: "openai", model: "gpt-4o", available: true }]), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("/model bogus/model");
+    expect(state.systemMessages[0]).toContain("Model not found");
+    expect(state.handleModelChangeCalls).toEqual([]);
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
 
-	test("`/model gpt-4o` with multiple matches asks user to specify provider", async () => {
-		fetchMock.mockImplementationOnce(async () =>
-			new Response(
-				JSON.stringify([
-					{ provider: "openai", model: "gpt-4o", available: true },
-					{ provider: "azure", model: "gpt-4o", available: true },
-				]),
-				{ status: 200, headers: { "Content-Type": "application/json" } },
-			),
-		);
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("/model gpt-4o");
-		expect(state.systemMessages[0]).toContain("Multiple models match");
-		expect(state.handleModelChangeCalls).toEqual([]);
-	});
+  test("`/model gpt-4o` with multiple matches asks user to specify provider", async () => {
+    fetchMock.mockImplementationOnce(
+      async () =>
+        new Response(
+          JSON.stringify([
+            { provider: "openai", model: "gpt-4o", available: true },
+            { provider: "azure", model: "gpt-4o", available: true },
+          ]),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+    );
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("/model gpt-4o");
+    expect(state.systemMessages[0]).toContain("Multiple models match");
+    expect(state.handleModelChangeCalls).toEqual([]);
+  });
 });
 
 describe("handleSend (OAuth pending arm)", () => {
-	test("a pasted callback URL completes pending OAuth and clears the pending state", async () => {
-		const pending: OAuthPending = {
-			authUrl: "https://example.com/oauth",
-			codeVerifier: "v",
-			state: "s",
-			provider: "openai",
-			redirectUri: "http://localhost/cb",
-		};
-		const { host, state } = makeHost({ chatOAuthPending: pending });
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("http://localhost/cb?code=abc&state=s");
-		expect(completeOAuthWithCodeMock).toHaveBeenCalledTimes(1);
-		expect(state.chatOAuthPending).toBeNull();
-		expect(state.systemMessages[0]).toContain("OpenAI connected successfully");
-		expect(sendMessageMock).not.toHaveBeenCalled();
-	});
+  test("a pasted callback URL completes pending OAuth and clears the pending state", async () => {
+    const pending: OAuthPending = {
+      authUrl: "https://example.com/oauth",
+      codeVerifier: "v",
+      state: "s",
+      provider: "openai",
+      redirectUri: "http://localhost/cb",
+    };
+    const { host, state } = makeHost({ chatOAuthPending: pending });
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("http://localhost/cb?code=abc&state=s");
+    expect(completeOAuthWithCodeMock).toHaveBeenCalledTimes(1);
+    expect(state.chatOAuthPending).toBeNull();
+    expect(state.systemMessages[0]).toContain("OpenAI connected successfully");
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
 
-	test("OAuth failure surfaces the error as a system message", async () => {
-		completeOAuthWithCodeMock.mockImplementationOnce(async () => ({
-			provider: "openai",
-			success: false,
-			error: "bad code",
-		}));
-		const { host, state } = makeHost({
-			chatOAuthPending: {
-				authUrl: "x",
-				codeVerifier: "v",
-				state: "s",
-				provider: "openai",
-				redirectUri: "x",
-			},
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("anything");
-		expect(state.systemMessages[0]).toBe("OAuth failed: bad code");
-		expect(state.chatOAuthPending).toBeNull();
-	});
+  test("OAuth failure surfaces the error as a system message", async () => {
+    completeOAuthWithCodeMock.mockImplementationOnce(async () => ({
+      provider: "openai",
+      success: false,
+      error: "bad code",
+    }));
+    const { host, state } = makeHost({
+      chatOAuthPending: {
+        authUrl: "x",
+        codeVerifier: "v",
+        state: "s",
+        provider: "openai",
+        redirectUri: "x",
+      },
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("anything");
+    expect(state.systemMessages[0]).toBe("OAuth failed: bad code");
+    expect(state.chatOAuthPending).toBeNull();
+  });
 });
 
 describe("handleSend (mention parsing)", () => {
-	test("@agent mention triggers startSubConvo (sub-convo store + createSubConversation)", async () => {
-		parseMentionsMock.mockImplementationOnce(() => [
-			{ kind: "agent", name: "researcher" } as MentionToken,
-		]);
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("ping !researcher");
-		// Yield once for the fire-and-forget startSubConvo() to land.
-		await Promise.resolve();
-		await Promise.resolve();
-		expect(createSubConversationMock).toHaveBeenCalledTimes(1);
-		const [parentArg, optsArg] = createSubConversationMock.mock.calls[0]!;
-		expect(parentArg).toBe("conv-1");
-		expect(optsArg.title).toContain("researcher");
-		expect(optsArg.parentMessageId).toBe("real-user-id");
-		expect(subConversationStoreState.startCalls.length).toBe(1);
-		expect(subConversationStoreState.startCalls[0]!.agentName).toBe(
-			"researcher",
-		);
-		expect(state.subConversations.length).toBe(1);
-	});
+  test("@agent mention triggers startSubConvo (sub-convo store + createSubConversation)", async () => {
+    parseMentionsMock.mockImplementationOnce(() => [
+      { kind: "agent", name: "researcher" } as MentionToken,
+    ]);
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("ping !researcher");
+    // Yield once for the fire-and-forget startSubConvo() to land.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(createSubConversationMock).toHaveBeenCalledTimes(1);
+    const [parentArg, optsArg] = createSubConversationMock.mock.calls[0]!;
+    expect(parentArg).toBe("conv-1");
+    expect(optsArg.title).toContain("researcher");
+    expect(optsArg.parentMessageId).toBe("real-user-id");
+    expect(subConversationStoreState.startCalls.length).toBe(1);
+    expect(subConversationStoreState.startCalls[0]!.agentName).toBe("researcher");
+    expect(state.subConversations.length).toBe(1);
+  });
 
-	test("non-agent mentions do NOT trigger startSubConvo", async () => {
-		parseMentionsMock.mockImplementationOnce(() => [
-			{ kind: "file", name: "src/foo.ts" } as MentionToken,
-		]);
-		const { host } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("look at @foo.ts");
-		await Promise.resolve();
-		expect(createSubConversationMock).not.toHaveBeenCalled();
-	});
+  test("non-agent mentions do NOT trigger startSubConvo", async () => {
+    parseMentionsMock.mockImplementationOnce(() => [
+      { kind: "file", name: "src/foo.ts" } as MentionToken,
+    ]);
+    const { host } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("look at @foo.ts");
+    await Promise.resolve();
+    expect(createSubConversationMock).not.toHaveBeenCalled();
+  });
 
-	test("parseMentions runs on the LITERAL content (never re-parsed)", async () => {
-		// Parser must see the raw text. We assert the input and let the
-		// stub return whatever — the wiring guarantee is that the call
-		// site passes `content` unchanged.
-		const { host } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("/[cmd:expand-me] then !researcher");
-		expect(parseMentionsMock).toHaveBeenCalledWith(
-			"/[cmd:expand-me] then !researcher",
-		);
-	});
+  test("parseMentions runs on the LITERAL content (never re-parsed)", async () => {
+    // Parser must see the raw text. We assert the input and let the
+    // stub return whatever — the wiring guarantee is that the call
+    // site passes `content` unchanged.
+    const { host } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("/[cmd:expand-me] then !researcher");
+    expect(parseMentionsMock).toHaveBeenCalledWith("/[cmd:expand-me] then !researcher");
+  });
 });
 
 describe("handleSend (reactivity / fresh reads)", () => {
-	test("subsequent calls observe mutated host getters (selectedModel, thinkingLevel)", async () => {
-		const { host, state } = makeHost({
-			modelSupportsReasoning: true,
-			thinkingLevel: "low",
-			selectedModel: { provider: "openai", model: "gpt-4o" },
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleSend("first");
-		// Mutate.
-		state.thinkingLevel = "high";
-		state.selectedModel = { provider: "anthropic", model: "claude-4" };
-		await handlers.handleSend("second");
-		expect(sendMessageMock.mock.calls[0]![1].thinkingLevel).toBe("low");
-		expect(sendMessageMock.mock.calls[0]![1].provider).toBe("openai");
-		expect(sendMessageMock.mock.calls[1]![1].thinkingLevel).toBe("high");
-		expect(sendMessageMock.mock.calls[1]![1].provider).toBe("anthropic");
-	});
+  test("subsequent calls observe mutated host getters (selectedModel, thinkingLevel)", async () => {
+    const { host, state } = makeHost({
+      modelSupportsReasoning: true,
+      thinkingLevel: "low",
+      selectedModel: { provider: "openai", model: "gpt-4o" },
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleSend("first");
+    // Mutate.
+    state.thinkingLevel = "high";
+    state.selectedModel = { provider: "anthropic", model: "claude-4" };
+    await handlers.handleSend("second");
+    expect(sendMessageMock.mock.calls[0]![1].thinkingLevel).toBe("low");
+    expect(sendMessageMock.mock.calls[0]![1].provider).toBe("openai");
+    expect(sendMessageMock.mock.calls[1]![1].thinkingLevel).toBe("high");
+    expect(sendMessageMock.mock.calls[1]![1].provider).toBe("anthropic");
+  });
 });
 
 describe("handleEditConfirm", () => {
-	test("forks a sibling: calls sendMessage with editOf=msg.id and pushes new turn + placeholder", async () => {
-		const target = makeMessage("u-orig", { content: "v1" });
-		const { host, state } = makeHost({
-			allMessages: [target],
-			activeLeafId: "u-orig",
-			editingMessageId: "u-orig",
-			editContent: "v2",
-			modelSupportsReasoning: true,
-			thinkingLevel: "medium",
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleEditConfirm(target);
-		expect(sendMessageMock).toHaveBeenCalledTimes(1);
-		const [, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(dataArg.editOf).toBe("u-orig");
-		expect(dataArg.content).toBe("v2");
-		expect(dataArg.thinkingLevel).toBe("medium");
-		// editingMessageId cleared on submit.
-		expect(state.editingMessageId).toBeNull();
-		// New user message (the sibling) + assistant placeholder appended.
-		expect(state.allMessages.find((m) => m.id === "real-user-id")).toBeDefined();
-		expect(state.allMessages.find((m) => m.id === "streaming-run-1")).toBeDefined();
-		expect(state.activeLeafId).toBe("streaming-run-1");
-		expect(state.activeRunId).toBe("run-1");
-	});
+  test("forks a sibling: calls sendMessage with editOf=msg.id and pushes new turn + placeholder", async () => {
+    const target = makeMessage("u-orig", { content: "v1" });
+    const { host, state } = makeHost({
+      allMessages: [target],
+      activeLeafId: "u-orig",
+      editingMessageId: "u-orig",
+      editContent: "v2",
+      modelSupportsReasoning: true,
+      thinkingLevel: "medium",
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleEditConfirm(target);
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    const [, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(dataArg.editOf).toBe("u-orig");
+    expect(dataArg.content).toBe("v2");
+    expect(dataArg.thinkingLevel).toBe("medium");
+    // editingMessageId cleared on submit.
+    expect(state.editingMessageId).toBeNull();
+    // New user message (the sibling) + assistant placeholder appended.
+    expect(state.allMessages.find((m) => m.id === "real-user-id")).toBeDefined();
+    expect(state.allMessages.find((m) => m.id === "streaming-run-1")).toBeDefined();
+    expect(state.activeLeafId).toBe("streaming-run-1");
+    expect(state.activeRunId).toBe("run-1");
+  });
 
-	test("empty editContent is a no-op", async () => {
-		const { host, state } = makeHost({
-			editContent: "   ",
-			editingMessageId: "u-orig",
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleEditConfirm(makeMessage("u-orig"));
-		expect(sendMessageMock).not.toHaveBeenCalled();
-		expect(state.editingMessageId).toBe("u-orig");
-	});
+  test("empty editContent is a no-op", async () => {
+    const { host, state } = makeHost({
+      editContent: "   ",
+      editingMessageId: "u-orig",
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleEditConfirm(makeMessage("u-orig"));
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    expect(state.editingMessageId).toBe("u-orig");
+  });
 
-	test("on failure sets error and logs", async () => {
-		sendMessageMock.mockImplementationOnce(async () => {
-			throw new Error("nope");
-		});
-		const { host, state } = makeHost({
-			editContent: "v2",
-			editingMessageId: "u-orig",
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleEditConfirm(makeMessage("u-orig"));
-		expect(state.error).toBe("Failed to edit message");
-	});
+  test("on failure sets error and logs", async () => {
+    sendMessageMock.mockImplementationOnce(async () => {
+      throw new Error("nope");
+    });
+    const { host, state } = makeHost({
+      editContent: "v2",
+      editingMessageId: "u-orig",
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleEditConfirm(makeMessage("u-orig"));
+    expect(state.error).toBe("Failed to edit message");
+  });
 });
 
 describe("handleRegenerate", () => {
-	test("forks sibling on assistant turn using preceding user message content", async () => {
-		const u1 = makeMessage("u1", { role: "user", content: "Q" });
-		const a1 = makeMessage("a1", { role: "assistant", content: "A" });
-		const { host, state } = makeHost({
-			allMessages: [u1, a1],
-			activeLeafId: "a1",
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleRegenerate(a1);
-		const [, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(dataArg.editOf).toBe("a1");
-		expect(dataArg.content).toBe("Q");
-		expect(state.activeRunId).toBe("run-1");
-		expect(state.allMessages.find((m) => m.id === "streaming-run-1")).toBeDefined();
-	});
+  test("forks sibling on assistant turn using preceding user message content", async () => {
+    const u1 = makeMessage("u1", { role: "user", content: "Q" });
+    const a1 = makeMessage("a1", { role: "assistant", content: "A" });
+    const { host, state } = makeHost({
+      allMessages: [u1, a1],
+      activeLeafId: "a1",
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRegenerate(a1);
+    const [, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(dataArg.editOf).toBe("a1");
+    expect(dataArg.content).toBe("Q");
+    expect(state.activeRunId).toBe("run-1");
+    expect(state.allMessages.find((m) => m.id === "streaming-run-1")).toBeDefined();
+  });
 
-	test("no-op if msg is at index 0 (no preceding user message)", async () => {
-		const a0 = makeMessage("a0", { role: "assistant" });
-		const { host } = makeHost({ allMessages: [a0] });
-		const handlers = makeSendMessage(host);
-		await handlers.handleRegenerate(a0);
-		expect(sendMessageMock).not.toHaveBeenCalled();
-	});
+  test("no-op if msg is at index 0 (no preceding user message)", async () => {
+    const a0 = makeMessage("a0", { role: "assistant" });
+    const { host } = makeHost({ allMessages: [a0] });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRegenerate(a0);
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("handleAbRetry (clean /retry — same-role sibling)", () => {
-	test("forks a same-role assistant sibling via retryMessage; no duplicate user turn", async () => {
-		const u1 = makeMessage("u1", { role: "user", content: "Q" });
-		const a1 = makeMessage("a1", { role: "assistant", content: "A", parentMessageId: "u1" });
-		const { host, state } = makeHost({
-			allMessages: [u1, a1],
-			activeLeafId: "a1",
-			modelSupportsReasoning: true,
-			thinkingLevel: "high",
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleAbRetry(a1);
-		// The clean endpoint takes the ASSISTANT id — the server anchors on its
-		// user parent, so NO editOf duplicate-prompt fork.
-		const [convArg, msgArg, optsArg] = retryMessageMock.mock.calls[0]!;
-		expect(convArg).toBe("conv-1");
-		expect(msgArg).toBe("a1");
-		expect(optsArg?.thinkingLevel).toBe("high");
-		expect(sendMessageMock).not.toHaveBeenCalled();
-		// Only the assistant placeholder is added, parented on the EXISTING user
-		// turn (a sibling of a1). No new user row appears.
-		expect(state.activeRunId).toBe("run-1");
-		const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1");
-		expect(placeholder).toBeDefined();
-		expect(placeholder!.parentMessageId).toBe("anchor-user-id");
-		expect(placeholder!.role).toBe("assistant");
-		expect(state.allMessages.filter((m) => m.role === "user")).toHaveLength(1);
-		expect(state.activeLeafId).toBe("streaming-run-1");
-	});
+  test("forks a same-role assistant sibling via retryMessage; no duplicate user turn", async () => {
+    const u1 = makeMessage("u1", { role: "user", content: "Q" });
+    const a1 = makeMessage("a1", { role: "assistant", content: "A", parentMessageId: "u1" });
+    const { host, state } = makeHost({
+      allMessages: [u1, a1],
+      activeLeafId: "a1",
+      modelSupportsReasoning: true,
+      thinkingLevel: "high",
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleAbRetry(a1);
+    // The clean endpoint takes the ASSISTANT id — the server anchors on its
+    // user parent, so NO editOf duplicate-prompt fork.
+    const [convArg, msgArg, optsArg] = retryMessageMock.mock.calls[0]!;
+    expect(convArg).toBe("conv-1");
+    expect(msgArg).toBe("a1");
+    expect(optsArg?.thinkingLevel).toBe("high");
+    expect(sendMessageMock).not.toHaveBeenCalled();
+    // Only the assistant placeholder is added, parented on the EXISTING user
+    // turn (a sibling of a1). No new user row appears.
+    expect(state.activeRunId).toBe("run-1");
+    const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1");
+    expect(placeholder).toBeDefined();
+    expect(placeholder!.parentMessageId).toBe("anchor-user-id");
+    expect(placeholder!.role).toBe("assistant");
+    expect(state.allMessages.filter((m) => m.role === "user")).toHaveLength(1);
+    expect(state.activeLeafId).toBe("streaming-run-1");
+  });
 
-	test("omits thinkingLevel when the model lacks reasoning", async () => {
-		const a1 = makeMessage("a1", { role: "assistant" });
-		const { host } = makeHost({
-			allMessages: [makeMessage("u1", { role: "user" }), a1],
-			modelSupportsReasoning: false,
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleAbRetry(a1);
-		const [, , optsArg] = retryMessageMock.mock.calls[0]!;
-		expect(optsArg?.thinkingLevel).toBeUndefined();
-	});
+  test("omits thinkingLevel when the model lacks reasoning", async () => {
+    const a1 = makeMessage("a1", { role: "assistant" });
+    const { host } = makeHost({
+      allMessages: [makeMessage("u1", { role: "user" }), a1],
+      modelSupportsReasoning: false,
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleAbRetry(a1);
+    const [, , optsArg] = retryMessageMock.mock.calls[0]!;
+    expect(optsArg?.thinkingLevel).toBeUndefined();
+  });
 
-	test("no-op when convId is empty", async () => {
-		const { host } = makeHost({ convId: "" });
-		const handlers = makeSendMessage(host);
-		await handlers.handleAbRetry(makeMessage("a1", { role: "assistant" }));
-		expect(retryMessageMock).not.toHaveBeenCalled();
-	});
+  test("no-op when convId is empty", async () => {
+    const { host } = makeHost({ convId: "" });
+    const handlers = makeSendMessage(host);
+    await handlers.handleAbRetry(makeMessage("a1", { role: "assistant" }));
+    expect(retryMessageMock).not.toHaveBeenCalled();
+  });
 
-	test("runId null → no placeholder, no streaming state", async () => {
-		retryMessageMock.mockImplementationOnce(async (_c, mid) => ({
-			userMessage: {
-				id: "anchor-user-id",
-				conversationId: "conv-1",
-				role: "user",
-				content: "Q",
-				createdAt: "",
-				parentMessageId: null,
-				excluded: false,
-			} as Message,
-			retriedMessageId: mid,
-			runId: null,
-		}));
-		const a1 = makeMessage("a1", { role: "assistant" });
-		const { host, state } = makeHost({ allMessages: [makeMessage("u1", { role: "user" }), a1] });
-		const handlers = makeSendMessage(host);
-		await handlers.handleAbRetry(a1);
-		expect(state.activeRunId).toBeNull();
-		expect(state.allMessages.find((m) => m.id.startsWith("streaming-"))).toBeUndefined();
-	});
+  test("runId null → no placeholder, no streaming state", async () => {
+    retryMessageMock.mockImplementationOnce(async (_c, mid) => ({
+      userMessage: {
+        id: "anchor-user-id",
+        conversationId: "conv-1",
+        role: "user",
+        content: "Q",
+        createdAt: "",
+        parentMessageId: null,
+        excluded: false,
+      } as Message,
+      retriedMessageId: mid,
+      runId: null,
+    }));
+    const a1 = makeMessage("a1", { role: "assistant" });
+    const { host, state } = makeHost({ allMessages: [makeMessage("u1", { role: "user" }), a1] });
+    const handlers = makeSendMessage(host);
+    await handlers.handleAbRetry(a1);
+    expect(state.activeRunId).toBeNull();
+    expect(state.allMessages.find((m) => m.id.startsWith("streaming-"))).toBeUndefined();
+  });
 
-	test("retryMessage rejection sets the error banner", async () => {
-		retryMessageMock.mockImplementationOnce(async () => {
-			throw new Error("boom");
-		});
-		const a1 = makeMessage("a1", { role: "assistant" });
-		const { host, state } = makeHost({ allMessages: [makeMessage("u1", { role: "user" }), a1] });
-		const handlers = makeSendMessage(host);
-		await handlers.handleAbRetry(a1);
-		expect(state.error).toBe("Failed to retry response");
-	});
+  test("retryMessage rejection sets the error banner", async () => {
+    retryMessageMock.mockImplementationOnce(async () => {
+      throw new Error("boom");
+    });
+    const a1 = makeMessage("a1", { role: "assistant" });
+    const { host, state } = makeHost({ allMessages: [makeMessage("u1", { role: "user" }), a1] });
+    const handlers = makeSendMessage(host);
+    await handlers.handleAbRetry(a1);
+    expect(state.error).toBe("Failed to retry response");
+  });
 
-	// WS7 "Retry with…": the /retry route already accepted a provider/model
-	// override, which makes the sibling a prompt-held-constant paired comparison
-	// — the most informative routing signal the product can produce.
-	test("an override sends the PICKED model, not the thread's wire identity", async () => {
-		const u1 = makeMessage("u1", { role: "user", content: "Q" });
-		const a1 = makeMessage("a1", { role: "assistant", content: "A", parentMessageId: "u1" });
-		const { host, state } = makeHost({
-			allMessages: [u1, a1],
-			selectedModel: { provider: "anthropic", model: "claude-haiku-4-5" },
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleAbRetry(a1, { provider: "openai", model: "gpt-5" });
-		const [, , optsArg] = retryMessageMock.mock.calls[0]!;
-		expect(optsArg?.provider).toBe("openai");
-		expect(optsArg?.model).toBe("gpt-5");
-		// The placeholder shows the model the sibling will actually run on.
-		const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1");
-		expect(placeholder!.provider).toBe("openai");
-		expect(placeholder!.model).toBe("gpt-5");
-	});
+  // WS7 "Retry with…": the /retry route already accepted a provider/model
+  // override, which makes the sibling a prompt-held-constant paired comparison
+  // — the most informative routing signal the product can produce.
+  test("an override sends the PICKED model, not the thread's wire identity", async () => {
+    const u1 = makeMessage("u1", { role: "user", content: "Q" });
+    const a1 = makeMessage("a1", { role: "assistant", content: "A", parentMessageId: "u1" });
+    const { host, state } = makeHost({
+      allMessages: [u1, a1],
+      selectedModel: { provider: "anthropic", model: "claude-haiku-4-5" },
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleAbRetry(a1, { provider: "openai", model: "gpt-5" });
+    const [, , optsArg] = retryMessageMock.mock.calls[0]!;
+    expect(optsArg?.provider).toBe("openai");
+    expect(optsArg?.model).toBe("gpt-5");
+    // The placeholder shows the model the sibling will actually run on.
+    const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1");
+    expect(placeholder!.provider).toBe("openai");
+    expect(placeholder!.model).toBe("gpt-5");
+  });
 
-	test("no override keeps today's behaviour — the thread's own wire identity", async () => {
-		const u1 = makeMessage("u1", { role: "user", content: "Q" });
-		const a1 = makeMessage("a1", { role: "assistant", content: "A", parentMessageId: "u1" });
-		const { host } = makeHost({
-			allMessages: [u1, a1],
-			selectedModel: { provider: "anthropic", model: "claude-haiku-4-5" },
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleAbRetry(a1);
-		const [, , optsArg] = retryMessageMock.mock.calls[0]!;
-		expect(optsArg?.provider).toBe("anthropic");
-		expect(optsArg?.model).toBe("claude-haiku-4-5");
-	});
+  test("no override keeps today's behaviour — the thread's own wire identity", async () => {
+    const u1 = makeMessage("u1", { role: "user", content: "Q" });
+    const a1 = makeMessage("a1", { role: "assistant", content: "A", parentMessageId: "u1" });
+    const { host } = makeHost({
+      allMessages: [u1, a1],
+      selectedModel: { provider: "anthropic", model: "claude-haiku-4-5" },
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleAbRetry(a1);
+    const [, , optsArg] = retryMessageMock.mock.calls[0]!;
+    expect(optsArg?.provider).toBe("anthropic");
+    expect(optsArg?.model).toBe("claude-haiku-4-5");
+  });
 });
 
 describe("handleBranchNavigate", () => {
-	test("sets activeLeafId via findLeafByMessageId", () => {
-		const { host, state } = makeHost({
-			allMessages: [makeMessage("m1"), makeMessage("m2")],
-		});
-		const handlers = makeSendMessage(host);
-		handlers.handleBranchNavigate("m2");
-		expect(state.activeLeafId).toBe("m2");
-	});
+  test("sets activeLeafId via findLeafByMessageId", () => {
+    const { host, state } = makeHost({
+      allMessages: [makeMessage("m1"), makeMessage("m2")],
+    });
+    const handlers = makeSendMessage(host);
+    handlers.handleBranchNavigate("m2");
+    expect(state.activeLeafId).toBe("m2");
+  });
 });
 
 describe("handleSaveMemory", () => {
-	test("POSTs the single message content and updates savedMemories", async () => {
-		const msg = makeMessage("a1", {
-			role: "assistant",
-			content: "remember this",
-		});
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSaveMemory(msg);
-		expect(userFetchMock).toHaveBeenCalledTimes(1);
-		const [url, init] = userFetchMock.mock.calls[0]!;
-		expect(url).toBe("/api/memories");
-		const body = JSON.parse((init as RequestInit).body as string);
-		expect(body.content).toBe("remember this");
-		expect(body.category).toBe("preferences");
-		// Single-message body — distinct from W6's bulk path which joins
-		// multiple turns into one memory.
-		expect(body.content).not.toContain("\n\n");
-		expect(state.savedMemories.get("a1")).toBe("mem-1");
-	});
+  test("POSTs the single message content and updates savedMemories", async () => {
+    const msg = makeMessage("a1", {
+      role: "assistant",
+      content: "remember this",
+    });
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSaveMemory(msg);
+    expect(userFetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = userFetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/memories");
+    const body = JSON.parse((init as RequestInit).body as string);
+    expect(body.content).toBe("remember this");
+    expect(body.category).toBe("preferences");
+    // Single-message body — distinct from W6's bulk path which joins
+    // multiple turns into one memory.
+    expect(body.content).not.toContain("\n\n");
+    expect(state.savedMemories.get("a1")).toBe("mem-1");
+  });
 
-	test("non-201 response is silently swallowed (no savedMemories update)", async () => {
-		userFetchMock.mockImplementationOnce(async () =>
-			new Response("nope", { status: 500 }),
-		);
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSaveMemory(makeMessage("a1"));
-		expect(state.savedMemories.has("a1")).toBe(false);
-	});
+  test("non-201 response is silently swallowed (no savedMemories update)", async () => {
+    userFetchMock.mockImplementationOnce(async () => new Response("nope", { status: 500 }));
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSaveMemory(makeMessage("a1"));
+    expect(state.savedMemories.has("a1")).toBe(false);
+  });
 });
 
 describe("handleRewind (Sessions P4)", () => {
-	test("POSTs the target message id and moves the active branch to it", async () => {
-		userFetchMock.mockImplementationOnce(async () =>
-			new Response(JSON.stringify({ conversationId: "conv-1", currentLeaf: "a1", nodes: [] }), {
-				status: 200,
-				headers: { "Content-Type": "application/json" },
-			}),
-		);
-		const { host, state } = makeHost({ activeLeafId: "later-tip" });
-		const handlers = makeSendMessage(host);
-		await handlers.handleRewind(makeMessage("a1", { role: "assistant" }));
-		expect(userFetchMock).toHaveBeenCalledTimes(1);
-		const [url, init] = userFetchMock.mock.calls[0]!;
-		expect(url).toBe("/api/conversations/conv-1/rewind");
-		expect((init as RequestInit).method).toBe("POST");
-		expect(JSON.parse((init as RequestInit).body as string)).toEqual({ targetMessageId: "a1" });
-		// The next send derives parentMessageId from activeLeafId → continues from a1.
-		expect(state.activeLeafId).toBe("a1");
-	});
+  test("POSTs the target message id and moves the active branch to it", async () => {
+    userFetchMock.mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify({ conversationId: "conv-1", currentLeaf: "a1", nodes: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    const { host, state } = makeHost({ activeLeafId: "later-tip" });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRewind(makeMessage("a1", { role: "assistant" }));
+    expect(userFetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = userFetchMock.mock.calls[0]!;
+    expect(url).toBe("/api/conversations/conv-1/rewind");
+    expect((init as RequestInit).method).toBe("POST");
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ targetMessageId: "a1" });
+    // The next send derives parentMessageId from activeLeafId → continues from a1.
+    expect(state.activeLeafId).toBe("a1");
+  });
 
-	test("a non-2xx (flag off / active run / bad target) leaves the active branch unchanged", async () => {
-		userFetchMock.mockImplementationOnce(async () =>
-			new Response(JSON.stringify({ error: "disabled", code: "session_producer_disabled" }), { status: 409 }),
-		);
-		const { host, state } = makeHost({ activeLeafId: "later-tip" });
-		const handlers = makeSendMessage(host);
-		await handlers.handleRewind(makeMessage("a1", { role: "assistant" }));
-		expect(state.activeLeafId).toBe("later-tip");
-	});
+  test("a non-2xx (flag off / active run / bad target) leaves the active branch unchanged", async () => {
+    userFetchMock.mockImplementationOnce(
+      async () =>
+        new Response(JSON.stringify({ error: "disabled", code: "session_producer_disabled" }), {
+          status: 409,
+        }),
+    );
+    const { host, state } = makeHost({ activeLeafId: "later-tip" });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRewind(makeMessage("a1", { role: "assistant" }));
+    expect(state.activeLeafId).toBe("later-tip");
+  });
 
-	test("no-op (no POST) when there is no conversation", async () => {
-		const { host, state } = makeHost({ convId: "", activeLeafId: "later-tip" });
-		const handlers = makeSendMessage(host);
-		await handlers.handleRewind(makeMessage("a1", { role: "assistant" }));
-		expect(userFetchMock).not.toHaveBeenCalled();
-		expect(state.activeLeafId).toBe("later-tip");
-	});
+  test("no-op (no POST) when there is no conversation", async () => {
+    const { host, state } = makeHost({ convId: "", activeLeafId: "later-tip" });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRewind(makeMessage("a1", { role: "assistant" }));
+    expect(userFetchMock).not.toHaveBeenCalled();
+    expect(state.activeLeafId).toBe("later-tip");
+  });
 
-	test("a thrown fetch is swallowed (fail-quiet), branch unchanged", async () => {
-		userFetchMock.mockImplementationOnce(async () => {
-			throw new Error("network down");
-		});
-		const { host, state } = makeHost({ activeLeafId: "later-tip" });
-		const handlers = makeSendMessage(host);
-		await handlers.handleRewind(makeMessage("a1", { role: "assistant" }));
-		expect(state.activeLeafId).toBe("later-tip");
-	});
+  test("a thrown fetch is swallowed (fail-quiet), branch unchanged", async () => {
+    userFetchMock.mockImplementationOnce(async () => {
+      throw new Error("network down");
+    });
+    const { host, state } = makeHost({ activeLeafId: "later-tip" });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRewind(makeMessage("a1", { role: "assistant" }));
+    expect(state.activeLeafId).toBe("later-tip");
+  });
 });
 
 describe("handleRetry", () => {
-	test("removes the failed assistant turn and re-sends the preceding user content", async () => {
-		const u1 = makeMessage("u1", { role: "user", content: "Q" });
-		const a1 = makeMessage("a1", { role: "assistant", content: "A" });
-		const { host, state } = makeHost({
-			allMessages: [u1, a1],
-			activeLeafId: "a1",
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleRetry(a1);
-		// The failed turn is removed before handleSend re-sends; sendMessage
-		// is called once with the user-message content.
-		expect(sendMessageMock).toHaveBeenCalledTimes(1);
-		const [, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(dataArg.content).toBe("Q");
-		expect(state.allMessages.find((m) => m.id === "a1")).toBeUndefined();
-	});
+  test("removes the failed assistant turn and re-sends the preceding user content", async () => {
+    const u1 = makeMessage("u1", { role: "user", content: "Q" });
+    const a1 = makeMessage("a1", { role: "assistant", content: "A" });
+    const { host, state } = makeHost({
+      allMessages: [u1, a1],
+      activeLeafId: "a1",
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRetry(a1);
+    // The failed turn is removed before handleSend re-sends; sendMessage
+    // is called once with the user-message content.
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    const [, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(dataArg.content).toBe("Q");
+    expect(state.allMessages.find((m) => m.id === "a1")).toBeUndefined();
+  });
 
-	test("falls back to content-match when the id is gone (stale closure path)", async () => {
-		const u1 = makeMessage("u1", { role: "user", content: "Q" });
-		const a1ByContent = makeMessage("freshly-reconciled-id", {
-			role: "assistant",
-			content: "A",
-		});
-		const stale = makeMessage("a1-stale-id", {
-			role: "assistant",
-			content: "A",
-		});
-		const { host } = makeHost({
-			allMessages: [u1, a1ByContent],
-			activeLeafId: a1ByContent.id,
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleRetry(stale);
-		expect(sendMessageMock).toHaveBeenCalledTimes(1);
-		expect(sendMessageMock.mock.calls[0]![1].content).toBe("Q");
-	});
+  test("falls back to content-match when the id is gone (stale closure path)", async () => {
+    const u1 = makeMessage("u1", { role: "user", content: "Q" });
+    const a1ByContent = makeMessage("freshly-reconciled-id", {
+      role: "assistant",
+      content: "A",
+    });
+    const stale = makeMessage("a1-stale-id", {
+      role: "assistant",
+      content: "A",
+    });
+    const { host } = makeHost({
+      allMessages: [u1, a1ByContent],
+      activeLeafId: a1ByContent.id,
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRetry(stale);
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageMock.mock.calls[0]![1].content).toBe("Q");
+  });
 });
 
 describe("handleFallback", () => {
-	test("temporarily swaps selectedModel and re-sends with the suggested provider/model", async () => {
-		const u1 = makeMessage("u1", { role: "user", content: "Q" });
-		const a1 = makeMessage("a1", { role: "assistant", content: "err" });
-		const { host, state } = makeHost({
-			allMessages: [u1, a1],
-			activeLeafId: "a1",
-			selectedModel: { provider: "openai", model: "gpt-4o" },
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleFallback(a1, "anthropic", "claude-4");
-		const [, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(dataArg.provider).toBe("anthropic");
-		expect(dataArg.model).toBe("claude-4");
-		// The error turn is gone, the user turn remains (plus new ones from
-		// the inner handleSend).
-		expect(state.allMessages.find((m) => m.id === "a1")).toBeUndefined();
-		// Final selectedModel restored to the original after the call.
-		expect(state.selectedModel).toEqual({ provider: "openai", model: "gpt-4o" });
-	});
+  test("temporarily swaps selectedModel and re-sends with the suggested provider/model", async () => {
+    const u1 = makeMessage("u1", { role: "user", content: "Q" });
+    const a1 = makeMessage("a1", { role: "assistant", content: "err" });
+    const { host, state } = makeHost({
+      allMessages: [u1, a1],
+      activeLeafId: "a1",
+      selectedModel: { provider: "openai", model: "gpt-4o" },
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleFallback(a1, "anthropic", "claude-4");
+    const [, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(dataArg.provider).toBe("anthropic");
+    expect(dataArg.model).toBe("claude-4");
+    // The error turn is gone, the user turn remains (plus new ones from
+    // the inner handleSend).
+    expect(state.allMessages.find((m) => m.id === "a1")).toBeUndefined();
+    // Final selectedModel restored to the original after the call.
+    expect(state.selectedModel).toEqual({ provider: "openai", model: "gpt-4o" });
+  });
 
-	test("no-op if msg has no preceding user turn", async () => {
-		const a0 = makeMessage("a0", { role: "assistant" });
-		const { host } = makeHost({
-			allMessages: [a0],
-			activeLeafId: "a0",
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleFallback(a0, "x", "y");
-		expect(sendMessageMock).not.toHaveBeenCalled();
-	});
+  test("no-op if msg has no preceding user turn", async () => {
+    const a0 = makeMessage("a0", { role: "assistant" });
+    const { host } = makeHost({
+      allMessages: [a0],
+      activeLeafId: "a0",
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleFallback(a0, "x", "y");
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("sub-conversation handlers", () => {
-	test("handleSubConvoSend: forwards to active sub-convo, sets streaming, calls sendMessage", async () => {
-		subConversationStoreState.active = {
-			id: "sub-1",
-			agentConfigId: "ac-1",
-			agentName: "researcher",
-			parentConversationId: "conv-1",
-			parentMessageId: "u-anchor",
-		};
-		const { host } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSubConvoSend("hello agent");
-		expect(subConversationStoreState.addedMessages.length).toBe(1);
-		expect(subConversationStoreState.addedMessages[0]!.content).toBe(
-			"hello agent",
-		);
-		expect(subConversationStoreState.streaming).toBe(true);
-		expect(sendMessageMock).toHaveBeenCalledWith("sub-1", {
-			content: "hello agent",
-			parentMessageId: undefined,
-		});
-		expect(startStreamingMock).toHaveBeenCalledWith("run-1", "sub-1");
-	});
+  test("handleSubConvoSend: forwards to active sub-convo, sets streaming, calls sendMessage", async () => {
+    subConversationStoreState.active = {
+      id: "sub-1",
+      agentConfigId: "ac-1",
+      agentName: "researcher",
+      parentConversationId: "conv-1",
+      parentMessageId: "u-anchor",
+    };
+    const { host } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSubConvoSend("hello agent");
+    expect(subConversationStoreState.addedMessages.length).toBe(1);
+    expect(subConversationStoreState.addedMessages[0]!.content).toBe("hello agent");
+    expect(subConversationStoreState.streaming).toBe(true);
+    expect(sendMessageMock).toHaveBeenCalledWith("sub-1", {
+      content: "hello agent",
+      parentMessageId: undefined,
+    });
+    expect(startStreamingMock).toHaveBeenCalledWith("run-1", "sub-1");
+  });
 
-	test("handleSubConvoSend: no-op if no active sub-convo", async () => {
-		subConversationStoreState.active = null;
-		const { host } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.handleSubConvoSend("hello");
-		expect(sendMessageMock).not.toHaveBeenCalled();
-	});
+  test("handleSubConvoSend: no-op if no active sub-convo", async () => {
+    subConversationStoreState.active = null;
+    const { host } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.handleSubConvoSend("hello");
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
 
-	test("handleSubConvoReturn: ends sub-convo and posts last assistant msg as summary", async () => {
-		subConversationStoreState.active = {
-			id: "sub-1",
-			agentConfigId: "ac-1",
-			agentName: "researcher",
-			parentConversationId: "conv-1",
-			parentMessageId: "u-anchor",
-		};
-		subConversationStoreState.messages = [
-			{
-				id: "x",
-				role: "assistant",
-				content: "the answer",
-				createdAt: new Date(),
-			},
-		];
-		const { host, state } = makeHost({ activeLeafId: "leaf-id" });
-		const handlers = makeSendMessage(host);
-		await handlers.handleSubConvoReturn();
-		expect(subConversationStoreState.endCalls).toBe(1);
-		expect(sendMessageMock).toHaveBeenCalledTimes(1);
-		expect(sendMessageMock.mock.calls[0]![1].content).toContain(
-			"[Sub-conversation summary]",
-		);
-		expect(sendMessageMock.mock.calls[0]![1].content).toContain(
-			"the answer",
-		);
-		expect(sendMessageMock.mock.calls[0]![1].parentMessageId).toBe("leaf-id");
-		expect(state.loadMessagesCalls).toBe(1);
-	});
+  test("handleSubConvoReturn: ends sub-convo and posts last assistant msg as summary", async () => {
+    subConversationStoreState.active = {
+      id: "sub-1",
+      agentConfigId: "ac-1",
+      agentName: "researcher",
+      parentConversationId: "conv-1",
+      parentMessageId: "u-anchor",
+    };
+    subConversationStoreState.messages = [
+      {
+        id: "x",
+        role: "assistant",
+        content: "the answer",
+        createdAt: new Date(),
+      },
+    ];
+    const { host, state } = makeHost({ activeLeafId: "leaf-id" });
+    const handlers = makeSendMessage(host);
+    await handlers.handleSubConvoReturn();
+    expect(subConversationStoreState.endCalls).toBe(1);
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    expect(sendMessageMock.mock.calls[0]![1].content).toContain("[Sub-conversation summary]");
+    expect(sendMessageMock.mock.calls[0]![1].content).toContain("the answer");
+    expect(sendMessageMock.mock.calls[0]![1].parentMessageId).toBe("leaf-id");
+    expect(state.loadMessagesCalls).toBe(1);
+  });
 
-	test("startSubConvo: registers record + starts store conversation", async () => {
-		subConversationStoreState.active = null;
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.startSubConvo({ name: "qa-bot" }, "u-1");
-		expect(createSubConversationMock).toHaveBeenCalledWith("conv-1", {
-			parentMessageId: "u-1",
-			agentConfigId: "",
-			title: "Sub-conversation with qa-bot",
-			projectId: "proj-1",
-		});
-		expect(state.subConversations.length).toBe(1);
-		expect(state.subConversations[0]!.agentName).toBe("qa-bot");
-		expect(subConversationStoreState.startCalls.length).toBe(1);
-	});
+  test("startSubConvo: registers record + starts store conversation", async () => {
+    subConversationStoreState.active = null;
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.startSubConvo({ name: "qa-bot" }, "u-1");
+    expect(createSubConversationMock).toHaveBeenCalledWith("conv-1", {
+      parentMessageId: "u-1",
+      agentConfigId: "",
+      title: "Sub-conversation with qa-bot",
+      projectId: "proj-1",
+    });
+    expect(state.subConversations.length).toBe(1);
+    expect(state.subConversations[0]!.agentName).toBe("qa-bot");
+    expect(subConversationStoreState.startCalls.length).toBe(1);
+  });
 
-	test("startSubConvo: blocked when already in a sub-convo", async () => {
-		subConversationStoreState.active = {
-			id: "existing",
-			agentConfigId: "ac-1",
-			agentName: "x",
-			parentConversationId: "conv-1",
-			parentMessageId: "u-1",
-		};
-		const { host, state } = makeHost();
-		const handlers = makeSendMessage(host);
-		await handlers.startSubConvo({ name: "qa-bot" }, "u-1");
-		expect(createSubConversationMock).not.toHaveBeenCalled();
-		expect(state.subConversations.length).toBe(0);
-	});
+  test("startSubConvo: blocked when already in a sub-convo", async () => {
+    subConversationStoreState.active = {
+      id: "existing",
+      agentConfigId: "ac-1",
+      agentName: "x",
+      parentConversationId: "conv-1",
+      parentMessageId: "u-1",
+    };
+    const { host, state } = makeHost();
+    const handlers = makeSendMessage(host);
+    await handlers.startSubConvo({ name: "qa-bot" }, "u-1");
+    expect(createSubConversationMock).not.toHaveBeenCalled();
+    expect(state.subConversations.length).toBe(0);
+  });
 });
 
 // ── Auto (smart routing) wire sentinel ──────────────────────────────────
@@ -1429,95 +1474,95 @@ describe("sub-conversation handlers", () => {
 const AUTO = { provider: "auto", model: "auto" };
 
 describe("handleSend — Auto (smart routing) sentinel", () => {
-	test("first Auto turn sends explicit nulls (never the literal 'auto' strings)", async () => {
-		const { host } = makeHost({ selectedModel: { ...AUTO } });
-		const handlers = makeSendMessage(host);
+  test("first Auto turn sends explicit nulls (never the literal 'auto' strings)", async () => {
+    const { host } = makeHost({ selectedModel: { ...AUTO } });
+    const handlers = makeSendMessage(host);
 
-		await handlers.handleSend("route me");
+    await handlers.handleSend("route me");
 
-		expect(sendMessageMock).toHaveBeenCalledTimes(1);
-		const [, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(dataArg.provider).toBeNull();
-		expect(dataArg.model).toBeNull();
-	});
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    const [, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(dataArg.provider).toBeNull();
+    expect(dataArg.model).toBeNull();
+  });
 
-	test("Auto placeholder rows carry null identity, not the sentinel strings", async () => {
-		const { host, state } = makeHost({ selectedModel: { ...AUTO } });
-		const handlers = makeSendMessage(host);
+  test("Auto placeholder rows carry null identity, not the sentinel strings", async () => {
+    const { host, state } = makeHost({ selectedModel: { ...AUTO } });
+    const handlers = makeSendMessage(host);
 
-		await handlers.handleSend("route me");
+    await handlers.handleSend("route me");
 
-		const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1")!;
-		expect(placeholder.model).toBeNull();
-		expect(placeholder.provider).toBeNull();
-	});
+    const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1")!;
+    expect(placeholder.model).toBeNull();
+    expect(placeholder.provider).toBeNull();
+  });
 
-	test("after a routed turn, Auto re-sends the SERVED pair (route-once mirror)", async () => {
-		const served = makeMessage("a-1", {
-			role: "assistant",
-			provider: "anthropic",
-			model: "claude-sonnet",
-			usage: { inputTokens: 1, outputTokens: 1, requestedProvider: null, requestedModel: null },
-		});
-		const { host } = makeHost({
-			selectedModel: { ...AUTO },
-			allMessages: [makeMessage("u-1"), served],
-			activeLeafId: "a-1",
-		});
-		const handlers = makeSendMessage(host);
+  test("after a routed turn, Auto re-sends the SERVED pair (route-once mirror)", async () => {
+    const served = makeMessage("a-1", {
+      role: "assistant",
+      provider: "anthropic",
+      model: "claude-sonnet",
+      usage: { inputTokens: 1, outputTokens: 1, requestedProvider: null, requestedModel: null },
+    });
+    const { host } = makeHost({
+      selectedModel: { ...AUTO },
+      allMessages: [makeMessage("u-1"), served],
+      activeLeafId: "a-1",
+    });
+    const handlers = makeSendMessage(host);
 
-		await handlers.handleSend("follow-up");
+    await handlers.handleSend("follow-up");
 
-		const [, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(dataArg.provider).toBe("anthropic");
-		expect(dataArg.model).toBe("claude-sonnet");
-	});
+    const [, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(dataArg.provider).toBe("anthropic");
+    expect(dataArg.model).toBe("claude-sonnet");
+  });
 
-	test("a concrete selection is unaffected by prior routed turns", async () => {
-		const served = makeMessage("a-1", {
-			role: "assistant",
-			provider: "anthropic",
-			model: "claude-sonnet",
-			usage: { inputTokens: 1, outputTokens: 1, requestedProvider: null, requestedModel: null },
-		});
-		const { host } = makeHost({
-			selectedModel: { provider: "openai", model: "gpt-4o" },
-			allMessages: [makeMessage("u-1"), served],
-			activeLeafId: "a-1",
-		});
-		const handlers = makeSendMessage(host);
+  test("a concrete selection is unaffected by prior routed turns", async () => {
+    const served = makeMessage("a-1", {
+      role: "assistant",
+      provider: "anthropic",
+      model: "claude-sonnet",
+      usage: { inputTokens: 1, outputTokens: 1, requestedProvider: null, requestedModel: null },
+    });
+    const { host } = makeHost({
+      selectedModel: { provider: "openai", model: "gpt-4o" },
+      allMessages: [makeMessage("u-1"), served],
+      activeLeafId: "a-1",
+    });
+    const handlers = makeSendMessage(host);
 
-		await handlers.handleSend("pinned");
+    await handlers.handleSend("pinned");
 
-		const [, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(dataArg.provider).toBe("openai");
-		expect(dataArg.model).toBe("gpt-4o");
-	});
+    const [, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(dataArg.provider).toBe("openai");
+    expect(dataArg.model).toBe("gpt-4o");
+  });
 
-	test("handleRegenerate under Auto re-sends the served pair from the routed turn", async () => {
-		const userMsg = makeMessage("u-1");
-		const served = makeMessage("a-1", {
-			role: "assistant",
-			provider: "anthropic",
-			model: "claude-sonnet",
-			parentMessageId: "u-1",
-			usage: { inputTokens: 1, outputTokens: 1, requestedProvider: null, requestedModel: null },
-		});
-		const { host } = makeHost({
-			selectedModel: { ...AUTO },
-			allMessages: [userMsg, served],
-			activeLeafId: "a-1",
-		});
-		const handlers = makeSendMessage(host);
+  test("handleRegenerate under Auto re-sends the served pair from the routed turn", async () => {
+    const userMsg = makeMessage("u-1");
+    const served = makeMessage("a-1", {
+      role: "assistant",
+      provider: "anthropic",
+      model: "claude-sonnet",
+      parentMessageId: "u-1",
+      usage: { inputTokens: 1, outputTokens: 1, requestedProvider: null, requestedModel: null },
+    });
+    const { host } = makeHost({
+      selectedModel: { ...AUTO },
+      allMessages: [userMsg, served],
+      activeLeafId: "a-1",
+    });
+    const handlers = makeSendMessage(host);
 
-		await handlers.handleRegenerate(served);
+    await handlers.handleRegenerate(served);
 
-		expect(sendMessageMock).toHaveBeenCalledTimes(1);
-		const [, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(dataArg.editOf).toBe("a-1");
-		expect(dataArg.provider).toBe("anthropic");
-		expect(dataArg.model).toBe("claude-sonnet");
-	});
+    expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    const [, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(dataArg.editOf).toBe("a-1");
+    expect(dataArg.provider).toBe("anthropic");
+    expect(dataArg.model).toBe("claude-sonnet");
+  });
 });
 
 // `handleRerun` is the "run this prompt again" affordance: it re-sends a USER
@@ -1527,99 +1572,99 @@ describe("handleSend — Auto (smart routing) sentinel", () => {
 // skipping the edit modal. It was the last wholly unmeasured handler in this
 // module.
 describe("handleRerun (re-send a user turn unchanged)", () => {
-	test("re-sends the user content with editOf pointing at the message itself", async () => {
-		const u1 = makeMessage("u1", { role: "user", content: "Q" });
-		const { host, state } = makeHost({
-			allMessages: [u1],
-			activeLeafId: "u1",
-			selectedModel: { provider: "anthropic", model: "claude-sonnet-5" },
-			modelSupportsReasoning: true,
-			thinkingLevel: "medium",
-		});
-		const handlers = makeSendMessage(host);
-		await handlers.handleRerun(u1);
+  test("re-sends the user content with editOf pointing at the message itself", async () => {
+    const u1 = makeMessage("u1", { role: "user", content: "Q" });
+    const { host, state } = makeHost({
+      allMessages: [u1],
+      activeLeafId: "u1",
+      selectedModel: { provider: "anthropic", model: "claude-sonnet-5" },
+      modelSupportsReasoning: true,
+      thinkingLevel: "medium",
+    });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRerun(u1);
 
-		const [convArg, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(convArg).toBe("conv-1");
-		expect(dataArg.content).toBe("Q");
-		// editOf === the user message's OWN id is what makes this a re-run
-		// rather than an edit of some other turn.
-		expect(dataArg.editOf).toBe("u1");
-		expect(dataArg.provider).toBe("anthropic");
-		expect(dataArg.model).toBe("claude-sonnet-5");
-		expect(dataArg.thinkingLevel).toBe("medium");
+    const [convArg, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(convArg).toBe("conv-1");
+    expect(dataArg.content).toBe("Q");
+    // editOf === the user message's OWN id is what makes this a re-run
+    // rather than an edit of some other turn.
+    expect(dataArg.editOf).toBe("u1");
+    expect(dataArg.provider).toBe("anthropic");
+    expect(dataArg.model).toBe("claude-sonnet-5");
+    expect(dataArg.thinkingLevel).toBe("medium");
 
-		// Both the forked user turn and the assistant placeholder land, and the
-		// placeholder parents on the NEW user row so it renders as a sibling.
-		expect(state.activeRunId).toBe("run-1");
-		const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1");
-		expect(placeholder).toBeDefined();
-		expect(placeholder!.role).toBe("assistant");
-		expect(placeholder!.parentMessageId).toBe("real-user-id");
-		expect(placeholder!.provider).toBe("anthropic");
-		expect(placeholder!.model).toBe("claude-sonnet-5");
-		expect(state.activeLeafId).toBe("streaming-run-1");
-	});
+    // Both the forked user turn and the assistant placeholder land, and the
+    // placeholder parents on the NEW user row so it renders as a sibling.
+    expect(state.activeRunId).toBe("run-1");
+    const placeholder = state.allMessages.find((m) => m.id === "streaming-run-1");
+    expect(placeholder).toBeDefined();
+    expect(placeholder!.role).toBe("assistant");
+    expect(placeholder!.parentMessageId).toBe("real-user-id");
+    expect(placeholder!.provider).toBe("anthropic");
+    expect(placeholder!.model).toBe("claude-sonnet-5");
+    expect(state.activeLeafId).toBe("streaming-run-1");
+  });
 
-	test("omits thinkingLevel when the model lacks reasoning", async () => {
-		const u1 = makeMessage("u1", { role: "user", content: "Q" });
-		const { host } = makeHost({ allMessages: [u1], modelSupportsReasoning: false });
-		const handlers = makeSendMessage(host);
-		await handlers.handleRerun(u1);
-		const [, dataArg] = sendMessageMock.mock.calls[0]!;
-		expect(dataArg.thinkingLevel).toBeUndefined();
-	});
+  test("omits thinkingLevel when the model lacks reasoning", async () => {
+    const u1 = makeMessage("u1", { role: "user", content: "Q" });
+    const { host } = makeHost({ allMessages: [u1], modelSupportsReasoning: false });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRerun(u1);
+    const [, dataArg] = sendMessageMock.mock.calls[0]!;
+    expect(dataArg.thinkingLevel).toBeUndefined();
+  });
 
-	test("ignores a non-user message", async () => {
-		const a1 = makeMessage("a1", { role: "assistant", content: "A" });
-		const { host } = makeHost({ allMessages: [a1] });
-		const handlers = makeSendMessage(host);
-		await handlers.handleRerun(a1);
-		expect(sendMessageMock).not.toHaveBeenCalled();
-	});
+  test("ignores a non-user message", async () => {
+    const a1 = makeMessage("a1", { role: "assistant", content: "A" });
+    const { host } = makeHost({ allMessages: [a1] });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRerun(a1);
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
 
-	test("is a no-op with no active conversation", async () => {
-		const u1 = makeMessage("u1", { role: "user", content: "Q" });
-		// `convId` is typed non-nullable on the host, so the "no conversation
-		// yet" state is the empty string — which is what the handler's falsy
-		// guard actually tests for.
-		const { host } = makeHost({ allMessages: [u1], convId: "" });
-		const handlers = makeSendMessage(host);
-		await handlers.handleRerun(u1);
-		expect(sendMessageMock).not.toHaveBeenCalled();
-	});
+  test("is a no-op with no active conversation", async () => {
+    const u1 = makeMessage("u1", { role: "user", content: "Q" });
+    // `convId` is typed non-nullable on the host, so the "no conversation
+    // yet" state is the empty string — which is what the handler's falsy
+    // guard actually tests for.
+    const { host } = makeHost({ allMessages: [u1], convId: "" });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRerun(u1);
+    expect(sendMessageMock).not.toHaveBeenCalled();
+  });
 
-	test("a null runId stops before streaming (action-only turn)", async () => {
-		const u1 = makeMessage("u1", { role: "user", content: "Q" });
-		sendMessageMock.mockImplementationOnce(async () => ({
-			userMessage: {
-				id: "real-user-id",
-				conversationId: "conv-1",
-				role: "user",
-				content: "Q",
-				createdAt: "2024-01-01T00:00:00.000Z",
-				parentMessageId: null,
-				excluded: false,
-			} as Message,
-			runId: null as unknown as string,
-		}));
-		const { host, state } = makeHost({ allMessages: [u1] });
-		const handlers = makeSendMessage(host);
-		await handlers.handleRerun(u1);
-		// The forked user turn still lands; no placeholder, no stream.
-		expect(state.activeRunId).toBeNull();
-		expect(startStreamingMock).not.toHaveBeenCalled();
-		expect(state.allMessages.find((m) => m.id?.startsWith("streaming-"))).toBeUndefined();
-	});
+  test("a null runId stops before streaming (action-only turn)", async () => {
+    const u1 = makeMessage("u1", { role: "user", content: "Q" });
+    sendMessageMock.mockImplementationOnce(async () => ({
+      userMessage: {
+        id: "real-user-id",
+        conversationId: "conv-1",
+        role: "user",
+        content: "Q",
+        createdAt: "2024-01-01T00:00:00.000Z",
+        parentMessageId: null,
+        excluded: false,
+      } as Message,
+      runId: null as unknown as string,
+    }));
+    const { host, state } = makeHost({ allMessages: [u1] });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRerun(u1);
+    // The forked user turn still lands; no placeholder, no stream.
+    expect(state.activeRunId).toBeNull();
+    expect(startStreamingMock).not.toHaveBeenCalled();
+    expect(state.allMessages.find((m) => m.id?.startsWith("streaming-"))).toBeUndefined();
+  });
 
-	test("surfaces a send failure without throwing", async () => {
-		const u1 = makeMessage("u1", { role: "user", content: "Q" });
-		sendMessageMock.mockImplementationOnce(async () => {
-			throw new Error("network down");
-		});
-		const { host, state } = makeHost({ allMessages: [u1] });
-		const handlers = makeSendMessage(host);
-		await handlers.handleRerun(u1);
-		expect(state.error).toBe("Failed to re-run prompt");
-	});
+  test("surfaces a send failure without throwing", async () => {
+    const u1 = makeMessage("u1", { role: "user", content: "Q" });
+    sendMessageMock.mockImplementationOnce(async () => {
+      throw new Error("network down");
+    });
+    const { host, state } = makeHost({ allMessages: [u1] });
+    const handlers = makeSendMessage(host);
+    await handlers.handleRerun(u1);
+    expect(state.error).toBe("Failed to re-run prompt");
+  });
 });

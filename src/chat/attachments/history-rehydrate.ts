@@ -24,32 +24,32 @@ import { readFile, stat } from "node:fs/promises";
 import { resolveExtFilesPath, MIME_BY_EXT } from "./ext-files-resolver";
 
 export interface HistoryUserRow {
-	id: string;
-	role: string;
-	content: string;
+  id: string;
+  role: string;
+  content: string;
 }
 
 export async function loadPastAttachments(
-	branchMessages: HistoryUserRow[],
+  branchMessages: HistoryUserRow[],
 ): Promise<{ byMessage: Map<string, StagedAttachment[]>; all: StagedAttachment[] }> {
-	const byMessage = new Map<string, StagedAttachment[]>();
-	const all: StagedAttachment[] = [];
-	const userMsgIds = branchMessages.filter((m) => m.role === "user").map((m) => m.id);
-	if (userMsgIds.length === 0) return { byMessage, all };
-	const rows = await listAttachmentsForMessages(userMsgIds);
-	for (const r of rows) {
-		const att: StagedAttachment = {
-			id: r.id,
-			filename: r.filename,
-			mimeType: r.mimeType,
-			storagePath: r.storagePath,
-		};
-		all.push(att);
-		const list = byMessage.get(r.messageId) ?? [];
-		list.push(att);
-		byMessage.set(r.messageId, list);
-	}
-	return { byMessage, all };
+  const byMessage = new Map<string, StagedAttachment[]>();
+  const all: StagedAttachment[] = [];
+  const userMsgIds = branchMessages.filter((m) => m.role === "user").map((m) => m.id);
+  if (userMsgIds.length === 0) return { byMessage, all };
+  const rows = await listAttachmentsForMessages(userMsgIds);
+  for (const r of rows) {
+    const att: StagedAttachment = {
+      id: r.id,
+      filename: r.filename,
+      mimeType: r.mimeType,
+      storagePath: r.storagePath,
+    };
+    all.push(att);
+    const list = byMessage.get(r.messageId) ?? [];
+    list.push(att);
+    byMessage.set(r.messageId, list);
+  }
+  return { byMessage, all };
 }
 
 /**
@@ -59,16 +59,16 @@ export async function loadPastAttachments(
  * turn doesn't crash.
  */
 export async function rehydrateUserMessageContent(
-	text: string,
-	attachments: StagedAttachment[],
-	caps: AttachmentCapabilities,
+  text: string,
+  attachments: StagedAttachment[],
+  caps: AttachmentCapabilities,
 ): Promise<string | PiContentPart[]> {
-	if (attachments.length === 0) return text;
-	try {
-		return await buildUserContent(text, attachments, caps);
-	} catch {
-		return text;
-	}
+  if (attachments.length === 0) return text;
+  try {
+    return await buildUserContent(text, attachments, caps);
+  } catch {
+    return text;
+  }
 }
 
 // Match `![optional alt](URL)`. The URL portion rejects whitespace and `)`,
@@ -83,8 +83,8 @@ const MARKDOWN_IMAGE_MATCH = /!\[[^\]]*\]\(([^()\s]+)\)/g;
 const EXT_FILES_URL = /^\/api\/ext-files\/([^/]+)\/(.+)$/;
 
 export interface AssistantRehydrateOptions {
-	/** Project root for `.ezcorp/extension-data/…` lookup. Defaults to cwd. */
-	cwd?: string;
+  /** Project root for `.ezcorp/extension-data/…` lookup. Defaults to cwd. */
+  cwd?: string;
 }
 
 /**
@@ -94,10 +94,10 @@ export interface AssistantRehydrateOptions {
  * candidates before spending file reads.
  */
 export function extractExtFilesUrls(text: string): string[] {
-	const out: string[] = [];
-	if (!text) return out;
-	for (const m of text.matchAll(MARKDOWN_IMAGE_MATCH)) out.push(m[1]!);
-	return out;
+  const out: string[] = [];
+  if (!text) return out;
+  for (const m of text.matchAll(MARKDOWN_IMAGE_MATCH)) out.push(m[1]!);
+  return out;
 }
 
 /**
@@ -109,23 +109,23 @@ export function extractExtFilesUrls(text: string): string[] {
  * Never throws.
  */
 export async function statExtFilesImage(
-	url: string,
-	opts: AssistantRehydrateOptions = {},
+  url: string,
+  opts: AssistantRehydrateOptions = {},
 ): Promise<{ absPath: string; mimeType: string; sizeBytes: number } | null> {
-	const m = EXT_FILES_URL.exec(url);
-	if (!m) return null;
-	const [, name, relPath] = m;
-	const resolved = resolveExtFilesPath(name, relPath, opts.cwd);
-	if (!resolved) return null;
-	const ext = (resolved.absPath.split(".").pop() ?? "").toLowerCase();
-	if (!(ext in MIME_BY_EXT)) return null;
-	try {
-		const s = await stat(resolved.absPath);
-		if (!s.isFile()) return null;
-		return { absPath: resolved.absPath, mimeType: resolved.mimeType, sizeBytes: s.size };
-	} catch {
-		return null;
-	}
+  const m = EXT_FILES_URL.exec(url);
+  if (!m) return null;
+  const [, name, relPath] = m;
+  const resolved = resolveExtFilesPath(name, relPath, opts.cwd);
+  if (!resolved) return null;
+  const ext = (resolved.absPath.split(".").pop() ?? "").toLowerCase();
+  if (!(ext in MIME_BY_EXT)) return null;
+  try {
+    const s = await stat(resolved.absPath);
+    if (!s.isFile()) return null;
+    return { absPath: resolved.absPath, mimeType: resolved.mimeType, sizeBytes: s.size };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -134,15 +134,16 @@ export async function statExtFilesImage(
  *
  * Never throws.
  */
-export async function loadExtFilesImage(absPath: string, mimeType: string): Promise<
-	{ type: "image"; data: string; mimeType: string } | null
-> {
-	try {
-		const bytes = await readFile(absPath);
-		return { type: "image", data: bytes.toString("base64"), mimeType };
-	} catch {
-		return null;
-	}
+export async function loadExtFilesImage(
+  absPath: string,
+  mimeType: string,
+): Promise<{ type: "image"; data: string; mimeType: string } | null> {
+  try {
+    const bytes = await readFile(absPath);
+    return { type: "image", data: bytes.toString("base64"), mimeType };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -160,18 +161,18 @@ export async function loadExtFilesImage(absPath: string, mimeType: string): Prom
  * This also means we never throw — a bad URL can't crash a turn.
  */
 export async function rehydrateAssistantMessageContent(
-	text: string,
-	opts: AssistantRehydrateOptions = {},
+  text: string,
+  opts: AssistantRehydrateOptions = {},
 ): Promise<PiContentPart[]> {
-	const parts: PiContentPart[] = [{ type: "text", text }];
-	const urls = extractExtFilesUrls(text);
-	if (urls.length === 0) return parts;
+  const parts: PiContentPart[] = [{ type: "text", text }];
+  const urls = extractExtFilesUrls(text);
+  if (urls.length === 0) return parts;
 
-	const resolved = await Promise.all(urls.map((u) => resolveUrlToImage(u, opts.cwd)));
-	for (const img of resolved) {
-		if (img) parts.push(img);
-	}
-	return parts;
+  const resolved = await Promise.all(urls.map((u) => resolveUrlToImage(u, opts.cwd)));
+  for (const img of resolved) {
+    if (img) parts.push(img);
+  }
+  return parts;
 }
 
 /**
@@ -181,10 +182,10 @@ export async function rehydrateAssistantMessageContent(
  * security checks, or any read/stat failure.
  */
 async function resolveUrlToImage(
-	url: string,
-	cwd: string | undefined,
+  url: string,
+  cwd: string | undefined,
 ): Promise<PiContentPart | null> {
-	const info = await statExtFilesImage(url, { cwd });
-	if (!info) return null;
-	return loadExtFilesImage(info.absPath, info.mimeType);
+  const info = await statExtFilesImage(url, { cwd });
+  if (!info) return null;
+  return loadExtFilesImage(info.absPath, info.mimeType);
 }

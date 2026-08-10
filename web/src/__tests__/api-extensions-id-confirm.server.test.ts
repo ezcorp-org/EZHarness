@@ -19,18 +19,10 @@ vi.mock("$server/extensions/permissions", () => ({
 }));
 
 const { getExtension } = await import("$server/db/queries/extensions");
-const { setSensitiveAlwaysAllow } = await import(
-  "$server/extensions/permissions"
-);
-const { POST } = await import(
-  "../routes/api/extensions/[id]/confirm/+server.ts"
-);
+const { setSensitiveAlwaysAllow } = await import("$server/extensions/permissions");
+const { POST } = await import("../routes/api/extensions/[id]/confirm/+server.ts");
 
-function makeEvent(opts: {
-  id?: string;
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { id?: string; locals?: Record<string, unknown>; body?: unknown }) {
   const id = opts.id ?? "ext-1";
   return {
     url: new URL(`http://localhost/api/extensions/${id}/confirm`),
@@ -64,12 +56,16 @@ describe("POST /api/extensions/[id]/confirm", () => {
   });
 
   test("non-admin user RETURNS 403 (not thrown → no 500)", async () => {
-    const res = await expectDenied(() => POST(
-            makeEvent({
-              locals: { user: nonAdminUser },
-              body: { operationType: "shell", action: "allow_once" },
-            }),
-          ), 403);
+    const res = await expectDenied(
+      () =>
+        POST(
+          makeEvent({
+            locals: { user: nonAdminUser },
+            body: { operationType: "shell", action: "allow_once" },
+          }),
+        ),
+      403,
+    );
     expect(res.status).toBe(403);
     const body = (await res!.json()) as { error?: string };
     // requireAdmin's message; requireRole said "Insufficient permissions" but
@@ -93,9 +89,7 @@ describe("POST /api/extensions/[id]/confirm", () => {
 
   test("rejects missing operationType with 400", async () => {
     vi.mocked(getExtension).mockResolvedValue({ id: "ext-1" } as any);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { action: "allow_once" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { action: "allow_once" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("operationType");
@@ -152,11 +146,7 @@ describe("POST /api/extensions/[id]/confirm", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { confirmed: boolean };
     expect(body.confirmed).toBe(true);
-    expect(vi.mocked(setSensitiveAlwaysAllow)).toHaveBeenCalledWith(
-      "ext-1",
-      "filesystem",
-      true,
-    );
+    expect(vi.mocked(setSensitiveAlwaysAllow)).toHaveBeenCalledWith("ext-1", "filesystem", true);
   });
 
   test("action=deny returns confirmed=false", async () => {

@@ -19,18 +19,16 @@
  */
 
 const unavailable = (name: string) => (): never => {
-	throw new Error(
-		`bun:ffi stub: ${name}() is not available under vitest (jsdom). ` +
-			"This code path must not run in a non-Bun test environment.",
-	);
+  throw new Error(
+    `bun:ffi stub: ${name}() is not available under vitest (jsdom). ` +
+      "This code path must not run in a non-Bun test environment.",
+  );
 };
 
-export const dlopen = unavailable("dlopen") as unknown as (
-	...args: unknown[]
-) => never;
+export const dlopen = unavailable("dlopen") as unknown as (...args: unknown[]) => never;
 export const ptr = unavailable("ptr") as unknown as (...args: unknown[]) => never;
 export const toArrayBuffer = unavailable("toArrayBuffer") as unknown as (
-	...args: unknown[]
+  ...args: unknown[]
 ) => never;
 
 /**
@@ -39,18 +37,18 @@ export const toArrayBuffer = unavailable("toArrayBuffer") as unknown as (
  * they must exist as plain values.
  */
 export const FFIType = {
-	i8: 1,
-	i16: 2,
-	i32: 3,
-	i64: 4,
-	u8: 5,
-	u16: 6,
-	u32: 7,
-	u64: 8,
-	f32: 9,
-	f64: 10,
-	ptr: 11,
-	cstring: 12,
-	bool: 13,
-	void: 14,
+  i8: 1,
+  i16: 2,
+  i32: 3,
+  i64: 4,
+  u8: 5,
+  u16: 6,
+  u32: 7,
+  u64: 8,
+  f32: 9,
+  f64: 10,
+  ptr: 11,
+  cstring: 12,
+  bool: 13,
+  void: 14,
 } as const;

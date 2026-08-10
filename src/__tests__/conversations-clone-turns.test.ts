@@ -11,18 +11,8 @@ import { setupTestDb, getTestDb, closeTestDb, mockDbConnection } from "./helpers
 mockDbConnection();
 
 import { eq, asc } from "drizzle-orm";
-import {
-  users,
-  projects,
-  extensions,
-  conversations,
-  messages,
-  toolCalls,
-} from "../db/schema";
-import {
-  cloneTurnsIntoNewConversation,
-  updateMessageContent,
-} from "../db/queries/conversations";
+import { users, projects, extensions, conversations, messages, toolCalls } from "../db/schema";
+import { cloneTurnsIntoNewConversation, updateMessageContent } from "../db/queries/conversations";
 
 const USER_ID = "u-clone-1";
 const OTHER_USER_ID = "u-clone-other";
@@ -34,7 +24,13 @@ async function seedFixtures() {
   const db = getTestDb();
   await db.insert(users).values([
     { id: USER_ID, email: "c@x.com", passwordHash: "x", name: "Clone", role: "member" } as any,
-    { id: OTHER_USER_ID, email: "o@x.com", passwordHash: "x", name: "Other", role: "member" } as any,
+    {
+      id: OTHER_USER_ID,
+      email: "o@x.com",
+      passwordHash: "x",
+      name: "Other",
+      role: "member",
+    } as any,
   ]);
   await db.insert(projects).values({ id: PROJECT_ID, name: "p", path: "/tmp/p" } as any);
   await db.insert(extensions).values({
@@ -42,7 +38,16 @@ async function seedFixtures() {
     name: "test-ext",
     version: "0.0.1",
     description: "",
-    manifest: { schemaVersion: 2, name: "test-ext", version: "0.0.1", description: "", author: { name: "t" }, permissions: {}, entrypoint: "./e.ts", tools: [] },
+    manifest: {
+      schemaVersion: 2,
+      name: "test-ext",
+      version: "0.0.1",
+      description: "",
+      author: { name: "t" },
+      permissions: {},
+      entrypoint: "./e.ts",
+      tools: [],
+    },
     source: "bundled",
   } as any);
   await db.insert(conversations).values({
@@ -156,7 +161,6 @@ afterAll(async () => {
 });
 
 describe("cloneTurnsIntoNewConversation", () => {
-
   test("clones selected messages in createdAt order with a fresh linear parent chain", async () => {
     const { conversation, messageIdMap } = await cloneTurnsIntoNewConversation(
       SOURCE_CONV_ID,
@@ -201,11 +205,9 @@ describe("cloneTurnsIntoNewConversation", () => {
   });
 
   test("inherits projectId / model / provider / systemPrompt from source", async () => {
-    const { conversation } = await cloneTurnsIntoNewConversation(
-      SOURCE_CONV_ID,
-      ["msg-1"],
-      { userId: USER_ID },
-    );
+    const { conversation } = await cloneTurnsIntoNewConversation(SOURCE_CONV_ID, ["msg-1"], {
+      userId: USER_ID,
+    });
 
     expect(conversation.projectId).toBe(PROJECT_ID);
     expect(conversation.model).toBe("claude-sonnet-4-6");
@@ -235,11 +237,10 @@ describe("cloneTurnsIntoNewConversation", () => {
   });
 
   test("honours custom title", async () => {
-    const { conversation } = await cloneTurnsIntoNewConversation(
-      SOURCE_CONV_ID,
-      ["msg-1"],
-      { userId: USER_ID, title: "My custom title" },
-    );
+    const { conversation } = await cloneTurnsIntoNewConversation(SOURCE_CONV_ID, ["msg-1"], {
+      userId: USER_ID,
+      title: "My custom title",
+    });
     expect(conversation.title).toBe("My custom title");
   });
 
@@ -290,11 +291,9 @@ describe("cloneTurnsIntoNewConversation", () => {
 
   test("throws when any messageId does not belong to source conversation", async () => {
     await expect(
-      cloneTurnsIntoNewConversation(
-        SOURCE_CONV_ID,
-        ["msg-1", "does-not-exist"],
-        { userId: USER_ID },
-      ),
+      cloneTurnsIntoNewConversation(SOURCE_CONV_ID, ["msg-1", "does-not-exist"], {
+        userId: USER_ID,
+      }),
     ).rejects.toThrow(/do not belong/);
   });
 
@@ -305,11 +304,9 @@ describe("cloneTurnsIntoNewConversation", () => {
   });
 
   test("unselected messages do not appear in cloned conversation", async () => {
-    const { conversation } = await cloneTurnsIntoNewConversation(
-      SOURCE_CONV_ID,
-      ["msg-1"],
-      { userId: USER_ID },
-    );
+    const { conversation } = await cloneTurnsIntoNewConversation(SOURCE_CONV_ID, ["msg-1"], {
+      userId: USER_ID,
+    });
     const db = getTestDb();
     const newRows = await db
       .select()
@@ -331,11 +328,9 @@ describe("cloneTurnsIntoNewConversation", () => {
       })
       .where(eq(messages.id, "msg-2a"));
 
-    const { conversation } = await cloneTurnsIntoNewConversation(
-      SOURCE_CONV_ID,
-      ["msg-2a"],
-      { userId: USER_ID },
-    );
+    const { conversation } = await cloneTurnsIntoNewConversation(SOURCE_CONV_ID, ["msg-2a"], {
+      userId: USER_ID,
+    });
 
     const cloned = await db
       .select()
@@ -361,10 +356,7 @@ describe("updateMessageContent", () => {
     expect(updated!.parentMessageId).toBe("msg-1");
 
     const db = getTestDb();
-    const otherRows = await db
-      .select()
-      .from(messages)
-      .where(eq(messages.id, "msg-1"));
+    const otherRows = await db.select().from(messages).where(eq(messages.id, "msg-1"));
     expect(otherRows[0]!.content).toBe("Start: summarize this doc.");
   });
 

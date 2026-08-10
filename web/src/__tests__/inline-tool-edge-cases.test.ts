@@ -120,7 +120,9 @@ function chipAttributes(props: ChipProps) {
   };
 }
 
-function makeCall(overrides: Partial<Omit<InlineToolCall, "status" | "retryCount">> = {}): Omit<InlineToolCall, "status" | "retryCount"> {
+function makeCall(
+  overrides: Partial<Omit<InlineToolCall, "status" | "retryCount">> = {},
+): Omit<InlineToolCall, "status" | "retryCount"> {
   return {
     id: overrides.id ?? "inv-1",
     extensionName: overrides.extensionName ?? "ext-a",
@@ -184,7 +186,9 @@ describe("MentionChip interactivity", () => {
 
   test("keyboard accessibility: Enter and Space trigger onclick", () => {
     let count = 0;
-    const onclick = () => { count++; };
+    const onclick = () => {
+      count++;
+    };
 
     // Simulate keyboard handler logic from MentionChip
     function handleKeydown(key: string, handler?: () => void) {
@@ -215,22 +219,39 @@ describe("getExtensionStatus", () => {
   });
 
   test("single call returns its status", () => {
-    const calls: InlineToolCall[] = [makeFullCall({ extensionName: "ext-a", conversationId: "conv-1", status: "running" })];
+    const calls: InlineToolCall[] = [
+      makeFullCall({ extensionName: "ext-a", conversationId: "conv-1", status: "running" }),
+    ];
     expect(getExtensionStatus("ext-a", calls, "conv-1")).toBe("running");
   });
 
   test("multiple calls for same extension returns LAST call's status", () => {
     const calls: InlineToolCall[] = [
-      makeFullCall({ id: "1", extensionName: "ext-a", conversationId: "conv-1", status: "complete" }),
+      makeFullCall({
+        id: "1",
+        extensionName: "ext-a",
+        conversationId: "conv-1",
+        status: "complete",
+      }),
       makeFullCall({ id: "2", extensionName: "ext-a", conversationId: "conv-1", status: "error" }),
-      makeFullCall({ id: "3", extensionName: "ext-a", conversationId: "conv-1", status: "running" }),
+      makeFullCall({
+        id: "3",
+        extensionName: "ext-a",
+        conversationId: "conv-1",
+        status: "running",
+      }),
     ];
     expect(getExtensionStatus("ext-a", calls, "conv-1")).toBe("running");
   });
 
   test("different extensions are correctly filtered", () => {
     const calls: InlineToolCall[] = [
-      makeFullCall({ id: "1", extensionName: "ext-a", conversationId: "conv-1", status: "complete" }),
+      makeFullCall({
+        id: "1",
+        extensionName: "ext-a",
+        conversationId: "conv-1",
+        status: "complete",
+      }),
       makeFullCall({ id: "2", extensionName: "ext-b", conversationId: "conv-1", status: "error" }),
     ];
     expect(getExtensionStatus("ext-a", calls, "conv-1")).toBe("complete");
@@ -239,7 +260,12 @@ describe("getExtensionStatus", () => {
 
   test("different conversations are correctly filtered", () => {
     const calls: InlineToolCall[] = [
-      makeFullCall({ id: "1", extensionName: "ext-a", conversationId: "conv-1", status: "complete" }),
+      makeFullCall({
+        id: "1",
+        extensionName: "ext-a",
+        conversationId: "conv-1",
+        status: "complete",
+      }),
       makeFullCall({ id: "2", extensionName: "ext-a", conversationId: "conv-2", status: "error" }),
     ];
     expect(getExtensionStatus("ext-a", calls, "conv-1")).toBe("complete");
@@ -508,10 +534,12 @@ describe("API response destructuring (32-04 fix)", () => {
   });
 
   test(".find() works on destructured array but not on wrapper object", () => {
-    const response = { tools: [
-      { name: "a", description: "first", inputSchema: {} },
-      { name: "b", description: "second", inputSchema: {} },
-    ]};
+    const response = {
+      tools: [
+        { name: "a", description: "first", inputSchema: {} },
+        { name: "b", description: "second", inputSchema: {} },
+      ],
+    };
 
     // Correct: destructured
     const { tools } = response;

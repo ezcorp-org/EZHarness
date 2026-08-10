@@ -71,11 +71,7 @@ mock.module("../db/connection", () => ({
           // walking the drizzle binary-op shape; fall back to the most
           // recently seen conv id when the structure changes.
           let id = lastReadId;
-          if (
-            typeof whereClause === "object" &&
-            whereClause !== null &&
-            "right" in whereClause
-          ) {
+          if (typeof whereClause === "object" && whereClause !== null && "right" in whereClause) {
             const right = (whereClause as { right: unknown }).right;
             if (
               typeof right === "object" &&
@@ -306,7 +302,13 @@ describe("subscription error catches", () => {
     // Emitting run:complete forces onRunComplete to fire → throws →
     // .catch swallows. Test just asserts no unhandled rejection.
     bus.emit("run:complete", {
-      run: { id: "r", agentName: "chat", status: "success", startedAt: 0, logs: [] } as unknown as AgentRun,
+      run: {
+        id: "r",
+        agentName: "chat",
+        status: "success",
+        startedAt: 0,
+        logs: [],
+      } as unknown as AgentRun,
       conversationId: "c1",
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -325,7 +327,13 @@ describe("subscription error catches", () => {
     });
     await host.start();
     bus.emit("run:error", {
-      run: { id: "r", agentName: "chat", status: "error", startedAt: 0, logs: [] } as unknown as AgentRun,
+      run: {
+        id: "r",
+        agentName: "chat",
+        status: "error",
+        startedAt: 0,
+        logs: [],
+      } as unknown as AgentRun,
       conversationId: "c1",
       error: "boom",
     });
@@ -345,7 +353,13 @@ describe("subscription error catches", () => {
     });
     await host.start();
     bus.emit("run:cancel", {
-      run: { id: "r", agentName: "chat", status: "cancelled", startedAt: 0, logs: [] } as unknown as AgentRun,
+      run: {
+        id: "r",
+        agentName: "chat",
+        status: "cancelled",
+        startedAt: 0,
+        logs: [],
+      } as unknown as AgentRun,
       conversationId: "c1",
     });
     await new Promise((r) => setTimeout(r, 10));
@@ -548,7 +562,13 @@ describe("default dependency wiring", () => {
     // crash for an UNARMED conversation (dequeue returns undefined).
     await host.start();
     bus.emit("run:complete", {
-      run: { id: "r", agentName: "chat", status: "success", startedAt: 0, logs: [] } as unknown as AgentRun,
+      run: {
+        id: "r",
+        agentName: "chat",
+        status: "success",
+        startedAt: 0,
+        logs: [],
+      } as unknown as AgentRun,
       conversationId: "no-such-conv",
     });
     await new Promise((r) => setTimeout(r, 5));
@@ -674,7 +694,12 @@ describe("invokeEvaluator throw → parseFailed:true", () => {
   test("when `complete` throws (timeout etc.), evaluator counts as a failure", async () => {
     const { invokeEvaluator } = await import("../runtime/goal-host");
     const r = await invokeEvaluator(
-      { provider: "anthropic", model: "haiku", piModel: {}, credential: { type: "apikey", token: "k" } },
+      {
+        provider: "anthropic",
+        model: "haiku",
+        piModel: {},
+        credential: { type: "apikey", token: "k" },
+      },
       "do x",
       [],
       {

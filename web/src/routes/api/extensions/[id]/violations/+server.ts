@@ -17,7 +17,13 @@ export const GET = async ({ params, locals }: { params: { id: string }; locals: 
 };
 
 // DELETE: Clear security violations (admin only, allows re-enabling)
-export const DELETE = async ({ params, locals }: { params: { id: string }; locals: App.Locals }) => {
+export const DELETE = async ({
+  params,
+  locals,
+}: {
+  params: { id: string };
+  locals: App.Locals;
+}) => {
   const scopeErr = requireScope(locals, "admin");
   if (scopeErr) return scopeErr;
   requireAuth(locals);

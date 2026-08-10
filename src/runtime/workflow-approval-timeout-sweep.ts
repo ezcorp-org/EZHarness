@@ -55,10 +55,7 @@ import {
   expireWorkflowApproval,
   listExpiredWorkflowApprovals,
 } from "../db/queries/workflow-approvals";
-import {
-  finalizeWorkflowRunRow,
-  getWorkflowRunRow,
-} from "../db/queries/workflow-runs";
+import { finalizeWorkflowRunRow, getWorkflowRunRow } from "../db/queries/workflow-runs";
 import { answerApproval } from "./workflow-answer-approval";
 import { getWorkflowRuntime, type WorkflowRuntime } from "./workflow/runtime-registry";
 import { logger } from "../logger";

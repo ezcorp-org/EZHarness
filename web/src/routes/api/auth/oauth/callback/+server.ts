@@ -10,7 +10,7 @@ import { OAUTH_CONFIG } from "$lib/server/oauth-config";
 const VALID_PROVIDERS = ["openai", "google"] as const;
 
 function isValidProvider(p: string): p is (typeof VALID_PROVIDERS)[number] {
-	return (VALID_PROVIDERS as readonly string[]).includes(p);
+  return (VALID_PROVIDERS as readonly string[]).includes(p);
 }
 
 /**
@@ -18,56 +18,56 @@ function isValidProvider(p: string): p is (typeof VALID_PROVIDERS)[number] {
  * Returns pi-ai OAuthCredentials format: { access, refresh, expires }.
  */
 async function exchangeCode(
-	provider: string,
-	code: string,
-	codeVerifier: string,
-	redirectUri: string,
+  provider: string,
+  code: string,
+  codeVerifier: string,
+  redirectUri: string,
 ): Promise<OAuthCredentials> {
-	const config = OAUTH_CONFIG[provider];
-	if (!config) throw new Error(`No OAuth config for ${provider}`);
+  const config = OAUTH_CONFIG[provider];
+  if (!config) throw new Error(`No OAuth config for ${provider}`);
 
-	const body = new URLSearchParams({
-		grant_type: "authorization_code",
-		code,
-		code_verifier: codeVerifier,
-		redirect_uri: redirectUri,
-		client_id: config.clientId,
-		...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
-	});
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    code_verifier: codeVerifier,
+    redirect_uri: redirectUri,
+    client_id: config.clientId,
+    ...(config.clientSecret ? { client_secret: config.clientSecret } : {}),
+  });
 
-	const res = await fetch(config.tokenEndpoint, {
-		method: "POST",
-		headers: { "Content-Type": "application/x-www-form-urlencoded" },
-		body: body.toString(),
-	});
+  const res = await fetch(config.tokenEndpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
 
-	if (!res.ok) {
-		throw new Error(`Token exchange failed for ${provider}: ${res.status}`);
-	}
+  if (!res.ok) {
+    throw new Error(`Token exchange failed for ${provider}: ${res.status}`);
+  }
 
-	const data = (await res.json()) as {
-		access_token: string;
-		refresh_token?: string;
-		expires_in: number;
-	};
+  const data = (await res.json()) as {
+    access_token: string;
+    refresh_token?: string;
+    expires_in: number;
+  };
 
-	// Store in pi-ai OAuthCredentials format
-	return {
-		access: data.access_token,
-		refresh: data.refresh_token ?? "",
-		expires: Date.now() + data.expires_in * 1000,
-	};
+  // Store in pi-ai OAuthCredentials format
+  return {
+    access: data.access_token,
+    refresh: data.refresh_token ?? "",
+    expires: Date.now() + data.expires_in * 1000,
+  };
 }
 
 // sec-M2: pending OAuth record stored server-side by the initiator. The
 // codeVerifier never leaves the server; the record is keyed by state and
 // consumed one-shot on successful exchange.
 interface PendingOAuth {
-	state: string;
-	codeVerifier: string;
-	redirectUri: string;
-	provider: string;
-	createdAt: number;
+  state: string;
+  codeVerifier: string;
+  redirectUri: string;
+  provider: string;
+  createdAt: number;
 }
 
 // 10 minute TTL — long enough for a user to authorize with the provider
@@ -76,120 +76,115 @@ interface PendingOAuth {
 const OAUTH_PENDING_TTL_MS = 10 * 60 * 1000;
 
 export const POST: RequestHandler = async ({ request, locals }) => {
-	// This handler writes `provider:oauth:<provider>` — the INSTANCE LLM
-	// credential that `src/providers/credentials.ts:getOAuthCredential`
-	// resolves for every user's turns. That is the same room
-	// `provider:apiKey:<provider>` lives in, and the OTHER door to it
-	// (`POST`/`DELETE /api/providers`) has been gated on BOTH authorization
-	// axes since sec-C5/F2. This one was gated on `requireAuth` alone, so any
-	// authenticated MEMBER could redirect the organisation's provider
-	// credential to an account they control — billing, prompt content and all.
-	//
-	// Same pairing, same order, same reasons as /api/providers:
-	//   - `requireAdmin` is the ROLE axis. `requireScope(locals,"admin")` is a
-	//     no-op for a cookie session (no `apiKeyScopes`), so scope alone would
-	//     let every logged-in member straight through.
-	//   - `requireScope` is the SCOPE axis. Role alone proves the PRINCIPAL is
-	//     an admin and ignores what the key was scoped FOR, so a key minted
-	//     `--scopes read --role admin` would still reach this write.
-	//   - Both RETURN their denial (#84); a thrown Response is what SvelteKit
-	//     renders as a 500. Role is checked FIRST so an unauthenticated or
-	//     non-admin caller gets the uniform 403 "Admin role required" rather
-	//     than leaking that scope was also missing. (Unauthenticated callers
-	//     never actually reach here — hooks.server.ts answers every
-	//     unauthenticated `/api/*` request with 401 first.)
-	//
-	// Onboarding is unaffected: `/api/auth/setup` creates the FIRST user with
-	// `role: "admin"`, so genuine first-run provider connection is performed
-	// by an admin by construction. The principals this newly stops are
-	// later-invited members, which is the point.
-	const adminErr = requireAdmin(locals);
-	if (adminErr) return adminErr;
-	const scopeErr = requireScope(locals, "admin");
-	if (scopeErr) return scopeErr;
+  // This handler writes `provider:oauth:<provider>` — the INSTANCE LLM
+  // credential that `src/providers/credentials.ts:getOAuthCredential`
+  // resolves for every user's turns. That is the same room
+  // `provider:apiKey:<provider>` lives in, and the OTHER door to it
+  // (`POST`/`DELETE /api/providers`) has been gated on BOTH authorization
+  // axes since sec-C5/F2. This one was gated on `requireAuth` alone, so any
+  // authenticated MEMBER could redirect the organisation's provider
+  // credential to an account they control — billing, prompt content and all.
+  //
+  // Same pairing, same order, same reasons as /api/providers:
+  //   - `requireAdmin` is the ROLE axis. `requireScope(locals,"admin")` is a
+  //     no-op for a cookie session (no `apiKeyScopes`), so scope alone would
+  //     let every logged-in member straight through.
+  //   - `requireScope` is the SCOPE axis. Role alone proves the PRINCIPAL is
+  //     an admin and ignores what the key was scoped FOR, so a key minted
+  //     `--scopes read --role admin` would still reach this write.
+  //   - Both RETURN their denial (#84); a thrown Response is what SvelteKit
+  //     renders as a 500. Role is checked FIRST so an unauthenticated or
+  //     non-admin caller gets the uniform 403 "Admin role required" rather
+  //     than leaking that scope was also missing. (Unauthenticated callers
+  //     never actually reach here — hooks.server.ts answers every
+  //     unauthenticated `/api/*` request with 401 first.)
+  //
+  // Onboarding is unaffected: `/api/auth/setup` creates the FIRST user with
+  // `role: "admin"`, so genuine first-run provider connection is performed
+  // by an admin by construction. The principals this newly stops are
+  // later-invited members, which is the point.
+  const adminErr = requireAdmin(locals);
+  if (adminErr) return adminErr;
+  const scopeErr = requireScope(locals, "admin");
+  if (scopeErr) return scopeErr;
 
-	const body = await request.json();
-	const { provider, code, state } = body as {
-		provider: string;
-		code: string;
-		state?: string;
-	};
+  const body = await request.json();
+  const { provider, code, state } = body as {
+    provider: string;
+    code: string;
+    state?: string;
+  };
 
-	if (!provider || !isValidProvider(provider)) {
-		return errorJson(400, "Invalid provider. Must be one of: openai, google");
-	}
+  if (!provider || !isValidProvider(provider)) {
+    return errorJson(400, "Invalid provider. Must be one of: openai, google");
+  }
 
-	if (!code) {
-		return errorJson(400, "code is required");
-	}
+  if (!code) {
+    return errorJson(400, "code is required");
+  }
 
-	if (!state) {
-		return errorJson(400, "state is required");
-	}
+  if (!state) {
+    return errorJson(400, "state is required");
+  }
 
-	// sec-M2: look up the server-side pending record for this state. Pre-fix
-	// the callback accepted codeVerifier + state directly from the frontend
-	// request body and never compared state to anything stored — relying
-	// purely on PKCE. If the verifier ever leaked (it was returned to the
-	// client in the initiator response), an attacker could forge the whole
-	// exchange. Now state is the lookup key, so a missing record means the
-	// state is unknown/replayed/expired.
-	const pending = (await getSetting(`oauth:pending:${state}`)) as PendingOAuth | undefined;
-	if (!pending || typeof pending !== "object") {
-		return errorJson(400, "Invalid or expired state");
-	}
+  // sec-M2: look up the server-side pending record for this state. Pre-fix
+  // the callback accepted codeVerifier + state directly from the frontend
+  // request body and never compared state to anything stored — relying
+  // purely on PKCE. If the verifier ever leaked (it was returned to the
+  // client in the initiator response), an attacker could forge the whole
+  // exchange. Now state is the lookup key, so a missing record means the
+  // state is unknown/replayed/expired.
+  const pending = (await getSetting(`oauth:pending:${state}`)) as PendingOAuth | undefined;
+  if (!pending || typeof pending !== "object") {
+    return errorJson(400, "Invalid or expired state");
+  }
 
-	// Defence-in-depth: stored provider must match the request.
-	if (pending.provider !== provider) {
-		await deleteSetting(`oauth:pending:${state}`);
-		return errorJson(400, "Invalid or expired state");
-	}
+  // Defence-in-depth: stored provider must match the request.
+  if (pending.provider !== provider) {
+    await deleteSetting(`oauth:pending:${state}`);
+    return errorJson(400, "Invalid or expired state");
+  }
 
-	// TTL enforcement — expired records are cleaned up lazily here.
-	if (Date.now() - pending.createdAt > OAUTH_PENDING_TTL_MS) {
-		await deleteSetting(`oauth:pending:${state}`);
-		return errorJson(400, "Invalid or expired state");
-	}
+  // TTL enforcement — expired records are cleaned up lazily here.
+  if (Date.now() - pending.createdAt > OAUTH_PENDING_TTL_MS) {
+    await deleteSetting(`oauth:pending:${state}`);
+    return errorJson(400, "Invalid or expired state");
+  }
 
-	try {
-		const tokenData = await exchangeCode(
-			provider,
-			code,
-			pending.codeVerifier,
-			pending.redirectUri,
-		);
-		const encrypted = encrypt(JSON.stringify(tokenData));
-		await upsertSetting(`provider:oauth:${provider}`, encrypted);
+  try {
+    const tokenData = await exchangeCode(provider, code, pending.codeVerifier, pending.redirectUri);
+    const encrypted = encrypt(JSON.stringify(tokenData));
+    await upsertSetting(`provider:oauth:${provider}`, encrypted);
 
-		// sec-M2: one-shot — consume the pending record only after a
-		// successful token exchange + persist. If exchange fails the
-		// record stays so the user can retry without losing state,
-		// but it will still expire after the TTL.
-		await deleteSetting(`oauth:pending:${state}`);
+    // sec-M2: one-shot — consume the pending record only after a
+    // successful token exchange + persist. If exchange fails the
+    // record stays so the user can retry without losing state,
+    // but it will still expire after the TTL.
+    await deleteSetting(`oauth:pending:${state}`);
 
-		return json({ success: true, provider });
-	} catch (e) {
-		return errorJson(400, (e as Error).message);
-	}
+    return json({ success: true, provider });
+  } catch (e) {
+    return errorJson(400, (e as Error).message);
+  }
 };
 
 export const DELETE: RequestHandler = async ({ request, locals }) => {
-	// Deletes `provider:oauth:<provider>`. Pre-fix, any authenticated member
-	// could revoke the instance's provider credential — an LLM outage for
-	// every other user. Role AND admin scope, both returning their denial;
-	// see POST above for the full rationale.
-	const adminErr = requireAdmin(locals);
-	if (adminErr) return adminErr;
-	const scopeErr = requireScope(locals, "admin");
-	if (scopeErr) return scopeErr;
+  // Deletes `provider:oauth:<provider>`. Pre-fix, any authenticated member
+  // could revoke the instance's provider credential — an LLM outage for
+  // every other user. Role AND admin scope, both returning their denial;
+  // see POST above for the full rationale.
+  const adminErr = requireAdmin(locals);
+  if (adminErr) return adminErr;
+  const scopeErr = requireScope(locals, "admin");
+  if (scopeErr) return scopeErr;
 
-	const body = await request.json();
-	const { provider } = body as { provider: string };
+  const body = await request.json();
+  const { provider } = body as { provider: string };
 
-	if (!provider || !isValidProvider(provider)) {
-		return errorJson(400, "Invalid provider. Must be one of: openai, google");
-	}
+  if (!provider || !isValidProvider(provider)) {
+    return errorJson(400, "Invalid provider. Must be one of: openai, google");
+  }
 
-	await deleteSetting(`provider:oauth:${provider}`);
-	return json({ success: true });
+  await deleteSetting(`provider:oauth:${provider}`);
+  return json({ success: true });
 };

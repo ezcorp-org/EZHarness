@@ -37,9 +37,7 @@ vi.mock("$lib/server/context", () => ({
   }),
 }));
 
-const { writeAndBroadcastSnapshot } = await import(
-  "$lib/server/task-helpers"
-);
+const { writeAndBroadcastSnapshot } = await import("$lib/server/task-helpers");
 
 beforeEach(() => {
   writeTaskSnapshotForConversation.mockReset();
@@ -97,9 +95,7 @@ describe("writeAndBroadcastSnapshot — activeTaskId conditional spread", () => 
     expect("activeTaskId" in (persisted ?? {})).toBe(false);
     expect(persisted).toEqual({ tasks: [] });
 
-    const emitted = emit.mock.calls[0]?.[1] as
-      | Record<string, unknown>
-      | undefined;
+    const emitted = emit.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
     expect(emitted).toBeDefined();
     expect("activeTaskId" in (emitted ?? {})).toBe(false);
     expect(emitted).toEqual({ conversationId: "c1", tasks: [] });

@@ -139,9 +139,7 @@ interface ConntrackOverrides {
 }
 let conntrackOverrides: ConntrackOverrides | null = null;
 
-export function _setConntrackOverridesForTests(
-  o: ConntrackOverrides | null,
-): void {
+export function _setConntrackOverridesForTests(o: ConntrackOverrides | null): void {
   conntrackOverrides = o;
 }
 
@@ -152,8 +150,7 @@ function readConntrackPressure(): {
   ratio: number;
 } {
   const exists = conntrackOverrides?.exists ?? ((p: string) => realExistsSync(p));
-  const read =
-    conntrackOverrides?.readFile ?? ((p: string) => realReadFileSync(p, "utf8"));
+  const read = conntrackOverrides?.readFile ?? ((p: string) => realReadFileSync(p, "utf8"));
   const maxPath = "/proc/sys/net/netfilter/nf_conntrack_max";
   const countPath = "/proc/sys/net/netfilter/nf_conntrack_count";
   if (!exists(maxPath) || !exists(countPath)) {
@@ -229,9 +226,7 @@ function isSandboxRequired(): boolean {
 // ─────────────────────────────────────────────────────────────────────
 let projectRootOverride: string | null | undefined = undefined;
 
-export function _setProjectRootOverrideForTests(
-  v: string | null | undefined,
-): void {
+export function _setProjectRootOverrideForTests(v: string | null | undefined): void {
   projectRootOverride = v;
 }
 
@@ -275,12 +270,8 @@ function landlockShimPath(): string {
  * or $HOME itself — binding those would re-expose user secrets.
  */
 function computeMcpJailRoDirs(mcpCommand: string): string[] {
-  const dirs = [...DEFAULT_RO_SYSTEM_DIRS, "/opt", "/nix"].filter((d) =>
-    realExistsSync(d),
-  );
-  const resolved = mcpCommand.includes("/")
-    ? resolve(mcpCommand)
-    : Bun.which(mcpCommand);
+  const dirs = [...DEFAULT_RO_SYSTEM_DIRS, "/opt", "/nix"].filter((d) => realExistsSync(d));
+  const resolved = mcpCommand.includes("/") ? resolve(mcpCommand) : Bun.which(mcpCommand);
   if (resolved) {
     const binDir = dirname(resolved);
     const home = process.env.HOME ? resolve(process.env.HOME) : null;
@@ -406,9 +397,7 @@ interface SeccompSoakOverrides {
 }
 let seccompSoakOverrides: SeccompSoakOverrides | null = null;
 
-export function _setSeccompSoakOverridesForTests(
-  overrides: SeccompSoakOverrides | null,
-): void {
+export function _setSeccompSoakOverridesForTests(overrides: SeccompSoakOverrides | null): void {
   seccompSoakOverrides = overrides;
 }
 
@@ -458,21 +447,16 @@ export async function buildSandboxedMcpSpec(
   if (ctx) {
     const conntrack = readConntrackPressure();
     if (conntrack.ok && conntrack.ratio > 0.7) {
-      void insertAuditEntry(
-        ctx.userId,
-        EXT_AUDIT_ACTIONS.MCP_CONNTRACK_HIGH,
-        extensionId,
-        {
-          permission: "network",
-          oldValue: null,
-          newValue: null,
-          actor: "system",
-          extensionName: manifest.name,
-          conntrackCount: conntrack.count,
-          conntrackMax: conntrack.max,
-          ratio: conntrack.ratio,
-        },
-      ).catch(() => {});
+      void insertAuditEntry(ctx.userId, EXT_AUDIT_ACTIONS.MCP_CONNTRACK_HIGH, extensionId, {
+        permission: "network",
+        oldValue: null,
+        newValue: null,
+        actor: "system",
+        extensionName: manifest.name,
+        conntrackCount: conntrack.count,
+        conntrackMax: conntrack.max,
+        ratio: conntrack.ratio,
+      }).catch(() => {});
       throw new Error(
         `MCP spawn refused: conntrack table pressure ${(conntrack.ratio * 100).toFixed(1)}% > 70% threshold. ` +
           `Wait for active TCP connections to drain (TIME_WAIT 120s default) or bump net.netfilter.nf_conntrack_max.`,
@@ -566,9 +550,7 @@ export async function buildSandboxedMcpSpec(
   // (never from `spec.env` — the manifest must not be able to steer the
   // data-dir exclusion).
   const jailProjectRoot =
-    projectRootOverride !== undefined
-      ? projectRootOverride
-      : baseEnv.EZCORP_PROJECT_ROOT ?? null;
+    projectRootOverride !== undefined ? projectRootOverride : (baseEnv.EZCORP_PROJECT_ROOT ?? null);
   let strictJailArgs: string[] | null = null;
   // Phase A3 — landlock-tier env additions (the shim wrap + spec). Threaded
   // into `env` near the end so `spec.env` can't override them.
@@ -616,8 +598,7 @@ export async function buildSandboxedMcpSpec(
           seccompFd: 3,
           // Re-create the per-extension TMPDIR inside the fresh tmpfs so
           // runtimes that honor TMPDIR keep working.
-          tmpDirs:
-            extTmpDir?.startsWith("/tmp/") ? [extTmpDir] : [],
+          tmpDirs: extTmpDir?.startsWith("/tmp/") ? [extTmpDir] : [],
           command: prlimitCommand,
           args: prlimitArgs,
         });
@@ -699,21 +680,16 @@ export async function buildSandboxedMcpSpec(
   const auditAction = netns.available
     ? EXT_AUDIT_ACTIONS.MCP_NETNS_CREATED
     : EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK;
-  void insertAuditEntry(
-    ctx.userId,
-    auditAction,
-    extensionId,
-    {
-      permission: "network",
-      oldValue: null,
-      newValue: null,
-      actor: "system",
-      extensionName: manifest.name,
-      reason: netns.reason ?? null,
-      proxyUrl: `127.0.0.1:${new URL(proxyUrl).port}`,
-      platform: process.platform,
-    },
-  ).catch(() => {
+  void insertAuditEntry(ctx.userId, auditAction, extensionId, {
+    permission: "network",
+    oldValue: null,
+    newValue: null,
+    actor: "system",
+    extensionName: manifest.name,
+    reason: netns.reason ?? null,
+    proxyUrl: `127.0.0.1:${new URL(proxyUrl).port}`,
+    platform: process.platform,
+  }).catch(() => {
     // Fire-and-forget — see comment above. Logging an audit row failure
     // here would itself need a DB write, so we swallow.
   });
@@ -754,26 +730,17 @@ export async function buildSandboxedMcpSpec(
   // row — operators reading the audit stream see both that the user+
   // mount namespace was entered AND that the inner tmpfs wrap was
   // skipped, so they can chase the missing dependency.
-  if (
-    finalSpawn.bwrapAvailable === false &&
-    !finalSpawn.tmpfsKillSwitchActive &&
-    netns.available
-  ) {
-    void insertAuditEntry(
-      ctx.userId,
-      EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK,
-      extensionId,
-      {
-        permission: "network",
-        oldValue: null,
-        newValue: null,
-        actor: "system",
-        extensionName: manifest.name,
-        reason: "bubblewrap unavailable",
-        bwrapReason: finalSpawn.bwrapReason ?? null,
-        platform: process.platform,
-      },
-    ).catch(() => {
+  if (finalSpawn.bwrapAvailable === false && !finalSpawn.tmpfsKillSwitchActive && netns.available) {
+    void insertAuditEntry(ctx.userId, EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK, extensionId, {
+      permission: "network",
+      oldValue: null,
+      newValue: null,
+      actor: "system",
+      extensionName: manifest.name,
+      reason: "bubblewrap unavailable",
+      bwrapReason: finalSpawn.bwrapReason ?? null,
+      platform: process.platform,
+    }).catch(() => {
       // Fire-and-forget — see existing MCP_NETNS_CREATED row above.
     });
   }
@@ -785,20 +752,15 @@ export async function buildSandboxedMcpSpec(
   // discriminator changes.
   if (finalSpawn.tmpfsKillSwitchActive && !killSwitchBootRowEmitted) {
     killSwitchBootRowEmitted = true;
-    void insertAuditEntry(
-      ctx.userId,
-      EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK,
-      extensionId,
-      {
-        permission: "network",
-        oldValue: null,
-        newValue: null,
-        actor: "system",
-        extensionName: manifest.name,
-        reason: "kill-switch: tmpfs disabled",
-        platform: process.platform,
-      },
-    ).catch(() => {});
+    void insertAuditEntry(ctx.userId, EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK, extensionId, {
+      permission: "network",
+      oldValue: null,
+      newValue: null,
+      actor: "system",
+      extensionName: manifest.name,
+      reason: "kill-switch: tmpfs disabled",
+      platform: process.platform,
+    }).catch(() => {});
   }
 
   // Plan 55-03 (MCP-03) kill-switch boot row — fires exactly once per
@@ -807,25 +769,17 @@ export async function buildSandboxedMcpSpec(
   // above. Mirrors uniform Stage 1 kill-switch boot-row treatment per
   // checker B1: all three (DNS_RECHECK in Plan 01, TMPFS in Plan 02,
   // SECCOMP here) emit exactly one MCP_NETNS_FALLBACK boot row.
-  if (
-    finalSpawn.seccompKillSwitchActive &&
-    !seccompKillSwitchBootRowEmitted
-  ) {
+  if (finalSpawn.seccompKillSwitchActive && !seccompKillSwitchBootRowEmitted) {
     seccompKillSwitchBootRowEmitted = true;
-    void insertAuditEntry(
-      ctx.userId,
-      EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK,
-      extensionId,
-      {
-        permission: "network",
-        oldValue: null,
-        newValue: null,
-        actor: "system",
-        extensionName: manifest.name,
-        reason: "kill-switch: seccomp disabled",
-        platform: process.platform,
-      },
-    ).catch(() => {});
+    void insertAuditEntry(ctx.userId, EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK, extensionId, {
+      permission: "network",
+      oldValue: null,
+      newValue: null,
+      actor: "system",
+      extensionName: manifest.name,
+      reason: "kill-switch: seccomp disabled",
+      platform: process.platform,
+    }).catch(() => {});
   }
 
   // ─────────────────────────────────────────────────────────────────
@@ -855,20 +809,15 @@ export async function buildSandboxedMcpSpec(
   // kill-switch boot-row treatment (DNS_RECHECK, TMPFS, SECCOMP).
   if (stage2KillSwitchActive && !stage2KillSwitchBootRowEmitted) {
     stage2KillSwitchBootRowEmitted = true;
-    void insertAuditEntry(
-      ctx.userId,
-      EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK,
-      extensionId,
-      {
-        permission: "network",
-        oldValue: null,
-        newValue: null,
-        actor: "system",
-        extensionName: manifest.name,
-        reason: "kill-switch: stage2 veth disabled",
-        platform: process.platform,
-      },
-    ).catch(() => {});
+    void insertAuditEntry(ctx.userId, EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK, extensionId, {
+      permission: "network",
+      oldValue: null,
+      newValue: null,
+      actor: "system",
+      extensionName: manifest.name,
+      reason: "kill-switch: stage2 veth disabled",
+      platform: process.platform,
+    }).catch(() => {});
   }
 
   let vethSetup: {
@@ -888,8 +837,8 @@ export async function buildSandboxedMcpSpec(
       // 8-hex shortId from UUIDv7 — monotonic-by-time so the orphan
       // sweep (Plan 03) can reason about "older than process start".
       const vethId = Bun.randomUUIDv7().replace(/-/g, "").slice(0, 8);
-      const hostSideName = `mcp-${vethId}`;        // 12 chars
-      const nsSideName = `mcp-${vethId}-ns`;       // 15 chars (IFNAMSIZ ceiling)
+      const hostSideName = `mcp-${vethId}`; // 12 chars
+      const nsSideName = `mcp-${vethId}-ns`; // 15 chars (IFNAMSIZ ceiling)
       const vethIpv4 = computeVethMcpIp(slot);
 
       // Create the veth pair (host-side + namespace-side as a linked peer).
@@ -923,14 +872,11 @@ export async function buildSandboxedMcpSpec(
             stderr: "ignore",
           });
           releaseVethSlot(slot);
-          vethDegradeReason =
-            "veth bridge attach/up failed (br-ezcorp-mcp missing or down)";
+          vethDegradeReason = "veth bridge attach/up failed (br-ezcorp-mcp missing or down)";
         }
       } else {
         releaseVethSlot(slot);
-        const createStderr = create.stderr
-          ? new TextDecoder().decode(create.stderr).trim()
-          : "";
+        const createStderr = create.stderr ? new TextDecoder().decode(create.stderr).trim() : "";
         vethDegradeReason = `veth pair create failed${createStderr ? `: ${createStderr}` : ""}`;
       }
     } else {
@@ -969,22 +915,17 @@ export async function buildSandboxedMcpSpec(
   // Emit MCP_VETH_CREATED on Stage 2 success — operator-visible signal
   // that this MCP spawn got the kernel-level network isolation leg.
   if (vethSetup !== null) {
-    void insertAuditEntry(
-      ctx.userId,
-      EXT_AUDIT_ACTIONS.MCP_VETH_CREATED,
-      extensionId,
-      {
-        permission: "network",
-        oldValue: null,
-        newValue: null,
-        actor: "system",
-        extensionName: manifest.name,
-        vethId: vethSetup.vethId,
-        hostSideName: vethSetup.hostSideName,
-        nsSideName: vethSetup.nsSideName,
-        ipv4: vethSetup.vethIpv4,
-      },
-    ).catch(() => {});
+    void insertAuditEntry(ctx.userId, EXT_AUDIT_ACTIONS.MCP_VETH_CREATED, extensionId, {
+      permission: "network",
+      oldValue: null,
+      newValue: null,
+      actor: "system",
+      extensionName: manifest.name,
+      vethId: vethSetup.vethId,
+      hostSideName: vethSetup.hostSideName,
+      nsSideName: vethSetup.nsSideName,
+      ipv4: vethSetup.vethIpv4,
+    }).catch(() => {});
   }
 
   // Plan 55-02: thread the bwrap state into the spawned env so
@@ -992,10 +933,7 @@ export async function buildSandboxedMcpSpec(
   // launcher reads `EZCORP_MCP_BWRAP_ENABLED` BEFORE the existing
   // capsh probe; when set to "1" it execs `bwrap ... -- $@`,
   // otherwise it falls through to the unchanged capsh+exec path.
-  if (
-    finalSpawn.bwrapAvailable === true &&
-    !finalSpawn.tmpfsKillSwitchActive
-  ) {
+  if (finalSpawn.bwrapAvailable === true && !finalSpawn.tmpfsKillSwitchActive) {
     env.EZCORP_MCP_BWRAP_ENABLED = "1";
     // CRITICAL fix — always-on data-dir exclusion (default posture).
     // The launcher masks these paths with a private tmpfs on top of its
@@ -1068,10 +1006,7 @@ export async function buildSandboxedMcpSpec(
     env.EZCORP_MCP_FS_JAIL = "1";
     if (sandboxRequired) env.EZCORP_MCP_REQUIRE_SANDBOX = "1";
     const launcherIdx = finalSpawn.args.indexOf(launcherPath);
-    finalSpawn.args = [
-      ...finalSpawn.args.slice(0, launcherIdx + 1),
-      ...strictJailArgs,
-    ];
+    finalSpawn.args = [...finalSpawn.args.slice(0, launcherIdx + 1), ...strictJailArgs];
   } else if (landlockShimWrap !== null && landlockJailEnv !== null) {
     // Phase A3 — landlock-tier activation (container; no bwrap launcher).
     // Wrap the INNER command (the prlimit chain) with the Landlock shim:
@@ -1083,12 +1018,7 @@ export async function buildSandboxedMcpSpec(
     if (finalSpawn.command === prlimitCommand) {
       // Unwrapped (no netns): prepend the shim to the prlimit chain.
       finalSpawn.command = landlockShimWrap.bun;
-      finalSpawn.args = [
-        landlockShimWrap.shim,
-        "--",
-        prlimitCommand,
-        ...finalSpawn.args,
-      ];
+      finalSpawn.args = [landlockShimWrap.shim, "--", prlimitCommand, ...finalSpawn.args];
     } else {
       // netns-wrapped: insert the shim right after the launcher path so the
       // inner command runs jailed inside the namespace.
@@ -1146,21 +1076,24 @@ export async function buildSandboxedMcpSpec(
     //   2. Write 1 byte to the child's stdin to release the launcher's
     //      `read -n 1` handshake. Caller-provided `writeByte` abstracts
     //      the actual stdin reach (decouples from SDK transport internals).
-    onChildSpawned: capturedVethSetup !== null
-      ? async (pid: number, writeByte: (b: number) => Promise<void>) => {
-          const move = Bun.spawnSync({
-            cmd: ["ip", "link", "set", capturedVethSetup.nsSideName, "netns", String(pid)],
-            stdout: "ignore",
-            stderr: "pipe",
-          });
-          if (!move.success) {
-            const stderrStr = move.stderr ? new TextDecoder().decode(move.stderr).trim() : "unknown";
-            throw new Error(`veth move failed: ${stderrStr}`);
+    onChildSpawned:
+      capturedVethSetup !== null
+        ? async (pid: number, writeByte: (b: number) => Promise<void>) => {
+            const move = Bun.spawnSync({
+              cmd: ["ip", "link", "set", capturedVethSetup.nsSideName, "netns", String(pid)],
+              stdout: "ignore",
+              stderr: "pipe",
+            });
+            if (!move.success) {
+              const stderrStr = move.stderr
+                ? new TextDecoder().decode(move.stderr).trim()
+                : "unknown";
+              throw new Error(`veth move failed: ${stderrStr}`);
+            }
+            // Release the launcher's read -n 1 wait with a single byte.
+            await writeByte(0x01);
           }
-          // Release the launcher's read -n 1 wait with a single byte.
-          await writeByte(0x01);
-        }
-      : undefined,
+        : undefined,
   };
 
   // Plan 55-03 (MCP-03): schedule the post-shutdown soak reader. We
@@ -1202,16 +1135,10 @@ export async function runMcpSeccompSoakReader(
   await parseAndEmitSeccompViolations(lines, String(childPid), ctx);
 }
 
-async function readJournalctlLines(
-  spawnAt: Date,
-  pid: string,
-): Promise<readonly string[]> {
+async function readJournalctlLines(spawnAt: Date, pid: string): Promise<readonly string[]> {
   if (seccompSoakOverrides) {
     try {
-      return await seccompSoakOverrides.runJournalctl(
-        spawnAt.toISOString(),
-        pid,
-      );
+      return await seccompSoakOverrides.runJournalctl(spawnAt.toISOString(), pid);
     } catch {
       return [];
     }
@@ -1220,14 +1147,7 @@ async function readJournalctlLines(
   if (!Bun.which("journalctl")) return [];
   try {
     const proc = Bun.spawn({
-      cmd: [
-        "journalctl",
-        "-k",
-        "--since",
-        spawnAt.toISOString(),
-        "--no-pager",
-        "--output=short",
-      ],
+      cmd: ["journalctl", "-k", "--since", spawnAt.toISOString(), "--no-pager", "--output=short"],
       stdout: "pipe",
       stderr: "ignore",
     });

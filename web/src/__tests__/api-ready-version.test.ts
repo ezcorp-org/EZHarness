@@ -129,7 +129,9 @@ describe("/api/version", () => {
 
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () =>
-      new Response(JSON.stringify({ tag_name: "v0.2.0", html_url: "https://rel" }), { status: 200 })) as any;
+      new Response(JSON.stringify({ tag_name: "v0.2.0", html_url: "https://rel" }), {
+        status: 200,
+      })) as any;
 
     try {
       const mod = await import("../routes/api/version/+server");

@@ -8,16 +8,12 @@ import { parseMentions } from "../../web/src/lib/mention-logic";
 describe("parseMentions", () => {
   test("extracts ext mentions", () => {
     const result = parseMentions("Hello ![ext:analyzer] please analyze");
-    expect(result).toEqual([
-      { kind: "ext", name: "analyzer", start: 6, end: 21 },
-    ]);
+    expect(result).toEqual([{ kind: "ext", name: "analyzer", start: 6, end: 21 }]);
   });
 
   test("extracts agent mentions", () => {
     const result = parseMentions("![agent:Code Assistant] help me");
-    expect(result).toEqual([
-      { kind: "agent", name: "Code Assistant", start: 0, end: 23 },
-    ]);
+    expect(result).toEqual([{ kind: "agent", name: "Code Assistant", start: 0, end: 23 }]);
   });
 
   test("extracts multiple mentions", () => {
@@ -35,9 +31,7 @@ describe("parseMentions", () => {
   });
 
   test("extracts mixed-sigil mentions together", () => {
-    const result = parseMentions(
-      "![agent:Bot] please read @[file:a.ts] with ![ext:lint]",
-    );
+    const result = parseMentions("![agent:Bot] please read @[file:a.ts] with ![ext:lint]");
     expect(result).toHaveLength(3);
     expect(result.map((m) => m.kind)).toEqual(["agent", "file", "ext"]);
   });
@@ -52,22 +46,12 @@ describe("parseMentions", () => {
 
   test("extracts workflow mentions", () => {
     const result = parseMentions("run ![workflow:deploy-prod] please");
-    expect(result).toEqual([
-      { kind: "workflow", name: "deploy-prod", start: 4, end: 27 },
-    ]);
+    expect(result).toEqual([{ kind: "workflow", name: "deploy-prod", start: 4, end: 27 }]);
   });
 
   test("keeps the workflow kind distinct from the other ! kinds", () => {
-    const result = parseMentions(
-      "![agent:A] ![ext:B] ![team:C] ![EZ:D] ![workflow:E]",
-    );
-    expect(result.map((m) => m.kind)).toEqual([
-      "agent",
-      "ext",
-      "team",
-      "EZ",
-      "workflow",
-    ]);
+    const result = parseMentions("![agent:A] ![ext:B] ![team:C] ![EZ:D] ![workflow:E]");
+    expect(result.map((m) => m.kind)).toEqual(["agent", "ext", "team", "EZ", "workflow"]);
   });
 
   test("does not match legacy @[agent:…] tokens (graceful degradation)", () => {
@@ -127,7 +111,9 @@ describe("wireMentionedExtensions", () => {
   }
 
   test("resolves ext mention to extension ID", async () => {
-    mockGetExtsByNames.mockResolvedValueOnce(mapFromRecord({ analyzer: { id: "ext-123", name: "analyzer" } }) as any);
+    mockGetExtsByNames.mockResolvedValueOnce(
+      mapFromRecord({ analyzer: { id: "ext-123", name: "analyzer" } }) as any,
+    );
     mockGetConvExtIds.mockResolvedValue([]);
 
     const wire = await loadWire();
@@ -141,9 +127,11 @@ describe("wireMentionedExtensions", () => {
   });
 
   test("resolves agent mention to its extension IDs", async () => {
-    mockGetAgentsByNames.mockResolvedValueOnce(mapFromRecord({
-      Helper: { id: "agent-1", name: "Helper", extensions: ["ext-a", "ext-b"] },
-    }) as any);
+    mockGetAgentsByNames.mockResolvedValueOnce(
+      mapFromRecord({
+        Helper: { id: "agent-1", name: "Helper", extensions: ["ext-a", "ext-b"] },
+      }) as any,
+    );
     mockGetConvExtIds.mockResolvedValue([]);
 
     const wire = await loadWire();
@@ -217,11 +205,7 @@ describe("wireMentionedExtensions", () => {
     mockGetConvExtIds.mockResolvedValue([]);
 
     const wire = await loadWire();
-    const result = await wire(
-      "conv-1",
-      "![workflow:analyzer] then ![ext:analyzer]",
-      "msg-1",
-    );
+    const result = await wire("conv-1", "![workflow:analyzer] then ![ext:analyzer]", "msg-1");
 
     // Only the ext token contributed a name to the lookup.
     expect(mockGetExtsByNames).toHaveBeenCalledWith(["analyzer"]);

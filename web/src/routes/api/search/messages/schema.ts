@@ -9,8 +9,8 @@ import { z } from "zod";
 // or "all" (every project of the requesting user — the cross-project palette
 // path). Defaults to "project" so the Phase 65 contract is unchanged.
 export const searchMessagesQuerySchema = z.object({
-	mode: z.enum(["hybrid", "keyword", "semantic"]).default("hybrid"),
-	scope: z.enum(["project", "all"]).default("project"),
+  mode: z.enum(["hybrid", "keyword", "semantic"]).default("hybrid"),
+  scope: z.enum(["project", "all"]).default("project"),
 });
 
 export type SearchMessagesQuery = z.infer<typeof searchMessagesQuerySchema>;

@@ -24,51 +24,51 @@ import { requireScope } from "$lib/server/security/api-keys";
 import { join } from "node:path";
 import { existsSync, createReadStream, statSync } from "node:fs";
 import {
-	ALLOWED_EXTENSIONS,
-	MIME_BY_EXT,
-	extensionDataRoot,
-	resolveExtFilesPath,
+  ALLOWED_EXTENSIONS,
+  MIME_BY_EXT,
+  extensionDataRoot,
+  resolveExtFilesPath,
 } from "$server/chat/attachments/ext-files-resolver";
 import type { RequestHandler } from "./$types";
 
 function notFound(): Response {
-	return new Response(JSON.stringify({ error: "Not found" }), {
-		status: 404,
-		headers: { "Content-Type": "application/json" },
-	});
+  return new Response(JSON.stringify({ error: "Not found" }), {
+    status: 404,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 /** Resolve the extension data root inside the server's project root.
  *  Prefixed with `_` because SvelteKit's +server.ts loader only
  *  permits HTTP verbs + `_`-prefixed exports. */
 function _extensionDataRoot(name: string, cwd: string = process.cwd()): string {
-	return extensionDataRoot(name, cwd);
+  return extensionDataRoot(name, cwd);
 }
 
 export const GET: RequestHandler = async ({ params, locals }) => {
-	const scopeErr = requireScope(locals, "read");
-	if (scopeErr) return scopeErr;
-	requireAuth(locals);
+  const scopeErr = requireScope(locals, "read");
+  if (scopeErr) return scopeErr;
+  requireAuth(locals);
 
-	const resolved = resolveExtFilesPath(params.name, params.path);
-	if (!resolved) return notFound();
-	if (!existsSync(resolved.absPath)) return notFound();
-	const stat = statSync(resolved.absPath);
-	if (!stat.isFile()) return notFound();
+  const resolved = resolveExtFilesPath(params.name, params.path);
+  if (!resolved) return notFound();
+  if (!existsSync(resolved.absPath)) return notFound();
+  const stat = statSync(resolved.absPath);
+  if (!stat.isFile()) return notFound();
 
-	const stream = createReadStream(resolved.absPath) as unknown as ReadableStream;
-	// biome-ignore lint/suspicious/noExplicitAny: a Bun ReadableStream handed to the platform Response — DOM lib's BodyInit and Bun's stream type do not line up in this build's lib set.
-	return new Response(stream as any, {
-		status: 200,
-		headers: {
-			"Content-Type": resolved.mimeType,
-			"Content-Length": String(stat.size),
-			// Immutable + short max-age: filenames are UUIDs so content
-			// never changes, but a short age keeps control with us if a
-			// filename is re-used (shouldn't happen, but belt & braces).
-			"Cache-Control": "private, max-age=3600",
-		},
-	});
+  const stream = createReadStream(resolved.absPath) as unknown as ReadableStream;
+  // biome-ignore lint/suspicious/noExplicitAny: a Bun ReadableStream handed to the platform Response — DOM lib's BodyInit and Bun's stream type do not line up in this build's lib set.
+  return new Response(stream as any, {
+    status: 200,
+    headers: {
+      "Content-Type": resolved.mimeType,
+      "Content-Length": String(stat.size),
+      // Immutable + short max-age: filenames are UUIDs so content
+      // never changes, but a short age keeps control with us if a
+      // filename is re-used (shouldn't happen, but belt & braces).
+      "Cache-Control": "private, max-age=3600",
+    },
+  });
 };
 
 // Re-export for test ergonomics. SvelteKit allows `_`-prefixed exports.

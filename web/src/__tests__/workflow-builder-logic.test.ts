@@ -76,9 +76,7 @@ describe("stepToPayload — agent", () => {
   });
 
   test("omits input when empty and retries when a loop is enabled", () => {
-    const out = stepToPayload(
-      agentStep({ retries: 2, loopEnabled: true, maxIterations: 4 }),
-    );
+    const out = stepToPayload(agentStep({ retries: 2, loopEnabled: true, maxIterations: 4 }));
     expect(out.input).toBeUndefined();
     expect(out.retries).toBeUndefined();
     expect(out.loop).toEqual({ maxIterations: 4, onExhausted: "fail" });
@@ -140,9 +138,9 @@ describe("stepToPayload — dependsOn + loop until", () => {
   });
 
   test("throws on a malformed loop until-condition", () => {
-    expect(() =>
-      stepToPayload(agentStep({ loopEnabled: true, untilText: "{bad" })),
-    ).toThrow('Step "step-1": loop until-condition is not valid JSON');
+    expect(() => stepToPayload(agentStep({ loopEnabled: true, untilText: "{bad" }))).toThrow(
+      'Step "step-1": loop until-condition is not valid JSON',
+    );
   });
 });
 
@@ -191,7 +189,8 @@ describe("buildWorkflowPayload — validation", () => {
       "Each step needs a name",
     );
     expect(
-      buildWorkflowPayload("wf", "", [agentStep({ name: "dup" }), agentStep({ name: "dup" })]).error,
+      buildWorkflowPayload("wf", "", [agentStep({ name: "dup" }), agentStep({ name: "dup" })])
+        .error,
     ).toBe('Duplicate step name "dup"');
     expect(buildWorkflowPayload("wf", "", [agentStep({ agent: "" })]).error).toBe(
       'Step "step-1" (agent) needs an agent',
@@ -200,8 +199,9 @@ describe("buildWorkflowPayload — validation", () => {
       buildWorkflowPayload("wf", "", [{ ...blankStep(0), kind: "transform" } as StepDraft]).error,
     ).toBe('Step "step-1" (transform) needs an output mapping');
     expect(
-      buildWorkflowPayload("wf", "", [{ ...blankStep(0), kind: "gate", conditionText: "" } as StepDraft])
-        .error,
+      buildWorkflowPayload("wf", "", [
+        { ...blankStep(0), kind: "gate", conditionText: "" } as StepDraft,
+      ]).error,
     ).toBe('Step "step-1" (gate) needs a condition');
   });
 
@@ -347,9 +347,7 @@ describe("workflowToDrafts", () => {
       { name: "compose", kind: "transform", output: { headline: "Report on {{$input.topic}}" } },
     ]);
     expect(draft.kind).toBe("transform");
-    expect(draft.outputPairs).toEqual([
-      { key: "headline", value: "Report on {{$input.topic}}" },
-    ]);
+    expect(draft.outputPairs).toEqual([{ key: "headline", value: "Report on {{$input.topic}}" }]);
   });
 
   test("renders a gate condition back into indented JSON text", () => {
@@ -364,8 +362,12 @@ describe("workflowToDrafts", () => {
   test("unpacks a loop, including its until-condition and exhaustion policy", () => {
     const until = { ref: "$result.output.n", op: "gte", value: 3 };
     const [draft] = workflowToDrafts([
-      { name: "count", kind: "transform", output: { n: "$loop.iteration" },
-        loop: { maxIterations: 5, until, onExhausted: "pass" } },
+      {
+        name: "count",
+        kind: "transform",
+        output: { n: "$loop.iteration" },
+        loop: { maxIterations: 5, until, onExhausted: "pass" },
+      },
     ]);
     expect(draft.loopEnabled).toBe(true);
     expect(draft.maxIterations).toBe(5);
@@ -374,9 +376,7 @@ describe("workflowToDrafts", () => {
   });
 
   test("defaults a loop's optional fields rather than emitting undefined", () => {
-    const [draft] = workflowToDrafts([
-      { name: "s", agent: "a", loop: { maxIterations: 2 } },
-    ]);
+    const [draft] = workflowToDrafts([{ name: "s", agent: "a", loop: { maxIterations: 2 } }]);
     expect(draft.onExhausted).toBe("fail");
     expect(draft.untilText).toBe("");
   });
@@ -404,15 +404,36 @@ describe("workflowToDrafts / stepToPayload round-trip", () => {
   // the editor and pressing Save unchanged must not rewrite the definition.
   const steps: StoredStep[] = [
     { name: "compose", kind: "transform", output: { headline: "Report on {{$input.topic}}" } },
-    { name: "assert", kind: "gate", dependsOn: ["compose"],
-      condition: { ref: "$steps.compose.output.headline", op: "contains", value: "Report on" } },
-    { name: "call", kind: "tool", tool: "ext__publish", dependsOn: ["assert"],
-      input: { headline: "$steps.compose.output.headline" } },
-    { name: "summarize", agent: "summarizer", dependsOn: ["call"], retries: 1,
-      input: { text: "$prev.output" } },
-    { name: "count", kind: "transform", output: { n: "$loop.iteration" },
-      loop: { maxIterations: 5, until: { ref: "$result.output.n", op: "gte", value: 3 },
-        onExhausted: "pass" } },
+    {
+      name: "assert",
+      kind: "gate",
+      dependsOn: ["compose"],
+      condition: { ref: "$steps.compose.output.headline", op: "contains", value: "Report on" },
+    },
+    {
+      name: "call",
+      kind: "tool",
+      tool: "ext__publish",
+      dependsOn: ["assert"],
+      input: { headline: "$steps.compose.output.headline" },
+    },
+    {
+      name: "summarize",
+      agent: "summarizer",
+      dependsOn: ["call"],
+      retries: 1,
+      input: { text: "$prev.output" },
+    },
+    {
+      name: "count",
+      kind: "transform",
+      output: { n: "$loop.iteration" },
+      loop: {
+        maxIterations: 5,
+        until: { ref: "$result.output.n", op: "gte", value: 3 },
+        onExhausted: "pass",
+      },
+    },
   ];
 
   test("re-emits every step unchanged", () => {

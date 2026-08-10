@@ -16,23 +16,32 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
 
 import { ScheduleDaemon } from "../schedule-daemon";
-import {
-  extensionSchedules, extensionScheduleFires, extensions, auditLog,
-} from "../../db/schema";
+import { extensionSchedules, extensionScheduleFires, extensions, auditLog } from "../../db/schema";
 import { eq } from "drizzle-orm";
 
 const EXT_NAME = "daemon-dyn-ext";
@@ -55,8 +64,9 @@ function registryWith(granted: Record<string, unknown>) {
       },
     }),
     getGrantedPermissions: () => granted,
-  } as unknown as ConstructorParameters<typeof ScheduleDaemon>[0] extends
-    { registry?: infer R } ? R : never;
+  } as unknown as ConstructorParameters<typeof ScheduleDaemon>[0] extends { registry?: infer R }
+    ? R
+    : never;
 }
 
 function daemon(granted: Record<string, unknown> = { triggers: { maxRunsPerDay: 90 } }) {
@@ -70,30 +80,56 @@ function daemon(granted: Record<string, unknown> = { triggers: { maxRunsPerDay: 
 }
 
 async function seedDynamic(key: string, cron: string, over: Record<string, unknown> = {}) {
-  const [row] = await getTestDb().insert(extensionSchedules).values({
-    extensionId: extId, cron, nextFireAt: DUE, enabled: true,
-    dynamic: true, key, maxRunsPerDay: 10, ...over,
-  }).returning();
+  const [row] = await getTestDb()
+    .insert(extensionSchedules)
+    .values({
+      extensionId: extId,
+      cron,
+      nextFireAt: DUE,
+      enabled: true,
+      dynamic: true,
+      key,
+      maxRunsPerDay: 10,
+      ...over,
+    })
+    .returning();
   return row!;
 }
 
 async function seedManifest(cron: string) {
-  const [row] = await getTestDb().insert(extensionSchedules).values({
-    extensionId: extId, cron, nextFireAt: DUE, enabled: true,
-  }).returning();
+  const [row] = await getTestDb()
+    .insert(extensionSchedules)
+    .values({
+      extensionId: extId,
+      cron,
+      nextFireAt: DUE,
+      enabled: true,
+    })
+    .returning();
   return row!;
 }
 
 beforeAll(async () => {
   await setupTestDb();
-  const [row] = await getTestDb().insert(extensions).values({
-    name: EXT_NAME, version: "1.0.0", description: "",
-    manifest: {
-      schemaVersion: 2, name: EXT_NAME, version: "1.0.0", description: "",
-      author: { name: "t" }, permissions: {},
-    } as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name: EXT_NAME,
+      version: "1.0.0",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name: EXT_NAME,
+        version: "1.0.0",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    })
+    .returning({ id: extensions.id });
   extId = row!.id;
 });
 
@@ -136,8 +172,12 @@ describe("the dispatch split", () => {
     await daemon().tick();
     const fire = sent.find((s) => s.method === "ezcorp/trigger-fire")!;
     expect(fire.params).toMatchObject({
-      v: 1, key: "job:1", kind: "cron", cron: "0 9 * * 1",
-      catchUp: false, attempt: 0,
+      v: 1,
+      key: "job:1",
+      kind: "cron",
+      cron: "0 9 * * 1",
+      catchUp: false,
+      attempt: 0,
     });
     expect(typeof fire.params.fireId).toBe("string");
     expect(typeof fire.params.firedAt).toBe("string");
@@ -157,7 +197,9 @@ describe("the dispatch split", () => {
     expect(fires[0]!.params).toMatchObject({
       cron: "0 9 * * 1",
       scheduledAt: row.nextFireAt.toISOString(),
-      catchUp: false, retry: false, attempt: 0,
+      catchUp: false,
+      retry: false,
+      attempt: 0,
     });
     expect(fires[0]!.params).not.toHaveProperty("key");
     expect(fires[0]!.params).not.toHaveProperty("kind");
@@ -187,12 +229,14 @@ describe("the dispatch split", () => {
 describe("per-key daily cap", () => {
   async function seedFires(scheduleId: string, n: number) {
     for (let i = 0; i < n; i++) {
-      await getTestDb().insert(extensionScheduleFires).values({
-        scheduleId,
-        scheduledAt: new Date("2026-07-29T01:00:00.000Z"),
-        firedAt: new Date("2026-07-29T01:00:00.000Z"),
-        status: "ok",
-      });
+      await getTestDb()
+        .insert(extensionScheduleFires)
+        .values({
+          scheduleId,
+          scheduledAt: new Date("2026-07-29T01:00:00.000Z"),
+          firedAt: new Date("2026-07-29T01:00:00.000Z"),
+          status: "ok",
+        });
     }
   }
 
@@ -217,7 +261,9 @@ describe("per-key daily cap", () => {
 
     await daemon().tick();
 
-    const rows = await getTestDb().select().from(auditLog)
+    const rows = await getTestDb()
+      .select()
+      .from(auditLog)
       .where(eq(auditLog.action, "ext:sdk-schedule-quota-exceeded"));
     expect(rows).toHaveLength(1);
     const meta = rows[0]!.metadata as { newValue?: { key?: string; cap?: number } };
@@ -233,7 +279,9 @@ describe("per-key daily cap", () => {
 
     await daemon().tick();
 
-    const [row] = await getTestDb().select().from(extensionSchedules)
+    const [row] = await getTestDb()
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.id, busy.id));
     expect(row!.consecutiveErrors).toBe(0);
     expect(row!.enabled).toBe(true);
@@ -256,7 +304,9 @@ describe("per-key daily cap", () => {
     await daemon({ triggers: { maxRunsPerDay: 2 } }).tick();
 
     expect(sent.filter((s) => s.method === "ezcorp/trigger-fire")).toHaveLength(0);
-    const rows = await getTestDb().select().from(auditLog)
+    const rows = await getTestDb()
+      .select()
+      .from(auditLog)
       .where(eq(auditLog.action, "ext:sdk-schedule-quota-exceeded"));
     const meta = rows[0]!.metadata as { newValue?: { key?: string } };
     expect(meta.newValue?.key).toBe("job:a");
@@ -285,19 +335,22 @@ describe("the triggers envelope reaches the daemon", () => {
     // schedule says 10 (already exceeded), triggers says 100. The
     // manifest-tier bound is the narrower one and must win.
     await daemon({
-      schedule: { maxRunsPerDay: 10 }, triggers: { maxRunsPerDay: 100 },
+      schedule: { maxRunsPerDay: 10 },
+      triggers: { maxRunsPerDay: 100 },
     }).tick();
     expect(sent.filter((s) => s.method === "ezcorp/trigger-fire")).toHaveLength(0);
   });
 
   async function seedFiresFor(scheduleId: string, n: number) {
     for (let i = 0; i < n; i++) {
-      await getTestDb().insert(extensionScheduleFires).values({
-        scheduleId,
-        scheduledAt: new Date("2026-07-29T01:00:00.000Z"),
-        firedAt: new Date("2026-07-29T01:00:00.000Z"),
-        status: "ok",
-      });
+      await getTestDb()
+        .insert(extensionScheduleFires)
+        .values({
+          scheduleId,
+          scheduledAt: new Date("2026-07-29T01:00:00.000Z"),
+          firedAt: new Date("2026-07-29T01:00:00.000Z"),
+          status: "ok",
+        });
     }
   }
 });
@@ -306,7 +359,9 @@ describe("dynamic rows reuse the daemon's existing machinery", () => {
   test("a dynamic row's own timezone drives its next fire", async () => {
     await seedDynamic("job:tz", "0 9 * * 1", { timezone: "America/New_York" });
     await daemon().tick();
-    const [row] = await getTestDb().select().from(extensionSchedules)
+    const [row] = await getTestDb()
+      .select()
+      .from(extensionSchedules)
       .where(eq(extensionSchedules.key, "job:tz"));
     // 09:00 New York on the next Monday is 13:00 or 14:00 UTC — never 09:00
     // UTC, which is what a dropped timezone would produce.

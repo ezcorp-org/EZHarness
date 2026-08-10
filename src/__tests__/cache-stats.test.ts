@@ -33,7 +33,12 @@ describe("computeTurnCacheStats", () => {
   });
 
   test("non-finite fields (NaN) coerce to 0", () => {
-    const s = computeTurnCacheStats({ input: Number.NaN, output: Number.NaN, cacheRead: 500, cacheWrite: Number.NaN });
+    const s = computeTurnCacheStats({
+      input: Number.NaN,
+      output: Number.NaN,
+      cacheRead: 500,
+      cacheWrite: Number.NaN,
+    });
     expect(s.cachedTokens).toBe(500);
     expect(s.cacheWriteTokens).toBe(0);
     expect(s.promptTokens).toBe(500);
@@ -44,13 +49,24 @@ describe("computeTurnCacheStats", () => {
     // 120 of the 300 written tokens carry 1h retention — they are a SUBSET of
     // cacheWrite, so promptTokens/cacheWriteTokens must be identical to the
     // same turn without the split.
-    const s = computeTurnCacheStats({ input: 100, output: 50, cacheRead: 800, cacheWrite: 300, cacheWrite1h: 120 });
+    const s = computeTurnCacheStats({
+      input: 100,
+      output: 50,
+      cacheRead: 800,
+      cacheWrite: 300,
+      cacheWrite1h: 120,
+    });
     expect(s.cacheWrite1hTokens).toBe(120);
     expect(s.cacheWriteTokens).toBe(300);
     // promptTokens = 100 + 800 + 300 — the 120 must NOT be added again.
     expect(s.promptTokens).toBe(1200);
     expect(s.hitRate).toBeCloseTo(800 / 1200, 10);
-    const without = computeTurnCacheStats({ input: 100, output: 50, cacheRead: 800, cacheWrite: 300 });
+    const without = computeTurnCacheStats({
+      input: 100,
+      output: 50,
+      cacheRead: 800,
+      cacheWrite: 300,
+    });
     expect(s.promptTokens).toBe(without.promptTokens);
     expect(s.cacheWriteTokens).toBe(without.cacheWriteTokens);
     expect(s.hitRate).toBe(without.hitRate);
@@ -62,7 +78,13 @@ describe("computeTurnCacheStats", () => {
   });
 
   test("non-finite cacheWrite1h (NaN) coerces to 0", () => {
-    const s = computeTurnCacheStats({ input: 10, output: 5, cacheRead: 0, cacheWrite: 90, cacheWrite1h: Number.NaN });
+    const s = computeTurnCacheStats({
+      input: 10,
+      output: 5,
+      cacheRead: 0,
+      cacheWrite: 90,
+      cacheWrite1h: Number.NaN,
+    });
     expect(s.cacheWrite1hTokens).toBe(0);
   });
 });
@@ -80,8 +102,22 @@ describe("aggregateCacheStats", () => {
 
   test("multiple turns on one provider+model fold into a single segment", () => {
     const turns: CacheTurnInput[] = [
-      { provider: "anthropic", model: "claude", input: 100, output: 40, cacheRead: 0, cacheWrite: 900 },
-      { provider: "anthropic", model: "claude", input: 50, output: 30, cacheRead: 900, cacheWrite: 0 },
+      {
+        provider: "anthropic",
+        model: "claude",
+        input: 100,
+        output: 40,
+        cacheRead: 0,
+        cacheWrite: 900,
+      },
+      {
+        provider: "anthropic",
+        model: "claude",
+        input: 50,
+        output: 30,
+        cacheRead: 900,
+        cacheWrite: 0,
+      },
     ];
     const agg = aggregateCacheStats(turns);
     expect(agg.segments).toHaveLength(1);
@@ -102,11 +138,21 @@ describe("aggregateCacheStats", () => {
 
   test("segments are kept SEPARATE by provider+model; overall rolls up both", () => {
     const turns: CacheTurnInput[] = [
-      { provider: "anthropic", model: "claude", input: 100, output: 10, cacheRead: 900, cacheWrite: 0 },
+      {
+        provider: "anthropic",
+        model: "claude",
+        input: 100,
+        output: 10,
+        cacheRead: 900,
+        cacheWrite: 0,
+      },
       { provider: "openai", model: "gpt", input: 100, output: 10, cacheRead: 100, cacheWrite: 0 },
     ];
     const agg = aggregateCacheStats(turns);
-    expect(agg.segments.map((s) => `${s.provider}/${s.model}`)).toEqual(["anthropic/claude", "openai/gpt"]);
+    expect(agg.segments.map((s) => `${s.provider}/${s.model}`)).toEqual([
+      "anthropic/claude",
+      "openai/gpt",
+    ]);
     const anthropic = agg.segments.find((s) => s.provider === "anthropic")!;
     const openai = agg.segments.find((s) => s.provider === "openai")!;
     expect(anthropic.hitRate).toBeCloseTo(900 / 1000, 10);
@@ -120,8 +166,22 @@ describe("aggregateCacheStats", () => {
 
   test("same model name under two providers does not collide", () => {
     const turns: CacheTurnInput[] = [
-      { provider: "anthropic", model: "shared", input: 10, output: 1, cacheRead: 10, cacheWrite: 0 },
-      { provider: "openrouter", model: "shared", input: 10, output: 1, cacheRead: 0, cacheWrite: 0 },
+      {
+        provider: "anthropic",
+        model: "shared",
+        input: 10,
+        output: 1,
+        cacheRead: 10,
+        cacheWrite: 0,
+      },
+      {
+        provider: "openrouter",
+        model: "shared",
+        input: 10,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+      },
     ];
     const agg = aggregateCacheStats(turns);
     expect(agg.segments).toHaveLength(2);
@@ -131,8 +191,24 @@ describe("aggregateCacheStats", () => {
     const turns: CacheTurnInput[] = [
       // Turn 1: 900 written, 120 of them at 1h. Turn 2: mixed provider missing
       // the field entirely (must fold as 0, not NaN).
-      { provider: "anthropic", model: "claude", input: 100, output: 10, cacheRead: 0, cacheWrite: 900, cacheWrite1h: 120 },
-      { provider: "anthropic", model: "claude", input: 50, output: 5, cacheRead: 900, cacheWrite: 30, cacheWrite1h: 30 },
+      {
+        provider: "anthropic",
+        model: "claude",
+        input: 100,
+        output: 10,
+        cacheRead: 0,
+        cacheWrite: 900,
+        cacheWrite1h: 120,
+      },
+      {
+        provider: "anthropic",
+        model: "claude",
+        input: 50,
+        output: 5,
+        cacheRead: 900,
+        cacheWrite: 30,
+        cacheWrite1h: 30,
+      },
       { provider: "openai", model: "gpt", input: 40, output: 4, cacheRead: 0, cacheWrite: 0 },
     ];
     const agg = aggregateCacheStats(turns);
@@ -174,7 +250,10 @@ describe("priceSegment", () => {
   test("sub-million token counts scale linearly", () => {
     // 250k input @ $3/1M = $0.75 ; 40k output @ $15/1M = $0.60 ;
     // 800k cacheRead @ $0.30/1M = $0.24.
-    const c = priceSegment({ input: 250_000, output: 40_000, cacheRead: 800_000, cacheWrite: 0 }, SONNET)!;
+    const c = priceSegment(
+      { input: 250_000, output: 40_000, cacheRead: 800_000, cacheWrite: 0 },
+      SONNET,
+    )!;
     expect(c.input).toBeCloseTo(0.75, 10);
     expect(c.output).toBeCloseTo(0.6, 10);
     expect(c.cacheRead).toBeCloseTo(0.24, 10);
@@ -196,14 +275,23 @@ describe("priceSegment", () => {
     expect(c.cacheWrite).toBeCloseTo(2.25 + 2.4, 10);
     // 2x input ($6) beats the 5m write rate ($3.75), so the same tokens cost
     // MORE than they would without the 1h split — that is the premium.
-    const flat = priceSegment({ input: 0, output: 0, cacheRead: 0, cacheWrite: 1_000_000 }, SONNET)!;
+    const flat = priceSegment(
+      { input: 0, output: 0, cacheRead: 0, cacheWrite: 1_000_000 },
+      SONNET,
+    )!;
     expect(flat.cacheWrite).toBeCloseTo(3.75, 10);
     expect(c.cacheWrite).toBeGreaterThan(flat.cacheWrite);
   });
 
   test("the 1h line is a SUBSET of cacheWrite and is never added into total twice", () => {
     const c = priceSegment(
-      { input: 100_000, output: 20_000, cacheRead: 500_000, cacheWrite: 900_000, cacheWrite1h: 900_000 },
+      {
+        input: 100_000,
+        output: 20_000,
+        cacheRead: 500_000,
+        cacheWrite: 900_000,
+        cacheWrite1h: 900_000,
+      },
       SONNET,
     )!;
     // All 900k written at 1h → the write line IS the 1h line.
@@ -240,7 +328,9 @@ describe("priceSegment", () => {
   });
 
   test("absent prices (unknown model) returns null", () => {
-    expect(priceSegment({ input: 10, output: 10, cacheRead: 0, cacheWrite: 0 }, undefined)).toBeNull();
+    expect(
+      priceSegment({ input: 10, output: 10, cacheRead: 0, cacheWrite: 0 }, undefined),
+    ).toBeNull();
   });
 
   test("non-finite rates are unpriced, not NaN dollars", () => {
@@ -250,7 +340,9 @@ describe("priceSegment", () => {
       cacheRead: Number.NaN,
       cacheWrite: Number.NaN,
     };
-    expect(priceSegment({ input: 1_000, output: 1_000, cacheRead: 0, cacheWrite: 0 }, garbage)).toBeNull();
+    expect(
+      priceSegment({ input: 1_000, output: 1_000, cacheRead: 0, cacheWrite: 0 }, garbage),
+    ).toBeNull();
   });
 
   test("a zero-TOKEN segment on a PRICED model costs a real $0 (that zero is data)", () => {
@@ -292,9 +384,30 @@ describe("priceSegment", () => {
 
   test("prices an aggregated CacheSegment and the overall roll-up", () => {
     const turns: CacheTurnInput[] = [
-      { provider: "anthropic", model: "claude-sonnet-4-5", input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 },
-      { provider: "anthropic", model: "claude-sonnet-4-5", input: 0, output: 1_000_000, cacheRead: 0, cacheWrite: 0 },
-      { provider: "openai", model: "gpt-5.5", input: 1_000_000, output: 0, cacheRead: 0, cacheWrite: 0 },
+      {
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        input: 1_000_000,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+      },
+      {
+        provider: "anthropic",
+        model: "claude-sonnet-4-5",
+        input: 0,
+        output: 1_000_000,
+        cacheRead: 0,
+        cacheWrite: 0,
+      },
+      {
+        provider: "openai",
+        model: "gpt-5.5",
+        input: 1_000_000,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+      },
     ];
     const agg = aggregateCacheStats(turns);
     const anthropic = priceSegment(agg.segments.find((s) => s.provider === "anthropic")!, SONNET)!;

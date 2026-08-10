@@ -226,7 +226,9 @@ export function kiloModelToAnyModel(model: KiloModel): AnyModel & { free: boolea
     baseUrl: KILO_BASE_URL,
     compat: KILO_COMPAT,
     reasoning: model.reasoning,
-    input: model.vision ? (["text", "image"] as ("text" | "image")[]) : (["text"] as ("text" | "image")[]),
+    input: model.vision
+      ? (["text", "image"] as ("text" | "image")[])
+      : (["text"] as ("text" | "image")[]),
     cost: model.cost,
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
@@ -302,7 +304,10 @@ export async function kiloRoutingEntries(): Promise<ModelEntry[]> {
   try {
     const models = await kiloCatalogForAccess(await kiloAccess());
     const entries = models.map(kiloModelToEntry);
-    const fill = kiloRoutingFill(models, entries.map((e) => e.tier)).map(kiloModelToEntry);
+    const fill = kiloRoutingFill(
+      models,
+      entries.map((e) => e.tier),
+    ).map(kiloModelToEntry);
     return [...entries, ...fill];
   } catch {
     return [];

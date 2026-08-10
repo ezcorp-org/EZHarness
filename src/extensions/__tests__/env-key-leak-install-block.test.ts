@@ -26,7 +26,10 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 import { writeConfig } from "../../__tests__/helpers/write-config";
 import { mkdtemp } from "node:fs/promises";
@@ -34,19 +37,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
 
-import {
-  checkEnvKeyLeakInstallGate,
-  EnvKeyLeakInstallError,
-} from "../clamp-permissions";
+import { checkEnvKeyLeakInstallGate, EnvKeyLeakInstallError } from "../clamp-permissions";
 import { installFromLocal } from "../installer";
 import { auditLog, extensions } from "../../db/schema";
 import { eq } from "drizzle-orm";
@@ -84,19 +92,16 @@ async function escapeHatchRows() {
 
 describe("checkEnvKeyLeakInstallGate — user-installed extension (isBundled=false)", () => {
   test("single *_API_KEY env name → returns EnvKeyLeakInstallError + 1 audit row", async () => {
-    const err = await checkEnvKeyLeakInstallGate(
-      "user-ext-fake",
-      ["FAKE_API_KEY"],
-      { isBundled: false, envEscapeHatch: false },
-    );
+    const err = await checkEnvKeyLeakInstallGate("user-ext-fake", ["FAKE_API_KEY"], {
+      isBundled: false,
+      envEscapeHatch: false,
+    });
     expect(err).toBeInstanceOf(EnvKeyLeakInstallError);
     expect((err as EnvKeyLeakInstallError).leakedNames).toEqual(["FAKE_API_KEY"]);
     const blocked = await blockedRows();
     expect(blocked.length).toBe(1);
     expect(blocked[0]!.target).toBe("user-ext-fake");
-    expect((blocked[0]!.metadata as { newValue?: string }).newValue).toBe(
-      "FAKE_API_KEY",
-    );
+    expect((blocked[0]!.metadata as { newValue?: string }).newValue).toBe("FAKE_API_KEY");
     // Audit-row provenance: the install gate writes `actor: "system"`
     // because the gate is server-driven (the audit row exists even
     // when the install is admin-initiated — the actor of interest
@@ -127,9 +132,7 @@ describe("checkEnvKeyLeakInstallGate — user-installed extension (isBundled=fal
     expect(err!.message).toContain("BAZ_SECRET");
     const blocked = await blockedRows();
     expect(blocked.length).toBe(3);
-    const names = blocked
-      .map((r) => (r.metadata as { newValue?: string }).newValue)
-      .sort();
+    const names = blocked.map((r) => (r.metadata as { newValue?: string }).newValue).sort();
     expect(names).toEqual(["BAR_TOKEN", "BAZ_SECRET", "FOO_API_KEY"]);
   });
 
@@ -142,9 +145,7 @@ describe("checkEnvKeyLeakInstallGate — user-installed extension (isBundled=fal
     expect(err).toBeInstanceOf(EnvKeyLeakInstallError);
     // The leakedNames only carries the credential-shaped one — the OK
     // env name is filtered out by `detectEnvKeyLeaks`.
-    expect((err as EnvKeyLeakInstallError).leakedNames).toEqual([
-      "TAVILY_API_KEY",
-    ]);
+    expect((err as EnvKeyLeakInstallError).leakedNames).toEqual(["TAVILY_API_KEY"]);
     expect(err!.message).toContain("TAVILY_API_KEY");
     expect(err!.message).not.toContain("EZCORP_BASE_URL");
     const blocked = await blockedRows();
@@ -152,11 +153,10 @@ describe("checkEnvKeyLeakInstallGate — user-installed extension (isBundled=fal
   });
 
   test("no env permissions → null (install proceeds), no audit row", async () => {
-    const err = await checkEnvKeyLeakInstallGate(
-      "user-ext-clean",
-      undefined,
-      { isBundled: false, envEscapeHatch: false },
-    );
+    const err = await checkEnvKeyLeakInstallGate("user-ext-clean", undefined, {
+      isBundled: false,
+      envEscapeHatch: false,
+    });
     expect(err).toBeNull();
     expect((await blockedRows()).length).toBe(0);
     expect((await escapeHatchRows()).length).toBe(0);
@@ -180,11 +180,10 @@ describe("checkEnvKeyLeakInstallGate — bundled extension (isBundled=true)", ()
     // that doesn't exist or by defaulting `envEscapeHatch` to true),
     // this test MUST go red. The bundled-trust-by-default model is
     // explicitly NOT extended to *_API_KEY env grants.
-    const err = await checkEnvKeyLeakInstallGate(
-      "bundled-no-flag",
-      ["LEAKY_API_KEY"],
-      { isBundled: true, envEscapeHatch: false },
-    );
+    const err = await checkEnvKeyLeakInstallGate("bundled-no-flag", ["LEAKY_API_KEY"], {
+      isBundled: true,
+      envEscapeHatch: false,
+    });
     expect(err).toBeInstanceOf(EnvKeyLeakInstallError);
     expect((err as EnvKeyLeakInstallError).leakedNames).toEqual(["LEAKY_API_KEY"]);
     const blocked = await blockedRows();
@@ -196,11 +195,10 @@ describe("checkEnvKeyLeakInstallGate — bundled extension (isBundled=true)", ()
   });
 
   test("bundled WITH envEscapeHatch + *_API_KEY → install proceeds; escape-hatch audit row written", async () => {
-    const err = await checkEnvKeyLeakInstallGate(
-      "bundled-flagged",
-      ["TAVILY_API_KEY"],
-      { isBundled: true, envEscapeHatch: true },
-    );
+    const err = await checkEnvKeyLeakInstallGate("bundled-flagged", ["TAVILY_API_KEY"], {
+      isBundled: true,
+      envEscapeHatch: true,
+    });
     expect(err).toBeNull();
     // No blocked row — the gate passed.
     expect((await blockedRows()).length).toBe(0);
@@ -208,34 +206,22 @@ describe("checkEnvKeyLeakInstallGate — bundled extension (isBundled=true)", ()
     const escapeAudits = await escapeHatchRows();
     expect(escapeAudits.length).toBe(1);
     expect(escapeAudits[0]!.target).toBe("bundled-flagged");
-    expect((escapeAudits[0]!.metadata as { newValue?: string }).newValue).toBe(
-      "TAVILY_API_KEY",
-    );
+    expect((escapeAudits[0]!.metadata as { newValue?: string }).newValue).toBe("TAVILY_API_KEY");
     // Reason mentions ctx.secrets so the v1.5+ migration trail exists
     // in audit history.
-    expect((escapeAudits[0]!.metadata as { reason?: string }).reason).toContain(
-      "ctx.secrets",
-    );
+    expect((escapeAudits[0]!.metadata as { reason?: string }).reason).toContain("ctx.secrets");
   });
 
   test("bundled WITH envEscapeHatch + multiple *_API_KEY → ONE escape-hatch row per name", async () => {
     const err = await checkEnvKeyLeakInstallGate(
       "bundled-multi-flagged",
-      [
-        "TAVILY_API_KEY",
-        "BRAVE_API_KEY",
-        "EXA_API_KEY",
-        "SERPAPI_API_KEY",
-        "JINA_API_KEY",
-      ],
+      ["TAVILY_API_KEY", "BRAVE_API_KEY", "EXA_API_KEY", "SERPAPI_API_KEY", "JINA_API_KEY"],
       { isBundled: true, envEscapeHatch: true },
     );
     expect(err).toBeNull();
     const escapeAudits = await escapeHatchRows();
     expect(escapeAudits.length).toBe(5);
-    const names = escapeAudits
-      .map((r) => (r.metadata as { newValue?: string }).newValue)
-      .sort();
+    const names = escapeAudits.map((r) => (r.metadata as { newValue?: string }).newValue).sort();
     expect(names).toEqual([
       "BRAVE_API_KEY",
       "EXA_API_KEY",
@@ -249,11 +235,10 @@ describe("checkEnvKeyLeakInstallGate — bundled extension (isBundled=true)", ()
   test("bundled WITH envEscapeHatch but NO leaks → null, no audit row", async () => {
     // The escape-hatch flag is irrelevant when there's nothing to
     // escape from. Confirms the gate doesn't write a row eagerly.
-    const err = await checkEnvKeyLeakInstallGate(
-      "bundled-flagged-clean",
-      ["EZCORP_BASE_URL"],
-      { isBundled: true, envEscapeHatch: true },
-    );
+    const err = await checkEnvKeyLeakInstallGate("bundled-flagged-clean", ["EZCORP_BASE_URL"], {
+      isBundled: true,
+      envEscapeHatch: true,
+    });
     expect(err).toBeNull();
     expect((await blockedRows()).length).toBe(0);
     expect((await escapeHatchRows()).length).toBe(0);
@@ -303,9 +288,7 @@ async function writeFakeExtension(
     description: "Integration-test fixture for the env-key-leak install gate.",
     author: { name: "test" },
     entrypoint: "index.ts",
-    tools: [
-      { name: "noop", description: "noop", inputSchema: { type: "object" } },
-    ],
+    tools: [{ name: "noop", description: "noop", inputSchema: { type: "object" } }],
     ...manifestOverride,
   });
 }
@@ -321,9 +304,9 @@ describe("installFromLocal — env-key-leak install-gate integration", () => {
     // grantedPermissions.env is EMPTY — mirrors the actual web install
     // route which always passes `{ grantedAt: {} }`. Pre-fix this
     // means the gate read no leaks and the install proceeded.
-    await expect(
-      installFromLocal(dir, { grantedAt: {} } as never, false),
-    ).rejects.toBeInstanceOf(EnvKeyLeakInstallError);
+    await expect(installFromLocal(dir, { grantedAt: {} } as never, false)).rejects.toBeInstanceOf(
+      EnvKeyLeakInstallError,
+    );
 
     // No DB row — the gate runs BEFORE createExtension.
     const rows = await getTestDb()
@@ -371,12 +354,10 @@ describe("installFromLocal — env-key-leak install-gate integration", () => {
       permissions: { env: ["TAVILY_API_KEY"] },
     });
 
-    const installed = await installFromLocal(
-      dir,
-      { grantedAt: {} } as never,
-      true,
-      { isBundled: true, envEscapeHatch: true },
-    );
+    const installed = await installFromLocal(dir, { grantedAt: {} } as never, true, {
+      isBundled: true,
+      envEscapeHatch: true,
+    });
     expect(installed.name).toBe("bundled-with-hatch");
 
     const rows = await getTestDb()

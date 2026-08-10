@@ -23,15 +23,26 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -41,10 +52,7 @@ import {
   handlePiWorkflowsDelegated,
   type RpcHandlerDeps,
 } from "../tool-executor/rpc-handlers";
-import {
-  resolveDelegatedProvenance,
-  resolveReverseRpcMeta,
-} from "../tool-executor/provenance";
+import { resolveDelegatedProvenance, resolveReverseRpcMeta } from "../tool-executor/provenance";
 import {
   registerCallProvenance,
   _resetCallProvenanceForTests,
@@ -62,8 +70,14 @@ import { createStubPermissionEngine } from "../../__tests__/helpers/permission-e
 import { createUser } from "../../db/queries/users";
 import { addConversationExtensions } from "../../db/queries/conversation-extensions";
 import {
-  extensions, conversations, projects, conversationExtensions,
-  sdkCapabilityCalls, messages, errorLogs, auditLog,
+  extensions,
+  conversations,
+  projects,
+  conversationExtensions,
+  sdkCapabilityCalls,
+  messages,
+  errorLogs,
+  auditLog,
 } from "../../db/schema";
 import { eq } from "drizzle-orm";
 import type { ExtensionRegistry } from "../registry";
@@ -193,27 +207,42 @@ function req(method: string, ezCallId: string | undefined): JsonRpcRequest {
 }
 
 async function noOwnerAuditRows() {
-  return getTestDb().select().from(auditLog)
+  return getTestDb()
+    .select()
+    .from(auditLog)
     .where(eq(auditLog.action, "ext:workflow-trigger-no-owner"));
 }
 
 beforeAll(async () => {
   await setupTestDb();
   const u = await createUser({
-    email: "wf-deleg@example.com", passwordHash: "h", name: "U",
-    role: "admin", status: "active",
+    email: "wf-deleg@example.com",
+    passwordHash: "h",
+    name: "U",
+    role: "admin",
+    status: "active",
   });
   userId = u.id;
-  const [row] = await getTestDb().insert(extensions).values({
-    name: EXT_NAME, version: "0.0.1", description: "",
-    manifest: manifest() as never,
-    source: "test", enabled: true, grantedPermissions: granted() as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name: EXT_NAME,
+      version: "0.0.1",
+      description: "",
+      manifest: manifest() as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: granted() as never,
+    })
+    .returning({ id: extensions.id });
   extensionId = row!.id;
-  const [proj] = await getTestDb().insert(projects)
-    .values({ name: "wf-d-proj", path: "/tmp/wfd" }).returning({ id: projects.id });
+  const [proj] = await getTestDb()
+    .insert(projects)
+    .values({ name: "wf-d-proj", path: "/tmp/wfd" })
+    .returning({ id: projects.id });
   projectId = proj!.id;
-  const [conv] = await getTestDb().insert(conversations)
+  const [conv] = await getTestDb()
+    .insert(conversations)
     .values({ projectId, userId, title: "t", kind: "regular" })
     .returning({ id: conversations.id });
   conversationId = conv!.id;

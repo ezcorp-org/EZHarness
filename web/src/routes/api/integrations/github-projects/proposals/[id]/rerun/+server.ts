@@ -15,7 +15,12 @@
 import { json } from "@sveltejs/kit";
 import type { RequestHandler } from "./$types";
 import { errorJson } from "$lib/server/http-errors";
-import { authGithubRoute, resolveProposal, requireGithubScope, publicProposalView } from "../../../_shared";
+import {
+  authGithubRoute,
+  resolveProposal,
+  requireGithubScope,
+  publicProposalView,
+} from "../../../_shared";
 import {
   rerunProposal,
   GithubProposalNotRerunnableError,
@@ -47,7 +52,10 @@ export const POST: RequestHandler = async ({ locals, params }) => {
   // Only a TERMINAL proposal can be re-run; an active one is a 409. The
   // atomic insert inside rerunProposal is the real gate; this fails cheaply.
   if (!GITHUB_TERMINAL_STATUSES.includes(proposal.status)) {
-    return errorJson(409, `Proposal is still ${proposal.status} — only a finished proposal can be re-run`);
+    return errorJson(
+      409,
+      `Proposal is still ${proposal.status} — only a finished proposal can be re-run`,
+    );
   }
 
   let fresh: Awaited<ReturnType<typeof rerunProposal>>;

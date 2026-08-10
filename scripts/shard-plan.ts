@@ -52,11 +52,16 @@ export function planShards(
   if (!Number.isInteger(total) || total <= 0) {
     throw new Error(`shard total must be a positive integer, got ${total}`);
   }
-  const known = files.map((f) => weights[f]).filter((w): w is number => typeof w === "number" && Number.isFinite(w) && w >= 0);
+  const known = files
+    .map((f) => weights[f])
+    .filter((w): w is number => typeof w === "number" && Number.isFinite(w) && w >= 0);
   const fallback = known.length > 0 ? median(known) : 1;
   const weighted = files.map((file) => ({
     file,
-    w: typeof weights[file] === "number" && Number.isFinite(weights[file]) && weights[file]! >= 0 ? weights[file]! : fallback,
+    w:
+      typeof weights[file] === "number" && Number.isFinite(weights[file]) && weights[file]! >= 0
+        ? weights[file]!
+        : fallback,
   }));
   // Stable, input-order-independent ordering: weight desc, then path asc.
   weighted.sort((a, b) => b.w - a.w || (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
@@ -105,7 +110,13 @@ async function main(): Promise<void> {
   const [indexArg, totalArg, manifestArg] = process.argv.slice(2);
   const index = Number(indexArg);
   const total = Number(totalArg);
-  if (!Number.isInteger(index) || !Number.isInteger(total) || index < 0 || total <= 0 || index >= total) {
+  if (
+    !Number.isInteger(index) ||
+    !Number.isInteger(total) ||
+    index < 0 ||
+    total <= 0 ||
+    index >= total
+  ) {
     console.error(`shard-plan: bad args (index=${indexArg} total=${totalArg})`);
     process.exit(2);
   }
@@ -117,7 +128,11 @@ async function main(): Promise<void> {
     .filter(Boolean)
     .sort();
 
-  const manifest = parseManifest(await Bun.file(manifestPath).text().catch(() => ""));
+  const manifest = parseManifest(
+    await Bun.file(manifestPath)
+      .text()
+      .catch(() => ""),
+  );
   let slice: string[];
   if (manifest === null) {
     console.error(`shard-plan: no usable timings manifest at ${manifestPath} — stride fallback`);

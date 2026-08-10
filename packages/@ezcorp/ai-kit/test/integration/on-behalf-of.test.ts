@@ -143,7 +143,8 @@ describe("ai-kit model propagation: _meta.ezModel → outbound body", () => {
     capturedBodies = [];
     const origFetch = fetch;
     const spyFetch = ((input: string | URL | Request, init?: RequestInit) => {
-      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
       let body: unknown;
       if (typeof init?.body === "string") {
         try {
@@ -200,9 +201,7 @@ describe("ai-kit model propagation: _meta.ezModel → outbound body", () => {
       arguments: { projectId: "global" },
       _meta: { ezModel: "claude-sonnet-4-6" },
     });
-    const convId = JSON.parse(
-      (convRes.content as Array<{ text: string }>)[0]!.text,
-    ).id as string;
+    const convId = JSON.parse((convRes.content as Array<{ text: string }>)[0]!.text).id as string;
     capturedBodies.length = 0;
 
     await mcp.callTool({

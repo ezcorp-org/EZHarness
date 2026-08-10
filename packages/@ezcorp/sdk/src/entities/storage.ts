@@ -22,11 +22,7 @@
 //     out slugs whose record is missing (locked decision: index is a
 //     cache, the record is the source of truth).
 
-import {
-  ENTITY_INDEX_PREFIX,
-  ENTITY_KEY_PREFIX,
-  type EntityRecord,
-} from "./types";
+import { ENTITY_INDEX_PREFIX, ENTITY_KEY_PREFIX, type EntityRecord } from "./types";
 import { assertValidSlug, isValidSlug } from "./slug";
 
 // ── Backing store interface ─────────────────────────────────────
@@ -57,9 +53,7 @@ export function isValidEntityType(type: unknown): type is string {
   return typeof type === "string" && TYPE_REGEX.test(type);
 }
 
-export function assertValidEntityType(
-  type: unknown,
-): asserts type is string {
+export function assertValidEntityType(type: unknown): asserts type is string {
   if (!isValidEntityType(type)) {
     throw new Error(
       `Invalid entity type ${JSON.stringify(type)} — must match ${TYPE_REGEX.source}`,
@@ -85,9 +79,7 @@ export function entityIndexKey(type: string): string {
  */
 export function isReservedEntityKey(key: unknown): boolean {
   if (typeof key !== "string") return false;
-  return (
-    key.startsWith(ENTITY_KEY_PREFIX) || key.startsWith(ENTITY_INDEX_PREFIX)
-  );
+  return key.startsWith(ENTITY_KEY_PREFIX) || key.startsWith(ENTITY_INDEX_PREFIX);
 }
 
 /**
@@ -105,10 +97,7 @@ export function assertNotReserved(key: unknown, ctx = "key"): void {
 
 // ── Index read/write ────────────────────────────────────────────
 
-export async function readEntityIndex(
-  store: EntityStoreLike,
-  type: string,
-): Promise<string[]> {
+export async function readEntityIndex(store: EntityStoreLike, type: string): Promise<string[]> {
   const res = await store.get<unknown>(entityIndexKey(type));
   if (!res.exists || !Array.isArray(res.value)) return [];
   // Defensive: strip non-strings and invalid slugs so a corrupted

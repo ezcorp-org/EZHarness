@@ -24,63 +24,71 @@ let extId = "";
 let convId = "";
 
 beforeAll(async () => {
-	await setupTestDb();
-	const ext = await createExtension({
-		name: "test-cardlayout-ext",
-		version: "0.0.0",
-		source: "test",
-		manifest: { schemaVersion: 2, name: "test-cardlayout-ext", version: "0.0.0", entrypoint: "x", author: { name: "t" }, tools: [], permissions: {} } as any,
-	});
-	extId = ext.id;
-	const project = await createProject({ name: "DockTest", path: "/tmp" });
-	const conv = await createConversation(project.id, { title: "t" });
-	convId = conv.id;
+  await setupTestDb();
+  const ext = await createExtension({
+    name: "test-cardlayout-ext",
+    version: "0.0.0",
+    source: "test",
+    manifest: {
+      schemaVersion: 2,
+      name: "test-cardlayout-ext",
+      version: "0.0.0",
+      entrypoint: "x",
+      author: { name: "t" },
+      tools: [],
+      permissions: {},
+    } as any,
+  });
+  extId = ext.id;
+  const project = await createProject({ name: "DockTest", path: "/tmp" });
+  const conv = await createConversation(project.id, { title: "t" });
+  convId = conv.id;
 });
 
 afterAll(async () => {
-	restoreModuleMocks();
-	await closeTestDb();
+  restoreModuleMocks();
+  await closeTestDb();
 });
 
 describe("persistToolCall — card_layout round-trip", () => {
-	test("cardLayout: 'dock' writes the column (round-trip via SELECT)", async () => {
-		const id = "00000000-0000-0000-0000-00000000d0c4";
-		await persistToolCall({
-			id,
-			conversationId: convId,
-			messageId: null,
-			extensionId: extId,
-			toolName: "open-canvas",
-			input: { draftId: "d-1" },
-			output: { content: [{ type: "text", text: "ok" }] },
-			success: true,
-			durationMs: 5,
-			cardType: "design-canvas",
-			cardLayout: "dock",
-		});
-		const rows = await getDb().select().from(toolCalls).where(eq(toolCalls.id, id));
-		expect(rows).toHaveLength(1);
-		expect(rows[0]!.cardLayout).toBe("dock");
-		expect(rows[0]!.cardType).toBe("design-canvas");
-	});
+  test("cardLayout: 'dock' writes the column (round-trip via SELECT)", async () => {
+    const id = "00000000-0000-0000-0000-00000000d0c4";
+    await persistToolCall({
+      id,
+      conversationId: convId,
+      messageId: null,
+      extensionId: extId,
+      toolName: "open-canvas",
+      input: { draftId: "d-1" },
+      output: { content: [{ type: "text", text: "ok" }] },
+      success: true,
+      durationMs: 5,
+      cardType: "design-canvas",
+      cardLayout: "dock",
+    });
+    const rows = await getDb().select().from(toolCalls).where(eq(toolCalls.id, id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.cardLayout).toBe("dock");
+    expect(rows[0]!.cardType).toBe("design-canvas");
+  });
 
-	test("cardLayout omitted writes NULL — pre-existing-row backwards-compat", async () => {
-		const id = "00000000-0000-0000-0000-00000000d0c5";
-		await persistToolCall({
-			id,
-			conversationId: convId,
-			messageId: null,
-			extensionId: extId,
-			toolName: "edit_file",
-			input: { file_path: "x" },
-			output: { content: [] },
-			success: true,
-			durationMs: 1,
-			cardType: "diff",
-			// No cardLayout — should land as NULL.
-		});
-		const rows = await getDb().select().from(toolCalls).where(eq(toolCalls.id, id));
-		expect(rows).toHaveLength(1);
-		expect(rows[0]!.cardLayout).toBeNull();
-	});
+  test("cardLayout omitted writes NULL — pre-existing-row backwards-compat", async () => {
+    const id = "00000000-0000-0000-0000-00000000d0c5";
+    await persistToolCall({
+      id,
+      conversationId: convId,
+      messageId: null,
+      extensionId: extId,
+      toolName: "edit_file",
+      input: { file_path: "x" },
+      output: { content: [] },
+      success: true,
+      durationMs: 1,
+      cardType: "diff",
+      // No cardLayout — should land as NULL.
+    });
+    const rows = await getDb().select().from(toolCalls).where(eq(toolCalls.id, id));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.cardLayout).toBeNull();
+  });
 });

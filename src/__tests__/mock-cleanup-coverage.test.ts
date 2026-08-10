@@ -22,16 +22,16 @@ import { join, relative } from "node:path";
 // no real module to snapshot, or one-off external packages that are
 // only mocked in a single file and cause no cross-file leak).
 const EXEMPT_PATTERNS: RegExp[] = [
-  /\$types$/,          // SvelteKit route-type stubs
-  /^@sveltejs\/kit$/,  // mocked in preload.ts itself
+  /\$types$/, // SvelteKit route-type stubs
+  /^@sveltejs\/kit$/, // mocked in preload.ts itself
   /^svelte\/store$/,
   /^@huggingface\/transformers$/,
-  /^node:/,            // node builtins
-  /^\.\/schema$/,      // test-local schema fixtures
-  /\$\{/,              // template-literal matches from this meta-test's own error message
-  /^\$lib\/foo$/,       // JSDoc example inside this meta-test
-  /^\.\.\/extensions\/sdk\/test-runner$/,  // one-off, only used by ext-publish.test.ts
-  /routes\/api\/extensions\/schema$/,       // request-schema file; only mocked in one security test
+  /^node:/, // node builtins
+  /^\.\/schema$/, // test-local schema fixtures
+  /\$\{/, // template-literal matches from this meta-test's own error message
+  /^\$lib\/foo$/, // JSDoc example inside this meta-test
+  /^\.\.\/extensions\/sdk\/test-runner$/, // one-off, only used by ext-publish.test.ts
+  /routes\/api\/extensions\/schema$/, // request-schema file; only mocked in one security test
   // c3-extension-install.test.ts stubs activate-extension (both alias
   // forms). The real module cannot be snapshotted: it imports
   // `$server/extensions/security` etc., which only resolve under that
@@ -178,7 +178,7 @@ function canonicalize(p: string, testFile: string): string {
   const abs = join(testDir, p);
   const relFromSrc = relative(srcRoot, abs);
   return relFromSrc.startsWith("..")
-    ? p                         // escapes src/ entirely — treat as opaque
+    ? p // escapes src/ entirely — treat as opaque
     : `../../${relFromSrc}`;
 }
 
@@ -306,14 +306,14 @@ describe("mock-cleanup coverage (meta-test)", () => {
   // A commented-out entry must not satisfy the gate.
   test("a commented-out MODULE_PATHS entry is not treated as snapshotted", () => {
     const source = [
-      'const MODULE_PATHS = [',
+      "const MODULE_PATHS = [",
       '  "../../real/snapshotted",',
       '  // "../../line-commented/trimmed" was trimmed — zero mockers.',
-      '  /**',
+      "  /**",
       '   * "../../block-commented/trimmed" is only named in prose here.',
-      '   */',
+      "   */",
       '  "../../also/real",',
-      '];',
+      "];",
     ].join("\n");
 
     const parsed = parseModulePaths(source);

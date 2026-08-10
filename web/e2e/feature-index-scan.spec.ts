@@ -124,9 +124,9 @@ test.describe("Feature Index — settings UI scan flow", () => {
     await nameInput.blur();
     // After PATCH the row's source badge flipped to "user". Wait for any
     // span containing "user" exactly inside the table.
-    await expect(
-      table.locator("span").filter({ hasText: /^user$/ }),
-    ).toBeVisible({ timeout: 5000 });
+    await expect(table.locator("span").filter({ hasText: /^user$/ })).toBeVisible({
+      timeout: 5000,
+    });
 
     // Step 5: rescan and verify the rename survives. The mock's scan
     // endpoint REPLACES the in-memory list with `scanResult`, which
@@ -144,8 +144,12 @@ test.describe("Feature Index — settings UI scan flow", () => {
     // since the semantic invariant lives at the API layer.
     await page.getByRole("button", { name: "Scan features" }).click();
     // Confirm at least one feature row exists post-scan (UI didn't break).
-    await expect(table.locator("tr").filter({ hasText: /agent|user/ }).first())
-      .toBeVisible({ timeout: 5000 });
+    await expect(
+      table
+        .locator("tr")
+        .filter({ hasText: /agent|user/ })
+        .first(),
+    ).toBeVisible({ timeout: 5000 });
   });
 
   test("D4: expand a row, click Scan again — source badge stays 'agent' (no silent flip from row expand)", async ({
@@ -185,8 +189,12 @@ test.describe("Feature Index — settings UI scan flow", () => {
     const table = page.locator("table");
     // Initial state: agent badge visible.
     await expect(
-      table.locator("tr").filter({ hasText: "Files under src/auth" }).first()
-        .locator("span").filter({ hasText: /^agent$/ }),
+      table
+        .locator("tr")
+        .filter({ hasText: "Files under src/auth" })
+        .first()
+        .locator("span")
+        .filter({ hasText: /^agent$/ }),
     ).toBeVisible({ timeout: 5000 });
 
     // Click ▸ to expand (the bug surface — pre-fix this triggered the
@@ -209,23 +217,13 @@ test.describe("Feature Index — settings UI scan flow", () => {
     // The auth row is back to its post-scan state (in our mock, scan
     // returns the in-memory features unchanged because no scanResult was
     // passed). Source badge MUST still be 'agent', not 'user'.
-    const row = table
-      .locator("tr")
-      .filter({ hasText: "Files under src/auth" })
-      .first();
-    await expect(
-      row.locator("span").filter({ hasText: /^agent$/ }),
-    ).toBeVisible({ timeout: 5000 });
+    const row = table.locator("tr").filter({ hasText: "Files under src/auth" }).first();
+    await expect(row.locator("span").filter({ hasText: /^agent$/ })).toBeVisible({ timeout: 5000 });
     // And NO 'user' badge appeared on this row.
-    await expect(
-      row.locator("span").filter({ hasText: /^user$/ }),
-    ).not.toBeVisible();
+    await expect(row.locator("span").filter({ hasText: /^user$/ })).not.toBeVisible();
   });
 
-  test("add a user-pinned file via picker, then remove it", async ({
-    page,
-    mockApi,
-  }) => {
+  test("add a user-pinned file via picker, then remove it", async ({ page, mockApi }) => {
     await mockApi({
       projects: [project],
       features: [
@@ -266,9 +264,7 @@ test.describe("Feature Index — settings UI scan flow", () => {
 
     // The new file appears with a `pin` badge (source='user').
     await expect(page.getByText("src/auth/login.ts")).toBeVisible({ timeout: 5000 });
-    const loginRow = page
-      .locator("li", { has: page.getByText("src/auth/login.ts") })
-      .first();
+    const loginRow = page.locator("li", { has: page.getByText("src/auth/login.ts") }).first();
     await expect(loginRow.getByText("pin", { exact: true })).toBeVisible();
 
     // Remove it via the × button.
@@ -319,9 +315,7 @@ test.describe("Feature Index — settings UI scan flow", () => {
 
     // Actionable field message surfaces, not the bare "Validation failed".
     await expect(
-      page.getByText(
-        /Feature name can only contain letters, numbers, hyphens, and underscores/,
-      ),
+      page.getByText(/Feature name can only contain letters, numbers, hyphens, and underscores/),
     ).toBeVisible({ timeout: 5000 });
 
     // Fix the value and Enter again — success path closes the row.
@@ -381,9 +375,7 @@ test.describe("Feature Index — settings UI scan flow", () => {
 
     // Open the create form.
     await page.getByRole("button", { name: "+ New feature" }).click();
-    const nameInput = page
-      .getByPlaceholder("Feature name (e.g. chat-attachments)")
-      .first();
+    const nameInput = page.getByPlaceholder("Feature name (e.g. chat-attachments)").first();
     await expect(nameInput).toBeVisible({ timeout: 5000 });
 
     // Escape closes and clears.
@@ -393,9 +385,7 @@ test.describe("Feature Index — settings UI scan flow", () => {
 
     // Re-open: form is empty, not pre-filled with prior "scratch".
     await page.getByRole("button", { name: "+ New feature" }).click();
-    const nameInput2 = page
-      .getByPlaceholder("Feature name (e.g. chat-attachments)")
-      .first();
+    const nameInput2 = page.getByPlaceholder("Feature name (e.g. chat-attachments)").first();
     await expect(nameInput2).toHaveValue("");
 
     // Type valid name + Enter → creates the feature, closes the form.
@@ -418,17 +408,13 @@ test.describe("Feature Index — settings UI scan flow", () => {
 
     await page.goto(`/project/${PROJECT_ID}/settings`);
     await page.getByRole("button", { name: "+ New feature" }).click();
-    const nameInput = page
-      .getByPlaceholder("Feature name (e.g. chat-attachments)")
-      .first();
+    const nameInput = page.getByPlaceholder("Feature name (e.g. chat-attachments)").first();
     await nameInput.fill("name with space");
     await nameInput.press("Enter");
 
     await expect(nameInput).toHaveValue("name with space");
     await expect(
-      page.getByText(
-        /Feature name can only contain letters, numbers, hyphens, and underscores/,
-      ),
+      page.getByText(/Feature name can only contain letters, numbers, hyphens, and underscores/),
     ).toBeVisible({ timeout: 5000 });
   });
 
@@ -473,8 +459,7 @@ test.describe("Feature Index — settings UI scan flow", () => {
     page,
     mockApi,
   }, testInfo) => {
-    const notice =
-      "No feature directories found under /app/TESTENV (scanned top-level fallback)";
+    const notice = "No feature directories found under /app/TESTENV (scanned top-level fallback)";
     await mockApi({
       projects: [project],
       features: [],

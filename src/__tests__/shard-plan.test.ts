@@ -158,7 +158,11 @@ describe("CLI — the seam shard_slice runs", () => {
     const manifest = join(dir, "timings.json");
     writeFileSync(
       manifest,
-      JSON.stringify({ version: 1, source: "test", timingsMs: { a: 10, b: 9, c: 8, d: 3, e: 2, f: 1 } }),
+      JSON.stringify({
+        version: 1,
+        source: "test",
+        timingsMs: { a: 10, b: 9, c: 8, d: 3, e: 2, f: 1 },
+      }),
     );
     const zero = runCli("a\nb\nc\nd\ne\nf\n", ["0", "2", manifest]);
     const one = runCli("a\nb\nc\nd\ne\nf\n", ["1", "2", manifest]);

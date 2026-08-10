@@ -24,11 +24,7 @@ import { join } from "node:path";
  * scanner output. Hidden dotfiles are filtered separately by the
  * starts-with-"." check inside listFilteredChildren.
  */
-export const EXCLUDED_DIR_NAMES: ReadonlySet<string> = new Set([
-  "node_modules",
-  ".git",
-  ".ezcorp",
-]);
+export const EXCLUDED_DIR_NAMES: ReadonlySet<string> = new Set(["node_modules", ".git", ".ezcorp"]);
 
 /**
  * True when `absPath` resolves (after realpath) to a location at or
@@ -39,10 +35,7 @@ export const EXCLUDED_DIR_NAMES: ReadonlySet<string> = new Set([
  * realpath'd — keeping the realpath out of the inner loop is a hot-path
  * concern for autocomplete.
  */
-export async function realpathInsideRoot(
-  realRoot: string,
-  absPath: string,
-): Promise<boolean> {
+export async function realpathInsideRoot(realRoot: string, absPath: string): Promise<boolean> {
   try {
     const real = await realpath(absPath);
     return real === realRoot || real.startsWith(realRoot + "/");

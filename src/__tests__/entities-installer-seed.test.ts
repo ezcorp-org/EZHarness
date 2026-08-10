@@ -8,12 +8,7 @@
 //   - conversation-scoped declarations are skipped at install time
 
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import {
-  closeTestDb,
-  getTestDb,
-  mockDbConnection,
-  setupTestDb,
-} from "./helpers/test-pglite";
+import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 
@@ -96,9 +91,7 @@ describe("runEntitySeed — fresh install", () => {
       sourceDir: "/tmp",
       userId,
     });
-    expect(result.seededByType["post-type"]?.slice().sort()).toEqual(
-      ["monthly", "weekly"].sort(),
-    );
+    expect(result.seededByType["post-type"]?.slice().sort()).toEqual(["monthly", "weekly"].sort());
 
     const db = getTestDb();
     const rows = await db
@@ -109,8 +102,7 @@ describe("runEntitySeed — fresh install", () => {
         // and verify the count + keys.
         // We don't need a where filter beyond extensionId.
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (extensionStorage.extensionId as any).eq?.(extId) ??
-          undefined,
+        (extensionStorage.extensionId as any).eq?.(extId) ?? undefined,
       );
     // Drizzle's pglite returns ALL rows when filter is undefined; we
     // filter in JS.
@@ -141,9 +133,7 @@ describe("runEntitySeed — fresh install", () => {
       userId,
     });
     expect(second.seededByType["post-type"] ?? []).toEqual([]);
-    expect(second.skippedByType["post-type"]?.sort()).toEqual(
-      ["monthly", "weekly"].sort(),
-    );
+    expect(second.skippedByType["post-type"]?.sort()).toEqual(["monthly", "weekly"].sort());
   });
 
   test("inserts only newly-added slugs on schema bump", async () => {
@@ -167,9 +157,7 @@ describe("runEntitySeed — fresh install", () => {
       userId,
     });
     expect(result.seededByType["post-type"]).toEqual(["ad-hoc"]);
-    expect(result.skippedByType["post-type"]?.sort()).toEqual(
-      ["monthly", "weekly"].sort(),
-    );
+    expect(result.skippedByType["post-type"]?.sort()).toEqual(["monthly", "weekly"].sort());
   });
 });
 
@@ -195,9 +183,7 @@ describe("runEntitySeed — validation", () => {
   test("rejects malformed slug at validation time", async () => {
     const bad: EntityDeclaration = {
       ...POST_TYPE_DECL,
-      seed: [
-        { slug: "Bad Slug With Spaces", data: { name: "x", cadence: "weekly" } },
-      ],
+      seed: [{ slug: "Bad Slug With Spaces", data: { name: "x", cadence: "weekly" } }],
     };
     expect(
       runEntitySeed({
@@ -219,9 +205,7 @@ describe("runEntitySeed — scope handling", () => {
       userId: null,
     });
     expect(result.seededByType).toEqual({});
-    expect(result.skippedByType["post-type"]?.sort()).toEqual(
-      ["monthly", "weekly"].sort(),
-    );
+    expect(result.skippedByType["post-type"]?.sort()).toEqual(["monthly", "weekly"].sort());
 
     const db = getTestDb();
     const rows = await db.select().from(extensionStorage);
@@ -241,9 +225,7 @@ describe("runEntitySeed — scope handling", () => {
       userId,
     });
     expect(result.seededByType).toEqual({});
-    expect(result.skippedByType["post-type"]?.sort()).toEqual(
-      ["monthly", "weekly"].sort(),
-    );
+    expect(result.skippedByType["post-type"]?.sort()).toEqual(["monthly", "weekly"].sort());
   });
 });
 

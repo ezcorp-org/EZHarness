@@ -27,18 +27,14 @@ interface RequestCall {
   timeoutMs: number | undefined;
 }
 
-function stubRequest<T>(
-  returnValue: T,
-): { calls: RequestCall[]; spy: ReturnType<typeof spyOn> } {
+function stubRequest<T>(returnValue: T): { calls: RequestCall[]; spy: ReturnType<typeof spyOn> } {
   const ch: HostChannel = getChannel();
   const calls: RequestCall[] = [];
   const spy = spyOn(ch, "request");
-  spy.mockImplementation(
-    (async (method: string, params: unknown, timeoutMs?: number) => {
-      calls.push({ method, params, timeoutMs });
-      return returnValue;
-    }) as HostChannel["request"],
-  );
+  spy.mockImplementation((async (method: string, params: unknown, timeoutMs?: number) => {
+    calls.push({ method, params, timeoutMs });
+    return returnValue;
+  }) as HostChannel["request"]);
   return { calls, spy };
 }
 
@@ -95,11 +91,9 @@ describe("cancelRun — host error propagation", () => {
   test("-32001 permission-missing surfaces as JsonRpcError", async () => {
     const ch = getChannel();
     const spy = spyOn(ch, "request");
-    spy.mockImplementation(
-      (async () => {
-        throw new JsonRpcError(-32001, "spawnAgents permission not granted");
-      }) as HostChannel["request"],
-    );
+    spy.mockImplementation((async () => {
+      throw new JsonRpcError(-32001, "spawnAgents permission not granted");
+    }) as HostChannel["request"]);
     try {
       await cancelRun("run-x");
       throw new Error("should have thrown");
@@ -112,11 +106,9 @@ describe("cancelRun — host error propagation", () => {
   test("-32602 invalid-params surfaces with message intact", async () => {
     const ch = getChannel();
     const spy = spyOn(ch, "request");
-    spy.mockImplementation(
-      (async () => {
-        throw new JsonRpcError(-32602, "'agentRunId' must be a non-empty string");
-      }) as HostChannel["request"],
-    );
+    spy.mockImplementation((async () => {
+      throw new JsonRpcError(-32602, "'agentRunId' must be a non-empty string");
+    }) as HostChannel["request"]);
     try {
       await cancelRun("run-x");
       throw new Error("should have thrown");
@@ -142,7 +134,9 @@ describe("cancelRun — wire-level round-trip through getChannel()", () => {
     // Drive stdin via a ReadableStream we control.
     let controller!: ReadableStreamDefaultController<Uint8Array>;
     const stream = new ReadableStream<Uint8Array>({
-      start(c) { controller = c; },
+      start(c) {
+        controller = c;
+      },
     });
     const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
       () => stream as ReturnType<typeof Bun.stdin.stream>,
@@ -201,7 +195,9 @@ describe("cancelRun — wire-level round-trip through getChannel()", () => {
   test("passes the host's `reason` field back through verbatim (not-owned)", async () => {
     let controller!: ReadableStreamDefaultController<Uint8Array>;
     const stream = new ReadableStream<Uint8Array>({
-      start(c) { controller = c; },
+      start(c) {
+        controller = c;
+      },
     });
     const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
       () => stream as ReturnType<typeof Bun.stdin.stream>,
@@ -243,7 +239,9 @@ describe("cancelRun — wire-level round-trip through getChannel()", () => {
   test("host error frame surfaces as JsonRpcError with code preserved", async () => {
     let controller!: ReadableStreamDefaultController<Uint8Array>;
     const stream = new ReadableStream<Uint8Array>({
-      start(c) { controller = c; },
+      start(c) {
+        controller = c;
+      },
     });
     const stdinSpy = spyOn(Bun.stdin, "stream").mockImplementation(
       () => stream as ReturnType<typeof Bun.stdin.stream>,

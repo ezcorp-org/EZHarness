@@ -40,9 +40,12 @@ function enableSurface(on: boolean): void {
 
 beforeEach(() => enableSurface(true));
 afterEach(() => {
-  if (savedE2E === undefined) delete process.env.PI_E2E_REAL; else process.env.PI_E2E_REAL = savedE2E;
-  if (savedNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = savedNodeEnv;
-  if (savedAllow === undefined) delete process.env.EZCORP_ALLOW_TEST_SURFACE; else process.env.EZCORP_ALLOW_TEST_SURFACE = savedAllow;
+  if (savedE2E === undefined) delete process.env.PI_E2E_REAL;
+  else process.env.PI_E2E_REAL = savedE2E;
+  if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = savedNodeEnv;
+  if (savedAllow === undefined) delete process.env.EZCORP_ALLOW_TEST_SURFACE;
+  else process.env.EZCORP_ALLOW_TEST_SURFACE = savedAllow;
 });
 afterAll(() => restoreModuleMocks());
 
@@ -62,7 +65,8 @@ describe("resolveModel: ezcorp-mock", () => {
       const r = await resolveModel("ezcorp-mock", "mock:x");
       expect(r.piModel.baseUrl).toContain("127.0.0.1:4321");
     } finally {
-      if (savedPort === undefined) delete process.env.PORT; else process.env.PORT = savedPort;
+      if (savedPort === undefined) delete process.env.PORT;
+      else process.env.PORT = savedPort;
     }
   });
 

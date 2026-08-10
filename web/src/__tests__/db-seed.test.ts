@@ -41,8 +41,7 @@ function makeMockRequest(responses: Record<string, ResponseSpec>) {
       ok: () => spec.status >= 200 && spec.status < 300,
       status: () => spec.status,
       json: async () => spec.body,
-      text: async () =>
-        typeof spec.body === "string" ? spec.body : JSON.stringify(spec.body),
+      text: async () => (typeof spec.body === "string" ? spec.body : JSON.stringify(spec.body)),
     };
   }
 
@@ -57,8 +56,7 @@ function makeMockRequest(responses: Record<string, ResponseSpec>) {
 
   const mock = {
     get: async (url: string) => handle("GET", url),
-    post: async (url: string, init?: { data?: unknown }) =>
-      handle("POST", url, init?.data),
+    post: async (url: string, init?: { data?: unknown }) => handle("POST", url, init?.data),
     delete: async (url: string) => handle("DELETE", url),
   };
   return { mock: mock as unknown as APIRequestContext, calls };
@@ -151,9 +149,9 @@ describe("seedExtensionAuthorDraft", () => {
         body: { error: "Not found" },
       },
     });
-    expect(
-      seedExtensionAuthorDraft({ request: mock, name: "bad", type: "tool" }),
-    ).rejects.toThrow(/PI_E2E_REAL=1/);
+    expect(seedExtensionAuthorDraft({ request: mock, name: "bad", type: "tool" })).rejects.toThrow(
+      /PI_E2E_REAL=1/,
+    );
   });
 });
 
@@ -167,9 +165,7 @@ describe("cleanupExtensionAuthorDraft", () => {
     });
     const r = await cleanupExtensionAuthorDraft(mock, "draft-abc");
     expect(r).toEqual({ ok: true });
-    expect(calls).toEqual([
-      { method: "DELETE", url: "/api/extensions/author/draft/draft-abc" },
-    ]);
+    expect(calls).toEqual([{ method: "DELETE", url: "/api/extensions/author/draft/draft-abc" }]);
   });
 
   test("treats 404 (already gone) as success — idempotent", async () => {

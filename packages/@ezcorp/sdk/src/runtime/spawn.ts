@@ -159,18 +159,12 @@ export interface SpawnAssignmentHandle {
  * direct-carrier event allowed by the host's Phase 2c allowlist) via
  * `registerEventHandler`.
  */
-export async function spawnAssignment(
-  input: SpawnAssignmentInput,
-): Promise<SpawnAssignmentHandle> {
+export async function spawnAssignment(input: SpawnAssignmentInput): Promise<SpawnAssignmentHandle> {
   if (!input.agentConfigId && !input.agentName) {
-    throw new Error(
-      "spawnAssignment: one of 'agentConfigId' or 'agentName' is required",
-    );
+    throw new Error("spawnAssignment: one of 'agentConfigId' or 'agentName' is required");
   }
   if (typeof input.task !== "string" || !input.task.trim()) {
-    throw new Error(
-      "spawnAssignment: 'task' must be a non-empty string",
-    );
+    throw new Error("spawnAssignment: 'task' must be a non-empty string");
   }
   const result = await getChannel().request<{
     v: 1;

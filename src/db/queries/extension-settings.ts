@@ -1,17 +1,12 @@
 import { eq, and } from "drizzle-orm";
 import { getDb } from "../connection";
 import { extensionSettingsUser, extensions } from "../schema";
-import type {
-  SettingsSchema,
-  ExtensionManifestV2,
-} from "../../extensions/types";
+import type { SettingsSchema, ExtensionManifestV2 } from "../../extensions/types";
 import { isValidForField } from "../../extensions/manifest";
 
 /** Pure: pulls each field's `default` from the manifest schema. Secret
  *  fields carry no `default` by construction (write-only credentials). */
-export function getDeclaredDefaults(
-  schema: SettingsSchema | undefined,
-): Record<string, unknown> {
+export function getDeclaredDefaults(schema: SettingsSchema | undefined): Record<string, unknown> {
   if (!schema) return {};
   const out: Record<string, unknown> = {};
   for (const [key, field] of Object.entries(schema)) {
@@ -46,9 +41,7 @@ export function clampSettings(
   return out;
 }
 
-async function getManifestSettings(
-  extensionId: string,
-): Promise<SettingsSchema | undefined> {
+async function getManifestSettings(extensionId: string): Promise<SettingsSchema | undefined> {
   const db = getDb();
   const rows = await db
     .select({ manifest: extensions.manifest })
@@ -98,10 +91,7 @@ export async function setUserSettings(
     });
 }
 
-export async function clearUserSettings(
-  userId: string,
-  extensionId: string,
-): Promise<void> {
+export async function clearUserSettings(userId: string, extensionId: string): Promise<void> {
   const db = getDb();
   await db
     .delete(extensionSettingsUser)
@@ -131,13 +121,10 @@ export async function resolveExtensionSettings(
   userId: string | null,
   schema?: SettingsSchema,
 ): Promise<Record<string, unknown>> {
-  const effectiveSchema = schema ?? await getManifestSettings(extensionId);
+  const effectiveSchema = schema ?? (await getManifestSettings(extensionId));
   if (!effectiveSchema) return {};
   const declared = getDeclaredDefaults(effectiveSchema);
   if (userId === null) return declared;
-  const user = clampSettings(
-    effectiveSchema,
-    await getUserSettings(userId, extensionId),
-  );
+  const user = clampSettings(effectiveSchema, await getUserSettings(userId, extensionId));
   return { ...declared, ...user };
 }

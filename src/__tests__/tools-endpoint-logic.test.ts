@@ -44,7 +44,10 @@ describe("ExtensionRegistry.getAllTools() + endpoint mapping", () => {
 
   test("getAllTools returns registered tools without internal fields", () => {
     const registry = ExtensionRegistry.getInstance();
-    registry.registerToolForTest("analyzer__scan", makeTool("analyzer__scan", "analyzer", "ext-1", "Scan code"));
+    registry.registerToolForTest(
+      "analyzer__scan",
+      makeTool("analyzer__scan", "analyzer", "ext-1", "Scan code"),
+    );
     const tools = registry.getAllTools();
     expect(tools).toHaveLength(1);
     const first = at(tools, 0, "tool");
@@ -118,9 +121,18 @@ describe("ExtensionRegistry.getAllTools() + endpoint mapping", () => {
 
   test("multiple tools from same extension all map correctly", () => {
     const registry = ExtensionRegistry.getInstance();
-    registry.registerToolForTest("weather__forecast", makeTool("weather__forecast", "weather", "ext-w", "Get forecast"));
-    registry.registerToolForTest("weather__alerts", makeTool("weather__alerts", "weather", "ext-w", "Get alerts"));
-    registry.registerToolForTest("weather__radar", makeTool("weather__radar", "weather", "ext-w", "Get radar"));
+    registry.registerToolForTest(
+      "weather__forecast",
+      makeTool("weather__forecast", "weather", "ext-w", "Get forecast"),
+    );
+    registry.registerToolForTest(
+      "weather__alerts",
+      makeTool("weather__alerts", "weather", "ext-w", "Get alerts"),
+    );
+    registry.registerToolForTest(
+      "weather__radar",
+      makeTool("weather__radar", "weather", "ext-w", "Get radar"),
+    );
 
     const mapped = mapTools(registry.getAllTools());
     const weatherTools = mapped.filter((t) => t.extension === "weather");
@@ -130,7 +142,10 @@ describe("ExtensionRegistry.getAllTools() + endpoint mapping", () => {
 
   test("tokenEstimate is computed from JSON.stringify length / 4", () => {
     const registry = ExtensionRegistry.getInstance();
-    registry.registerToolForTest("analyzer__scan", makeTool("analyzer__scan", "analyzer", "ext-1", "Scan code"));
+    registry.registerToolForTest(
+      "analyzer__scan",
+      makeTool("analyzer__scan", "analyzer", "ext-1", "Scan code"),
+    );
     const allTools = registry.getAllTools();
     const mapped = mapTools(allTools);
     const tool = mapped[0]!;

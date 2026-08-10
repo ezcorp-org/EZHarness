@@ -1,5 +1,10 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { mockEmbedding, mockEmbeddingsModule } from "./helpers/mock-vectors";
 import type { MemoryProvenance } from "../memory/types";
 
@@ -7,8 +12,17 @@ mockDbConnection();
 mockRealSettings();
 mockEmbeddingsModule();
 
-const { insertMemory, searchMemories, getMemoryById, updateMemory, updateMemoryStatus, deleteMemory } = await import("../db/queries/memories");
-const { insertKBFile, listKBFiles, getKBFile, deleteKBFile } = await import("../db/queries/knowledge-base");
+const {
+  insertMemory,
+  searchMemories,
+  getMemoryById,
+  updateMemory,
+  updateMemoryStatus,
+  deleteMemory,
+} = await import("../db/queries/memories");
+const { insertKBFile, listKBFiles, getKBFile, deleteKBFile } = await import(
+  "../db/queries/knowledge-base"
+);
 const { createProject } = await import("../db/queries/projects");
 const { createConversation } = await import("../db/queries/conversations");
 const { getDb } = await import("../db/connection");
@@ -41,7 +55,10 @@ async function insertTestMemory(content: string, opts?: { category?: string; sta
   });
   if (opts?.status && opts.status !== "active") {
     const db = getDb();
-    await db.update(memories).set({ status: opts.status } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ status: opts.status } as any)
+      .where(eq(memories.id, mem.id));
   }
   return mem;
 }
@@ -67,8 +84,10 @@ beforeAll(async () => {
         if (url.searchParams.get("search")) params.search = url.searchParams.get("search");
         if (url.searchParams.get("status")) params.status = url.searchParams.get("status");
         if (url.searchParams.get("category")) params.category = url.searchParams.get("category");
-        if (url.searchParams.get("limit")) params.limit = parseInt(url.searchParams.get("limit")!, 10);
-        if (url.searchParams.get("offset")) params.offset = parseInt(url.searchParams.get("offset")!, 10);
+        if (url.searchParams.get("limit"))
+          params.limit = parseInt(url.searchParams.get("limit")!, 10);
+        if (url.searchParams.get("offset"))
+          params.offset = parseInt(url.searchParams.get("offset")!, 10);
         const results = await searchMemories(params);
         return Response.json(results);
       }
@@ -90,7 +109,8 @@ beforeAll(async () => {
             await updateMemoryStatus(id, body.status, `Status changed to ${body.status}`);
           }
           const updates: Record<string, unknown> = {};
-          if (body.content !== undefined && body.content !== mem.content) updates.content = body.content;
+          if (body.content !== undefined && body.content !== mem.content)
+            updates.content = body.content;
           if (body.confidence !== undefined) updates.confidence = body.confidence;
           if (Object.keys(updates).length > 0) await updateMemory(id, updates as any);
           const updated = await getMemoryById(id);
@@ -127,7 +147,10 @@ beforeAll(async () => {
 
         const MAX_FILE_SIZE = 10 * 1024 * 1024;
         if (file.size > MAX_FILE_SIZE) {
-          return Response.json({ error: `File too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB)` }, { status: 400 });
+          return Response.json(
+            { error: `File too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB)` },
+            { status: 400 },
+          );
         }
 
         const kbFile = await insertKBFile({
@@ -171,10 +194,14 @@ describe("Memory API routes", () => {
   test("GET /api/memories returns filtered results", async () => {
     const techMem = await insertTestMemory("API filter tech memory", { category: "technical" });
     const prefMem = await insertTestMemory("API filter pref memory", { category: "preferences" });
-    const archivedMem = await insertTestMemory("API filter archived memory", { status: "archived" });
+    const archivedMem = await insertTestMemory("API filter archived memory", {
+      status: "archived",
+    });
 
     // Filter by category
-    const catRes = await fetch(`${baseUrl}/api/memories?projectId=${projectId}&category=preferences`);
+    const catRes = await fetch(
+      `${baseUrl}/api/memories?projectId=${projectId}&category=preferences`,
+    );
     expect(catRes.status).toBe(200);
     const catData = await catRes.json();
     const catIds = catData.map((m: any) => m.id);
@@ -240,10 +267,7 @@ describe("Memory API routes", () => {
 
     // Verify audit log was created
     const db = getDb();
-    const logs = await db
-      .select()
-      .from(memoryAuditLog)
-      .where(eq(memoryAuditLog.memoryId, mem.id));
+    const logs = await db.select().from(memoryAuditLog).where(eq(memoryAuditLog.memoryId, mem.id));
     const statusLog = logs.find((l: any) => l.action === "status_change");
     expect(statusLog).toBeDefined();
     expect(statusLog!.reason).toBe("Status changed to archived");
@@ -311,7 +335,9 @@ describe("Knowledge Base API routes", () => {
   });
 
   test("DELETE /api/knowledge-base/:id returns 404 for missing", async () => {
-    const res = await fetch(`${baseUrl}/api/knowledge-base/nonexistent-kb-id`, { method: "DELETE" });
+    const res = await fetch(`${baseUrl}/api/knowledge-base/nonexistent-kb-id`, {
+      method: "DELETE",
+    });
     expect(res.status).toBe(404);
     const data = await res.json();
     expect(data.error).toBe("Not found");

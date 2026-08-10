@@ -60,7 +60,9 @@ mock.module("../extensions/registry", () => ({
 
 mock.module("../db/connection", () => ({
   initDb: async () => {},
-  getDb: () => { throw new Error("DB not available in test"); },
+  getDb: () => {
+    throw new Error("DB not available in test");
+  },
 }));
 
 // Import after mocks
@@ -69,8 +71,7 @@ const { parseArgs, cli } = await import("../cli");
 // ── Helpers ───────────────────────────────────────────────────────────
 
 const env = { ...process.env };
-const spawn = (cmd: string[], opts?: { cwd?: string }) =>
-  Bun.spawnSync(cmd, { ...opts, env });
+const spawn = (cmd: string[], opts?: { cwd?: string }) => Bun.spawnSync(cmd, { ...opts, env });
 
 function makeManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionManifestV2 {
   return {
@@ -166,8 +167,12 @@ describe("parseArgs - ext edge cases", () => {
 describe("cli - ext:install error paths", () => {
   test("install error (clone fails) prints error and exits", async () => {
     const errors: string[] = [];
-    const errSpy = spyOn(console, "error").mockImplementation((...args) => errors.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const errSpy = spyOn(console, "error").mockImplementation((...args) =>
+      errors.push(args.join(" ")),
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("exit");
+    });
 
     process.env.__EZCORP_TEST_EXTENSIONS_DIR = installBase;
 
@@ -175,7 +180,7 @@ describe("cli - ext:install error paths", () => {
       await cli(["ext", "install", "file:///nonexistent/repo.git"]);
     } catch {}
 
-    expect(errors.some(l => l.startsWith("Error:"))).toBe(true);
+    expect(errors.some((l) => l.startsWith("Error:"))).toBe(true);
     errSpy.mockRestore();
     exitSpy.mockRestore();
     delete process.env.__EZCORP_TEST_EXTENSIONS_DIR;
@@ -197,21 +202,25 @@ describe("cli - ext:update paths", () => {
 
     await cli(["ext", "update", "test-cov-ext"]);
 
-    expect(logs.some(l => l.includes("Updated test-cov-ext:") && l.includes("->"))).toBe(true);
+    expect(logs.some((l) => l.includes("Updated test-cov-ext:") && l.includes("->"))).toBe(true);
     logSpy.mockRestore();
     delete process.env.__EZCORP_TEST_EXTENSIONS_DIR;
   });
 
   test("single named update failure prints error and exits", async () => {
     const errors: string[] = [];
-    const errSpy = spyOn(console, "error").mockImplementation((...args) => errors.push(args.join(" ")));
-    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+    const errSpy = spyOn(console, "error").mockImplementation((...args) =>
+      errors.push(args.join(" ")),
+    );
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => {
+      throw new Error("exit");
+    });
 
     try {
       await cli(["ext", "update", "nonexistent-ext"]);
     } catch {}
 
-    expect(errors.some(l => l.startsWith("Error:"))).toBe(true);
+    expect(errors.some((l) => l.startsWith("Error:"))).toBe(true);
     errSpy.mockRestore();
     exitSpy.mockRestore();
   });
@@ -222,23 +231,26 @@ describe("cli - ext:update paths", () => {
 
     await cli(["ext", "update"]);
 
-    expect(logs.some(l => l.includes("No extensions installed."))).toBe(true);
+    expect(logs.some((l) => l.includes("No extensions installed."))).toBe(true);
     logSpy.mockRestore();
   });
 
   test("update all with extensions that are up to date prints message", async () => {
     // Pre-populate with an extension that has a local source (no updates available)
-    mockExtensions.set("uptodate-id", makeExtEntry("uptodate-id", {
-      source: "local:/tmp/fake",
-      version: "1.0.0",
-    }));
+    mockExtensions.set(
+      "uptodate-id",
+      makeExtEntry("uptodate-id", {
+        source: "local:/tmp/fake",
+        version: "1.0.0",
+      }),
+    );
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
 
     await cli(["ext", "update"]);
 
-    expect(logs.some(l => l.includes("All extensions are up to date."))).toBe(true);
+    expect(logs.some((l) => l.includes("All extensions are up to date."))).toBe(true);
     logSpy.mockRestore();
   });
 
@@ -255,7 +267,7 @@ describe("cli - ext:update paths", () => {
 
     await cli(["ext", "update"]);
 
-    expect(logs.some(l => l.includes("Updated test-cov-ext:") && l.includes("->"))).toBe(true);
+    expect(logs.some((l) => l.includes("Updated test-cov-ext:") && l.includes("->"))).toBe(true);
     logSpy.mockRestore();
     delete process.env.__EZCORP_TEST_EXTENSIONS_DIR;
   });
@@ -263,24 +275,29 @@ describe("cli - ext:update paths", () => {
   test("update all with extension update failure prints error and continues", async () => {
     // Use real bare repo (so checkForUpdates finds v1.1.0 > v1.0.0)
     // but set installPath to nonexistent dir so git fetch/checkout fails in updateExt
-    mockExtensions.set("bad-id", makeExtEntry("bad-id", {
-      name: "bad-ext",
-      source: `file://${bareRepoDir}@v1.0.0`,
-      version: "1.0.0",
-      installPath: "/tmp/nonexistent-ext-path-for-test",
-    }));
+    mockExtensions.set(
+      "bad-id",
+      makeExtEntry("bad-id", {
+        name: "bad-ext",
+        source: `file://${bareRepoDir}@v1.0.0`,
+        version: "1.0.0",
+        installPath: "/tmp/nonexistent-ext-path-for-test",
+      }),
+    );
 
     const errors: string[] = [];
     const logs: string[] = [];
-    const errSpy = spyOn(console, "error").mockImplementation((...args) => errors.push(args.join(" ")));
+    const errSpy = spyOn(console, "error").mockImplementation((...args) =>
+      errors.push(args.join(" ")),
+    );
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
 
     // Should not throw -- errors are caught per-extension
     await cli(["ext", "update"]);
 
-    expect(errors.some(l => l.includes("Failed to update bad-ext:"))).toBe(true);
+    expect(errors.some((l) => l.includes("Failed to update bad-ext:"))).toBe(true);
     // Also prints "All extensions are up to date." since updated count remains 0
-    expect(logs.some(l => l.includes("All extensions are up to date."))).toBe(true);
+    expect(logs.some((l) => l.includes("All extensions are up to date."))).toBe(true);
     errSpy.mockRestore();
     logSpy.mockRestore();
   });
@@ -290,16 +307,19 @@ describe("cli - ext:update paths", () => {
 
 describe("cli - ext:info display variations", () => {
   test("extension with skills array prints Skills section", async () => {
-    mockExtensions.set("skills-id", makeExtEntry("skills-id", {
-      name: "skills-ext",
-      manifest: makeManifest({
+    mockExtensions.set(
+      "skills-id",
+      makeExtEntry("skills-id", {
         name: "skills-ext",
-        skills: [
-          { name: "summarize", description: "Summarize text" },
-          { name: "translate", description: "Translate text" },
-        ],
+        manifest: makeManifest({
+          name: "skills-ext",
+          skills: [
+            { name: "summarize", description: "Summarize text" },
+            { name: "translate", description: "Translate text" },
+          ],
+        }),
       }),
-    }));
+    );
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
@@ -314,15 +334,24 @@ describe("cli - ext:info display variations", () => {
   });
 
   test("extension with mcpServers does NOT show MCP Servers section in info", async () => {
-    mockExtensions.set("servers-id", makeExtEntry("servers-id", {
-      name: "servers-ext",
-      manifest: makeManifest({
+    mockExtensions.set(
+      "servers-id",
+      makeExtEntry("servers-id", {
         name: "servers-ext",
-        mcpServers: [
-          { transport: "stdio", name: "my-server", description: "A server", command: "node", args: ["srv.ts"] },
-        ],
+        manifest: makeManifest({
+          name: "servers-ext",
+          mcpServers: [
+            {
+              transport: "stdio",
+              name: "my-server",
+              description: "A server",
+              command: "node",
+              args: ["srv.ts"],
+            },
+          ],
+        }),
       }),
-    }));
+    );
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
@@ -337,13 +366,16 @@ describe("cli - ext:info display variations", () => {
   });
 
   test("extension with agent and category prints Agent section", async () => {
-    mockExtensions.set("agent-id", makeExtEntry("agent-id", {
-      name: "agent-ext",
-      manifest: makeManifest({
+    mockExtensions.set(
+      "agent-id",
+      makeExtEntry("agent-id", {
         name: "agent-ext",
-        agent: { prompt: "You are helpful", category: "Development" },
+        manifest: makeManifest({
+          name: "agent-ext",
+          agent: { prompt: "You are helpful", category: "Development" },
+        }),
       }),
-    }));
+    );
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
@@ -356,13 +388,16 @@ describe("cli - ext:info display variations", () => {
   });
 
   test("extension with agent but no category prints uncategorized", async () => {
-    mockExtensions.set("agent-nocat-id", makeExtEntry("agent-nocat-id", {
-      name: "agent-nocat",
-      manifest: makeManifest({
+    mockExtensions.set(
+      "agent-nocat-id",
+      makeExtEntry("agent-nocat-id", {
         name: "agent-nocat",
-        agent: { prompt: "You are helpful" },
+        manifest: makeManifest({
+          name: "agent-nocat",
+          agent: { prompt: "You are helpful" },
+        }),
       }),
-    }));
+    );
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
@@ -375,13 +410,16 @@ describe("cli - ext:info display variations", () => {
   });
 
   test("extension with no permissions shows no Permissions section", async () => {
-    mockExtensions.set("noperm-id", makeExtEntry("noperm-id", {
-      name: "noperm-ext",
-      manifest: makeManifest({
+    mockExtensions.set(
+      "noperm-id",
+      makeExtEntry("noperm-id", {
         name: "noperm-ext",
-        permissions: {},
+        manifest: makeManifest({
+          name: "noperm-ext",
+          permissions: {},
+        }),
       }),
-    }));
+    );
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
@@ -394,13 +432,16 @@ describe("cli - ext:info display variations", () => {
   });
 
   test("extension with no tools shows no Tools section", async () => {
-    mockExtensions.set("notool-id", makeExtEntry("notool-id", {
-      name: "notool-ext",
-      manifest: makeManifest({
+    mockExtensions.set(
+      "notool-id",
+      makeExtEntry("notool-id", {
         name: "notool-ext",
-        tools: [],
+        manifest: makeManifest({
+          name: "notool-ext",
+          tools: [],
+        }),
       }),
-    }));
+    );
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
@@ -413,14 +454,17 @@ describe("cli - ext:info display variations", () => {
   });
 
   test("extension with empty description shows (none)", async () => {
-    mockExtensions.set("nodesc-id", makeExtEntry("nodesc-id", {
-      name: "nodesc-ext",
-      description: "",
-      manifest: makeManifest({
+    mockExtensions.set(
+      "nodesc-id",
+      makeExtEntry("nodesc-id", {
         name: "nodesc-ext",
         description: "",
+        manifest: makeManifest({
+          name: "nodesc-ext",
+          description: "",
+        }),
       }),
-    }));
+    );
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
@@ -437,10 +481,13 @@ describe("cli - ext:info display variations", () => {
     // Remove author to test fallback
     (manifestNoAuthor as any).author = undefined;
 
-    mockExtensions.set("noauthor-id", makeExtEntry("noauthor-id", {
-      name: "noauthor-ext",
-      manifest: manifestNoAuthor,
-    }));
+    mockExtensions.set(
+      "noauthor-id",
+      makeExtEntry("noauthor-id", {
+        name: "noauthor-ext",
+        manifest: manifestNoAuthor,
+      }),
+    );
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
@@ -457,10 +504,14 @@ describe("cli - ext:info display variations", () => {
 
 describe("cli - ext:list formatting", () => {
   test("long source string is truncated with ellipsis", async () => {
-    const longSource = "file:///very/long/path/to/a/repository/that/exceeds/thirty/three/characters.git@v1.0.0";
-    mockExtensions.set("long-id", makeExtEntry("long-id", {
-      source: longSource,
-    }));
+    const longSource =
+      "file:///very/long/path/to/a/repository/that/exceeds/thirty/three/characters.git@v1.0.0";
+    mockExtensions.set(
+      "long-id",
+      makeExtEntry("long-id", {
+        source: longSource,
+      }),
+    );
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
@@ -475,9 +526,12 @@ describe("cli - ext:list formatting", () => {
   });
 
   test("disabled extension shows disabled status", async () => {
-    mockExtensions.set("disabled-id", makeExtEntry("disabled-id", {
-      enabled: false,
-    }));
+    mockExtensions.set(
+      "disabled-id",
+      makeExtEntry("disabled-id", {
+        enabled: false,
+      }),
+    );
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
@@ -490,9 +544,12 @@ describe("cli - ext:list formatting", () => {
   });
 
   test("enabled extension shows enabled status", async () => {
-    mockExtensions.set("enabled-id", makeExtEntry("enabled-id", {
-      enabled: true,
-    }));
+    mockExtensions.set(
+      "enabled-id",
+      makeExtEntry("enabled-id", {
+        enabled: true,
+      }),
+    );
 
     const logs: string[] = [];
     const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));

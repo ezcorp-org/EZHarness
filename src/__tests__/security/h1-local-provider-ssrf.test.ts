@@ -67,10 +67,7 @@ function looksLikeIPv4(h: string): boolean {
 }
 
 mock.module("node:dns/promises", () => ({
-  lookup: async (
-    hostname: string,
-    _options?: unknown,
-  ): Promise<LookupResult> => {
+  lookup: async (hostname: string, _options?: unknown): Promise<LookupResult> => {
     if (looksLikeIPv4(hostname)) {
       return [{ address: hostname, family: 4 }];
     }
@@ -143,10 +140,7 @@ import {
 } from "../../../web/src/lib/server/security/url-validation";
 
 // SvelteKit handlers may throw a Response on auth failure; unwrap.
-async function call(
-  handler: (ev: any) => unknown,
-  event: any,
-): Promise<Response> {
+async function call(handler: (ev: any) => unknown, event: any): Promise<Response> {
   try {
     return (await handler(event)) as Response;
   } catch (e) {

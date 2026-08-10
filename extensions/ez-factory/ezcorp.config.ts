@@ -393,13 +393,14 @@ export default defineExtension({
     {
       name: "write_file",
       description:
-        "Write one file inside the active project. `ifMatch` is an optional compare-and-swap: pass the sha256 a previous read returned to refuse the write if the file changed underneath, or \"absent\" to require the file not exist. Content over 4MB is rejected, never truncated. Returns {path, bytes, sha256}.",
+        'Write one file inside the active project. `ifMatch` is an optional compare-and-swap: pass the sha256 a previous read returned to refuse the write if the file changed underneath, or "absent" to require the file not exist. Content over 4MB is rejected, never truncated. Returns {path, bytes, sha256}.',
       inputSchema: {
         type: "object",
         properties: {
           path: {
             type: "string",
-            description: "Project-root-relative path. Absolute paths and `..` segments are rejected.",
+            description:
+              "Project-root-relative path. Absolute paths and `..` segments are rejected.",
           },
           content: {
             type: "string",

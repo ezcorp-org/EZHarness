@@ -7,7 +7,10 @@ import { makeAgent, makeAgentConfig } from "./fixtures/data.js";
 // into the UI on reload — the UI appeared to "forget" the saved selection.
 
 test.describe("Agent edit page — pre-populated model/provider/etc", () => {
-  test("editable config agent shows saved model, provider, temperature, maxTokens in form", async ({ page, mockApi }) => {
+  test("editable config agent shows saved model, provider, temperature, maxTokens in form", async ({
+    page,
+    mockApi,
+  }) => {
     const config = makeAgentConfig({
       id: "cfg-prepop-1",
       name: "prepop-agent",
@@ -19,12 +22,14 @@ test.describe("Agent edit page — pre-populated model/provider/etc", () => {
       maxTokens: 4096,
     });
     await mockApi({
-      agents: [makeAgent({
-        name: "prepop-agent",
-        source: "config",
-        id: "cfg-prepop-1",
-        prompt: "You are helpful.",
-      })],
+      agents: [
+        makeAgent({
+          name: "prepop-agent",
+          source: "config",
+          id: "cfg-prepop-1",
+          prompt: "You are helpful.",
+        }),
+      ],
       agentConfigs: [config],
     });
 
@@ -37,7 +42,10 @@ test.describe("Agent edit page — pre-populated model/provider/etc", () => {
     await expect(page.getByLabel("Max Tokens")).toHaveValue("4096");
   });
 
-  test("editable config agent shows attached extensions as chips below the picker", async ({ page, mockApi }) => {
+  test("editable config agent shows attached extensions as chips below the picker", async ({
+    page,
+    mockApi,
+  }) => {
     const config = makeAgentConfig({
       id: "cfg-ext-1",
       name: "ext-agent",
@@ -46,12 +54,14 @@ test.describe("Agent edit page — pre-populated model/provider/etc", () => {
       extensions: ["ext-analyzer", "ext-formatter"],
     });
     await mockApi({
-      agents: [makeAgent({
-        name: "ext-agent",
-        source: "config",
-        id: "cfg-ext-1",
-        prompt: "P",
-      })],
+      agents: [
+        makeAgent({
+          name: "ext-agent",
+          source: "config",
+          id: "cfg-ext-1",
+          prompt: "P",
+        }),
+      ],
       agentConfigs: [config],
       extensions: [
         { id: "ext-analyzer", name: "analyzer", description: "Lint/scan tools" },
@@ -71,7 +81,10 @@ test.describe("Agent edit page — pre-populated model/provider/etc", () => {
     await expect(chips).not.toContainText("unused");
   });
 
-  test("agent without extensions shows no chip row (but picker is present)", async ({ page, mockApi }) => {
+  test("agent without extensions shows no chip row (but picker is present)", async ({
+    page,
+    mockApi,
+  }) => {
     const config = makeAgentConfig({
       id: "cfg-noext",
       name: "noext-agent",
@@ -79,12 +92,14 @@ test.describe("Agent edit page — pre-populated model/provider/etc", () => {
       extensions: [],
     });
     await mockApi({
-      agents: [makeAgent({
-        name: "noext-agent",
-        source: "config",
-        id: "cfg-noext",
-        prompt: "P",
-      })],
+      agents: [
+        makeAgent({
+          name: "noext-agent",
+          source: "config",
+          id: "cfg-noext",
+          prompt: "P",
+        }),
+      ],
       agentConfigs: [config],
     });
 
@@ -95,7 +110,10 @@ test.describe("Agent edit page — pre-populated model/provider/etc", () => {
 });
 
 test.describe("Agent detail page — read-only config summary", () => {
-  test("shared read-only agent shows model/provider/temp/maxTokens summary", async ({ page, mockApi }) => {
+  test("shared read-only agent shows model/provider/temp/maxTokens summary", async ({
+    page,
+    mockApi,
+  }) => {
     const config = makeAgentConfig({
       id: "cfg-shared-1",
       name: "shared-agent",
@@ -106,15 +124,17 @@ test.describe("Agent detail page — read-only config summary", () => {
       maxTokens: 2048,
     });
     await mockApi({
-      agents: [makeAgent({
-        name: "shared-agent",
-        source: "config",
-        id: "cfg-shared-1",
-        prompt: "Shared prompt",
-        description: "A shared agent",
-        shared: true,
-        permission: "read",
-      })],
+      agents: [
+        makeAgent({
+          name: "shared-agent",
+          source: "config",
+          id: "cfg-shared-1",
+          prompt: "Shared prompt",
+          description: "A shared agent",
+          shared: true,
+          permission: "read",
+        }),
+      ],
       agentConfigs: [config],
     });
 
@@ -129,7 +149,10 @@ test.describe("Agent detail page — read-only config summary", () => {
     await expect(summary).toContainText("2048");
   });
 
-  test("shared read-only agent without model fields does not render summary", async ({ page, mockApi }) => {
+  test("shared read-only agent without model fields does not render summary", async ({
+    page,
+    mockApi,
+  }) => {
     const config = makeAgentConfig({
       id: "cfg-shared-2",
       name: "shared-minimal",
@@ -137,14 +160,16 @@ test.describe("Agent detail page — read-only config summary", () => {
       // No provider/model/temp/maxTokens/extensions
     });
     await mockApi({
-      agents: [makeAgent({
-        name: "shared-minimal",
-        source: "config",
-        id: "cfg-shared-2",
-        prompt: "Minimal",
-        shared: true,
-        permission: "read",
-      })],
+      agents: [
+        makeAgent({
+          name: "shared-minimal",
+          source: "config",
+          id: "cfg-shared-2",
+          prompt: "Minimal",
+          shared: true,
+          permission: "read",
+        }),
+      ],
       agentConfigs: [config],
     });
 
@@ -156,7 +181,10 @@ test.describe("Agent detail page — read-only config summary", () => {
 });
 
 test.describe("Team edit page — teamToolScope pre-populated", () => {
-  test("team with saved allowed+denied tools shows chips pre-populated on reload", async ({ page, mockApi }) => {
+  test("team with saved allowed+denied tools shows chips pre-populated on reload", async ({
+    page,
+    mockApi,
+  }) => {
     const memberConfig = makeAgentConfig({
       id: "agent-member",
       name: "member-agent",
@@ -181,18 +209,21 @@ test.describe("Team edit page — teamToolScope pre-populated", () => {
       },
     });
     await mockApi({
-      agents: [makeAgent({
-        name: "prepop-team",
-        source: "config",
-        id: "team-prepop-1",
-        category: "team",
-        prompt: "Coordinate",
-      }), makeAgent({
-        name: "member-agent",
-        source: "config",
-        id: "agent-member",
-        prompt: "Do stuff",
-      })],
+      agents: [
+        makeAgent({
+          name: "prepop-team",
+          source: "config",
+          id: "team-prepop-1",
+          category: "team",
+          prompt: "Coordinate",
+        }),
+        makeAgent({
+          name: "member-agent",
+          source: "config",
+          id: "agent-member",
+          prompt: "Do stuff",
+        }),
+      ],
       agentConfigs: [teamConfig, memberConfig],
     });
 
@@ -206,7 +237,10 @@ test.describe("Team edit page — teamToolScope pre-populated", () => {
     await expect(page.getByText("formatter__format")).toBeVisible();
   });
 
-  test("team member rows show the member agent's DEFAULT tools (extensions) as pills", async ({ page, mockApi }) => {
+  test("team member rows show the member agent's DEFAULT tools (extensions) as pills", async ({
+    page,
+    mockApi,
+  }) => {
     // The member agent has its own extensions attached — those are the tools
     // it brings to the team by default. We want users to see this baseline on
     // the team page, distinct from team-level scope or per-member overrides.
@@ -259,7 +293,10 @@ test.describe("Team edit page — teamToolScope pre-populated", () => {
     await expect(defaults).toContainText("formatter");
   });
 
-  test("expanding a team member auto-populates override pickers with agent defaults", async ({ page, mockApi }) => {
+  test("expanding a team member auto-populates override pickers with agent defaults", async ({
+    page,
+    mockApi,
+  }) => {
     // Agent has its own model/provider and attached extensions. When the user
     // expands the member's override panel, the pickers should show those as
     // defaults (display-only — no override is saved until the user interacts).
@@ -286,13 +323,17 @@ test.describe("Team edit page — teamToolScope pre-populated", () => {
     });
     await mockApi({
       agents: [
-        makeAgent({ name: "defaults-inputs-team", source: "config", id: "team-defaults-inputs", category: "team", prompt: "Coordinate" }),
+        makeAgent({
+          name: "defaults-inputs-team",
+          source: "config",
+          id: "team-defaults-inputs",
+          category: "team",
+          prompt: "Coordinate",
+        }),
         makeAgent({ name: "default-agent", source: "config", id: "agent-defaults", prompt: "P" }),
       ],
       agentConfigs: [teamConfig, memberConfig],
-      extensions: [
-        { id: "ext-analyzer", name: "analyzer", description: "Lint/scan" },
-      ],
+      extensions: [{ id: "ext-analyzer", name: "analyzer", description: "Lint/scan" }],
     });
 
     await page.goto("/agents/defaults-inputs-team");
@@ -301,7 +342,9 @@ test.describe("Team edit page — teamToolScope pre-populated", () => {
 
     // Model & Provider section indicates it's showing the agent default and
     // names the actual model/provider in the same label.
-    await expect(page.getByText(/showing agent default \(anthropic\/claude-sonnet-4-5\)/i)).toBeVisible({ timeout: 5000 });
+    await expect(
+      page.getByText(/showing agent default \(anthropic\/claude-sonnet-4-5\)/i),
+    ).toBeVisible({ timeout: 5000 });
 
     // Allowed Tools section should indicate defaults are pre-populated.
     await expect(page.getByText("(showing agent defaults — interact to override)")).toBeVisible();
@@ -320,7 +363,10 @@ test.describe("Team edit page — teamToolScope pre-populated", () => {
     await expect(memberToolsCombobox).toContainText("analyzer__lint");
   });
 
-  test("team member with no extensions shows an actionable 'no extensions attached' hint", async ({ page, mockApi }) => {
+  test("team member with no extensions shows an actionable 'no extensions attached' hint", async ({
+    page,
+    mockApi,
+  }) => {
     // Reproduces the real-world case: an agent whose extensions were dropped
     // by the pre-fix backend (or that simply has none attached). The row
     // should tell the user exactly what to do instead of rendering nothing.
@@ -343,7 +389,13 @@ test.describe("Team edit page — teamToolScope pre-populated", () => {
     });
     await mockApi({
       agents: [
-        makeAgent({ name: "bare-team", source: "config", id: "team-bare-1", category: "team", prompt: "Coordinate" }),
+        makeAgent({
+          name: "bare-team",
+          source: "config",
+          id: "team-bare-1",
+          category: "team",
+          prompt: "Coordinate",
+        }),
         makeAgent({ name: "bare-agent", source: "config", id: "bare-agent", prompt: "P" }),
       ],
       agentConfigs: [teamConfig, memberConfig],
@@ -361,7 +413,10 @@ test.describe("Team edit page — teamToolScope pre-populated", () => {
     await expect(link).toHaveAttribute("href", "/agents/bare-agent");
   });
 
-  test("team edit page shows member override summary pills when collapsed", async ({ page, mockApi }) => {
+  test("team edit page shows member override summary pills when collapsed", async ({
+    page,
+    mockApi,
+  }) => {
     const memberConfig = makeAgentConfig({
       id: "agent-ov",
       name: "override-agent",
@@ -378,30 +433,35 @@ test.describe("Team edit page — teamToolScope pre-populated", () => {
       references: {
         agents: ["agent-ov"],
         extensions: [],
-        members: [{
-          agentConfigId: "agent-ov",
-          overrides: {
-            toolRestriction: "read-only",
-            permissionMode: "yolo",
-            allowedTools: ["analyzer__scan", "analyzer__lint"],
-            deniedTools: ["formatter__format"],
+        members: [
+          {
+            agentConfigId: "agent-ov",
+            overrides: {
+              toolRestriction: "read-only",
+              permissionMode: "yolo",
+              allowedTools: ["analyzer__scan", "analyzer__lint"],
+              deniedTools: ["formatter__format"],
+            },
           },
-        }],
+        ],
       },
     });
     await mockApi({
-      agents: [makeAgent({
-        name: "override-team",
-        source: "config",
-        id: "team-ov-1",
-        category: "team",
-        prompt: "Coordinate",
-      }), makeAgent({
-        name: "override-agent",
-        source: "config",
-        id: "agent-ov",
-        prompt: "P",
-      })],
+      agents: [
+        makeAgent({
+          name: "override-team",
+          source: "config",
+          id: "team-ov-1",
+          category: "team",
+          prompt: "Coordinate",
+        }),
+        makeAgent({
+          name: "override-agent",
+          source: "config",
+          id: "agent-ov",
+          prompt: "P",
+        }),
+      ],
       agentConfigs: [teamConfig, memberConfig],
     });
 

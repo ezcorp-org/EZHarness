@@ -115,12 +115,14 @@ describe("POST /api/workflows/approvals/:id — gates before the chokepoint", ()
   test.each([
     ["a 'chat'-scoped API key — the R-4 consent-minting key", "api-key", ["chat"]],
     ["a read-only API key", "api-key", ["read"]],
-    ["an all-scopes API key, admin scope included", "api-key", ["read", "chat", "extensions", "admin"]],
+    [
+      "an all-scopes API key, admin scope included",
+      "api-key",
+      ["read", "chat", "extensions", "admin"],
+    ],
     ["a loopback bundled-extension (internal) key", "internal", ["chat"]],
   ] as const)("403 for %s, and NOTHING is answered", async (_label, authMethod, scopes) => {
-    const res = await POST(
-      makeEvent({ user: member.user, authMethod, apiKeyScopes: [...scopes] }),
-    );
+    const res = await POST(makeEvent({ user: member.user, authMethod, apiKeyScopes: [...scopes] }));
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ error: "Interactive session required" });
     // The load-bearing half. A 403 that still ran the chokepoint would have
@@ -338,12 +340,15 @@ describe("POST /api/workflows/approvals/:id — refusals and the answer", () => 
     ["run-unavailable", 409],
     ["resume-failed", 409],
     ["invalid-answer", 400],
-  ] as const)("refusal '%s' renders as %i, carrying the chokepoint's message", async (code, status) => {
-    chokepoint.answerApproval.mockResolvedValue({ ok: false, code, message: `refused: ${code}` });
-    const res = await POST(makeEvent(member));
-    expect(res.status).toBe(status);
-    expect(await res.json()).toEqual({ error: `refused: ${code}` });
-  });
+  ] as const)(
+    "refusal '%s' renders as %i, carrying the chokepoint's message",
+    async (code, status) => {
+      chokepoint.answerApproval.mockResolvedValue({ ok: false, code, message: `refused: ${code}` });
+      const res = await POST(makeEvent(member));
+      expect(res.status).toBe(status);
+      expect(await res.json()).toEqual({ error: `refused: ${code}` });
+    },
+  );
 
   test("a refusal returns NO run — a denied answer reveals nothing about it", async () => {
     chokepoint.answerApproval.mockResolvedValue({

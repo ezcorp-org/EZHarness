@@ -50,14 +50,9 @@ vi.mock("$lib/server/command-resolver", () => ({
   buildCommandResolver: () => async () => null,
 }));
 
-const { POST } = await import(
-  "../routes/api/conversations/[id]/agent-chat/+server.ts"
-);
+const { POST } = await import("../routes/api/conversations/[id]/agent-chat/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; body?: unknown }) {
   return {
     url: new URL("http://localhost/api/conversations/sub-1/agent-chat"),
     locals: opts.locals ?? {},
@@ -106,17 +101,13 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
   });
 
   test("rejects 400 when content is whitespace-only", async () => {
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { content: "   " } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { content: "   " } }));
     expect(res.status).toBe(400);
   });
 
   test("returns 404 when sub-conversation does not exist", async () => {
     getConversation.mockResolvedValue(null);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { content: "hi" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { content: "hi" } }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Not found");
@@ -128,9 +119,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       parentConversationId: null,
       userId: "u1",
     });
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { content: "hi" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { content: "hi" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Not a sub-conversation");
@@ -143,9 +132,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       }
       return null;
     });
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { content: "hi" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { content: "hi" } }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Parent not found");
@@ -153,8 +140,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
 
   test("ownership gate: non-owner non-admin gets 404", async () => {
     getConversation.mockImplementation(async (id: string) => {
-      if (id === "sub-1")
-        return { id: "sub-1", parentConversationId: "parent-1", userId: null };
+      if (id === "sub-1") return { id: "sub-1", parentConversationId: "parent-1", userId: null };
       if (id === "parent-1")
         return {
           id: "parent-1",
@@ -163,9 +149,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
         };
       return null;
     });
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { content: "hi" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { content: "hi" } }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Not found");
@@ -180,10 +164,12 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
 
   describe("body provider/model override (idle run)", () => {
     // Convenience: install the standard "sub-1 (sub of parent-1, root owned)" graph
-    function installSubConvGraph(opts: {
-      agentConfig?: { provider?: string; model?: string; name?: string; prompt?: string };
-      parentConvModel?: { provider?: string; model?: string };
-    } = {}) {
+    function installSubConvGraph(
+      opts: {
+        agentConfig?: { provider?: string; model?: string; name?: string; prompt?: string };
+        parentConvModel?: { provider?: string; model?: string };
+      } = {},
+    ) {
       getConversation.mockImplementation(async (id: string) => {
         if (id === "sub-1") {
           return {
@@ -220,9 +206,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
         createdAt: new Date(),
       });
       getActiveRunForConversation.mockReturnValue(null);
-      getAgentConfig.mockResolvedValue(
-        opts.agentConfig ?? null,
-      );
+      getAgentConfig.mockResolvedValue(opts.agentConfig ?? null);
     }
 
     test("body provider/model override CURRENT_MODEL_SENTINEL config + parent fallback", async () => {
@@ -244,7 +228,13 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       );
       expect(res.status).toBe(200);
       expect(streamChat).toHaveBeenCalledTimes(1);
-      const opts = (streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }])[2];
+      const opts = (
+        streamChat.mock.calls[0] as unknown as [
+          string,
+          string,
+          { provider?: string; model?: string },
+        ]
+      )[2];
       expect(opts.provider).toBe("openai");
       expect(opts.model).toBe("gpt-5");
     });
@@ -266,7 +256,13 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
         }),
       );
       expect(res.status).toBe(200);
-      const opts = (streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }])[2];
+      const opts = (
+        streamChat.mock.calls[0] as unknown as [
+          string,
+          string,
+          { provider?: string; model?: string },
+        ]
+      )[2];
       expect(opts.provider).toBe("openai");
       expect(opts.model).toBe("gpt-5");
     });
@@ -284,7 +280,13 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
 
       const res = await POST(makeEvent({ locals: { user }, body: { content: "hi" } }));
       expect(res.status).toBe(200);
-      const opts = (streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }])[2];
+      const opts = (
+        streamChat.mock.calls[0] as unknown as [
+          string,
+          string,
+          { provider?: string; model?: string },
+        ]
+      )[2];
       expect(opts.provider).toBe("anthropic");
       expect(opts.model).toBe("claude-sonnet");
     });
@@ -392,7 +394,13 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
 
       const res = await POST(makeEvent({ locals: { user }, body: { content: "hi" } }));
       expect(res.status).toBe(200);
-      const opts = (streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }])[2];
+      const opts = (
+        streamChat.mock.calls[0] as unknown as [
+          string,
+          string,
+          { provider?: string; model?: string },
+        ]
+      )[2];
       expect(opts.provider).toBe("subconv-provider");
       expect(opts.model).toBe("subconv-model");
     });
@@ -421,7 +429,12 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       // Content is steered verbatim; a fallback re-enqueue callback is passed,
       // plus the persisted row id (P4 §1.2) so the executor can re-parent it to
       // the injection position at delivery.
-      expect(steerConversation).toHaveBeenCalledWith("sub-1", "hi", expect.any(Function), "msg-new");
+      expect(steerConversation).toHaveBeenCalledWith(
+        "sub-1",
+        "hi",
+        expect.any(Function),
+        "msg-new",
+      );
       // Atomic: a steered message is NOT also enqueued.
       expect(enqueue).not.toHaveBeenCalled();
       expect(streamChat).not.toHaveBeenCalled();
@@ -429,7 +442,12 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
 
     test("active-run path (not steered): atomic — enqueue to pending-messages, status queued", async () => {
       installSubConvGraph({
-        agentConfig: { provider: "anthropic", model: "claude-opus-4-7", name: "Agent", prompt: "p" },
+        agentConfig: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          name: "Agent",
+          prompt: "p",
+        },
       });
       getActiveRunForConversation.mockReturnValue({ id: "run-active" });
       // The pre-first-token window / terminal race: steer declined.
@@ -448,14 +466,23 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
 
     test("active-run path (guarded): autonomous/schema child → enqueue, status queued", async () => {
       installSubConvGraph({
-        agentConfig: { provider: "anthropic", model: "claude-opus-4-7", name: "Agent", prompt: "p" },
+        agentConfig: {
+          provider: "anthropic",
+          model: "claude-opus-4-7",
+          name: "Agent",
+          prompt: "p",
+        },
       });
       getActiveRunForConversation.mockReturnValue({ id: "run-active" });
       // P4: steerConversation refuses an autonomous / structured-output child.
       // The route's "any non-steered result → enqueue" fallback must route it to
       // pending-messages so the run-boundary drain delivers it — preserving the
       // pre-P2 queued behavior for exactly those children.
-      steerConversation.mockReturnValue({ status: "guarded", runId: "run-active", reason: "autonomous" });
+      steerConversation.mockReturnValue({
+        status: "guarded",
+        runId: "run-active",
+        reason: "autonomous",
+      });
 
       const res = await POST(makeEvent({ locals: { user }, body: { content: "hi" } }));
 

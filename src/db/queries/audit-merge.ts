@@ -258,7 +258,8 @@ export async function mergeAuditForExtension(
     reason: string | null;
     createdAt: Date;
   }> = [];
-  const resourceAllowed = !denialOnly &&
+  const resourceAllowed =
+    !denialOnly &&
     (!filterCapability || filterCapability === "memory" || filterCapability === "lessons");
   if (resourceAllowed) {
     if (!filterCapability || filterCapability === "lessons") {
@@ -283,9 +284,7 @@ export async function mergeAuditForExtension(
     if (!filterCapability || filterCapability === "memory") {
       // memory_audit_log has no actor_extension_id column — the
       // recordCapabilityCall write 2 stamps `reason = ext:<id>`.
-      const mconds = [
-        eq(memoryAuditLog.reason, `ext:${extensionId}`),
-      ];
+      const mconds = [eq(memoryAuditLog.reason, `ext:${extensionId}`)];
       if (since) mconds.push(gt(memoryAuditLog.createdAt, since));
       if (until) mconds.push(lt(memoryAuditLog.createdAt, until));
       if (cursorTs) mconds.push(lt(memoryAuditLog.createdAt, cursorTs));
@@ -369,12 +368,13 @@ export async function mergeAuditForExtension(
     return a.id < b.id ? 1 : a.id > b.id ? -1 : 0;
   });
   const page = merged.slice(0, limit);
-  const nextCursor = page.length === limit && page.length > 0
-    ? encodeCursor({
-        ts: page[page.length - 1]!.createdAt.toISOString(),
-        id: page[page.length - 1]!.id,
-      })
-    : null;
+  const nextCursor =
+    page.length === limit && page.length > 0
+      ? encodeCursor({
+          ts: page[page.length - 1]!.createdAt.toISOString(),
+          id: page[page.length - 1]!.id,
+        })
+      : null;
 
   return { entries: page, nextCursor };
 }
@@ -448,12 +448,13 @@ export async function mergeAuditForConversation(
     after: r.after,
   }));
 
-  const nextCursor = entries.length === limit && entries.length > 0
-    ? encodeCursor({
-        ts: entries[entries.length - 1]!.createdAt.toISOString(),
-        id: entries[entries.length - 1]!.id,
-      })
-    : null;
+  const nextCursor =
+    entries.length === limit && entries.length > 0
+      ? encodeCursor({
+          ts: entries[entries.length - 1]!.createdAt.toISOString(),
+          id: entries[entries.length - 1]!.id,
+        })
+      : null;
 
   return { entries, nextCursor };
 }
@@ -488,10 +489,9 @@ export async function statsForExtension(
   `);
   // Drizzle's `execute` returns `{rows}` for postgres-style drivers
   // and a raw array for PGlite. Normalize.
-  const row = (
-    (rows as unknown as { rows?: Array<Record<string, unknown>> }).rows ??
-      (rows as unknown as Array<Record<string, unknown>>)
-  )?.[0] ?? {};
+  const row =
+    ((rows as unknown as { rows?: Array<Record<string, unknown>> }).rows ??
+      (rows as unknown as Array<Record<string, unknown>>))?.[0] ?? {};
   return {
     totalCalls: Number(row.total_calls ?? 0),
     totalCostUsd: Number(row.total_cost ?? 0),

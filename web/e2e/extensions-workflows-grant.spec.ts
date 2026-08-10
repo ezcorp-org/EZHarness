@@ -27,158 +27,146 @@ const proj = makeProject({ id: "proj-1" });
  *  enable toggle opens the review dialog rather than PATCHing straight to
  *  `enabled: false`. */
 function workflowExtension() {
-	return makeExtension({
-		id: "ext-wf",
-		name: "release-bot",
-		enabled: false,
-		isBundled: false,
-		manifest: {
-			schemaVersion: 3,
-			name: "release-bot",
-			version: "1.0.0",
-			description: "Ships two workflows and triggers them itself",
-			author: { name: "tester" },
-			entrypoint: "./index.ts",
-			persistent: false,
-			tools: [{ name: "noop", description: "n", inputSchema: { type: "object" } }],
-			permissions: {
-				workflows: { names: ["deploy", "rollback"], maxRunsPerHour: 6 },
-			},
-		},
-	});
+  return makeExtension({
+    id: "ext-wf",
+    name: "release-bot",
+    enabled: false,
+    isBundled: false,
+    manifest: {
+      schemaVersion: 3,
+      name: "release-bot",
+      version: "1.0.0",
+      description: "Ships two workflows and triggers them itself",
+      author: { name: "tester" },
+      entrypoint: "./index.ts",
+      persistent: false,
+      tools: [{ name: "noop", description: "n", inputSchema: { type: "object" } }],
+      permissions: {
+        workflows: { names: ["deploy", "rollback"], maxRunsPerHour: 6 },
+      },
+    },
+  });
 }
 
 /** Capture the body of the activate POST so the grant sent to the server can
  *  be asserted directly. Returns a getter, plus fulfils the request. */
 async function interceptActivate(page: import("@playwright/test").Page) {
-	const bodies: Array<Record<string, unknown>> = [];
-	await page.route("**/api/extensions/ext-wf/activate", async (route) => {
-		bodies.push(route.request().postDataJSON() as Record<string, unknown>);
-		await route.fulfill({ json: { ok: true } });
-	});
-	return () => bodies;
+  const bodies: Array<Record<string, unknown>> = [];
+  await page.route("**/api/extensions/ext-wf/activate", async (route) => {
+    bodies.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({ json: { ok: true } });
+  });
+  return () => bodies;
 }
 
 test.describe("Extensions review dialog — workflows grant", () => {
-	test("renders the namespaced workflow names, checked by default", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi({ projects: [proj], extensions: [workflowExtension()] });
+  test("renders the namespaced workflow names, checked by default", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], extensions: [workflowExtension()] });
 
-		await page.goto("/extensions");
-		await expect(page.getByTestId("ext-card")).toHaveCount(1);
-		await page.getByTitle("Enable").click();
+    await page.goto("/extensions");
+    await expect(page.getByTestId("ext-card")).toHaveCount(1);
+    await page.getByTitle("Enable").click();
 
-		const row = page.getByTestId("review-workflows");
-		await expect(row).toBeVisible();
-		// Capability-tier toggles default ON — the admin must actively opt out.
-		await expect(page.getByTestId("review-workflows-toggle")).toBeChecked();
-		// The declared rate ceiling is shown, not hidden behind a default.
-		await expect(row).toContainText("up to 6 per hour");
-		// NAMESPACED names — the visible proof the extension can only reach
-		// its own workflows, never the host's `deploy`.
-		await expect(row).toContainText("release-bot:deploy");
-		await expect(row).toContainText("release-bot:rollback");
-	});
+    const row = page.getByTestId("review-workflows");
+    await expect(row).toBeVisible();
+    // Capability-tier toggles default ON — the admin must actively opt out.
+    await expect(page.getByTestId("review-workflows-toggle")).toBeChecked();
+    // The declared rate ceiling is shown, not hidden behind a default.
+    await expect(row).toContainText("up to 6 per hour");
+    // NAMESPACED names — the visible proof the extension can only reach
+    // its own workflows, never the host's `deploy`.
+    await expect(row).toContainText("release-bot:deploy");
+    await expect(row).toContainText("release-bot:rollback");
+  });
 
-	test("granting sends the declared names to the activate endpoint", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi({ projects: [proj], extensions: [workflowExtension()] });
-		const bodies = await interceptActivate(page);
+  test("granting sends the declared names to the activate endpoint", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], extensions: [workflowExtension()] });
+    const bodies = await interceptActivate(page);
 
-		await page.goto("/extensions");
-		await expect(page.getByTestId("ext-card")).toHaveCount(1);
-		await page.getByTitle("Enable").click();
-		await expect(page.getByTestId("review-workflows")).toBeVisible();
-		await page.getByRole("button", { name: "Enable with selected permissions" }).click();
+    await page.goto("/extensions");
+    await expect(page.getByTestId("ext-card")).toHaveCount(1);
+    await page.getByTitle("Enable").click();
+    await expect(page.getByTestId("review-workflows")).toBeVisible();
+    await page.getByRole("button", { name: "Enable with selected permissions" }).click();
 
-		await expect.poll(() => bodies().length).toBe(1);
-		const granted = bodies()[0]?.grantedPermissions as Record<string, unknown>;
-		expect(granted.workflows).toEqual({
-			names: ["deploy", "rollback"],
-			maxRunsPerHour: 6,
-		});
-		expect((granted.grantedAt as Record<string, number>).workflows).toBeGreaterThan(0);
-	});
+    await expect.poll(() => bodies().length).toBe(1);
+    const granted = bodies()[0]?.grantedPermissions as Record<string, unknown>;
+    expect(granted.workflows).toEqual({
+      names: ["deploy", "rollback"],
+      maxRunsPerHour: 6,
+    });
+    expect((granted.grantedAt as Record<string, number>).workflows).toBeGreaterThan(0);
+  });
 
-	test("unchecking the toggle sends an EXPLICIT denial, not silence", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi({ projects: [proj], extensions: [workflowExtension()] });
-		const bodies = await interceptActivate(page);
+  test("unchecking the toggle sends an EXPLICIT denial, not silence", async ({ page, mockApi }) => {
+    await mockApi({ projects: [proj], extensions: [workflowExtension()] });
+    const bodies = await interceptActivate(page);
 
-		await page.goto("/extensions");
-		await expect(page.getByTestId("ext-card")).toHaveCount(1);
-		await page.getByTitle("Enable").click();
-		await page.getByTestId("review-workflows-toggle").uncheck();
-		await page.getByRole("button", { name: "Enable with selected permissions" }).click();
+    await page.goto("/extensions");
+    await expect(page.getByTestId("ext-card")).toHaveCount(1);
+    await page.getByTitle("Enable").click();
+    await page.getByTestId("review-workflows-toggle").uncheck();
+    await page.getByRole("button", { name: "Enable with selected permissions" }).click();
 
-		await expect.poll(() => bodies().length).toBe(1);
-		const granted = bodies()[0]?.grantedPermissions as Record<string, unknown>;
-		// ── This assertion was INVERTED until phase 8b ────────────────────
-		//
-		// It used to require `granted.workflows` to be ABSENT, reasoning that
-		// a `{names: []}` husk "would read as granted to a presence check".
-		// The husk concern is real but it is a SERVER-side concern, and the
-		// clamp already handles it — every empty-name branch of
-		// `clampWorkflowsPermission` collapses to `undefined`.
-		//
-		// What the old assertion missed is what ABSENCE means to that same
-		// clamp: `src/extensions/clamp-permissions.ts:317-320` and `:358-359`
-		// read a missing submitted grant as "the admin approved the
-		// declaration as-is". So staying silent re-granted exactly what the
-		// admin had just unchecked, and this checkbox was decorative.
-		// `workflows-permission.test.ts` pins the server half — this husk
-		// clamps to `undefined` for BOTH manifest shapes.
-		expect(granted.workflows).toEqual({ names: [], allowDelegated: false });
-		// Still no `grantedAt` stamp: nothing was granted.
-		expect((granted.grantedAt as Record<string, unknown>).workflows).toBeUndefined();
-	});
+    await expect.poll(() => bodies().length).toBe(1);
+    const granted = bodies()[0]?.grantedPermissions as Record<string, unknown>;
+    // ── This assertion was INVERTED until phase 8b ────────────────────
+    //
+    // It used to require `granted.workflows` to be ABSENT, reasoning that
+    // a `{names: []}` husk "would read as granted to a presence check".
+    // The husk concern is real but it is a SERVER-side concern, and the
+    // clamp already handles it — every empty-name branch of
+    // `clampWorkflowsPermission` collapses to `undefined`.
+    //
+    // What the old assertion missed is what ABSENCE means to that same
+    // clamp: `src/extensions/clamp-permissions.ts:317-320` and `:358-359`
+    // read a missing submitted grant as "the admin approved the
+    // declaration as-is". So staying silent re-granted exactly what the
+    // admin had just unchecked, and this checkbox was decorative.
+    // `workflows-permission.test.ts` pins the server half — this husk
+    // clamps to `undefined` for BOTH manifest shapes.
+    expect(granted.workflows).toEqual({ names: [], allowDelegated: false });
+    // Still no `grantedAt` stamp: nothing was granted.
+    expect((granted.grantedAt as Record<string, unknown>).workflows).toBeUndefined();
+  });
 
-	test("an extension declaring no workflows shows no row", async ({ page, mockApi }) => {
-		await mockApi({
-			projects: [proj],
-			extensions: [
-				makeExtension({ id: "ext-plain", name: "plain", enabled: false, isBundled: false }),
-			],
-		});
+  test("an extension declaring no workflows shows no row", async ({ page, mockApi }) => {
+    await mockApi({
+      projects: [proj],
+      extensions: [
+        makeExtension({ id: "ext-plain", name: "plain", enabled: false, isBundled: false }),
+      ],
+    });
 
-		await page.goto("/extensions");
-		await expect(page.getByTestId("ext-card")).toHaveCount(1);
-		await page.getByTitle("Enable").click();
+    await page.goto("/extensions");
+    await expect(page.getByTestId("ext-card")).toHaveCount(1);
+    await page.getByTitle("Enable").click();
 
-		await expect(page.getByTestId("review-workflows")).toHaveCount(0);
-	});
+    await expect(page.getByTestId("review-workflows")).toHaveCount(0);
+  });
 
-	test("renders the workflows consent row and captures evidence @evidence", async ({
-		page,
-		mockApi,
-	}, testInfo) => {
-		await mockApi({ projects: [proj], extensions: [workflowExtension()] });
+  test("renders the workflows consent row and captures evidence @evidence", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    await mockApi({ projects: [proj], extensions: [workflowExtension()] });
 
-		await page.goto("/extensions");
-		await expect(page.getByTestId("ext-card")).toHaveCount(1);
-		await page.getByTitle("Enable").click();
-		await expect(page.getByTestId("review-workflows")).toBeVisible();
-		await captureEvidence(page, testInfo, "extensions-workflows-grant");
+    await page.goto("/extensions");
+    await expect(page.getByTestId("ext-card")).toHaveCount(1);
+    await page.getByTitle("Enable").click();
+    await expect(page.getByTestId("review-workflows")).toBeVisible();
+    await captureEvidence(page, testInfo, "extensions-workflows-grant");
 
-		// Assert the capture contract in BOTH modes (mirrors extensions-sort)
-		// so the test is meaningful without the flag, not a bare screenshot.
-		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
-			expect(
-				testInfo.attachments.some(
-					(a) =>
-						a.name === "extensions-workflows-grant" && a.contentType === "image/png",
-				),
-			).toBe(true);
-		} else {
-			expect(
-				testInfo.attachments.some((a) => a.name === "extensions-workflows-grant"),
-			).toBe(false);
-		}
-	});
+    // Assert the capture contract in BOTH modes (mirrors extensions-sort)
+    // so the test is meaningful without the flag, not a bare screenshot.
+    if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+      expect(
+        testInfo.attachments.some(
+          (a) => a.name === "extensions-workflows-grant" && a.contentType === "image/png",
+        ),
+      ).toBe(true);
+    } else {
+      expect(testInfo.attachments.some((a) => a.name === "extensions-workflows-grant")).toBe(false);
+    }
+  });
 });

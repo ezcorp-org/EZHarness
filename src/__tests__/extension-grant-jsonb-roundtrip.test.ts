@@ -18,12 +18,7 @@
  * Postgres; it can't run in-suite.)
  */
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import {
-  setupTestDb,
-  closeTestDb,
-  getTestPglite,
-  mockDbConnection,
-} from "./helpers/test-pglite";
+import { setupTestDb, closeTestDb, getTestPglite, mockDbConnection } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { ExtensionPermissions } from "../extensions/types";
 

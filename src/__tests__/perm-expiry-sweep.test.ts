@@ -38,10 +38,7 @@ interface StubSettingRow {
   value: unknown;
 }
 
-function makeStubDb(opts: {
-  ext: readonly StubExtRow[];
-  settings: readonly StubSettingRow[];
-}) {
+function makeStubDb(opts: { ext: readonly StubExtRow[]; settings: readonly StubSettingRow[] }) {
   // We build a minimal `select` chain. `runSweep` only ever calls
   // `.select(fields).from(table).where(cond)` and awaits the result.
   // We don't need to honor the SQL `cond` in detail — the runtime
@@ -59,9 +56,7 @@ function makeStubDb(opts: {
               where(_cond: unknown) {
                 // Mirror the eq(extensions.enabled, true) filter.
                 return Promise.resolve(
-                  opts.ext
-                    .filter((r) => r.enabled)
-                    .map((r) => ({ id: r.id, perms: r.perms })),
+                  opts.ext.filter((r) => r.enabled).map((r) => ({ id: r.id, perms: r.perms })),
                 );
               },
             };
@@ -353,7 +348,13 @@ describe("runSweep — per-capability TTL (extension-grant rows)", () => {
           id: "ext-sched",
           enabled: true,
           perms: {
-            schedule: { crons: ["* * * * *"], maxRunsPerDay: 1, maxRunDurationMs: 1000, missedRunPolicy: "skip", maxRetries: 0 },
+            schedule: {
+              crons: ["* * * * *"],
+              maxRunsPerDay: 1,
+              maxRunDurationMs: 1000,
+              missedRunPolicy: "skip",
+              maxRetries: 0,
+            },
             grantedAt: { schedule: NOW - 1000 * DAY_MS },
           } as ExtensionPermissions,
         },
@@ -1031,9 +1032,7 @@ describe("runSweep — defensive parsing", () => {
 
   test("empty grantedAt → skipped (no crash)", async () => {
     const db = makeStubDb({
-      ext: [
-        { id: "ext-1", enabled: true, perms: { grantedAt: {} } },
-      ],
+      ext: [{ id: "ext-1", enabled: true, perms: { grantedAt: {} } }],
       settings: [],
     });
     const r = await runSweep({ db, now: NOW });

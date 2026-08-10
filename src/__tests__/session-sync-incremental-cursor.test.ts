@@ -23,7 +23,9 @@ import { agentSessions, conversations, messages, projects } from "../db/schema";
 
 mockDbConnection();
 
-const { syncSessionForConversation, computeSessionBranch, SYNC_CURSOR_META_KEY } = await import("../db/session-sync");
+const { syncSessionForConversation, computeSessionBranch, SYNC_CURSOR_META_KEY } = await import(
+  "../db/session-sync"
+);
 
 const PROJECT_ID = "p-cursor";
 let convSeq = 0;
@@ -32,26 +34,47 @@ const at = (i: number): Date => new Date(BASE + i * 1000);
 
 async function newConversation(): Promise<string> {
   const db = getTestDb();
-  await db.insert(projects).values({ id: PROJECT_ID, name: "P", path: "/tmp/p" }).onConflictDoNothing();
+  await db
+    .insert(projects)
+    .values({ id: PROJECT_ID, name: "P", path: "/tmp/p" })
+    .onConflictDoNothing();
   const convId = `cursor-conv-${++convSeq}`;
   await db.insert(conversations).values({ id: convId, projectId: PROJECT_ID, title: "C" });
   return convId;
 }
 
-async function seedMsg(convId: string, id: string, role: string, parentId: string | null, createdAt: Date): Promise<void> {
+async function seedMsg(
+  convId: string,
+  id: string,
+  role: string,
+  parentId: string | null,
+  createdAt: Date,
+): Promise<void> {
   await getTestDb().insert(messages).values({
-    id, conversationId: convId, role, content: id, parentMessageId: parentId, createdAt,
+    id,
+    conversationId: convId,
+    role,
+    content: id,
+    parentMessageId: parentId,
+    createdAt,
   });
 }
 
 async function cursorOf(convId: string): Promise<unknown> {
-  const [s] = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, convId));
+  const [s] = await getTestDb()
+    .select()
+    .from(agentSessions)
+    .where(eq(agentSessions.conversationId, convId));
   return (s?.metadata as Record<string, unknown> | null)?.[SYNC_CURSOR_META_KEY];
 }
 
 describe("syncSessionForConversation — high-water append cursor", () => {
-  beforeEach(async () => { await setupTestDb(); }, 30_000);
-  afterAll(async () => { await closeTestDb(); });
+  beforeEach(async () => {
+    await setupTestDb();
+  }, 30_000);
+  afterAll(async () => {
+    await closeTestDb();
+  });
 
   test("persists the cursor at the newest reconciled createdAt and advances it", async () => {
     const c = await newConversation();

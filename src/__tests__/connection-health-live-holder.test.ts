@@ -42,7 +42,9 @@ describe("process-local holder registry", () => {
 
   test("a recorded holder is closed exactly once by closeStaleProcessHolder", async () => {
     let closed = 0;
-    recordProcessHolder(PATH_A, () => { closed++; });
+    recordProcessHolder(PATH_A, () => {
+      closed++;
+    });
 
     expect(await closeStaleProcessHolder(PATH_A)).toBe(true);
     expect(closed).toBe(1);
@@ -63,7 +65,9 @@ describe("process-local holder registry", () => {
   });
 
   test("a throwing close callback is swallowed and still clears the entry", async () => {
-    recordProcessHolder(PATH_A, () => { throw new Error("half-torn-down"); });
+    recordProcessHolder(PATH_A, () => {
+      throw new Error("half-torn-down");
+    });
     // Must not reject.
     expect(await closeStaleProcessHolder(PATH_A)).toBe(true);
     // Entry was removed even though the close threw.
@@ -72,7 +76,9 @@ describe("process-local holder registry", () => {
 
   test("clearProcessHolder forgets WITHOUT closing (caller closed it themselves)", async () => {
     let closed = 0;
-    recordProcessHolder(PATH_A, () => { closed++; });
+    recordProcessHolder(PATH_A, () => {
+      closed++;
+    });
     clearProcessHolder(PATH_A);
     expect(await closeStaleProcessHolder(PATH_A)).toBe(false);
     expect(closed).toBe(0);
@@ -81,8 +87,12 @@ describe("process-local holder registry", () => {
   test("holders are keyed per datadir — closing one leaves the other live", async () => {
     let closedA = 0;
     let closedB = 0;
-    recordProcessHolder(PATH_A, () => { closedA++; });
-    recordProcessHolder(PATH_B, () => { closedB++; });
+    recordProcessHolder(PATH_A, () => {
+      closedA++;
+    });
+    recordProcessHolder(PATH_B, () => {
+      closedB++;
+    });
 
     await closeStaleProcessHolder(PATH_A);
     expect(closedA).toBe(1);
@@ -93,8 +103,12 @@ describe("process-local holder registry", () => {
 
   test("re-recording the same datadir replaces the close callback", async () => {
     const calls: string[] = [];
-    recordProcessHolder(PATH_A, () => { calls.push("first"); });
-    recordProcessHolder(PATH_A, () => { calls.push("second"); });
+    recordProcessHolder(PATH_A, () => {
+      calls.push("first");
+    });
+    recordProcessHolder(PATH_A, () => {
+      calls.push("second");
+    });
     await closeStaleProcessHolder(PATH_A);
     // Only the latest instance's close runs.
     expect(calls).toEqual(["second"]);
@@ -105,7 +119,11 @@ describe("assertNoLiveHolder — cross-process pidfile guard", () => {
   const PATH_C = `/tmp/connection-health-holder-c-${process.pid}`;
 
   afterEach(() => {
-    try { rmSync(holderPidPath(PATH_C)); } catch { /* already gone */ }
+    try {
+      rmSync(holderPidPath(PATH_C));
+    } catch {
+      /* already gone */
+    }
   });
 
   test("throws DbInUseError when a DIFFERENT live JS-runtime process holds the datadir", async () => {

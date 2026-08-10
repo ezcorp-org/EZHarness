@@ -49,7 +49,9 @@ mock.module("../db/queries/active-runs", () => ({
 
 const persisted: Array<Record<string, unknown>> = [];
 mock.module("../db/queries/tool-calls", () => ({
-  persistToolCall: async (row: Record<string, unknown>) => { persisted.push(row); },
+  persistToolCall: async (row: Record<string, unknown>) => {
+    persisted.push(row);
+  },
   listToolCallOutputsForMessages: async () => [],
   getToolCallConversationById: async () => null,
 }));
@@ -114,7 +116,10 @@ async function advanceAndTick(deltaMs: number): Promise<void> {
 
 // ── Harness ────────────────────────────────────────────────────────────
 
-interface CapturedEvent { type: keyof AgentEvents & string; data: unknown }
+interface CapturedEvent {
+  type: keyof AgentEvents & string;
+  data: unknown;
+}
 
 function makePiAgent() {
   let cb: (e: { type: string; [k: string]: unknown }) => void = () => {};
@@ -123,7 +128,9 @@ function makePiAgent() {
       cb = fn;
       return () => {};
     },
-    fire(e: { type: string; [k: string]: unknown }) { cb(e); },
+    fire(e: { type: string; [k: string]: unknown }) {
+      cb(e);
+    },
     abort() {},
   };
 }
@@ -162,7 +169,13 @@ function setupHarness(builtinToolDefsMap: Map<string, BuiltinToolDef>): BuiltinH
     bus.on(t, (data) => events.push({ type: t, data }));
   }
 
-  const run: AgentRun = { id: RUN_ID, agentName: "test", status: "running", startedAt: fakeNow, logs: [] };
+  const run: AgentRun = {
+    id: RUN_ID,
+    agentName: "test",
+    status: "running",
+    startedAt: fakeNow,
+    logs: [],
+  };
   const runs = new Map([[RUN_ID, run]]);
   const controllers = new Map([[RUN_ID, new AbortController()]]);
   const pendingPermissions = new Map();
@@ -215,7 +228,14 @@ function setupHarness(builtinToolDefsMap: Map<string, BuiltinToolDef>): BuiltinH
   };
 
   const piAgent = makePiAgent();
-  subscribeBridge(ctx, host, piAgent as unknown as Parameters<typeof subscribeBridge>[2], CONV_ID, {}, null);
+  subscribeBridge(
+    ctx,
+    host,
+    piAgent as unknown as Parameters<typeof subscribeBridge>[2],
+    CONV_ID,
+    {},
+    null,
+  );
 
   return { bus, events, watchdog, ctx, host, piAgent, run };
 }
@@ -280,7 +300,10 @@ describe("declared callTimeoutMs=600_000 (Bash): tool inside budget completes cl
     // a successful result. Verify tool:complete fired and no errors
     // were synthesized.
     const builtinMap = new Map<string, BuiltinToolDef>();
-    builtinMap.set("shell", makeBuiltinDef({ name: "shell", callTimeoutMs: 600_000, cardType: "terminal" }));
+    builtinMap.set(
+      "shell",
+      makeBuiltinDef({ name: "shell", callTimeoutMs: 600_000, cardType: "terminal" }),
+    );
     const h = setupHarness(builtinMap);
 
     h.piAgent.fire({ type: "turn_start" });
@@ -327,7 +350,10 @@ describe("declared callTimeoutMs=600_000 (Bash): tool exceeding budget produces 
     // in its reason string — proves the watchdog distinguished the
     // declared deadline from the generic idle string.
     const builtinMap = new Map<string, BuiltinToolDef>();
-    builtinMap.set("shell", makeBuiltinDef({ name: "shell", callTimeoutMs: 600_000, cardType: "terminal" }));
+    builtinMap.set(
+      "shell",
+      makeBuiltinDef({ name: "shell", callTimeoutMs: 600_000, cardType: "terminal" }),
+    );
     const h = setupHarness(builtinMap);
 
     h.piAgent.fire({ type: "turn_start" });
@@ -362,7 +388,10 @@ describe("declared callTimeoutMs=600_000 (Bash): tool exceeding budget produces 
     expect(h.run.status).toBe("error");
 
     const toolErr = h.events.find((e) => e.type === "tool:error");
-    expect(toolErr, "tool:error must fire so the chat renders a failure card instead of bare abort text").toBeDefined();
+    expect(
+      toolErr,
+      "tool:error must fire so the chat renders a failure card instead of bare abort text",
+    ).toBeDefined();
     const td = toolErr!.data as AgentEvents["tool:error"];
 
     // Full payload-shape pin against AgentEvents["tool:error"].

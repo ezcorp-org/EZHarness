@@ -341,7 +341,8 @@ export async function snapshotModules() {
     // Seed the keys so `restoreModuleMocks()` can still iterate, but
     // don't pay the import cost. Values stay null; the lazy branch in
     // restoreModuleMocks picks them up.
-    for (const path of MODULE_PATHS) snapshots.set(path, null as unknown as Record<string, unknown>);
+    for (const path of MODULE_PATHS)
+      snapshots.set(path, null as unknown as Record<string, unknown>);
     return;
   }
   for (const path of MODULE_PATHS) {
@@ -404,9 +405,7 @@ const SERVER_ALIAS_PREFIXES = [
  *  that needs them registers them itself via its own mock.module call.
  *  (scratchpad-e2e.test.ts used to hit the same hang; it now uses a
  *  sync factory and documents the pitfall inline.) */
-const SKIP_SERVER_ALIAS_RESTORE = new Set<string>([
-  "db/connection",
-]);
+const SKIP_SERVER_ALIAS_RESTORE = new Set<string>(["db/connection"]);
 
 export function restoreModuleMocks() {
   for (const [path, exports] of snapshots) {

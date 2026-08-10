@@ -93,7 +93,8 @@ export function buildConversationDag(input: ConversationDagInput): ChatGraph {
   // snapshots role at append time and is not reconciled on same-id updates
   // — see the session-sync header), falling back to the tree's copy for a
   // node whose row didn't come back in the same read.
-  const roleOf = (id: string): string | undefined => messageById.get(id)?.role ?? treeById.get(id)?.role;
+  const roleOf = (id: string): string | undefined =>
+    messageById.get(id)?.role ?? treeById.get(id)?.role;
 
   const activityById = new Map((input.activity ?? []).map((a) => [a.messageId, a]));
   const childrenByParent = new Map<string, ConversationTreeNode[]>();
@@ -142,7 +143,8 @@ export function buildConversationDag(input: ConversationDagInput): ChatGraph {
     const stats: TurnStats = {
       replies: assistants.length,
       toolCalls: members.reduce((sum, m) => sum + (activityById.get(m.id)?.toolCalls ?? 0), 0),
-      subAgents: members.reduce((sum, m) => sum + (subsByParent.get(m.id) ?? 0), 0) +
+      subAgents:
+        members.reduce((sum, m) => sum + (subsByParent.get(m.id) ?? 0), 0) +
         (subsByParent.get(n.id) ?? 0),
       thinking: members.filter((m) => activityById.get(m.id)?.hasThinking === true).length,
     };
@@ -166,7 +168,10 @@ export function buildConversationDag(input: ConversationDagInput): ChatGraph {
     // Elapsed SPAN of the turn, not a sum of tool durations. Omitted when the
     // turn has no members, or when the clock did not advance — a zero here
     // would read as "instant" when it really means "unknown".
-    const lastAt = members.reduce((max, m) => Math.max(max, toMs(m.createdAt)), Number.NEGATIVE_INFINITY);
+    const lastAt = members.reduce(
+      (max, m) => Math.max(max, toMs(m.createdAt)),
+      Number.NEGATIVE_INFINITY,
+    );
     const span = lastAt - toMs(n.createdAt);
     nodes.push({
       ...truncateLabel(messageById.get(n.id)?.content ?? ""),

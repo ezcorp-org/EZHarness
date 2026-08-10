@@ -14,35 +14,33 @@
 import { test, expect, describe, vi, beforeEach } from "vitest";
 
 vi.mock("$server/db/queries/extensions", () => ({
-	getExtensionByRef: vi.fn(),
+  getExtensionByRef: vi.fn(),
 }));
 
 vi.mock("$server/db/queries/audit-merge", () => ({
-	mergeAuditForExtension: vi.fn(),
-	statsForExtension: vi.fn(),
+  mergeAuditForExtension: vi.fn(),
+  statsForExtension: vi.fn(),
 }));
 
 const { getExtensionByRef } = await import("$server/db/queries/extensions");
 const { mergeAuditForExtension, statsForExtension } = await import(
-	"$server/db/queries/audit-merge"
+  "$server/db/queries/audit-merge"
 );
-const { load } = await import(
-	"../routes/(app)/extensions/[id]/audit/+page.server.ts"
-);
+const { load } = await import("../routes/(app)/extensions/[id]/audit/+page.server.ts");
 
 const adminUser = { id: "u-admin", email: "a@x", name: "admin", role: "admin" };
 const memberUser = { id: "u-mem", email: "m@x", name: "member", role: "user" };
 
 const ROW = {
-	id: "7f3a91c4-0d2e-4b88-9a51-6c0e2f4d1a77",
-	name: "weather-lookup",
-	version: "1.0.0",
-	isBundled: false,
-	grantedPermissions: { grantedAt: {} },
+  id: "7f3a91c4-0d2e-4b88-9a51-6c0e2f4d1a77",
+  name: "weather-lookup",
+  version: "1.0.0",
+  isBundled: false,
+  grantedPermissions: { grantedAt: {} },
 };
 
 function makeEvent(id: string, user: Record<string, unknown> | undefined) {
-	return { params: { id }, locals: user ? { user } : {} } as any;
+  return { params: { id }, locals: user ? { user } : {} } as any;
 }
 
 // `load` is typed `MaybePromise<void | PageData>`; the async IIFE normalises
@@ -51,71 +49,68 @@ function makeEvent(id: string, user: Record<string, unknown> | undefined) {
 // — both carry `.status`. Kept as a plain call (not an assertion helper) so
 // every `expect(...)` stays visible in the test body it belongs to.
 function rejection(fn: () => unknown): Promise<unknown> {
-	return (async () => fn())();
+  return (async () => fn())();
 }
 
 describe("/extensions/[id]/audit +page.server.ts", () => {
-	beforeEach(() => {
-		vi.mocked(getExtensionByRef).mockReset();
-		vi.mocked(mergeAuditForExtension).mockReset();
-		vi.mocked(statsForExtension).mockReset();
-		vi.mocked(mergeAuditForExtension).mockResolvedValue({
-			entries: [],
-			nextCursor: null,
-		} as any);
-		vi.mocked(statsForExtension).mockResolvedValue({} as any);
-	});
+  beforeEach(() => {
+    vi.mocked(getExtensionByRef).mockReset();
+    vi.mocked(mergeAuditForExtension).mockReset();
+    vi.mocked(statsForExtension).mockReset();
+    vi.mocked(mergeAuditForExtension).mockResolvedValue({
+      entries: [],
+      nextCursor: null,
+    } as any);
+    vi.mocked(statsForExtension).mockResolvedValue({} as any);
+  });
 
-	test("unauthenticated → 401", async () => {
-		await expect(
-			rejection(() => load(makeEvent(ROW.id, undefined))),
-		).rejects.toMatchObject({ status: 401 });
-		// Rejected before any lookup — an anonymous caller never reaches the
-		// row read, let alone the audit tables.
-		expect(vi.mocked(getExtensionByRef)).not.toHaveBeenCalled();
-		expect(vi.mocked(mergeAuditForExtension)).not.toHaveBeenCalled();
-	});
+  test("unauthenticated → 401", async () => {
+    await expect(rejection(() => load(makeEvent(ROW.id, undefined)))).rejects.toMatchObject({
+      status: 401,
+    });
+    // Rejected before any lookup — an anonymous caller never reaches the
+    // row read, let alone the audit tables.
+    expect(vi.mocked(getExtensionByRef)).not.toHaveBeenCalled();
+    expect(vi.mocked(mergeAuditForExtension)).not.toHaveBeenCalled();
+  });
 
-	test("non-admin → 403", async () => {
-		await expect(
-			rejection(() => load(makeEvent(ROW.id, memberUser))),
-		).rejects.toMatchObject({ status: 403 });
-		expect(vi.mocked(mergeAuditForExtension)).not.toHaveBeenCalled();
-	});
+  test("non-admin → 403", async () => {
+    await expect(rejection(() => load(makeEvent(ROW.id, memberUser)))).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(vi.mocked(mergeAuditForExtension)).not.toHaveBeenCalled();
+  });
 
-	test("unknown reference → 404", async () => {
-		vi.mocked(getExtensionByRef).mockResolvedValue(null as any);
-		await expect(
-			rejection(() => load(makeEvent("no-such-ext", adminUser))),
-		).rejects.toMatchObject({ status: 404 });
-		// The reference was looked up, and nothing was read from the audit
-		// tables for a row that does not exist.
-		expect(vi.mocked(getExtensionByRef)).toHaveBeenCalledWith("no-such-ext");
-		expect(vi.mocked(mergeAuditForExtension)).not.toHaveBeenCalled();
-	});
+  test("unknown reference → 404", async () => {
+    vi.mocked(getExtensionByRef).mockResolvedValue(null as any);
+    await expect(rejection(() => load(makeEvent("no-such-ext", adminUser)))).rejects.toMatchObject({
+      status: 404,
+    });
+    // The reference was looked up, and nothing was read from the audit
+    // tables for a row that does not exist.
+    expect(vi.mocked(getExtensionByRef)).toHaveBeenCalledWith("no-such-ext");
+    expect(vi.mocked(mergeAuditForExtension)).not.toHaveBeenCalled();
+  });
 
-	test("resolves the route param as a REFERENCE, not an id", async () => {
-		vi.mocked(getExtensionByRef).mockResolvedValue(ROW as any);
-		const data = (await load(makeEvent(ROW.name, adminUser))) as {
-			extension: { id: string; name: string };
-		};
-		expect(vi.mocked(getExtensionByRef)).toHaveBeenCalledWith(ROW.name);
-		expect(data.extension.id).toBe(ROW.id);
-		expect(data.extension.name).toBe(ROW.name);
-	});
+  test("resolves the route param as a REFERENCE, not an id", async () => {
+    vi.mocked(getExtensionByRef).mockResolvedValue(ROW as any);
+    const data = (await load(makeEvent(ROW.name, adminUser))) as {
+      extension: { id: string; name: string };
+    };
+    expect(vi.mocked(getExtensionByRef)).toHaveBeenCalledWith(ROW.name);
+    expect(data.extension.id).toBe(ROW.id);
+    expect(data.extension.name).toBe(ROW.name);
+  });
 
-	// The bug this guards: the loader resolved the row (so the page rendered)
-	// but then queried the audit tables with the raw route param, which they
-	// never key on — a silently empty trail for a name-addressed URL.
-	test("audit reads are keyed on the RESOLVED row id, never the route param", async () => {
-		vi.mocked(getExtensionByRef).mockResolvedValue(ROW as any);
-		await load(makeEvent(ROW.name, adminUser));
-		expect(vi.mocked(mergeAuditForExtension)).toHaveBeenCalledWith(ROW.id, {
-			limit: 100,
-		});
-		expect(vi.mocked(statsForExtension)).toHaveBeenCalledWith(
-			ROW.id,
-			24 * 60 * 60 * 1000,
-		);
-	});
+  // The bug this guards: the loader resolved the row (so the page rendered)
+  // but then queried the audit tables with the raw route param, which they
+  // never key on — a silently empty trail for a name-addressed URL.
+  test("audit reads are keyed on the RESOLVED row id, never the route param", async () => {
+    vi.mocked(getExtensionByRef).mockResolvedValue(ROW as any);
+    await load(makeEvent(ROW.name, adminUser));
+    expect(vi.mocked(mergeAuditForExtension)).toHaveBeenCalledWith(ROW.id, {
+      limit: 100,
+    });
+    expect(vi.mocked(statsForExtension)).toHaveBeenCalledWith(ROW.id, 24 * 60 * 60 * 1000);
+  });
 });

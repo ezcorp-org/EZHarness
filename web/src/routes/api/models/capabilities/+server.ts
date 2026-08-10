@@ -42,7 +42,10 @@ export const GET: RequestHandler = async ({ url, locals }) => {
     return errorJson(400, "provider and model query params are required");
   }
   const pendingNames = pendingExtensionsRaw
-    ? pendingExtensionsRaw.split(",").map((s) => s.trim()).filter(Boolean)
+    ? pendingExtensionsRaw
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean)
     : [];
   // When a conversationId is supplied, union in MIMEs from extensions
   // wired to that conversation. Without one, the picker sees the static
@@ -51,12 +54,16 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   if (conversationId) {
     try {
       for (const m of await getConversationExtensionMimes(conversationId)) mimeSet.add(m);
-    } catch { /* non-fatal — fall back to static caps */ }
+    } catch {
+      /* non-fatal — fall back to static caps */
+    }
   }
   if (pendingNames.length > 0) {
     try {
       for (const m of getExtensionMimesByNames(pendingNames)) mimeSet.add(m);
-    } catch { /* non-fatal */ }
+    } catch {
+      /* non-fatal */
+    }
   }
   // "Auto (smart routing)" has no concrete model yet, so answer with what
   // EVERY rung of the configured ladder accepts (see auto-capabilities.ts for
@@ -64,7 +71,8 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   // no candidates — we 404 rather than invent limits, and the composer keeps
   // its text-only fallback.
   if (provider === AUTO_PROVIDER && model === AUTO_MODEL) {
-    const ladder = parseTierLadder(await getSetting(TIER_LADDER_SETTING_KEY)) ?? DEFAULT_TIER_LADDER;
+    const ladder =
+      parseTierLadder(await getSetting(TIER_LADDER_SETTING_KEY)) ?? DEFAULT_TIER_LADDER;
     const rungs = uniqueRungs(VALID_TIERS.map((tier) => ladderCandidates(ladder, tier)));
     // Only rungs this deployment can actually be served by. Without this a
     // provider the install has no credential for still clamps the intersection

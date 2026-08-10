@@ -28,10 +28,7 @@ const ROOT = join(import.meta.dir, "..", "..");
 
 // Node builtins, with and without the `node:` prefix — some example code
 // still imports `fs`/`path` bare. Neither form is an npm dependency.
-const BUILTINS = new Set<string>([
-  ...builtinModules,
-  ...builtinModules.map((m) => `node:${m}`),
-]);
+const BUILTINS = new Set<string>([...builtinModules, ...builtinModules.map((m) => `node:${m}`)]);
 
 // npm package-name grammar (same shape the manifest validator enforces).
 // Also filters out any structural regex garbage (whitespace, punctuation).
@@ -101,9 +98,11 @@ function auditDirs(): string[] {
 
 const ROOT_DEPS = new Set<string>(
   Object.keys(
-    (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
-      dependencies?: Record<string, string>;
-    }).dependencies ?? {},
+    (
+      JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
+        dependencies?: Record<string, string>;
+      }
+    ).dependencies ?? {},
   ),
 );
 

@@ -14,7 +14,11 @@ mockDbConnection();
 mockServerAlias();
 
 // Import route handlers
-import { GET as sharesGET, POST as sharesPOST, DELETE as sharesDELETE } from "../../web/src/routes/api/agents/[id]/share/+server";
+import {
+  GET as sharesGET,
+  POST as sharesPOST,
+  DELETE as sharesDELETE,
+} from "../../web/src/routes/api/agents/[id]/share/+server";
 
 // DB helpers for setup
 import { createUser } from "../db/queries/users";
@@ -31,9 +35,24 @@ let teamId: string;
 beforeAll(async () => {
   await setupTestDb();
 
-  const owner = await createUser({ email: "share-rt-owner@test.com", passwordHash: "hash", name: "Share Route Owner", role: "member" });
-  const recipient = await createUser({ email: "share-rt-recip@test.com", passwordHash: "hash", name: "Share Route Recipient", role: "member" });
-  const admin = await createUser({ email: "share-rt-admin@test.com", passwordHash: "hash", name: "Share Route Admin", role: "admin" });
+  const owner = await createUser({
+    email: "share-rt-owner@test.com",
+    passwordHash: "hash",
+    name: "Share Route Owner",
+    role: "member",
+  });
+  const recipient = await createUser({
+    email: "share-rt-recip@test.com",
+    passwordHash: "hash",
+    name: "Share Route Recipient",
+    role: "member",
+  });
+  const admin = await createUser({
+    email: "share-rt-admin@test.com",
+    passwordHash: "hash",
+    name: "Share Route Admin",
+    role: "admin",
+  });
 
   OWNER = { id: owner.id, email: owner.email, name: owner.name, role: "member" };
   RECIPIENT = { id: recipient.id, email: recipient.email, name: recipient.name, role: "member" };
@@ -53,7 +72,9 @@ beforeAll(async () => {
   agentId = agent.id;
 });
 
-afterAll(async () => { await closeTestDb(); });
+afterAll(async () => {
+  await closeTestDb();
+});
 
 describe("GET /api/agents/[id]/share", () => {
   test("returns 401 when not authenticated", async () => {
@@ -93,7 +114,12 @@ describe("GET /api/agents/[id]/share", () => {
 
 describe("POST /api/agents/[id]/share", () => {
   test("returns 400 if neither teamIds nor userIds provided", async () => {
-    const event = createMockEvent({ method: "POST", params: { id: agentId }, user: OWNER, body: {} });
+    const event = createMockEvent({
+      method: "POST",
+      params: { id: agentId },
+      user: OWNER,
+      body: {},
+    });
     const res = await sharesPOST(event);
     expect(res.status).toBe(400);
     const data = await jsonFromResponse(res);
@@ -102,7 +128,9 @@ describe("POST /api/agents/[id]/share", () => {
 
   test("returns 400 if invalid permission value", async () => {
     const event = createMockEvent({
-      method: "POST", params: { id: agentId }, user: OWNER,
+      method: "POST",
+      params: { id: agentId },
+      user: OWNER,
       body: { userIds: [recipientId], permission: "admin" },
     });
     const res = await sharesPOST(event);
@@ -113,7 +141,9 @@ describe("POST /api/agents/[id]/share", () => {
 
   test("returns 404 if target userId does not exist", async () => {
     const event = createMockEvent({
-      method: "POST", params: { id: agentId }, user: OWNER,
+      method: "POST",
+      params: { id: agentId },
+      user: OWNER,
       body: { userIds: ["nonexistent-user-id"] },
     });
     const res = await sharesPOST(event);
@@ -127,7 +157,9 @@ describe("POST /api/agents/[id]/share", () => {
     await addTeamMember(teamId, recipientId, "viewer");
 
     const event = createMockEvent({
-      method: "POST", params: { id: agentId }, user: RECIPIENT,
+      method: "POST",
+      params: { id: agentId },
+      user: RECIPIENT,
       body: { teamIds: [teamId] },
     });
     // Recipient is not agent owner, so verifyOwnerOrAdmin will 404 first
@@ -137,7 +169,9 @@ describe("POST /api/agents/[id]/share", () => {
 
   test("shares to user successfully with default read permission", async () => {
     const event = createMockEvent({
-      method: "POST", params: { id: agentId }, user: OWNER,
+      method: "POST",
+      params: { id: agentId },
+      user: OWNER,
       body: { userIds: [recipientId] },
     });
     const res = await sharesPOST(event);
@@ -154,7 +188,9 @@ describe("POST /api/agents/[id]/share", () => {
 
   test("shares to team successfully", async () => {
     const event = createMockEvent({
-      method: "POST", params: { id: agentId }, user: OWNER,
+      method: "POST",
+      params: { id: agentId },
+      user: OWNER,
       body: { teamIds: [teamId] },
     });
     const res = await sharesPOST(event);
@@ -164,9 +200,16 @@ describe("POST /api/agents/[id]/share", () => {
   });
 
   test("shares with edit permission", async () => {
-    const recipient2 = await createUser({ email: "share-rt-recip2@test.com", passwordHash: "hash", name: "Recipient 2", role: "member" });
+    const recipient2 = await createUser({
+      email: "share-rt-recip2@test.com",
+      passwordHash: "hash",
+      name: "Recipient 2",
+      role: "member",
+    });
     const event = createMockEvent({
-      method: "POST", params: { id: agentId }, user: OWNER,
+      method: "POST",
+      params: { id: agentId },
+      user: OWNER,
       body: { userIds: [recipient2.id], permission: "edit" },
     });
     const res = await sharesPOST(event);
@@ -176,10 +219,22 @@ describe("POST /api/agents/[id]/share", () => {
   });
 
   test("shares to multiple users successfully", async () => {
-    const r3 = await createUser({ email: "share-rt-r3@test.com", passwordHash: "hash", name: "R3", role: "member" });
-    const r4 = await createUser({ email: "share-rt-r4@test.com", passwordHash: "hash", name: "R4", role: "member" });
+    const r3 = await createUser({
+      email: "share-rt-r3@test.com",
+      passwordHash: "hash",
+      name: "R3",
+      role: "member",
+    });
+    const r4 = await createUser({
+      email: "share-rt-r4@test.com",
+      passwordHash: "hash",
+      name: "R4",
+      role: "member",
+    });
     const event = createMockEvent({
-      method: "POST", params: { id: agentId }, user: OWNER,
+      method: "POST",
+      params: { id: agentId },
+      user: OWNER,
       body: { userIds: [r3.id, r4.id] },
     });
     const res = await sharesPOST(event);
@@ -191,7 +246,12 @@ describe("POST /api/agents/[id]/share", () => {
 
 describe("DELETE /api/agents/[id]/share", () => {
   test("returns 400 if neither teamId nor userId provided", async () => {
-    const event = createMockEvent({ method: "DELETE", params: { id: agentId }, user: OWNER, body: {} });
+    const event = createMockEvent({
+      method: "DELETE",
+      params: { id: agentId },
+      user: OWNER,
+      body: {},
+    });
     const res = await sharesDELETE(event);
     expect(res.status).toBe(400);
     const data = await jsonFromResponse(res);
@@ -200,7 +260,9 @@ describe("DELETE /api/agents/[id]/share", () => {
 
   test("removes user share and returns removed: true", async () => {
     const event = createMockEvent({
-      method: "DELETE", params: { id: agentId }, user: OWNER,
+      method: "DELETE",
+      params: { id: agentId },
+      user: OWNER,
       body: { userId: recipientId },
     });
     const res = await sharesDELETE(event);
@@ -212,7 +274,9 @@ describe("DELETE /api/agents/[id]/share", () => {
 
   test("returns removed: false for non-existent share", async () => {
     const event = createMockEvent({
-      method: "DELETE", params: { id: agentId }, user: OWNER,
+      method: "DELETE",
+      params: { id: agentId },
+      user: OWNER,
       body: { userId: "nonexistent-user-id" },
     });
     const res = await sharesDELETE(event);
@@ -224,7 +288,9 @@ describe("DELETE /api/agents/[id]/share", () => {
 
   test("removes team share", async () => {
     const event = createMockEvent({
-      method: "DELETE", params: { id: agentId }, user: OWNER,
+      method: "DELETE",
+      params: { id: agentId },
+      user: OWNER,
       body: { teamId },
     });
     const res = await sharesDELETE(event);
@@ -236,7 +302,9 @@ describe("DELETE /api/agents/[id]/share", () => {
 
   test("returns 404 for non-owner non-admin", async () => {
     const event = createMockEvent({
-      method: "DELETE", params: { id: agentId }, user: RECIPIENT,
+      method: "DELETE",
+      params: { id: agentId },
+      user: RECIPIENT,
       body: { userId: recipientId },
     });
     const res = await sharesDELETE(event);

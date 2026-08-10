@@ -11,6 +11,6 @@
 // re-export so every existing web route / test import keeps working —
 // same symbols, same behavior, one canonical implementation.
 export {
-	clampExtensionPermissions,
-	manifestEventsIncludeFullPayload,
+  clampExtensionPermissions,
+  manifestEventsIncludeFullPayload,
 } from "$server/extensions/clamp-permissions";

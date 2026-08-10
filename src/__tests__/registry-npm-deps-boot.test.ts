@@ -57,7 +57,9 @@ function makeRow(name: string, npmDependencies: Record<string, string>) {
 
 describe("registry loadFromDb — npm-dependency boot visibility", () => {
   test("logs unresolvable declarations, stays silent for resolvable ones, never disables", async () => {
-    const bad = await createExtension(makeRow("boot-npmdep-bad", { "nonexistent-boot-xyz": "^1.0.0" }));
+    const bad = await createExtension(
+      makeRow("boot-npmdep-bad", { "nonexistent-boot-xyz": "^1.0.0" }),
+    );
     await createExtension(makeRow("boot-npmdep-good", { yaml: "^2.8.2" }));
 
     const stderrLines: string[] = [];
@@ -78,7 +80,9 @@ describe("registry loadFromDb — npm-dependency boot visibility", () => {
     expect(registry.getManifestByName("boot-npmdep-bad")).toBeDefined();
     expect(registry.getManifestByName("boot-npmdep-good")).toBeDefined();
 
-    const badLines = stderrLines.filter((l) => l.includes("extension npm dependencies unresolvable"));
+    const badLines = stderrLines.filter((l) =>
+      l.includes("extension npm dependencies unresolvable"),
+    );
     // Exactly the BAD extension logged an unresolvable error…
     const badLine = badLines.find((l) => l.includes("boot-npmdep-bad"));
     expect(badLine).toBeTruthy();

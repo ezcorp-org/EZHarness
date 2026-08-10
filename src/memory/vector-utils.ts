@@ -8,9 +8,7 @@ export function toVectorLiteral(embedding: number[]): string {
   }
   for (const v of embedding) {
     if (typeof v !== "number" || !Number.isFinite(v)) {
-      throw new Error(
-        "Invalid embedding value: all values must be finite numbers",
-      );
+      throw new Error("Invalid embedding value: all values must be finite numbers");
     }
   }
   return `'[${embedding.join(",")}]'::vector`;

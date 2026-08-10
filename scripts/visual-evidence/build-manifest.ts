@@ -233,7 +233,11 @@ async function readBlobReports(blobDir: string): Promise<string[]> {
   for (const name of entries) {
     const full = join(blobDir, name);
     if (name === "report.jsonl") {
-      out.push(await Bun.file(full).text().catch(() => ""));
+      out.push(
+        await Bun.file(full)
+          .text()
+          .catch(() => ""),
+      );
     } else if (name.endsWith(".zip")) {
       // `unzip -p` streams the inner report.jsonl to stdout.
       const proc = Bun.spawn(["unzip", "-p", full, "report.jsonl"], {

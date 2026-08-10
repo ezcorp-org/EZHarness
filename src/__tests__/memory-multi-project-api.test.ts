@@ -1,5 +1,10 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { mockEmbedding, mockEmbeddingsModule } from "./helpers/mock-vectors";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { MemoryProvenance } from "../memory/types";
@@ -11,8 +16,13 @@ mockEmbeddingsModule();
 
 // Dynamic imports AFTER mocks
 const {
-  insertMemory, searchMemories, getMemoryById, deleteMemory,
-  setMemoryProjects, getMemoryProjectIds, getProjectIdsForMemories,
+  insertMemory,
+  searchMemories,
+  getMemoryById,
+  deleteMemory,
+  setMemoryProjects,
+  getMemoryProjectIds,
+  getProjectIdsForMemories,
   assignMemoryToProjects,
 } = await import("../db/queries/memories");
 const { createProject } = await import("../db/queries/projects");
@@ -29,7 +39,10 @@ let conversationId: string;
 let server: ReturnType<typeof Bun.serve>;
 let baseUrl: string;
 
-async function insertTestMemory(content: string, opts?: { projectId?: string | null; category?: string; status?: string }) {
+async function insertTestMemory(
+  content: string,
+  opts?: { projectId?: string | null; category?: string; status?: string },
+) {
   const embedding = mockEmbedding();
   const provenance: MemoryProvenance = {
     sourceConversationId: conversationId,
@@ -52,7 +65,10 @@ async function insertTestMemory(content: string, opts?: { projectId?: string | n
     const db = getDb();
     const { memories } = await import("../db/schema");
     const { eq } = await import("drizzle-orm");
-    await db.update(memories).set({ status: opts.status } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ status: opts.status } as any)
+      .where(eq(memories.id, mem.id));
   }
   return mem;
 }
@@ -83,8 +99,10 @@ beforeAll(async () => {
         if (url.searchParams.get("search")) params.search = url.searchParams.get("search");
         if (url.searchParams.get("status")) params.status = url.searchParams.get("status");
         if (url.searchParams.get("category")) params.category = url.searchParams.get("category");
-        if (url.searchParams.get("limit")) params.limit = parseInt(url.searchParams.get("limit")!, 10);
-        if (url.searchParams.get("offset")) params.offset = parseInt(url.searchParams.get("offset")!, 10);
+        if (url.searchParams.get("limit"))
+          params.limit = parseInt(url.searchParams.get("limit")!, 10);
+        if (url.searchParams.get("offset"))
+          params.offset = parseInt(url.searchParams.get("offset")!, 10);
 
         const results = await searchMemories(params);
         // Batch-attach projectIds
@@ -187,7 +205,10 @@ beforeAll(async () => {
             }
             for (const pid of body.projectIds) {
               if (typeof pid !== "string" || !UUID_RE.test(pid)) {
-                return Response.json({ error: `Invalid UUID in projectIds: ${pid}` }, { status: 400 });
+                return Response.json(
+                  { error: `Invalid UUID in projectIds: ${pid}` },
+                  { status: 400 },
+                );
               }
             }
             await setMemoryProjects(id, body.projectIds);

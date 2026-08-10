@@ -27,18 +27,14 @@ interface RequestCall {
   timeoutMs: number | undefined;
 }
 
-function stubRequest<T>(
-  returnValue: T,
-): { calls: RequestCall[]; spy: ReturnType<typeof spyOn> } {
+function stubRequest<T>(returnValue: T): { calls: RequestCall[]; spy: ReturnType<typeof spyOn> } {
   const ch: HostChannel = getChannel();
   const calls: RequestCall[] = [];
   const spy = spyOn(ch, "request");
-  spy.mockImplementation(
-    (async (method: string, params: unknown, timeoutMs?: number) => {
-      calls.push({ method, params, timeoutMs });
-      return returnValue;
-    }) as HostChannel["request"],
-  );
+  spy.mockImplementation((async (method: string, params: unknown, timeoutMs?: number) => {
+    calls.push({ method, params, timeoutMs });
+    return returnValue;
+  }) as HostChannel["request"]);
   return { calls, spy };
 }
 
@@ -175,9 +171,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       task: "t",
       reuseSubConversationFor: "cfg-target",
     });
-    expect(paramsAt(calls).reuseSubConversationFor).toBe(
-      "cfg-target",
-    );
+    expect(paramsAt(calls).reuseSubConversationFor).toBe("cfg-target");
   });
 
   test("parentMessageId: echoed verbatim", async () => {
@@ -187,9 +181,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       task: "t",
       parentMessageId: "msg-anchor-123",
     });
-    expect(paramsAt(calls).parentMessageId).toBe(
-      "msg-anchor-123",
-    );
+    expect(paramsAt(calls).parentMessageId).toBe("msg-anchor-123");
   });
 
   test("overrides: full TeamMemberOverrides bundle is echoed verbatim", async () => {
@@ -278,9 +270,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       task: "t",
       autonomousContinuation: { maxCycles: 5 },
     });
-    expect(
-      paramsAt(calls).autonomousContinuation,
-    ).toEqual({ maxCycles: 5 });
+    expect(paramsAt(calls).autonomousContinuation).toEqual({ maxCycles: 5 });
   });
 
   test("autonomousContinuation: presence-only `{}` still echoed (opt-in flag)", async () => {
@@ -290,9 +280,7 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
       task: "t",
       autonomousContinuation: {},
     });
-    expect(
-      paramsAt(calls).autonomousContinuation,
-    ).toEqual({});
+    expect(paramsAt(calls).autonomousContinuation).toEqual({});
   });
 
   test("outputSchema: echoed verbatim when provided", async () => {
@@ -379,33 +367,33 @@ describe("spawnAssignment — Phase 4 new-field serialization", () => {
 describe("spawnAssignment — input validation (pre-channel)", () => {
   test("missing both agentConfigId and agentName → throws before channel call", async () => {
     const { calls } = happy();
-    await expect(
-      spawnAssignment({ task: "hi" } as never),
-    ).rejects.toThrow(/agentConfigId.*agentName.*required/i);
+    await expect(spawnAssignment({ task: "hi" } as never)).rejects.toThrow(
+      /agentConfigId.*agentName.*required/i,
+    );
     expect(calls).toHaveLength(0);
   });
 
   test("empty task → throws before channel call", async () => {
     const { calls } = happy();
-    await expect(
-      spawnAssignment({ agentConfigId: "cfg-1", task: "" }),
-    ).rejects.toThrow(/non-empty string/i);
+    await expect(spawnAssignment({ agentConfigId: "cfg-1", task: "" })).rejects.toThrow(
+      /non-empty string/i,
+    );
     expect(calls).toHaveLength(0);
   });
 
   test("whitespace-only task → throws before channel call", async () => {
     const { calls } = happy();
-    await expect(
-      spawnAssignment({ agentConfigId: "cfg-1", task: "   \n\t" }),
-    ).rejects.toThrow(/non-empty string/i);
+    await expect(spawnAssignment({ agentConfigId: "cfg-1", task: "   \n\t" })).rejects.toThrow(
+      /non-empty string/i,
+    );
     expect(calls).toHaveLength(0);
   });
 
   test("non-string task → throws before channel call", async () => {
     const { calls } = happy();
-    await expect(
-      spawnAssignment({ agentConfigId: "cfg-1", task: 42 as never }),
-    ).rejects.toThrow(/non-empty string/i);
+    await expect(spawnAssignment({ agentConfigId: "cfg-1", task: 42 as never })).rejects.toThrow(
+      /non-empty string/i,
+    );
     expect(calls).toHaveLength(0);
   });
 });
@@ -416,11 +404,9 @@ describe("spawnAssignment — host error propagation", () => {
   test("-32029 Rate limited surfaces as JsonRpcError", async () => {
     const ch = getChannel();
     const spy = spyOn(ch, "request");
-    spy.mockImplementation(
-      (async () => {
-        throw new JsonRpcError(-32029, "Rate limited");
-      }) as HostChannel["request"],
-    );
+    spy.mockImplementation((async () => {
+      throw new JsonRpcError(-32029, "Rate limited");
+    }) as HostChannel["request"]);
     try {
       await spawnAssignment({ agentConfigId: "c", task: "t" });
       throw new Error("should have thrown");
@@ -433,15 +419,13 @@ describe("spawnAssignment — host error propagation", () => {
   test("-32000 hourly-exceeded preserves data.reason", async () => {
     const ch = getChannel();
     const spy = spyOn(ch, "request");
-    spy.mockImplementation(
-      (async () => {
-        throw new JsonRpcError(-32000, "Spawn quota exceeded", {
-          reason: "hourly-exceeded",
-          limit: 10,
-          windowMs: 3_600_000,
-        });
-      }) as HostChannel["request"],
-    );
+    spy.mockImplementation((async () => {
+      throw new JsonRpcError(-32000, "Spawn quota exceeded", {
+        reason: "hourly-exceeded",
+        limit: 10,
+        windowMs: 3_600_000,
+      });
+    }) as HostChannel["request"]);
     try {
       await spawnAssignment({ agentConfigId: "c", task: "t" });
       throw new Error("should have thrown");
@@ -457,11 +441,9 @@ describe("spawnAssignment — host error propagation", () => {
   test("-32001 permission-missing surfaces as JsonRpcError", async () => {
     const ch = getChannel();
     const spy = spyOn(ch, "request");
-    spy.mockImplementation(
-      (async () => {
-        throw new JsonRpcError(-32001, "spawnAgents permission not granted");
-      }) as HostChannel["request"],
-    );
+    spy.mockImplementation((async () => {
+      throw new JsonRpcError(-32001, "spawnAgents permission not granted");
+    }) as HostChannel["request"]);
     try {
       await spawnAssignment({ agentConfigId: "c", task: "t" });
       throw new Error("should have thrown");
@@ -517,20 +499,18 @@ describe("queueAgentMessage — JSON-RPC frame shape + result mapping", () => {
     const { calls } = stubRequest({ v: 1 as const, queued: true });
     await expect(queueAgentMessage("sub-9", "")).rejects.toThrow(/non-empty string/i);
     await expect(queueAgentMessage("sub-9", "  \n\t")).rejects.toThrow(/non-empty string/i);
-    await expect(
-      queueAgentMessage("sub-9", 42 as unknown as string),
-    ).rejects.toThrow(/non-empty string/i);
+    await expect(queueAgentMessage("sub-9", 42 as unknown as string)).rejects.toThrow(
+      /non-empty string/i,
+    );
     expect(calls).toHaveLength(0);
   });
 
   test("host permission error propagates as JsonRpcError", async () => {
     const ch = getChannel();
     const spy = spyOn(ch, "request");
-    spy.mockImplementation(
-      (async () => {
-        throw new JsonRpcError(-32001, "spawnAgents permission not granted");
-      }) as HostChannel["request"],
-    );
+    spy.mockImplementation((async () => {
+      throw new JsonRpcError(-32001, "spawnAgents permission not granted");
+    }) as HostChannel["request"]);
     await expect(queueAgentMessage("sub-9", "hi")).rejects.toBeInstanceOf(JsonRpcError);
   });
 });

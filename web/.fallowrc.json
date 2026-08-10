@@ -1,13 +1,5 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
-  "ignorePatterns": [
-    ".svelte-kit/**",
-    "build/**"
-  ],
-  "ignoreDependencies": [
-    "@earendil-works/pi-ai",
-    "drizzle-orm",
-    "linkedom",
-    "svelte-adapter-bun"
-  ]
+  "ignorePatterns": [".svelte-kit/**", "build/**"],
+  "ignoreDependencies": ["@earendil-works/pi-ai", "drizzle-orm", "linkedom", "svelte-adapter-bun"]
 }

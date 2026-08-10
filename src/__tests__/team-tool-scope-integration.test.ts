@@ -8,8 +8,12 @@ mockDbConnection();
 import { createAgentConfig, getAgentConfig } from "../db/queries/agent-configs";
 import { applyToolFilters } from "../runtime/tools/filter";
 
-beforeAll(async () => { await setupTestDb(); });
-afterAll(async () => { await closeTestDb(); });
+beforeAll(async () => {
+  await setupTestDb();
+});
+afterAll(async () => {
+  await closeTestDb();
+});
 
 // End-to-end in-process integration: save a team config with teamToolScope,
 // read it back, feed it through the runtime filter. Guards the full pipeline:

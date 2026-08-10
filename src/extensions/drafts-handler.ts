@@ -77,19 +77,13 @@ const log = extensionLogger("extension-author", "drafts-handler");
  * decision that MUST be reviewed at the same level as a
  * `BUNDLED_CEILING` change.
  */
-export const BUNDLED_DRAFTS_ALLOWLIST: ReadonlySet<string> = new Set([
-  "extension-author",
-]);
+export const BUNDLED_DRAFTS_ALLOWLIST: ReadonlySet<string> = new Set(["extension-author"]);
 
 /**
  * Whitelist of `EzDraftKind` values. The `ez_drafts` schema currently
  * accepts `'project' | 'agent' | 'extension'` — keep this in lockstep.
  */
-const VALID_DRAFT_KINDS: ReadonlySet<EzDraftKind> = new Set([
-  "project",
-  "agent",
-  "extension",
-]);
+const VALID_DRAFT_KINDS: ReadonlySet<EzDraftKind> = new Set(["project", "agent", "extension"]);
 
 /**
  * Per-kind URL prefix for the proposal-card "Open prefilled form" link.
@@ -248,11 +242,7 @@ async function handleCreate(
     return rpcError(req.id, -32602, `Unknown kind: ${kind}`);
   }
   if (!declaredKinds.includes(kind)) {
-    return rpcError(
-      req.id,
-      -32603,
-      `kind '${kind}' not in granted custom.drafts.kinds`,
-    );
+    return rpcError(req.id, -32603, `kind '${kind}' not in granted custom.drafts.kinds`);
   }
 
   const payload = params.payload;
@@ -266,11 +256,7 @@ async function handleCreate(
   const MAX_TTL_MS = 30 * 24 * 60 * 60 * 1000;
   let ttlMs: number | undefined;
   if (params.ttlMs !== undefined) {
-    if (
-      typeof params.ttlMs !== "number" ||
-      !Number.isFinite(params.ttlMs) ||
-      params.ttlMs <= 0
-    ) {
+    if (typeof params.ttlMs !== "number" || !Number.isFinite(params.ttlMs) || params.ttlMs <= 0) {
       return rpcError(req.id, -32602, "ttlMs must be a positive number");
     }
     if (params.ttlMs > MAX_TTL_MS) {
@@ -358,11 +344,7 @@ async function handleCreate(
           error: String(discardErr),
         });
       }
-      return rpcError(
-        req.id,
-        -32603,
-        `Failed to materialize draft files: ${String(err)}`,
-      );
+      return rpcError(req.id, -32603, `Failed to materialize draft files: ${String(err)}`);
     }
     try {
       const { getDb } = await import("../db/connection");
@@ -531,9 +513,7 @@ async function handleInstall(
     return rpcError(req.id, -32602, "Missing or invalid 'draftId'");
   }
 
-  const { installAuthoredDraft, AuthorInstallError } = await import(
-    "./author-install"
-  );
+  const { installAuthoredDraft, AuthorInstallError } = await import("./author-install");
   try {
     const result = await installAuthoredDraft({
       draftId,
@@ -601,14 +581,9 @@ async function handleReopen(
   if (!name || typeof name !== "string") {
     return rpcError(req.id, -32602, "Missing or invalid 'name'");
   }
-  const { reopenInstalledAsDraft, ReopenError } = await import(
-    "./reopen-extension"
-  );
+  const { reopenInstalledAsDraft, ReopenError } = await import("./reopen-extension");
   try {
-    const { draftId, name: extName } = await reopenInstalledAsDraft(
-      name,
-      ctx.userId,
-    );
+    const { draftId, name: extName } = await reopenInstalledAsDraft(name, ctx.userId);
     return rpcResult(req.id, { draftId, name: extName });
   } catch (err) {
     if (err instanceof ReopenError) {

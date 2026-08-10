@@ -2,10 +2,7 @@ import { test, expect, describe } from "bun:test";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
 import type { JsonRpcNotification } from "../extensions/types";
-import {
-  ExtensionStateMediator,
-  type MediatorManifest,
-} from "../extensions/state-mediator";
+import { ExtensionStateMediator, type MediatorManifest } from "../extensions/state-mediator";
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -47,19 +44,13 @@ describe("ExtensionStateMediator — security", () => {
 
     test("extension cannot emit run:complete via method field", () => {
       const { mediator, events } = setup();
-      mediator.handleNotification(
-        "ext-1",
-        makeNotification({ run: {} }, "run:complete"),
-      );
+      mediator.handleNotification("ext-1", makeNotification({ run: {} }, "run:complete"));
       expect(events).toHaveLength(0);
     });
 
     test("extension cannot emit agent:spawn via method field", () => {
       const { mediator, events } = setup();
-      mediator.handleNotification(
-        "ext-1",
-        makeNotification({ agentName: "evil" }, "agent:spawn"),
-      );
+      mediator.handleNotification("ext-1", makeNotification({ agentName: "evil" }, "agent:spawn"));
       expect(events).toHaveLength(0);
     });
 
@@ -137,12 +128,15 @@ describe("ExtensionStateMediator — security", () => {
 
     test("strips mixed HTML across arrays and objects", () => {
       const { mediator, events } = setup();
-      mediator.handleNotification("ext-1", makeNotification({
-        items: [
-          { name: "<script>steal()</script>", tags: ["<b>bold</b>", "safe"] },
-          "<img src=x onerror=alert(1)>",
-        ],
-      }));
+      mediator.handleNotification(
+        "ext-1",
+        makeNotification({
+          items: [
+            { name: "<script>steal()</script>", tags: ["<b>bold</b>", "safe"] },
+            "<img src=x onerror=alert(1)>",
+          ],
+        }),
+      );
 
       const state = at(events, 0, "ext:state event").state as any;
       expect(state.items[0].name).not.toContain("<");
@@ -195,10 +189,7 @@ describe("ExtensionStateMediator — security", () => {
     test("null values in state do not crash the mediator", () => {
       const { mediator, events } = setup();
       expect(() => {
-        mediator.handleNotification(
-          "ext-1",
-          makeNotification({ a: null, b: "ok" }),
-        );
+        mediator.handleNotification("ext-1", makeNotification({ a: null, b: "ok" }));
       }).not.toThrow();
       expect(events).toHaveLength(1);
       expect(at(events, 0, "ext:state event").state).toEqual({ a: null, b: "ok" });
@@ -207,10 +198,7 @@ describe("ExtensionStateMediator — security", () => {
     test("undefined values in state do not crash the mediator", () => {
       const { mediator, events } = setup();
       expect(() => {
-        mediator.handleNotification(
-          "ext-1",
-          makeNotification({ a: undefined, b: 42 }),
-        );
+        mediator.handleNotification("ext-1", makeNotification({ a: undefined, b: 42 }));
       }).not.toThrow();
       expect(events).toHaveLength(1);
     });

@@ -26,21 +26,43 @@ mock.module("$lib/server/security/api-keys", () => ({
 
 // ── Handler imports ──────────────────────────────────────────────
 import { GET as listGET, POST as createPOST } from "../../web/src/routes/api/modes/+server";
-import { GET as detailGET, PUT as updatePUT, DELETE as removeDELETE } from "../../web/src/routes/api/modes/[id]/+server";
+import {
+  GET as detailGET,
+  PUT as updatePUT,
+  DELETE as removeDELETE,
+} from "../../web/src/routes/api/modes/[id]/+server";
 
 // ── DB helpers ───────────────────────────────────────────────────
 import { getDb } from "../db/connection";
 import { users } from "../db/schema";
 
-const USER: AuthUser = { id: "mode-user-001", email: "user@mode.test", name: "Mode User", role: "member" };
-const OTHER_USER: AuthUser = { id: "mode-other-001", email: "other@mode.test", name: "Other User", role: "member" };
+const USER: AuthUser = {
+  id: "mode-user-001",
+  email: "user@mode.test",
+  name: "Mode User",
+  role: "member",
+};
+const OTHER_USER: AuthUser = {
+  id: "mode-other-001",
+  email: "other@mode.test",
+  name: "Other User",
+  role: "member",
+};
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values([
-    { id: USER.id, email: USER.email, passwordHash: "h", name: USER.name, role: "member" },
-    { id: OTHER_USER.id, email: OTHER_USER.email, passwordHash: "h", name: OTHER_USER.name, role: "member" },
-  ]);
+  await getDb()
+    .insert(users)
+    .values([
+      { id: USER.id, email: USER.email, passwordHash: "h", name: USER.name, role: "member" },
+      {
+        id: OTHER_USER.id,
+        email: OTHER_USER.email,
+        passwordHash: "h",
+        name: OTHER_USER.name,
+        role: "member",
+      },
+    ]);
 });
 
 afterAll(async () => {
@@ -726,19 +748,27 @@ describe("DELETE /api/modes/[id]", () => {
 
 describe("conversation modeId via update", () => {
   test("conversation update schema accepts modeId", async () => {
-    const { updateConversationSchema } = await import("../../web/src/routes/api/conversations/schema");
-    const result = updateConversationSchema.safeParse({ modeId: "550e8400-e29b-41d4-a716-446655440000" });
+    const { updateConversationSchema } = await import(
+      "../../web/src/routes/api/conversations/schema"
+    );
+    const result = updateConversationSchema.safeParse({
+      modeId: "550e8400-e29b-41d4-a716-446655440000",
+    });
     expect(result.success).toBe(true);
   });
 
   test("conversation update schema accepts null modeId", async () => {
-    const { updateConversationSchema } = await import("../../web/src/routes/api/conversations/schema");
+    const { updateConversationSchema } = await import(
+      "../../web/src/routes/api/conversations/schema"
+    );
     const result = updateConversationSchema.safeParse({ modeId: null });
     expect(result.success).toBe(true);
   });
 
   test("conversation update schema rejects invalid modeId", async () => {
-    const { updateConversationSchema } = await import("../../web/src/routes/api/conversations/schema");
+    const { updateConversationSchema } = await import(
+      "../../web/src/routes/api/conversations/schema"
+    );
     const result = updateConversationSchema.safeParse({ modeId: "not-a-uuid" });
     expect(result.success).toBe(false);
   });
@@ -946,11 +976,17 @@ describe("modes schema validation", () => {
   test("createModeSchema rejects temperature out of range", async () => {
     const { createModeSchema } = await import("../../web/src/routes/api/modes/schema");
     const r1 = createModeSchema.safeParse({
-      name: "T", slug: "t", systemPromptInstruction: "t", temperature: -1,
+      name: "T",
+      slug: "t",
+      systemPromptInstruction: "t",
+      temperature: -1,
     });
     expect(r1.success).toBe(false);
     const r2 = createModeSchema.safeParse({
-      name: "T", slug: "t", systemPromptInstruction: "t", temperature: 101,
+      name: "T",
+      slug: "t",
+      systemPromptInstruction: "t",
+      temperature: 101,
     });
     expect(r2.success).toBe(false);
   });

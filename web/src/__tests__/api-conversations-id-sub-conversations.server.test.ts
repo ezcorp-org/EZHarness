@@ -17,18 +17,14 @@ vi.mock("$server/db/queries/conversations", () => ({
   getSubConversations,
 }));
 
-const { GET } = await import(
-  "../routes/api/conversations/[id]/sub-conversations/+server.ts"
-);
+const { GET } = await import("../routes/api/conversations/[id]/sub-conversations/+server.ts");
 
 function makeEvent(opts: { locals?: Record<string, unknown> }) {
   return {
     url: new URL("http://localhost/api/conversations/c1/sub-conversations"),
     locals: opts.locals ?? {},
     params: { id: "c1" },
-    request: new Request(
-      "http://localhost/api/conversations/c1/sub-conversations",
-    ),
+    request: new Request("http://localhost/api/conversations/c1/sub-conversations"),
   } as any;
 }
 
@@ -68,9 +64,7 @@ describe("GET /api/conversations/[id]/sub-conversations", () => {
 
   test("happy path: returns sub-conversation list for owner", async () => {
     getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
-    getSubConversations.mockResolvedValue([
-      { id: "sub-1", parentConversationId: "c1" },
-    ]);
+    getSubConversations.mockResolvedValue([{ id: "sub-1", parentConversationId: "c1" }]);
     const res = await GET(makeEvent({ locals: { user } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string }>;

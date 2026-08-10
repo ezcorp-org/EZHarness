@@ -104,9 +104,7 @@ describe("AskUserQuestionCard", () => {
 
   test("clicking an option disables every button while pending", async () => {
     // Make fetch hang so the submitting state is observable.
-    fetchSpy.mockImplementation(
-      () => new Promise(() => undefined) as unknown as Promise<Response>,
-    );
+    fetchSpy.mockImplementation(() => new Promise(() => undefined) as unknown as Promise<Response>);
     const { getByRole, getAllByRole } = render(AskUserQuestionCard, {
       toolCall: makeRunningCall(),
     });
@@ -159,9 +157,7 @@ describe("AskUserQuestionCard", () => {
   });
 
   test("non-2xx response surfaces an error banner", async () => {
-    fetchSpy.mockResolvedValueOnce(
-      new Response("nope", { status: 500 }) as never,
-    );
+    fetchSpy.mockResolvedValueOnce(new Response("nope", { status: 500 }) as never);
     const { getByRole, findByTestId } = render(AskUserQuestionCard, {
       toolCall: makeRunningCall(),
     });

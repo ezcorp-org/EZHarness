@@ -41,7 +41,9 @@ function makeEmbedding(): number[] {
 }
 
 // Insert project → conversation → message → message_chunks; return the ids.
-async function seedChunk(db: any): Promise<{ projectId: string; conversationId: string; messageId: string; chunkId: string }> {
+async function seedChunk(
+  db: any,
+): Promise<{ projectId: string; conversationId: string; messageId: string; chunkId: string }> {
   const projectId = crypto.randomUUID();
   const conversationId = crypto.randomUUID();
   const messageId = crypto.randomUUID();
@@ -49,18 +51,28 @@ async function seedChunk(db: any): Promise<{ projectId: string; conversationId: 
   const vecLit = toVectorLiteral(makeEmbedding());
 
   await db.execute(sql`INSERT INTO projects (id, name, path) VALUES (${projectId}, 'p', '/p')`);
-  await db.execute(sql`INSERT INTO conversations (id, project_id, title) VALUES (${conversationId}, ${projectId}, 'c')`);
-  await db.execute(sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${messageId}, ${conversationId}, 'user', 'hello world')`);
-  await db.execute(sql.raw(
-    `INSERT INTO message_chunks (id, message_id, conversation_id, content, chunk_index, embedding, embedding_model_id) ` +
-    `VALUES ('${chunkId}', '${messageId}', '${conversationId}', 'hello world', 0, ${vecLit}, '${MODEL_ID}')`,
-  ));
+  await db.execute(
+    sql`INSERT INTO conversations (id, project_id, title) VALUES (${conversationId}, ${projectId}, 'c')`,
+  );
+  await db.execute(
+    sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${messageId}, ${conversationId}, 'user', 'hello world')`,
+  );
+  await db.execute(
+    sql.raw(
+      `INSERT INTO message_chunks (id, message_id, conversation_id, content, chunk_index, embedding, embedding_model_id) ` +
+        `VALUES ('${chunkId}', '${messageId}', '${conversationId}', 'hello world', 0, ${vecLit}, '${MODEL_ID}')`,
+    ),
+  );
 
   return { projectId, conversationId, messageId, chunkId };
 }
 
 async function chunkCount(db: any, messageId: string): Promise<number> {
-  const rows = (await db.execute(sql`SELECT count(*)::int AS n FROM message_chunks WHERE message_id = ${messageId}`)).rows as Array<{ n: number }>;
+  const rows = (
+    await db.execute(
+      sql`SELECT count(*)::int AS n FROM message_chunks WHERE message_id = ${messageId}`,
+    )
+  ).rows as Array<{ n: number }>;
   return rows[0]?.n ?? -1;
 }
 
@@ -74,9 +86,11 @@ describe("message_chunks + message_embed_outbox schema", () => {
 
   test("message_chunks.embedding has an HNSW index (vector_cosine_ops), NOT ivfflat", async () => {
     const db = getTestDb();
-    const rows = (await db.execute(sql`
+    const rows = (
+      await db.execute(sql`
       SELECT indexname, indexdef FROM pg_indexes WHERE tablename = 'message_chunks'
-    `)).rows as Array<{ indexname: string; indexdef: string }>;
+    `)
+    ).rows as Array<{ indexname: string; indexdef: string }>;
 
     const hnsw = rows.filter((r) => /hnsw/i.test(r.indexdef));
     expect(hnsw.length).toBeGreaterThanOrEqual(1);
@@ -87,13 +101,15 @@ describe("message_chunks + message_embed_outbox schema", () => {
 
   test("message_chunks.embedding_model_id is text NOT NULL", async () => {
     const db = getTestDb();
-    const rows = (await db.execute(sql`
+    const rows = (
+      await db.execute(sql`
       SELECT column_name, data_type, is_nullable
       FROM information_schema.columns
       WHERE table_schema = 'public'
         AND table_name = 'message_chunks'
         AND column_name = 'embedding_model_id'
-    `)).rows as Array<{ column_name: string; data_type: string; is_nullable: string }>;
+    `)
+    ).rows as Array<{ column_name: string; data_type: string; is_nullable: string }>;
 
     expect(rows).toHaveLength(1);
     expect(rows[0]!.data_type).toBe("text");
@@ -102,17 +118,20 @@ describe("message_chunks + message_embed_outbox schema", () => {
 
   test("message_chunks.embedding is a vector column that round-trips a 384-element literal", async () => {
     const db = getTestDb();
-    const colRows = (await db.execute(sql`
+    const colRows = (
+      await db.execute(sql`
       SELECT udt_name FROM information_schema.columns
       WHERE table_schema = 'public'
         AND table_name = 'message_chunks'
         AND column_name = 'embedding'
-    `)).rows as Array<{ udt_name: string }>;
+    `)
+    ).rows as Array<{ udt_name: string }>;
     expect(colRows).toHaveLength(1);
     expect(colRows[0]!.udt_name).toBe("vector");
 
     const { messageId, chunkId } = await seedChunk(db);
-    const read = (await db.execute(sql`SELECT embedding FROM message_chunks WHERE id = ${chunkId}`)).rows as Array<{ embedding: unknown }>;
+    const read = (await db.execute(sql`SELECT embedding FROM message_chunks WHERE id = ${chunkId}`))
+      .rows as Array<{ embedding: unknown }>;
     expect(read).toHaveLength(1);
     expect(read[0]!.embedding).toBeTruthy();
     // Clean up so later CASCADE probes start from a known state.
@@ -139,7 +158,8 @@ describe("message_chunks + message_embed_outbox schema", () => {
 
   test("message_embed_outbox has message_id as PRIMARY KEY (one row per message)", async () => {
     const db = getTestDb();
-    const pkRows = (await db.execute(sql`
+    const pkRows = (
+      await db.execute(sql`
       SELECT kcu.column_name
       FROM information_schema.table_constraints tc
       JOIN information_schema.key_column_usage kcu
@@ -148,7 +168,8 @@ describe("message_chunks + message_embed_outbox schema", () => {
       WHERE tc.table_schema = 'public'
         AND tc.table_name = 'message_embed_outbox'
         AND tc.constraint_type = 'PRIMARY KEY'
-    `)).rows as Array<{ column_name: string }>;
+    `)
+    ).rows as Array<{ column_name: string }>;
     expect(pkRows.map((r) => r.column_name)).toEqual(["message_id"]);
 
     // Behavioral: a second insert for the same message_id must collide.
@@ -156,20 +177,32 @@ describe("message_chunks + message_embed_outbox schema", () => {
     const conversationId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     await db.execute(sql`INSERT INTO projects (id, name, path) VALUES (${projectId}, 'p', '/p')`);
-    await db.execute(sql`INSERT INTO conversations (id, project_id, title) VALUES (${conversationId}, ${projectId}, 'c')`);
-    await db.execute(sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${messageId}, ${conversationId}, 'user', 'x')`);
-    await db.execute(sql`INSERT INTO message_embed_outbox (message_id, conversation_id) VALUES (${messageId}, ${conversationId})`);
+    await db.execute(
+      sql`INSERT INTO conversations (id, project_id, title) VALUES (${conversationId}, ${projectId}, 'c')`,
+    );
+    await db.execute(
+      sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${messageId}, ${conversationId}, 'user', 'x')`,
+    );
+    await db.execute(
+      sql`INSERT INTO message_embed_outbox (message_id, conversation_id) VALUES (${messageId}, ${conversationId})`,
+    );
 
     let collided = false;
     try {
-      await db.execute(sql`INSERT INTO message_embed_outbox (message_id, conversation_id) VALUES (${messageId}, ${conversationId})`);
+      await db.execute(
+        sql`INSERT INTO message_embed_outbox (message_id, conversation_id) VALUES (${messageId}, ${conversationId})`,
+      );
     } catch {
       collided = true;
     }
     expect(collided).toBe(true);
 
     // Defaults: status 'pending', attempts 0.
-    const row = (await db.execute(sql`SELECT status, attempts FROM message_embed_outbox WHERE message_id = ${messageId}`)).rows as Array<{ status: string; attempts: number }>;
+    const row = (
+      await db.execute(
+        sql`SELECT status, attempts FROM message_embed_outbox WHERE message_id = ${messageId}`,
+      )
+    ).rows as Array<{ status: string; attempts: number }>;
     expect(row).toHaveLength(1);
     expect(row[0]!.status).toBe("pending");
     expect(Number(row[0]!.attempts)).toBe(0);
@@ -181,12 +214,22 @@ describe("message_chunks + message_embed_outbox schema", () => {
     const conversationId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     await db.execute(sql`INSERT INTO projects (id, name, path) VALUES (${projectId}, 'p', '/p')`);
-    await db.execute(sql`INSERT INTO conversations (id, project_id, title) VALUES (${conversationId}, ${projectId}, 'c')`);
-    await db.execute(sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${messageId}, ${conversationId}, 'user', 'x')`);
-    await db.execute(sql`INSERT INTO message_embed_outbox (message_id, conversation_id) VALUES (${messageId}, ${conversationId})`);
+    await db.execute(
+      sql`INSERT INTO conversations (id, project_id, title) VALUES (${conversationId}, ${projectId}, 'c')`,
+    );
+    await db.execute(
+      sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${messageId}, ${conversationId}, 'user', 'x')`,
+    );
+    await db.execute(
+      sql`INSERT INTO message_embed_outbox (message_id, conversation_id) VALUES (${messageId}, ${conversationId})`,
+    );
 
     await db.execute(sql`DELETE FROM messages WHERE id = ${messageId}`);
-    const rows = (await db.execute(sql`SELECT count(*)::int AS n FROM message_embed_outbox WHERE message_id = ${messageId}`)).rows as Array<{ n: number }>;
+    const rows = (
+      await db.execute(
+        sql`SELECT count(*)::int AS n FROM message_embed_outbox WHERE message_id = ${messageId}`,
+      )
+    ).rows as Array<{ n: number }>;
     expect(rows).toHaveLength(1);
     expect(rows[0]!.n).toBe(0);
   });
@@ -197,15 +240,25 @@ describe("message_chunks + message_embed_outbox schema", () => {
     const conversationId = crypto.randomUUID();
     const messageId = crypto.randomUUID();
     await db.execute(sql`INSERT INTO projects (id, name, path) VALUES (${projectId}, 'p', '/p')`);
-    await db.execute(sql`INSERT INTO conversations (id, project_id, title) VALUES (${conversationId}, ${projectId}, 'c')`);
-    await db.execute(sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${messageId}, ${conversationId}, 'user', 'x')`);
-    await db.execute(sql`INSERT INTO message_embed_outbox (message_id, conversation_id) VALUES (${messageId}, ${conversationId})`);
+    await db.execute(
+      sql`INSERT INTO conversations (id, project_id, title) VALUES (${conversationId}, ${projectId}, 'c')`,
+    );
+    await db.execute(
+      sql`INSERT INTO messages (id, conversation_id, role, content) VALUES (${messageId}, ${conversationId}, 'user', 'x')`,
+    );
+    await db.execute(
+      sql`INSERT INTO message_embed_outbox (message_id, conversation_id) VALUES (${messageId}, ${conversationId})`,
+    );
 
     // Deleting the conversation must cascade through BOTH FKs (message_id and
     // conversation_id are each ON DELETE CASCADE); a regression flipping the
     // conversation FK to SET NULL / NO ACTION would leave an orphan row.
     await db.execute(sql`DELETE FROM conversations WHERE id = ${conversationId}`);
-    const rows = (await db.execute(sql`SELECT count(*)::int AS n FROM message_embed_outbox WHERE message_id = ${messageId}`)).rows as Array<{ n: number }>;
+    const rows = (
+      await db.execute(
+        sql`SELECT count(*)::int AS n FROM message_embed_outbox WHERE message_id = ${messageId}`,
+      )
+    ).rows as Array<{ n: number }>;
     expect(rows).toHaveLength(1);
     expect(rows[0]!.n).toBe(0);
   });

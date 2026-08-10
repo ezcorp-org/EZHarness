@@ -110,15 +110,23 @@ const mockGetConversation = mock(async (id: string) => GRAPH[id] ?? null);
 const mockGetLatestLeaf = mock(async (_id: string) => null as { id: string } | null);
 const mockGetConversationPath = mock(async () => [] as unknown[]);
 const mockGetMessages = mock(async () => [] as unknown[]);
-const mockCreateMessage = mock(async (_cid: string, opts: { role: string; content: string; parentMessageId?: string }) => ({
-  id: "msg-new",
-  role: opts.role,
-  content: opts.content,
-  parentMessageId: opts.parentMessageId,
-  createdAt: new Date(),
+const mockCreateMessage = mock(
+  async (_cid: string, opts: { role: string; content: string; parentMessageId?: string }) => ({
+    id: "msg-new",
+    role: opts.role,
+    content: opts.content,
+    parentMessageId: opts.parentMessageId,
+    createdAt: new Date(),
+  }),
+);
+const mockUpdateMessageContent = mock(async (_cid: string, mid: string, content: string) => ({
+  id: mid,
+  content,
 }));
-const mockUpdateMessageContent = mock(async (_cid: string, mid: string, content: string) => ({ id: mid, content }));
-const mockSetMessageExcluded = mock(async (_cid: string, mid: string, excluded: boolean) => ({ id: mid, excluded }));
+const mockSetMessageExcluded = mock(async (_cid: string, mid: string, excluded: boolean) => ({
+  id: mid,
+  excluded,
+}));
 
 mock.module("$server/db/queries/conversations", () => ({
   getConversation: mockGetConversation,
@@ -172,7 +180,9 @@ mock.module("$lib/server/context", () => ({
   // ownership/streamChat behaviour under test is unchanged.
   getGoalHost: () => null,
 }));
-mock.module("$lib/server/command-resolver", () => ({ buildCommandResolver: () => async () => null }));
+mock.module("$lib/server/command-resolver", () => ({
+  buildCommandResolver: () => async () => null,
+}));
 mock.module("$server/providers/model-capabilities", () => ({
   getCapabilitiesWithExtensions: () => ({ maxFilesPerMessage: 0 }),
   classifyMimeWithCaps: () => null,
@@ -194,12 +204,8 @@ mock.module("$server/runtime/mention-wiring", () => ({
 }));
 mock.module("$server/runtime/ez-actions/registry", () => ({ getEzAction: () => null }));
 
-const { GET, POST } = await import(
-  "../routes/api/conversations/[id]/messages/+server"
-);
-const { PATCH } = await import(
-  "../routes/api/conversations/[id]/messages/[mid]/+server"
-);
+const { GET, POST } = await import("../routes/api/conversations/[id]/messages/+server");
+const { PATCH } = await import("../routes/api/conversations/[id]/messages/[mid]/+server");
 
 function getEvent(cid: string, user: unknown) {
   return {
@@ -221,7 +227,11 @@ function postEvent(cid: string, user: unknown, body: Record<string, unknown> = {
     }),
   } as never;
 }
-function patchEvent(cid: string, user: unknown, body: Record<string, unknown> = { content: "edited" }) {
+function patchEvent(
+  cid: string,
+  user: unknown,
+  body: Record<string, unknown> = { content: "edited" },
+) {
   return {
     url: new URL(`http://localhost/api/conversations/${cid}/messages/m1`),
     params: { id: cid, mid: "m1" },
@@ -246,17 +256,23 @@ beforeEach(() => {
   mockGetMessages.mockReset();
   mockGetMessages.mockImplementation(async () => []);
   mockCreateMessage.mockReset();
-  mockCreateMessage.mockImplementation(async (_cid: string, opts: { role: string; content: string; parentMessageId?: string }) => ({
-    id: "msg-new",
-    role: opts.role,
-    content: opts.content,
-    parentMessageId: opts.parentMessageId,
-    createdAt: new Date(),
-  }));
+  mockCreateMessage.mockImplementation(
+    async (_cid: string, opts: { role: string; content: string; parentMessageId?: string }) => ({
+      id: "msg-new",
+      role: opts.role,
+      content: opts.content,
+      parentMessageId: opts.parentMessageId,
+      createdAt: new Date(),
+    }),
+  );
   mockUpdateMessageContent.mockReset();
-  mockUpdateMessageContent.mockImplementation(async (_cid: string, mid: string, content: string) => ({ id: mid, content }));
+  mockUpdateMessageContent.mockImplementation(
+    async (_cid: string, mid: string, content: string) => ({ id: mid, content }),
+  );
   mockSetMessageExcluded.mockReset();
-  mockSetMessageExcluded.mockImplementation(async (_cid: string, mid: string, excluded: boolean) => ({ id: mid, excluded }));
+  mockSetMessageExcluded.mockImplementation(
+    async (_cid: string, mid: string, excluded: boolean) => ({ id: mid, excluded }),
+  );
   mockGetActiveRun.mockReset();
   mockGetActiveRun.mockImplementation(async () => mockActiveRun);
   mockStreamChat.mockReset();

@@ -59,7 +59,9 @@ describe("provisionInternalKey", () => {
   });
 
   test("refuses 'admin' scope (defense-in-depth against privilege creep)", () => {
-    expect(() => provisionInternalKey("ai-kit", ["admin"], "sys-ai-kit")).toThrow(/admin.*forbidden/);
+    expect(() => provisionInternalKey("ai-kit", ["admin"], "sys-ai-kit")).toThrow(
+      /admin.*forbidden/,
+    );
     // Mixed scopes containing admin are also rejected.
     expect(() => provisionInternalKey("ai-kit", ["chat", "admin"], "sys-ai-kit")).toThrow();
   });
@@ -280,9 +282,9 @@ describe("isLoopbackAddress", () => {
   test("rejects near-misses that could fool a weaker check", () => {
     for (const a of [
       "127.0.0.1.evil.com", // subdomain trick
-      "1127.0.0.1",          // superstring
-      "127_0_0_1",           // underscore substitution
-      "0127.0.0.1",          // leading zero octet
+      "1127.0.0.1", // superstring
+      "127_0_0_1", // underscore substitution
+      "0127.0.0.1", // leading zero octet
     ]) {
       expect(isLoopbackAddress(a)).toBe(false);
     }

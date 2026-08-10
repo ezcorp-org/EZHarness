@@ -18,10 +18,16 @@ mock.module("../db/queries/settings", () => ({
     if (shouldThrow) throw new Error("db down");
     return settingValue;
   },
-  async getAllSettings() { return {}; },
+  async getAllSettings() {
+    return {};
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 const { loopsKillSwitchEngaged, LOOPS_KILL_SWITCH_KEY } = await import(

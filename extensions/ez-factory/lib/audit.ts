@@ -258,9 +258,7 @@ export function createAuditLog(
 ): AuditLog {
   const storage = new Storage(scope);
 
-  const doAppend = async (
-    input: Omit<AuditEntry, "at"> & { at?: string },
-  ): Promise<void> => {
+  const doAppend = async (input: Omit<AuditEntry, "at"> & { at?: string }): Promise<void> => {
     const at = input.at ?? new Date().toISOString();
     const detail = clampAuditDetail(input.detail);
     const entry: AuditEntry = {

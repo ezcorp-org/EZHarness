@@ -83,7 +83,7 @@ function makeFakeGoalHost() {
     ensureGoalRecordRehydrated: vi.fn(async (conversationId: string, isGoalCmd: boolean) => {
       rehydrateCalls.push({ conversationId, isGoalCmd });
     }),
-    handleGoalCommand: vi.fn(async (input: typeof dispatchCalls[number]) => {
+    handleGoalCommand: vi.fn(async (input: (typeof dispatchCalls)[number]) => {
       dispatchCalls.push(input);
       return nextDispatch;
     }),
@@ -138,14 +138,9 @@ vi.mock("$server/chat/attachments/storage", () => ({
   deleteForMessage: async () => undefined,
 }));
 
-const { POST } = await import(
-  "../routes/api/conversations/[id]/messages/+server.ts"
-);
+const { POST } = await import("../routes/api/conversations/[id]/messages/+server.ts");
 
-function makeEvent(opts: {
-  body: unknown;
-  locals?: Record<string, unknown>;
-}) {
+function makeEvent(opts: { body: unknown; locals?: Record<string, unknown> }) {
   const href = "http://localhost/api/conversations/c1/messages";
   // The handler only reads `params.id`, `locals.user`, and `request`
   // — the rest of `RequestEvent` (cookies/fetch/getClientAddress/...)
@@ -280,7 +275,10 @@ describe("FR-3 — >4000-char condition is rejected without streamChat", () => {
   test("set with 4001-char condition → card, runId:null, no streamChat", async () => {
     goalHostMock!.setNextDispatch({
       kind: "card",
-      result: { kind: "error", card: { title: "Goal condition too long", body: "x", variant: "error" } },
+      result: {
+        kind: "error",
+        card: { title: "Goal condition too long", body: "x", variant: "error" },
+      },
       row: { id: "row-reject", role: "ez-action-result", content: '{"kind":"error"}' },
     });
     const long = "x".repeat(4001);
@@ -357,7 +355,7 @@ describe("I11 — headless / non-interactive POSTs hit the same code path", () =
     goalHostMock!.setNextDispatch({
       kind: "card",
       result: { kind: "success", card: { title: "Goal cleared", body: "x", variant: "info" } },
-      row: { id: "row-clear-hl", role: "ez-action-result", content: '{}' },
+      row: { id: "row-clear-hl", role: "ez-action-result", content: "{}" },
     });
     const res = await POST(makeEvent({ locals: { user }, body: { content: "/goal clear" } }));
     const body = (await res.json()) as { runId: string | null };

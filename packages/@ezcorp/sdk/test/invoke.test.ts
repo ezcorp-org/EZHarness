@@ -9,11 +9,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
 import { invoke } from "../src/runtime/invoke";
-import {
-  __resetChannelForTests,
-  getChannel,
-  type HostChannel,
-} from "../src/runtime/channel";
+import { __resetChannelForTests, getChannel, type HostChannel } from "../src/runtime/channel";
 
 // Per-file afterEach guard — preload.ts already wires global reset, but
 // this keeps the file self-contained under direct `bun test <file>` runs.
@@ -27,18 +23,14 @@ interface RequestCall {
   timeoutMs: number | undefined;
 }
 
-function stubRequest<T>(
-  returnValue: T,
-): { calls: RequestCall[]; spy: ReturnType<typeof spyOn> } {
+function stubRequest<T>(returnValue: T): { calls: RequestCall[]; spy: ReturnType<typeof spyOn> } {
   const ch: HostChannel = getChannel();
   const calls: RequestCall[] = [];
   const spy = spyOn(ch, "request");
-  spy.mockImplementation(
-    (async (method: string, params: unknown, timeoutMs?: number) => {
-      calls.push({ method, params, timeoutMs });
-      return returnValue;
-    }) as HostChannel["request"],
-  );
+  spy.mockImplementation((async (method: string, params: unknown, timeoutMs?: number) => {
+    calls.push({ method, params, timeoutMs });
+    return returnValue;
+  }) as HostChannel["request"]);
   return { calls, spy };
 }
 
@@ -107,24 +99,18 @@ describe("invoke — channel behavior propagation", () => {
   test("channel rejection propagates to the caller (timeout case)", async () => {
     const ch = getChannel();
     const spy = spyOn(ch, "request");
-    spy.mockImplementation(
-      (async () => {
-        throw new Error("[@ezcorp/sdk] request timeout after 100ms: ezcorp/invoke");
-      }) as HostChannel["request"],
-    );
-    await expect(invoke("slow", {}, { timeoutMs: 100 })).rejects.toThrow(
-      /timeout after 100ms/,
-    );
+    spy.mockImplementation((async () => {
+      throw new Error("[@ezcorp/sdk] request timeout after 100ms: ezcorp/invoke");
+    }) as HostChannel["request"]);
+    await expect(invoke("slow", {}, { timeoutMs: 100 })).rejects.toThrow(/timeout after 100ms/);
   });
 
   test("channel rejection propagates to the caller (host protocol error case)", async () => {
     const ch = getChannel();
     const spy = spyOn(ch, "request");
-    spy.mockImplementation(
-      (async () => {
-        throw new Error("Tool not found: missing");
-      }) as HostChannel["request"],
-    );
+    spy.mockImplementation((async () => {
+      throw new Error("Tool not found: missing");
+    }) as HostChannel["request"]);
     await expect(invoke("missing", {})).rejects.toThrow(/Tool not found: missing/);
   });
 

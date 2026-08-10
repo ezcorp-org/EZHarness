@@ -118,9 +118,7 @@ function stubStorage(delayMs = 0): {
     }
     if (p.action === "delete") return { deleted: mem.delete(key) };
     if (delayMs > 0) await new Promise((r) => setTimeout(r, delayMs));
-    return mem.has(key)
-      ? { value: mem.get(key), exists: true }
-      : { value: null, exists: false };
+    return mem.has(key) ? { value: mem.get(key), exists: true } : { value: null, exists: false };
   }) as HostChannel["request"]);
   return { mem, calls };
 }
@@ -189,15 +187,25 @@ describe("invariant B — a job cannot skip a gate or approval step", () => {
     expect(error).toContain("needsReview");
     expect(error).toContain("not settable");
     // Same shape, allowlisted key → accepted. The refusal is about the KEY.
-    expect(validateJobDraft({ name: "J", workflow: "docs-factory", input: { globs: "**/*.ts" } }).ok).toBe(true);
+    expect(
+      validateJobDraft({ name: "J", workflow: "docs-factory", input: { globs: "**/*.ts" } }).ok,
+    ).toBe(true);
   });
 
   test("door 1: the allowlist is PER WORKFLOW — a key legal on one is refused on another", () => {
     // Both directions, so a single shared allowlist would fail this.
-    expect(validateJobDraft({ name: "J", workflow: "draft-and-verify", input: { draft: "d" } }).ok).toBe(true);
-    expect(rejection({ name: "J", workflow: "docs-factory", input: { draft: "d" } })).toContain("not settable");
-    expect(validateJobDraft({ name: "J", workflow: "docs-factory", input: { globs: "**/*" } }).ok).toBe(true);
-    expect(rejection({ name: "J", workflow: "draft-and-verify", input: { globs: "**/*" } })).toContain("not settable");
+    expect(
+      validateJobDraft({ name: "J", workflow: "draft-and-verify", input: { draft: "d" } }).ok,
+    ).toBe(true);
+    expect(rejection({ name: "J", workflow: "docs-factory", input: { draft: "d" } })).toContain(
+      "not settable",
+    );
+    expect(
+      validateJobDraft({ name: "J", workflow: "docs-factory", input: { globs: "**/*" } }).ok,
+    ).toBe(true);
+    expect(
+      rejection({ name: "J", workflow: "draft-and-verify", input: { globs: "**/*" } }),
+    ).toContain("not settable");
   });
 
   test("door 1: 'priorContent'/'priorVerdict' are NOT job-settable on draft-and-verify", () => {
@@ -205,21 +213,21 @@ describe("invariant B — a job cannot skip a gate or approval step", () => {
     // them through its `review-loop` step's `input` mapping ($loop.last.*),
     // resolved by the executor — they never pass through this store. The gap
     // is the correct shape, not an oversight to "fix".
-    expect(rejection({ name: "J", workflow: "draft-and-verify", input: { priorContent: "x" } })).toContain(
-      "not settable",
-    );
-    expect(rejection({ name: "J", workflow: "draft-and-verify", input: { priorVerdict: "x" } })).toContain(
-      "not settable",
-    );
+    expect(
+      rejection({ name: "J", workflow: "draft-and-verify", input: { priorContent: "x" } }),
+    ).toContain("not settable");
+    expect(
+      rejection({ name: "J", workflow: "draft-and-verify", input: { priorVerdict: "x" } }),
+    ).toContain("not settable");
   });
 
   test("door 1: 'now' is not settable on etl-factory — a saved job would freeze one timestamp", () => {
     // A transform does no I/O and reads no clock, so `{{ $input.now }}` is a
     // caller-supplied string. Saved on a job it would stamp the same instant
     // on every run it ever fired. The run's own `startedAt` is on the trace.
-    expect(rejection({ name: "J", workflow: "etl-factory", input: { now: "2026-08-01" } })).toContain(
-      "not settable",
-    );
+    expect(
+      rejection({ name: "J", workflow: "etl-factory", input: { now: "2026-08-01" } }),
+    ).toContain("not settable");
   });
 
   test("door 2: 'skipDependents' is refused BY NAME, with the security message", () => {
@@ -242,7 +250,11 @@ describe("invariant B — a job cannot skip a gate or approval step", () => {
   });
 
   test("door 2: 'when' is refused BY NAME, with the security message", () => {
-    const asField = rejection({ name: "J", workflow: "docs-factory", when: { ref: "$input.x", op: "eq" } });
+    const asField = rejection({
+      name: "J",
+      workflow: "docs-factory",
+      when: { ref: "$input.x", op: "eq" },
+    });
     expect(asField).toContain("'when'");
     expect(asField).toContain("control flow");
     expect(asField).not.toContain("unknown job field");
@@ -251,10 +263,12 @@ describe("invariant B — a job cannot skip a gate or approval step", () => {
   test("door 2: every RESERVED_CONTROL_FLOW_FIELDS name is refused as a field and as an input key", () => {
     expect(RESERVED_CONTROL_FLOW_FIELDS.length).toBeGreaterThan(0);
     for (const name of RESERVED_CONTROL_FLOW_FIELDS) {
-      expect(rejection({ name: "J", workflow: "docs-factory", [name]: "x" })).toContain("control flow");
-      expect(
-        rejection({ name: "J", workflow: "docs-factory", input: { [name]: "x" } }),
-      ).toContain("control flow");
+      expect(rejection({ name: "J", workflow: "docs-factory", [name]: "x" })).toContain(
+        "control flow",
+      );
+      expect(rejection({ name: "J", workflow: "docs-factory", input: { [name]: "x" } })).toContain(
+        "control flow",
+      );
     }
   });
 
@@ -329,7 +343,9 @@ describe("validateJobDraft — bounds", () => {
   });
 
   test(`name is refused over ${MAX_JOB_NAME_LEN} characters, and accepted at exactly it`, () => {
-    expect(validateJobDraft({ name: "n".repeat(MAX_JOB_NAME_LEN), workflow: "docs-factory" }).ok).toBe(true);
+    expect(
+      validateJobDraft({ name: "n".repeat(MAX_JOB_NAME_LEN), workflow: "docs-factory" }).ok,
+    ).toBe(true);
     const error = rejection({ name: "n".repeat(MAX_JOB_NAME_LEN + 1), workflow: "docs-factory" });
     expect(error).toContain(`name must be ${MAX_JOB_NAME_LEN} characters or fewer`);
     expect(error).toContain(String(MAX_JOB_NAME_LEN + 1));
@@ -380,7 +396,11 @@ describe("validateJobDraft — trigger", () => {
   });
 
   test("manual is accepted", () => {
-    const result = validateJobDraft({ name: "J", workflow: "docs-factory", trigger: { kind: "manual" } });
+    const result = validateJobDraft({
+      name: "J",
+      workflow: "docs-factory",
+      trigger: { kind: "manual" },
+    });
     expect(result.ok && result.value.trigger).toEqual({ kind: "manual" });
   });
 
@@ -651,13 +671,13 @@ describe("the background-trigger seams the fire path reads", () => {
     // ends up disagreeing the day a third background kind lands.
     expect(isBackgroundTrigger({ kind: "manual" })).toBe(false);
     expect(isBackgroundTrigger(cronTrigger)).toBe(true);
-    expect(
-      isBackgroundTrigger({ kind: "webhook", maxRunsPerDay: 1, maxTokensPerRun: 1 }),
-    ).toBe(true);
+    expect(isBackgroundTrigger({ kind: "webhook", maxRunsPerDay: 1, maxTokensPerRun: 1 })).toBe(
+      true,
+    );
     expect(isBackgroundTrigger({ kind: "event", event: "run:complete" })).toBe(false);
-    expect(
-      isBackgroundTrigger({ kind: "workflow", onWorkflow: "x", onStatus: ["success"] }),
-    ).toBe(false);
+    expect(isBackgroundTrigger({ kind: "workflow", onWorkflow: "x", onStatus: ["success"] })).toBe(
+      false,
+    );
   });
 
   test("BACKGROUND_TRIGGER_KINDS and isBackgroundTrigger agree", () => {
@@ -671,9 +691,10 @@ describe("the background-trigger seams the fire path reads", () => {
     // What the consent handoff prefills and the fire path enforces:
     // `workflow_delegations.max_runs_per_day` / `.max_tokens_per_run`.
     expect(triggerBounds(cronTrigger)).toEqual({ maxRunsPerDay: 4, maxTokensPerRun: 50_000 });
-    expect(
-      triggerBounds({ kind: "webhook", maxRunsPerDay: 9, maxTokensPerRun: 3 }),
-    ).toEqual({ maxRunsPerDay: 9, maxTokensPerRun: 3 });
+    expect(triggerBounds({ kind: "webhook", maxRunsPerDay: 9, maxTokensPerRun: 3 })).toEqual({
+      maxRunsPerDay: 9,
+      maxTokensPerRun: 3,
+    });
   });
 
   test("triggerBounds is null for every attended trigger", () => {
@@ -850,10 +871,13 @@ describe("createJobStore — jobs", () => {
   test("create → get → list round-trips, stamping attribution and the C3 placeholders", async () => {
     stubStorage();
     const store = createJobStore();
-    const created = await store.createJob(draft({ description: "d", input: { globs: "**/*.ts" } }), {
-      id: "j1",
-      ...OPTS,
-    });
+    const created = await store.createJob(
+      draft({ description: "d", input: { globs: "**/*.ts" } }),
+      {
+        id: "j1",
+        ...OPTS,
+      },
+    );
     expect(created.ok).toBe(true);
     expect(created.ok && created.value).toMatchObject({
       id: "j1",
@@ -940,7 +964,10 @@ describe("createJobStore — jobs", () => {
     stubStorage();
     const store = createJobStore();
     await store.createJob(draft(), { id: "j1", ...OPTS });
-    const off = await store.setEnabled("j1", false, { actor: "user-2", now: "2026-08-03T00:00:00.000Z" });
+    const off = await store.setEnabled("j1", false, {
+      actor: "user-2",
+      now: "2026-08-03T00:00:00.000Z",
+    });
     expect(off).toMatchObject({ enabled: false, updatedBy: "user-2" });
     expect(await store.setEnabled("missing", false, OPTS)).toBeNull();
   });

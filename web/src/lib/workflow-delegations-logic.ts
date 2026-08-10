@@ -28,44 +28,44 @@
 
 /** Mirrors `ConsentStepMaterial` (`workflow-capability-hash.ts:158-167`). */
 export interface ConsentStepMaterial {
-	name: string;
-	kind: string;
-	/** Canonical `when` guard as JSON; the string `"null"` when absent. */
-	when: string;
-	skipDependents: boolean;
-	/** Canonical per-step model binding as JSON; `"null"` when absent. */
-	model: string;
+  name: string;
+  kind: string;
+  /** Canonical `when` guard as JSON; the string `"null"` when absent. */
+  when: string;
+  skipDependents: boolean;
+  /** Canonical per-step model binding as JSON; `"null"` when absent. */
+  model: string;
 }
 
 /** Mirrors `ConsentGraphMaterial` (`workflow-capability-hash.ts:170-179`). */
 export interface ConsentGraphMaterial {
-	name: string;
-	identity: string;
-	defaultModel: string;
-	steps: ConsentStepMaterial[];
-	/** Sorted, de-duplicated `kind::value`. */
-	capabilities: string[];
+  name: string;
+  identity: string;
+  defaultModel: string;
+  steps: ConsentStepMaterial[];
+  /** Sorted, de-duplicated `kind::value`. */
+  capabilities: string[];
 }
 
 /** Mirrors `ConsentHashMaterial` (`workflow-capability-hash.ts:184-199`). */
 export interface ConsentHashMaterial {
-	v: number;
-	extensionName: string;
-	workflowName: string;
-	projectId: string | null;
-	runAs: { kind: string; id: string | null };
-	trigger: { kind: string; spec: unknown };
-	graph: ConsentGraphMaterial[];
-	unresolved: string[];
-	cycles: string[];
-	tooDeep: string[];
+  v: number;
+  extensionName: string;
+  workflowName: string;
+  projectId: string | null;
+  runAs: { kind: string; id: string | null };
+  trigger: { kind: string; spec: unknown };
+  graph: ConsentGraphMaterial[];
+  unresolved: string[];
+  cycles: string[];
+  tooDeep: string[];
 }
 
 /** Mirrors `ServiceAccountReach` (`src/db/queries/service-accounts.ts:152-158`). */
 export interface ServiceAccountReach {
-	code: string;
-	runnableVisibilities: string[];
-	message: string;
+  code: string;
+  runnableVisibilities: string[];
+  message: string;
 }
 
 /**
@@ -84,45 +84,45 @@ export interface ServiceAccountReach {
  * out every option for exactly the non-admins this widening was for.
  */
 export interface ServiceAccountOption {
-	id: string;
-	name: string;
-	enabled?: boolean;
+  id: string;
+  name: string;
+  enabled?: boolean;
 }
 
 export type DelegationOwnerKind = "user" | "service";
 
 export interface Delegation {
-	id: string;
-	extensionId: string;
-	jobRef: string;
-	ownerKind: DelegationOwnerKind;
-	ownerId: string | null;
-	workflowName: string;
-	definitionVersionId: string | null;
-	projectId: string | null;
-	triggerKind: string;
-	triggerSpec: Record<string, unknown> | null;
-	capabilitySet: Array<{ kind: string; value: string | null }>;
-	maxTokensPerRun: number;
-	maxRunsPerDay: number;
-	enabled: boolean;
-	disabledReason: string | null;
-	consentedAt: string;
-	consentedByUserId: string;
+  id: string;
+  extensionId: string;
+  jobRef: string;
+  ownerKind: DelegationOwnerKind;
+  ownerId: string | null;
+  workflowName: string;
+  definitionVersionId: string | null;
+  projectId: string | null;
+  triggerKind: string;
+  triggerSpec: Record<string, unknown> | null;
+  capabilitySet: Array<{ kind: string; value: string | null }>;
+  maxTokensPerRun: number;
+  maxRunsPerDay: number;
+  enabled: boolean;
+  disabledReason: string | null;
+  consentedAt: string;
+  consentedByUserId: string;
 }
 
 /** One row of "jobs running as me". */
 export interface DelegatedRun {
-	id: string;
-	workflowName: string;
-	status: string;
-	runAsKind: DelegationOwnerKind | null;
-	runAs: string | null;
-	delegationId: string | null;
-	startedAt: string;
-	finishedAt: string | null;
-	error: string | null;
-	suspendedReason: string | null;
+  id: string;
+  workflowName: string;
+  status: string;
+  runAsKind: DelegationOwnerKind | null;
+  runAs: string | null;
+  delegationId: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  error: string | null;
+  suspendedReason: string | null;
 }
 
 /**
@@ -131,42 +131,42 @@ export interface DelegatedRun {
  * see the preview route.
  */
 export interface EffortNoop {
-	workflowName: string;
-	stepName: string;
-	provider: string;
-	model: string;
-	effort: string;
+  workflowName: string;
+  stepName: string;
+  provider: string;
+  model: string;
+  effort: string;
 }
 
 /** What `POST /api/workflows/delegations/preview` answers with. */
 export interface ConsentPreview {
-	material: ConsentHashMaterial;
-	capabilitySet: Array<{ kind: string; value: string | null }>;
-	consentHash: string;
-	definitionVersionId: string | null;
-	/** Steps whose `effort` is a no-op on the model actually bound. */
-	effortNoops: EffortNoop[];
-	/** The run-scoped tool-call ceiling, read from the host's own constant. */
-	maxToolCallsPerRun: number;
-	/** `MAX_WORKFLOW_NESTING_DEPTH`, read from the host's own constant. */
-	maxNestingDepth: number;
-	/**
-	 * Phase 2's server-derived reach object.
-	 *
-	 * Carried here because `GET /api/service-accounts` is admin-only, so a
-	 * non-admin consenting to a delegation could otherwise never read it —
-	 * and the alternative, re-stating what a service account can reach in
-	 * the browser, is the one thing this module refuses to do.
-	 */
-	reach: ServiceAccountReach;
+  material: ConsentHashMaterial;
+  capabilitySet: Array<{ kind: string; value: string | null }>;
+  consentHash: string;
+  definitionVersionId: string | null;
+  /** Steps whose `effort` is a no-op on the model actually bound. */
+  effortNoops: EffortNoop[];
+  /** The run-scoped tool-call ceiling, read from the host's own constant. */
+  maxToolCallsPerRun: number;
+  /** `MAX_WORKFLOW_NESTING_DEPTH`, read from the host's own constant. */
+  maxNestingDepth: number;
+  /**
+   * Phase 2's server-derived reach object.
+   *
+   * Carried here because `GET /api/service-accounts` is admin-only, so a
+   * non-admin consenting to a delegation could otherwise never read it —
+   * and the alternative, re-stating what a service account can reach in
+   * the browser, is the one thing this module refuses to do.
+   */
+  reach: ServiceAccountReach;
 }
 
 // ── the owner-kind picker (Ruling 1) ──────────────────────────────────
 
 export interface OwnerKindChoice {
-	kind: DelegationOwnerKind;
-	label: string;
-	detail: string;
+  kind: DelegationOwnerKind;
+  label: string;
+  detail: string;
 }
 
 /**
@@ -177,17 +177,17 @@ export interface OwnerKindChoice {
  * reads better as the second option a person considers.
  */
 export const OWNER_KIND_CHOICES: readonly OwnerKindChoice[] = [
-	{
-		kind: "user",
-		label: "Run as me",
-		detail: "Jobs run with your identity and reach exactly the workflows you can reach.",
-	},
-	{
-		kind: "service",
-		label: "Run as a service account",
-		detail:
-			"Jobs run as a named non-human principal with its own scopes. It has no user identity, so it reaches less than you do.",
-	},
+  {
+    kind: "user",
+    label: "Run as me",
+    detail: "Jobs run with your identity and reach exactly the workflows you can reach.",
+  },
+  {
+    kind: "service",
+    label: "Run as a service account",
+    detail:
+      "Jobs run as a named non-human principal with its own scopes. It has no user identity, so it reaches less than you do.",
+  },
 ];
 
 /**
@@ -201,11 +201,11 @@ export const OWNER_KIND_CHOICES: readonly OwnerKindChoice[] = [
  * to that question and one of them is not connected to the ladder.
  */
 export function reachWarningFor(
-	ownerKind: DelegationOwnerKind,
-	reach: ServiceAccountReach | null,
+  ownerKind: DelegationOwnerKind,
+  reach: ServiceAccountReach | null,
 ): string | null {
-	if (ownerKind !== "service") return null;
-	return reach?.message ?? null;
+  if (ownerKind !== "service") return null;
+  return reach?.message ?? null;
 }
 
 // ── the trigger a delegation may be granted for ───────────────────────
@@ -224,14 +224,14 @@ export function reachWarningFor(
  * authority nothing will ever spend.
  */
 export interface TriggerKindChoice {
-	kind: string;
-	label: string;
+  kind: string;
+  label: string;
 }
 
 export const TRIGGER_KIND_CHOICES: readonly TriggerKindChoice[] = [
-	{ kind: "cron", label: "On a schedule" },
-	{ kind: "webhook", label: "On a webhook" },
-	{ kind: "event", label: "On an event" },
+  { kind: "cron", label: "On a schedule" },
+  { kind: "webhook", label: "On a webhook" },
+  { kind: "event", label: "On an event" },
 ];
 
 /**
@@ -243,7 +243,7 @@ export const TRIGGER_KIND_CHOICES: readonly TriggerKindChoice[] = [
  * render honestly rather than describe itself as nothing.
  */
 export function describeTriggerKind(kind: string): string {
-	return TRIGGER_KIND_CHOICES.find((c) => c.kind === kind)?.label ?? kind;
+  return TRIGGER_KIND_CHOICES.find((c) => c.kind === kind)?.label ?? kind;
 }
 
 // ── the grant PREFILL (the job → consent handoff) ─────────────────────
@@ -257,16 +257,16 @@ export function describeTriggerKind(kind: string): string {
  * approves something other than what they were shown.
  */
 export interface GrantDraft {
-	extensionId: string;
-	workflowName: string;
-	jobRef: string;
-	triggerKind: string;
+  extensionId: string;
+  workflowName: string;
+  jobRef: string;
+  triggerKind: string;
 }
 
 /** An extension the picker may offer: granted `allowDelegated`, enabled. */
 export interface DelegatableExtensionOption {
-	id: string;
-	name: string;
+  id: string;
+  name: string;
 }
 
 /**
@@ -284,10 +284,10 @@ export interface DelegatableExtensionOption {
  * spell the same four things the same way.
  */
 export const GRANT_PARAMS = {
-	extensionId: "extensionId",
-	workflowName: "workflowName",
-	jobRef: "jobRef",
-	triggerKind: "triggerKind",
+  extensionId: "extensionId",
+  workflowName: "workflowName",
+  jobRef: "jobRef",
+  triggerKind: "triggerKind",
 } as const;
 
 /**
@@ -306,7 +306,7 @@ export const MAX_JOB_REF_CHARS = 200;
 const ECHO_CHARS = 80;
 
 function echo(value: string): string {
-	return value.length <= ECHO_CHARS ? value : `${value.slice(0, ECHO_CHARS)}…`;
+  return value.length <= ECHO_CHARS ? value : `${value.slice(0, ECHO_CHARS)}…`;
 }
 
 /**
@@ -318,25 +318,25 @@ function echo(value: string): string {
  * screen, and so is the fact that the link chose them.
  */
 export interface GrantPrefill {
-	draft: GrantDraft;
-	/** Human field names the prefill actually filled in, in field order. */
-	applied: string[];
-	/** One sentence per field a prefill named but this instance cannot offer. */
-	rejected: string[];
+  draft: GrantDraft;
+  /** Human field names the prefill actually filled in, in field order. */
+  applied: string[];
+  /** One sentence per field a prefill named but this instance cannot offer. */
+  rejected: string[];
 }
 
 /** A `URLSearchParams`-shaped reader. Narrowed to the one method used so a
  *  plain object can stand in for a URL. */
 export interface ParamReader {
-	get(name: string): string | null;
+  get(name: string): string | null;
 }
 
 /** Read a param as a present, non-blank string — or `null`. */
 function param(params: ParamReader, name: string): string | null {
-	const raw = params.get(name);
-	if (typeof raw !== "string") return null;
-	const trimmed = raw.trim();
-	return trimmed === "" ? null : trimmed;
+  const raw = params.get(name);
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed === "" ? null : trimmed;
 }
 
 /**
@@ -350,21 +350,21 @@ function param(params: ParamReader, name: string): string | null {
  * workflow the picker cannot select.
  */
 export function grantParams(fields: Partial<GrantDraft>): ParamReader {
-	return {
-		get(name: string): string | null {
-			return (fields as Record<string, string | undefined>)[name] ?? null;
-		},
-	};
+  return {
+    get(name: string): string | null {
+      return (fields as Record<string, string | undefined>)[name] ?? null;
+    },
+  };
 }
 
 /** Everything {@link resolveGrantPrefill} checks a prefill against. */
 export interface GrantPrefillSources {
-	/** The delegatable-extension picker's options, as loaded. */
-	extensions: readonly DelegatableExtensionOption[];
-	/** Every workflow name the workflow picker offers. */
-	workflowNames: readonly string[];
-	/** What the form holds now; an unresolved field keeps its current value. */
-	current: GrantDraft;
+  /** The delegatable-extension picker's options, as loaded. */
+  extensions: readonly DelegatableExtensionOption[];
+  /** Every workflow name the workflow picker offers. */
+  workflowNames: readonly string[];
+  /** What the form holds now; an unresolved field keeps its current value. */
+  current: GrantDraft;
 }
 
 /**
@@ -395,73 +395,71 @@ export interface GrantPrefillSources {
  * the page is untouched.
  */
 export function resolveGrantPrefill(
-	params: ParamReader,
-	sources: GrantPrefillSources,
+  params: ParamReader,
+  sources: GrantPrefillSources,
 ): GrantPrefill | null {
-	const rawExtension = param(params, GRANT_PARAMS.extensionId);
-	const rawWorkflow = param(params, GRANT_PARAMS.workflowName);
-	const rawJobRef = param(params, GRANT_PARAMS.jobRef);
-	const rawTrigger = param(params, GRANT_PARAMS.triggerKind);
-	if (rawExtension === null && rawWorkflow === null && rawJobRef === null && rawTrigger === null) {
-		return null;
-	}
+  const rawExtension = param(params, GRANT_PARAMS.extensionId);
+  const rawWorkflow = param(params, GRANT_PARAMS.workflowName);
+  const rawJobRef = param(params, GRANT_PARAMS.jobRef);
+  const rawTrigger = param(params, GRANT_PARAMS.triggerKind);
+  if (rawExtension === null && rawWorkflow === null && rawJobRef === null && rawTrigger === null) {
+    return null;
+  }
 
-	const draft: GrantDraft = { ...sources.current };
-	const applied: string[] = [];
-	const rejected: string[] = [];
+  const draft: GrantDraft = { ...sources.current };
+  const applied: string[] = [];
+  const rejected: string[] = [];
 
-	if (rawExtension !== null) {
-		// By id OR by name. A bundled extension building a link knows its own
-		// NAME (that is how its Hub pages are addressed) and has no way to
-		// learn the install row's id, so demanding the id would make the
-		// handoff unbuildable by the extension it exists for.
-		const match = sources.extensions.find(
-			(e) => e.id === rawExtension || e.name === rawExtension,
-		);
-		if (match === undefined) {
-			rejected.push(
-				`No extension called “${echo(rawExtension)}” is installed and allowed to run workflows on your behalf, so the extension was not filled in.`,
-			);
-		} else {
-			draft.extensionId = match.id;
-			applied.push("Extension");
-		}
-	}
+  if (rawExtension !== null) {
+    // By id OR by name. A bundled extension building a link knows its own
+    // NAME (that is how its Hub pages are addressed) and has no way to
+    // learn the install row's id, so demanding the id would make the
+    // handoff unbuildable by the extension it exists for.
+    const match = sources.extensions.find((e) => e.id === rawExtension || e.name === rawExtension);
+    if (match === undefined) {
+      rejected.push(
+        `No extension called “${echo(rawExtension)}” is installed and allowed to run workflows on your behalf, so the extension was not filled in.`,
+      );
+    } else {
+      draft.extensionId = match.id;
+      applied.push("Extension");
+    }
+  }
 
-	if (rawWorkflow !== null) {
-		if (!sources.workflowNames.includes(rawWorkflow)) {
-			rejected.push(
-				`You cannot see a workflow called “${echo(rawWorkflow)}”, so the workflow was not filled in.`,
-			);
-		} else {
-			draft.workflowName = rawWorkflow;
-			applied.push("Workflow");
-		}
-	}
+  if (rawWorkflow !== null) {
+    if (!sources.workflowNames.includes(rawWorkflow)) {
+      rejected.push(
+        `You cannot see a workflow called “${echo(rawWorkflow)}”, so the workflow was not filled in.`,
+      );
+    } else {
+      draft.workflowName = rawWorkflow;
+      applied.push("Workflow");
+    }
+  }
 
-	if (rawJobRef !== null) {
-		if (rawJobRef.length > MAX_JOB_REF_CHARS) {
-			rejected.push(
-				`The job reference in that link is longer than ${MAX_JOB_REF_CHARS} characters, so it was not filled in.`,
-			);
-		} else {
-			draft.jobRef = rawJobRef;
-			applied.push("Job reference");
-		}
-	}
+  if (rawJobRef !== null) {
+    if (rawJobRef.length > MAX_JOB_REF_CHARS) {
+      rejected.push(
+        `The job reference in that link is longer than ${MAX_JOB_REF_CHARS} characters, so it was not filled in.`,
+      );
+    } else {
+      draft.jobRef = rawJobRef;
+      applied.push("Job reference");
+    }
+  }
 
-	if (rawTrigger !== null) {
-		if (!TRIGGER_KIND_CHOICES.some((c) => c.kind === rawTrigger)) {
-			rejected.push(
-				`“${echo(rawTrigger)}” is not a trigger a delegation can be granted for, so the trigger was left as it was.`,
-			);
-		} else {
-			draft.triggerKind = rawTrigger;
-			applied.push("Trigger");
-		}
-	}
+  if (rawTrigger !== null) {
+    if (!TRIGGER_KIND_CHOICES.some((c) => c.kind === rawTrigger)) {
+      rejected.push(
+        `“${echo(rawTrigger)}” is not a trigger a delegation can be granted for, so the trigger was left as it was.`,
+      );
+    } else {
+      draft.triggerKind = rawTrigger;
+      applied.push("Trigger");
+    }
+  }
 
-	return { draft, applied, rejected };
+  return { draft, applied, rejected };
 }
 
 /** Where a prefill came from. Two sources, two sentences — see below. */
@@ -483,15 +481,15 @@ export type GrantPrefillSource = "link" | "delegation";
  * whose entire job is being exact about provenance.
  */
 export function describeGrantPrefill(
-	prefill: GrantPrefill,
-	source: GrantPrefillSource,
+  prefill: GrantPrefill,
+  source: GrantPrefillSource,
 ): string | null {
-	if (prefill.applied.length === 0) return null;
-	const from =
-		source === "link"
-			? "Filled in from the link you followed"
-			: "Filled in from the delegation you are granting again";
-	return `${from}: ${prefill.applied.join(", ")}. Check it below — nothing is granted until you approve it.`;
+  if (prefill.applied.length === 0) return null;
+  const from =
+    source === "link"
+      ? "Filled in from the link you followed"
+      : "Filled in from the delegation you are granting again";
+  return `${from}: ${prefill.applied.join(", ")}. Check it below — nothing is granted until you approve it.`;
 }
 
 // ── the three TOKEN-BOUND EXCLUSIONS ──────────────────────────────────
@@ -525,64 +523,64 @@ export function describeGrantPrefill(
  * the dialog can key an `{#each}` without an index.
  */
 export interface TokenBoundExclusion {
-	id: "tool-steps" | "nested-runs" | "effort-noop";
-	text: string;
+  id: "tool-steps" | "nested-runs" | "effort-noop";
+  text: string;
 }
 
 export function tokenBoundExclusions(opts: {
-	maxToolCallsPerRun: number;
-	maxNestingDepth: number;
-	effortNoops: readonly EffortNoop[];
+  maxToolCallsPerRun: number;
+  maxNestingDepth: number;
+  effortNoops: readonly EffortNoop[];
 }): TokenBoundExclusion[] {
-	const out: TokenBoundExclusion[] = [
-		{
-			id: "tool-steps",
-			text:
-				"This limit counts language-model tokens. Steps that call tools are not counted against it — " +
-				`they are separately limited to ${opts.maxToolCallsPerRun} tool calls per run.`,
-		},
-		{
-			id: "nested-runs",
-			text:
-				"A step that starts another workflow is not counted against it either. The child run has its own " +
-				`limit and spends it separately, so nesting is bounded by depth — at most ${opts.maxNestingDepth} ` +
-				"levels — and not by this number.",
-		},
-	];
+  const out: TokenBoundExclusion[] = [
+    {
+      id: "tool-steps",
+      text:
+        "This limit counts language-model tokens. Steps that call tools are not counted against it — " +
+        `they are separately limited to ${opts.maxToolCallsPerRun} tool calls per run.`,
+    },
+    {
+      id: "nested-runs",
+      text:
+        "A step that starts another workflow is not counted against it either. The child run has its own " +
+        `limit and spends it separately, so nesting is bounded by depth — at most ${opts.maxNestingDepth} ` +
+        "levels — and not by this number.",
+    },
+  ];
 
-	if (opts.effortNoops.length > 0) {
-		// Worded to exactly what the server DERIVED — the resolved model's
-		// `reasoning` flag — with the local/custom case named because it is
-		// the one that surprises people. Claiming "this is a local model"
-		// outright would be a guess; a locally-served or custom model is the
-		// reason the flag is false, not the thing the flag reports.
-		out.push({
-			id: "effort-noop",
-			text:
-				`${describeEffortNoopSteps(opts.effortNoops)} ask for a reasoning effort that will be ignored: ` +
-				"the model bound to them does not accept a reasoning setting. Local and custom models never do.",
-		});
-	}
-	return out;
+  if (opts.effortNoops.length > 0) {
+    // Worded to exactly what the server DERIVED — the resolved model's
+    // `reasoning` flag — with the local/custom case named because it is
+    // the one that surprises people. Claiming "this is a local model"
+    // outright would be a guess; a locally-served or custom model is the
+    // reason the flag is false, not the thing the flag reports.
+    out.push({
+      id: "effort-noop",
+      text:
+        `${describeEffortNoopSteps(opts.effortNoops)} ask for a reasoning effort that will be ignored: ` +
+        "the model bound to them does not accept a reasoning setting. Local and custom models never do.",
+    });
+  }
+  return out;
 }
 
 /** "Step `a`" / "Steps `a` and `b`" / "Steps `a`, `b` and 2 more". */
 export function describeEffortNoopSteps(noops: readonly EffortNoop[]): string {
-	const names = noops.map((n) => `${n.workflowName}.${n.stepName}`);
-	if (names.length === 1) return `Step ${names[0]}`;
-	if (names.length === 2) return `Steps ${names[0]} and ${names[1]}`;
-	return `Steps ${names[0]}, ${names[1]} and ${names.length - 2} more`;
+  const names = noops.map((n) => `${n.workflowName}.${n.stepName}`);
+  if (names.length === 1) return `Step ${names[0]}`;
+  if (names.length === 2) return `Steps ${names[0]} and ${names[1]}`;
+  return `Steps ${names[0]}, ${names[1]} and ${names.length - 2} more`;
 }
 
 // ── the capability diff ───────────────────────────────────────────────
 
 export interface CapabilityRow {
-	kind: string;
-	value: string;
-	/** Which definitions in the closure contribute this capability. */
-	fromWorkflows: string[];
-	/** `true` for the kinds a reviewer must look hardest at. */
-	sensitive: boolean;
+  kind: string;
+  value: string;
+  /** Which definitions in the closure contribute this capability. */
+  fromWorkflows: string[];
+  /** `true` for the kinds a reviewer must look hardest at. */
+  sensitive: boolean;
 }
 
 /**
@@ -595,13 +593,20 @@ export interface CapabilityRow {
  * not enforced. If the two ever disagree the consequence is a row that
  * is bold when it need not be.
  */
-const EMPHASISED_KINDS = new Set(["shell", "fs", "net", "install", "tool:unreachable", "agent:unreachable"]);
+const EMPHASISED_KINDS = new Set([
+  "shell",
+  "fs",
+  "net",
+  "install",
+  "tool:unreachable",
+  "agent:unreachable",
+]);
 
 /** `"kind::value"` → `{kind, value}`; `value` may itself contain `::`. */
 export function parseCapabilityKey(key: string): { kind: string; value: string } {
-	const at = key.indexOf("::");
-	if (at === -1) return { kind: key, value: "" };
-	return { kind: key.slice(0, at), value: key.slice(at + 2) };
+  const at = key.indexOf("::");
+  if (at === -1) return { kind: key, value: "" };
+  return { kind: key.slice(0, at), value: key.slice(at + 2) };
 }
 
 /**
@@ -613,36 +618,36 @@ export function parseCapabilityKey(key: string): { kind: string; value: string }
  * shell" are the same capability and very different consent decisions.
  */
 export function summarizeCapabilities(material: ConsentHashMaterial): CapabilityRow[] {
-	const byKey = new Map<string, CapabilityRow>();
-	for (const def of material.graph) {
-		for (const key of def.capabilities) {
-			const { kind, value } = parseCapabilityKey(key);
-			const existing = byKey.get(key);
-			if (existing === undefined) {
-				byKey.set(key, {
-					kind,
-					value,
-					fromWorkflows: [def.name],
-					sensitive: EMPHASISED_KINDS.has(kind),
-				});
-			} else if (!existing.fromWorkflows.includes(def.name)) {
-				existing.fromWorkflows.push(def.name);
-			}
-		}
-	}
-	return [...byKey.values()].sort(
-		(a, b) => a.kind.localeCompare(b.kind) || a.value.localeCompare(b.value),
-	);
+  const byKey = new Map<string, CapabilityRow>();
+  for (const def of material.graph) {
+    for (const key of def.capabilities) {
+      const { kind, value } = parseCapabilityKey(key);
+      const existing = byKey.get(key);
+      if (existing === undefined) {
+        byKey.set(key, {
+          kind,
+          value,
+          fromWorkflows: [def.name],
+          sensitive: EMPHASISED_KINDS.has(kind),
+        });
+      } else if (!existing.fromWorkflows.includes(def.name)) {
+        existing.fromWorkflows.push(def.name);
+      }
+    }
+  }
+  return [...byKey.values()].sort(
+    (a, b) => a.kind.localeCompare(b.kind) || a.value.localeCompare(b.value),
+  );
 }
 
 export interface ConditionalStep {
-	workflowName: string;
-	stepName: string;
-	kind: string;
-	/** The `when` guard, already unwrapped from its JSON encoding. */
-	when: string;
-	/** `false` means a skip here does NOT skip what depends on it. */
-	skipDependents: boolean;
+  workflowName: string;
+  stepName: string;
+  kind: string;
+  /** The `when` guard, already unwrapped from its JSON encoding. */
+  when: string;
+  /** `false` means a skip here does NOT skip what depends on it. */
+  skipDependents: boolean;
 }
 
 /**
@@ -661,21 +666,21 @@ export interface ConditionalStep {
  * failing does not necessarily stop the branch below it.
  */
 export function conditionalSteps(material: ConsentHashMaterial): ConditionalStep[] {
-	const out: ConditionalStep[] = [];
-	for (const def of material.graph) {
-		for (const step of def.steps) {
-			const when = decodeCanonical(step.when);
-			if (when === null) continue;
-			out.push({
-				workflowName: def.name,
-				stepName: step.name,
-				kind: step.kind,
-				when,
-				skipDependents: step.skipDependents,
-			});
-		}
-	}
-	return out;
+  const out: ConditionalStep[] = [];
+  for (const def of material.graph) {
+    for (const step of def.steps) {
+      const when = decodeCanonical(step.when);
+      if (when === null) continue;
+      out.push({
+        workflowName: def.name,
+        stepName: step.name,
+        kind: step.kind,
+        when,
+        skipDependents: step.skipDependents,
+      });
+    }
+  }
+  return out;
 }
 
 /**
@@ -687,20 +692,20 @@ export function conditionalSteps(material: ConsentHashMaterial): ConditionalStep
  * would understate what was consented to.
  */
 export function decodeCanonical(encoded: string): string | null {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(encoded);
-	} catch {
-		return encoded;
-	}
-	if (parsed === null) return null;
-	return typeof parsed === "string" ? parsed : JSON.stringify(parsed);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(encoded);
+  } catch {
+    return encoded;
+  }
+  if (parsed === null) return null;
+  return typeof parsed === "string" ? parsed : JSON.stringify(parsed);
 }
 
 export interface CapabilityDiff {
-	added: CapabilityRow[];
-	removed: CapabilityRow[];
-	unchanged: CapabilityRow[];
+  added: CapabilityRow[];
+  removed: CapabilityRow[];
+  unchanged: CapabilityRow[];
 }
 
 /**
@@ -715,65 +720,64 @@ export interface CapabilityDiff {
  * approve everything quickly.
  */
 export function diffCapabilities(
-	before: readonly CapabilityRow[] | null,
-	after: readonly CapabilityRow[],
+  before: readonly CapabilityRow[] | null,
+  after: readonly CapabilityRow[],
 ): CapabilityDiff {
-	if (before === null) return { added: [...after], removed: [], unchanged: [] };
-	const key = (r: CapabilityRow) => `${r.kind}::${r.value}`;
-	const beforeKeys = new Set(before.map(key));
-	const afterKeys = new Set(after.map(key));
-	return {
-		added: after.filter((r) => !beforeKeys.has(key(r))),
-		unchanged: after.filter((r) => beforeKeys.has(key(r))),
-		removed: before.filter((r) => !afterKeys.has(key(r))),
-	};
+  if (before === null) return { added: [...after], removed: [], unchanged: [] };
+  const key = (r: CapabilityRow) => `${r.kind}::${r.value}`;
+  const beforeKeys = new Set(before.map(key));
+  const afterKeys = new Set(after.map(key));
+  return {
+    added: after.filter((r) => !beforeKeys.has(key(r))),
+    unchanged: after.filter((r) => beforeKeys.has(key(r))),
+    removed: before.filter((r) => !afterKeys.has(key(r))),
+  };
 }
 
 /** Closure problems the material reports. Each is a real reason to
  *  hesitate, so none of them is allowed to be silent. */
 export interface ClosureWarning {
-	id: "unresolved" | "cycles" | "too-deep";
-	text: string;
+  id: "unresolved" | "cycles" | "too-deep";
+  text: string;
 }
 
 export function closureWarnings(material: ConsentHashMaterial): ClosureWarning[] {
-	const out: ClosureWarning[] = [];
-	if (material.unresolved.length > 0) {
-		out.push({
-			id: "unresolved",
-			text:
-				`This job reaches ${material.unresolved.length} workflow(s) that could not be resolved as its owner: ` +
-				`${material.unresolved.join(", ")}. What they do cannot be shown here.`,
-		});
-	}
-	if (material.cycles.length > 0) {
-		out.push({
-			id: "cycles",
-			text: `This job's workflows call each other in a loop: ${material.cycles.join("; ")}.`,
-		});
-	}
-	if (material.tooDeep.length > 0) {
-		out.push({
-			id: "too-deep",
-			text:
-				`Nested deeper than the walk goes, so their contents are not shown: ${material.tooDeep.join(", ")}.`,
-		});
-	}
-	return out;
+  const out: ClosureWarning[] = [];
+  if (material.unresolved.length > 0) {
+    out.push({
+      id: "unresolved",
+      text:
+        `This job reaches ${material.unresolved.length} workflow(s) that could not be resolved as its owner: ` +
+        `${material.unresolved.join(", ")}. What they do cannot be shown here.`,
+    });
+  }
+  if (material.cycles.length > 0) {
+    out.push({
+      id: "cycles",
+      text: `This job's workflows call each other in a loop: ${material.cycles.join("; ")}.`,
+    });
+  }
+  if (material.tooDeep.length > 0) {
+    out.push({
+      id: "too-deep",
+      text: `Nested deeper than the walk goes, so their contents are not shown: ${material.tooDeep.join(", ")}.`,
+    });
+  }
+  return out;
 }
 
 // ── submit-time validation ────────────────────────────────────────────
 
 export interface ConsentDraft {
-	extensionId: string;
-	jobRef: string;
-	workflowName: string;
-	ownerKind: DelegationOwnerKind;
-	ownerServiceAccountId: string | null;
-	projectId: string | null;
-	triggerKind: string;
-	maxTokensPerRun: number | null;
-	maxRunsPerDay: number | null;
+  extensionId: string;
+  jobRef: string;
+  workflowName: string;
+  ownerKind: DelegationOwnerKind;
+  ownerServiceAccountId: string | null;
+  projectId: string | null;
+  triggerKind: string;
+  maxTokensPerRun: number | null;
+  maxRunsPerDay: number | null;
 }
 
 /**
@@ -789,41 +793,41 @@ export interface ConsentDraft {
  * chooses.
  */
 export function consentBlockedReason(draft: ConsentDraft): string | null {
-	if (draft.workflowName === "") return "Choose a workflow.";
-	if (draft.ownerKind === "service" && !draft.ownerServiceAccountId) {
-		return "Choose a service account, or switch to “Run as me”.";
-	}
-	if (!isPositiveInt(draft.maxTokensPerRun)) {
-		return "Set a token limit per run (a whole number above zero).";
-	}
-	if (!isPositiveInt(draft.maxRunsPerDay)) {
-		return "Set a maximum number of runs per day (a whole number above zero).";
-	}
-	return null;
+  if (draft.workflowName === "") return "Choose a workflow.";
+  if (draft.ownerKind === "service" && !draft.ownerServiceAccountId) {
+    return "Choose a service account, or switch to “Run as me”.";
+  }
+  if (!isPositiveInt(draft.maxTokensPerRun)) {
+    return "Set a token limit per run (a whole number above zero).";
+  }
+  if (!isPositiveInt(draft.maxRunsPerDay)) {
+    return "Set a maximum number of runs per day (a whole number above zero).";
+  }
+  return null;
 }
 
 function isPositiveInt(n: number | null): n is number {
-	return n !== null && Number.isInteger(n) && n > 0;
+  return n !== null && Number.isInteger(n) && n > 0;
 }
 
 /** The POST body for `/api/workflows/delegations`, built from a draft
  *  the caller has already run past {@link consentBlockedReason}. */
 export function buildConsentBody(draft: ConsentDraft): Record<string, unknown> {
-	return {
-		extensionId: draft.extensionId,
-		jobRef: draft.jobRef,
-		workflowName: draft.workflowName,
-		ownerKind: draft.ownerKind,
-		// Sent ONLY for the service arm: the route refuses a body that
-		// names both, rather than ignoring half of it.
-		...(draft.ownerKind === "service" && draft.ownerServiceAccountId
-			? { ownerServiceAccountId: draft.ownerServiceAccountId }
-			: {}),
-		projectId: draft.projectId,
-		triggerKind: draft.triggerKind,
-		maxTokensPerRun: draft.maxTokensPerRun,
-		maxRunsPerDay: draft.maxRunsPerDay,
-	};
+  return {
+    extensionId: draft.extensionId,
+    jobRef: draft.jobRef,
+    workflowName: draft.workflowName,
+    ownerKind: draft.ownerKind,
+    // Sent ONLY for the service arm: the route refuses a body that
+    // names both, rather than ignoring half of it.
+    ...(draft.ownerKind === "service" && draft.ownerServiceAccountId
+      ? { ownerServiceAccountId: draft.ownerServiceAccountId }
+      : {}),
+    projectId: draft.projectId,
+    triggerKind: draft.triggerKind,
+    maxTokensPerRun: draft.maxTokensPerRun,
+    maxRunsPerDay: draft.maxRunsPerDay,
+  };
 }
 
 // ── presentation helpers ──────────────────────────────────────────────
@@ -836,23 +840,26 @@ export function buildConsentBody(draft: ConsentDraft): Record<string, unknown> {
  * a decision is waiting for the consenting human specifically, so it is
  * the row they most need to notice.
  */
-export function describeRunStatus(status: string): { tone: "ok" | "warn" | "error" | "muted"; text: string } {
-	switch (status) {
-		case "success":
-			return { tone: "ok", text: "Succeeded" };
-		case "error":
-			return { tone: "error", text: "Failed" };
-		case "cancelled":
-			return { tone: "muted", text: "Cancelled" };
-		case "awaiting_approval":
-			return { tone: "warn", text: "Waiting on you" };
-		case "running":
-			return { tone: "ok", text: "Running" };
-		case "suspended":
-			return { tone: "warn", text: "Paused" };
-		default:
-			return { tone: "muted", text: status };
-	}
+export function describeRunStatus(status: string): {
+  tone: "ok" | "warn" | "error" | "muted";
+  text: string;
+} {
+  switch (status) {
+    case "success":
+      return { tone: "ok", text: "Succeeded" };
+    case "error":
+      return { tone: "error", text: "Failed" };
+    case "cancelled":
+      return { tone: "muted", text: "Cancelled" };
+    case "awaiting_approval":
+      return { tone: "warn", text: "Waiting on you" };
+    case "running":
+      return { tone: "ok", text: "Running" };
+    case "suspended":
+      return { tone: "warn", text: "Paused" };
+    default:
+      return { tone: "muted", text: status };
+  }
 }
 
 /**
@@ -901,22 +908,22 @@ export function describeRunStatus(status: string): { tone: "ok" | "warn" | "erro
  * showing what the server actually said.
  */
 export function describeRunStopReason(suspendedReason: string | null): string | null {
-	switch (suspendedReason) {
-		case "budget-exceeded":
-			return "Paused: this run spent the whole per-run token limit on its delegation. You can raise that limit above, and the run continues from where it stopped.";
-		case "consent-stale":
-			return "Paused: the workflow changed since you approved it, so nothing ran. Approve it again to release it — raising a limit will not clear this.";
-		case "approval":
-			return "Paused: it is waiting for someone to answer an approval step.";
-		case "approval-timeout":
-			return "Stopped: nobody answered its approval in time, so the run was cancelled. It cannot be resumed — the job has to fire again.";
-		case "nested-suspended":
-			return "Paused: it is waiting on another workflow it started.";
-		case "orphaned-resumable":
-			return "Paused at a step boundary, most likely by a restart. Nothing is wrong with it and it is safe to continue.";
-		default:
-			return null;
-	}
+  switch (suspendedReason) {
+    case "budget-exceeded":
+      return "Paused: this run spent the whole per-run token limit on its delegation. You can raise that limit above, and the run continues from where it stopped.";
+    case "consent-stale":
+      return "Paused: the workflow changed since you approved it, so nothing ran. Approve it again to release it — raising a limit will not clear this.";
+    case "approval":
+      return "Paused: it is waiting for someone to answer an approval step.";
+    case "approval-timeout":
+      return "Stopped: nobody answered its approval in time, so the run was cancelled. It cannot be resumed — the job has to fire again.";
+    case "nested-suspended":
+      return "Paused: it is waiting on another workflow it started.";
+    case "orphaned-resumable":
+      return "Paused at a step boundary, most likely by a restart. Nothing is wrong with it and it is safe to continue.";
+    default:
+      return null;
+  }
 }
 
 /**
@@ -931,30 +938,30 @@ export function describeRunStopReason(suspendedReason: string | null): string | 
  * testable without freezing the clock.
  */
 export function describeRunTime(startedAt: string, now: Date): string {
-	const started = new Date(startedAt);
-	if (Number.isNaN(started.getTime())) return startedAt;
-	const seconds = Math.floor((now.getTime() - started.getTime()) / 1000);
-	if (seconds < 0) return started.toLocaleDateString();
-	if (seconds < 60) return "just now";
-	const minutes = Math.floor(seconds / 60);
-	if (minutes < 60) return `${minutes}m ago`;
-	const hours = Math.floor(minutes / 60);
-	if (hours < 24) return `${hours}h ago`;
-	const days = Math.floor(hours / 24);
-	if (days < 7) return `${days}d ago`;
-	return started.toLocaleDateString();
+  const started = new Date(startedAt);
+  if (Number.isNaN(started.getTime())) return startedAt;
+  const seconds = Math.floor((now.getTime() - started.getTime()) / 1000);
+  if (seconds < 0) return started.toLocaleDateString();
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return started.toLocaleDateString();
 }
 
 /** "as you" / "as <account>" — never a bare id. */
 export function describeRunPrincipal(
-	run: DelegatedRun,
-	accountsById: Readonly<Record<string, string>>,
+  run: DelegatedRun,
+  accountsById: Readonly<Record<string, string>>,
 ): string {
-	if (run.runAsKind === "user") return "as you";
-	if (run.runAsKind === "service") {
-		return `as ${accountsById[run.runAs ?? ""] ?? "a service account"}`;
-	}
-	return "not delegated";
+  if (run.runAsKind === "user") return "as you";
+  if (run.runAsKind === "service") {
+    return `as ${accountsById[run.runAs ?? ""] ?? "a service account"}`;
+  }
+  return "not delegated";
 }
 
 /**
@@ -966,13 +973,13 @@ export function describeRunPrincipal(
  * their unattended job went quiet.
  */
 export function describeDelegationState(d: Delegation): { live: boolean; text: string } {
-	if (!d.enabled) {
-		return {
-			live: false,
-			text: d.disabledReason ?? "Stopped. No reason was recorded.",
-		};
-	}
-	return { live: true, text: "Live" };
+  if (!d.enabled) {
+    return {
+      live: false,
+      text: d.disabledReason ?? "Stopped. No reason was recorded.",
+    };
+  }
+  return { live: true, text: "Live" };
 }
 
 // ── HTTP ──────────────────────────────────────────────────────────────
@@ -980,55 +987,55 @@ export function describeDelegationState(d: Delegation): { live: boolean; text: s
 export type Result<T> = { ok: true; value: T } | { ok: false; message: string };
 
 async function send<T>(url: string, init?: RequestInit): Promise<Result<T>> {
-	let res: Response;
-	try {
-		res = await fetch(url, init);
-	} catch (err) {
-		return { ok: false, message: err instanceof Error ? err.message : String(err) };
-	}
-	const body = (await res.json().catch(() => ({}))) as { error?: string };
-	if (!res.ok) {
-		// The route's own sentence, not a generic status line. Phase 4's
-		// consent refusal names the reason AND the remedy ("choose run as
-		// me, or ask an admin to make the workflow system-visible"), and
-		// replacing that with "403 Forbidden" is how a user ends up filing
-		// a bug against a message that was already written for them.
-		return { ok: false, message: body.error ?? `Request failed (${res.status})` };
-	}
-	return { ok: true, value: body as T };
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) {
+    // The route's own sentence, not a generic status line. Phase 4's
+    // consent refusal names the reason AND the remedy ("choose run as
+    // me, or ask an admin to make the workflow system-visible"), and
+    // replacing that with "403 Forbidden" is how a user ends up filing
+    // a bug against a message that was already written for them.
+    return { ok: false, message: body.error ?? `Request failed (${res.status})` };
+  }
+  return { ok: true, value: body as T };
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 export function previewConsent(draft: ConsentDraft): Promise<Result<ConsentPreview>> {
-	return send<ConsentPreview>("/api/workflows/delegations/preview", {
-		method: "POST",
-		headers: JSON_HEADERS,
-		body: JSON.stringify({
-			extensionId: draft.extensionId,
-			workflowName: draft.workflowName,
-			ownerKind: draft.ownerKind,
-			...(draft.ownerKind === "service" && draft.ownerServiceAccountId
-				? { ownerServiceAccountId: draft.ownerServiceAccountId }
-				: {}),
-			projectId: draft.projectId,
-			triggerKind: draft.triggerKind,
-		}),
-	});
+  return send<ConsentPreview>("/api/workflows/delegations/preview", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({
+      extensionId: draft.extensionId,
+      workflowName: draft.workflowName,
+      ownerKind: draft.ownerKind,
+      ...(draft.ownerKind === "service" && draft.ownerServiceAccountId
+        ? { ownerServiceAccountId: draft.ownerServiceAccountId }
+        : {}),
+      projectId: draft.projectId,
+      triggerKind: draft.triggerKind,
+    }),
+  });
 }
 
 export function submitConsent(
-	draft: ConsentDraft,
+  draft: ConsentDraft,
 ): Promise<Result<{ delegation: Delegation; supersededId: string | null }>> {
-	return send("/api/workflows/delegations", {
-		method: "POST",
-		headers: JSON_HEADERS,
-		body: JSON.stringify(buildConsentBody(draft)),
-	});
+  return send("/api/workflows/delegations", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(buildConsentBody(draft)),
+  });
 }
 
 export function revokeDelegation(id: string): Promise<Result<{ revoked: boolean }>> {
-	return send(`/api/workflows/delegations/${id}`, { method: "DELETE" });
+  return send(`/api/workflows/delegations/${id}`, { method: "DELETE" });
 }
 
 /**
@@ -1050,25 +1057,25 @@ export function revokeDelegation(id: string): Promise<Result<{ revoked: boolean 
  * shape turns every save into a 400 in production only.
  */
 export function patchDelegationBounds(
-	id: string,
-	bounds: { maxTokensPerRun?: number; maxRunsPerDay?: number },
+  id: string,
+  bounds: { maxTokensPerRun?: number; maxRunsPerDay?: number },
 ): Promise<Result<{ delegation: Delegation }>> {
-	const body: Record<string, number> = {};
-	if (bounds.maxTokensPerRun !== undefined) body.maxTokensPerRun = bounds.maxTokensPerRun;
-	if (bounds.maxRunsPerDay !== undefined) body.maxRunsPerDay = bounds.maxRunsPerDay;
-	return send(`/api/workflows/delegations/${id}`, {
-		method: "PATCH",
-		headers: JSON_HEADERS,
-		body: JSON.stringify(body),
-	});
+  const body: Record<string, number> = {};
+  if (bounds.maxTokensPerRun !== undefined) body.maxTokensPerRun = bounds.maxTokensPerRun;
+  if (bounds.maxRunsPerDay !== undefined) body.maxRunsPerDay = bounds.maxRunsPerDay;
+  return send(`/api/workflows/delegations/${id}`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
 }
 
 export function loadDelegations(): Promise<Result<{ delegations: Delegation[] }>> {
-	return send("/api/workflows/delegations");
+  return send("/api/workflows/delegations");
 }
 
 export function loadDelegatedRuns(): Promise<Result<{ runs: DelegatedRun[] }>> {
-	return send("/api/workflows/delegated-runs");
+  return send("/api/workflows/delegated-runs");
 }
 
 /**
@@ -1085,7 +1092,7 @@ export function loadDelegatedRuns(): Promise<Result<{ runs: DelegatedRun[] }>> {
  * a `Result` and the page falls back to an empty list.
  */
 export function loadServiceAccounts(): Promise<
-	Result<{ accounts: ServiceAccountOption[]; reach: ServiceAccountReach }>
+  Result<{ accounts: ServiceAccountOption[]; reach: ServiceAccountReach }>
 > {
-	return send("/api/service-accounts");
+  return send("/api/service-accounts");
 }

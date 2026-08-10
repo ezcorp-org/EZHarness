@@ -5,7 +5,10 @@ import { requireAuth } from "$server/auth/middleware";
 import { getUserById, updateUserPassword } from "$server/db/queries/users";
 import { verifyPassword, hashPassword } from "$server/auth/password";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
-import { validationError, passwordSchema as passwordFieldSchema } from "$lib/server/security/validation";
+import {
+  validationError,
+  passwordSchema as passwordFieldSchema,
+} from "$lib/server/security/validation";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 

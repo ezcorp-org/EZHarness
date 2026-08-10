@@ -19,7 +19,10 @@ mockServerAlias();
 // Import route handlers
 import { POST as flagPOST } from "../../web/src/routes/api/marketplace/[id]/flag/+server";
 import { GET as pendingFlagsGET } from "../../web/src/routes/api/marketplace/flags/+server";
-import { GET as flagHistoryGET, PATCH as flagResolvePATCH } from "../../web/src/routes/api/marketplace/[id]/flags/+server";
+import {
+  GET as flagHistoryGET,
+  PATCH as flagResolvePATCH,
+} from "../../web/src/routes/api/marketplace/[id]/flags/+server";
 import { DELETE as hardDELETE } from "../../web/src/routes/api/marketplace/[id]/delete/+server";
 
 // DB helpers for setup
@@ -29,9 +32,24 @@ import { createFlag } from "../db/queries/marketplace-ratings";
 import { createListing } from "../db/queries/marketplace";
 import { listAuditLog } from "../db/queries/audit-log";
 
-const AUTHOR: AuthUser = { id: "modrt-author-001", email: "author@modrt.test", name: "Route Author", role: "member" };
-const MEMBER: AuthUser = { id: "modrt-member-001", email: "member@modrt.test", name: "Route Member", role: "member" };
-const ADMIN: AuthUser = { id: "modrt-admin-001", email: "admin@modrt.test", name: "Route Admin", role: "admin" };
+const AUTHOR: AuthUser = {
+  id: "modrt-author-001",
+  email: "author@modrt.test",
+  name: "Route Author",
+  role: "member",
+};
+const MEMBER: AuthUser = {
+  id: "modrt-member-001",
+  email: "member@modrt.test",
+  name: "Route Member",
+  role: "member",
+};
+const ADMIN: AuthUser = {
+  id: "modrt-admin-001",
+  email: "admin@modrt.test",
+  name: "Route Admin",
+  role: "admin",
+};
 
 async function createTestListing(name: string) {
   return createListing({
@@ -46,11 +64,13 @@ async function createTestListing(name: string) {
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values([
-    { id: AUTHOR.id, email: AUTHOR.email, passwordHash: "h", name: AUTHOR.name, role: "member" },
-    { id: MEMBER.id, email: MEMBER.email, passwordHash: "h", name: MEMBER.name, role: "member" },
-    { id: ADMIN.id, email: ADMIN.email, passwordHash: "h", name: ADMIN.name, role: "admin" },
-  ]);
+  await getDb()
+    .insert(users)
+    .values([
+      { id: AUTHOR.id, email: AUTHOR.email, passwordHash: "h", name: AUTHOR.name, role: "member" },
+      { id: MEMBER.id, email: MEMBER.email, passwordHash: "h", name: MEMBER.name, role: "member" },
+      { id: ADMIN.id, email: ADMIN.email, passwordHash: "h", name: ADMIN.name, role: "admin" },
+    ]);
 });
 
 afterAll(async () => {
@@ -162,7 +182,11 @@ describe("POST /api/marketplace/[id]/flag", () => {
     // Create 5 flags directly via query for a rate-limit test user
     const rateLimitUserId = "modrt-ratelimit-001";
     await getDb().insert(users).values({
-      id: rateLimitUserId, email: "ratelimit@modrt.test", passwordHash: "h", name: "Rate Limiter", role: "member",
+      id: rateLimitUserId,
+      email: "ratelimit@modrt.test",
+      passwordHash: "h",
+      name: "Rate Limiter",
+      role: "member",
     });
 
     const rateLimitListing = await createTestListing("Rate Limit Test Listing");
@@ -175,7 +199,12 @@ describe("POST /api/marketplace/[id]/flag", () => {
       url: `http://localhost/api/marketplace/${rateLimitListing.id}/flag`,
       params: { id: rateLimitListing.id },
       body: { reason: "One too many" },
-      user: { id: rateLimitUserId, email: "ratelimit@modrt.test", name: "Rate Limiter", role: "member" },
+      user: {
+        id: rateLimitUserId,
+        email: "ratelimit@modrt.test",
+        name: "Rate Limiter",
+        role: "member",
+      },
     });
     const res = await flagPOST(event);
     expect(res.status).toBe(429);
@@ -193,9 +222,27 @@ describe("createFlag threshold", () => {
 
     // Create dedicated users for threshold test
     const thresholdUsers = [
-      { id: "modrt-thresh-001", email: "thresh1@modrt.test", passwordHash: "h", name: "Thresh1", role: "member" as const },
-      { id: "modrt-thresh-002", email: "thresh2@modrt.test", passwordHash: "h", name: "Thresh2", role: "member" as const },
-      { id: "modrt-thresh-003", email: "thresh3@modrt.test", passwordHash: "h", name: "Thresh3", role: "member" as const },
+      {
+        id: "modrt-thresh-001",
+        email: "thresh1@modrt.test",
+        passwordHash: "h",
+        name: "Thresh1",
+        role: "member" as const,
+      },
+      {
+        id: "modrt-thresh-002",
+        email: "thresh2@modrt.test",
+        passwordHash: "h",
+        name: "Thresh2",
+        role: "member" as const,
+      },
+      {
+        id: "modrt-thresh-003",
+        email: "thresh3@modrt.test",
+        passwordHash: "h",
+        name: "Thresh3",
+        role: "member" as const,
+      },
     ];
     await db.insert(users).values(thresholdUsers);
 
@@ -203,17 +250,26 @@ describe("createFlag threshold", () => {
 
     // Flag 1: listing should now be flagged (threshold is 1)
     await createFlag(listing.id, thresholdUsers[0]!.id, "reason 1", "spam");
-    let [row] = await db.select().from(marketplaceListings).where(eq(marketplaceListings.id, listing.id));
+    let [row] = await db
+      .select()
+      .from(marketplaceListings)
+      .where(eq(marketplaceListings.id, listing.id));
     expect(row!.status).toBe("flagged");
 
     // Flag 2: listing remains flagged
     await createFlag(listing.id, thresholdUsers[1]!.id, "reason 2", "spam");
-    [row] = await db.select().from(marketplaceListings).where(eq(marketplaceListings.id, listing.id));
+    [row] = await db
+      .select()
+      .from(marketplaceListings)
+      .where(eq(marketplaceListings.id, listing.id));
     expect(row!.status).toBe("flagged");
 
     // Flag 3: listing still flagged
     await createFlag(listing.id, thresholdUsers[2]!.id, "reason 3", "spam");
-    [row] = await db.select().from(marketplaceListings).where(eq(marketplaceListings.id, listing.id));
+    [row] = await db
+      .select()
+      .from(marketplaceListings)
+      .where(eq(marketplaceListings.id, listing.id));
     expect(row!.status).toBe("flagged");
   });
 });

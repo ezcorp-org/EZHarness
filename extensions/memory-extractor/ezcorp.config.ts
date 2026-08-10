@@ -93,13 +93,7 @@ export default defineExtension({
       // bumped from 4 because the user can now opt into hourly
       // sweeps. The `missedRunPolicy: fire-once` semantics still hold
       // — at most one catch-up regardless of cadence.
-      crons: [
-        "0 */1 * * *",
-        "0 */3 * * *",
-        "0 */6 * * *",
-        "0 */12 * * *",
-        "0 0 * * *",
-      ],
+      crons: ["0 */1 * * *", "0 */3 * * *", "0 */6 * * *", "0 */12 * * *", "0 0 * * *"],
       maxRunsPerDay: 24,
       missedRunPolicy: "fire-once",
       purpose: "memory compaction sweep",

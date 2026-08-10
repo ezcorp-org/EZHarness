@@ -23,15 +23,9 @@ vi.mock("$server/db/queries/audit-log", () => ({
   insertAuditEntry: vi.fn(async () => undefined),
 }));
 
-const { claimPasswordResetToken } = await import(
-  "$server/db/queries/password-resets"
-);
-const { getUserById, updateUserPassword } = await import(
-  "$server/db/queries/users"
-);
-const { POST, __rateLimiter } = await import(
-  "../routes/api/auth/reset-password/[token]/+server"
-);
+const { claimPasswordResetToken } = await import("$server/db/queries/password-resets");
+const { getUserById, updateUserPassword } = await import("$server/db/queries/users");
+const { POST, __rateLimiter } = await import("../routes/api/auth/reset-password/[token]/+server");
 
 function makeEvent(opts: { token?: string; body?: unknown; ip?: string }) {
   const token = opts.token ?? "tok-1";
@@ -66,9 +60,7 @@ describe("POST /api/auth/reset-password/[token]", () => {
   });
 
   test("rejects 400 when email is malformed", async () => {
-    const res = await POST(
-      makeEvent({ body: { email: "nope", password: "Secret123" } }),
-    );
+    const res = await POST(makeEvent({ body: { email: "nope", password: "Secret123" } }));
     expect(res.status).toBe(400);
   });
 

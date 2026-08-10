@@ -164,7 +164,10 @@ describe("getSearchAllowedByDefault", () => {
 
 describe("resolveSearchPolicy (live read path through getSetting)", () => {
   test("hard-default fallback: no instance setting + inherit grant → hard defaults", async () => {
-    expect(await resolveSearchPolicy("inherit")).toEqual({ denied: false, ...HARD_SEARCH_DEFAULTS });
+    expect(await resolveSearchPolicy("inherit")).toEqual({
+      denied: false,
+      ...HARD_SEARCH_DEFAULTS,
+    });
   });
 
   test("false grant → denied (instance settings irrelevant)", async () => {
@@ -184,13 +187,13 @@ describe("resolveSearchPolicy (live read path through getSetting)", () => {
     const overrider: ExtensionPermissions["search"] = { quota: 7 };
 
     settingsStore.set(SEARCH_SETTING_KEYS.defaultQuota, 100);
-    expect((await resolveSearchPolicy(inheriter) as SearchPolicy).quota).toBe(100);
-    expect((await resolveSearchPolicy(overrider) as SearchPolicy).quota).toBe(7);
+    expect(((await resolveSearchPolicy(inheriter)) as SearchPolicy).quota).toBe(100);
+    expect(((await resolveSearchPolicy(overrider)) as SearchPolicy).quota).toBe(7);
 
     // Admin raises the instance default.
     settingsStore.set(SEARCH_SETTING_KEYS.defaultQuota, 250);
-    expect((await resolveSearchPolicy(inheriter) as SearchPolicy).quota).toBe(250); // propagated
-    expect((await resolveSearchPolicy(overrider) as SearchPolicy).quota).toBe(7); // sticks
+    expect(((await resolveSearchPolicy(inheriter)) as SearchPolicy).quota).toBe(250); // propagated
+    expect(((await resolveSearchPolicy(overrider)) as SearchPolicy).quota).toBe(7); // sticks
   });
 
   test("field-level override over instance defaults via the live path", async () => {
@@ -206,7 +209,7 @@ describe("resolveSearchPolicy (live read path through getSetting)", () => {
     expect(await resolveCapabilityPolicy("search", "inherit")).toEqual(
       await resolveSearchPolicy("inherit"),
     );
-    expect((await resolveCapabilityPolicy("search", "inherit") as SearchPolicy).quota).toBe(33);
+    expect(((await resolveCapabilityPolicy("search", "inherit")) as SearchPolicy).quota).toBe(33);
   });
 });
 
@@ -228,21 +231,32 @@ describe("getCapabilitySettingsSchema (§3.4 UI bridge)", () => {
   });
 
   test("search → providers select + quota/maxResults numbers, in order", () => {
-    const schema = getCapabilitySettingsSchema("search", { quota: 80, maxResults: 9, providers: ["searxng"] });
+    const schema = getCapabilitySettingsSchema("search", {
+      quota: 80,
+      maxResults: 9,
+      providers: ["searxng"],
+    });
     expect(schema.map((f) => f.key)).toEqual(["providers", "quota", "maxResults"]);
 
     const providers = schema[0]!.field;
     expect(providers.type).toBe("select");
     if (providers.type === "select") {
       // inherit sentinel first, then every KNOWN provider.
-      expect(providers.options[0]).toEqual({ value: "inherit", label: "Inherit (instance default)" });
+      expect(providers.options[0]).toEqual({
+        value: "inherit",
+        label: "Inherit (instance default)",
+      });
       expect(providers.options.slice(1).map((o) => o.value)).toEqual([...KNOWN_SEARCH_PROVIDERS]);
       expect(providers.default).toBe("inherit");
     }
   });
 
   test("number-field defaults are sourced from the instance defaults at render time", () => {
-    const schema = getCapabilitySettingsSchema("search", { quota: 250, maxResults: 12, providers: "all" });
+    const schema = getCapabilitySettingsSchema("search", {
+      quota: 250,
+      maxResults: 12,
+      providers: "all",
+    });
     const quota = schema.find((f) => f.key === "quota")!.field;
     const maxResults = schema.find((f) => f.key === "maxResults")!.field;
     expect(quota.type === "number" && quota.default).toBe(250);
@@ -270,14 +284,24 @@ describe("getHeldCapabilities (§5.2 payload)", () => {
     expect(held).toHaveLength(1);
     expect(held[0]!.cap).toBe("search");
     expect(held[0]!.grant).toBe("inherit");
-    expect(held[0]!.effective).toEqual({ denied: false, quota: 60, maxResults: 5, providers: "all" });
+    expect(held[0]!.effective).toEqual({
+      denied: false,
+      quota: 60,
+      maxResults: 5,
+      providers: "all",
+    });
     expect(held[0]!.schema.map((f) => f.key)).toEqual(["providers", "quota", "maxResults"]);
   });
 
   test("object override → effective merges field-level over instance defaults", async () => {
     settingsStore.set(SEARCH_SETTING_KEYS.defaultQuota, 100);
     const held = await getHeldCapabilities(grant({ quota: 500 }));
-    expect(held[0]!.effective).toEqual({ denied: false, quota: 500, maxResults: 5, providers: "all" });
+    expect(held[0]!.effective).toEqual({
+      denied: false,
+      quota: 500,
+      maxResults: 5,
+      providers: "all",
+    });
     expect(held[0]!.grant).toEqual({ quota: 500 });
   });
 

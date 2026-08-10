@@ -158,9 +158,7 @@ describe("hooks.server.ts — returnTo on /login redirects", () => {
     });
 
     test("GET /chat/abc → reason=session_expired&returnTo=...", async () => {
-      const r = await captureRedirect(
-        makeEvent({ path: "/chat/abc", cookie: "stale-jwt" }),
-      );
+      const r = await captureRedirect(makeEvent({ path: "/chat/abc", cookie: "stale-jwt" }));
       expect(r.location).toBe("/login?reason=session_expired&returnTo=%2Fchat%2Fabc");
     });
 
@@ -200,9 +198,7 @@ describe("hooks.server.ts — returnTo on /login redirects", () => {
     });
 
     test("GET /admin → reason=session_revoked&returnTo=...", async () => {
-      const r = await captureRedirect(
-        makeEvent({ path: "/admin", cookie: "valid-but-revoked" }),
-      );
+      const r = await captureRedirect(makeEvent({ path: "/admin", cookie: "valid-but-revoked" }));
       expect(r.location).toBe("/login?reason=session_revoked&returnTo=%2Fadmin");
     });
 
@@ -217,15 +213,11 @@ describe("hooks.server.ts — returnTo on /login redirects", () => {
   // ── Round-trip sanity ─────────────────────────────────────────────
 
   test("returnTo round-trips through URL parsing", async () => {
-    const r = await captureRedirect(
-      makeEvent({ path: "/chat/xyz?tab=files&q=hello%20world" }),
-    );
+    const r = await captureRedirect(makeEvent({ path: "/chat/xyz?tab=files&q=hello%20world" }));
     // The browser will GET this Location URL, hit the login load(), which
     // calls url.searchParams.get("returnTo") → expects to recover the
     // original path verbatim. Verify here so the contract is locked.
     const parsed = new URL(`http://localhost${r.location}`);
-    expect(parsed.searchParams.get("returnTo")).toBe(
-      "/chat/xyz?tab=files&q=hello%20world",
-    );
+    expect(parsed.searchParams.get("returnTo")).toBe("/chat/xyz?tab=files&q=hello%20world");
   });
 });

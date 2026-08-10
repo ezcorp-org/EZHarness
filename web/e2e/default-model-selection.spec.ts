@@ -31,174 +31,174 @@ const proj = makeProject({ id: "p-def" });
 const FIRST_MODEL_LABEL = "Claude Sonnet 4";
 
 async function stubDefaultSelection(
-	page: import("@playwright/test").Page,
-	value: "auto" | "first",
+  page: import("@playwright/test").Page,
+  value: "auto" | "first",
 ) {
-	await page.route("**/api/models/default-selection", (route) =>
-		route.fulfill({ json: { value } }),
-	);
+  await page.route("**/api/models/default-selection", (route) =>
+    route.fulfill({ json: { value } }),
+  );
 }
 
 /** Capture the send POST for a conversation and answer it with a minimal
  *  well-formed body. Returns a getter for the parsed request body. */
 async function captureSend(page: import("@playwright/test").Page, convId: string) {
-	const seen: { body: Record<string, unknown> | null } = { body: null };
-	await page.route(`**/api/conversations/${convId}/messages`, (route) => {
-		if (route.request().method() !== "POST") return route.fallback();
-		seen.body = route.request().postDataJSON() as Record<string, unknown>;
-		return route.fulfill({
-			json: {
-				userMessage: {
-					id: "sent-1",
-					conversationId: convId,
-					role: "user",
-					content: (seen.body?.content as string) ?? "sent",
-					thinkingContent: null,
-					model: null,
-					provider: null,
-					usage: null,
-					runId: null,
-					parentMessageId: null,
-					excluded: false,
-					createdAt: new Date().toISOString(),
-				},
-				runId: "run-def-1",
-				attachments: [],
-				ezActionResults: [],
-			},
-		});
-	});
-	return seen;
+  const seen: { body: Record<string, unknown> | null } = { body: null };
+  await page.route(`**/api/conversations/${convId}/messages`, (route) => {
+    if (route.request().method() !== "POST") return route.fallback();
+    seen.body = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({
+      json: {
+        userMessage: {
+          id: "sent-1",
+          conversationId: convId,
+          role: "user",
+          content: (seen.body?.content as string) ?? "sent",
+          thinkingContent: null,
+          model: null,
+          provider: null,
+          usage: null,
+          runId: null,
+          parentMessageId: null,
+          excluded: false,
+          createdAt: new Date().toISOString(),
+        },
+        runId: "run-def-1",
+        attachments: [],
+        ezActionResults: [],
+      },
+    });
+  });
+  return seen;
 }
 
 test.describe("@evidence default model selection", () => {
-	test("a fresh conversation defaults to Auto and routes turn 1", async ({
-		page,
-		mockApi,
-	}, testInfo) => {
-		const conv = makeConversation({ id: "D1", projectId: "p-def", title: "Fresh Chat" });
-		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
-		await page.route("**/api/conversations/*/active-run", (route) =>
-			route.fulfill({ json: { runId: null, status: "none" } }),
-		);
-		await stubDefaultSelection(page, "auto");
-		const sent = await captureSend(page, "D1");
+  test("a fresh conversation defaults to Auto and routes turn 1", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    const conv = makeConversation({ id: "D1", projectId: "p-def", title: "Fresh Chat" });
+    await mockApi({ projects: [proj], conversations: [conv], messages: [] });
+    await page.route("**/api/conversations/*/active-run", (route) =>
+      route.fulfill({ json: { runId: null, status: "none" } }),
+    );
+    await stubDefaultSelection(page, "auto");
+    const sent = await captureSend(page, "D1");
 
-		await page.goto("/project/p-def/chat/D1", { waitUntil: "networkidle" });
+    await page.goto("/project/p-def/chat/D1", { waitUntil: "networkidle" });
 
-		// The composer defaults to Auto — NOT the first model in the list.
-		const selector = page.getByTestId("model-selector");
-		await expect(selector).toContainText("Auto (smart routing)", { timeout: 5000 });
-		await expect(selector).not.toContainText(FIRST_MODEL_LABEL);
+    // The composer defaults to Auto — NOT the first model in the list.
+    const selector = page.getByTestId("model-selector");
+    await expect(selector).toContainText("Auto (smart routing)", { timeout: 5000 });
+    await expect(selector).not.toContainText(FIRST_MODEL_LABEL);
 
-		// Turn-1 attachments must still work. Auto has no concrete model, so the
-		// server answers capabilities with the INTERSECTION of the tier ladder;
-		// without that the paperclip would be hidden on EVERY new conversation
-		// now that Auto is the default. This is the regression guard.
-		await expect(page.getByTestId("attachment-button")).toBeVisible({ timeout: 5000 });
+    // Turn-1 attachments must still work. Auto has no concrete model, so the
+    // server answers capabilities with the INTERSECTION of the tier ladder;
+    // without that the paperclip would be hidden on EVERY new conversation
+    // now that Auto is the default. This is the regression guard.
+    await expect(page.getByTestId("attachment-button")).toBeVisible({ timeout: 5000 });
 
-		await captureEvidence(page, testInfo, "default-model-selection-auto");
+    await captureEvidence(page, testInfo, "default-model-selection-auto");
 
-		// Turn 1 goes out with the explicit-null sentinel → the server routes it.
-		const composer = page.getByPlaceholder("Send a message...");
-		await composer.fill("route my very first turn");
-		await composer.press("Enter");
+    // Turn 1 goes out with the explicit-null sentinel → the server routes it.
+    const composer = page.getByPlaceholder("Send a message...");
+    await composer.fill("route my very first turn");
+    await composer.press("Enter");
 
-		await expect.poll(() => sent.body).not.toBeNull();
-		expect(sent.body!.model).toBeNull();
-		expect(sent.body!.provider).toBeNull();
-		expect("model" in sent.body!).toBe(true);
-		expect("provider" in sent.body!).toBe(true);
-	});
+    await expect.poll(() => sent.body).not.toBeNull();
+    expect(sent.body!.model).toBeNull();
+    expect(sent.body!.provider).toBeNull();
+    expect("model" in sent.body!).toBe(true);
+    expect("provider" in sent.body!).toBe(true);
+  });
 
-	test('the "first" revert restores the pinned models[0] default', async ({
-		page,
-		mockApi,
-	}, testInfo) => {
-		const conv = makeConversation({ id: "D2", projectId: "p-def", title: "Reverted Chat" });
-		await mockApi({ projects: [proj], conversations: [conv], messages: [] });
-		await page.route("**/api/conversations/*/active-run", (route) =>
-			route.fulfill({ json: { runId: null, status: "none" } }),
-		);
-		await stubDefaultSelection(page, "first");
-		const sent = await captureSend(page, "D2");
+  test('the "first" revert restores the pinned models[0] default', async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    const conv = makeConversation({ id: "D2", projectId: "p-def", title: "Reverted Chat" });
+    await mockApi({ projects: [proj], conversations: [conv], messages: [] });
+    await page.route("**/api/conversations/*/active-run", (route) =>
+      route.fulfill({ json: { runId: null, status: "none" } }),
+    );
+    await stubDefaultSelection(page, "first");
+    const sent = await captureSend(page, "D2");
 
-		await page.goto("/project/p-def/chat/D2", { waitUntil: "networkidle" });
+    await page.goto("/project/p-def/chat/D2", { waitUntil: "networkidle" });
 
-		// models[0] is pinned exactly as it was before routing shipped.
-		const selector = page.getByTestId("model-selector");
-		await expect(selector).toContainText(FIRST_MODEL_LABEL, { timeout: 5000 });
-		await expect(selector).not.toContainText("Auto (smart routing)");
+    // models[0] is pinned exactly as it was before routing shipped.
+    const selector = page.getByTestId("model-selector");
+    await expect(selector).toContainText(FIRST_MODEL_LABEL, { timeout: 5000 });
+    await expect(selector).not.toContainText("Auto (smart routing)");
 
-		await captureEvidence(page, testInfo, "default-model-selection-first");
+    await captureEvidence(page, testInfo, "default-model-selection-first");
 
-		// …and the pinned pair rides the wire, so nothing is routed.
-		const composer = page.getByPlaceholder("Send a message...");
-		await composer.fill("keep me pinned");
-		await composer.press("Enter");
+    // …and the pinned pair rides the wire, so nothing is routed.
+    const composer = page.getByPlaceholder("Send a message...");
+    await composer.fill("keep me pinned");
+    await composer.press("Enter");
 
-		await expect.poll(() => sent.body).not.toBeNull();
-		expect(sent.body!.provider).toBe("anthropic");
-		expect(sent.body!.model).toBe("claude-sonnet-4-20250514");
-	});
+    await expect.poll(() => sent.body).not.toBeNull();
+    expect(sent.body!.provider).toBe("anthropic");
+    expect(sent.body!.model).toBe("claude-sonnet-4-20250514");
+  });
 
-	test("an already-routed thread stays on Auto but re-sends the SERVED model", async ({
-		page,
-		mockApi,
-	}, testInfo) => {
-		// The conversation row carries no model (the pin write is the server's
-		// job and is irrelevant here) but its last assistant turn was routed —
-		// `usage.requestedModel === null` is the provenance the runtime persists.
-		const conv = makeConversation({ id: "D3", projectId: "p-def", title: "Routed Chat" });
-		const messages = [
-			makeMessage({
-				id: "u1",
-				conversationId: "D3",
-				role: "user",
-				content: "turn one",
-				parentMessageId: null,
-			}),
-			makeMessage({
-				id: "a1",
-				conversationId: "D3",
-				role: "assistant",
-				content: "served by the router",
-				provider: "anthropic",
-				model: "claude-sonnet-4-20250514",
-				parentMessageId: "u1",
-				usage: {
-					inputTokens: 100,
-					outputTokens: 20,
-					requestedProvider: null,
-					requestedModel: null,
-					routedTier: "balanced",
-				},
-			}),
-		];
-		await mockApi({ projects: [proj], conversations: [conv], messages });
-		await page.route("**/api/conversations/*/active-run", (route) =>
-			route.fulfill({ json: { runId: "r-done", status: "completed" } }),
-		);
-		await stubDefaultSelection(page, "auto");
-		const sent = await captureSend(page, "D3");
+  test("an already-routed thread stays on Auto but re-sends the SERVED model", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    // The conversation row carries no model (the pin write is the server's
+    // job and is irrelevant here) but its last assistant turn was routed —
+    // `usage.requestedModel === null` is the provenance the runtime persists.
+    const conv = makeConversation({ id: "D3", projectId: "p-def", title: "Routed Chat" });
+    const messages = [
+      makeMessage({
+        id: "u1",
+        conversationId: "D3",
+        role: "user",
+        content: "turn one",
+        parentMessageId: null,
+      }),
+      makeMessage({
+        id: "a1",
+        conversationId: "D3",
+        role: "assistant",
+        content: "served by the router",
+        provider: "anthropic",
+        model: "claude-sonnet-4-20250514",
+        parentMessageId: "u1",
+        usage: {
+          inputTokens: 100,
+          outputTokens: 20,
+          requestedProvider: null,
+          requestedModel: null,
+          routedTier: "balanced",
+        },
+      }),
+    ];
+    await mockApi({ projects: [proj], conversations: [conv], messages });
+    await page.route("**/api/conversations/*/active-run", (route) =>
+      route.fulfill({ json: { runId: "r-done", status: "completed" } }),
+    );
+    await stubDefaultSelection(page, "auto");
+    const sent = await captureSend(page, "D3");
 
-		await page.goto("/project/p-def/chat/D3", { waitUntil: "networkidle" });
-		await expect(page.getByText("served by the router")).toBeVisible({ timeout: 5000 });
+    await page.goto("/project/p-def/chat/D3", { waitUntil: "networkidle" });
+    await expect(page.getByText("served by the router")).toBeVisible({ timeout: 5000 });
 
-		// Still Auto — with the served model surfaced in the label.
-		const selector = page.getByTestId("model-selector");
-		await expect(selector).toContainText("Auto →", { timeout: 5000 });
+    // Still Auto — with the served model surfaced in the label.
+    const selector = page.getByTestId("model-selector");
+    await expect(selector).toContainText("Auto →", { timeout: 5000 });
 
-		await captureEvidence(page, testInfo, "default-model-selection-auto-served");
+    await captureEvidence(page, testInfo, "default-model-selection-auto-served");
 
-		// Turn 2 carries the SERVED pair, not the null sentinel: the thread is
-		// routed ONCE, so the warm prompt-cache prefix survives.
-		const composer = page.getByPlaceholder("Send a message...");
-		await composer.fill("turn two");
-		await composer.press("Enter");
+    // Turn 2 carries the SERVED pair, not the null sentinel: the thread is
+    // routed ONCE, so the warm prompt-cache prefix survives.
+    const composer = page.getByPlaceholder("Send a message...");
+    await composer.fill("turn two");
+    await composer.press("Enter");
 
-		await expect.poll(() => sent.body).not.toBeNull();
-		expect(sent.body!.provider).toBe("anthropic");
-		expect(sent.body!.model).toBe("claude-sonnet-4-20250514");
-	});
+    await expect.poll(() => sent.body).not.toBeNull();
+    expect(sent.body!.provider).toBe("anthropic");
+    expect(sent.body!.model).toBe("claude-sonnet-4-20250514");
+  });
 });

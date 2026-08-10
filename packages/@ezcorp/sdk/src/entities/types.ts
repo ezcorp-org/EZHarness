@@ -16,12 +16,7 @@
 // this subset is rejected at manifest-validation time so authors
 // don't ship schemas the SDK can't enforce.
 
-export type JsonSchemaPrimitive =
-  | "object"
-  | "string"
-  | "number"
-  | "boolean"
-  | "array";
+export type JsonSchemaPrimitive = "object" | "string" | "number" | "boolean" | "array";
 
 export interface JsonSchemaString {
   type: "string";
@@ -145,8 +140,7 @@ export interface EntityValidationWarning {
  * the current schema. The raw `data` is preserved so the LLM can
  * fix-and-update or the UI can delete the broken row.
  */
-export interface EntityRecordWithWarning<T = Record<string, unknown>>
-  extends EntityRecord<T> {
+export interface EntityRecordWithWarning<T = Record<string, unknown>> extends EntityRecord<T> {
   _validationWarning?: EntityValidationWarning;
 }
 

@@ -29,14 +29,14 @@ async function importKey(secret: string): Promise<CryptoKey> {
     encoder.encode(secret),
     { name: "HMAC", hash: "SHA-256" },
     false,
-    ["sign", "verify"]
+    ["sign", "verify"],
   );
 }
 
 export async function signJWT(
   payload: AuthUser,
   secret: string,
-  expiresInSeconds: number = 30 * 24 * 3600
+  expiresInSeconds: number = 30 * 24 * 3600,
 ): Promise<string> {
   const header = { alg: "HS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
@@ -47,7 +47,9 @@ export async function signJWT(
   // for collision avoidance only; verifyJWT does not enforce uniqueness.
   const jtiBytes = new Uint8Array(16);
   crypto.getRandomValues(jtiBytes);
-  const jti = Array.from(jtiBytes).map(b => b.toString(16).padStart(2, "0")).join("");
+  const jti = Array.from(jtiBytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
   const fullPayload: JWTPayload = {
     ...payload,
     iat: now,
@@ -103,7 +105,7 @@ export async function getJwtSecret(): Promise<string> {
   // sec-C1b: instance:jwtSecret is encrypted at rest via providers/encryption.
   // Legacy deployments may still have a plaintext value; on decrypt failure we
   // treat it as legacy plaintext, lazily re-save it encrypted, and return it.
-  const stored = await getSetting("instance:jwtSecret") as string | undefined;
+  const stored = (await getSetting("instance:jwtSecret")) as string | undefined;
   if (stored) {
     try {
       _cachedSecret = decrypt(stored);
@@ -118,7 +120,9 @@ export async function getJwtSecret(): Promise<string> {
   // 3. Auto-generate and persist (encrypted at rest — sec-C1b).
   const bytes = new Uint8Array(32);
   crypto.getRandomValues(bytes);
-  const secret = Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+  const secret = Array.from(bytes)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
   await upsertSetting("instance:jwtSecret", encrypt(secret));
   _cachedSecret = secret;
   return secret;

@@ -20,10 +20,20 @@ import { restoreModuleMocks } from "../../../../src/__tests__/helpers/mock-clean
 
 // Stub users + password queries so bundled-creds can seed a system user
 // without a real DB. In-memory store; reset per test.
-let users: Map<string, { id: string; email: string; passwordHash: string; name: string; role: string; status: string }>;
+let users: Map<
+  string,
+  { id: string; email: string; passwordHash: string; name: string; role: string; status: string }
+>;
 mock.module("$server/db/queries/users", () => ({
   getUserById: async (id: string) => users.get(id),
-  createUser: async (data: { id?: string; email: string; passwordHash: string; name: string; role?: string; status?: string }) => {
+  createUser: async (data: {
+    id?: string;
+    email: string;
+    passwordHash: string;
+    name: string;
+    role?: string;
+    status?: string;
+  }) => {
     const id = data.id ?? `test-${users.size + 1}`;
     const row = {
       id,
@@ -90,9 +100,9 @@ describe("bundled credential allowlist", () => {
 
 describe("resolveInternalBaseUrl", () => {
   test("honors explicit EZCORP_BASE_URL when set", () => {
-    expect(
-      resolveInternalBaseUrl({ EZCORP_BASE_URL: "http://my-proxy:1234" }),
-    ).toBe("http://my-proxy:1234");
+    expect(resolveInternalBaseUrl({ EZCORP_BASE_URL: "http://my-proxy:1234" })).toBe(
+      "http://my-proxy:1234",
+    );
   });
 
   test("uses loopback IP + EZCORP_PORT when only port is set", () => {
@@ -132,13 +142,9 @@ describe("bootstrapBundledCredentials", () => {
   });
 
   test("the raw key never lands in process.env", async () => {
-    const beforeKeys = Object.keys(process.env).filter((k) =>
-      k.startsWith("EZCORP_API_KEY"),
-    );
+    const beforeKeys = Object.keys(process.env).filter((k) => k.startsWith("EZCORP_API_KEY"));
     await bootstrapBundledCredentials(registry, { EZCORP_PORT: "3000" });
-    const afterKeys = Object.keys(process.env).filter((k) =>
-      k.startsWith("EZCORP_API_KEY"),
-    );
+    const afterKeys = Object.keys(process.env).filter((k) => k.startsWith("EZCORP_API_KEY"));
     expect(afterKeys).toEqual(beforeKeys);
   });
 

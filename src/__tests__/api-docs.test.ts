@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { apiRegistry, } from "../api-registry";
+import { apiRegistry } from "../api-registry";
 
 describe("API Registry", () => {
   test("has entries", () => {

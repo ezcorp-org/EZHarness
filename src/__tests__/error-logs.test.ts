@@ -69,16 +69,14 @@ mock.module("../db/connection", () => ({
 
 // ── Import subject after mocks ───────────────────────────────────────
 
-import {
-  persistError,
-  listErrors,
-  cleanupOldErrors,
-  countErrors,
-} from "../db/queries/error-logs";
+import { persistError, listErrors, cleanupOldErrors, countErrors } from "../db/queries/error-logs";
 
 // ── Tests ─────────────────────────────────────────────────────────────
 
-afterAll(() => { mock.restore(); restoreModuleMocks(); });
+afterAll(() => {
+  mock.restore();
+  restoreModuleMocks();
+});
 
 describe("error-logs queries", () => {
   beforeEach(() => resetMockState());
@@ -105,9 +103,7 @@ describe("error-logs queries", () => {
       shouldThrow = true;
 
       // Should not throw
-      await expect(
-        persistError({ level: "error", message: "test" })
-      ).resolves.toBeUndefined();
+      await expect(persistError({ level: "error", message: "test" })).resolves.toBeUndefined();
     });
   });
 

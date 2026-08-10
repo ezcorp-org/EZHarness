@@ -72,10 +72,7 @@ export async function handleToolPermission(
   // unknown values rather than silently downgrading to "session" so a
   // typo in the UI surfaces immediately.
   if (body.scope !== undefined && !VALID_SCOPES.has(body.scope)) {
-    return json(
-      { error: `scope must be one of: ${[...VALID_SCOPES].join(", ")}` },
-      400,
-    );
+    return json({ error: `scope must be one of: ${[...VALID_SCOPES].join(", ")}` }, 400);
   }
 
   // Phase 56 — validate ttlOverrideMs via the shared parser (also used
@@ -103,10 +100,7 @@ export async function handleToolPermission(
   // non-forever scope is also open — only the scope=forever
   // escalation is admin-gated.
   if (body.approved === true && body.scope === "forever" && user.role !== "admin") {
-    return json(
-      { error: "scope=forever requires admin role" },
-      403,
-    );
+    return json({ error: "scope=forever requires admin role" }, 403);
   }
 
   // sec-H2: only enforce ownership when a gate is actually pending. If no
@@ -141,11 +135,7 @@ export async function handleToolPermission(
   // through to a `"unknown"` suffix — the user's sticky default for
   // an un-typed permission prompt is recoverable; we'd rather record
   // the picker's intent under a sentinel than drop it on the floor.
-  if (
-    body.approved === true &&
-    ttlOverrideMs !== null &&
-    ttlOverrideMs !== undefined
-  ) {
+  if (body.approved === true && ttlOverrideMs !== null && ttlOverrideMs !== undefined) {
     let kind: string = "unknown";
     if (typeof getPendingExtensionGate === "function") {
       const gate = getPendingExtensionGate(toolCallId);
@@ -155,10 +145,7 @@ export async function handleToolPermission(
       }
     }
     try {
-      await upsertSetting(
-        `user:${user.id}:reapprove:lastTtl:${kind}`,
-        ttlOverrideMs,
-      );
+      await upsertSetting(`user:${user.id}:reapprove:lastTtl:${kind}`, ttlOverrideMs);
     } catch {
       /* swallow — failure to record the sticky default is recoverable;
          the gate still resolves below. */
@@ -184,9 +171,10 @@ export async function handleToolPermission(
  */
 export async function handleGetPermissionMode(_req: Request, projectId: string): Promise<Response> {
   const stored = await getSetting(`project:${projectId}:tool_permission_mode`);
-  const mode = typeof stored === "string" && VALID_MODES.has(stored as PermissionMode)
-    ? stored
-    : DEFAULT_PERMISSION_MODE;
+  const mode =
+    typeof stored === "string" && VALID_MODES.has(stored as PermissionMode)
+      ? stored
+      : DEFAULT_PERMISSION_MODE;
   return json({ mode });
 }
 

@@ -58,7 +58,8 @@ function fakeGit(opts: {
 }): GitPort {
   return {
     listBranches: () => opts.branches,
-    resolve: (rev) => (opts.unresolvable ? null : `${rev}0000000000000000000000000000000000`.slice(0, 40)),
+    resolve: (rev) =>
+      opts.unresolvable ? null : `${rev}0000000000000000000000000000000000`.slice(0, 40),
     cherry: (_tip, branch) => {
       const out = opts.cherry?.[branch];
       if (out === undefined) throw new Error(`no fake cherry output for ${branch}`);
@@ -199,7 +200,10 @@ describe("render — exit contract", () => {
   });
 
   test("all branches landed exits CLEAN with empty stdout AND a non-zero examined count", () => {
-    const git = fakeGit({ branches: ["feat/a", "feat/b"], cherry: { "feat/a": "", "feat/b": `- ${SHA_A}\n` } });
+    const git = fakeGit({
+      branches: ["feat/a", "feat/b"],
+      cherry: { "feat/a": "", "feat/b": `- ${SHA_A}\n` },
+    });
     const r = render(scan(git, "tip", ["feat/*"]), git);
     expect(r.exitCode).toBe(EXIT_CLEAN);
     expect(r.stdout).toBe("");
@@ -445,7 +449,8 @@ describe("real git — squash-immunity and the known-good split", () => {
     expect(git("rev-parse", `${MAIN}^{tree}`)).toBe(git("rev-parse", `${INTEGRATION}^{tree}`));
     // …and yet it is not an ancestor — the exact reason ancestry lied.
     expect(
-      Bun.spawnSync(["git", "merge-base", "--is-ancestor", "feat/f1", "main"], { cwd: REPO }).exitCode,
+      Bun.spawnSync(["git", "merge-base", "--is-ancestor", "feat/f1", "main"], { cwd: REPO })
+        .exitCode,
     ).not.toBe(0);
   });
 

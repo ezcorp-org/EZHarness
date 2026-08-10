@@ -245,7 +245,11 @@ export async function resolveModel(
     // has no `ezcorp-mock` models → custom openai-completions w/ default
     // OpenAI baseUrl, requiring credentials it won't have → clean failure).
     if (provider === MOCK_PROVIDER && isTestSurfaceEnabled()) {
-      return { provider, model: modelId, piModel: resolveModelObject(provider, modelId, mockLlmBaseUrl()) };
+      return {
+        provider,
+        model: modelId,
+        piModel: resolveModelObject(provider, modelId, mockLlmBaseUrl()),
+      };
     }
     // Prefer a model discovered via /api/providers/:provider/refresh-models — it carries
     // the correct api + baseUrl for provider-native calls (e.g. openai-responses for gpt-5.x).
@@ -379,7 +383,7 @@ export async function resolveModel(
   throw new Error(
     skippedForCredentials
       ? `No available providers with credentials (tier "${tier}"). ` +
-        `Connect a provider via OAuth or add an API key — e.g. ${skippedForCredentials}.`
+          `Connect a provider via OAuth or add an API key — e.g. ${skippedForCredentials}.`
       : "No available providers",
   );
 }
@@ -424,4 +428,3 @@ export async function suggestFallback(
 
   return null;
 }
-

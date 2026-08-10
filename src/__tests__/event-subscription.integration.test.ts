@@ -85,10 +85,16 @@ function spawnExtension(): TestProc {
           const line = buffer.slice(0, idx).trim();
           buffer = buffer.slice(idx + 1);
           if (!line) continue;
-          try { outbound.push(JSON.parse(line)); } catch { /* non-JSON */ }
+          try {
+            outbound.push(JSON.parse(line));
+          } catch {
+            /* non-JSON */
+          }
         }
       }
-    } catch { /* stream closed */ }
+    } catch {
+      /* stream closed */
+    }
   })();
 
   (async () => {
@@ -98,7 +104,9 @@ function spawnExtension(): TestProc {
         const { done } = await reader.read();
         if (done) return;
       }
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   })();
 
   function inbound(msg: Record<string, unknown>): void {
@@ -119,7 +127,11 @@ function spawnExtension(): TestProc {
   }
 
   function kill(): void {
-    try { proc.kill(); } catch { /* */ }
+    try {
+      proc.kill();
+    } catch {
+      /* */
+    }
   }
   return { proc, outbound, inbound, wait, kill };
 }
@@ -150,8 +162,13 @@ function makeStubRegistry(proc: TestProc): ExtensionRegistry {
 
 let proc: TestProc | null = null;
 
-beforeEach(() => { proc = spawnExtension(); });
-afterEach(() => { if (proc) proc.kill(); proc = null; });
+beforeEach(() => {
+  proc = spawnExtension();
+});
+afterEach(() => {
+  if (proc) proc.kill();
+  proc = null;
+});
 
 async function drain(toolCallId: number): Promise<unknown[]> {
   proc!.inbound({
@@ -160,9 +177,7 @@ async function drain(toolCallId: number): Promise<unknown[]> {
     method: "tools/call",
     params: { name: "drain_received", arguments: {} },
   });
-  const resp = await proc!.wait(
-    (m) => m.id === toolCallId && m.result !== undefined,
-  );
+  const resp = await proc!.wait((m) => m.id === toolCallId && m.result !== undefined);
   const result = resp.result as { content: Array<{ text: string }>; isError?: boolean };
   return JSON.parse(result.content[0]!.text) as unknown[];
 }

@@ -23,10 +23,7 @@ import { test, expect, describe, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  checkFilesystemPermission,
-  isReservedSensitivePath,
-} from "../extensions/permissions";
+import { checkFilesystemPermission, isReservedSensitivePath } from "../extensions/permissions";
 import { checkPrefixForWrite } from "../extensions/fs-handler";
 import { __resetProjectRootCacheForTests } from "../extensions/bundled";
 import type { ExtensionPermissions } from "../extensions/types";
@@ -100,15 +97,13 @@ describe("isReservedSensitivePath", () => {
   });
 
   test("a file nested under the reserved dir is reserved", async () => {
-    expect(
-      await isReservedSensitivePath(join(projectRoot, ".ezcorp", "data", "ezcorp-db")),
-    ).toBe(true);
+    expect(await isReservedSensitivePath(join(projectRoot, ".ezcorp", "data", "ezcorp-db"))).toBe(
+      true,
+    );
   });
 
   test("the segment-boundary sibling .ezcorp/data-export is NOT reserved", async () => {
-    expect(
-      await isReservedSensitivePath(join(projectRoot, ".ezcorp", "data-export")),
-    ).toBe(false);
+    expect(await isReservedSensitivePath(join(projectRoot, ".ezcorp", "data-export"))).toBe(false);
     expect(
       await isReservedSensitivePath(join(projectRoot, ".ezcorp", "data-export", "dump.csv")),
     ).toBe(false);

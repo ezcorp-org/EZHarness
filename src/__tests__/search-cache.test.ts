@@ -8,8 +8,12 @@ import {
 
 describe("SearchCache.key", () => {
   test("embeds provider:kind:query:extra and normalizes the query", () => {
-    expect(SearchCache.key("searxng", "search", "  Bun Runtime ", 5)).toBe("searxng:search:bun runtime:5");
-    expect(SearchCache.key("duckduckgo", "search", "Bun Runtime", 5)).toBe("duckduckgo:search:bun runtime:5");
+    expect(SearchCache.key("searxng", "search", "  Bun Runtime ", 5)).toBe(
+      "searxng:search:bun runtime:5",
+    );
+    expect(SearchCache.key("duckduckgo", "search", "Bun Runtime", 5)).toBe(
+      "duckduckgo:search:bun runtime:5",
+    );
     expect(SearchCache.key("jina", "read", "https://X", "raw")).toBe("jina:read:https://x:raw");
   });
 

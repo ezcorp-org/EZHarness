@@ -74,7 +74,9 @@ const RUNNER_NAMES = new Set(["test", "expect"]);
 
 function playwrightValueImports(src: string): string[] {
   const out: string[] = [];
-  for (const m of src.matchAll(/^import\s+(type\s+)?\{([^}]*)\}\s+from\s+"@playwright\/test";$/gm)) {
+  for (const m of src.matchAll(
+    /^import\s+(type\s+)?\{([^}]*)\}\s+from\s+"@playwright\/test";$/gm,
+  )) {
     if (m[1]) continue; // `import type { … }`
     const values = m[2]!
       .split(",")

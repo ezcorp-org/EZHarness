@@ -150,10 +150,18 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     const pending = {
       messageId: userMessage.id,
       content,
-      createdAt: userMessage.createdAt instanceof Date ? userMessage.createdAt.toISOString() : String(userMessage.createdAt),
+      createdAt:
+        userMessage.createdAt instanceof Date
+          ? userMessage.createdAt.toISOString()
+          : String(userMessage.createdAt),
     };
     const enqueuePending = () => enqueue(params.id, pending);
-    const steerResult = executor.steerConversation(params.id, content, enqueuePending, userMessage.id);
+    const steerResult = executor.steerConversation(
+      params.id,
+      content,
+      enqueuePending,
+      userMessage.id,
+    );
     if (steerResult.status === "steered") {
       return json({ status: "steered", messageId: userMessage.id });
     }
@@ -189,14 +197,16 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     agentConfigId,
     runId,
     parentMessageId: userMessage.id,
-    model: bodyModel
-      ?? subConv.model
-      ?? (config?.model === CURRENT_MODEL_SENTINEL
+    model:
+      bodyModel ??
+      subConv.model ??
+      (config?.model === CURRENT_MODEL_SENTINEL
         ? (parentConv.model ?? undefined)
         : (config?.model ?? parentConv.model ?? undefined)),
-    provider: bodyProvider
-      ?? subConv.provider
-      ?? (config?.provider === CURRENT_MODEL_SENTINEL
+    provider:
+      bodyProvider ??
+      subConv.provider ??
+      (config?.provider === CURRENT_MODEL_SENTINEL
         ? (parentConv.provider ?? undefined)
         : (config?.provider ?? parentConv.provider ?? undefined)),
     system: config?.prompt ?? subConv.systemPrompt ?? undefined,
@@ -221,32 +231,34 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 
   const agentName = config?.name ?? "Agent";
   const parentConversationId = rootConv.id;
-  streamPromise.then(async () => {
-    const leaf = await convQueries.getLatestLeaf(params.id);
-    const preview = leaf?.content?.slice(0, 200) ?? "";
-    bus.emit("agent:complete", {
-      runId,
-      agentRunId: runId,
-      subConversationId: params.id,
-      agentName,
-      agentConfigId: agentConfigId ?? "",
-      success: true,
-      resultPreview: preview,
-      parentConversationId,
+  streamPromise
+    .then(async () => {
+      const leaf = await convQueries.getLatestLeaf(params.id);
+      const preview = leaf?.content?.slice(0, 200) ?? "";
+      bus.emit("agent:complete", {
+        runId,
+        agentRunId: runId,
+        subConversationId: params.id,
+        agentName,
+        agentConfigId: agentConfigId ?? "",
+        success: true,
+        resultPreview: preview,
+        parentConversationId,
+      });
+    })
+    .catch((err) => {
+      log.error("streamChat error", { error: err instanceof Error ? err.message : String(err) });
+      bus.emit("agent:complete", {
+        runId,
+        agentRunId: runId,
+        subConversationId: params.id,
+        agentName,
+        agentConfigId: agentConfigId ?? "",
+        success: false,
+        resultPreview: err instanceof Error ? err.message.slice(0, 200) : "Unknown error",
+        parentConversationId,
+      });
     });
-  }).catch((err) => {
-    log.error("streamChat error", { error: err instanceof Error ? err.message : String(err) });
-    bus.emit("agent:complete", {
-      runId,
-      agentRunId: runId,
-      subConversationId: params.id,
-      agentName,
-      agentConfigId: agentConfigId ?? "",
-      success: false,
-      resultPreview: err instanceof Error ? err.message.slice(0, 200) : "Unknown error",
-      parentConversationId,
-    });
-  });
 
   return json({ status: "started", messageId: userMessage.id, runId });
 };

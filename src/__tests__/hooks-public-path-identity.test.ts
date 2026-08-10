@@ -150,8 +150,7 @@ function makeEvent(path: string, opts: { method?: string; cookie?: string } = {}
   const cookieSets: Array<{ name: string; value: string }> = [];
   const cookieDeletes: string[] = [];
   const cookies = {
-    get: (name: string) =>
-      opts.cookie && name === "ezcorp_session" ? opts.cookie : undefined,
+    get: (name: string) => (opts.cookie && name === "ezcorp_session" ? opts.cookie : undefined),
     set: (name: string, value: string) => {
       cookieSets.push({ name, value });
     },
@@ -195,7 +194,11 @@ async function callHandle(event: unknown, resolve?: () => Promise<Response>) {
   };
   try {
     const response = (await handle({ event, resolve: wrapped } as never)) as Response;
-    return { response, redirect: null as null | { status: number; location: string }, resolveCalls };
+    return {
+      response,
+      redirect: null as null | { status: number; location: string },
+      resolveCalls,
+    };
   } catch (e) {
     if (e && typeof e === "object" && "status" in e && "location" in e) {
       return {

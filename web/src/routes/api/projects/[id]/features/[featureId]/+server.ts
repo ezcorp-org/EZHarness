@@ -101,8 +101,7 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
   // PATCH on an agent-sourced feature MUST keep features.source='agent'
   // so a subsequent scan can refresh the description if the dir is
   // renamed in the FS.
-  const isMeaningfulNameEdit =
-    data.name !== undefined && data.name !== existing.name;
+  const isMeaningfulNameEdit = data.name !== undefined && data.name !== existing.name;
   const isMeaningfulDescriptionEdit =
     data.description !== undefined && data.description !== existing.description;
   const isFeatureLevelEdit = isMeaningfulNameEdit || isMeaningfulDescriptionEdit;
@@ -113,8 +112,7 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
   // current values: it's a no-op write but updatedAt moves, which is
   // fine. The source flip is gated on `isFeatureLevelEdit` (above), so
   // a no-op PATCH does NOT mutate ownership.
-  const hasNameOrDescriptionField =
-    data.name !== undefined || data.description !== undefined;
+  const hasNameOrDescriptionField = data.name !== undefined || data.description !== undefined;
   if (hasNameOrDescriptionField) {
     await featureQueries.updateFeature(params.featureId, {
       name: data.name,
@@ -166,10 +164,7 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
   // single-row inline-edit. If multi-client edit ever becomes a
   // concern, the queries already `.returning()` their writes; the
   // endpoint would echo the merged local-write result instead.
-  const updated = await featureQueries.getFeature(
-    params.id,
-    data.name ?? existing.name,
-  );
+  const updated = await featureQueries.getFeature(params.id, data.name ?? existing.name);
   if (!updated) return errorJson(500, "Feature lookup failed after update");
   return json({
     ...updated,

@@ -19,11 +19,7 @@ import {
   validateActResult,
   validateProposal,
 } from "../src/runtime/loop-core";
-import type {
-  ActResult,
-  LoopProposal,
-  LoopRunState,
-} from "../src/runtime/loop-types";
+import type { ActResult, LoopProposal, LoopRunState } from "../src/runtime/loop-types";
 
 const PROPOSAL: LoopProposal = {
   title: "Draft PR",
@@ -32,9 +28,7 @@ const PROPOSAL: LoopProposal = {
   ref: "https://example/pr/1",
 };
 
-function run(
-  partial: Partial<LoopRunState> & { status: string; createdAt: string },
-): LoopRunState {
+function run(partial: Partial<LoopRunState> & { status: string; createdAt: string }): LoopRunState {
   return {
     id: "r",
     loopId: "l",
@@ -136,22 +130,52 @@ describe("isProposalStale", () => {
   const createdMs = Date.parse(created);
 
   test("staleAfterDays <= 0 disables the sweep", () => {
-    expect(isProposalStale(run({ status: AWAITING_APPROVAL, createdAt: created }), 0, createdMs + 100 * day)).toBe(false);
-    expect(isProposalStale(run({ status: AWAITING_APPROVAL, createdAt: created }), -1, createdMs + 100 * day)).toBe(false);
+    expect(
+      isProposalStale(
+        run({ status: AWAITING_APPROVAL, createdAt: created }),
+        0,
+        createdMs + 100 * day,
+      ),
+    ).toBe(false);
+    expect(
+      isProposalStale(
+        run({ status: AWAITING_APPROVAL, createdAt: created }),
+        -1,
+        createdMs + 100 * day,
+      ),
+    ).toBe(false);
   });
 
   test("only awaiting_approval runs are candidates", () => {
-    expect(isProposalStale(run({ status: FINALIZING, createdAt: created }), 1, createdMs + 100 * day)).toBe(false);
-    expect(isProposalStale(run({ status: "running", createdAt: created }), 1, createdMs + 100 * day)).toBe(false);
+    expect(
+      isProposalStale(run({ status: FINALIZING, createdAt: created }), 1, createdMs + 100 * day),
+    ).toBe(false);
+    expect(
+      isProposalStale(run({ status: "running", createdAt: created }), 1, createdMs + 100 * day),
+    ).toBe(false);
   });
 
   test("age >= horizon → stale; age < horizon → fresh", () => {
-    expect(isProposalStale(run({ status: AWAITING_APPROVAL, createdAt: created }), 7, createdMs + 7 * day)).toBe(true);
-    expect(isProposalStale(run({ status: AWAITING_APPROVAL, createdAt: created }), 7, createdMs + 6 * day)).toBe(false);
+    expect(
+      isProposalStale(
+        run({ status: AWAITING_APPROVAL, createdAt: created }),
+        7,
+        createdMs + 7 * day,
+      ),
+    ).toBe(true);
+    expect(
+      isProposalStale(
+        run({ status: AWAITING_APPROVAL, createdAt: created }),
+        7,
+        createdMs + 6 * day,
+      ),
+    ).toBe(false);
   });
 
   test("unparseable createdAt is never stale (fail-safe)", () => {
-    expect(isProposalStale(run({ status: AWAITING_APPROVAL, createdAt: "not-a-date" }), 1, createdMs)).toBe(false);
+    expect(
+      isProposalStale(run({ status: AWAITING_APPROVAL, createdAt: "not-a-date" }), 1, createdMs),
+    ).toBe(false);
   });
 });
 

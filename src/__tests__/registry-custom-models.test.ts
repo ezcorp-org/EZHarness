@@ -53,8 +53,7 @@ describe("getModelRegistry custom model normalization", () => {
 
   test("provides defaults for missing fields", async () => {
     mockGetSetting.mockImplementation(((key: string) => {
-      if (key === "provider:customModels")
-        return Promise.resolve([{ modelId: "test" }]);
+      if (key === "provider:customModels") return Promise.resolve([{ modelId: "test" }]);
       return Promise.resolve(undefined);
     }) as any);
 
@@ -150,9 +149,7 @@ describe("getModelRegistry custom model normalization", () => {
     }) as any);
 
     const registry = await getModelRegistry();
-    const discovered = registry.find(
-      (m) => m.id === "ezcorp-test/custom-openrouter-model",
-    );
+    const discovered = registry.find((m) => m.id === "ezcorp-test/custom-openrouter-model");
     expect(discovered).toBeDefined();
     expect(discovered!.provider).toBe("openrouter");
     expect(discovered!.displayName).toBe("Custom OpenRouter Model");

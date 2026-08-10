@@ -15,13 +15,14 @@ import type { RequestHandler } from "./$types";
 // dispatch below would misroute to the content branch. The refine rejects
 // ambiguous payloads and empty payloads explicitly while keeping wire-compat
 // for the two single-field shapes existing clients already send.
-const patchMessageSchema = z.object({
-  content: z.string().min(1, "Content is required").max(100_000).optional(),
-  excluded: z.boolean().optional(),
-}).refine(
-  (d) => (d.content !== undefined) !== (d.excluded !== undefined),
-  { message: "exactly one of `content` or `excluded` is required" },
-);
+const patchMessageSchema = z
+  .object({
+    content: z.string().min(1, "Content is required").max(100_000).optional(),
+    excluded: z.boolean().optional(),
+  })
+  .refine((d) => (d.content !== undefined) !== (d.excluded !== undefined), {
+    message: "exactly one of `content` or `excluded` is required",
+  });
 
 export const PATCH: RequestHandler = async ({ request, params, locals }) => {
   const scopeErr = requireScope(locals, "chat");
@@ -55,9 +56,10 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
 
   // Both fields are optional on the schema, so use `!== undefined` rather
   // than `in` — the refine above guarantees exactly one of them is set.
-  const updated = parsed.data.excluded !== undefined
-    ? await convQueries.setMessageExcluded(conversationId, messageId, parsed.data.excluded)
-    : await convQueries.updateMessageContent(conversationId, messageId, parsed.data.content!);
+  const updated =
+    parsed.data.excluded !== undefined
+      ? await convQueries.setMessageExcluded(conversationId, messageId, parsed.data.excluded)
+      : await convQueries.updateMessageContent(conversationId, messageId, parsed.data.content!);
   if (!updated) return errorJson(404, "Message not found in this conversation");
 
   return json(updated);

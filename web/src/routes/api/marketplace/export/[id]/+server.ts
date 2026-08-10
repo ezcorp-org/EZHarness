@@ -21,7 +21,9 @@ export const GET: RequestHandler = async ({ params, locals }) => {
     return errorJson(404, "No versions available");
   }
 
-  const manifest = { ...(latestVersion.manifest as ExtensionManifestV2) } as ExtensionManifestV2 & { exportedAt?: string };
+  const manifest = { ...(latestVersion.manifest as ExtensionManifestV2) } as ExtensionManifestV2 & {
+    exportedAt?: string;
+  };
   manifest.exportedAt = new Date().toISOString();
 
   return new Response(JSON.stringify(manifest, null, 2), {

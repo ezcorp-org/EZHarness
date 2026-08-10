@@ -27,31 +27,31 @@ import type { RequestHandler } from "./$types";
  * (DELETE, PATCH) re-check ownership server-side in `[id]/+server.ts`.
  */
 export const GET: RequestHandler = async ({ url, locals }) => {
-	const scopeErr = requireScope(locals, "read");
-	if (scopeErr) return scopeErr;
-	const user = requireAuth(locals);
-	const projectId = url.searchParams.get("projectId");
-	if (!projectId) return errorJson(400, "projectId query parameter required");
+  const scopeErr = requireScope(locals, "read");
+  if (scopeErr) return scopeErr;
+  const user = requireAuth(locals);
+  const projectId = url.searchParams.get("projectId");
+  if (!projectId) return errorJson(400, "projectId query parameter required");
 
-	const rows = await listVisibleLessons(projectId, user.id);
-	return json(
-		rows.map((r) => ({
-			id: r.id,
-			slug: r.slug,
-			title: r.title,
-			// By design (spec §1): users see and manage lessons they OWN
-			// plus project-shared and global lessons that affect them — the
-			// full body is part of the curation surface, not a leak.
-			body: r.body,
-			visibility: r.visibility,
-			ownedByMe: r.ownerId === user.id,
-			source: r.source,
-			firedCount: r.firedCount,
-			lastFiredAt: r.lastFiredAt,
-			dismissedCount: r.dismissedCount,
-			createdAt: r.createdAt,
-			updatedAt: r.updatedAt,
-			frontmatter: r.frontmatter,
-		})),
-	);
+  const rows = await listVisibleLessons(projectId, user.id);
+  return json(
+    rows.map((r) => ({
+      id: r.id,
+      slug: r.slug,
+      title: r.title,
+      // By design (spec §1): users see and manage lessons they OWN
+      // plus project-shared and global lessons that affect them — the
+      // full body is part of the curation surface, not a leak.
+      body: r.body,
+      visibility: r.visibility,
+      ownedByMe: r.ownerId === user.id,
+      source: r.source,
+      firedCount: r.firedCount,
+      lastFiredAt: r.lastFiredAt,
+      dismissedCount: r.dismissedCount,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      frontmatter: r.frontmatter,
+    })),
+  );
 };

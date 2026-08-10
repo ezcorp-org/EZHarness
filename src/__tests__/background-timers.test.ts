@@ -13,14 +13,16 @@ let startDecayTimerMock = mock(() => () => {});
 let runCompactionMock = mock(() => Promise.resolve());
 let deleteExpiredSessionsMock = mock(() => Promise.resolve());
 let cleanupOldErrorsMock = mock((_retainDays: number) => Promise.resolve());
-let cleanupOldSdkCapabilityCallsMock = mock((_cfg: {
-  llmDays: number;
-  memoryDays: number;
-  lessonsDays: number;
-  scheduleDays: number;
-  eventsDays?: number;
-  force?: boolean;
-}) => Promise.resolve(0));
+let cleanupOldSdkCapabilityCallsMock = mock(
+  (_cfg: {
+    llmDays: number;
+    memoryDays: number;
+    lessonsDays: number;
+    scheduleDays: number;
+    eventsDays?: number;
+    force?: boolean;
+  }) => Promise.resolve(0),
+);
 let getSettingMock = mock((_key: string) => Promise.resolve<unknown>(undefined));
 
 // BriefingDaemon stub instrumentation (Daily Briefing Phase 1). Same
@@ -103,7 +105,9 @@ let fileOrgDaemonStopMock = mock(() => {});
 let lastFileOrgDaemonInstance: object | undefined;
 // Returns the installed+enabled file-organizer extension row by default so
 // the happy path constructs; re-pointable per-test (null = not installed).
-let fileOrgExtMock = mock((_name: string) => Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: true }));
+let fileOrgExtMock = mock((_name: string) =>
+  Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: true }),
+);
 
 // GithubProjectsDaemon stub instrumentation. Same capture-mock pattern as the
 // daemons above: the bootstrap reads `new GithubProjectsDaemon()` then
@@ -147,12 +151,14 @@ let lastPreviewWatcherInstance: object | undefined;
 // Phase 3b: capture the ctor CONFIG so tests can assert idleReapTicks parsing
 // + that onIdleReap is wired. The stub records the options object the
 // bootstrap passes to `new PreviewPortWatcher({...})`.
-let lastPreviewWatcherConfig: {
-  idleReapTicks?: number;
-  onIdleReap?: (conversationId: string) => unknown;
-  onDetected?: (event: unknown) => unknown;
-  source?: unknown;
-} | undefined;
+let lastPreviewWatcherConfig:
+  | {
+      idleReapTicks?: number;
+      onIdleReap?: (conversationId: string) => unknown;
+      onDetected?: (event: unknown) => unknown;
+      source?: unknown;
+    }
+  | undefined;
 
 // Phase 3a — capability MODE drives the enumeration-source selection in the
 // bootstrap: `caps.mode === "uid" ? new ProcPortSource() : new
@@ -239,7 +245,9 @@ function installModuleMocks(): void {
         scheduleDaemonCtorMock(opts);
         lastScheduleDaemonOpts = opts;
       }
-      start() { return Promise.resolve(true); }
+      start() {
+        return Promise.resolve(true);
+      }
       stop() {}
     },
   }));
@@ -271,8 +279,12 @@ function installModuleMocks(): void {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         lastWebhookDaemonInstance = this;
       }
-      start() { return Promise.resolve(true); }
-      stop() { webhookDaemonStopMock(); }
+      start() {
+        return Promise.resolve(true);
+      }
+      stop() {
+        webhookDaemonStopMock();
+      }
     },
   }));
   // Daily Briefing Phase 1: stub the BriefingDaemon. Its lifecycle /
@@ -287,8 +299,12 @@ function installModuleMocks(): void {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         lastBriefingDaemonInstance = this;
       }
-      start() { return briefingDaemonStartMock(); }
-      stop() { briefingDaemonStopMock(); }
+      start() {
+        return briefingDaemonStartMock();
+      }
+      stop() {
+        briefingDaemonStopMock();
+      }
     },
   }));
   // Cap-expiry Phase 3: stub the HostMaintenanceDaemon for the same
@@ -308,8 +324,12 @@ function installModuleMocks(): void {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         lastPermSweepDaemonInstance = this;
       }
-      start() { return permSweepDaemonStartMock(); }
-      stop() { permSweepDaemonStopMock(); }
+      start() {
+        return permSweepDaemonStartMock();
+      }
+      stop() {
+        permSweepDaemonStopMock();
+      }
     },
   }));
   // Phase 64: stub the EmbedWorker for the same reason — its per-class
@@ -323,8 +343,12 @@ function installModuleMocks(): void {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         lastEmbedWorkerInstance = this;
       }
-      start() { return embedWorkerStartMock(); }
-      stop() { embedWorkerStopMock(); }
+      start() {
+        return embedWorkerStartMock();
+      }
+      stop() {
+        embedWorkerStopMock();
+      }
     },
   }));
   // file-organizer: stub the FileOrganizerDaemon for the same reason — its
@@ -340,8 +364,12 @@ function installModuleMocks(): void {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         lastFileOrgDaemonInstance = this;
       }
-      start(s?: unknown) { return fileOrgDaemonStartMock(s); }
-      stop() { fileOrgDaemonStopMock(); }
+      start(s?: unknown) {
+        return fileOrgDaemonStartMock(s);
+      }
+      stop() {
+        fileOrgDaemonStopMock();
+      }
     },
     DEFAULT_SETTINGS: {
       daemonEnabled: true,
@@ -391,8 +419,12 @@ function installModuleMocks(): void {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         lastGithubDaemonInstance = this;
       }
-      start() { return githubDaemonStartMock(); }
-      stop() { githubDaemonStopMock(); }
+      start() {
+        return githubDaemonStartMock();
+      }
+      stop() {
+        githubDaemonStopMock();
+      }
     }
     return {
       GithubProjectsDaemon: GithubProjectsDaemonStub,
@@ -418,7 +450,9 @@ function installModuleMocks(): void {
     }),
   }));
   mock.module("../extensions/permission-engine", () => ({
-    getPermissionEngine: () => ({ authorize: () => Promise.resolve({ decision: "allow", auditId: "a" }) }),
+    getPermissionEngine: () => ({
+      authorize: () => Promise.resolve({ decision: "allow", auditId: "a" }),
+    }),
   }));
   mock.module("../extensions/page-cache", () => ({
     getPageCache: () => ({ invalidate: () => {} }),
@@ -439,8 +473,12 @@ function installModuleMocks(): void {
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         lastPreviewWatcherInstance = this;
       }
-      start() { return previewWatcherStartMock(); }
-      stop() { previewWatcherStopMock(); }
+      start() {
+        return previewWatcherStartMock();
+      }
+      stop() {
+        previewWatcherStopMock();
+      }
     },
   }));
   mock.module("../runtime/preview/preview-port-source", () => ({
@@ -504,14 +542,16 @@ beforeEach(async () => {
   runCompactionMock = mock(() => Promise.resolve());
   deleteExpiredSessionsMock = mock(() => Promise.resolve());
   cleanupOldErrorsMock = mock((_retainDays: number) => Promise.resolve());
-  cleanupOldSdkCapabilityCallsMock = mock((_cfg: {
-    llmDays: number;
-    memoryDays: number;
-    lessonsDays: number;
-    scheduleDays: number;
-    eventsDays?: number;
-    force?: boolean;
-  }) => Promise.resolve(0));
+  cleanupOldSdkCapabilityCallsMock = mock(
+    (_cfg: {
+      llmDays: number;
+      memoryDays: number;
+      lessonsDays: number;
+      scheduleDays: number;
+      eventsDays?: number;
+      force?: boolean;
+    }) => Promise.resolve(0),
+  );
   getSettingMock = mock((_key: string) => Promise.resolve<unknown>(undefined));
   loggerInfoMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
   loggerWarnMock = mock((_msg: string, _extra?: Record<string, unknown>) => {});
@@ -542,7 +582,9 @@ beforeEach(async () => {
   fileOrgDaemonStartMock = mock((_s?: unknown) => Promise.resolve<boolean>(true));
   fileOrgDaemonStopMock = mock(() => {});
   lastFileOrgDaemonInstance = undefined;
-  fileOrgExtMock = mock((_name: string) => Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: true }));
+  fileOrgExtMock = mock((_name: string) =>
+    Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: true }),
+  );
   githubDaemonCtorMock = mock(() => {});
   githubDaemonStartMock = mock<() => boolean>(() => true);
   githubDaemonStopMock = mock(() => {});
@@ -603,10 +645,10 @@ describe("startBackgroundTimers", () => {
     // sdk-capability-calls retention sweep (Phase 50), compaction.
     expect(intervalCalls).toHaveLength(4);
     const hourMs = 60 * 60 * 1000;
-    expect(intervalCalls[0]!.delay).toBe(hourMs);          // sessions hourly
-    expect(intervalCalls[1]!.delay).toBe(hourMs);          // error-logs hourly
-    expect(intervalCalls[2]!.delay).toBe(hourMs);          // sdk-capability sweep hourly
-    expect(intervalCalls[3]!.delay).toBe(6 * hourMs);      // compaction 6h default
+    expect(intervalCalls[0]!.delay).toBe(hourMs); // sessions hourly
+    expect(intervalCalls[1]!.delay).toBe(hourMs); // error-logs hourly
+    expect(intervalCalls[2]!.delay).toBe(hourMs); // sdk-capability sweep hourly
+    expect(intervalCalls[3]!.delay).toBe(6 * hourMs); // compaction 6h default
 
     // Success logs fired with structured fields
     expect(loggerInfoMock).toHaveBeenCalledWith("Decay sweep started", { intervalHours: 1 });
@@ -627,17 +669,18 @@ describe("startBackgroundTimers", () => {
   });
 
   test("decay timer failure is logged but compaction still starts", async () => {
-    startDecayTimerMock = mock(() => { throw new Error("boom"); });
+    startDecayTimerMock = mock(() => {
+      throw new Error("boom");
+    });
     installModuleMocks();
 
     const { startBackgroundTimers } = await import("../startup/background-timers");
     await startBackgroundTimers();
 
     // Warn was logged for decay with the error string
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      "Failed to start decay timer",
-      { error: String(new Error("boom")) },
-    );
+    expect(loggerWarnMock).toHaveBeenCalledWith("Failed to start decay timer", {
+      error: String(new Error("boom")),
+    });
 
     // Compaction block still ran — 4 setIntervals (sessions, errors,
     // sdk-capability sweep, compaction)
@@ -660,10 +703,9 @@ describe("startBackgroundTimers", () => {
     // compaction interval was added
     expect(intervalCalls).toHaveLength(3);
 
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      "Failed to start compaction timer",
-      { error: String(new Error("db down")) },
-    );
+    expect(loggerWarnMock).toHaveBeenCalledWith("Failed to start compaction timer", {
+      error: String(new Error("db down")),
+    });
   });
 
   test("custom compaction interval from settings is honored", async () => {
@@ -926,10 +968,9 @@ describe("startBackgroundTimers — BriefingDaemon bootstrap", () => {
 
     expect(briefingDaemonCtorMock).toHaveBeenCalledTimes(1);
     expect(mod._getBriefingDaemonForTests()).toBeUndefined();
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      "Failed to start BriefingDaemon",
-      { error: String(bootErr) },
-    );
+    expect(loggerWarnMock).toHaveBeenCalledWith("Failed to start BriefingDaemon", {
+      error: String(bootErr),
+    });
     expect(intervalCalls).toHaveLength(4);
   });
 
@@ -1045,10 +1086,7 @@ describe("startBackgroundTimers — HostMaintenanceDaemon bootstrap", () => {
     // `log.info("HostMaintenanceDaemon started")` (no fields), but
     // the spy normalizes the second arg to `undefined` per its
     // signature, so we match that exact shape.
-    expect(loggerInfoMock).toHaveBeenCalledWith(
-      "HostMaintenanceDaemon started",
-      undefined,
-    );
+    expect(loggerInfoMock).toHaveBeenCalledWith("HostMaintenanceDaemon started", undefined);
   });
 
   test("start() resolving false: handle is dropped, no exception bubbles, rest of boot still ran", async () => {
@@ -1071,10 +1109,7 @@ describe("startBackgroundTimers — HostMaintenanceDaemon bootstrap", () => {
     expect(mod._getPermSweepDaemonForTests()).toBeUndefined();
     // No "started" log fired (success path didn't run). Match the
     // exact (msg, undefined) shape the spy normalizes a 1-arg call to.
-    expect(loggerInfoMock).not.toHaveBeenCalledWith(
-      "HostMaintenanceDaemon started",
-      undefined,
-    );
+    expect(loggerInfoMock).not.toHaveBeenCalledWith("HostMaintenanceDaemon started", undefined);
     // No "Failed to start" warn either — the daemon's own start()
     // already logged its reason; the bootstrap deliberately doesn't
     // double-log on a clean false-return.
@@ -1108,10 +1143,9 @@ describe("startBackgroundTimers — HostMaintenanceDaemon bootstrap", () => {
     expect(mod._getPermSweepDaemonForTests()).toBeUndefined();
     // The bootstrap's catch block logs the failure with the error
     // string (matching background-timers.ts:144).
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      "Failed to start HostMaintenanceDaemon",
-      { error: String(bootErr) },
-    );
+    expect(loggerWarnMock).toHaveBeenCalledWith("Failed to start HostMaintenanceDaemon", {
+      error: String(bootErr),
+    });
     // Other boot work was unaffected.
     expect(intervalCalls).toHaveLength(4);
   });
@@ -1175,10 +1209,9 @@ describe("startBackgroundTimers — EmbedWorker bootstrap", () => {
     expect(embedWorkerCtorMock).toHaveBeenCalledTimes(1);
     expect(embedWorkerStartMock).toHaveBeenCalledTimes(1);
     expect(mod._getEmbedWorkerForTests()).toBeUndefined();
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      "Failed to start EmbedWorker",
-      { error: String(bootErr) },
-    );
+    expect(loggerWarnMock).toHaveBeenCalledWith("Failed to start EmbedWorker", {
+      error: String(bootErr),
+    });
     expect(intervalCalls).toHaveLength(4);
   });
 
@@ -1225,7 +1258,9 @@ describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
   });
 
   test("extension not installed: daemon never constructed, boot continues", async () => {
-    fileOrgExtMock = mock((_n: string) => Promise.resolve<{ id: string; enabled: boolean } | null>(null));
+    fileOrgExtMock = mock((_n: string) =>
+      Promise.resolve<{ id: string; enabled: boolean } | null>(null),
+    );
     installModuleMocks();
 
     const mod = await import("../startup/background-timers");
@@ -1237,7 +1272,9 @@ describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
   });
 
   test("extension installed but disabled: daemon never constructed", async () => {
-    fileOrgExtMock = mock((_n: string) => Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: false }));
+    fileOrgExtMock = mock((_n: string) =>
+      Promise.resolve<{ id: string; enabled: boolean } | null>({ id: "ext-fo", enabled: false }),
+    );
     installModuleMocks();
 
     const mod = await import("../startup/background-timers");
@@ -1268,10 +1305,9 @@ describe("startBackgroundTimers — FileOrganizerDaemon bootstrap", () => {
     await mod.startBackgroundTimers();
 
     expect(mod._getFileOrganizerDaemonForTests()).toBeUndefined();
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      "Failed to start FileOrganizerDaemon",
-      { error: String(bootErr) },
-    );
+    expect(loggerWarnMock).toHaveBeenCalledWith("Failed to start FileOrganizerDaemon", {
+      error: String(bootErr),
+    });
     expect(intervalCalls).toHaveLength(4);
   });
 
@@ -1329,7 +1365,9 @@ describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
     await mod.startBackgroundTimers();
 
     const daemonMod = await import("../integrations/github-projects/daemon");
-    expect(mod._getGithubProjectsDaemonForTests()).toBe(daemonMod.getGithubProjectsDaemon() as never);
+    expect(mod._getGithubProjectsDaemonForTests()).toBe(
+      daemonMod.getGithubProjectsDaemon() as never,
+    );
     // The lazy singleton constructed exactly once for both paths.
     expect(githubDaemonCtorMock).toHaveBeenCalledTimes(1);
   });
@@ -1373,10 +1411,9 @@ describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
     expect(mod._getGithubProjectsDaemonForTests()).toBe(lastGithubDaemonInstance as never);
     expect(loggerInfoMock).toHaveBeenCalledWith("GithubProjectsDaemon started", undefined);
     // The sweep failure is surfaced as a warn (not the daemon-start warn).
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      "github-projects boot reconciliation failed",
-      { error: String(sweepErr) },
-    );
+    expect(loggerWarnMock).toHaveBeenCalledWith("github-projects boot reconciliation failed", {
+      error: String(sweepErr),
+    });
     expect(loggerWarnMock).not.toHaveBeenCalledWith(
       "Failed to start GithubProjectsDaemon",
       expect.any(Object) as never,
@@ -1404,7 +1441,9 @@ describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
 
   test("start() throwing: handle is dropped, log.warn carries the error, no exception bubbles", async () => {
     const bootErr = new Error("simulated github-projects boot failure");
-    githubDaemonStartMock = mock<() => boolean>(() => { throw bootErr; });
+    githubDaemonStartMock = mock<() => boolean>(() => {
+      throw bootErr;
+    });
     installModuleMocks();
 
     const mod = await import("../startup/background-timers");
@@ -1413,10 +1452,9 @@ describe("startBackgroundTimers — GithubProjectsDaemon bootstrap", () => {
     expect(githubDaemonCtorMock).toHaveBeenCalledTimes(1);
     expect(githubDaemonStartMock).toHaveBeenCalledTimes(1);
     expect(mod._getGithubProjectsDaemonForTests()).toBeUndefined();
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      "Failed to start GithubProjectsDaemon",
-      { error: String(bootErr) },
-    );
+    expect(loggerWarnMock).toHaveBeenCalledWith("Failed to start GithubProjectsDaemon", {
+      error: String(bootErr),
+    });
     expect(intervalCalls).toHaveLength(4);
   });
 
@@ -1493,10 +1531,9 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
     expect(previewWatcherCtorMock).toHaveBeenCalledTimes(1);
     expect(previewWatcherStartMock).toHaveBeenCalledTimes(1);
     expect(mod._getPreviewPortWatcherForTests()).toBeUndefined();
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      "Failed to start PreviewPortWatcher",
-      { error: String(bootErr) },
-    );
+    expect(loggerWarnMock).toHaveBeenCalledWith("Failed to start PreviewPortWatcher", {
+      error: String(bootErr),
+    });
     expect(intervalCalls).toHaveLength(4);
   });
 
@@ -1709,10 +1746,9 @@ describe("startBackgroundTimers — Phase 50 sdk-capability retention sweep", ()
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      "sdk-capability-calls cleanup failed",
-      { error: String(new Error("db down")) },
-    );
+    expect(loggerWarnMock).toHaveBeenCalledWith("sdk-capability-calls cleanup failed", {
+      error: String(new Error("db down")),
+    });
   });
 });
 
@@ -1760,10 +1796,9 @@ describe("startBackgroundTimers — embedding warm-up", () => {
     await mod.startBackgroundTimers();
 
     expect(warmupEmbeddingsMock).toHaveBeenCalledTimes(1);
-    expect(loggerWarnMock).toHaveBeenCalledWith(
-      "Failed to kick embedding warmup",
-      { error: String(new Error("model load exploded")) },
-    );
+    expect(loggerWarnMock).toHaveBeenCalledWith("Failed to kick embedding warmup", {
+      error: String(new Error("model load exploded")),
+    });
     // The success log did NOT fire.
     expect(loggerInfoMock).not.toHaveBeenCalledWith("Embedding warmup kicked", undefined);
     // Boot continued past the failed warm-up: decay started, all four

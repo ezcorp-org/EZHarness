@@ -422,11 +422,19 @@ describe("executor mode filter preserves invoke_agent", () => {
     // ask_user_question, scratchpad__scratchpad_*, task_*).
     // ask_user_question replaced ask_human in the ask-user migration.
     const ORCHESTRATION_TOOLS = new Set([
-      "invoke_agent", "ask-user__ask_user_question",
-      "scratchpad__scratchpad_write", "scratchpad__scratchpad_read",
-      "task_plan", "task_start", "task_complete", "task_fail",
-      "task_update", "task_list", "task_subtask_toggle",
-      "task_assign", "task_unassign",
+      "invoke_agent",
+      "ask-user__ask_user_question",
+      "scratchpad__scratchpad_write",
+      "scratchpad__scratchpad_read",
+      "task_plan",
+      "task_start",
+      "task_complete",
+      "task_fail",
+      "task_update",
+      "task_list",
+      "task_subtask_toggle",
+      "task_assign",
+      "task_unassign",
     ]);
     expect(tools.every((t: any) => ORCHESTRATION_TOOLS.has(t.name))).toBe(true);
     expect(tools.find((t: any) => t.name === "invoke_agent")).toBeDefined();
@@ -614,8 +622,10 @@ describe("executor team member overrides", () => {
     expect(capturedAgentOpts).not.toBeNull();
     const tools: any[] = capturedAgentOpts.initialState.tools;
     const ORCHESTRATION_TOOLS = new Set([
-      "invoke_agent", "ask-user__ask_user_question",
-      "scratchpad__scratchpad_write", "scratchpad__scratchpad_read",
+      "invoke_agent",
+      "ask-user__ask_user_question",
+      "scratchpad__scratchpad_write",
+      "scratchpad__scratchpad_read",
     ]);
     // Every tool should be either an orchestration tool or a read-category tool
     for (const t of tools) {
@@ -645,11 +655,19 @@ describe("executor team member overrides", () => {
     // Orchestration set now references the namespaced scratchpad tools
     // (Phase 1 conversion — see src/runtime/tools/filter.ts).
     const ORCHESTRATION_TOOLS = new Set([
-      "invoke_agent", "ask_human",
-      "scratchpad__scratchpad_write", "scratchpad__scratchpad_read",
-      "task_plan", "task_start", "task_complete", "task_fail",
-      "task_update", "task_list", "task_subtask_toggle",
-      "task_assign", "task_unassign",
+      "invoke_agent",
+      "ask_human",
+      "scratchpad__scratchpad_write",
+      "scratchpad__scratchpad_read",
+      "task_plan",
+      "task_start",
+      "task_complete",
+      "task_fail",
+      "task_update",
+      "task_list",
+      "task_subtask_toggle",
+      "task_assign",
+      "task_unassign",
     ]);
     expect(tools.every((t: any) => ORCHESTRATION_TOOLS.has(t.name))).toBe(true);
   });
@@ -680,11 +698,19 @@ describe("executor team member overrides", () => {
     // Orchestration set now references the namespaced scratchpad tools
     // (Phase 1 conversion — see src/runtime/tools/filter.ts).
     const ORCHESTRATION_TOOLS = new Set([
-      "invoke_agent", "ask_human",
-      "scratchpad__scratchpad_write", "scratchpad__scratchpad_read",
-      "task_plan", "task_start", "task_complete", "task_fail",
-      "task_update", "task_list", "task_subtask_toggle",
-      "task_assign", "task_unassign",
+      "invoke_agent",
+      "ask_human",
+      "scratchpad__scratchpad_write",
+      "scratchpad__scratchpad_read",
+      "task_plan",
+      "task_start",
+      "task_complete",
+      "task_fail",
+      "task_update",
+      "task_list",
+      "task_subtask_toggle",
+      "task_assign",
+      "task_unassign",
     ]);
     // Only orchestration tools should remain (options.toolRestriction: "none" wins)
     expect(tools.every((t: any) => ORCHESTRATION_TOOLS.has(t.name))).toBe(true);
@@ -815,12 +841,12 @@ describe("executor permissionMode option controls tool approval", () => {
     expect(capturedAgentOpts).not.toBeNull();
     const tools: any[] = capturedAgentOpts.initialState.tools;
     // Find any write-category builtin tool
-    const writeTool = tools.find((t: any) =>
-      ["edit_file", "shell_exec"].includes(t.name),
-    );
+    const writeTool = tools.find((t: any) => ["edit_file", "shell_exec"].includes(t.name));
     if (!writeTool) {
       // If no write tools loaded (project path doesn't exist), test the read tool with yolo
-      const readTool = tools.find((t: any) => t.name === "read_file" || t.name === "list_files" || t.name === "grep");
+      const readTool = tools.find(
+        (t: any) => t.name === "read_file" || t.name === "list_files" || t.name === "grep",
+      );
       expect(readTool).toBeDefined();
       // Yolo mode: even read tools should not trigger permission request
       const result = await readTool.execute("test-call-yolo", { path: "/tmp/nonexistent" });
@@ -849,9 +875,7 @@ describe("executor permissionMode option controls tool approval", () => {
     expect(capturedAgentOpts).not.toBeNull();
     const tools: any[] = capturedAgentOpts.initialState.tools;
     // Find a write-category tool — shell_exec is always "execute" category
-    const writeTool = tools.find((t: any) =>
-      ["edit_file", "shell_exec"].includes(t.name),
-    );
+    const writeTool = tools.find((t: any) => ["edit_file", "shell_exec"].includes(t.name));
     if (!writeTool) {
       // No write tools loaded — skip this subtest but don't fail
       // The 'yolo' test above already verified the permissionMode plumbing works

@@ -57,9 +57,9 @@ describe("getClientIp — no trusted proxy (default, direct exposure)", () => {
 
   test("ignores a spoofable x-forwarded-for too", () => {
     process.env.TRUSTED_PROXY_COUNT = "0";
-    expect(
-      getClientIp(req({ "x-forwarded-for": "10.0.0.1, 10.0.0.2" }), "203.0.113.6"),
-    ).toBe("203.0.113.6");
+    expect(getClientIp(req({ "x-forwarded-for": "10.0.0.1, 10.0.0.2" }), "203.0.113.6")).toBe(
+      "203.0.113.6",
+    );
   });
 
   test("rotating x-real-ip from one socket peer yields the SAME key", () => {
@@ -85,16 +85,14 @@ describe("getClientIp — trusted proxy configured (UNCHANGED XFF-depth logic)",
   test("count=1 peels the right-most hop (the trusted proxy's view of the client)", () => {
     process.env.TRUSTED_PROXY_COUNT = "1";
     // chain: client, proxyA → with 1 trusted hop the client is the last entry.
-    expect(
-      getClientIp(req({ "x-forwarded-for": "1.1.1.1, 2.2.2.2" }), "10.0.0.1"),
-    ).toBe("2.2.2.2");
+    expect(getClientIp(req({ "x-forwarded-for": "1.1.1.1, 2.2.2.2" }), "10.0.0.1")).toBe("2.2.2.2");
   });
 
   test("count=2 peels two hops", () => {
     process.env.TRUSTED_PROXY_COUNT = "2";
-    expect(
-      getClientIp(req({ "x-forwarded-for": "1.1.1.1, 2.2.2.2, 3.3.3.3" }), "10.0.0.1"),
-    ).toBe("2.2.2.2");
+    expect(getClientIp(req({ "x-forwarded-for": "1.1.1.1, 2.2.2.2, 3.3.3.3" }), "10.0.0.1")).toBe(
+      "2.2.2.2",
+    );
   });
 
   test("count exceeding the chain length clamps to index 0", () => {
@@ -115,8 +113,8 @@ describe("getClientIp — trusted proxy configured (UNCHANGED XFF-depth logic)",
   test("trusted-proxy path NEVER consults the socket peer", () => {
     process.env.TRUSTED_PROXY_COUNT = "1";
     // Socket peer differs from every XFF entry; result still comes from XFF.
-    expect(
-      getClientIp(req({ "x-forwarded-for": "1.1.1.1, 2.2.2.2" }), "203.0.113.99"),
-    ).toBe("2.2.2.2");
+    expect(getClientIp(req({ "x-forwarded-for": "1.1.1.1, 2.2.2.2" }), "203.0.113.99")).toBe(
+      "2.2.2.2",
+    );
   });
 });

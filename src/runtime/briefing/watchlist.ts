@@ -14,10 +14,7 @@
  * returned as `{ ok: false, error }` (never thrown) so callers stay
  * fail-soft.
  */
-import {
-  getBriefingConfig,
-  upsertBriefingConfig,
-} from "../../db/queries/briefing-configs";
+import { getBriefingConfig, upsertBriefingConfig } from "../../db/queries/briefing-configs";
 import { validateBriefingConfigInput } from "./config-validation";
 
 type WatchEntry = { topic: string; addedAt: string };
@@ -26,9 +23,7 @@ export type AddWatchlistResult =
   | { ok: true; added: boolean; size: number }
   | { ok: false; error: string };
 
-export type RemoveWatchlistResult =
-  | { ok: true; removed: boolean }
-  | { ok: false; error: string };
+export type RemoveWatchlistResult = { ok: true; removed: boolean } | { ok: false; error: string };
 
 async function loadWatchlist(userId: string): Promise<WatchEntry[]> {
   const existing = await getBriefingConfig(userId);

@@ -11,18 +11,11 @@ vi.mock("$server/db/queries/observability", () => ({
   getGlobalStats: vi.fn(async () => ({ totalRuns: 0 })),
 }));
 
-const { getGlobalStats } = await import(
-  "$server/db/queries/observability"
-);
+const { getGlobalStats } = await import("$server/db/queries/observability");
 const { GET } = await import("../routes/api/observability/+server");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  query?: Record<string, string>;
-}) {
-  const qs = opts.query
-    ? "?" + new URLSearchParams(opts.query).toString()
-    : "";
+function makeEvent(opts: { locals?: Record<string, unknown>; query?: Record<string, string> }) {
+  const qs = opts.query ? "?" + new URLSearchParams(opts.query).toString() : "";
   const url = "http://localhost/api/observability" + qs;
   return {
     url: new URL(url),
@@ -56,9 +49,7 @@ describe("GET /api/observability", () => {
   });
 
   test("rejects 403 when API-key lacks 'read' scope", async () => {
-    const res = await GET(
-      makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }));
     expect(res.status).toBe(403);
   });
 
@@ -70,9 +61,7 @@ describe("GET /api/observability", () => {
 
   test("falls back to 30 when days query is NaN", async () => {
     vi.mocked(getGlobalStats).mockResolvedValue({ totalRuns: 5 } as any);
-    await GET(
-      makeEvent({ locals: authedUser, query: { days: "notanumber" } }),
-    );
+    await GET(makeEvent({ locals: authedUser, query: { days: "notanumber" } }));
     expect(getGlobalStats).toHaveBeenCalledWith({ days: 30 });
   });
 

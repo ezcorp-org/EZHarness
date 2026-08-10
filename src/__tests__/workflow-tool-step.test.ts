@@ -32,9 +32,7 @@ interface RecordedCall {
 
 /** Test double for `ToolExecutor` — records every dispatch and returns
  *  whatever the test's `handler` says. */
-function makeRunner(
-  handler: (call: RecordedCall) => ToolCallResult | Promise<ToolCallResult>,
-) {
+function makeRunner(handler: (call: RecordedCall) => ToolCallResult | Promise<ToolCallResult>) {
   const calls: RecordedCall[] = [];
   const users: string[] = [];
   const runner: WorkflowToolRunner = {
@@ -363,9 +361,7 @@ describe("workflow kind:'tool' — sensitive-capability fail-fast", () => {
     const def: WorkflowDefinition = {
       name: "wf",
       description: "",
-      steps: [
-        { name: "install", kind: "tool", tool: "extension-author__create_extension" },
-      ],
+      steps: [{ name: "install", kind: "tool", tool: "extension-author__create_extension" }],
     };
 
     const run = await Promise.race([

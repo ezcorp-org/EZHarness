@@ -143,10 +143,9 @@ test.describe("the service-account admin route is session-only", () => {
     // `max_tokens_per_day` and names raising that cap as the remedy. Until
     // this route existed the remedy was unreachable: POST wrote the number
     // once at mint time and nothing moved it.
-    const raised = await request.patch(
-      `/api/service-accounts/${created.account.id}/daily-cap`,
-      { data: { maxTokensPerDay: 250_000 } },
-    );
+    const raised = await request.patch(`/api/service-accounts/${created.account.id}/daily-cap`, {
+      data: { maxTokensPerDay: 250_000 },
+    });
     expect(raised.status(), await raised.text()).toBe(200);
     const afterRaise = (await raised.json()) as {
       account: { maxTokensPerDay: number; enabled: boolean; scopes: string[] };
@@ -165,17 +164,18 @@ test.describe("the service-account admin route is session-only", () => {
       { maxTokensPerDay: 0 },
       {},
     ]) {
-      const res = await request.patch(
-        `/api/service-accounts/${created.account.id}/daily-cap`,
-        { data: bad },
-      );
+      const res = await request.patch(`/api/service-accounts/${created.account.id}/daily-cap`, {
+        data: bad,
+      });
       expect(res.status(), JSON.stringify(bad)).toBe(400);
     }
     // …and the cap really is unchanged by all four refusals.
     const stillRaised = await request.get("/api/service-accounts");
-    const row = ((await stillRaised.json()) as {
-      accounts: Array<{ id: string; maxTokensPerDay: number }>;
-    }).accounts.find((a) => a.id === created.account.id);
+    const row = (
+      (await stillRaised.json()) as {
+        accounts: Array<{ id: string; maxTokensPerDay: number }>;
+      }
+    ).accounts.find((a) => a.id === created.account.id);
     expect(row?.maxTokensPerDay).toBe(250_000);
 
     // An unknown account is a 404, not a silent 200.
@@ -193,9 +193,9 @@ test.describe("the service-account admin route is session-only", () => {
       data: { enabled: false, disabledReason: "e2e teardown" },
     });
     expect(disabled.status(), await disabled.text()).toBe(200);
-    expect(((await disabled.json()) as { account: { disabledReason: string } }).account.disabledReason).toBe(
-      "e2e teardown",
-    );
+    expect(
+      ((await disabled.json()) as { account: { disabledReason: string } }).account.disabledReason,
+    ).toBe("e2e teardown");
 
     const removed = await request.delete(`/api/service-accounts/${created.account.id}`);
     expect(removed.status()).toBe(204);

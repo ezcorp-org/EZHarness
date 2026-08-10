@@ -82,7 +82,9 @@ describe("Ez mode seed (post-migration)", () => {
     expect(mode!.systemPromptInstruction).not.toContain("You CANNOT see their open page");
     // Page-first answering: read the page before answering ANY visible-content
     // question, and escalate to summarize/search when the excerpt is truncated.
-    expect(mode!.systemPromptInstruction).toContain("before answering ANY question about visible content");
+    expect(mode!.systemPromptInstruction).toContain(
+      "before answering ANY question about visible content",
+    );
     expect(mode!.systemPromptInstruction).toContain("summarize_conversation");
     expect(mode!.systemPromptInstruction).toContain("search_conversation");
     // The 9f LIKE anchor must be absent from the NEW persona, or the refresh

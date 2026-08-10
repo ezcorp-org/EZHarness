@@ -50,7 +50,10 @@ const { installFromLocal } = await import("../extensions/installer");
 
 const defaultPerms = { network: ["api.example.com"], grantedAt: { network: Date.now() } };
 
-async function setupExtDir(manifest: Record<string, unknown>, entryContent = 'console.log("ext");') {
+async function setupExtDir(
+  manifest: Record<string, unknown>,
+  entryContent = 'console.log("ext");',
+) {
   const dir = await mkdtemp(join(tmpdir(), "ts-manifest-integ-"));
   await writeConfig(dir, manifest);
   if (manifest.entrypoint) {
@@ -96,7 +99,9 @@ describe("installer + loadManifest integration", () => {
   test("installFromLocal fails when ezcorp.config.ts is missing", async () => {
     const dir = await mkdtemp(join(tmpdir(), "ts-manifest-integ-empty-"));
 
-    await expect(installFromLocal(dir, defaultPerms)).rejects.toThrow(/No ezcorp\.config\.ts found/);
+    await expect(installFromLocal(dir, defaultPerms)).rejects.toThrow(
+      /No ezcorp\.config\.ts found/,
+    );
   });
 
   test("installFromLocal strips handler functions before storing in DB", async () => {

@@ -4,19 +4,13 @@
  */
 
 import type { ExtensionManifestV2 } from "./types";
-import {
-  migrateManifestV2ToV3,
-  validateManifestV2,
-  validateMcpManifest,
-} from "./manifest";
+import { migrateManifestV2ToV3, validateManifestV2, validateMcpManifest } from "./manifest";
 import { join } from "node:path";
 
 // Route kind:"mcp" manifests to the stricter mcp validator (enforces
 // single-server, no entrypoint, etc.). Everything else keeps the base rules.
 function validateForKind(manifest: Record<string, unknown>) {
-  return manifest.kind === "mcp"
-    ? validateMcpManifest(manifest)
-    : validateManifestV2(manifest);
+  return manifest.kind === "mcp" ? validateMcpManifest(manifest) : validateManifestV2(manifest);
 }
 
 /**
@@ -66,10 +60,7 @@ let freshImportCounter = 0;
  * The only difference between the two callers is whether to append a cache-buster
  * to the import URL.
  */
-async function loadManifestFromPath(
-  dir: string,
-  cacheBust: boolean,
-): Promise<ExtensionManifestV2> {
+async function loadManifestFromPath(dir: string, cacheBust: boolean): Promise<ExtensionManifestV2> {
   const configPath = join(dir, "ezcorp.config.ts");
   const file = Bun.file(configPath);
   if (!(await file.exists())) {

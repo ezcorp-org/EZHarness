@@ -3,12 +3,9 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 
 mockDbConnection();
 
-const {
-  createVersion,
-  getVersion,
-  getLatestVersion,
-  listVersions,
-} = await import("../db/queries/marketplace-versions");
+const { createVersion, getVersion, getLatestVersion, listVersions } = await import(
+  "../db/queries/marketplace-versions"
+);
 const { createListing, getListingById } = await import("../db/queries/marketplace");
 const { createUser } = await import("../db/queries/users");
 

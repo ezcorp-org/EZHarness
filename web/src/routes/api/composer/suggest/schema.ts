@@ -21,7 +21,10 @@ export const suggestRequestSchema = z
      *  call; a resolved conversation's own project always wins over this. */
     projectId: z.string().min(1).optional(),
     modeId: z.string().nullable().optional(),
-    include: z.array(z.enum(["tools", "enhance", "extensions"])).nonempty().default(["tools"]),
+    include: z
+      .array(z.enum(["tools", "enhance", "extensions"]))
+      .nonempty()
+      .default(["tools"]),
   })
   .strict();
 

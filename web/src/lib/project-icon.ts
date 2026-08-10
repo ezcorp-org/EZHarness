@@ -9,5 +9,5 @@
  * fall back to each site's existing letter-avatar (or no-icon) branch.
  */
 export function isIconUrl(icon: string | null | undefined): boolean {
-	return typeof icon === "string" && /^(https?:|data:|\/)/.test(icon);
+  return typeof icon === "string" && /^(https?:|data:|\/)/.test(icon);
 }

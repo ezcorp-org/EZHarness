@@ -115,9 +115,7 @@ const SCANNER_MANIFEST = {
       cardType: "grade-delta-chart",
     },
   ],
-  preprocessors: [
-    { tool: "identify_slab", accepts: ["image/png", "image/jpeg"] },
-  ],
+  preprocessors: [{ tool: "identify_slab", accepts: ["image/png", "image/jpeg"] }],
   permissions: {},
 };
 
@@ -296,7 +294,12 @@ async function seedTurn(sizeBytes = 2048, ownerUserId?: string) {
   return { conv, userMsg, attRow };
 }
 
-function stagedFor(attRow: { id: string; filename: string; mimeType: string; storagePath: string }) {
+function stagedFor(attRow: {
+  id: string;
+  filename: string;
+  mimeType: string;
+  storagePath: string;
+}) {
   return [
     {
       id: attRow.id,
@@ -456,9 +459,7 @@ describe("executor deterministic-preprocess wiring (setup-tools 2c)", () => {
     // but it rides the UNCACHED tail (onPayload), never the cached region-1
     // systemPrompt, so the prompt cache stays warm.
     expect(capturedAgentOpts).not.toBeNull();
-    expect(capturedAgentOpts.initialState.systemPrompt).not.toContain(
-      "[Deterministic preprocess",
-    );
+    expect(capturedAgentOpts.initialState.systemPrompt).not.toContain("[Deterministic preprocess");
     const wire = {
       system: [
         {
@@ -541,9 +542,7 @@ describe("executor deterministic-preprocess wiring (setup-tools 2c)", () => {
 
     // The FAILED note rides the uncached tail; region-1 stays clean.
     expect(capturedAgentOpts).not.toBeNull();
-    expect(capturedAgentOpts.initialState.systemPrompt).not.toContain(
-      "[Deterministic preprocess",
-    );
+    expect(capturedAgentOpts.initialState.systemPrompt).not.toContain("[Deterministic preprocess");
     const wire = {
       system: [
         {
@@ -605,9 +604,7 @@ describe("executor deterministic-preprocess wiring (setup-tools 2c)", () => {
     // ToolExecutor BEFORE runPreprocessorsForTurn dispatches through it
     // (same semantics as /api/tool-invoke).
     const userIdx = executorOps.indexOf(`setCurrentUserId:${owner.id}`);
-    const dispatchIdx = executorOps.indexOf(
-      "executeToolCall:graded-card-scanner__identify_slab",
-    );
+    const dispatchIdx = executorOps.indexOf("executeToolCall:graded-card-scanner__identify_slab");
     expect(userIdx).toBeGreaterThanOrEqual(0);
     expect(dispatchIdx).toBeGreaterThan(userIdx);
     expect(toolCalls).toHaveLength(1);
@@ -701,7 +698,12 @@ describe("executor deterministic-preprocess wiring (setup-tools 2c)", () => {
         author: { name: "t" },
         entrypoint: "./index.ts",
         tools: [
-          { name: "identify_slab", description: "d", inputSchema: { type: "object" }, cardType: "grade-delta-chart" },
+          {
+            name: "identify_slab",
+            description: "d",
+            inputSchema: { type: "object" },
+            cardType: "grade-delta-chart",
+          },
         ],
         preprocessors: [{ tool: "identify_slab", accepts: ["image/png", "image/jpeg"] }],
         permissions: {},

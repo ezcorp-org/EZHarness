@@ -7,10 +7,7 @@
 // hook-level generic one).
 
 import { test, expect, describe } from "bun:test";
-import {
-  getMaxPayload,
-  payloadTooLarge,
-} from "../payload";
+import { getMaxPayload, payloadTooLarge } from "../payload";
 
 const ONE_MB = 1024 * 1024;
 

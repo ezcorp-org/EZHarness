@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { startStubServer, type StubServer } from "../fixtures/stub-server";
-import { doctor, } from "../../src/cli/doctor";
+import { doctor } from "../../src/cli/doctor";
 
 // Capture console output so assertions can inspect it without polluting test output
 function captureConsole(): { logs: string[]; restore: () => void } {
@@ -97,7 +97,9 @@ describe("doctor — no API key", () => {
 describe("doctor — server unreachable", () => {
   let cap: ReturnType<typeof captureConsole>;
 
-  beforeEach(() => { cap = captureConsole(); });
+  beforeEach(() => {
+    cap = captureConsole();
+  });
   afterEach(() => cap.restore());
 
   test("returns false when backend is down", async () => {

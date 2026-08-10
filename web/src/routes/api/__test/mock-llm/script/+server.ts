@@ -39,8 +39,13 @@ function validateFault(raw: unknown, i: number): string | null {
   const hasStatus = fault.status !== undefined;
   if (!hasKind && !hasStatus) return `turns[${i}].fault must set status or kind`;
   if (hasKind && fault.kind !== "connection") return `turns[${i}].fault.kind must be "connection"`;
-  if (hasStatus && (typeof fault.status !== "number" || !Number.isInteger(fault.status) ||
-      fault.status < 400 || fault.status > 599)) {
+  if (
+    hasStatus &&
+    (typeof fault.status !== "number" ||
+      !Number.isInteger(fault.status) ||
+      fault.status < 400 ||
+      fault.status > 599)
+  ) {
     return `turns[${i}].fault.status must be an integer in [400,599]`;
   }
   if (fault.message !== undefined && typeof fault.message !== "string") {
@@ -58,12 +63,15 @@ function parseTurns(raw: unknown): MockTurn[] | { error: string } {
     if (turn.text !== undefined && typeof turn.text !== "string") {
       return { error: `turns[${i}].text must be a string` };
     }
-    if (turn.finishReason !== undefined &&
-        !["stop", "tool_calls", "length"].includes(turn.finishReason as string)) {
+    if (
+      turn.finishReason !== undefined &&
+      !["stop", "tool_calls", "length"].includes(turn.finishReason as string)
+    ) {
       return { error: `turns[${i}].finishReason must be stop|tool_calls|length` };
     }
     if (turn.toolCalls !== undefined) {
-      if (!Array.isArray(turn.toolCalls)) return { error: `turns[${i}].toolCalls must be an array` };
+      if (!Array.isArray(turn.toolCalls))
+        return { error: `turns[${i}].toolCalls must be an array` };
       for (const [j, tc] of turn.toolCalls.entries()) {
         if (!tc || typeof tc !== "object" || typeof (tc as { name?: unknown }).name !== "string") {
           return { error: `turns[${i}].toolCalls[${j}] must have a string name` };

@@ -43,7 +43,13 @@ describe("getDbPath — real module (no DATABASE_URL in this process)", () => {
 describe("closeDb — Bun.sql pool drain (external-Postgres branch)", () => {
   test("awaits $client.close() then clears module state", async () => {
     let closed = 0;
-    const fakeDb = { $client: { close: async () => { closed++; } } };
+    const fakeDb = {
+      $client: {
+        close: async () => {
+          closed++;
+        },
+      },
+    };
     // pglite = null simulates external-Postgres mode.
     conn.__test.setState(fakeDb, null);
 
@@ -56,7 +62,13 @@ describe("closeDb — Bun.sql pool drain (external-Postgres branch)", () => {
 
   test("falls back to $client.end() when close() is absent", async () => {
     let ended = 0;
-    const fakeDb = { $client: { end: async () => { ended++; } } };
+    const fakeDb = {
+      $client: {
+        end: async () => {
+          ended++;
+        },
+      },
+    };
     conn.__test.setState(fakeDb, null);
 
     await conn.closeDb();
@@ -65,7 +77,13 @@ describe("closeDb — Bun.sql pool drain (external-Postgres branch)", () => {
   });
 
   test("a pool close that throws is swallowed (teardown never blocks)", async () => {
-    const fakeDb = { $client: { close: async () => { throw new Error("reset"); } } };
+    const fakeDb = {
+      $client: {
+        close: async () => {
+          throw new Error("reset");
+        },
+      },
+    };
     conn.__test.setState(fakeDb, null);
 
     // Must not reject.
@@ -87,7 +105,10 @@ describe("recoverInterruptedRollback — crash-window recovery", () => {
   });
 
   function writeMarker(dbPath: string, marker: Record<string, unknown>) {
-    writeFileSync(join(dirname(dbPath), ".ezcorp-rollback-in-progress.json"), JSON.stringify(marker));
+    writeFileSync(
+      join(dirname(dbPath), ".ezcorp-rollback-in-progress.json"),
+      JSON.stringify(marker),
+    );
   }
 
   test("no marker → no-op (datadir untouched)", () => {
@@ -151,11 +172,18 @@ describe("withPostgresMigrateLock — advisory lock ordering", () => {
         order.push(`pool:${strings.join("?")}`);
         return Promise.resolve([]);
       },
-      { reserve: () => { order.push("reserve"); return Promise.resolve(reserved); } },
+      {
+        reserve: () => {
+          order.push("reserve");
+          return Promise.resolve(reserved);
+        },
+      },
     );
     conn.__test.setState({ $client: client }, null);
 
-    await conn.__test.withPostgresMigrateLock(async () => { order.push("migrate"); });
+    await conn.__test.withPostgresMigrateLock(async () => {
+      order.push("migrate");
+    });
 
     // reserve → lock (on the reserved conn) → migrate → unlock → release.
     expect(order[0]).toBe("reserve");
@@ -171,17 +199,21 @@ describe("withPostgresMigrateLock — advisory lock ordering", () => {
   test("still unlocks + releases when migrate throws", async () => {
     const order: string[] = [];
     const reserved = Object.assign(
-      (strings: TemplateStringsArray) => { order.push(`sql:${strings.join("?")}`); return Promise.resolve([]); },
+      (strings: TemplateStringsArray) => {
+        order.push(`sql:${strings.join("?")}`);
+        return Promise.resolve([]);
+      },
       { release: () => order.push("release") },
     );
-    const client = Object.assign(
-      (_s: TemplateStringsArray) => Promise.resolve([]),
-      { reserve: () => Promise.resolve(reserved) },
-    );
+    const client = Object.assign((_s: TemplateStringsArray) => Promise.resolve([]), {
+      reserve: () => Promise.resolve(reserved),
+    });
     conn.__test.setState({ $client: client }, null);
 
     await expect(
-      conn.__test.withPostgresMigrateLock(async () => { throw new Error("migrate boom"); }),
+      conn.__test.withPostgresMigrateLock(async () => {
+        throw new Error("migrate boom");
+      }),
     ).rejects.toThrow("migrate boom");
 
     expect(order.some((o) => o.includes("pg_advisory_unlock"))).toBe(true);
@@ -207,7 +239,9 @@ describe("withPostgresMigrateLock — advisory lock ordering", () => {
     };
     conn.__test.setState({ $client: client }, null);
 
-    await conn.__test.withPostgresMigrateLock(async () => { order.push("migrate"); });
+    await conn.__test.withPostgresMigrateLock(async () => {
+      order.push("migrate");
+    });
 
     expect(order.some((o) => o.includes("pg_advisory_lock"))).toBe(true);
     expect(order).toContain("migrate");
@@ -223,7 +257,11 @@ describe("registerProcessHolder — same-process guard wiring", () => {
   test("records a close callback that tears down the current PGlite instance", async () => {
     let closed = 0;
     // Simulate a live embedded instance; registerProcessHolder captures it.
-    conn.__test.setState({}, { close: async () => { closed++; } } as never);
+    conn.__test.setState({}, {
+      close: async () => {
+        closed++;
+      },
+    } as never);
     conn.__test.registerProcessHolder();
 
     // A re-instantiated module (vite restart) would call closeStaleProcessHolder
@@ -279,7 +317,9 @@ describe("rollbackMigration — snapshot restore brackets a rollback marker", ()
     // A fake live PGlite so rollback's close() runs; no real db needed.
     conn.__test.setState({}, { close: async () => {} } as never);
 
-    await expect(conn.__test.rollbackMigration(new Error("bad migration"))).rejects.toThrow("bad migration");
+    await expect(conn.__test.rollbackMigration(new Error("bad migration"))).rejects.toThrow(
+      "bad migration",
+    );
 
     // The snapshot was restored into DB_PATH and the marker was cleared after
     // the copy completed.
@@ -298,7 +338,11 @@ describe("external-mode detection — real subprocess boot with DATABASE_URL", (
     // getDbPath() reads the DATABASE_URL const captured at module load — a
     // bogus DSN is fine because we never call initDb() (no connection made).
     const proc = Bun.spawn(
-      ["bun", "-e", `const m = await import(${JSON.stringify(connPath)}); console.log(m.getDbPath());`],
+      [
+        "bun",
+        "-e",
+        `const m = await import(${JSON.stringify(connPath)}); console.log(m.getDbPath());`,
+      ],
       {
         env: { ...process.env, DATABASE_URL: "postgres://user:pw@127.0.0.1:5432/nope" },
         stdout: "pipe",

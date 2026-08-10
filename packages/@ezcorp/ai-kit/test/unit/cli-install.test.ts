@@ -28,13 +28,15 @@ function fileExists(p: string): boolean {
 describe("install claude-code (user scope)", () => {
   let home: string;
 
-  beforeEach(() => { home = makeTmpDir(); });
+  beforeEach(() => {
+    home = makeTmpDir();
+  });
   afterEach(() => rmTmpDir(home));
 
   test("writes ~/.claude.json with mcpServers entry", async () => {
     await install("claude-code", { home, dryRun: false });
 
-    const cfg = await readJson(nodePath.join(home, ".claude.json")) as Record<string, unknown>;
+    const cfg = (await readJson(nodePath.join(home, ".claude.json"))) as Record<string, unknown>;
     expect(cfg).toHaveProperty("mcpServers");
     const servers = cfg["mcpServers"] as Record<string, unknown>;
     expect(servers).toHaveProperty("ezcorp-ai-kit");
@@ -56,11 +58,14 @@ describe("install claude-code (user scope)", () => {
 
   test("merges into existing config without clobbering other keys", async () => {
     const cfgPath = nodePath.join(home, ".claude.json");
-    await Bun.write(cfgPath, JSON.stringify({ existingKey: "keep-me", mcpServers: { other: { command: "x" } } }));
+    await Bun.write(
+      cfgPath,
+      JSON.stringify({ existingKey: "keep-me", mcpServers: { other: { command: "x" } } }),
+    );
 
     await install("claude-code", { home, dryRun: false });
 
-    const cfg = await readJson(cfgPath) as Record<string, unknown>;
+    const cfg = (await readJson(cfgPath)) as Record<string, unknown>;
     expect(cfg["existingKey"]).toBe("keep-me");
     const servers = cfg["mcpServers"] as Record<string, unknown>;
     expect(servers).toHaveProperty("other");
@@ -81,7 +86,10 @@ describe("install claude-code (project scope --project)", () => {
     home = makeTmpDir();
     cwd = makeTmpDir();
   });
-  afterEach(() => { rmTmpDir(home); rmTmpDir(cwd); });
+  afterEach(() => {
+    rmTmpDir(home);
+    rmTmpDir(cwd);
+  });
 
   test("writes .claude.json in cwd, not in home", async () => {
     await install("claude-code", { home, cwd, dryRun: false, project: true });
@@ -89,7 +97,7 @@ describe("install claude-code (project scope --project)", () => {
     expect(fileExists(nodePath.join(cwd, ".claude.json"))).toBe(true);
     expect(fileExists(nodePath.join(home, ".claude.json"))).toBe(false);
 
-    const cfg = await readJson(nodePath.join(cwd, ".claude.json")) as Record<string, unknown>;
+    const cfg = (await readJson(nodePath.join(cwd, ".claude.json"))) as Record<string, unknown>;
     const servers = cfg["mcpServers"] as Record<string, unknown>;
     expect(servers).toHaveProperty("ezcorp-ai-kit");
   });
@@ -115,7 +123,9 @@ describe("install claude-code (project scope --project)", () => {
 describe("install cursor", () => {
   let home: string;
 
-  beforeEach(() => { home = makeTmpDir(); });
+  beforeEach(() => {
+    home = makeTmpDir();
+  });
   afterEach(() => rmTmpDir(home));
 
   test("writes ~/.cursor/mcp.json with mcpServers entry", async () => {
@@ -123,7 +133,7 @@ describe("install cursor", () => {
 
     const cfgPath = nodePath.join(home, ".cursor", "mcp.json");
     expect(fileExists(cfgPath)).toBe(true);
-    const cfg = await readJson(cfgPath) as Record<string, unknown>;
+    const cfg = (await readJson(cfgPath)) as Record<string, unknown>;
     const servers = cfg["mcpServers"] as Record<string, unknown>;
     expect(servers).toHaveProperty("ezcorp-ai-kit");
     const entry = servers["ezcorp-ai-kit"] as Record<string, unknown>;
@@ -151,7 +161,9 @@ describe("install cursor", () => {
 describe("install zed", () => {
   let home: string;
 
-  beforeEach(() => { home = makeTmpDir(); });
+  beforeEach(() => {
+    home = makeTmpDir();
+  });
   afterEach(() => rmTmpDir(home));
 
   test("writes ~/.config/zed/settings.json with context_servers entry", async () => {
@@ -159,7 +171,7 @@ describe("install zed", () => {
 
     const cfgPath = nodePath.join(home, ".config", "zed", "settings.json");
     expect(fileExists(cfgPath)).toBe(true);
-    const cfg = await readJson(cfgPath) as Record<string, unknown>;
+    const cfg = (await readJson(cfgPath)) as Record<string, unknown>;
     const servers = cfg["context_servers"] as Record<string, unknown>;
     expect(servers).toHaveProperty("ezcorp-ai-kit");
     const entry = servers["ezcorp-ai-kit"] as Record<string, unknown>;
@@ -188,7 +200,7 @@ describe("install zed", () => {
 
     await install("zed", { home, dryRun: false });
 
-    const cfg = await readJson(cfgPath) as Record<string, unknown>;
+    const cfg = (await readJson(cfgPath)) as Record<string, unknown>;
     expect(cfg["theme"]).toBe("dark");
     const servers = cfg["context_servers"] as Record<string, unknown>;
     expect(servers).toHaveProperty("other");
@@ -201,7 +213,9 @@ describe("install zed", () => {
 describe("install windsurf", () => {
   let home: string;
 
-  beforeEach(() => { home = makeTmpDir(); });
+  beforeEach(() => {
+    home = makeTmpDir();
+  });
   afterEach(() => rmTmpDir(home));
 
   test("writes ~/.codeium/windsurf/mcp_config.json with mcpServers entry", async () => {
@@ -209,7 +223,7 @@ describe("install windsurf", () => {
 
     const cfgPath = nodePath.join(home, ".codeium", "windsurf", "mcp_config.json");
     expect(fileExists(cfgPath)).toBe(true);
-    const cfg = await readJson(cfgPath) as Record<string, unknown>;
+    const cfg = (await readJson(cfgPath)) as Record<string, unknown>;
     const servers = cfg["mcpServers"] as Record<string, unknown>;
     expect(servers).toHaveProperty("ezcorp-ai-kit");
     const entry = servers["ezcorp-ai-kit"] as Record<string, unknown>;
@@ -245,7 +259,10 @@ describe("install ezcorp", () => {
     // Make it look like a git project root
     nodeFs.mkdirSync(nodePath.join(projectRoot, ".git"), { recursive: true });
   });
-  afterEach(() => { rmTmpDir(home); rmTmpDir(projectRoot); });
+  afterEach(() => {
+    rmTmpDir(home);
+    rmTmpDir(projectRoot);
+  });
 
   test("creates symlink at <root>/.ezcorp/extensions/ai-kit", async () => {
     await install("ezcorp", { home, cwd: projectRoot, dryRun: false, projectPath: projectRoot });
@@ -273,9 +290,9 @@ describe("install ezcorp", () => {
   test("throws when no git root found and no projectPath given", async () => {
     const isolated = makeTmpDir(); // no .git
     try {
-      await expect(
-        install("ezcorp", { home, cwd: isolated, dryRun: false }),
-      ).rejects.toThrow("Could not find a project root");
+      await expect(install("ezcorp", { home, cwd: isolated, dryRun: false })).rejects.toThrow(
+        "Could not find a project root",
+      );
     } finally {
       rmTmpDir(isolated);
     }
@@ -303,13 +320,21 @@ describe("MCP entry shape across all file-based targets", () => {
 
         let cfg: Record<string, unknown>;
         if (target === "claude-code") {
-          cfg = await readJson(nodePath.join(home, ".claude.json")) as Record<string, unknown>;
+          cfg = (await readJson(nodePath.join(home, ".claude.json"))) as Record<string, unknown>;
         } else if (target === "cursor") {
-          cfg = await readJson(nodePath.join(home, ".cursor", "mcp.json")) as Record<string, unknown>;
+          cfg = (await readJson(nodePath.join(home, ".cursor", "mcp.json"))) as Record<
+            string,
+            unknown
+          >;
         } else if (target === "zed") {
-          cfg = await readJson(nodePath.join(home, ".config", "zed", "settings.json")) as Record<string, unknown>;
+          cfg = (await readJson(nodePath.join(home, ".config", "zed", "settings.json"))) as Record<
+            string,
+            unknown
+          >;
         } else {
-          cfg = await readJson(nodePath.join(home, ".codeium", "windsurf", "mcp_config.json")) as Record<string, unknown>;
+          cfg = (await readJson(
+            nodePath.join(home, ".codeium", "windsurf", "mcp_config.json"),
+          )) as Record<string, unknown>;
         }
 
         const serverKey = target === "zed" ? "context_servers" : "mcpServers";

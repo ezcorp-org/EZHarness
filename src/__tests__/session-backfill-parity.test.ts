@@ -2,13 +2,22 @@ import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { and, eq } from "drizzle-orm";
 import { Session } from "@earendil-works/pi-agent-core";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { agentSessionEntries, agentSessions, conversations, messageAttachments, messages, projects } from "../db/schema";
+import {
+  agentSessionEntries,
+  agentSessions,
+  conversations,
+  messageAttachments,
+  messages,
+  projects,
+} from "../db/schema";
 import type { StreamChatContext } from "../runtime/stream-chat/context";
 
 // Must mock before importing modules that use db/connection.
 mockDbConnection();
 
-const { backfillSessionForConversation, isLlmTurn, rowToPiMessage } = await import("../db/session-backfill");
+const { backfillSessionForConversation, isLlmTurn, rowToPiMessage } = await import(
+  "../db/session-backfill"
+);
 // The 23505 predicate moved to its own module when the workflow
 // name-collision 409 turned out to need the same rule (and had written a
 // second, broken copy of it) — see `db/unique-violation.ts`.
@@ -20,7 +29,10 @@ let convSeq = 0;
 
 async function newConversation(): Promise<string> {
   const db = getTestDb();
-  await db.insert(projects).values({ id: PROJECT_ID, name: "P", path: "/tmp/p" }).onConflictDoNothing();
+  await db
+    .insert(projects)
+    .values({ id: PROJECT_ID, name: "P", path: "/tmp/p" })
+    .onConflictDoNothing();
   const convId = `conv-${++convSeq}`;
   await db.insert(conversations).values({ id: convId, projectId: PROJECT_ID, title: "C" });
   return convId;
@@ -37,15 +49,17 @@ interface SeedMsg {
 }
 
 async function seedMsg(m: SeedMsg): Promise<void> {
-  await getTestDb().insert(messages).values({
-    id: m.id,
-    conversationId: m.convId,
-    role: m.role,
-    content: m.content,
-    parentMessageId: m.parentId ?? null,
-    excluded: m.excluded ?? false,
-    createdAt: m.createdAt,
-  });
+  await getTestDb()
+    .insert(messages)
+    .values({
+      id: m.id,
+      conversationId: m.convId,
+      role: m.role,
+      content: m.content,
+      parentMessageId: m.parentId ?? null,
+      excluded: m.excluded ?? false,
+      createdAt: m.createdAt,
+    });
 }
 
 const BASE = new Date("2026-07-11T00:00:00.000Z").getTime();
@@ -86,10 +100,38 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
 
   test("linear thread: buildContext == loadHistory (base mapping + order)", async () => {
     const c = await newConversation();
-    await seedMsg({ id: "u1", convId: c, role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg({ id: "a1", convId: c, role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
-    await seedMsg({ id: "u2", convId: c, role: "user", content: "u2", parentId: "a1", createdAt: at(2) });
-    await seedMsg({ id: "a2", convId: c, role: "assistant", content: "a2", parentId: "u2", createdAt: at(3) });
+    await seedMsg({
+      id: "u1",
+      convId: c,
+      role: "user",
+      content: "u1",
+      parentId: null,
+      createdAt: at(0),
+    });
+    await seedMsg({
+      id: "a1",
+      convId: c,
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
+    await seedMsg({
+      id: "u2",
+      convId: c,
+      role: "user",
+      content: "u2",
+      parentId: "a1",
+      createdAt: at(2),
+    });
+    await seedMsg({
+      id: "a2",
+      convId: c,
+      role: "assistant",
+      content: "a2",
+      parentId: "u2",
+      createdAt: at(3),
+    });
 
     const ref = await referenceHistory(c);
     const cand = await candidateContext(c);
@@ -97,7 +139,13 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
     expect(stripTimestamps(cand)).toEqual(stripTimestamps(ref));
     expect(cand.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
     // assistant messages keep loadHistory's placeholder shape verbatim
-    expect(cand[1]).toMatchObject({ role: "assistant", api: "unknown", provider: "unknown", model: "unknown", stopReason: "stop" });
+    expect(cand[1]).toMatchObject({
+      role: "assistant",
+      api: "unknown",
+      provider: "unknown",
+      model: "unknown",
+      stopReason: "stop",
+    });
     // Justify stripTimestamps (NOT a silent weakening): the session's stamps
     // are the DETERMINISTIC row createdAt, whereas loadHistory stamps every
     // message with wall-clock Date.now() — so timestamp is inherently
@@ -107,14 +155,56 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
 
   test("branched thread (edit/retry): only the ACTIVE branch, siblings preserved in tree", async () => {
     const c = await newConversation();
-    await seedMsg({ id: "u1", convId: c, role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg({ id: "a1", convId: c, role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg({
+      id: "u1",
+      convId: c,
+      role: "user",
+      content: "u1",
+      parentId: null,
+      createdAt: at(0),
+    });
+    await seedMsg({
+      id: "a1",
+      convId: c,
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
     // Abandoned branch A
-    await seedMsg({ id: "u2", convId: c, role: "user", content: "u2-abandoned", parentId: "a1", createdAt: at(2) });
-    await seedMsg({ id: "a2", convId: c, role: "assistant", content: "a2-abandoned", parentId: "u2", createdAt: at(3) });
+    await seedMsg({
+      id: "u2",
+      convId: c,
+      role: "user",
+      content: "u2-abandoned",
+      parentId: "a1",
+      createdAt: at(2),
+    });
+    await seedMsg({
+      id: "a2",
+      convId: c,
+      role: "assistant",
+      content: "a2-abandoned",
+      parentId: "u2",
+      createdAt: at(3),
+    });
     // Active branch B — edited u2, newer createdAt so it is the active leaf
-    await seedMsg({ id: "u2b", convId: c, role: "user", content: "u2-active", parentId: "a1", createdAt: at(4) });
-    await seedMsg({ id: "a2b", convId: c, role: "assistant", content: "a2-active", parentId: "u2b", createdAt: at(5) });
+    await seedMsg({
+      id: "u2b",
+      convId: c,
+      role: "user",
+      content: "u2-active",
+      parentId: "a1",
+      createdAt: at(4),
+    });
+    await seedMsg({
+      id: "a2b",
+      convId: c,
+      role: "assistant",
+      content: "a2-active",
+      parentId: "u2b",
+      createdAt: at(5),
+    });
 
     const ref = await referenceHistory(c);
     const cand = await candidateContext(c);
@@ -135,15 +225,65 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
 
   test("synthetic + excluded rows on the branch are dropped identically", async () => {
     const c = await newConversation();
-    await seedMsg({ id: "u1", convId: c, role: "user", content: "u1", parentId: null, createdAt: at(0) });
+    await seedMsg({
+      id: "u1",
+      convId: c,
+      role: "user",
+      content: "u1",
+      parentId: null,
+      createdAt: at(0),
+    });
     // excluded assistant — filtered by loadHistory's .filter(!excluded)
-    await seedMsg({ id: "a1x", convId: c, role: "assistant", content: "a1-excluded", parentId: "u1", excluded: true, createdAt: at(1) });
+    await seedMsg({
+      id: "a1x",
+      convId: c,
+      role: "assistant",
+      content: "a1-excluded",
+      parentId: "u1",
+      excluded: true,
+      createdAt: at(1),
+    });
     // all three synthetic roles, chained mid-branch
-    await seedMsg({ id: "pr", convId: c, role: "preprocess-result", content: "{}", parentId: "a1x", createdAt: at(2) });
-    await seedMsg({ id: "ear", convId: c, role: "ez-action-result", content: "{}", parentId: "pr", createdAt: at(3) });
-    await seedMsg({ id: "u2", convId: c, role: "user", content: "u2", parentId: "ear", createdAt: at(4) });
-    await seedMsg({ id: "ce", convId: c, role: "capability-event", content: "{}", parentId: "u2", createdAt: at(5) });
-    await seedMsg({ id: "a2", convId: c, role: "assistant", content: "a2", parentId: "ce", createdAt: at(6) });
+    await seedMsg({
+      id: "pr",
+      convId: c,
+      role: "preprocess-result",
+      content: "{}",
+      parentId: "a1x",
+      createdAt: at(2),
+    });
+    await seedMsg({
+      id: "ear",
+      convId: c,
+      role: "ez-action-result",
+      content: "{}",
+      parentId: "pr",
+      createdAt: at(3),
+    });
+    await seedMsg({
+      id: "u2",
+      convId: c,
+      role: "user",
+      content: "u2",
+      parentId: "ear",
+      createdAt: at(4),
+    });
+    await seedMsg({
+      id: "ce",
+      convId: c,
+      role: "capability-event",
+      content: "{}",
+      parentId: "u2",
+      createdAt: at(5),
+    });
+    await seedMsg({
+      id: "a2",
+      convId: c,
+      role: "assistant",
+      content: "a2",
+      parentId: "ce",
+      createdAt: at(6),
+    });
 
     const ref = await referenceHistory(c);
     const cand = await candidateContext(c);
@@ -161,8 +301,22 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
 
   test("attachment thread: base parity holds; ezMessageId cross-link present (image rehydration is a documented post-transform)", async () => {
     const c = await newConversation();
-    await seedMsg({ id: "u1", convId: c, role: "user", content: "look at this", parentId: null, createdAt: at(0) });
-    await seedMsg({ id: "a1", convId: c, role: "assistant", content: "nice", parentId: "u1", createdAt: at(1) });
+    await seedMsg({
+      id: "u1",
+      convId: c,
+      role: "user",
+      content: "look at this",
+      parentId: null,
+      createdAt: at(0),
+    });
+    await seedMsg({
+      id: "a1",
+      convId: c,
+      role: "assistant",
+      content: "nice",
+      parentId: "u1",
+      createdAt: at(1),
+    });
     await getTestDb().insert(messageAttachments).values({
       id: "att1",
       messageId: "u1",
@@ -195,15 +349,34 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
     const [row] = await getTestDb()
       .select()
       .from(agentSessionEntries)
-      .where(and(eq(agentSessionEntries.sessionId, (await storage.getMetadata()).id), eq(agentSessionEntries.entryId, "u1")));
+      .where(
+        and(
+          eq(agentSessionEntries.sessionId, (await storage.getMetadata()).id),
+          eq(agentSessionEntries.entryId, "u1"),
+        ),
+      );
     expect(row?.ezMessageId).toBe("u1");
     expect(row?.type).toBe("message");
   });
 
   test("idempotent: re-running backfill returns the same session with no duplicate entries", async () => {
     const c = await newConversation();
-    await seedMsg({ id: "u1", convId: c, role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg({ id: "a1", convId: c, role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg({
+      id: "u1",
+      convId: c,
+      role: "user",
+      content: "u1",
+      parentId: null,
+      createdAt: at(0),
+    });
+    await seedMsg({
+      id: "a1",
+      convId: c,
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
 
     const first = await backfillSessionForConversation(c);
     const firstId = (await first.getMetadata()).id;
@@ -214,15 +387,32 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
     expect((await second.getEntries()).length).toBe(firstEntries);
 
     // Exactly one session row for the conversation.
-    const sessRows = await getTestDb().select().from(agentSessionEntries).where(eq(agentSessionEntries.sessionId, firstId));
+    const sessRows = await getTestDb()
+      .select()
+      .from(agentSessionEntries)
+      .where(eq(agentSessionEntries.sessionId, firstId));
     // 2 message entries + 1 leaf pointer (setLeafId) — unchanged after re-run.
     expect(sessRows.length).toBe(3);
   });
 
   test("concurrent backfill: loser resolves to the same session (no unhandled unique violation)", async () => {
     const c = await newConversation();
-    await seedMsg({ id: "u1", convId: c, role: "user", content: "u1", parentId: null, createdAt: at(0) });
-    await seedMsg({ id: "a1", convId: c, role: "assistant", content: "a1", parentId: "u1", createdAt: at(1) });
+    await seedMsg({
+      id: "u1",
+      convId: c,
+      role: "user",
+      content: "u1",
+      parentId: null,
+      createdAt: at(0),
+    });
+    await seedMsg({
+      id: "a1",
+      convId: c,
+      role: "assistant",
+      content: "a1",
+      parentId: "u1",
+      createdAt: at(1),
+    });
 
     // Two concurrent calls both pass into DbSessionStorage.create; the INSERT
     // serializes them — one wins, the loser catches 23505 and opens the same
@@ -233,7 +423,10 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
     ]);
     expect((await s1.getMetadata()).id).toBe((await s2.getMetadata()).id);
 
-    const sessRows = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, c));
+    const sessRows = await getTestDb()
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.conversationId, c));
     expect(sessRows.length).toBe(1);
   });
 
@@ -255,10 +448,31 @@ describe("session backfill — dark read-parity vs loadHistory", () => {
     //    CTE used to FOLLOW the cross-conversation pointer) is gone, so parity
     //    IS now asserted here.
     const other = await newConversation();
-    await seedMsg({ id: "d1", convId: other, role: "assistant", content: "d1", parentId: null, createdAt: at(0) });
+    await seedMsg({
+      id: "d1",
+      convId: other,
+      role: "assistant",
+      content: "d1",
+      parentId: null,
+      createdAt: at(0),
+    });
     const c = await newConversation();
-    await seedMsg({ id: "u2", convId: c, role: "user", content: "u2", parentId: "d1", createdAt: at(1) });
-    await seedMsg({ id: "a2", convId: c, role: "assistant", content: "a2", parentId: "u2", createdAt: at(2) });
+    await seedMsg({
+      id: "u2",
+      convId: c,
+      role: "user",
+      content: "u2",
+      parentId: "d1",
+      createdAt: at(1),
+    });
+    await seedMsg({
+      id: "a2",
+      convId: c,
+      role: "assistant",
+      content: "a2",
+      parentId: "u2",
+      createdAt: at(2),
+    });
 
     const storage = await backfillSessionForConversation(c);
     const ctx = (await new Session(storage).buildContext()).messages; // must NOT throw
@@ -313,8 +527,12 @@ describe("session backfill — pure helpers", () => {
     expect(isUniqueViolation({ cause: { code: "23505" } })).toBe(true);
     // Bun.sql (external Postgres) shape — verified live 2026-07-16: `.cause.code`
     // is "ERR_POSTGRES_SERVER_ERROR" and the SQLSTATE rides on `.cause.errno`.
-    expect(isUniqueViolation({ cause: { code: "ERR_POSTGRES_SERVER_ERROR", errno: 23505 } })).toBe(true);
-    expect(isUniqueViolation({ cause: { code: "ERR_POSTGRES_SERVER_ERROR", errno: "23505" } })).toBe(true);
+    expect(isUniqueViolation({ cause: { code: "ERR_POSTGRES_SERVER_ERROR", errno: 23505 } })).toBe(
+      true,
+    );
+    expect(
+      isUniqueViolation({ cause: { code: "ERR_POSTGRES_SERVER_ERROR", errno: "23505" } }),
+    ).toBe(true);
     // Raw driver error (no drizzle wrapper).
     expect(isUniqueViolation({ code: "23505" })).toBe(true);
     expect(isUniqueViolation({ errno: 23505 })).toBe(true);

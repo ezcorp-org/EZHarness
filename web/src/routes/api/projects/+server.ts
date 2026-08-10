@@ -12,12 +12,14 @@ import type { RequestHandler } from "./$types";
 // "name and path required" message is preserved verbatim — schema
 // accepts empty strings so the inline emptiness check still fires
 // (test asserts `body.error` contains "required").
-const createProjectSchema = z.object({
-  name: z.string(),
-  path: z.string(),
-  icon: z.string().nullable().optional(),
-  variables: z.record(z.string(), z.unknown()).optional(),
-}).strict();
+const createProjectSchema = z
+  .object({
+    name: z.string(),
+    path: z.string(),
+    icon: z.string().nullable().optional(),
+    variables: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
 
 /**
  * The list is INSTANCE-GLOBAL and deliberately unfiltered, even though

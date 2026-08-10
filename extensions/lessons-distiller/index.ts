@@ -291,7 +291,9 @@ function llmErrorOutcome(err: unknown): DistillationOutcome {
 }
 
 // ── Pure JSON parser ────────────────────────────────────────────────
-function parseLessonJson(rawText: string): { ok: true; lesson: DistilledLesson } | { ok: false; outcome: DistillationOutcome } {
+function parseLessonJson(
+  rawText: string,
+): { ok: true; lesson: DistilledLesson } | { ok: false; outcome: DistillationOutcome } {
   let jsonText = rawText.trim();
   // Tolerate ```json … ``` fences from chatty models.
   const fenced = jsonText.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -307,17 +309,35 @@ function parseLessonJson(rawText: string): { ok: true; lesson: DistilledLesson }
   try {
     parsed = JSON.parse(jsonText);
   } catch (err) {
-    return { ok: false, outcome: { kind: "decline", reason: "llm_malformed", detail: (err as Error).message } };
+    return {
+      ok: false,
+      outcome: { kind: "decline", reason: "llm_malformed", detail: (err as Error).message },
+    };
   }
   if (parsed === null || parsed === "EMPTY") {
     return { ok: false, outcome: { kind: "decline", reason: "llm_empty" } };
   }
   if (Array.isArray(parsed)) {
-    if (parsed.length === 0) return { ok: false, outcome: { kind: "decline", reason: "llm_empty" } };
-    return { ok: false, outcome: { kind: "decline", reason: "llm_malformed", detail: "expected single object, got array" } };
+    if (parsed.length === 0)
+      return { ok: false, outcome: { kind: "decline", reason: "llm_empty" } };
+    return {
+      ok: false,
+      outcome: {
+        kind: "decline",
+        reason: "llm_malformed",
+        detail: "expected single object, got array",
+      },
+    };
   }
   if (typeof parsed !== "object") {
-    return { ok: false, outcome: { kind: "decline", reason: "llm_malformed", detail: `expected object, got ${typeof parsed}` } };
+    return {
+      ok: false,
+      outcome: {
+        kind: "decline",
+        reason: "llm_malformed",
+        detail: `expected object, got ${typeof parsed}`,
+      },
+    };
   }
   const lesson = parsed as DistilledLesson;
   if (!lesson.slug || !lesson.title || !lesson.body) {
@@ -429,7 +449,9 @@ export async function distill(opts: DistillOptions): Promise<DistillationOutcome
       slug: parsed.lesson.slug,
       title: parsed.lesson.title,
       body: parsed.lesson.body,
-      ...(parsed.lesson.frontmatter ? { frontmatter: parsed.lesson.frontmatter as Record<string, unknown> } : {}),
+      ...(parsed.lesson.frontmatter
+        ? { frontmatter: parsed.lesson.frontmatter as Record<string, unknown> }
+        : {}),
       projectId: opts.projectId,
       visibility: "user",
     });
@@ -596,10 +618,18 @@ const distillNow: ToolHandler = async (
   try {
     envelope = await runtimeApi.getMessagesEnvelope(conversationId);
   } catch (err) {
-    return distillerToolResult({ kind: "error", reason: "internal", detail: (err as Error).message });
+    return distillerToolResult({
+      kind: "error",
+      reason: "internal",
+      detail: (err as Error).message,
+    });
   }
   if (!envelope.projectId) {
-    return distillerToolResult({ kind: "error", reason: "internal", detail: "conversation has no projectId" });
+    return distillerToolResult({
+      kind: "error",
+      reason: "internal",
+      detail: "conversation has no projectId",
+    });
   }
 
   const outcome = await distill({
@@ -623,9 +653,7 @@ const distillNow: ToolHandler = async (
 // (`__ezDistillerOutcome`) so the forwarder can identify our payload
 // reliably without false positives from other tools that also return
 // JSON.
-type DistillerCardOutcome =
-  | DistillationOutcome
-  | { kind: "decline"; reason: "settings_disabled" };
+type DistillerCardOutcome = DistillationOutcome | { kind: "decline"; reason: "settings_disabled" };
 
 export interface DistillerEnvelope {
   __ezDistillerOutcome: true;

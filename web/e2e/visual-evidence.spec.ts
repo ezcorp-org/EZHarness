@@ -18,30 +18,28 @@ import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 
 test.describe("Visual evidence", () => {
-	test("captures page evidence when enabled, no-ops otherwise @evidence", async ({
-		page,
-		mockApi,
-	}, testInfo) => {
-		await mockApi({ projects: [makeProject({ id: "proj-1" })] });
-		await page.route("**/api/hub/pages", (route) => route.fulfill({ json: { pages: [] } }));
+  test("captures page evidence when enabled, no-ops otherwise @evidence", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    await mockApi({ projects: [makeProject({ id: "proj-1" })] });
+    await page.route("**/api/hub/pages", (route) => route.fulfill({ json: { pages: [] } }));
 
-		await page.goto("/hub");
+    await page.goto("/hub");
 
-		// Wait for a stable, visible element before capturing.
-		await expect(page.getByText("No Hub pages yet")).toBeVisible();
-		await expect(page.getByRole("link", { name: "Browse extensions" })).toBeVisible();
+    // Wait for a stable, visible element before capturing.
+    await expect(page.getByText("No Hub pages yet")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Browse extensions" })).toBeVisible();
 
-		await captureEvidence(page, testInfo, "dashboard");
+    await captureEvidence(page, testInfo, "dashboard");
 
-		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
-			expect(
-				testInfo.attachments.some(
-					(a) => a.name === "dashboard" && a.contentType === "image/png",
-				),
-			).toBe(true);
-		} else {
-			// Hard no-op: nothing attached when the flag is unset.
-			expect(testInfo.attachments.some((a) => a.name === "dashboard")).toBe(false);
-		}
-	});
+    if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+      expect(
+        testInfo.attachments.some((a) => a.name === "dashboard" && a.contentType === "image/png"),
+      ).toBe(true);
+    } else {
+      // Hard no-op: nothing attached when the flag is unset.
+      expect(testInfo.attachments.some((a) => a.name === "dashboard")).toBe(false);
+    }
+  });
 });

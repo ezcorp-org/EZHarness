@@ -34,10 +34,11 @@ async function runUnderPreload(
   if (opts.shellAllowed) env.EZCORP_SHELL_ALLOWED = "1";
   if (opts.fsAllowed) env.EZCORP_FS_ALLOWED = "1";
 
-  const proc = Bun.spawn(
-    ["bun", "--preload", SANDBOX_PRELOAD_PATH, "-e", code],
-    { stdout: "pipe", stderr: "pipe", env },
-  );
+  const proc = Bun.spawn(["bun", "--preload", SANDBOX_PRELOAD_PATH, "-e", code], {
+    stdout: "pipe",
+    stderr: "pipe",
+    env,
+  });
   const [stdout, stderr] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -60,9 +61,7 @@ const FS_DENY = /requires 'filesystem' permission|filesystem.*blocked/;
 
 describe("sec-SB4/Phase3: Bun.file / Bun.write always denied", () => {
   test("Bun.file('/etc/passwd') throws filesystem denier (no fs permission)", async () => {
-    const out = await runUnderPreload(
-      probeSync(`Bun.file('/etc/passwd').text()`),
-    );
+    const out = await runUnderPreload(probeSync(`Bun.file('/etc/passwd').text()`));
     expect(out.stdout).toMatch(FS_DENY);
     expect(out.stdout).not.toMatch(/^OK$/m);
   });
@@ -72,25 +71,21 @@ describe("sec-SB4/Phase3: Bun.file / Bun.write always denied", () => {
     // means the SDK helper's reverse-RPC has a chance of succeeding, but
     // raw Bun.file is always denied (see sandbox-preload.ts FS_MODULES
     // block).
-    const out = await runUnderPreload(
-      probeSync(`Bun.file('/tmp/anywhere').text()`),
-      { fsAllowed: true },
-    );
+    const out = await runUnderPreload(probeSync(`Bun.file('/tmp/anywhere').text()`), {
+      fsAllowed: true,
+    });
     expect(out.stdout).toMatch(FS_DENY);
   });
 
   test("Bun.write throws filesystem denier", async () => {
-    const out = await runUnderPreload(
-      probeSync(`Bun.write('/tmp/x', 'data')`),
-    );
+    const out = await runUnderPreload(probeSync(`Bun.write('/tmp/x', 'data')`));
     expect(out.stdout).toMatch(FS_DENY);
   });
 
   test("Bun.write STILL throws when EZCORP_FS_ALLOWED=1", async () => {
-    const out = await runUnderPreload(
-      probeSync(`Bun.write('/tmp/x', 'data')`),
-      { fsAllowed: true },
-    );
+    const out = await runUnderPreload(probeSync(`Bun.write('/tmp/x', 'data')`), {
+      fsAllowed: true,
+    });
     expect(out.stdout).toMatch(FS_DENY);
   });
 
@@ -139,9 +134,7 @@ describe("sec-SB4: Bun.Glob scan is denied, match still works", () => {
 
   test("scanSync cannot enumerate $HOME (no OS confinement on the advisory tier)", async () => {
     const out = await runUnderPreload(
-      probeSync(
-        `[...new Bun.Glob('**/*').scanSync({ cwd: process.env.HOME + '/.ssh' })]`,
-      ),
+      probeSync(`[...new Bun.Glob('**/*').scanSync({ cwd: process.env.HOME + '/.ssh' })]`),
     );
     expect(out.stdout).toMatch(FS_DENY);
   });
@@ -178,9 +171,7 @@ describe("sec-SB4: bun:ffi is poisoned (FFI defeats the whole sandbox)", () => {
   });
 
   test("dynamic import('bun:ffi') is denied", async () => {
-    const out = await runUnderPreload(
-      probeAsync(`const m = await import('bun:ffi'); m.dlopen`),
-    );
+    const out = await runUnderPreload(probeAsync(`const m = await import('bun:ffi'); m.dlopen`));
     expect(out.stdout).toMatch(NATIVE_DENY);
   });
 
@@ -210,9 +201,7 @@ describe("sec-SB4: every poisoned Bun property actually exists", () => {
     // it is poisoned turns that silent failure into a red test.
     const src = await Bun.file(SANDBOX_PRELOAD_PATH).text();
     const assigned = [
-      ...new Set(
-        [...src.matchAll(/BunNs\.([A-Za-z_$][\w$]*)\s*=/g)].map((m) => m[1]!),
-      ),
+      ...new Set([...src.matchAll(/BunNs\.([A-Za-z_$][\w$]*)\s*=/g)].map((m) => m[1]!)),
     ];
     // Sanity: the scrape must actually find the deniers, or the guard is vacuous.
     expect(assigned).toContain("spawn");
@@ -232,9 +221,7 @@ describe("sec-SB4: every poisoned Bun property actually exists", () => {
       env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
     });
     const before = JSON.parse(baseline.stdout.toString()) as string[];
-    const after = JSON.parse(
-      (await runUnderPreload(list)).stdout.trim(),
-    ) as string[];
+    const after = JSON.parse((await runUnderPreload(list)).stdout.trim()) as string[];
 
     // Non-vacuity FIRST. `after.filter(...)` is empty both when the preload
     // added nothing (pass) and when `after` itself is empty because the probe
@@ -256,23 +243,17 @@ describe("sec-SB4/Phase3: node:fs and node:fs/promises always blocked", () => {
   });
 
   test("require('node:fs') throws filesystem denier (node: prefix form)", async () => {
-    const out = await runUnderPreload(
-      probeSync(`require('node:fs').readFileSync`),
-    );
+    const out = await runUnderPreload(probeSync(`require('node:fs').readFileSync`));
     expect(out.stdout).toMatch(FS_DENY);
   });
 
   test("require('fs/promises') throws filesystem denier", async () => {
-    const out = await runUnderPreload(
-      probeSync(`require('fs/promises').readFile`),
-    );
+    const out = await runUnderPreload(probeSync(`require('fs/promises').readFile`));
     expect(out.stdout).toMatch(FS_DENY);
   });
 
   test("require('node:fs/promises') throws filesystem denier", async () => {
-    const out = await runUnderPreload(
-      probeSync(`require('node:fs/promises').readFile`),
-    );
+    const out = await runUnderPreload(probeSync(`require('node:fs/promises').readFile`));
     expect(out.stdout).toMatch(FS_DENY);
   });
 
@@ -280,18 +261,14 @@ describe("sec-SB4/Phase3: node:fs and node:fs/promises always blocked", () => {
     // Bun caches the same module for CJS and ESM, so the property-poison
     // also catches `await import('node:fs')`.
     const out = await runUnderPreload(
-      probeAsync(
-        `const m = await import('node:fs'); m.readFileSync`,
-      ),
+      probeAsync(`const m = await import('node:fs'); m.readFileSync`),
     );
     expect(out.stdout).toMatch(FS_DENY);
   });
 
   test("dynamic import('node:fs/promises') returns a poisoned module object", async () => {
     const out = await runUnderPreload(
-      probeAsync(
-        `const m = await import('node:fs/promises'); m.readFile`,
-      ),
+      probeAsync(`const m = await import('node:fs/promises'); m.readFile`),
     );
     expect(out.stdout).toMatch(FS_DENY);
   });
@@ -301,7 +278,7 @@ describe("sec-SB4/Phase3: node:fs and node:fs/promises always blocked", () => {
     const out = await runUnderPreload(
       probeSync(
         `const path = require('node:path'); ` +
-        `if (typeof path.join !== "function") throw new Error("path broken")`,
+          `if (typeof path.join !== "function") throw new Error("path broken")`,
       ),
     );
     expect(out.stdout).toMatch(/^OK$/m);
@@ -319,8 +296,8 @@ describe("sec-SB4/Phase3: createRequire-derived require also blocks fs", () => {
     const out = await runUnderPreload(
       probeSync(
         `const { createRequire } = require('node:module'); ` +
-        `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
-        `r('fs').readFileSync`,
+          `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
+          `r('fs').readFileSync`,
       ),
     );
     expect(out.stdout).toMatch(FS_DENY);
@@ -330,8 +307,8 @@ describe("sec-SB4/Phase3: createRequire-derived require also blocks fs", () => {
     const out = await runUnderPreload(
       probeSync(
         `const { createRequire } = require('node:module'); ` +
-        `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
-        `r('node:fs/promises').readFile`,
+          `const r = createRequire(${FAKE_REQUIRE_BASE}); ` +
+          `r('node:fs/promises').readFile`,
       ),
     );
     expect(out.stdout).toMatch(FS_DENY);
@@ -345,18 +322,20 @@ describe("sec-SB4/Phase3: deniers fire regardless of network/shell/fs flags", ()
     // Even with network + shell + fs all set, raw fs primitives stay
     // poisoned. The point of Phase 3 is that ALL fs IO goes through the
     // host. Granted means the SDK helpers work via reverse-RPC.
-    const out = await runUnderPreload(
-      probeSync(`Bun.file('/tmp/anywhere').text()`),
-      { networkAllowed: true, shellAllowed: true, fsAllowed: true },
-    );
+    const out = await runUnderPreload(probeSync(`Bun.file('/tmp/anywhere').text()`), {
+      networkAllowed: true,
+      shellAllowed: true,
+      fsAllowed: true,
+    });
     expect(out.stdout).toMatch(FS_DENY);
   });
 
   test("dynamic import('fs') with all flags set still throws", async () => {
-    const out = await runUnderPreload(
-      probeAsync(`const m = await import('fs'); m.readFileSync`),
-      { networkAllowed: true, shellAllowed: true, fsAllowed: true },
-    );
+    const out = await runUnderPreload(probeAsync(`const m = await import('fs'); m.readFileSync`), {
+      networkAllowed: true,
+      shellAllowed: true,
+      fsAllowed: true,
+    });
     expect(out.stdout).toMatch(FS_DENY);
   });
 });

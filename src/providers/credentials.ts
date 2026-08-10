@@ -87,20 +87,24 @@ async function discoverGoogleProject(accessToken: string): Promise<string> {
     method: "POST",
     headers,
     body: JSON.stringify({
-      metadata: { ideType: "IDE_UNSPECIFIED", platform: "PLATFORM_UNSPECIFIED", pluginType: "GEMINI" },
+      metadata: {
+        ideType: "IDE_UNSPECIFIED",
+        platform: "PLATFORM_UNSPECIFIED",
+        pluginType: "GEMINI",
+      },
     }),
   });
   if (!res.ok) {
     throw new Error(`Google Cloud project discovery failed: ${res.status}`);
   }
-  const data = await res.json() as { cloudaicompanionProject?: string; currentTier?: unknown };
+  const data = (await res.json()) as { cloudaicompanionProject?: string; currentTier?: unknown };
   if (data.cloudaicompanionProject) return data.cloudaicompanionProject;
-  throw new Error("No Google Cloud project found. Set GOOGLE_CLOUD_PROJECT env var or run Gemini CLI login.");
+  throw new Error(
+    "No Google Cloud project found. Set GOOGLE_CLOUD_PROJECT env var or run Gemini CLI login.",
+  );
 }
 
-async function getOAuthCredential(
-  provider: string,
-): Promise<ProviderCredential> {
+async function getOAuthCredential(provider: string): Promise<ProviderCredential> {
   // A STORED credential is the precondition, checked here and not delegated.
   // `Models.getAuth()` resolves AMBIENT env credentials when the store has
   // nothing (measured: `getAuth("openai")` with OPENAI_API_KEY set returns
@@ -215,9 +219,7 @@ export async function getApiKey(provider: string): Promise<string> {
   throw new Error(`Missing API key for ${provider}`);
 }
 
-async function getApiKeyCredential(
-  provider: string,
-): Promise<ProviderCredential> {
+async function getApiKeyCredential(provider: string): Promise<ProviderCredential> {
   const token = await getApiKey(provider);
   return { type: "apikey", token };
 }
@@ -267,9 +269,7 @@ export async function getCredential(
 
   // 1. Check conversation-level override
   if (conversationId) {
-    const override = await getSetting(
-      `conversation:${conversationId}:accessMode:${provider}`,
-    );
+    const override = await getSetting(`conversation:${conversationId}:accessMode:${provider}`);
     if (override === "apikey") return getApiKeyCredential(provider);
     if (override === "oauth") return getOAuthCredential(provider);
   }
@@ -339,8 +339,8 @@ export async function getCredential(
     if (oauthFailure) {
       throw new Error(
         `OAuth for ${provider} is connected but could not be refreshed: ` +
-        `${oauthFailure instanceof Error ? oauthFailure.message : String(oauthFailure)}. ` +
-        `Sign in to ${provider} again, or add an API key.`,
+          `${oauthFailure instanceof Error ? oauthFailure.message : String(oauthFailure)}. ` +
+          `Sign in to ${provider} again, or add an API key.`,
         { cause: oauthFailure },
       );
     }

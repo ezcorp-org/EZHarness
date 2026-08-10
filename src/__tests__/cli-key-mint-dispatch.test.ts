@@ -32,7 +32,9 @@ mock.module("../db/queries/users", () => ({
   listUsers: async () => [{ id: "u-admin", email: "admin@x.test", role: "admin" }],
 }));
 mock.module("../db/queries/settings", () => ({
-  upsertSetting: async (k: string, v: unknown) => { settings.push([k, v]); },
+  upsertSetting: async (k: string, v: unknown) => {
+    settings.push([k, v]);
+  },
   getSetting: async () => undefined,
   getAllSettings: async () => ({}),
 }));
@@ -46,19 +48,36 @@ const origLog = console.log;
 const origErr = console.error;
 const origWarn = console.warn;
 beforeEach(() => {
-  logs = []; errs = []; warns = []; settings.length = 0; initDbError = null;
-  console.log = (...a: unknown[]) => { logs.push(a.join(" ")); };
-  console.error = (...a: unknown[]) => { errs.push(a.join(" ")); };
-  console.warn = (...a: unknown[]) => { warns.push(a.join(" ")); };
+  logs = [];
+  errs = [];
+  warns = [];
+  settings.length = 0;
+  initDbError = null;
+  console.log = (...a: unknown[]) => {
+    logs.push(a.join(" "));
+  };
+  console.error = (...a: unknown[]) => {
+    errs.push(a.join(" "));
+  };
+  console.warn = (...a: unknown[]) => {
+    warns.push(a.join(" "));
+  };
 });
-afterEach(() => { console.log = origLog; console.error = origErr; console.warn = origWarn; });
+afterEach(() => {
+  console.log = origLog;
+  console.error = origErr;
+  console.warn = origWarn;
+});
 afterAll(() => restoreModuleMocks());
 
 /** Run cli(...), capturing a process.exit(code) as a thrown sentinel. */
 async function captureExit(fn: () => Promise<unknown>): Promise<number> {
   const orig = process.exit;
   let code: number | undefined;
-  process.exit = ((c?: number): never => { code = c ?? 0; throw new Error(`__exit__:${code}`); }) as typeof process.exit;
+  process.exit = ((c?: number): never => {
+    code = c ?? 0;
+    throw new Error(`__exit__:${code}`);
+  }) as typeof process.exit;
   try {
     await fn();
     throw new Error("expected process.exit to be called");
@@ -120,7 +139,14 @@ describe("cli key:mint dispatch", () => {
 
   test("does NOT warn when --role admin carries the admin scope", async () => {
     await cli([
-      "key", "mint", "--user", "admin@x.test", "--scopes", "read,admin", "--role", "admin",
+      "key",
+      "mint",
+      "--user",
+      "admin@x.test",
+      "--scopes",
+      "read,admin",
+      "--role",
+      "admin",
     ]);
     expect(warns.join("\n")).toBe("");
     expect(logs.join("\n")).toContain("role:   admin");
@@ -201,7 +227,9 @@ describe("cli key:mint dispatch", () => {
     const code = await captureExit(() => cli(["key", "mint"]));
     expect(code).toBe(1);
     const err = errs.join("\n");
-    expect(err).toContain("Error: The EZCorp database at /data/ezcorp is open in another EZCorp process (pid 1234)");
+    expect(err).toContain(
+      "Error: The EZCorp database at /data/ezcorp is open in another EZCorp process (pid 1234)",
+    );
     expect(err).toContain("single-writer");
     expect(settings.find(([k]) => k.startsWith("apikey:"))).toBeUndefined();
   });

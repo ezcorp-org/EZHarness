@@ -157,10 +157,7 @@ const pendingApprovals = new Map<string, PendingApproval>();
  * handler can look up the conversation owner for a sec-H2 ownership check
  * before calling `resolvePermission`. Callers in the executor pass it.
  */
-export function createPermissionGate(
-  toolCallId: string,
-  conversationId?: string,
-): Promise<void> {
+export function createPermissionGate(toolCallId: string, conversationId?: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
     pendingApprovals.set(toolCallId, { resolve, reject, conversationId });
   });
@@ -438,8 +435,7 @@ export function createExtensionPermissionGate(
   // hang the caller until the process dies. Three checks, in order of
   // precision — see the block comment above `NON_INTERACTIVE_KEY_PREFIX`
   // for why key matching alone is not sufficient.
-  const scope =
-    nonInteractiveAls.getStore() ?? nonInteractiveScopes.get(req.conversationId);
+  const scope = nonInteractiveAls.getStore() ?? nonInteractiveScopes.get(req.conversationId);
   if (scope) {
     scope.deniedCapabilityKind = req.capabilityKind;
     return Promise.reject(
@@ -507,9 +503,7 @@ export function createExtensionPermissionGate(
  * Used by the POST /api/tool-calls/:id/permission handler to authorize the
  * caller against the gate's owning conversation (sec-H2).
  */
-export function getPendingApprovalConversation(
-  toolCallId: string,
-): string | undefined {
+export function getPendingApprovalConversation(toolCallId: string): string | undefined {
   return pendingApprovals.get(toolCallId)?.conversationId;
 }
 
@@ -588,8 +582,6 @@ export function getPendingApproval(toolCallId: string): boolean {
  * sensitive capability kind into the legacy operation name when
  * persisting the always-allow row.
  */
-export function getPendingExtensionGate(
-  promptId: string,
-): ExtensionGateMeta | undefined {
+export function getPendingExtensionGate(promptId: string): ExtensionGateMeta | undefined {
   return pendingApprovals.get(promptId)?.extension;
 }

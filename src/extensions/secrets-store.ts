@@ -1,10 +1,6 @@
 import { sql } from "drizzle-orm";
 import { getDb } from "../db/connection";
-import {
-  decrypt,
-  decryptWithAad,
-  encryptWithAad,
-} from "../providers/encryption";
+import { decrypt, decryptWithAad, encryptWithAad } from "../providers/encryption";
 import {
   deleteSecret as deleteSecretRow,
   getSecretRow,
@@ -79,7 +75,12 @@ function aadFor(extensionId: string, projectId: string | null): string {
   return `${extensionId}:${projectId ?? ""}`;
 }
 
-function scopeFor(extensionId: string, projectId: string | null, name: string, opts?: SecretOpts): SecretScope {
+function scopeFor(
+  extensionId: string,
+  projectId: string | null,
+  name: string,
+  opts?: SecretOpts,
+): SecretScope {
   return { extensionId, projectId, userId: opts?.userId ?? null, name };
 }
 
@@ -223,7 +224,9 @@ export async function backfillGithubProjectsApiTokens(
   // which is the whole of `MigrationDb` and the whole of what this needs.
   executor: MigrationDb = getDb(),
 ): Promise<{ migrated: number; cleared: number }> {
-  const selected = (await executor.execute(SELECT_GH_PAT_KEYS)) as { rows?: Array<{ key: string; value: unknown }> };
+  const selected = (await executor.execute(SELECT_GH_PAT_KEYS)) as {
+    rows?: Array<{ key: string; value: unknown }>;
+  };
   const rows = selected.rows ?? [];
 
   let migrated = 0;
@@ -240,7 +243,10 @@ export async function backfillGithubProjectsApiTokens(
       plaintext = null;
       // Policy: the unusable blob is dropped from settings below regardless —
       // name the key (never the value) so an operator can trace the loss.
-      backfillLog.warn("legacy github-projects PAT failed to decrypt — dropping the settings key without migrating", { key });
+      backfillLog.warn(
+        "legacy github-projects PAT failed to decrypt — dropping the settings key without migrating",
+        { key },
+      );
     }
 
     if (plaintext !== null) {
@@ -258,10 +264,13 @@ export async function backfillGithubProjectsApiTokens(
         // name only, never the token) and still clear the settings key. First
         // line only: drizzle's failed-query error appends the bind params
         // (which include the re-encrypted ciphertext) on later lines.
-        backfillLog.warn("legacy github-projects PAT could not be migrated — dropping the settings key anyway", {
-          key,
-          error: String(err).split("\n")[0],
-        });
+        backfillLog.warn(
+          "legacy github-projects PAT could not be migrated — dropping the settings key anyway",
+          {
+            key,
+            error: String(err).split("\n")[0],
+          },
+        );
       }
     }
 

@@ -23,10 +23,7 @@ import {
   type TruncatedStepOutput,
 } from "../schema";
 import type { AgentResult, WorkflowCursor, WorkflowRunStatus } from "../../types";
-import {
-  isTruncatedStepOutput,
-  MAX_STEP_OUTPUT_BYTES,
-} from "../../runtime/workflow-step-output";
+import { isTruncatedStepOutput, MAX_STEP_OUTPUT_BYTES } from "../../runtime/workflow-step-output";
 import { logger } from "../../logger";
 import { stepCostUsd } from "../../runtime/workflow-step-cost";
 
@@ -40,11 +37,7 @@ const log = logger.child("workflow.runs");
  * success nor failure: the graph ran everything it could and then hit a
  * step that needs a human. It must never be reported as `success`.
  */
-export type TerminalWorkflowRunStatus =
-  | "success"
-  | "error"
-  | "cancelled"
-  | "awaiting_approval";
+export type TerminalWorkflowRunStatus = "success" | "error" | "cancelled" | "awaiting_approval";
 
 export interface NewWorkflowRunInput {
   /** The executor's already-minted run id. Never generated here. */
@@ -156,24 +149,26 @@ export interface NewWorkflowRunInput {
  * comment on `workflowRuns.id` for why a `$defaultFn` would be a bug.
  */
 export async function insertWorkflowRun(row: NewWorkflowRunInput): Promise<void> {
-  await getDb().insert(workflowRuns).values({
-    id: row.id,
-    workflowName: row.workflowName,
-    workflowDefinitionId: row.workflowDefinitionId ?? null,
-    projectId: row.projectId ?? null,
-    userId: row.userId ?? null,
-    status: "running",
-    input: row.input,
-    startedAt: row.startedAt,
-    definitionHash: row.definitionHash ?? null,
-    definitionVersionId: row.definitionVersionId ?? null,
-    parentRunId: row.parentRunId ?? null,
-    idempotencyKey: row.idempotencyKey ?? null,
-    jobRef: row.jobRef ?? null,
-    delegationId: row.delegationId ?? null,
-    runAsKind: row.runAsKind ?? null,
-    runAs: row.runAs ?? null,
-  });
+  await getDb()
+    .insert(workflowRuns)
+    .values({
+      id: row.id,
+      workflowName: row.workflowName,
+      workflowDefinitionId: row.workflowDefinitionId ?? null,
+      projectId: row.projectId ?? null,
+      userId: row.userId ?? null,
+      status: "running",
+      input: row.input,
+      startedAt: row.startedAt,
+      definitionHash: row.definitionHash ?? null,
+      definitionVersionId: row.definitionVersionId ?? null,
+      parentRunId: row.parentRunId ?? null,
+      idempotencyKey: row.idempotencyKey ?? null,
+      jobRef: row.jobRef ?? null,
+      delegationId: row.delegationId ?? null,
+      runAsKind: row.runAsKind ?? null,
+      runAs: row.runAs ?? null,
+    });
 }
 
 /**
@@ -256,7 +251,9 @@ export async function workflowRunNestingDepth(
  * paragraph on {@link sumWorkflowRunTokens}; it applies identically to
  * every consumer of this expression.
  */
-const STEP_TOKEN_SUM = sql<string | number | null>`COALESCE(SUM(COALESCE(${workflowStepRuns.inputTokens}, 0) + COALESCE(${workflowStepRuns.outputTokens}, 0)), 0)`;
+const STEP_TOKEN_SUM = sql<
+  string | number | null
+>`COALESCE(SUM(COALESCE(${workflowStepRuns.inputTokens}, 0) + COALESCE(${workflowStepRuns.outputTokens}, 0)), 0)`;
 
 /**
  * `SUM()` over `integer` is `bigint` in Postgres, which both drivers hand
@@ -557,9 +554,7 @@ export interface WorkflowStepRunUpsert {
  * later write carrying a resolved model overwrites the earlier NULL, and
  * there is no half-updated row to reason about.
  */
-export async function upsertWorkflowStepRun(
-  row: WorkflowStepRunUpsert,
-): Promise<void> {
+export async function upsertWorkflowStepRun(row: WorkflowStepRunUpsert): Promise<void> {
   const runId = row.runId === "" ? null : row.runId;
   const iterations = row.iterations ?? null;
   const provider = row.provider ?? null;
@@ -613,9 +608,20 @@ export async function upsertWorkflowStepRun(
     .onConflictDoUpdate({
       target: [workflowStepRuns.workflowRunId, workflowStepRuns.stepName],
       set: {
-        runId, status: row.status, iterations, provider, model, output,
-        attempt, inputTokens, outputTokens, costUsd, durationMs, errorCode,
-        resolvedInput, skippedReason,
+        runId,
+        status: row.status,
+        iterations,
+        provider,
+        model,
+        output,
+        attempt,
+        inputTokens,
+        outputTokens,
+        costUsd,
+        durationMs,
+        errorCode,
+        resolvedInput,
+        skippedReason,
         updatedAt: sql`NOW()`,
       },
     });
@@ -779,9 +785,7 @@ export async function finalizeWorkflowRunRow(
       status,
       finishedAt: sql`NOW()`,
       ...(result !== undefined ? { result } : {}),
-      ...(opts?.suspendedReason !== undefined
-        ? { suspendedReason: opts.suspendedReason }
-        : {}),
+      ...(opts?.suspendedReason !== undefined ? { suspendedReason: opts.suspendedReason } : {}),
     })
     .where(
       and(
@@ -983,10 +987,7 @@ function runKeysetBefore(cursor: { startedAt: Date; id: string }): SQL | undefin
 
 /** Slice the over-fetched row off and turn it into a cursor. Shared so a
  *  second pager cannot disagree about what "has more" means. */
-function toRunPage(
-  rows: Array<typeof workflowRuns.$inferSelect>,
-  limit: number,
-): WorkflowRunPage {
+function toRunPage(rows: Array<typeof workflowRuns.$inferSelect>, limit: number): WorkflowRunPage {
   const page = rows.slice(0, limit);
   const last = page[page.length - 1];
   const hasMore = rows.length > limit;
@@ -1070,9 +1071,7 @@ export async function listDelegatedRunsForConsenter(
  * Served by `idx_workflow_runs_name_started`; the user filter is served by
  * `idx_workflow_runs_user`.
  */
-export async function listWorkflowRunsPage(
-  q: WorkflowRunPageQuery,
-): Promise<WorkflowRunPage> {
+export async function listWorkflowRunsPage(q: WorkflowRunPageQuery): Promise<WorkflowRunPage> {
   const filters = [
     q.workflowName !== undefined ? eq(workflowRuns.workflowName, q.workflowName) : undefined,
     q.workflowNames !== undefined ? inArray(workflowRuns.workflowName, q.workflowNames) : undefined,
@@ -1281,10 +1280,7 @@ export async function releaseWorkflowRunClaim(
  * condition is the load-bearing one: a copy that lost it would hand a run
  * with side effects in flight to a second process.
  */
-async function releaseBoundaryClaims(
-  claimedBy: string,
-  workflowRunId?: string,
-): Promise<number> {
+async function releaseBoundaryClaims(claimedBy: string, workflowRunId?: string): Promise<number> {
   const rows = await getDb()
     .update(workflowRuns)
     .set({ status: "suspended", claimedBy: null, leaseExpiresAt: null })

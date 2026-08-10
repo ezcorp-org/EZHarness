@@ -26,36 +26,36 @@
  */
 
 import {
-	DEFAULT_SELECTION_FALLBACK,
-	DEFAULT_SELECTION_MODES,
-	DEFAULT_SELECTION_SETTING_KEY,
-	type DefaultSelectionMode,
-	parseDefaultSelection,
+  DEFAULT_SELECTION_FALLBACK,
+  DEFAULT_SELECTION_MODES,
+  DEFAULT_SELECTION_SETTING_KEY,
+  type DefaultSelectionMode,
+  parseDefaultSelection,
 } from "$server/runtime/routing/default-selection";
 
 export interface ModelSelection {
-	provider: string;
-	model: string;
+  provider: string;
+  model: string;
 }
 
 export interface ModelOptionLike {
-	provider: string;
-	model: string;
-	tier: string;
-	costTier: string;
-	reasoning?: boolean;
-	displayName?: string;
-	available: boolean;
-	contextWindow?: number;
+  provider: string;
+  model: string;
+  tier: string;
+  costTier: string;
+  reasoning?: boolean;
+  displayName?: string;
+  available: boolean;
+  contextWindow?: number;
 }
 
 /** Message shape `autoServedFromMessages` needs — a structural subset of
  *  `$lib/api.js`'s `Message` so pure tests don't need the full row. */
 export interface ServedMessageLike {
-	role: string;
-	provider?: string | null;
-	model?: string | null;
-	usage?: { requestedModel?: string | null } | null;
+  role: string;
+  provider?: string | null;
+  model?: string | null;
+  usage?: { requestedModel?: string | null } | null;
 }
 
 export const AUTO_PROVIDER = "auto";
@@ -66,24 +66,24 @@ export const AUTO_LABEL = "Auto (smart routing)";
 export const TIER_ORDER = ["powerful", "balanced", "fast"] as const;
 
 export const TIER_LABELS: Record<string, string> = {
-	fast: "Fast",
-	balanced: "Balanced",
-	powerful: "Powerful",
+  fast: "Fast",
+  balanced: "Balanced",
+  powerful: "Powerful",
 };
 
 export const COST_LABELS: Record<string, string> = {
-	low: "$",
-	medium: "$$",
-	high: "$$$",
+  low: "$",
+  medium: "$$",
+  high: "$$$",
 };
 
 /** True when the selection is the Auto (smart routing) sentinel. */
 export function isAutoSelection(selected: ModelSelection | null): boolean {
-	return selected !== null && selected.provider === AUTO_PROVIDER && selected.model === AUTO_MODEL;
+  return selected !== null && selected.provider === AUTO_PROVIDER && selected.model === AUTO_MODEL;
 }
 
 export function filterAvailable<T extends ModelOptionLike>(models: T[]): T[] {
-	return models.filter((m) => m.available);
+  return models.filter((m) => m.available);
 }
 
 /**
@@ -92,43 +92,43 @@ export function filterAvailable<T extends ModelOptionLike>(models: T[]): T[] {
  * family put newer versions (higher numbers) first.
  */
 export function sortNewestFirst<T extends ModelOptionLike>(list: T[]): T[] {
-	const familyOrder: string[] = [];
-	const byFamily = new Map<string, T[]>();
-	for (const m of list) {
-		const leading = m.model.match(/^[^\d]+/)?.[0] ?? m.model;
-		const key = leading.replace(/[-_.\s]+$/, "").toLowerCase();
-		if (!byFamily.has(key)) {
-			byFamily.set(key, []);
-			familyOrder.push(key);
-		}
-		byFamily.get(key)!.push(m);
-	}
-	for (const arr of byFamily.values()) {
-		arr.sort((a, b) => b.model.localeCompare(a.model, undefined, { numeric: true }));
-	}
-	return familyOrder.flatMap((k) => byFamily.get(k)!);
+  const familyOrder: string[] = [];
+  const byFamily = new Map<string, T[]>();
+  for (const m of list) {
+    const leading = m.model.match(/^[^\d]+/)?.[0] ?? m.model;
+    const key = leading.replace(/[-_.\s]+$/, "").toLowerCase();
+    if (!byFamily.has(key)) {
+      byFamily.set(key, []);
+      familyOrder.push(key);
+    }
+    byFamily.get(key)!.push(m);
+  }
+  for (const arr of byFamily.values()) {
+    arr.sort((a, b) => b.model.localeCompare(a.model, undefined, { numeric: true }));
+  }
+  return familyOrder.flatMap((k) => byFamily.get(k)!);
 }
 
 export function groupModels<T extends ModelOptionLike>(
-	models: T[],
+  models: T[],
 ): { tier: string; label: string; models: T[] }[] {
-	const groups: { tier: string; label: string; models: T[] }[] = [];
-	for (const tier of TIER_ORDER) {
-		const tierModels = models.filter((m) => m.tier === tier);
-		if (tierModels.length > 0) {
-			groups.push({ tier, label: TIER_LABELS[tier] ?? tier, models: sortNewestFirst(tierModels) });
-		}
-	}
-	const knownTiers = new Set<string>(TIER_ORDER);
-	const otherModels = models.filter((m) => !knownTiers.has(m.tier));
-	if (otherModels.length > 0) {
-		groups.push({ tier: "other", label: "Other", models: sortNewestFirst(otherModels) });
-	}
-	return groups;
+  const groups: { tier: string; label: string; models: T[] }[] = [];
+  for (const tier of TIER_ORDER) {
+    const tierModels = models.filter((m) => m.tier === tier);
+    if (tierModels.length > 0) {
+      groups.push({ tier, label: TIER_LABELS[tier] ?? tier, models: sortNewestFirst(tierModels) });
+    }
+  }
+  const knownTiers = new Set<string>(TIER_ORDER);
+  const otherModels = models.filter((m) => !knownTiers.has(m.tier));
+  if (otherModels.length > 0) {
+    groups.push({ tier: "other", label: "Other", models: sortNewestFirst(otherModels) });
+  }
+  return groups;
 }
 
 function truncateLabel(name: string): string {
-	return name.length > 24 ? name.slice(0, 24) + "..." : name;
+  return name.length > 24 ? name.slice(0, 24) + "..." : name;
 }
 
 /**
@@ -137,20 +137,20 @@ function truncateLabel(name: string): string {
  * the router picked without leaving Auto mode.
  */
 export function displayLabel(
-	selected: ModelSelection | null,
-	models: ModelOptionLike[],
-	autoServed: ModelSelection | null = null,
+  selected: ModelSelection | null,
+  models: ModelOptionLike[],
+  autoServed: ModelSelection | null = null,
 ): string {
-	if (!selected) return "Select model";
-	if (isAutoSelection(selected)) {
-		if (!autoServed) return AUTO_LABEL;
-		const served = models.find(
-			(m) => m.provider === autoServed.provider && m.model === autoServed.model,
-		);
-		return truncateLabel(`Auto → ${served?.displayName ?? autoServed.model}`);
-	}
-	const m = models.find((m) => m.provider === selected.provider && m.model === selected.model);
-	return truncateLabel(m?.displayName ?? selected.model);
+  if (!selected) return "Select model";
+  if (isAutoSelection(selected)) {
+    if (!autoServed) return AUTO_LABEL;
+    const served = models.find(
+      (m) => m.provider === autoServed.provider && m.model === autoServed.model,
+    );
+    return truncateLabel(`Auto → ${served?.displayName ?? autoServed.model}`);
+  }
+  const m = models.find((m) => m.provider === selected.provider && m.model === selected.model);
+  return truncateLabel(m?.displayName ?? selected.model);
 }
 
 /**
@@ -161,10 +161,10 @@ export function displayLabel(
  * Auto choice.
  */
 export function shouldAutoSelectDefault(
-	selected: ModelSelection | null,
-	models: ModelOptionLike[],
+  selected: ModelSelection | null,
+  models: ModelOptionLike[],
 ): boolean {
-	return selected === null && models.length > 0;
+  return selected === null && models.length > 0;
 }
 
 /**
@@ -176,10 +176,10 @@ export function shouldAutoSelectDefault(
  * drift apart into two definitions of what `"first"` means.
  */
 export {
-	DEFAULT_SELECTION_FALLBACK,
-	DEFAULT_SELECTION_MODES,
-	DEFAULT_SELECTION_SETTING_KEY,
-	parseDefaultSelection,
+  DEFAULT_SELECTION_FALLBACK,
+  DEFAULT_SELECTION_MODES,
+  DEFAULT_SELECTION_SETTING_KEY,
+  parseDefaultSelection,
 };
 export type { DefaultSelectionMode };
 
@@ -197,21 +197,21 @@ export type { DefaultSelectionMode };
  * the "auto" sentinel strings persisted onto them.
  */
 export function resolveDefaultSelection(
-	selected: ModelSelection | null,
-	models: ModelOptionLike[],
-	mode: DefaultSelectionMode = DEFAULT_SELECTION_FALLBACK,
-	allowAuto = false,
+  selected: ModelSelection | null,
+  models: ModelOptionLike[],
+  mode: DefaultSelectionMode = DEFAULT_SELECTION_FALLBACK,
+  allowAuto = false,
 ): ModelSelection | null {
-	if (!shouldAutoSelectDefault(selected, models)) return null;
-	if (mode === "auto" && allowAuto) return AUTO_SELECTION;
-	return { provider: models[0]!.provider, model: models[0]!.model };
+  if (!shouldAutoSelectDefault(selected, models)) return null;
+  if (mode === "auto" && allowAuto) return AUTO_SELECTION;
+  return { provider: models[0]!.provider, model: models[0]!.model };
 }
 
 /** Whether the dedicated Auto row is visible for the current search text. */
 export function autoRowVisible(allowAuto: boolean, search: string): boolean {
-	if (!allowAuto) return false;
-	const q = search.trim().toLowerCase();
-	return q === "" || AUTO_LABEL.toLowerCase().includes(q);
+  if (!allowAuto) return false;
+  const q = search.trim().toLowerCase();
+  return q === "" || AUTO_LABEL.toLowerCase().includes(q);
 }
 
 /**
@@ -223,17 +223,17 @@ export function autoRowVisible(allowAuto: boolean, search: string): boolean {
  * yields null so a deliberate Auto pick re-routes exactly once.
  */
 export function autoServedFromMessages(
-	messages: readonly ServedMessageLike[],
+  messages: readonly ServedMessageLike[],
 ): ModelSelection | null {
-	for (let i = messages.length - 1; i >= 0; i--) {
-		const m = messages[i]!;
-		if (m.role !== "assistant" || m.usage == null) continue;
-		if (m.usage.requestedModel === null && m.provider && m.model) {
-			return { provider: m.provider, model: m.model };
-		}
-		return null;
-	}
-	return null;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.role !== "assistant" || m.usage == null) continue;
+    if (m.usage.requestedModel === null && m.provider && m.model) {
+      return { provider: m.provider, model: m.model };
+    }
+    return null;
+  }
+  return null;
 }
 
 /**
@@ -245,10 +245,10 @@ export function autoServedFromMessages(
  *                       message (client half of route-once: never re-route)
  */
 export function resolveWireModel(
-	selected: ModelSelection | null,
-	messages: readonly ServedMessageLike[],
+  selected: ModelSelection | null,
+  messages: readonly ServedMessageLike[],
 ): { provider: string | null | undefined; model: string | null | undefined } {
-	if (!selected) return { provider: undefined, model: undefined };
-	if (!isAutoSelection(selected)) return { provider: selected.provider, model: selected.model };
-	return autoServedFromMessages(messages) ?? { provider: null, model: null };
+  if (!selected) return { provider: undefined, model: undefined };
+  if (!isAutoSelection(selected)) return { provider: selected.provider, model: selected.model };
+  return autoServedFromMessages(messages) ?? { provider: null, model: null };
 }

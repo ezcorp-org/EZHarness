@@ -53,10 +53,7 @@ function clampToManifestReimpl(
       const sm = submitted.spawnAgents;
       const mm = manifest.spawnAgents;
       const hourly = Math.min(sm.maxPerHour, mm.maxPerHour);
-      const concurrent = Math.min(
-        sm.maxConcurrent ?? mm.maxConcurrent ?? 3,
-        mm.maxConcurrent ?? 3,
-      );
+      const concurrent = Math.min(sm.maxConcurrent ?? mm.maxConcurrent ?? 3, mm.maxConcurrent ?? 3);
       if (hourly > 0 && concurrent > 0) {
         clamped.spawnAgents = { maxPerHour: hourly, maxConcurrent: concurrent };
       }
@@ -69,9 +66,8 @@ function clampToManifestReimpl(
     if (Array.isArray(submitted.eventSubscriptions) && Array.isArray(manifest.eventSubscriptions)) {
       const manifestSet = new Set(manifest.eventSubscriptions);
       const allowed = submitted.eventSubscriptions.filter(
-        (e) => typeof e === "string"
-          && manifestSet.has(e)
-          && DIRECT_CARRIER_EVENT_TYPES.has(e as never),
+        (e) =>
+          typeof e === "string" && manifestSet.has(e) && DIRECT_CARRIER_EVENT_TYPES.has(e as never),
       );
       if (allowed.length > 0) clamped.eventSubscriptions = allowed;
     }
@@ -87,7 +83,9 @@ function clampToManifestReimpl(
 
 // ── Kill-switch env helpers ──
 let prevEnv: string | undefined;
-beforeEach(() => { prevEnv = process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"]; });
+beforeEach(() => {
+  prevEnv = process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"];
+});
 afterEach(() => {
   if (prevEnv === undefined) delete process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"];
   else process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"] = prevEnv;
@@ -116,8 +114,12 @@ describe("capability-flags — kill-switch gate", () => {
   test("CAPABILITY_PERMISSION_FIELDS lists all capability-tier fields", () => {
     expect(new Set(CAPABILITY_PERMISSION_FIELDS)).toEqual(
       new Set([
-        "taskEvents", "loopEvents", "spawnAgents", "agentConfig",
-        "eventSubscriptions", "webhooks",
+        "taskEvents",
+        "loopEvents",
+        "spawnAgents",
+        "agentConfig",
+        "eventSubscriptions",
+        "webhooks",
         // W2 — the `ezcorp/workflows` trigger grant. A capability-TOOL field
         // (discrete verb behind an install-time grant), not a §3.1
         // three-state policy override, so it belongs here and NOT in
@@ -152,26 +154,17 @@ describe("capability-flags — kill-switch gate", () => {
 
 describe("clampToManifest — capability-tier fields", () => {
   test("taskEvents: granted when both submitted AND declared", () => {
-    const out = clampToManifestReimpl(
-      { taskEvents: true },
-      { taskEvents: true },
-    );
+    const out = clampToManifestReimpl({ taskEvents: true }, { taskEvents: true });
     expect(out.taskEvents).toBe(true);
   });
 
   test("taskEvents: dropped when manifest does not declare", () => {
-    const out = clampToManifestReimpl(
-      { taskEvents: true },
-      {},
-    );
+    const out = clampToManifestReimpl({ taskEvents: true }, {});
     expect(out.taskEvents).toBeUndefined();
   });
 
   test("taskEvents: dropped when submitted is false", () => {
-    const out = clampToManifestReimpl(
-      { taskEvents: false },
-      { taskEvents: true },
-    );
+    const out = clampToManifestReimpl({ taskEvents: false }, { taskEvents: true });
     expect(out.taskEvents).toBeUndefined();
   });
 
@@ -192,10 +185,7 @@ describe("clampToManifest — capability-tier fields", () => {
   });
 
   test("spawnAgents: dropped entirely when manifest does not declare", () => {
-    const out = clampToManifestReimpl(
-      { spawnAgents: { maxPerHour: 10, maxConcurrent: 1 } },
-      {},
-    );
+    const out = clampToManifestReimpl({ spawnAgents: { maxPerHour: 10, maxConcurrent: 1 } }, {});
     expect(out.spawnAgents).toBeUndefined();
   });
 
@@ -216,28 +206,19 @@ describe("clampToManifest — capability-tier fields", () => {
   });
 
   test("agentConfig: 'read' passes through only when manifest also declares 'read'", () => {
-    const out = clampToManifestReimpl(
-      { agentConfig: "read" },
-      { agentConfig: "read" },
-    );
+    const out = clampToManifestReimpl({ agentConfig: "read" }, { agentConfig: "read" });
     expect(out.agentConfig).toBe("read");
   });
 
   test("agentConfig: unknown string rejected by type system — value that bypasses types is dropped", () => {
     // Simulates a client sending a forged value at runtime (bypassing types).
-    const out = clampToManifestReimpl(
-      { agentConfig: "write" as "read" },
-      { agentConfig: "read" },
-    );
+    const out = clampToManifestReimpl({ agentConfig: "write" as "read" }, { agentConfig: "read" });
     // "write" !== "read" — the === comparison in the clamp rejects it.
     expect(out.agentConfig).toBeUndefined();
   });
 
   test("agentConfig: dropped when manifest does not declare", () => {
-    const out = clampToManifestReimpl(
-      { agentConfig: "read" },
-      {},
-    );
+    const out = clampToManifestReimpl({ agentConfig: "read" }, {});
     expect(out.agentConfig).toBeUndefined();
   });
 
@@ -279,18 +260,12 @@ describe("clampToManifest — capability-tier fields", () => {
 
   test("eventSubscriptions: all 13 direct-carrier events survive when declared + submitted", () => {
     const all = Array.from(DIRECT_CARRIER_EVENT_TYPES).map(String);
-    const out = clampToManifestReimpl(
-      { eventSubscriptions: all },
-      { eventSubscriptions: all },
-    );
+    const out = clampToManifestReimpl({ eventSubscriptions: all }, { eventSubscriptions: all });
     expect(new Set(out.eventSubscriptions ?? [])).toEqual(new Set(all));
   });
 
   test("eventSubscriptions: dropped when manifest omits the field entirely", () => {
-    const out = clampToManifestReimpl(
-      { eventSubscriptions: ["task:snapshot"] },
-      {},
-    );
+    const out = clampToManifestReimpl({ eventSubscriptions: ["task:snapshot"] }, {});
     expect(out.eventSubscriptions).toBeUndefined();
   });
 
@@ -373,19 +348,22 @@ import type { JsonRpcRequest } from "../extensions/types";
 
 describe("Phase 2b — capability handlers refuse when grant is absent", () => {
   const emitReq: JsonRpcRequest = {
-    jsonrpc: "2.0", id: "gate",
+    jsonrpc: "2.0",
+    id: "gate",
     method: "ezcorp/emit-task-event",
     params: { v: 1, type: "snapshot", payload: { tasks: [] } },
   };
   const acReq: JsonRpcRequest = {
-    jsonrpc: "2.0", id: "gate",
+    jsonrpc: "2.0",
+    id: "gate",
     method: "ezcorp/agent-configs",
     params: { v: 1, action: "list" },
   };
 
   test("ezcorp/emit-task-event refuses without taskEvents grant (-32001)", async () => {
     const resp = await handleEmitTaskEventRpc("e1", emitReq, {
-      conversationId: "c", userId: "u",
+      conversationId: "c",
+      userId: "u",
       grantedPermissions: { grantedAt: {} } /* no taskEvents */,
       bus: undefined,
     });
@@ -417,10 +395,7 @@ describe("Phase 2c — capability fields do not cross-contaminate", () => {
   };
 
   test("granting eventSubscriptions alone does NOT grant taskEvents", () => {
-    const out = clampToManifestReimpl(
-      { eventSubscriptions: ["task:snapshot"] },
-      manifestAll,
-    );
+    const out = clampToManifestReimpl({ eventSubscriptions: ["task:snapshot"] }, manifestAll);
     expect(out.eventSubscriptions).toEqual(["task:snapshot"]);
     expect(out.taskEvents).toBeUndefined();
     expect(out.spawnAgents).toBeUndefined();

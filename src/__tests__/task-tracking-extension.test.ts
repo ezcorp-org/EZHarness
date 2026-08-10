@@ -52,7 +52,10 @@ class FakeTaskEvents {
   snapshots: Array<{ tasks: TrackedTask[]; activeTaskId?: string }> = [];
   assignmentUpdates: Array<{ taskId: string; assignment: TaskAssignment }> = [];
   async emitSnapshot(tasks: TrackedTask[], activeTaskId?: string): Promise<void> {
-    this.snapshots.push({ tasks: structuredClone(tasks), ...(activeTaskId !== undefined ? { activeTaskId } : {}) });
+    this.snapshots.push({
+      tasks: structuredClone(tasks),
+      ...(activeTaskId !== undefined ? { activeTaskId } : {}),
+    });
   }
   async emitAssignmentUpdate(taskId: string, assignment: TaskAssignment): Promise<void> {
     this.assignmentUpdates.push({ taskId, assignment: structuredClone(assignment) });
@@ -60,8 +63,13 @@ class FakeTaskEvents {
 }
 
 class FakeAgentConfigs {
-  private configs = new Map<string, { id: string; name: string; description: string; isTeam: boolean; ownerUserId: string | null }>();
-  constructor(seed: Array<{ id: string; name: string; description?: string; isTeam?: boolean }> = []) {
+  private configs = new Map<
+    string,
+    { id: string; name: string; description: string; isTeam: boolean; ownerUserId: string | null }
+  >();
+  constructor(
+    seed: Array<{ id: string; name: string; description?: string; isTeam?: boolean }> = [],
+  ) {
     for (const c of seed) {
       this.configs.set(c.id, {
         id: c.id,
@@ -117,10 +125,7 @@ function isResultText(out: unknown, re: RegExp): boolean {
 describe("task-tracking extension — task_plan", () => {
   test("creates tasks, auto-activates first, persists snapshot + emits event", async () => {
     const out = await tools.task_plan!({
-      tasks: [
-        { title: "Write code" },
-        { title: "Write tests" },
-      ],
+      tasks: [{ title: "Write code" }, { title: "Write tests" }],
     });
     expect(isResultText(out, /Created task plan with 2 tasks/)).toBe(true);
 
@@ -139,8 +144,28 @@ describe("task-tracking extension — task_plan", () => {
     fakeStorage.seed({
       schemaVersion: 1,
       tasks: [
-        { id: "x", title: "X", description: "", status: "pending", assignments: [], subtasks: [], priority: 0, createdAt: new Date().toISOString(), dependsOn: ["y"] } as TrackedTask,
-        { id: "y", title: "Y", description: "", status: "pending", assignments: [], subtasks: [], priority: 1, createdAt: new Date().toISOString(), dependsOn: ["x"] } as TrackedTask,
+        {
+          id: "x",
+          title: "X",
+          description: "",
+          status: "pending",
+          assignments: [],
+          subtasks: [],
+          priority: 0,
+          createdAt: new Date().toISOString(),
+          dependsOn: ["y"],
+        } as TrackedTask,
+        {
+          id: "y",
+          title: "Y",
+          description: "",
+          status: "pending",
+          assignments: [],
+          subtasks: [],
+          priority: 1,
+          createdAt: new Date().toISOString(),
+          dependsOn: ["x"],
+        } as TrackedTask,
       ],
     });
     const out = await tools.task_plan!({
@@ -164,9 +189,37 @@ describe("task-tracking extension — task_plan", () => {
       schemaVersion: 1,
       activeTaskId: "existing-active",
       tasks: [
-        { id: "existing-active", title: "A", description: "", status: "active", assignments: [], subtasks: [], priority: 0, createdAt: now, startedAt: now } as TrackedTask,
-        { id: "existing-p1", title: "P1", description: "", status: "pending", assignments: [], subtasks: [], priority: 1, createdAt: now } as TrackedTask,
-        { id: "existing-p2", title: "P2", description: "", status: "pending", assignments: [], subtasks: [], priority: 2, createdAt: now } as TrackedTask,
+        {
+          id: "existing-active",
+          title: "A",
+          description: "",
+          status: "active",
+          assignments: [],
+          subtasks: [],
+          priority: 0,
+          createdAt: now,
+          startedAt: now,
+        } as TrackedTask,
+        {
+          id: "existing-p1",
+          title: "P1",
+          description: "",
+          status: "pending",
+          assignments: [],
+          subtasks: [],
+          priority: 1,
+          createdAt: now,
+        } as TrackedTask,
+        {
+          id: "existing-p2",
+          title: "P2",
+          description: "",
+          status: "pending",
+          assignments: [],
+          subtasks: [],
+          priority: 2,
+          createdAt: now,
+        } as TrackedTask,
       ],
     });
 
@@ -191,9 +244,38 @@ describe("task-tracking extension — task_plan", () => {
       schemaVersion: 1,
       activeTaskId: "keep-active",
       tasks: [
-        { id: "keep-active", title: "Active", description: "", status: "active", assignments: [], subtasks: [], priority: 0, createdAt: now, startedAt: now } as TrackedTask,
-        { id: "drop-p1", title: "P1", description: "", status: "pending", assignments: [], subtasks: [], priority: 1, createdAt: now } as TrackedTask,
-        { id: "keep-done", title: "Done", description: "", status: "completed", assignments: [], subtasks: [], priority: 2, createdAt: now, completedAt: now } as TrackedTask,
+        {
+          id: "keep-active",
+          title: "Active",
+          description: "",
+          status: "active",
+          assignments: [],
+          subtasks: [],
+          priority: 0,
+          createdAt: now,
+          startedAt: now,
+        } as TrackedTask,
+        {
+          id: "drop-p1",
+          title: "P1",
+          description: "",
+          status: "pending",
+          assignments: [],
+          subtasks: [],
+          priority: 1,
+          createdAt: now,
+        } as TrackedTask,
+        {
+          id: "keep-done",
+          title: "Done",
+          description: "",
+          status: "completed",
+          assignments: [],
+          subtasks: [],
+          priority: 2,
+          createdAt: now,
+          completedAt: now,
+        } as TrackedTask,
       ],
     });
 
@@ -233,11 +315,7 @@ describe("task-tracking extension — task_plan", () => {
   test("first task skipped when blocked — nothing auto-activates if all pending are blocked", async () => {
     // All three form a chain: A→B→C. Only A can start; B and C are blocked.
     await tools.task_plan!({
-      tasks: [
-        { title: "A" },
-        { title: "B", dependsOn: ["A"] },
-        { title: "C", dependsOn: ["B"] },
-      ],
+      tasks: [{ title: "A" }, { title: "B", dependsOn: ["A"] }, { title: "C", dependsOn: ["B"] }],
     });
     const snap = fakeStorage.peek()!;
     const a = snap.tasks.find((t) => t.title === "A")!;
@@ -432,11 +510,7 @@ describe("task-tracking extension — task_complete", () => {
   test("auto-advance skips blocked pending tasks", async () => {
     // A → active first; B depends on C; C is pending.
     await tools.task_plan!({
-      tasks: [
-        { title: "A" },
-        { title: "B", dependsOn: ["C"] },
-        { title: "C" },
-      ],
+      tasks: [{ title: "A" }, { title: "B", dependsOn: ["C"] }, { title: "C" }],
     });
     const snap = fakeStorage.peek()!;
     const a = snap.tasks.find((t) => t.title === "A")!;
@@ -632,12 +706,21 @@ describe("task-tracking extension — task_unassign", () => {
 // ── commit-3 spawn integration ─────────────────────────────────────
 
 type SpawnRecord = {
-  input: { task: string; agentConfigId?: string; agentName?: string; title?: string; taskId?: string; assignmentId?: string };
+  input: {
+    task: string;
+    agentConfigId?: string;
+    agentName?: string;
+    title?: string;
+    taskId?: string;
+    assignmentId?: string;
+  };
 };
 
-function makeFakeSpawn(opts: {
-  mode?: "happy" | "quota" | "rate" | "permission" | "invalid" | "dispatch" | "unknown-rejection";
-} = {}) {
+function makeFakeSpawn(
+  opts: {
+    mode?: "happy" | "quota" | "rate" | "permission" | "invalid" | "dispatch" | "unknown-rejection";
+  } = {},
+) {
   const calls: SpawnRecord[] = [];
   const mode = opts.mode ?? "happy";
   const fn = async (input: SpawnRecord["input"]) => {
@@ -700,10 +783,7 @@ describe("task-tracking extension — task_plan with assignTo (commit-3)", () =>
     const { fn, calls } = makeFakeSpawn();
     _setSpawnForTests(fn);
     await tools.task_plan!({
-      tasks: [
-        { title: "A" },
-        { title: "B", assignTo: "builder", dependsOn: ["A"] },
-      ],
+      tasks: [{ title: "A" }, { title: "B", assignTo: "builder", dependsOn: ["A"] }],
     });
     // A is unblocked and has no assignment — no spawn. B is blocked so no spawn.
     expect(calls).toHaveLength(0);
@@ -828,7 +908,11 @@ describe("task-tracking extension — task_assign (commit-3)", () => {
     const after = fakeStorage.peek()!;
     const assignment = after.tasks[0]!.assignments[0]!;
     expect(assignment.status).toBe("running");
-    expect(fakeEvents.assignmentUpdates.some((u) => u.taskId === taskId && u.assignment.status === "running")).toBe(true);
+    expect(
+      fakeEvents.assignmentUpdates.some(
+        (u) => u.taskId === taskId && u.assignment.status === "running",
+      ),
+    ).toBe(true);
   });
 
   test("subtask assignment target", async () => {
@@ -885,14 +969,16 @@ describe("task-tracking extension — task:assignment_update subscription", () =
     const bId = snap.tasks.find((t) => t.title === "B")!.id;
 
     // Seed an assignment on A so the payload lookup matches.
-    snap.tasks.find((t) => t.id === aId)!.assignments.push({
-      id: "asn-a1",
-      agentConfigId: "agent-builder",
-      agentName: "builder",
-      isTeam: false,
-      status: "running",
-      assignedAt: new Date().toISOString(),
-    });
+    snap.tasks
+      .find((t) => t.id === aId)!
+      .assignments.push({
+        id: "asn-a1",
+        agentConfigId: "agent-builder",
+        agentName: "builder",
+        isTeam: false,
+        status: "running",
+        assignedAt: new Date().toISOString(),
+      });
     await _internals.saveSnapshot(snap);
     fakeEvents.snapshots.length = 0;
 
@@ -1274,13 +1360,15 @@ function seedTaskWithAssignments(
 
 describe("task-tracking extension — task_stop", () => {
   test("rejects when assignment status !== 'running'", async () => {
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "pending",
-        assignments: [{ id: "a1", status: "assigned" }],
-      },
-    ]));
+    fakeStorage.seed(
+      seedTaskWithAssignments([
+        {
+          taskId: "t1",
+          taskStatus: "pending",
+          assignments: [{ id: "a1", status: "assigned" }],
+        },
+      ]),
+    );
     const out = await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
     const o = out as { isError?: boolean; content: Array<{ text: string }> };
     expect(o.isError).toBe(true);
@@ -1288,18 +1376,25 @@ describe("task-tracking extension — task_stop", () => {
   });
 
   test("surfaces -32001 ownership rejection as UI-guidance toolError", async () => {
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "active",
-        assignments: [{
-          id: "a1",
-          status: "running",
-          agentRunId: "run-x",
-          startedAt: new Date().toISOString(),
-        }],
-      },
-    ], "t1"));
+    fakeStorage.seed(
+      seedTaskWithAssignments(
+        [
+          {
+            taskId: "t1",
+            taskStatus: "active",
+            assignments: [
+              {
+                id: "a1",
+                status: "running",
+                agentRunId: "run-x",
+                startedAt: new Date().toISOString(),
+              },
+            ],
+          },
+        ],
+        "t1",
+      ),
+    );
     _setCancelForTests(async () => {
       throw new JsonRpcError(-32001, "spawnAgents permission not granted");
     });
@@ -1315,17 +1410,24 @@ describe("task-tracking extension — task_stop", () => {
   });
 
   test("surfaces result.cancelled=false with reason verbatim", async () => {
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "active",
-        assignments: [{
-          id: "a1",
-          status: "running",
-          agentRunId: "run-x",
-        }],
-      },
-    ], "t1"));
+    fakeStorage.seed(
+      seedTaskWithAssignments(
+        [
+          {
+            taskId: "t1",
+            taskStatus: "active",
+            assignments: [
+              {
+                id: "a1",
+                status: "running",
+                agentRunId: "run-x",
+              },
+            ],
+          },
+        ],
+        "t1",
+      ),
+    );
     _setCancelForTests(async () => ({ cancelled: false, reason: "not-owned" }));
     const out = await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
     const o = out as { isError?: boolean; content: Array<{ text: string }> };
@@ -1334,19 +1436,26 @@ describe("task-tracking extension — task_stop", () => {
   });
 
   test("happy path resets assignment state + preserves subConversationId", async () => {
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "active",
-        assignments: [{
-          id: "a1",
-          status: "running",
-          agentRunId: "run-x",
-          startedAt: "2024-01-01T00:00:00.000Z",
-          subConversationId: "sub-preserved",
-        }],
-      },
-    ], "t1"));
+    fakeStorage.seed(
+      seedTaskWithAssignments(
+        [
+          {
+            taskId: "t1",
+            taskStatus: "active",
+            assignments: [
+              {
+                id: "a1",
+                status: "running",
+                agentRunId: "run-x",
+                startedAt: "2024-01-01T00:00:00.000Z",
+                subConversationId: "sub-preserved",
+              },
+            ],
+          },
+        ],
+        "t1",
+      ),
+    );
     _setCancelForTests(async () => ({ cancelled: true }));
 
     const out = await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
@@ -1360,22 +1469,33 @@ describe("task-tracking extension — task_stop", () => {
     // subConversationId must survive so task_resume can reuse it.
     expect(asn.subConversationId).toBe("sub-preserved");
     // Bus-side assignment_update emitted.
-    expect(fakeEvents.assignmentUpdates.some((u) => u.assignment.id === "a1" && u.assignment.status === "assigned")).toBe(true);
+    expect(
+      fakeEvents.assignmentUpdates.some(
+        (u) => u.assignment.id === "a1" && u.assignment.status === "assigned",
+      ),
+    ).toBe(true);
   });
 
   test("task falls back to pending when no other assignment is running", async () => {
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "active",
-        assignments: [{
-          id: "a1",
-          status: "running",
-          agentRunId: "run-x",
-          subConversationId: "sub-1",
-        }],
-      },
-    ], "t1"));
+    fakeStorage.seed(
+      seedTaskWithAssignments(
+        [
+          {
+            taskId: "t1",
+            taskStatus: "active",
+            assignments: [
+              {
+                id: "a1",
+                status: "running",
+                agentRunId: "run-x",
+                subConversationId: "sub-1",
+              },
+            ],
+          },
+        ],
+        "t1",
+      ),
+    );
     _setCancelForTests(async () => ({ cancelled: true }));
     await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
     const snap = fakeStorage.peek()!;
@@ -1384,26 +1504,31 @@ describe("task-tracking extension — task_stop", () => {
   });
 
   test("task stays active when another assignment is still running", async () => {
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "active",
-        assignments: [
+    fakeStorage.seed(
+      seedTaskWithAssignments(
+        [
           {
-            id: "a1",
-            status: "running",
-            agentRunId: "run-x",
-            subConversationId: "sub-1",
-          },
-          {
-            id: "a2",
-            status: "running",
-            agentRunId: "run-y",
-            subConversationId: "sub-2",
+            taskId: "t1",
+            taskStatus: "active",
+            assignments: [
+              {
+                id: "a1",
+                status: "running",
+                agentRunId: "run-x",
+                subConversationId: "sub-1",
+              },
+              {
+                id: "a2",
+                status: "running",
+                agentRunId: "run-y",
+                subConversationId: "sub-2",
+              },
+            ],
           },
         ],
-      },
-    ], "t1"));
+        "t1",
+      ),
+    );
     _setCancelForTests(async () => ({ cancelled: true }));
     await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
     const snap = fakeStorage.peek()!;
@@ -1415,13 +1540,18 @@ describe("task-tracking extension — task_stop", () => {
   test("missing agentRunId returns guidance error", async () => {
     // Impossible in practice (running always has agentRunId) but
     // the handler defends explicitly. No agentRunId field set.
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "active",
-        assignments: [{ id: "a1", status: "running" }],
-      },
-    ], "t1"));
+    fakeStorage.seed(
+      seedTaskWithAssignments(
+        [
+          {
+            taskId: "t1",
+            taskStatus: "active",
+            assignments: [{ id: "a1", status: "running" }],
+          },
+        ],
+        "t1",
+      ),
+    );
     const out = await tools.task_stop!({ taskId: "t1", assignmentId: "a1" });
     const o = out as { isError?: boolean; content: Array<{ text: string }> };
     expect(o.isError).toBe(true);
@@ -1433,18 +1563,25 @@ describe("task-tracking extension — task_stop", () => {
 
 describe("task-tracking extension — task_resume", () => {
   test("rejects when assignment status !== 'assigned'", async () => {
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "active",
-        assignments: [{
-          id: "a1",
-          status: "running",
-          agentRunId: "run-x",
-          subConversationId: "sub-1",
-        }],
-      },
-    ], "t1"));
+    fakeStorage.seed(
+      seedTaskWithAssignments(
+        [
+          {
+            taskId: "t1",
+            taskStatus: "active",
+            assignments: [
+              {
+                id: "a1",
+                status: "running",
+                agentRunId: "run-x",
+                subConversationId: "sub-1",
+              },
+            ],
+          },
+        ],
+        "t1",
+      ),
+    );
     const out = await tools.task_resume!({ taskId: "t1", assignmentId: "a1" });
     const o = out as { isError?: boolean; content: Array<{ text: string }> };
     expect(o.isError).toBe(true);
@@ -1452,14 +1589,16 @@ describe("task-tracking extension — task_resume", () => {
   });
 
   test("rejects when subConversationId is absent", async () => {
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "pending",
-        // assigned + no subConversationId — nothing to resume.
-        assignments: [{ id: "a1", status: "assigned" }],
-      },
-    ]));
+    fakeStorage.seed(
+      seedTaskWithAssignments([
+        {
+          taskId: "t1",
+          taskStatus: "pending",
+          // assigned + no subConversationId — nothing to resume.
+          assignments: [{ id: "a1", status: "assigned" }],
+        },
+      ]),
+    );
     const out = await tools.task_resume!({ taskId: "t1", assignmentId: "a1" });
     const o = out as { isError?: boolean; content: Array<{ text: string }> };
     expect(o.isError).toBe(true);
@@ -1473,11 +1612,13 @@ describe("task-tracking extension — task_resume", () => {
       {
         taskId: "t1",
         taskStatus: "pending",
-        assignments: [{
-          id: "a1",
-          status: "assigned",
-          subConversationId: "sub-1",
-        }],
+        assignments: [
+          {
+            id: "a1",
+            status: "assigned",
+            subConversationId: "sub-1",
+          },
+        ],
         dependsOn: ["t-dep"],
       },
     ]);
@@ -1493,18 +1634,22 @@ describe("task-tracking extension — task_resume", () => {
   });
 
   test("happy path: spawns with reuseSubConversationFor; transitions to running", async () => {
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "pending",
-        assignments: [{
-          id: "a1",
-          status: "assigned",
-          agentConfigId: "agent-builder",
-          subConversationId: "sub-persisted",
-        }],
-      },
-    ]));
+    fakeStorage.seed(
+      seedTaskWithAssignments([
+        {
+          taskId: "t1",
+          taskStatus: "pending",
+          assignments: [
+            {
+              id: "a1",
+              status: "assigned",
+              agentConfigId: "agent-builder",
+              subConversationId: "sub-persisted",
+            },
+          ],
+        },
+      ]),
+    );
     const { fn, calls } = makeFakeSpawn();
     _setSpawnForTests(fn);
 
@@ -1526,17 +1671,21 @@ describe("task-tracking extension — task_resume", () => {
   });
 
   test("error ladder: -32602 (invalid) records assignment failure", async () => {
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "pending",
-        assignments: [{
-          id: "a1",
-          status: "assigned",
-          subConversationId: "sub-1",
-        }],
-      },
-    ]));
+    fakeStorage.seed(
+      seedTaskWithAssignments([
+        {
+          taskId: "t1",
+          taskStatus: "pending",
+          assignments: [
+            {
+              id: "a1",
+              status: "assigned",
+              subConversationId: "sub-1",
+            },
+          ],
+        },
+      ]),
+    );
     const { fn } = makeFakeSpawn({ mode: "invalid" });
     _setSpawnForTests(fn);
 
@@ -1550,17 +1699,21 @@ describe("task-tracking extension — task_resume", () => {
   });
 
   test("error ladder: -32000 (quota) returns transient error without mutating state", async () => {
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "pending",
-        assignments: [{
-          id: "a1",
-          status: "assigned",
-          subConversationId: "sub-1",
-        }],
-      },
-    ]));
+    fakeStorage.seed(
+      seedTaskWithAssignments([
+        {
+          taskId: "t1",
+          taskStatus: "pending",
+          assignments: [
+            {
+              id: "a1",
+              status: "assigned",
+              subConversationId: "sub-1",
+            },
+          ],
+        },
+      ]),
+    );
     const { fn } = makeFakeSpawn({ mode: "quota" });
     _setSpawnForTests(fn);
 
@@ -1575,17 +1728,21 @@ describe("task-tracking extension — task_resume", () => {
   });
 
   test("task transitions to 'active' when resuming from 'pending'", async () => {
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "pending",
-        assignments: [{
-          id: "a1",
-          status: "assigned",
-          subConversationId: "sub-1",
-        }],
-      },
-    ]));
+    fakeStorage.seed(
+      seedTaskWithAssignments([
+        {
+          taskId: "t1",
+          taskStatus: "pending",
+          assignments: [
+            {
+              id: "a1",
+              status: "assigned",
+              subConversationId: "sub-1",
+            },
+          ],
+        },
+      ]),
+    );
     const { fn } = makeFakeSpawn();
     _setSpawnForTests(fn);
 
@@ -1611,18 +1768,25 @@ describe("task-tracking extension — task_complete / task_fail cancel running a
       cancelled.push(runId);
       return { cancelled: true };
     });
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "active",
-        assignments: [{
-          id: "a1",
-          status: "running",
-          agentRunId: "run-1",
-          startedAt: new Date().toISOString(),
-        }],
-      },
-    ], "t1"));
+    fakeStorage.seed(
+      seedTaskWithAssignments(
+        [
+          {
+            taskId: "t1",
+            taskStatus: "active",
+            assignments: [
+              {
+                id: "a1",
+                status: "running",
+                agentRunId: "run-1",
+                startedAt: new Date().toISOString(),
+              },
+            ],
+          },
+        ],
+        "t1",
+      ),
+    );
 
     const out = await tools.task_complete!({ taskId: "t1", summary: "done" });
     expect(isResultText(out, /Completed/)).toBe(true);
@@ -1638,18 +1802,25 @@ describe("task-tracking extension — task_complete / task_fail cancel running a
     _setCancelForTests(async () => {
       throw new JsonRpcError(-32001, "not owned");
     });
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "active",
-        assignments: [{
-          id: "a1",
-          status: "running",
-          agentRunId: "run-1",
-          startedAt: new Date().toISOString(),
-        }],
-      },
-    ], "t1"));
+    fakeStorage.seed(
+      seedTaskWithAssignments(
+        [
+          {
+            taskId: "t1",
+            taskStatus: "active",
+            assignments: [
+              {
+                id: "a1",
+                status: "running",
+                agentRunId: "run-1",
+                startedAt: new Date().toISOString(),
+              },
+            ],
+          },
+        ],
+        "t1",
+      ),
+    );
 
     const out = await tools.task_complete!({ taskId: "t1" });
     expect(isResultText(out, /Completed/)).toBe(true);
@@ -1665,9 +1836,9 @@ describe("task-tracking extension — task_complete / task_fail cancel running a
       cancelled.push(runId);
       return { cancelled: true };
     });
-    fakeStorage.seed(seedTaskWithAssignments([
-      { taskId: "t1", taskStatus: "active", assignments: [] },
-    ], "t1"));
+    fakeStorage.seed(
+      seedTaskWithAssignments([{ taskId: "t1", taskStatus: "active", assignments: [] }], "t1"),
+    );
 
     await tools.task_complete!({ taskId: "t1" });
     expect(cancelled).toEqual([]);
@@ -1680,18 +1851,25 @@ describe("task-tracking extension — task_complete / task_fail cancel running a
       cancelled.push(runId);
       return { cancelled: true };
     });
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "active",
-        assignments: [{
-          id: "a1",
-          status: "running",
-          agentRunId: "run-1",
-          startedAt: new Date().toISOString(),
-        }],
-      },
-    ], "t1"));
+    fakeStorage.seed(
+      seedTaskWithAssignments(
+        [
+          {
+            taskId: "t1",
+            taskStatus: "active",
+            assignments: [
+              {
+                id: "a1",
+                status: "running",
+                agentRunId: "run-1",
+                startedAt: new Date().toISOString(),
+              },
+            ],
+          },
+        ],
+        "t1",
+      ),
+    );
 
     const out = await tools.task_fail!({ taskId: "t1", reason: "upstream broke" });
     expect(isResultText(out, /Failed task/)).toBe(true);
@@ -1710,16 +1888,31 @@ describe("task-tracking extension — task_complete / task_fail cancel running a
       cancelled.push(runId);
       return { cancelled: true };
     });
-    fakeStorage.seed(seedTaskWithAssignments([
-      {
-        taskId: "t1",
-        taskStatus: "active",
-        assignments: [
-          { id: "a1", status: "running", agentRunId: "run-1", startedAt: new Date().toISOString() },
-          { id: "a2", status: "running", agentRunId: "run-2", startedAt: new Date().toISOString() },
+    fakeStorage.seed(
+      seedTaskWithAssignments(
+        [
+          {
+            taskId: "t1",
+            taskStatus: "active",
+            assignments: [
+              {
+                id: "a1",
+                status: "running",
+                agentRunId: "run-1",
+                startedAt: new Date().toISOString(),
+              },
+              {
+                id: "a2",
+                status: "running",
+                agentRunId: "run-2",
+                startedAt: new Date().toISOString(),
+              },
+            ],
+          },
         ],
-      },
-    ], "t1"));
+        "t1",
+      ),
+    );
 
     await tools.task_complete!({ taskId: "t1" });
     expect(cancelled.sort()).toEqual(["run-1", "run-2"]);

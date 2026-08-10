@@ -20,40 +20,44 @@ import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
 
 async function tableHasColumn(db: any, table: string, column: string): Promise<boolean> {
-	const rows = (await db.execute(sql.raw(`
+  const rows = (
+    await db.execute(
+      sql.raw(`
 		SELECT column_name FROM information_schema.columns
 		WHERE table_schema='public' AND table_name='${table}' AND column_name='${column}'
-	`))).rows as Array<{ column_name: string }>;
-	return rows.length > 0;
+	`),
+    )
+  ).rows as Array<{ column_name: string }>;
+  return rows.length > 0;
 }
 
 describe("card_layout migration", () => {
-	test("fresh PGlite DB: migrate() adds card_layout to tool_calls", async () => {
-		const pglite = new PGlite({ extensions: { vector, pg_trgm } });
-		await pglite.waitReady;
-		const db = drizzle(pglite, { schema });
-		try {
-			await migrate(db);
-			expect(await tableHasColumn(db, "tool_calls", "card_layout")).toBe(true);
-			// Sanity: the sibling card_type column from Phase 40 still exists too.
-			expect(await tableHasColumn(db, "tool_calls", "card_type")).toBe(true);
-		} finally {
-			await pglite.close();
-		}
-	});
+  test("fresh PGlite DB: migrate() adds card_layout to tool_calls", async () => {
+    const pglite = new PGlite({ extensions: { vector, pg_trgm } });
+    await pglite.waitReady;
+    const db = drizzle(pglite, { schema });
+    try {
+      await migrate(db);
+      expect(await tableHasColumn(db, "tool_calls", "card_layout")).toBe(true);
+      // Sanity: the sibling card_type column from Phase 40 still exists too.
+      expect(await tableHasColumn(db, "tool_calls", "card_type")).toBe(true);
+    } finally {
+      await pglite.close();
+    }
+  });
 
-	test("idempotent: re-running migrate() is a no-op", async () => {
-		const pglite = new PGlite({ extensions: { vector, pg_trgm } });
-		await pglite.waitReady;
-		const db = drizzle(pglite, { schema });
-		try {
-			await migrate(db);
-			// The second run must not throw — a missing IF NOT EXISTS or a
-			// PL/pgSQL DO block would explode here on PGlite.
-			await migrate(db);
-			expect(await tableHasColumn(db, "tool_calls", "card_layout")).toBe(true);
-		} finally {
-			await pglite.close();
-		}
-	});
+  test("idempotent: re-running migrate() is a no-op", async () => {
+    const pglite = new PGlite({ extensions: { vector, pg_trgm } });
+    await pglite.waitReady;
+    const db = drizzle(pglite, { schema });
+    try {
+      await migrate(db);
+      // The second run must not throw — a missing IF NOT EXISTS or a
+      // PL/pgSQL DO block would explode here on PGlite.
+      await migrate(db);
+      expect(await tableHasColumn(db, "tool_calls", "card_layout")).toBe(true);
+    } finally {
+      await pglite.close();
+    }
+  });
 });

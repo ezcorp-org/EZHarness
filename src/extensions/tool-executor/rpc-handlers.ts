@@ -19,25 +19,19 @@ import {
 } from "../spawn-assignment-handler";
 import { handleCancelRunRpc, type CancelRunContext } from "../cancel-run-handler";
 import { handleAppendMessageRpc, type AppendMessageContext } from "../append-message-handler";
-import { handleFinalizeToolCallRpc, type FinalizeToolCallContext } from "../finalize-tool-call-handler";
+import {
+  handleFinalizeToolCallRpc,
+  type FinalizeToolCallContext,
+} from "../finalize-tool-call-handler";
 import { handlePiLlmComplete as handleLlmCompleteRpc } from "../llm-handler";
 import { handlePiMemory as handleMemoryRpc } from "../memory-handler";
 import { handlePiLessons as handleLessonsRpc } from "../lessons-handler";
 import { handlePiSearch as handleSearchRpc } from "../search-handler";
 import { handlePiSchedule as handleScheduleRpc } from "../schedule-handler";
 import { handleDraftsRpc, type DraftsContext } from "../drafts-handler";
-import {
-  handleWorkflowsRpc,
-  type WorkflowsHandlerContext,
-} from "../workflows-handler";
-import {
-  handleTriggersRpc,
-  type TriggersHandlerContext,
-} from "../triggers-handler";
-import {
-  handleGithubProjectsRpc,
-  type GithubProjectsContext,
-} from "../github-projects-handler";
+import { handleWorkflowsRpc, type WorkflowsHandlerContext } from "../workflows-handler";
+import { handleTriggersRpc, type TriggersHandlerContext } from "../triggers-handler";
+import { handleGithubProjectsRpc, type GithubProjectsContext } from "../github-projects-handler";
 import { GITHUB_PROJECTS_RPC_PREFIX } from "../../integrations/github-projects/types";
 import { handleNetworkInternalRpc, type NetworkInternalContext } from "../network-handler";
 import { rpcError } from "../json-rpc";
@@ -93,9 +87,7 @@ function requireGranted(
   registry: ExtensionRegistry,
   extensionId: string,
   req: JsonRpcRequest,
-):
-  | { ok: true; granted: GrantedPermissions }
-  | { ok: false; errorResponse: JsonRpcResponse } {
+): { ok: true; granted: GrantedPermissions } | { ok: false; errorResponse: JsonRpcResponse } {
   const granted = registry.getGrantedPermissions(extensionId);
   if (!granted) {
     return {
@@ -424,10 +416,14 @@ export async function handlePiLlmComplete(
   if (!base.ok) return base.errorResponse;
   const resolved = resolveReverseRpcMeta(extensionId, req);
   if (!resolved.ok) return resolved.errorResponse;
-  return handleLlmCompleteRpc(req, {
-    granted: base.granted,
-    registeredTool: { extensionId },
-  }, resolved.rpcMeta);
+  return handleLlmCompleteRpc(
+    req,
+    {
+      granted: base.granted,
+      registeredTool: { extensionId },
+    },
+    resolved.rpcMeta,
+  );
 }
 
 /** Phase 51 — `ctx.memory.*` reverse-RPC. */
@@ -440,10 +436,14 @@ export async function handlePiMemory(
   if (!base.ok) return base.errorResponse;
   const resolved = resolveReverseRpcMeta(extensionId, req);
   if (!resolved.ok) return resolved.errorResponse;
-  return handleMemoryRpc(req, {
-    granted: base.granted,
-    registeredTool: { extensionId },
-  }, resolved.rpcMeta);
+  return handleMemoryRpc(
+    req,
+    {
+      granted: base.granted,
+      registeredTool: { extensionId },
+    },
+    resolved.rpcMeta,
+  );
 }
 
 /** Phase 51 — `ctx.lessons.*` reverse-RPC. */
@@ -456,10 +456,14 @@ export async function handlePiLessons(
   if (!base.ok) return base.errorResponse;
   const resolved = resolveReverseRpcMeta(extensionId, req);
   if (!resolved.ok) return resolved.errorResponse;
-  return handleLessonsRpc(req, {
-    granted: base.granted,
-    registeredTool: { extensionId },
-  }, resolved.rpcMeta);
+  return handleLessonsRpc(
+    req,
+    {
+      granted: base.granted,
+      registeredTool: { extensionId },
+    },
+    resolved.rpcMeta,
+  );
 }
 
 /** Phase 1 (shared-search) — `ctx.search.{web,read}` reverse-RPC. The
@@ -474,10 +478,14 @@ export async function handlePiSearch(
   if (!base.ok) return base.errorResponse;
   const resolved = resolveReverseRpcMeta(extensionId, req);
   if (!resolved.ok) return resolved.errorResponse;
-  return handleSearchRpc(req, {
-    granted: base.granted,
-    registeredTool: { extensionId },
-  }, resolved.rpcMeta);
+  return handleSearchRpc(
+    req,
+    {
+      granted: base.granted,
+      registeredTool: { extensionId },
+    },
+    resolved.rpcMeta,
+  );
 }
 
 /** Phase 51 — `ctx.schedule.*` reverse-RPC. Today only `fire-now`
@@ -491,11 +499,15 @@ export async function handlePiSchedule(
   if (!base.ok) return base.errorResponse;
   const resolved = resolveReverseRpcMeta(extensionId, req);
   if (!resolved.ok) return resolved.errorResponse;
-  return handleScheduleRpc(req, {
-    granted: base.granted,
-    registeredTool: { extensionId },
-    ...(deps.scheduleDaemon ? { daemon: deps.scheduleDaemon } : {}),
-  }, resolved.rpcMeta);
+  return handleScheduleRpc(
+    req,
+    {
+      granted: base.granted,
+      registeredTool: { extensionId },
+      ...(deps.scheduleDaemon ? { daemon: deps.scheduleDaemon } : {}),
+    },
+    resolved.rpcMeta,
+  );
 }
 
 /**
@@ -536,12 +548,7 @@ export async function handlePiDrafts(
   // conversationId) — `shouldDeliverEvent`'s userId branch enforces
   // single-user delivery (no broadcast, no cross-user leak).
   const params = (req.params ?? {}) as Record<string, unknown>;
-  if (
-    deps.bus &&
-    params.action === "install" &&
-    "result" in response &&
-    response.result
-  ) {
+  if (deps.bus && params.action === "install" && "result" in response && response.result) {
     try {
       const result = response.result as {
         ok?: unknown;
@@ -866,13 +873,12 @@ export async function handlePiAppendMessage(
     const result = response.result as { messageId?: unknown; toolCallIds?: unknown };
     if (typeof result.messageId === "string") {
       const params = (req.params ?? {}) as Record<string, unknown>;
+      // biome-ignore format: the inner ternary is kept on one line because bun's coverage emitter mis-attributes hits across a split nested ternary — the test line reports 0 while the `: null` arm below it reports 6, which is incoherent and unreachable by any test. Splitting drops the file below its 100% threshold for a purely cosmetic reason.
       const convId =
         ctx.conversationId !== "unknown"
           ? ctx.conversationId
           : (typeof params.conversationId === "string" ? params.conversationId : null);
-      const parentId = typeof params.parentMessageId === "string"
-        ? params.parentMessageId
-        : null;
+      const parentId = typeof params.parentMessageId === "string" ? params.parentMessageId : null;
       const content = typeof params.content === "string" ? params.content : "";
       if (convId) {
         deps.bus.emit("run:turn_saved", {

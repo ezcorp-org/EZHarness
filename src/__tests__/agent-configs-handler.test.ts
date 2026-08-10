@@ -58,12 +58,15 @@ function rpc(params: Record<string, unknown>, id: number | string = 1): JsonRpcR
 }
 
 async function insertUser(id: string): Promise<void> {
-  await getDb().insert(users).values({
-    id,
-    email: `${id}@test.local`,
-    passwordHash: "x",
-    name: id,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values({
+      id,
+      email: `${id}@test.local`,
+      passwordHash: "x",
+      name: id,
+    } as any)
+    .onConflictDoNothing();
 }
 
 interface AgentSeed {
@@ -79,15 +82,17 @@ async function insertAgentConfig(seed: AgentSeed): Promise<string> {
   const references = seed.isTeam
     ? { agents: [], extensions: [], members: [{ agentConfigId: "x", subAgents: [] }] }
     : { agents: [], extensions: [] };
-  await getDb().insert(agentConfigs).values({
-    id,
-    name: seed.name,
-    description: seed.description ?? "",
-    prompt: "placeholder",
-    capabilities: ["llm"],
-    references,
-    userId: seed.userId,
-  } as any);
+  await getDb()
+    .insert(agentConfigs)
+    .values({
+      id,
+      name: seed.name,
+      description: seed.description ?? "",
+      prompt: "placeholder",
+      capabilities: ["llm"],
+      references,
+      userId: seed.userId,
+    } as any);
   return id;
 }
 
@@ -145,11 +150,7 @@ describe("agent-configs-handler — permission + kill-switch", () => {
 
   test("EZCORP_DISABLE_CAPABILITY_TOOLS=1 → -32001 even with permission", async () => {
     process.env["EZCORP_DISABLE_CAPABILITY_TOOLS"] = "1";
-    const resp = await handleAgentConfigsRpc(
-      EXT_ID,
-      rpc({ v: 1, action: "list" }),
-      makeCtx(),
-    );
+    const resp = await handleAgentConfigsRpc(EXT_ID, rpc({ v: 1, action: "list" }), makeCtx());
     expect(resp.error?.code).toBe(-32001);
   });
 });
@@ -181,40 +182,24 @@ describe("agent-configs-handler — user scope", () => {
 
 describe("agent-configs-handler — payload validation", () => {
   test("missing v field → -32602", async () => {
-    const resp = await handleAgentConfigsRpc(
-      EXT_ID,
-      rpc({ action: "list" }),
-      makeCtx(),
-    );
+    const resp = await handleAgentConfigsRpc(EXT_ID, rpc({ action: "list" }), makeCtx());
     expect(resp.error?.code).toBe(-32602);
     expect(resp.error?.message).toMatch(/v/);
   });
 
   test("v !== 1 → -32602", async () => {
-    const resp = await handleAgentConfigsRpc(
-      EXT_ID,
-      rpc({ v: 2, action: "list" }),
-      makeCtx(),
-    );
+    const resp = await handleAgentConfigsRpc(EXT_ID, rpc({ v: 2, action: "list" }), makeCtx());
     expect(resp.error?.code).toBe(-32602);
   });
 
   test("unknown action → -32602", async () => {
-    const resp = await handleAgentConfigsRpc(
-      EXT_ID,
-      rpc({ v: 1, action: "delete" }),
-      makeCtx(),
-    );
+    const resp = await handleAgentConfigsRpc(EXT_ID, rpc({ v: 1, action: "delete" }), makeCtx());
     expect(resp.error?.code).toBe(-32602);
     expect(resp.error?.message).toMatch(/Unknown action/);
   });
 
   test("resolve with missing idOrName → -32602", async () => {
-    const resp = await handleAgentConfigsRpc(
-      EXT_ID,
-      rpc({ v: 1, action: "resolve" }),
-      makeCtx(),
-    );
+    const resp = await handleAgentConfigsRpc(EXT_ID, rpc({ v: 1, action: "resolve" }), makeCtx());
     expect(resp.error?.code).toBe(-32602);
     expect(resp.error?.message).toMatch(/idOrName/);
   });
@@ -274,7 +259,9 @@ describe("agent-configs-handler — list", () => {
       rpc({ v: 1, action: "list" }),
       makeCtx({ userId: "user-alice" }),
     );
-    const { configs } = resp.result as { configs: Array<{ id: string; name: string; isTeam: boolean }> };
+    const { configs } = resp.result as {
+      configs: Array<{ id: string; name: string; isTeam: boolean }>;
+    };
     const crew = configs.find((c) => c.name === "alice-crew");
     expect(crew?.isTeam).toBe(true);
   });
@@ -283,15 +270,17 @@ describe("agent-configs-handler — list", () => {
     // Seed a config with references=null (direct DB insert bypassing the
     // normal constructor that fills `{agents: [], extensions: []}`).
     const nullRefsId = crypto.randomUUID();
-    await getDb().insert(agentConfigs).values({
-      id: nullRefsId,
-      name: "alice-null-refs",
-      description: "null refs fixture",
-      prompt: "x",
-      capabilities: ["llm"],
-      references: null,
-      userId: "user-alice",
-    } as any);
+    await getDb()
+      .insert(agentConfigs)
+      .values({
+        id: nullRefsId,
+        name: "alice-null-refs",
+        description: "null refs fixture",
+        prompt: "x",
+        capabilities: ["llm"],
+        references: null,
+        userId: "user-alice",
+      } as any);
     const resp = await handleAgentConfigsRpc(
       EXT_ID,
       rpc({ v: 1, action: "list" }),
@@ -304,15 +293,17 @@ describe("agent-configs-handler — list", () => {
 
   test("ownerUserId=null when the row has no user_id (legacy/orphan config)", async () => {
     const orphanId = crypto.randomUUID();
-    await getDb().insert(agentConfigs).values({
-      id: orphanId,
-      name: "orphan-public",
-      description: "no owner",
-      prompt: "x",
-      capabilities: ["llm"],
-      references: { agents: [], extensions: [] },
-      userId: null,
-    } as any);
+    await getDb()
+      .insert(agentConfigs)
+      .values({
+        id: orphanId,
+        name: "orphan-public",
+        description: "no owner",
+        prompt: "x",
+        capabilities: ["llm"],
+        references: { agents: [], extensions: [] },
+        userId: null,
+      } as any);
     // Orphan rows only show up in a global list (no userId filter) —
     // the handler is user-scoped so this row won't leak to alice.
     // To assert `ownerUserId:null` on the return shape we call with a
@@ -327,7 +318,9 @@ describe("agent-configs-handler — list", () => {
       rpc({ v: 1, action: "list" }),
       makeCtx({ userId: "user-alice" }),
     );
-    const { configs } = resp.result as { configs: Array<{ name: string; ownerUserId: string | null }> };
+    const { configs } = resp.result as {
+      configs: Array<{ name: string; ownerUserId: string | null }>;
+    };
     expect(configs.find((c) => c.name === "orphan-public")).toBeUndefined();
   });
 

@@ -27,13 +27,7 @@ import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const SPAWN_C_PATH = resolve(
-  import.meta.dir,
-  "..",
-  "..",
-  "build",
-  "preview-spawn.c",
-);
+const SPAWN_C_PATH = resolve(import.meta.dir, "..", "..", "build", "preview-spawn.c");
 
 function loadSource(): string {
   return readFileSync(SPAWN_C_PATH, "utf8");

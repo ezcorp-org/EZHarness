@@ -74,11 +74,21 @@ describe.skipIf(skip)("mcp-launcher.sh — EZCORP_MCP_FS_JAIL strict branch", ()
   test("execs bwrap with the host-built argv VERBATIM", async () => {
     const jailArgv = [
       "--die-with-parent",
-      "--ro-bind", "/usr", "/usr",
-      "--bind", "/work", "/work",
-      "--tmpfs", "/tmp",
-      "--seccomp", "3",
-      "--", "prlimit", "--rss=1", "echo", "hi",
+      "--ro-bind",
+      "/usr",
+      "/usr",
+      "--bind",
+      "/work",
+      "/work",
+      "--tmpfs",
+      "/tmp",
+      "--seccomp",
+      "3",
+      "--",
+      "prlimit",
+      "--rss=1",
+      "echo",
+      "hi",
     ];
     const r = await runLauncher({ EZCORP_MCP_FS_JAIL: "1" }, jailArgv);
     expect(r.exitCode).toBe(0);
@@ -98,15 +108,26 @@ describe.skipIf(skip)("mcp-launcher.sh — default bwrap branch", () => {
     );
     expect(r.exitCode).toBe(0);
     expect(r.argv).toEqual([
-      "--proc", "/proc",
-      "--dev", "/dev",
-      "--bind", "/", "/",
-      "--size", "1048576",
-      "--tmpfs", "/srv/proj/.ezcorp/data",
-      "--size", "67108864",
-      "--tmpfs", "/tmp",
-      "--seccomp", "3",
-      "--", "mycmd", "a1",
+      "--proc",
+      "/proc",
+      "--dev",
+      "/dev",
+      "--bind",
+      "/",
+      "/",
+      "--size",
+      "1048576",
+      "--tmpfs",
+      "/srv/proj/.ezcorp/data",
+      "--size",
+      "67108864",
+      "--tmpfs",
+      "/tmp",
+      "--seccomp",
+      "3",
+      "--",
+      "mycmd",
+      "a1",
     ]);
   });
 
@@ -121,18 +142,29 @@ describe.skipIf(skip)("mcp-launcher.sh — default bwrap branch", () => {
     );
     expect(r.exitCode).toBe(0);
     expect(r.argv).toEqual([
-      "--proc", "/proc",
-      "--dev", "/dev",
-      "--bind", "/", "/",
+      "--proc",
+      "/proc",
+      "--dev",
+      "/dev",
+      "--bind",
+      "/",
+      "/",
       // Masks are prepended in loop order, so the last-listed dir ends up
       // first; both are mounted AFTER the root bind so they shadow it.
-      "--size", "1048576",
-      "--tmpfs", "/srv/proj/.ezcorp/data",
-      "--size", "1048576",
-      "--tmpfs", "/app/data",
-      "--size", "67108864",
-      "--tmpfs", "/tmp",
-      "--", "mycmd",
+      "--size",
+      "1048576",
+      "--tmpfs",
+      "/srv/proj/.ezcorp/data",
+      "--size",
+      "1048576",
+      "--tmpfs",
+      "/app/data",
+      "--size",
+      "67108864",
+      "--tmpfs",
+      "/tmp",
+      "--",
+      "mycmd",
     ]);
     // Every masked dir lands on a tmpfs after the root bind — no host
     // path under either dir is reachable.
@@ -146,12 +178,20 @@ describe.skipIf(skip)("mcp-launcher.sh — default bwrap branch", () => {
     const r = await runLauncher({ EZCORP_MCP_BWRAP_ENABLED: "1" }, ["mycmd", "a1"]);
     expect(r.exitCode).toBe(0);
     expect(r.argv).toEqual([
-      "--proc", "/proc",
-      "--dev", "/dev",
-      "--bind", "/", "/",
-      "--size", "67108864",
-      "--tmpfs", "/tmp",
-      "--", "mycmd", "a1",
+      "--proc",
+      "/proc",
+      "--dev",
+      "/dev",
+      "--bind",
+      "/",
+      "/",
+      "--size",
+      "67108864",
+      "--tmpfs",
+      "/tmp",
+      "--",
+      "mycmd",
+      "a1",
     ]);
   });
 
@@ -162,23 +202,33 @@ describe.skipIf(skip)("mcp-launcher.sh — default bwrap branch", () => {
     );
     expect(r.exitCode).toBe(0);
     expect(r.argv).toEqual([
-      "--proc", "/proc",
-      "--dev", "/dev",
-      "--bind", "/", "/",
-      "--size", "67108864",
-      "--tmpfs", "/tmp",
-      "--seccomp", "3",
-      "--", "mycmd", "a1",
+      "--proc",
+      "/proc",
+      "--dev",
+      "/dev",
+      "--bind",
+      "/",
+      "/",
+      "--size",
+      "67108864",
+      "--tmpfs",
+      "/tmp",
+      "--seccomp",
+      "3",
+      "--",
+      "mycmd",
+      "a1",
     ]);
   });
 });
 
 describe.skipIf(skip)("mcp-launcher.sh — raw-exec fallback", () => {
   test("EZCORP_MCP_REQUIRE_SANDBOX=1 without a bwrap branch → exit 94, command never runs", async () => {
-    const r = await runLauncher(
-      { EZCORP_MCP_REQUIRE_SANDBOX: "1" },
-      ["sh", "-c", "echo SHOULD_NOT_RUN"],
-    );
+    const r = await runLauncher({ EZCORP_MCP_REQUIRE_SANDBOX: "1" }, [
+      "sh",
+      "-c",
+      "echo SHOULD_NOT_RUN",
+    ]);
     expect(r.exitCode).toBe(94);
     expect(r.stdout).not.toContain("SHOULD_NOT_RUN");
     expect(r.stderr).toContain("refusing raw exec");

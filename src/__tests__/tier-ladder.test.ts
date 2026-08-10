@@ -81,9 +81,7 @@ describe("T1 — validateTierLadder (the WRITE-time gate)", () => {
       "claude-haiku-4-5",
       "gemini-2.0-flash",
     ]);
-    expect(result.ladder.balanced).toEqual([
-      { provider: "anthropic", model: "claude-sonnet-4-5" },
-    ]);
+    expect(result.ladder.balanced).toEqual([{ provider: "anthropic", model: "claude-sonnet-4-5" }]);
     expect(result.ladder.powerful).toHaveLength(1);
   });
 
@@ -104,7 +102,9 @@ describe("T1 — validateTierLadder (the WRITE-time gate)", () => {
   });
 
   test("provider/model strings are trimmed so the stored row is canonical", () => {
-    const result = validateTierLadder({ fast: [{ provider: "  openai ", model: " gpt-4o-mini " }] });
+    const result = validateTierLadder({
+      fast: [{ provider: "  openai ", model: " gpt-4o-mini " }],
+    });
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("expected ok");
     expect(result.ladder.fast[0]).toEqual({ provider: "openai", model: "gpt-4o-mini" });
@@ -118,10 +118,26 @@ describe("T1 — validateTierLadder (the WRITE-time gate)", () => {
     ["a non-array rung", { fast: { provider: "openai" } }, 'tier "fast" must be an array'],
     ["a non-object entry", { fast: ["openai/gpt-4o"] }, "fast[0] must be an object"],
     ["a missing provider", { fast: [{ model: "gpt-4o" }] }, 'fast[0] needs a non-empty "provider"'],
-    ["a blank provider", { fast: [{ provider: "   ", model: "gpt-4o" }] }, 'needs a non-empty "provider"'],
-    ["a missing model", { balanced: [{ provider: "openai" }] }, 'balanced[0] needs a non-empty "model"'],
-    ["a non-string model", { balanced: [{ provider: "openai", model: 7 }] }, 'needs a non-empty "model"'],
-    ["an unknown entry field", { fast: [{ provider: "openai", model: "gpt-4o", tier: "fast" }] }, 'unknown field "tier"'],
+    [
+      "a blank provider",
+      { fast: [{ provider: "   ", model: "gpt-4o" }] },
+      'needs a non-empty "provider"',
+    ],
+    [
+      "a missing model",
+      { balanced: [{ provider: "openai" }] },
+      'balanced[0] needs a non-empty "model"',
+    ],
+    [
+      "a non-string model",
+      { balanced: [{ provider: "openai", model: 7 }] },
+      'needs a non-empty "model"',
+    ],
+    [
+      "an unknown entry field",
+      { fast: [{ provider: "openai", model: "gpt-4o", tier: "fast" }] },
+      'unknown field "tier"',
+    ],
   ])("rejects %s", (_label, value, expectedError) => {
     const result = validateTierLadder(value);
     expect(result.ok).toBe(false);
@@ -204,8 +220,9 @@ describe("T1 — resolveLadderEntry truth table", () => {
 
   test("returns the AVAILABLE member itself, so the caller needs no second lookup", () => {
     const rich = [{ id: "b", extra: "kept" }];
-    expect(resolveLadderEntry(ladder({ fast: [{ provider: "p", model: "b" }] }), "fast", "p", rich))
-      .toBe(rich[0]);
+    expect(
+      resolveLadderEntry(ladder({ fast: [{ provider: "p", model: "b" }] }), "fast", "p", rich),
+    ).toBe(rich[0]);
   });
 
   test("is tier-scoped — a balanced rung never answers a fast lookup", () => {
@@ -217,15 +234,19 @@ describe("T1 — resolveLadderEntry truth table", () => {
   test.each([
     ["an unset ladder", undefined],
     ["an empty ladder", emptyTierLadder()],
-    ["a ladder naming only unavailable models", ladder({ fast: [{ provider: "p", model: "zzz" }] })],
+    [
+      "a ladder naming only unavailable models",
+      ladder({ fast: [{ provider: "p", model: "zzz" }] }),
+    ],
     ["a ladder naming only other providers", ladder({ fast: [{ provider: "q", model: "a" }] })],
   ])("%s yields undefined (caller falls through)", (_label, l) => {
     expect(resolveLadderEntry(l, "fast", "p", available)).toBeUndefined();
   });
 
   test("no available models at all yields undefined", () => {
-    expect(resolveLadderEntry(ladder({ fast: [{ provider: "p", model: "a" }] }), "fast", "p", []))
-      .toBeUndefined();
+    expect(
+      resolveLadderEntry(ladder({ fast: [{ provider: "p", model: "a" }] }), "fast", "p", []),
+    ).toBeUndefined();
   });
 });
 

@@ -111,7 +111,9 @@ describe("seedSelfProject", () => {
 
   test("a deleted guidance prompt is never re-seeded", async () => {
     await seedSelfProject(db, { EZCORP_SELF_PROJECT_PATH: repoDir });
-    await db.execute(sql`DELETE FROM settings WHERE key = ${`project:${SELF_PROJECT_ID}:systemPrompt`}`);
+    await db.execute(
+      sql`DELETE FROM settings WHERE key = ${`project:${SELF_PROJECT_ID}:systemPrompt`}`,
+    );
     // Same path (full no-op) and changed path (UPDATE branch) both leave it deleted.
     await seedSelfProject(db, { EZCORP_SELF_PROJECT_PATH: repoDir });
     await seedSelfProject(db, { EZCORP_SELF_PROJECT_PATH: movedDir });

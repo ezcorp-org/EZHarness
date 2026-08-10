@@ -23,9 +23,10 @@ export async function createTestExtension(
   opts?: TestExtensionOptions,
 ): Promise<ExtensionProcess> {
   // Support both directory path and legacy manifest.json path
-  const extDir = extDirOrManifestPath.endsWith(".json") || extDirOrManifestPath.endsWith(".ts")
-    ? extDirOrManifestPath.replace(/\/[^/]+$/, "")
-    : extDirOrManifestPath;
+  const extDir =
+    extDirOrManifestPath.endsWith(".json") || extDirOrManifestPath.endsWith(".ts")
+      ? extDirOrManifestPath.replace(/\/[^/]+$/, "")
+      : extDirOrManifestPath;
 
   const configFile = Bun.file(join(extDir, "ezcorp.config.ts"));
   if (!(await configFile.exists())) {
@@ -86,17 +87,15 @@ export function assertToolResult(
   if (expected.isError !== undefined && result.isError !== expected.isError) {
     throw new Error(
       `Expected isError=${expected.isError}, got isError=${result.isError}. ` +
-      `Content: ${result.content.map(c => (c as { text?: string }).text).join(", ")}`,
+        `Content: ${result.content.map((c) => (c as { text?: string }).text).join(", ")}`,
     );
   }
 
   if (expected.text !== undefined) {
-    const texts = result.content.map(c => (c as { text?: string }).text ?? "");
-    const found = texts.some(t => t.includes(expected.text!));
+    const texts = result.content.map((c) => (c as { text?: string }).text ?? "");
+    const found = texts.some((t) => t.includes(expected.text!));
     if (!found) {
-      throw new Error(
-        `Expected content to include "${expected.text}", got: ${texts.join(", ")}`,
-      );
+      throw new Error(`Expected content to include "${expected.text}", got: ${texts.join(", ")}`);
     }
   }
 }

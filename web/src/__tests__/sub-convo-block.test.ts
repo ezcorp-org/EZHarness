@@ -1,4 +1,4 @@
-import { test, expect, describe, } from "bun:test";
+import { test, expect, describe } from "bun:test";
 import { agentColor } from "../lib/agent-color";
 
 // Test the SubConversationBlock logic without Svelte runtime
@@ -98,7 +98,9 @@ describe("Sub-Conversation Block (SUBC-02)", () => {
   test("shows return to main button when active", () => {
     // Return button calls onreturn callback
     let returned = false;
-    const onreturn = () => { returned = true; };
+    const onreturn = () => {
+      returned = true;
+    };
     onreturn();
     expect(returned).toBe(true);
   });

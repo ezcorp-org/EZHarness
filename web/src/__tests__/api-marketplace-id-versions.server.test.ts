@@ -10,17 +10,10 @@ vi.mock("$server/db/queries/marketplace-versions", () => ({
   listVersions: vi.fn(),
 }));
 
-const { listVersions } = await import(
-  "$server/db/queries/marketplace-versions"
-);
-const { GET } = await import(
-  "../routes/api/marketplace/[id]/versions/+server.ts"
-);
+const { listVersions } = await import("$server/db/queries/marketplace-versions");
+const { GET } = await import("../routes/api/marketplace/[id]/versions/+server.ts");
 
-function makeEvent(opts: {
-  id?: string;
-  locals?: Record<string, unknown>;
-}) {
+function makeEvent(opts: { id?: string; locals?: Record<string, unknown> }) {
   const id = opts.id ?? "listing-1";
   return {
     url: new URL(`http://localhost/api/marketplace/${id}/versions`),
@@ -50,9 +43,7 @@ describe("GET /api/marketplace/[id]/versions", () => {
   });
 
   test("API-key scope check returns 403 when scope missing", async () => {
-    const res = await GET(
-      makeEvent({ locals: { user, apiKeyScopes: ["admin"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { user, apiKeyScopes: ["admin"] } }));
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error?: string; required?: string };
     expect(body.error).toBe("Insufficient scope");
@@ -60,9 +51,7 @@ describe("GET /api/marketplace/[id]/versions", () => {
   });
 
   test("happy path: returns versions list", async () => {
-    vi.mocked(listVersions).mockResolvedValue([
-      { id: "v1", version: "1.0.0" },
-    ] as any);
+    vi.mocked(listVersions).mockResolvedValue([{ id: "v1", version: "1.0.0" }] as any);
     const res = await GET(makeEvent({ locals: { user } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ version: string }>;

@@ -1,9 +1,9 @@
 import type { Message } from "$lib/api.js";
 import {
-	patchAssistantContentFromStream,
-	snapshotToMaps,
-	clearSnapshot,
-	type StreamSnapshot,
+  patchAssistantContentFromStream,
+  snapshotToMaps,
+  clearSnapshot,
+  type StreamSnapshot,
 } from "./reconcile-stream.js";
 
 /**
@@ -12,16 +12,16 @@ import {
  * and tests can pass plain mutable refs without standing up runes.
  */
 export interface ReconcileHost {
-	convId: () => string;
-	activeRunId: { get: () => string | null; set: (v: string | null) => void };
-	activeRunStartedAt: { set: (v: number | null) => void };
-	serverStalenessMs: { set: (v: number | null) => void };
-	allMessages: { get: () => Message[]; set: (v: Message[]) => void };
-	activeLeafId: { get: () => string | null; set: (v: string | null) => void };
-	streamedSnapshot: { get: () => StreamSnapshot; set: (v: StreamSnapshot) => void };
-	fetchAllMessages: (convId: string) => Promise<Message[]>;
-	computeLatestLeaf: (messages: Message[]) => string | null;
-	hydrateToolCallsFromApi: () => Promise<void>;
+  convId: () => string;
+  activeRunId: { get: () => string | null; set: (v: string | null) => void };
+  activeRunStartedAt: { set: (v: number | null) => void };
+  serverStalenessMs: { set: (v: number | null) => void };
+  allMessages: { get: () => Message[]; set: (v: Message[]) => void };
+  activeLeafId: { get: () => string | null; set: (v: string | null) => void };
+  streamedSnapshot: { get: () => StreamSnapshot; set: (v: StreamSnapshot) => void };
+  fetchAllMessages: (convId: string) => Promise<Message[]>;
+  computeLatestLeaf: (messages: Message[]) => string | null;
+  hydrateToolCallsFromApi: () => Promise<void>;
 }
 
 /**
@@ -32,32 +32,32 @@ export interface ReconcileHost {
  * the way out.
  */
 export async function runReconcileAfterStream(host: ReconcileHost): Promise<void> {
-	const runId = host.activeRunId.get();
-	host.activeRunId.set(null);
-	host.activeRunStartedAt.set(null);
-	host.serverStalenessMs.set(null);
+  const runId = host.activeRunId.get();
+  host.activeRunId.set(null);
+  host.activeRunStartedAt.set(null);
+  host.serverStalenessMs.set(null);
 
-	const { contentMap, thinkingMap } = snapshotToMaps(host.streamedSnapshot.get(), runId);
+  const { contentMap, thinkingMap } = snapshotToMaps(host.streamedSnapshot.get(), runId);
 
-	try {
-		const freshMessages = await host.fetchAllMessages(host.convId());
-		host.allMessages.set(
-			patchAssistantContentFromStream(freshMessages, runId, contentMap, thinkingMap),
-		);
-		const leaf = host.activeLeafId.get();
-		if (leaf) {
-			if (!freshMessages.find((m) => m.id === leaf)) {
-				host.activeLeafId.set(host.computeLatestLeaf(freshMessages));
-			}
-		} else {
-			host.activeLeafId.set(host.computeLatestLeaf(freshMessages));
-		}
-		await host.hydrateToolCallsFromApi();
-	} catch {
-		host.allMessages.set(
-			patchAssistantContentFromStream(host.allMessages.get(), runId, contentMap, thinkingMap),
-		);
-	} finally {
-		host.streamedSnapshot.set(clearSnapshot(host.streamedSnapshot.get(), runId));
-	}
+  try {
+    const freshMessages = await host.fetchAllMessages(host.convId());
+    host.allMessages.set(
+      patchAssistantContentFromStream(freshMessages, runId, contentMap, thinkingMap),
+    );
+    const leaf = host.activeLeafId.get();
+    if (leaf) {
+      if (!freshMessages.find((m) => m.id === leaf)) {
+        host.activeLeafId.set(host.computeLatestLeaf(freshMessages));
+      }
+    } else {
+      host.activeLeafId.set(host.computeLatestLeaf(freshMessages));
+    }
+    await host.hydrateToolCallsFromApi();
+  } catch {
+    host.allMessages.set(
+      patchAssistantContentFromStream(host.allMessages.get(), runId, contentMap, thinkingMap),
+    );
+  } finally {
+    host.streamedSnapshot.set(clearSnapshot(host.streamedSnapshot.get(), runId));
+  }
 }

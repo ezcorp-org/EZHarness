@@ -89,9 +89,7 @@ function hostPortOf(entry: string): number | null {
 }
 
 function hostPortsOf(service: Service): number[] {
-  return (service.ports ?? [])
-    .map(hostPortOf)
-    .filter((port): port is number => port !== null);
+  return (service.ports ?? []).map(hostPortOf).filter((port): port is number => port !== null);
 }
 
 function profilesOf(service: Service): string[] {
@@ -155,9 +153,7 @@ describe("a sidecar that can lose its port bind is never in the default `up`", (
     for (const name of ["postgres", "app", "searxng"]) {
       const service = dev[name];
       expect(service, `${DEV}: service '${name}' is missing`).toBeDefined();
-      expect(profilesOf(service!), `${DEV}: core service '${name}' is profile-gated`).toEqual(
-        [],
-      );
+      expect(profilesOf(service!), `${DEV}: core service '${name}' is profile-gated`).toEqual([]);
     }
   });
 });

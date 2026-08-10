@@ -69,10 +69,7 @@ const apiKeysMock = () => ({
   requireScope: () => null,
 });
 mock.module("$lib/server/security/api-keys", apiKeysMock);
-mock.module(
-  "../../../web/src/lib/server/security/api-keys",
-  apiKeysMock,
-);
+mock.module("../../../web/src/lib/server/security/api-keys", apiKeysMock);
 
 // Auth middleware: requireAuth returns whatever we put into locals.user.
 // Mock BOTH the $server alias AND the resolved relative path per the
@@ -137,10 +134,7 @@ import { GET as taskMessagesGet } from "../../../web/src/routes/api/conversation
 import { GET as teamMessagesGet } from "../../../web/src/routes/api/conversations/[id]/team/[agentConfigId]/messages/+server";
 
 // SvelteKit handlers can throw a Response on auth failure; unwrap.
-async function call(
-  handler: (ev: any) => unknown,
-  event: any,
-): Promise<Response> {
+async function call(handler: (ev: any) => unknown, event: any): Promise<Response> {
   try {
     return (await handler(event)) as Response;
   } catch (e) {
@@ -163,7 +157,12 @@ beforeEach(() => {
     // Conversation with null userId — the exploited branch
     [
       "conv-null-owner",
-      { id: "conv-null-owner", userId: null, title: "Unowned (legacy) conversation", projectId: null },
+      {
+        id: "conv-null-owner",
+        userId: null,
+        title: "Unowned (legacy) conversation",
+        projectId: null,
+      },
     ],
   ]);
 });

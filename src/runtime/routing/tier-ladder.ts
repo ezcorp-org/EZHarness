@@ -117,9 +117,7 @@ export function emptyTierLadder(): TierLadder {
 
 /** {@link validateTierLadder}'s result: the normalized ladder, or the reason
  *  the value is not one. */
-export type TierLadderValidation =
-  | { ok: true; ladder: TierLadder }
-  | { ok: false; error: string };
+export type TierLadderValidation = { ok: true; ladder: TierLadder } | { ok: false; error: string };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

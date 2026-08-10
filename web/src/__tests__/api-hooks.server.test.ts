@@ -20,7 +20,9 @@ interface DeliveryInput {
 
 const getEnabledWebhook = vi.fn<(ext: string, slug: string) => Promise<unknown>>();
 const insertDelivery = vi.fn<(input: DeliveryInput) => Promise<string>>(async () => "del-1");
-const countDeliveriesSince = vi.fn<(ext: string, slug: string, since: Date) => Promise<number>>(async () => 0);
+const countDeliveriesSince = vi.fn<(ext: string, slug: string, since: Date) => Promise<number>>(
+  async () => 0,
+);
 vi.mock("$server/extensions/webhook-store", () => ({
   getEnabledWebhook,
   insertDelivery,
@@ -31,8 +33,14 @@ vi.mock("$server/extensions/webhook-store", () => ({
 const getWebhookSecret = vi.fn<(ext: string, slug: string) => Promise<string | null>>();
 vi.mock("$server/extensions/webhook-secret", () => ({ getWebhookSecret }));
 
-const insertAuditEntry =
-  vi.fn<(userId: string | null, action: string, target: string, metadata: Record<string, unknown>) => Promise<string>>(async () => "audit-1");
+const insertAuditEntry = vi.fn<
+  (
+    userId: string | null,
+    action: string,
+    target: string,
+    metadata: Record<string, unknown>,
+  ) => Promise<string>
+>(async () => "audit-1");
 vi.mock("$server/db/queries/audit-log", () => ({ insertAuditEntry }));
 
 const getSetting = vi.fn<(key: string) => Promise<unknown>>(async () => undefined);
@@ -105,14 +113,18 @@ async function auditReasons(): Promise<string[]> {
 
 describe("accept path", () => {
   test("valid Bearer → 202, delivery persisted, accepted audit (no secret/payload)", async () => {
-    const res: Response = await POST(makeEvent({
-      headers: { authorization: `Bearer ${SECRET}`, "content-type": "application/json" },
-      body: '{"payload":"PAYLOAD_SENTINEL_9times"}',
-    }));
+    const res: Response = await POST(
+      makeEvent({
+        headers: { authorization: `Bearer ${SECRET}`, "content-type": "application/json" },
+        body: '{"payload":"PAYLOAD_SENTINEL_9times"}',
+      }),
+    );
     expect(res.status).toBe(202);
     expect(await res.json()).toEqual({ accepted: true, deliveryId: "del-1" });
     expect(insertDelivery).toHaveBeenCalledTimes(1);
-    const accepted = insertAuditEntry.mock.calls.find((c) => c[1] === EXT_AUDIT_ACTIONS.SDK_WEBHOOK_ACCEPTED);
+    const accepted = insertAuditEntry.mock.calls.find(
+      (c) => c[1] === EXT_AUDIT_ACTIONS.SDK_WEBHOOK_ACCEPTED,
+    );
     expect(accepted?.[3]).toEqual({ slug: "tickets", deliveryId: "del-1", auth: "bearer" });
     // Neither the secret nor the payload content appears in any audit metadata.
     const allMeta = JSON.stringify(insertAuditEntry.mock.calls.map((c) => c[3]));
@@ -124,20 +136,29 @@ describe("accept path", () => {
 
   test("valid HMAC (X-Hub-Signature-256) → 202", async () => {
     const body = '{"ticket":2}';
-    const res: Response = await POST(makeEvent({
-      headers: { "x-hub-signature-256": webhookSignature(SECRET, body), "content-type": "application/json" },
-      body,
-    }));
+    const res: Response = await POST(
+      makeEvent({
+        headers: {
+          "x-hub-signature-256": webhookSignature(SECRET, body),
+          "content-type": "application/json",
+        },
+        body,
+      }),
+    );
     expect(res.status).toBe(202);
-    const accepted = insertAuditEntry.mock.calls.find((c) => c[1] === EXT_AUDIT_ACTIONS.SDK_WEBHOOK_ACCEPTED);
+    const accepted = insertAuditEntry.mock.calls.find(
+      (c) => c[1] === EXT_AUDIT_ACTIONS.SDK_WEBHOOK_ACCEPTED,
+    );
     expect(accepted?.[3]).toMatchObject({ auth: "hmac" });
   });
 
   test("malformed JSON is accepted verbatim (raw body persisted, route never parses)", async () => {
-    const res: Response = await POST(makeEvent({
-      headers: { authorization: `Bearer ${SECRET}`, "content-type": "application/json" },
-      body: "{not json",
-    }));
+    const res: Response = await POST(
+      makeEvent({
+        headers: { authorization: `Bearer ${SECRET}`, "content-type": "application/json" },
+        body: "{not json",
+      }),
+    );
     expect(res.status).toBe(202);
     expect(insertDelivery.mock.calls[0]![0].body).toBe("{not json");
   });
@@ -145,7 +166,9 @@ describe("accept path", () => {
 
 describe("auth failures → 401", () => {
   test("wrong bearer on a known hook → 401 + unauthorized audit", async () => {
-    const res: Response = await POST(makeEvent({ headers: { authorization: "Bearer wrong" }, body: "x" }));
+    const res: Response = await POST(
+      makeEvent({ headers: { authorization: "Bearer wrong" }, body: "x" }),
+    );
     expect(res.status).toBe(401);
     expect(await auditReasons()).toContain("unauthorized");
     expect(insertDelivery).not.toHaveBeenCalled();
@@ -159,13 +182,17 @@ describe("auth failures → 401", () => {
   test("cross-hook replay: hook A's token against hook B's secret → 401", async () => {
     // The route reads hook B's secret; A's token never matches it.
     getWebhookSecret.mockResolvedValue("ezhook_hook-B-different-secret");
-    const res: Response = await POST(makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x" }));
+    const res: Response = await POST(
+      makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x" }),
+    );
     expect(res.status).toBe(401);
   });
 
   test("invalid HMAC (tampered body) → 401", async () => {
     const sig = webhookSignature(SECRET, '{"a":1}');
-    const res: Response = await POST(makeEvent({ headers: { "x-hub-signature-256": sig }, body: '{"a":2}' }));
+    const res: Response = await POST(
+      makeEvent({ headers: { "x-hub-signature-256": sig }, body: '{"a":2}' }),
+    );
     expect(res.status).toBe(401);
   });
 });
@@ -174,8 +201,14 @@ describe("enumeration-safe 404", () => {
   test("unknown ext / unknown slug / disabled all → identical 404 + dummy constant-time compare", async () => {
     getEnabledWebhook.mockResolvedValue(null);
     const bodies: unknown[] = [];
-    for (const [ext, slug] of [["nope", "tickets"], ["docs-updater", "never"], ["docs-updater", "disabled"]]) {
-      const res: Response = await POST(makeEvent({ ext, slug, headers: { authorization: `Bearer ${SECRET}` }, body: "x" }));
+    for (const [ext, slug] of [
+      ["nope", "tickets"],
+      ["docs-updater", "never"],
+      ["docs-updater", "disabled"],
+    ]) {
+      const res: Response = await POST(
+        makeEvent({ ext, slug, headers: { authorization: `Bearer ${SECRET}` }, body: "x" }),
+      );
       expect(res.status).toBe(404);
       bodies.push(await res.json());
     }
@@ -190,7 +223,9 @@ describe("enumeration-safe 404", () => {
   });
 
   test("malformed slug → 404 (unknown) before any DB lookup", async () => {
-    const res: Response = await POST(makeEvent({ slug: "../etc", headers: { authorization: `Bearer ${SECRET}` }, body: "x" }));
+    const res: Response = await POST(
+      makeEvent({ slug: "../etc", headers: { authorization: `Bearer ${SECRET}` }, body: "x" }),
+    );
     expect(res.status).toBe(404);
     expect(getEnabledWebhook).not.toHaveBeenCalled();
   });
@@ -198,10 +233,12 @@ describe("enumeration-safe 404", () => {
 
 describe("size limits → 413", () => {
   test("oversize declared Content-Length → 413 before reading body", async () => {
-    const res: Response = await POST(makeEvent({
-      headers: { authorization: `Bearer ${SECRET}`, "content-length": String(256 * 1024 + 1) },
-      body: "x",
-    }));
+    const res: Response = await POST(
+      makeEvent({
+        headers: { authorization: `Bearer ${SECRET}`, "content-length": String(256 * 1024 + 1) },
+        body: "x",
+      }),
+    );
     expect(res.status).toBe(413);
     expect(await auditReasons()).toContain("oversize");
   });
@@ -215,12 +252,19 @@ describe("size limits → 413", () => {
       headers: { authorization: `Bearer ${SECRET}` },
       body: big,
     });
-    const spoofed = new Request(req.url, { method: "POST", headers: { authorization: `Bearer ${SECRET}` }, body: big });
+    const spoofed = new Request(req.url, {
+      method: "POST",
+      headers: { authorization: `Bearer ${SECRET}` },
+      body: big,
+    });
     // Force the declared length to look small.
     Object.defineProperty(spoofed.headers, "get", {
       value: (k: string) => (k.toLowerCase() === "content-length" ? "5" : req.headers.get(k)),
     });
-    const res: Response = await POST({ params: { extensionId: "docs-updater", slug: "tickets" }, request: spoofed } as never);
+    const res: Response = await POST({
+      params: { extensionId: "docs-updater", slug: "tickets" },
+      request: spoofed,
+    } as never);
     expect(res.status).toBe(413);
   });
 });
@@ -228,10 +272,14 @@ describe("size limits → 413", () => {
 describe("rate limit + daily budget → 429", () => {
   test("per-hook burst limit: 61st request in the window → 429 + rate-limited audit", async () => {
     for (let i = 0; i < 60; i++) {
-      const ok: Response = await POST(makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x" }));
+      const ok: Response = await POST(
+        makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x" }),
+      );
       expect(ok.status).toBe(202);
     }
-    const blocked: Response = await POST(makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x" }));
+    const blocked: Response = await POST(
+      makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x" }),
+    );
     expect(blocked.status).toBe(429);
     expect(blocked.headers.get("retry-after")).toBeTruthy();
     expect(await auditReasons()).toContain("rate-limited");
@@ -239,7 +287,9 @@ describe("rate limit + daily budget → 429", () => {
 
   test("daily fire budget exhausted → 429 + budget-exceeded audit", async () => {
     countDeliveriesSince.mockResolvedValue(1000); // == default budget
-    const res: Response = await POST(makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x" }));
+    const res: Response = await POST(
+      makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x" }),
+    );
     expect(res.status).toBe(429);
     expect(await auditReasons()).toContain("budget-exceeded");
     expect(insertDelivery).not.toHaveBeenCalled();
@@ -248,7 +298,9 @@ describe("rate limit + daily budget → 429", () => {
   test("a settings override lowers the budget", async () => {
     getSetting.mockResolvedValue(2);
     countDeliveriesSince.mockResolvedValue(2);
-    const res: Response = await POST(makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x" }));
+    const res: Response = await POST(
+      makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x" }),
+    );
     expect(res.status).toBe(429);
   });
 
@@ -270,7 +322,9 @@ describe("secretless enabled hook → fail CLOSED (never the DUMMY_SECRET)", () 
 
   test("Bearer DUMMY_SECRET on a secretless hook → 401 (not 202) + dummy compare ran", async () => {
     getWebhookSecret.mockResolvedValue(null);
-    const res: Response = await POST(makeEvent({ headers: { authorization: `Bearer ${DUMMY}` }, body: "x" }));
+    const res: Response = await POST(
+      makeEvent({ headers: { authorization: `Bearer ${DUMMY}` }, body: "x" }),
+    );
     expect(res.status).toBe(401);
     expect(insertDelivery).not.toHaveBeenCalled();
     expect(await auditReasons()).toContain("unauthorized");
@@ -282,10 +336,15 @@ describe("secretless enabled hook → fail CLOSED (never the DUMMY_SECRET)", () 
   test("HMAC keyed with the DUMMY_SECRET on a secretless hook → 401 (not 202)", async () => {
     getWebhookSecret.mockResolvedValue(null);
     const body = '{"x":1}';
-    const res: Response = await POST(makeEvent({
-      headers: { "x-hub-signature-256": webhookSignature(DUMMY, body), "content-type": "application/json" },
-      body,
-    }));
+    const res: Response = await POST(
+      makeEvent({
+        headers: {
+          "x-hub-signature-256": webhookSignature(DUMMY, body),
+          "content-type": "application/json",
+        },
+        body,
+      }),
+    );
     expect(res.status).toBe(401);
     expect(insertDelivery).not.toHaveBeenCalled();
   });
@@ -296,7 +355,9 @@ describe("pre-lookup per-IP flood limiter (bounds audit growth)", () => {
     getEnabledWebhook.mockResolvedValue(null); // every request an unknown hook
     let last!: Response;
     for (let i = 0; i < n; i++) {
-      last = await POST(makeEvent({ slug: "ghost", headers: { authorization: `Bearer ${SECRET}` }, body: "x", ip }));
+      last = await POST(
+        makeEvent({ slug: "ghost", headers: { authorization: `Bearer ${SECRET}` }, body: "x", ip }),
+      );
     }
     return last;
   }
@@ -321,7 +382,9 @@ describe("pre-lookup per-IP flood limiter (bounds audit growth)", () => {
     // it cannot become a known/unknown oracle.
     await floodUnknown(120, "parity-ip");
     getEnabledWebhook.mockResolvedValue(HOOK); // now a real, known hook
-    const res: Response = await POST(makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x", ip: "parity-ip" }));
+    const res: Response = await POST(
+      makeEvent({ headers: { authorization: `Bearer ${SECRET}` }, body: "x", ip: "parity-ip" }),
+    );
     expect(res.status).toBe(429);
     // The known hook never reached the accept path (blocked before lookup).
     expect(insertDelivery).not.toHaveBeenCalled();
@@ -332,8 +395,13 @@ describe("pre-lookup per-IP flood limiter (bounds audit growth)", () => {
     // must not 500 — it falls back to the "unknown" bucket and continues.
     const event = {
       params: { extensionId: "docs-updater", slug: "tickets" },
-      getClientAddress: () => { throw new Error("proxy not configured"); },
-      request: new Request("http://localhost/api/hooks/docs-updater/tickets", { method: "POST", body: "x" }),
+      getClientAddress: () => {
+        throw new Error("proxy not configured");
+      },
+      request: new Request("http://localhost/api/hooks/docs-updater/tickets", {
+        method: "POST",
+        body: "x",
+      }),
     } as never;
     const res: Response = await POST(event);
     // Absent auth on a known hook → 401 (proves it got PAST the limiter).
@@ -343,9 +411,13 @@ describe("pre-lookup per-IP flood limiter (bounds audit growth)", () => {
   test("attacker-controlled ext name + slug are sanitized + length-bounded in audit", async () => {
     getEnabledWebhook.mockResolvedValue(null);
     const evilExt = "x".repeat(300) + String.fromCharCode(10, 7) + "inject";
-    const res: Response = await POST(makeEvent({ ext: evilExt, slug: "ghost", body: "x", ip: "sani-ip" }));
+    const res: Response = await POST(
+      makeEvent({ ext: evilExt, slug: "ghost", body: "x", ip: "sani-ip" }),
+    );
     expect(res.status).toBe(404);
-    const rejectCall = insertAuditEntry.mock.calls.find((c) => c[1] === EXT_AUDIT_ACTIONS.SDK_WEBHOOK_REJECTED)!;
+    const rejectCall = insertAuditEntry.mock.calls.find(
+      (c) => c[1] === EXT_AUDIT_ACTIONS.SDK_WEBHOOK_REJECTED,
+    )!;
     const target = rejectCall[2] as string;
     // Length-bounded (≤128) and stripped of ALL control chars (incl. the
     // newline in the payload) so nothing hostile is echoed raw into the log.

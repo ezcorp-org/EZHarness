@@ -7,21 +7,26 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 const getEnabledWebhook = vi.fn<(ext: string, slug: string) => Promise<unknown>>();
 vi.mock("$server/extensions/webhook-store", () => ({ getEnabledWebhook }));
 
-const mintWebhookSecret =
-  vi.fn<(ext: string, slug: string, actor?: string | null) => Promise<string>>(async () => "ezhook_freshly-rotated-token");
+const mintWebhookSecret = vi.fn<
+  (ext: string, slug: string, actor?: string | null) => Promise<string>
+>(async () => "ezhook_freshly-rotated-token");
 vi.mock("$server/extensions/webhook-secret", () => ({ mintWebhookSecret }));
 
-const insertAuditEntry =
-  vi.fn<(userId: string | null, action: string, target: string, metadata: Record<string, unknown>) => Promise<string>>(async () => "audit-1");
+const insertAuditEntry = vi.fn<
+  (
+    userId: string | null,
+    action: string,
+    target: string,
+    metadata: Record<string, unknown>,
+  ) => Promise<string>
+>(async () => "audit-1");
 vi.mock("$server/db/queries/audit-log", () => ({ insertAuditEntry }));
 
 // checkRole: admin user passes (returns the user), non-admin returns a 403.
 const checkRole = vi.fn<(locals: unknown, role: "admin") => unknown>();
 vi.mock("$server/auth/middleware", () => ({ checkRole }));
 
-const { POST } = await import(
-  "../routes/api/extensions/[name]/webhooks/[slug]/rotate/+server"
-);
+const { POST } = await import("../routes/api/extensions/[name]/webhooks/[slug]/rotate/+server");
 const { EXT_AUDIT_ACTIONS } = await import("../../../src/extensions/audit-actions");
 
 const ADMIN = { id: "admin-1", email: "a@x", name: "a", role: "admin" };
@@ -46,7 +51,9 @@ describe("POST rotate", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ slug: "tickets", secret: "ezhook_freshly-rotated-token" });
     expect(mintWebhookSecret).toHaveBeenCalledWith("docs-updater", "tickets", "admin-1");
-    const audit = insertAuditEntry.mock.calls.find((c) => c[1] === EXT_AUDIT_ACTIONS.SDK_WEBHOOK_SECRET_ROTATED);
+    const audit = insertAuditEntry.mock.calls.find(
+      (c) => c[1] === EXT_AUDIT_ACTIONS.SDK_WEBHOOK_SECRET_ROTATED,
+    );
     expect(audit?.[3]).toEqual({ slug: "tickets" });
     expect(JSON.stringify(audit?.[3])).not.toContain("ezhook_");
   });

@@ -17,7 +17,12 @@
 // for the owner while a co-tenant (and a null owner) get nothing.
 
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { mockEmbedding, mockEmbeddingsModule } from "./helpers/mock-vectors";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { MemoryProvenance } from "../memory/types";
@@ -64,10 +69,13 @@ function makeProvenance(): MemoryProvenance {
 beforeAll(async () => {
   await setupTestDb();
 
-  await getDb().insert(users).values([
-    { id: USER_A, email: "user-a@test.local", name: "User A", passwordHash: "fake-hash" },
-    { id: USER_B, email: "user-b@test.local", name: "User B", passwordHash: "fake-hash" },
-  ]).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values([
+      { id: USER_A, email: "user-a@test.local", name: "User A", passwordHash: "fake-hash" },
+      { id: USER_B, email: "user-b@test.local", name: "User B", passwordHash: "fake-hash" },
+    ])
+    .onConflictDoNothing();
 
   const project = await createProject({ name: "proj-shared", path: "/tmp/proj-shared" });
   projectId = project.id;
@@ -187,7 +195,12 @@ describe("memory injection — per-user PII scope (cross-user leak regression)",
   });
 
   test("buildSystemPromptWithMemories injects ONLY the acting user's memories (user B)", async () => {
-    const result = await buildSystemPromptWithMemories("You are an assistant.", "secret", projectId, USER_B);
+    const result = await buildSystemPromptWithMemories(
+      "You are an assistant.",
+      "secret",
+      projectId,
+      USER_B,
+    );
     expect(result.systemPrompt).toContain("Bravo secret belonging to user B");
     // The leak the fix closes: user A's private memories must NOT appear.
     expect(result.systemPrompt).not.toContain("belonging to user A");
@@ -199,7 +212,12 @@ describe("memory injection — per-user PII scope (cross-user leak regression)",
   });
 
   test("buildSystemPromptWithMemories injects both of user A's shapes, not user B's", async () => {
-    const result = await buildSystemPromptWithMemories("You are an assistant.", "secret", projectId, USER_A);
+    const result = await buildSystemPromptWithMemories(
+      "You are an assistant.",
+      "secret",
+      projectId,
+      USER_A,
+    );
     expect(result.systemPrompt).toContain("Alpha attributed secret belonging to user A");
     expect(result.systemPrompt).toContain("Alpha extracted secret belonging to user A");
     expect(result.systemPrompt).not.toContain("belonging to user B");
@@ -221,7 +239,12 @@ describe("memory injection — per-user PII scope (cross-user leak regression)",
 
 describe("memory injection — injection_eligible enforcement", () => {
   test("an injection-ineligible memory owned by the acting user is NOT injected", async () => {
-    const result = await buildSystemPromptWithMemories("You are an assistant.", "secret", projectId, USER_A);
+    const result = await buildSystemPromptWithMemories(
+      "You are an assistant.",
+      "secret",
+      projectId,
+      USER_A,
+    );
     expect(result.systemPrompt).not.toContain("Ineligible secret");
     expect(result.memoriesUsed.map((m) => m.id)).not.toContain(memAIneligible.id);
     // The eligible ones for the same user still inject — proves it's the flag,

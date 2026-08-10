@@ -12,11 +12,7 @@ class PlainInlineToolStore {
     this.calls = [...this.calls, { ...call, status: "pending", retryCount: 0 }];
   }
 
-  updateFromEvent(
-    invocationId: string,
-    eventType: string,
-    data: Record<string, unknown>,
-  ): void {
+  updateFromEvent(invocationId: string, eventType: string, data: Record<string, unknown>): void {
     const idx = this.calls.findIndex((c) => c.id === invocationId);
     if (idx < 0) return;
 
@@ -31,10 +27,7 @@ class PlainInlineToolStore {
         updated[idx] = {
           ...call,
           status: "complete",
-          output:
-            typeof data.output === "string"
-              ? data.output
-              : JSON.stringify(data.output),
+          output: typeof data.output === "string" ? data.output : JSON.stringify(data.output),
           duration: data.duration as number,
         };
         break;
@@ -156,10 +149,7 @@ function handleFormConfirmLogic(
 // 4. Chat Page handleInlineRetry logic
 // ---------------------------------------------------------------------------
 
-function handleInlineRetryLogic(
-  call: InlineToolCall,
-  generateId: () => string,
-): FormConfirmResult {
+function handleInlineRetryLogic(call: InlineToolCall, generateId: () => string): FormConfirmResult {
   const invocationId = generateId();
   return {
     invocationId,
@@ -263,13 +253,14 @@ function handleEditRetryConfirmLogic(
 const originalFetch = globalThis.fetch;
 
 function mockFetch(status: number, body: unknown) {
-  globalThis.fetch = mock(() =>
-    Promise.resolve(
-      new Response(JSON.stringify(body), {
-        status,
-        headers: { "Content-Type": "application/json" },
-      }),
-    ),
+  globalThis.fetch = mock(
+    () =>
+      Promise.resolve(
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
     // Bun's `Mock<…>` lacks `preconnect`; route through `unknown`.
   ) as unknown as typeof fetch;
 }
@@ -343,27 +334,47 @@ describe("WS event routing", () => {
 
   test("tool:start without source routes to agent-run", () => {
     const result = routeToolEvent("tool:start", baseData);
-    expect(result).toEqual({ target: "agent-run", conversationId: "conv-1", eventType: "tool:start" });
+    expect(result).toEqual({
+      target: "agent-run",
+      conversationId: "conv-1",
+      eventType: "tool:start",
+    });
   });
 
   test("tool:complete without source routes to agent-run", () => {
     const result = routeToolEvent("tool:complete", baseData);
-    expect(result).toEqual({ target: "agent-run", conversationId: "conv-1", eventType: "tool:complete" });
+    expect(result).toEqual({
+      target: "agent-run",
+      conversationId: "conv-1",
+      eventType: "tool:complete",
+    });
   });
 
   test("tool:error without source routes to agent-run", () => {
     const result = routeToolEvent("tool:error", baseData);
-    expect(result).toEqual({ target: "agent-run", conversationId: "conv-1", eventType: "tool:error" });
+    expect(result).toEqual({
+      target: "agent-run",
+      conversationId: "conv-1",
+      eventType: "tool:error",
+    });
   });
 
   test("source=inline but missing invocationId routes to agent-run", () => {
     const result = routeToolEvent("tool:start", { ...baseData, source: "inline" });
-    expect(result).toEqual({ target: "agent-run", conversationId: "conv-1", eventType: "tool:start" });
+    expect(result).toEqual({
+      target: "agent-run",
+      conversationId: "conv-1",
+      eventType: "tool:start",
+    });
   });
 
   test("source=agent routes to agent-run", () => {
     const result = routeToolEvent("tool:start", { ...baseData, source: "agent" });
-    expect(result).toEqual({ target: "agent-run", conversationId: "conv-1", eventType: "tool:start" });
+    expect(result).toEqual({
+      target: "agent-run",
+      conversationId: "conv-1",
+      eventType: "tool:start",
+    });
   });
 
   test("inline routing integrates with store updateFromEvent", () => {

@@ -20,9 +20,7 @@ vi.mock("$server/db/queries/settings", () => ({
 const { getAllSettings, upsertSetting, deleteSetting } = await import(
   "$server/db/queries/settings"
 );
-const { GET, POST, DELETE } = await import(
-  "../routes/api/settings/developer/api-keys/+server"
-);
+const { GET, POST, DELETE } = await import("../routes/api/settings/developer/api-keys/+server");
 
 function makeEvent(opts: {
   locals?: Record<string, unknown>;
@@ -38,10 +36,7 @@ function makeEvent(opts: {
   return {
     url: new URL("http://localhost/api/settings/developer/api-keys"),
     locals: opts.locals ?? {},
-    request: new Request(
-      "http://localhost/api/settings/developer/api-keys",
-      init,
-    ),
+    request: new Request("http://localhost/api/settings/developer/api-keys", init),
   } as any;
 }
 
@@ -71,9 +66,7 @@ describe("GET /api/settings/developer/api-keys", () => {
   });
 
   test("rejects 403 when API-key lacks 'read' scope", async () => {
-    const res = await GET(
-      makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }));
     expect(res.status).toBe(403);
   });
 

@@ -27,10 +27,7 @@
 
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import type {
-  ExtensionManifestV2,
-  ExtensionPermissions,
-} from "../extensions/types";
+import type { ExtensionManifestV2, ExtensionPermissions } from "../extensions/types";
 
 // ── Mock DB + registry (same shape installer.test.ts uses) ──────────
 
@@ -84,10 +81,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const SUBSTACK_PILOT_PATH = resolve(
-  __dirname,
-  "../../docs/extensions/examples/substack-pilot",
-);
+const SUBSTACK_PILOT_PATH = resolve(__dirname, "../../docs/extensions/examples/substack-pilot");
 
 // Granted permissions matching what the manifest declares + what the
 // permission-prompt UI would emit on user approval. `network: ["*"]`
@@ -171,11 +165,7 @@ describe("installFromLocal(substack-pilot) — happy path", () => {
     // description, regex pattern. We don't re-validate the patterns
     // here (install-gate.test.ts already does that against the manifest
     // directly); we just confirm they survived through the installer.
-    for (const key of [
-      "substack_publication_url",
-      "substack_session_token",
-      "substack_user_id",
-    ]) {
+    for (const key of ["substack_publication_url", "substack_session_token", "substack_user_id"]) {
       const f = (settings as Record<string, Record<string, unknown>>)[key];
       expect(f?.type).toBe("text");
       expect(typeof f?.label).toBe("string");
@@ -237,12 +227,9 @@ describe("installFromLocal(substack-pilot) — env-leak gate refusal", () => {
     };
 
     expect(
-      installFromLocal(
-        SUBSTACK_PILOT_PATH,
-        grantedPermissions,
-        false,
-        { preloadedManifest: evilManifest },
-      ),
+      installFromLocal(SUBSTACK_PILOT_PATH, grantedPermissions, false, {
+        preloadedManifest: evilManifest,
+      }),
     ).rejects.toBeInstanceOf(EnvKeyLeakInstallError);
 
     // No DB row written — the gate fires BEFORE createExtension. This
@@ -268,12 +255,9 @@ describe("installFromLocal(substack-pilot) — env-leak gate refusal", () => {
       },
     };
 
-    const installed = await installFromLocal(
-      SUBSTACK_PILOT_PATH,
-      grantedPermissions,
-      false,
-      { preloadedManifest: benignManifest },
-    );
+    const installed = await installFromLocal(SUBSTACK_PILOT_PATH, grantedPermissions, false, {
+      preloadedManifest: benignManifest,
+    });
     expect(installed.name).toBe("substack-pilot");
     expect(mockExtensions.size).toBe(1);
   });

@@ -105,9 +105,16 @@ describe("POST /api/workflows/[name]/dry-run", () => {
   test("dry-runs the UNSAVED draft when one is supplied", async () => {
     // Requiring a save first would make the feature useless for the
     // edit-check-edit loop it exists to serve.
-    const draft = { name: "w1", description: "", steps: [{ name: "s2", kind: "transform", output: { a: "b" } }] };
+    const draft = {
+      name: "w1",
+      description: "",
+      steps: [{ name: "s2", kind: "transform", output: { a: "b" } }],
+    };
     await POST(makeEvent({ locals: authedUser, body: { definition: draft } }));
-    expect(dry.dryRunWorkflow).toHaveBeenCalledWith(expect.objectContaining({ steps: draft.steps }), {});
+    expect(dry.dryRunWorkflow).toHaveBeenCalledWith(
+      expect.objectContaining({ steps: draft.steps }),
+      {},
+    );
   });
 
   test("a draft with no name inherits the route's name rather than failing validation", async () => {
@@ -124,7 +131,10 @@ describe("POST /api/workflows/[name]/dry-run", () => {
     // Otherwise the editor would report a green dry run for a graph the
     // save then rejects.
     const res = await POST(
-      makeEvent({ locals: authedUser, body: { definition: { steps: [{ name: "g", kind: "gate" }] } } }),
+      makeEvent({
+        locals: authedUser,
+        body: { definition: { steps: [{ name: "g", kind: "gate" }] } },
+      }),
     );
     expect(res.status).toBe(400);
     expect((await res.json()) as { error?: string }).toMatchObject({
@@ -137,14 +147,18 @@ describe("POST /api/workflows/[name]/dry-run", () => {
     // Authorized for `run`, not `read` — a dry run executes the caller's
     // graph logic, so the run rung is the right gate (and the one C3
     // will narrow).
-    ctx.getCachedWorkflows.mockReturnValue([entry({ visibility: "private", userId: "someone-else" })]);
+    ctx.getCachedWorkflows.mockReturnValue([
+      entry({ visibility: "private", userId: "someone-else" }),
+    ]);
     const res = await POST(makeEvent({ locals: authedUser, body: {} }));
     expect(res.status).toBe(404);
     expect(dry.dryRunWorkflow).not.toHaveBeenCalled();
   });
 
   test("a draft does not bypass authorization", async () => {
-    ctx.getCachedWorkflows.mockReturnValue([entry({ visibility: "private", userId: "someone-else" })]);
+    ctx.getCachedWorkflows.mockReturnValue([
+      entry({ visibility: "private", userId: "someone-else" }),
+    ]);
     const res = await POST(
       makeEvent({ locals: authedUser, body: { definition: { name: "w1", steps: [] } } }),
     );

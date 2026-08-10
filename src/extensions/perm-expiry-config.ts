@@ -81,20 +81,21 @@ export const DEFAULT_FOREVER_TTL_DAYS = 90;
  * which applies only to the `forever` always-allow scope (see
  * `getForeverTtlMs`). It does NOT shadow this table.
  */
-export const TTL_CONFIG: Readonly<Record<CapabilityExpiryKind, number | NeverExpires>> = Object.freeze({
-  "filesystem-read": 90 * DAY_MS,
-  "filesystem-write": 30 * DAY_MS,
-  shell: 30 * DAY_MS,
-  network: 90 * DAY_MS,
-  env: 90 * DAY_MS,
-  storage: "never",
-  taskEvents: "never",
-  appendMessages: "never",
-  llm: 90 * DAY_MS,
-  memory: 90 * DAY_MS,
-  lessons: 90 * DAY_MS,
-  schedule: "never",
-});
+export const TTL_CONFIG: Readonly<Record<CapabilityExpiryKind, number | NeverExpires>> =
+  Object.freeze({
+    "filesystem-read": 90 * DAY_MS,
+    "filesystem-write": 30 * DAY_MS,
+    shell: 30 * DAY_MS,
+    network: 90 * DAY_MS,
+    env: 90 * DAY_MS,
+    storage: "never",
+    taskEvents: "never",
+    appendMessages: "never",
+    llm: 90 * DAY_MS,
+    memory: 90 * DAY_MS,
+    lessons: 90 * DAY_MS,
+    schedule: "never",
+  });
 
 /**
  * Resolve the TTL (in ms) for a capability family. Returns `"never"`

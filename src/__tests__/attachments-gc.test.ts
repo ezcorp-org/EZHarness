@@ -21,11 +21,19 @@ mock.module("$lib/server/security/api-keys", () => ({
 
 mockDbConnection();
 mock.module("../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 let DELETE: any;
@@ -53,24 +61,39 @@ afterAll(async () => {
 });
 
 async function fileExists(p: string) {
-  try { await access(p); return true; } catch { return false; }
+  try {
+    await access(p);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 describe("conversation delete → attachments GC (disk + DB)", () => {
   test("deleting a conversation removes both DB rows and disk files", async () => {
     const conv = await createConversation(projectId, {
-      title: "doomed", provider: "anthropic", model: "claude-sonnet-4-5",
+      title: "doomed",
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
     });
     const msg = await createMessage(conv.id, { role: "user", content: "hi" });
     const bytes = new Uint8Array([1, 2, 3]);
     const written = await writeAttachment({
-      projectRoot, conversationId: conv.id, messageId: msg.id,
-      filename: "a.png", mimeType: "image/png", bytes,
+      projectRoot,
+      conversationId: conv.id,
+      messageId: msg.id,
+      filename: "a.png",
+      mimeType: "image/png",
+      bytes,
     });
     await insertAttachment({
-      messageId: msg.id, conversationId: conv.id,
-      filename: "a.png", mimeType: "image/png", sizeBytes: bytes.byteLength,
-      storagePath: written.storagePath, kind: "image",
+      messageId: msg.id,
+      conversationId: conv.id,
+      filename: "a.png",
+      mimeType: "image/png",
+      sizeBytes: bytes.byteLength,
+      storagePath: written.storagePath,
+      kind: "image",
     });
 
     expect(await fileExists(written.storagePath)).toBe(true);

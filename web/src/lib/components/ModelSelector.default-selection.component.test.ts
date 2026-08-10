@@ -21,166 +21,181 @@ import ModelSelector from "./ModelSelector.svelte";
 import { AUTO_MODEL, AUTO_PROVIDER } from "$lib/model-selector-logic.js";
 
 const MODELS = [
-	{ provider: "openai", model: "gpt-5", tier: "balanced", costTier: "medium", available: true, displayName: "GPT-5" },
-	{ provider: "anthropic", model: "claude-opus-4-7", tier: "powerful", costTier: "high", available: true, displayName: "Opus 4.7" },
+  {
+    provider: "openai",
+    model: "gpt-5",
+    tier: "balanced",
+    costTier: "medium",
+    available: true,
+    displayName: "GPT-5",
+  },
+  {
+    provider: "anthropic",
+    model: "claude-opus-4-7",
+    tier: "powerful",
+    costTier: "high",
+    available: true,
+    displayName: "Opus 4.7",
+  },
 ];
 
 let originalFetch: typeof fetch;
 
 beforeEach(() => {
-	originalFetch = globalThis.fetch;
-	globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
-		const url = typeof input === "string" ? input : input.toString();
-		if (url.endsWith("/api/models")) {
-			return new Response(JSON.stringify(MODELS), {
-				status: 200,
-				headers: { "content-type": "application/json" },
-			});
-		}
-		return new Response("not found", { status: 404 });
-	}) as unknown as typeof fetch;
+  originalFetch = globalThis.fetch;
+  globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+    const url = typeof input === "string" ? input : input.toString();
+    if (url.endsWith("/api/models")) {
+      return new Response(JSON.stringify(MODELS), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("not found", { status: 404 });
+  }) as unknown as typeof fetch;
 });
 
 afterEach(() => {
-	globalThis.fetch = originalFetch;
-	cleanup();
+  globalThis.fetch = originalFetch;
+  cleanup();
 });
 
 async function flushLoad() {
-	// loadModels is async; yield twice so the models state mutation and the
-	// default-applying effect both settle.
-	await new Promise((r) => setTimeout(r, 0));
-	await new Promise((r) => setTimeout(r, 0));
+  // loadModels is async; yield twice so the models state mutation and the
+  // default-applying effect both settle.
+  await new Promise((r) => setTimeout(r, 0));
+  await new Promise((r) => setTimeout(r, 0));
 }
 
 describe("ModelSelector · unset-user default", () => {
-	test('mode "auto" on a chat composer defaults to the Auto sentinel', async () => {
-		const onautoselect = vi.fn();
-		render(ModelSelector, {
-			selected: null,
-			onselect: vi.fn(),
-			onautoselect,
-			allowAuto: true,
-			defaultSelection: "auto",
-		});
+  test('mode "auto" on a chat composer defaults to the Auto sentinel', async () => {
+    const onautoselect = vi.fn();
+    render(ModelSelector, {
+      selected: null,
+      onselect: vi.fn(),
+      onautoselect,
+      allowAuto: true,
+      defaultSelection: "auto",
+    });
 
-		await flushLoad();
+    await flushLoad();
 
-		expect(onautoselect).toHaveBeenCalledTimes(1);
-		expect(onautoselect).toHaveBeenCalledWith(AUTO_PROVIDER, AUTO_MODEL);
-	});
+    expect(onautoselect).toHaveBeenCalledTimes(1);
+    expect(onautoselect).toHaveBeenCalledWith(AUTO_PROVIDER, AUTO_MODEL);
+  });
 
-	test('mode "first" defaults to models[0] — the pre-routing behaviour', async () => {
-		const onautoselect = vi.fn();
-		render(ModelSelector, {
-			selected: null,
-			onselect: vi.fn(),
-			onautoselect,
-			allowAuto: true,
-			defaultSelection: "first",
-		});
+  test('mode "first" defaults to models[0] — the pre-routing behaviour', async () => {
+    const onautoselect = vi.fn();
+    render(ModelSelector, {
+      selected: null,
+      onselect: vi.fn(),
+      onautoselect,
+      allowAuto: true,
+      defaultSelection: "first",
+    });
 
-		await flushLoad();
+    await flushLoad();
 
-		expect(onautoselect).toHaveBeenCalledTimes(1);
-		expect(onautoselect).toHaveBeenCalledWith("openai", "gpt-5");
-	});
+    expect(onautoselect).toHaveBeenCalledTimes(1);
+    expect(onautoselect).toHaveBeenCalledWith("openai", "gpt-5");
+  });
 
-	test("without allowAuto the Auto mode still defaults to models[0]", async () => {
-		const onautoselect = vi.fn();
-		render(ModelSelector, {
-			selected: null,
-			onselect: vi.fn(),
-			onautoselect,
-			defaultSelection: "auto",
-		});
+  test("without allowAuto the Auto mode still defaults to models[0]", async () => {
+    const onautoselect = vi.fn();
+    render(ModelSelector, {
+      selected: null,
+      onselect: vi.fn(),
+      onautoselect,
+      defaultSelection: "auto",
+    });
 
-		await flushLoad();
+    await flushLoad();
 
-		expect(onautoselect).toHaveBeenCalledWith("openai", "gpt-5");
-	});
+    expect(onautoselect).toHaveBeenCalledWith("openai", "gpt-5");
+  });
 
-	test("a picker that passes no mode at all keeps the models[0] default", async () => {
-		const onautoselect = vi.fn();
-		render(ModelSelector, { selected: null, onselect: vi.fn(), onautoselect });
+  test("a picker that passes no mode at all keeps the models[0] default", async () => {
+    const onautoselect = vi.fn();
+    render(ModelSelector, { selected: null, onselect: vi.fn(), onautoselect });
 
-		await flushLoad();
+    await flushLoad();
 
-		expect(onautoselect).toHaveBeenCalledWith("openai", "gpt-5");
-	});
+    expect(onautoselect).toHaveBeenCalledWith("openai", "gpt-5");
+  });
 
-	test("nothing is applied while the mode is still loading (null)", async () => {
-		const onautoselect = vi.fn();
-		render(ModelSelector, {
-			selected: null,
-			onselect: vi.fn(),
-			onautoselect,
-			allowAuto: true,
-			defaultSelection: null,
-		});
+  test("nothing is applied while the mode is still loading (null)", async () => {
+    const onautoselect = vi.fn();
+    render(ModelSelector, {
+      selected: null,
+      onselect: vi.fn(),
+      onautoselect,
+      allowAuto: true,
+      defaultSelection: null,
+    });
 
-		await flushLoad();
+    await flushLoad();
 
-		expect(onautoselect).not.toHaveBeenCalled();
-	});
+    expect(onautoselect).not.toHaveBeenCalled();
+  });
 
-	test("the mode arriving after the model list still applies the default", async () => {
-		const onautoselect = vi.fn();
-		const { rerender } = render(ModelSelector, {
-			selected: null,
-			onselect: vi.fn(),
-			onautoselect,
-			allowAuto: true,
-			defaultSelection: null,
-		});
+  test("the mode arriving after the model list still applies the default", async () => {
+    const onautoselect = vi.fn();
+    const { rerender } = render(ModelSelector, {
+      selected: null,
+      onselect: vi.fn(),
+      onautoselect,
+      allowAuto: true,
+      defaultSelection: null,
+    });
 
-		await flushLoad();
-		expect(onautoselect).not.toHaveBeenCalled();
+    await flushLoad();
+    expect(onautoselect).not.toHaveBeenCalled();
 
-		// The parent's settings read lands and reverts to the pinned default.
-		await rerender({
-			selected: null,
-			onselect: vi.fn(),
-			onautoselect,
-			allowAuto: true,
-			defaultSelection: "first",
-		});
-		await flushLoad();
+    // The parent's settings read lands and reverts to the pinned default.
+    await rerender({
+      selected: null,
+      onselect: vi.fn(),
+      onautoselect,
+      allowAuto: true,
+      defaultSelection: "first",
+    });
+    await flushLoad();
 
-		expect(onautoselect).toHaveBeenCalledTimes(1);
-		expect(onautoselect).toHaveBeenCalledWith("openai", "gpt-5");
-	});
+    expect(onautoselect).toHaveBeenCalledTimes(1);
+    expect(onautoselect).toHaveBeenCalledWith("openai", "gpt-5");
+  });
 
-	test("an explicit saved selection suppresses the default entirely", async () => {
-		const onautoselect = vi.fn();
-		render(ModelSelector, {
-			selected: { provider: AUTO_PROVIDER, model: AUTO_MODEL },
-			onselect: vi.fn(),
-			onautoselect,
-			allowAuto: true,
-			defaultSelection: "first",
-		});
+  test("an explicit saved selection suppresses the default entirely", async () => {
+    const onautoselect = vi.fn();
+    render(ModelSelector, {
+      selected: { provider: AUTO_PROVIDER, model: AUTO_MODEL },
+      onselect: vi.fn(),
+      onautoselect,
+      allowAuto: true,
+      defaultSelection: "first",
+    });
 
-		await flushLoad();
+    await flushLoad();
 
-		expect(onautoselect).not.toHaveBeenCalled();
-	});
+    expect(onautoselect).not.toHaveBeenCalled();
+  });
 
-	test("an empty model list applies no default and does not crash", async () => {
-		globalThis.fetch = vi.fn(async () =>
-			new Response("[]", { status: 200, headers: { "content-type": "application/json" } }),
-		) as unknown as typeof fetch;
-		const onautoselect = vi.fn();
-		render(ModelSelector, {
-			selected: null,
-			onselect: vi.fn(),
-			onautoselect,
-			allowAuto: true,
-			defaultSelection: "auto",
-		});
+  test("an empty model list applies no default and does not crash", async () => {
+    globalThis.fetch = vi.fn(
+      async () =>
+        new Response("[]", { status: 200, headers: { "content-type": "application/json" } }),
+    ) as unknown as typeof fetch;
+    const onautoselect = vi.fn();
+    render(ModelSelector, {
+      selected: null,
+      onselect: vi.fn(),
+      onautoselect,
+      allowAuto: true,
+      defaultSelection: "auto",
+    });
 
-		await flushLoad();
+    await flushLoad();
 
-		expect(onautoselect).not.toHaveBeenCalled();
-	});
+    expect(onautoselect).not.toHaveBeenCalled();
+  });
 });

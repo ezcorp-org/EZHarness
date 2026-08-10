@@ -83,7 +83,11 @@ beforeAll(async () => {
   await setupTestDb();
   const db = getTestDb();
   await db.insert(users).values({
-    id: USER_ID, email: "e@x.com", passwordHash: "x", name: "E", role: "admin",
+    id: USER_ID,
+    email: "e@x.com",
+    passwordHash: "x",
+    name: "E",
+    role: "admin",
   } as any);
   await db.insert(projects).values({ id: PROJECT_ID, name: "e", path: "/tmp/e" } as any);
   for (const id of [CONV_LIVE, CONV_OLD]) {
@@ -96,28 +100,61 @@ beforeAll(async () => {
   await db.insert(messages).values([
     { id: "u1", conversationId: CONV_LIVE, role: "user", content: "hi", createdAt: at(0) },
     {
-      id: "a1", conversationId: CONV_LIVE, role: "assistant", content: "hello",
-      parentMessageId: "u1", provider: "anthropic", model: "claude-haiku-4-5-20250514",
+      id: "a1",
+      conversationId: CONV_LIVE,
+      role: "assistant",
+      content: "hello",
+      parentMessageId: "u1",
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20250514",
       usage: { inputTokens: 10, outputTokens: 5, requestedModel: null, routingSignals: signals() },
       createdAt: at(1),
     },
-    { id: "u2", conversationId: CONV_LIVE, role: "user", content: "and this?", parentMessageId: "a1", createdAt: at(2) },
     {
-      id: "a2", conversationId: CONV_LIVE, role: "assistant", content: "sure",
-      parentMessageId: "u2", provider: "anthropic", model: "claude-opus-4-5",
-      usage: { inputTokens: 10, outputTokens: 5, requestedModel: null, routingSignals: signals({ tier: "powerful" }) },
+      id: "u2",
+      conversationId: CONV_LIVE,
+      role: "user",
+      content: "and this?",
+      parentMessageId: "a1",
+      createdAt: at(2),
+    },
+    {
+      id: "a2",
+      conversationId: CONV_LIVE,
+      role: "assistant",
+      content: "sure",
+      parentMessageId: "u2",
+      provider: "anthropic",
+      model: "claude-opus-4-5",
+      usage: {
+        inputTokens: 10,
+        outputTokens: 5,
+        requestedModel: null,
+        routingSignals: signals({ tier: "powerful" }),
+      },
       createdAt: at(3),
     },
     {
-      id: "a-legacy", conversationId: CONV_LIVE, role: "assistant", content: "old",
-      parentMessageId: "a2", provider: "anthropic", model: "claude-opus-4-5",
+      id: "a-legacy",
+      conversationId: CONV_LIVE,
+      role: "assistant",
+      content: "old",
+      parentMessageId: "a2",
+      provider: "anthropic",
+      model: "claude-opus-4-5",
       createdAt: at(4),
     },
   ] as any);
   await db.insert(messageAttachments).values([
     {
-      id: "att-1", messageId: "u2", conversationId: CONV_LIVE, filename: "shot.png",
-      mimeType: "image/png", sizeBytes: 100, storagePath: "/tmp/shot.png", kind: "image",
+      id: "att-1",
+      messageId: "u2",
+      conversationId: CONV_LIVE,
+      filename: "shot.png",
+      mimeType: "image/png",
+      sizeBytes: 100,
+      storagePath: "/tmp/shot.png",
+      kind: "image",
     },
   ] as any);
 
@@ -125,8 +162,13 @@ beforeAll(async () => {
   await db.insert(messages).values([
     { id: "o-u1", conversationId: CONV_OLD, role: "user", content: "old", createdAt: LONG_AGO },
     {
-      id: "o-a1", conversationId: CONV_OLD, role: "assistant", content: "old",
-      parentMessageId: "o-u1", provider: "anthropic", model: "claude-haiku-4-5-20250514",
+      id: "o-a1",
+      conversationId: CONV_OLD,
+      role: "assistant",
+      content: "old",
+      parentMessageId: "o-u1",
+      provider: "anthropic",
+      model: "claude-haiku-4-5-20250514",
       usage: { inputTokens: 1, outputTokens: 1, requestedModel: null, routingSignals: signals() },
       createdAt: LONG_AGO,
     },
@@ -144,8 +186,17 @@ describe("parseExportArgs", () => {
   });
 
   test("accepts every flag", () => {
-    expect(parseExportArgs(["--days", "90", "--conversation", "c1", "--out", "x.jsonl", "--include-excluded"]))
-      .toEqual({ days: 90, conversationId: "c1", out: "x.jsonl", includeExcluded: true });
+    expect(
+      parseExportArgs([
+        "--days",
+        "90",
+        "--conversation",
+        "c1",
+        "--out",
+        "x.jsonl",
+        "--include-excluded",
+      ]),
+    ).toEqual({ days: 90, conversationId: "c1", out: "x.jsonl", includeExcluded: true });
   });
 
   test("--days floors a fractional value", () => {
@@ -154,7 +205,9 @@ describe("parseExportArgs", () => {
 
   test("rejects a bad --days rather than silently defaulting", () => {
     expect(parseExportArgs(["--days", "0"])).toEqual({ error: "--days needs a positive number" });
-    expect(parseExportArgs(["--days", "nope"])).toEqual({ error: "--days needs a positive number" });
+    expect(parseExportArgs(["--days", "nope"])).toEqual({
+      error: "--days needs a positive number",
+    });
     expect(parseExportArgs(["--days"])).toEqual({ error: "--days needs a positive number" });
   });
 
@@ -170,8 +223,16 @@ describe("parseExportArgs", () => {
 
 describe("runExport — the JSONL contract", () => {
   const FACTS: Record<string, ModelFacts> = {
-    "anthropic fast": { tier: "fast", contextWindow: 1_000, acceptedMimeTypes: new Set(["text/plain"]) },
-    "anthropic strong": { tier: "powerful", contextWindow: 1_000, acceptedMimeTypes: new Set(["text/plain"]) },
+    "anthropic fast": {
+      tier: "fast",
+      contextWindow: 1_000,
+      acceptedMimeTypes: new Set(["text/plain"]),
+    },
+    "anthropic strong": {
+      tier: "powerful",
+      contextWindow: 1_000,
+      acceptedMimeTypes: new Set(["text/plain"]),
+    },
   };
   const resolveModelFacts: ModelFactsResolver = (p, m) => FACTS[`${p} ${m}`];
 
@@ -179,19 +240,34 @@ describe("runExport — the JSONL contract", () => {
   function thread(conversationId: string): LabelMessage[] {
     const sig = signals() as LabelMessage["usage"] extends null ? never : any;
     return [
-      { id: `${conversationId}-u1`, role: "user", parentMessageId: null, createdAt: at(0).toISOString() },
       {
-        id: `${conversationId}-a1`, role: "assistant", parentMessageId: `${conversationId}-u1`,
-        createdAt: at(1).toISOString(), provider: "anthropic", model: "fast",
+        id: `${conversationId}-u1`,
+        role: "user",
+        parentMessageId: null,
+        createdAt: at(0).toISOString(),
+      },
+      {
+        id: `${conversationId}-a1`,
+        role: "assistant",
+        parentMessageId: `${conversationId}-u1`,
+        createdAt: at(1).toISOString(),
+        provider: "anthropic",
+        model: "fast",
         usage: { routingSignals: sig },
       },
       {
-        id: `${conversationId}-u2`, role: "user", parentMessageId: `${conversationId}-a1`,
+        id: `${conversationId}-u2`,
+        role: "user",
+        parentMessageId: `${conversationId}-a1`,
         createdAt: at(2).toISOString(),
       },
       {
-        id: `${conversationId}-a2`, role: "assistant", parentMessageId: `${conversationId}-u2`,
-        createdAt: at(3).toISOString(), provider: "anthropic", model: "strong",
+        id: `${conversationId}-a2`,
+        role: "assistant",
+        parentMessageId: `${conversationId}-u2`,
+        createdAt: at(3).toISOString(),
+        provider: "anthropic",
+        model: "strong",
         usage: { routingSignals: sig },
       },
     ];
@@ -229,7 +305,12 @@ describe("runExport — the JSONL contract", () => {
       days: 30,
       conversations: 1,
       emitted: 1,
-      counts: { positive: 0, negative: 1, excluded: 1, byReason: { "switch-escalated": 1, abandoned: 1 } },
+      counts: {
+        positive: 0,
+        negative: 1,
+        excluded: 1,
+        byReason: { "switch-escalated": 1, abandoned: 1 },
+      },
     });
   });
 
@@ -263,7 +344,10 @@ describe("runExport — the JSONL contract", () => {
 
   test("many conversations accumulate into one tally", async () => {
     const lines: string[] = [];
-    const summary = await runExport({ days: 30, includeExcluded: false }, deps(lines, ["c1", "c2", "c3"]));
+    const summary = await runExport(
+      { days: 30, includeExcluded: false },
+      deps(lines, ["c1", "c2", "c3"]),
+    );
     expect(summary).toMatchObject({ conversations: 3, emitted: 3 });
     expect(summary.counts.negative).toBe(3);
     expect(summary.counts.excluded).toBe(3);
@@ -274,7 +358,9 @@ describe("runExport — the JSONL contract", () => {
     const summary = await runExport({ days: 30, includeExcluded: false }, deps(lines, []));
     expect(lines).toEqual([]);
     expect(summary).toEqual({
-      days: 30, conversations: 0, emitted: 0,
+      days: 30,
+      conversations: 0,
+      emitted: 0,
       counts: { positive: 0, negative: 0, excluded: 0, byReason: {} },
     });
   });
@@ -312,9 +398,16 @@ describe("the DB layer", () => {
 
 describe("main — end to end against the seeded DB", () => {
   test("JSONL on stdout, summary on stderr, and the capability switch EXCLUDED", async () => {
-    const { code, out, err } = await captureMain(["--conversation", CONV_LIVE, "--include-excluded"]);
+    const { code, out, err } = await captureMain([
+      "--conversation",
+      CONV_LIVE,
+      "--include-excluded",
+    ]);
     expect(code).toBe(0);
-    const emitted = out.trim().split("\n").map((l) => JSON.parse(l));
+    const emitted = out
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l));
     expect(emitted.map((s) => s.messageId)).toEqual(["a1", "a2", "a-legacy"]);
     // THE assertion this whole file exists for: a haiku→opus switch on a turn
     // whose prompt carried an image is capability-driven, never an escalation.
@@ -335,7 +428,13 @@ describe("main — end to end against the seeded DB", () => {
 
   test("--out writes the JSONL to a file and puts the summary on stdout", async () => {
     const path = `/tmp/ez-routing-export-${crypto.randomUUID()}.jsonl`;
-    const { code, out } = await captureMain(["--conversation", CONV_LIVE, "--include-excluded", "--out", path]);
+    const { code, out } = await captureMain([
+      "--conversation",
+      CONV_LIVE,
+      "--include-excluded",
+      "--out",
+      path,
+    ]);
     expect(code).toBe(0);
     expect(JSON.parse(out)).toMatchObject({ out: path, emitted: 3 });
     const written = await Bun.file(path).text();

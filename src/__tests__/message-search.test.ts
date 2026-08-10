@@ -132,21 +132,33 @@ async function seed(): Promise<Seed> {
   // entirely — the honest lexical-only signal.
   const [lex] = await db
     .insert(messages)
-    .values({ conversationId: convAId, role: "user", content: "lexicon hybrid fusion ranking discussion" })
+    .values({
+      conversationId: convAId,
+      role: "user",
+      content: "lexicon hybrid fusion ranking discussion",
+    })
     .returning();
   await insertChunk(lex!.id, convAId, "lexicon hybrid fusion ranking discussion", 0, null);
 
   // semantic-only: chunk vector NEAR Q, but NO FTS term overlap with the query.
   const [sem] = await db
     .insert(messages)
-    .values({ conversationId: convAId, role: "assistant", content: "zebra umbrella kangaroo orbit melody" })
+    .values({
+      conversationId: convAId,
+      role: "assistant",
+      content: "zebra umbrella kangaroo orbit melody",
+    })
     .returning();
   await insertChunk(sem!.id, convAId, "zebra umbrella kangaroo orbit melody", 0, NEAR);
 
   // both: lexical overlap AND a near chunk vector.
   const [both] = await db
     .insert(messages)
-    .values({ conversationId: convAId, role: "user", content: "hybrid fusion lexicon combined approach" })
+    .values({
+      conversationId: convAId,
+      role: "user",
+      content: "hybrid fusion lexicon combined approach",
+    })
     .returning();
   await insertChunk(both!.id, convAId, "hybrid fusion lexicon combined approach", 0, NEAR);
 
@@ -154,7 +166,11 @@ async function seed(): Promise<Seed> {
   // DISTINCT ON (message_id) must collapse it to exactly one hit.
   const [long] = await db
     .insert(messages)
-    .values({ conversationId: convAId, role: "assistant", content: "saxophone glacier velvet tundra" })
+    .values({
+      conversationId: convAId,
+      role: "assistant",
+      content: "saxophone glacier velvet tundra",
+    })
     .returning();
   await insertChunk(long!.id, convAId, "saxophone glacier velvet first-chunk", 0, NEAR);
   await insertChunk(long!.id, convAId, "tundra velvet second-chunk", 1, NEAR);
@@ -166,7 +182,11 @@ async function seed(): Promise<Seed> {
     .returning();
   const [xProj] = await db
     .insert(messages)
-    .values({ conversationId: convB!.id, role: "user", content: "lexicon hybrid fusion in project B" })
+    .values({
+      conversationId: convB!.id,
+      role: "user",
+      content: "lexicon hybrid fusion in project B",
+    })
     .returning();
   await insertChunk(xProj!.id, convB!.id, "lexicon hybrid fusion in project B", 0, NEAR);
 
@@ -177,7 +197,11 @@ async function seed(): Promise<Seed> {
     .returning();
   const [xUser] = await db
     .insert(messages)
-    .values({ conversationId: convAU!.id, role: "user", content: "lexicon hybrid fusion by another user" })
+    .values({
+      conversationId: convAU!.id,
+      role: "user",
+      content: "lexicon hybrid fusion by another user",
+    })
     .returning();
   await insertChunk(xUser!.id, convAU!.id, "lexicon hybrid fusion by another user", 0, NEAR);
 
@@ -188,9 +212,19 @@ async function seed(): Promise<Seed> {
     .returning();
   const [testMsg] = await db
     .insert(messages)
-    .values({ conversationId: convTest!.id, role: "user", content: "lexicon hybrid fusion in a test conversation" })
+    .values({
+      conversationId: convTest!.id,
+      role: "user",
+      content: "lexicon hybrid fusion in a test conversation",
+    })
     .returning();
-  await insertChunk(testMsg!.id, convTest!.id, "lexicon hybrid fusion in a test conversation", 0, NEAR);
+  await insertChunk(
+    testMsg!.id,
+    convTest!.id,
+    "lexicon hybrid fusion in a test conversation",
+    0,
+    NEAR,
+  );
 
   // ── system + tool role messages (Project A / userA) — must NOT appear ──
   const [convSys] = await db
@@ -199,12 +233,20 @@ async function seed(): Promise<Seed> {
     .returning();
   const [sysMsg] = await db
     .insert(messages)
-    .values({ conversationId: convSys!.id, role: "system", content: "lexicon hybrid fusion system prompt" })
+    .values({
+      conversationId: convSys!.id,
+      role: "system",
+      content: "lexicon hybrid fusion system prompt",
+    })
     .returning();
   await insertChunk(sysMsg!.id, convSys!.id, "lexicon hybrid fusion system prompt", 0, NEAR);
   const [toolMsg] = await db
     .insert(messages)
-    .values({ conversationId: convSys!.id, role: "tool", content: "lexicon hybrid fusion tool output" })
+    .values({
+      conversationId: convSys!.id,
+      role: "tool",
+      content: "lexicon hybrid fusion tool output",
+    })
     .returning();
   await insertChunk(toolMsg!.id, convSys!.id, "lexicon hybrid fusion tool output", 0, NEAR);
 
@@ -215,7 +257,11 @@ async function seed(): Promise<Seed> {
     .returning();
   const [cMsg] = await db
     .insert(messages)
-    .values({ conversationId: convC!.id, role: "user", content: "lexicon hybrid fusion in project C" })
+    .values({
+      conversationId: convC!.id,
+      role: "user",
+      content: "lexicon hybrid fusion in project C",
+    })
     .returning();
   await insertChunk(cMsg!.id, convC!.id, "lexicon hybrid fusion in project C", 0, NEAR);
 
@@ -226,9 +272,19 @@ async function seed(): Promise<Seed> {
     .returning();
   const [cTestMsg] = await db
     .insert(messages)
-    .values({ conversationId: convCTest!.id, role: "user", content: "lexicon hybrid fusion in a project C test conversation" })
+    .values({
+      conversationId: convCTest!.id,
+      role: "user",
+      content: "lexicon hybrid fusion in a project C test conversation",
+    })
     .returning();
-  await insertChunk(cTestMsg!.id, convCTest!.id, "lexicon hybrid fusion in a project C test conversation", 0, NEAR);
+  await insertChunk(
+    cTestMsg!.id,
+    convCTest!.id,
+    "lexicon hybrid fusion in a project C test conversation",
+    0,
+    NEAR,
+  );
 
   return {
     projectA,
@@ -292,7 +348,11 @@ describe("searchMessages — RRF / mode / scoping / snippet / match-type", () =>
     expect(projectUser).toContain(`c.project_id = '${s.projectA}'`);
     expect(projectUser).toContain(`AND c.user_id = '${s.userA}'`);
 
-    const all = explainVectorLegSql({ scope: "all", userId: s.userA, queryEmbedding: QUERY_VECTOR });
+    const all = explainVectorLegSql({
+      scope: "all",
+      userId: s.userA,
+      queryEmbedding: QUERY_VECTOR,
+    });
     expect(all).toContain(`c.user_id = '${s.userA}'`);
     expect(all).not.toContain("c.project_id");
   });

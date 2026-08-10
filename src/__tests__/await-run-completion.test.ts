@@ -27,7 +27,12 @@ function busListenerCount(bus: EventBus<AgentEvents>): number {
 describe("awaitRunCompletion — already terminal (short-circuit)", () => {
   test("success → done/complete immediately", async () => {
     const bus = new EventBus<AgentEvents>();
-    const r = await awaitRunCompletion({ bus, getRun: () => run("a", "success"), runId: "a", timeoutMs: 5000 });
+    const r = await awaitRunCompletion({
+      bus,
+      getRun: () => run("a", "success"),
+      runId: "a",
+      timeoutMs: 5000,
+    });
     expect(r).toMatchObject({ kind: "done", outcome: "complete" });
   });
 
@@ -35,7 +40,8 @@ describe("awaitRunCompletion — already terminal (short-circuit)", () => {
     const bus = new EventBus<AgentEvents>();
     const r = await awaitRunCompletion({
       bus,
-      getRun: () => run("a", "error", { success: false, output: null, error: { code: "x", message: "boom" } }),
+      getRun: () =>
+        run("a", "error", { success: false, output: null, error: { code: "x", message: "boom" } }),
       runId: "a",
       timeoutMs: 5000,
     });
@@ -44,13 +50,23 @@ describe("awaitRunCompletion — already terminal (short-circuit)", () => {
 
   test("cancelled → done/cancel", async () => {
     const bus = new EventBus<AgentEvents>();
-    const r = await awaitRunCompletion({ bus, getRun: () => run("a", "cancelled"), runId: "a", timeoutMs: 5000 });
+    const r = await awaitRunCompletion({
+      bus,
+      getRun: () => run("a", "cancelled"),
+      runId: "a",
+      timeoutMs: 5000,
+    });
     expect(r).toMatchObject({ kind: "done", outcome: "cancel" });
   });
 
   test("missing run → notfound", async () => {
     const bus = new EventBus<AgentEvents>();
-    const r = await awaitRunCompletion({ bus, getRun: () => undefined, runId: "a", timeoutMs: 5000 });
+    const r = await awaitRunCompletion({
+      bus,
+      getRun: () => undefined,
+      runId: "a",
+      timeoutMs: 5000,
+    });
     expect(r.kind).toBe("notfound");
   });
 });
@@ -58,35 +74,60 @@ describe("awaitRunCompletion — already terminal (short-circuit)", () => {
 describe("awaitRunCompletion — waits for events", () => {
   test("running run then run:complete resolves", async () => {
     const bus = new EventBus<AgentEvents>();
-    const p = awaitRunCompletion({ bus, getRun: () => run("a", "running"), runId: "a", timeoutMs: 5000 });
+    const p = awaitRunCompletion({
+      bus,
+      getRun: () => run("a", "running"),
+      runId: "a",
+      timeoutMs: 5000,
+    });
     queueMicrotask(() => bus.emit("run:complete", { run: run("a", "success") }));
     expect(await p).toMatchObject({ kind: "done", outcome: "complete" });
   });
 
   test("run:error event resolves with error text", async () => {
     const bus = new EventBus<AgentEvents>();
-    const p = awaitRunCompletion({ bus, getRun: () => run("a", "running"), runId: "a", timeoutMs: 5000 });
+    const p = awaitRunCompletion({
+      bus,
+      getRun: () => run("a", "running"),
+      runId: "a",
+      timeoutMs: 5000,
+    });
     queueMicrotask(() => bus.emit("run:error", { run: run("a", "error"), error: "kaboom" }));
     expect(await p).toMatchObject({ kind: "done", outcome: "error", error: "kaboom" });
   });
 
   test("run:cancel event resolves", async () => {
     const bus = new EventBus<AgentEvents>();
-    const p = awaitRunCompletion({ bus, getRun: () => run("a", "running"), runId: "a", timeoutMs: 5000 });
+    const p = awaitRunCompletion({
+      bus,
+      getRun: () => run("a", "running"),
+      runId: "a",
+      timeoutMs: 5000,
+    });
     queueMicrotask(() => bus.emit("run:cancel", { run: run("a", "cancelled") }));
     expect(await p).toMatchObject({ kind: "done", outcome: "cancel" });
   });
 
   test("ignores events for other run ids", async () => {
     const bus = new EventBus<AgentEvents>();
-    const p = awaitRunCompletion({ bus, getRun: () => run("a", "running"), runId: "a", timeoutMs: 60 });
+    const p = awaitRunCompletion({
+      bus,
+      getRun: () => run("a", "running"),
+      runId: "a",
+      timeoutMs: 60,
+    });
     bus.emit("run:complete", { run: run("OTHER", "success") });
     expect((await p).kind).toBe("timeout");
   });
 
   test("times out when nothing terminal happens", async () => {
     const bus = new EventBus<AgentEvents>();
-    const r = await awaitRunCompletion({ bus, getRun: () => run("a", "running"), runId: "a", timeoutMs: 20 });
+    const r = await awaitRunCompletion({
+      bus,
+      getRun: () => run("a", "running"),
+      runId: "a",
+      timeoutMs: 20,
+    });
     expect(r.kind).toBe("timeout");
   });
 

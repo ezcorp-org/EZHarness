@@ -67,9 +67,7 @@ export function parseToolResultCap(value: unknown): number {
 
 /** {@link validateToolResultCap}'s result: the accepted cap in characters, or
  *  the reason the submitted value is not one. */
-export type ToolResultCapValidation =
-  | { ok: true; cap: number }
-  | { ok: false; error: string };
+export type ToolResultCapValidation = { ok: true; cap: number } | { ok: false; error: string };
 
 /**
  * WRITE-time validation for the settings PUT route.

@@ -110,16 +110,20 @@ describe("truncateOutput", () => {
   });
 
   test("extracts text from ToolCallResult content array", () => {
-    expect(truncateOutput({ content: [{ type: "text", text: "file contents here" }] })).toBe("file contents here");
+    expect(truncateOutput({ content: [{ type: "text", text: "file contents here" }] })).toBe(
+      "file contents here",
+    );
   });
 
   test("joins multiple text blocks from ToolCallResult content array", () => {
-    expect(truncateOutput({
-      content: [
-        { type: "text", text: "line1" },
-        { type: "text", text: "line2" },
-      ],
-    })).toBe("line1");  // truncateOutput takes first line
+    expect(
+      truncateOutput({
+        content: [
+          { type: "text", text: "line1" },
+          { type: "text", text: "line2" },
+        ],
+      }),
+    ).toBe("line1"); // truncateOutput takes first line
   });
 
   test("falls back to JSON.stringify for unknown objects", () => {
@@ -136,12 +140,25 @@ describe("getMessagesWithToolCalls", () => {
     const now = new Date();
     mockMessages = [
       { id: "msg-1", conversationId: "conv-1", role: "user", content: "hi", createdAt: now },
-      { id: "msg-2", conversationId: "conv-1", role: "assistant", content: "hello", createdAt: now },
+      {
+        id: "msg-2",
+        conversationId: "conv-1",
+        role: "assistant",
+        content: "hello",
+        createdAt: now,
+      },
     ];
     mockToolCallRows = [
       {
-        id: "tc-1", messageId: "msg-2", extensionId: "ext-1", toolName: "search",
-        input: { q: "test" }, output: { text: "result" }, success: true, durationMs: 100, createdAt: now,
+        id: "tc-1",
+        messageId: "msg-2",
+        extensionId: "ext-1",
+        toolName: "search",
+        input: { q: "test" },
+        output: { text: "result" },
+        success: true,
+        durationMs: 100,
+        createdAt: now,
       },
     ];
     mockSubConvoRows = [];
@@ -175,19 +192,34 @@ describe("getMessagesWithToolCalls", () => {
   test("tool call status is 'interrupted' when success is null and output is null", async () => {
     const now = new Date();
     mockMessages = [
-      { id: "msg-1", conversationId: "conv-1", role: "assistant", content: "working...", createdAt: now },
+      {
+        id: "msg-1",
+        conversationId: "conv-1",
+        role: "assistant",
+        content: "working...",
+        createdAt: now,
+      },
     ];
     mockToolCallRows = [
       {
-        id: "tc-1", messageId: "msg-1", extensionId: "ext-1", toolName: "run",
-        input: {}, output: null, success: null, durationMs: 0, createdAt: now,
+        id: "tc-1",
+        messageId: "msg-1",
+        extensionId: "ext-1",
+        toolName: "run",
+        input: {},
+        output: null,
+        success: null,
+        durationMs: 0,
+        createdAt: now,
       },
     ];
     mockSubConvoRows = [];
 
     const result = await getMessagesWithToolCalls("conv-1");
 
-    expect(at(at(result.messages, 0, "result.messages").toolCalls, 0, "toolCalls").status).toBe("interrupted");
+    expect(at(at(result.messages, 0, "result.messages").toolCalls, 0, "toolCalls").status).toBe(
+      "interrupted",
+    );
   });
 
   test("tool call status is 'success' when success is true", async () => {
@@ -197,33 +229,57 @@ describe("getMessagesWithToolCalls", () => {
     ];
     mockToolCallRows = [
       {
-        id: "tc-1", messageId: "msg-1", extensionId: "ext-1", toolName: "run",
-        input: {}, output: { text: "ok" }, success: true, durationMs: 50, createdAt: now,
+        id: "tc-1",
+        messageId: "msg-1",
+        extensionId: "ext-1",
+        toolName: "run",
+        input: {},
+        output: { text: "ok" },
+        success: true,
+        durationMs: 50,
+        createdAt: now,
       },
     ];
     mockSubConvoRows = [];
 
     const result = await getMessagesWithToolCalls("conv-1");
 
-    expect(at(at(result.messages, 0, "result.messages").toolCalls, 0, "toolCalls").status).toBe("success");
+    expect(at(at(result.messages, 0, "result.messages").toolCalls, 0, "toolCalls").status).toBe(
+      "success",
+    );
   });
 
   test("tool call status is 'error' when success is false", async () => {
     const now = new Date();
     mockMessages = [
-      { id: "msg-1", conversationId: "conv-1", role: "assistant", content: "failed", createdAt: now },
+      {
+        id: "msg-1",
+        conversationId: "conv-1",
+        role: "assistant",
+        content: "failed",
+        createdAt: now,
+      },
     ];
     mockToolCallRows = [
       {
-        id: "tc-1", messageId: "msg-1", extensionId: "ext-1", toolName: "run",
-        input: {}, output: { text: "error msg" }, success: false, durationMs: 10, createdAt: now,
+        id: "tc-1",
+        messageId: "msg-1",
+        extensionId: "ext-1",
+        toolName: "run",
+        input: {},
+        output: { text: "error msg" },
+        success: false,
+        durationMs: 10,
+        createdAt: now,
       },
     ];
     mockSubConvoRows = [];
 
     const result = await getMessagesWithToolCalls("conv-1");
 
-    expect(at(at(result.messages, 0, "result.messages").toolCalls, 0, "toolCalls").status).toBe("error");
+    expect(at(at(result.messages, 0, "result.messages").toolCalls, 0, "toolCalls").status).toBe(
+      "error",
+    );
   });
 
   test("includes sub-conversation summaries", async () => {
@@ -233,8 +289,22 @@ describe("getMessagesWithToolCalls", () => {
     ];
     mockToolCallRows = [];
     mockSubConvoRows = [
-      { id: "sub-1", agent_name: "researcher", agent_config_id: null, message_count: 3, last_message_preview: "Found 5 results", parent_message_id: "msg-1" },
-      { id: "sub-2", agent_name: null, agent_config_id: null, message_count: 1, last_message_preview: null, parent_message_id: null },
+      {
+        id: "sub-1",
+        agent_name: "researcher",
+        agent_config_id: null,
+        message_count: 3,
+        last_message_preview: "Found 5 results",
+        parent_message_id: "msg-1",
+      },
+      {
+        id: "sub-2",
+        agent_name: null,
+        agent_config_id: null,
+        message_count: 1,
+        last_message_preview: null,
+        parent_message_id: null,
+      },
     ];
 
     const result = await getMessagesWithToolCalls("conv-1");

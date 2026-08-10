@@ -9,11 +9,13 @@ import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { attachBearerAuth } from "$lib/server/security/bearer-auth";
 import { getMaxPayload, payloadTooLarge } from "$lib/server/security/payload";
 import { getSetting } from "$server/db/queries/settings";
-import { hashToken, lookupSessionByTokenHash, touchSession, rotateSessionToken } from "$server/db/queries/sessions";
 import {
-  startBackgroundTimers,
-  stopBackgroundTimers,
-} from "$server/startup/background-timers";
+  hashToken,
+  lookupSessionByTokenHash,
+  touchSession,
+  rotateSessionToken,
+} from "$server/db/queries/sessions";
+import { startBackgroundTimers, stopBackgroundTimers } from "$server/startup/background-timers";
 import { registerTeardown, beginRequest } from "$lib/server/shutdown";
 import {
   getSessionConfig,
@@ -85,13 +87,55 @@ const RATE_LIMITED_ROUTES: RateLimitRoute[] = [
   // Intentionally looser than `chat` (30 vs 20) so a human power-user
   // tabbing through chats isn't throttled, but an LLM in an infinite
   // spawn loop hits the ceiling fast.
-  { pattern: /^\/api\/conversations$/, method: "POST", limit: 30, keyType: "user", category: "conversationCreate" },
-  { pattern: /^\/api\/conversations\/[^/]+\/messages$/, method: "POST", limit: 20, keyType: "user", category: "chat" },
-  { pattern: /^\/api\/agents\/[^/]+\/run$/, method: "POST", limit: 10, keyType: "user", category: "agentRun" },
-  { pattern: /^\/api\/agent-configs\/generate$/, method: "POST", limit: 5, keyType: "user", category: "agentGenerate" },
-  { pattern: /^\/api\/workflows\/[^/]+\/run$/, method: "POST", limit: 10, keyType: "user", category: "workflowRun" },
-  { pattern: /^\/api\/auth\/reset-password$/, method: "POST", limit: 3, keyType: "ip", category: "resetGenerate" },
-  { pattern: /^\/api\/auth\/reset-password\/[^/]+$/, method: "POST", limit: 5, keyType: "ip", category: "resetPassword" },
+  {
+    pattern: /^\/api\/conversations$/,
+    method: "POST",
+    limit: 30,
+    keyType: "user",
+    category: "conversationCreate",
+  },
+  {
+    pattern: /^\/api\/conversations\/[^/]+\/messages$/,
+    method: "POST",
+    limit: 20,
+    keyType: "user",
+    category: "chat",
+  },
+  {
+    pattern: /^\/api\/agents\/[^/]+\/run$/,
+    method: "POST",
+    limit: 10,
+    keyType: "user",
+    category: "agentRun",
+  },
+  {
+    pattern: /^\/api\/agent-configs\/generate$/,
+    method: "POST",
+    limit: 5,
+    keyType: "user",
+    category: "agentGenerate",
+  },
+  {
+    pattern: /^\/api\/workflows\/[^/]+\/run$/,
+    method: "POST",
+    limit: 10,
+    keyType: "user",
+    category: "workflowRun",
+  },
+  {
+    pattern: /^\/api\/auth\/reset-password$/,
+    method: "POST",
+    limit: 3,
+    keyType: "ip",
+    category: "resetGenerate",
+  },
+  {
+    pattern: /^\/api\/auth\/reset-password\/[^/]+$/,
+    method: "POST",
+    limit: 5,
+    keyType: "ip",
+    category: "resetPassword",
+  },
 ];
 
 // Cached rate limit overrides from settings KV
@@ -103,7 +147,7 @@ async function getRateLimitOverride(category: string): Promise<number | undefine
   const now = Date.now();
   if (!rateLimitOverrides || now - rateLimitOverridesCachedAt > RATE_LIMIT_CACHE_TTL) {
     try {
-      const val = await getSetting(`limits:rateLimit`) as Record<string, number> | undefined;
+      const val = (await getSetting(`limits:rateLimit`)) as Record<string, number> | undefined;
       rateLimitOverrides = val ?? {};
     } catch {
       rateLimitOverrides = {};
@@ -122,16 +166,19 @@ function matchRateLimitRoute(pathname: string, method: string): RateLimitRoute |
 }
 
 function rateLimitResponse(retryAfter: number): Response {
-  return new Response(JSON.stringify({
-    error: "Rate limit exceeded",
-    retryAfter,
-  }), {
-    status: 429,
-    headers: {
-      "Content-Type": "application/json",
-      "Retry-After": String(retryAfter),
+  return new Response(
+    JSON.stringify({
+      error: "Rate limit exceeded",
+      retryAfter,
+    }),
+    {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        "Retry-After": String(retryAfter),
+      },
     },
-  });
+  );
 }
 
 export function getClientIp(request: Request, socketAddress?: string): string {
@@ -141,7 +188,7 @@ export function getClientIp(request: Request, socketAddress?: string): string {
     // peeling `trustCount` hops off the right. This path is unchanged.
     const xff = request.headers.get("x-forwarded-for");
     if (xff) {
-      const parts = xff.split(",").map(s => s.trim());
+      const parts = xff.split(",").map((s) => s.trim());
       const idx = Math.max(0, parts.length - trustCount);
       return parts[idx] || "unknown";
     }
@@ -166,8 +213,8 @@ export function getClientIp(request: Request, socketAddress?: string): string {
 // with credentialed fetches would leak authenticated responses to any site.
 const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS ?? "")
   .split(",")
-  .map(s => s.trim())
-  .filter(s => s.length > 0 && s !== "*");
+  .map((s) => s.trim())
+  .filter((s) => s.length > 0 && s !== "*");
 
 function getCorsHeaders(request: Request): Record<string, string> {
   const headers: Record<string, string> = {
@@ -250,15 +297,11 @@ export const HUGGINGFACE_CSP_HOSTS = [
 // Hosts the onnxruntime-web WASM-glue dynamic import lands on. Read
 // from the same constant in `script-src` (for the `import()`) and
 // `connect-src` (for the underlying fetch).
-export const ONNX_WASM_CDN_HOSTS = [
-  "https://cdn.jsdelivr.net",
-] as const;
+export const ONNX_WASM_CDN_HOSTS = ["https://cdn.jsdelivr.net"] as const;
 
-export const CSP_CONNECT_SRC = [
-  "'self'",
-  ...HUGGINGFACE_CSP_HOSTS,
-  ...ONNX_WASM_CDN_HOSTS,
-].join(" ");
+export const CSP_CONNECT_SRC = ["'self'", ...HUGGINGFACE_CSP_HOSTS, ...ONNX_WASM_CDN_HOSTS].join(
+  " ",
+);
 export const CSP_SCRIPT_SRC = [
   "'self'",
   "'unsafe-inline'",
@@ -273,20 +316,14 @@ export const CSP_SCRIPT_SRC = [
 //
 // We do NOT relax `script-src` further — the worker's outbound network
 // traffic to HF / jsDelivr is already covered by `connect-src`.
-export const CSP_WORKER_SRC = [
-  "'self'",
-  "blob:",
-].join(" ");
+export const CSP_WORKER_SRC = ["'self'", "blob:"].join(" ");
 // `media-src` gates `<audio>` / `<video>` sources. The kokoro-tts card
 // plays back synthesized WAVs as `blob:` URLs (built from the
 // ArrayBuffer the worker transfers back) before the upload + finalize
 // chain swaps in the persisted `/api/attachments/{id}` URL. Without
 // this directive, browsers fall back to `default-src 'self'` and
 // refuse the blob URL.
-export const CSP_MEDIA_SRC = [
-  "'self'",
-  "blob:",
-].join(" ");
+export const CSP_MEDIA_SRC = ["'self'", "blob:"].join(" ");
 
 export const CSP_HEADER_VALUE = [
   `default-src 'self'`,
@@ -460,7 +497,10 @@ const handleApp: Handle = async ({ event, resolve }) => {
   if (rateLimitRoute && rateLimitRoute.keyType === "ip") {
     const ip = getClientIp(request, socketAddress);
     const override = await getRateLimitOverride(rateLimitRoute.category);
-    const result = rateLimiter.check(`ip:${ip}:${rateLimitRoute.category}`, override ?? rateLimitRoute.limit);
+    const result = rateLimiter.check(
+      `ip:${ip}:${rateLimitRoute.category}`,
+      override ?? rateLimitRoute.limit,
+    );
     if (!result.allowed) {
       return rateLimitResponse(result.retryAfter!);
     }
@@ -473,7 +513,17 @@ const handleApp: Handle = async ({ event, resolve }) => {
   // know who is calling. A public `/api/*` path still resolves a presented
   // session cookie opportunistically; see the `else if` at the bottom of this
   // block for why that distinction exists and what it must never cost.
-  const PUBLIC_PATHS = ["/login", "/setup", "/signup", "/reset-password", "/api/auth/login", "/api/auth/setup", "/api/health", "/api/ready", "/api/version"];
+  const PUBLIC_PATHS = [
+    "/login",
+    "/setup",
+    "/signup",
+    "/reset-password",
+    "/api/auth/login",
+    "/api/auth/setup",
+    "/api/health",
+    "/api/ready",
+    "/api/version",
+  ];
   // Public on SUB-PATHS ONLY — the bare path stays authenticated.
   //
   // F5: `/api/auth/invite` used to sit in PUBLIC_PATHS above, and the
@@ -506,11 +556,11 @@ const handleApp: Handle = async ({ event, resolve }) => {
   // `/reset-password` stays in PUBLIC_PATHS above on its bare path — a user
   // who cannot log in still has to be able to open the form.
   const PUBLIC_SUBPATHS_ONLY = ["/api/auth/invite", "/api/auth/reset-password"];
-  const isPublic = PUBLIC_PATHS.some(p => url.pathname === p || url.pathname.startsWith(p + "/"))
-    || PUBLIC_SUBPATHS_ONLY.some(p => url.pathname.startsWith(p + "/"))
-    || url.pathname.startsWith("/_app/")
-    || url.pathname.startsWith("/favicon")
-;
+  const isPublic =
+    PUBLIC_PATHS.some((p) => url.pathname === p || url.pathname.startsWith(p + "/")) ||
+    PUBLIC_SUBPATHS_ONLY.some((p) => url.pathname.startsWith(p + "/")) ||
+    url.pathname.startsWith("/_app/") ||
+    url.pathname.startsWith("/favicon");
 
   if (!isPublic) {
     // ── Loopback test-surface bypass ───────────────────────────────────
@@ -523,7 +573,11 @@ const handleApp: Handle = async ({ event, resolve }) => {
     // goes through the normal auth flow below.
     {
       let loopbackAddr: string | undefined;
-      try { loopbackAddr = event.getClientAddress(); } catch { loopbackAddr = undefined; }
+      try {
+        loopbackAddr = event.getClientAddress();
+      } catch {
+        loopbackAddr = undefined;
+      }
       const proxied =
         request.headers.has("x-forwarded-for") ||
         request.headers.has("x-real-ip") ||
@@ -558,15 +612,27 @@ const handleApp: Handle = async ({ event, resolve }) => {
       if (legacyToken) {
         if (Date.now() > PI_SESSION_MIGRATION_EXPIRES_AT) {
           if (!piSessionMigrationWarned) {
-            log.warn("pi_session migration window closed - ignoring legacy cookie; clients must re-authenticate");
+            log.warn(
+              "pi_session migration window closed - ignoring legacy cookie; clients must re-authenticate",
+            );
             piSessionMigrationWarned = true;
           }
           // Purge the stale cookie so the client stops presenting it.
-          event.cookies.set("pi_session", "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 });
+          event.cookies.set("pi_session", "", {
+            path: "/",
+            httpOnly: true,
+            sameSite: "lax",
+            maxAge: 0,
+          });
         } else {
           sessionToken = legacyToken;
           // Delete old cookie
-          event.cookies.set("pi_session", "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 });
+          event.cookies.set("pi_session", "", {
+            path: "/",
+            httpOnly: true,
+            sameSite: "lax",
+            maxAge: 0,
+          });
           // Set new cookie
           setSessionCookie(event.cookies, legacyToken);
         }
@@ -635,7 +701,9 @@ const handleApp: Handle = async ({ event, resolve }) => {
 
       if (!event.locals.user) {
         let count: number;
-        try { count = await getUserCount(); } catch {
+        try {
+          count = await getUserCount();
+        } catch {
           // DB unreachable. Under PI_SKIP_INIT (E2E) the DB is intentionally
           // absent, so skip auth and let the request through. In every other
           // environment a transient DB failure must NOT fail open — doing so
@@ -807,9 +875,9 @@ const handleApp: Handle = async ({ event, resolve }) => {
   // `onboardedAt` on locals so the wizard's load doesn't re-fetch.
   // The redirect itself is suppressed on /onboarding to avoid a loop.
   if (
-    event.locals.user
-    && !url.pathname.startsWith("/api/")
-    && !url.pathname.startsWith("/_app/")
+    event.locals.user &&
+    !url.pathname.startsWith("/api/") &&
+    !url.pathname.startsWith("/_app/")
   ) {
     let userRow: Awaited<ReturnType<typeof getUserById>>;
     try {
@@ -829,7 +897,10 @@ const handleApp: Handle = async ({ event, resolve }) => {
   if (rateLimitRoute && rateLimitRoute.keyType === "user" && event.locals.user) {
     const userId = event.locals.user.id;
     const override = await getRateLimitOverride(rateLimitRoute.category);
-    const result = rateLimiter.check(`user:${userId}:${rateLimitRoute.category}`, override ?? rateLimitRoute.limit);
+    const result = rateLimiter.check(
+      `user:${userId}:${rateLimitRoute.category}`,
+      override ?? rateLimitRoute.limit,
+    );
     if (!result.allowed) {
       return rateLimitResponse(result.retryAfter!);
     }

@@ -143,7 +143,11 @@ function prov(): CallProvenance {
   };
 }
 
-function fsReq(path: string, ezCallId: string, extra: Record<string, unknown> = {}): JsonRpcRequest {
+function fsReq(
+  path: string,
+  ezCallId: string,
+  extra: Record<string, unknown> = {},
+): JsonRpcRequest {
   return {
     jsonrpc: "2.0",
     id: 1,
@@ -284,16 +288,18 @@ describe("reserved carve-out denial is NOT a security violation", () => {
     await registry.loadFromDb();
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
 
-    await withProvenance((tok) => executor.handlePiFsList(extensionId, fsReq(RESERVED_DB_DIR, tok)));
+    await withProvenance((tok) =>
+      executor.handlePiFsList(extensionId, fsReq(RESERVED_DB_DIR, tok)),
+    );
 
     const ok = (await withProvenance((tok) =>
       executor.handlePiFsList(extensionId, fsReq(APP_SRC, tok)),
     )) as JsonRpcResponse;
 
     expect(ok.error).toBeUndefined();
-    expect((ok.result as { entries: Array<{ name: string }> }).entries.map((e) => e.name)).toContain(
-      "index.ts",
-    );
+    expect(
+      (ok.result as { entries: Array<{ name: string }> }).entries.map((e) => e.name),
+    ).toContain("index.ts");
     expect(await isEnabled()).toBe(true);
   });
 
@@ -302,7 +308,9 @@ describe("reserved carve-out denial is NOT a security violation", () => {
     await registry.loadFromDb();
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
 
-    await withProvenance((tok) => executor.handlePiFsList(extensionId, fsReq(RESERVED_DB_DIR, tok)));
+    await withProvenance((tok) =>
+      executor.handlePiFsList(extensionId, fsReq(RESERVED_DB_DIR, tok)),
+    );
 
     const db = getTestDb();
     const rows = await db.select().from(auditLog).where(eq(auditLog.action, "ext:perm:denied"));

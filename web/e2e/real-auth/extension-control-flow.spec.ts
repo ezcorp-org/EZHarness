@@ -52,12 +52,16 @@ test.describe("external harness — extension control end-to-end", () => {
 
   test.afterEach(async ({ request }) => {
     if (installedName) await cleanupInstalledExtension(request, installedName).catch(() => {});
-    if (installedDraftId) await cleanupExtensionAuthorDraft(request, installedDraftId).catch(() => {});
+    if (installedDraftId)
+      await cleanupExtensionAuthorDraft(request, installedDraftId).catch(() => {});
     installedName = null;
     installedDraftId = null;
   });
 
-  test("list → wire → invoke roundtrip, with scope + unknown-name enforcement", async ({ request, baseURL }) => {
+  test("list → wire → invoke roundtrip, with scope + unknown-name enforcement", async ({
+    request,
+    baseURL,
+  }) => {
     // 1. Mint two keys with the admin session cookie (storageState):
     //    - full: read (list) + extensions (wire + invoke)
     //    - restricted: read + chat only (may list, must NOT wire or invoke)
@@ -123,13 +127,20 @@ test.describe("external harness — extension control end-to-end", () => {
     ): Promise<"value" | "gated"> {
       try {
         const write = await ez.invokeExtensionTool(conversationId, extName, writeTool, writeInput);
-        expect(write.success, `${extName} ${writeTool} tool-level failure: ${JSON.stringify(write)}`).toBe(true);
+        expect(
+          write.success,
+          `${extName} ${writeTool} tool-level failure: ${JSON.stringify(write)}`,
+        ).toBe(true);
         const read = await ez.invokeExtensionTool(conversationId, extName, readTool, readInput);
         expect(read.success).toBe(true);
         expect(String(read.output)).toContain(marker);
         return "value";
       } catch (e) {
-        if (e instanceof HarnessApiError && e.status === 404 && /Tool not found/.test(JSON.stringify(e.body))) {
+        if (
+          e instanceof HarnessApiError &&
+          e.status === 404 &&
+          /Tool not found/.test(JSON.stringify(e.body))
+        ) {
           return "gated";
         }
         throw e;
@@ -137,12 +148,24 @@ test.describe("external harness — extension control end-to-end", () => {
     }
 
     const key = `k-${Date.now()}`;
-    let outcome = await roundtrip("scratchpad", "scratchpad_write", { key, value: marker }, "scratchpad_read", { key });
+    let outcome = await roundtrip(
+      "scratchpad",
+      "scratchpad_write",
+      { key, value: marker },
+      "scratchpad_read",
+      { key },
+    );
     if (outcome === "gated") {
       // The tool-invoke route wires task-tracking on first use; wire it via the
       // new route too (idempotent) so the wired-set stays consistent.
       await ez.wireExtensions(conversationId, ["task-tracking"]);
-      outcome = await roundtrip("task-tracking", "task_plan", { tasks: [{ title: marker }] }, "task_list", {});
+      outcome = await roundtrip(
+        "task-tracking",
+        "task_plan",
+        { tasks: [{ title: marker }] },
+        "task_list",
+        {},
+      );
     }
     // Either a real value roundtrip ran, or both bundled extensions were
     // fail-closed this boot and the invoke plumbing was verified — never
@@ -155,7 +178,9 @@ test.describe("external harness — extension control end-to-end", () => {
       status: 403,
     });
     await expect(
-      ezRo.invokeExtensionTool(conversationId, "scratchpad", "scratchpad_read", { key: "greeting" }),
+      ezRo.invokeExtensionTool(conversationId, "scratchpad", "scratchpad_read", {
+        key: "greeting",
+      }),
     ).rejects.toMatchObject({ status: 403 });
 
     // 5. Unknown extension name → HarnessApiError 404, and wires NOTHING.
@@ -180,7 +205,11 @@ test.describe("external harness — extension control end-to-end", () => {
     //     install/activate/disable/uninstall.
     async function mintKey(scopes: string[], role?: "admin" | "member"): Promise<string> {
       const res = await request.post("/api/settings/developer/api-keys", {
-        data: { name: `e2e-life-${role ?? "member"}-${Date.now().toString(36)}`, scopes, ...(role ? { role } : {}) },
+        data: {
+          name: `e2e-life-${role ?? "member"}-${Date.now().toString(36)}`,
+          scopes,
+          ...(role ? { role } : {}),
+        },
       });
       expect(res.status(), await res.text()).toBe(201);
       const body = (await res.json()) as { key: string; role: string };
@@ -233,7 +262,8 @@ test.describe("external harness — extension control end-to-end", () => {
     const wired = await ezAdmin.wireExtensions(conversationId, [installedName]);
     expect(wired.wired).toContain(installedName);
     const rec = (await ezAdmin.listExtensions()).find((e) => e.name === installedName);
-    const toolName = (rec?.manifest as { tools?: Array<{ name?: string }> } | undefined)?.tools?.[0]?.name;
+    const toolName = (rec?.manifest as { tools?: Array<{ name?: string }> } | undefined)?.tools?.[0]
+      ?.name;
     if (typeof toolName === "string") {
       try {
         const r = await ezAdmin.invokeExtensionTool(conversationId, installedName, toolName, {});

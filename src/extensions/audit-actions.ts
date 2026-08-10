@@ -692,7 +692,7 @@ export const AUDIT_PERM_PROMPTED = "ext:perm:prompted";
 export const AUDIT_BUNDLED_CEILING_CLAMP = "ext:bundled:ceiling-clamp";
 export const AUDIT_BUNDLED_MANIFEST_TAMPER = "ext:bundled:manifest-tamper";
 
-export type ExtAuditAction = typeof EXT_AUDIT_ACTIONS[keyof typeof EXT_AUDIT_ACTIONS];
+export type ExtAuditAction = (typeof EXT_AUDIT_ACTIONS)[keyof typeof EXT_AUDIT_ACTIONS];
 
 /**
  * Metadata shape stored in `audit_log.metadata` for every `ext:*` row.

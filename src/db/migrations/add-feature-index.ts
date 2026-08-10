@@ -56,5 +56,7 @@ export async function up(db: MigrationDb): Promise<void> {
       PRIMARY KEY (feature_id, relpath)
     )
   `);
-  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_feature_files_feature ON feature_files(feature_id)`);
+  await db.execute(
+    sql`CREATE INDEX IF NOT EXISTS idx_feature_files_feature ON feature_files(feature_id)`,
+  );
 }

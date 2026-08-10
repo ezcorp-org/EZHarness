@@ -52,7 +52,9 @@ function createChainableDb() {
       else _lastWhereArgs = args;
       // For select, where is terminal (returns thenable)
       if (chain._op === "select") {
-        return { then: (resolve: any, reject?: any) => Promise.resolve(mockRows).then(resolve, reject) };
+        return {
+          then: (resolve: any, reject?: any) => Promise.resolve(mockRows).then(resolve, reject),
+        };
       }
       return chain;
     },
@@ -84,7 +86,14 @@ describe("active-runs queries", () => {
 
   describe("createActiveRun", () => {
     test("inserts row and returns it", async () => {
-      const row = { id: "run-1", conversationId: "conv-1", status: "running", startedAt: new Date(), lastHeartbeat: new Date(), partialResponse: null };
+      const row = {
+        id: "run-1",
+        conversationId: "conv-1",
+        status: "running",
+        startedAt: new Date(),
+        lastHeartbeat: new Date(),
+        partialResponse: null,
+      };
       mockRows = [row];
 
       const result = await createActiveRun("run-1", "conv-1");

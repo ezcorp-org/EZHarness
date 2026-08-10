@@ -296,7 +296,8 @@ export async function promptPerCategory(
   const events = normalizeDeclaredEvents(perms.eventSubscriptions);
   if (events?.length) {
     if (await yes(`  Allow event subscriptions: ${events.join(", ")}? [y/N] `)) {
-      requested.eventSubscriptions = perms.eventSubscriptions as ExtensionPermissions["eventSubscriptions"];
+      requested.eventSubscriptions =
+        perms.eventSubscriptions as ExtensionPermissions["eventSubscriptions"];
     }
   }
   if (perms.schedule?.crons?.length) {

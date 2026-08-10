@@ -321,12 +321,12 @@ describe("contexts queries", () => {
 
   describe("upsertSavedContext", () => {
     test("guards required ids", async () => {
-      await expect(
-        upsertSavedContext({ ...baseSaved(), userId: "" }),
-      ).rejects.toThrow("userId is required");
-      await expect(
-        upsertSavedContext({ ...baseSaved(), conversationId: "" }),
-      ).rejects.toThrow("conversationId is required");
+      await expect(upsertSavedContext({ ...baseSaved(), userId: "" })).rejects.toThrow(
+        "userId is required",
+      );
+      await expect(upsertSavedContext({ ...baseSaved(), conversationId: "" })).rejects.toThrow(
+        "conversationId is required",
+      );
     });
 
     test("inserts a new snapshot", async () => {
@@ -383,21 +383,39 @@ describe("contexts queries", () => {
     beforeEach(async () => {
       // Seed a spread of rows across user/project/type/content.
       await upsertSavedContext({
-        userId, projectId, conversationId,
-        topicLabel: "Auth flow", typeId: "feature",
-        title: "Auth flow", content: "JWT refresh rotation", model: null, messageCount: 1,
+        userId,
+        projectId,
+        conversationId,
+        topicLabel: "Auth flow",
+        typeId: "feature",
+        title: "Auth flow",
+        content: "JWT refresh rotation",
+        model: null,
+        messageCount: 1,
       });
       const conv2 = await makeConversation(otherProjectId, userId);
       await upsertSavedContext({
-        userId, projectId: otherProjectId, conversationId: conv2,
-        topicLabel: "Caching layer", typeId: "idea",
-        title: "Caching layer", content: "Redis TTL policy", model: null, messageCount: 2,
+        userId,
+        projectId: otherProjectId,
+        conversationId: conv2,
+        topicLabel: "Caching layer",
+        typeId: "idea",
+        title: "Caching layer",
+        content: "Redis TTL policy",
+        model: null,
+        messageCount: 2,
       });
       const conv3 = await makeConversation(projectId, otherUserId);
       await upsertSavedContext({
-        userId: otherUserId, projectId, conversationId: conv3,
-        topicLabel: "Other user topic", typeId: "feature",
-        title: "Other user topic", content: "Unrelated", model: null, messageCount: 3,
+        userId: otherUserId,
+        projectId,
+        conversationId: conv3,
+        topicLabel: "Other user topic",
+        typeId: "feature",
+        title: "Other user topic",
+        content: "Unrelated",
+        model: null,
+        messageCount: 3,
       });
     });
 
@@ -433,7 +451,10 @@ describe("contexts queries", () => {
 
     test("combined filters", async () => {
       const { total } = await searchContexts({
-        userId, projectId, typeId: "feature", search: "jwt",
+        userId,
+        projectId,
+        typeId: "feature",
+        search: "jwt",
       });
       expect(total).toBe(1);
     });
@@ -441,9 +462,15 @@ describe("contexts queries", () => {
     test("ILIKE-escapes % and _ (literal match, no wildcard)", async () => {
       const conv = await makeConversation(projectId, userId);
       await upsertSavedContext({
-        userId, projectId, conversationId: conv,
-        topicLabel: "Percent", typeId: "fact",
-        title: "50% done_now", content: "literal", model: null, messageCount: 1,
+        userId,
+        projectId,
+        conversationId: conv,
+        topicLabel: "Percent",
+        typeId: "fact",
+        title: "50% done_now",
+        content: "literal",
+        model: null,
+        messageCount: 1,
       });
       // A literal "%_" must match only the row containing that exact text —
       // if unescaped it would be a wildcard matching every row.

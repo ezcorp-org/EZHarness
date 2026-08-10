@@ -120,7 +120,9 @@ describe("wireRunWorkflowForTurn — registration", () => {
     });
     const tool = turn.agentTools[0] as AgentTool & { parameters?: unknown };
     expect(typeof tool.execute).toBe("function");
-    expect((tool.parameters as { properties: Record<string, unknown> }).properties.name).toBeDefined();
+    expect(
+      (tool.parameters as { properties: Record<string, unknown> }).properties.name,
+    ).toBeDefined();
   });
 
   test("dedupes — a second wire in the same turn is a no-op", () => {
@@ -212,9 +214,7 @@ describe("wireRunWorkflowForTurn — pending-permission bridge", () => {
       userId: "user-1",
       ...(pendingPermissions ? { pendingPermissions } : {}),
     });
-    await turn.builtinToolDefsMap
-      .get(RUN_WORKFLOW_TOOL_NAME)!
-      .execute("tc-1", { name: "wf" });
+    await turn.builtinToolDefsMap.get(RUN_WORKFLOW_TOOL_NAME)!.execute("tc-1", { name: "wf" });
     return captured as { pendingPermissions?: CapturedGate };
   }
 

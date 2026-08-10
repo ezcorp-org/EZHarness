@@ -95,9 +95,7 @@ const settingsStub = () => ({
 mock.module("../db/queries/settings", settingsStub);
 mock.module("$server/db/queries/settings", settingsStub);
 
-const { verifyApiKey, requireScope } = await import(
-  "../../web/src/lib/server/security/api-keys"
-);
+const { verifyApiKey, requireScope } = await import("../../web/src/lib/server/security/api-keys");
 
 /** Mint a key the way the pre-change code did, and store it. */
 async function seedLegacyKey(userId: string, scopes: string[]) {
@@ -223,10 +221,20 @@ describe("backfill: safety properties", () => {
 
   test("a malformed scopes field is skipped, not corrupted", async () => {
     await putSetting("apikey:user-i:k1", { hash: "x", userId: "user-i", name: "n", createdAt: 1 });
-    await putSetting("apikey:user-j:k2", { hash: "x", userId: "user-j", scopes: "read", name: "n", createdAt: 1 });
+    await putSetting("apikey:user-j:k2", {
+      hash: "x",
+      userId: "user-j",
+      scopes: "read",
+      name: "n",
+      createdAt: 1,
+    });
     await up(db);
-    expect((await readSetting("apikey:user-i:k1")) as Record<string, unknown>).not.toHaveProperty("scopes");
-    expect(((await readSetting("apikey:user-j:k2")) as Record<string, unknown>).scopes).toBe("read");
+    expect((await readSetting("apikey:user-i:k1")) as Record<string, unknown>).not.toHaveProperty(
+      "scopes",
+    );
+    expect(((await readSetting("apikey:user-j:k2")) as Record<string, unknown>).scopes).toBe(
+      "read",
+    );
   });
 
   test("no-op on an empty settings table", async () => {

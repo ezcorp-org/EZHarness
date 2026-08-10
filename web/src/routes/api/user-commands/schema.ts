@@ -19,12 +19,7 @@ import { z } from "zod";
 
 export const COMMAND_NAME_PATTERN = /^[a-z0-9][a-z0-9-_]{0,63}$/;
 
-export const FRONTMATTER_KEYS = [
-  "description",
-  "argument-hint",
-  "agent",
-  "model",
-] as const;
+export const FRONTMATTER_KEYS = ["description", "argument-hint", "agent", "model"] as const;
 
 export type FrontmatterKey = (typeof FRONTMATTER_KEYS)[number];
 
@@ -35,10 +30,7 @@ export const createUserCommandSchema = z.object({
     .string()
     .min(1, "Name is required")
     .max(64, "Name must be at most 64 characters")
-    .regex(
-      COMMAND_NAME_PATTERN,
-      "Name must be lowercase alphanumeric with optional - or _",
-    ),
+    .regex(COMMAND_NAME_PATTERN, "Name must be lowercase alphanumeric with optional - or _"),
   description: z.string().max(500).optional(),
   body: z.string(),
   frontmatter: frontmatterSchema,
@@ -58,9 +50,7 @@ export const updateUserCommandSchema = z.object({
  * the registry's `Record<string, string>` contract is the source of
  * truth here.
  */
-export function filterFrontmatter(
-  fm: Record<string, unknown> | undefined,
-): Record<string, string> {
+export function filterFrontmatter(fm: Record<string, unknown> | undefined): Record<string, string> {
   if (!fm) return {};
   const out: Record<string, string> = {};
   for (const key of FRONTMATTER_KEYS) {

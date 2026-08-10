@@ -25,11 +25,12 @@ afterEach(() => {
   __resetChannelForTests();
 });
 
-interface RequestCall { method: string; params: unknown }
+interface RequestCall {
+  method: string;
+  params: unknown;
+}
 
-function stubRequest(
-  impl: (call: RequestCall) => Promise<unknown>,
-): { calls: RequestCall[] } {
+function stubRequest(impl: (call: RequestCall) => Promise<unknown>): { calls: RequestCall[] } {
   const ch: HostChannel = getChannel();
   const calls: RequestCall[] = [];
   const spy = spyOn(ch, "request");
@@ -80,10 +81,13 @@ describe("Llm — wire format", () => {
 
 describe("Llm — error mapping", () => {
   test("-32101 → LlmProviderError", async () => {
-    stubRequest(async () => { throw new JsonRpcError(-32101, "Provider not granted"); });
+    stubRequest(async () => {
+      throw new JsonRpcError(-32101, "Provider not granted");
+    });
     try {
       await new Llm().complete({
-        provider: "openai", model: "gpt-4",
+        provider: "openai",
+        model: "gpt-4",
         messages: [{ role: "user", content: "x" }],
       });
       throw new Error("should have thrown");
@@ -97,12 +101,14 @@ describe("Llm — error mapping", () => {
   test("-32103 → LlmQuotaError with retryAfterMs", async () => {
     stubRequest(async () => {
       throw new JsonRpcError(-32103, "Quota exceeded", {
-        reason: "calls-per-hour", retryAfterMs: 1234,
+        reason: "calls-per-hour",
+        retryAfterMs: 1234,
       });
     });
     try {
       await new Llm().complete({
-        provider: "anthropic", model: "claude-sonnet-4",
+        provider: "anthropic",
+        model: "claude-sonnet-4",
         messages: [{ role: "user", content: "x" }],
       });
       throw new Error("should have thrown");
@@ -114,10 +120,13 @@ describe("Llm — error mapping", () => {
   });
 
   test("-32104 → LlmCredentialError", async () => {
-    stubRequest(async () => { throw new JsonRpcError(-32104, "Credential missing"); });
+    stubRequest(async () => {
+      throw new JsonRpcError(-32104, "Credential missing");
+    });
     try {
       await new Llm().complete({
-        provider: "anthropic", model: "claude-sonnet-4",
+        provider: "anthropic",
+        model: "claude-sonnet-4",
         messages: [{ role: "user", content: "x" }],
       });
       throw new Error("should have thrown");
@@ -132,14 +141,16 @@ describe("Llm — stream() is stub-only", () => {
   test("stream() throws NotImplementedError immediately (deferred to v1.4)", async () => {
     const llm = new Llm();
     const iter = llm.stream({
-      provider: "anthropic", model: "claude-sonnet-4",
+      provider: "anthropic",
+      model: "claude-sonnet-4",
       messages: [{ role: "user", content: "x" }],
     });
     let threw: unknown = null;
     try {
       // The async generator throws on first iteration.
       // eslint-disable-next-line no-empty
-      for await (const _ of iter) {}
+      for await (const _ of iter) {
+      }
     } catch (e) {
       threw = e;
     }

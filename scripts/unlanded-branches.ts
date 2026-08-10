@@ -213,7 +213,8 @@ export function degenerateTipEvidence(s: Scan): { sha: string; branches: number 
   }
   let best: { sha: string; branches: number } | null = null;
   for (const [sha, branches] of perBranch) {
-    if (branches >= threshold && (best === null || branches > best.branches)) best = { sha, branches };
+    if (branches >= threshold && (best === null || branches > best.branches))
+      best = { sha, branches };
   }
   return best;
 }
@@ -408,7 +409,10 @@ export function realGit(cwd: string): GitPort {
       return out;
     },
     candidateTips(sha) {
-      const r = run(["for-each-ref", "--contains", sha, "--format=%(refname:short)", "refs/heads"], cwd);
+      const r = run(
+        ["for-each-ref", "--contains", sha, "--format=%(refname:short)", "refs/heads"],
+        cwd,
+      );
       if (!r.ok) return []; // a suggestion is cosmetic; the diagnosis above is not
       const named = r.stdout.split("\n").filter((l) => l !== "");
       return named
@@ -448,7 +452,11 @@ export function main(argv: readonly string[], cwd: string): Rendered {
   try {
     return render(scan(git, cli.tip, cli.patterns), git, cli.allowAllUnlanded);
   } catch (e) {
-    return { stdout: "", stderr: `FATAL: ${e instanceof Error ? e.message : String(e)}\n`, exitCode: EXIT_UNUSABLE };
+    return {
+      stdout: "",
+      stderr: `FATAL: ${e instanceof Error ? e.message : String(e)}\n`,
+      exitCode: EXIT_UNUSABLE,
+    };
   }
 }
 

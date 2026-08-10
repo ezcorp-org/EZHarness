@@ -3,14 +3,14 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 
 mockDbConnection();
 
-import {
-  createAgentConfig,
-  getAgentConfig,
-  updateAgentConfig,
-} from "../db/queries/agent-configs";
+import { createAgentConfig, getAgentConfig, updateAgentConfig } from "../db/queries/agent-configs";
 
-beforeAll(async () => { await setupTestDb(); });
-afterAll(async () => { await closeTestDb(); });
+beforeAll(async () => {
+  await setupTestDb();
+});
+afterAll(async () => {
+  await closeTestDb();
+});
 
 describe("agent-configs — teamToolScope persistence", () => {
   test("createAgentConfig round-trips teamToolScope.allowedTools", async () => {

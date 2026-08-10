@@ -112,38 +112,57 @@ async function runRestore(): Promise<{ restored: number; missingExtension: boole
 const REAL_EXT_ID = "ext-tt-restore";
 
 async function seedFixtures(): Promise<void> {
-  await getDb().insert(users).values({
-    id: "user-restore-t", email: "r@t.local", passwordHash: "x", name: "Restore",
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({
-    id: "proj-restore-t", name: "proj-restore-t", path: "/tmp/proj-restore-t",
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values({
+      id: "user-restore-t",
+      email: "r@t.local",
+      passwordHash: "x",
+      name: "Restore",
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({
+      id: "proj-restore-t",
+      name: "proj-restore-t",
+      path: "/tmp/proj-restore-t",
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function seedConversation(id: string): Promise<void> {
-  await getDb().insert(conversations).values({
-    id, projectId: "proj-restore-t", title: id,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(conversations)
+    .values({
+      id,
+      projectId: "proj-restore-t",
+      title: id,
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function seedExt(): Promise<void> {
-  await getDb().insert(extensionsTable).values({
-    id: REAL_EXT_ID,
-    name: "task-tracking",
-    version: "1.0.0",
-    description: "t",
-    manifest: {
-      schemaVersion: 2,
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id: REAL_EXT_ID,
       name: "task-tracking",
       version: "1.0.0",
       description: "t",
-      author: { name: "t" },
-      permissions: {},
-    },
-    source: "test:tt",
-    installPath: "/tmp/tt",
-    enabled: true,
-  } as any).onConflictDoNothing();
+      manifest: {
+        schemaVersion: 2,
+        name: "task-tracking",
+        version: "1.0.0",
+        description: "t",
+        author: { name: "t" },
+        permissions: {},
+      },
+      source: "test:tt",
+      installPath: "/tmp/tt",
+      enabled: true,
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function removeExt(): Promise<void> {
@@ -155,15 +174,17 @@ async function wipeStorage(): Promise<void> {
 }
 
 async function seedBackup(convId: string, value: unknown): Promise<void> {
-  await getDb().insert(extensionStorage).values({
-    extensionId: REAL_EXT_ID,
-    scope: "conversation",
-    scopeId: convId,
-    key: BACKUP_KEY,
-    value,
-    encrypted: false,
-    sizeBytes: Buffer.byteLength(JSON.stringify(value), "utf-8"),
-  } as any);
+  await getDb()
+    .insert(extensionStorage)
+    .values({
+      extensionId: REAL_EXT_ID,
+      scope: "conversation",
+      scopeId: convId,
+      key: BACKUP_KEY,
+      value,
+      encrypted: false,
+      sizeBytes: Buffer.byteLength(JSON.stringify(value), "utf-8"),
+    } as any);
 }
 
 beforeAll(async () => {
@@ -202,8 +223,18 @@ describe("restore-builtin-task-storage (main flow)", () => {
     expect(result.missingExtension).toBe(false);
     expect(result.restored).toBe(2);
 
-    const restored1 = await getStorageValue(BUILTIN_EXT_ID, "conversation", "conv-r1", LEGACY_BUILTIN_KEY);
-    const restored2 = await getStorageValue(BUILTIN_EXT_ID, "conversation", "conv-r2", LEGACY_BUILTIN_KEY);
+    const restored1 = await getStorageValue(
+      BUILTIN_EXT_ID,
+      "conversation",
+      "conv-r1",
+      LEGACY_BUILTIN_KEY,
+    );
+    const restored2 = await getStorageValue(
+      BUILTIN_EXT_ID,
+      "conversation",
+      "conv-r2",
+      LEGACY_BUILTIN_KEY,
+    );
     expect(restored1?.value).toEqual(snap1);
     expect(restored2?.value).toEqual(snap2);
   });
@@ -216,12 +247,22 @@ describe("restore-builtin-task-storage (main flow)", () => {
 
     const first = await runRestore();
     expect(first.restored).toBe(1);
-    const after1 = await getStorageValue(BUILTIN_EXT_ID, "conversation", "conv-idem", LEGACY_BUILTIN_KEY);
+    const after1 = await getStorageValue(
+      BUILTIN_EXT_ID,
+      "conversation",
+      "conv-idem",
+      LEGACY_BUILTIN_KEY,
+    );
     expect(after1?.value).toEqual(snap);
 
     const second = await runRestore();
     expect(second.restored).toBe(1);
-    const after2 = await getStorageValue(BUILTIN_EXT_ID, "conversation", "conv-idem", LEGACY_BUILTIN_KEY);
+    const after2 = await getStorageValue(
+      BUILTIN_EXT_ID,
+      "conversation",
+      "conv-idem",
+      LEGACY_BUILTIN_KEY,
+    );
     expect(after2?.value).toEqual(snap);
   });
 

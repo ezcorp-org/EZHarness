@@ -142,7 +142,13 @@ describe("GET /api/mentions/search?type=feature", () => {
     mockListFeatures.mockResolvedValue([
       { id: "f1", name: "auth", description: "Authentication", fileCount: 3, source: "agent" },
       { id: "f2", name: "chat", description: "Chat surface", fileCount: 5, source: "agent" },
-      { id: "f3", name: "billing", description: "Stripe integration", fileCount: 2, source: "user" },
+      {
+        id: "f3",
+        name: "billing",
+        description: "Stripe integration",
+        fileCount: 2,
+        source: "user",
+      },
     ]);
 
     const res = await GET(
@@ -161,7 +167,13 @@ describe("GET /api/mentions/search?type=feature", () => {
   test("query that matches DESCRIPTION only is included (cross-field fuzzy match)", async () => {
     vi.mocked(getProject).mockResolvedValue({ id: "p1", name: "x", path: "/tmp/x" } as any);
     mockListFeatures.mockResolvedValue([
-      { id: "f1", name: "auth", description: "Stripe billing module", fileCount: 1, source: "agent" },
+      {
+        id: "f1",
+        name: "auth",
+        description: "Stripe billing module",
+        fileCount: 1,
+        source: "agent",
+      },
       { id: "f2", name: "ui", description: "Dashboard layout", fileCount: 1, source: "agent" },
     ]);
     const res = await GET(

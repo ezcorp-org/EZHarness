@@ -47,16 +47,8 @@
 import { sql } from "drizzle-orm";
 import { logger } from "../logger";
 import { getDb } from "../db/connection";
-import {
-  TTL_CONFIG,
-  getForeverTtlMs,
-  type CapabilityExpiryKind,
-} from "./perm-expiry-config";
-import {
-  applySweepResult,
-  runSweep,
-  type ApplyError,
-} from "./perm-expiry-sweep";
+import { TTL_CONFIG, getForeverTtlMs, type CapabilityExpiryKind } from "./perm-expiry-config";
+import { applySweepResult, runSweep, type ApplyError } from "./perm-expiry-sweep";
 import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
 import { sweepWorkflowDefinitionVersions } from "../db/queries/workflow-versions";
 import { listPinnedDelegationVersionIds } from "../db/queries/workflow-delegations";
@@ -64,11 +56,7 @@ import {
   sweepExpiredWorkflowApprovals,
   type ApprovalTimeoutSweepResult,
 } from "../runtime/workflow-approval-timeout-sweep";
-import {
-  sweepAllDynamicTriggers,
-  type SweepAllResult,
-  type SweepRegistry,
-} from "./triggers-sweep";
+import { sweepAllDynamicTriggers, type SweepAllResult, type SweepRegistry } from "./triggers-sweep";
 
 /**
  * Sub-tick cadence — every 6th `tickOnce()` fires
@@ -296,9 +284,7 @@ export class HostMaintenanceDaemon {
     }
 
     this.timer = setInterval(() => {
-      void this.tickOnce().catch((err: unknown) =>
-        log.warn("tick-failed", { error: String(err) }),
-      );
+      void this.tickOnce().catch((err: unknown) => log.warn("tick-failed", { error: String(err) }));
     }, this.opts.wakeIntervalMs);
     if (typeof this.timer === "object" && "unref" in this.timer) {
       (this.timer as unknown as { unref: () => void }).unref();
@@ -389,9 +375,7 @@ export class HostMaintenanceDaemon {
       this.tickCount++;
       if (this.tickCount % GIN_SWEEP_TICK_MODULO === 0) {
         try {
-          await db.execute(
-            sql`SELECT gin_clean_pending_list(${GIN_TRGM_INDEX_NAME})`,
-          );
+          await db.execute(sql`SELECT gin_clean_pending_list(${GIN_TRGM_INDEX_NAME})`);
           log.debug("tick: gin_clean_pending_list complete", {
             tickCount: this.tickCount,
             index: GIN_TRGM_INDEX_NAME,

@@ -76,30 +76,24 @@ describe.skipIf(SKIP_REASON !== null)("Stage 2 IPv6 leak guard (RC#3)", () => {
   // On dev hosts that lack the full operational stack, these are todo'd.
   // Manual verification path documented in docs/deployment.md.
 
-  test.todo(
-    "curl -6 https://example.com inside Stage 2 netns returns 'Network is unreachable'",
-    () => {
-      // PSEUDOCODE for the GREEN implementation on a Linux+NET_ADMIN+CI runner:
-      //   1. Construct a Stage 2 netns via buildSandboxedMcpSpec(...,ctx)
-      //      using a curl-probe fixture MCP (a 'sleep 30' suffices).
-      //   2. Wait for the child's netns to be populated via the launcher.
-      //   3. `nsenter -t <child.pid> -n curl -6 https://example.com --max-time 5 -v`
-      //      capturing stderr.
-      //   4. Assert exit code != 0 AND stderr matches /Network (is )?unreachable/i
-      //   5. Assert stderr does NOT match /Could not resolve/
-      //   6. Assert stderr does NOT match /Connection refused/
-    },
-  );
+  test.todo("curl -6 https://example.com inside Stage 2 netns returns 'Network is unreachable'", () => {
+    // PSEUDOCODE for the GREEN implementation on a Linux+NET_ADMIN+CI runner:
+    //   1. Construct a Stage 2 netns via buildSandboxedMcpSpec(...,ctx)
+    //      using a curl-probe fixture MCP (a 'sleep 30' suffices).
+    //   2. Wait for the child's netns to be populated via the launcher.
+    //   3. `nsenter -t <child.pid> -n curl -6 https://example.com --max-time 5 -v`
+    //      capturing stderr.
+    //   4. Assert exit code != 0 AND stderr matches /Network (is )?unreachable/i
+    //   5. Assert stderr does NOT match /Could not resolve/
+    //   6. Assert stderr does NOT match /Connection refused/
+  });
 
-  test.todo(
-    "negative control: curl -4 https://example.com via proxy SUCCEEDS in the same netns",
-    () => {
-      // Positive control — proves the netns IS functional for IPv4 through
-      // the proxy; only the IPv6 stack is structurally absent.
-      //
-      //   `nsenter -t <child.pid> -n curl -4 https://example.com --max-time 5
-      //    -x ${EZCORP_MCP_PROXY_HOST_GATEWAY}`
-      //   → assert exit code === 0
-    },
-  );
+  test.todo("negative control: curl -4 https://example.com via proxy SUCCEEDS in the same netns", () => {
+    // Positive control — proves the netns IS functional for IPv4 through
+    // the proxy; only the IPv6 stack is structurally absent.
+    //
+    //   `nsenter -t <child.pid> -n curl -4 https://example.com --max-time 5
+    //    -x ${EZCORP_MCP_PROXY_HOST_GATEWAY}`
+    //   → assert exit code === 0
+  });
 });

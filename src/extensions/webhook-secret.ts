@@ -58,18 +58,12 @@ export async function mintWebhookSecret(
  * inbound token / HMAC). Returns `null` when absent or undecryptable. DO NOT
  * expose to the extension sandbox.
  */
-export async function getWebhookSecret(
-  extensionId: string,
-  slug: string,
-): Promise<string | null> {
+export async function getWebhookSecret(extensionId: string, slug: string): Promise<string | null> {
   return getSecret(extensionId, null, webhookSecretName(slug), { userId: null });
 }
 
 /** True iff a decryptable secret exists for the slug (mint-if-absent guard). */
-export async function hasWebhookSecret(
-  extensionId: string,
-  slug: string,
-): Promise<boolean> {
+export async function hasWebhookSecret(extensionId: string, slug: string): Promise<boolean> {
   return hasSecret(extensionId, null, webhookSecretName(slug), { userId: null });
 }
 
@@ -90,9 +84,6 @@ export async function ensureWebhookSecret(
 
 /** Delete a hook's secret (slug removal cleanup). Returns true on a real
  *  deletion. */
-export async function deleteWebhookSecret(
-  extensionId: string,
-  slug: string,
-): Promise<boolean> {
+export async function deleteWebhookSecret(extensionId: string, slug: string): Promise<boolean> {
   return deleteSecret(extensionId, null, webhookSecretName(slug), { userId: null });
 }

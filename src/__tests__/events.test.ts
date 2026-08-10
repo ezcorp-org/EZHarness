@@ -61,7 +61,9 @@ describe("EventBus", () => {
     const bus = new EventBus<AgentEvents>();
     const received: string[] = [];
 
-    bus.on("run:token", () => { throw new Error("boom"); });
+    bus.on("run:token", () => {
+      throw new Error("boom");
+    });
     bus.on("run:token", ({ token }) => received.push(token));
 
     // Should not throw — error is isolated

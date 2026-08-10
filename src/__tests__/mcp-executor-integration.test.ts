@@ -46,14 +46,15 @@ describe("ToolExecutor MCP path — events + DB recording", () => {
   async function setupMcp(
     extName: string,
     inputSchema: Record<string, unknown>,
-    callToolImpl: (name: string, args: Record<string, unknown>) => Promise<{ content: Array<{ type: "text"; text: string }>; isError: boolean }>,
+    callToolImpl: (
+      name: string,
+      args: Record<string, unknown>,
+    ) => Promise<{ content: Array<{ type: "text"; text: string }>; isError: boolean }>,
   ) {
     const ext = await installMcpExtension({
       name: extName,
       server: { transport: "stdio", name: extName, command: "node" },
-      cachedTools: [
-        { name: "probe", description: "probe", inputSchema },
-      ],
+      cachedTools: [{ name: "probe", description: "probe", inputSchema }],
     });
 
     const registry = ExtensionRegistry.getInstance();
@@ -117,7 +118,9 @@ describe("ToolExecutor MCP path — events + DB recording", () => {
     const { ext, registry } = await setupMcp(
       "ev-throw",
       { type: "object", properties: {} },
-      async () => { throw new Error("connect refused"); },
+      async () => {
+        throw new Error("connect refused");
+      },
     );
 
     const bus = new EventBus<AgentEvents>();
@@ -129,12 +132,7 @@ describe("ToolExecutor MCP path — events + DB recording", () => {
     const conv = await createConversation(projectId, { title: "err" });
     const executor = new ToolExecutor(registry, createStubPermissionEngine(), { bus });
 
-    const result = await executor.executeToolCall(
-      "ev-throw__probe",
-      {},
-      conv.id,
-      null,
-    );
+    const result = await executor.executeToolCall("ev-throw__probe", {}, conv.id, null);
 
     expect(result.isError).toBe(true);
     expect(result.content[0]?.text).toContain("connect refused");
@@ -180,12 +178,7 @@ describe("ToolExecutor MCP path — events + DB recording", () => {
 
     const conv = await createConversation(projectId, { title: "shared" });
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
-    await executor.executeToolCall(
-      "ev-shared__probe",
-      { name: "alice" },
-      conv.id,
-      null,
-    );
+    await executor.executeToolCall("ev-shared__probe", { name: "alice" }, conv.id, null);
 
     expect(calls).toHaveLength(1);
     // cwd resolved; name passed through
@@ -207,9 +200,9 @@ describe("ToolExecutor MCP path — events + DB recording", () => {
     // injected at construction time. Deny-all engine = same observable
     // semantics: PermissionDeniedError + subprocess never invoked.
     const executor = new ToolExecutor(registry, createStubPermissionEngine("deny-all"));
-    await expect(
-      executor.executeToolCall("ev-perm__probe", {}, conv.id, null),
-    ).rejects.toThrow(/Permission denied/);
+    await expect(executor.executeToolCall("ev-perm__probe", {}, conv.id, null)).rejects.toThrow(
+      /Permission denied/,
+    );
     await deleteExtension(ext.id);
   });
 });

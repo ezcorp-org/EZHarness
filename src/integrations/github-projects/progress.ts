@@ -44,8 +44,7 @@ export function buildDoneComment(
   proposal: GithubProjectsProposal,
   opts: { summary?: string; prUrl?: string } = {},
 ): string {
-  const heading =
-    proposal.action === "execute" ? "✅ **Work complete.**" : "✅ **Plan ready.**";
+  const heading = proposal.action === "execute" ? "✅ **Work complete.**" : "✅ **Plan ready.**";
   const parts: string[] = [heading];
   if (opts.summary) {
     parts.push("", opts.summary);
@@ -60,10 +59,7 @@ export function buildDoneComment(
  * Build the failure-run comment body. Includes the error message when
  * available.
  */
-export function buildFailedComment(
-  _proposal: GithubProjectsProposal,
-  error?: string,
-): string {
+export function buildFailedComment(_proposal: GithubProjectsProposal, error?: string): string {
   const detail = error ? `: ${error}` : "";
   return `❌ Run failed${detail}`;
 }
@@ -175,7 +171,12 @@ export async function moveCardOnDone(
   try {
     const auth = await (deps.resolveAuth ?? resolveLinkAuth)(link);
     const client = deps.client ?? createGithubClient();
-    await client.setItemStatus(link.boardNodeId, auth as never, proposal.itemNodeId, column.doneStatusOptionId);
+    await client.setItemStatus(
+      link.boardNodeId,
+      auth as never,
+      proposal.itemNodeId,
+      column.doneStatusOptionId,
+    );
     log.info("moveCardOnDone: card moved", {
       proposalId: proposal.id,
       doneStatusOptionId: column.doneStatusOptionId,

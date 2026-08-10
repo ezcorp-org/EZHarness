@@ -69,51 +69,51 @@ export type TimelineStatus = "running" | "complete" | "error";
  * Ordered by `startMs` ascending — see `sortByStart` for the tie-break rule.
  */
 export interface TimelineEntry {
-	/** Source row id when the source has one (`tool_calls.id`, obs event id). */
-	id?: string;
-	/** Tool name; `"unknown"` when the source row carries none. */
-	toolName: string;
-	/** Owning extension, or `"builtin"` / absent for host tools. */
-	extensionId?: string;
-	status: TimelineStatus;
-	/** Start of the call, epoch milliseconds. The ordering axis. */
-	startMs: number;
-	/**
-	 * Confirmed wall-clock duration in ms. **Absent means UNKNOWN** — render an
-	 * em dash, never "0ms". See the duration-honesty rule in the file header.
-	 */
-	durationMs?: number;
-	/**
-	 * Layout-only span in ms, always present. Equals `durationMs` when known;
-	 * otherwise the source's best fallback (elapsed for a live call, 0 for a
-	 * persisted row). NEVER show this to a user as a measured duration.
-	 */
-	spanMs: number;
-	input?: unknown;
-	output?: unknown;
-	error?: string;
+  /** Source row id when the source has one (`tool_calls.id`, obs event id). */
+  id?: string;
+  /** Tool name; `"unknown"` when the source row carries none. */
+  toolName: string;
+  /** Owning extension, or `"builtin"` / absent for host tools. */
+  extensionId?: string;
+  status: TimelineStatus;
+  /** Start of the call, epoch milliseconds. The ordering axis. */
+  startMs: number;
+  /**
+   * Confirmed wall-clock duration in ms. **Absent means UNKNOWN** — render an
+   * em dash, never "0ms". See the duration-honesty rule in the file header.
+   */
+  durationMs?: number;
+  /**
+   * Layout-only span in ms, always present. Equals `durationMs` when known;
+   * otherwise the source's best fallback (elapsed for a live call, 0 for a
+   * persisted row). NEVER show this to a user as a measured duration.
+   */
+  spanMs: number;
+  input?: unknown;
+  output?: unknown;
+  error?: string;
 }
 
 /** A live `tool:complete`-fed store entry. Structural subset of `ToolCallState`. */
 export interface ToolCallLike {
-	id?: string;
-	toolName: string;
-	status: TimelineStatus;
-	startedAt: number;
-	duration?: number;
-	extensionId?: string;
-	input?: unknown;
-	output?: unknown;
-	error?: string;
+  id?: string;
+  toolName: string;
+  status: TimelineStatus;
+  startedAt: number;
+  duration?: number;
+  extensionId?: string;
+  input?: unknown;
+  output?: unknown;
+  error?: string;
 }
 
 /** A persisted `observability_events` row of type `tool_call` / `tool_error`. */
 export interface ObsEventLike {
-	id: string;
-	eventType: string;
-	data: Record<string, unknown>;
-	durationMs: number | null;
-	createdAt: string;
+  id: string;
+  eventType: string;
+  data: Record<string, unknown>;
+  durationMs: number | null;
+  createdAt: string;
 }
 
 /**
@@ -145,9 +145,9 @@ export const THINKING_GAP_MS = 100;
  * through as facts.
  */
 export function resolveDurationMs(raw: number | null | undefined): number | undefined {
-	if (raw === null || raw === undefined) return undefined;
-	if (!Number.isFinite(raw) || raw <= 0) return undefined;
-	return raw;
+  if (raw === null || raw === undefined) return undefined;
+  if (!Number.isFinite(raw) || raw <= 0) return undefined;
+  return raw;
 }
 
 /**
@@ -157,7 +157,7 @@ export function resolveDurationMs(raw: number | null | undefined): number | unde
  * `Array.prototype.sort` has been required to be stable since ES2019.
  */
 function sortByStart<T extends { startMs: number }>(entries: T[]): T[] {
-	return [...entries].sort((a, b) => a.startMs - b.startMs);
+  return [...entries].sort((a, b) => a.startMs - b.startMs);
 }
 
 /**
@@ -171,25 +171,25 @@ function sortByStart<T extends { startMs: number }>(entries: T[]): T[] {
  * measurement, so `durationMs` stays absent for it.
  */
 export function normalizeToolCalls(calls: ToolCallLike[], now: number): TimelineEntry[] {
-	return sortByStart(
-		calls.map((tc) => {
-			const durationMs = resolveDurationMs(tc.duration);
-			return {
-				...(tc.id === undefined ? {} : { id: tc.id }),
-				toolName: tc.toolName,
-				extensionId: tc.extensionId,
-				status: tc.status,
-				startMs: tc.startedAt,
-				...(durationMs === undefined ? {} : { durationMs }),
-				// Preserves the waterfall's long-standing geometry: a call with no
-				// reported duration is drawn open-ended, running to `now`.
-				spanMs: tc.duration ?? now - tc.startedAt,
-				input: tc.input,
-				output: tc.output,
-				error: tc.error,
-			};
-		}),
-	);
+  return sortByStart(
+    calls.map((tc) => {
+      const durationMs = resolveDurationMs(tc.duration);
+      return {
+        ...(tc.id === undefined ? {} : { id: tc.id }),
+        toolName: tc.toolName,
+        extensionId: tc.extensionId,
+        status: tc.status,
+        startMs: tc.startedAt,
+        ...(durationMs === undefined ? {} : { durationMs }),
+        // Preserves the waterfall's long-standing geometry: a call with no
+        // reported duration is drawn open-ended, running to `now`.
+        spanMs: tc.duration ?? now - tc.startedAt,
+        input: tc.input,
+        output: tc.output,
+        error: tc.error,
+      };
+    }),
+  );
 }
 
 /**
@@ -200,49 +200,49 @@ export function normalizeToolCalls(calls: ToolCallLike[], now: number): Timeline
  * offers nothing better than "instantaneous" for drawing purposes.
  */
 export function normalizeObsEvents(events: ObsEventLike[]): TimelineEntry[] {
-	const entries: TimelineEntry[] = [];
-	for (const ev of events) {
-		if (!TOOL_EVENT_TYPES.has(ev.eventType)) continue;
-		const d = ev.data;
-		const durationMs = resolveDurationMs(ev.durationMs);
-		entries.push({
-			id: ev.id,
-			toolName: (d.toolName as string) ?? "unknown",
-			extensionId: d.extensionId as string | undefined,
-			status: ev.eventType === "tool_error" ? "error" : "complete",
-			startMs: new Date(ev.createdAt).getTime(),
-			...(durationMs === undefined ? {} : { durationMs }),
-			spanMs: ev.durationMs ?? 0,
-			input: d.input,
-			// The collector writes the payload under `output`; older rows used
-			// `result`. Both shapes are still in the table.
-			output: d.output ?? d.result,
-			error: d.error as string | undefined,
-		});
-	}
-	return sortByStart(entries);
+  const entries: TimelineEntry[] = [];
+  for (const ev of events) {
+    if (!TOOL_EVENT_TYPES.has(ev.eventType)) continue;
+    const d = ev.data;
+    const durationMs = resolveDurationMs(ev.durationMs);
+    entries.push({
+      id: ev.id,
+      toolName: (d.toolName as string) ?? "unknown",
+      extensionId: d.extensionId as string | undefined,
+      status: ev.eventType === "tool_error" ? "error" : "complete",
+      startMs: new Date(ev.createdAt).getTime(),
+      ...(durationMs === undefined ? {} : { durationMs }),
+      spanMs: ev.durationMs ?? 0,
+      input: d.input,
+      // The collector writes the payload under `output`; older rows used
+      // `result`. Both shapes are still in the table.
+      output: d.output ?? d.result,
+      error: d.error as string | undefined,
+    });
+  }
+  return sortByStart(entries);
 }
 
 /** One row of the waterfall chart. Percentages are relative to the whole run. */
 export interface WaterfallBar {
-	type: "llm" | "tool";
-	label: string;
-	extensionId?: string;
-	/** Left edge, percent of the total timeline width. */
-	startOffset: number;
-	/** Bar width, percent of the total timeline width. */
-	width: number;
-	/**
-	 * Milliseconds shown in the duration column. Derived from `spanMs`, so it
-	 * is display geometry, NOT a trustworthy measurement — a built-in tool
-	 * shows 0 here. Consumers needing the truth read `TimelineEntry.durationMs`.
-	 */
-	duration: number;
-	status: TimelineStatus;
-	tokens?: { input: number; output: number };
-	input?: unknown;
-	output?: unknown;
-	error?: string;
+  type: "llm" | "tool";
+  label: string;
+  extensionId?: string;
+  /** Left edge, percent of the total timeline width. */
+  startOffset: number;
+  /** Bar width, percent of the total timeline width. */
+  width: number;
+  /**
+   * Milliseconds shown in the duration column. Derived from `spanMs`, so it
+   * is display geometry, NOT a trustworthy measurement — a built-in tool
+   * shows 0 here. Consumers needing the truth read `TimelineEntry.durationMs`.
+   */
+  duration: number;
+  status: TimelineStatus;
+  tokens?: { input: number; output: number };
+  input?: unknown;
+  output?: unknown;
+  error?: string;
 }
 
 /**
@@ -257,49 +257,49 @@ export interface WaterfallBar {
  * need it (they are over `THINKING_GAP_MS` by construction).
  */
 export function buildWaterfallBars(entries: TimelineEntry[]): WaterfallBar[] {
-	if (entries.length === 0) return [];
+  if (entries.length === 0) return [];
 
-	const timelineStart = entries[0]!.startMs;
-	const timelineEnd = entries.reduce(
-		(max, e) => Math.max(max, e.startMs + e.spanMs),
-		timelineStart,
-	);
-	const totalDuration = timelineEnd - timelineStart;
-	if (totalDuration <= 0) return [];
+  const timelineStart = entries[0]!.startMs;
+  const timelineEnd = entries.reduce(
+    (max, e) => Math.max(max, e.startMs + e.spanMs),
+    timelineStart,
+  );
+  const totalDuration = timelineEnd - timelineStart;
+  if (totalDuration <= 0) return [];
 
-	const pct = (ms: number) => (ms / totalDuration) * 100;
-	const bars: WaterfallBar[] = [];
+  const pct = (ms: number) => (ms / totalDuration) * 100;
+  const bars: WaterfallBar[] = [];
 
-	for (let i = 0; i < entries.length; i++) {
-		const e = entries[i]!;
-		const prev = entries[i - 1];
-		const prevEnd = prev ? prev.startMs + prev.spanMs : timelineStart;
+  for (let i = 0; i < entries.length; i++) {
+    const e = entries[i]!;
+    const prev = entries[i - 1];
+    const prevEnd = prev ? prev.startMs + prev.spanMs : timelineStart;
 
-		const gap = e.startMs - prevEnd;
-		if (gap > THINKING_GAP_MS) {
-			bars.push({
-				type: "llm",
-				label: "Thinking",
-				startOffset: pct(prevEnd - timelineStart),
-				width: pct(gap),
-				duration: gap,
-				status: "complete",
-			});
-		}
+    const gap = e.startMs - prevEnd;
+    if (gap > THINKING_GAP_MS) {
+      bars.push({
+        type: "llm",
+        label: "Thinking",
+        startOffset: pct(prevEnd - timelineStart),
+        width: pct(gap),
+        duration: gap,
+        status: "complete",
+      });
+    }
 
-		bars.push({
-			type: "tool",
-			label: e.toolName,
-			extensionId: e.extensionId,
-			startOffset: pct(e.startMs - timelineStart),
-			width: Math.max(pct(e.spanMs), 0.5),
-			duration: e.spanMs,
-			status: e.status,
-			input: e.input,
-			output: e.output,
-			error: e.error,
-		});
-	}
+    bars.push({
+      type: "tool",
+      label: e.toolName,
+      extensionId: e.extensionId,
+      startOffset: pct(e.startMs - timelineStart),
+      width: Math.max(pct(e.spanMs), 0.5),
+      duration: e.spanMs,
+      status: e.status,
+      input: e.input,
+      output: e.output,
+      error: e.error,
+    });
+  }
 
-	return bars;
+  return bars;
 }

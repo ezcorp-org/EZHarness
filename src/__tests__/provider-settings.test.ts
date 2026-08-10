@@ -160,7 +160,7 @@ describe("save provider key (POST logic)", () => {
     expect(mockUpsertSetting).toHaveBeenCalledTimes(1);
     const [storedKey, storedValue] = mockUpsertSetting.mock.calls[0] as unknown as [string, string];
     expect(storedKey).toBe("provider:apiKey:anthropic");
-    expect(storedValue).not.toBe(plainKey);    // never stores plaintext
+    expect(storedValue).not.toBe(plainKey); // never stores plaintext
     expect(decrypt(storedValue)).toBe(plainKey); // encrypted value is recoverable
   });
 
@@ -199,7 +199,9 @@ describe("delete provider key (DELETE logic)", () => {
     await deleteSetting(settingKey("openai"));
 
     expect(mockDeleteSetting).toHaveBeenCalledTimes(1);
-    expect((mockDeleteSetting.mock.calls[0] as unknown as string[])[0]).toBe("provider:apiKey:openai");
+    expect((mockDeleteSetting.mock.calls[0] as unknown as string[])[0]).toBe(
+      "provider:apiKey:openai",
+    );
   });
 
   test("deletes the correct key for each provider", async () => {
@@ -207,7 +209,9 @@ describe("delete provider key (DELETE logic)", () => {
     for (const provider of PROVIDERS) {
       mockDeleteSetting.mockReset();
       await deleteSetting(settingKey(provider));
-      expect((mockDeleteSetting.mock.calls[0] as unknown as string[])[0]).toBe(`provider:apiKey:${provider}`);
+      expect((mockDeleteSetting.mock.calls[0] as unknown as string[])[0]).toBe(
+        `provider:apiKey:${provider}`,
+      );
     }
   });
 });

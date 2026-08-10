@@ -72,7 +72,10 @@ describe("PageBuilder page-only components", () => {
   });
 
   test("table", () => {
-    const rows = [{ cells: ["a"], href: "/x" }, { cells: ["b"], action: { event: "e:x" } }];
+    const rows = [
+      { cells: ["a"], href: "/x" },
+      { cells: ["b"], action: { event: "e:x" } },
+    ];
     expect(build((b) => b.table(["C"], rows)).nodes).toEqual([
       { type: "table", columns: ["C"], rows },
     ]);
@@ -85,9 +88,9 @@ describe("PageBuilder page-only components", () => {
   });
 
   test("button with style", () => {
-    expect(build((b) => b.button("Del", { event: "e:del", confirm: "?" }, "danger")).nodes).toEqual([
-      { type: "button", label: "Del", action: { event: "e:del", confirm: "?" }, style: "danger" },
-    ]);
+    expect(build((b) => b.button("Del", { event: "e:del", confirm: "?" }, "danger")).nodes).toEqual(
+      [{ type: "button", label: "Del", action: { event: "e:del", confirm: "?" }, style: "danger" }],
+    );
   });
 
   test("button with a prompt descriptor emits the prompt on the action", () => {
@@ -105,16 +108,16 @@ describe("PageBuilder page-only components", () => {
   });
 
   test("button without a prompt is prompt-less (additive — no regression)", () => {
-    const action = (build((b) => b.button("Go", { event: "e:go" })).nodes[0] as {
-      action: { prompt?: unknown };
-    }).action;
+    const action = (
+      build((b) => b.button("Go", { event: "e:go" })).nodes[0] as {
+        action: { prompt?: unknown };
+      }
+    ).action;
     expect(action.prompt).toBeUndefined();
   });
 
   test("a prompt rides a table-row action too", () => {
-    const rows = [
-      { cells: ["x"], action: { event: "e:rm", prompt: { label: "Confirm topic" } } },
-    ];
+    const rows = [{ cells: ["x"], action: { event: "e:rm", prompt: { label: "Confirm topic" } } }];
     expect(build((b) => b.table(["C"], rows)).nodes).toEqual([
       { type: "table", columns: ["C"], rows },
     ]);
@@ -134,9 +137,11 @@ describe("PageBuilder page-only components", () => {
   });
 
   test("button without a form is form-less (additive — no regression)", () => {
-    const action = (build((b) => b.button("Go", { event: "e:go" })).nodes[0] as {
-      action: { form?: unknown };
-    }).action;
+    const action = (
+      build((b) => b.button("Go", { event: "e:go" })).nodes[0] as {
+        action: { form?: unknown };
+      }
+    ).action;
     expect(action.form).toBeUndefined();
   });
 
@@ -159,7 +164,12 @@ describe("PageBuilder page-only components", () => {
 
   test("form node passes select options + visibleWhen conditions through verbatim", () => {
     const fields = [
-      { field: "kind", label: "Kind", value: "a", options: [{ value: "a" }, { value: "b", label: "Bee" }] },
+      {
+        field: "kind",
+        label: "Kind",
+        value: "a",
+        options: [{ value: "a" }, { value: "b", label: "Bee" }],
+      },
       { field: "dep", label: "Dep", visibleWhen: { field: "kind", equals: "a" } },
     ];
     expect(build((b) => b.form(fields, { event: "e:save" })).nodes).toEqual([
@@ -193,9 +203,7 @@ describe("PageBuilder page-only components", () => {
   });
 
   test("section with title nests child builder nodes", () => {
-    expect(
-      build((b) => b.section("Inner", (s) => s.heading(3, "x").divider())).nodes,
-    ).toEqual([
+    expect(build((b) => b.section("Inner", (s) => s.heading(3, "x").divider())).nodes).toEqual([
       {
         type: "section",
         title: "Inner",
@@ -353,9 +361,7 @@ describe("invalidatePage", () => {
   test("notifies ezcorp/page-state with the pageId and NO tree", () => {
     const { notifies } = stubChannel();
     invalidatePage("dash");
-    expect(notifies).toEqual([
-      { method: "ezcorp/page-state", params: { pageId: "dash" } },
-    ]);
+    expect(notifies).toEqual([{ method: "ezcorp/page-state", params: { pageId: "dash" } }]);
   });
 });
 
@@ -534,7 +540,9 @@ describe("render context — malformed-list fallback", () => {
   });
 
   test("a run+step request survives the malformed-list fallback", async () => {
-    expect(await renderWith({ projects: [{ id: 1 }, "junk"], run: "run_abc", step: "review" })).toEqual({
+    expect(
+      await renderWith({ projects: [{ id: 1 }, "junk"], run: "run_abc", step: "review" }),
+    ).toEqual({
       run: "run_abc",
       step: "review",
     });

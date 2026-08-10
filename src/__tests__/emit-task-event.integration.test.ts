@@ -59,7 +59,10 @@ const CONV_ID = "conv-tte-int-1";
 
 // ── Mini EventBus compatible with the real type shape ────────────
 
-interface EmitCall { event: string; payload: unknown; }
+interface EmitCall {
+  event: string;
+  payload: unknown;
+}
 
 function makeBus(): { bus: EventBus<AgentEvents>; calls: EmitCall[] } {
   const calls: EmitCall[] = [];
@@ -79,7 +82,10 @@ interface TestProc {
   proc: Subprocess<"pipe", "pipe", "pipe">;
   outbound: Record<string, unknown>[];
   inbound: (msg: Record<string, unknown>) => void;
-  wait: (pred: (m: Record<string, unknown>) => boolean, ms?: number) => Promise<Record<string, unknown>>;
+  wait: (
+    pred: (m: Record<string, unknown>) => boolean,
+    ms?: number,
+  ) => Promise<Record<string, unknown>>;
   kill: () => void;
 }
 
@@ -107,15 +113,28 @@ function spawnExtension(): TestProc {
           const line = buffer.slice(0, idx).trim();
           buffer = buffer.slice(idx + 1);
           if (!line) continue;
-          try { outbound.push(JSON.parse(line)); } catch { /* skip non-JSON */ }
+          try {
+            outbound.push(JSON.parse(line));
+          } catch {
+            /* skip non-JSON */
+          }
         }
       }
-    } catch { /* stream closed */ }
+    } catch {
+      /* stream closed */
+    }
   })();
 
   (async () => {
     const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
-    try { while (true) { const { done } = await reader.read(); if (done) return; } } catch { /* */ }
+    try {
+      while (true) {
+        const { done } = await reader.read();
+        if (done) return;
+      }
+    } catch {
+      /* */
+    }
   })();
 
   function inbound(msg: Record<string, unknown>): void {
@@ -135,7 +154,13 @@ function spawnExtension(): TestProc {
     throw new Error("wait: predicate never satisfied within " + ms + "ms");
   }
 
-  function kill(): void { try { proc.kill(); } catch { /* */ } }
+  function kill(): void {
+    try {
+      proc.kill();
+    } catch {
+      /* */
+    }
+  }
   return { proc, outbound, inbound, wait, kill };
 }
 
@@ -143,33 +168,39 @@ function spawnExtension(): TestProc {
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(projects).values({
-    id: "proj-tte-int",
-    name: "proj-tte-int",
-    path: "/tmp/proj-tte-int",
-  } as any);
-  await getDb().insert(conversations).values({
-    id: CONV_ID,
-    projectId: "proj-tte-int",
-    title: "integration",
-  } as any);
-  await getDb().insert(extensionsTable).values({
-    id: EXT_ID,
-    name: EXT_ID,
-    version: "1.0.0",
-    description: "integration test",
-    manifest: {
-      schemaVersion: 2,
+  await getDb()
+    .insert(projects)
+    .values({
+      id: "proj-tte-int",
+      name: "proj-tte-int",
+      path: "/tmp/proj-tte-int",
+    } as any);
+  await getDb()
+    .insert(conversations)
+    .values({
+      id: CONV_ID,
+      projectId: "proj-tte-int",
+      title: "integration",
+    } as any);
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id: EXT_ID,
       name: EXT_ID,
       version: "1.0.0",
       description: "integration test",
-      author: { name: "test" },
-      permissions: { taskEvents: true },
-    },
-    source: `test:${EXT_ID}`,
-    installPath: `/tmp/${EXT_ID}`,
-    enabled: true,
-  } as any);
+      manifest: {
+        schemaVersion: 2,
+        name: EXT_ID,
+        version: "1.0.0",
+        description: "integration test",
+        author: { name: "test" },
+        permissions: { taskEvents: true },
+      },
+      source: `test:${EXT_ID}`,
+      installPath: `/tmp/${EXT_ID}`,
+      enabled: true,
+    } as any);
   await addConversationExtensions(CONV_ID, [{ extensionId: EXT_ID }]);
 });
 
@@ -180,8 +211,13 @@ afterAll(async () => {
 
 let proc: TestProc | null = null;
 
-beforeEach(() => { proc = spawnExtension(); });
-afterEach(() => { if (proc) proc.kill(); proc = null; });
+beforeEach(() => {
+  proc = spawnExtension();
+});
+afterEach(() => {
+  if (proc) proc.kill();
+  proc = null;
+});
 
 // ── Test ──────────────────────────────────────────────────────────
 
@@ -220,11 +256,7 @@ describe("emit-task-event integration: real subprocess + real handler + bus", ()
       grantedPermissions,
       bus,
     };
-    const resp = await handleEmitTaskEventRpc(
-      EXT_ID,
-      emitReq as any,
-      ctx,
-    );
+    const resp = await handleEmitTaskEventRpc(EXT_ID, emitReq as any, ctx);
     const elapsed = Date.now() - start;
 
     // Bus must have fired with the HOST's conversationId, not the forged one.

@@ -91,7 +91,7 @@ describe("clampExtensionPermissions — base perm tier", () => {
   test("array intersection that ends up empty drops the whole field", () => {
     const submitted: Partial<ExtensionPermissions> = {
       network: ["api.evil.com"], // none in manifest
-      filesystem: ["/etc"],       // none in manifest
+      filesystem: ["/etc"], // none in manifest
     };
     const manifest: ExtensionManifestV2["permissions"] = {
       network: ["api.good.com"],
@@ -106,16 +106,20 @@ describe("clampExtensionPermissions — base perm tier", () => {
   test("boolean toggles only flip true when both sides are exactly true", () => {
     const manifest: ExtensionManifestV2["permissions"] = { shell: true, storage: true };
 
-    expect(clampExtensionPermissions({ shell: true, storage: true }, manifest))
-      .toEqual({ grantedAt: {}, shell: true, storage: true });
+    expect(clampExtensionPermissions({ shell: true, storage: true }, manifest)).toEqual({
+      grantedAt: {},
+      shell: true,
+      storage: true,
+    });
 
     // Ambiguous truthy values — only `=== true` clears the gate.
-    expect(clampExtensionPermissions(
-      // @ts-expect-error — coercive truthy values must NOT pass
-      { shell: 1, storage: "yes" },
-      manifest,
-    ))
-      .toEqual({ grantedAt: {} });
+    expect(
+      clampExtensionPermissions(
+        // @ts-expect-error — coercive truthy values must NOT pass
+        { shell: 1, storage: "yes" },
+        manifest,
+      ),
+    ).toEqual({ grantedAt: {} });
   });
 });
 
@@ -251,15 +255,18 @@ describe("clampExtensionPermissions — capability tier", () => {
   test("agentConfig only granted when both sides exactly === 'read'", () => {
     const manifestRead: ExtensionManifestV2["permissions"] = { agentConfig: "read" };
 
-    expect(clampExtensionPermissions({ agentConfig: "read" }, manifestRead).agentConfig)
-      .toBe("read");
+    expect(clampExtensionPermissions({ agentConfig: "read" }, manifestRead).agentConfig).toBe(
+      "read",
+    );
 
     // Submitter sends something else (e.g. legacy "write" or undefined).
-    expect(clampExtensionPermissions(
-      // @ts-expect-error — schema only allows "read"
-      { agentConfig: "write" },
-      manifestRead,
-    ).agentConfig).toBeUndefined();
+    expect(
+      clampExtensionPermissions(
+        // @ts-expect-error — schema only allows "read"
+        { agentConfig: "write" },
+        manifestRead,
+      ).agentConfig,
+    ).toBeUndefined();
 
     expect(clampExtensionPermissions({}, manifestRead).agentConfig).toBeUndefined();
   });
@@ -326,15 +333,19 @@ describe("clampExtensionPermissions — Phase 51 capability surfaces (C1)", () =
     const submitted: Partial<ExtensionPermissions> = {
       schedule: {
         crons: ["*/5 * * * *", "* * * * *"], // second is sub-5-min — drop
-        maxRunsPerDay: 24, maxRunDurationMs: 300_000,
-        missedRunPolicy: "fire-once", maxRetries: 0,
+        maxRunsPerDay: 24,
+        maxRunDurationMs: 300_000,
+        missedRunPolicy: "fire-once",
+        maxRetries: 0,
       },
     };
     const manifest: ExtensionManifestV2["permissions"] = {
       schedule: {
         crons: ["*/5 * * * *"],
-        maxRunsPerDay: 24, maxRunDurationMs: 300_000,
-        missedRunPolicy: "fire-once", maxRetries: 0,
+        maxRunsPerDay: 24,
+        maxRunDurationMs: 300_000,
+        missedRunPolicy: "fire-once",
+        maxRetries: 0,
       },
     };
     const out = clampExtensionPermissions(submitted, manifest);
@@ -349,8 +360,11 @@ describe("clampExtensionPermissions — Phase 51 capability surfaces (C1)", () =
       memory: { access: "write", maxWritesPerDay: 100, selfOnly: true },
       lessons: { access: "write", maxWritesPerDay: 50, maxVisibility: "user" },
       schedule: {
-        crons: ["*/5 * * * *"], maxRunsPerDay: 24, maxRunDurationMs: 300_000,
-        missedRunPolicy: "fire-once", maxRetries: 0,
+        crons: ["*/5 * * * *"],
+        maxRunsPerDay: 24,
+        maxRunDurationMs: 300_000,
+        missedRunPolicy: "fire-once",
+        maxRetries: 0,
       },
     };
     const manifest: ExtensionManifestV2["permissions"] = {
@@ -358,8 +372,11 @@ describe("clampExtensionPermissions — Phase 51 capability surfaces (C1)", () =
       memory: { access: "write", maxWritesPerDay: 100 },
       lessons: { access: "write", maxWritesPerDay: 50, maxVisibility: "user" },
       schedule: {
-        crons: ["*/5 * * * *"], maxRunsPerDay: 24, maxRunDurationMs: 300_000,
-        missedRunPolicy: "fire-once", maxRetries: 0,
+        crons: ["*/5 * * * *"],
+        maxRunsPerDay: 24,
+        maxRunDurationMs: 300_000,
+        missedRunPolicy: "fire-once",
+        maxRetries: 0,
       },
     };
     const out = clampExtensionPermissions(submitted, manifest);

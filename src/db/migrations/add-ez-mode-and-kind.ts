@@ -65,7 +65,9 @@ const EZ_ALLOWED_TOOLS = [
 export async function up(db: MigrationDb): Promise<void> {
   // ── Schema deltas ────────────────────────────────────────────────
   await db.execute(sql`ALTER TABLE modes ADD COLUMN IF NOT EXISTS allowed_tools TEXT[]`);
-  await db.execute(sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'regular'`);
+  await db.execute(
+    sql`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'regular'`,
+  );
 
   // Ez drafts table
   await db.execute(sql`

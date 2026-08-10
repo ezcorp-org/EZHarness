@@ -53,16 +53,12 @@ mockRealSettings();
 // it as a no-op since the tests call `primeConversationOverrideCache`
 // directly instead of going through the DB-write path.
 
-let getEffectiveGrantsImpl: (
-  conversationId: string,
-  extensionId: string,
-) => Promise<unknown> = async () => null;
+let getEffectiveGrantsImpl: (conversationId: string, extensionId: string) => Promise<unknown> =
+  async () => null;
 
 mock.module("../db/queries/conversation-extensions", () => ({
-  getConversationExtensionEffectiveGrants: (
-    conversationId: string,
-    extensionId: string,
-  ) => getEffectiveGrantsImpl(conversationId, extensionId),
+  getConversationExtensionEffectiveGrants: (conversationId: string, extensionId: string) =>
+    getEffectiveGrantsImpl(conversationId, extensionId),
   addConversationExtensions: async () => {},
   getConversationExtensionIds: async () => [],
   getEffectiveGrantsForConversation: async () => ({ grantedAt: {} }),

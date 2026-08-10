@@ -43,9 +43,7 @@ mock.module("../../../web/src/routes/api/knowledge-base/$types", () => ({}));
 // Aliases the backend test runner cannot resolve on its own. Every one of these
 // points at the REAL implementation (the embedder excepted, which the list
 // route only drags in for the upload path) so nothing about the gates is faked.
-mock.module("$lib/server/http-errors", () =>
-  require("../../../web/src/lib/server/http-errors"),
-);
+mock.module("$lib/server/http-errors", () => require("../../../web/src/lib/server/http-errors"));
 mock.module("$lib/server/security/api-keys", () =>
   require("../../../web/src/lib/server/security/api-keys"),
 );
@@ -375,7 +373,10 @@ describe("DELETE — everything that must NOT be able to un-share", () => {
 describe("the project-membership term tracks the membership table", () => {
   test("a member who is removed from the project loses the ability to share", async () => {
     const transient = (await createUser({
-      email: "transient@test.local", name: "Transient", passwordHash: "x", role: "member",
+      email: "transient@test.local",
+      name: "Transient",
+      passwordHash: "x",
+      role: "member",
     })) as User;
     await upsertProjectMember(projectId, transient.id, "member");
 
@@ -444,11 +445,19 @@ describe("INVARIANT: the buttons the list route offers are exactly the actions t
         if (unshareAllowed) await shareKBFile(f.id, row.sharedBy!);
 
         expect({
-          caller: c.label, file: f.label, canShare, shareAllowed, canUnshare, unshareAllowed,
+          caller: c.label,
+          file: f.label,
+          canShare,
+          shareAllowed,
+          canUnshare,
+          unshareAllowed,
         }).toEqual({
-          caller: c.label, file: f.label,
-          canShare: shareAllowed, shareAllowed,
-          canUnshare: unshareAllowed, unshareAllowed,
+          caller: c.label,
+          file: f.label,
+          canShare: shareAllowed,
+          shareAllowed,
+          canUnshare: unshareAllowed,
+          unshareAllowed,
         });
       }
     }
@@ -456,7 +465,10 @@ describe("INVARIANT: the buttons the list route offers are exactly the actions t
 
   test("the list marks a shared file as shared, and attributes it only to the person who shared it", async () => {
     const file = await makeFile(owner.id);
-    expect(await advertisedFor(owner, file.id)).toMatchObject({ shared: false, sharedByYou: false });
+    expect(await advertisedFor(owner, file.id)).toMatchObject({
+      shared: false,
+      sharedByYou: false,
+    });
 
     await call(share, file.id, owner);
     expect(await advertisedFor(owner, file.id)).toMatchObject({ shared: true, sharedByYou: true });
@@ -469,7 +481,9 @@ describe("INVARIANT: the buttons the list route offers are exactly the actions t
     // project carries `canShare: false`, so no dead button is ever drawn.
     const ownFile = await makeFile(outsider.id);
     expect(await advertisedFor(outsider, ownFile.id)).toMatchObject({
-      shared: false, canShare: false, canUnshare: false,
+      shared: false,
+      canShare: false,
+      canUnshare: false,
     });
   });
 });

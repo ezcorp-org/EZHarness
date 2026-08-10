@@ -81,10 +81,7 @@ describe("fork-link integration", () => {
     const db = getTestDb();
     await expect(migrate(db)).resolves.toBeUndefined();
     // Sanity: the fork columns are still present and queryable post second-run.
-    const rows = await db
-      .select()
-      .from(conversations)
-      .where(eq(conversations.id, SOURCE_CONV_ID));
+    const rows = await db.select().from(conversations).where(eq(conversations.id, SOURCE_CONV_ID));
     expect(rows).toHaveLength(1);
     expect(rows[0]!.forkedFromConversationId).toBeNull();
     expect(rows[0]!.forkedFromMessageId).toBeNull();

@@ -1,6 +1,12 @@
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
+import {
+  mockServerAlias,
+  createMockEvent,
+  jsonFromResponse,
+  ADMIN_USER,
+  MEMBER_USER,
+} from "./helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
 mockServerAlias();
@@ -27,15 +33,18 @@ const analyticsMock = () => ({
   getModelUsage: async (days: number) => mockAnalytics.modelUsage ?? [],
   getAgentStats: async () => mockAnalytics.agentStats ?? [],
   getExtensionStats: async () => mockAnalytics.extensionStats ?? [],
-  getUserStats: async () => mockAnalytics.userStats ?? { totalUsers: 0, activeUsers30d: 0, signupsLast30d: [] },
-  getToolUsageByTool:  async (_days: number) => mockAnalytics.toolUsageByTool  ?? [],
+  getUserStats: async () =>
+    mockAnalytics.userStats ?? { totalUsers: 0, activeUsers30d: 0, signupsLast30d: [] },
+  getToolUsageByTool: async (_days: number) => mockAnalytics.toolUsageByTool ?? [],
   getToolUsageByAgent: async (_days: number) => mockAnalytics.toolUsageByAgent ?? [],
-  getToolUsageByUser:  async (_days: number) => mockAnalytics.toolUsageByUser  ?? [],
+  getToolUsageByUser: async (_days: number) => mockAnalytics.toolUsageByUser ?? [],
   getToolUsageByModel: async (_days: number) => mockAnalytics.toolUsageByModel ?? [],
   getRoutingStats: async (days: number) => ({ ...(mockAnalytics.routingStats ?? {}), days }),
-  getSystemHealth: async () => mockSystem.health ?? { dbSizeBytes: 0, uptimeSeconds: 0, tableRowCounts: {} },
+  getSystemHealth: async () =>
+    mockSystem.health ?? { dbSizeBytes: 0, uptimeSeconds: 0, tableRowCounts: {} },
   getActivityFeed: async () => mockSystem.activityFeed ?? [],
-  getErrorSummary: async () => mockSystem.errorSummary ?? { totalErrors: 0, errorRate: [], recentErrors: [] },
+  getErrorSummary: async () =>
+    mockSystem.errorSummary ?? { totalErrors: 0, errorRate: [], recentErrors: [] },
 });
 
 const errorLogsMock = () => ({
@@ -69,24 +78,61 @@ beforeEach(() => {
       { toolName: "read_file", extensionId: "builtin", count: 20, successCount: 18, errorCount: 2 },
     ],
     toolUsageByAgent: [
-      { agentConfigId: "a1", agentName: "test-agent", toolName: "read_file", count: 12, successCount: 10, errorCount: 2 },
+      {
+        agentConfigId: "a1",
+        agentName: "test-agent",
+        toolName: "read_file",
+        count: 12,
+        successCount: 10,
+        errorCount: 2,
+      },
     ],
     toolUsageByUser: [
-      { userId: "u1", userName: "Alice", userEmail: "a@x.com", toolName: "read_file", count: 9, successCount: 8, errorCount: 1 },
+      {
+        userId: "u1",
+        userName: "Alice",
+        userEmail: "a@x.com",
+        toolName: "read_file",
+        count: 9,
+        successCount: 8,
+        errorCount: 1,
+      },
     ],
     toolUsageByModel: [
-      { model: "claude-opus-4-7", provider: "anthropic", toolName: "read_file", count: 15, successCount: 14, errorCount: 1 },
+      {
+        model: "claude-opus-4-7",
+        provider: "anthropic",
+        toolName: "read_file",
+        count: 15,
+        successCount: 14,
+        errorCount: 1,
+      },
     ],
     routingStats: {
       turns: { total: 10, routed: 3, pinned: 5, legacy: 2 },
       routedShare: 0.375,
       tierMix: [{ tier: "fast", count: 3 }],
       failover: { count: 1, rate: 0.125 },
-      switches: { pairs: 4, total: 1, escalations: 1, downgrades: 0, lateral: 0, rate: 0.25, samples: [] },
+      switches: {
+        pairs: 4,
+        total: 1,
+        escalations: 1,
+        downgrades: 0,
+        lateral: 0,
+        rate: 0.25,
+        samples: [],
+      },
       retries: { answeredTurns: 8, retriedTurns: 1, extraSiblings: 1, rate: 0.125, samples: [] },
       spend: {
-        segments: [], routedUsd: 1.5, pinnedUsd: 2.5, legacyUsd: 0, totalUsd: 4,
-        unpricedTurns: 1, unpricedTokens: 500, conversations: 2, usdPerConversation: 2,
+        segments: [],
+        routedUsd: 1.5,
+        pinnedUsd: 2.5,
+        legacyUsd: 0,
+        totalUsd: 4,
+        unpricedTurns: 1,
+        unpricedTokens: 500,
+        conversations: 2,
+        usdPerConversation: 2,
       },
     },
   };
@@ -214,22 +260,39 @@ describe("GET /api/admin/analytics/routing", () => {
 
   test("defaults to 30 days and clamps the days param to [1, 365]", async () => {
     const dflt = await jsonFromResponse(
-      await routingGet(createMockEvent({ url: "http://localhost/api/admin/analytics/routing", user: ADMIN_USER })),
+      await routingGet(
+        createMockEvent({ url: "http://localhost/api/admin/analytics/routing", user: ADMIN_USER }),
+      ),
     );
     expect(dflt.days).toBe(30);
 
     const low = await jsonFromResponse(
-      await routingGet(createMockEvent({ url: "http://localhost/api/admin/analytics/routing?days=0", user: ADMIN_USER })),
+      await routingGet(
+        createMockEvent({
+          url: "http://localhost/api/admin/analytics/routing?days=0",
+          user: ADMIN_USER,
+        }),
+      ),
     );
     expect(low.days).toBe(30); // parseInt("0") is falsy → the ?? 30 default
 
     const high = await jsonFromResponse(
-      await routingGet(createMockEvent({ url: "http://localhost/api/admin/analytics/routing?days=9999", user: ADMIN_USER })),
+      await routingGet(
+        createMockEvent({
+          url: "http://localhost/api/admin/analytics/routing?days=9999",
+          user: ADMIN_USER,
+        }),
+      ),
     );
     expect(high.days).toBe(365);
 
     const ok = await jsonFromResponse(
-      await routingGet(createMockEvent({ url: "http://localhost/api/admin/analytics/routing?days=7", user: ADMIN_USER })),
+      await routingGet(
+        createMockEvent({
+          url: "http://localhost/api/admin/analytics/routing?days=7",
+          user: ADMIN_USER,
+        }),
+      ),
     );
     expect(ok.days).toBe(7);
   });

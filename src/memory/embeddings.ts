@@ -1,5 +1,9 @@
 // Local embedding generation using Transformers.js (all-MiniLM-L6-v2)
-import { pipeline, type FeatureExtractionPipeline, type PreTrainedTokenizer } from "@huggingface/transformers";
+import {
+  pipeline,
+  type FeatureExtractionPipeline,
+  type PreTrainedTokenizer,
+} from "@huggingface/transformers";
 import { EMBEDDING_DIMENSIONS } from "./types";
 import { CHUNK_TOKENS } from "./message-chunker";
 
@@ -19,7 +23,9 @@ const EMBEDDING_MODEL_NAME = EMBEDDING_MODEL_ID.split("@")[0]!;
 let _extractor: FeatureExtractionPipeline | null = null;
 let _initPromise: Promise<FeatureExtractionPipeline> | null = null;
 
-async function getExtractor(onProgress?: (message: string) => void): Promise<FeatureExtractionPipeline> {
+async function getExtractor(
+  onProgress?: (message: string) => void,
+): Promise<FeatureExtractionPipeline> {
   if (_extractor) return _extractor;
   if (!_initPromise) {
     onProgress?.("Initializing embedding model...");
@@ -78,7 +84,10 @@ async function getExtractor(onProgress?: (message: string) => void): Promise<Fea
   return _initPromise;
 }
 
-export async function generateEmbedding(text: string, onProgress?: (message: string) => void): Promise<number[]> {
+export async function generateEmbedding(
+  text: string,
+  onProgress?: (message: string) => void,
+): Promise<number[]> {
   const extractor = await getExtractor(onProgress);
   // Input truncation to 256 tokens is enforced by getExtractor() setting
   // tokenizer.config.model_max_length = 256 (IDX-06); the extractor's internal
@@ -88,9 +97,7 @@ export async function generateEmbedding(text: string, onProgress?: (message: str
   const raw = Array.from(output.data as Float32Array);
 
   if (raw.length !== EMBEDDING_DIMENSIONS) {
-    throw new Error(
-      `Expected ${EMBEDDING_DIMENSIONS}-dim embedding, got ${raw.length}`,
-    );
+    throw new Error(`Expected ${EMBEDDING_DIMENSIONS}-dim embedding, got ${raw.length}`);
   }
 
   // Manual normalization — normalize: true may not work in all runtimes

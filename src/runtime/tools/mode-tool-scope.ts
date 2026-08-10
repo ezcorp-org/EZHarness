@@ -44,9 +44,7 @@ export interface ModeToolScopeSource {
 
 /** The one registry lookup the computation needs (ExtensionRegistry satisfies it). */
 export interface ModeScopeRegistry {
-  getToolsForExtension(
-    extensionId: string,
-  ): Array<{ name: string; originalName: string }>;
+  getToolsForExtension(extensionId: string): Array<{ name: string; originalName: string }>;
 }
 
 export function computeModeToolScope(
@@ -74,10 +72,7 @@ export function computeModeToolScope(
       const subset = perTool[extId];
       if (subset && subset.length === 0) continue; // extension toggled off
       for (const t of registry.getToolsForExtension(extId)) {
-        if (
-          !subset ||
-          subset.includes(t.name) || subset.includes(t.originalName)
-        ) {
+        if (!subset || subset.includes(t.name) || subset.includes(t.originalName)) {
           allowed.add(t.name);
           toolOwner.set(t.name, { extId, originalName: t.originalName });
         }
@@ -100,8 +95,7 @@ export function computeModeToolScope(
         if (!convSubset) continue; // no narrowing
         if (
           convSubset.length === 0 || // extension toggled off
-          (!convSubset.includes(toolName) &&
-            !convSubset.includes(owner.originalName))
+          (!convSubset.includes(toolName) && !convSubset.includes(owner.originalName))
         ) {
           allowed.delete(toolName);
         }

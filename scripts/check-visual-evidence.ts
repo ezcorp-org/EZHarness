@@ -210,7 +210,9 @@ export async function loadCoversMap(path: string = COVERS_PATH): Promise<CoversM
     }
     return raw;
   } catch (err) {
-    console.warn(`Visual-evidence gate: covers map unreadable (${String(err)}) — using coarse rule.`);
+    console.warn(
+      `Visual-evidence gate: covers map unreadable (${String(err)}) — using coarse rule.`,
+    );
     return null;
   }
 }
@@ -225,10 +227,11 @@ export async function loadCoversMap(path: string = COVERS_PATH): Promise<CoversM
  * means.
  */
 export async function changedFilesSince(base: string): Promise<string[]> {
-  const proc = Bun.spawn(
-    ["git", "diff", "--diff-filter=ACMR", "--name-only", `${base}...HEAD`],
-    { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
-  );
+  const proc = Bun.spawn(["git", "diff", "--diff-filter=ACMR", "--name-only", `${base}...HEAD`], {
+    cwd: REPO_ROOT,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [out, err, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),

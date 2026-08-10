@@ -20,16 +20,10 @@ vi.mock("$lib/server/security/resource-quotas", () => ({
   checkTokenBudget: vi.fn(),
 }));
 
-const { checkTokenBudget } = await import(
-  "$lib/server/security/resource-quotas"
-);
+const { checkTokenBudget } = await import("$lib/server/security/resource-quotas");
 const { POST } = await import("../routes/api/agents/[name]/run/+server.ts");
 
-function makeEvent(opts: {
-  name?: string;
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { name?: string; locals?: Record<string, unknown>; body?: unknown }) {
   const name = opts.name ?? "test-agent";
   const href = `http://localhost/api/agents/${name}/run`;
   return {
@@ -115,11 +109,6 @@ describe("POST /api/agents/[name]/run", () => {
     // Run-ownership: the initiating user's id is threaded so they can later
     // read/cancel their own agent run via /api/runs/[id] (else it inserts
     // user_id=NULL and is admin-only / fail-closed).
-    expect(runAgent).toHaveBeenCalledWith(
-      "test-agent",
-      { foo: "bar" },
-      projectId,
-      user.id,
-    );
+    expect(runAgent).toHaveBeenCalledWith("test-agent", { foo: "bar" }, projectId, user.id);
   });
 });

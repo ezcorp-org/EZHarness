@@ -131,10 +131,7 @@ describe("recovery-needed marker helpers (in-process)", () => {
   test("readRecoveryMarker returns null when required fields are missing", async () => {
     mkdirSync(tempDir, { recursive: true });
     // Valid JSON but missing `dbPath` — the type guard must reject it.
-    writeFileSync(
-      recoveryMarkerPath,
-      JSON.stringify({ ts: "x", imageSha: "y", error: "z" }),
-    );
+    writeFileSync(recoveryMarkerPath, JSON.stringify({ ts: "x", imageSha: "y", error: "z" }));
     const backup = await import("../db/backup");
     expect(backup.readRecoveryMarker()).toBeNull();
   });
@@ -334,9 +331,7 @@ describe("default mode — preserves data on open failure (subprocess)", () => {
 
     // Original data dir intact, sentinel preserved.
     expect(existsSync(dbPath)).toBe(true);
-    expect(readFileSync(join(dbPath, "sentinel.txt"), "utf8")).toBe(
-      "user-data-must-survive",
-    );
+    expect(readFileSync(join(dbPath, "sentinel.txt"), "utf8")).toBe("user-data-must-survive");
 
     // No `.corrupted.<ts>` sibling.
     expect(r.corruptedSiblings).toEqual([]);
@@ -385,14 +380,12 @@ describe("EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE — legacy rename behavior (subpro
     // The legacy path tries to re-open after rename. With our corrupt
     // PG_VERSION moved aside, the fresh dir is empty so the second
     // openPglite() should succeed. We assert on the rename + no marker.
-    const renamed = r.corruptedSiblings.find((n: string) =>
-      n.startsWith("ezcorp-db.corrupted."),
-    );
+    const renamed = r.corruptedSiblings.find((n: string) => n.startsWith("ezcorp-db.corrupted."));
     expect(renamed).toBeTruthy();
     // The renamed-aside dir still contains the user's pre-failure file.
-    expect(
-      readFileSync(join(tempDir, renamed!, "sentinel.txt"), "utf8"),
-    ).toBe("user-data-must-survive");
+    expect(readFileSync(join(tempDir, renamed!, "sentinel.txt"), "utf8")).toBe(
+      "user-data-must-survive",
+    );
 
     // Recovery marker is NOT written in legacy mode — this path is for
     // operators who explicitly want auto-recovery.
@@ -404,9 +397,7 @@ describe("EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE — legacy rename behavior (subpro
     const r = await runChildBoot(dbPath, backupDir, {
       EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE: "true",
     });
-    const renamed = r.corruptedSiblings.find((n: string) =>
-      n.startsWith("ezcorp-db.corrupted."),
-    );
+    const renamed = r.corruptedSiblings.find((n: string) => n.startsWith("ezcorp-db.corrupted."));
     expect(renamed).toBeTruthy();
     expect(r.markerExists).toBe(false);
   }, 60_000);

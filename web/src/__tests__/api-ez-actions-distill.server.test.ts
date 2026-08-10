@@ -117,7 +117,10 @@ function makeEvent(body?: unknown) {
 }
 
 /** Assemble the tool-result envelope the forwarder parses. */
-function envelopeResult(outcome: unknown): { content: { type: "text"; text: string }[]; isError: boolean } {
+function envelopeResult(outcome: unknown): {
+  content: { type: "text"; text: string }[];
+  isError: boolean;
+} {
   return {
     content: [
       {
@@ -151,11 +154,13 @@ beforeEach(() => {
   });
   // Conversation lookup + ownership pass by default; persistence stub.
   mockGetConversation.mockResolvedValue({ id: "c1", userId: USER.id, projectId: "p1" });
-  mockCreateMessage.mockImplementation(async (_convId: string, data: { role: string; content: string }) => ({
-    id: "msg-X",
-    role: data.role,
-    content: data.content,
-  }));
+  mockCreateMessage.mockImplementation(
+    async (_convId: string, data: { role: string; content: string }) => ({
+      id: "msg-X",
+      role: data.role,
+      content: data.content,
+    }),
+  );
   // Default: tool IS registered so the "unavailable" branch is opt-in.
   registryGetTool.mockReturnValue({
     name: "lessons-distiller__distill_now",
@@ -305,7 +310,11 @@ describe("forwardDistillToBundled — decline outcomes (7 variants)", () => {
 
   test("decline:llm_malformed → warning card with the parse-error detail", async () => {
     executeToolCall.mockResolvedValueOnce(
-      envelopeResult({ kind: "decline", reason: "llm_malformed", detail: "missing required fields" }),
+      envelopeResult({
+        kind: "decline",
+        reason: "llm_malformed",
+        detail: "missing required fields",
+      }),
     );
     const { result } = await dispatchAndParse();
     expect(result.kind).toBe("decline");
@@ -314,7 +323,9 @@ describe("forwardDistillToBundled — decline outcomes (7 variants)", () => {
   });
 
   test("decline:llm_malformed without detail → fallback wording", async () => {
-    executeToolCall.mockResolvedValueOnce(envelopeResult({ kind: "decline", reason: "llm_malformed" }));
+    executeToolCall.mockResolvedValueOnce(
+      envelopeResult({ kind: "decline", reason: "llm_malformed" }),
+    );
     const { result } = await dispatchAndParse();
     expect(result.card.body).toMatch(/unknown parse error/i);
   });
@@ -331,7 +342,9 @@ describe("forwardDistillToBundled — decline outcomes (7 variants)", () => {
   });
 
   test("decline:slug_collision without existingSlug → fallback '(unknown)'", async () => {
-    executeToolCall.mockResolvedValueOnce(envelopeResult({ kind: "decline", reason: "slug_collision" }));
+    executeToolCall.mockResolvedValueOnce(
+      envelopeResult({ kind: "decline", reason: "slug_collision" }),
+    );
     const { result } = await dispatchAndParse();
     expect(result.card.body).toMatch(/\(unknown\)/);
   });

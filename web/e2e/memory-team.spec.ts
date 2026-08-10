@@ -57,7 +57,7 @@ const memberAgents = memberConfigs.map((c) =>
     category: null,
     source: "config",
     prompt: c.prompt,
-  })
+  }),
 );
 
 const teamAgent = makeAgent({
@@ -116,7 +116,7 @@ test.describe("Memory Management Team — Edit Page", () => {
     await page.goto("/agents/Memory Management Team");
 
     await expect(
-      page.getByRole("heading", { name: "Edit Team: Memory Management Team" })
+      page.getByRole("heading", { name: "Edit Team: Memory Management Team" }),
     ).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole("button", { name: "Chat" })).toBeVisible();
   });
@@ -131,13 +131,19 @@ test.describe("Memory Management Team — Edit Page", () => {
     await page.goto("/agents/Memory Management Team");
 
     await expect(
-      page.getByRole("heading", { name: "Edit Team: Memory Management Team" })
+      page.getByRole("heading", { name: "Edit Team: Memory Management Team" }),
     ).toBeVisible({ timeout: 5000 });
 
     // All 3 member agents should be in the member tree
-    await expect(page.locator(".font-medium", { hasText: "Memory Validator" })).toBeVisible({ timeout: 5000 });
-    await expect(page.locator(".font-medium", { hasText: "Memory Organizer" })).toBeVisible({ timeout: 5000 });
-    await expect(page.locator(".font-medium", { hasText: "Memory Tester" })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator(".font-medium", { hasText: "Memory Validator" })).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.locator(".font-medium", { hasText: "Memory Organizer" })).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.locator(".font-medium", { hasText: "Memory Tester" })).toBeVisible({
+      timeout: 5000,
+    });
 
     // Empty state should not be visible
     await expect(page.getByText("No members added yet")).not.toBeVisible();
@@ -153,7 +159,7 @@ test.describe("Memory Management Team — Edit Page", () => {
     await page.goto("/agents/Memory Management Team");
 
     await expect(
-      page.getByRole("heading", { name: "Edit Team: Memory Management Team" })
+      page.getByRole("heading", { name: "Edit Team: Memory Management Team" }),
     ).toBeVisible({ timeout: 5000 });
 
     await expect(page.getByText("Run Agent")).not.toBeVisible();
@@ -170,7 +176,7 @@ test.describe("Memory Management Team — Edit Page", () => {
     await page.goto("/agents/Memory Management Team");
 
     await expect(
-      page.getByRole("heading", { name: "Edit Team: Memory Management Team" })
+      page.getByRole("heading", { name: "Edit Team: Memory Management Team" }),
     ).toBeVisible({ timeout: 5000 });
 
     await expect(page.getByText("Coordination Instructions")).toBeVisible();
@@ -186,7 +192,9 @@ test.describe("Memory Management Team — Edit Page", () => {
 
     await page.goto("/agents/Memory Management Team");
 
-    await expect(page.locator(".font-medium", { hasText: "Memory Validator" })).toBeVisible({ timeout: 5000 });
+    await expect(page.locator(".font-medium", { hasText: "Memory Validator" })).toBeVisible({
+      timeout: 5000,
+    });
 
     // Click the member row to expand
     await page.locator(".cursor-pointer", { hasText: "Memory Validator" }).click();

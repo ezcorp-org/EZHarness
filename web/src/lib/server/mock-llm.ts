@@ -103,7 +103,9 @@ export function clearMockScripts(): void {
 /** Derive the script key from the request `model`. The harness sends
  *  `mock:<key>`; anything else maps to the shared "default" bucket. */
 export function mockScriptKeyFromModel(model: unknown): string {
-  return typeof model === "string" && model.startsWith("mock:") ? model.slice("mock:".length) : "default";
+  return typeof model === "string" && model.startsWith("mock:")
+    ? model.slice("mock:".length)
+    : "default";
 }
 
 /** Turn a scripted turn into the OpenAI `chat.completion.chunk` objects a
@@ -114,34 +116,40 @@ export function mockTurnToChunks(turn: MockTurn): unknown[] {
   if (turn.text && turn.text.length > 0) {
     chunks.push({
       object: "chat.completion.chunk",
-      choices: [{ index: 0, delta: { role: "assistant", content: turn.text }, finish_reason: null }],
+      choices: [
+        { index: 0, delta: { role: "assistant", content: turn.text }, finish_reason: null },
+      ],
     });
   }
 
   if (turn.toolCalls && turn.toolCalls.length > 0) {
     turn.toolCalls.forEach((tc, i) => {
-      const args = typeof tc.arguments === "string"
-        ? tc.arguments
-        : JSON.stringify(tc.arguments ?? {});
+      const args =
+        typeof tc.arguments === "string" ? tc.arguments : JSON.stringify(tc.arguments ?? {});
       chunks.push({
         object: "chat.completion.chunk",
-        choices: [{
-          index: 0,
-          delta: {
-            tool_calls: [{
-              index: i,
-              id: tc.id ?? `call_${i}`,
-              type: "function",
-              function: { name: tc.name, arguments: args },
-            }],
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: i,
+                  id: tc.id ?? `call_${i}`,
+                  type: "function",
+                  function: { name: tc.name, arguments: args },
+                },
+              ],
+            },
+            finish_reason: null,
           },
-          finish_reason: null,
-        }],
+        ],
       });
     });
   }
 
-  const finish = turn.finishReason ?? (turn.toolCalls && turn.toolCalls.length > 0 ? "tool_calls" : "stop");
+  const finish =
+    turn.finishReason ?? (turn.toolCalls && turn.toolCalls.length > 0 ? "tool_calls" : "stop");
   chunks.push({
     object: "chat.completion.chunk",
     choices: [{ index: 0, delta: {}, finish_reason: finish }],
@@ -195,7 +203,7 @@ export function buildMockStreamResponse(turn: MockTurn): Response {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
-      "Connection": "keep-alive",
+      Connection: "keep-alive",
       "Content-Encoding": "identity",
     },
   });
@@ -224,7 +232,7 @@ export function buildMockFaultResponse(fault: MockFault): Response {
     });
     return new Response(stream, {
       status: 200,
-      headers: { "Content-Type": "text/event-stream", "Connection": "close" },
+      headers: { "Content-Type": "text/event-stream", Connection: "close" },
     });
   }
   const status = fault.status ?? 500;

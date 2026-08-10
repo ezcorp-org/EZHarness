@@ -14,10 +14,34 @@ interface RateLimitRoute {
 
 const RATE_LIMITED_ROUTES: RateLimitRoute[] = [
   { pattern: /^\/api\/auth\/login$/, limit: 5, keyType: "ip", category: "login" },
-  { pattern: /^\/api\/conversations\/[^/]+\/messages$/, method: "POST", limit: 20, keyType: "user", category: "chat" },
-  { pattern: /^\/api\/agents\/[^/]+\/run$/, method: "POST", limit: 10, keyType: "user", category: "agentRun" },
-  { pattern: /^\/api\/agent-configs\/generate$/, method: "POST", limit: 5, keyType: "user", category: "agentGenerate" },
-  { pattern: /^\/api\/workflows\/[^/]+\/run$/, method: "POST", limit: 10, keyType: "user", category: "workflowRun" },
+  {
+    pattern: /^\/api\/conversations\/[^/]+\/messages$/,
+    method: "POST",
+    limit: 20,
+    keyType: "user",
+    category: "chat",
+  },
+  {
+    pattern: /^\/api\/agents\/[^/]+\/run$/,
+    method: "POST",
+    limit: 10,
+    keyType: "user",
+    category: "agentRun",
+  },
+  {
+    pattern: /^\/api\/agent-configs\/generate$/,
+    method: "POST",
+    limit: 5,
+    keyType: "user",
+    category: "agentGenerate",
+  },
+  {
+    pattern: /^\/api\/workflows\/[^/]+\/run$/,
+    method: "POST",
+    limit: 10,
+    keyType: "user",
+    category: "workflowRun",
+  },
 ];
 
 function matchRateLimitRoute(pathname: string, method: string): RateLimitRoute | undefined {

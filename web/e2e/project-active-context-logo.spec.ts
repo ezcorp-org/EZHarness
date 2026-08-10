@@ -19,50 +19,50 @@ import { makeProject, makeConversation } from "./fixtures/data.js";
 // A small, visible inline SVG (red square + white dot) — a valid image URL the
 // <img> loads deterministically, and a recognizable logo in the @evidence shot.
 const ICON_DATA_URI =
-	"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' fill='%23e11d48'/%3E%3Ccircle cx='20' cy='20' r='9' fill='white'/%3E%3C/svg%3E";
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='40' height='40'%3E%3Crect width='40' height='40' fill='%23e11d48'/%3E%3Ccircle cx='20' cy='20' r='9' fill='white'/%3E%3C/svg%3E";
 
 const CONV_ID = "conv-1";
 
 test.describe("Active-context project logo @ desktop", () => {
-	test.use({ viewport: { width: 1280, height: 800 } });
+  test.use({ viewport: { width: 1280, height: 800 } });
 
-	test("renders the project icon image when the project has a logo @evidence", async ({
-		page,
-		mockApi,
-	}, testInfo) => {
-		await mockApi({
-			projects: [makeProject({ id: "proj-logo", name: "Logoed", icon: ICON_DATA_URI })],
-			conversations: [makeConversation({ id: CONV_ID, projectId: "proj-logo", title: "Hello" })],
-		});
-		await page.goto(`/project/proj-logo/chat/${CONV_ID}`);
+  test("renders the project icon image when the project has a logo @evidence", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    await mockApi({
+      projects: [makeProject({ id: "proj-logo", name: "Logoed", icon: ICON_DATA_URI })],
+      conversations: [makeConversation({ id: CONV_ID, projectId: "proj-logo", title: "Hello" })],
+    });
+    await page.goto(`/project/proj-logo/chat/${CONV_ID}`);
 
-		const avatar = page.getByTestId("active-context-avatar");
-		await expect(avatar).toBeVisible();
+    const avatar = page.getByTestId("active-context-avatar");
+    await expect(avatar).toBeVisible();
 
-		// The fix: an <img> carrying the project icon, not a first-letter fallback.
-		const img = avatar.locator("img");
-		await expect(img).toBeVisible();
-		await expect(img).toHaveAttribute("src", ICON_DATA_URI);
-		// The colored-initial fallback background must NOT be applied when an icon is set.
-		await expect(avatar).not.toContainText("L");
+    // The fix: an <img> carrying the project icon, not a first-letter fallback.
+    const img = avatar.locator("img");
+    await expect(img).toBeVisible();
+    await expect(img).toHaveAttribute("src", ICON_DATA_URI);
+    // The colored-initial fallback background must NOT be applied when an icon is set.
+    await expect(avatar).not.toContainText("L");
 
-		await captureEvidence(page, testInfo, "active-context-logo");
-	});
+    await captureEvidence(page, testInfo, "active-context-logo");
+  });
 
-	test("falls back to the colored first-letter avatar when no icon is set", async ({
-		page,
-		mockApi,
-	}) => {
-		await mockApi({
-			projects: [makeProject({ id: "proj-plain", name: "Plain", icon: null })],
-			conversations: [makeConversation({ id: CONV_ID, projectId: "proj-plain", title: "Hello" })],
-		});
-		await page.goto(`/project/proj-plain/chat/${CONV_ID}`);
+  test("falls back to the colored first-letter avatar when no icon is set", async ({
+    page,
+    mockApi,
+  }) => {
+    await mockApi({
+      projects: [makeProject({ id: "proj-plain", name: "Plain", icon: null })],
+      conversations: [makeConversation({ id: CONV_ID, projectId: "proj-plain", title: "Hello" })],
+    });
+    await page.goto(`/project/proj-plain/chat/${CONV_ID}`);
 
-		const avatar = page.getByTestId("active-context-avatar");
-		await expect(avatar).toBeVisible();
-		// No image — the first letter of the project name stands in for the logo.
-		await expect(avatar.locator("img")).toHaveCount(0);
-		await expect(avatar).toHaveText("P");
-	});
+    const avatar = page.getByTestId("active-context-avatar");
+    await expect(avatar).toBeVisible();
+    // No image — the first letter of the project name stands in for the logo.
+    await expect(avatar.locator("img")).toHaveCount(0);
+    await expect(avatar).toHaveText("P");
+  });
 });

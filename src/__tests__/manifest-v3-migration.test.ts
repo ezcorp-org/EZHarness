@@ -212,7 +212,9 @@ describe("deriveCapsFromExtensionPerms — translates v2 perms shape", () => {
   });
 
   test("shell false is dropped (no decl emitted)", () => {
-    const result = deriveCapsFromExtensionPerms({ shell: false } as Parameters<typeof deriveCapsFromExtensionPerms>[0]);
+    const result = deriveCapsFromExtensionPerms({ shell: false } as Parameters<
+      typeof deriveCapsFromExtensionPerms
+    >[0]);
     expect(result.shell).toBeUndefined();
   });
 

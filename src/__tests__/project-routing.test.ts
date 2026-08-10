@@ -3,7 +3,12 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgents } from "../runtime/loader";
 import { startTestServer } from "./helpers/test-server";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import type { AgentEvents } from "../types";
 
 mockDbConnection();
@@ -35,7 +40,11 @@ afterAll(async () => {
   await closeTestDb();
 });
 
-async function createProject(data: { name: string; path: string; variables?: Record<string, unknown> }) {
+async function createProject(data: {
+  name: string;
+  path: string;
+  variables?: Record<string, unknown>;
+}) {
   const res = await fetch(`${baseUrl}/api/projects`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -63,7 +72,7 @@ describe("/new-project flow", () => {
     const project = await createProject({ name: "rail-proj", path: "/tmp/rail" });
 
     const listRes = await fetch(`${baseUrl}/api/projects`);
-    const projects = await listRes.json() as any;
+    const projects = (await listRes.json()) as any;
     const found = projects.find((p: any) => p.id === project.id);
     expect(found).toBeDefined();
     expect(found.name).toBe("rail-proj");
@@ -94,7 +103,7 @@ describe("/project/[id] dashboard flow", () => {
 
     const res = await fetch(`${baseUrl}/api/projects/${project.id}`);
     expect(res.status).toBe(200);
-    const data = await res.json() as any;
+    const data = (await res.json()) as any;
     expect(data.id).toBe(project.id);
     expect(data.name).toBe("dash-proj");
 
@@ -109,13 +118,13 @@ describe("/project/[id] dashboard flow", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command: "echo proj-run", projectId: project.id }),
     });
-    const run = await runRes.json() as any;
+    const run = (await runRes.json()) as any;
     expect(run.projectId).toBe(project.id);
     expect(run.status).toBe("success");
 
     // Verify via GET /api/runs/:id
     const getRes = await fetch(`${baseUrl}/api/runs/${run.id}`);
-    const fetched = await getRes.json() as any;
+    const fetched = (await getRes.json()) as any;
     expect(fetched.projectId).toBe(project.id);
 
     await deleteProject(project.id);
@@ -129,10 +138,10 @@ describe("/project/[id] dashboard flow", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command: "echo allruns", projectId: project.id }),
     });
-    const run = await runRes.json() as any;
+    const run = (await runRes.json()) as any;
 
     const allRes = await fetch(`${baseUrl}/api/runs`);
-    const allRuns = await allRes.json() as any;
+    const allRuns = (await allRes.json()) as any;
     expect(allRuns.some((r: any) => r.id === run.id)).toBe(true);
 
     await deleteProject(project.id);
@@ -141,7 +150,7 @@ describe("/project/[id] dashboard flow", () => {
   test("GET agents list for dashboard agent cards", async () => {
     const res = await fetch(`${baseUrl}/api/agents`);
     expect(res.status).toBe(200);
-    const agents = await res.json() as any;
+    const agents = (await res.json()) as any;
     expect(agents.length).toBeGreaterThanOrEqual(1);
     for (const agent of agents) {
       expect(agent.name).toBeDefined();
@@ -165,7 +174,7 @@ describe("/project/[id]/settings flow", () => {
       body: JSON.stringify({ name: "new-name", path: "/new" }),
     });
     expect(res.status).toBe(200);
-    const updated = await res.json() as any;
+    const updated = (await res.json()) as any;
     expect(updated.name).toBe("new-name");
     expect(updated.path).toBe("/new");
 
@@ -185,7 +194,7 @@ describe("/project/[id]/settings flow", () => {
       body: JSON.stringify({ variables: { key1: "updated", key2: "new" } }),
     });
     expect(res.status).toBe(200);
-    const updated = await res.json() as any;
+    const updated = (await res.json()) as any;
     expect(updated.variables).toEqual({ key1: "updated", key2: "new" });
 
     await deleteProject(project.id);
@@ -201,7 +210,7 @@ describe("/project/[id]/settings flow", () => {
       body: JSON.stringify({ icon }),
     });
     expect(res.status).toBe(200);
-    const updated = await res.json() as any;
+    const updated = (await res.json()) as any;
     expect(updated.icon).toBe(icon);
 
     // Clear icon
@@ -210,7 +219,7 @@ describe("/project/[id]/settings flow", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ icon: null }),
     });
-    const cleared = await clearRes.json() as any;
+    const cleared = (await clearRes.json()) as any;
     expect(cleared.icon).toBeNull();
 
     await deleteProject(project.id);
@@ -230,7 +239,7 @@ describe("/project/[id]/settings flow", () => {
     });
 
     const getRes = await fetch(`${baseUrl}/api/projects/${project.id}`);
-    const data = await getRes.json() as any;
+    const data = (await getRes.json()) as any;
     expect(data.name).toBe("renamed");
     expect(data.path).toBe("/tmp/partial");
     expect(data.variables).toEqual({ keep: "this" });
@@ -245,7 +254,7 @@ describe("/project/[id]/settings flow", () => {
       method: "DELETE",
     });
     expect(res.status).toBe(200);
-    const body = await res.json() as any;
+    const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
 
     // Verify gone
@@ -262,7 +271,7 @@ describe("/project/[id]/settings flow", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command: "echo cascade", projectId: project.id }),
     });
-    const run = await runRes.json() as any;
+    const run = (await runRes.json()) as any;
 
     // Delete the project
     await fetch(`${baseUrl}/api/projects/${project.id}`, { method: "DELETE" });
@@ -299,7 +308,7 @@ describe("project-scoped agent runs", () => {
       body: JSON.stringify({ command: "echo scoped", projectId: project.id }),
     });
     expect(runRes.status).toBe(200);
-    const run = await runRes.json() as any;
+    const run = (await runRes.json()) as any;
     expect(run.projectId).toBe(project.id);
     expect(run.agentName).toBe("shell-runner");
     expect(run.status).toBe("success");
@@ -307,12 +316,12 @@ describe("project-scoped agent runs", () => {
     // Verify via individual run fetch
     const getRes = await fetch(`${baseUrl}/api/runs/${run.id}`);
     expect(getRes.status).toBe(200);
-    const fetched = await getRes.json() as any;
+    const fetched = (await getRes.json()) as any;
     expect(fetched.projectId).toBe(project.id);
 
     // All runs should include it
     const allRes = await fetch(`${baseUrl}/api/runs`);
-    const allRuns = await allRes.json() as any;
+    const allRuns = (await allRes.json()) as any;
     expect(allRuns.some((r: any) => r.id === run.id)).toBe(true);
 
     await deleteProject(project.id);
@@ -324,7 +333,7 @@ describe("project-scoped agent runs", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command: "echo no-project" }),
     });
-    const run = await runRes.json() as any;
+    const run = (await runRes.json()) as any;
     expect(run.projectId).toBeUndefined();
   });
 });
@@ -342,7 +351,7 @@ describe("full e2e: create -> use -> edit -> delete lifecycle", () => {
     // 2. Verify project is accessible (simulates /project/[id] load)
     const getRes = await fetch(`${baseUrl}/api/projects/${project.id}`);
     expect(getRes.status).toBe(200);
-    const loaded = await getRes.json() as any;
+    const loaded = (await getRes.json()) as any;
     expect(loaded.name).toBe("lifecycle");
     expect(loaded.variables.env).toBe("test");
 
@@ -352,14 +361,14 @@ describe("full e2e: create -> use -> edit -> delete lifecycle", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ command: "echo lifecycle-run", projectId: project.id }),
     });
-    const run = await runRes.json() as any;
+    const run = (await runRes.json()) as any;
     expect(run.status).toBe("success");
     expect(run.projectId).toBe(project.id);
 
     // 4. Verify run is retrievable individually
     const getRunRes = await fetch(`${baseUrl}/api/runs/${run.id}`);
     expect(getRunRes.status).toBe(200);
-    const fetchedRun = await getRunRes.json() as any;
+    const fetchedRun = (await getRunRes.json()) as any;
     expect(fetchedRun.projectId).toBe(project.id);
 
     // 5. Update project settings (simulates /project/[id]/settings save)
@@ -368,13 +377,13 @@ describe("full e2e: create -> use -> edit -> delete lifecycle", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "lifecycle-v2", variables: { env: "prod" } }),
     });
-    const updated = await updateRes.json() as any;
+    const updated = (await updateRes.json()) as any;
     expect(updated.name).toBe("lifecycle-v2");
     expect(updated.variables.env).toBe("prod");
 
     // 6. Verify project in list (rail data refresh)
     const listRes = await fetch(`${baseUrl}/api/projects`);
-    const projects = await listRes.json() as any;
+    const projects = (await listRes.json()) as any;
     const inList = projects.find((p: any) => p.id === project.id);
     expect(inList).toBeDefined();
     expect(inList.name).toBe("lifecycle-v2");
@@ -389,7 +398,7 @@ describe("full e2e: create -> use -> edit -> delete lifecycle", () => {
 
     // 9. Verify project no longer in list
     const finalListRes = await fetch(`${baseUrl}/api/projects`);
-    const finalProjects = await finalListRes.json() as any;
+    const finalProjects = (await finalListRes.json()) as any;
     expect(finalProjects.find((p: any) => p.id === project.id)).toBeUndefined();
   });
 });

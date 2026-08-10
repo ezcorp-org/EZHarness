@@ -22,10 +22,7 @@ import {
 mockServerAlias();
 
 // Generated SvelteKit `$types` module doesn't exist under bun:test — stub it.
-mock.module(
-  "../../../../../../web/src/routes/api/extensions/[id]/secrets/$types",
-  () => ({}),
-);
+mock.module("../../../../../../web/src/routes/api/extensions/[id]/secrets/$types", () => ({}));
 
 // Real pass-through for the response helper — we inspect statuses + bodies.
 import * as httpErrorsActual from "../../../../lib/server/http-errors";
@@ -147,7 +144,7 @@ function ev(
     url: "http://localhost/api/extensions/ext-uuid-1/secrets",
     body: opts.body,
     params: opts.params ?? { id: "ext-uuid-1" },
-    user: opts.user === null ? undefined : opts.user ?? MEMBER_USER,
+    user: opts.user === null ? undefined : (opts.user ?? MEMBER_USER),
   });
 }
 
@@ -189,10 +186,7 @@ describe("POST secrets", () => {
   });
 
   test("explicit null projectId → null scope", async () => {
-    const res = await run(
-      POST,
-      ev({ body: { projectId: null, name: "apiToken", value: "v" } }),
-    );
+    const res = await run(POST, ev({ body: { projectId: null, name: "apiToken", value: "v" } }));
     expect(res.status).toBe(200);
     expect(setSecretCalls[0].projectId).toBe(null);
   });
@@ -240,10 +234,7 @@ describe("POST secrets", () => {
   });
 
   test("non-string projectId → 400", async () => {
-    const res = await run(
-      POST,
-      ev({ body: { projectId: 7, name: "apiToken", value: "v" } }),
-    );
+    const res = await run(POST, ev({ body: { projectId: 7, name: "apiToken", value: "v" } }));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toContain("projectId");
@@ -251,19 +242,13 @@ describe("POST secrets", () => {
   });
 
   test("unknown project → 404, nothing stored", async () => {
-    const res = await run(
-      POST,
-      ev({ body: { projectId: "ghost", name: "apiToken", value: "v" } }),
-    );
+    const res = await run(POST, ev({ body: { projectId: "ghost", name: "apiToken", value: "v" } }));
     expect(res.status).toBe(404);
     expect(setSecretCalls).toHaveLength(0);
   });
 
   test("missing user → 401, nothing stored", async () => {
-    const res = await run(
-      POST,
-      ev({ user: null, body: { name: "apiToken", value: "v" } }),
-    );
+    const res = await run(POST, ev({ user: null, body: { name: "apiToken", value: "v" } }));
     expect(res.status).toBe(401);
     expect(setSecretCalls).toHaveLength(0);
   });
@@ -299,10 +284,7 @@ describe("DELETE secrets", () => {
 
   test("nothing existed → {deleted:false}", async () => {
     deleteResult = false;
-    const res = await run(
-      DELETE,
-      ev({ method: "DELETE", body: { name: "apiToken" } }),
-    );
+    const res = await run(DELETE, ev({ method: "DELETE", body: { name: "apiToken" } }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ deleted: false });
@@ -360,10 +342,7 @@ describe("DELETE secrets", () => {
   });
 
   test("missing user → 401", async () => {
-    const res = await run(
-      DELETE,
-      ev({ method: "DELETE", user: null, body: { name: "apiToken" } }),
-    );
+    const res = await run(DELETE, ev({ method: "DELETE", user: null, body: { name: "apiToken" } }));
     expect(res.status).toBe(401);
     expect(deleteSecretCalls).toHaveLength(0);
   });
@@ -421,7 +400,10 @@ describe("extension RBAC — secrets scope", () => {
 
   test("POST: member no-grant → 403 naming 'secrets', nothing stored", async () => {
     grantedScopes = new Set();
-    const res = await run(POST, ev({ body: { projectId: "proj-1", name: "apiToken", value: "v" } }));
+    const res = await run(
+      POST,
+      ev({ body: { projectId: "proj-1", name: "apiToken", value: "v" } }),
+    );
     await expect403Naming(res);
     expect(setSecretCalls).toHaveLength(0);
   });
@@ -447,7 +429,13 @@ describe("extension RBAC — secrets scope", () => {
     grantedScopes = new Set(["secrets"]);
     await run(POST, ev({ body: { projectId: "proj-1", name: "apiToken", value: "v" } }));
     expect(rbacCalls).toEqual([
-      { userId: MEMBER_USER.id, role: "member", projectId: "proj-1", extensionId: "github-projects", scope: "secrets" },
+      {
+        userId: MEMBER_USER.id,
+        role: "member",
+        projectId: "proj-1",
+        extensionId: "github-projects",
+        scope: "secrets",
+      },
     ]);
     // Instance-wide (no projectId) → the NULL project coordinate.
     rbacCalls.length = 0;
@@ -466,11 +454,19 @@ describe("extension RBAC — secrets scope", () => {
 
   test("DELETE: member no-grant → 403 naming 'secrets', nothing deleted; 'secrets' → 200; admin → 200", async () => {
     grantedScopes = new Set();
-    await expect403Naming(await run(DELETE, ev({ method: "DELETE", body: { projectId: "proj-1", name: "apiToken" } })));
+    await expect403Naming(
+      await run(DELETE, ev({ method: "DELETE", body: { projectId: "proj-1", name: "apiToken" } })),
+    );
     expect(deleteSecretCalls).toHaveLength(0);
     grantedScopes = new Set(["secrets"]);
-    expect((await run(DELETE, ev({ method: "DELETE", body: { projectId: "proj-1", name: "apiToken" } }))).status).toBe(200);
+    expect(
+      (await run(DELETE, ev({ method: "DELETE", body: { projectId: "proj-1", name: "apiToken" } })))
+        .status,
+    ).toBe(200);
     grantedScopes = new Set();
-    expect((await run(DELETE, ev({ method: "DELETE", user: ADMIN_USER, body: { name: "apiToken" } }))).status).toBe(200);
+    expect(
+      (await run(DELETE, ev({ method: "DELETE", user: ADMIN_USER, body: { name: "apiToken" } })))
+        .status,
+    ).toBe(200);
   });
 });

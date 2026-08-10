@@ -18,8 +18,12 @@ mock.module("../db/queries/settings", () => {
       return rows[0]?.value;
     },
     async upsertSetting() {},
-    async deleteSetting() { return false; },
-    async isListingInstalled() { return false; },
+    async deleteSetting() {
+      return false;
+    },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -77,24 +81,32 @@ describe("attachments queries", () => {
 
   test("listAttachmentsForMessage returns inserted rows", async () => {
     await insertAttachment({
-      messageId, conversationId,
-      filename: "notes.txt", mimeType: "text/plain",
-      sizeBytes: 10, storagePath: "/tmp/att/notes.txt", kind: "text",
+      messageId,
+      conversationId,
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 10,
+      storagePath: "/tmp/att/notes.txt",
+      kind: "text",
     });
     const rows = await listAttachmentsForMessage(messageId);
     expect(rows.length).toBeGreaterThanOrEqual(2);
-    expect(rows.every(r => r.messageId === messageId)).toBe(true);
+    expect(rows.every((r) => r.messageId === messageId)).toBe(true);
   });
 
   test("listAttachmentsForConversation returns rows across messages", async () => {
     const otherMsg = await createMessage(conversationId, { role: "user", content: "again" });
     await insertAttachment({
-      messageId: otherMsg.id, conversationId,
-      filename: "doc.pdf", mimeType: "application/pdf",
-      sizeBytes: 50, storagePath: "/tmp/att/doc.pdf", kind: "pdf",
+      messageId: otherMsg.id,
+      conversationId,
+      filename: "doc.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: 50,
+      storagePath: "/tmp/att/doc.pdf",
+      kind: "pdf",
     });
     const rows = await listAttachmentsForConversation(conversationId);
-    const msgIds = new Set(rows.map(r => r.messageId));
+    const msgIds = new Set(rows.map((r) => r.messageId));
     expect(msgIds.has(messageId)).toBe(true);
     expect(msgIds.has(otherMsg.id)).toBe(true);
   });
@@ -102,9 +114,13 @@ describe("attachments queries", () => {
   test("deleteAttachmentsForMessage removes only that message's rows", async () => {
     const other = await createMessage(conversationId, { role: "user", content: "3" });
     await insertAttachment({
-      messageId: other.id, conversationId,
-      filename: "a.png", mimeType: "image/png", sizeBytes: 1,
-      storagePath: "/tmp/a.png", kind: "image",
+      messageId: other.id,
+      conversationId,
+      filename: "a.png",
+      mimeType: "image/png",
+      sizeBytes: 1,
+      storagePath: "/tmp/a.png",
+      kind: "image",
     });
     const deleted = await deleteAttachmentsForMessage(other.id);
     expect(deleted.length).toBe(1);
@@ -118,9 +134,13 @@ describe("attachments queries", () => {
     const tempConv = await createConversation(projectId, { title: "temp" });
     const tempMsg = await createMessage(tempConv.id, { role: "user", content: "x" });
     await insertAttachment({
-      messageId: tempMsg.id, conversationId: tempConv.id,
-      filename: "x.txt", mimeType: "text/plain", sizeBytes: 1,
-      storagePath: "/tmp/x.txt", kind: "text",
+      messageId: tempMsg.id,
+      conversationId: tempConv.id,
+      filename: "x.txt",
+      mimeType: "text/plain",
+      sizeBytes: 1,
+      storagePath: "/tmp/x.txt",
+      kind: "text",
     });
     const deleted = await deleteAttachmentsForConversation(tempConv.id);
     expect(deleted.length).toBe(1);
@@ -129,9 +149,13 @@ describe("attachments queries", () => {
 
   test("getAttachment returns a row by id, null for unknown id", async () => {
     const row = await insertAttachment({
-      messageId, conversationId,
-      filename: "solo.png", mimeType: "image/png", sizeBytes: 5,
-      storagePath: "/tmp/solo.png", kind: "image",
+      messageId,
+      conversationId,
+      filename: "solo.png",
+      mimeType: "image/png",
+      sizeBytes: 5,
+      storagePath: "/tmp/solo.png",
+      kind: "image",
     });
     const hit = await getAttachment(row.id);
     expect(hit?.id).toBe(row.id);
@@ -148,9 +172,13 @@ describe("attachments queries", () => {
   test("listAttachmentsForMessages: returns rows for each id, omits unknown ids", async () => {
     const extraMsg = await createMessage(conversationId, { role: "user", content: "extra" });
     await insertAttachment({
-      messageId: extraMsg.id, conversationId,
-      filename: "extra.png", mimeType: "image/png", sizeBytes: 7,
-      storagePath: "/tmp/extra.png", kind: "image",
+      messageId: extraMsg.id,
+      conversationId,
+      filename: "extra.png",
+      mimeType: "image/png",
+      sizeBytes: 7,
+      storagePath: "/tmp/extra.png",
+      kind: "image",
     });
     const rows = await listAttachmentsForMessages([messageId, extraMsg.id, "nope-id"]);
     const ids = new Set(rows.map((r) => r.messageId));
@@ -163,9 +191,13 @@ describe("attachments queries", () => {
     const c = await createConversation(projectId, { title: "cascade" });
     const m = await createMessage(c.id, { role: "user", content: "x" });
     await insertAttachment({
-      messageId: m.id, conversationId: c.id,
-      filename: "z.png", mimeType: "image/png", sizeBytes: 1,
-      storagePath: "/tmp/z.png", kind: "image",
+      messageId: m.id,
+      conversationId: c.id,
+      filename: "z.png",
+      mimeType: "image/png",
+      sizeBytes: 1,
+      storagePath: "/tmp/z.png",
+      kind: "image",
     });
     const { deleteConversation } = await import("../db/queries/conversations");
     await deleteConversation(c.id);

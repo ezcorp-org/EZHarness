@@ -110,10 +110,7 @@ function makeProbeServer(): { command: string; args: string[] } {
   return { command: "bun", args: ["run", scriptPath] };
 }
 
-function mcpManifest(server: {
-  command: string;
-  args: string[];
-}): ExtensionManifestV2 {
+function mcpManifest(server: { command: string; args: string[] }): ExtensionManifestV2 {
   return {
     schemaVersion: 2,
     name: "af1-probe",
@@ -121,9 +118,7 @@ function mcpManifest(server: {
     description: "AF-1 probe",
     author: { name: "sdet" },
     kind: "mcp",
-    mcpServers: [
-      { transport: "stdio", name: "probe", command: server.command, args: server.args },
-    ],
+    mcpServers: [{ transport: "stdio", name: "probe", command: server.command, args: server.args }],
     permissions: {},
   };
 }
@@ -232,9 +227,7 @@ describe("AF-1: MCP stdio spawn inherits sandbox envelope", () => {
       const payload = await probe(extId);
 
       expect(payload.limits).toContain("Max address space");
-      const line = payload.limits
-        .split("\n")
-        .find((l) => l.startsWith("Max address space"));
+      const line = payload.limits.split("\n").find((l) => l.startsWith("Max address space"));
       expect(line).toBeDefined();
       // Pre-fix (direct StdioClientTransport spawn) would show
       // "unlimited unlimited" here because the parent web-server

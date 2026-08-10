@@ -20,15 +20,7 @@
  * drafts-handler.test.ts). Provenance is registered for real so the
  * userId comes from the host-issued token exactly as in production.
  */
-import {
-  test,
-  expect,
-  describe,
-  beforeEach,
-  afterEach,
-  afterAll,
-  mock,
-} from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 
 // ── Controllable drafts-handler ────────────────────────────────────
@@ -41,14 +33,9 @@ import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 const REAL_DRAFTS_HANDLER = { ...(await import("../drafts-handler")) };
 
 let draftsResponse: unknown;
-let lastHandlerArgs: { name: string; reqMethod: string; userId: string } | null =
-  null;
+let lastHandlerArgs: { name: string; reqMethod: string; userId: string } | null = null;
 mock.module("../drafts-handler", () => ({
-  handleDraftsRpc: async (
-    name: string,
-    req: { method: string },
-    ctx: { userId: string },
-  ) => {
+  handleDraftsRpc: async (name: string, req: { method: string }, ctx: { userId: string }) => {
     lastHandlerArgs = { name, reqMethod: req.method, userId: ctx.userId };
     return draftsResponse;
   },
@@ -56,9 +43,7 @@ mock.module("../drafts-handler", () => ({
 
 const { ToolExecutor } = await import("../tool-executor");
 const { EventBus } = await import("../../runtime/events");
-const { registerCallProvenance, _resetCallProvenanceForTests } = await import(
-  "../call-provenance"
-);
+const { registerCallProvenance, _resetCallProvenanceForTests } = await import("../call-provenance");
 const { createStubPermissionEngine } = await import(
   "../../__tests__/helpers/permission-engine-stub"
 );
@@ -226,10 +211,7 @@ describe("ToolExecutor.handlePiDrafts — extensions:installed emit (Phase 2)", 
     };
     const resp = await (
       executor as unknown as {
-        handlePiDrafts: (
-          e: string,
-          r: JsonRpcRequest,
-        ) => Promise<JsonRpcResponse>;
+        handlePiDrafts: (e: string, r: JsonRpcRequest) => Promise<JsonRpcResponse>;
       }
     ).handlePiDrafts("ext-author", {
       jsonrpc: "2.0",

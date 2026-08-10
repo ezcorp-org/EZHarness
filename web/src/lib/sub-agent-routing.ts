@@ -29,35 +29,35 @@
  */
 
 export interface RoutingState {
-	/** runId → conversationId for root (user-started) runs. */
-	streamingRunToConversation: Record<string, string>;
-	/** subConversationId → rootRunId for every active sub-agent. */
-	subConvToRootRun: Record<string, string>;
-	/** agentRunId → rootRunId for every active sub-agent run. */
-	agentRunToRootRun: Record<string, string>;
+  /** runId → conversationId for root (user-started) runs. */
+  streamingRunToConversation: Record<string, string>;
+  /** subConversationId → rootRunId for every active sub-agent. */
+  subConvToRootRun: Record<string, string>;
+  /** agentRunId → rootRunId for every active sub-agent run. */
+  agentRunToRootRun: Record<string, string>;
 }
 
 export interface AgentSpawnEvent {
-	/** The PARENT run id spawning the agent (may be a root or another agentRunId). */
-	runId: string;
-	/** The NEW run id allocated for the spawned agent. */
-	agentRunId: string;
-	/** The conversation the spawned agent will run in. */
-	subConversationId: string;
+  /** The PARENT run id spawning the agent (may be a root or another agentRunId). */
+  runId: string;
+  /** The NEW run id allocated for the spawned agent. */
+  agentRunId: string;
+  /** The conversation the spawned agent will run in. */
+  subConversationId: string;
 }
 
 export interface AgentCompleteEvent {
-	subConversationId: string;
-	agentRunId?: string;
+  subConversationId: string;
+  agentRunId?: string;
 }
 
 /** Fresh, empty routing state with independent map references. */
 export function emptyRoutingState(): RoutingState {
-	return {
-		streamingRunToConversation: {},
-		subConvToRootRun: {},
-		agentRunToRootRun: {},
-	};
+  return {
+    streamingRunToConversation: {},
+    subConvToRootRun: {},
+    agentRunToRootRun: {},
+  };
 }
 
 /**
@@ -65,13 +65,13 @@ export function emptyRoutingState(): RoutingState {
  * Only considers root streams — not sub-agent conversations.
  */
 export function getActiveRunIdForConversation(
-	state: RoutingState,
-	conversationId: string,
+  state: RoutingState,
+  conversationId: string,
 ): string | undefined {
-	for (const [runId, convId] of Object.entries(state.streamingRunToConversation)) {
-		if (convId === conversationId) return runId;
-	}
-	return undefined;
+  for (const [runId, convId] of Object.entries(state.streamingRunToConversation)) {
+    if (convId === conversationId) return runId;
+  }
+  return undefined;
 }
 
 /**
@@ -81,12 +81,12 @@ export function getActiveRunIdForConversation(
  * authoritative.
  */
 export function resolveRunForConversation(
-	state: RoutingState,
-	conversationId: string,
+  state: RoutingState,
+  conversationId: string,
 ): string | undefined {
-	const direct = getActiveRunIdForConversation(state, conversationId);
-	if (direct) return direct;
-	return state.subConvToRootRun[conversationId];
+  const direct = getActiveRunIdForConversation(state, conversationId);
+  if (direct) return direct;
+  return state.subConvToRootRun[conversationId];
 }
 
 /**
@@ -100,52 +100,46 @@ export function resolveRunForConversation(
  * orphan entry, since rendering a permission prompt against an unknown
  * root would confuse the user.
  */
-export function registerSpawn(
-	state: RoutingState,
-	event: AgentSpawnEvent,
-): RoutingState {
-	const { runId, agentRunId, subConversationId } = event;
-	const rootRunId = state.streamingRunToConversation[runId]
-		? runId
-		: state.agentRunToRootRun[runId];
-	if (!rootRunId) return state;
-	return {
-		streamingRunToConversation: state.streamingRunToConversation,
-		subConvToRootRun: { ...state.subConvToRootRun, [subConversationId]: rootRunId },
-		agentRunToRootRun: { ...state.agentRunToRootRun, [agentRunId]: rootRunId },
-	};
+export function registerSpawn(state: RoutingState, event: AgentSpawnEvent): RoutingState {
+  const { runId, agentRunId, subConversationId } = event;
+  const rootRunId = state.streamingRunToConversation[runId]
+    ? runId
+    : state.agentRunToRootRun[runId];
+  if (!rootRunId) return state;
+  return {
+    streamingRunToConversation: state.streamingRunToConversation,
+    subConvToRootRun: { ...state.subConvToRootRun, [subConversationId]: rootRunId },
+    agentRunToRootRun: { ...state.agentRunToRootRun, [agentRunId]: rootRunId },
+  };
 }
 
 /**
  * Remove the mappings for an `agent:complete` event. No-op if neither entry
  * is present. Does not mutate the input state.
  */
-export function unregisterSpawn(
-	state: RoutingState,
-	event: AgentCompleteEvent,
-): RoutingState {
-	const { subConversationId, agentRunId } = event;
-	const hasSub = subConversationId in state.subConvToRootRun;
-	const hasAgent = agentRunId !== undefined && agentRunId in state.agentRunToRootRun;
-	if (!hasSub && !hasAgent) return state;
+export function unregisterSpawn(state: RoutingState, event: AgentCompleteEvent): RoutingState {
+  const { subConversationId, agentRunId } = event;
+  const hasSub = subConversationId in state.subConvToRootRun;
+  const hasAgent = agentRunId !== undefined && agentRunId in state.agentRunToRootRun;
+  if (!hasSub && !hasAgent) return state;
 
-	let nextSubConv = state.subConvToRootRun;
-	if (hasSub) {
-		const { [subConversationId]: _removed, ...rest } = state.subConvToRootRun;
-		void _removed;
-		nextSubConv = rest;
-	}
+  let nextSubConv = state.subConvToRootRun;
+  if (hasSub) {
+    const { [subConversationId]: _removed, ...rest } = state.subConvToRootRun;
+    void _removed;
+    nextSubConv = rest;
+  }
 
-	let nextAgentRun = state.agentRunToRootRun;
-	if (hasAgent && agentRunId !== undefined) {
-		const { [agentRunId]: _removed, ...rest } = state.agentRunToRootRun;
-		void _removed;
-		nextAgentRun = rest;
-	}
+  let nextAgentRun = state.agentRunToRootRun;
+  if (hasAgent && agentRunId !== undefined) {
+    const { [agentRunId]: _removed, ...rest } = state.agentRunToRootRun;
+    void _removed;
+    nextAgentRun = rest;
+  }
 
-	return {
-		streamingRunToConversation: state.streamingRunToConversation,
-		subConvToRootRun: nextSubConv,
-		agentRunToRootRun: nextAgentRun,
-	};
+  return {
+    streamingRunToConversation: state.streamingRunToConversation,
+    subConvToRootRun: nextSubConv,
+    agentRunToRootRun: nextAgentRun,
+  };
 }

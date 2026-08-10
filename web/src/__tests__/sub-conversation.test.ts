@@ -20,7 +20,9 @@ mock.module("../../../src/db/queries/settings", () => ({
 }));
 
 // Must import after mocking
-const { createSubConversation, getSubConversations } = await import("../../../src/db/queries/conversations");
+const { createSubConversation, getSubConversations } = await import(
+  "../../../src/db/queries/conversations"
+);
 
 describe("Sub-Conversation Lifecycle (SUBC-01, SUBC-03, SUBC-04)", () => {
   beforeEach(() => {
@@ -29,11 +31,16 @@ describe("Sub-Conversation Lifecycle (SUBC-01, SUBC-03, SUBC-04)", () => {
   });
 
   test("createSubConversation creates conversation with parent reference", async () => {
-    mockReturning.mockReturnValue([{
-      id: "sub-1", projectId: "proj-1",
-      parentConversationId: "conv-1", parentMessageId: "msg-1",
-      title: "Sub conversation", agentConfigId: "agent-1",
-    }]);
+    mockReturning.mockReturnValue([
+      {
+        id: "sub-1",
+        projectId: "proj-1",
+        parentConversationId: "conv-1",
+        parentMessageId: "msg-1",
+        title: "Sub conversation",
+        agentConfigId: "agent-1",
+      },
+    ]);
 
     const result = await createSubConversation("proj-1", {
       parentConversationId: "conv-1",
@@ -48,7 +55,7 @@ describe("Sub-Conversation Lifecycle (SUBC-01, SUBC-03, SUBC-04)", () => {
 
   test("createSubConversation requires parentConversationId", async () => {
     await expect(
-      createSubConversation("proj-1", { parentConversationId: "", parentMessageId: "msg-1" })
+      createSubConversation("proj-1", { parentConversationId: "", parentMessageId: "msg-1" }),
     ).rejects.toThrow("parentConversationId is required");
   });
 
@@ -93,8 +100,12 @@ class TestSubConversationStore {
   subConvoMessages: SubConvoMessage[] = [];
   isStreaming = false;
 
-  get isInSubConversation(): boolean { return this.activeSubConversation !== null; }
-  get activeSubConversationId(): string | null { return this.activeSubConversation?.id ?? null; }
+  get isInSubConversation(): boolean {
+    return this.activeSubConversation !== null;
+  }
+  get activeSubConversationId(): string | null {
+    return this.activeSubConversation?.id ?? null;
+  }
 
   startSubConversation(opts: SubConversationState): void {
     this.activeSubConversation = opts;
@@ -114,7 +125,9 @@ class TestSubConversationStore {
     this.subConvoMessages = [...this.subConvoMessages, msg];
   }
 
-  setStreaming(streaming: boolean): void { this.isStreaming = streaming; }
+  setStreaming(streaming: boolean): void {
+    this.isStreaming = streaming;
+  }
 }
 
 describe("Sub-Conversation Client Store", () => {
@@ -129,8 +142,11 @@ describe("Sub-Conversation Client Store", () => {
     expect(store.activeSubConversationId).toBeNull();
 
     store.startSubConversation({
-      id: "sub-1", agentConfigId: "cfg-1", agentName: "Helper",
-      parentConversationId: "conv-1", parentMessageId: "msg-1",
+      id: "sub-1",
+      agentConfigId: "cfg-1",
+      agentName: "Helper",
+      parentConversationId: "conv-1",
+      parentMessageId: "msg-1",
     });
 
     expect(store.isInSubConversation).toBe(true);
@@ -139,8 +155,11 @@ describe("Sub-Conversation Client Store", () => {
 
   test("addMessage appends to subConvoMessages", () => {
     store.startSubConversation({
-      id: "sub-1", agentConfigId: "cfg-1", agentName: "Helper",
-      parentConversationId: "conv-1", parentMessageId: "msg-1",
+      id: "sub-1",
+      agentConfigId: "cfg-1",
+      agentName: "Helper",
+      parentConversationId: "conv-1",
+      parentMessageId: "msg-1",
     });
 
     store.addMessage({ id: "m1", role: "user", content: "hello", createdAt: new Date() });
@@ -151,8 +170,11 @@ describe("Sub-Conversation Client Store", () => {
 
   test("endSubConversation clears state and returns messages", () => {
     store.startSubConversation({
-      id: "sub-1", agentConfigId: "cfg-1", agentName: "Helper",
-      parentConversationId: "conv-1", parentMessageId: "msg-1",
+      id: "sub-1",
+      agentConfigId: "cfg-1",
+      agentName: "Helper",
+      parentConversationId: "conv-1",
+      parentMessageId: "msg-1",
     });
     store.addMessage({ id: "m1", role: "assistant", content: "done", createdAt: new Date() });
 

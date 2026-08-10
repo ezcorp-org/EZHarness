@@ -162,7 +162,10 @@ function makeRequestHandler() {
     new Promise<void>((resolve, reject) => {
       if (received.length >= n) return resolve();
       waiters.push({ n, resolve });
-      setTimeout(() => reject(new Error(`timeout waiting for ${n} requests (got ${received.length})`)), timeoutMs);
+      setTimeout(
+        () => reject(new Error(`timeout waiting for ${n} requests (got ${received.length})`)),
+        timeoutMs,
+      );
     });
   return { handler, received, waitFor };
 }
@@ -183,7 +186,10 @@ function makeNotificationHandler() {
     new Promise<void>((resolve, reject) => {
       if (received.length >= n) return resolve();
       waiters.push({ n, resolve });
-      setTimeout(() => reject(new Error(`timeout waiting for ${n} notifications (got ${received.length})`)), timeoutMs);
+      setTimeout(
+        () => reject(new Error(`timeout waiting for ${n} notifications (got ${received.length})`)),
+        timeoutMs,
+      );
     });
   return { handler, received, waitFor };
 }

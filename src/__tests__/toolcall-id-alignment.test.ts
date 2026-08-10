@@ -14,11 +14,19 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 mock.module("../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -44,15 +52,18 @@ beforeAll(async () => {
   if (existing.length > 0) {
     extensionId = existing[0]!.id;
   } else {
-    const inserted = await getTestDb().insert(extensions).values({
-      id: `ext-${crypto.randomUUID().slice(0, 8)}`,
-      name: `test-ext-${crypto.randomUUID().slice(0, 8)}`,
-      version: "0.0.0",
-      description: "test",
-      manifest: { name: "test", version: "0.0.0" } as any,
-      source: "test",
-      installPath: "/",
-    }).returning({ id: extensions.id });
+    const inserted = await getTestDb()
+      .insert(extensions)
+      .values({
+        id: `ext-${crypto.randomUUID().slice(0, 8)}`,
+        name: `test-ext-${crypto.randomUUID().slice(0, 8)}`,
+        version: "0.0.0",
+        description: "test",
+        manifest: { name: "test", version: "0.0.0" } as any,
+        source: "test",
+        installPath: "/",
+      })
+      .returning({ id: extensions.id });
     extensionId = inserted[0]!.id;
   }
 });
@@ -65,17 +76,19 @@ afterAll(async () => {
 describe("tool_calls id alignment — explicit id from the event persists verbatim", () => {
   test("inserting with an explicit id preserves it (no UUID regeneration)", async () => {
     const eventToolCallId = "00000000-0000-4000-8000-000000000001";
-    await getTestDb().insert(toolCalls).values({
-      id: eventToolCallId,
-      conversationId,
-      messageId: null,
-      extensionId,
-      toolName: "edit_file",
-      input: { file_path: "x.ts", old_string: "a", new_string: "b" },
-      output: { content: [{ type: "text", text: "ok" }] },
-      success: true,
-      durationMs: 10,
-    });
+    await getTestDb()
+      .insert(toolCalls)
+      .values({
+        id: eventToolCallId,
+        conversationId,
+        messageId: null,
+        extensionId,
+        toolName: "edit_file",
+        input: { file_path: "x.ts", old_string: "a", new_string: "b" },
+        output: { content: [{ type: "text", text: "ok" }] },
+        success: true,
+        durationMs: 10,
+      });
 
     const rows = await getTestDb()
       .select()
@@ -104,17 +117,20 @@ describe("tool_calls id alignment — explicit id from the event persists verbat
 
     let threw = false;
     try {
-      await getTestDb().insert(toolCalls).values({
-        id: eventToolCallId,
-        conversationId,
-        messageId: null,
-        extensionId,
-        toolName: "edit_file",
-        input: {},
-        output: null,
-        success: true,
-        durationMs: 1,
-      }).execute();
+      await getTestDb()
+        .insert(toolCalls)
+        .values({
+          id: eventToolCallId,
+          conversationId,
+          messageId: null,
+          extensionId,
+          toolName: "edit_file",
+          input: {},
+          output: null,
+          success: true,
+          durationMs: 1,
+        })
+        .execute();
     } catch {
       threw = true;
     }
@@ -146,19 +162,25 @@ describe("tool_calls id alignment — explicit id from the event persists verbat
     // (e.g. an accidental schema change or a type-safety override slipping in)
     // is caught here.
     const eventToolCallId = "00000000-0000-4000-8000-000000000003";
-    await getTestDb().insert(toolCalls).values({
-      id: eventToolCallId,
-      conversationId,
-      messageId: null,
-      extensionId: "builtin", // executor passes "builtin" literally; extension exists in our seed
-      toolName: "edit_file",
-      input: { path: "src/a.ts", new_string: "hi" },
-      output: { content: [{ type: "text", text: "created" }] },
-      success: true,
-      durationMs: 0,
-    }).onConflictDoNothing();
+    await getTestDb()
+      .insert(toolCalls)
+      .values({
+        id: eventToolCallId,
+        conversationId,
+        messageId: null,
+        extensionId: "builtin", // executor passes "builtin" literally; extension exists in our seed
+        toolName: "edit_file",
+        input: { path: "src/a.ts", new_string: "hi" },
+        output: { content: [{ type: "text", text: "created" }] },
+        success: true,
+        durationMs: 0,
+      })
+      .onConflictDoNothing();
 
-    const rows = await getTestDb().select().from(toolCalls).where(eq(toolCalls.id, eventToolCallId));
+    const rows = await getTestDb()
+      .select()
+      .from(toolCalls)
+      .where(eq(toolCalls.id, eventToolCallId));
     // Note: may be 0 if conflict (test re-run). Either 0 or 1; when 1, fields match.
     if (rows.length === 1) {
       expect(rows[0]!.id).toBe(eventToolCallId);

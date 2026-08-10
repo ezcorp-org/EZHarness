@@ -1,4 +1,3 @@
-
 /** In-memory stub of the EZCorp HTTP surface, hosted on a random port via
  *  `Bun.serve`. Mirrors request/response shapes of the real endpoints so unit
  *  + integration tests can run without the SvelteKit dev server.
@@ -78,7 +77,8 @@ export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
     });
 
   const uuid = () =>
-    (globalThis.crypto?.randomUUID?.() ?? "00000000-0000-4000-8000-" + Date.now().toString(16).padStart(12, "0"));
+    globalThis.crypto?.randomUUID?.() ??
+    "00000000-0000-4000-8000-" + Date.now().toString(16).padStart(12, "0");
 
   const server = Bun.serve({
     port: 0,
@@ -182,9 +182,7 @@ export function startStubServer(opts: { apiKey?: string } = {}): StubServer {
       const cancelMatch = p.match(/^\/api\/conversations\/([^/]+)\/active-run$/);
       if (cancelMatch && req.method === "POST") return json({ ok: true });
 
-      const assignMatch = p.match(
-        /^\/api\/conversations\/([^/]+)\/tasks\/([^/]+)\/assign$/,
-      );
+      const assignMatch = p.match(/^\/api\/conversations\/([^/]+)\/tasks\/([^/]+)\/assign$/);
       const tasksMatch = p.match(/^\/api\/conversations\/([^/]+)\/tasks$/);
       if (tasksMatch && req.method === "GET") {
         return json({ conversationId: tasksMatch[1], tasks: [] });

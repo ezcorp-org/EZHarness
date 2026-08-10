@@ -60,10 +60,7 @@ export function bucketEntriesByMessage<E extends BucketableEntry>(
       beforeFirst.push(e);
       continue;
     }
-    while (
-      mIdx + 1 < sortedMessages.length &&
-      ts(sortedMessages[mIdx + 1]!.createdAt) <= ets
-    ) {
+    while (mIdx + 1 < sortedMessages.length && ts(sortedMessages[mIdx + 1]!.createdAt) <= ets) {
       mIdx++;
     }
     const ownerId = sortedMessages[mIdx]!.id;

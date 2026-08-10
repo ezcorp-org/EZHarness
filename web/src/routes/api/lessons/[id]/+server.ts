@@ -3,9 +3,9 @@ import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import {
-	deleteLessonAsOwner,
-	getLessonByIdForOwnerCheck,
-	updateLessonVisibilityAsOwner,
+  deleteLessonAsOwner,
+  getLessonByIdForOwnerCheck,
+  updateLessonVisibilityAsOwner,
 } from "$server/db/queries/lessons";
 import type { RequestHandler } from "./$types";
 
@@ -20,14 +20,14 @@ import type { RequestHandler } from "./$types";
  * shows users want restore.
  */
 export const DELETE: RequestHandler = async ({ params, locals }) => {
-	const scopeErr = requireScope(locals, "write");
-	if (scopeErr) return scopeErr;
-	const user = requireAuth(locals);
-	const id = params.id;
-	if (!id) return errorJson(400, "Missing id");
-	const deleted = await deleteLessonAsOwner(id, user.id);
-	if (!deleted) return errorJson(404, "Lesson not found");
-	return new Response(null, { status: 204 });
+  const scopeErr = requireScope(locals, "write");
+  if (scopeErr) return scopeErr;
+  const user = requireAuth(locals);
+  const id = params.id;
+  if (!id) return errorJson(400, "Missing id");
+  const deleted = await deleteLessonAsOwner(id, user.id);
+  if (!deleted) return errorJson(404, "Lesson not found");
+  return new Response(null, { status: 204 });
 };
 
 /**
@@ -51,28 +51,28 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
  * to decide between the two responses.
  */
 export const PATCH: RequestHandler = async ({ params, request, locals }) => {
-	const scopeErr = requireScope(locals, "write");
-	if (scopeErr) return scopeErr;
-	const user = requireAuth(locals);
-	const id = params.id;
-	if (!id) return errorJson(400, "Missing id");
+  const scopeErr = requireScope(locals, "write");
+  if (scopeErr) return scopeErr;
+  const user = requireAuth(locals);
+  const id = params.id;
+  if (!id) return errorJson(400, "Missing id");
 
-	const body = (await request.json().catch(() => null)) as { visibility?: unknown } | null;
-	const next = body?.visibility;
-	if (next !== "user" && next !== "project" && next !== "global") {
-		return errorJson(400, "visibility must be 'user' | 'project' | 'global'");
-	}
+  const body = (await request.json().catch(() => null)) as { visibility?: unknown } | null;
+  const next = body?.visibility;
+  if (next !== "user" && next !== "project" && next !== "global") {
+    return errorJson(400, "visibility must be 'user' | 'project' | 'global'");
+  }
 
-	const updated = await updateLessonVisibilityAsOwner(id, user.id, next);
-	if (updated) return json(updated);
+  const updated = await updateLessonVisibilityAsOwner(id, user.id, next);
+  if (updated) return json(updated);
 
-	// `updated === null` means: row missing, owner mismatch, OR backward
-	// transition. Disambiguate by reading without the owner filter — if
-	// the row exists AND belongs to this user, the only remaining cause
-	// is the backward-transition guard (409). Otherwise it's 404 (we do
-	// NOT 403 on owner mismatch — that would leak existence by id).
-	const existing = await getLessonByIdForOwnerCheck(id);
-	if (!existing) return errorJson(404, "Lesson not found");
-	if (existing.ownerId !== user.id) return errorJson(404, "Lesson not found");
-	return errorJson(409, "Visibility ladder is monotonic — cannot demote");
+  // `updated === null` means: row missing, owner mismatch, OR backward
+  // transition. Disambiguate by reading without the owner filter — if
+  // the row exists AND belongs to this user, the only remaining cause
+  // is the backward-transition guard (409). Otherwise it's 404 (we do
+  // NOT 403 on owner mismatch — that would leak existence by id).
+  const existing = await getLessonByIdForOwnerCheck(id);
+  if (!existing) return errorJson(404, "Lesson not found");
+  if (existing.ownerId !== user.id) return errorJson(404, "Lesson not found");
+  return errorJson(409, "Visibility ladder is monotonic — cannot demote");
 };

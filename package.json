@@ -4,7 +4,9 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
-  "workspaces": ["packages/@ezcorp/*"],
+  "workspaces": [
+    "packages/@ezcorp/*"
+  ],
   "scripts": {
     "postinstall": "bun run --cwd packages/@ezcorp/sdk build && bash scripts/setup-git-hooks.sh",
     "start": "bun run index.ts",

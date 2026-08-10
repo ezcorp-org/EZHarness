@@ -45,9 +45,7 @@ vi.mock("$server/extensions/tool-executor", () => ({
 }));
 
 // ── PermissionEngine + bus + ensureInitialized mocks ─────────────────
-const getPermissionEngineSpy = vi.fn(
-  (..._args: unknown[]): Record<string, unknown> => ({}),
-);
+const getPermissionEngineSpy = vi.fn((..._args: unknown[]): Record<string, unknown> => ({}));
 vi.mock("$server/extensions/permission-engine", () => ({
   getPermissionEngine: (...args: unknown[]) => getPermissionEngineSpy(...args),
 }));
@@ -121,7 +119,10 @@ function distillerEnvelope(outcome: unknown): {
 }
 
 /** Plain text result for the non-distill minimal-card branch. */
-function plainTextResult(text: string, isError = false): {
+function plainTextResult(
+  text: string,
+  isError = false,
+): {
   content: { type: "text"; text: string }[];
   isError: boolean;
 } {
@@ -188,7 +189,17 @@ async function dispatch(
   } catch {
     // Some 4xx responses have no JSON body.
   }
-  return { status: res.status, json: json as { error?: string; result?: { kind: string; card: { title: string; body: string; variant: string }; ref?: unknown } } | null };
+  return {
+    status: res.status,
+    json: json as {
+      error?: string;
+      result?: {
+        kind: string;
+        card: { title: string; body: string; variant: string };
+        ref?: unknown;
+      };
+    } | null,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────
@@ -254,9 +265,7 @@ describe("legacy `distill` alias and canonical name produce identical results", 
 
 describe("non-distill bundled tools → minimal-card mapping", () => {
   test("memory-extractor:any-tool with text output → success card carrying the text body", async () => {
-    executeToolCall.mockResolvedValueOnce(
-      plainTextResult("compaction merged 3 memories"),
-    );
+    executeToolCall.mockResolvedValueOnce(plainTextResult("compaction merged 3 memories"));
     const { status, json } = await dispatch("memory-extractor:any-tool");
     expect(status).toBe(200);
     expect(json?.result?.kind).toBe("success");
@@ -304,9 +313,7 @@ describe("non-distill bundled tools → minimal-card mapping", () => {
     // (and the body is the verbatim JSON text, not the parsed
     // outcome).
     executeToolCall.mockResolvedValueOnce(
-      plainTextResult(
-        JSON.stringify({ __ezDistillerOutcome: true, outcome: { kind: "success" } }),
-      ),
+      plainTextResult(JSON.stringify({ __ezDistillerOutcome: true, outcome: { kind: "success" } })),
     );
     const { json } = await dispatch("memory-extractor:any-tool");
     expect(json?.result?.kind).toBe("success");

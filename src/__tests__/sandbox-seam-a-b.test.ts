@@ -188,9 +188,7 @@ describe("Seam A — ExtensionProcess.getSpawnArgs sandbox wrap", () => {
       //     its ancestor (the project root) is READ_DIR only.
       const secret = spawn("cat", [SECRET]);
       expect(secret.exitCode).not.toBe(0);
-      expect(secret.stderr.toString().toLowerCase()).toContain(
-        "permission denied",
-      );
+      expect(secret.stderr.toString().toLowerCase()).toContain("permission denied");
       expect(secret.stdout.toString()).not.toContain("TOP-SECRET");
     },
   );
@@ -214,9 +212,9 @@ describe("Seam A — ExtensionProcess.getSpawnArgs sandbox wrap", () => {
     ).toThrow(/data dir/i);
 
     // And as the writable workspace itself.
-    expect(() =>
-      buildLandlockJailSpec({ workspaceDir: sneaky, projectRoot: ROOT }),
-    ).toThrow(/data dir/i);
+    expect(() => buildLandlockJailSpec({ workspaceDir: sneaky, projectRoot: ROOT })).toThrow(
+      /data dir/i,
+    );
   });
 });
 

@@ -10,7 +10,7 @@
 import { test, expect, describe, mock, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { JsonRpcTransport } from "../extensions/json-rpc";
-import type { JsonRpcRequest, } from "../extensions/types";
+import type { JsonRpcRequest } from "../extensions/types";
 
 /** Index into an array, throwing if the slot is absent — avoids `!` under noUncheckedIndexedAccess. */
 function at<T>(arr: readonly T[], i: number, what: string): T {
@@ -261,7 +261,11 @@ describe("JsonRpcTransport (supplemental)", () => {
           controller = c;
         },
       });
-      const stdin = { write(_data: string) { return 0; } };
+      const stdin = {
+        write(_data: string) {
+          return 0;
+        },
+      };
       const transport = new JsonRpcTransport(stdin, stdout);
       transport.startReading();
 
@@ -384,9 +388,7 @@ describe("JsonRpcTransport (supplemental)", () => {
       transport.onRequest = (req) => received.push(req);
       transport.startReading();
 
-      push(
-        '{"jsonrpc":"2.0","id":"sub-1","method":"progress/update","params":{"percent":50}}\n',
-      );
+      push('{"jsonrpc":"2.0","id":"sub-1","method":"progress/update","params":{"percent":50}}\n');
       await new Promise((r) => setTimeout(r, 20));
 
       expect(received).toHaveLength(1);
@@ -427,7 +429,9 @@ describe("JsonRpcTransport (supplemental)", () => {
         },
       });
       const stdin = {
-        write(data: string) { return data.length; },
+        write(data: string) {
+          return data.length;
+        },
       };
       const transport = new JsonRpcTransport(stdin, stdout1);
 
@@ -485,25 +489,19 @@ describe("permissions (supplemental)", () => {
 
     test("filesystem rejects prefix substring that lacks separator (/tmpevil vs /tmp)", async () => {
       const engine = makeEngine({ filesystem: ["/tmp"], grantedAt: {} });
-      const decision = await engine.authorize(PDPCtx, [
-        { kind: "fs.read", value: "/tmpevil" },
-      ]);
+      const decision = await engine.authorize(PDPCtx, [{ kind: "fs.read", value: "/tmpevil" }]);
       expect(decision.decision).toBe("deny");
     });
 
     test("filesystem with no granted filesystem denies", async () => {
       const engine = makeEngine({ grantedAt: {} });
-      const decision = await engine.authorize(PDPCtx, [
-        { kind: "fs.read", value: "/any/path" },
-      ]);
+      const decision = await engine.authorize(PDPCtx, [{ kind: "fs.read", value: "/any/path" }]);
       expect(decision.decision).toBe("deny");
     });
 
     test("env with no granted env denies", async () => {
       const engine = makeEngine({ grantedAt: {} });
-      const decision = await engine.authorize(PDPCtx, [
-        { kind: "env", value: "ANY_VAR" },
-      ]);
+      const decision = await engine.authorize(PDPCtx, [{ kind: "env", value: "ANY_VAR" }]);
       expect(decision.decision).toBe("deny");
     });
 
@@ -515,17 +513,13 @@ describe("permissions (supplemental)", () => {
 
     test("network with empty array denies", async () => {
       const engine = makeEngine({ network: [], grantedAt: {} });
-      const decision = await engine.authorize(PDPCtx, [
-        { kind: "network", value: "a.com" },
-      ]);
+      const decision = await engine.authorize(PDPCtx, [{ kind: "network", value: "a.com" }]);
       expect(decision.decision).toBe("deny");
     });
 
     test("filesystem with empty array denies", async () => {
       const engine = makeEngine({ filesystem: [], grantedAt: {} });
-      const decision = await engine.authorize(PDPCtx, [
-        { kind: "fs.read", value: "/foo" },
-      ]);
+      const decision = await engine.authorize(PDPCtx, [{ kind: "fs.read", value: "/foo" }]);
       expect(decision.decision).toBe("deny");
     });
 
@@ -543,14 +537,10 @@ describe("permissions (supplemental)", () => {
         grantedAt: {},
       });
       for (const host of ["a.com", "b.com", "c.com"]) {
-        const decision = await engine.authorize(PDPCtx, [
-          { kind: "network", value: host },
-        ]);
+        const decision = await engine.authorize(PDPCtx, [{ kind: "network", value: host }]);
         expect(decision.decision).toBe("allow");
       }
-      const denied = await engine.authorize(PDPCtx, [
-        { kind: "network", value: "d.com" },
-      ]);
+      const denied = await engine.authorize(PDPCtx, [{ kind: "network", value: "d.com" }]);
       expect(denied.decision).toBe("deny");
     });
   });
@@ -581,8 +571,12 @@ describe("permissions (supplemental)", () => {
       // Check descriptions are generated
       const networkItems = items.filter((i) => i.type === "network");
       expect(networkItems).toHaveLength(2);
-      expect(at(networkItems, 0, "networkItems").description).toBe("Network access to api.example.com");
-      expect(at(networkItems, 1, "networkItems").description).toBe("Network access to cdn.example.com");
+      expect(at(networkItems, 0, "networkItems").description).toBe(
+        "Network access to api.example.com",
+      );
+      expect(at(networkItems, 1, "networkItems").description).toBe(
+        "Network access to cdn.example.com",
+      );
 
       const fsItems = items.filter((i) => i.type === "filesystem");
       expect(fsItems).toHaveLength(2);

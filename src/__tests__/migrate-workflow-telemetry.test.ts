@@ -72,9 +72,7 @@ describe("migrate() — C5 step telemetry and per-iteration rows", () => {
   });
 
   test("every telemetry column lands, nullable, with the specified type", async () => {
-    const byName = new Map(
-      (await columns("workflow_step_runs")).map((c) => [c.column_name, c]),
-    );
+    const byName = new Map((await columns("workflow_step_runs")).map((c) => [c.column_name, c]));
     for (const [name, type] of Object.entries(TELEMETRY_COLUMNS)) {
       const col = byName.get(name);
       expect(col, `workflow_step_runs.${name} is missing`).toBeDefined();
@@ -136,9 +134,20 @@ describe("migrate() — C5 step telemetry and per-iteration rows", () => {
   test("workflow_step_iterations exists with its arbiter and lookup index", async () => {
     const cols = new Set((await columns("workflow_step_iterations")).map((c) => c.column_name));
     for (const name of [
-      "id", "workflow_step_run_id", "iteration", "attempt", "status", "run_id",
-      "provider", "model", "input_tokens", "output_tokens", "cost_usd",
-      "duration_ms", "error_code", "created_at",
+      "id",
+      "workflow_step_run_id",
+      "iteration",
+      "attempt",
+      "status",
+      "run_id",
+      "provider",
+      "model",
+      "input_tokens",
+      "output_tokens",
+      "cost_usd",
+      "duration_ms",
+      "error_code",
+      "created_at",
     ]) {
       expect(cols.has(name), `workflow_step_iterations.${name} is missing`).toBe(true);
     }
@@ -171,12 +180,16 @@ describe("migrate() — C5 step telemetry and per-iteration rows", () => {
       VALUES ('it-1', 'step-loop', 1, 0, 'success'), ('it-2', 'step-loop', 2, 0, 'success')
     `);
     expect(
-      await countRows(sql`SELECT COUNT(*)::int AS n FROM workflow_step_iterations WHERE workflow_step_run_id = 'step-loop'`),
+      await countRows(
+        sql`SELECT COUNT(*)::int AS n FROM workflow_step_iterations WHERE workflow_step_run_id = 'step-loop'`,
+      ),
     ).toBe(2);
 
     await db.execute(sql`DELETE FROM workflow_step_runs WHERE id = 'step-loop'`);
     expect(
-      await countRows(sql`SELECT COUNT(*)::int AS n FROM workflow_step_iterations WHERE workflow_step_run_id = 'step-loop'`),
+      await countRows(
+        sql`SELECT COUNT(*)::int AS n FROM workflow_step_iterations WHERE workflow_step_run_id = 'step-loop'`,
+      ),
     ).toBe(0);
   });
 
@@ -191,7 +204,9 @@ describe("migrate() — C5 step telemetry and per-iteration rows", () => {
       VALUES ('r-a', 'step-retry', 1, 0, 'error'), ('r-b', 'step-retry', 1, 1, 'success')
     `);
     expect(
-      await countRows(sql`SELECT COUNT(*)::int AS n FROM workflow_step_iterations WHERE workflow_step_run_id = 'step-retry'`),
+      await countRows(
+        sql`SELECT COUNT(*)::int AS n FROM workflow_step_iterations WHERE workflow_step_run_id = 'step-retry'`,
+      ),
     ).toBe(2);
 
     // Same iteration AND attempt — refused, so a re-write updates rather
@@ -209,10 +224,14 @@ describe("migrate() — C5 step telemetry and per-iteration rows", () => {
   test("a second migrate() is idempotent and preserves the rows", async () => {
     const before = await countRows(sql`SELECT COUNT(*)::int AS n FROM workflow_step_iterations`);
     await migrate(db);
-    expect(await countRows(sql`SELECT COUNT(*)::int AS n FROM workflow_step_iterations`)).toBe(before);
+    expect(await countRows(sql`SELECT COUNT(*)::int AS n FROM workflow_step_iterations`)).toBe(
+      before,
+    );
     // And the re-run did not backfill the historical row it left alone.
     expect(
-      await countRows(sql`SELECT COUNT(*)::int AS n FROM workflow_step_runs WHERE id = 'step-hist' AND input_tokens IS NULL`),
+      await countRows(
+        sql`SELECT COUNT(*)::int AS n FROM workflow_step_runs WHERE id = 'step-hist' AND input_tokens IS NULL`,
+      ),
     ).toBe(1);
   });
 });

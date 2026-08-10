@@ -83,7 +83,10 @@ describe("parseEnhanceResponse", () => {
   });
 
   test("non-string fields tolerated → reason defaults empty, bad enhanced → null", () => {
-    expect(parseEnhanceResponse('{"enhanced":"ok","reason":42}')).toEqual({ enhanced: "ok", reason: "" });
+    expect(parseEnhanceResponse('{"enhanced":"ok","reason":42}')).toEqual({
+      enhanced: "ok",
+      reason: "",
+    });
     expect(parseEnhanceResponse('{"enhanced":42,"reason":"r"}')).toBeNull();
   });
 
@@ -155,7 +158,9 @@ describe("enhancePrompt", () => {
 
   test("non-string content → null", async () => {
     const fetchFn = (async () =>
-      new Response(JSON.stringify({ choices: [{ message: {} }] }), { status: 200 })) as unknown as typeof fetch;
+      new Response(JSON.stringify({ choices: [{ message: {} }] }), {
+        status: 200,
+      })) as unknown as typeof fetch;
     expect(await enhancePrompt("draft", ctx, CFG, { fetchFn })).toBeNull();
   });
 

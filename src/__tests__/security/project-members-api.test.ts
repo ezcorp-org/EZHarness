@@ -80,7 +80,8 @@ mock.module("$server/db/queries/project-members", projectMembersMock);
 mock.module("../../db/queries/project-members", projectMembersMock);
 
 const projectsMock = () => ({
-  getProject: async (id: string) => (projectStore.has(id) ? { id, name: id, path: `/srv/${id}` } : undefined),
+  getProject: async (id: string) =>
+    projectStore.has(id) ? { id, name: id, path: `/srv/${id}` } : undefined,
 });
 mock.module("$server/db/queries/projects", projectsMock);
 mock.module("../../db/queries/projects", projectsMock);
@@ -114,11 +115,25 @@ afterAll(() => {
 });
 
 const OWNER_USER = { id: "u-owner", email: "o@t.local", name: "Owner", role: "member" } as const;
-const PLAIN_MEMBER = { id: "u-member", email: "m@t.local", name: "Member", role: "member" } as const;
-const OUTSIDER = { id: "u-outsider", email: "x@t.local", name: "Outsider", role: "member" } as const;
+const PLAIN_MEMBER = {
+  id: "u-member",
+  email: "m@t.local",
+  name: "Member",
+  role: "member",
+} as const;
+const OUTSIDER = {
+  id: "u-outsider",
+  email: "x@t.local",
+  name: "Outsider",
+  role: "member",
+} as const;
 
 const listEvent = (user: unknown, id = "proj-1") =>
-  createMockEvent({ url: `http://localhost/api/projects/${id}/members`, params: { id }, user: user as any });
+  createMockEvent({
+    url: `http://localhost/api/projects/${id}/members`,
+    params: { id },
+    user: user as any,
+  });
 
 const addEvent = (user: unknown, body: unknown, id = "proj-1") =>
   createMockEvent({
@@ -220,7 +235,9 @@ describe("POST /api/projects/[id]/members — granting authority is owner-only",
     // authority is the narrower right; destroying one object is not.
     const res = await call(membersPost as any, addEvent(PLAIN_MEMBER, { userId: OUTSIDER.id }));
     expect(res.status).toBe(403);
-    expect(memberRows.some((r) => r.projectId === "proj-1" && r.userId === OUTSIDER.id)).toBe(false);
+    expect(memberRows.some((r) => r.projectId === "proj-1" && r.userId === OUTSIDER.id)).toBe(
+      false,
+    );
   });
 
   test("a member of another project may not add anyone", async () => {
@@ -340,8 +357,12 @@ describe("checkProjectRole — the gate itself, through the routes", () => {
     // `held === needed` would fail one of them.
     expect((await call(membersGet as any, listEvent(OWNER_USER))).status).toBe(200);
     expect((await call(membersGet as any, listEvent(PLAIN_MEMBER))).status).toBe(200);
-    expect((await call(membersPost as any, addEvent(OWNER_USER, { userId: OUTSIDER.id }))).status).toBe(201);
-    expect((await call(membersPost as any, addEvent(PLAIN_MEMBER, { userId: OUTSIDER.id }))).status).toBe(403);
+    expect(
+      (await call(membersPost as any, addEvent(OWNER_USER, { userId: OUTSIDER.id }))).status,
+    ).toBe(201);
+    expect(
+      (await call(membersPost as any, addEvent(PLAIN_MEMBER, { userId: OUTSIDER.id }))).status,
+    ).toBe(403);
   });
 
   test("a role this build does not know denies rather than sorting lowest", async () => {

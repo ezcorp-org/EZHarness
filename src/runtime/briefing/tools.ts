@@ -135,7 +135,10 @@ export function createGetConversationSummaryTool(ctx: BriefingToolContext): Buil
     parameters: Type.Unsafe({
       type: "object",
       properties: {
-        conversationId: { type: "string", description: "Conversation id from list_recent_conversations." },
+        conversationId: {
+          type: "string",
+          description: "Conversation id from list_recent_conversations.",
+        },
         maxMessages: {
           type: "number",
           description: `How many trailing messages to include (1-${MAX_SUMMARY_MESSAGES}, default ${DEFAULT_SUMMARY_MESSAGES}).`,
@@ -148,7 +151,12 @@ export function createGetConversationSummaryTool(ctx: BriefingToolContext): Buil
         const p = (params ?? {}) as Record<string, unknown>;
         const conversationId = typeof p.conversationId === "string" ? p.conversationId : "";
         if (!conversationId) return err("conversationId is required");
-        const maxMessages = clampInt(p.maxMessages, DEFAULT_SUMMARY_MESSAGES, 1, MAX_SUMMARY_MESSAGES);
+        const maxMessages = clampInt(
+          p.maxMessages,
+          DEFAULT_SUMMARY_MESSAGES,
+          1,
+          MAX_SUMMARY_MESSAGES,
+        );
 
         const conv = await getConversation(conversationId);
         // Ownership gate — a non-owned id is indistinguishable from a
@@ -161,9 +169,10 @@ export function createGetConversationSummaryTool(ctx: BriefingToolContext): Buil
         );
         const recent = turns.slice(-maxMessages);
         const lines = recent.map((m) => {
-          const text = m.content.length > MAX_MESSAGE_CHARS
-            ? `${m.content.slice(0, MAX_MESSAGE_CHARS)}…`
-            : m.content;
+          const text =
+            m.content.length > MAX_MESSAGE_CHARS
+              ? `${m.content.slice(0, MAX_MESSAGE_CHARS)}…`
+              : m.content;
           return `${m.role.toUpperCase()}: ${text}`;
         });
         let transcript = lines.join("\n\n");
@@ -209,8 +218,9 @@ export function createGetTaskSnapshotsTool(ctx: BriefingToolContext): BuiltinToo
         const p = (params ?? {}) as Record<string, unknown>;
         const idsRaw = Array.isArray(p.conversationIds) ? p.conversationIds : null;
         if (!idsRaw || idsRaw.length === 0) return err("conversationIds is required");
-        const ids = [...new Set(idsRaw.filter((v): v is string => typeof v === "string" && v.length > 0))]
-          .slice(0, MAX_SNAPSHOT_CONVERSATIONS);
+        const ids = [
+          ...new Set(idsRaw.filter((v): v is string => typeof v === "string" && v.length > 0)),
+        ].slice(0, MAX_SNAPSHOT_CONVERSATIONS);
         if (ids.length === 0) return err("conversationIds is required");
 
         // Lazy import: the task-tracking host throws when the bundled

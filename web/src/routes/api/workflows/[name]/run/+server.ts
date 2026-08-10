@@ -13,9 +13,11 @@ import type { RequestHandler } from "./$types";
 // `.loose()` is genuinely needed here because the input shape is driven
 // by the workflow definition, not this handler — extras must flow
 // through, not be stripped. (`.passthrough()` is deprecated in Zod v4.)
-const postBodySchema = z.object({
-  projectId: z.string().optional(),
-}).loose();
+const postBodySchema = z
+  .object({
+    projectId: z.string().optional(),
+  })
+  .loose();
 
 /**
  * Opt into a non-blocking run: `X-EZ-Workflow-Async: 1`.

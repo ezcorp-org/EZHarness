@@ -76,11 +76,7 @@ describe("computePackageChecksums", () => {
 
     const checksums = await computePackageChecksums(tempDir);
 
-    expect(Object.keys(checksums).sort()).toEqual([
-      ".config/x",
-      ".npmrc",
-      "index.ts",
-    ]);
+    expect(Object.keys(checksums).sort()).toEqual([".config/x", ".npmrc", "index.ts"]);
     expect(checksums[".npmrc"]).toMatch(/^[a-f0-9]{64}$/);
   });
 
@@ -93,11 +89,7 @@ describe("computePackageChecksums", () => {
 
     const checksums = await computePackageChecksums(tempDir);
 
-    expect(Object.keys(checksums).sort()).toEqual([
-      "index.ts",
-      "lib/helper.ts",
-      "lib/sub/deep.ts",
-    ]);
+    expect(Object.keys(checksums).sort()).toEqual(["index.ts", "lib/helper.ts", "lib/sub/deep.ts"]);
   });
 
   test("handles empty directory", async () => {

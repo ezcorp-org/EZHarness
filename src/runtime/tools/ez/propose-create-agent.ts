@@ -14,7 +14,7 @@
  * Same goes for capabilities[] (free-form strings).
  */
 import { Type } from "@earendil-works/pi-ai";
-import type { BuiltinToolDef  } from "../types";
+import type { BuiltinToolDef } from "../types";
 import { createDraft } from "../../../db/queries/ez-drafts";
 import type { EzToolContext } from "./propose-create-project";
 import type { ToolParams } from "../validate";
@@ -33,9 +33,22 @@ export function createProposeCreateAgentTool(ctx: EzToolContext): BuiltinToolDef
       type: "object",
       properties: {
         name: { type: "string", minLength: 1, maxLength: 200, description: "Agent display name." },
-        prompt: { type: "string", minLength: 1, maxLength: 20000, description: "System prompt that defines the agent's behavior." },
-        inputSchema: { type: "object", description: "Optional JSON Schema for the agent's inputs.", additionalProperties: true },
-        capabilities: { type: "array", items: { type: "string" }, description: "Optional list of capability tags (e.g. 'llm', 'mcp')." },
+        prompt: {
+          type: "string",
+          minLength: 1,
+          maxLength: 20000,
+          description: "System prompt that defines the agent's behavior.",
+        },
+        inputSchema: {
+          type: "object",
+          description: "Optional JSON Schema for the agent's inputs.",
+          additionalProperties: true,
+        },
+        capabilities: {
+          type: "array",
+          items: { type: "string" },
+          description: "Optional list of capability tags (e.g. 'llm', 'mcp').",
+        },
       },
       required: ["name", "prompt"],
     }),
@@ -44,12 +57,21 @@ export function createProposeCreateAgentTool(ctx: EzToolContext): BuiltinToolDef
         const name = typeof params?.name === "string" ? params.name.trim() : "";
         const prompt = typeof params?.prompt === "string" ? params.prompt : "";
         if (!name) {
-          return { content: [{ type: "text" as const, text: "Error: name is required" }], details: { isError: true } };
+          return {
+            content: [{ type: "text" as const, text: "Error: name is required" }],
+            details: { isError: true },
+          };
         }
         if (!prompt.trim()) {
-          return { content: [{ type: "text" as const, text: "Error: prompt is required" }], details: { isError: true } };
+          return {
+            content: [{ type: "text" as const, text: "Error: prompt is required" }],
+            details: { isError: true },
+          };
         }
-        const inputSchema = params?.inputSchema && typeof params.inputSchema === "object" ? params.inputSchema : undefined;
+        const inputSchema =
+          params?.inputSchema && typeof params.inputSchema === "object"
+            ? params.inputSchema
+            : undefined;
         const capabilities = Array.isArray(params?.capabilities)
           ? params.capabilities.filter((c: unknown): c is string => typeof c === "string")
           : undefined;
@@ -61,11 +83,18 @@ export function createProposeCreateAgentTool(ctx: EzToolContext): BuiltinToolDef
         const draft = await createDraft({ userId: ctx.userId, kind: "agent", payload });
         const openUrl = `/agents/new?prefill=${draft.id}`;
         return {
-          content: [{ type: "text" as const, text: JSON.stringify({ draftId: draft.id, openUrl }) }],
+          content: [
+            { type: "text" as const, text: JSON.stringify({ draftId: draft.id, openUrl }) },
+          ],
           details: { draftId: draft.id, openUrl, kind: "agent" as const },
         };
       } catch (e) {
-        return { content: [{ type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` }], details: { isError: true } };
+        return {
+          content: [
+            { type: "text" as const, text: `Error: ${e instanceof Error ? e.message : String(e)}` },
+          ],
+          details: { isError: true },
+        };
       }
     },
   };

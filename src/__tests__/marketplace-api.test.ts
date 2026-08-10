@@ -3,7 +3,12 @@ import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglit
 
 mockDbConnection();
 
-import { createListing, browseMarketplace, getListingById, incrementInstallCount } from "../db/queries/marketplace";
+import {
+  createListing,
+  browseMarketplace,
+  getListingById,
+  incrementInstallCount,
+} from "../db/queries/marketplace";
 import { createVersion, getLatestVersion, listVersions } from "../db/queries/marketplace-versions";
 import { upsertRating, getUserRating, createFlag } from "../db/queries/marketplace-ratings";
 import { createAgentConfig } from "../db/queries/agent-configs";
@@ -13,7 +18,17 @@ import type { ExtensionManifestV2 } from "../extensions/types";
 import { getDb } from "../db/connection";
 import { users } from "../db/schema";
 
-function buildV2Manifest(config: { name: string; description: string; prompt: string; capabilities?: string[]; category?: string | null }, author: { name: string; id: string }, version: string): ExtensionManifestV2 {
+function buildV2Manifest(
+  config: {
+    name: string;
+    description: string;
+    prompt: string;
+    capabilities?: string[];
+    category?: string | null;
+  },
+  author: { name: string; id: string },
+  version: string,
+): ExtensionManifestV2 {
   return {
     schemaVersion: 2,
     // Mirror the production publish route (web/src/routes/api/marketplace/+server.ts):
@@ -41,10 +56,24 @@ beforeAll(async () => {
   testUserId = crypto.randomUUID();
   testUser2Id = crypto.randomUUID();
 
-  await getDb().insert(users).values([
-    { id: testUserId, email: "api-test@example.com", passwordHash: "hashed", name: "API Tester", role: "member" },
-    { id: testUser2Id, email: "api-test2@example.com", passwordHash: "hashed", name: "API Tester 2", role: "member" },
-  ]);
+  await getDb()
+    .insert(users)
+    .values([
+      {
+        id: testUserId,
+        email: "api-test@example.com",
+        passwordHash: "hashed",
+        name: "API Tester",
+        role: "member",
+      },
+      {
+        id: testUser2Id,
+        email: "api-test2@example.com",
+        passwordHash: "hashed",
+        name: "API Tester 2",
+        role: "member",
+      },
+    ]);
 });
 
 afterAll(async () => {

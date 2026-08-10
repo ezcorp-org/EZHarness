@@ -27,11 +27,7 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents } from "../types";
-import {
-  createFillFormTool,
-  createNavigateToTool,
-  isValidInAppPath,
-} from "../runtime/tools/ez";
+import { createFillFormTool, createNavigateToTool, isValidInAppPath } from "../runtime/tools/ez";
 import {
   resolveEzClientTool,
   _resetPendingEzClientToolsForTests,
@@ -183,7 +179,12 @@ describe("navigate_to (client-side stub)", () => {
     const events = captureClientTool(b);
     const tool = createNavigateToTool({ conversationId: "conv-x", bus: b });
 
-    for (const bad of ["https://evil.com", "//cdn.evil.com/pwn", "javascript:alert(1)", "ftp://x"]) {
+    for (const bad of [
+      "https://evil.com",
+      "//cdn.evil.com/pwn",
+      "javascript:alert(1)",
+      "ftp://x",
+    ]) {
       const result = await tool.execute("nav-bad", { path: bad });
       expect(expectDetails<ClientToolDetails>(result).isError).toBe(true);
     }

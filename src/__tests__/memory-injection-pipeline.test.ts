@@ -1,5 +1,10 @@
 import { test, expect, describe, beforeAll, afterAll } from "bun:test";
-import { setupTestDb, closeTestDb, mockDbConnection, mockRealSettings } from "./helpers/test-pglite";
+import {
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  mockRealSettings,
+} from "./helpers/test-pglite";
 import { mockEmbedding, mockEmbeddingsModule } from "./helpers/mock-vectors";
 import type { MemoryProvenance } from "../memory/types";
 
@@ -56,7 +61,10 @@ async function insertTestMemory(
   });
   if (opts?.status && opts.status !== "active") {
     const db = getDb();
-    await db.update(memories).set({ status: opts.status } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ status: opts.status } as any)
+      .where(eq(memories.id, mem.id));
   }
   return mem;
 }
@@ -67,12 +75,15 @@ beforeAll(async () => {
   projectId = project.id;
   const project2 = await createProject({ name: "pipeline-test-2", path: "/tmp/pipeline-test-2" });
   projectId2 = project2.id;
-  await getDb().insert(users).values({
-    id: ownerId,
-    email: "pipeline-owner@test.local",
-    name: "Pipeline Owner",
-    passwordHash: "fake-hash",
-  }).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values({
+      id: ownerId,
+      email: "pipeline-owner@test.local",
+      name: "Pipeline Owner",
+      passwordHash: "fake-hash",
+    })
+    .onConflictDoNothing();
 
   const conv = await createConversation(projectId, { title: "pipeline conv", userId: ownerId });
   conversationId = conv.id;
@@ -100,12 +111,22 @@ afterAll(async () => {
 
 describe("Memory injection pipeline", () => {
   test("buildSystemPromptWithMemories injects memories into system prompt", async () => {
-    const result = await buildSystemPromptWithMemories("You are an assistant.", "What is the user's name?", projectId, ownerId);
+    const result = await buildSystemPromptWithMemories(
+      "You are an assistant.",
+      "What is the user's name?",
+      projectId,
+      ownerId,
+    );
     expect(result.systemPrompt).toContain("## Relevant Memories");
   });
 
   test("buildSystemPromptWithMemories returns memoriesUsed array", async () => {
-    const result = await buildSystemPromptWithMemories("You are an assistant.", "name greeting", projectId, ownerId);
+    const result = await buildSystemPromptWithMemories(
+      "You are an assistant.",
+      "name greeting",
+      projectId,
+      ownerId,
+    );
     expect(result.memoriesUsed.length).toBeGreaterThan(0);
     for (const mem of result.memoriesUsed) {
       expect(mem.id).toBeDefined();
@@ -183,7 +204,12 @@ describe("Memory injection pipeline", () => {
   test("buildSystemPromptWithMemories respects memoryEnabled setting", async () => {
     await upsertSetting("global:memoryEnabled", false);
     try {
-      const result = await buildSystemPromptWithMemories("Base prompt.", "name", projectId, ownerId);
+      const result = await buildSystemPromptWithMemories(
+        "Base prompt.",
+        "name",
+        projectId,
+        ownerId,
+      );
       expect(result.systemPrompt).toBe("Base prompt.");
       expect(result.memoriesUsed).toEqual([]);
     } finally {

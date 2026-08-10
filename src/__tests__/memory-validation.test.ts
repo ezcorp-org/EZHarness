@@ -112,7 +112,7 @@ function validateIndex(indexContent: string, memoryFiles: string[]): string[] {
   if (indexContent.startsWith("---")) problems.push("index-has-frontmatter");
   else if (!indexContent.startsWith("#")) problems.push("index-missing-heading");
 
-  for (const line of indexContent.split("\n").filter(l => l.startsWith("- ["))) {
+  for (const line of indexContent.split("\n").filter((l) => l.startsWith("- ["))) {
     if (!INDEX_ENTRY.test(line)) problems.push("malformed-entry");
     if (line.length > MAX_DESCRIPTION_LENGTH) problems.push("entry-too-long");
   }
@@ -216,7 +216,7 @@ describe("memory file builders — unit tests", () => {
   test("buildMemoryFile creates valid frontmatter content", () => {
     const content = buildMemoryFile(
       { name: "test", description: "a desc", type: "project" },
-      "\nSome body content\n"
+      "\nSome body content\n",
     );
     const { frontmatter, body } = parseFrontmatter(content);
     expect(frontmatter!.name).toBe("test");
@@ -264,7 +264,7 @@ describe("memory CRUD lifecycle — integration", () => {
   test("create memory file and verify structure", async () => {
     const content = buildMemoryFile(
       { name: "test_mem", description: "A test memory", type: "project" },
-      "\n- Item 1\n- Item 2\n"
+      "\n- Item 1\n- Item 2\n",
     );
     const filePath = join(tmpDir, "test_mem.md");
     await writeFile(filePath, content);
@@ -281,7 +281,12 @@ describe("memory CRUD lifecycle — integration", () => {
 
   test("create index with multiple memory files and verify references", async () => {
     const files = [
-      { name: "overview", desc: "Project overview", type: "project", body: "\n- Overview content\n" },
+      {
+        name: "overview",
+        desc: "Project overview",
+        type: "project",
+        body: "\n- Overview content\n",
+      },
       { name: "prefs", desc: "User preferences", type: "user", body: "\n- Prefs content\n" },
     ];
 
@@ -305,7 +310,7 @@ describe("memory CRUD lifecycle — integration", () => {
     // Verify index links resolve
     const indexContent = await Bun.file(join(tmpDir, "MEMORY.md")).text();
     const linkedFiles = extractLinkedFiles(indexContent);
-    const memFiles = entries.filter(f => f.endsWith(".md") && f !== "MEMORY.md");
+    const memFiles = entries.filter((f) => f.endsWith(".md") && f !== "MEMORY.md");
     for (const linked of linkedFiles) {
       expect(memFiles).toContain(linked);
     }
@@ -315,7 +320,7 @@ describe("memory CRUD lifecycle — integration", () => {
   test("update memory file preserves structure", async () => {
     const original = buildMemoryFile(
       { name: "updatable", description: "Original desc", type: "feedback" },
-      "\n- Original content\n"
+      "\n- Original content\n",
     );
     const filePath = join(tmpDir, "updatable.md");
     await writeFile(filePath, original);
@@ -323,7 +328,7 @@ describe("memory CRUD lifecycle — integration", () => {
     // Update the file
     const updated = buildMemoryFile(
       { name: "updatable", description: "Updated desc", type: "feedback" },
-      "\n- Updated content\n- New item\n"
+      "\n- Updated content\n- New item\n",
     );
     await writeFile(filePath, updated);
 
@@ -337,18 +342,28 @@ describe("memory CRUD lifecycle — integration", () => {
 
   test("delete memory file and update index", async () => {
     // Create two files + index
-    await writeFile(join(tmpDir, "keep.md"), buildMemoryFile({ name: "keep", description: "Keep", type: "project" }, "\nKeep\n"));
-    await writeFile(join(tmpDir, "remove.md"), buildMemoryFile({ name: "remove", description: "Remove", type: "project" }, "\nRemove\n"));
-    await writeFile(join(tmpDir, "MEMORY.md"), buildIndex([
-      { title: "Keep", file: "keep.md", hook: "Keep this" },
-      { title: "Remove", file: "remove.md", hook: "Remove this" },
-    ]));
+    await writeFile(
+      join(tmpDir, "keep.md"),
+      buildMemoryFile({ name: "keep", description: "Keep", type: "project" }, "\nKeep\n"),
+    );
+    await writeFile(
+      join(tmpDir, "remove.md"),
+      buildMemoryFile({ name: "remove", description: "Remove", type: "project" }, "\nRemove\n"),
+    );
+    await writeFile(
+      join(tmpDir, "MEMORY.md"),
+      buildIndex([
+        { title: "Keep", file: "keep.md", hook: "Keep this" },
+        { title: "Remove", file: "remove.md", hook: "Remove this" },
+      ]),
+    );
 
     // Delete file and rebuild index
     await rm(join(tmpDir, "remove.md"));
-    await writeFile(join(tmpDir, "MEMORY.md"), buildIndex([
-      { title: "Keep", file: "keep.md", hook: "Keep this" },
-    ]));
+    await writeFile(
+      join(tmpDir, "MEMORY.md"),
+      buildIndex([{ title: "Keep", file: "keep.md", hook: "Keep this" }]),
+    );
 
     const entries = await readdir(tmpDir);
     expect(entries).not.toContain("remove.md");
@@ -360,45 +375,64 @@ describe("memory CRUD lifecycle — integration", () => {
   });
 
   test("detects orphaned files not in index", async () => {
-    await writeFile(join(tmpDir, "indexed.md"), buildMemoryFile({ name: "indexed", description: "In index", type: "project" }, "\nContent\n"));
-    await writeFile(join(tmpDir, "orphan.md"), buildMemoryFile({ name: "orphan", description: "Not in index", type: "project" }, "\nContent\n"));
-    await writeFile(join(tmpDir, "MEMORY.md"), buildIndex([
-      { title: "Indexed", file: "indexed.md", hook: "In index" },
-    ]));
+    await writeFile(
+      join(tmpDir, "indexed.md"),
+      buildMemoryFile({ name: "indexed", description: "In index", type: "project" }, "\nContent\n"),
+    );
+    await writeFile(
+      join(tmpDir, "orphan.md"),
+      buildMemoryFile(
+        { name: "orphan", description: "Not in index", type: "project" },
+        "\nContent\n",
+      ),
+    );
+    await writeFile(
+      join(tmpDir, "MEMORY.md"),
+      buildIndex([{ title: "Indexed", file: "indexed.md", hook: "In index" }]),
+    );
 
     const entries = await readdir(tmpDir);
-    const memFiles = entries.filter(f => f.endsWith(".md") && f !== "MEMORY.md");
+    const memFiles = entries.filter((f) => f.endsWith(".md") && f !== "MEMORY.md");
     const indexContent = await Bun.file(join(tmpDir, "MEMORY.md")).text();
     const linkedFiles = extractLinkedFiles(indexContent);
 
-    const orphaned = memFiles.filter(f => !linkedFiles.includes(f));
+    const orphaned = memFiles.filter((f) => !linkedFiles.includes(f));
     expect(orphaned).toEqual(["orphan.md"]);
   });
 
   test("detects broken links in index", async () => {
-    await writeFile(join(tmpDir, "exists.md"), buildMemoryFile({ name: "exists", description: "Exists", type: "project" }, "\nContent\n"));
-    await writeFile(join(tmpDir, "MEMORY.md"), buildIndex([
-      { title: "Exists", file: "exists.md", hook: "Exists" },
-      { title: "Missing", file: "missing.md", hook: "Does not exist" },
-    ]));
+    await writeFile(
+      join(tmpDir, "exists.md"),
+      buildMemoryFile({ name: "exists", description: "Exists", type: "project" }, "\nContent\n"),
+    );
+    await writeFile(
+      join(tmpDir, "MEMORY.md"),
+      buildIndex([
+        { title: "Exists", file: "exists.md", hook: "Exists" },
+        { title: "Missing", file: "missing.md", hook: "Does not exist" },
+      ]),
+    );
 
     const entries = await readdir(tmpDir);
-    const memFiles = entries.filter(f => f.endsWith(".md") && f !== "MEMORY.md");
+    const memFiles = entries.filter((f) => f.endsWith(".md") && f !== "MEMORY.md");
     const indexContent = await Bun.file(join(tmpDir, "MEMORY.md")).text();
     const linkedFiles = extractLinkedFiles(indexContent);
 
-    const broken = linkedFiles.filter(f => !memFiles.includes(f));
+    const broken = linkedFiles.filter((f) => !memFiles.includes(f));
     expect(broken).toEqual(["missing.md"]);
   });
 
   test("validates all type values in a set of files", async () => {
     const types = ["user", "feedback", "project", "reference"];
     for (const t of types) {
-      await writeFile(join(tmpDir, `${t}.md`), buildMemoryFile({ name: t, description: `Type ${t}`, type: t }, `\n${t} content\n`));
+      await writeFile(
+        join(tmpDir, `${t}.md`),
+        buildMemoryFile({ name: t, description: `Type ${t}`, type: t }, `\n${t} content\n`),
+      );
     }
 
     const entries = await readdir(tmpDir);
-    for (const file of entries.filter(f => f.endsWith(".md"))) {
+    for (const file of entries.filter((f) => f.endsWith(".md"))) {
       const content = await Bun.file(join(tmpDir, file)).text();
       const { frontmatter } = parseFrontmatter(content);
       expect(VALID_TYPES.has(frontmatter!.type)).toBe(true);
@@ -406,7 +440,10 @@ describe("memory CRUD lifecycle — integration", () => {
   });
 
   test("rejects invalid type", async () => {
-    await writeFile(join(tmpDir, "bad.md"), buildMemoryFile({ name: "bad", description: "Bad type", type: "invalid" }, "\nContent\n"));
+    await writeFile(
+      join(tmpDir, "bad.md"),
+      buildMemoryFile({ name: "bad", description: "Bad type", type: "invalid" }, "\nContent\n"),
+    );
 
     const content = await Bun.file(join(tmpDir, "bad.md")).text();
     const { frontmatter } = parseFrontmatter(content);
@@ -414,12 +451,18 @@ describe("memory CRUD lifecycle — integration", () => {
   });
 
   test("detects duplicate names across files", async () => {
-    await writeFile(join(tmpDir, "a.md"), buildMemoryFile({ name: "dupe", description: "First", type: "project" }, "\nContent\n"));
-    await writeFile(join(tmpDir, "b.md"), buildMemoryFile({ name: "dupe", description: "Second", type: "project" }, "\nContent\n"));
+    await writeFile(
+      join(tmpDir, "a.md"),
+      buildMemoryFile({ name: "dupe", description: "First", type: "project" }, "\nContent\n"),
+    );
+    await writeFile(
+      join(tmpDir, "b.md"),
+      buildMemoryFile({ name: "dupe", description: "Second", type: "project" }, "\nContent\n"),
+    );
 
     const entries = await readdir(tmpDir);
     const names: string[] = [];
-    for (const file of entries.filter(f => f.endsWith(".md"))) {
+    for (const file of entries.filter((f) => f.endsWith(".md"))) {
       const content = await Bun.file(join(tmpDir, file)).text();
       const { frontmatter } = parseFrontmatter(content);
       if (frontmatter?.name) names.push(frontmatter.name);
@@ -445,14 +488,17 @@ describe("memory file conventions — validateMemoryFile", () => {
       const file = `${type}_notes.md`;
       const content = buildMemoryFile(
         { name: `${type}_notes`, description: `A ${type} memory`, type },
-        "\n- Body content\n"
+        "\n- Body content\n",
       );
       expect(validateMemoryFile(file, content)).toEqual([]);
     }
   });
 
   test("flags a filename that is not snake_case", () => {
-    const content = buildMemoryFile({ name: "MyNotes", description: "d", type: "user" }, "\nBody\n");
+    const content = buildMemoryFile(
+      { name: "MyNotes", description: "d", type: "user" },
+      "\nBody\n",
+    );
     expect(validateMemoryFile("MyNotes.md", content)).toContain("filename-not-snake-case");
   });
 
@@ -486,7 +532,7 @@ describe("memory file conventions — validateMemoryFile", () => {
   test("flags a type outside the allowed set", () => {
     const content = buildMemoryFile(
       { name: "notes", description: "d", type: "insight" },
-      "\nBody\n"
+      "\nBody\n",
     );
     expect(validateMemoryFile("notes.md", content)).toEqual(["invalid-type"]);
   });
@@ -499,7 +545,7 @@ describe("memory file conventions — validateMemoryFile", () => {
   test("reports every violation in one pass", () => {
     const content = buildMemoryFile(
       { name: "wrong", description: "x".repeat(MAX_DESCRIPTION_LENGTH + 1), type: "bogus" },
-      "\n\n"
+      "\n\n",
     );
     expect(validateMemoryFile("BadName.md", content).sort()).toEqual([
       "description-too-long",
@@ -514,14 +560,14 @@ describe("memory file conventions — validateMemoryFile", () => {
     const dir = await mkdtemp(join(tmpdir(), "memory-conv-"));
     await writeFile(
       join(dir, "good.md"),
-      buildMemoryFile({ name: "good", description: "Fine", type: "project" }, "\nBody\n")
+      buildMemoryFile({ name: "good", description: "Fine", type: "project" }, "\nBody\n"),
     );
     await writeFile(
       join(dir, "bad.md"),
-      buildMemoryFile({ name: "bad", description: "Nope", type: "nonsense" }, "\nBody\n")
+      buildMemoryFile({ name: "bad", description: "Nope", type: "nonsense" }, "\nBody\n"),
     );
 
-    const entries = (await readdir(dir)).filter(f => f.endsWith(".md")).sort();
+    const entries = (await readdir(dir)).filter((f) => f.endsWith(".md")).sort();
     const problems = new Map<string, string[]>();
     for (const file of entries) {
       problems.set(file, validateMemoryFile(file, await Bun.file(join(dir, file)).text()));
@@ -548,9 +594,9 @@ describe("MEMORY.md index conventions — validateIndex", () => {
   });
 
   test("flags an index that opens with frontmatter", () => {
-    expect(validateIndex(`---\ntype: index\n---\n${conformingIndex}`, ["alpha.md", "beta.md"])).toEqual([
-      "index-has-frontmatter",
-    ]);
+    expect(
+      validateIndex(`---\ntype: index\n---\n${conformingIndex}`, ["alpha.md", "beta.md"]),
+    ).toEqual(["index-has-frontmatter"]);
   });
 
   test("flags an index that does not start with a heading", () => {

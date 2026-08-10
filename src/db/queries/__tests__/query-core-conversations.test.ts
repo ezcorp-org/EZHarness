@@ -45,7 +45,11 @@ const SOURCE_CONV_ID = "conv-qc-source";
 async function seedBase() {
   const db = getTestDb();
   await db.insert(users).values({
-    id: USER_ID, email: "qc@x.com", passwordHash: "x", name: "QC", role: "member",
+    id: USER_ID,
+    email: "qc@x.com",
+    passwordHash: "x",
+    name: "QC",
+    role: "member",
   } as any);
   await db.insert(projects).values({ id: PROJECT_ID, name: "p", path: "/tmp/p" } as any);
   await db.insert(extensions).values({
@@ -53,7 +57,16 @@ async function seedBase() {
     name: "test-ext",
     version: "0.0.1",
     description: "",
-    manifest: { schemaVersion: 2, name: "test-ext", version: "0.0.1", description: "", author: { name: "t" }, permissions: {}, entrypoint: "./e.ts", tools: [] },
+    manifest: {
+      schemaVersion: 2,
+      name: "test-ext",
+      version: "0.0.1",
+      description: "",
+      author: { name: "t" },
+      permissions: {},
+      entrypoint: "./e.ts",
+      tools: [],
+    },
     source: "bundled",
   } as any);
 }
@@ -61,15 +74,31 @@ async function seedBase() {
 async function seedCloneSource() {
   const db = getTestDb();
   await db.insert(conversations).values({
-    id: SOURCE_CONV_ID, projectId: PROJECT_ID, title: "Source", userId: USER_ID,
+    id: SOURCE_CONV_ID,
+    projectId: PROJECT_ID,
+    title: "Source",
+    userId: USER_ID,
   } as any);
-  const created = [
-    new Date("2026-04-01T00:00:00Z"),
-    new Date("2026-04-01T00:01:00Z"),
-  ];
+  const created = [new Date("2026-04-01T00:00:00Z"), new Date("2026-04-01T00:01:00Z")];
   await db.insert(messages).values([
-    { id: "m-1", conversationId: SOURCE_CONV_ID, role: "user", content: "Summarize this doc please.", parentMessageId: null, runId: null, createdAt: created[0] },
-    { id: "m-2", conversationId: SOURCE_CONV_ID, role: "assistant", content: "Here is a summary.", parentMessageId: "m-1", runId: null, createdAt: created[1] },
+    {
+      id: "m-1",
+      conversationId: SOURCE_CONV_ID,
+      role: "user",
+      content: "Summarize this doc please.",
+      parentMessageId: null,
+      runId: null,
+      createdAt: created[0],
+    },
+    {
+      id: "m-2",
+      conversationId: SOURCE_CONV_ID,
+      role: "assistant",
+      content: "Here is a summary.",
+      parentMessageId: "m-1",
+      runId: null,
+      createdAt: created[1],
+    },
   ] as any);
 }
 
@@ -107,11 +136,30 @@ describe("cloneTurnsIntoNewConversation embed enqueue (IDX-04)", () => {
   test("a whitespace-only (ineligible) cloned message is NOT enqueued", async () => {
     const db = getTestDb();
     await db.insert(conversations).values({
-      id: "conv-ws", projectId: PROJECT_ID, title: "WS", userId: USER_ID,
+      id: "conv-ws",
+      projectId: PROJECT_ID,
+      title: "WS",
+      userId: USER_ID,
     } as any);
     await db.insert(messages).values([
-      { id: "ws-1", conversationId: "conv-ws", role: "user", content: "real content here", parentMessageId: null, runId: null, createdAt: new Date("2026-04-02T00:00:00Z") },
-      { id: "ws-2", conversationId: "conv-ws", role: "assistant", content: "   ", parentMessageId: "ws-1", runId: null, createdAt: new Date("2026-04-02T00:01:00Z") },
+      {
+        id: "ws-1",
+        conversationId: "conv-ws",
+        role: "user",
+        content: "real content here",
+        parentMessageId: null,
+        runId: null,
+        createdAt: new Date("2026-04-02T00:00:00Z"),
+      },
+      {
+        id: "ws-2",
+        conversationId: "conv-ws",
+        role: "assistant",
+        content: "   ",
+        parentMessageId: "ws-1",
+        runId: null,
+        createdAt: new Date("2026-04-02T00:01:00Z"),
+      },
     ] as any);
 
     const { conversation, messageIdMap } = await cloneTurnsIntoNewConversation(
@@ -135,26 +183,56 @@ describe("deleteAllMessagesForConversation transactional wipe", () => {
   test("removes conversation_extensions, tool_calls and messages together", async () => {
     const db = getTestDb();
     await db.insert(conversations).values({
-      id: "conv-del", projectId: PROJECT_ID, title: "Del", userId: USER_ID,
+      id: "conv-del",
+      projectId: PROJECT_ID,
+      title: "Del",
+      userId: USER_ID,
     } as any);
     await db.insert(messages).values({
-      id: "dm-1", conversationId: "conv-del", role: "user", content: "hi there", parentMessageId: null, runId: null, createdAt: new Date(),
+      id: "dm-1",
+      conversationId: "conv-del",
+      role: "user",
+      content: "hi there",
+      parentMessageId: null,
+      runId: null,
+      createdAt: new Date(),
     } as any);
     await db.insert(toolCalls).values({
-      id: "dtc-1", conversationId: "conv-del", messageId: "dm-1", extensionId: EXT_ID, toolName: "t", input: {}, output: {}, success: true, durationMs: 1,
+      id: "dtc-1",
+      conversationId: "conv-del",
+      messageId: "dm-1",
+      extensionId: EXT_ID,
+      toolName: "t",
+      input: {},
+      output: {},
+      success: true,
+      durationMs: 1,
     } as any);
     await db.insert(conversationExtensions).values({
-      id: "dce-1", conversationId: "conv-del", extensionId: EXT_ID,
+      id: "dce-1",
+      conversationId: "conv-del",
+      extensionId: EXT_ID,
     } as any);
 
     const removed = await deleteAllMessagesForConversation("conv-del");
     expect(removed).toBe(1);
 
-    expect(await db.select().from(messages).where(eq(messages.conversationId, "conv-del"))).toHaveLength(0);
-    expect(await db.select().from(toolCalls).where(eq(toolCalls.conversationId, "conv-del"))).toHaveLength(0);
-    expect(await db.select().from(conversationExtensions).where(eq(conversationExtensions.conversationId, "conv-del"))).toHaveLength(0);
+    expect(
+      await db.select().from(messages).where(eq(messages.conversationId, "conv-del")),
+    ).toHaveLength(0);
+    expect(
+      await db.select().from(toolCalls).where(eq(toolCalls.conversationId, "conv-del")),
+    ).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(conversationExtensions)
+        .where(eq(conversationExtensions.conversationId, "conv-del")),
+    ).toHaveLength(0);
     // Conversation row itself survives.
-    expect(await db.select().from(conversations).where(eq(conversations.id, "conv-del"))).toHaveLength(1);
+    expect(
+      await db.select().from(conversations).where(eq(conversations.id, "conv-del")),
+    ).toHaveLength(1);
   });
 
   test("throws on an invalid conversationId argument", async () => {
@@ -180,8 +258,14 @@ describe("searchConversations bounded LIMIT/OFFSET", () => {
 
   test("offset advances the page window (disjoint from page 1)", async () => {
     await seedMatches(5);
-    const first = await searchConversations(PROJECT_ID, "chocolate cake", USER_ID, { limit: 2, offset: 0 });
-    const second = await searchConversations(PROJECT_ID, "chocolate cake", USER_ID, { limit: 2, offset: 2 });
+    const first = await searchConversations(PROJECT_ID, "chocolate cake", USER_ID, {
+      limit: 2,
+      offset: 0,
+    });
+    const second = await searchConversations(PROJECT_ID, "chocolate cake", USER_ID, {
+      limit: 2,
+      offset: 2,
+    });
     const firstIds = new Set(first.map((r) => r.id));
     for (const r of second) expect(firstIds.has(r.id)).toBe(false);
     expect(second.length).toBeGreaterThanOrEqual(1);

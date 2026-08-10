@@ -15,25 +15,16 @@ vi.mock("$server/db/queries/conversations", () => ({
   getSubConversations: vi.fn(async () => []),
 }));
 
-const { getConversation, getSubConversations } = await import(
-  "$server/db/queries/conversations"
-);
-const { GET } = await import(
-  "../routes/api/conversations/[id]/sub-conversations/+server.ts"
-);
+const { getConversation, getSubConversations } = await import("$server/db/queries/conversations");
+const { GET } = await import("../routes/api/conversations/[id]/sub-conversations/+server.ts");
 
-function makeEvent(opts: {
-  locals?: Record<string, unknown>;
-  id?: string;
-}) {
+function makeEvent(opts: { locals?: Record<string, unknown>; id?: string }) {
   const id = opts.id ?? "conv-1";
   return {
     url: new URL(`http://localhost/api/conversations/${id}/sub-conversations`),
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(
-      `http://localhost/api/conversations/${id}/sub-conversations`,
-    ),
+    request: new Request(`http://localhost/api/conversations/${id}/sub-conversations`),
   } as any;
 }
 

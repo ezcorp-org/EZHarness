@@ -42,13 +42,9 @@ describe("isNoiseLine — positive matches (noise)", () => {
     expect(isNoiseLine("  foo: string;")).toBe(true);
     expect(isNoiseLine("  bar?: number,")).toBe(true);
     expect(isNoiseLine("  systemPrompt?: string;")).toBe(true);
-    expect(isNoiseLine(
-      "  messages: Array<{ role: \"system\"; content: string }>;",
-    )).toBe(true);
+    expect(isNoiseLine('  messages: Array<{ role: "system"; content: string }>;')).toBe(true);
     // Arrow-type field (function-type member, no value assign).
-    expect(isNoiseLine(
-      "    complete: (...args: unknown[]) => Promise<unknown>;",
-    )).toBe(true);
+    expect(isNoiseLine("    complete: (...args: unknown[]) => Promise<unknown>;")).toBe(true);
   });
 
   test("modifier-prefixed class member declarations (no initializer) are noise", () => {
@@ -95,9 +91,7 @@ describe("isNoiseLine — positive matches (noise)", () => {
   });
 
   test("standalone generic type continuation", () => {
-    expect(isNoiseLine(
-      "  Array<{ id: string; persisted: PersistedGoal }>",
-    )).toBe(true);
+    expect(isNoiseLine("  Array<{ id: string; persisted: PersistedGoal }>")).toBe(true);
     expect(isNoiseLine("Promise<MyType>")).toBe(true);
   });
 
@@ -123,15 +117,23 @@ describe("isNoiseLine — positive matches (noise)", () => {
   test("SQL DDL fragments inside tagged template", () => {
     expect(isNoiseLine("    CREATE TABLE IF NOT EXISTS extension_secrets (")).toBe(true);
     expect(isNoiseLine("    ALTER TABLE github_projects_links")).toBe(true);
-    expect(isNoiseLine("    DROP CONSTRAINT IF EXISTS github_projects_links_project_id_key")).toBe(true);
+    expect(isNoiseLine("    DROP CONSTRAINT IF EXISTS github_projects_links_project_id_key")).toBe(
+      true,
+    );
     expect(isNoiseLine("    ADD COLUMN IF NOT EXISTS default_model TEXT")).toBe(true);
   });
 
   test("SQL column-definition lines (uppercase type keyword)", () => {
     expect(isNoiseLine("      id TEXT PRIMARY KEY,")).toBe(true);
-    expect(isNoiseLine("      extension_id TEXT NOT NULL REFERENCES extensions(name) ON DELETE CASCADE,")).toBe(true);
+    expect(
+      isNoiseLine(
+        "      extension_id TEXT NOT NULL REFERENCES extensions(name) ON DELETE CASCADE,",
+      ),
+    ).toBe(true);
     expect(isNoiseLine("      poll_interval_sec INTEGER NOT NULL DEFAULT 60,")).toBe(true);
-    expect(isNoiseLine("      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),")).toBe(true);
+    expect(isNoiseLine("      created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),")).toBe(
+      true,
+    );
     expect(isNoiseLine("      enabled BOOLEAN NOT NULL DEFAULT TRUE,")).toBe(true);
     expect(isNoiseLine("      status_options JSONB NOT NULL DEFAULT '[]',")).toBe(true);
   });
@@ -149,7 +151,6 @@ describe("isNoiseLine — positive matches (noise)", () => {
     expect(isNoiseLine("      }`,")).toBe(true);
     expect(isNoiseLine("}`")).toBe(true);
   });
-
 });
 
 describe("isNoiseLine — negative matches (real executable code)", () => {
@@ -263,17 +264,21 @@ describe("isNoiseLine — negative matches (real executable code)", () => {
     expect(isNoiseLine("): { toolCount: number; hasComplexTools: boolean } {")).toBe(false);
     // src/runtime/stream-chat/context-compaction.ts:657 — anonymous fn type,
     // fully spelled on one line, body brace included.
-    expect(isNoiseLine(
-      "): (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]> {",
-    )).toBe(false);
+    expect(
+      isNoiseLine(
+        "): (messages: AgentMessage[], signal?: AbortSignal) => Promise<AgentMessage[]> {",
+      ),
+    ).toBe(false);
     // src/dev-git-info.ts:75
     expect(isNoiseLine("): (({ html }: { html: string }) => string) | undefined {")).toBe(false);
     // src/runtime/events.ts:11
     expect(isNoiseLine("  ): () => void {")).toBe(false);
     // src/extensions/workflows-handler.ts:427
-    expect(isNoiseLine(
-      "): { ok: true; input: Record<string, unknown> } | { ok: false; message: string } {",
-    )).toBe(false);
+    expect(
+      isNoiseLine(
+        "): { ok: true; input: Record<string, unknown> } | { ok: false; message: string } {",
+      ),
+    ).toBe(false);
     // The widening must not degrade into "any line starting with `)`:" — a
     // head token followed by more type text still carries the body brace and
     // stays executable.
@@ -318,9 +323,7 @@ describe("isNoiseLine — negative matches (real executable code)", () => {
   test("class declaration headers are noise (header never carries a positive DA)", () => {
     expect(isNoiseLine("export class SearchCache {")).toBe(true);
     expect(isNoiseLine("class Foo {")).toBe(true);
-    expect(isNoiseLine(
-      "export abstract class Bar extends Baz implements I {",
-    )).toBe(true);
+    expect(isNoiseLine("export abstract class Bar extends Baz implements I {")).toBe(true);
     expect(isNoiseLine("export default class Widget {")).toBe(true);
     expect(isNoiseLine("class Container<T extends Base> {")).toBe(true);
   });
@@ -329,13 +332,17 @@ describe("isNoiseLine — negative matches (real executable code)", () => {
     // `class\s+\w+` requires whitespace after `class`; `classRoom` has none,
     // so CLASS_DECL never fires. (It IS still noise via TS_FIELD_START as a
     // declaration-only field — that's correct and intentional.)
-    expect(/^\s*(export\s+)?(default\s+)?(abstract\s+)?class\s+\w+\s*(<[^>]*>)?\s*(extends\s|implements\s|\{|$)/.test(
-      "  classRoom: string;",
-    )).toBe(false);
+    expect(
+      /^\s*(export\s+)?(default\s+)?(abstract\s+)?class\s+\w+\s*(<[^>]*>)?\s*(extends\s|implements\s|\{|$)/.test(
+        "  classRoom: string;",
+      ),
+    ).toBe(false);
     // `classify(x)` is a function, not a class declaration.
-    expect(/^\s*(export\s+)?(default\s+)?(abstract\s+)?class\s+\w+\s*(<[^>]*>)?\s*(extends\s|implements\s|\{|$)/.test(
-      "function classify(x) {",
-    )).toBe(false);
+    expect(
+      /^\s*(export\s+)?(default\s+)?(abstract\s+)?class\s+\w+\s*(<[^>]*>)?\s*(extends\s|implements\s|\{|$)/.test(
+        "function classify(x) {",
+      ),
+    ).toBe(false);
   });
 
   test("modifier-prefixed declaration-only fields are noise (type erased, no JS)", () => {
@@ -376,41 +383,36 @@ describe("isNoiseLine — negative matches (real executable code)", () => {
 describe("templateInteriorProseLines — pure-prose inside multi-line templates", () => {
   test("flags free-prose body lines, not the opener/closer/interpolation lines", () => {
     const src = [
-      "const prompt =",                          // 1 code
-      "  `Review the code changes and return.",  // 2 opener (code→template) — NOT flagged
-      "Context:",                                // 3 pure prose — FLAGGED
-      "- branch: ${branch}",                     // 4 interpolation — NOT flagged
-      "Rules:",                                  // 5 pure prose — FLAGGED
-      "- Be concise.",                           // 6 pure prose — FLAGGED
-      "`;",                                      // 7 closer (template→code) — NOT flagged
-      "doWork();",                               // 8 code
+      "const prompt =", // 1 code
+      "  `Review the code changes and return.", // 2 opener (code→template) — NOT flagged
+      "Context:", // 3 pure prose — FLAGGED
+      "- branch: ${branch}", // 4 interpolation — NOT flagged
+      "Rules:", // 5 pure prose — FLAGGED
+      "- Be concise.", // 6 pure prose — FLAGGED
+      "`;", // 7 closer (template→code) — NOT flagged
+      "doWork();", // 8 code
     ];
     const got = templateInteriorProseLines(src);
     expect([...got].sort((a, b) => a - b)).toEqual([3, 5, 6]);
   });
 
   test("does not flag lines outside any template", () => {
-    const src = [
-      "function f() {",
-      "  const x = 1;",
-      "  return x + 2;",
-      "}",
-    ];
+    const src = ["function f() {", "  const x = 1;", "  return x + 2;", "}"];
     expect(templateInteriorProseLines(src).size).toBe(0);
   });
 
   test("a backtick inside a double-quoted string does not open a template", () => {
     const src = [
       'const s = "a backtick ` here";', // the ` is string content, not a template opener
-      "const y = 2;",                    // must NOT be flagged as template interior
+      "const y = 2;", // must NOT be flagged as template interior
     ];
     expect(templateInteriorProseLines(src).size).toBe(0);
   });
 
   test("a backtick inside a line comment does not open a template", () => {
     const src = [
-      "// example: `foo`",  // comment — the backticks are inert
-      "const z = 3;",        // must NOT be flagged
+      "// example: `foo`", // comment — the backticks are inert
+      "const z = 3;", // must NOT be flagged
     ];
     expect(templateInteriorProseLines(src).size).toBe(0);
   });
@@ -422,21 +424,21 @@ describe("templateInteriorProseLines — pure-prose inside multi-line templates"
 
   test("nested ${} interpolation returns to template string content correctly", () => {
     const src = [
-      "const p = `head",             // 1 opener
-      "prose one",                   // 2 prose — FLAGGED
+      "const p = `head", // 1 opener
+      "prose one", // 2 prose — FLAGGED
       "${obj.method({ a: 1 })} mid", // 3 interpolation with nested braces — NOT flagged
-      "prose two",                   // 4 prose — FLAGGED (back in template after interp closed)
-      "`;",                          // 5 closer
+      "prose two", // 4 prose — FLAGGED (back in template after interp closed)
+      "`;", // 5 closer
     ];
     expect([...templateInteriorProseLines(src)].sort((a, b) => a - b)).toEqual([2, 4]);
   });
 
   test("escaped backtick inside a template does not close it", () => {
     const src = [
-      "const e = `line",   // 1 opener
-      "has a \\` escaped",  // 2 prose with escaped backtick — still template interior, FLAGGED
-      "still inside",       // 3 prose — FLAGGED
-      "`;",                 // 4 closer
+      "const e = `line", // 1 opener
+      "has a \\` escaped", // 2 prose with escaped backtick — still template interior, FLAGGED
+      "still inside", // 3 prose — FLAGGED
+      "`;", // 4 closer
     ];
     expect([...templateInteriorProseLines(src)].sort((a, b) => a - b)).toEqual([2, 3]);
   });

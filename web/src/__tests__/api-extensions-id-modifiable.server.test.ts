@@ -16,19 +16,11 @@ vi.mock("$server/db/queries/audit-log", () => ({
   insertAuditEntry: vi.fn(async () => "audit-1"),
 }));
 
-const { getExtension, setExtensionModifiable } = await import(
-  "$server/db/queries/extensions"
-);
+const { getExtension, setExtensionModifiable } = await import("$server/db/queries/extensions");
 const { insertAuditEntry } = await import("$server/db/queries/audit-log");
-const { POST } = await import(
-  "../routes/api/extensions/[id]/modifiable/+server.ts"
-);
+const { POST } = await import("../routes/api/extensions/[id]/modifiable/+server.ts");
 
-function makeEvent(opts: {
-  id?: string;
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { id?: string; locals?: Record<string, unknown>; body?: unknown }) {
   const id = opts.id ?? "ext-1";
   return {
     url: new URL(`http://localhost/api/extensions/${id}/modifiable`),
@@ -63,9 +55,7 @@ describe("POST /api/extensions/[id]/modifiable", () => {
   });
 
   test("non-admin → 403", async () => {
-    const res = await POST(
-      makeEvent({ locals: { user: member }, body: { modifiable: true } }),
-    );
+    const res = await POST(makeEvent({ locals: { user: member }, body: { modifiable: true } }));
     expect(res.status).toBe(403);
   });
 
@@ -120,17 +110,13 @@ describe("POST /api/extensions/[id]/modifiable", () => {
   });
 
   test("malformed body → 400", async () => {
-    const res = await POST(
-      makeEvent({ locals: { user: admin }, body: { modifiable: "yes" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user: admin }, body: { modifiable: "yes" } }));
     expect(res.status).toBe(400);
   });
 
   test("unknown extension → 404", async () => {
     vi.mocked(getExtension).mockResolvedValue(null as any);
-    const res = await POST(
-      makeEvent({ locals: { user: admin }, body: { modifiable: true } }),
-    );
+    const res = await POST(makeEvent({ locals: { user: admin }, body: { modifiable: true } }));
     expect(res.status).toBe(404);
   });
 
@@ -140,9 +126,7 @@ describe("POST /api/extensions/[id]/modifiable", () => {
       isBundled: true,
       modifiable: false,
     } as any);
-    const res = await POST(
-      makeEvent({ locals: { user: admin }, body: { modifiable: true } }),
-    );
+    const res = await POST(makeEvent({ locals: { user: admin }, body: { modifiable: true } }));
     expect(res.status).toBe(400);
     expect(vi.mocked(setExtensionModifiable)).not.toHaveBeenCalled();
   });
@@ -153,9 +137,7 @@ describe("POST /api/extensions/[id]/modifiable", () => {
       isBundled: false,
       modifiable: true,
     } as any);
-    const res = await POST(
-      makeEvent({ locals: { user: admin }, body: { modifiable: true } }),
-    );
+    const res = await POST(makeEvent({ locals: { user: admin }, body: { modifiable: true } }));
     expect(res.status).toBe(200);
     expect(vi.mocked(setExtensionModifiable)).not.toHaveBeenCalled();
     expect(vi.mocked(insertAuditEntry)).not.toHaveBeenCalled();
@@ -171,9 +153,7 @@ describe("POST /api/extensions/[id]/modifiable", () => {
       id: "ext-1",
       modifiable: true,
     } as any);
-    const res = await POST(
-      makeEvent({ locals: { user: admin }, body: { modifiable: true } }),
-    );
+    const res = await POST(makeEvent({ locals: { user: admin }, body: { modifiable: true } }));
     expect(res.status).toBe(200);
     expect(vi.mocked(setExtensionModifiable)).toHaveBeenCalledWith("ext-1", true);
     expect(vi.mocked(insertAuditEntry)).toHaveBeenCalledWith(

@@ -64,7 +64,7 @@ describe("buildExtractSystemPrompt", () => {
     // Load-bearing rules.
     expect(p).toContain("Make every bullet self-contained");
     expect(p).toContain("record the FINAL state and note what it replaced");
-    expect(p).toContain('prioritize the MOST RECENT messages');
+    expect(p).toContain("prioritize the MOST RECENT messages");
     expect(p).toContain("VERBATIM");
     expect(p).toContain("RELEVANT TO TOPIC");
     expect(p).toContain("/no_think");
@@ -106,14 +106,20 @@ describe("composeTitle", () => {
 describe("extractContext orchestrator", () => {
   function baseDeps(overrides: Partial<ExtractDeps> = {}): Partial<ExtractDeps> {
     return {
-      resolveTarget: async () => ({ kind: "pi", provider: "anthropic", modelId: "claude", piModel: {} }),
+      resolveTarget: async () => ({
+        kind: "pi",
+        provider: "anthropic",
+        modelId: "claude",
+        piModel: {},
+      }),
       runCompletion: async () => "<think>reasoning</think># Auth\nThe auth flow uses JWT.",
       getMessages: async () => [
         { id: "m1", role: "user", content: "how does auth work" },
         { id: "m2", role: "assistant", content: "it uses JWT" },
       ],
       listContextTypes: async () => TYPES,
-      upsertSavedContext: async (input) => ({ id: "sc1", createdAt: new Date(), updatedAt: new Date(), ...input }) as any,
+      upsertSavedContext: async (input) =>
+        ({ id: "sc1", createdAt: new Date(), updatedAt: new Date(), ...input }) as any,
       ...overrides,
     };
   }
@@ -149,7 +155,11 @@ describe("extractContext orchestrator", () => {
       { conversationId: "conv-1", topic, userId: "u1", projectId: null },
       baseDeps({
         getMessages: async () =>
-          Array.from({ length: 6 }, (_, i) => ({ id: `m${i}`, role: "user", content: "z".repeat(20_000) })),
+          Array.from({ length: 6 }, (_, i) => ({
+            id: `m${i}`,
+            role: "user",
+            content: "z".repeat(20_000),
+          })),
         runCompletion: async () => "extracted body",
         upsertSavedContext: async (input) => {
           saved = input;
@@ -173,7 +183,12 @@ describe("extractContext orchestrator", () => {
   test("unknown typeId falls back to the id string in the prompt (label lookup miss)", async () => {
     let sysPrompt = "";
     await extractContext(
-      { conversationId: "conv-1", topic: { ...topic, typeId: "mystery" }, userId: "u1", projectId: null },
+      {
+        conversationId: "conv-1",
+        topic: { ...topic, typeId: "mystery" },
+        userId: "u1",
+        projectId: null,
+      },
       baseDeps({
         runCompletion: async (req) => {
           sysPrompt = req.systemPrompt;

@@ -20,10 +20,7 @@ import type {
   GithubFetchPage,
   GithubTicketRef,
 } from "../../integrations/github-projects/types";
-import type {
-  GithubProjectsLink,
-  GithubProjectsProposal,
-} from "../../db/schema";
+import type { GithubProjectsLink, GithubProjectsProposal } from "../../db/schema";
 
 // ── DB connection → test PGlite (used by the integration block + the
 //    handler's lazy default links-by-user query). The unit block overrides the
@@ -71,12 +68,11 @@ mock.module("../secrets-store", () => ({
 // `../../db/queries/users` IS in mock-cleanup's MODULE_PATHS, so afterAll's
 // restoreModuleMocks() re-registers the real module.
 const REAL_USERS = { ...(await import("../../db/queries/users")) };
-let getUserByIdImpl: (
-  id: string,
-) => Promise<{ id: string; role: "admin" | "member" } | undefined> = async (id) => ({
-  id,
-  role: "member",
-});
+let getUserByIdImpl: (id: string) => Promise<{ id: string; role: "admin" | "member" } | undefined> =
+  async (id) => ({
+    id,
+    role: "member",
+  });
 mock.module("../../db/queries/users", () => ({
   ...REAL_USERS,
   getUserById: (id: string) => getUserByIdImpl(id),
@@ -108,8 +104,12 @@ mock.module("../../auth/extension-rbac", () => ({
   },
 }));
 
-let auditRows: Array<{ userId: string | null; action: string; target?: string; metadata?: unknown }> =
-  [];
+let auditRows: Array<{
+  userId: string | null;
+  action: string;
+  target?: string;
+  metadata?: unknown;
+}> = [];
 mock.module("../../db/queries/audit-log", () => ({
   insertAuditEntry: async (
     userId: string | null,
@@ -171,11 +171,11 @@ class GithubCardBusyError extends Error {
   }
 }
 let approveImpl: (id: string, actor: unknown) => Promise<GithubProjectsProposal> = async (id) =>
-  ({ id, status: "spawned" } as GithubProjectsProposal);
+  ({ id, status: "spawned" }) as GithubProjectsProposal;
 let dismissImpl: (id: string, userId: string) => Promise<GithubProjectsProposal> = async (id) =>
-  ({ id, status: "dismissed" } as GithubProjectsProposal);
+  ({ id, status: "dismissed" }) as GithubProjectsProposal;
 let rerunImpl: (id: string, actor: unknown) => Promise<GithubProjectsProposal> = async () =>
-  ({ id: "prop-new", projectId: "proj-1", status: "pending" } as GithubProjectsProposal);
+  ({ id: "prop-new", projectId: "proj-1", status: "pending" }) as GithubProjectsProposal;
 const spawnCalls: Array<{ method: string; args: unknown[] }> = [];
 mock.module("../../integrations/github-projects/spawn", () => ({
   GithubProposalNotRerunnableError,
@@ -201,10 +201,8 @@ let listLinksByProjectIdImpl: (p: string) => Promise<GithubProjectsLink[]> = asy
 let getProposalByIdImpl: (id: string) => Promise<GithubProjectsProposal | null> = async () => null;
 let getProposalByConversationIdImpl: (c: string) => Promise<GithubProjectsProposal | null> =
   async () => null;
-let listProposalsByProjectImpl: (
-  p: string,
-  opts?: unknown,
-) => Promise<GithubProjectsProposal[]> = async () => [];
+let listProposalsByProjectImpl: (p: string, opts?: unknown) => Promise<GithubProjectsProposal[]> =
+  async () => [];
 let setLinkEnabledImpl: (id: string, enabled: boolean) => Promise<GithubProjectsLink | null> =
   async () => null;
 const queryCalls: Array<{ method: string; args: unknown[] }> = [];
@@ -407,10 +405,10 @@ beforeEach(() => {
   getProposalByIdImpl = async () => proposal();
   listProposalsByProjectImpl = async () => [proposal()];
   setLinkEnabledImpl = async () => link({ enabled: false });
-  approveImpl = async (id) => ({ id, status: "spawned" } as GithubProjectsProposal);
-  dismissImpl = async (id) => ({ id, status: "dismissed" } as GithubProjectsProposal);
+  approveImpl = async (id) => ({ id, status: "spawned" }) as GithubProjectsProposal;
+  dismissImpl = async (id) => ({ id, status: "dismissed" }) as GithubProjectsProposal;
   rerunImpl = async () =>
-    ({ id: "prop-new", projectId: "proj-1", status: "pending" } as GithubProjectsProposal);
+    ({ id: "prop-new", projectId: "proj-1", status: "pending" }) as GithubProjectsProposal;
   emitCalls = [];
   registerGithubProjectsEmit((event, payload) => {
     emitCalls.push({ event, payload });
@@ -485,7 +483,11 @@ describe("ticket verbs — projectId derivation", () => {
   });
 
   test("returns an error when conversationId is unbound", async () => {
-    const res = await handleGithubProjectsRpc("list", req(V("list")), ctx({ conversationId: null }));
+    const res = await handleGithubProjectsRpc(
+      "list",
+      req(V("list")),
+      ctx({ conversationId: null }),
+    );
     expect("error" in res && res.error?.code).toBe(-32602);
   });
 
@@ -503,10 +505,7 @@ describe("ticket verbs — projectId derivation", () => {
     };
     // listLinks would resolve link-A first — proving the proposal wins, not the
     // fallback.
-    listLinksByProjectIdImpl = async () => [
-      link({ id: "link-A" }),
-      link({ id: "link-B" }),
-    ];
+    listLinksByProjectIdImpl = async () => [link({ id: "link-A" }), link({ id: "link-B" })];
     const res = await handleGithubProjectsRpc("list", req(V("list")), ctx());
     expect(resolvedById).toBe("link-B");
     expect("result" in res).toBe(true);
@@ -628,8 +627,16 @@ describe("list", () => {
       fetchBoardItems: async () => ({
         items: [
           boardItem({ itemNodeId: "a", statusName: "Done", updatedAt: "2026-06-22T00:00:00Z" }),
-          boardItem({ itemNodeId: "b", statusName: "In Progress", updatedAt: "2026-06-23T00:00:00Z" }),
-          boardItem({ itemNodeId: "c", statusName: "In Progress", updatedAt: "2026-06-21T00:00:00Z" }),
+          boardItem({
+            itemNodeId: "b",
+            statusName: "In Progress",
+            updatedAt: "2026-06-23T00:00:00Z",
+          }),
+          boardItem({
+            itemNodeId: "c",
+            statusName: "In Progress",
+            updatedAt: "2026-06-21T00:00:00Z",
+          }),
         ],
         cursor: {},
       }),
@@ -870,11 +877,7 @@ describe("ticket mutations", () => {
         throw new Error("rate limited");
       },
     });
-    const res = await handleGithubProjectsRpc(
-      "create",
-      req(V("create"), { title: "x" }),
-      ctx(),
-    );
+    const res = await handleGithubProjectsRpc("create", req(V("create"), { title: "x" }), ctx());
     expect("error" in res && res.error?.code).toBe(-32603);
   });
 });
@@ -894,7 +897,10 @@ describe("dashboard-data", () => {
     expect("result" in res).toBe(true);
     const data = (
       res as {
-        result: { proposals: { projectId: string; conversationId: string | null }[]; boards: unknown[] };
+        result: {
+          proposals: { projectId: string; conversationId: string | null }[];
+          boards: unknown[];
+        };
       }
     ).result;
     expect(data.boards.length).toBe(1);
@@ -923,9 +929,7 @@ describe("dashboard-data", () => {
     ];
     const res = await handleGithubProjectsRpc("dashboard-data", req(V("dashboard-data")), ctx());
     expect("result" in res).toBe(true);
-    const data = (
-      res as { result: { proposals: { id: string; boardTitle: string }[] } }
-    ).result;
+    const data = (res as { result: { proposals: { id: string; boardTitle: string }[] } }).result;
     // Exactly once each — no per-link duplication (duplicate ids would break
     // keyed rendering) — and each stamped with its OWN board's title.
     expect(data.proposals.map((p) => [p.id, p.boardTitle]).sort()).toEqual([
@@ -1078,9 +1082,7 @@ describe("rerun", () => {
       newProposalId: "prop-new",
     });
     // The proposal-update event fired so every dashboard refreshes.
-    expect(emitCalls).toEqual([
-      { event: GITHUB_PROJECTS_EVENT, payload: { projectId: "proj-1" } },
-    ]);
+    expect(emitCalls).toEqual([{ event: GITHUB_PROJECTS_EVENT, payload: { projectId: "proj-1" } }]);
   });
 
   test("rerun is opaque (-32603) when the user does NOT own the link — no bridge call, no audit, no emit", async () => {
@@ -1212,11 +1214,7 @@ describe("pause / resume", () => {
 
   test("pause is opaque when the link is missing", async () => {
     getLinkByIdImpl = async () => null;
-    const res = await handleGithubProjectsRpc(
-      "pause",
-      req(V("pause"), { linkId: "nope" }),
-      ctx(),
-    );
+    const res = await handleGithubProjectsRpc("pause", req(V("pause"), { linkId: "nope" }), ctx());
     expect("error" in res && res.error?.code).toBe(-32603);
   });
 
@@ -1270,8 +1268,7 @@ describe("poll-now", () => {
     expect(
       auditRows.some(
         (r) =>
-          r.action.includes("control") &&
-          (r.metadata as { verb?: string })?.verb === "poll-now",
+          r.action.includes("control") && (r.metadata as { verb?: string })?.verb === "poll-now",
       ),
     ).toBe(true);
   });
@@ -1351,7 +1348,10 @@ describe("extension RBAC — handler verbs", () => {
   const denyScope = (scope: string) => {
     hasScopeImpl = async (_u, q) => q.scope !== scope;
   };
-  const expectScopeDenial = (res: Awaited<ReturnType<typeof handleGithubProjectsRpc>>, scope: string) => {
+  const expectScopeDenial = (
+    res: Awaited<ReturnType<typeof handleGithubProjectsRpc>>,
+    scope: string,
+  ) => {
     expect("error" in res && res.error?.code).toBe(-32603);
     expect("error" in res && res.error?.message).toBe(
       `Missing extension scope '${scope}' for github-projects`,
@@ -1363,7 +1363,11 @@ describe("extension RBAC — handler verbs", () => {
     async (verb) => {
       getProposalByIdImpl = async () => proposal({ status: verb === "rerun" ? "done" : "pending" });
       denyScope("approve-runs");
-      const res = await handleGithubProjectsRpc(verb, req(V(verb), { proposalId: "prop-1" }), ctx());
+      const res = await handleGithubProjectsRpc(
+        verb,
+        req(V(verb), { proposalId: "prop-1" }),
+        ctx(),
+      );
       expectScopeDenial(res, "approve-runs");
       expect(spawnCalls).toHaveLength(0);
       expect(auditRows).toHaveLength(0);
@@ -1414,7 +1418,11 @@ describe("extension RBAC — handler verbs", () => {
     );
     expectScopeDenial(res, "use");
     expect(daemonCalls).toHaveLength(0);
-    expect(rbacCalls[0]).toMatchObject({ projectId: "proj-1", extensionId: "github-projects", scope: "use" });
+    expect(rbacCalls[0]).toMatchObject({
+      projectId: "proj-1",
+      extensionId: "github-projects",
+      scope: "use",
+    });
   });
 
   test("an unknown acting-user row is fail-closed (denial), without ever consulting grants", async () => {
@@ -1541,10 +1549,18 @@ describe("extension RBAC — handler verbs", () => {
     ]);
     hasScopeImpl = async (_u, q) => q.projectId === "proj-A"; // use granted on proj-A only
     listProposalsByProjectImpl = async (p) =>
-      p === "proj-A" ? [proposal({ id: "prop-A", linkId: "link-A", projectId: "proj-A" })] : [proposal({ id: "prop-B", linkId: "link-B", projectId: "proj-B" })];
+      p === "proj-A"
+        ? [proposal({ id: "prop-A", linkId: "link-A", projectId: "proj-A" })]
+        : [proposal({ id: "prop-B", linkId: "link-B", projectId: "proj-B" })];
     const res = await handleGithubProjectsRpc("dashboard-data", req(V("dashboard-data")), ctx());
     const data = (
-      res as { result: { boards: { linkId: string }[]; proposals: { id: string }[]; permissionDenied?: boolean } }
+      res as {
+        result: {
+          boards: { linkId: string }[];
+          proposals: { id: string }[];
+          permissionDenied?: boolean;
+        };
+      }
     ).result;
     expect(data.boards.map((b) => b.linkId)).toEqual(["link-A"]);
     expect(data.proposals.map((p) => p.id)).toEqual(["prop-A"]);
@@ -1561,7 +1577,9 @@ describe("extension RBAC — handler verbs", () => {
     _setLinksByUserForTests(async () => []);
     hasScopeImpl = async () => false;
     const res = await handleGithubProjectsRpc("dashboard-data", req(V("dashboard-data")), ctx());
-    const data = (res as { result: { boards: unknown[]; proposals: unknown[]; permissionDenied?: boolean } }).result;
+    const data = (
+      res as { result: { boards: unknown[]; proposals: unknown[]; permissionDenied?: boolean } }
+    ).result;
     expect(data.boards).toEqual([]);
     expect(data.proposals).toEqual([]);
     expect(data.permissionDenied).toBeUndefined();

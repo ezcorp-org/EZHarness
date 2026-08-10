@@ -102,11 +102,7 @@ test.describe("the delegated fire has no HTTP surface, and consent refuses what 
     // (`toWorkflowDelegationView`, via the schema's keyed lookup). They
     // are deliberately different names and are asserted as such below —
     // sending the response's name on the request is a `.strict()` 400.
-    const consentBody = (
-      workflowName: string,
-      ownerKind: "user" | "service",
-      jobRef: string,
-    ) => ({
+    const consentBody = (workflowName: string, ownerKind: "user" | "service", jobRef: string) => ({
       extensionId: extensionId!,
       jobRef,
       workflowName,

@@ -109,10 +109,9 @@ function makeProposal(over: Record<string, unknown> = {}) {
   };
 }
 
-function makeFakeClient(opts: {
-  addCommentImpl?: () => Promise<void>;
-  setItemStatusImpl?: () => Promise<void>;
-} = {}) {
+function makeFakeClient(
+  opts: { addCommentImpl?: () => Promise<void>; setItemStatusImpl?: () => Promise<void> } = {},
+) {
   return {
     addComment: mock(opts.addCommentImpl ?? (() => Promise.resolve())),
     setItemStatus: mock(opts.setItemStatusImpl ?? (() => Promise.resolve())),
@@ -376,12 +375,10 @@ describe("moveCardOnDone", () => {
   test("no-op (returns false) when column is undefined", async () => {
     const client = makeFakeClient();
     const auth = makeFakeAuth();
-    const result = await moveCardOnDone(
-      makeLink() as never,
-      makeProposal() as never,
-      undefined,
-      { client, resolveAuth: auth },
-    );
+    const result = await moveCardOnDone(makeLink() as never, makeProposal() as never, undefined, {
+      client,
+      resolveAuth: auth,
+    });
     expect(result).toBe(false);
     expect(client.setItemStatus).not.toHaveBeenCalled();
   });

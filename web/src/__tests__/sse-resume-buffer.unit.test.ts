@@ -79,9 +79,7 @@ describe("sse-resume-buffer", () => {
     expect(newBus.handlers.size).toBe(RUNTIME_EVENT_NAMES.length);
     newBus.emit(SAMPLE, { from: "new" });
     expect(seen).toEqual([1, 2]);
-    expect(replayFrom(1)).toEqual([
-      { id: 2, event: SAMPLE, data: { from: "new" } },
-    ]);
+    expect(replayFrom(1)).toEqual([{ id: 2, event: SAMPLE, data: { from: "new" } }]);
   });
 
   test("re-binding survives a stale bus whose unsubscribe throws", () => {

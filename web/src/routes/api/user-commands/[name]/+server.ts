@@ -68,10 +68,7 @@ export const PATCH: RequestHandler = async ({ request, params, locals }) => {
   const updated = await updateUserCommand(user.id, params.name, {
     description: data.description,
     body: data.body,
-    frontmatter:
-      data.frontmatter !== undefined
-        ? filterFrontmatter(data.frontmatter)
-        : undefined,
+    frontmatter: data.frontmatter !== undefined ? filterFrontmatter(data.frontmatter) : undefined,
   });
   if (!updated) return errorJson(404, "Not found");
 

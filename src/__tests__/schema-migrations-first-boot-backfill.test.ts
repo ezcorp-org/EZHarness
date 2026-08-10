@@ -45,19 +45,33 @@ describe("schema-migrations: first-boot backfill order + no-op guards", () => {
     // Seed a chat run whose conversation is owned but whose user_id is NULL —
     // exactly the historical shape the IDOR backfill targets.
     const pg = getTestPglite();
-    await pg.query(`INSERT INTO users (id, email, password_hash, name, role) VALUES ($1,$2,'x','U','member')`, [USER, "fb1@x.com"]);
+    await pg.query(
+      `INSERT INTO users (id, email, password_hash, name, role) VALUES ($1,$2,'x','U','member')`,
+      [USER, "fb1@x.com"],
+    );
     await pg.query(`INSERT INTO projects (id, name, path) VALUES ($1,'fb1','/tmp/fb1')`, [PROJECT]);
-    await pg.query(`INSERT INTO conversations (id, project_id, title, user_id) VALUES ($1,$2,'c',$3)`, [CONV, PROJECT, USER]);
-    await pg.query(`INSERT INTO runs (id, agent_name, status, started_at, conversation_id, user_id) VALUES ($1,'chat','success',NOW(),$2,NULL)`, [RUN, CONV]);
+    await pg.query(
+      `INSERT INTO conversations (id, project_id, title, user_id) VALUES ($1,$2,'c',$3)`,
+      [CONV, PROJECT, USER],
+    );
+    await pg.query(
+      `INSERT INTO runs (id, agent_name, status, started_at, conversation_id, user_id) VALUES ($1,'chat','success',NOW(),$2,NULL)`,
+      [RUN, CONV],
+    );
 
     // Simulate a DB whose conversations table predates Phase 33: drop the
     // column the backfill reads. Pre-fix, migrate()'s backfill would throw
     // undefined-column here and swallow it, leaving the run unattributed.
-    await db.execute(sql`ALTER TABLE conversations DROP COLUMN IF EXISTS parent_conversation_id CASCADE`);
+    await db.execute(
+      sql`ALTER TABLE conversations DROP COLUMN IF EXISTS parent_conversation_id CASCADE`,
+    );
 
     await migrate(db);
 
-    const { rows } = await pg.query<{ user_id: string | null }>(`SELECT user_id FROM runs WHERE id = $1`, [RUN]);
+    const { rows } = await pg.query<{ user_id: string | null }>(
+      `SELECT user_id FROM runs WHERE id = $1`,
+      [RUN],
+    );
     expect(rows[0]?.user_id).toBe(USER);
 
     // Column is restored (single authoritative ADD site, hoisted above the backfill).
@@ -74,15 +88,21 @@ describe("schema-migrations: first-boot backfill order + no-op guards", () => {
     // NULL, so the row can never be filled. No admin user exists in this fresh
     // snapshot, so the conversations.user_id admin-backfill is also a no-op.
     await pg.query(`INSERT INTO projects (id, name, path) VALUES ('p-tc','tc','/tmp/tc')`);
-    await pg.query(`INSERT INTO conversations (id, project_id, title) VALUES ('conv-tc','p-tc','tc')`);
+    await pg.query(
+      `INSERT INTO conversations (id, project_id, title) VALUES ('conv-tc','p-tc','tc')`,
+    );
     await pg.query(
       `INSERT INTO tool_calls (id, conversation_id, extension_id, tool_name, success, duration_ms)
        VALUES ('tc-guard','conv-tc','builtin','noop',true,1)`,
     );
 
-    const before = await pg.query<{ ctid: string }>(`SELECT ctid::text AS ctid FROM tool_calls WHERE id='tc-guard'`);
+    const before = await pg.query<{ ctid: string }>(
+      `SELECT ctid::text AS ctid FROM tool_calls WHERE id='tc-guard'`,
+    );
     await migrate(db);
-    const after = await pg.query<{ ctid: string }>(`SELECT ctid::text AS ctid FROM tool_calls WHERE id='tc-guard'`);
+    const after = await pg.query<{ ctid: string }>(
+      `SELECT ctid::text AS ctid FROM tool_calls WHERE id='tc-guard'`,
+    );
 
     // Same physical tuple ⇒ the guarded UPDATE skipped this unfillable row.
     expect(after.rows[0]?.ctid).toBe(before.rows[0]?.ctid);
@@ -98,7 +118,9 @@ describe("schema-migrations: first-boot backfill order + no-op guards", () => {
     const { db } = await setupTestDb();
     const pg = getTestPglite();
     await pg.query(`INSERT INTO projects (id, name, path) VALUES ('p-msg','msg','/tmp/msg')`);
-    await pg.query(`INSERT INTO conversations (id, project_id, title) VALUES ('conv-msg','p-msg','m')`);
+    await pg.query(
+      `INSERT INTO conversations (id, project_id, title) VALUES ('conv-msg','p-msg','m')`,
+    );
     // Two legacy messages, both parent_message_id NULL, distinct created_at.
     await pg.query(
       `INSERT INTO messages (id, conversation_id, role, content, parent_message_id, created_at)
@@ -117,8 +139,8 @@ describe("schema-migrations: first-boot backfill order + no-op guards", () => {
       `SELECT id, parent_message_id FROM messages WHERE conversation_id='conv-msg' ORDER BY created_at`,
     );
     const byId = Object.fromEntries(rows.map((r) => [r.id, r.parent_message_id]));
-    expect(byId["m1"]).toBeNull();        // oldest has no predecessor
-    expect(byId["m2"]).toBe("m1");         // linked to its predecessor by the guarded backfill
+    expect(byId["m1"]).toBeNull(); // oldest has no predecessor
+    expect(byId["m2"]).toBe("m1"); // linked to its predecessor by the guarded backfill
   });
 
   test("temperature ALTER runs on a legacy INTEGER column and converts it to REAL", async () => {
@@ -127,8 +149,12 @@ describe("schema-migrations: first-boot backfill order + no-op guards", () => {
     // Simulate a legacy DB whose temperature columns are still INTEGER (the
     // original bug). The guarded probe should detect the wrong type and run the
     // ACCESS EXCLUSIVE ALTER exactly once.
-    await pg.query(`ALTER TABLE agent_configs ALTER COLUMN temperature TYPE INTEGER USING temperature::INTEGER`);
-    await pg.query(`ALTER TABLE modes ALTER COLUMN temperature TYPE INTEGER USING temperature::INTEGER`);
+    await pg.query(
+      `ALTER TABLE agent_configs ALTER COLUMN temperature TYPE INTEGER USING temperature::INTEGER`,
+    );
+    await pg.query(
+      `ALTER TABLE modes ALTER COLUMN temperature TYPE INTEGER USING temperature::INTEGER`,
+    );
 
     await migrate(db);
 
@@ -146,7 +172,9 @@ describe("schema-migrations: first-boot backfill order + no-op guards", () => {
     const pg = getTestPglite();
     // Simulate a dev DB created with the old (inconsistent) ON DELETE SET NULL
     // spec — the guarded swap must detect confdeltype != 'r' and rewrite it.
-    await pg.query(`ALTER TABLE sdk_capability_calls DROP CONSTRAINT sdk_capability_calls_on_behalf_of_fkey`);
+    await pg.query(
+      `ALTER TABLE sdk_capability_calls DROP CONSTRAINT sdk_capability_calls_on_behalf_of_fkey`,
+    );
     await pg.query(
       `ALTER TABLE sdk_capability_calls ADD CONSTRAINT sdk_capability_calls_on_behalf_of_fkey
          FOREIGN KEY (on_behalf_of) REFERENCES users(id) ON DELETE SET NULL`,
@@ -169,10 +197,19 @@ describe("schema-migrations: first-boot backfill order + no-op guards", () => {
     const PROJECT = "p-fb-throw";
     const CONV = "conv-fb-throw";
     const RUN = "run-fb-throw";
-    await pg.query(`INSERT INTO users (id, email, password_hash, name, role) VALUES ($1,$2,'x','U','member')`, [USER, "fbt@x.com"]);
+    await pg.query(
+      `INSERT INTO users (id, email, password_hash, name, role) VALUES ($1,$2,'x','U','member')`,
+      [USER, "fbt@x.com"],
+    );
     await pg.query(`INSERT INTO projects (id, name, path) VALUES ($1,'fbt','/tmp/fbt')`, [PROJECT]);
-    await pg.query(`INSERT INTO conversations (id, project_id, title, user_id) VALUES ($1,$2,'c',$3)`, [CONV, PROJECT, USER]);
-    await pg.query(`INSERT INTO runs (id, agent_name, status, started_at, conversation_id, user_id) VALUES ($1,'chat','success',NOW(),$2,NULL)`, [RUN, CONV]);
+    await pg.query(
+      `INSERT INTO conversations (id, project_id, title, user_id) VALUES ($1,$2,'c',$3)`,
+      [CONV, PROJECT, USER],
+    );
+    await pg.query(
+      `INSERT INTO runs (id, agent_name, status, started_at, conversation_id, user_id) VALUES ($1,'chat','success',NOW(),$2,NULL)`,
+      [RUN, CONV],
+    );
 
     // Inject a failure into ONLY the runs ownership backfill statement (the
     // recursive CTE with the unique `root_owner` sub-CTE). Everything else runs
@@ -184,7 +221,11 @@ describe("schema-migrations: first-boot backfill order + no-op guards", () => {
         if (prop === "execute") {
           return (q: unknown) => {
             let isBackfill = false;
-            try { isBackfill = !injected && JSON.stringify(q).includes("root_owner"); } catch { /* non-serializable — not the target */ }
+            try {
+              isBackfill = !injected && JSON.stringify(q).includes("root_owner");
+            } catch {
+              /* non-serializable — not the target */
+            }
             if (isBackfill) {
               injected = true;
               return Promise.reject(new Error("injected backfill failure"));
@@ -201,7 +242,10 @@ describe("schema-migrations: first-boot backfill order + no-op guards", () => {
     expect(injected).toBe(true);
 
     // Backfill was skipped, so the run stays unattributed (fail-closed = admin-only).
-    const { rows } = await pg.query<{ user_id: string | null }>(`SELECT user_id FROM runs WHERE id = $1`, [RUN]);
+    const { rows } = await pg.query<{ user_id: string | null }>(
+      `SELECT user_id FROM runs WHERE id = $1`,
+      [RUN],
+    );
     expect(rows[0]?.user_id).toBeNull();
   });
 });

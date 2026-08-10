@@ -60,10 +60,7 @@
  * and both re-read from the database at the decision point.
  */
 
-import {
-  readWorkflowRunDelegationBudget,
-  sumWorkflowRunTokens,
-} from "../db/queries/workflow-runs";
+import { readWorkflowRunDelegationBudget, sumWorkflowRunTokens } from "../db/queries/workflow-runs";
 
 /**
  * Every value production writes to `workflow_runs.suspended_reason`.

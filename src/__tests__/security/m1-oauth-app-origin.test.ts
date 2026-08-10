@@ -27,11 +27,7 @@
 
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "../helpers/mock-cleanup";
-import {
-  mockServerAlias,
-  createMockEvent,
-  ADMIN_USER,
-} from "../helpers/mock-request";
+import { mockServerAlias, createMockEvent, ADMIN_USER } from "../helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler import) ───────────────────
 mockServerAlias();
@@ -70,9 +66,7 @@ mock.module("$server/auth/oauth-callback-server", callbackServerMock);
 mock.module("../../auth/oauth-callback-server", callbackServerMock);
 
 // $lib alias for oauth-config
-mock.module("$lib/server/oauth-config", () =>
-  require("../../../web/src/lib/server/oauth-config"),
-);
+mock.module("$lib/server/oauth-config", () => require("../../../web/src/lib/server/oauth-config"));
 
 // ── Handler import (AFTER mocks) ─────────────────────────────────
 import { GET as oauthGet } from "../../../web/src/routes/api/auth/oauth/+server";

@@ -95,10 +95,9 @@ export async function migrateMemoryExtractorConversationWiring(
   if (rows.length === 0) {
     // Nothing to backfill — stamp the sentinel and exit.
     await upsertSetting(SENTINEL_KEY, new Date().toISOString());
-    log.info(
-      "memory-extractor wiring backfill: no conversations to wire; sentinel stamped",
-      { extensionId: memoryExtractorExtensionId },
-    );
+    log.info("memory-extractor wiring backfill: no conversations to wire; sentinel stamped", {
+      extensionId: memoryExtractorExtensionId,
+    });
     return;
   }
 
@@ -112,9 +111,7 @@ export async function migrateMemoryExtractorConversationWiring(
   for (let i = 0; i < rows.length; i += BATCH_SIZE) {
     const slice = rows.slice(i, i + BATCH_SIZE);
     for (const row of slice) {
-      await addConversationExtensions(row.id, [
-        { extensionId: memoryExtractorExtensionId },
-      ]);
+      await addConversationExtensions(row.id, [{ extensionId: memoryExtractorExtensionId }]);
       inserted += 1;
     }
   }

@@ -46,18 +46,23 @@ async function seedConversation(opts: { test?: boolean | null } = {}) {
 }
 
 async function seedMessage(conversationId: string, role: string, content: string) {
-  const [msg] = await getTestDb().insert(messages).values({ conversationId, role, content }).returning();
+  const [msg] = await getTestDb()
+    .insert(messages)
+    .values({ conversationId, role, content })
+    .returning();
   return msg!;
 }
 
 async function seedChunk(messageId: string, conversationId: string, chunkIndex: number) {
-  await getTestDb().insert(messageChunks).values({
-    messageId,
-    conversationId,
-    content: `chunk ${chunkIndex}`,
-    chunkIndex,
-    embeddingModelId: EMBEDDING_MODEL_ID,
-  });
+  await getTestDb()
+    .insert(messageChunks)
+    .values({
+      messageId,
+      conversationId,
+      content: `chunk ${chunkIndex}`,
+      chunkIndex,
+      embeddingModelId: EMBEDDING_MODEL_ID,
+    });
 }
 
 async function seedOutbox(
@@ -65,7 +70,9 @@ async function seedOutbox(
   conversationId: string,
   status: "pending" | "in_progress" | "failed",
 ) {
-  await getTestDb().insert(messageEmbedOutbox).values({ messageId, conversationId, status, attempts: 0 });
+  await getTestDb()
+    .insert(messageEmbedOutbox)
+    .values({ messageId, conversationId, status, attempts: 0 });
 }
 
 describe("getEmbedProgress (OPS-04) — RED until Plan 02", () => {

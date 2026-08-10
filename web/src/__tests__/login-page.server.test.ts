@@ -42,9 +42,7 @@ function isRedirect(err: unknown): err is { status: number; location: string } {
 }
 
 function makeEvent(opts: { returnTo?: string; cookie?: string } = {}) {
-  const search = opts.returnTo
-    ? `?returnTo=${encodeURIComponent(opts.returnTo)}`
-    : "";
+  const search = opts.returnTo ? `?returnTo=${encodeURIComponent(opts.returnTo)}` : "";
   const cookies = {
     get: vi.fn((name: string) =>
       opts.cookie && name === "ezcorp_session" ? opts.cookie : undefined,
@@ -105,9 +103,9 @@ describe("/(auth)/login/+page.server load() — returnTo handling", () => {
     });
 
     test("path with query string preserved", async () => {
-      const data = (await load(
-        makeEvent({ returnTo: "/projects/abc?tab=files" }),
-      )) as { returnTo: string };
+      const data = (await load(makeEvent({ returnTo: "/projects/abc?tab=files" }))) as {
+        returnTo: string;
+      };
       expect(data.returnTo).toBe("/projects/abc?tab=files");
     });
 
@@ -119,9 +117,9 @@ describe("/(auth)/login/+page.server load() — returnTo handling", () => {
     });
 
     test("absolute URL collapses to '/'", async () => {
-      const data = (await load(
-        makeEvent({ returnTo: "https://evil.com" }),
-      )) as { returnTo: string };
+      const data = (await load(makeEvent({ returnTo: "https://evil.com" }))) as {
+        returnTo: string;
+      };
       expect(data.returnTo).toBe("/");
     });
 
@@ -186,17 +184,13 @@ describe("/(auth)/login/+page.server load() — returnTo handling", () => {
 
     test("valid session + malicious returnTo → 302 to / (sanitized)", async () => {
       // sec: even an authenticated user shouldn't be steerable to evil.com
-      const r = await captureRedirect(
-        makeEvent({ cookie: "valid-jwt", returnTo: "//evil.com" }),
-      );
+      const r = await captureRedirect(makeEvent({ cookie: "valid-jwt", returnTo: "//evil.com" }));
       expect(r.location).toBe("/");
     });
 
     test("DB unavailable on session lookup → JWT-only fallback still redirects", async () => {
       vi.mocked(getSessionByTokenHash).mockRejectedValue(new Error("DB down"));
-      const r = await captureRedirect(
-        makeEvent({ cookie: "valid-jwt", returnTo: "/admin" }),
-      );
+      const r = await captureRedirect(makeEvent({ cookie: "valid-jwt", returnTo: "/admin" }));
       expect(r.location).toBe("/admin");
     });
   });
@@ -206,9 +200,9 @@ describe("/(auth)/login/+page.server load() — returnTo handling", () => {
   describe("stale / revoked tokens", () => {
     test("verifyJWT returns null (stale token) + returnTo → returns { returnTo }, no redirect", async () => {
       vi.mocked(verifyJWT).mockResolvedValue(null);
-      const data = (await load(
-        makeEvent({ cookie: "stale-jwt", returnTo: "/chat/abc" }),
-      )) as { returnTo: string };
+      const data = (await load(makeEvent({ cookie: "stale-jwt", returnTo: "/chat/abc" }))) as {
+        returnTo: string;
+      };
       expect(data.returnTo).toBe("/chat/abc");
     });
 

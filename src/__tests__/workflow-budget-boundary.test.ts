@@ -198,7 +198,11 @@ function scriptedExecutor(
 ) {
   const bus = new EventBus<AgentEvents>();
   const events: Array<{ name: string; payload: unknown }> = [];
-  for (const name of ["workflow:error", "workflow:approval_request", "workflow:complete"] as const) {
+  for (const name of [
+    "workflow:error",
+    "workflow:approval_request",
+    "workflow:complete",
+  ] as const) {
     bus.on(name, (payload) => {
       events.push({ name, payload });
     });
@@ -267,19 +271,29 @@ describe("sumWorkflowRunTokens", () => {
     const runId = crypto.randomUUID();
     await insertWorkflowRun({ id: runId, workflowName: "sum-1", input: {}, startedAt: new Date() });
     await upsertWorkflowStepRun({
-      workflowRunId: runId, stepName: "a", runId: "", status: "success",
-      inputTokens: 10, outputTokens: 5,
+      workflowRunId: runId,
+      stepName: "a",
+      runId: "",
+      status: "success",
+      inputTokens: 10,
+      outputTokens: 5,
     });
     // Only one column reported. The other must contribute 0 rather than
     // discarding the whole row — a ceiling that ignores half-reported
     // usage under-counts exactly where a provider is flaky.
     await upsertWorkflowStepRun({
-      workflowRunId: runId, stepName: "b", runId: "", status: "success",
+      workflowRunId: runId,
+      stepName: "b",
+      runId: "",
+      status: "success",
       inputTokens: 7,
     });
     // Reported nothing at all: a tool/transform/gate step.
     await upsertWorkflowStepRun({
-      workflowRunId: runId, stepName: "c", runId: "", status: "success",
+      workflowRunId: runId,
+      stepName: "c",
+      runId: "",
+      status: "success",
     });
 
     expect(await sumWorkflowRunTokens(runId)).toBe(22);
@@ -295,14 +309,27 @@ describe("sumWorkflowRunTokens", () => {
     const mine = crypto.randomUUID();
     const theirs = crypto.randomUUID();
     await insertWorkflowRun({ id: mine, workflowName: "sum-3", input: {}, startedAt: new Date() });
-    await insertWorkflowRun({ id: theirs, workflowName: "sum-3", input: {}, startedAt: new Date() });
-    await upsertWorkflowStepRun({
-      workflowRunId: mine, stepName: "a", runId: "", status: "success",
-      inputTokens: 1, outputTokens: 1,
+    await insertWorkflowRun({
+      id: theirs,
+      workflowName: "sum-3",
+      input: {},
+      startedAt: new Date(),
     });
     await upsertWorkflowStepRun({
-      workflowRunId: theirs, stepName: "a", runId: "", status: "success",
-      inputTokens: 900, outputTokens: 900,
+      workflowRunId: mine,
+      stepName: "a",
+      runId: "",
+      status: "success",
+      inputTokens: 1,
+      outputTokens: 1,
+    });
+    await upsertWorkflowStepRun({
+      workflowRunId: theirs,
+      stepName: "a",
+      runId: "",
+      status: "success",
+      inputTokens: 900,
+      outputTokens: 900,
     });
     expect(await sumWorkflowRunTokens(mine)).toBe(2);
   });
@@ -368,7 +395,11 @@ describe("readWorkflowRunDelegationBudget", () => {
     const delegationId = await makeDelegation({ maxTokensPerRun: 4242 });
     const runId = crypto.randomUUID();
     await insertWorkflowRun({
-      id: runId, workflowName: "bud-2", input: {}, startedAt: new Date(), delegationId,
+      id: runId,
+      workflowName: "bud-2",
+      input: {},
+      startedAt: new Date(),
+      delegationId,
     });
     const budget = await readWorkflowRunDelegationBudget(runId);
     expect(budget?.delegationId).toBe(delegationId);
@@ -387,10 +418,18 @@ describe("readWorkflowRunDelegationBudget", () => {
     const r1 = crypto.randomUUID();
     const r2 = crypto.randomUUID();
     await insertWorkflowRun({
-      id: r1, workflowName: "bud-3", input: {}, startedAt: new Date(), delegationId: revoked,
+      id: r1,
+      workflowName: "bud-3",
+      input: {},
+      startedAt: new Date(),
+      delegationId: revoked,
     });
     await insertWorkflowRun({
-      id: r2, workflowName: "bud-3", input: {}, startedAt: new Date(), delegationId: disabled,
+      id: r2,
+      workflowName: "bud-3",
+      input: {},
+      startedAt: new Date(),
+      delegationId: disabled,
     });
     expect((await readWorkflowRunDelegationBudget(r1))?.live).toBe(false);
     expect((await readWorkflowRunDelegationBudget(r2))?.live).toBe(false);
@@ -599,9 +638,9 @@ describe("scope — a run with no delegation takes zero extra queries", () => {
 
     seenSql.length = 0;
     recording = true;
-    const delegatedRun = await wf.runWorkflow(
-      delegated, {}, undefined, undefined, undefined, { delegationId },
-    );
+    const delegatedRun = await wf.runWorkflow(delegated, {}, undefined, undefined, undefined, {
+      delegationId,
+    });
     recording = false;
     await settle();
     const delegatedDelegationReads = seenSql.filter((s) => /workflow_delegations/i.test(s)).length;
@@ -628,11 +667,19 @@ describe("budget-exceeded — the resume-time predicate", () => {
     const delegationId = await makeDelegation({ maxTokensPerRun: 100 });
     const runId = crypto.randomUUID();
     await insertWorkflowRun({
-      id: runId, workflowName: "pred-1", input: {}, startedAt: new Date(), delegationId,
+      id: runId,
+      workflowName: "pred-1",
+      input: {},
+      startedAt: new Date(),
+      delegationId,
     });
     await upsertWorkflowStepRun({
-      workflowRunId: runId, stepName: "a", runId: "", status: "success",
-      inputTokens: 100, outputTokens: 0,
+      workflowRunId: runId,
+      stepName: "a",
+      runId: "",
+      status: "success",
+      inputTokens: 100,
+      outputTokens: 0,
     });
     const refusal = await resumeReasonRefusal("budget-exceeded", { workflowRunId: runId });
     expect(refusal).toContain(runId);
@@ -643,11 +690,19 @@ describe("budget-exceeded — the resume-time predicate", () => {
     const delegationId = await makeDelegation({ maxTokensPerRun: 100 });
     const runId = crypto.randomUUID();
     await insertWorkflowRun({
-      id: runId, workflowName: "pred-2", input: {}, startedAt: new Date(), delegationId,
+      id: runId,
+      workflowName: "pred-2",
+      input: {},
+      startedAt: new Date(),
+      delegationId,
     });
     await upsertWorkflowStepRun({
-      workflowRunId: runId, stepName: "a", runId: "", status: "success",
-      inputTokens: 100, outputTokens: 0,
+      workflowRunId: runId,
+      stepName: "a",
+      runId: "",
+      status: "success",
+      inputTokens: 100,
+      outputTokens: 0,
     });
     expect(await resumeReasonRefusal("budget-exceeded", { workflowRunId: runId })).not.toBeNull();
     await db.execute(sql`
@@ -663,39 +718,58 @@ describe("budget-exceeded — the resume-time predicate", () => {
     const revokedId = await makeDelegation({ maxTokensPerRun: 100_000, revoked: true });
     const revokedRun = crypto.randomUUID();
     await insertWorkflowRun({
-      id: revokedRun, workflowName: "pred-3", input: {}, startedAt: new Date(),
+      id: revokedRun,
+      workflowName: "pred-3",
+      input: {},
+      startedAt: new Date(),
       delegationId: revokedId,
     });
     const orphanRun = crypto.randomUUID();
     await insertWorkflowRun({
-      id: orphanRun, workflowName: "pred-3", input: {}, startedAt: new Date(),
+      id: orphanRun,
+      workflowName: "pred-3",
+      input: {},
+      startedAt: new Date(),
     });
 
-    expect(await resumeReasonRefusal("budget-exceeded", { workflowRunId: revokedRun })).not.toBeNull();
-    expect(await resumeReasonRefusal("budget-exceeded", { workflowRunId: orphanRun })).not.toBeNull();
+    expect(
+      await resumeReasonRefusal("budget-exceeded", { workflowRunId: revokedRun }),
+    ).not.toBeNull();
+    expect(
+      await resumeReasonRefusal("budget-exceeded", { workflowRunId: orphanRun }),
+    ).not.toBeNull();
   });
 });
 
 describe("consent-stale — the resume-time predicate", () => {
   test("refuses while nobody has re-consented since the run started", async () => {
     const delegationId = await makeDelegation({
-      maxTokensPerRun: 100, consentedAt: "2020-01-01T00:00:00Z",
+      maxTokensPerRun: 100,
+      consentedAt: "2020-01-01T00:00:00Z",
     });
     const runId = crypto.randomUUID();
     await insertWorkflowRun({
-      id: runId, workflowName: "cs-1", input: {}, startedAt: new Date(), delegationId,
+      id: runId,
+      workflowName: "cs-1",
+      input: {},
+      startedAt: new Date(),
+      delegationId,
     });
     expect(await resumeReasonRefusal("consent-stale", { workflowRunId: runId })).toContain(runId);
   });
 
   test("allows once the delegation is re-consented after the run started", async () => {
     const delegationId = await makeDelegation({
-      maxTokensPerRun: 100, consentedAt: "2020-01-01T00:00:00Z",
+      maxTokensPerRun: 100,
+      consentedAt: "2020-01-01T00:00:00Z",
     });
     const runId = crypto.randomUUID();
     await insertWorkflowRun({
-      id: runId, workflowName: "cs-2", input: {},
-      startedAt: new Date("2021-01-01T00:00:00Z"), delegationId,
+      id: runId,
+      workflowName: "cs-2",
+      input: {},
+      startedAt: new Date("2021-01-01T00:00:00Z"),
+      delegationId,
     });
     expect(await resumeReasonRefusal("consent-stale", { workflowRunId: runId })).not.toBeNull();
     await db.execute(sql`
@@ -707,11 +781,17 @@ describe("consent-stale — the resume-time predicate", () => {
 
   test("a re-consent on a REVOKED delegation still refuses", async () => {
     const delegationId = await makeDelegation({
-      maxTokensPerRun: 100, revoked: true, consentedAt: "2030-01-01T00:00:00Z",
+      maxTokensPerRun: 100,
+      revoked: true,
+      consentedAt: "2030-01-01T00:00:00Z",
     });
     const runId = crypto.randomUUID();
     await insertWorkflowRun({
-      id: runId, workflowName: "cs-3", input: {}, startedAt: new Date(), delegationId,
+      id: runId,
+      workflowName: "cs-3",
+      input: {},
+      startedAt: new Date(),
+      delegationId,
     });
     expect(await resumeReasonRefusal("consent-stale", { workflowRunId: runId })).not.toBeNull();
   });

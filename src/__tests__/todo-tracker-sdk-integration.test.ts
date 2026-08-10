@@ -23,8 +23,12 @@ let _disableCalls = 0;
 
 mock.module("../db/queries/extensions", () => ({
   incrementFailures: async () => ++incrementCalls,
-  resetFailures: async () => { _resetCalls++; },
-  disableExtension: async () => { _disableCalls++; },
+  resetFailures: async () => {
+    _resetCalls++;
+  },
+  disableExtension: async () => {
+    _disableCalls++;
+  },
 }));
 
 afterAll(() => restoreModuleMocks());
@@ -58,7 +62,10 @@ describe.skip("todo-tracker SDK integration (createTestExtension + real RPC)", (
     // search root. Subprocess inherits parent's cwd (Bun.spawn does not
     // override it), so chdir'ing the parent before spawn keeps each test
     // isolated to its own tmp tree.
-    cwd = join(tmpdir(), `todo-tracker-sdk-integ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    cwd = join(
+      tmpdir(),
+      `todo-tracker-sdk-integ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    );
     mkdirSync(cwd, { recursive: true });
     originalCwd = process.cwd();
     process.chdir(cwd);
@@ -69,11 +76,23 @@ describe.skip("todo-tracker SDK integration (createTestExtension + real RPC)", (
 
   afterEach(() => {
     if (proc) {
-      try { proc.kill(); } catch { /* already dead */ }
+      try {
+        proc.kill();
+      } catch {
+        /* already dead */
+      }
       proc = undefined;
     }
-    try { process.chdir(originalCwd); } catch { /* best-effort */ }
-    try { rmSync(cwd, { recursive: true }); } catch { /* best-effort */ }
+    try {
+      process.chdir(originalCwd);
+    } catch {
+      /* best-effort */
+    }
+    try {
+      rmSync(cwd, { recursive: true });
+    } catch {
+      /* best-effort */
+    }
   });
 
   test("scan-todos on empty dir reports no comments found", async () => {
@@ -84,7 +103,10 @@ describe.skip("todo-tracker SDK integration (createTestExtension + real RPC)", (
 
   test("scan-todos discovers seeded TODO/FIXME/HACK markers", async () => {
     writeFileSync(join(cwd, "a.ts"), "// TODO: write the feature\nexport const x = 1;\n");
-    writeFileSync(join(cwd, "b.ts"), "// FIXME(priority:high): flaky under load\nexport const y = 2;\n");
+    writeFileSync(
+      join(cwd, "b.ts"),
+      "// FIXME(priority:high): flaky under load\nexport const y = 2;\n",
+    );
     writeFileSync(join(cwd, "c.js"), "// HACK: patch until upstream fix\nconst z = 3;\n");
 
     proc = await createTestExtension(EXT_DIR);

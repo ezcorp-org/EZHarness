@@ -25,10 +25,7 @@
 
 import { test, expect, describe, beforeEach, mock, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import type {
-  ExtensionManifestV2,
-  ExtensionPermissions,
-} from "../extensions/types";
+import type { ExtensionManifestV2, ExtensionPermissions } from "../extensions/types";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { mkdtemp } from "node:fs/promises";
@@ -114,9 +111,7 @@ describe("installFromLocal — preloadedManifest opt", () => {
     // throws.
     await Bun.write(join(dir, "index.ts"), 'console.log("hi");');
 
-    await expect(installFromLocal(dir, granted, false)).rejects.toThrow(
-      /No ezcorp\.config\.ts/,
-    );
+    await expect(installFromLocal(dir, granted, false)).rejects.toThrow(/No ezcorp\.config\.ts/);
   });
 
   test("preloadedManifest + valid on-disk config → equivalent result", async () => {

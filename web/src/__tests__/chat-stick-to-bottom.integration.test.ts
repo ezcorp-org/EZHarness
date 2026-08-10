@@ -29,29 +29,29 @@
  */
 import { test, expect, describe, beforeEach } from "bun:test";
 import {
-	shouldStickToBottom,
-	nextFollowIntent,
-	bottomSlack,
-	STICK_TO_BOTTOM_THRESHOLD_PX,
+  shouldStickToBottom,
+  nextFollowIntent,
+  bottomSlack,
+  STICK_TO_BOTTOM_THRESHOLD_PX,
 } from "$lib/chat-stick-to-bottom.js";
 
 /** A minimal stand-in for the scrollable chat container. */
 class FakeContainer {
-	scrollHeight: number;
-	scrollTop: number;
-	clientHeight: number;
-	constructor(scrollHeight: number, scrollTop: number, clientHeight: number) {
-		this.scrollHeight = scrollHeight;
-		this.scrollTop = scrollTop;
-		this.clientHeight = clientHeight;
-	}
-	/** Content grows by `px` below the fold (a token chunk / tool card). */
-	grow(px: number) {
-		this.scrollHeight += px;
-	}
-	get slack() {
-		return bottomSlack(this);
-	}
+  scrollHeight: number;
+  scrollTop: number;
+  clientHeight: number;
+  constructor(scrollHeight: number, scrollTop: number, clientHeight: number) {
+    this.scrollHeight = scrollHeight;
+    this.scrollTop = scrollTop;
+    this.clientHeight = clientHeight;
+  }
+  /** Content grows by `px` below the fold (a token chunk / tool card). */
+  grow(px: number) {
+    this.scrollHeight += px;
+  }
+  get slack() {
+    return bottomSlack(this);
+  }
 }
 
 /**
@@ -60,332 +60,332 @@ class FakeContainer {
  * flush it deterministically (mirrors the browser firing the rAF).
  */
 class Sim {
-	el: FakeContainer;
-	initialScrollDone = false;
-	/** Synchronous follow intent — ChatThread's `let stuck = $state(true)`. */
-	stuck = true;
-	stopAnchorWatch: (() => void) | null = null;
-	rafPending = false;
-	pinCount = 0;
-	private pendingRaf: (() => void) | null = null;
-	private previousScrollTop: number;
+  el: FakeContainer;
+  initialScrollDone = false;
+  /** Synchronous follow intent — ChatThread's `let stuck = $state(true)`. */
+  stuck = true;
+  stopAnchorWatch: (() => void) | null = null;
+  rafPending = false;
+  pinCount = 0;
+  private pendingRaf: (() => void) | null = null;
+  private previousScrollTop: number;
 
-	constructor(el: FakeContainer) {
-		this.el = el;
-		this.previousScrollTop = el.scrollTop;
-	}
+  constructor(el: FakeContainer) {
+    this.el = el;
+    this.previousScrollTop = el.scrollTop;
+  }
 
-	/** ChatThread.onScroll: every real scroll re-decides `stuck`. */
-	private onScroll() {
-		const scrollTop = this.el.scrollTop;
-		this.stuck = nextFollowIntent({
-			previousScrollTop: this.previousScrollTop,
-			scrollTop,
-			slack: bottomSlack(this.el),
-			stuck: this.stuck,
-		});
-		this.previousScrollTop = scrollTop;
-	}
+  /** ChatThread.onScroll: every real scroll re-decides `stuck`. */
+  private onScroll() {
+    const scrollTop = this.el.scrollTop;
+    this.stuck = nextFollowIntent({
+      previousScrollTop: this.previousScrollTop,
+      scrollTop,
+      slack: bottomSlack(this.el),
+      stuck: this.stuck,
+    });
+    this.previousScrollTop = scrollTop;
+  }
 
-	/** The user drags the scrollbar to `top` (fires a real scroll). */
-	userScrollTo(top: number) {
-		this.el.scrollTop = top;
-		this.onScroll();
-	}
+  /** The user drags the scrollbar to `top` (fires a real scroll). */
+  userScrollTo(top: number) {
+    this.el.scrollTop = top;
+    this.onScroll();
+  }
 
-	/** Park at the bottom via a real scroll (open-restore-to-bottom path). */
-	scrollToBottom() {
-		this.el.scrollTop = this.el.scrollHeight - this.el.clientHeight;
-		this.onScroll();
-	}
+  /** Park at the bottom via a real scroll (open-restore-to-bottom path). */
+  scrollToBottom() {
+    this.el.scrollTop = this.el.scrollHeight - this.el.clientHeight;
+    this.onScroll();
+  }
 
-	/** Jump-to-bottom button: sets `stuck` directly THEN scrolls. */
-	jumpToBottom() {
-		this.stuck = true; // ChatThread onclick sets stuck=true synchronously
-		this.el.scrollTop = this.el.scrollHeight - this.el.clientHeight;
-		this.onScroll();
-	}
+  /** Jump-to-bottom button: sets `stuck` directly THEN scrolls. */
+  jumpToBottom() {
+    this.stuck = true; // ChatThread onclick sets stuck=true synchronously
+    this.el.scrollTop = this.el.scrollHeight - this.el.clientHeight;
+    this.onScroll();
+  }
 
-	/** Open-restore to a non-bottom anchor: ChatThread sets stuck=false. */
-	restoreToNonBottom(top: number) {
-		this.el.scrollTop = top;
-		this.stuck = false; // the synchronous guard in the restore branch
-	}
+  /** Open-restore to a non-bottom anchor: ChatThread sets stuck=false. */
+  restoreToNonBottom(top: number) {
+    this.el.scrollTop = top;
+    this.stuck = false; // the synchronous guard in the restore branch
+  }
 
-	/**
-	 * The bottom-sentinel IntersectionObserver firing (sentinel left the
-	 * viewport because content grew). Under the fix this is a NO-OP for the
-	 * pin decision — it only ever drove the old async `userScrolledUp` flag,
-	 * which is now jump-button-visibility only. Kept so the regression test
-	 * can prove ResizeObserver/IntersectionObserver ordering is irrelevant.
-	 */
-	sentinelLeftViewport() {
-		/* intentionally does NOT touch `stuck` */
-	}
+  /**
+   * The bottom-sentinel IntersectionObserver firing (sentinel left the
+   * viewport because content grew). Under the fix this is a NO-OP for the
+   * pin decision — it only ever drove the old async `userScrolledUp` flag,
+   * which is now jump-button-visibility only. Kept so the regression test
+   * can prove ResizeObserver/IntersectionObserver ordering is irrelevant.
+   */
+  sentinelLeftViewport() {
+    /* intentionally does NOT touch `stuck` */
+  }
 
-	/** One ResizeObserver callback invocation (a resize tick). */
-	resizeTick() {
-		if (
-			!shouldStickToBottom({
-				initialScrollDone: this.initialScrollDone,
-				rafPending: this.rafPending,
-				anchorWatchActive: this.stopAnchorWatch !== null,
-				stuck: this.stuck,
-			})
-		) {
-			return;
-		}
-		this.rafPending = true;
-		this.pendingRaf = () => {
-			this.rafPending = false;
-			this.el.scrollTop = this.el.scrollHeight;
-			// The programmatic pin fires a scroll in the browser → onScroll
-			// re-classifies as stuck (we're at the bottom).
-			this.onScroll();
-			this.pinCount += 1;
-		};
-	}
+  /** One ResizeObserver callback invocation (a resize tick). */
+  resizeTick() {
+    if (
+      !shouldStickToBottom({
+        initialScrollDone: this.initialScrollDone,
+        rafPending: this.rafPending,
+        anchorWatchActive: this.stopAnchorWatch !== null,
+        stuck: this.stuck,
+      })
+    ) {
+      return;
+    }
+    this.rafPending = true;
+    this.pendingRaf = () => {
+      this.rafPending = false;
+      this.el.scrollTop = this.el.scrollHeight;
+      // The programmatic pin fires a scroll in the browser → onScroll
+      // re-classifies as stuck (we're at the bottom).
+      this.onScroll();
+      this.pinCount += 1;
+    };
+  }
 
-	/** The browser servicing the queued animation frame. */
-	flushRaf() {
-		const cb = this.pendingRaf;
-		this.pendingRaf = null;
-		cb?.();
-	}
+  /** The browser servicing the queued animation frame. */
+  flushRaf() {
+    const cb = this.pendingRaf;
+    this.pendingRaf = null;
+    cb?.();
+  }
 
-	/**
-	 * The browser servicing the queued frame when the thread grows AGAIN
-	 * between the pin's `scrollTop` write and the delivery of the scroll
-	 * event that write queues — the real sequence measured in Chrome for
-	 * issue #140 (a late markdown/image/KaTeX reflow, or the next SSE chunk
-	 * landing in the same frame). `onScroll` therefore observes a scrollTop
-	 * that is no longer at the bottom, through no action of the user.
-	 */
-	flushRafWithLateGrowth(px: number) {
-		const cb = this.pendingRaf;
-		this.pendingRaf = null;
-		if (!cb) return;
-		this.rafPending = false;
-		// The pin, clamped by the browser to the height it saw.
-		this.el.scrollTop = this.el.scrollHeight - this.el.clientHeight;
-		this.pinCount += 1;
-		this.el.grow(px); // …then the thread grows again
-		this.onScroll(); // …and only now is the scroll event delivered
-	}
+  /**
+   * The browser servicing the queued frame when the thread grows AGAIN
+   * between the pin's `scrollTop` write and the delivery of the scroll
+   * event that write queues — the real sequence measured in Chrome for
+   * issue #140 (a late markdown/image/KaTeX reflow, or the next SSE chunk
+   * landing in the same frame). `onScroll` therefore observes a scrollTop
+   * that is no longer at the bottom, through no action of the user.
+   */
+  flushRafWithLateGrowth(px: number) {
+    const cb = this.pendingRaf;
+    this.pendingRaf = null;
+    if (!cb) return;
+    this.rafPending = false;
+    // The pin, clamped by the browser to the height it saw.
+    this.el.scrollTop = this.el.scrollHeight - this.el.clientHeight;
+    this.pinCount += 1;
+    this.el.grow(px); // …then the thread grows again
+    this.onScroll(); // …and only now is the scroll event delivered
+  }
 
-	atBottom() {
-		return this.el.slack <= 0;
-	}
+  atBottom() {
+    return this.el.slack <= 0;
+  }
 }
 
 describe("chat-stick-to-bottom — integration with the observer/rAF lifecycle", () => {
-	let el: FakeContainer;
-	let sim: Sim;
+  let el: FakeContainer;
+  let sim: Sim;
 
-	beforeEach(() => {
-		// 2400px of content, viewport 800px, parked at the very bottom.
-		el = new FakeContainer(2400, 1600, 800);
-		sim = new Sim(el);
-	});
+  beforeEach(() => {
+    // 2400px of content, viewport 800px, parked at the very bottom.
+    el = new FakeContainer(2400, 1600, 800);
+    sim = new Sim(el);
+  });
 
-	test("full lifecycle: deferred open → stream growth → scroll up → jump → anchor restore → restore ends", () => {
-		// 1. Open: scroll-restore hasn't decided yet. A reflow tick must be a
-		//    no-op so it can't fight scroll-restore.
-		el.grow(120);
-		sim.resizeTick();
-		sim.flushRaf();
-		expect(sim.pinCount).toBe(0);
-		expect(sim.atBottom()).toBe(false); // still where restore will place it
+  test("full lifecycle: deferred open → stream growth → scroll up → jump → anchor restore → restore ends", () => {
+    // 1. Open: scroll-restore hasn't decided yet. A reflow tick must be a
+    //    no-op so it can't fight scroll-restore.
+    el.grow(120);
+    sim.resizeTick();
+    sim.flushRaf();
+    expect(sim.pinCount).toBe(0);
+    expect(sim.atBottom()).toBe(false); // still where restore will place it
 
-		// 2. Open decided "scroll-to-bottom": initial position settled.
-		sim.initialScrollDone = true;
-		sim.scrollToBottom(); // restore put us at bottom (fires onScroll)
-		expect(sim.atBottom()).toBe(true);
-		expect(sim.stuck).toBe(true);
+    // 2. Open decided "scroll-to-bottom": initial position settled.
+    sim.initialScrollDone = true;
+    sim.scrollToBottom(); // restore put us at bottom (fires onScroll)
+    expect(sim.atBottom()).toBe(true);
+    expect(sim.stuck).toBe(true);
 
-		// 3. Streaming: tokens grow the bubble across several ticks — stays glued.
-		for (let i = 0; i < 5; i++) {
-			el.grow(90);
-			sim.resizeTick();
-			sim.flushRaf();
-			expect(sim.atBottom()).toBe(true);
-		}
-		expect(sim.pinCount).toBe(5);
+    // 3. Streaming: tokens grow the bubble across several ticks — stays glued.
+    for (let i = 0; i < 5; i++) {
+      el.grow(90);
+      sim.resizeTick();
+      sim.flushRaf();
+      expect(sim.atBottom()).toBe(true);
+    }
+    expect(sim.pinCount).toBe(5);
 
-		// 4. User drags up to read — scroll handler flips `stuck` false
-		//    synchronously. More tokens arrive — must NOT yank the reader.
-		sim.userScrollTo(400);
-		expect(sim.stuck).toBe(false);
-		const readingTop = el.scrollTop;
-		el.grow(300);
-		sim.resizeTick();
-		sim.flushRaf();
-		expect(el.scrollTop).toBe(readingTop);
-		expect(sim.atBottom()).toBe(false);
-		expect(sim.pinCount).toBe(5); // unchanged
+    // 4. User drags up to read — scroll handler flips `stuck` false
+    //    synchronously. More tokens arrive — must NOT yank the reader.
+    sim.userScrollTo(400);
+    expect(sim.stuck).toBe(false);
+    const readingTop = el.scrollTop;
+    el.grow(300);
+    sim.resizeTick();
+    sim.flushRaf();
+    expect(el.scrollTop).toBe(readingTop);
+    expect(sim.atBottom()).toBe(false);
+    expect(sim.pinCount).toBe(5); // unchanged
 
-		// 5. User hits jump-to-bottom: stuck set true + parked at bottom.
-		sim.jumpToBottom();
-		el.grow(150); // next chunk
-		sim.resizeTick();
-		sim.flushRaf();
-		expect(sim.atBottom()).toBe(true);
-		expect(sim.pinCount).toBe(6);
+    // 5. User hits jump-to-bottom: stuck set true + parked at bottom.
+    sim.jumpToBottom();
+    el.grow(150); // next chunk
+    sim.resizeTick();
+    sim.flushRaf();
+    expect(sim.atBottom()).toBe(true);
+    expect(sim.pinCount).toBe(6);
 
-		// 6. Switch away & back to a non-bottom cached position: the
-		//    open-restore anchor watch is active and the restore guard set
-		//    stuck=false. Reflows during restore must NOT pin (mutually
-		//    exclusive — else the anchor watch's onScroll trips).
-		sim.stopAnchorWatch = () => {};
-		sim.restoreToNonBottom(900);
-		const restoredTop = el.scrollTop;
-		el.grow(250); // image/tool-card reflow above the fold during restore
-		sim.resizeTick();
-		sim.flushRaf();
-		expect(el.scrollTop).toBe(restoredTop);
-		expect(sim.pinCount).toBe(6); // unchanged — stick stood down
+    // 6. Switch away & back to a non-bottom cached position: the
+    //    open-restore anchor watch is active and the restore guard set
+    //    stuck=false. Reflows during restore must NOT pin (mutually
+    //    exclusive — else the anchor watch's onScroll trips).
+    sim.stopAnchorWatch = () => {};
+    sim.restoreToNonBottom(900);
+    const restoredTop = el.scrollTop;
+    el.grow(250); // image/tool-card reflow above the fold during restore
+    sim.resizeTick();
+    sim.flushRaf();
+    expect(el.scrollTop).toBe(restoredTop);
+    expect(sim.pinCount).toBe(6); // unchanged — stick stood down
 
-		// 7. Anchor watch ends (3s elapsed / converged). If the user is now
-		//    following the bottom again, sticking resumes.
-		sim.stopAnchorWatch = null;
-		sim.scrollToBottom();
-		el.grow(80);
-		sim.resizeTick();
-		sim.flushRaf();
-		expect(sim.atBottom()).toBe(true);
-		expect(sim.pinCount).toBe(7);
-	});
+    // 7. Anchor watch ends (3s elapsed / converged). If the user is now
+    //    following the bottom again, sticking resumes.
+    sim.stopAnchorWatch = null;
+    sim.scrollToBottom();
+    el.grow(80);
+    sim.resizeTick();
+    sim.flushRaf();
+    expect(sim.atBottom()).toBe(true);
+    expect(sim.pinCount).toBe(7);
+  });
 
-	test("rafPending coalesces a burst of synchronous resize ticks into one pin", () => {
-		sim.initialScrollDone = true;
-		sim.scrollToBottom();
+  test("rafPending coalesces a burst of synchronous resize ticks into one pin", () => {
+    sim.initialScrollDone = true;
+    sim.scrollToBottom();
 
-		// A burst of RO callbacks before the browser services any frame
-		// (markdown + KaTeX + image all resizing in the same task).
-		el.grow(40);
-		sim.resizeTick();
-		el.grow(40);
-		sim.resizeTick();
-		el.grow(40);
-		sim.resizeTick();
-		expect(sim.rafPending).toBe(true);
-		expect(sim.pinCount).toBe(0); // nothing pinned until the frame runs
+    // A burst of RO callbacks before the browser services any frame
+    // (markdown + KaTeX + image all resizing in the same task).
+    el.grow(40);
+    sim.resizeTick();
+    el.grow(40);
+    sim.resizeTick();
+    el.grow(40);
+    sim.resizeTick();
+    expect(sim.rafPending).toBe(true);
+    expect(sim.pinCount).toBe(0); // nothing pinned until the frame runs
 
-		sim.flushRaf(); // browser services the single queued frame
-		expect(sim.pinCount).toBe(1); // coalesced
-		expect(sim.atBottom()).toBe(true);
+    sim.flushRaf(); // browser services the single queued frame
+    expect(sim.pinCount).toBe(1); // coalesced
+    expect(sim.atBottom()).toBe(true);
 
-		// A later resize after the frame schedules a fresh pin.
-		el.grow(40);
-		sim.resizeTick();
-		sim.flushRaf();
-		expect(sim.pinCount).toBe(2);
-	});
+    // A later resize after the frame schedules a fresh pin.
+    el.grow(40);
+    sim.resizeTick();
+    sim.flushRaf();
+    expect(sim.pinCount).toBe(2);
+  });
 
-	test("turn-completion: a single large insert while following still pins", () => {
-		sim.initialScrollDone = true;
-		sim.scrollToBottom();
-		expect(sim.atBottom()).toBe(true);
-		expect(sim.stuck).toBe(true);
+  test("turn-completion: a single large insert while following still pins", () => {
+    sim.initialScrollDone = true;
+    sim.scrollToBottom();
+    expect(sim.atBottom()).toBe(true);
+    expect(sim.stuck).toBe(true);
 
-		// run:complete → loadMessages()+hydrate replaces the stream bubble
-		// with the finalized message + historical tool/agent/memory cards in
-		// one shot (slack jumps far past the threshold). No scroll happened,
-		// so `stuck` is still true → the gate must re-pin.
-		el.grow(900);
-		expect(el.slack).toBeGreaterThan(80);
-		sim.resizeTick();
-		sim.flushRaf();
-		expect(sim.atBottom()).toBe(true);
-		expect(sim.pinCount).toBe(1);
-	});
+    // run:complete → loadMessages()+hydrate replaces the stream bubble
+    // with the finalized message + historical tool/agent/memory cards in
+    // one shot (slack jumps far past the threshold). No scroll happened,
+    // so `stuck` is still true → the gate must re-pin.
+    el.grow(900);
+    expect(el.slack).toBeGreaterThan(80);
+    sim.resizeTick();
+    sim.flushRaf();
+    expect(sim.atBottom()).toBe(true);
+    expect(sim.pinCount).toBe(1);
+  });
 
-	test("a stream on a conversation we never finished opening (no initialScrollDone) never pins", () => {
-		// Guards the scroll-restore invariant: until the open decision is
-		// made, no amount of streaming growth may move the viewport.
-		for (let i = 0; i < 4; i++) {
-			el.grow(120);
-			sim.resizeTick();
-			sim.flushRaf();
-		}
-		expect(sim.pinCount).toBe(0);
-	});
+  test("a stream on a conversation we never finished opening (no initialScrollDone) never pins", () => {
+    // Guards the scroll-restore invariant: until the open decision is
+    // made, no amount of streaming growth may move the viewport.
+    for (let i = 0; i < 4; i++) {
+      el.grow(120);
+      sim.resizeTick();
+      sim.flushRaf();
+    }
+    expect(sim.pinCount).toBe(0);
+  });
 
-	test("REGRESSION: bottom-sentinel IntersectionObserver firing BEFORE the resize pin on a turn-completion insert no longer breaks the pin", () => {
-		sim.initialScrollDone = true;
-		sim.scrollToBottom();
-		expect(sim.atBottom()).toBe(true);
-		expect(sim.stuck).toBe(true);
+  test("REGRESSION: bottom-sentinel IntersectionObserver firing BEFORE the resize pin on a turn-completion insert no longer breaks the pin", () => {
+    sim.initialScrollDone = true;
+    sim.scrollToBottom();
+    expect(sim.atBottom()).toBe(true);
+    expect(sim.stuck).toBe(true);
 
-		// run:complete inserts the finalized turn (>80px) in one task. In a
-		// real browser the bottom-sentinel IntersectionObserver can fire
-		// BEFORE the ResizeObserver pin. Pre-fix that flipped `userScrolledUp`
-		// and, with the large post-growth slack, the gate declined to pin.
-		// Now the sentinel observer no longer feeds the gate at all, so the
-		// ordering is irrelevant and the thread still follows.
-		el.grow(900);
-		sim.sentinelLeftViewport(); // IO "won the race" — now a no-op for the gate
-		sim.resizeTick();
-		sim.flushRaf();
-		expect(sim.atBottom()).toBe(true);
-		expect(sim.pinCount).toBe(1);
-	});
+    // run:complete inserts the finalized turn (>80px) in one task. In a
+    // real browser the bottom-sentinel IntersectionObserver can fire
+    // BEFORE the ResizeObserver pin. Pre-fix that flipped `userScrolledUp`
+    // and, with the large post-growth slack, the gate declined to pin.
+    // Now the sentinel observer no longer feeds the gate at all, so the
+    // ordering is irrelevant and the thread still follows.
+    el.grow(900);
+    sim.sentinelLeftViewport(); // IO "won the race" — now a no-op for the gate
+    sim.resizeTick();
+    sim.flushRaf();
+    expect(sim.atBottom()).toBe(true);
+    expect(sim.pinCount).toBe(1);
+  });
 
-	test("REGRESSION (#140): growth landing between the pin and its scroll event cannot latch the follow off", () => {
-		sim.initialScrollDone = true;
-		sim.scrollToBottom();
-		expect(sim.stuck).toBe(true);
+  test("REGRESSION (#140): growth landing between the pin and its scroll event cannot latch the follow off", () => {
+    sim.initialScrollDone = true;
+    sim.scrollToBottom();
+    expect(sim.stuck).toBe(true);
 
-		// A big streamed chunk arrives; the observer schedules the pin. The
-		// pin writes scrollTop against the height it saw, but a late reflow
-		// grows the thread by another 400px before the scroll event that
-		// write queued is delivered. onScroll therefore sees a slack far past
-		// the threshold with the user having done nothing at all.
-		el.grow(900);
-		sim.resizeTick();
-		sim.flushRafWithLateGrowth(400);
-		expect(el.slack).toBeGreaterThan(STICK_TO_BOTTOM_THRESHOLD_PX);
-		expect(
-			sim.stuck,
-			"the thread's own growth is not a user scroll — the follow must survive",
-		).toBe(true);
+    // A big streamed chunk arrives; the observer schedules the pin. The
+    // pin writes scrollTop against the height it saw, but a late reflow
+    // grows the thread by another 400px before the scroll event that
+    // write queued is delivered. onScroll therefore sees a slack far past
+    // the threshold with the user having done nothing at all.
+    el.grow(900);
+    sim.resizeTick();
+    sim.flushRafWithLateGrowth(400);
+    expect(el.slack).toBeGreaterThan(STICK_TO_BOTTOM_THRESHOLD_PX);
+    expect(
+      sim.stuck,
+      "the thread's own growth is not a user scroll — the follow must survive",
+    ).toBe(true);
 
-		// Because it survived, the very next resize tick converges.
-		sim.resizeTick();
-		sim.flushRaf();
-		expect(sim.atBottom()).toBe(true);
-		expect(sim.pinCount).toBe(2);
-	});
+    // Because it survived, the very next resize tick converges.
+    sim.resizeTick();
+    sim.flushRaf();
+    expect(sim.atBottom()).toBe(true);
+    expect(sim.pinCount).toBe(2);
+  });
 
-	test("REGRESSION (#140, negative): the same late growth does NOT resurrect a follow the user already broke", () => {
-		sim.initialScrollDone = true;
-		sim.scrollToBottom();
-		sim.userScrollTo(300);
-		expect(sim.stuck).toBe(false);
+  test("REGRESSION (#140, negative): the same late growth does NOT resurrect a follow the user already broke", () => {
+    sim.initialScrollDone = true;
+    sim.scrollToBottom();
+    sim.userScrollTo(300);
+    expect(sim.stuck).toBe(false);
 
-		// No pin is scheduled (not stuck), so only the growth + its scroll
-		// event land. `stuck` must stay false — the rule preserves intent,
-		// it does not invent it.
-		el.grow(900);
-		sim.resizeTick();
-		expect(sim.pinCount).toBe(0);
-		expect(sim.stuck).toBe(false);
-	});
+    // No pin is scheduled (not stuck), so only the growth + its scroll
+    // event land. `stuck` must stay false — the rule preserves intent,
+    // it does not invent it.
+    el.grow(900);
+    sim.resizeTick();
+    expect(sim.pinCount).toBe(0);
+    expect(sim.stuck).toBe(false);
+  });
 
-	test("REGRESSION (negative): a deliberate scroll-up before a large insert is still NOT yanked", () => {
-		sim.initialScrollDone = true;
-		sim.scrollToBottom();
+  test("REGRESSION (negative): a deliberate scroll-up before a large insert is still NOT yanked", () => {
+    sim.initialScrollDone = true;
+    sim.scrollToBottom();
 
-		// User scrolls up to read BEFORE the big insert lands.
-		sim.userScrollTo(300);
-		expect(sim.stuck).toBe(false);
-		const readingTop = el.scrollTop;
+    // User scrolls up to read BEFORE the big insert lands.
+    sim.userScrollTo(300);
+    expect(sim.stuck).toBe(false);
+    const readingTop = el.scrollTop;
 
-		el.grow(900); // turn-completion reconcile arrives while they read
-		sim.sentinelLeftViewport();
-		sim.resizeTick();
-		sim.flushRaf();
-		expect(el.scrollTop).toBe(readingTop); // not moved
-		expect(sim.pinCount).toBe(0);
-	});
+    el.grow(900); // turn-completion reconcile arrives while they read
+    sim.sentinelLeftViewport();
+    sim.resizeTick();
+    sim.flushRaf();
+    expect(el.scrollTop).toBe(readingTop); // not moved
+    expect(sim.pinCount).toBe(0);
+  });
 });

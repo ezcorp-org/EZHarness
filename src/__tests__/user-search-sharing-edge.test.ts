@@ -13,7 +13,8 @@ function at<T>(arr: readonly T[], i: number, what: string): T {
 }
 
 const { GET: userSearchGET } = await import("../../web/src/routes/api/users/search/+server");
-const { shareAgentWithUser, unshareAgentFromUser, getAgentShares, getSharedAgentsForUser } = await import("../db/queries/agent-shares");
+const { shareAgentWithUser, unshareAgentFromUser, getAgentShares, getSharedAgentsForUser } =
+  await import("../db/queries/agent-shares");
 const { createUser } = await import("../db/queries/users");
 const { createAgentConfig } = await import("../db/queries/agent-configs");
 
@@ -42,17 +43,32 @@ beforeAll(async () => {
   }
 
   // A couple users with distinct names for specificity tests
-  const alice = await createUser({ email: "alice@example.com", passwordHash: "h", name: "Alice Wonderland", role: "member" });
+  const alice = await createUser({
+    email: "alice@example.com",
+    passwordHash: "h",
+    name: "Alice Wonderland",
+    role: "member",
+  });
   searchUsers.push({ id: alice.id, email: alice.email, name: alice.name! });
 
-  const bob = await createUser({ email: "bob@example.com", passwordHash: "h", name: "Bob Builder", role: "member" });
+  const bob = await createUser({
+    email: "bob@example.com",
+    passwordHash: "h",
+    name: "Bob Builder",
+    role: "member",
+  });
   searchUsers.push({ id: bob.id, email: bob.email, name: bob.name! });
 
   const authBase = at(searchUsers, 0, "search user");
   AUTH_USER = { id: authBase.id, email: authBase.email, name: authBase.name, role: "member" };
 
   // Agent owner for sharing tests
-  const owner = await createUser({ email: "agentowner@test.com", passwordHash: "h", name: "Agent Owner", role: "admin" });
+  const owner = await createUser({
+    email: "agentowner@test.com",
+    passwordHash: "h",
+    name: "Agent Owner",
+    role: "admin",
+  });
   agentOwnerId = owner.id;
 });
 
@@ -71,14 +87,20 @@ describe("GET /api/users/search", () => {
   });
 
   test("returns empty array when q is less than 2 chars", async () => {
-    const event = createMockEvent({ url: "http://localhost/api/users/search?q=a", user: AUTH_USER });
+    const event = createMockEvent({
+      url: "http://localhost/api/users/search?q=a",
+      user: AUTH_USER,
+    });
     const res = await userSearchGET(event);
     const data = await jsonFromResponse(res);
     expect(data.users).toEqual([]);
   });
 
   test("returns matching users by name (case insensitive)", async () => {
-    const event = createMockEvent({ url: "http://localhost/api/users/search?q=ALICE", user: AUTH_USER });
+    const event = createMockEvent({
+      url: "http://localhost/api/users/search?q=ALICE",
+      user: AUTH_USER,
+    });
     const res = await userSearchGET(event);
     const data = await jsonFromResponse(res);
     expect(data.users).toHaveLength(1);
@@ -86,7 +108,10 @@ describe("GET /api/users/search", () => {
   });
 
   test("returns matching users by email", async () => {
-    const event = createMockEvent({ url: "http://localhost/api/users/search?q=bob@", user: AUTH_USER });
+    const event = createMockEvent({
+      url: "http://localhost/api/users/search?q=bob@",
+      user: AUTH_USER,
+    });
     const res = await userSearchGET(event);
     const data = await jsonFromResponse(res);
     expect(data.users).toHaveLength(1);
@@ -94,7 +119,10 @@ describe("GET /api/users/search", () => {
   });
 
   test("limits results to 10", async () => {
-    const event = createMockEvent({ url: "http://localhost/api/users/search?q=search", user: AUTH_USER });
+    const event = createMockEvent({
+      url: "http://localhost/api/users/search?q=search",
+      user: AUTH_USER,
+    });
     const res = await userSearchGET(event);
     const data = await jsonFromResponse(res);
     expect(data.users).toHaveLength(10);
@@ -113,7 +141,10 @@ describe("GET /api/users/search", () => {
   });
 
   test("returns id, name, email only (no passwordHash)", async () => {
-    const event = createMockEvent({ url: "http://localhost/api/users/search?q=alice", user: AUTH_USER });
+    const event = createMockEvent({
+      url: "http://localhost/api/users/search?q=alice",
+      user: AUTH_USER,
+    });
     const res = await userSearchGET(event);
     const data = await jsonFromResponse(res);
     expect(data.users).toHaveLength(1);

@@ -60,12 +60,7 @@ export interface RefContext {
  * key and get the shorter prefix, which is exactly the wording both
  * resolvers used before this was factored out.
  */
-function unresolvedStepRef(
-  ref: string,
-  stepName: string,
-  ctx: RefContext,
-  forKey?: string,
-): Error {
+function unresolvedStepRef(ref: string, stepName: string, ctx: RefContext, forKey?: string): Error {
   const where =
     forKey === undefined
       ? `Cannot resolve "${ref}"`
@@ -109,29 +104,21 @@ export function getNestedValue(obj: unknown, path: string): unknown {
  * {@link OMIT} sentinel for the one documented lenient exception
  * (`$loop.last` on iteration 1).
  */
-export function resolveInputRef(
-  key: string,
-  ref: string,
-  ctx: RefContext,
-): unknown | typeof OMIT {
+export function resolveInputRef(key: string, ref: string, ctx: RefContext): unknown | typeof OMIT {
   if (ref.startsWith("$input.")) {
     return ctx.input[ref.slice("$input.".length)];
   }
 
   if (ref === "$loop.iteration") {
     if (!ctx.loop) {
-      throw new Error(
-        `Cannot resolve "${ref}" for step input "${key}": not inside a loop.`,
-      );
+      throw new Error(`Cannot resolve "${ref}" for step input "${key}": not inside a loop.`);
     }
     return ctx.loop.iteration;
   }
 
   if (ref === "$loop.last" || ref.startsWith("$loop.last.")) {
     if (!ctx.loop) {
-      throw new Error(
-        `Cannot resolve "${ref}" for step input "${key}": not inside a loop.`,
-      );
+      throw new Error(`Cannot resolve "${ref}" for step input "${key}": not inside a loop.`);
     }
     // Iteration 1 has no previous result — omit the key (documented lenient
     // exception), never pass `undefined`.
@@ -262,9 +249,7 @@ export function resolveConditionRef(ref: string, ctx: RefContext): unknown {
 
   if (ref === "$prev" || ref.startsWith("$prev.")) {
     if (ctx.prevResult === undefined) {
-      throw new Error(
-        `Cannot resolve "${ref}": no previous step has produced a result yet.`,
-      );
+      throw new Error(`Cannot resolve "${ref}": no previous step has produced a result yet.`);
     }
     if (ref === "$prev") return ctx.prevResult;
     return getNestedValue(ctx.prevResult, ref.slice("$prev.".length));
@@ -293,11 +278,7 @@ export function resolveConditionRef(ref: string, ctx: RefContext): unknown {
  * still resolved by {@link resolveInputRef}, not here). Strict-ref failures
  * throw exactly like a direct ref.
  */
-export function interpolateTemplate(
-  key: string,
-  template: string,
-  ctx: RefContext,
-): string {
+export function interpolateTemplate(key: string, template: string, ctx: RefContext): string {
   // `[^{}]*` (no `\s*` overlap) keeps matching linear — the previous
   // `\{\{\s*([^}]+?)\s*\}\}` backtracked super-linearly on input with no
   // closing `}}` (ReDoS: a few KB pinned the event loop for seconds).

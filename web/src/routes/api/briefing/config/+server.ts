@@ -70,7 +70,10 @@ export const PUT: RequestHandler = async ({ request, locals }) => {
     // client. Drizzle wraps driver errors ("Failed query: …") with the
     // PG error on `cause`, so the FK sniff checks both layers (SQLSTATE
     // 23503 = foreign_key_violation).
-    const cause = err instanceof Error ? (err.cause as { message?: string; code?: string } | undefined) : undefined;
+    const cause =
+      err instanceof Error
+        ? (err.cause as { message?: string; code?: string } | undefined)
+        : undefined;
     const msg = `${err instanceof Error ? err.message : String(err)} ${cause?.message ?? ""}`;
     if (cause?.code === "23503" || /foreign key|fkey/i.test(msg)) {
       return errorJson(400, "unknown project");

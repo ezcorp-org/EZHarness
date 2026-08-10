@@ -97,14 +97,13 @@ export function createBriefingWatchTool(ctx: BriefingChatToolContext): BuiltinTo
   return {
     name: "briefing_watch",
     label: "briefing_watch",
-    description:
-      `Subscribe a topic to the user's Daily Briefing watchlist — every morning's briefing will research overnight developments on it. Use when the user asks to keep an eye on / follow / watch a topic. Max ${MAX_WATCHLIST_TOPICS} topics, ${MAX_TOPIC_LENGTH} chars each.`,
+    description: `Subscribe a topic to the user's Daily Briefing watchlist — every morning's briefing will research overnight developments on it. Use when the user asks to keep an eye on / follow / watch a topic. Max ${MAX_WATCHLIST_TOPICS} topics, ${MAX_TOPIC_LENGTH} chars each.`,
     category: "write",
     cardType: "default",
     parameters: Type.Unsafe({
       type: "object",
       properties: {
-        topic: { type: "string", description: "The topic to watch, e.g. \"Bun 2.0 release\"." },
+        topic: { type: "string", description: 'The topic to watch, e.g. "Bun 2.0 release".' },
       },
       required: ["topic"],
     }),
@@ -130,10 +129,10 @@ export function createBriefingWatchTool(ctx: BriefingChatToolContext): BuiltinTo
           ? ""
           : " Your daily briefing is currently disabled — enable it there (or ask me) to start receiving it.";
         log.info("watchlist topic added via chat", { userId: ctx.userId, topic });
-        return ok(
-          `Added "${topic}" to your briefing watchlist — ${MANAGE_HINT}.${enabledHint}`,
-          { topic, watchlistSize: result.size },
-        );
+        return ok(`Added "${topic}" to your briefing watchlist — ${MANAGE_HINT}.${enabledHint}`, {
+          topic,
+          watchlistSize: result.size,
+        });
       } catch (e) {
         return err((e as Error)?.message ?? String(e));
       }
@@ -181,10 +180,10 @@ export function createBriefingUnwatchTool(ctx: BriefingChatToolContext): Builtin
         if (!result.ok) return err(result.error);
 
         log.info("watchlist topic removed via chat", { userId: ctx.userId, topic: match.topic });
-        return ok(
-          `Removed "${match.topic}" from your briefing watchlist — ${MANAGE_HINT}.`,
-          { topic: match.topic, watchlistSize: watchlist.length - 1 },
-        );
+        return ok(`Removed "${match.topic}" from your briefing watchlist — ${MANAGE_HINT}.`, {
+          topic: match.topic,
+          watchlistSize: watchlist.length - 1,
+        });
       } catch (e) {
         return err((e as Error)?.message ?? String(e));
       }
@@ -226,7 +225,9 @@ export function createConfigureBriefingTool(ctx: BriefingChatToolContext): Built
           (k) => p[k] !== undefined,
         );
         if (!hasAny) {
-          return err("nothing to change — pass at least one of enabled, time, days, timezone, instructions");
+          return err(
+            "nothing to change — pass at least one of enabled, time, days, timezone, instructions",
+          );
         }
 
         const input: Record<string, unknown> = {};
@@ -244,7 +245,10 @@ export function createConfigureBriefingTool(ctx: BriefingChatToolContext): Built
           if (p.time !== undefined && typeof p.time !== "string") {
             return err('time must be a "HH:MM" 24h string');
           }
-          if (p.days !== undefined && (typeof p.days !== "string" || !WEEKDAY_PRESETS.has(p.days))) {
+          if (
+            p.days !== undefined &&
+            (typeof p.days !== "string" || !WEEKDAY_PRESETS.has(p.days))
+          ) {
             return err('days must be one of "daily", "weekdays", "weekends"');
           }
           const existing = await getBriefingConfig(ctx.userId);
@@ -273,7 +277,11 @@ export function createConfigureBriefingTool(ctx: BriefingChatToolContext): Built
           scheduleDesc,
           `timezone ${row.timezone}`,
         ].join(", ");
-        log.info("briefing configured via chat", { userId: ctx.userId, enabled: row.enabled, cron: row.cron });
+        log.info("briefing configured via chat", {
+          userId: ctx.userId,
+          enabled: row.enabled,
+          cron: row.cron,
+        });
         return ok(`Daily briefing updated: ${summary} — ${MANAGE_HINT}.`, {
           enabled: row.enabled,
           cron: row.cron,
@@ -300,7 +308,7 @@ export function createBriefingStatusTool(ctx: BriefingChatToolContext): BuiltinT
     name: "briefing_status",
     label: "briefing_status",
     description:
-      "Read-only status of the user's Daily Briefing: whether it's enabled, the schedule, last/next delivery, the watchlist, and their most recent briefing conversations (by title). Use when the user asks about their briefing(s) — \"what's the latest on my briefings\", \"when is my next briefing\", \"what am I watching\".",
+      'Read-only status of the user\'s Daily Briefing: whether it\'s enabled, the schedule, last/next delivery, the watchlist, and their most recent briefing conversations (by title). Use when the user asks about their briefing(s) — "what\'s the latest on my briefings", "when is my next briefing", "what am I watching".',
     category: "read",
     cardType: "default",
     parameters: Type.Unsafe({ type: "object", properties: {} }),
@@ -320,7 +328,8 @@ export function createBriefingStatusTool(ctx: BriefingChatToolContext): BuiltinT
           `Daily briefing is ${config.enabled ? "enabled" : "disabled"} — ${scheduleDesc}, timezone ${config.timezone}.`,
         );
         if (config.lastFireAt) {
-          const label = FIRE_STATUS_LABELS[config.lastFireStatus ?? ""] ?? config.lastFireStatus ?? "unknown";
+          const label =
+            FIRE_STATUS_LABELS[config.lastFireStatus ?? ""] ?? config.lastFireStatus ?? "unknown";
           lines.push(`Last run: ${label} at ${config.lastFireAt.toISOString()}.`);
         } else {
           lines.push("No briefing has run yet.");

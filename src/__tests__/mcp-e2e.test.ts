@@ -16,7 +16,12 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER } from "./helpers/mock-request";
+import {
+  mockServerAlias,
+  createMockEvent,
+  jsonFromResponse,
+  ADMIN_USER,
+} from "./helpers/mock-request";
 import { makeStdioMcpServer } from "./helpers/stdio-mcp-fixture";
 import { eq } from "drizzle-orm";
 
@@ -73,15 +78,22 @@ describe("E2E: install → attach → execute", () => {
     });
 
     // 1. Install via real handler
-    const installRes = await installPOST(createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/mcp-servers",
-      user: ADMIN_USER,
-      body: {
-        name: "e2e-mcp",
-        server: { transport: "stdio", name: "e2e-mcp", command: fixture.command, args: fixture.args },
-      },
-    }));
+    const installRes = await installPOST(
+      createMockEvent({
+        method: "POST",
+        url: "http://localhost/api/mcp-servers",
+        user: ADMIN_USER,
+        body: {
+          name: "e2e-mcp",
+          server: {
+            transport: "stdio",
+            name: "e2e-mcp",
+            command: fixture.command,
+            args: fixture.args,
+          },
+        },
+      }),
+    );
     expect(installRes.status).toBe(201);
     const ext = await jsonFromResponse(installRes);
 
@@ -133,15 +145,22 @@ describe("E2E: install → attach → execute", () => {
     const fixture = makeStdioMcpServer({
       tools: [{ name: "peek", description: "Peek" }],
     });
-    const installRes = await installPOST(createMockEvent({
-      method: "POST",
-      url: "http://localhost/api/mcp-servers",
-      user: ADMIN_USER,
-      body: {
-        name: "team-mcp",
-        server: { transport: "stdio", name: "team-mcp", command: fixture.command, args: fixture.args },
-      },
-    }));
+    const installRes = await installPOST(
+      createMockEvent({
+        method: "POST",
+        url: "http://localhost/api/mcp-servers",
+        user: ADMIN_USER,
+        body: {
+          name: "team-mcp",
+          server: {
+            transport: "stdio",
+            name: "team-mcp",
+            command: fixture.command,
+            args: fixture.args,
+          },
+        },
+      }),
+    );
     expect(installRes.status).toBe(201);
     const ext = await jsonFromResponse(installRes);
 

@@ -25,9 +25,15 @@ const TRUNCATION_PREFIX = "[truncated:";
 
 function sha256Hex(input: string): string {
   // Bun fast path; node:crypto fallback. Mirrors the redactor.
-  const BunGlobal = (globalThis as unknown as {
-    Bun?: { CryptoHasher: new (algo: string) => { update(s: string): void; digest(enc: string): string } };
-  }).Bun;
+  const BunGlobal = (
+    globalThis as unknown as {
+      Bun?: {
+        CryptoHasher: new (
+          algo: string,
+        ) => { update(s: string): void; digest(enc: string): string };
+      };
+    }
+  ).Bun;
   if (BunGlobal?.CryptoHasher) {
     const h = new BunGlobal.CryptoHasher("sha256");
     h.update(input);
@@ -51,11 +57,13 @@ function capBody(body: string | null | undefined): string | null {
 }
 
 export async function insertLessonAuditEntry(entry: NewLessonAuditEntry): Promise<void> {
-  await getDb().insert(lessonsAuditLog).values({
-    ...entry,
-    previousBody: capBody(entry.previousBody),
-    newBody: capBody(entry.newBody),
-  });
+  await getDb()
+    .insert(lessonsAuditLog)
+    .values({
+      ...entry,
+      previousBody: capBody(entry.previousBody),
+      newBody: capBody(entry.newBody),
+    });
 }
 
 export async function listLessonAuditByLessonId(

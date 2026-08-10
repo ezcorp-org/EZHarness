@@ -7,9 +7,18 @@ import type { MemoryProvenance } from "../memory/types";
 // Mock pi-ai to simulate LLM unavailability — prevents leaked mocks from
 // other test files (e.g. memory-integration) making complete() succeed.
 mock.module("@earendil-works/pi-ai/compat", () => ({
-  complete: async () => { throw new Error("LLM not configured in test"); },
-  stream: () => ({ [Symbol.asyncIterator]: async function* () {}, result: async () => { throw new Error("LLM not configured in test"); } }),
-  getModel: () => { throw new Error("LLM not configured in test"); },
+  complete: async () => {
+    throw new Error("LLM not configured in test");
+  },
+  stream: () => ({
+    [Symbol.asyncIterator]: async function* () {},
+    result: async () => {
+      throw new Error("LLM not configured in test");
+    },
+  }),
+  getModel: () => {
+    throw new Error("LLM not configured in test");
+  },
   getModels: () => [],
   getProviders: () => [],
   getEnvApiKey: () => undefined,
@@ -47,7 +56,9 @@ mock.module("../db/queries/settings", () => {
       await getDb().delete(tbl).where(eq(tbl.key, key));
       return true;
     },
-    async isListingInstalled() { return false; },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -80,15 +91,31 @@ const testMergeFn = async (a: string, b: string) => {
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values([
-    { id: OWNER, email: "compaction-owner@test.local", name: "Compaction Owner", passwordHash: "fake-hash" },
-    { id: OTHER_USER, email: "compaction-other@test.local", name: "Compaction Other", passwordHash: "fake-hash" },
-  ]).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values([
+      {
+        id: OWNER,
+        email: "compaction-owner@test.local",
+        name: "Compaction Owner",
+        passwordHash: "fake-hash",
+      },
+      {
+        id: OTHER_USER,
+        email: "compaction-other@test.local",
+        name: "Compaction Other",
+        passwordHash: "fake-hash",
+      },
+    ])
+    .onConflictDoNothing();
   const project = await createProject({ name: "compaction-test", path: "/tmp/compaction" });
   projectId = project.id;
   const conv = await createConversation(projectId, { title: "compaction conv", userId: OWNER });
   conversationId = conv.id;
-  const otherConv = await createConversation(projectId, { title: "other user's conv", userId: OTHER_USER });
+  const otherConv = await createConversation(projectId, {
+    title: "other user's conv",
+    userId: OTHER_USER,
+  });
   otherConversationId = otherConv.id;
   const unowned = await createConversation(projectId, { title: "unowned conv" });
   unownedConversationId = unowned.id;
@@ -109,7 +136,10 @@ beforeEach(async () => {
   await deleteSetting("compaction:lastRun");
 });
 
-async function insertTestMemory(content: string, opts?: { category?: string; status?: string; conversationId?: string | null }) {
+async function insertTestMemory(
+  content: string,
+  opts?: { category?: string; status?: string; conversationId?: string | null },
+) {
   const embedding = mockEmbedding();
   const convId = opts?.conversationId === undefined ? conversationId : opts.conversationId;
   const provenance: MemoryProvenance = {
@@ -131,7 +161,10 @@ async function insertTestMemory(content: string, opts?: { category?: string; sta
   });
   if (opts?.status && opts.status !== "active") {
     const db = getDb();
-    await db.update(memories).set({ status: opts.status } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ status: opts.status } as any)
+      .where(eq(memories.id, mem.id));
   }
   return mem;
 }
@@ -168,7 +201,9 @@ describe("Memory Compaction", () => {
 
   test("runCompaction never merges across users — similar rows owned by different users both survive", async () => {
     const memOwner = await insertTestMemory("Cross-user similar fact");
-    const memOther = await insertTestMemory("Cross-user similar fact too", { conversationId: otherConversationId });
+    const memOther = await insertTestMemory("Cross-user similar fact too", {
+      conversationId: otherConversationId,
+    });
 
     const mergedCount = await runCompaction(projectId, testMergeFn);
     expect(mergedCount).toBe(0);
@@ -178,8 +213,12 @@ describe("Memory Compaction", () => {
   });
 
   test("runCompaction skips memories with no resolvable owner (unowned conversation or no conversation)", async () => {
-    const memUnownedConv = await insertTestMemory("Ownerless similar fact", { conversationId: unownedConversationId });
-    const memNoConv = await insertTestMemory("Ownerless similar fact two", { conversationId: null });
+    const memUnownedConv = await insertTestMemory("Ownerless similar fact", {
+      conversationId: unownedConversationId,
+    });
+    const memNoConv = await insertTestMemory("Ownerless similar fact two", {
+      conversationId: null,
+    });
 
     const mergedCount = await runCompaction(projectId, testMergeFn);
     expect(mergedCount).toBe(0);
@@ -195,7 +234,10 @@ describe("Memory Compaction", () => {
 
     // Null out the embedding via raw SQL
     const db = getDb();
-    await db.update(memories).set({ embedding: null } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ embedding: null } as any)
+      .where(eq(memories.id, mem.id));
 
     const mergedCount = await runCompaction(projectId, testMergeFn);
     expect(mergedCount).toBe(0);

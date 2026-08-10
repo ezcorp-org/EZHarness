@@ -1,6 +1,11 @@
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER } from "./helpers/mock-request";
+import {
+  mockServerAlias,
+  createMockEvent,
+  jsonFromResponse,
+  ADMIN_USER,
+} from "./helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
 
@@ -73,14 +78,21 @@ for (const path of [
 
 // ── Handler imports ──────────────────────────────────────────────
 import { GET as oauthGet } from "../../web/src/routes/api/auth/oauth/+server";
-import { POST as callbackPost, DELETE as callbackDelete } from "../../web/src/routes/api/auth/oauth/callback/+server";
+import {
+  POST as callbackPost,
+  DELETE as callbackDelete,
+} from "../../web/src/routes/api/auth/oauth/callback/+server";
 import { GET as providersGet } from "../../web/src/routes/api/providers/+server";
 
 // updated for sec-M2: helper to pre-seed a server-side pending OAuth
 // record so callback tests can hit the "found by state" path. Pre-fix
 // the callback accepted codeVerifier + redirectUri straight from the
 // request body; the regression test covers the new server-side lookup.
-function seedPending(state: string, provider = "openai", overrides: Partial<{ codeVerifier: string; redirectUri: string; createdAt: number }> = {}) {
+function seedPending(
+  state: string,
+  provider = "openai",
+  overrides: Partial<{ codeVerifier: string; redirectUri: string; createdAt: number }> = {},
+) {
   settingsStore[`oauth:pending:${state}`] = {
     state,
     codeVerifier: overrides.codeVerifier ?? "server-stored-verifier",
@@ -257,9 +269,7 @@ describe("POST /api/auth/oauth/callback", () => {
     // updated for sec-M2: pending record must exist for the handler to
     // even attempt the token exchange that's being made to fail here.
     seedPending("valid-state-token", "openai");
-    fetchMockFn.mockImplementation(() =>
-      Promise.resolve(new Response("error", { status: 401 })),
-    );
+    fetchMockFn.mockImplementation(() => Promise.resolve(new Response("error", { status: 401 })));
 
     const event = createMockEvent({
       method: "POST",
@@ -415,7 +425,7 @@ describe("GET /api/providers (OAuth fields)", () => {
     const res = await providersGet(event);
     expect(res.status).toBe(200);
 
-    const body = await jsonFromResponse(res) as any[];
+    const body = (await jsonFromResponse(res)) as any[];
     const anthropic = body.find((p: any) => p.provider === "anthropic");
     expect(anthropic).toBeTruthy();
     expect(anthropic.oauthSupported).toBe(false);
@@ -434,7 +444,7 @@ describe("GET /api/providers (OAuth fields)", () => {
       user: ADMIN_USER,
     });
     const res = await providersGet(event);
-    const body = await jsonFromResponse(res) as any[];
+    const body = (await jsonFromResponse(res)) as any[];
     const openai = body.find((p: any) => p.provider === "openai");
     expect(openai.oauthConnected).toBe(true);
     expect(openai.oauthExpired).toBe(false);
@@ -453,7 +463,7 @@ describe("GET /api/providers (OAuth fields)", () => {
       user: ADMIN_USER,
     });
     const res = await providersGet(event);
-    const body = await jsonFromResponse(res) as any[];
+    const body = (await jsonFromResponse(res)) as any[];
     const openai = body.find((p: any) => p.provider === "openai");
     expect(openai.oauthConnected).toBe(true);
     expect(openai.oauthExpired).toBe(true);
@@ -465,7 +475,7 @@ describe("GET /api/providers (OAuth fields)", () => {
       user: ADMIN_USER,
     });
     const res = await providersGet(event);
-    const body = await jsonFromResponse(res) as any[];
+    const body = (await jsonFromResponse(res)) as any[];
     const openai = body.find((p: any) => p.provider === "openai");
     expect(openai.oauthConnected).toBe(false);
     expect(openai.oauthExpired).toBe(false);

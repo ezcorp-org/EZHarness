@@ -13,7 +13,9 @@ describe("formatResults", () => {
   });
 
   test("falls back to the URL when the title is blank", () => {
-    expect(formatResults([{ title: "   ", url: "https://x", snippet: "" }])).toBe("- [https://x](https://x)");
+    expect(formatResults([{ title: "   ", url: "https://x", snippet: "" }])).toBe(
+      "- [https://x](https://x)",
+    );
   });
 
   test("empty results → _No results._", () => {

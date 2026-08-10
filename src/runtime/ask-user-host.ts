@@ -67,9 +67,7 @@ export function _resetAskUserExtensionIdCache(): void {
  * Callers use the return value to decide whether to skip wiring for
  * the current turn.
  */
-export async function ensureAskUserWired(
-  conversationId: string,
-): Promise<boolean> {
+export async function ensureAskUserWired(conversationId: string): Promise<boolean> {
   let extId: string | undefined;
   try {
     extId = await getAskUserExtensionId();
@@ -124,9 +122,7 @@ export interface WireAskUserToolParams {
  * generic `convExtIds` loop double-wiring the same tool with different
  * metadata.
  */
-export async function wireAskUserToolForTurn(
-  params: WireAskUserToolParams,
-): Promise<void> {
+export async function wireAskUserToolForTurn(params: WireAskUserToolParams): Promise<void> {
   const { agentTools, conversationId, runId, registry, bus, userId } = params;
 
   // Dedup guard: the convExtIds loop in setup-tools.ts also wires
@@ -134,12 +130,18 @@ export async function wireAskUserToolForTurn(
   // BOTH the namespaced form (what the registry exposes) and the
   // bare `ask_user_question` (defensive, in case a future change
   // exposes the originalName too).
-  if (agentTools.some((t) => t.name === "ask-user__ask_user_question" || t.name === "ask_user_question")) return;
+  if (
+    agentTools.some(
+      (t) => t.name === "ask-user__ask_user_question" || t.name === "ask_user_question",
+    )
+  )
+    return;
 
   const extId = await getAskUserExtensionId();
   if (!extId) {
     log.warn("ask-user extension not installed — skipping wire for turn", {
-      conversationId, runId,
+      conversationId,
+      runId,
     });
     return;
   }
@@ -147,10 +149,11 @@ export async function wireAskUserToolForTurn(
   const registeredTools = registry.getToolsForExtension(extId);
   const askTool = registeredTools.find((t) => t.originalName === "ask_user_question");
   if (!askTool) {
-    log.warn(
-      "ask-user extension has no ask_user_question tool registered — registry not loaded?",
-      { conversationId, runId, extId },
-    );
+    log.warn("ask-user extension has no ask_user_question tool registered — registry not loaded?", {
+      conversationId,
+      runId,
+      extId,
+    });
     return;
   }
 
@@ -161,11 +164,7 @@ export async function wireAskUserToolForTurn(
   // an init race; the factory throws with a clear message if the
   // singleton isn't pre-init, making any boot-order regression loud.
   const engine = getPermissionEngine();
-  const toolExec = new ToolExecutor(
-    registry,
-    engine,
-    bus ? { bus } : undefined,
-  );
+  const toolExec = new ToolExecutor(registry, engine, bus ? { bus } : undefined);
   if (userId) toolExec.setCurrentUserId(userId);
 
   // Per-turn invocationMetadata. `toolCallId` is added by

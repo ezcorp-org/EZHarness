@@ -120,9 +120,7 @@ mock.module("$server/db/queries/projects", () => ({
   getProject: async () => null,
 }));
 
-const { POST } = await import(
-  "../routes/api/conversations/[id]/agent-chat/+server"
-);
+const { POST } = await import("../routes/api/conversations/[id]/agent-chat/+server");
 
 // ── Stub `window` so the store DOM-event dispatch + page listener work ─
 
@@ -151,7 +149,10 @@ function setupBrowserStubs() {
   };
   (globalThis as any).removeEventListener = (type: string, fn: (e: Event) => void) => {
     const arr = eventListeners.get(type) ?? [];
-    eventListeners.set(type, arr.filter((f) => f !== fn));
+    eventListeners.set(
+      type,
+      arr.filter((f) => f !== fn),
+    );
   };
 }
 
@@ -160,17 +161,24 @@ function setupBrowserStubs() {
 function storeHandleAgentComplete(event: { type: string; data: any }) {
   if (event.type !== "agent:complete") return;
   const { subConversationId } = event.data;
-  const parentConvId = (event.data as Record<string, unknown>).parentConversationId as string | undefined;
+  const parentConvId = (event.data as Record<string, unknown>).parentConversationId as
+    | string
+    | undefined;
   if (parentConvId && typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent("ez:agent_complete", {
-      detail: { parentConversationId: parentConvId, subConversationId },
-    }));
+    window.dispatchEvent(
+      new CustomEvent("ez:agent_complete", {
+        detail: { parentConversationId: parentConvId, subConversationId },
+      }),
+    );
   }
 }
 
 // ── The chat-page listener — mirrors +page.svelte:694-702 ──────────
 
-function makeChatPageListener(currentConvId: string, recorded: { invalidated: string[]; loadCalls: number; hydrateCalls: number }) {
+function makeChatPageListener(
+  currentConvId: string,
+  recorded: { invalidated: string[]; loadCalls: number; hydrateCalls: number },
+) {
   const listener = (e: Event) => {
     const { parentConversationId } = (e as CustomEvent).detail;
     if (parentConversationId !== currentConvId) return;
@@ -185,7 +193,10 @@ function makeChatPageListener(currentConvId: string, recorded: { invalidated: st
 
 // ── The team-panel listener — mirrors TeamChatPanel.svelte ──────────
 
-function makeTeamPanelListener(recorded: { overviewRefetches: number; drillRefetches: number }, drillSubConvId: string | null = null) {
+function makeTeamPanelListener(
+  recorded: { overviewRefetches: number; drillRefetches: number },
+  drillSubConvId: string | null = null,
+) {
   const listener = () => {
     recorded.overviewRefetches++;
     if (drillSubConvId) recorded.drillRefetches++;

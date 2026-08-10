@@ -69,9 +69,7 @@ function tokenText(token: Token): string {
       return decodeEntities(stripTags((token as Tokens.HTML).text));
     case "text": {
       const tx = token as Tokens.Text;
-      return tx.tokens && tx.tokens.length
-        ? inlineText(tx.tokens)
-        : decodeEntities(tx.text);
+      return tx.tokens && tx.tokens.length ? inlineText(tx.tokens) : decodeEntities(tx.text);
     }
     // Emphasis/strike: keep the wrapped words, drop the markers.
     // Link: keep the label tokens, drop the href.
@@ -79,17 +77,10 @@ function tokenText(token: Token): string {
     case "em":
     case "del":
     case "link":
-      return inlineText(
-        (token as Tokens.Strong | Tokens.Em | Tokens.Del | Tokens.Link)
-          .tokens,
-      );
+      return inlineText((token as Tokens.Strong | Tokens.Em | Tokens.Del | Tokens.Link).tokens);
     case "paragraph":
     case "heading":
-      return (
-        inlineText(
-          (token as Tokens.Paragraph | Tokens.Heading).tokens,
-        ) + "\n"
-      );
+      return inlineText((token as Tokens.Paragraph | Tokens.Heading).tokens) + "\n";
     case "blockquote":
       return inlineText(generic.tokens as Token[] | undefined) + "\n";
     case "list":
@@ -114,9 +105,7 @@ function tokenText(token: Token): string {
     }
     default:
       if (Array.isArray(generic.tokens)) return inlineText(generic.tokens);
-      return typeof generic.text === "string"
-        ? decodeEntities(generic.text)
-        : "";
+      return typeof generic.text === "string" ? decodeEntities(generic.text) : "";
   }
 }
 

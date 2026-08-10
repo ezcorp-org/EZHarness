@@ -69,12 +69,9 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
   // reconnect in ws.ts). That id is a per-scope seq → translate it back to a
   // ring position; buffered events after it are replayed through the SAME
   // per-subscriber filter before switching to live.
-  const cursorRaw =
-    request.headers.get("last-event-id") ?? url.searchParams.get("lastEventId");
-  const cursorSeq =
-    cursorRaw !== null && /^\d+$/.test(cursorRaw) ? Number(cursorRaw) : null;
-  const cursor =
-    cursorSeq !== null ? scopeCursorToGlobalId(scopeKey, cursorSeq) : null;
+  const cursorRaw = request.headers.get("last-event-id") ?? url.searchParams.get("lastEventId");
+  const cursorSeq = cursorRaw !== null && /^\d+$/.test(cursorRaw) ? Number(cursorRaw) : null;
+  const cursor = cursorSeq !== null ? scopeCursorToGlobalId(scopeKey, cursorSeq) : null;
 
   // Wave 0: executor-backed runId→scope resolver for the fail-closed
   // scoped-runtime-event filter. Memory-map first (hot path — one Map
@@ -114,7 +111,9 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
       // gets a chance, which is exactly the "keeps reconnecting" symptom.
       try {
         controller.enqueue(encodeFrame(": connected\n\n"));
-      } catch { /* stream closed before we got here — ignore */ }
+      } catch {
+        /* stream closed before we got here — ignore */
+      }
 
       // Deliver one buffered event to THIS subscriber: re-run the exact
       // per-subscriber filter (live and replayed events take the identical
@@ -183,7 +182,7 @@ export const GET: RequestHandler = async ({ locals, url, request }) => {
     headers: {
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache, no-transform",
-      "Connection": "keep-alive",
+      Connection: "keep-alive",
       // Defeat any compression middleware in the path. SSE depends on
       // immediate per-frame flushes; gzip/brotli buffer until a block
       // boundary, which masquerades as a stalled connection.

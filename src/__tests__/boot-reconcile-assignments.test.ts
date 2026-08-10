@@ -9,15 +9,7 @@
  * end-to-end. A real EventBus captures the emitted events.
  */
 
-import {
-  test,
-  expect,
-  describe,
-  beforeAll,
-  afterAll,
-  beforeEach,
-  mock,
-} from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
 import { setupTestDb, closeTestDb, getTestPglite } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
@@ -38,8 +30,9 @@ mock.module("../db/connection", () => ({
 const { reconcileInterruptedAssignments, INTERRUPT_PREVIEW } = await import(
   "../runtime/boot-reconcile-assignments"
 );
-const { getTaskSnapshotForConversation, _resetTaskTrackingExtensionIdCache } =
-  await import("../runtime/task-tracking-host");
+const { getTaskSnapshotForConversation, _resetTaskTrackingExtensionIdCache } = await import(
+  "../runtime/task-tracking-host"
+);
 const { EventBus } = await import("../runtime/events");
 const { getDb } = await import("../db/connection");
 const {
@@ -299,9 +292,7 @@ describe("reconcileInterruptedAssignments", () => {
             title: "subtask",
             completed: false,
             position: 0,
-            assignments: [
-              assignment({ id: "a-sub", agentRunId: "run-sub" }),
-            ],
+            assignments: [assignment({ id: "a-sub", agentRunId: "run-sub" })],
           },
         ],
         priority: 0,

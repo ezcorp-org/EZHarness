@@ -17,10 +17,7 @@
  *     `*\/2 * * * *`, `*\/3 * * * *`, `*\/4 * * * *`.
  */
 
-const SUB_5_MIN_PATTERNS = [
-  /^\*\s+\*\s+\*\s+\*\s+\*\s*$/,
-  /^\*\/[1-4]\s+\*\s+\*\s+\*\s+\*\s*$/,
-];
+const SUB_5_MIN_PATTERNS = [/^\*\s+\*\s+\*\s+\*\s+\*\s*$/, /^\*\/[1-4]\s+\*\s+\*\s+\*\s+\*\s*$/];
 
 interface ParsedField {
   /** Sorted unique values within this field's allowed range. */
@@ -116,7 +113,13 @@ export function validateCron(expr: string): { ok: true } | { ok: false; reason: 
 function parseExpression(expr: string): ParsedCron {
   const parts = expr.trim().split(/\s+/);
   if (parts.length !== 5) throw new Error(`expected 5 fields, got ${parts.length}`);
-  const [minRaw, hourRaw, domRaw, monthRaw, dowRaw] = parts as [string, string, string, string, string];
+  const [minRaw, hourRaw, domRaw, monthRaw, dowRaw] = parts as [
+    string,
+    string,
+    string,
+    string,
+    string,
+  ];
   return {
     minute: parseField(minRaw, FIELD_LIMITS.minute),
     hour: parseField(hourRaw, FIELD_LIMITS.hour),
@@ -199,7 +202,11 @@ function dateToParts(d: Date, tz: string): WallClockParts {
  *  (DST spring-forward) returns the next valid wall-clock equivalent
  *  (by rounding forward). */
 function wallClockToUtc(
-  year: number, month: number, day: number, hour: number, minute: number,
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
   tz: string,
 ): Date {
   // Initial guess: assume zero offset (treat the wall-clock as if it
@@ -269,8 +276,13 @@ function findNextWallClock(parsed: ParsedCron, from: Date, tz: string): Date {
     if (day > daysInMonth(year, month)) {
       // Move to next month.
       month++;
-      if (month > 12) { month = 1; year++; }
-      day = 1; hour = 0; minute = 0;
+      if (month > 12) {
+        month = 1;
+        year++;
+      }
+      day = 1;
+      hour = 0;
+      minute = 0;
       continue;
     }
     // Compute UTC for this wall-clock to read DOW.
@@ -279,12 +291,23 @@ function findNextWallClock(parsed: ParsedCron, from: Date, tz: string): Date {
     // If the round-trip drifted (DST gap caused parts.day or parts.hour
     // to differ from our candidate), advance our candidate to match
     // and continue — preserves at-most-once.
-    if (parts.year !== year || parts.month !== month || parts.day !== day
-        || parts.hour !== hour || parts.minute !== minute) {
+    if (
+      parts.year !== year ||
+      parts.month !== month ||
+      parts.day !== day ||
+      parts.hour !== hour ||
+      parts.minute !== minute
+    ) {
       // Move forward by 1 minute and retry.
       minute++;
-      if (minute > 59) { minute = 0; hour++; }
-      if (hour > 23) { hour = 0; day++; }
+      if (minute > 59) {
+        minute = 0;
+        hour++;
+      }
+      if (hour > 23) {
+        hour = 0;
+        day++;
+      }
       continue;
     }
     if (matches(parsed, parts)) return utc;
@@ -311,7 +334,9 @@ function findNextWallClock(parsed: ParsedCron, from: Date, tz: string): Date {
     hour = parsed.hour.values[0]!;
     minute = parsed.minute.values[0]!;
   }
-  throw new Error(`cron expression has no match within 4 years (likely impossible: ${JSON.stringify(parsed)})`);
+  throw new Error(
+    `cron expression has no match within 4 years (likely impossible: ${JSON.stringify(parsed)})`,
+  );
 }
 
 export function parseCron(expr: string, tz: string = "UTC"): CronInstance {

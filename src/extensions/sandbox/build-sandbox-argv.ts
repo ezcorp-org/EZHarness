@@ -33,11 +33,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import type { SandboxTier } from "./capability-probe";
 import { bwrapIsSetuid } from "./capability-probe";
-import {
-  buildLandlockJailSpec,
-  DEFAULT_RUNTIME_RO_DIRS,
-  type LandlockJailSpec,
-} from "./landlock";
+import { buildLandlockJailSpec, DEFAULT_RUNTIME_RO_DIRS, type LandlockJailSpec } from "./landlock";
 import { LANDLOCK_SPEC_ENV } from "./landlock-shim";
 import { buildMcpJailBwrapArgs } from "../preview-jail";
 
@@ -112,13 +108,7 @@ export function defaultShimPath(): string {
   if (existsSync(colocated)) return colocated;
   const root = process.env.EZCORP_PROJECT_ROOT;
   if (root) {
-    const fromRoot = join(
-      root,
-      "src",
-      "extensions",
-      "sandbox",
-      "landlock-shim.ts",
-    );
+    const fromRoot = join(root, "src", "extensions", "sandbox", "landlock-shim.ts");
     if (existsSync(fromRoot)) return fromRoot;
   }
   // Last resort: return the colocated path (the spawn will surface a clear
@@ -173,9 +163,7 @@ export function buildSandboxArgv(input: SandboxArgvInput): SandboxArgvResult {
       // (e.g. /nix only on NixOS, /lib64 not everywhere), so filter to the
       // dirs that actually exist before handing them over — a missing
       // optional system dir is a no-op, not a hard error.
-      const roDirs = (input.roPaths ?? DEFAULT_RUNTIME_RO_DIRS).filter((d) =>
-        existsSync(d),
-      );
+      const roDirs = (input.roPaths ?? DEFAULT_RUNTIME_RO_DIRS).filter((d) => existsSync(d));
       // A setuid-root bwrap (NixOS / hardened hosts where unprivileged
       // userns is off) rejects `--size`; omit it so the jail still builds.
       const omitTmpfsSize = input.bwrapOmitTmpfsSize ?? bwrapIsSetuid();

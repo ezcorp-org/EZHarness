@@ -19,7 +19,10 @@ import { join } from "node:path";
 
 // ── Module mocks (BEFORE the route import) ─────────────────────────
 
-const draftStore = new Map<string, { userId: string; kind: string; payload: unknown; consumed: boolean }>();
+const draftStore = new Map<
+  string,
+  { userId: string; kind: string; payload: unknown; consumed: boolean }
+>();
 let mockGetExtensionByName = vi.fn(async (_name: string) => null as { id: string } | null);
 let mockInstallFromLocal = vi.fn(async () => ({ id: "ext-installed", name: "weather" }));
 let mockReload = vi.fn(async () => undefined);
@@ -87,13 +90,21 @@ vi.mock("$server/db/queries/ez-drafts", async () => {
     consumeDraft: vi.fn(async (id: string) => {
       const r = draftStore.get(id);
       if (r) r.consumed = true;
-      return r ? { id, userId: r.userId, kind: r.kind, payload: r.payload, createdAt: new Date(), expiresAt: new Date(Date.now() + 60_000), consumedAt: new Date() } : undefined;
+      return r
+        ? {
+            id,
+            userId: r.userId,
+            kind: r.kind,
+            payload: r.payload,
+            createdAt: new Date(),
+            expiresAt: new Date(Date.now() + 60_000),
+            consumedAt: new Date(),
+          }
+        : undefined;
     }),
     // The install endpoint resolves the on-disk dir via this helper.
     // Mirrors prod layout: drafts/<userId>/<draftId> (was: drafts/<draftId>).
-    getExtensionAuthorDraftDir: vi.fn((id: string, userId: string) =>
-      join(DRAFT_ROOT, userId, id),
-    ),
+    getExtensionAuthorDraftDir: vi.fn((id: string, userId: string) => join(DRAFT_ROOT, userId, id)),
   };
 });
 
@@ -144,11 +155,11 @@ vi.mock("$server/extensions/loader", () => ({
 }));
 
 vi.mock("$server/db/queries/extensions", () => ({
-  getExtensionByName: (...args: unknown[]) => mockGetExtensionByName(...args as [string]),
+  getExtensionByName: (...args: unknown[]) => mockGetExtensionByName(...(args as [string])),
 }));
 
 vi.mock("$server/extensions/installer", () => ({
-  installFromLocal: (...args: unknown[]) => mockInstallFromLocal(...args as []),
+  installFromLocal: (...args: unknown[]) => mockInstallFromLocal(...(args as [])),
 }));
 
 vi.mock("$server/extensions/registry", () => ({
@@ -173,9 +184,8 @@ vi.mock("$server/extensions/manifest", async (importOriginal) => ({
   // preflight resolves `bundled`/`local` deps against the installed
   // set and compares versions with this — stubbing it would make the
   // version-mismatch branch assert nothing.
-  satisfiesRange: (
-    await importOriginal<typeof import("$server/extensions/manifest")>()
-  ).satisfiesRange,
+  satisfiesRange: (await importOriginal<typeof import("$server/extensions/manifest")>())
+    .satisfiesRange,
   validateManifestV2: (data: unknown) => {
     if (!data || typeof data !== "object") return { valid: false, errors: ["not an object"] };
     const m = data as Record<string, unknown>;
@@ -246,7 +256,10 @@ export default defineExtension({
 `;
 
 beforeEach(() => {
-  TMP = join(tmpdir(), `ext-author-install-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+  TMP = join(
+    tmpdir(),
+    `ext-author-install-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+  );
   // Pretend repo root is here. The endpoint walks up looking for `.git`.
   mkdirSync(join(TMP, ".git"), { recursive: true });
   DRAFT_ROOT = join(TMP, ".ezcorp/extension-data/extension-author/drafts");
@@ -272,7 +285,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  try { rmSync(TMP, { recursive: true, force: true }); } catch { /* swallow */ }
+  try {
+    rmSync(TMP, { recursive: true, force: true });
+  } catch {
+    /* swallow */
+  }
 });
 
 // ── Tests ───────────────────────────────────────────────────────────
@@ -319,7 +336,9 @@ describe("POST /api/extensions/author/install — auth + param", () => {
       "ezcorp.config.ts": validManifestSrc("weather"),
       "index.ts": "// stub",
     });
-    const resp = await POST(makeReq({ draftId: "d-chat-key" }, { user: USER, apiKeyScopes: ["chat"] }));
+    const resp = await POST(
+      makeReq({ draftId: "d-chat-key" }, { user: USER, apiKeyScopes: ["chat"] }),
+    );
     expect(resp.status).toBe(403);
     expect(await resp.json()).toEqual({ error: "Insufficient scope", required: "extensions" });
     // The whole point: the install pipeline never ran.
@@ -363,7 +382,9 @@ describe("POST /api/extensions/author/install — draft lookup", () => {
   });
 
   test("draft owned by another user → 404", async () => {
-    seedDraft("d-other", "other-user", "weather", { "ezcorp.config.ts": validManifestSrc("weather") });
+    seedDraft("d-other", "other-user", "weather", {
+      "ezcorp.config.ts": validManifestSrc("weather"),
+    });
     const resp = await POST(makeReq({ draftId: "d-other" }));
     expect(resp.status).toBe(404);
   });
@@ -375,7 +396,12 @@ describe("POST /api/extensions/author/install — draft lookup", () => {
   });
 
   test("draft directory missing on disk → 404", async () => {
-    draftStore.set("d-no-dir", { userId: USER.id, kind: "extension", payload: {}, consumed: false });
+    draftStore.set("d-no-dir", {
+      userId: USER.id,
+      kind: "extension",
+      payload: {},
+      consumed: false,
+    });
     const resp = await POST(makeReq({ draftId: "d-no-dir" }));
     expect(resp.status).toBe(404);
   });
@@ -517,7 +543,9 @@ describe("POST /api/extensions/author/install — composed dependencies", () => 
 describe("POST /api/extensions/author/install — name + path collision", () => {
   test("existing extension with same name → 409", async () => {
     mockGetExtensionByName = vi.fn(async () => ({ id: "preexisting" }));
-    seedDraft("d-name-coll", USER.id, "weather", { "ezcorp.config.ts": validManifestSrc("weather") });
+    seedDraft("d-name-coll", USER.id, "weather", {
+      "ezcorp.config.ts": validManifestSrc("weather"),
+    });
     const resp = await POST(makeReq({ draftId: "d-name-coll" }));
     expect(resp.status).toBe(409);
     // Draft dir not moved
@@ -525,7 +553,9 @@ describe("POST /api/extensions/author/install — name + path collision", () => 
   });
 
   test("install path already on disk → 409", async () => {
-    seedDraft("d-path-coll", USER.id, "weather", { "ezcorp.config.ts": validManifestSrc("weather") });
+    seedDraft("d-path-coll", USER.id, "weather", {
+      "ezcorp.config.ts": validManifestSrc("weather"),
+    });
     mkdirSync(join(INSTALL_ROOT, "weather"), { recursive: true });
     const resp = await POST(makeReq({ draftId: "d-path-coll" }));
     expect(resp.status).toBe(409);
@@ -560,7 +590,9 @@ describe("POST /api/extensions/author/install — env-key-leak gate", () => {
     mockInstallFromLocal = vi.fn(async () => {
       throw new Error("Other failure");
     });
-    seedDraft("d-other-fail", USER.id, "weather", { "ezcorp.config.ts": validManifestSrc("weather") });
+    seedDraft("d-other-fail", USER.id, "weather", {
+      "ezcorp.config.ts": validManifestSrc("weather"),
+    });
     const resp = await POST(makeReq({ draftId: "d-other-fail" }));
     expect(resp.status).toBe(422);
     const body = await resp.json();
@@ -666,7 +698,9 @@ describe("POST /api/extensions/author/install — deterministic gate (Phase C)",
       "smoke-test-present",
       "tool/multi extensions MUST declare a `smokeTest` block",
     );
-    seedDraftWithType("d-tool-nosmoke", "tool", { "ezcorp.config.ts": validManifestSrc("weather") });
+    seedDraftWithType("d-tool-nosmoke", "tool", {
+      "ezcorp.config.ts": validManifestSrc("weather"),
+    });
     const resp = await POST(makeReq({ draftId: "d-tool-nosmoke" }));
     expect(resp.status).toBe(422);
     const body = await resp.json();

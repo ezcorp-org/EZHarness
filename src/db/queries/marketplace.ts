@@ -45,7 +45,9 @@ export async function getListingBySlug(slug: string): Promise<MarketplaceListing
   const [listing] = await getDb()
     .select()
     .from(marketplaceListings)
-    .where(and(eq(marketplaceListings.slug, slug), sql`${marketplaceListings.status} != 'removed'`));
+    .where(
+      and(eq(marketplaceListings.slug, slug), sql`${marketplaceListings.status} != 'removed'`),
+    );
   return listing;
 }
 
@@ -173,7 +175,10 @@ export async function deleteListing(id: string): Promise<boolean> {
   return result.length > 0;
 }
 
-export async function updateListingStatus(id: string, status: "active" | "flagged" | "removed"): Promise<void> {
+export async function updateListingStatus(
+  id: string,
+  status: "active" | "flagged" | "removed",
+): Promise<void> {
   await getDb()
     .update(marketplaceListings)
     .set({ status, updatedAt: new Date() })

@@ -73,9 +73,7 @@ export interface WorkflowPrincipal {
 }
 
 /** Allow, or deny with a message safe to surface as a 403 body / tool error. */
-export type WorkflowAuthzDecision =
-  | { allowed: true }
-  | { allowed: false; reason: string };
+export type WorkflowAuthzDecision = { allowed: true } | { allowed: false; reason: string };
 
 const ALLOW: WorkflowAuthzDecision = { allowed: true };
 
@@ -234,9 +232,7 @@ export async function canRunWorkflow(
  * check exists is that `reloadWorkflows()` never fires on
  * install/uninstall/disable, so the merged cache is stale by design.
  */
-export async function workflowExtensionLiveness(
-  name: string,
-): Promise<WorkflowAuthzDecision> {
+export async function workflowExtensionLiveness(name: string): Promise<WorkflowAuthzDecision> {
   const prefix = extensionPrefix(name);
   if (!prefix) return ALLOW;
   const extension = await getExtensionByName(prefix);

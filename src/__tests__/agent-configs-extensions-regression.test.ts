@@ -14,8 +14,12 @@ mockDbConnection();
 
 import { createAgentConfig, getAgentConfig, updateAgentConfig } from "../db/queries/agent-configs";
 
-beforeAll(async () => { await setupTestDb(); });
-afterAll(async () => { await closeTestDb(); });
+beforeAll(async () => {
+  await setupTestDb();
+});
+afterAll(async () => {
+  await closeTestDb();
+});
 
 describe("agent_configs.extensions — top-level field persistence (regression)", () => {
   test("createAgentConfig persists provided extensions list", async () => {

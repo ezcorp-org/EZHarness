@@ -35,8 +35,31 @@ import {
 // (not inline multi-line generics in the function signatures) so Bun's
 // --coverage never emits drifting per-line DA records for the type-continuation
 // lines — a pure type declaration compiles to nothing and is never line-counted.
-type LinkUpdatePatch = Partial<Pick<NewGithubProjectsLink, "columnActionMap" | "pollIntervalSec" | "enabled" | "authMode" | "defaultModel" | "defaultPermissionMode" | "statusOptions" | "statusFieldId">>;
-type ProposalUpdatePatch = Partial<Pick<NewGithubProjectsProposal, "status" | "conversationId" | "agentRunId" | "decidedAt" | "decidedByUserId" | "finishedAt" | "error">>;
+type LinkUpdatePatch = Partial<
+  Pick<
+    NewGithubProjectsLink,
+    | "columnActionMap"
+    | "pollIntervalSec"
+    | "enabled"
+    | "authMode"
+    | "defaultModel"
+    | "defaultPermissionMode"
+    | "statusOptions"
+    | "statusFieldId"
+  >
+>;
+type ProposalUpdatePatch = Partial<
+  Pick<
+    NewGithubProjectsProposal,
+    | "status"
+    | "conversationId"
+    | "agentRunId"
+    | "decidedAt"
+    | "decidedByUserId"
+    | "finishedAt"
+    | "error"
+  >
+>;
 
 // ── Links ──────────────────────────────────────────────────────────────────
 
@@ -46,9 +69,7 @@ type ProposalUpdatePatch = Partial<Pick<NewGithubProjectsProposal, "status" | "c
  * is unambiguous (e.g. the single-board fallback in board derivation). Callers
  * that must address a specific board use `getLinkById` / `listLinksByProjectId`.
  */
-export async function getLinkByProjectId(
-  projectId: string,
-): Promise<GithubProjectsLink | null> {
+export async function getLinkByProjectId(projectId: string): Promise<GithubProjectsLink | null> {
   if (!projectId) return null;
   const db = getDb();
   const rows = (await db
@@ -60,9 +81,7 @@ export async function getLinkByProjectId(
 }
 
 /** Every board linked to a project, oldest first (stable card order). */
-export async function listLinksByProjectId(
-  projectId: string,
-): Promise<GithubProjectsLink[]> {
+export async function listLinksByProjectId(projectId: string): Promise<GithubProjectsLink[]> {
   if (!projectId) return [];
   const db = getDb();
   return (await db
@@ -97,9 +116,7 @@ export async function listEnabledLinks(): Promise<GithubProjectsLink[]> {
  * row (refreshes metadata/columns, resets transient poll state); connecting a
  * DIFFERENT board INSERTS a new row — so a project accrues many boards.
  */
-export async function upsertLink(
-  input: NewGithubProjectsLink,
-): Promise<GithubProjectsLink> {
+export async function upsertLink(input: NewGithubProjectsLink): Promise<GithubProjectsLink> {
   const db = getDb();
   const rows = (await db
     .insert(githubProjectsLinks)
@@ -221,9 +238,7 @@ export async function insertProposalIfNew(
   return rows[0] ?? null;
 }
 
-export async function getProposalById(
-  id: string,
-): Promise<GithubProjectsProposal | null> {
+export async function getProposalById(id: string): Promise<GithubProjectsProposal | null> {
   if (!id) return null;
   const db = getDb();
   const rows = (await db
@@ -261,9 +276,7 @@ export async function listProposalsByProject(
 const MID_FLIGHT_STATUSES = GITHUB_ACTIVE_STATUSES.filter((s) => s !== "pending");
 
 /** Concurrency-cap input: how many proposals are mid-flight for a project. */
-export async function countActiveProposalsForProject(
-  projectId: string,
-): Promise<number> {
+export async function countActiveProposalsForProject(projectId: string): Promise<number> {
   if (!projectId) return 0;
   // COUNT at the DB with the status predicate rather than SELECT *-ing every
   // active row and filtering/counting in JS — this is a concurrency-cap probe
@@ -386,10 +399,7 @@ export async function mostRecentTerminalProposalStatus(
         inArray(githubProjectsProposals.status, [...GITHUB_TERMINAL_STATUSES]),
       ),
     )
-    .orderBy(
-      desc(githubProjectsProposals.proposedAt),
-      desc(githubProjectsProposals.createdAt),
-    )
+    .orderBy(desc(githubProjectsProposals.proposedAt), desc(githubProjectsProposals.createdAt))
     .limit(1)) as { status: GithubProposalStatus }[];
   return rows[0]?.status ?? null;
 }

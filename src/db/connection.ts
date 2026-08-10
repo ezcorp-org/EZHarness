@@ -1,6 +1,14 @@
 import * as schema from "./schema";
 import { migrate } from "./migrate";
-import { mkdirSync, renameSync, existsSync, cpSync, unlinkSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  renameSync,
+  existsSync,
+  cpSync,
+  unlinkSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import { logger } from "../logger";
 import { setReadiness } from "../readiness";
@@ -22,7 +30,12 @@ import {
   clearProcessHolder,
 } from "./live-holder-guard";
 import { applyPgliteNulPatches, patchJsonColumns, patchTextColumns } from "./nul-column-patch";
-import { APP_DATABASE, CURRENT_PG_MAJOR, assertDatadirCompatible, clearStaleLockFiles } from "./datadir-upgrade";
+import {
+  APP_DATABASE,
+  CURRENT_PG_MAJOR,
+  assertDatadirCompatible,
+  clearStaleLockFiles,
+} from "./datadir-upgrade";
 const log = logger.child("db");
 
 const DEFAULT_DB_DIR = `${process.env.HOME}/ez-corp/.data`;
@@ -264,7 +277,11 @@ async function initPglite(): Promise<void> {
     // datadir upgrade restores into APP_DATABASE — so the database the restore
     // WRITES and the one the app READS come from the same constant instead of
     // two independent defaults that happen to agree. See datadir-upgrade.ts.
-    const pg = new PGlite({ dataDir: path, database: APP_DATABASE, extensions: { vector, pg_trgm } });
+    const pg = new PGlite({
+      dataDir: path,
+      database: APP_DATABASE,
+      extensions: { vector, pg_trgm },
+    });
     await pg.waitReady;
     return pg;
   };
@@ -290,7 +307,8 @@ async function initPglite(): Promise<void> {
         state: "degraded",
         reason: "migration-blocked",
         detail: {
-          message: "Previous migration failed for this image; boot continued without running migrate().",
+          message:
+            "Previous migration failed for this image; boot continued without running migrate().",
           imageSha: marker.imageSha,
           error: marker.error,
           markerTs: marker.ts,
@@ -352,7 +370,10 @@ async function initPglite(): Promise<void> {
 
     if (autoDestroy) {
       const backup = `${DB_PATH}.corrupted.${Date.now()}`;
-      log.error("PGlite failed to open — EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE=1; backing up data and starting fresh", { backup });
+      log.error(
+        "PGlite failed to open — EZCORP_AUTO_DESTROY_ON_OPEN_FAILURE=1; backing up data and starting fresh",
+        { backup },
+      );
       renameSync(DB_PATH, backup);
       mkdirSync(DB_PATH, { recursive: true });
       _pglite = await openPglite(dbArg);
@@ -377,15 +398,17 @@ async function initPglite(): Promise<void> {
         // want the error/log/readiness to surface.
         log.warn("Could not write recovery-needed marker", { error: String(markerErr) });
       }
-      log.error(
-        "PGlite failed to open — data preserved (auto-destroy disabled)",
-        { error: errorStr, dbPath: DB_PATH, recovery },
-      );
+      log.error("PGlite failed to open — data preserved (auto-destroy disabled)", {
+        error: errorStr,
+        dbPath: DB_PATH,
+        recovery,
+      });
       setReadiness({
         state: "degraded",
         reason: "data-recovery-needed",
         detail: {
-          message: "PGlite open() failed and auto-destroy is disabled. Data dir left intact; operator intervention required.",
+          message:
+            "PGlite open() failed and auto-destroy is disabled. Data dir left intact; operator intervention required.",
           imageSha,
           dbPath: DB_PATH,
           error: errorStr.slice(0, 500),
@@ -646,7 +669,9 @@ async function initPostgres(): Promise<void> {
   try {
     await withPostgresMigrateLock(() => migrate(_db));
   } catch (err) {
-    log.error("Migration failed on external Postgres — manual intervention required", { error: String(err) });
+    log.error("Migration failed on external Postgres — manual intervention required", {
+      error: String(err),
+    });
     setReadiness({
       state: "degraded",
       reason: "migration-failed",
@@ -673,7 +698,9 @@ const JSONB_REPAIR_MARKER_KEY = "db:jsonb-repair:done";
 // UPDATE per column on EVERY external-Postgres boot is pure waste (worst on the
 // mature installs whose tables are largest). We record completion in a settings
 // marker and skip the whole sweep on subsequent boots.
-async function repairDoubleEncodedJsonb(sqlTag: typeof import("drizzle-orm")["sql"]): Promise<void> {
+async function repairDoubleEncodedJsonb(
+  sqlTag: typeof import("drizzle-orm")["sql"],
+): Promise<void> {
   if (!_db) throw new Error("Database not initialized");
 
   const marker = await _db.execute(
@@ -705,14 +732,17 @@ async function repairDoubleEncodedJsonb(sqlTag: typeof import("drizzle-orm")["sq
       // Only unwrap rows whose inner text is a JSON object or array — scalar
       // JSON strings ("yolo", ISO timestamps, encrypted blobs stored in
       // settings.value) are legitimate and must not be touched.
-      const result = await _db.execute(sqlTag.raw(
-        `UPDATE ${qTable} SET ${qColumn} = (${qColumn} #>> '{}')::jsonb
+      const result = (await _db.execute(
+        sqlTag.raw(
+          `UPDATE ${qTable} SET ${qColumn} = (${qColumn} #>> '{}')::jsonb
          WHERE ${qColumn} IS NOT NULL
            AND jsonb_typeof(${qColumn}) = 'string'
            AND LEFT(LTRIM(${qColumn} #>> '{}'), 1) IN ('{', '[')`,
+        ),
       )) as { count?: number; rowCount?: number } | undefined;
       const affected = result?.count ?? result?.rowCount ?? 0;
-      if (affected > 0) log.info("Repaired double-encoded jsonb", { table, column, rows: affected });
+      if (affected > 0)
+        log.info("Repaired double-encoded jsonb", { table, column, rows: affected });
     } catch (err) {
       log.warn("jsonb repair skipped", { table, column, error: String(err).slice(0, 200) });
     }
@@ -765,7 +795,10 @@ export function getPglite(): import("@electric-sql/pglite").PGlite | null {
 }
 
 /** Execute a raw SQL string with positional $1/$2 params. Works with both PGlite and external Postgres. */
-export async function rawQuery(sql: string, params: (string | null)[] = []): Promise<{ rows: unknown[] }> {
+export async function rawQuery(
+  sql: string,
+  params: (string | null)[] = [],
+): Promise<{ rows: unknown[] }> {
   if (_pglite) return _pglite.query(sql, params);
   // External Postgres via Bun.sql — `sql.unsafe(query, params)` sends the
   // query text and values separately ($1-style server-side parameter

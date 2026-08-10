@@ -27,7 +27,8 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { AgentEvents } from "../types";
 
 // Capture audit writes without a real DB.
-const auditCalls: Array<{ action: string; target?: string; metadata?: Record<string, unknown> }> = [];
+const auditCalls: Array<{ action: string; target?: string; metadata?: Record<string, unknown> }> =
+  [];
 mock.module("../db/queries/audit-log", () => ({
   insertAuditEntry: async (
     _userId: string | null,
@@ -35,7 +36,11 @@ mock.module("../db/queries/audit-log", () => ({
     target?: string,
     metadata?: Record<string, unknown>,
   ) => {
-    auditCalls.push({ action, ...(target !== undefined ? { target } : {}), ...(metadata !== undefined ? { metadata } : {}) });
+    auditCalls.push({
+      action,
+      ...(target !== undefined ? { target } : {}),
+      ...(metadata !== undefined ? { metadata } : {}),
+    });
   },
   listAuditLog: async () => [],
   listAuditForExtension: async () => [],
@@ -58,7 +63,10 @@ const { EventSubscriptionDispatcher } = await import("../extensions/event-subscr
 
 // ── Fixtures ────────────────────────────────────────────────────────
 
-interface SendCall { method: string; params: Record<string, unknown>; }
+interface SendCall {
+  method: string;
+  params: Record<string, unknown>;
+}
 
 function mockProc() {
   const calls: SendCall[] = [];
@@ -135,7 +143,7 @@ describe("EventSubscriptionDispatcher — kill-switch", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     dispatcher.registerExtension("ext-a", ["task:snapshot"]);
     dispatcher.start();
@@ -156,7 +164,7 @@ describe("EventSubscriptionDispatcher — kill-switch", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     dispatcher.registerExtension("ext-a", ["task:snapshot"]);
     dispatcher.start();
@@ -164,17 +172,21 @@ describe("EventSubscriptionDispatcher — kill-switch", () => {
     bus.emit("task:snapshot", snapshotPayload("c1") as AgentEvents["task:snapshot"]);
 
     // Give any in-flight promises a tick.
-    return new Promise<void>((resolve) => setTimeout(() => {
-      expect(proc.calls).toHaveLength(0);
-      resolve();
-    }, 10));
+    return new Promise<void>((resolve) =>
+      setTimeout(() => {
+        expect(proc.calls).toHaveLength(0);
+        resolve();
+      }, 10),
+    );
   });
 });
 
 // ── Registration filtering ──────────────────────────────────────────
 
 describe("EventSubscriptionDispatcher — registerExtension filtering", () => {
-  beforeEach(() => { auditCalls.length = 0; });
+  beforeEach(() => {
+    auditCalls.length = 0;
+  });
 
   test("non-direct-carrier event names are silently dropped at register time", () => {
     const bus = new EventBus<AgentEvents>();
@@ -182,7 +194,7 @@ describe("EventSubscriptionDispatcher — registerExtension filtering", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     // run:usage and agent:spawn are bus events but NOT direct-carriers —
     // the dispatcher must not wire them.
@@ -192,17 +204,21 @@ describe("EventSubscriptionDispatcher — registerExtension filtering", () => {
     bus.emit("run:usage" as never, { conversationId: "c1" } as never);
     bus.emit("agent:spawn" as never, { conversationId: "c1" } as never);
 
-    return new Promise<void>((resolve) => setTimeout(() => {
-      expect(proc.calls).toHaveLength(0);
-      resolve();
-    }, 10));
+    return new Promise<void>((resolve) =>
+      setTimeout(() => {
+        expect(proc.calls).toHaveLength(0);
+        resolve();
+      }, 10),
+    );
   });
 });
 
 // ── Happy path ──────────────────────────────────────────────────────
 
 describe("EventSubscriptionDispatcher — delivery", () => {
-  beforeEach(() => { auditCalls.length = 0; });
+  beforeEach(() => {
+    auditCalls.length = 0;
+  });
 
   test("direct-carrier event with matching conversationId → sendNotification", async () => {
     const bus = new EventBus<AgentEvents>();
@@ -210,12 +226,15 @@ describe("EventSubscriptionDispatcher — delivery", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     dispatcher.registerExtension("ext-a", ["task:snapshot"]);
     dispatcher.start();
 
-    bus.emit("task:snapshot", snapshotPayload("c1", [{ id: "t-1" }]) as AgentEvents["task:snapshot"]);
+    bus.emit(
+      "task:snapshot",
+      snapshotPayload("c1", [{ id: "t-1" }]) as AgentEvents["task:snapshot"],
+    );
     await new Promise((r) => setTimeout(r, 20));
 
     expect(proc.calls).toHaveLength(1);
@@ -230,7 +249,7 @@ describe("EventSubscriptionDispatcher — delivery", () => {
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
       // Wire ext-a to c1 only.
-      wireLookup({ "c1": ["ext-a"], "c2": [] }),
+      wireLookup({ c1: ["ext-a"], c2: [] }),
     );
     dispatcher.registerExtension("ext-a", ["task:snapshot"]);
     dispatcher.start();
@@ -250,8 +269,13 @@ describe("EventSubscriptionDispatcher — delivery", () => {
     const procB = mockProc();
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
-      mockRegistry(new Map([["ext-a", procA], ["ext-b", procB]])),
-      wireLookup({ "c1": ["ext-a"] }), // only ext-a is wired
+      mockRegistry(
+        new Map([
+          ["ext-a", procA],
+          ["ext-b", procB],
+        ]),
+      ),
+      wireLookup({ c1: ["ext-a"] }), // only ext-a is wired
     );
     dispatcher.registerExtension("ext-a", ["task:snapshot"]);
     dispatcher.registerExtension("ext-b", ["task:snapshot"]);
@@ -270,7 +294,7 @@ describe("EventSubscriptionDispatcher — delivery", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     dispatcher.registerExtension("ext-a", ["task:snapshot"]);
     dispatcher.start();
@@ -292,7 +316,7 @@ describe("EventSubscriptionDispatcher — delivery", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     dispatcher.registerExtension("ext-a", ["task:snapshot"]);
     dispatcher.start();
@@ -310,17 +334,22 @@ describe("EventSubscriptionDispatcher — delivery", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     // Subscribed to task:snapshot — NOT task:assignment_update.
     dispatcher.registerExtension("ext-a", ["task:snapshot"]);
     dispatcher.start();
 
     bus.emit("task:assignment_update", {
-      conversationId: "c1", taskId: "t-1",
+      conversationId: "c1",
+      taskId: "t-1",
       assignment: {
-        id: "a", agentConfigId: "ac", agentName: "n", isTeam: false,
-        status: "assigned", assignedAt: new Date().toISOString(),
+        id: "a",
+        agentConfigId: "ac",
+        agentName: "n",
+        isTeam: false,
+        status: "assigned",
+        assignedAt: new Date().toISOString(),
       },
     });
     await new Promise((r) => setTimeout(r, 20));
@@ -332,7 +361,9 @@ describe("EventSubscriptionDispatcher — delivery", () => {
 // ── Rate limiting + audit throttle ──────────────────────────────────
 
 describe("EventSubscriptionDispatcher — rate limit + audit throttle", () => {
-  beforeEach(() => { auditCalls.length = 0; });
+  beforeEach(() => {
+    auditCalls.length = 0;
+  });
 
   test("60-event burst → 50 deliveries, 10 drops, exactly one audit row", async () => {
     const bus = new EventBus<AgentEvents>();
@@ -340,7 +371,7 @@ describe("EventSubscriptionDispatcher — rate limit + audit throttle", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
       // 1-second audit window (the default) — within that window, only
       // one EVENT_SUBSCRIPTION_DENIED row should land per extension.
       { maxOpsPerSecond: 50, overflowAuditMs: 1000 },
@@ -349,7 +380,10 @@ describe("EventSubscriptionDispatcher — rate limit + audit throttle", () => {
     dispatcher.start();
 
     for (let i = 0; i < 60; i++) {
-      bus.emit("task:snapshot", snapshotPayload("c1", [{ id: `t-${i}` }]) as AgentEvents["task:snapshot"]);
+      bus.emit(
+        "task:snapshot",
+        snapshotPayload("c1", [{ id: `t-${i}` }]) as AgentEvents["task:snapshot"],
+      );
     }
     await new Promise((r) => setTimeout(r, 50));
 
@@ -368,7 +402,7 @@ describe("EventSubscriptionDispatcher — rate limit + audit throttle", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
       // Tiny audit window so the second burst lands in a fresh one.
       { maxOpsPerSecond: 50, overflowAuditMs: 30 },
     );
@@ -395,7 +429,9 @@ describe("EventSubscriptionDispatcher — rate limit + audit throttle", () => {
 // ── stop() ──────────────────────────────────────────────────────────
 
 describe("EventSubscriptionDispatcher — lifecycle", () => {
-  beforeEach(() => { auditCalls.length = 0; });
+  beforeEach(() => {
+    auditCalls.length = 0;
+  });
 
   test("stop() unwires bus listeners — post-stop events are not delivered", async () => {
     const bus = new EventBus<AgentEvents>();
@@ -403,7 +439,7 @@ describe("EventSubscriptionDispatcher — lifecycle", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     dispatcher.registerExtension("ext-a", ["task:snapshot"]);
     dispatcher.start();
@@ -425,7 +461,7 @@ describe("EventSubscriptionDispatcher — lifecycle", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     dispatcher.registerExtension("ext-a", ["task:snapshot"]);
     dispatcher.start();
@@ -442,7 +478,9 @@ describe("EventSubscriptionDispatcher — lifecycle", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])),
-      async () => { throw new Error("db is down"); },
+      async () => {
+        throw new Error("db is down");
+      },
     );
     dispatcher.registerExtension("ext-a", ["task:snapshot"]);
     dispatcher.start();
@@ -474,18 +512,13 @@ describe("EventSubscriptionDispatcher — extension-declared events", () => {
   });
 
   test("registers <extName>:<event> when extName matches manifest.name", async () => {
-    const { isRegisteredExtensionEvent } = await import(
-      "../runtime/sse-conversation-filter"
-    );
+    const { isRegisteredExtensionEvent } = await import("../runtime/sse-conversation-filter");
     const proc = mockProc();
     const bus = new EventBus<AgentEvents>();
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
-      mockRegistryWithManifests(
-        new Map([["ext-a", proc]]),
-        { "ext-a": { name: "claude-design" } },
-      ),
-      wireLookup({ "c1": ["ext-a"] }),
+      mockRegistryWithManifests(new Map([["ext-a", proc]]), { "ext-a": { name: "claude-design" } }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     dispatcher.registerExtension("ext-a", ["claude-design:knob-change"]);
     dispatcher.start();
@@ -504,43 +537,33 @@ describe("EventSubscriptionDispatcher — extension-declared events", () => {
   });
 
   test("rejects cross-namespace subscription (ext-a manifest.name='alpha' cannot subscribe to 'beta:evt')", async () => {
-    const { isRegisteredExtensionEvent } = await import(
-      "../runtime/sse-conversation-filter"
-    );
+    const { isRegisteredExtensionEvent } = await import("../runtime/sse-conversation-filter");
     const proc = mockProc();
     const bus = new EventBus<AgentEvents>();
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
-      mockRegistryWithManifests(
-        new Map([["ext-a", proc]]),
-        { "ext-a": { name: "alpha" } },
-      ),
-      wireLookup({ "c1": ["ext-a"] }),
+      mockRegistryWithManifests(new Map([["ext-a", proc]]), { "ext-a": { name: "alpha" } }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     dispatcher.registerExtension("ext-a", ["beta:evt"]);
     dispatcher.start();
 
     expect(isRegisteredExtensionEvent("beta:evt")).toBe(false);
 
-    bus.emit(
-      "beta:evt" as never,
-      { conversationId: "c1" } as never,
-    );
+    bus.emit("beta:evt" as never, { conversationId: "c1" } as never);
     await new Promise((r) => setTimeout(r, 20));
 
     expect(proc.calls).toHaveLength(0);
   });
 
   test("missing manifest (no getManifest on registry) silently skips extension events", async () => {
-    const { isRegisteredExtensionEvent } = await import(
-      "../runtime/sse-conversation-filter"
-    );
+    const { isRegisteredExtensionEvent } = await import("../runtime/sse-conversation-filter");
     const proc = mockProc();
     const bus = new EventBus<AgentEvents>();
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistry(new Map([["ext-a", proc]])), // no getManifest
-      wireLookup({ "c1": ["ext-a"] }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     // ext-event silently dropped, platform-event accepted.
     dispatcher.registerExtension("ext-a", ["claude-design:knob-change", "task:snapshot"]);
@@ -556,32 +579,21 @@ describe("EventSubscriptionDispatcher — extension-declared events", () => {
   });
 
   test("mixed platform + extension events both register from one call", async () => {
-    const { isRegisteredExtensionEvent } = await import(
-      "../runtime/sse-conversation-filter"
-    );
+    const { isRegisteredExtensionEvent } = await import("../runtime/sse-conversation-filter");
     const proc = mockProc();
     const bus = new EventBus<AgentEvents>();
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
-      mockRegistryWithManifests(
-        new Map([["ext-a", proc]]),
-        { "ext-a": { name: "claude-design" } },
-      ),
-      wireLookup({ "c1": ["ext-a"] }),
+      mockRegistryWithManifests(new Map([["ext-a", proc]]), { "ext-a": { name: "claude-design" } }),
+      wireLookup({ c1: ["ext-a"] }),
     );
-    dispatcher.registerExtension("ext-a", [
-      "task:snapshot",
-      "claude-design:knob-change",
-    ]);
+    dispatcher.registerExtension("ext-a", ["task:snapshot", "claude-design:knob-change"]);
     dispatcher.start();
 
     expect(isRegisteredExtensionEvent("claude-design:knob-change")).toBe(true);
 
     bus.emit("task:snapshot", snapshotPayload("c1") as AgentEvents["task:snapshot"]);
-    bus.emit(
-      "claude-design:knob-change" as never,
-      { conversationId: "c1" } as never,
-    );
+    bus.emit("claude-design:knob-change" as never, { conversationId: "c1" } as never);
     await new Promise((r) => setTimeout(r, 20));
 
     expect(proc.calls).toHaveLength(2);
@@ -592,18 +604,13 @@ describe("EventSubscriptionDispatcher — extension-declared events", () => {
   });
 
   test("unregisterExtension drops both subscriptions and SSE-filter entries", async () => {
-    const { isRegisteredExtensionEvent } = await import(
-      "../runtime/sse-conversation-filter"
-    );
+    const { isRegisteredExtensionEvent } = await import("../runtime/sse-conversation-filter");
     const proc = mockProc();
     const bus = new EventBus<AgentEvents>();
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
-      mockRegistryWithManifests(
-        new Map([["ext-a", proc]]),
-        { "ext-a": { name: "claude-design" } },
-      ),
-      wireLookup({ "c1": ["ext-a"] }),
+      mockRegistryWithManifests(new Map([["ext-a", proc]]), { "ext-a": { name: "claude-design" } }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     dispatcher.registerExtension("ext-a", ["claude-design:knob-change"]);
     dispatcher.start();
@@ -615,35 +622,22 @@ describe("EventSubscriptionDispatcher — extension-declared events", () => {
     expect(isRegisteredExtensionEvent("claude-design:knob-change")).toBe(false);
 
     // Bus listener still wired (start() ran), but no subscribers map → no delivery.
-    bus.emit(
-      "claude-design:knob-change" as never,
-      { conversationId: "c1" } as never,
-    );
+    bus.emit("claude-design:knob-change" as never, { conversationId: "c1" } as never);
     await new Promise((r) => setTimeout(r, 20));
     expect(proc.calls).toHaveLength(0);
   });
 
   test("malformed extension-event names are silently dropped", async () => {
-    const { isRegisteredExtensionEvent } = await import(
-      "../runtime/sse-conversation-filter"
-    );
+    const { isRegisteredExtensionEvent } = await import("../runtime/sse-conversation-filter");
     const proc = mockProc();
     const bus = new EventBus<AgentEvents>();
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
-      mockRegistryWithManifests(
-        new Map([["ext-a", proc]]),
-        { "ext-a": { name: "claude-design" } },
-      ),
-      wireLookup({ "c1": ["ext-a"] }),
+      mockRegistryWithManifests(new Map([["ext-a", proc]]), { "ext-a": { name: "claude-design" } }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     // Each rejected: leading colon, trailing colon, no colon, empty.
-    dispatcher.registerExtension("ext-a", [
-      ":evt",
-      "claude-design:",
-      "no-colon",
-      "",
-    ]);
+    dispatcher.registerExtension("ext-a", [":evt", "claude-design:", "no-colon", ""]);
     expect(isRegisteredExtensionEvent(":evt")).toBe(false);
     expect(isRegisteredExtensionEvent("claude-design:")).toBe(false);
     expect(isRegisteredExtensionEvent("no-colon")).toBe(false);
@@ -652,18 +646,13 @@ describe("EventSubscriptionDispatcher — extension-declared events", () => {
   // ── S-2: double unregister no-op ──────────────────────────────────
 
   test("S-2: unregisterExtension is a safe no-op when called twice", async () => {
-    const { isRegisteredExtensionEvent } = await import(
-      "../runtime/sse-conversation-filter"
-    );
+    const { isRegisteredExtensionEvent } = await import("../runtime/sse-conversation-filter");
     const proc = mockProc();
     const bus = new EventBus<AgentEvents>();
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
-      mockRegistryWithManifests(
-        new Map([["ext-a", proc]]),
-        { "ext-a": { name: "claude-design" } },
-      ),
-      wireLookup({ "c1": ["ext-a"] }),
+      mockRegistryWithManifests(new Map([["ext-a", proc]]), { "ext-a": { name: "claude-design" } }),
+      wireLookup({ c1: ["ext-a"] }),
     );
     dispatcher.registerExtension("ext-a", ["claude-design:knob-change"]);
     dispatcher.unregisterExtension("ext-a");
@@ -681,11 +670,8 @@ describe("EventSubscriptionDispatcher — extension-declared events", () => {
     const bus = new EventBus<AgentEvents>();
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
-      mockRegistryWithManifests(
-        new Map([["ext-a", proc]]),
-        { "ext-a": { name: "claude-design" } },
-      ),
-      wireLookup({ "c1": ["ext-a"] }),
+      mockRegistryWithManifests(new Map([["ext-a", proc]]), { "ext-a": { name: "claude-design" } }),
+      wireLookup({ c1: ["ext-a"] }),
       { maxOpsPerSecond: 5 }, // small budget to exercise the limiter quickly
     );
     dispatcher.registerExtension("ext-a", ["claude-design:knob-change"]);
@@ -693,10 +679,7 @@ describe("EventSubscriptionDispatcher — extension-declared events", () => {
 
     // Fire 10 rapid events — exactly 5 should pass, 5 should drop.
     for (let i = 0; i < 10; i++) {
-      bus.emit(
-        "claude-design:knob-change" as never,
-        { conversationId: "c1", iter: i } as never,
-      );
+      bus.emit("claude-design:knob-change" as never, { conversationId: "c1", iter: i } as never);
     }
     await new Promise((r) => setTimeout(r, 30));
 
@@ -711,9 +694,7 @@ describe("EventSubscriptionDispatcher — extension-declared events", () => {
   // ── F1 regression: shared-namespace unregister doesn't wipe sibling ──
 
   test("F1: unregisterExtension only removes own tuples; sibling extension keeps its events", async () => {
-    const { isRegisteredExtensionEvent } = await import(
-      "../runtime/sse-conversation-filter"
-    );
+    const { isRegisteredExtensionEvent } = await import("../runtime/sse-conversation-filter");
     const procA = mockProc();
     const procB = mockProc();
     const bus = new EventBus<AgentEvents>();
@@ -722,13 +703,16 @@ describe("EventSubscriptionDispatcher — extension-declared events", () => {
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
       mockRegistryWithManifests(
-        new Map([["a1", procA], ["a2", procB]]),
+        new Map([
+          ["a1", procA],
+          ["a2", procB],
+        ]),
         {
-          "a1": { name: "shared" },
-          "a2": { name: "shared" },
+          a1: { name: "shared" },
+          a2: { name: "shared" },
         },
       ),
-      wireLookup({ "c1": ["a1", "a2"] }),
+      wireLookup({ c1: ["a1", "a2"] }),
     );
     dispatcher.registerExtension("a1", ["shared:evt-a"]);
     dispatcher.registerExtension("a2", ["shared:evt-b"]);
@@ -744,18 +728,13 @@ describe("EventSubscriptionDispatcher — extension-declared events", () => {
   // ── F3 regression: platform-collision rejection ─────────────────
 
   test("F3: extension named 'ask-user' cannot register 'ask-user:answer' (platform-collision)", async () => {
-    const { isRegisteredExtensionEvent } = await import(
-      "../runtime/sse-conversation-filter"
-    );
+    const { isRegisteredExtensionEvent } = await import("../runtime/sse-conversation-filter");
     const proc = mockProc();
     const bus = new EventBus<AgentEvents>();
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
-      mockRegistryWithManifests(
-        new Map([["ext-x", proc]]),
-        { "ext-x": { name: "ask-user" } },
-      ),
-      wireLookup({ "c1": ["ext-x"] }),
+      mockRegistryWithManifests(new Map([["ext-x", proc]]), { "ext-x": { name: "ask-user" } }),
+      wireLookup({ c1: ["ext-x"] }),
     );
     // The extension's own namespace + an event name that produces a
     // string colliding with `DIRECT_CARRIER_EVENT_TYPES`. Must be
@@ -766,18 +745,13 @@ describe("EventSubscriptionDispatcher — extension-declared events", () => {
   });
 
   test("F3: extension named 'task' cannot register 'task:snapshot'", async () => {
-    const { isRegisteredExtensionEvent } = await import(
-      "../runtime/sse-conversation-filter"
-    );
+    const { isRegisteredExtensionEvent } = await import("../runtime/sse-conversation-filter");
     const proc = mockProc();
     const bus = new EventBus<AgentEvents>();
     const dispatcher = new EventSubscriptionDispatcher(
       bus,
-      mockRegistryWithManifests(
-        new Map([["ext-y", proc]]),
-        { "ext-y": { name: "task" } },
-      ),
-      wireLookup({ "c1": ["ext-y"] }),
+      mockRegistryWithManifests(new Map([["ext-y", proc]]), { "ext-y": { name: "task" } }),
+      wireLookup({ c1: ["ext-y"] }),
     );
     dispatcher.registerExtension("ext-y", ["task:snapshot"]);
     expect(isRegisteredExtensionEvent("task:snapshot")).toBe(false);

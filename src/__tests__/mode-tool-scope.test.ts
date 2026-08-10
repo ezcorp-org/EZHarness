@@ -44,15 +44,9 @@ describe("computeModeToolScope — no mode / no restriction", () => {
 
 describe("computeModeToolScope — extensionIds allowlist", () => {
   test("union of all attached extensions' namespaced tool names", () => {
-    const scope = computeModeToolScope(
-      { extensionIds: ["ext-a", "ext-b"] },
-      null,
-      registry,
-    );
+    const scope = computeModeToolScope({ extensionIds: ["ext-a", "ext-b"] }, null, registry);
     expect(scope?.toolRestriction).toBe("allowlist");
-    expect(scope?.allowedTools?.sort()).toEqual(
-      ["alpha__lint", "alpha__scan", "bravo__summarize"],
-    );
+    expect(scope?.allowedTools?.sort()).toEqual(["alpha__lint", "alpha__scan", "bravo__summarize"]);
   });
 
   test("per-extension subset narrows that extension's contribution", () => {
@@ -86,11 +80,7 @@ describe("computeModeToolScope — extensionIds allowlist", () => {
   });
 
   test("unknown extension id contributes nothing (empty allowlist still fail-closed)", () => {
-    const scope = computeModeToolScope(
-      { extensionIds: ["ext-missing"] },
-      null,
-      registry,
-    );
+    const scope = computeModeToolScope({ extensionIds: ["ext-missing"] }, null, registry);
     expect(scope).toEqual({ toolRestriction: "allowlist", allowedTools: [] });
   });
 
@@ -153,59 +143,55 @@ describe("computeModeToolScope — per-conversation narrowing (narrow-only)", ()
   });
 
   test("empty conversation map = no narrowing", () => {
-    const scope = computeModeToolScope(
-      { extensionIds: ["ext-b"] },
-      {},
-      registry,
-    );
+    const scope = computeModeToolScope({ extensionIds: ["ext-b"] }, {}, registry);
     expect(scope?.allowedTools).toEqual(["bravo__summarize"]);
   });
 });
 
 describe("computeModeToolScope — no-mode conversation narrowing (deny path)", () => {
-	test("conversation subset without a mode denies that extension's other tools", () => {
-		const scope = computeModeToolScope(null, { "ext-a": ["alpha__scan"] }, registry);
-		expect(scope).toEqual({ forceDeniedTools: ["alpha__lint"] });
-	});
+  test("conversation subset without a mode denies that extension's other tools", () => {
+    const scope = computeModeToolScope(null, { "ext-a": ["alpha__scan"] }, registry);
+    expect(scope).toEqual({ forceDeniedTools: ["alpha__lint"] });
+  });
 
-	test("subset may use the original (unnamespaced) name", () => {
-		const scope = computeModeToolScope(null, { "ext-a": ["scan"] }, registry);
-		expect(scope).toEqual({ forceDeniedTools: ["alpha__lint"] });
-	});
+  test("subset may use the original (unnamespaced) name", () => {
+    const scope = computeModeToolScope(null, { "ext-a": ["scan"] }, registry);
+    expect(scope).toEqual({ forceDeniedTools: ["alpha__lint"] });
+  });
 
-	test("EMPTY subset = master toggle OFF: denies ALL of that extension's tools", () => {
-		const scope = computeModeToolScope(null, { "ext-a": [] }, registry);
-		expect(scope?.forceDeniedTools?.sort()).toEqual(["alpha__lint", "alpha__scan"]);
-	});
+  test("EMPTY subset = master toggle OFF: denies ALL of that extension's tools", () => {
+    const scope = computeModeToolScope(null, { "ext-a": [] }, registry);
+    expect(scope?.forceDeniedTools?.sort()).toEqual(["alpha__lint", "alpha__scan"]);
+  });
 
-	test("absent subsets and unknown extensions deny nothing", () => {
-		expect(computeModeToolScope(null, { "ext-missing": ["whatever"] }, registry)).toBeNull();
-		expect(computeModeToolScope(null, { "ext-missing": [] }, registry)).toBeNull();
-		expect(computeModeToolScope(null, {}, registry)).toBeNull();
-		expect(computeModeToolScope(null, null, registry)).toBeNull();
-	});
+  test("absent subsets and unknown extensions deny nothing", () => {
+    expect(computeModeToolScope(null, { "ext-missing": ["whatever"] }, registry)).toBeNull();
+    expect(computeModeToolScope(null, { "ext-missing": [] }, registry)).toBeNull();
+    expect(computeModeToolScope(null, {}, registry)).toBeNull();
+    expect(computeModeToolScope(null, null, registry)).toBeNull();
+  });
 
-	test("narrowing multiple extensions accumulates denials", () => {
-		const scope = computeModeToolScope(
-			null,
-			{ "ext-a": ["alpha__scan"], "ext-b": ["nope"] },
-			registry,
-		);
-		expect(scope?.forceDeniedTools?.sort()).toEqual(["alpha__lint", "bravo__summarize"]);
-	});
+  test("narrowing multiple extensions accumulates denials", () => {
+    const scope = computeModeToolScope(
+      null,
+      { "ext-a": ["alpha__scan"], "ext-b": ["nope"] },
+      registry,
+    );
+    expect(scope?.forceDeniedTools?.sort()).toEqual(["alpha__lint", "bravo__summarize"]);
+  });
 
-	test("combines with a legacy toolRestriction mode (restriction + deny layers)", () => {
-		const scope = computeModeToolScope(
-			{ toolRestriction: "all" },
-			{ "ext-a": ["alpha__scan"] },
-			registry,
-		);
-		expect(scope).toEqual({
-			toolRestriction: "all",
-			allowedTools: undefined,
-			forceDeniedTools: ["alpha__lint"],
-		});
-	});
+  test("combines with a legacy toolRestriction mode (restriction + deny layers)", () => {
+    const scope = computeModeToolScope(
+      { toolRestriction: "all" },
+      { "ext-a": ["alpha__scan"] },
+      registry,
+    );
+    expect(scope).toEqual({
+      toolRestriction: "all",
+      allowedTools: undefined,
+      forceDeniedTools: ["alpha__lint"],
+    });
+  });
 });
 
 describe("computeModeToolScope — legacy toolRestriction fallback", () => {
@@ -229,9 +215,9 @@ describe("computeModeToolScope — legacy toolRestriction fallback", () => {
     expect(
       computeModeToolScope({ toolRestriction: "read-only" }, null, registry)?.toolRestriction,
     ).toBe("read-only");
-    expect(
-      computeModeToolScope({ toolRestriction: "all" }, null, registry)?.toolRestriction,
-    ).toBe("all");
+    expect(computeModeToolScope({ toolRestriction: "all" }, null, registry)?.toolRestriction).toBe(
+      "all",
+    );
   });
 });
 
@@ -280,10 +266,7 @@ describe("orchestration tools — explicit conversation toggle wins", () => {
     "ext-a": ["alpha__scan"],
     "ext-askuser": ["ask-user__ask_user_question"],
   });
-  const loaded = [
-    { name: "alpha__scan" },
-    { name: "ask-user__ask_user_question" },
-  ];
+  const loaded = [{ name: "alpha__scan" }, { name: "ask-user__ask_user_question" }];
 
   test("sanity: the fixture tool really is orchestration-exempt", () => {
     expect(ORCHESTRATION_TOOLS.has("ask-user__ask_user_question")).toBe(true);

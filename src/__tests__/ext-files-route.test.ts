@@ -50,7 +50,9 @@ beforeEach(() => {
 afterAll(() => {
   process.chdir(SAFE_CWD);
   if (cwd) {
-    try { rmSync(cwd, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(cwd, { recursive: true, force: true });
+    } catch {}
   }
 });
 
@@ -114,10 +116,18 @@ describe("GET /api/ext-files/[name]/[...path]", () => {
     writeFileSync(join(dir, "b.jpeg"), "JPG2");
     writeFileSync(join(dir, "c.webp"), "WEBP");
     writeFileSync(join(dir, "d.gif"), "GIF");
-    expect((await GET(mkEvent(EXT, "generated/a.jpg"))).headers.get("Content-Type")).toBe("image/jpeg");
-    expect((await GET(mkEvent(EXT, "generated/b.jpeg"))).headers.get("Content-Type")).toBe("image/jpeg");
-    expect((await GET(mkEvent(EXT, "generated/c.webp"))).headers.get("Content-Type")).toBe("image/webp");
-    expect((await GET(mkEvent(EXT, "generated/d.gif"))).headers.get("Content-Type")).toBe("image/gif");
+    expect((await GET(mkEvent(EXT, "generated/a.jpg"))).headers.get("Content-Type")).toBe(
+      "image/jpeg",
+    );
+    expect((await GET(mkEvent(EXT, "generated/b.jpeg"))).headers.get("Content-Type")).toBe(
+      "image/jpeg",
+    );
+    expect((await GET(mkEvent(EXT, "generated/c.webp"))).headers.get("Content-Type")).toBe(
+      "image/webp",
+    );
+    expect((await GET(mkEvent(EXT, "generated/d.gif"))).headers.get("Content-Type")).toBe(
+      "image/gif",
+    );
   });
 
   test("returns 401 for unauthenticated requests", async () => {

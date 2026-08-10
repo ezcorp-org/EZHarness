@@ -58,8 +58,7 @@ export interface EzActionCard {
  * Only present on `kind: "success"` results — `decline` and `error`
  * carry a human-readable reason in `card.body` instead.
  */
-export type EzActionRef =
-  | { kind: "lesson"; slug: string };
+export type EzActionRef = { kind: "lesson"; slug: string };
 
 /**
  * Discriminated result of a handler invocation:

@@ -62,9 +62,9 @@ describe("scope enforcement coverage", () => {
   // route calls the gate.
   const PUBLIC_ROUTE_ALLOWLIST = new Set<string>([
     // Truly public — anonymous access by design.
-    "/marketplace/categories/+server.ts",  // anonymous category listing
-    "/version/+server.ts",                  // diagnostic
-    "/ready/+server.ts",                    // health probe
+    "/marketplace/categories/+server.ts", // anonymous category listing
+    "/version/+server.ts", // diagnostic
+    "/ready/+server.ts", // health probe
     // External webhook ingress (Loops Phase 4) — public-by-design like the
     // OAuth callbacks, with its OWN auth the textual scan can't see: a
     // fail-closed per-hook bearer secret (constant-time compare, dummy

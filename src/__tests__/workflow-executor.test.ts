@@ -251,10 +251,7 @@ describe("WorkflowExecutor — workflow:* userId scoping", () => {
 /** An agent that never resolves on its own — it only settles when its
  *  run's `ctx.signal` is aborted (via the executor's cancelRun). The
  *  `onAbort` flag lets a test observe that the run was actually cancelled. */
-function blockingAgent(
-  name: string,
-  onAbort: (flip: () => void) => void,
-): AgentDefinition {
+function blockingAgent(name: string, onAbort: (flip: () => void) => void): AgentDefinition {
   return makeAgent(name, async (ctx) => {
     await new Promise<void>((_resolve, reject) => {
       ctx.signal.addEventListener(
@@ -292,13 +289,7 @@ describe("WorkflowExecutor — abort propagation", () => {
       });
     });
     const controller = new AbortController();
-    const runPromise = workflow.runWorkflow(
-      def,
-      {},
-      undefined,
-      undefined,
-      controller.signal,
-    );
+    const runPromise = workflow.runWorkflow(def, {}, undefined, undefined, controller.signal);
     await started;
     controller.abort();
 
@@ -323,13 +314,7 @@ describe("WorkflowExecutor — abort propagation", () => {
     };
     const controller = new AbortController();
     controller.abort();
-    const run = await workflow.runWorkflow(
-      def,
-      {},
-      undefined,
-      undefined,
-      controller.signal,
-    );
+    const run = await workflow.runWorkflow(def, {}, undefined, undefined, controller.signal);
     expect(run.status).toBe("cancelled");
     expect(ran).toBe(false);
   });
@@ -450,9 +435,7 @@ describe("WorkflowExecutor — per-step retry", () => {
 
 describe("WorkflowExecutor — strict `$steps` / `$prev` references", () => {
   test("a missing `$steps` reference fails the workflow with a descriptive error", async () => {
-    const { workflow } = setup([
-      makeAgent("a", async () => ({ success: true, output: "a" })),
-    ]);
+    const { workflow } = setup([makeAgent("a", async () => ({ success: true, output: "a" }))]);
     const def: WorkflowDefinition = {
       name: "bad-ref",
       description: "t",
@@ -484,12 +467,7 @@ describe("WorkflowExecutor — strict `$steps` / `$prev` references", () => {
   test("throws when a `$prev` field is missing on the previous result", () => {
     const { workflow } = setup([]);
     expect(() =>
-      workflow.resolveStepInput(
-        { x: "$prev.nope" },
-        {},
-        new Map(),
-        { success: true, output: "o" },
-      ),
+      workflow.resolveStepInput({ x: "$prev.nope" }, {}, new Map(), { success: true, output: "o" }),
     ).toThrow(/field "nope" is missing/);
   });
 
@@ -961,10 +939,7 @@ describe("WorkflowExecutor — terminal step status on failure", () => {
  */
 type RunAgentCall = { agent: string; override: unknown };
 
-function spyOnRunAgent(
-  executor: AgentExecutor,
-  result?: Partial<AgentRun>,
-): RunAgentCall[] {
+function spyOnRunAgent(executor: AgentExecutor, result?: Partial<AgentRun>): RunAgentCall[] {
   const calls: RunAgentCall[] = [];
   const original = executor.runAgent.bind(executor);
   executor.runAgent = (async (
@@ -1039,7 +1014,11 @@ describe("WorkflowExecutor — per-step model bindings", () => {
       {
         name: "with-default",
         description: "",
-        defaultModel: { provider: "anthropic", model: "claude-haiku-4-5-20251001", maxTokens: 2000 },
+        defaultModel: {
+          provider: "anthropic",
+          model: "claude-haiku-4-5-20251001",
+          maxTokens: 2000,
+        },
         steps: [
           { name: "inherits", agent: "a" },
           { name: "replaces", agent: "b", model: { model: "claude-opus-5" } },
@@ -1065,7 +1044,13 @@ describe("WorkflowExecutor — per-step model bindings", () => {
       {
         name: "ref-bound",
         description: "",
-        steps: [{ name: "verify", agent: "a", model: { model: "$input.verifyModel", effort: "$input.tier" } }],
+        steps: [
+          {
+            name: "verify",
+            agent: "a",
+            model: { model: "$input.verifyModel", effort: "$input.tier" },
+          },
+        ],
       },
       { verifyModel: "claude-opus-5", tier: "high" },
     );
@@ -1112,7 +1097,9 @@ describe("WorkflowExecutor — per-step model bindings", () => {
 
     expect(run.status).toBe("success");
     expect(calls).toHaveLength(3);
-    expect(calls.every((c) => JSON.stringify(c.override) === '{"model":"claude-opus-5"}')).toBe(true);
+    expect(calls.every((c) => JSON.stringify(c.override) === '{"model":"claude-opus-5"}')).toBe(
+      true,
+    );
   });
 
   test("a looped step re-resolves its binding per iteration, so it can escalate", async () => {

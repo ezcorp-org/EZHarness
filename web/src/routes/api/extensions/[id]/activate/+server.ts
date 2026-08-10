@@ -42,35 +42,37 @@ import type { RequestHandler } from "./$types";
 // the test contract on that exact message holds. .passthrough() because
 // clampExtensionPermissions expects the full Partial<ExtensionPermissions>
 // shape, which has too many nested fields to enumerate locally.
-const activatePostSchema = z.object({
-	grantedPermissions: z.unknown().optional(),
-}).passthrough();
+const activatePostSchema = z
+  .object({
+    grantedPermissions: z.unknown().optional(),
+  })
+  .passthrough();
 
 export const POST: RequestHandler = async ({ request, params, locals }) => {
-	// checkRole RETURNS the 401/403 Response so non-admin callers see the
-	// intended status (a thrown Response would 500 via SvelteKit).
-	const admin = checkRole(locals, "admin");
-	if (admin instanceof Response) return admin;
+  // checkRole RETURNS the 401/403 Response so non-admin callers see the
+  // intended status (a thrown Response would 500 via SvelteKit).
+  const admin = checkRole(locals, "admin");
+  if (admin instanceof Response) return admin;
 
-	const parsed = activatePostSchema.safeParse(await request.json().catch(() => ({})));
-	if (!parsed.success) {
-		return errorJson(400, "Invalid request body");
-	}
-	const submittedPerms = parsed.data.grantedPermissions;
+  const parsed = activatePostSchema.safeParse(await request.json().catch(() => ({})));
+  if (!parsed.success) {
+    return errorJson(400, "Invalid request body");
+  }
+  const submittedPerms = parsed.data.grantedPermissions;
 
-	if (submittedPerms !== undefined) {
-		if (!submittedPerms || typeof submittedPerms !== "object" || Array.isArray(submittedPerms)) {
-			return errorJson(400, "grantedPermissions must be an object");
-		}
-	}
+  if (submittedPerms !== undefined) {
+    if (!submittedPerms || typeof submittedPerms !== "object" || Array.isArray(submittedPerms)) {
+      return errorJson(400, "grantedPermissions must be an object");
+    }
+  }
 
-	const result = await activateExtension(
-		params.id,
-		{ submittedPermissions: submittedPerms as Partial<ExtensionPermissions> | undefined },
-		admin.id,
-	);
-	if (!result.ok) {
-		return errorJson(result.status, result.message);
-	}
-	return json(result.extension);
+  const result = await activateExtension(
+    params.id,
+    { submittedPermissions: submittedPerms as Partial<ExtensionPermissions> | undefined },
+    admin.id,
+  );
+  if (!result.ok) {
+    return errorJson(result.status, result.message);
+  }
+  return json(result.extension);
 };

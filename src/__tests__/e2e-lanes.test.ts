@@ -117,7 +117,10 @@ describe("e2e lane manifest", () => {
       `spec(s) missing from web/e2e/lanes.json — assign a lane (new specs default to 'unwired' ` +
         `only by an explicit entry; a wired spec belongs in its gate's lane):\n  ${missing.join("\n  ")}`,
     ).toEqual([]);
-    expect(phantom, `manifest entries for deleted specs — remove:\n  ${phantom.join("\n  ")}`).toEqual([]);
+    expect(
+      phantom,
+      `manifest entries for deleted specs — remove:\n  ${phantom.join("\n  ")}`,
+    ).toEqual([]);
   });
 
   test("real-auth lane == the real config's testDir population", () => {
@@ -127,7 +130,10 @@ describe("e2e lane manifest", () => {
 
   test("evidence-soft members all carry @evidence; no @evidence spec is unwired", () => {
     const untagged = lanes["evidence-soft"]!.filter((f) => !evidenceTagged.has(f));
-    expect(untagged, `evidence-soft entries without @evidence:\n  ${untagged.join("\n  ")}`).toEqual([]);
+    expect(
+      untagged,
+      `evidence-soft entries without @evidence:\n  ${untagged.join("\n  ")}`,
+    ).toEqual([]);
     const hidden = lanes.unwired!.filter((f) => evidenceTagged.has(f));
     expect(
       hidden,
@@ -137,7 +143,10 @@ describe("e2e lane manifest", () => {
 
   test("docker lane members are DOCKER_TEST-gated", () => {
     const unmarked = lanes.docker!.filter((f) => !dockerGated.has(f));
-    expect(unmarked, `docker-lane entries without DOCKER_TEST gating:\n  ${unmarked.join("\n  ")}`).toEqual([]);
+    expect(
+      unmarked,
+      `docker-lane entries without DOCKER_TEST gating:\n  ${unmarked.join("\n  ")}`,
+    ).toEqual([]);
   });
 
   test("unwired backlog only shrinks (ceiling is the exact current size)", () => {

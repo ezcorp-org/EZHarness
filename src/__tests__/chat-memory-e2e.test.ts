@@ -5,7 +5,9 @@ import { stubAssistantMessage } from "./helpers/mock-pi-ai";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
 
 // Generate a fixed embedding vector for testing
-const FIXED_EMBEDDING = Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) => (i === 0 ? 1.0 : 0.0));
+const FIXED_EMBEDDING = Array.from({ length: EMBEDDING_DIMENSIONS }, (_, i) =>
+  i === 0 ? 1.0 : 0.0,
+);
 
 mockDbConnection();
 
@@ -22,11 +24,28 @@ mock.module("../providers/router", () => ({
   resolveModel: async () => ({
     provider: "anthropic",
     model: "test-model",
-    piModel: { id: "test-model", provider: "anthropic", api: "anthropic-messages", baseUrl: "", reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 200000, maxTokens: 4096 },
+    piModel: {
+      id: "test-model",
+      provider: "anthropic",
+      api: "anthropic-messages",
+      baseUrl: "",
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200000,
+      maxTokens: 4096,
+    },
   }),
   ProviderUnavailableError: class extends Error {
-    failedProvider: string; failedModel: string; suggestion: any;
-    constructor(msg: string, fp: string, fm: string, sug: any) { super(msg); this.failedProvider = fp; this.failedModel = fm; this.suggestion = sug; }
+    failedProvider: string;
+    failedModel: string;
+    suggestion: any;
+    constructor(msg: string, fp: string, fm: string, sug: any) {
+      super(msg);
+      this.failedProvider = fp;
+      this.failedModel = fm;
+      this.suggestion = sug;
+    }
   },
 }));
 
@@ -36,7 +55,10 @@ mock.module("../providers/credentials", () => ({
 }));
 
 mock.module("@earendil-works/pi-ai/compat", () => ({
-  stream: () => ({ [Symbol.asyncIterator]: async function* () {}, result: async () => stubAssistantMessage() }),
+  stream: () => ({
+    [Symbol.asyncIterator]: async function* () {},
+    result: async () => stubAssistantMessage(),
+  }),
   complete: async () => stubAssistantMessage(),
   getModel: () => ({ id: "test-model", provider: "anthropic" }),
   getModels: () => [],
@@ -53,7 +75,10 @@ mock.module("@earendil-works/pi-agent-core", () => ({
       this._opts = opts;
       capturedSystemPrompt = opts.initialState?.systemPrompt ?? "";
     }
-    subscribe(cb: any) { this._subs.push(cb); return () => {}; }
+    subscribe(cb: any) {
+      this._subs.push(cb);
+      return () => {};
+    }
     abort() {}
     async prompt() {
       // Replicate pi-ai's request build enough to exercise the onPayload
@@ -61,11 +86,13 @@ mock.module("@earendil-works/pi-agent-core", () => ({
       // there as a separate uncached trailing system block, so the full
       // wire-visible system content = initialState.systemPrompt + tail.
       const payload: any = {
-        system: [{
-          type: "text",
-          text: this._opts.initialState?.systemPrompt ?? "",
-          cache_control: { type: "ephemeral" },
-        }],
+        system: [
+          {
+            type: "text",
+            text: this._opts.initialState?.systemPrompt ?? "",
+            cache_control: { type: "ephemeral" },
+          },
+        ],
       };
       await this._opts.onPayload?.(payload);
       capturedSystemPrompt = payload.system.map((b: any) => b.text).join("\n\n");
@@ -81,7 +108,14 @@ mock.module("@earendil-works/pi-agent-core", () => ({
           },
         });
       }
-      const usage = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+      const usage = {
+        input: 10,
+        output: 5,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 15,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      };
       for (const sub of this._subs) {
         sub({ type: "turn_end", message: stubAssistantMessage("response", { usage }) });
       }
@@ -106,12 +140,15 @@ beforeAll(async () => {
   projectId = project.id;
   // Memory injection is fail-closed per-user: only memories owned by the
   // conversation owner are injected. Seed an owner for both sides.
-  const [user] = await getDb().insert(users).values({
-    email: "memory-e2e@example.com",
-    passwordHash: "x",
-    name: "Memory E2E",
-    role: "member",
-  }).returning();
+  const [user] = await getDb()
+    .insert(users)
+    .values({
+      email: "memory-e2e@example.com",
+      passwordHash: "x",
+      name: "Memory E2E",
+      role: "member",
+    })
+    .returning();
   ownerUserId = user!.id;
 });
 
@@ -134,7 +171,10 @@ describe("Chat Memory Injection E2E", () => {
       embedding: FIXED_EMBEDDING,
     });
 
-    const conv = await createConversation(projectId, { title: "Memory Injection Test", userId: ownerUserId });
+    const conv = await createConversation(projectId, {
+      title: "Memory Injection Test",
+      userId: ownerUserId,
+    });
     const bus = new EventBus<AgentEvents>();
     const executor = new AgentExecutor(new Map(), bus);
 
@@ -150,14 +190,17 @@ describe("Chat Memory Injection E2E", () => {
     const db = getDb();
 
     // Insert a KB file and chunk with known embedding
-    const [kbFile] = await db.insert(knowledgeBaseFiles).values({
-      projectId,
-      filename: "guide.md",
-      mimeType: "text/markdown",
-      fileSize: 100,
-      chunkCount: 1,
-      status: "ready",
-    }).returning();
+    const [kbFile] = await db
+      .insert(knowledgeBaseFiles)
+      .values({
+        projectId,
+        filename: "guide.md",
+        mimeType: "text/markdown",
+        fileSize: 100,
+        chunkCount: 1,
+        status: "ready",
+      })
+      .returning();
 
     await db.insert(knowledgeBaseChunks).values({
       fileId: kbFile!.id,

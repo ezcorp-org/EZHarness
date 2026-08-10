@@ -62,10 +62,12 @@ export async function hydrateSearchQuota(extensionId: string): Promise<void> {
     const rows = await getDb()
       .select()
       .from(extensionSearchCallsDaily)
-      .where(and(
-        eq(extensionSearchCallsDaily.extensionId, extensionId),
-        eq(extensionSearchCallsDaily.day, today),
-      ));
+      .where(
+        and(
+          eq(extensionSearchCallsDaily.extensionId, extensionId),
+          eq(extensionSearchCallsDaily.day, today),
+        ),
+      );
     const seed = rows[0];
     const entry = { day: today, count: seed ? seed.calls : 0 };
     counters.set(extensionId, entry);

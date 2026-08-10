@@ -31,9 +31,7 @@ describe("ToolExecutor dispatch for MCP-kind extensions", () => {
       author: { name: "t" },
       kind: "mcp",
       mcpServers: [{ transport: "stdio", name: "remote", command: "node" }],
-      tools: [
-        { name: "ping", description: "ping tool", inputSchema: { type: "object" } },
-      ],
+      tools: [{ name: "ping", description: "ping tool", inputSchema: { type: "object" } }],
       permissions: {},
     };
     registry.setManifestForTest(extId, manifest);
@@ -64,12 +62,7 @@ describe("ToolExecutor dispatch for MCP-kind extensions", () => {
     };
 
     const executor = new ToolExecutor(registry, createStubPermissionEngine());
-    const result = await executor.executeToolCall(
-      "remote__ping",
-      { q: "hi" },
-      "conv-1",
-      null,
-    );
+    const result = await executor.executeToolCall("remote__ping", { q: "hi" }, "conv-1", null);
 
     expect(calls).toHaveLength(1);
     expect(calls[0]).toEqual({ name: "ping", args: { q: "hi" } });

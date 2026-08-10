@@ -24,44 +24,47 @@ import { cleanup } from "@testing-library/svelte";
 afterEach(() => cleanup());
 
 if (typeof Element !== "undefined" && typeof Element.prototype.animate !== "function") {
-	// Minimal no-op Animation-like object — Svelte only needs the lifecycle
-	// methods + the `finished` promise to drive transition completion.
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	(Element.prototype as any).animate = () => ({
-		cancel() {},
-		finish() {},
-		pause() {},
-		play() {},
-		reverse() {},
-		addEventListener() {},
-		removeEventListener() {},
-		finished: Promise.resolve(),
-	});
+  // Minimal no-op Animation-like object — Svelte only needs the lifecycle
+  // methods + the `finished` promise to drive transition completion.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (Element.prototype as any).animate = () => ({
+    cancel() {},
+    finish() {},
+    pause() {},
+    play() {},
+    reverse() {},
+    addEventListener() {},
+    removeEventListener() {},
+    finished: Promise.resolve(),
+  });
 }
 
-if (typeof URL.createObjectURL !== "function" || URL.createObjectURL.toString().includes("not implemented")) {
-	let counter = 0;
-	URL.createObjectURL = (_blob: Blob) => `blob:mock://${++counter}`;
-	URL.revokeObjectURL = () => {};
+if (
+  typeof URL.createObjectURL !== "function" ||
+  URL.createObjectURL.toString().includes("not implemented")
+) {
+  let counter = 0;
+  URL.createObjectURL = (_blob: Blob) => `blob:mock://${++counter}`;
+  URL.revokeObjectURL = () => {};
 }
 
 if (typeof window !== "undefined" && typeof window.matchMedia !== "function") {
-	// Minimal jsdom-compatible stub. The breakpoint composable only reads
-	// `.matches` once + subscribes via `addEventListener('change', ...)`,
-	// so the no-op listener pair is enough to satisfy every consumer that
-	// doesn't explicitly assert media-query reactivity.
-	Object.defineProperty(window, "matchMedia", {
-		writable: true,
-		configurable: true,
-		value: (query: string) => ({
-			matches: false,
-			media: query,
-			onchange: null,
-			addListener: () => {},
-			removeListener: () => {},
-			addEventListener: () => {},
-			removeEventListener: () => {},
-			dispatchEvent: () => false,
-		}),
-	});
+  // Minimal jsdom-compatible stub. The breakpoint composable only reads
+  // `.matches` once + subscribes via `addEventListener('change', ...)`,
+  // so the no-op listener pair is enough to satisfy every consumer that
+  // doesn't explicitly assert media-query reactivity.
+  Object.defineProperty(window, "matchMedia", {
+    writable: true,
+    configurable: true,
+    value: (query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }),
+  });
 }

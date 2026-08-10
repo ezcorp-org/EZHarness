@@ -47,15 +47,17 @@ async function insertSourceAttachment(opts: {
     mimeType: opts.mimeType,
     bytes: opts.bytes,
   });
-  await getTestDb().insert(messageAttachments).values({
-    messageId: SRC_MSG,
-    conversationId: CONV_ID,
-    filename: opts.filename,
-    mimeType: opts.mimeType,
-    sizeBytes: written.sizeBytes,
-    storagePath: written.storagePath,
-    kind: opts.kind,
-  } as never);
+  await getTestDb()
+    .insert(messageAttachments)
+    .values({
+      messageId: SRC_MSG,
+      conversationId: CONV_ID,
+      filename: opts.filename,
+      mimeType: opts.mimeType,
+      sizeBytes: written.sizeBytes,
+      storagePath: written.storagePath,
+      kind: opts.kind,
+    } as never);
   return written;
 }
 
@@ -86,7 +88,11 @@ afterEach(async () => {
   await db.delete(messages);
   await db.delete(conversations);
   await db.delete(projects);
-  try { rmSync(TMP, { recursive: true, force: true }); } catch { /* swallow */ }
+  try {
+    rmSync(TMP, { recursive: true, force: true });
+  } catch {
+    /* swallow */
+  }
 });
 
 describe("cloneAttachmentsForFork", () => {
@@ -136,8 +142,18 @@ describe("cloneAttachmentsForFork", () => {
   });
 
   test("copies multiple attachments, each to its own fresh file", async () => {
-    await insertSourceAttachment({ filename: "a.png", mimeType: "image/png", kind: "image", bytes: new Uint8Array([1]) });
-    await insertSourceAttachment({ filename: "notes.txt", mimeType: "text/plain", kind: "text", bytes: new Uint8Array([2, 2]) });
+    await insertSourceAttachment({
+      filename: "a.png",
+      mimeType: "image/png",
+      kind: "image",
+      bytes: new Uint8Array([1]),
+    });
+    await insertSourceAttachment({
+      filename: "notes.txt",
+      mimeType: "text/plain",
+      kind: "text",
+      bytes: new Uint8Array([2, 2]),
+    });
 
     const result = await cloneAttachmentsForFork({
       projectRoot: TMP,
@@ -151,7 +167,9 @@ describe("cloneAttachmentsForFork", () => {
     // Distinct fresh files.
     expect(result.staged[0]!.storagePath).not.toBe(result.staged[1]!.storagePath);
     expect(await listAttachmentsForMessage(TGT_MSG)).toHaveLength(2);
-    expect(new Set(result.summaries.map((s) => s.filename))).toEqual(new Set(["a.png", "notes.txt"]));
+    expect(new Set(result.summaries.map((s) => s.filename))).toEqual(
+      new Set(["a.png", "notes.txt"]),
+    );
   });
 
   test("returns an empty, no-op result when the source has no attachments", async () => {

@@ -22,10 +22,7 @@ import type {
   WorkflowStep,
 } from "../types";
 import { sweepExpiredWorkflowApprovals } from "../runtime/workflow-approval-timeout-sweep";
-import {
-  getWorkflowApprovalById,
-  parkWorkflowApproval,
-} from "../db/queries/workflow-approvals";
+import { getWorkflowApprovalById, parkWorkflowApproval } from "../db/queries/workflow-approvals";
 import {
   finalizeWorkflowRunRow,
   getWorkflowRunRow,
@@ -89,10 +86,7 @@ function runtimeFor(
         async runWorkflow(): Promise<WorkflowRun> {
           throw new Error("not exercised");
         },
-        async resumeWorkflow(
-          _w: WorkflowDefinition,
-          row: { id: string },
-        ): Promise<WorkflowRun> {
+        async resumeWorkflow(_w: WorkflowDefinition, row: { id: string }): Promise<WorkflowRun> {
           resumed.push(row.id);
           const status = opts.resumeStatus ?? "success";
           const result = opts.resumeError
@@ -108,7 +102,11 @@ function runtimeFor(
           // CLAIM: the row is `running` from the claim until the finalize,
           // and only a faithful double closes that.
           if (status !== "suspended") {
-            await finalizeWorkflowRunRow(row.id, status as "success" | "error" | "cancelled", result);
+            await finalizeWorkflowRunRow(
+              row.id,
+              status as "success" | "error" | "cancelled",
+              result,
+            );
           }
           return {
             id: row.id,

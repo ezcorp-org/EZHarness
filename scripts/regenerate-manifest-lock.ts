@@ -153,10 +153,7 @@ interface Diff {
  *
  * Exported for `src/__tests__/manifest-tamper.test.ts`.
  */
-export function diffLockfiles(
-  before: LockfileShape | null,
-  after: LockfileShape,
-): Diff {
+export function diffLockfiles(before: LockfileShape | null, after: LockfileShape): Diff {
   const out: Diff = { added: [], removed: [], changed: [] };
   const beforeExts = before?.extensions ?? {};
   const afterExts = after.extensions;
@@ -214,8 +211,7 @@ function formatDiff(diff: Diff): string {
  * the diff AND exits 1 on any drift (it's a CI gate).
  */
 export function computeCheckDecision(diff: Diff): { exitCode: 0 | 1; message: string } {
-  const drifted =
-    diff.added.length > 0 || diff.removed.length > 0 || diff.changed.length > 0;
+  const drifted = diff.added.length > 0 || diff.removed.length > 0 || diff.changed.length > 0;
   if (!drifted) {
     return { exitCode: 0, message: "Lockfile is up to date." };
   }

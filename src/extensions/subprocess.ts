@@ -121,7 +121,11 @@ function resolveSandboxPreloadPath(): string {
     `${process.cwd()}/src/extensions/runtime/sandbox-preload.ts`,
   ];
   for (const p of candidates) {
-    try { if (existsSync(p)) return p; } catch { /* continue */ }
+    try {
+      if (existsSync(p)) return p;
+    } catch {
+      /* continue */
+    }
   }
   return candidates[0]!;
 }
@@ -268,13 +272,8 @@ export class ExtensionProcess {
    *
    * Memoized per process so getSpawnArgs() + buildSpawnEnv() agree.
    */
-  private sandboxWrapCache:
-    | { argv: string[]; env: Record<string, string> }
-    | null
-    | undefined;
-  private resolveSandboxWrap():
-    | { argv: string[]; env: Record<string, string> }
-    | null {
+  private sandboxWrapCache: { argv: string[]; env: Record<string, string> } | null | undefined;
+  private resolveSandboxWrap(): { argv: string[]; env: Record<string, string> } | null {
     if (this.sandboxWrapCache !== undefined) return this.sandboxWrapCache;
     const projectRoot = this.allowedEnv.EZCORP_PROJECT_ROOT;
     const tier = getSandboxTier();
@@ -283,12 +282,7 @@ export class ExtensionProcess {
       return null;
     }
     try {
-      const workspaceDir = join(
-        projectRoot,
-        ".ezcorp",
-        "extension-data",
-        this.extensionId,
-      );
+      const workspaceDir = join(projectRoot, ".ezcorp", "extension-data", this.extensionId);
       mkdirSync(workspaceDir, { recursive: true });
       const rwPaths: string[] = [];
       if (this.allowedEnv.TMPDIR) rwPaths.push(this.allowedEnv.TMPDIR);
@@ -355,10 +349,7 @@ export class ExtensionProcess {
       // unaffected — both are SIBLINGS of `.ezcorp/data`, never ancestors
       // (buildLandlockJailSpec re-asserts this and still denies the secret
       // even via a symlink that points back into the data dir).
-      for (const dep of [
-        join(projectRoot, "node_modules"),
-        join(projectRoot, "packages"),
-      ]) {
+      for (const dep of [join(projectRoot, "node_modules"), join(projectRoot, "packages")]) {
         if (existsSync(dep)) roPaths.push(dep);
       }
       const inner = [
@@ -509,9 +500,7 @@ export class ExtensionProcess {
     if (this.npmDependencies) {
       const check = verifyNpmDependencies(this.npmDependencies, dirname(this.extensionPath));
       if (!check.ok) {
-        throw new Error(
-          formatNpmDepError(this.extensionName ?? this.extensionId, check.issues),
-        );
+        throw new Error(formatNpmDepError(this.extensionName ?? this.extensionId, check.issues));
       }
     }
 
@@ -560,7 +549,9 @@ export class ExtensionProcess {
               }
             }
           }
-        } catch { /* stream closed — nothing to drain */ }
+        } catch {
+          /* stream closed — nothing to drain */
+        }
       })().catch(this.onDrainError);
     }
 
@@ -672,7 +663,11 @@ export class ExtensionProcess {
             }),
           ]);
       // Success -- reset failure count
-      try { await resetFailures(this.extensionId); } catch { /* DB may not be available in tests */ }
+      try {
+        await resetFailures(this.extensionId);
+      } catch {
+        /* DB may not be available in tests */
+      }
       return response;
     } catch (error) {
       // On timeout, kill the process
@@ -767,7 +762,9 @@ export class ExtensionProcess {
       this.transport = null;
     }
     if (this.proc) {
-      try { this.proc.kill(); } catch {}
+      try {
+        this.proc.kill();
+      } catch {}
       this.proc = null;
     }
     activeProcesses.delete(this);
@@ -812,17 +809,24 @@ export class ExtensionProcess {
           stdin.write(data);
         })
         .catch((err) => {
-          log.error("Reverse-RPC request handler failed", { extensionId: this.extensionId, error: String(err) });
+          log.error("Reverse-RPC request handler failed", {
+            extensionId: this.extensionId,
+            error: String(err),
+          });
           if (this.proc?.stdin) {
-            const errorResp = JSON.stringify({
-              jsonrpc: "2.0",
-              id: req.id,
-              error: { code: -32603, message: String(err) },
-            }) + "\n";
+            const errorResp =
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: req.id,
+                error: { code: -32603, message: String(err) },
+              }) + "\n";
             try {
               (this.proc.stdin as { write(d: string): number }).write(errorResp);
             } catch (writeErr) {
-              log.debug("Failed to write error response to subprocess stdin", { extensionId: this.extensionId, error: String(writeErr) });
+              log.debug("Failed to write error response to subprocess stdin", {
+                extensionId: this.extensionId,
+                error: String(writeErr),
+              });
             }
           }
         });

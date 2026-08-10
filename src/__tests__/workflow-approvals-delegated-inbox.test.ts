@@ -43,11 +43,8 @@ mock.module("../db/connection", () => ({
   closeDb: async () => {},
 }));
 
-const {
-  listPendingWorkflowApprovalsForUser,
-  findDelegatedAnswerAuthority,
-  parkWorkflowApproval,
-} = await import("../db/queries/workflow-approvals");
+const { listPendingWorkflowApprovalsForUser, findDelegatedAnswerAuthority, parkWorkflowApproval } =
+  await import("../db/queries/workflow-approvals");
 const { findDelegationHoldingAuthority, delegationHoldsAuthority } = await import(
   "../db/queries/workflow-delegations"
 );
@@ -258,9 +255,7 @@ describe("findDelegatedAnswerAuthority — the capacity lookup", () => {
 describe("resolveApprovalActor — which actor a human surface mints", () => {
   test("a non-admin consenter on a service-account run is minted a DELEGATION actor", async () => {
     const { approvalId, runId, delegationId } = await seedRun({ ownerUserId: null });
-    expect(
-      await resolveApprovalActor(approvalId, { userId: CONSENTER, isAdmin: false }),
-    ).toEqual({
+    expect(await resolveApprovalActor(approvalId, { userId: CONSENTER, isAdmin: false })).toEqual({
       kind: "delegation",
       delegationId: delegationId!,
       runId,
@@ -282,9 +277,11 @@ describe("resolveApprovalActor — which actor a human surface mints", () => {
 
   test("everyone else is minted a USER actor — the default is answering as yourself", async () => {
     const { approvalId } = await seedRun({ ownerUserId: BYSTANDER, delegated: false });
-    expect(
-      await resolveApprovalActor(approvalId, { userId: BYSTANDER, isAdmin: false }),
-    ).toEqual({ kind: "user", userId: BYSTANDER, isAdmin: false });
+    expect(await resolveApprovalActor(approvalId, { userId: BYSTANDER, isAdmin: false })).toEqual({
+      kind: "user",
+      userId: BYSTANDER,
+      isAdmin: false,
+    });
   });
 });
 
@@ -294,9 +291,7 @@ describe("delegationHoldsAuthority — one predicate, and it is really shared", 
     const revoked = await seedRun({ ownerUserId: null, revoked: true });
     const disabled = await seedRun({ ownerUserId: null, enabled: false });
 
-    expect((await findDelegationHoldingAuthority(live.delegationId!))?.id).toBe(
-      live.delegationId!,
-    );
+    expect((await findDelegationHoldingAuthority(live.delegationId!))?.id).toBe(live.delegationId!);
     expect(await findDelegationHoldingAuthority(revoked.delegationId!)).toBeUndefined();
     expect(await findDelegationHoldingAuthority(disabled.delegationId!)).toBeUndefined();
   });

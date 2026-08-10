@@ -118,11 +118,19 @@ afterAll(async () => {
 // would reject with "Test DB not initialized".
 describe("admin bypass (no DB initialized — any DB hit would throw)", () => {
   test("hasExtensionScope is true for any scope at any coordinates", async () => {
-    expect(await hasExtensionScope(ADMIN, { projectId: null, extensionId: null, scope: "use" })).toBe(true);
-    expect(await hasExtensionScope(ADMIN, { projectId: "any-project", extensionId: "any-ext", scope: "manage" })).toBe(
-      true,
-    );
-    expect(await hasExtensionScope(ADMIN, { projectId: null, extensionId: "x", scope: "write-tickets" })).toBe(true);
+    expect(
+      await hasExtensionScope(ADMIN, { projectId: null, extensionId: null, scope: "use" }),
+    ).toBe(true);
+    expect(
+      await hasExtensionScope(ADMIN, {
+        projectId: "any-project",
+        extensionId: "any-ext",
+        scope: "manage",
+      }),
+    ).toBe(true);
+    expect(
+      await hasExtensionScope(ADMIN, { projectId: null, extensionId: "x", scope: "write-tickets" }),
+    ).toBe(true);
   });
 
   test("resolveEffectiveScopes returns the ALL sentinel (identity + has()-always-true)", async () => {
@@ -215,9 +223,13 @@ describe("resolveEffectiveScopes / hasExtensionScope (real PGlite)", () => {
       expect(scopes.size).toBe(0);
       expect(scopes).not.toBe(RBAC_ALL_SCOPES);
     }
-    expect(await hasExtensionScope(memberNoGrants, { projectId: projectA, extensionId: EXT_A, scope: "use" })).toBe(
-      false,
-    );
+    expect(
+      await hasExtensionScope(memberNoGrants, {
+        projectId: projectA,
+        extensionId: EXT_A,
+        scope: "use",
+      }),
+    ).toBe(false);
   });
 
   test("a member's resolved set is a real set, not the admin sentinel", async () => {
@@ -228,18 +240,30 @@ describe("resolveEffectiveScopes / hasExtensionScope (real PGlite)", () => {
   });
 
   test("unknown / un-granted scope checks are false", async () => {
-    expect(await hasExtensionScope(memberNN, { projectId: null, extensionId: null, scope: "approve-runs" })).toBe(
-      false,
-    );
-    expect(await hasExtensionScope(memberNN, { projectId: null, extensionId: null, scope: "made-up-scope" })).toBe(
-      false,
-    );
-    expect(await hasExtensionScope(memberNN, { projectId: null, extensionId: null, scope: "use" })).toBe(true);
+    expect(
+      await hasExtensionScope(memberNN, {
+        projectId: null,
+        extensionId: null,
+        scope: "approve-runs",
+      }),
+    ).toBe(false);
+    expect(
+      await hasExtensionScope(memberNN, {
+        projectId: null,
+        extensionId: null,
+        scope: "made-up-scope",
+      }),
+    ).toBe(false);
+    expect(
+      await hasExtensionScope(memberNN, { projectId: null, extensionId: null, scope: "use" }),
+    ).toBe(true);
   });
 
   test("scope names are case-sensitive", async () => {
     for (const variant of ["Use", "USE", "uSe"]) {
-      expect(await hasExtensionScope(memberNN, { projectId: null, extensionId: null, scope: variant })).toBe(false);
+      expect(
+        await hasExtensionScope(memberNN, { projectId: null, extensionId: null, scope: variant }),
+      ).toBe(false);
     }
   });
 });
@@ -247,7 +271,12 @@ describe("resolveEffectiveScopes / hasExtensionScope (real PGlite)", () => {
 describe("canManageGrant delegation matrix (real PGlite)", () => {
   // Seeding happened in the previous describe's beforeAll (bun runs
   // describes in declaration order); principals + grants are read-only here.
-  const target = (userId: string, projectId: string | null, extensionId: string | null, scopes: string[]) => ({
+  const target = (
+    userId: string,
+    projectId: string | null,
+    extensionId: string | null,
+    scopes: string[],
+  ) => ({
     userId,
     projectId,
     extensionId,
@@ -257,54 +286,90 @@ describe("canManageGrant delegation matrix (real PGlite)", () => {
   test("admin: allowed for everything — manage-bearing targets and admin-owned targets included", async () => {
     expect(await canManageGrant(ADMIN, target(memberNN.id, projectA, EXT_A, ["use"]))).toBe(true);
     expect(await canManageGrant(ADMIN, target(memberNN.id, null, null, ["manage"]))).toBe(true);
-    expect(await canManageGrant(ADMIN, target(adminGrantee.id, null, null, ["use", "manage"]))).toBe(true);
+    expect(
+      await canManageGrant(ADMIN, target(adminGrantee.id, null, null, ["use", "manage"])),
+    ).toBe(true);
   });
 
   test("manager with (project, extension) manage may grant/revoke core + custom verbs within coverage", async () => {
-    expect(await canManageGrant(managerPE, target(memberNN.id, projectA, EXT_A, ["use"]))).toBe(true);
-    expect(await canManageGrant(managerPE, target(memberNN.id, projectA, EXT_A, ["configure", "approve-runs"]))).toBe(
+    expect(await canManageGrant(managerPE, target(memberNN.id, projectA, EXT_A, ["use"]))).toBe(
       true,
     );
-    expect(await canManageGrant(managerPE, target(memberNN.id, projectA, EXT_A, ["secrets", "write-tickets"]))).toBe(
-      true,
-    );
+    expect(
+      await canManageGrant(
+        managerPE,
+        target(memberNN.id, projectA, EXT_A, ["configure", "approve-runs"]),
+      ),
+    ).toBe(true);
+    expect(
+      await canManageGrant(
+        managerPE,
+        target(memberNN.id, projectA, EXT_A, ["secrets", "write-tickets"]),
+      ),
+    ).toBe(true);
   });
 
   test("managers may NEVER grant `manage` — nor touch (revoke) a manage-bearing grant", async () => {
-    expect(await canManageGrant(managerPE, target(memberNN.id, projectA, EXT_A, ["manage"]))).toBe(false);
-    expect(await canManageGrant(managerPE, target(memberNN.id, projectA, EXT_A, ["use", "manage"]))).toBe(false);
+    expect(await canManageGrant(managerPE, target(memberNN.id, projectA, EXT_A, ["manage"]))).toBe(
+      false,
+    );
+    expect(
+      await canManageGrant(managerPE, target(memberNN.id, projectA, EXT_A, ["use", "manage"])),
+    ).toBe(false);
     // Even the instance-wide manager cannot revoke another manager's grant.
-    expect(await canManageGrant(managerAll, target(managerPE.id, projectA, EXT_A, ["manage"]))).toBe(false);
+    expect(
+      await canManageGrant(managerAll, target(managerPE.id, projectA, EXT_A, ["manage"])),
+    ).toBe(false);
   });
 
   test("project-scoped manager cannot create/touch a NULL-project (broader) grant", async () => {
     expect(await canManageGrant(managerP, target(memberNN.id, null, EXT_A, ["use"]))).toBe(false);
     expect(await canManageGrant(managerP, target(memberNN.id, null, null, ["use"]))).toBe(false);
     // …but is free anywhere inside the project, any extension.
-    expect(await canManageGrant(managerP, target(memberNN.id, projectA, EXT_A, ["use"]))).toBe(true);
-    expect(await canManageGrant(managerP, target(memberNN.id, projectA, EXT_B, ["use"]))).toBe(true);
+    expect(await canManageGrant(managerP, target(memberNN.id, projectA, EXT_A, ["use"]))).toBe(
+      true,
+    );
+    expect(await canManageGrant(managerP, target(memberNN.id, projectA, EXT_B, ["use"]))).toBe(
+      true,
+    );
     expect(await canManageGrant(managerP, target(memberNN.id, projectA, null, ["use"]))).toBe(true);
     // Other projects are out of coverage entirely.
-    expect(await canManageGrant(managerP, target(memberNN.id, projectB, EXT_A, ["use"]))).toBe(false);
+    expect(await canManageGrant(managerP, target(memberNN.id, projectB, EXT_A, ["use"]))).toBe(
+      false,
+    );
   });
 
   test("extension-scoped manager cannot touch other extensions (nor the all-extensions shape)", async () => {
-    expect(await canManageGrant(managerE, target(memberNN.id, projectA, EXT_B, ["use"]))).toBe(false);
-    expect(await canManageGrant(managerE, target(memberNN.id, projectA, null, ["use"]))).toBe(false);
+    expect(await canManageGrant(managerE, target(memberNN.id, projectA, EXT_B, ["use"]))).toBe(
+      false,
+    );
+    expect(await canManageGrant(managerE, target(memberNN.id, projectA, null, ["use"]))).toBe(
+      false,
+    );
     // Their extension, in any project — including the all-projects shape.
-    expect(await canManageGrant(managerE, target(memberNN.id, projectA, EXT_A, ["use"]))).toBe(true);
-    expect(await canManageGrant(managerE, target(memberNN.id, projectB, EXT_A, ["use"]))).toBe(true);
+    expect(await canManageGrant(managerE, target(memberNN.id, projectA, EXT_A, ["use"]))).toBe(
+      true,
+    );
+    expect(await canManageGrant(managerE, target(memberNN.id, projectB, EXT_A, ["use"]))).toBe(
+      true,
+    );
     expect(await canManageGrant(managerE, target(memberNN.id, null, EXT_A, ["use"]))).toBe(true);
   });
 
   test("instance-wide manager covers every non-manage, non-admin target", async () => {
     expect(await canManageGrant(managerAll, target(memberNN.id, null, null, ["use"]))).toBe(true);
-    expect(await canManageGrant(managerAll, target(memberNN.id, projectB, EXT_B, ["configure"]))).toBe(true);
+    expect(
+      await canManageGrant(managerAll, target(memberNN.id, projectB, EXT_B, ["configure"])),
+    ).toBe(true);
   });
 
   test("managers cannot touch grants belonging to admin users; unknown grantees fail closed", async () => {
-    expect(await canManageGrant(managerAll, target(adminGrantee.id, projectA, EXT_A, ["use"]))).toBe(false);
-    expect(await canManageGrant(managerAll, target("no-such-user-id", projectA, EXT_A, ["use"]))).toBe(false);
+    expect(
+      await canManageGrant(managerAll, target(adminGrantee.id, projectA, EXT_A, ["use"])),
+    ).toBe(false);
+    expect(
+      await canManageGrant(managerAll, target("no-such-user-id", projectA, EXT_A, ["use"])),
+    ).toBe(false);
   });
 
   test("non-manager members are denied everything — including self-grants", async () => {
@@ -314,15 +379,23 @@ describe("canManageGrant delegation matrix (real PGlite)", () => {
     ).toBe(false);
     // Holding non-manage scopes (memberNN has `use` everywhere) grants no
     // delegation power.
-    expect(await canManageGrant(memberNN, target(memberNoGrants.id, projectA, EXT_A, ["use"]))).toBe(false);
-    expect(await canManageGrant(memberNN, target(memberNN.id, null, null, ["use", "configure"]))).toBe(false);
+    expect(
+      await canManageGrant(memberNN, target(memberNoGrants.id, projectA, EXT_A, ["use"])),
+    ).toBe(false);
+    expect(
+      await canManageGrant(memberNN, target(memberNN.id, null, null, ["use", "configure"])),
+    ).toBe(false);
   });
 
   test("manage held elsewhere does not cover foreign coordinates", async () => {
     // managerPE's manage lives at (A, EXT_A) — (B, EXT_A) and (A, EXT_B)
     // are out of coverage even though the scope name matches.
-    expect(await canManageGrant(managerPE, target(memberNN.id, projectB, EXT_A, ["use"]))).toBe(false);
-    expect(await canManageGrant(managerPE, target(memberNN.id, projectA, EXT_B, ["use"]))).toBe(false);
+    expect(await canManageGrant(managerPE, target(memberNN.id, projectB, EXT_A, ["use"]))).toBe(
+      false,
+    );
+    expect(await canManageGrant(managerPE, target(memberNN.id, projectA, EXT_B, ["use"]))).toBe(
+      false,
+    );
   });
 });
 
@@ -448,7 +521,11 @@ describe("ez-factory's three triage verbs are three separate grants", () => {
     // ez-factory says nothing about anybody else's `manage-jobs`.
     const manager = holderOf("manage-jobs");
     expect(
-      await hasExtensionScope(manager, { projectId: null, extensionId: EXT_A, scope: "manage-jobs" }),
+      await hasExtensionScope(manager, {
+        projectId: null,
+        extensionId: EXT_A,
+        scope: "manage-jobs",
+      }),
     ).toBe(false);
   });
 });

@@ -119,10 +119,16 @@ export interface LlmHandlerContext {
   quota?: LlmQuota;
   /** Optional model resolver (host swap-in). Defaults to the
    *  production `resolveModel` from `../providers/router`. */
-  resolveModelFn?: (provider: string, model: string) => Promise<{ provider: string; model: string; piModel: unknown }>;
+  resolveModelFn?: (
+    provider: string,
+    model: string,
+  ) => Promise<{ provider: string; model: string; piModel: unknown }>;
   /** Optional credential resolver. Defaults to production
    *  `getCredential`. */
-  getCredentialFn?: (provider: string, conversationId?: string) => Promise<{ type: string; token: string }>;
+  getCredentialFn?: (
+    provider: string,
+    conversationId?: string,
+  ) => Promise<{ type: string; token: string }>;
   /** Optional pi-ai complete swap-in for tests. Defaults to dynamic
    *  import of `@earendil-works/pi-ai`. */
   completeFn?: PiCompleteFn;
@@ -158,8 +164,12 @@ export async function handlePiLlmComplete(
     const snapshot = quota.budget(handlerCtx.actorExtensionId, {
       maxCallsPerHour: grantedLlm.maxCallsPerHour,
       maxCallsPerDay: grantedLlm.maxCallsPerDay,
-      ...(grantedLlm.maxTokensPerDay !== undefined ? { maxTokensPerDay: grantedLlm.maxTokensPerDay } : {}),
-      ...(grantedLlm.maxCostCentsPerDay !== undefined ? { maxCostCentsPerDay: grantedLlm.maxCostCentsPerDay } : {}),
+      ...(grantedLlm.maxTokensPerDay !== undefined
+        ? { maxTokensPerDay: grantedLlm.maxTokensPerDay }
+        : {}),
+      ...(grantedLlm.maxCostCentsPerDay !== undefined
+        ? { maxCostCentsPerDay: grantedLlm.maxCostCentsPerDay }
+        : {}),
     });
     return { jsonrpc: "2.0", id: req.id, result: snapshot };
   }
@@ -253,15 +263,19 @@ export async function handlePiLlmComplete(
   await quota.hydrate(handlerCtx.actorExtensionId);
   // Always have a concrete token estimate for the quota counter.
   const reqMaxTokens: number =
-    clampInt(params.maxTokens, 1, grantedLlm.maxTokensPerCall ?? 4096)
-    ?? Math.min(4096, grantedLlm.maxTokensPerCall ?? 4096);
+    clampInt(params.maxTokens, 1, grantedLlm.maxTokensPerCall ?? 4096) ??
+    Math.min(4096, grantedLlm.maxTokensPerCall ?? 4096);
   const consumeResult = quota.consume(
     handlerCtx.actorExtensionId,
     {
       maxCallsPerHour: grantedLlm.maxCallsPerHour,
       maxCallsPerDay: grantedLlm.maxCallsPerDay,
-      ...(grantedLlm.maxTokensPerDay !== undefined ? { maxTokensPerDay: grantedLlm.maxTokensPerDay } : {}),
-      ...(grantedLlm.maxCostCentsPerDay !== undefined ? { maxCostCentsPerDay: grantedLlm.maxCostCentsPerDay } : {}),
+      ...(grantedLlm.maxTokensPerDay !== undefined
+        ? { maxTokensPerDay: grantedLlm.maxTokensPerDay }
+        : {}),
+      ...(grantedLlm.maxCostCentsPerDay !== undefined
+        ? { maxCostCentsPerDay: grantedLlm.maxCostCentsPerDay }
+        : {}),
     },
     { tokens: reqMaxTokens },
   );
@@ -294,7 +308,8 @@ export async function handlePiLlmComplete(
   try {
     const resolveModel = ctx.resolveModelFn ?? (await import("../providers/router")).resolveModel;
     resolved = await resolveModel(params.provider, params.model);
-    const getCredential = ctx.getCredentialFn ?? (await import("../providers/credentials")).getCredential;
+    const getCredential =
+      ctx.getCredentialFn ?? (await import("../providers/credentials")).getCredential;
     cred = await getCredential(resolved.provider, handlerCtx.conversationId ?? undefined);
   } catch (err) {
     quota.adjustTokens(handlerCtx.actorExtensionId, -reqMaxTokens);
@@ -334,7 +349,9 @@ export async function handlePiLlmComplete(
         apiKey: cred.token,
         ...(reqMaxTokens !== undefined ? { maxTokens: reqMaxTokens } : {}),
         ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
-        ...(grantedLlm.maxTimeoutMs !== undefined ? { timeoutMs: clampInt(params.timeoutMs, 1000, grantedLlm.maxTimeoutMs) } : {}),
+        ...(grantedLlm.maxTimeoutMs !== undefined
+          ? { timeoutMs: clampInt(params.timeoutMs, 1000, grantedLlm.maxTimeoutMs) }
+          : {}),
       },
     );
   } catch (err) {
@@ -354,7 +371,10 @@ export async function handlePiLlmComplete(
     return {
       jsonrpc: "2.0",
       id: req.id,
-      error: { code: -32105, message: `Provider call failed: ${String((err as Error)?.message ?? err)}` },
+      error: {
+        code: -32105,
+        message: `Provider call failed: ${String((err as Error)?.message ?? err)}`,
+      },
     };
   }
 
@@ -365,13 +385,14 @@ export async function handlePiLlmComplete(
     .join("");
   const inputTokens = upstream.usage?.input ?? 0;
   const outputTokens = upstream.usage?.output ?? 0;
-  const estCostCents = upstream.usage?.cost !== undefined ? Math.round(upstream.usage.cost * 100) : undefined;
+  const estCostCents =
+    upstream.usage?.cost !== undefined ? Math.round(upstream.usage.cost * 100) : undefined;
 
   // Reconcile the day-token counter from the speculative max-tokens
   // pre-booking to the ACTUAL total (input + output). Input tokens were
   // previously uncounted, letting an extension burn budget via huge
   // prompts; the cap is a total-token budget, so both sides count.
-  quota.adjustTokens(handlerCtx.actorExtensionId, (inputTokens + outputTokens) - reqMaxTokens);
+  quota.adjustTokens(handlerCtx.actorExtensionId, inputTokens + outputTokens - reqMaxTokens);
   // Record the actual spend so `maxCostCentsPerDay` is enforced on
   // subsequent calls. Only successful calls add cost.
   if (estCostCents !== undefined) {
@@ -379,11 +400,15 @@ export async function handlePiLlmComplete(
   }
 
   const finishReason: LlmCompleteResult["finishReason"] =
-    upstream.stopReason === "max_tokens" ? "max_tokens"
-    : upstream.stopReason === "tool_use" ? "tool_use"
-    : upstream.stopReason === "error" ? "error"
-    : upstream.stopReason === "filtered" ? "filtered"
-    : "stop";
+    upstream.stopReason === "max_tokens"
+      ? "max_tokens"
+      : upstream.stopReason === "tool_use"
+        ? "tool_use"
+        : upstream.stopReason === "error"
+          ? "error"
+          : upstream.stopReason === "filtered"
+            ? "filtered"
+            : "stop";
 
   const result: LlmCompleteResult = {
     content: text,

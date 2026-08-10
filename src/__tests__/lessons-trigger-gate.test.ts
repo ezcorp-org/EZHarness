@@ -105,16 +105,18 @@ describe("detectUserCorrection", () => {
   });
 
   test("scans every message in the array, not just the first", () => {
-    expect(detectUserCorrection(["First message", "second", "actually, here's the thing"])).toBe(true);
+    expect(detectUserCorrection(["First message", "second", "actually, here's the thing"])).toBe(
+      true,
+    );
   });
 
   test("ignores empty + non-string entries", () => {
     expect(detectUserCorrection(["", "actually, fix this"])).toBe(true);
     // Cast-through-unknown to test runtime defensiveness against
     // bad inputs (string[] only at the type level).
-    expect(
-      detectUserCorrection([null as unknown as string, undefined as unknown as string]),
-    ).toBe(false);
+    expect(detectUserCorrection([null as unknown as string, undefined as unknown as string])).toBe(
+      false,
+    );
   });
 
   test("returns false for an empty array", () => {
@@ -124,12 +126,7 @@ describe("detectUserCorrection", () => {
 
 describe("detectErrorRecovery", () => {
   test("returns true when an error is followed by a success", () => {
-    expect(
-      detectErrorRecovery([
-        { status: "error" },
-        { status: "ok" },
-      ]),
-    ).toBe(true);
+    expect(detectErrorRecovery([{ status: "error" }, { status: "ok" }])).toBe(true);
   });
 
   test("returns true when error → ok with intermediate noise", () => {
@@ -144,31 +141,17 @@ describe("detectErrorRecovery", () => {
   });
 
   test("returns false when only errors occur", () => {
-    expect(
-      detectErrorRecovery([
-        { status: "error" },
-        { status: "error" },
-      ]),
-    ).toBe(false);
+    expect(detectErrorRecovery([{ status: "error" }, { status: "error" }])).toBe(false);
   });
 
   test("returns false when only successes occur", () => {
-    expect(
-      detectErrorRecovery([
-        { status: "ok" },
-        { status: "ok" },
-      ]),
-    ).toBe(false);
+    expect(detectErrorRecovery([{ status: "ok" }, { status: "ok" }])).toBe(false);
   });
 
   test("returns false when error appears AFTER all successes", () => {
-    expect(
-      detectErrorRecovery([
-        { status: "ok" },
-        { status: "ok" },
-        { status: "error" },
-      ]),
-    ).toBe(false);
+    expect(detectErrorRecovery([{ status: "ok" }, { status: "ok" }, { status: "error" }])).toBe(
+      false,
+    );
   });
 
   test("returns false on empty input", () => {

@@ -112,28 +112,32 @@ describe("model-capabilities", () => {
     });
 
     test("duplicate MIMEs in the extension list dedupe", () => {
-      const caps = getCapabilitiesWithExtensions(
-        "anthropic",
-        "claude-sonnet-4-5",
-        [XLSX_MIME, XLSX_MIME, "application/x-vnd-foo", XLSX_MIME],
-      );
+      const caps = getCapabilitiesWithExtensions("anthropic", "claude-sonnet-4-5", [
+        XLSX_MIME,
+        XLSX_MIME,
+        "application/x-vnd-foo",
+        XLSX_MIME,
+      ]);
       const occurrences = caps.acceptedMimeTypes.filter((m) => m === XLSX_MIME);
       expect(occurrences).toHaveLength(1);
       expect(caps.acceptedMimeTypes).toContain("application/x-vnd-foo");
     });
 
     test("non-string entries in the extension MIME list are dropped", () => {
-      const caps = getCapabilitiesWithExtensions(
-        "anthropic",
-        "claude-sonnet-4-5",
-        ["", XLSX_MIME, null as unknown as string, undefined as unknown as string],
-      );
+      const caps = getCapabilitiesWithExtensions("anthropic", "claude-sonnet-4-5", [
+        "",
+        XLSX_MIME,
+        null as unknown as string,
+        undefined as unknown as string,
+      ]);
       expect(caps.acceptedMimeTypes).toContain(XLSX_MIME);
       expect(caps.acceptedMimeTypes).not.toContain("");
     });
 
     test("works on text-only models too — extension-handle is gated by capability, not modality", () => {
-      const caps = getCapabilitiesWithExtensions("my-custom-provider", "some-local-llm", [XLSX_MIME]);
+      const caps = getCapabilitiesWithExtensions("my-custom-provider", "some-local-llm", [
+        XLSX_MIME,
+      ]);
       expect(caps.kinds).not.toContain("image");
       expect(caps.kinds).toContain("extension-handle");
       expect(isMimeAccepted(caps, XLSX_MIME)).toBe(true);

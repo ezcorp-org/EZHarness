@@ -48,11 +48,9 @@ describe("(h) installer surfaces acceptsCallerCaps consent independently", () =>
   test("manifest acceptsCallerCaps: undefined + user submits true → grant blocked at clamp", () => {
     // Closes the elevation path: an admin submitting the flag against
     // an extension that did NOT declare it is silently dropped.
-    const out = clampExtensionPermissions(
-      { acceptsCallerCaps: true },
-      EMPTY_MANIFEST_PERMS,
-      { acceptsCallerCaps: undefined },
-    );
+    const out = clampExtensionPermissions({ acceptsCallerCaps: true }, EMPTY_MANIFEST_PERMS, {
+      acceptsCallerCaps: undefined,
+    });
     expect(out.acceptsCallerCaps).toBeUndefined();
   });
 });
@@ -61,21 +59,17 @@ describe("(h) installer surfaces acceptsCallerCaps consent independently", () =>
 
 describe("(i) installer surfaces escalateChildCaps consent independently", () => {
   test("manifest escalateChildCaps: true + user opts in → grant has it", () => {
-    const out = clampExtensionPermissions(
-      { escalateChildCaps: true },
-      EMPTY_MANIFEST_PERMS,
-      { escalateChildCaps: true },
-    );
+    const out = clampExtensionPermissions({ escalateChildCaps: true }, EMPTY_MANIFEST_PERMS, {
+      escalateChildCaps: true,
+    });
     expect(out.escalateChildCaps).toBe(true);
     expect(out.acceptsCallerCaps).toBeUndefined();
   });
 
   test("manifest escalateChildCaps: undefined + user submits true → blocked", () => {
-    const out = clampExtensionPermissions(
-      { escalateChildCaps: true },
-      EMPTY_MANIFEST_PERMS,
-      { escalateChildCaps: undefined },
-    );
+    const out = clampExtensionPermissions({ escalateChildCaps: true }, EMPTY_MANIFEST_PERMS, {
+      escalateChildCaps: undefined,
+    });
     expect(out.escalateChildCaps).toBeUndefined();
   });
 });

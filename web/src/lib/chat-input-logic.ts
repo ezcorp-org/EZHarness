@@ -1,15 +1,15 @@
 export function isChatDisabled(streaming: boolean, connectionState: string): boolean {
-	return streaming || connectionState !== "connected";
+  return streaming || connectionState !== "connected";
 }
 
 export function chatPlaceholder(connectionState: string, defaultPlaceholder: string): string {
-	return connectionState !== "connected" ? "Reconnecting..." : defaultPlaceholder;
+  return connectionState !== "connected" ? "Reconnecting..." : defaultPlaceholder;
 }
 
 export function shouldAutofocusComposer(args: {
-	loaded: boolean;
-	messageCount: number;
-	disabled: boolean;
+  loaded: boolean;
+  messageCount: number;
+  disabled: boolean;
 }): boolean {
-	return args.loaded && args.messageCount === 0 && !args.disabled;
+  return args.loaded && args.messageCount === 0 && !args.disabled;
 }

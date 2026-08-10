@@ -1,11 +1,11 @@
-import { stringifyToolOutput } from './tool-output.js';
+import { stringifyToolOutput } from "./tool-output.js";
 
 export interface InlineToolCall {
-  id: string;              // client-generated invocationId
+  id: string; // client-generated invocationId
   extensionName: string;
   toolName: string;
   input: Record<string, unknown>;
-  status: 'pending' | 'running' | 'complete' | 'error';
+  status: "pending" | "running" | "complete" | "error";
   output?: string;
   error?: string;
   retryCount: number;
@@ -17,7 +17,7 @@ export interface InlineToolCall {
   /** "inline" | "dock" — the chat UI's DockHost reads this to decide
    *  whether to auto-open a docked card on completion. NULL/undefined
    *  is treated as "inline" by `shouldRenderInDock` (utils.ts). */
-  cardLayout?: 'inline' | 'dock';
+  cardLayout?: "inline" | "dock";
   /**
    * Where this entry came from:
    *   'inline'    — user-initiated invocation from the client (default).
@@ -28,56 +28,59 @@ export interface InlineToolCall {
    *                 Diff Summary panel (via the conversationId bucket).
    *                 On hydration the persisted row replaces it.
    */
-  source?: 'inline' | 'agent-run';
+  source?: "inline" | "agent-run";
 }
 
 class InlineToolStore {
   calls = $state<InlineToolCall[]>([]);
 
-  add(call: Omit<InlineToolCall, 'status' | 'retryCount'>): void {
-    this.calls = [...this.calls, { ...call, status: 'pending', retryCount: 0 }];
+  add(call: Omit<InlineToolCall, "status" | "retryCount">): void {
+    this.calls = [...this.calls, { ...call, status: "pending", retryCount: 0 }];
   }
 
   updateFromEvent(invocationId: string, eventType: string, data: Record<string, unknown>): void {
-    const idx = this.calls.findIndex(c => c.id === invocationId);
+    const idx = this.calls.findIndex((c) => c.id === invocationId);
     if (idx < 0) return;
 
     const call = this.calls[idx]!;
     const updated = [...this.calls];
 
     switch (eventType) {
-      case 'tool:start': {
-        const startUpdate: Partial<InlineToolCall> = { status: 'running', startedAt: data.timestamp as number };
+      case "tool:start": {
+        const startUpdate: Partial<InlineToolCall> = {
+          status: "running",
+          startedAt: data.timestamp as number,
+        };
         if (data.cardType) startUpdate.cardType = data.cardType as string;
-        if (data.cardLayout === 'dock' || data.cardLayout === 'inline') {
-          startUpdate.cardLayout = data.cardLayout as 'inline' | 'dock';
+        if (data.cardLayout === "dock" || data.cardLayout === "inline") {
+          startUpdate.cardLayout = data.cardLayout as "inline" | "dock";
         }
         updated[idx] = { ...call, ...startUpdate };
         break;
       }
-      case 'tool:complete': {
+      case "tool:complete": {
         const completeUpdate: Partial<InlineToolCall> = {
-          status: 'complete',
+          status: "complete",
           output: stringifyToolOutput(data.output),
           duration: data.duration as number,
         };
         if (data.cardType) completeUpdate.cardType = data.cardType as string;
-        if (data.cardLayout === 'dock' || data.cardLayout === 'inline') {
-          completeUpdate.cardLayout = data.cardLayout as 'inline' | 'dock';
+        if (data.cardLayout === "dock" || data.cardLayout === "inline") {
+          completeUpdate.cardLayout = data.cardLayout as "inline" | "dock";
         }
         updated[idx] = { ...call, ...completeUpdate };
         break;
       }
-      case 'tool:error': {
+      case "tool:error": {
         const errorUpdate: Partial<InlineToolCall> = {
-          status: 'error',
+          status: "error",
           error: stringifyToolOutput(data.error),
           duration: data.duration as number,
           retryCount: call.retryCount + 1,
         };
         if (data.cardType) errorUpdate.cardType = data.cardType as string;
-        if (data.cardLayout === 'dock' || data.cardLayout === 'inline') {
-          errorUpdate.cardLayout = data.cardLayout as 'inline' | 'dock';
+        if (data.cardLayout === "dock" || data.cardLayout === "inline") {
+          errorUpdate.cardLayout = data.cardLayout as "inline" | "dock";
         }
         updated[idx] = { ...call, ...errorUpdate };
         break;
@@ -88,19 +91,19 @@ class InlineToolStore {
   }
 
   getByConversation(conversationId: string): InlineToolCall[] {
-    return this.calls.filter(c => c.conversationId === conversationId);
+    return this.calls.filter((c) => c.conversationId === conversationId);
   }
 
   getById(id: string): InlineToolCall | undefined {
-    return this.calls.find(c => c.id === id);
+    return this.calls.find((c) => c.id === id);
   }
 
   getByMessage(messageId: string): InlineToolCall[] {
-    return this.calls.filter(c => c.messageId === messageId);
+    return this.calls.filter((c) => c.messageId === messageId);
   }
 
   remove(id: string): void {
-    this.calls = this.calls.filter(c => c.id !== id);
+    this.calls = this.calls.filter((c) => c.id !== id);
   }
 
   /**
@@ -125,26 +128,29 @@ class InlineToolStore {
      *  the entry's existing input is preserved when tool:complete arrives
      *  (the complete event doesn't carry input). */
     input?: Record<string, unknown>;
-    status: InlineToolCall['status'];
+    status: InlineToolCall["status"];
     startedAt?: number;
     duration?: number;
     output?: string;
     error?: string;
     cardType?: string;
-    cardLayout?: 'inline' | 'dock';
+    cardLayout?: "inline" | "dock";
     messageId?: string;
     /** Defaults to 'agent-run' since this path is only called by the SSE
      *  event handler for non-inline tool events. */
-    source?: InlineToolCall['source'];
+    source?: InlineToolCall["source"];
   }): void {
-    const idx = this.calls.findIndex(c => c.id === entry.id);
+    const idx = this.calls.findIndex((c) => c.id === entry.id);
     if (idx < 0) {
-      this.calls = [...this.calls, {
-        retryCount: 0,
-        input: entry.input ?? {},
-        source: 'agent-run',
-        ...entry,
-      }];
+      this.calls = [
+        ...this.calls,
+        {
+          retryCount: 0,
+          input: entry.input ?? {},
+          source: "agent-run",
+          ...entry,
+        },
+      ];
       return;
     }
     const existing = this.calls[idx]!;
@@ -164,39 +170,50 @@ class InlineToolStore {
    * Hydrate historical tool calls from API response.
    * Replaces any existing calls for this conversation with DB-backed state.
    */
-  hydrateToolCalls(conversationId: string, toolCalls: Array<{
-    id: string;
-    extensionId: string;
-    toolName: string;
-    input: Record<string, unknown> | null;
-    outputSummary: string | null;
-    success: boolean;
-    durationMs: number;
-    status: "success" | "error" | "interrupted";
-    messageId?: string;
-    cardType?: string | null;
-    cardLayout?: string | null;
-    fullOutput?: string | null;
-  }>): void {
+  hydrateToolCalls(
+    conversationId: string,
+    toolCalls: Array<{
+      id: string;
+      extensionId: string;
+      toolName: string;
+      input: Record<string, unknown> | null;
+      outputSummary: string | null;
+      success: boolean;
+      durationMs: number;
+      status: "success" | "error" | "interrupted";
+      messageId?: string;
+      cardType?: string | null;
+      cardLayout?: string | null;
+      fullOutput?: string | null;
+    }>,
+  ): void {
     // Remove existing calls for this conversation (streaming ones get replaced by DB state)
-    const otherCalls = this.calls.filter(c => c.conversationId !== conversationId);
-    const hydrated: InlineToolCall[] = toolCalls.map(tc => ({
+    const otherCalls = this.calls.filter((c) => c.conversationId !== conversationId);
+    const hydrated: InlineToolCall[] = toolCalls.map((tc) => ({
       id: tc.id,
       extensionName: tc.extensionId,
       toolName: tc.toolName,
       input: tc.input ?? {},
-      status: tc.status === "interrupted" ? "error" as const
-        : tc.status === "error" ? "error" as const
-        : "complete" as const,
+      status:
+        tc.status === "interrupted"
+          ? ("error" as const)
+          : tc.status === "error"
+            ? ("error" as const)
+            : ("complete" as const),
       output: tc.fullOutput ?? tc.outputSummary ?? undefined,
-      error: tc.status === "interrupted" ? "interrupted"
-        : tc.status === "error" ? "Error" : undefined,
+      error:
+        tc.status === "interrupted" ? "interrupted" : tc.status === "error" ? "Error" : undefined,
       retryCount: 0,
       duration: tc.durationMs,
       conversationId,
       messageId: tc.messageId,
       cardType: tc.cardType ?? undefined,
-      cardLayout: tc.cardLayout === 'dock' ? 'dock' as const : tc.cardLayout === 'inline' ? 'inline' as const : undefined,
+      cardLayout:
+        tc.cardLayout === "dock"
+          ? ("dock" as const)
+          : tc.cardLayout === "inline"
+            ? ("inline" as const)
+            : undefined,
     }));
     this.calls = [...otherCalls, ...hydrated];
   }

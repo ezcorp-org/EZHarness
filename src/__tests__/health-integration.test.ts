@@ -25,7 +25,9 @@ describe("buildHealthResponse — DB error resilience", () => {
   test("DB query throws → returns degraded, no crash", async () => {
     mock.module("../db/connection", () => ({
       getPglite: () => ({
-        query: () => { throw new Error("connection refused"); },
+        query: () => {
+          throw new Error("connection refused");
+        },
       }),
       getDb: () => ({}),
       initDb: mock(() => Promise.resolve()),
@@ -180,9 +182,11 @@ describe("buildHealthResponse — provider detection", () => {
 
   test("apiKey present → configured", async () => {
     mock.module("../db/queries/settings", () => ({
-      getAllSettings: mock(() => Promise.resolve({
-        "provider:apiKey:anthropic": "sk-ant-xxx",
-      })),
+      getAllSettings: mock(() =>
+        Promise.resolve({
+          "provider:apiKey:anthropic": "sk-ant-xxx",
+        }),
+      ),
     }));
 
     const { buildHealthResponse } = await import("../health");
@@ -195,9 +199,11 @@ describe("buildHealthResponse — provider detection", () => {
 
   test("oauth token present → configured", async () => {
     mock.module("../db/queries/settings", () => ({
-      getAllSettings: mock(() => Promise.resolve({
-        "provider:oauth:google": "ya29.xxx",
-      })),
+      getAllSettings: mock(() =>
+        Promise.resolve({
+          "provider:oauth:google": "ya29.xxx",
+        }),
+      ),
     }));
 
     const { buildHealthResponse } = await import("../health");
@@ -221,9 +227,11 @@ describe("buildHealthResponse — provider detection", () => {
 
   test("openrouter apiKey present → configured (openrouter included in detail)", async () => {
     mock.module("../db/queries/settings", () => ({
-      getAllSettings: mock(() => Promise.resolve({
-        "provider:apiKey:openrouter": "sk-or-xxx",
-      })),
+      getAllSettings: mock(() =>
+        Promise.resolve({
+          "provider:apiKey:openrouter": "sk-or-xxx",
+        }),
+      ),
     }));
 
     const { buildHealthResponse } = await import("../health");
@@ -280,10 +288,12 @@ describe("Executor — memory_unavailable emission", () => {
     }));
     // Mock all executor dependencies
     mock.module("../providers/router", () => ({
-      resolveModel: mock(() => Promise.resolve({
-        provider: "anthropic",
-        piModel: { id: "claude-3", provider: "anthropic" },
-      })),
+      resolveModel: mock(() =>
+        Promise.resolve({
+          provider: "anthropic",
+          piModel: { id: "claude-3", provider: "anthropic" },
+        }),
+      ),
       ProviderUnavailableError: class extends Error {
         failedProvider = "";
         failedModel = "";
@@ -347,10 +357,15 @@ describe("Executor — memory_unavailable emission", () => {
         state = { error: null };
         subscribe(fn: any) {
           // Simulate a text response
-          fn({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "hi" } });
+          fn({
+            type: "message_update",
+            assistantMessageEvent: { type: "text_delta", delta: "hi" },
+          });
           return () => {};
         }
-        prompt() { return Promise.resolve(); }
+        prompt() {
+          return Promise.resolve();
+        }
         abort() {}
       },
     }));
@@ -370,9 +385,7 @@ describe("Executor — memory_unavailable emission", () => {
       model: "claude-3",
     });
 
-    const memUnavailable = statusEvents.find(
-      (e) => e.status === "memory_unavailable"
-    );
+    const memUnavailable = statusEvents.find((e) => e.status === "memory_unavailable");
     expect(memUnavailable).toBeDefined();
     expect(memUnavailable.degraded).toBe(true);
     expect(memUnavailable.message).toContain("unavailable");

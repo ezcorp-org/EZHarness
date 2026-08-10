@@ -25,11 +25,12 @@ afterEach(() => {
 });
 
 function makeFetch(body: unknown, ok = true): typeof fetch {
-  return vi.fn(async () =>
-    new Response(JSON.stringify(body), {
-      status: ok ? 200 : 500,
-      headers: { "content-type": "application/json" },
-    }),
+  return vi.fn(
+    async () =>
+      new Response(JSON.stringify(body), {
+        status: ok ? 200 : 500,
+        headers: { "content-type": "application/json" },
+      }),
   ) as unknown as typeof fetch;
 }
 
@@ -78,9 +79,7 @@ describe("conversation +layout.ts load()", () => {
 
     await (load as any)({ fetch: fetchMock });
 
-    expect(loadExtensionSettings.mock.calls.map((c) => c[0])).toEqual([
-      "kokoro-tts",
-    ]);
+    expect(loadExtensionSettings.mock.calls.map((c) => c[0])).toEqual(["kokoro-tts"]);
   });
 
   test("non-fatal on /api/extensions failure", async () => {

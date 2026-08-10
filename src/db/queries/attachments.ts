@@ -11,7 +11,11 @@ export async function insertAttachment(data: NewMessageAttachment): Promise<Mess
 
 export async function getAttachment(id: string): Promise<MessageAttachment | null> {
   const db = getDb();
-  const rows = await db.select().from(messageAttachments).where(eq(messageAttachments.id, id)).limit(1);
+  const rows = await db
+    .select()
+    .from(messageAttachments)
+    .where(eq(messageAttachments.id, id))
+    .limit(1);
   return rows[0] ?? null;
 }
 
@@ -20,23 +24,41 @@ export async function listAttachmentsForMessage(messageId: string): Promise<Mess
   return db.select().from(messageAttachments).where(eq(messageAttachments.messageId, messageId));
 }
 
-export async function listAttachmentsForMessages(messageIds: string[]): Promise<MessageAttachment[]> {
+export async function listAttachmentsForMessages(
+  messageIds: string[],
+): Promise<MessageAttachment[]> {
   if (messageIds.length === 0) return [];
   const db = getDb();
-  return db.select().from(messageAttachments).where(inArray(messageAttachments.messageId, messageIds));
+  return db
+    .select()
+    .from(messageAttachments)
+    .where(inArray(messageAttachments.messageId, messageIds));
 }
 
-export async function listAttachmentsForConversation(conversationId: string): Promise<MessageAttachment[]> {
+export async function listAttachmentsForConversation(
+  conversationId: string,
+): Promise<MessageAttachment[]> {
   const db = getDb();
-  return db.select().from(messageAttachments).where(eq(messageAttachments.conversationId, conversationId));
+  return db
+    .select()
+    .from(messageAttachments)
+    .where(eq(messageAttachments.conversationId, conversationId));
 }
 
 export async function deleteAttachmentsForMessage(messageId: string): Promise<MessageAttachment[]> {
   const db = getDb();
-  return db.delete(messageAttachments).where(eq(messageAttachments.messageId, messageId)).returning();
+  return db
+    .delete(messageAttachments)
+    .where(eq(messageAttachments.messageId, messageId))
+    .returning();
 }
 
-export async function deleteAttachmentsForConversation(conversationId: string): Promise<MessageAttachment[]> {
+export async function deleteAttachmentsForConversation(
+  conversationId: string,
+): Promise<MessageAttachment[]> {
   const db = getDb();
-  return db.delete(messageAttachments).where(eq(messageAttachments.conversationId, conversationId)).returning();
+  return db
+    .delete(messageAttachments)
+    .where(eq(messageAttachments.conversationId, conversationId))
+    .returning();
 }

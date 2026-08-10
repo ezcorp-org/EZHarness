@@ -56,9 +56,7 @@ describe("pickSpawnAgentConfig — happy path field selection", () => {
 
     const out = pickSpawnAgentConfig(stored);
 
-    expect(Object.keys(out).sort()).toEqual(
-      ["id", "name", "prompt", "model", "provider"].sort(),
-    );
+    expect(Object.keys(out).sort()).toEqual(["id", "name", "prompt", "model", "provider"].sort());
     expect(out).not.toHaveProperty("createdAt");
     expect(out).not.toHaveProperty("updatedAt");
     expect(out).not.toHaveProperty("ownerUserId");

@@ -33,7 +33,11 @@ function isRedirect(err: unknown): err is { status: number; location: string } {
   );
 }
 
-async function expectRedirect(fn: () => Promise<unknown>, expectedStatus: number, expectedLocation: string) {
+async function expectRedirect(
+  fn: () => Promise<unknown>,
+  expectedStatus: number,
+  expectedLocation: string,
+) {
   try {
     await fn();
     throw new Error("Expected redirect to be thrown");
@@ -63,9 +67,13 @@ async function makeExpiredSessionCookie(): Promise<string> {
 
 // ── Setup / Teardown ─────────────────────────────────────────────────
 
-beforeAll(async () => { await setupTestDb(); });
+beforeAll(async () => {
+  await setupTestDb();
+});
 afterAll(async () => {
-  restoreModuleMocks(); await closeTestDb(); });
+  restoreModuleMocks();
+  await closeTestDb();
+});
 
 beforeEach(async () => {
   _resetSecretCache();
@@ -102,7 +110,12 @@ describe("Login / Setup redirect chain", () => {
   });
 
   test("setup redirects to /login when users exist", async () => {
-    await createUser({ email: "admin@test.local", passwordHash: "h", name: "Admin", role: "admin" });
+    await createUser({
+      email: "admin@test.local",
+      passwordHash: "h",
+      name: "Admin",
+      role: "admin",
+    });
     const event = createMockEvent({ url: "http://localhost/setup" });
     await expectRedirect(() => setupLoad(event as any), 302, "/login");
   });
@@ -114,7 +127,12 @@ describe("Login / Setup redirect chain", () => {
   });
 
   test("login returns default returnTo when users exist and no session (no redirect)", async () => {
-    await createUser({ email: "admin@test.local", passwordHash: "h", name: "Admin", role: "admin" });
+    await createUser({
+      email: "admin@test.local",
+      passwordHash: "h",
+      name: "Admin",
+      role: "admin",
+    });
     const event = createMockEvent({ url: "http://localhost/login" });
     const result = await loginLoad(event as any);
     expect(result).toEqual({ returnTo: "/" });
@@ -145,7 +163,12 @@ describe("Login / Setup redirect chain", () => {
 
 describe("Session-based redirects for authenticated users", () => {
   beforeEach(async () => {
-    await createUser({ email: ADMIN_USER.email, passwordHash: "h", name: ADMIN_USER.name, role: "admin" });
+    await createUser({
+      email: ADMIN_USER.email,
+      passwordHash: "h",
+      name: ADMIN_USER.name,
+      role: "admin",
+    });
   });
 
   test("login redirects to / when user has valid JWT + live session row", async () => {
@@ -181,7 +204,11 @@ describe("Session-based redirects for authenticated users", () => {
 
   test("signup redirects to / when user has valid JWT + live session row", async () => {
     const admin = (await getTestDb().select().from(users))[0]!;
-    const invite = await createInvite({ email: "new@test.local", role: "member", createdBy: admin.id });
+    const invite = await createInvite({
+      email: "new@test.local",
+      role: "member",
+      createdBy: admin.id,
+    });
     const token = await makeValidSessionCookie();
     await persistSessionFor(token, admin.id);
 
@@ -195,7 +222,11 @@ describe("Session-based redirects for authenticated users", () => {
 
   test("signup does NOT redirect with an invalid session token", async () => {
     const admin = (await getTestDb().select().from(users))[0]!;
-    const invite = await createInvite({ email: "new@test.local", role: "member", createdBy: admin.id });
+    const invite = await createInvite({
+      email: "new@test.local",
+      role: "member",
+      createdBy: admin.id,
+    });
 
     const event = createMockEvent({
       url: `http://localhost/signup/${invite.token}`,
@@ -234,7 +265,12 @@ describe("Session-based redirects for authenticated users", () => {
 
 describe("sec-C2 loop guard: auth pages honor session row existence", () => {
   beforeEach(async () => {
-    await createUser({ email: ADMIN_USER.email, passwordHash: "h", name: ADMIN_USER.name, role: "admin" });
+    await createUser({
+      email: ADMIN_USER.email,
+      passwordHash: "h",
+      name: ADMIN_USER.name,
+      role: "admin",
+    });
   });
 
   test("login does NOT redirect when JWT is valid but session row is missing", async () => {
@@ -290,7 +326,11 @@ describe("sec-C2 loop guard: auth pages honor session row existence", () => {
 
   test("signup does NOT redirect when JWT is valid but session row is missing", async () => {
     const admin = (await getTestDb().select().from(users))[0]!;
-    const invite = await createInvite({ email: "new@test.local", role: "member", createdBy: admin.id });
+    const invite = await createInvite({
+      email: "new@test.local",
+      role: "member",
+      createdBy: admin.id,
+    });
     const token = await makeValidSessionCookie();
 
     const event = createMockEvent({
@@ -307,7 +347,11 @@ describe("sec-C2 loop guard: auth pages honor session row existence", () => {
 
   test("signup clears the stale ezcorp_session cookie when session row is missing", async () => {
     const admin = (await getTestDb().select().from(users))[0]!;
-    const invite = await createInvite({ email: "new@test.local", role: "member", createdBy: admin.id });
+    const invite = await createInvite({
+      email: "new@test.local",
+      role: "member",
+      createdBy: admin.id,
+    });
     const token = await makeValidSessionCookie();
 
     const event = createMockEvent({
@@ -328,12 +372,21 @@ describe("Signup token validation", () => {
   let adminId: string;
 
   beforeEach(async () => {
-    const admin = await createUser({ email: "admin@test.local", passwordHash: "h", name: "Admin", role: "admin" });
+    const admin = await createUser({
+      email: "admin@test.local",
+      passwordHash: "h",
+      name: "Admin",
+      role: "admin",
+    });
     adminId = admin.id;
   });
 
   test("valid token returns invite data with email and role", async () => {
-    const invite = await createInvite({ email: "invited@test.local", role: "member", createdBy: adminId });
+    const invite = await createInvite({
+      email: "invited@test.local",
+      role: "member",
+      createdBy: adminId,
+    });
     const event = createMockEvent({
       url: `http://localhost/signup/${invite.token}`,
       params: { token: invite.token },
@@ -346,7 +399,11 @@ describe("Signup token validation", () => {
   });
 
   test("valid token with admin role returns role: admin", async () => {
-    const invite = await createInvite({ email: "newadmin@test.local", role: "admin", createdBy: adminId });
+    const invite = await createInvite({
+      email: "newadmin@test.local",
+      role: "admin",
+      createdBy: adminId,
+    });
     const event = createMockEvent({
       url: `http://localhost/signup/${invite.token}`,
       params: { token: invite.token },
@@ -365,7 +422,11 @@ describe("Signup token validation", () => {
   });
 
   test("used/consumed token redirects to /login", async () => {
-    const invite = await createInvite({ email: "consumed@test.local", role: "member", createdBy: adminId });
+    const invite = await createInvite({
+      email: "consumed@test.local",
+      role: "member",
+      createdBy: adminId,
+    });
     await markInviteUsed(invite.id);
 
     const event = createMockEvent({
@@ -421,8 +482,17 @@ describe("Public paths - auth pages accessible without session", () => {
   });
 
   test("/signup/[token] is accessible with valid token and no session", async () => {
-    const admin = await createUser({ email: "admin@test.local", passwordHash: "h", name: "Admin", role: "admin" });
-    const invite = await createInvite({ email: "new@test.local", role: "member", createdBy: admin.id });
+    const admin = await createUser({
+      email: "admin@test.local",
+      passwordHash: "h",
+      name: "Admin",
+      role: "admin",
+    });
+    const invite = await createInvite({
+      email: "new@test.local",
+      role: "member",
+      createdBy: admin.id,
+    });
 
     const event = createMockEvent({
       url: `http://localhost/signup/${invite.token}`,
@@ -434,12 +504,19 @@ describe("Public paths - auth pages accessible without session", () => {
   });
 
   test("hooks PUBLIC_PATHS correctly identifies public vs protected routes", () => {
-    const PUBLIC_PATHS = ["/login", "/setup", "/signup", "/api/auth/login", "/api/auth/setup", "/api/auth/invite"];
+    const PUBLIC_PATHS = [
+      "/login",
+      "/setup",
+      "/signup",
+      "/api/auth/login",
+      "/api/auth/setup",
+      "/api/auth/invite",
+    ];
     const isPublic = (pathname: string) =>
-      PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + "/"))
-      || pathname.startsWith("/_app/")
-      || pathname.startsWith("/favicon")
-      || pathname === "/ws";
+      PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
+      pathname.startsWith("/_app/") ||
+      pathname.startsWith("/favicon") ||
+      pathname === "/ws";
 
     // Public paths
     expect(isPublic("/login")).toBe(true);

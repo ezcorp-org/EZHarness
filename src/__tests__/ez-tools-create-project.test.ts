@@ -18,7 +18,9 @@ import { expectDetails, expectJson, expectText } from "./helpers/expect-tool-res
 mockDbConnection();
 
 const { createUser } = await import("../db/queries/users");
-const { createProposeCreateProjectTool } = await import("../runtime/tools/ez/propose-create-project");
+const { createProposeCreateProjectTool } = await import(
+  "../runtime/tools/ez/propose-create-project"
+);
 const { getDraft } = await import("../db/queries/ez-drafts");
 const { getDb } = await import("../db/connection");
 const { ezDrafts } = await import("../db/schema");
@@ -47,7 +49,11 @@ afterAll(async () => {
 describe("propose_create_project", () => {
   test("happy path: persists draft and returns { draftId, openUrl }", async () => {
     const tool = createProposeCreateProjectTool({ userId });
-    const result = await tool.execute("call-1", { name: "My App", path: "./my-app", description: "Test" });
+    const result = await tool.execute("call-1", {
+      name: "My App",
+      path: "./my-app",
+      description: "Test",
+    });
 
     const parsed = expectJson<{ draftId: string; openUrl: string }>(result);
     expect(parsed.draftId).toBeDefined();
@@ -96,7 +102,11 @@ describe("propose_create_project", () => {
   });
 
   test("draft is owned by the acting user (cross-user lookup returns undefined)", async () => {
-    const otherUser = await createUser({ email: "ez-create-proj-other@test.com", passwordHash: "h", name: "Other" });
+    const otherUser = await createUser({
+      email: "ez-create-proj-other@test.com",
+      passwordHash: "h",
+      name: "Other",
+    });
     const tool = createProposeCreateProjectTool({ userId });
     const result = await tool.execute("call-6", { name: "Owned", path: "/tmp/owned" });
     const { draftId } = expectJson<{ draftId: string }>(result);
@@ -108,12 +118,15 @@ describe("propose_create_project", () => {
     // Sanity: every executed call so far has produced an ez_drafts row,
     // and nothing else. Count drafts owned by the test user and assert
     // it matches our successful invocations (5 successful, 2 errored).
-    const rows = await getDb().select().from(ezDrafts).where(
-      // drizzle helper-free count via length filter — keeps the test
-      // independent of the exact `where` shape upstream.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (ezDrafts as any).userId !== undefined ? undefined : (undefined as any),
-    );
+    const rows = await getDb()
+      .select()
+      .from(ezDrafts)
+      .where(
+        // drizzle helper-free count via length filter — keeps the test
+        // independent of the exact `where` shape upstream.
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (ezDrafts as any).userId !== undefined ? undefined : (undefined as any),
+      );
     // We don't assert exact count cross-test (other suites share the
     // module). Just confirm we have at least the 4 we created above
     // (tests 1, 2, 5, 6).

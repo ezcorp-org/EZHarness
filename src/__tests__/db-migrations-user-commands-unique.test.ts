@@ -114,11 +114,7 @@ describe("user_commands UNIQUE(user_id, name) migration", () => {
     const rows = (await db.execute(
       sql`SELECT id, name FROM user_commands WHERE user_id = 'u_y' ORDER BY created_at`,
     )) as { rows: { id: string; name: string }[] };
-    expect(rows.rows.map((r) => r.name)).toEqual([
-      "review",
-      "review-2",
-      "review-3",
-    ]);
+    expect(rows.rows.map((r) => r.name)).toEqual(["review", "review-2", "review-3"]);
   });
 
   test("pre-flight is per-user — two users with the same name keep their unsuffixed names", async () => {

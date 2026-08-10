@@ -71,9 +71,7 @@ afterEach(() => {
 });
 
 function fireHostBound(): void {
-  const rec = captured.find(
-    (t) => !t.cleared && t.ms === HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS,
-  );
+  const rec = captured.find((t) => !t.cleared && t.ms === HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS);
   if (!rec) throw new Error("host bound timer not armed");
   rec.cleared = true;
   rec.fn();
@@ -89,17 +87,11 @@ async function waitFor(cond: () => boolean, label = "cond"): Promise<void> {
 }
 
 function makeStubProc(): {
-  installedRequestHandler:
-    | ((req: JsonRpcRequest) => Promise<JsonRpcResponse>)
-    | null;
+  installedRequestHandler: ((req: JsonRpcRequest) => Promise<JsonRpcResponse>) | null;
 } & ExtensionProcess {
   const proc: {
-    installedRequestHandler:
-      | ((req: JsonRpcRequest) => Promise<JsonRpcResponse>)
-      | null;
-    setRequestHandler: (
-      h: (req: JsonRpcRequest) => Promise<JsonRpcResponse>,
-    ) => void;
+    installedRequestHandler: ((req: JsonRpcRequest) => Promise<JsonRpcResponse>) | null;
+    setRequestHandler: (h: (req: JsonRpcRequest) => Promise<JsonRpcResponse>) => void;
     setNotificationHandler: (h: (n: unknown) => void) => void;
   } = {
     installedRequestHandler: null,
@@ -129,10 +121,7 @@ function makeRegistry(): ExtensionRegistry {
 describe("Phase 3 regression: createDraft stall is bounded by Phase 1 (fast visible error, no 90s hang)", () => {
   test("a stalled createDraft → ezcorp/drafts.create replies -32603 within the host bound", async () => {
     const startedAt = Date.now();
-    const executor = new ToolExecutor(
-      makeRegistry(),
-      createStubPermissionEngine(),
-    );
+    const executor = new ToolExecutor(makeRegistry(), createStubPermissionEngine());
     const proc = makeStubProc();
     await executor.ensureSubprocessRpcWired("extension-author", proc);
     const handler = proc.installedRequestHandler!;
@@ -165,10 +154,7 @@ describe("Phase 3 regression: createDraft stall is bounded by Phase 1 (fast visi
     // createDraft (mocked: never resolves). It's now stuck exactly like
     // prod. The Phase-1 bound is the only thing that can settle it.
     await waitFor(
-      () =>
-        captured.some(
-          (t) => !t.cleared && t.ms === HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS,
-        ),
+      () => captured.some((t) => !t.cleared && t.ms === HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS),
       "host bound armed",
     );
     fireHostBound();
@@ -178,9 +164,7 @@ describe("Phase 3 regression: createDraft stall is bounded by Phase 1 (fast visi
 
     // Fast, visible -32603 — NOT a hang, NOT the 90s watchdog.
     expect(resp.error?.code).toBe(-32603);
-    expect(resp.error?.message).toMatch(
-      /Host handler for "ezcorp\/drafts" timed out after \d+ms/,
-    );
+    expect(resp.error?.message).toMatch(/Host handler for "ezcorp\/drafts" timed out after \d+ms/);
     expect("result" in resp).toBe(false);
     expect(elapsed).toBeLessThan(90_000);
     // The bound is comfortably below the 90s watchdog idle threshold.

@@ -55,12 +55,8 @@ describe("regenerate-manifest-lock --check", () => {
     const decision = computeCheckDecision(diff);
     expect(decision.exitCode).toBe(1);
     expect(decision.message).toContain("+ newcomer");
-    expect(decision.message).toContain(
-      "manifest.lock.json is out of date",
-    );
-    expect(decision.message).toContain(
-      "Run `bun run scripts/regenerate-manifest-lock.ts`",
-    );
+    expect(decision.message).toContain("manifest.lock.json is out of date");
+    expect(decision.message).toContain("Run `bun run scripts/regenerate-manifest-lock.ts`");
   });
 
   test("removed extension → exit 1 with remediation hint", () => {

@@ -114,7 +114,9 @@ function parseColumnActionMap(
         // statusOptions were never persisted (knownIds empty) to avoid
         // breaking existing configurations.
         if (knownIds.size > 0 && !knownIds.has(v.doneStatusOptionId)) {
-          return { error: `columnActionMap[${optionId}].doneStatusOptionId is not a valid status option for this board` };
+          return {
+            error: `columnActionMap[${optionId}].doneStatusOptionId is not a valid status option for this board`,
+          };
         }
         entry.doneStatusOptionId = v.doneStatusOptionId;
       }

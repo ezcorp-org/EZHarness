@@ -82,11 +82,10 @@ mock.module("../db/queries/extensions", () => ({
 afterAll(() => restoreModuleMocks());
 
 // Import AFTER the mocks so the installer resolves to the stubbed queries.
-const { ensureBundledExtensions, resolveBundledExtensions, isBundledExtensionName } =
-  await import("../extensions/bundled");
-const { clampToBundledCeiling, getCeiling } = await import(
-  "../extensions/bundled-ceiling"
+const { ensureBundledExtensions, resolveBundledExtensions, isBundledExtensionName } = await import(
+  "../extensions/bundled"
 );
+const { clampToBundledCeiling, getCeiling } = await import("../extensions/bundled-ceiling");
 
 beforeEach(() => {
   store = new Map();
@@ -154,12 +153,7 @@ describe("bundled ceiling — ez-code intersection is lossless", () => {
     // Every capability survives the intersection.
     expect(effective.spawnAgents).toEqual({ maxPerHour: 30, maxConcurrent: 6 });
     expect(new Set(effective.eventSubscriptions)).toEqual(
-      new Set([
-        "task:assignment_update",
-        "ez-code:steer",
-        "ez-code:cancel",
-        "ez-code:open-pr",
-      ]),
+      new Set(["task:assignment_update", "ez-code:steer", "ez-code:cancel", "ez-code:open-pr"]),
     );
     expect(effective.appendMessages?.excludedDefault).toBe(true);
     expect(effective.storage).toBe(true);
@@ -196,12 +190,7 @@ describe("ensureBundledExtensions — ez-code first-boot install", () => {
     const granted = store.get("ez-code")!.grantedPermissions;
     expect(granted.spawnAgents).toEqual({ maxPerHour: 30, maxConcurrent: 6 });
     expect(new Set(granted.eventSubscriptions)).toEqual(
-      new Set([
-        "task:assignment_update",
-        "ez-code:steer",
-        "ez-code:cancel",
-        "ez-code:open-pr",
-      ]),
+      new Set(["task:assignment_update", "ez-code:steer", "ez-code:cancel", "ez-code:open-pr"]),
     );
     expect(granted.appendMessages?.excludedDefault).toBe(true);
     expect(granted.storage).toBe(true);
@@ -219,13 +208,7 @@ describe("ensureBundledExtensions — ez-code first-boot install", () => {
     const row = store.get("ez-code")!;
     const manifest = row.manifest as { tools?: Array<{ name: string }> };
     const names = (manifest.tools ?? []).map((t) => t.name).sort();
-    expect(names).toEqual([
-      "cancel_run",
-      "dispatch_run",
-      "list_runs",
-      "open_pr",
-      "steer_run",
-    ]);
+    expect(names).toEqual(["cancel_run", "dispatch_run", "list_runs", "open_pr", "steer_run"]);
   });
 
   test("appears in the bundled (isBundled=true) list", async () => {

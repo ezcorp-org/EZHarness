@@ -98,10 +98,7 @@ export const STEP_COST_SCALE = 6;
  * accumulating error, which is the reason the column is not
  * `DOUBLE PRECISION` in the first place.
  */
-export function stepCostUsd(
-  row: StepCostInput,
-  lookup: PriceLookup = modelPrices,
-): string | null {
+export function stepCostUsd(row: StepCostInput, lookup: PriceLookup = modelPrices): string | null {
   const { provider, model } = row;
   // No resolved binding ⇒ nothing to look up. This is the "running" write,
   // which happens before the agent has resolved anything.

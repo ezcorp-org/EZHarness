@@ -21,12 +21,7 @@
  */
 
 import { spawnSync } from "node:child_process";
-import {
-  existsSync,
-  accessSync,
-  statSync,
-  constants as fsConstants,
-} from "node:fs";
+import { existsSync, accessSync, statSync, constants as fsConstants } from "node:fs";
 import { arch } from "node:os";
 import { delimiter, join } from "node:path";
 import { landlockAbiVersion } from "./landlock-ffi";

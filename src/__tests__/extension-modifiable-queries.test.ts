@@ -10,15 +10,7 @@
  * `bundled-grant-reconcile-drafts.test.ts`.
  */
 
-import {
-  test,
-  expect,
-  describe,
-  beforeAll,
-  afterAll,
-  afterEach,
-  mock,
-} from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, afterEach, mock } from "bun:test";
 
 mock.module("../db/connection", () => ({
   getDb: () => {
@@ -165,9 +157,7 @@ describe("extension creator-modify queries", () => {
   });
 
   test("setExtensionModifiable flips and persists the gate", async () => {
-    const { getExtension, setExtensionModifiable } = await import(
-      "../db/queries/extensions"
-    );
+    const { getExtension, setExtensionModifiable } = await import("../db/queries/extensions");
     const ext = await seedExt({ name: "e-flip", creatorUserId: OWNER });
     expect(ext.modifiable).toBe(false);
 

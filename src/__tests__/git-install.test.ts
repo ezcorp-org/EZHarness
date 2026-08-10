@@ -65,13 +65,14 @@ mock.module("../db/queries/audit-log", () => ({
 }));
 
 // Import after mocks
-const { installFromGit, updateExtension, removeExtension, checkForUpdates } = await import("../extensions/installer");
+const { installFromGit, updateExtension, removeExtension, checkForUpdates } = await import(
+  "../extensions/installer"
+);
 
 // ── Test fixtures ─────────────────────────────────────────────────────
 
 const env = { ...process.env };
-const spawn = (cmd: string[], opts?: { cwd?: string }) =>
-  Bun.spawnSync(cmd, { ...opts, env });
+const spawn = (cmd: string[], opts?: { cwd?: string }) => Bun.spawnSync(cmd, { ...opts, env });
 
 function makeManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionManifestV2 {
   return {
@@ -147,11 +148,9 @@ beforeEach(async () => {
 
 describe("installFromGit", () => {
   test("installs from file:// URL", async () => {
-    const result = await installFromGit(
-      `file://${bareRepoDir}`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
+    const result = await installFromGit(`file://${bareRepoDir}`, defaultPerms, {
+      extensionsDir: installBase,
+    });
 
     expect(result.name).toBe("test-git-ext");
     expect(result.version).toBe("1.1.0"); // Latest commit is v1.1.0
@@ -159,11 +158,9 @@ describe("installFromGit", () => {
   });
 
   test("installs with @ref pinning", async () => {
-    const result = await installFromGit(
-      `file://${bareRepoDir}@v1.0.0`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
+    const result = await installFromGit(`file://${bareRepoDir}@v1.0.0`, defaultPerms, {
+      extensionsDir: installBase,
+    });
 
     expect(result.name).toBe("test-git-ext");
     expect(result.version).toBe("1.0.0");
@@ -223,11 +220,9 @@ describe("installFromGit", () => {
 
   test("fails on name collision", async () => {
     // Install first
-    await installFromGit(
-      `file://${bareRepoDir}@v1.0.0`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
+    await installFromGit(`file://${bareRepoDir}@v1.0.0`, defaultPerms, {
+      extensionsDir: installBase,
+    });
 
     // Try to install again (same name)
     await expect(
@@ -268,11 +263,9 @@ describe("installFromGit", () => {
 
 describe("checkForUpdates", () => {
   test("detects available update", async () => {
-    const ext = await installFromGit(
-      `file://${bareRepoDir}@v1.0.0`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
+    const ext = await installFromGit(`file://${bareRepoDir}@v1.0.0`, defaultPerms, {
+      extensionsDir: installBase,
+    });
 
     const result = await checkForUpdates(ext);
     expect(result.available).toBe(true);
@@ -280,11 +273,9 @@ describe("checkForUpdates", () => {
   });
 
   test("returns not available when at latest", async () => {
-    const ext = await installFromGit(
-      `file://${bareRepoDir}`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
+    const ext = await installFromGit(`file://${bareRepoDir}`, defaultPerms, {
+      extensionsDir: installBase,
+    });
 
     const result = await checkForUpdates(ext);
     expect(result.available).toBe(false);
@@ -307,11 +298,9 @@ describe("checkForUpdates", () => {
     spawn(["git", "tag", "nightly"], { cwd: noSemverWork });
     spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: noSemverWork });
 
-    const ext = await installFromGit(
-      `file://${noSemverBare}`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
+    const ext = await installFromGit(`file://${noSemverBare}`, defaultPerms, {
+      extensionsDir: installBase,
+    });
 
     const result = await checkForUpdates(ext);
     expect(result.available).toBe(false);
@@ -331,11 +320,9 @@ describe("checkForUpdates", () => {
 
 describe("updateExtension", () => {
   test("updates to latest version", async () => {
-    await installFromGit(
-      `file://${bareRepoDir}@v1.0.0`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
+    await installFromGit(`file://${bareRepoDir}@v1.0.0`, defaultPerms, {
+      extensionsDir: installBase,
+    });
 
     const result = await updateExtension("test-git-ext");
     expect(result.from).toBe("1.0.0");
@@ -362,11 +349,7 @@ describe("updateExtension", () => {
     spawn(["git", "tag", "latest"], { cwd: noSemverWork2 });
     spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: noSemverWork2 });
 
-    await installFromGit(
-      `file://${noSemverBare2}`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
+    await installFromGit(`file://${noSemverBare2}`, defaultPerms, { extensionsDir: installBase });
 
     await expect(updateExtension("no-semver-update-ext")).rejects.toThrow(/No semver tags/);
   });
@@ -390,18 +373,19 @@ describe("updateExtension", () => {
     spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: badUpdateWork });
 
     // v2.0.0 - invalid manifest (missing required fields)
-    await Bun.write(join(badUpdateWork, "ezcorp.config.ts"), configContent({ schemaVersion: 2, name: "bad-update-ext" }));
+    await Bun.write(
+      join(badUpdateWork, "ezcorp.config.ts"),
+      configContent({ schemaVersion: 2, name: "bad-update-ext" }),
+    );
     spawn(["git", "add", "."], { cwd: badUpdateWork });
     spawn(["git", "commit", "-m", "v2.0.0"], { cwd: badUpdateWork });
     spawn(["git", "tag", "v2.0.0"], { cwd: badUpdateWork });
     spawn(["git", "push", "origin", "HEAD", "--tags"], { cwd: badUpdateWork });
 
     // Install v1.0.0
-    await installFromGit(
-      `file://${badUpdateBare}@v1.0.0`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
+    await installFromGit(`file://${badUpdateBare}@v1.0.0`, defaultPerms, {
+      extensionsDir: installBase,
+    });
 
     // Update should fail on manifest validation
     await expect(updateExtension("bad-update-ext")).rejects.toThrow(/Invalid manifest/);
@@ -460,14 +444,10 @@ describe("updateExtension — env-leak gate (v1.4 parity with install)", () => {
     });
     expect(installed.version).toBe("1.0.0");
 
-    await expect(updateExtension("leaky-update-ext")).rejects.toThrow(
-      /credential-shaped env name/,
-    );
+    await expect(updateExtension("leaky-update-ext")).rejects.toThrow(/credential-shaped env name/);
 
     // DB row untouched — old version, old manifest, still enabled.
-    const row = Array.from(mockExtensions.values()).find(
-      (e: any) => e.name === "leaky-update-ext",
-    );
+    const row = Array.from(mockExtensions.values()).find((e: any) => e.name === "leaky-update-ext");
     expect(row.version).toBe("1.0.0");
     expect(row.manifest.permissions?.env).toBeUndefined();
     expect(row.enabled).toBe(true);
@@ -495,7 +475,11 @@ describe("updateExtension — grant re-clamp against the new manifest", () => {
     const url = await makeVersionedRepo("narrow-update", [
       { name: "narrow-update-ext", version: "1.0.0", permissions: widePerms },
       // v1.1.0 drops shell entirely and removes cdn.example.com.
-      { name: "narrow-update-ext", version: "1.1.0", permissions: { network: ["api.example.com"] } },
+      {
+        name: "narrow-update-ext",
+        version: "1.1.0",
+        permissions: { network: ["api.example.com"] },
+      },
     ]);
 
     await installFromGit(`${url}@v1.0.0`, wideGrant, {
@@ -533,13 +517,8 @@ describe("updateExtension — grant re-clamp against the new manifest", () => {
     const result = await updateExtension("noop-update-ext");
     expect(result.to).toBe("1.1.0");
 
-    const row = Array.from(mockExtensions.values()).find(
-      (e: any) => e.name === "noop-update-ext",
-    );
-    expect(row.grantedPermissions.network).toEqual([
-      "api.example.com",
-      "cdn.example.com",
-    ]);
+    const row = Array.from(mockExtensions.values()).find((e: any) => e.name === "noop-update-ext");
+    expect(row.grantedPermissions.network).toEqual(["api.example.com", "cdn.example.com"]);
     expect(row.grantedPermissions.shell).toBe(true);
     expect(row.grantedPermissions.grantedAt).toEqual({ network: 111, shell: 222 });
     expect(row.enabled).toBe(true);
@@ -550,11 +529,9 @@ describe("updateExtension — grant re-clamp against the new manifest", () => {
 
 describe("removeExtension", () => {
   test("removes extension from DB and cleans up files", async () => {
-    const _ext = await installFromGit(
-      `file://${bareRepoDir}@v1.0.0`,
-      defaultPerms,
-      { extensionsDir: installBase },
-    );
+    const _ext = await installFromGit(`file://${bareRepoDir}@v1.0.0`, defaultPerms, {
+      extensionsDir: installBase,
+    });
 
     await removeExtension("test-git-ext");
 

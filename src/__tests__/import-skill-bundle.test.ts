@@ -10,10 +10,7 @@ import {
   SKILL_TOOLS,
   DEFAULT_SCAN_LIMITS,
 } from "../runtime/import/skill-bundle";
-import {
-  handleRequest,
-  commandFor,
-} from "../runtime/import/skill-runner.template";
+import { handleRequest, commandFor } from "../runtime/import/skill-runner.template";
 import { useTempProjectRoot } from "./helpers/temp-project-root";
 import { loadManifest } from "../extensions/loader";
 import { validateManifestV2 } from "../extensions/manifest";
@@ -26,11 +23,7 @@ async function bundle(
 ): Promise<string> {
   const dir = join(root, rel);
   await mkdir(dir, { recursive: true });
-  await writeFile(
-    join(dir, "SKILL.md"),
-    `---\n${frontmatter}\n---\n${body}`,
-    "utf8",
-  );
+  await writeFile(join(dir, "SKILL.md"), `---\n${frontmatter}\n---\n${body}`, "utf8");
   return dir;
 }
 
@@ -224,12 +217,7 @@ describe("buildSkillManifestSource / synthesizeSkillExtension", () => {
     // without the previous `<repo>/.ezcorp/test-import/<uuid>` — which was
     // inside the checkout and left its empty parent behind every run.
     const tmpRoot = useTempProjectRoot("import-skill-bundle-");
-    const destDir = join(
-      tmpRoot.root,
-      ".ezcorp",
-      "test-import",
-      crypto.randomUUID(),
-    );
+    const destDir = join(tmpRoot.root, ".ezcorp", "test-import", crypto.randomUUID());
     try {
       await synthesizeSkillExtension({ bundle: b!, destDir, name: "quote-2" });
 
@@ -336,9 +324,7 @@ describe("skill-runner: handleRequest", () => {
   test("list_scripts lists files, excluding SKILL.md", async () => {
     await writeFile(join(skillDir, "run.sh"), "echo hi", "utf8");
     const res = await call("list_scripts");
-    expect((res.result as { content: { text: string }[] }).content[0]!.text).toBe(
-      "run.sh",
-    );
+    expect((res.result as { content: { text: string }[] }).content[0]!.text).toBe("run.sh");
   });
 
   test("list_scripts handles an empty skill", async () => {
@@ -349,11 +335,7 @@ describe("skill-runner: handleRequest", () => {
   });
 
   test("run_script executes a script and captures stdout", async () => {
-    await writeFile(
-      join(skillDir, "run.sh"),
-      "#!/bin/bash\necho \"hello $1\"\n",
-      "utf8",
-    );
+    await writeFile(join(skillDir, "run.sh"), '#!/bin/bash\necho "hello $1"\n', "utf8");
     await chmod(join(skillDir, "run.sh"), 0o755);
     const res = await call("run_script", { script: "run.sh", args: ["world"] });
     const c = res.result as { content: { text: string }[]; isError: boolean };
@@ -447,7 +429,11 @@ describe("skill-runner: subprocess smoke", () => {
       await proc.stdin.end();
       const out = await new Response(proc.stdout).text();
       await proc.exited;
-      const lines = out.trim().split("\n").filter(Boolean).map((l) => JSON.parse(l));
+      const lines = out
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((l) => JSON.parse(l));
       const list = lines.find((l) => l.id === 1);
       const run = lines.find((l) => l.id === 2);
       expect(list.result.tools).toHaveLength(3);

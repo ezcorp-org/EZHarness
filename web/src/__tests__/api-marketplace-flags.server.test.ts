@@ -59,9 +59,7 @@ describe("GET /api/marketplace/flags", () => {
   });
 
   test("happy path: returns enriched flag list", async () => {
-    vi.mocked(listFlags).mockResolvedValue([
-      { id: "f1", listingId: "l1", reason: "spam" },
-    ] as any);
+    vi.mocked(listFlags).mockResolvedValue([{ id: "f1", listingId: "l1", reason: "spam" }] as any);
     vi.mocked(getListingById).mockResolvedValue({
       id: "l1",
       name: "Listing 1",
@@ -78,9 +76,7 @@ describe("GET /api/marketplace/flags", () => {
   });
 
   test("enrichment tolerates missing listing", async () => {
-    vi.mocked(listFlags).mockResolvedValue([
-      { id: "f1", listingId: "l-missing" },
-    ] as any);
+    vi.mocked(listFlags).mockResolvedValue([{ id: "f1", listingId: "l-missing" }] as any);
     vi.mocked(getListingById).mockResolvedValue(null as any);
     const res = await GET(makeEvent({ locals: { user: adminUser } }));
     expect(res.status).toBe(200);

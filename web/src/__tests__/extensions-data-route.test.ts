@@ -53,12 +53,15 @@ writeFileSync(
 writeFileSync(join(dataDir, "tokens.css"), ":root { --color-primary: #ff0066; }");
 
 afterAll(() => {
-  try { rmSync(fakeRoot, { recursive: true, force: true }); } catch { /* best-effort */ }
+  try {
+    rmSync(fakeRoot, { recursive: true, force: true });
+  } catch {
+    /* best-effort */
+  }
 });
 
 mock.module("$server/chat/attachments/ext-files-resolver", () => ({
-  extensionDataRoot: (name: string) =>
-    join(fakeRoot, ".ezcorp", "extension-data", name),
+  extensionDataRoot: (name: string) => join(fakeRoot, ".ezcorp", "extension-data", name),
 }));
 
 // ── Mock installed-extension lookup (enabled gate) ──────────────────
@@ -80,9 +83,7 @@ mock.module("$server/db/queries/extensions", () => ({
 
 // ── Import handler AFTER mocks ────────────────────────────────────
 
-const { GET } = await import(
-  "../routes/api/extensions/[name]/data/[...path]/+server"
-);
+const { GET } = await import("../routes/api/extensions/[name]/data/[...path]/+server");
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -112,26 +113,20 @@ describe("GET /api/extensions/[name]/data/[...path]", () => {
     // The claude-design DATA DIR exists (fixture above) — but with no
     // extensions row, the route must refuse before touching disk.
     mockExtRows.clear();
-    const res = await GET(
-      makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never);
     expect(res.status).toBe(404);
     expect(await res.text()).not.toContain("hello draft");
   });
 
   test("extension installed but DISABLED → 404 (collapses with not-found, opaque)", async () => {
     mockExtRows.set("claude-design", { id: "ext-cd", name: "claude-design", enabled: false });
-    const res = await GET(
-      makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never);
     expect(res.status).toBe(404);
     expect(await res.text()).not.toContain("hello draft");
   });
 
   test("enabled extension still serves (gate does not over-reject)", async () => {
-    const res = await GET(
-      makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never);
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("hello draft");
   });
@@ -140,18 +135,14 @@ describe("GET /api/extensions/[name]/data/[...path]", () => {
 
   test("scope rejection short-circuits before disk read", async () => {
     mockScopeResponse = new Response("forbidden", { status: 403 });
-    const res = await GET(
-      makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never);
     expect(res.status).toBe(403);
   });
 
   // ── URL param validation ────────────────────────────────────────
 
   test("invalid extension-name → 404", async () => {
-    const res = await GET(
-      makeEvent({ name: "Bad Name", path: "drafts/d-1.html" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "Bad Name", path: "drafts/d-1.html" }) as never);
     expect(res.status).toBe(404);
   });
 
@@ -200,9 +191,7 @@ describe("GET /api/extensions/[name]/data/[...path]", () => {
   // ── Unknown extension / file ────────────────────────────────────
 
   test("nonexistent extension → 404", async () => {
-    const res = await GET(
-      makeEvent({ name: "nope-design", path: "drafts/d-1.html" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "nope-design", path: "drafts/d-1.html" }) as never);
     expect(res.status).toBe(404);
   });
 
@@ -223,9 +212,7 @@ describe("GET /api/extensions/[name]/data/[...path]", () => {
     mkdirSync(join(fakeRoot, ".ezcorp", "data"), { recursive: true });
     writeFileSync(secretPath, "JWT_SECRET=supersecret");
     symlinkSync(secretPath, join(dataDir, "evil.txt"));
-    const res = await GET(
-      makeEvent({ name: "claude-design", path: "evil.txt" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "claude-design", path: "evil.txt" }) as never);
     expect(res.status).toBe(404);
     expect(await res.text()).not.toContain("supersecret");
   });
@@ -235,26 +222,20 @@ describe("GET /api/extensions/[name]/data/[...path]", () => {
     mkdirSync(join(fakeRoot, ".ezcorp", "data"), { recursive: true });
     writeFileSync(join(fakeRoot, ".ezcorp", "data", "db.bin"), "DBBYTES");
     symlinkSync(join(fakeRoot, ".ezcorp", "data"), join(dataDir, "esc"));
-    const res = await GET(
-      makeEvent({ name: "claude-design", path: "esc/db.bin" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "claude-design", path: "esc/db.bin" }) as never);
     expect(res.status).toBe(404);
     expect(await res.text()).not.toContain("DBBYTES");
   });
 
   test("dangling symlink → 404", async () => {
     symlinkSync(join(fakeRoot, "does-not-exist"), join(dataDir, "dangling.txt"));
-    const res = await GET(
-      makeEvent({ name: "claude-design", path: "dangling.txt" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "claude-design", path: "dangling.txt" }) as never);
     expect(res.status).toBe(404);
   });
 
   test("symlink whose target is INSIDE the data dir still serves (no over-rejection)", async () => {
     symlinkSync(join(dataDir, "drafts", "d-1.html"), join(dataDir, "alias.html"));
-    const res = await GET(
-      makeEvent({ name: "claude-design", path: "alias.html" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "claude-design", path: "alias.html" }) as never);
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("hello draft");
   });
@@ -262,9 +243,7 @@ describe("GET /api/extensions/[name]/data/[...path]", () => {
   // ── Happy path ──────────────────────────────────────────────────
 
   test("existing HTML file → 200 with content + text/html + CSP", async () => {
-    const res = await GET(
-      makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/html");
     expect(res.headers.get("Content-Security-Policy")).toBeTruthy();
@@ -276,17 +255,13 @@ describe("GET /api/extensions/[name]/data/[...path]", () => {
   });
 
   test("CSS file → 200 with text/css", async () => {
-    const res = await GET(
-      makeEvent({ name: "claude-design", path: "tokens.css" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "claude-design", path: "tokens.css" }) as never);
     expect(res.status).toBe(200);
     expect(res.headers.get("Content-Type")).toContain("text/css");
   });
 
   test("CSP forbids form-action and frame-ancestors=self", async () => {
-    const res = await GET(
-      makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never);
     const csp = res.headers.get("Content-Security-Policy") ?? "";
     expect(csp).toContain("form-action 'none'");
     expect(csp).toContain("frame-ancestors 'self'");
@@ -298,9 +273,7 @@ describe("GET /api/extensions/[name]/data/[...path]", () => {
     // set Permissions-Policy. (The global default is applied in
     // hooks.server.ts, which this unit test does not exercise — it calls
     // GET directly — so only the route-level value is asserted here.)
-    const res = await GET(
-      makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never,
-    );
+    const res = await GET(makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never);
     expect(res.status).toBe(200);
     const pp = res.headers.get("Permissions-Policy") ?? "";
     expect(pp).toContain("camera=(self)");
@@ -319,9 +292,7 @@ describe("GET /api/extensions/[name]/data/[...path]", () => {
     __rateLimiter.reset();
     // Burn through the 240-request budget then assert the 241st 429s.
     for (let i = 0; i < 240; i++) {
-      const ok = await GET(
-        makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never,
-      );
+      const ok = await GET(makeEvent({ name: "claude-design", path: "drafts/d-1.html" }) as never);
       expect(ok.status).toBe(200);
     }
     const blocked = await GET(

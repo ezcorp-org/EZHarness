@@ -6,10 +6,7 @@ import {
   getUserSettings,
   resolveExtensionSettings,
 } from "$server/db/queries/extension-settings";
-import {
-  probeSecretSettings,
-  secretFieldEntries,
-} from "$server/extensions/secret-settings";
+import { probeSecretSettings, secretFieldEntries } from "$server/extensions/secret-settings";
 import { getHeldCapabilities } from "$server/search/policy";
 import { errorJson } from "$lib/server/http-errors";
 import type { ExtensionManifestV2, ExtensionPermissions } from "$server/extensions/types";

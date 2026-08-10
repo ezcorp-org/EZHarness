@@ -20,16 +20,22 @@
  */
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
-} from "./helpers/test-pglite";
+import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 mock.module("../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -37,9 +43,7 @@ mockDbConnection();
 import { handlePiLlmComplete, _resetLlmAbuseTrackerForTests } from "../extensions/llm-handler";
 import { _resetLlmQuotaForTests } from "../extensions/llm-quota";
 import { createUser } from "../db/queries/users";
-import {
-  extensions, conversations, projects, sdkCapabilityCalls, messages,
-} from "../db/schema";
+import { extensions, conversations, projects, sdkCapabilityCalls, messages } from "../db/schema";
 import type { ExtensionPermissions } from "../extensions/types";
 
 /** Mirror of llm-handler's private `hashStable` (FNV-1a, hex). Used to
@@ -63,25 +67,49 @@ const SYSTEM_PROMPT = "You are a careful summarizer.";
 beforeAll(async () => {
   await setupTestDb();
   const u = await createUser({
-    email: "prompt-hash@example.com", passwordHash: "h", name: "U",
-    role: "admin", status: "active",
+    email: "prompt-hash@example.com",
+    passwordHash: "h",
+    name: "U",
+    role: "admin",
+    status: "active",
   });
   userId = u.id;
-  const [ext] = await getTestDb().insert(extensions).values({
-    name: "prompt-hash-ext", version: "0.0.1", description: "",
-    manifest: {
-      schemaVersion: 2, name: "prompt-hash-ext", version: "0.0.1",
-      description: "", author: { name: "t" }, permissions: {},
-    } as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  }).returning({ id: extensions.id });
+  const [ext] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name: "prompt-hash-ext",
+      version: "0.0.1",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name: "prompt-hash-ext",
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    })
+    .returning({ id: extensions.id });
   extensionId = ext!.id;
-  const [proj] = await getTestDb().insert(projects).values({
-    name: "prompt-hash-proj", path: "/tmp/prompt-hash",
-  }).returning({ id: projects.id });
-  const [conv] = await getTestDb().insert(conversations).values({
-    projectId: proj!.id, userId, title: "t", kind: "regular",
-  }).returning({ id: conversations.id });
+  const [proj] = await getTestDb()
+    .insert(projects)
+    .values({
+      name: "prompt-hash-proj",
+      path: "/tmp/prompt-hash",
+    })
+    .returning({ id: projects.id });
+  const [conv] = await getTestDb()
+    .insert(conversations)
+    .values({
+      projectId: proj!.id,
+      userId,
+      title: "t",
+      kind: "regular",
+    })
+    .returning({ id: conversations.id });
   conversationId = conv!.id;
 });
 
@@ -108,18 +136,26 @@ const granted = (): ExtensionPermissions => ({
   },
 });
 
-async function completeWith(id: number, messages_: Array<{ role: "user"; content: string }>): Promise<void> {
+async function completeWith(
+  id: number,
+  messages_: Array<{ role: "user"; content: string }>,
+): Promise<void> {
   const resp = await handlePiLlmComplete(
     {
-      jsonrpc: "2.0", id, method: "ezcorp/llm-complete",
+      jsonrpc: "2.0",
+      id,
+      method: "ezcorp/llm-complete",
       params: {
-        provider: "anthropic", model: "claude-sonnet-4",
+        provider: "anthropic",
+        model: "claude-sonnet-4",
         systemPrompt: SYSTEM_PROMPT,
-        messages: messages_, maxTokens: 100,
+        messages: messages_,
+        maxTokens: 100,
       },
     },
     {
-      granted: granted(), registeredTool: { extensionId },
+      granted: granted(),
+      registeredTool: { extensionId },
       resolveModelFn: async (provider, model) => ({ provider, model, piModel: {} as unknown }),
       getCredentialFn: async () => ({ type: "apikey", token: "sk-test-prompt-hash-000" }),
       completeFn: async () => ({

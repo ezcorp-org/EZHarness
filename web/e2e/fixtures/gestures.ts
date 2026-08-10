@@ -28,8 +28,8 @@ const LONG_PRESS_BUFFER_MS = 200;
  * (10px) can never trip.
  */
 export async function longPressTouch(locator: Locator): Promise<void> {
-	const point = { pointerType: "touch", clientX: 10, clientY: 10 };
-	await locator.dispatchEvent("pointerdown", point);
-	await locator.page().waitForTimeout(LONG_PRESS_DELAY_MS + LONG_PRESS_BUFFER_MS);
-	await locator.dispatchEvent("pointerup", point);
+  const point = { pointerType: "touch", clientX: 10, clientY: 10 };
+  await locator.dispatchEvent("pointerdown", point);
+  await locator.page().waitForTimeout(LONG_PRESS_DELAY_MS + LONG_PRESS_BUFFER_MS);
+  await locator.dispatchEvent("pointerup", point);
 }

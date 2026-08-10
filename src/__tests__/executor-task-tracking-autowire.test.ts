@@ -190,9 +190,7 @@ mock.module("../extensions/tool-executor", () => ({
     // swallows it, and task_plan never lands in ctx.agentTools (test 3).
     setPendingPermissionGate() {}
   },
-  extensionToAgentTool: (
-    tool: { name: string; description: string; inputSchema: unknown },
-  ) => ({
+  extensionToAgentTool: (tool: { name: string; description: string; inputSchema: unknown }) => ({
     name: tool.name,
     label: tool.name,
     description: tool.description,
@@ -293,9 +291,7 @@ describe("executor task-tracking auto-wire (commit fd4c482)", () => {
     const originalStderrWrite = process.stderr.write.bind(process.stderr);
     const stderrLines: string[] = [];
     (process.stderr as any).write = (chunk: string | Uint8Array) => {
-      stderrLines.push(
-        typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"),
-      );
+      stderrLines.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8"));
       return true;
     };
 

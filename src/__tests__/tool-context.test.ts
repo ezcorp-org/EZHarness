@@ -12,11 +12,7 @@
  * outside-undefined all pass on Bun. ALS is the primary path.
  */
 import { test, expect, describe } from "bun:test";
-import {
-  withToolContext,
-  getToolContext,
-  type ToolContext,
-} from "@ezcorp/sdk/runtime";
+import { withToolContext, getToolContext, type ToolContext } from "@ezcorp/sdk/runtime";
 
 const CTX = (toolName: string, extra: Partial<ToolContext> = {}): ToolContext => ({
   toolName,

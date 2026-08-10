@@ -30,10 +30,7 @@ import {
   makeCompactionTransform,
   type CompactionConfig,
 } from "../runtime/stream-chat/context-compaction";
-import {
-  computeTurnCacheStats,
-  aggregateCacheStats,
-} from "../runtime/usage/cache-stats";
+import { computeTurnCacheStats, aggregateCacheStats } from "../runtime/usage/cache-stats";
 // WS-H mock-LLM synthetic usage shape (pure module — safe to import from src,
 // mirrors mock-llm-pi-ai.integration.test.ts).
 import { buildChunkUsage, type MockUsage } from "../../web/src/lib/server/mock-llm";
@@ -43,7 +40,12 @@ const userMsg = (text: string): Msg => ({ role: "user", content: text, timestamp
 const asstText = (text: string): Msg => ({
   role: "assistant",
   content: [{ type: "text", text }],
-  api: "x", provider: "x", model: "x", usage: {}, stopReason: "stop", timestamp: 1,
+  api: "x",
+  provider: "x",
+  model: "x",
+  usage: {},
+  stopReason: "stop",
+  timestamp: 1,
 });
 
 // Small window so a dozen turns overflow; reserves zeroed so budget == window.
@@ -105,7 +107,12 @@ describe("WS1: cache prefix survives compaction", () => {
     expect(hit).toBeGreaterThan(0);
 
     // Turn N: first compacted send → nothing cached yet (all write, 0% hit).
-    const usageN: MockUsage = { input: 0, cacheRead: 0, cacheWrite: estimateTokens(sentN, cfg), output: 1 };
+    const usageN: MockUsage = {
+      input: 0,
+      cacheRead: 0,
+      cacheWrite: estimateTokens(sentN, cfg),
+      output: 1,
+    };
     // Turn N+1: the stable prefix is a cache READ; the rest is freshly written.
     const total1 = estimateTokens(sentN1, cfg);
     const usageN1: MockUsage = { input: 0, cacheRead: hit, cacheWrite: total1 - hit, output: 1 };
@@ -115,15 +122,39 @@ describe("WS1: cache prefix survives compaction", () => {
     expect((wire.prompt_tokens_details as { cached_tokens: number }).cached_tokens).toBe(hit);
 
     // WS0: per-turn stats — the compacted turn's hit-rate did NOT collapse to 0.
-    const statsN = computeTurnCacheStats({ input: 0, output: 1, cacheRead: 0, cacheWrite: usageN.cacheWrite! });
-    const statsN1 = computeTurnCacheStats({ input: 0, output: 1, cacheRead: usageN1.cacheRead!, cacheWrite: usageN1.cacheWrite! });
+    const statsN = computeTurnCacheStats({
+      input: 0,
+      output: 1,
+      cacheRead: 0,
+      cacheWrite: usageN.cacheWrite!,
+    });
+    const statsN1 = computeTurnCacheStats({
+      input: 0,
+      output: 1,
+      cacheRead: usageN1.cacheRead!,
+      cacheWrite: usageN1.cacheWrite!,
+    });
     expect(statsN.hitRate).toBe(0); // baseline: first turn is all-write
     expect(statsN1.hitRate).toBeGreaterThan(0); // ← the fix: prefix survived the trim
 
     // WS0 conversation roll-up: overall hit-rate is positive across the run.
     const agg = aggregateCacheStats([
-      { provider: "anthropic", model: "claude", input: 0, output: 1, cacheRead: 0, cacheWrite: usageN.cacheWrite! },
-      { provider: "anthropic", model: "claude", input: 0, output: 1, cacheRead: usageN1.cacheRead!, cacheWrite: usageN1.cacheWrite! },
+      {
+        provider: "anthropic",
+        model: "claude",
+        input: 0,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: usageN.cacheWrite!,
+      },
+      {
+        provider: "anthropic",
+        model: "claude",
+        input: 0,
+        output: 1,
+        cacheRead: usageN1.cacheRead!,
+        cacheWrite: usageN1.cacheWrite!,
+      },
     ]);
     expect(agg.overall.hitRate).toBeGreaterThan(0);
     expect(agg.overall.cachedTokens).toBe(hit);

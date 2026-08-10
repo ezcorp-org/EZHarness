@@ -23,14 +23,16 @@ const SYNTH_BYTES = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xde, 0xad, 0xbe, 0x
 
 beforeAll(async () => {
   root = await mkdtemp(join(tmpdir(), "ezcorp-cb-handle-"));
-  xlsxPath = (await writeAttachment({
-    projectRoot: root,
-    conversationId: "c",
-    messageId: "m",
-    filename: "report.xlsx",
-    mimeType: XLSX_MIME,
-    bytes: SYNTH_BYTES,
-  })).storagePath;
+  xlsxPath = (
+    await writeAttachment({
+      projectRoot: root,
+      conversationId: "c",
+      messageId: "m",
+      filename: "report.xlsx",
+      mimeType: XLSX_MIME,
+      bytes: SYNTH_BYTES,
+    })
+  ).storagePath;
 });
 
 afterAll(async () => {
@@ -52,7 +54,9 @@ describe("extension-handle-only delivery strategy", () => {
     expect(Array.isArray(built)).toBe(true);
     if (!Array.isArray(built)) return;
 
-    const fileText = built.find((p) => p.type === "text" && (p as { text: string }).text.includes("<file"));
+    const fileText = built.find(
+      (p) => p.type === "text" && (p as { text: string }).text.includes("<file"),
+    );
     expect(fileText).toBeDefined();
     const text = (fileText as { type: "text"; text: string }).text;
     expect(text).toContain('name="report.xlsx"');
@@ -78,7 +82,11 @@ describe("extension-handle-only delivery strategy", () => {
     const caps = getCapabilitiesWithExtensions("anthropic", "claude-sonnet-4-5", [XLSX_MIME]);
     let caught: unknown;
     try {
-      await buildUserContent("x", [{ ...att, mimeType: "application/x-rejected", storagePath: xlsxPath }], caps);
+      await buildUserContent(
+        "x",
+        [{ ...att, mimeType: "application/x-rejected", storagePath: xlsxPath }],
+        caps,
+      );
     } catch (e) {
       caught = e;
     }

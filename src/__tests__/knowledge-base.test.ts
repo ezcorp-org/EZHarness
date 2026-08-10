@@ -5,7 +5,8 @@ import { mockEmbedding, mockEmbeddingsModule } from "./helpers/mock-vectors";
 mockDbConnection();
 mockEmbeddingsModule();
 
-const { insertKBFile, listKBFiles, deleteKBFile, insertKBChunk, searchKBChunks, updateKBFile } = await import("../db/queries/knowledge-base");
+const { insertKBFile, listKBFiles, deleteKBFile, insertKBChunk, searchKBChunks, updateKBFile } =
+  await import("../db/queries/knowledge-base");
 const { createProject } = await import("../db/queries/projects");
 
 let projectId: string;

@@ -16,11 +16,19 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 mock.module("../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -51,7 +59,14 @@ async function ensureExtension(name: string): Promise<string> {
       name,
       version: "0.0.1",
       description: "",
-      manifest: { schemaVersion: 2, name, version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as any,
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as any,
       source: "test",
       enabled: true,
       grantedPermissions: {} as any,
@@ -233,7 +248,13 @@ describe("cleanupOldSdkCapabilityCalls — per-capability retention", () => {
       durationMs: 1,
     });
     // CR-3: zero-as-purge requires explicit `force: true` opt-in.
-    await cleanupOldSdkCapabilityCalls({ llmDays: 0, memoryDays: 0, lessonsDays: 0, scheduleDays: 0, force: true });
+    await cleanupOldSdkCapabilityCalls({
+      llmDays: 0,
+      memoryDays: 0,
+      lessonsDays: 0,
+      scheduleDays: 0,
+      force: true,
+    });
     const remaining = await listSdkCapabilityCallsForExtension(extensionId, { limit: 100 });
     expect(remaining.length).toBe(0);
   });
@@ -258,7 +279,13 @@ describe("cleanupOldSdkCapabilityCalls — per-capability retention", () => {
     });
     // CR-3: memory bucket purges only because `force: true`. LLM/lessons/
     // schedule values are above zero so `force` doesn't affect them.
-    await cleanupOldSdkCapabilityCalls({ llmDays: 90, memoryDays: 0, lessonsDays: 30, scheduleDays: 90, force: true });
+    await cleanupOldSdkCapabilityCalls({
+      llmDays: 90,
+      memoryDays: 0,
+      lessonsDays: 30,
+      scheduleDays: 90,
+      force: true,
+    });
     const remaining = await listSdkCapabilityCallsForExtension(extensionId, { limit: 100 });
     // Only the LLM row should survive.
     expect(remaining.length).toBe(1);
@@ -274,7 +301,12 @@ describe("cleanupOldSdkCapabilityCalls — per-capability retention", () => {
       success: true,
       durationMs: 1,
     });
-    await cleanupOldSdkCapabilityCalls({ llmDays: 90, memoryDays: 30, lessonsDays: 30, scheduleDays: 90 });
+    await cleanupOldSdkCapabilityCalls({
+      llmDays: 90,
+      memoryDays: 30,
+      lessonsDays: 30,
+      scheduleDays: 90,
+    });
     const remaining = await listSdkCapabilityCallsForExtension(extensionId);
     expect(remaining.length).toBe(1);
   });
@@ -495,7 +527,7 @@ describe("schema enforcement", () => {
     const result = await getTestDb().execute(sql`
       SELECT indexname FROM pg_indexes WHERE tablename = 'sdk_capability_calls'
     `);
-    const rows = ((result as unknown) as { rows: { indexname: string }[] }).rows ?? [];
+    const rows = (result as unknown as { rows: { indexname: string }[] }).rows ?? [];
     const names = rows.map((r) => r.indexname);
     expect(names).toContain("idx_sdk_cap_ext_created");
     expect(names).toContain("idx_sdk_cap_conv_created");
@@ -503,4 +535,3 @@ describe("schema enforcement", () => {
     expect(names).toContain("idx_sdk_cap_created");
   });
 });
-

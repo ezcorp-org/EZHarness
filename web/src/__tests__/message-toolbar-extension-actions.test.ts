@@ -215,9 +215,30 @@ describe("selectApplicableContributions", () => {
 describe("selectBulkApplicableContributions", () => {
   const items: ExtensionToolbarItem[] = [
     { extName: "single", id: "s1", icon: "I", tooltip: "T", event: "single:e" }, // omitted → "single"
-    { extName: "single-explicit", id: "s2", icon: "I", tooltip: "T", event: "single-explicit:e", appliesToSelection: "single" },
-    { extName: "bulk", id: "b", icon: "I", tooltip: "T", event: "bulk:e", appliesToSelection: "bulk" },
-    { extName: "both", id: "x", icon: "I", tooltip: "T", event: "both:e", appliesToSelection: "both" },
+    {
+      extName: "single-explicit",
+      id: "s2",
+      icon: "I",
+      tooltip: "T",
+      event: "single-explicit:e",
+      appliesToSelection: "single",
+    },
+    {
+      extName: "bulk",
+      id: "b",
+      icon: "I",
+      tooltip: "T",
+      event: "bulk:e",
+      appliesToSelection: "bulk",
+    },
+    {
+      extName: "both",
+      id: "x",
+      icon: "I",
+      tooltip: "T",
+      event: "both:e",
+      appliesToSelection: "both",
+    },
   ];
 
   test("returns only items with appliesToSelection 'bulk' or 'both'", () => {

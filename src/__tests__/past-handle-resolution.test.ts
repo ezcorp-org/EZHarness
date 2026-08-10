@@ -31,8 +31,12 @@ mock.module("../db/queries/settings", () => {
       return rows[0]?.value;
     },
     async upsertSetting() {},
-    async deleteSetting() { return false; },
-    async isListingInstalled() { return false; },
+    async deleteSetting() {
+      return false;
+    },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -43,7 +47,10 @@ import { createProject } from "../db/queries/projects";
 import { createConversation, createMessage } from "../db/queries/conversations";
 import { insertAttachment } from "../db/queries/attachments";
 import { loadPastAttachments } from "../chat/attachments/history-rehydrate";
-import { buildAttachmentHandleResolver, toResolvableAttachments } from "../chat/attachments/handle-resolver";
+import {
+  buildAttachmentHandleResolver,
+  toResolvableAttachments,
+} from "../chat/attachments/handle-resolver";
 import { attachmentHandle, type StagedAttachment } from "../chat/attachments/content-builder";
 
 const TURN_1_BYTES = new TextEncoder().encode("TURN-1-IMAGE-BYTES");
@@ -68,35 +75,55 @@ beforeAll(async () => {
   const t1 = await createMessage(convId, { role: "user", content: "first upload" });
   turn1MsgId = t1.id;
   const w1 = await writeAttachment({
-    projectRoot: tmpRoot, conversationId: convId, messageId: t1.id,
-    filename: "cow.png", mimeType: "image/png", bytes: TURN_1_BYTES,
+    projectRoot: tmpRoot,
+    conversationId: convId,
+    messageId: t1.id,
+    filename: "cow.png",
+    mimeType: "image/png",
+    bytes: TURN_1_BYTES,
   });
   const row1 = await insertAttachment({
-    messageId: t1.id, conversationId: convId,
-    filename: "cow.png", mimeType: "image/png",
-    sizeBytes: w1.sizeBytes, storagePath: w1.storagePath, kind: "image",
+    messageId: t1.id,
+    conversationId: convId,
+    filename: "cow.png",
+    mimeType: "image/png",
+    sizeBytes: w1.sizeBytes,
+    storagePath: w1.storagePath,
+    kind: "image",
   });
   turn1AttId = row1.id;
 
   // Assistant turn + a current-turn user message (no new upload from user
   // this turn — they're referring back to the earlier image).
   const a1 = await createMessage(convId, {
-    role: "assistant", content: "ok", parentMessageId: t1.id,
+    role: "assistant",
+    content: "ok",
+    parentMessageId: t1.id,
   });
   const t2 = await createMessage(convId, {
-    role: "user", content: "now add a hat", parentMessageId: a1.id,
+    role: "user",
+    content: "now add a hat",
+    parentMessageId: a1.id,
   });
 
   // Current turn's POST staged a DIFFERENT image (e.g. mask or reference),
   // so `options.attachments` for this turn carries only that one file.
   const wN = await writeAttachment({
-    projectRoot: tmpRoot, conversationId: convId, messageId: t2.id,
-    filename: "mask.png", mimeType: "image/png", bytes: TURN_N_BYTES,
+    projectRoot: tmpRoot,
+    conversationId: convId,
+    messageId: t2.id,
+    filename: "mask.png",
+    mimeType: "image/png",
+    bytes: TURN_N_BYTES,
   });
   const rowN = await insertAttachment({
-    messageId: t2.id, conversationId: convId,
-    filename: "mask.png", mimeType: "image/png",
-    sizeBytes: wN.sizeBytes, storagePath: wN.storagePath, kind: "image",
+    messageId: t2.id,
+    conversationId: convId,
+    filename: "mask.png",
+    mimeType: "image/png",
+    sizeBytes: wN.sizeBytes,
+    storagePath: wN.storagePath,
+    kind: "image",
   });
   currentTurnAttachment = {
     id: rowN.id,

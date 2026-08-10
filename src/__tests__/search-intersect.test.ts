@@ -42,7 +42,10 @@ describe("intersectPermissions — search tier", () => {
   });
 
   test("both inherit providers → inherit providers", () => {
-    const out = intersectPermissions(perms({ providers: "inherit" }), perms({ providers: "inherit" }));
+    const out = intersectPermissions(
+      perms({ providers: "inherit" }),
+      perms({ providers: "inherit" }),
+    );
     expect(out.search).toEqual({ providers: "inherit" });
   });
 

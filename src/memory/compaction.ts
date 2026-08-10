@@ -1,5 +1,10 @@
 // Memory compaction: merges highly similar memories via LLM
-import { findSimilarMemory, insertMemory, deleteMemory, getMemoryById } from "../db/queries/memories";
+import {
+  findSimilarMemory,
+  insertMemory,
+  deleteMemory,
+  getMemoryById,
+} from "../db/queries/memories";
 import { searchMemories } from "../db/queries/memories";
 import { getConversation } from "../db/queries/conversations";
 import { getSetting, upsertSetting } from "../db/queries/settings";
@@ -14,7 +19,7 @@ async function generateEmbedding(text: string): Promise<number[]> {
   return gen(text);
 }
 
-const COMPACTION_SIMILARITY_THRESHOLD = 0.90;
+const COMPACTION_SIMILARITY_THRESHOLD = 0.9;
 const LOCK_KEY = "compaction:lastRun";
 
 // Cheapest-model lookup per provider family for the compaction merge LLM
@@ -46,17 +51,31 @@ export async function mergeContents(contentA: string, contentB: string): Promise
     const { getCredential } = await import("../providers/credentials");
 
     // Determine which provider/model to use (cheapest available)
-    const settingsProvider = (await getSetting("global:provider") as string) ?? "google";
+    const settingsProvider = ((await getSetting("global:provider")) as string) ?? "google";
     const { provider, model } = pickCompactionModel(settingsProvider);
 
     const resolved = await resolveModel(provider, model);
     const cred = await getCredential(resolved.provider);
 
-    const result = await complete(resolved.piModel, {
-      messages: [{ role: "user", content: `Merge these two related facts into a single, clear statement that preserves all information:\n\nFact 1: ${contentA}\nFact 2: ${contentB}\n\nRespond with ONLY the merged statement, nothing else.`, timestamp: Date.now() }],
-    }, { apiKey: cred.token, maxTokens: 256, temperature: 0 });
+    const result = await complete(
+      resolved.piModel,
+      {
+        messages: [
+          {
+            role: "user",
+            content: `Merge these two related facts into a single, clear statement that preserves all information:\n\nFact 1: ${contentA}\nFact 2: ${contentB}\n\nRespond with ONLY the merged statement, nothing else.`,
+            timestamp: Date.now(),
+          },
+        ],
+      },
+      { apiKey: cred.token, maxTokens: 256, temperature: 0 },
+    );
 
-    const merged = result.content.filter((c) => c.type === "text").map((c) => (c as { type: "text"; text: string }).text).join("").trim();
+    const merged = result.content
+      .filter((c) => c.type === "text")
+      .map((c) => (c as { type: "text"; text: string }).text)
+      .join("")
+      .trim();
     return merged || `${contentA}; ${contentB}`;
   } catch {
     log.warn("LLM unavailable, skipping merge");
@@ -87,9 +106,12 @@ async function resolveMemoryOwner(
  * Run compaction: find similar active memories and merge them.
  * Uses a settings-based lock to prevent concurrent runs.
  */
-export async function runCompaction(projectId?: string, mergeFn?: (a: string, b: string) => Promise<string>): Promise<number> {
+export async function runCompaction(
+  projectId?: string,
+  mergeFn?: (a: string, b: string) => Promise<string>,
+): Promise<number> {
   // Simple lock check via settings
-  const lastRun = await getSetting(LOCK_KEY) as string | undefined;
+  const lastRun = (await getSetting(LOCK_KEY)) as string | undefined;
   const now = Date.now();
 
   // Don't run if we ran less than 1 minute ago (prevents rapid re-runs)
@@ -141,7 +163,8 @@ export async function runCompaction(projectId?: string, mergeFn?: (a: string, b:
     const embedding = await generateEmbedding(mergedContent);
 
     const provenance: MemoryProvenance = {
-      sourceConversationId: (memory.provenance as MemoryProvenance | null)?.sourceConversationId ?? "",
+      sourceConversationId:
+        (memory.provenance as MemoryProvenance | null)?.sourceConversationId ?? "",
       sourceMessageIds: [],
       extractedAt: new Date(),
       confidence: memory.confidence as "high" | "medium" | "low",

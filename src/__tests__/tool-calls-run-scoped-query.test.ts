@@ -35,23 +35,39 @@ beforeAll(async () => {
   await setupTestDb();
   const db = getTestDb();
   await db.insert(users).values({
-    id: "user-run-scope", email: "run-scope@t.local", passwordHash: "x", name: "r",
+    id: "user-run-scope",
+    email: "run-scope@t.local",
+    passwordHash: "x",
+    name: "r",
   } as never);
   await db.insert(projects).values({
-    id: "proj-run-scope", name: "proj-run-scope", path: "/tmp/proj-run-scope",
+    id: "proj-run-scope",
+    name: "proj-run-scope",
+    path: "/tmp/proj-run-scope",
   } as never);
   for (const id of [CONV_ID, OTHER_CONV_ID]) {
     await db.insert(conversations).values({
-      id, projectId: "proj-run-scope", title: id,
+      id,
+      projectId: "proj-run-scope",
+      title: id,
     } as never);
   }
   await db.insert(extensions).values({
-    id: EXT_ID, name: EXT_ID, version: "1.0.0", description: "t",
+    id: EXT_ID,
+    name: EXT_ID,
+    version: "1.0.0",
+    description: "t",
     manifest: {
-      schemaVersion: 2, name: EXT_ID, version: "1.0.0", description: "",
-      author: { name: "t" }, permissions: {},
+      schemaVersion: 2,
+      name: EXT_ID,
+      version: "1.0.0",
+      description: "",
+      author: { name: "t" },
+      permissions: {},
     } as never,
-    source: `test:${EXT_ID}`, installPath: `/tmp/${EXT_ID}`, enabled: true,
+    source: `test:${EXT_ID}`,
+    installPath: `/tmp/${EXT_ID}`,
+    enabled: true,
     grantedPermissions: { grantedAt: {} } as never,
   } as never);
 
@@ -69,18 +85,20 @@ beforeAll(async () => {
     { id: "tc-other", conv: OTHER_CONV_ID, success: true, atMs: RUN_STARTED_MS + 1_000 },
   ];
   for (const r of [rows[3], rows[0], rows[4], rows[2], rows[1]]) {
-    await getTestDb().insert(toolCalls).values({
-      id: r!.id,
-      conversationId: r!.conv,
-      messageId: null,
-      extensionId: EXT_ID,
-      toolName: "t",
-      input: {},
-      output: { content: [] },
-      success: r!.success,
-      durationMs: 1,
-      createdAt: new Date(r!.atMs),
-    } as never);
+    await getTestDb()
+      .insert(toolCalls)
+      .values({
+        id: r!.id,
+        conversationId: r!.conv,
+        messageId: null,
+        extensionId: EXT_ID,
+        toolName: "t",
+        input: {},
+        output: { content: [] },
+        success: r!.success,
+        durationMs: 1,
+        createdAt: new Date(r!.atMs),
+      } as never);
   }
 });
 

@@ -21,7 +21,7 @@ export const DEFAULT_SEARCH_MODE: SearchMode = "hybrid";
 const VALID_MODES: readonly SearchMode[] = ["hybrid", "keyword", "semantic"];
 
 function isSearchMode(value: unknown): value is SearchMode {
-	return typeof value === "string" && (VALID_MODES as readonly string[]).includes(value);
+  return typeof value === "string" && (VALID_MODES as readonly string[]).includes(value);
 }
 
 /**
@@ -31,13 +31,13 @@ function isSearchMode(value: unknown): value is SearchMode {
  * `loadCollapsed` pattern in ConversationList.svelte.
  */
 export function loadSearchMode(): SearchMode {
-	if (typeof localStorage === "undefined") return DEFAULT_SEARCH_MODE;
-	try {
-		const raw = localStorage.getItem(SEARCH_MODE_LS_KEY);
-		return isSearchMode(raw) ? raw : DEFAULT_SEARCH_MODE;
-	} catch {
-		return DEFAULT_SEARCH_MODE;
-	}
+  if (typeof localStorage === "undefined") return DEFAULT_SEARCH_MODE;
+  try {
+    const raw = localStorage.getItem(SEARCH_MODE_LS_KEY);
+    return isSearchMode(raw) ? raw : DEFAULT_SEARCH_MODE;
+  } catch {
+    return DEFAULT_SEARCH_MODE;
+  }
 }
 
 /**
@@ -45,19 +45,19 @@ export function loadSearchMode(): SearchMode {
  * so a storage failure (SSR / private mode / quota) is a silent no-op.
  */
 export function persistSearchMode(mode: SearchMode): void {
-	if (typeof localStorage === "undefined") return;
-	try {
-		localStorage.setItem(SEARCH_MODE_LS_KEY, mode);
-	} catch {
-		/* non-critical — preference simply won't survive reload */
-	}
+  if (typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(SEARCH_MODE_LS_KEY, mode);
+  } catch {
+    /* non-critical — preference simply won't survive reload */
+  }
 }
 
 /** One conversation's worth of grouped message hits. */
 export interface MessageHitGroup {
-	conversationId: string;
-	title: string;
-	hits: MessageSearchHit[];
+  conversationId: string;
+  title: string;
+  hits: MessageSearchHit[];
 }
 
 /**
@@ -67,18 +67,18 @@ export interface MessageHitGroup {
  * its title.
  */
 export function groupHitsByConversation(hits: MessageSearchHit[]): MessageHitGroup[] {
-	const map = new Map<string, MessageHitGroup>();
-	for (const h of hits) {
-		const existing = map.get(h.conversationId);
-		if (existing) {
-			existing.hits.push(h);
-		} else {
-			map.set(h.conversationId, {
-				conversationId: h.conversationId,
-				title: h.conversationTitle,
-				hits: [h],
-			});
-		}
-	}
-	return [...map.values()];
+  const map = new Map<string, MessageHitGroup>();
+  for (const h of hits) {
+    const existing = map.get(h.conversationId);
+    if (existing) {
+      existing.hits.push(h);
+    } else {
+      map.set(h.conversationId, {
+        conversationId: h.conversationId,
+        title: h.conversationTitle,
+        hits: [h],
+      });
+    }
+  }
+  return [...map.values()];
 }

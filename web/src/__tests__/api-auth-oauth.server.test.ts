@@ -19,9 +19,7 @@ vi.mock("$server/auth/oauth-callback-server", () => ({
 }));
 
 const { upsertSetting } = await import("$server/db/queries/settings");
-const { startOAuthCallbackServer } = await import(
-  "$server/auth/oauth-callback-server"
-);
+const { startOAuthCallbackServer } = await import("$server/auth/oauth-callback-server");
 const { GET } = await import("../routes/api/auth/oauth/+server.ts");
 
 function makeEvent(opts: {
@@ -113,18 +111,14 @@ describe("GET /api/auth/oauth", () => {
     expect(res).toBeInstanceOf(Response);
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe(
-      "Invalid provider. Must be one of: openai, google, anthropic",
-    );
+    expect(body.error).toBe("Invalid provider. Must be one of: openai, google, anthropic");
   });
 
   test("unsupported provider returns 400", async () => {
     const res = await GET(makeEvent({ provider: "wat", locals: adminLocals }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toBe(
-      "Invalid provider. Must be one of: openai, google, anthropic",
-    );
+    expect(body.error).toBe("Invalid provider. Must be one of: openai, google, anthropic");
   });
 
   test("anthropic provider returns 400 (no OAuth path)", async () => {

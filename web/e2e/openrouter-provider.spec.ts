@@ -12,65 +12,71 @@ import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProviderStatus } from "./fixtures/data.js";
 
 function providerCard(page: Page, name: string) {
-	return page.locator("div.rounded-lg.border").filter({ hasText: name }).first();
+  return page.locator("div.rounded-lg.border").filter({ hasText: name }).first();
 }
 
 // Four providers, matching the shared onboarding order — OpenRouter last and
 // BYOK-only (no subscription OAuth).
 function providersWithOpenRouter() {
-	return [
-		makeProviderStatus({ provider: "anthropic", oauthSupported: false }),
-		makeProviderStatus({ provider: "openai", oauthSupported: true }),
-		makeProviderStatus({ provider: "google", oauthSupported: true }),
-		makeProviderStatus({ provider: "openrouter", oauthSupported: false }),
-	];
+  return [
+    makeProviderStatus({ provider: "anthropic", oauthSupported: false }),
+    makeProviderStatus({ provider: "openai", oauthSupported: true }),
+    makeProviderStatus({ provider: "google", oauthSupported: true }),
+    makeProviderStatus({ provider: "openrouter", oauthSupported: false }),
+  ];
 }
 
 test.describe("OpenRouter provider card", () => {
-	test("renders the OpenRouter card and captures evidence @evidence", async ({ page, mockApi }, testInfo) => {
-		await mockApi({ providers: providersWithOpenRouter() });
+  test("renders the OpenRouter card and captures evidence @evidence", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    await mockApi({ providers: providersWithOpenRouter() });
 
-		await page.goto("/settings/models");
+    await page.goto("/settings/models");
 
-		const card = providerCard(page, "OpenRouter");
-		await expect(card.getByText("OpenRouter", { exact: true }).first()).toBeVisible();
-		// BYOK affordances present, OAuth absent.
-		await expect(card.getByPlaceholder("sk-or-v1-...")).toBeVisible();
-		await expect(card.getByText("Get your OpenRouter API key")).toBeVisible();
-		await expect(card.getByRole("button", { name: /Connect/ })).toHaveCount(0);
+    const card = providerCard(page, "OpenRouter");
+    await expect(card.getByText("OpenRouter", { exact: true }).first()).toBeVisible();
+    // BYOK affordances present, OAuth absent.
+    await expect(card.getByPlaceholder("sk-or-v1-...")).toBeVisible();
+    await expect(card.getByText("Get your OpenRouter API key")).toBeVisible();
+    await expect(card.getByRole("button", { name: /Connect/ })).toHaveCount(0);
 
-		await captureEvidence(page, testInfo, "openrouter-provider-card");
+    await captureEvidence(page, testInfo, "openrouter-provider-card");
 
-		// Assert the capture contract both with and without the flag (mirrors
-		// rbac-permissions.spec.ts) so the test is meaningful in either mode.
-		if (process.env.EZCORP_E2E_EVIDENCE === "1") {
-			expect(
-				testInfo.attachments.some(
-					(a) => a.name === "openrouter-provider-card" && a.contentType === "image/png",
-				),
-			).toBe(true);
-		} else {
-			expect(testInfo.attachments.some((a) => a.name === "openrouter-provider-card")).toBe(false);
-		}
-	});
+    // Assert the capture contract both with and without the flag (mirrors
+    // rbac-permissions.spec.ts) so the test is meaningful in either mode.
+    if (process.env.EZCORP_E2E_EVIDENCE === "1") {
+      expect(
+        testInfo.attachments.some(
+          (a) => a.name === "openrouter-provider-card" && a.contentType === "image/png",
+        ),
+      ).toBe(true);
+    } else {
+      expect(testInfo.attachments.some((a) => a.name === "openrouter-provider-card")).toBe(false);
+    }
+  });
 
-	test("self-heals a stored preference order saved before OpenRouter existed", async ({ page, mockApi }) => {
-		// Upgraded deployment: an admin reordered providers when only three
-		// existed, so the stored order is missing openrouter. The load path
-		// appends it, so the Provider Preference Order UI shows it (and backend
-		// routing can reach it) instead of it being permanently invisible.
-		await mockApi({
-			providers: providersWithOpenRouter(),
-			settings: { "provider:preferenceOrder": ["anthropic", "openai", "google"] },
-		});
+  test("self-heals a stored preference order saved before OpenRouter existed", async ({
+    page,
+    mockApi,
+  }) => {
+    // Upgraded deployment: an admin reordered providers when only three
+    // existed, so the stored order is missing openrouter. The load path
+    // appends it, so the Provider Preference Order UI shows it (and backend
+    // routing can reach it) instead of it being permanently invisible.
+    await mockApi({
+      providers: providersWithOpenRouter(),
+      settings: { "provider:preferenceOrder": ["anthropic", "openai", "google"] },
+    });
 
-		await page.goto("/settings/models");
+    await page.goto("/settings/models");
 
-		const order = page.locator("#order");
-		// Three stored providers + the appended OpenRouter = four reorderable rows.
-		await expect(order.locator('button[title="Move up"]')).toHaveCount(4);
-		await expect(order.getByText("OpenRouter", { exact: true })).toBeVisible();
-		// Appended last — it is row number 4.
-		await expect(order.getByText("4.", { exact: true })).toBeVisible();
-	});
+    const order = page.locator("#order");
+    // Three stored providers + the appended OpenRouter = four reorderable rows.
+    await expect(order.locator('button[title="Move up"]')).toHaveCount(4);
+    await expect(order.getByText("OpenRouter", { exact: true })).toBeVisible();
+    // Appended last — it is row number 4.
+    await expect(order.getByText("4.", { exact: true })).toBeVisible();
+  });
 });

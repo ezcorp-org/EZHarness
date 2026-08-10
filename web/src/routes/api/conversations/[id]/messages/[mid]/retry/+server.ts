@@ -53,7 +53,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   const conv = ownership.conv;
 
   if (!(await isSessionHistoryProducerEnabled())) {
-    return errorJson(409, "Session history producer is disabled", { code: "session_producer_disabled" });
+    return errorJson(409, "Session history producer is disabled", {
+      code: "session_producer_disabled",
+    });
   }
 
   // Never start a second turn on a conversation with a live run — check the
@@ -64,9 +66,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     return errorJson(409, "Cannot retry while a run is active", { code: "active_run" });
   }
 
-  const parsed = retryMessageSchema.safeParse(
-    await request.json().catch(() => ({})),
-  );
+  const parsed = retryMessageSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) return validationError(parsed.error);
 
   const budget = await checkTokenBudget(user.id);
@@ -80,13 +80,17 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
   const allMessages = await convQueries.getMessages(conversationId);
   const target = allMessages.find((m) => m.id === messageId);
   if (!target || target.role !== "assistant") {
-    return errorJson(400, "Target is not an assistant message of this conversation", { code: "target_not_found" });
+    return errorJson(400, "Target is not an assistant message of this conversation", {
+      code: "target_not_found",
+    });
   }
   const parentUser = target.parentMessageId
     ? allMessages.find((m) => m.id === target.parentMessageId)
     : undefined;
   if (!parentUser || parentUser.role !== "user") {
-    return errorJson(400, "Target assistant message has no user parent to retry from", { code: "no_user_parent" });
+    return errorJson(400, "Target assistant message has no user parent to retry from", {
+      code: "no_user_parent",
+    });
   }
 
   // A retry uses the conversation's pinned identity unless the caller
@@ -115,7 +119,9 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     commandResolver: buildCommandResolver(user.id, conv.projectId),
   });
   streamPromise.catch((err) => {
-    log.error("retry streamChat error", { error: err instanceof Error ? err.message : String(err) });
+    log.error("retry streamChat error", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   });
 
   return json({

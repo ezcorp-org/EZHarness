@@ -68,9 +68,7 @@ function clampToolbarForManifest(manifest: ExtensionManifestV2): ToolbarItemResp
   // Phase 51.4: `eventSubscriptions` may be the legacy string[] OR the
   // new object form `{events, includeFullPayload}`. Normalize.
   const rawEvSubs = manifest.permissions?.eventSubscriptions;
-  const evList = Array.isArray(rawEvSubs)
-    ? rawEvSubs
-    : (rawEvSubs?.events ?? []);
+  const evList = Array.isArray(rawEvSubs) ? rawEvSubs : (rawEvSubs?.events ?? []);
   const allowed = new Set(evList);
   const out: ToolbarItemResponse[] = [];
   for (const it of items as MessageToolbarItem[]) {
@@ -115,7 +113,10 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   // extension is installed/uninstalled or its manifest is re-loaded.
   // 10 s is enough to absorb a tight-loop fetch from the frontend
   // store without masking a fresh-install in dev.
-  return json({ items }, {
-    headers: { "Cache-Control": "private, max-age=10" },
-  });
+  return json(
+    { items },
+    {
+      headers: { "Cache-Control": "private, max-age=10" },
+    },
+  );
 };

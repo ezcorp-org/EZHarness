@@ -19,7 +19,13 @@
  * from coverage-config.ts (DRY). Pure helper exported for unit testing.
  */
 import { resolve } from "node:path";
-import { isExcluded, isSourceFile, parseHitLines, parseLcov, REPO_ROOT } from "./coverage-config.ts";
+import {
+  isExcluded,
+  isSourceFile,
+  parseHitLines,
+  parseLcov,
+  REPO_ROOT,
+} from "./coverage-config.ts";
 import { parseUnifiedDiff } from "./gate-integrity.ts";
 
 /**
@@ -136,10 +142,14 @@ async function main(): Promise<void> {
   }
 
   if (violations.length === 0) {
-    console.log(`Patch coverage gate PASSED: all changed executable lines covered (${checkedFiles} file(s)).`);
+    console.log(
+      `Patch coverage gate PASSED: all changed executable lines covered (${checkedFiles} file(s)).`,
+    );
     return;
   }
-  console.error(`Patch coverage gate FAILED (${violations.length} file(s) with uncovered changes):`);
+  console.error(
+    `Patch coverage gate FAILED (${violations.length} file(s) with uncovered changes):`,
+  );
   for (const v of violations) console.error(`  ${v}`);
   console.error("\nAdd tests covering the changed lines above, then re-run the coverage pipeline.");
   process.exit(1);

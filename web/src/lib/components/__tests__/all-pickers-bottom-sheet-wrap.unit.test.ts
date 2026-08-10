@@ -22,38 +22,38 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const PICKERS = [
-	"AgentSearchPicker.svelte",
-	"AssignmentPicker.svelte",
-	"ExtensionAttachPicker.svelte",
-	"ExtensionSearchPicker.svelte",
-	"FilePicker.svelte",
-	"ModelSearchPicker.svelte",
-	"ModeSearchPicker.svelte",
-	"ProjectPicker.svelte",
-	"ToolSearchPicker.svelte",
+  "AgentSearchPicker.svelte",
+  "AssignmentPicker.svelte",
+  "ExtensionAttachPicker.svelte",
+  "ExtensionSearchPicker.svelte",
+  "FilePicker.svelte",
+  "ModelSearchPicker.svelte",
+  "ModeSearchPicker.svelte",
+  "ProjectPicker.svelte",
+  "ToolSearchPicker.svelte",
 ] as const;
 
 function readPickerSource(filename: string): string {
-	const path = resolve(__dirname, "..", filename);
-	return readFileSync(path, "utf8");
+  const path = resolve(__dirname, "..", filename);
+  return readFileSync(path, "utf8");
 }
 
 describe("UX-01: all 9 pickers wrap body in BottomSheet on <lg (GAP-57-A)", () => {
-	for (const filename of PICKERS) {
-		test(`${filename} imports BottomSheet`, () => {
-			const src = readPickerSource(filename);
-			// Matches both `import BottomSheet from "..."` and the
-			// `<BottomSheet ...>` element. A picker that loses the wrap
-			// would lose BOTH and fail this assertion.
-			expect(src).toContain("BottomSheet");
-		});
+  for (const filename of PICKERS) {
+    test(`${filename} imports BottomSheet`, () => {
+      const src = readPickerSource(filename);
+      // Matches both `import BottomSheet from "..."` and the
+      // `<BottomSheet ...>` element. A picker that loses the wrap
+      // would lose BOTH and fail this assertion.
+      expect(src).toContain("BottomSheet");
+    });
 
-		test(`${filename} uses bp.below conditional`, () => {
-			const src = readPickerSource(filename);
-			// Locks the breakpoint-gated render: `{#if ... bp.below ...}`.
-			// A picker that switched to `bp.above` or removed the
-			// conditional would fail here.
-			expect(src).toContain("bp.below");
-		});
-	}
+    test(`${filename} uses bp.below conditional`, () => {
+      const src = readPickerSource(filename);
+      // Locks the breakpoint-gated render: `{#if ... bp.below ...}`.
+      // A picker that switched to `bp.above` or removed the
+      // conditional would fail here.
+      expect(src).toContain("bp.below");
+    });
+  }
 });

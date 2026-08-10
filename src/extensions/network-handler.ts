@@ -103,11 +103,7 @@ export async function handleNetworkInternalRpc(
   );
 
   if (decision.decision === "deny") {
-    return jsonRpcError(
-      req.id,
-      -32001,
-      `Network denied: ${decision.reason}`,
-    );
+    return jsonRpcError(req.id, -32001, `Network denied: ${decision.reason}`);
   }
 
   // Perform fetch host-side.
@@ -132,11 +128,7 @@ export async function handleNetworkInternalRpc(
   }
 
   if (buf.byteLength > TEN_MB) {
-    return jsonRpcError(
-      req.id,
-      -32000,
-      "Response exceeds 10MB internal-fetch cap",
-    );
+    return jsonRpcError(req.id, -32000, "Response exceeds 10MB internal-fetch cap");
   }
 
   const headers: Record<string, string> = {};
@@ -171,11 +163,7 @@ export function isInternalHost(hostname: string): boolean {
 
 // ── Helpers ──────────────────────────────────────────────────────
 
-function jsonRpcError(
-  id: JsonRpcRequest["id"],
-  code: number,
-  message: string,
-): JsonRpcResponse {
+function jsonRpcError(id: JsonRpcRequest["id"], code: number, message: string): JsonRpcResponse {
   return { jsonrpc: "2.0", id, error: { code, message } };
 }
 

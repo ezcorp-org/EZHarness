@@ -16,96 +16,99 @@ const { POST } = await import("../routes/api/composer/suggest/feedback/+server")
 const owner = { id: "user-1", email: "u@x", name: "U", role: "member" };
 
 function call(body: unknown, locals: Record<string, unknown> = { user: owner }) {
-	return POST({
-		locals,
-		request: new Request("http://localhost/api/composer/suggest/feedback", {
-			method: "POST",
-			headers: { "content-type": "application/json" },
-			body: typeof body === "string" ? body : JSON.stringify(body),
-		}),
-	} as never);
+  return POST({
+    locals,
+    request: new Request("http://localhost/api/composer/suggest/feedback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: typeof body === "string" ? body : JSON.stringify(body),
+    }),
+  } as never);
 }
 
 beforeEach(() => {
-	vi.clearAllMocks();
+  vi.clearAllMocks();
 });
 
 describe("POST /api/composer/suggest/feedback", () => {
-	test("API key without 'chat' scope → 403", async () => {
-		const res = await call({ kind: "tool", action: "shown" }, { user: owner, apiKeyScopes: ["read"] });
-		expect(res.status).toBe(403);
-		expect(insertSuggestionFeedback).not.toHaveBeenCalled();
-	});
+  test("API key without 'chat' scope → 403", async () => {
+    const res = await call(
+      { kind: "tool", action: "shown" },
+      { user: owner, apiKeyScopes: ["read"] },
+    );
+    expect(res.status).toBe(403);
+    expect(insertSuggestionFeedback).not.toHaveBeenCalled();
+  });
 
-	test("unauthenticated → 401", async () => {
-		try {
-			const res = await call({ kind: "tool", action: "shown" }, {});
-			expect(res.status).toBe(401);
-		} catch (thrown) {
-			expect((thrown as Response).status).toBe(401);
-		}
-		expect(insertSuggestionFeedback).not.toHaveBeenCalled();
-	});
+  test("unauthenticated → 401", async () => {
+    try {
+      const res = await call({ kind: "tool", action: "shown" }, {});
+      expect(res.status).toBe(401);
+    } catch (thrown) {
+      expect((thrown as Response).status).toBe(401);
+    }
+    expect(insertSuggestionFeedback).not.toHaveBeenCalled();
+  });
 
-	test("invalid kind/action → 400", async () => {
-		expect((await call({ kind: "nope", action: "shown" })).status).toBe(400);
-		expect((await call({ kind: "tool", action: "exploded" })).status).toBe(400);
-	});
+  test("invalid kind/action → 400", async () => {
+    expect((await call({ kind: "nope", action: "shown" })).status).toBe(400);
+    expect((await call({ kind: "tool", action: "exploded" })).status).toBe(400);
+  });
 
-	test("draft-text smuggling is rejected by the strict schema", async () => {
-		const res = await call({ kind: "tool", action: "shown", draft: "my private text" });
-		expect(res.status).toBe(400);
-		expect(insertSuggestionFeedback).not.toHaveBeenCalled();
-	});
+  test("draft-text smuggling is rejected by the strict schema", async () => {
+    const res = await call({ kind: "tool", action: "shown", draft: "my private text" });
+    expect(res.status).toBe(400);
+    expect(insertSuggestionFeedback).not.toHaveBeenCalled();
+  });
 
-	test("malformed JSON → 400", async () => {
-		expect((await call("{oops")).status).toBe(400);
-	});
+  test("malformed JSON → 400", async () => {
+    expect((await call("{oops")).status).toBe(400);
+  });
 
-	test("valid event → 201 and stamps the session user", async () => {
-		const res = await call({
-			kind: "enhance",
-			action: "accepted",
-			toolName: "analyzer__scan",
-			conversationId: "conv-1",
-			latencyMs: 1200,
-		});
-		expect(res.status).toBe(201);
-		expect(await res.json()).toEqual({ ok: true });
-		expect(insertSuggestionFeedback).toHaveBeenCalledWith({
-			userId: "user-1",
-			kind: "enhance",
-			action: "accepted",
-			toolName: "analyzer__scan",
-			conversationId: "conv-1",
-			latencyMs: 1200,
-		});
-	});
+  test("valid event → 201 and stamps the session user", async () => {
+    const res = await call({
+      kind: "enhance",
+      action: "accepted",
+      toolName: "analyzer__scan",
+      conversationId: "conv-1",
+      latencyMs: 1200,
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(insertSuggestionFeedback).toHaveBeenCalledWith({
+      userId: "user-1",
+      kind: "enhance",
+      action: "accepted",
+      toolName: "analyzer__scan",
+      conversationId: "conv-1",
+      latencyMs: 1200,
+    });
+  });
 
-	test("minimal event → 201", async () => {
-		const res = await call({ kind: "tool", action: "dismissed" });
-		expect(res.status).toBe(201);
-		expect(insertSuggestionFeedback).toHaveBeenCalledWith({
-			userId: "user-1",
-			kind: "tool",
-			action: "dismissed",
-		});
-	});
+  test("minimal event → 201", async () => {
+    const res = await call({ kind: "tool", action: "dismissed" });
+    expect(res.status).toBe(201);
+    expect(insertSuggestionFeedback).toHaveBeenCalledWith({
+      userId: "user-1",
+      kind: "tool",
+      action: "dismissed",
+    });
+  });
 
-	test("extension kind → 201 and carries the extension name as toolName", async () => {
-		const res = await call({ kind: "extension", action: "accepted", toolName: "file-organizer" });
-		expect(res.status).toBe(201);
-		expect(insertSuggestionFeedback).toHaveBeenCalledWith({
-			userId: "user-1",
-			kind: "extension",
-			action: "accepted",
-			toolName: "file-organizer",
-		});
-	});
+  test("extension kind → 201 and carries the extension name as toolName", async () => {
+    const res = await call({ kind: "extension", action: "accepted", toolName: "file-organizer" });
+    expect(res.status).toBe(201);
+    expect(insertSuggestionFeedback).toHaveBeenCalledWith({
+      userId: "user-1",
+      kind: "extension",
+      action: "accepted",
+      toolName: "file-organizer",
+    });
+  });
 
-	test("junk kind is still rejected after the union widened → 400", async () => {
-		const res = await call({ kind: "gremlin", action: "shown" });
-		expect(res.status).toBe(400);
-		expect(insertSuggestionFeedback).not.toHaveBeenCalled();
-	});
+  test("junk kind is still rejected after the union widened → 400", async () => {
+    const res = await call({ kind: "gremlin", action: "shown" });
+    expect(res.status).toBe(400);
+    expect(insertSuggestionFeedback).not.toHaveBeenCalled();
+  });
 });

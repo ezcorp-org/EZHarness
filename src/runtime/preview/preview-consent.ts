@@ -181,7 +181,11 @@ export async function decideOnDetection(event: PreviewDetectedEvent): Promise<De
 
   if (await isAlwaysExpose(conversationId, userId)) {
     const { previewId, code, subdomainLabel } = await exposeDetectedPort(event);
-    log.info("preview auto-exposed (always-expose preference)", { conversationId, port, previewId });
+    log.info("preview auto-exposed (always-expose preference)", {
+      conversationId,
+      port,
+      previewId,
+    });
     return { kind: "auto-exposed", previewId, port, code, subdomainLabel };
   }
 

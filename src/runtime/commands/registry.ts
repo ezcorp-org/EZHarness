@@ -17,10 +17,7 @@
  */
 
 import type { CommandRecord, CommandSource } from "./discovery";
-import {
-  discoverProjectCommands,
-  discoverHomeCommands,
-} from "./discovery";
+import { discoverProjectCommands, discoverHomeCommands } from "./discovery";
 
 export interface DbCommandRecord {
   name: string;
@@ -99,8 +96,7 @@ const PRECEDENCE: CommandSource[] = [
 export function createCommandRegistry(cfg: RegistryConfig): CommandRegistry {
   const ttl = cfg.cacheTtlMs ?? 2_000;
   const cache = new Map<string, CacheEntry>();
-  const cacheKey = (userId: string, projectId: string) =>
-    `${userId}::${projectId}`;
+  const cacheKey = (userId: string, projectId: string) => `${userId}::${projectId}`;
 
   async function load(opts: ListOpts): Promise<CommandRecord[]> {
     const results: CommandRecord[] = [];

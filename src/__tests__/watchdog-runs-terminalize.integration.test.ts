@@ -32,7 +32,11 @@ afterAll(() => restoreModuleMocks());
 
 // ── Mocks (must precede SUT import) ────────────────────────────────────
 
-interface FinalizeCall { runId: string; status: string; error?: string }
+interface FinalizeCall {
+  runId: string;
+  status: string;
+  error?: string;
+}
 const finalizeRunRowCalls: FinalizeCall[] = [];
 const markInterruptedCalls: string[] = [];
 let interruptAllRunsCalls = 0;
@@ -88,10 +92,7 @@ mock.module("../runtime/boot-reconcile-assignments", () => ({
   },
 }));
 
-import {
-  WatchdogManager,
-  type WatchdogHost,
-} from "../runtime/executor-watchdog";
+import { WatchdogManager, type WatchdogHost } from "../runtime/executor-watchdog";
 import { EventBus } from "../runtime/events";
 import type { AgentEvents, AgentRun } from "../types";
 

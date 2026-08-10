@@ -29,14 +29,8 @@ mock.module("../db/connection", () => ({
 
 const { handleAppendMessageRpc } = await import("../extensions/append-message-handler");
 const { getDb } = await import("../db/connection");
-const {
-  conversations,
-  projects,
-  conversationExtensions,
-  messages,
-  users,
-  extensions,
-} = await import("../db/schema");
+const { conversations, projects, conversationExtensions, messages, users, extensions } =
+  await import("../db/schema");
 
 import type { JsonRpcRequest } from "../extensions/types";
 import type { AppendMessageContext } from "../extensions/append-message-handler";

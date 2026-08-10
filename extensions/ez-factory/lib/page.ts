@@ -163,11 +163,7 @@ export const DELEGATIONS_HREF = "/workflows/delegations";
  * surface does not offer it; a link naming it would be refused there, and a
  * link this builder KNOWS would be refused is a link it should not emit.
  */
-export const DELEGATABLE_TRIGGER_KINDS: ReadonlySet<string> = new Set([
-  "cron",
-  "webhook",
-  "event",
-]);
+export const DELEGATABLE_TRIGGER_KINDS: ReadonlySet<string> = new Set(["cron", "webhook", "event"]);
 
 /**
  * The deep link that hands ONE job to core's consent surface — or `null`
@@ -472,9 +468,7 @@ export function inputValueText(value: unknown): string {
 /** The job's inputs as one compact `k=v · k=v` cell. Values are excerpted by
  *  {@link inputValueText}; the whole cell is a table cell, never markdown. */
 export function inputSummary(job: FactoryJob): string {
-  const parts = Object.entries(job.input).map(
-    ([key, value]) => `${key}=${inputValueText(value)}`,
-  );
+  const parts = Object.entries(job.input).map(([key, value]) => `${key}=${inputValueText(value)}`);
   return parts.length === 0 ? "—" : parts.join(" · ");
 }
 
@@ -598,14 +592,12 @@ function appendTemplatesView(page: PageBuilder, projectId: string | undefined): 
   page.markdownBlock(TEMPLATES_HELP);
   page.table(
     ["Template", "What it does", "Job-settable inputs"],
-    TEMPLATE_BLURBS.map((blurb): PageTableRowInput => ({
-      cells: [
-        blurb.workflow,
-        blurb.summary,
-        JOB_SETTABLE_INPUT_KEYS[blurb.workflow].join(", "),
-      ],
-      href: `${WORKFLOWS_HREF}/${encodeURIComponent(`${EXTENSION_NAME}:${blurb.workflow}`)}`,
-    })),
+    TEMPLATE_BLURBS.map(
+      (blurb): PageTableRowInput => ({
+        cells: [blurb.workflow, blurb.summary, JOB_SETTABLE_INPUT_KEYS[blurb.workflow].join(", ")],
+        href: `${WORKFLOWS_HREF}/${encodeURIComponent(`${EXTENSION_NAME}:${blurb.workflow}`)}`,
+      }),
+    ),
   );
   page.link("New job", hubHref(JOB_FULL_PAGE_ID, projectId));
 }
@@ -625,21 +617,23 @@ function appendRunsView(page: PageBuilder, input: FactoryPageInput): void {
   const jobName = new Map(jobs.map((job) => [job.id, job.name]));
   page.table(
     ["Job", "Workflow", "Status", "Started", "Finished", "Resumable"],
-    runs.map((run): PageTableRowInput => ({
-      cells: [
-        // A run whose job has since been deleted still has a trace worth
-        // opening — name it by id rather than dropping the row.
-        jobName.get(run.jobId) ?? run.jobId,
-        run.workflowName,
-        runStatusCell(run.status),
-        shortTime(run.startedAt),
-        shortTime(run.finishedAt),
-        run.resumable ? "yes" : "no",
-      ],
-      // The deep link is the ONLY way a run's content is reachable from this
-      // page — nothing it produced is inlined (invariant K).
-      href: runTraceHref(run.workflowRunId),
-    })),
+    runs.map(
+      (run): PageTableRowInput => ({
+        cells: [
+          // A run whose job has since been deleted still has a trace worth
+          // opening — name it by id rather than dropping the row.
+          jobName.get(run.jobId) ?? run.jobId,
+          run.workflowName,
+          runStatusCell(run.status),
+          shortTime(run.startedAt),
+          shortTime(run.finishedAt),
+          run.resumable ? "yes" : "no",
+        ],
+        // The deep link is the ONLY way a run's content is reachable from this
+        // page — nothing it produced is inlined (invariant K).
+        href: runTraceHref(run.workflowRunId),
+      }),
+    ),
   );
 }
 
@@ -653,9 +647,7 @@ export function buildFactoryPage(input: FactoryPageInput): HubPageTree {
       page.section("Jobs", (section) => appendJobsView(section, input));
       break;
     case "templates":
-      page.section("Shipped templates", (section) =>
-        appendTemplatesView(section, input.projectId),
-      );
+      page.section("Shipped templates", (section) => appendTemplatesView(section, input.projectId));
       break;
     case "runs":
       page.section("Recent runs", (section) => appendRunsView(section, input));
@@ -799,11 +791,7 @@ const INPUT_LABELS: Record<string, string> = {
  * A key absent from this set gets a single-line input, which is also the
  * right default for any key added later without thinking about it.
  */
-export const MULTILINE_INPUT_KEYS: ReadonlySet<string> = new Set([
-  "globs",
-  "draft",
-  "sources",
-]);
+export const MULTILINE_INPUT_KEYS: ReadonlySet<string> = new Set(["globs", "draft", "sources"]);
 
 /** Everything the `job` page renders. */
 export interface JobPageInput {
@@ -1159,9 +1147,7 @@ export function candidateDraft(
       // payload (a submission carrying no kind at all) means the store's
       // `undefined → manual` default applies, which un-schedules rather
       // than leaving a half-written trigger — the safe direction.
-      ...(submission.draft.trigger === undefined
-        ? {}
-        : { trigger: submission.draft.trigger }),
+      ...(submission.draft.trigger === undefined ? {} : { trigger: submission.draft.trigger }),
     };
   }
   return {
@@ -1206,9 +1192,7 @@ export function candidateDraft(
  *     cannot carry a stale cron expression and a webhook job cannot carry
  *     one at all.
  */
-function triggerDraftFrom(
-  raw: Record<string, unknown>,
-): { trigger?: Record<string, unknown> } {
+function triggerDraftFrom(raw: Record<string, unknown>): { trigger?: Record<string, unknown> } {
   const kind = raw[JOB_FORM_FIELDS.triggerKind];
   if (kind === undefined) return {};
   const trigger: Record<string, unknown> = { kind };
@@ -1311,10 +1295,7 @@ export function buildJobPage(input: JobPageInput): HubPageTree {
       if (editing.enabled) {
         section.button("Run now", jobRunAction(editing), "primary");
       }
-      section.link(
-        "Runs of this job",
-        hubHref(FACTORY_FULL_PAGE_ID, projectId, "runs"),
-      );
+      section.link("Runs of this job", hubHref(FACTORY_FULL_PAGE_ID, projectId, "runs"));
       // ── The job → consent handoff ─────────────────────────────────
       //
       // Only for a job that fires on its own. A manual job is started by

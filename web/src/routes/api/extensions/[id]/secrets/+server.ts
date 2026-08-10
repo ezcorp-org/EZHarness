@@ -70,9 +70,7 @@ function reservedNamespaceError(name: string): Response | null {
 /** Gate on the `extensions` scope + a real session/key user. Returns the authed
  *  user, or a Response to short-circuit the handler with. Mirrors the
  *  github-projects `authGithubRoute` contract. */
-function authSecretsRoute(
-  locals: SecretsRouteLocals,
-): { user: AuthUser } | { error: Response } {
+function authSecretsRoute(locals: SecretsRouteLocals): { user: AuthUser } | { error: Response } {
   const scopeErr = requireScope(locals, "extensions");
   if (scopeErr) return { error: scopeErr };
   try {

@@ -10,9 +10,7 @@ export const EXT_NAME_REGEX = /^[a-z0-9][a-z0-9-_.]{0,63}$/;
  *  on every iframe. Cards cannot override this. */
 export const SANDBOX_FLAGS_STRICT = "allow-scripts allow-same-origin";
 
-export type IframeSrcValidation =
-  | { ok: true }
-  | { ok: false; reason: string };
+export type IframeSrcValidation = { ok: true } | { ok: false; reason: string };
 
 /**
  * Validate that an iframe `src` is safe to load:
@@ -99,27 +97,30 @@ export function buildEventUrl(extensionName: string, eventName: string): string 
  * `origin` is injected so the function is testable without a real
  * `window`. Production callers pass `window.location.origin`.
  */
-export function extractPopoutUrl(
-  output: unknown,
-  origin: string,
-): string | null {
+export function extractPopoutUrl(output: unknown, origin: string): string | null {
   if (output == null) return null;
 
   const tryParse = (raw: unknown): { iframeSrc?: unknown } | null => {
     if (!raw) return null;
     if (typeof raw === "string") {
-      try { return JSON.parse(raw); } catch { return null; }
+      try {
+        return JSON.parse(raw);
+      } catch {
+        return null;
+      }
     }
     if (typeof raw === "object" && raw !== null) {
       if ("content" in (raw as Record<string, unknown>)) {
         const content = (raw as { content?: unknown[] }).content;
         if (Array.isArray(content)) {
-          const text = content.find(
-            (c: unknown) => (c as { type?: string }).type === "text",
-          );
+          const text = content.find((c: unknown) => (c as { type?: string }).type === "text");
           const t = (text as { text?: unknown })?.text;
           if (typeof t === "string") {
-            try { return JSON.parse(t); } catch { return null; }
+            try {
+              return JSON.parse(t);
+            } catch {
+              return null;
+            }
           }
         }
       }

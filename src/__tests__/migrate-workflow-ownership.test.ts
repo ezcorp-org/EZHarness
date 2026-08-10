@@ -26,7 +26,12 @@ const { listWorkflowVersions } = await import("../db/queries/workflow-versions")
 const { getWorkflowByName, loadDbCachedWorkflows } = await import("../db/queries/workflows");
 
 type ScalarRow = { n: string | number };
-type VisibilityRow = { name: string; visibility: string; project_id: string | null; user_id: string | null };
+type VisibilityRow = {
+  name: string;
+  visibility: string;
+  project_id: string | null;
+  user_id: string | null;
+};
 
 async function countVersions(): Promise<number> {
   const res = (await db.execute(
@@ -105,7 +110,9 @@ describe("migrate() — C6 ownership and versions", () => {
     // Behavioural: a second row cannot take a name that is already held,
     // whatever its ownership.
     const dup = await db
-      .execute(sql`INSERT INTO workflow_definitions (id, name, steps) VALUES ('dup', 'deploy', '[]'::jsonb)`)
+      .execute(
+        sql`INSERT INTO workflow_definitions (id, name, steps) VALUES ('dup', 'deploy', '[]'::jsonb)`,
+      )
       .then(() => null)
       .catch((e: unknown) => e);
     expect(dup).toBeInstanceOf(Error);

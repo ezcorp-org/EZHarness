@@ -68,11 +68,7 @@ export function buildPiAgent(
   // Shared with providers/llm.ts (streamLLM/completeLLM) via
   // resolveModelForCredential so the chat path and background LLM calls
   // can never diverge on OAuth handling.
-  const model = resolveModelForCredential(
-    resolved.piModel,
-    resolved.provider,
-    initialCred.type,
-  );
+  const model = resolveModelForCredential(resolved.piModel, resolved.provider, initialCred.type);
 
   // Prefix-cache retention for THIS turn. Anthropic caches the system
   // prompt + tools + conversation prefix; a long TTL keeps that stable
@@ -142,8 +138,9 @@ export function buildPiAgent(
       summarize: makeSummarizer(model, conversationId, credentialConversationId),
     }),
     convertToLlm: (messages) => {
-      return messages.filter((m) =>
-        "role" in m && (m.role === "user" || m.role === "assistant" || m.role === "toolResult"),
+      return messages.filter(
+        (m) =>
+          "role" in m && (m.role === "user" || m.role === "assistant" || m.role === "toolResult"),
       ) as Message[];
     },
     getApiKey: async (provider) => {

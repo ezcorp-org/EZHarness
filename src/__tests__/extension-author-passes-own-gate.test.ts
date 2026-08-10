@@ -50,9 +50,7 @@ describe("extension-author passes its own acceptance gate", () => {
     const failed = result.steps.filter((s) => !s.ok);
     // Name the failing steps in the message — a bare `false` here is
     // useless when the subprocess died on a module-load error.
-    expect(
-      failed.map((s) => `${s.name}: ${s.detail}`).join(" | "),
-    ).toBe("");
+    expect(failed.map((s) => `${s.name}: ${s.detail}`).join(" | ")).toBe("");
     expect(result.pass).toBe(true);
 
     // The round-trip step specifically must have RUN, not been skipped

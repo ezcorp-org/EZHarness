@@ -28,10 +28,7 @@ export const WORKFLOW_NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/;
 /** Build the cache name for an extension-shipped workflow. The ONE place
  *  the prefix is applied, so the loader (which writes the name) and the
  *  reverse-RPC handler (which resolves it) can never disagree. */
-export function namespacedWorkflowName(
-  extensionName: string,
-  declaredName: string,
-): string {
+export function namespacedWorkflowName(extensionName: string, declaredName: string): string {
   return `${extensionName}${EXTENSION_WORKFLOW_SEPARATOR}${declaredName}`;
 }
 

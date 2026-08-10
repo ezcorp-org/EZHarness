@@ -84,10 +84,7 @@ export function getExtensionDataDir(
  * target. Ensures readers never see a half-written file. Parent directory
  * is created if missing.
  */
-export async function atomicWrite(
-  absPath: string,
-  content: string | Uint8Array,
-): Promise<void> {
+export async function atomicWrite(absPath: string, content: string | Uint8Array): Promise<void> {
   const fs = loadFsSync();
   fs.mkdirSync(dirname(absPath), { recursive: true });
   // randomBytes-ish suffix avoids collision when two concurrent writes to
@@ -206,7 +203,12 @@ export async function fsRead(
 ): Promise<string | Uint8Array> {
   ensureFsAllowed("fsRead");
   const encoding = opts?.encoding ?? "utf-8";
-  type ReadResult = { encoding: "utf-8" | "binary"; body: string; bytes: number; resolvedPath: string };
+  type ReadResult = {
+    encoding: "utf-8" | "binary";
+    body: string;
+    bytes: number;
+    resolvedPath: string;
+  };
   const result = await getChannel().request<ReadResult>(
     "ezcorp/fs.read",
     { path, encoding, ...activeToolNameField() },

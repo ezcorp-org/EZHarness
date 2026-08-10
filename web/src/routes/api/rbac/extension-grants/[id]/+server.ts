@@ -67,13 +67,18 @@ export const DELETE: RequestHandler = async ({ locals, params }) => {
   if (deleted) {
     // `scopes` = the PRE-delete list (RBAC_REVOKED forensic contract);
     // skipped when a concurrent revoke won the race (nothing was removed).
-    await insertAuditEntry(user.id, EXT_AUDIT_ACTIONS.RBAC_REVOKED, grant.extensionId ?? undefined, {
-      actor: user.id,
-      targetUserId: grant.userId,
-      projectId: grant.projectId,
-      extensionId: grant.extensionId,
-      scopes: grant.scopes,
-    });
+    await insertAuditEntry(
+      user.id,
+      EXT_AUDIT_ACTIONS.RBAC_REVOKED,
+      grant.extensionId ?? undefined,
+      {
+        actor: user.id,
+        targetUserId: grant.userId,
+        projectId: grant.projectId,
+        extensionId: grant.extensionId,
+        scopes: grant.scopes,
+      },
+    );
   }
   return json({ deleted });
 };

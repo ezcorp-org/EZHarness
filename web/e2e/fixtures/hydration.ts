@@ -55,18 +55,18 @@ export const HYDRATION_TIMEOUT_MS = 20_000;
  * can never mean "an app page that has not hydrated yet".
  */
 export async function waitForHydration(
-	page: Page,
-	timeout: number = HYDRATION_TIMEOUT_MS,
+  page: Page,
+  timeout: number = HYDRATION_TIMEOUT_MS,
 ): Promise<void> {
-	await page.waitForFunction(
-		(attr: string) => {
-			const state = document.documentElement.getAttribute(attr);
-			if (state === null) return true; // not an app document — nothing to hydrate
-			return state === "true";
-		},
-		HYDRATION_ATTR,
-		{ timeout },
-	);
+  await page.waitForFunction(
+    (attr: string) => {
+      const state = document.documentElement.getAttribute(attr);
+      if (state === null) return true; // not an app document — nothing to hydrate
+      return state === "true";
+    },
+    HYDRATION_ATTR,
+    { timeout },
+  );
 }
 
 /**
@@ -83,15 +83,15 @@ export async function waitForHydration(
  * the 490th would reintroduce the bug.
  */
 export const test = base.extend({
-	page: async ({ page }, use) => {
-		const navigate = page.goto.bind(page);
-		page.goto = async (url: string, options?: Parameters<Page["goto"]>[1]) => {
-			const response = await navigate(url, options);
-			await waitForHydration(page);
-			return response;
-		};
-		await use(page);
-	},
+  page: async ({ page }, use) => {
+    const navigate = page.goto.bind(page);
+    page.goto = async (url: string, options?: Parameters<Page["goto"]>[1]) => {
+      const response = await navigate(url, options);
+      await waitForHydration(page);
+      return response;
+    };
+    await use(page);
+  },
 });
 
 export { expect } from "@playwright/test";

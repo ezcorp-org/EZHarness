@@ -16,7 +16,10 @@ interface MessageExport {
   createdAt: Date;
 }
 
-export function exportToMarkdown(conversation: ConversationExport, messages: MessageExport[]): string {
+export function exportToMarkdown(
+  conversation: ConversationExport,
+  messages: MessageExport[],
+): string {
   const lines: string[] = [
     `# ${conversation.title}`,
     "",
@@ -28,9 +31,7 @@ export function exportToMarkdown(conversation: ConversationExport, messages: Mes
   ];
 
   for (const msg of messages) {
-    const label = msg.role === "user"
-      ? "**You**"
-      : `**Assistant** (${msg.model ?? "unknown"})`;
+    const label = msg.role === "user" ? "**You**" : `**Assistant** (${msg.model ?? "unknown"})`;
     lines.push(`### ${label}`);
     lines.push("");
     lines.push(msg.content);

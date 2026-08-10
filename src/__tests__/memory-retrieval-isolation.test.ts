@@ -32,7 +32,9 @@ mock.module("../db/queries/settings", () => {
   return {
     async getAllSettings() {
       const { getDb } = require("../db/connection");
-      return Object.fromEntries((await getDb().select().from(tbl)).map((r: any) => [r.key, r.value]));
+      return Object.fromEntries(
+        (await getDb().select().from(tbl)).map((r: any) => [r.key, r.value]),
+      );
     },
     async getSetting(key: string) {
       const { getDb } = require("../db/connection");
@@ -56,7 +58,9 @@ mock.module("../db/queries/settings", () => {
       await getDb().delete(tbl).where(eq(tbl.key, key));
       return true;
     },
-    async isListingInstalled() { return false; },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -81,7 +85,10 @@ let memAB: { id: string };
 let memArchived: { id: string };
 let memStale: { id: string };
 
-async function insertTestMemory(content: string, opts?: { projectId?: string | null; projectIds?: string[]; category?: string; status?: string }) {
+async function insertTestMemory(
+  content: string,
+  opts?: { projectId?: string | null; projectIds?: string[]; category?: string; status?: string },
+) {
   const embedding = mockEmbedding();
   const provenance: MemoryProvenance = {
     sourceConversationId: conversationId,
@@ -105,7 +112,10 @@ async function insertTestMemory(content: string, opts?: { projectId?: string | n
     const db = getDb();
     const { memories } = await import("../db/schema");
     const { eq } = await import("drizzle-orm");
-    await db.update(memories).set({ status: opts.status } as any).where(eq(memories.id, mem.id));
+    await db
+      .update(memories)
+      .set({ status: opts.status } as any)
+      .where(eq(memories.id, mem.id));
   }
   return mem;
 }
@@ -127,9 +137,17 @@ describe("hybridSearch project filtering", () => {
     memA = await insertTestMemory("Alpha project API endpoints", { projectId: projectAId });
     memB = await insertTestMemory("Beta project UI components", { projectId: projectBId });
     memGlobal = await insertTestMemory("Organization wide coding guide", { projectId: null });
-    memAB = await insertTestMemory("Shared CI CD pipeline", { projectIds: [projectAId, projectBId] });
-    memArchived = await insertTestMemory("Old deprecated docs", { projectId: projectAId, status: "archived" });
-    memStale = await insertTestMemory("Stale project A config", { projectId: projectAId, status: "stale" });
+    memAB = await insertTestMemory("Shared CI CD pipeline", {
+      projectIds: [projectAId, projectBId],
+    });
+    memArchived = await insertTestMemory("Old deprecated docs", {
+      projectId: projectAId,
+      status: "archived",
+    });
+    memStale = await insertTestMemory("Stale project A config", {
+      projectId: projectAId,
+      status: "stale",
+    });
   });
 
   afterAll(async () => {
@@ -158,7 +176,10 @@ describe("hybridSearch project filtering", () => {
 
   test("with isolation=true excludes global memories", async () => {
     const embedding = mockEmbedding();
-    const results = await hybridSearch("coding guide", embedding, { projectId: projectAId, isolateToProject: true });
+    const results = await hybridSearch("coding guide", embedding, {
+      projectId: projectAId,
+      isolateToProject: true,
+    });
     const ids = results.map((r) => r.id);
     expect(ids).not.toContain(memGlobal.id);
     // memA should be present (it's assigned to projectA)
@@ -167,21 +188,30 @@ describe("hybridSearch project filtering", () => {
 
   test("with isolation=false includes global memories", async () => {
     const embedding = mockEmbedding();
-    const results = await hybridSearch("coding guide", embedding, { projectId: projectAId, isolateToProject: false });
+    const results = await hybridSearch("coding guide", embedding, {
+      projectId: projectAId,
+      isolateToProject: false,
+    });
     const ids = results.map((r) => r.id);
     expect(ids).toContain(memGlobal.id);
   });
 
   test("never returns memories from other projects (isolation=false)", async () => {
     const embedding = mockEmbedding();
-    const results = await hybridSearch("UI components", embedding, { projectId: projectAId, isolateToProject: false });
+    const results = await hybridSearch("UI components", embedding, {
+      projectId: projectAId,
+      isolateToProject: false,
+    });
     const ids = results.map((r) => r.id);
     expect(ids).not.toContain(memB.id);
   });
 
   test("never returns memories from other projects (isolation=true)", async () => {
     const embedding = mockEmbedding();
-    const results = await hybridSearch("UI components", embedding, { projectId: projectAId, isolateToProject: true });
+    const results = await hybridSearch("UI components", embedding, {
+      projectId: projectAId,
+      isolateToProject: true,
+    });
     const ids = results.map((r) => r.id);
     expect(ids).not.toContain(memB.id);
   });
@@ -222,11 +252,18 @@ describe("hybridSearch project filtering", () => {
   test("project boost gives higher score to project memories vs global", async () => {
     // Insert two memories with identical content — one project-scoped, one global
     // This ensures both get the same vector + keyword RRF, so the only difference is the 1.5x project boost
-    const boostedProjectMem = await insertTestMemory("Identical boosted content for testing", { projectId: projectAId });
-    const boostedGlobalMem = await insertTestMemory("Identical boosted content for testing", { projectId: null });
+    const boostedProjectMem = await insertTestMemory("Identical boosted content for testing", {
+      projectId: projectAId,
+    });
+    const boostedGlobalMem = await insertTestMemory("Identical boosted content for testing", {
+      projectId: null,
+    });
 
     const embedding = mockEmbedding();
-    const results = await hybridSearch("identical boosted content", embedding, { projectId: projectAId, isolateToProject: false });
+    const results = await hybridSearch("identical boosted content", embedding, {
+      projectId: projectAId,
+      isolateToProject: false,
+    });
 
     const projectResult = results.find((r) => r.id === boostedProjectMem.id);
     const globalResult = results.find((r) => r.id === boostedGlobalMem.id);

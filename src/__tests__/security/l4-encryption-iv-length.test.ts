@@ -42,11 +42,7 @@ import { encrypt, decrypt, _resetKeyCache } from "../../providers/encryption";
 // Rebuild the same key the module will derive so we can forge a legacy
 // 16-byte-IV ciphertext that the fixed decrypt() must accept.
 function deriveKey(): Buffer {
-  return scryptSync(
-    process.env.EZCORP_ENCRYPTION_SECRET!,
-    process.env.EZCORP_ENCRYPTION_SALT!,
-    32,
-  );
+  return scryptSync(process.env.EZCORP_ENCRYPTION_SECRET!, process.env.EZCORP_ENCRYPTION_SALT!, 32);
 }
 
 function makeLegacyCiphertext(plaintext: string): string {

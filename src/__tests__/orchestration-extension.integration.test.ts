@@ -54,7 +54,10 @@ interface TestProc {
   proc: Subprocess<"pipe", "pipe", "pipe">;
   outbound: Record<string, unknown>[];
   inbound: (msg: Record<string, unknown>) => void;
-  wait: (pred: (m: Record<string, unknown>) => boolean, ms?: number) => Promise<Record<string, unknown>>;
+  wait: (
+    pred: (m: Record<string, unknown>) => boolean,
+    ms?: number,
+  ) => Promise<Record<string, unknown>>;
   kill: () => void;
 }
 
@@ -86,16 +89,29 @@ function spawnExtension(): TestProc {
           const line = buffer.slice(0, idx).trim();
           buffer = buffer.slice(idx + 1);
           if (!line) continue;
-          try { outbound.push(JSON.parse(line)); } catch { /* skip */ }
+          try {
+            outbound.push(JSON.parse(line));
+          } catch {
+            /* skip */
+          }
         }
       }
-    } catch { /* closed */ }
+    } catch {
+      /* closed */
+    }
   })();
 
   // Drain stderr so a wedged pipe buffer doesn't deadlock the sub.
   (async () => {
     const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
-    try { while (true) { const { done } = await reader.read(); if (done) return; } } catch { /* */ }
+    try {
+      while (true) {
+        const { done } = await reader.read();
+        if (done) return;
+      }
+    } catch {
+      /* */
+    }
   })();
 
   function inbound(msg: Record<string, unknown>): void {
@@ -116,7 +132,13 @@ function spawnExtension(): TestProc {
     throw new Error("wait: predicate never satisfied within " + ms + "ms");
   }
 
-  function kill(): void { try { proc.kill(); } catch { /* */ } }
+  function kill(): void {
+    try {
+      proc.kill();
+    } catch {
+      /* */
+    }
+  }
 
   return { proc, outbound, inbound, wait, kill };
 }
@@ -143,7 +165,13 @@ function wireAgentConfigsHost(p: TestProc): void {
             result: {
               v: 1,
               configs: [
-                { id: "agent-1", name: "builder", description: "builds", isTeam: false, ownerUserId: "u1" },
+                {
+                  id: "agent-1",
+                  name: "builder",
+                  description: "builds",
+                  isTeam: false,
+                  ownerUserId: "u1",
+                },
               ],
             },
           });
@@ -155,7 +183,13 @@ function wireAgentConfigsHost(p: TestProc): void {
               v: 1,
               config:
                 params.idOrName === "agent-1" || params.idOrName === "builder"
-                  ? { id: "agent-1", name: "builder", description: "builds", isTeam: false, ownerUserId: "u1" }
+                  ? {
+                      id: "agent-1",
+                      name: "builder",
+                      description: "builds",
+                      isTeam: false,
+                      ownerUserId: "u1",
+                    }
                   : null,
             },
           });
@@ -291,7 +325,9 @@ describe("orchestration integration: real subprocess + RPC", () => {
     const result = resp.result as {
       content: Array<{ text: string }>;
       isError?: boolean;
-      details?: { _agentMeta?: { subConversationId: string; agentName: string; agentConfigId: string } };
+      details?: {
+        _agentMeta?: { subConversationId: string; agentName: string; agentConfigId: string };
+      };
     };
     expect(result.isError).toBeFalsy();
     expect(result.content[0]!.text).toBe("done");

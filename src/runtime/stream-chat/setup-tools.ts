@@ -31,7 +31,11 @@ import {
 } from "../routing/shadow";
 import { getSetting } from "../../db/queries/settings";
 import { getCredential } from "../../providers/credentials";
-import { extensionToAgentTool, ToolExecutor, type ArgsResolver } from "../../extensions/tool-executor";
+import {
+  extensionToAgentTool,
+  ToolExecutor,
+  type ArgsResolver,
+} from "../../extensions/tool-executor";
 import { ExtensionRegistry } from "../../extensions/registry";
 import type { AgentRun, TeamMember, TeamMemberOverrides, TeamToolScope } from "../../types";
 import type { StreamChatContext } from "./context";
@@ -357,10 +361,14 @@ export function wireExtensionToolsIntoTurn(args: {
   let wired = 0;
   for (const t of registry.getToolsForExtension(extensionId)) {
     if (!agentTools.some((at) => at.name === t.name)) {
-      agentTools.push(extensionToAgentTool(
-        { name: t.name, description: t.description, inputSchema: t.inputSchema },
-        toolExec, conversationId, runId,
-      ));
+      agentTools.push(
+        extensionToAgentTool(
+          { name: t.name, description: t.description, inputSchema: t.inputSchema },
+          toolExec,
+          conversationId,
+          runId,
+        ),
+      );
       wired++;
     }
   }
@@ -370,9 +378,9 @@ export function wireExtensionToolsIntoTurn(args: {
 /** The registry surface {@link collectMissingExtensionTools} needs — the
  *  real {@link ExtensionRegistry} satisfies it; tests pass a fake. */
 export interface TurnExtensionToolSource extends BundledExtensionToolSource {
-  getToolsForAgent(agentConfigId: string): Promise<
-    Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>
-  >;
+  getToolsForAgent(
+    agentConfigId: string,
+  ): Promise<Array<{ name: string; description: string; inputSchema: Record<string, unknown> }>>;
 }
 
 /**
@@ -409,8 +417,13 @@ export async function collectMissingExtensionTools(args: {
   runId: string;
 }): Promise<AgentTool[]> {
   const {
-    registry, agentConfigId, conversationExtensionIds,
-    existingToolNames, toolExec, conversationId, runId,
+    registry,
+    agentConfigId,
+    conversationExtensionIds,
+    existingToolNames,
+    toolExec,
+    conversationId,
+    runId,
   } = args;
 
   // Single-line generic on purpose: a multi-line type argument list leaves
@@ -428,10 +441,14 @@ export async function collectMissingExtensionTools(args: {
   const added: AgentTool[] = [];
   for (const [name, t] of inScope) {
     if (existingToolNames.has(name)) continue;
-    added.push(extensionToAgentTool(
-      { name, description: t.description, inputSchema: t.inputSchema },
-      toolExec, conversationId, runId,
-    ));
+    added.push(
+      extensionToAgentTool(
+        { name, description: t.description, inputSchema: t.inputSchema },
+        toolExec,
+        conversationId,
+        runId,
+      ),
+    );
   }
   return added;
 }
@@ -811,10 +828,10 @@ export async function resolveModelTierAndCredential(
   // would have hinted (which the pin superseded).
   const effectiveTier = binding.model
     ? tierForModel(r.piModel)
-    // The routing-config provenance read above already fetched the default
-    // tier on a routed turn — reuse it instead of reading the setting twice.
-    // Same value, so the classifier-failed fallback is unchanged.
-    : (routedTier ?? routingConfig?.defaultTier ?? (await getDefaultTier()));
+    : // The routing-config provenance read above already fetched the default
+      // tier on a routed turn — reuse it instead of reading the setting twice.
+      // Same value, so the classifier-failed fallback is unchanged.
+      (routedTier ?? routingConfig?.defaultTier ?? (await getDefaultTier()));
   run.provider = r.provider;
   const cred = await getCredential(r.provider, credentialConversationId);
   // Conditional spread, not `undefined` keys: absent provenance must not
@@ -883,12 +900,13 @@ export async function setupTools(
   const attachmentArgsResolver = await (async () => {
     const currentTurn = options.attachments ?? [];
     if (currentTurn.length === 0 && allPastAttachments.length === 0) return null;
-    const { buildAttachmentHandleResolver, toResolvableAttachments } =
-      await import("../../chat/attachments/handle-resolver");
+    const { buildAttachmentHandleResolver, toResolvableAttachments } = await import(
+      "../../chat/attachments/handle-resolver"
+    );
     // Dedupe by id so we don't double-read bytes when the current turn's
     // attachment is also present in history (can happen if the caller
     // resends the same files verbatim).
-    const byId = new Map<string, typeof allPastAttachments[number]>();
+    const byId = new Map<string, (typeof allPastAttachments)[number]>();
     for (const a of allPastAttachments) byId.set(a.id, a);
     for (const a of currentTurn) byId.set(a.id, a);
     return buildAttachmentHandleResolver(toResolvableAttachments(Array.from(byId.values())));
@@ -907,7 +925,8 @@ export async function setupTools(
       if (!options.projectId) return;
       try {
         // Fast-path: skip expensive embedding if project has no memories or KB
-        let hasMem = true, hasKB = true; // default to true (assume data exists) if check fails
+        let hasMem = true,
+          hasKB = true; // default to true (assume data exists) if check fails
         try {
           const [{ hasMemories }, { hasKBChunks }] = await Promise.all([
             import("../../db/queries/memories"),
@@ -919,7 +938,9 @@ export async function setupTools(
             // fast-path skip agrees with what that search would return.
             hasKBChunks(options.projectId!, convRecord?.userId ?? null),
           ]);
-        } catch { /* check failed — proceed with full pipeline */ }
+        } catch {
+          /* check failed — proceed with full pipeline */
+        }
         if (!hasMem && !hasKB) return; // No data to search — skip embedding entirely
 
         const { generateEmbedding } = await import("../../memory/embeddings");
@@ -937,14 +958,28 @@ export async function setupTools(
               // through `GET /api/knowledge-base` are eligible for injection.
               // A null owner (legacy/agent/CLI run) still gets ownerless
               // (deliberately shared) files, and nobody else's uploads.
-              return await searchKBChunksForQuery(userMessage, queryEmbedding, options.projectId!, convRecord?.userId ?? null, 5);
-            } catch { return undefined; }
+              return await searchKBChunksForQuery(
+                userMessage,
+                queryEmbedding,
+                options.projectId!,
+                convRecord?.userId ?? null,
+                5,
+              );
+            } catch {
+              return undefined;
+            }
           })(),
         ]);
         // Per-user PII scope: only inject memories the conversation owner owns.
         // A null owner (legacy/agent/CLI run) yields zero injected memories
         // (fail-closed) rather than leaking every project member's memories.
-        const injection = await injectionModule.buildSystemPromptWithMemories(ctx.system, userMessage, options.projectId!, convRecord?.userId ?? null, { kbChunks, queryEmbedding });
+        const injection = await injectionModule.buildSystemPromptWithMemories(
+          ctx.system,
+          userMessage,
+          options.projectId!,
+          convRecord?.userId ?? null,
+          { kbChunks, queryEmbedding },
+        );
         // ctx.system stays memory-FREE: applyAutoSpinUp later composes
         // `orchestrator? + base + taskBlock` onto it, and that composite
         // must be byte-stable across turns for prompt caching (region 1).
@@ -960,7 +995,9 @@ export async function setupTools(
         // which only requires runId + status); forwarded verbatim by the
         // bus subscribers. Cast through `unknown` to the event shape.
         host.bus.emit("run:status", {
-          runId: run.id, status: "memory_unavailable", degraded: true,
+          runId: run.id,
+          status: "memory_unavailable",
+          degraded: true,
           message: "Memory is currently unavailable. Responses won't include past context.",
         } as unknown as { runId: string; status: string });
       }
@@ -974,7 +1011,9 @@ export async function setupTools(
           const project = await getProject(options.projectId);
           if (project?.path) {
             const { getBuiltinToolDefs } = await import("../tools");
-            const { needsApproval, getPermissionMode, createPermissionGate } = await import("../tools/permissions");
+            const { needsApproval, getPermissionMode, createPermissionGate } = await import(
+              "../tools/permissions"
+            );
 
             // Secure-preview spawn trigger (Phase 3b): thread the
             // conversation owner's id + the live port-watcher into the shell
@@ -985,10 +1024,12 @@ export async function setupTools(
             const previewUserId = convRecord?.userId ?? null;
             const previewWiring = previewUserId
               ? await (async (): Promise<import("../tools").ShellPreviewWiring> => {
-                  const [{ launchPreviewDevServer }, { getPreviewPortWatcher }] = await Promise.all([
-                    import("../preview/preview-spawn-orchestration"),
-                    import("../../startup/background-timers"),
-                  ]);
+                  const [{ launchPreviewDevServer }, { getPreviewPortWatcher }] = await Promise.all(
+                    [
+                      import("../preview/preview-spawn-orchestration"),
+                      import("../../startup/background-timers"),
+                    ],
+                  );
                   return {
                     conversationId,
                     userId: previewUserId,
@@ -1009,9 +1050,11 @@ export async function setupTools(
             // Bus-driven override — only set when user explicitly switches mode mid-run
             let busOverrideMode: import("../tools/permissions").PermissionMode | undefined;
             // Pre-cache permission mode to avoid DB hit on every tool call
-            getPermissionMode(projectId).then(mode => {
-              if (!busOverrideMode) busOverrideMode = mode;
-            }).catch(() => {});
+            getPermissionMode(projectId)
+              .then((mode) => {
+                if (!busOverrideMode) busOverrideMode = mode;
+              })
+              .catch(() => {});
             ctx.unsubModeChange = host.bus.on("tool:permission_mode_change", (data) => {
               if (data.conversationId === conversationId) {
                 busOverrideMode = data.mode as import("../tools/permissions").PermissionMode;
@@ -1019,34 +1062,61 @@ export async function setupTools(
             });
 
             const wrappedTools: AgentTool[] = toolDefs.map((def) => ({
-              name: def.name, label: def.label, description: def.description, parameters: def.parameters,
+              name: def.name,
+              label: def.label,
+              description: def.description,
+              parameters: def.parameters,
               execute: async (toolCallId, params, signal, onUpdate) => {
                 const toolController = new AbortController();
                 ctx.toolAbortControllers.set(toolCallId, toolController);
-                const combinedSignal = signal ? AbortSignal.any([signal, toolController.signal]) : toolController.signal;
+                const combinedSignal = signal
+                  ? AbortSignal.any([signal, toolController.signal])
+                  : toolController.signal;
                 try {
-                  const permissionMode = options.permissionMode ?? busOverrideMode ?? await getPermissionMode(projectId);
+                  const permissionMode =
+                    options.permissionMode ??
+                    busOverrideMode ??
+                    (await getPermissionMode(projectId));
                   if (needsApproval(def.category, permissionMode)) {
                     const permInfo: PendingPermissionInfo = {
-                      conversationId, toolCallId, toolName: def.name,
-                      input: params, cardType: def.cardType, category: def.category,
+                      conversationId,
+                      toolCallId,
+                      toolName: def.name,
+                      input: params,
+                      cardType: def.cardType,
+                      category: def.category,
                     };
                     host.pendingPermissions.set(toolCallId, permInfo);
                     host.bus.emit("tool:permission_request", {
-                      conversationId, toolCallId, toolName: def.name,
-                      input: params, cardType: def.cardType, category: def.category,
+                      conversationId,
+                      toolCallId,
+                      toolName: def.name,
+                      input: params,
+                      cardType: def.cardType,
+                      category: def.category,
                     });
-                    try { await createPermissionGate(toolCallId, conversationId); }
-                    catch { return { content: [{ type: "text" as const, text: "Permission denied by user" }], details: { isError: true } }; }
-                    finally { host.pendingPermissions.delete(toolCallId); }
+                    try {
+                      await createPermissionGate(toolCallId, conversationId);
+                    } catch {
+                      return {
+                        content: [{ type: "text" as const, text: "Permission denied by user" }],
+                        details: { isError: true },
+                      };
+                    } finally {
+                      host.pendingPermissions.delete(toolCallId);
+                    }
                   }
                   return await def.execute(toolCallId, params, combinedSignal, onUpdate);
-                } finally { ctx.toolAbortControllers.delete(toolCallId); }
+                } finally {
+                  ctx.toolAbortControllers.delete(toolCallId);
+                }
               },
             }));
             ctx.agentTools.push(...wrappedTools);
           }
-        } catch { /* Built-in tool loading failure is non-fatal */ }
+        } catch {
+          /* Built-in tool loading failure is non-fatal */
+        }
       }
 
       // 2b. Extension tools
@@ -1081,18 +1151,26 @@ export async function setupTools(
             // automatically inside `executeToolCall`, with proper
             // per-(user, scope, scopeId, capability) keying. See
             // `permission-engine.ts` for the canonical contract.
-            ctx.agentTools = extTools.map((t) => extensionToAgentTool(
-              { name: t.name, description: t.description, inputSchema: t.inputSchema },
-              toolExec, conversationId, run.id,
-            ));
+            ctx.agentTools = extTools.map((t) =>
+              extensionToAgentTool(
+                { name: t.name, description: t.description, inputSchema: t.inputSchema },
+                toolExec,
+                conversationId,
+                run.id,
+              ),
+            );
           }
-        } catch { /* Extension loading failure is non-fatal */ }
+        } catch {
+          /* Extension loading failure is non-fatal */
+        }
       }
 
       // 2c. Mentioned extensions
       try {
         const { wireMentionedExtensions } = await import("../mention-wiring");
-        const { getConversationExtensionIds } = await import("../../db/queries/conversation-extensions");
+        const { getConversationExtensionIds } = await import(
+          "../../db/queries/conversation-extensions"
+        );
         // Phase 3 intended task-tracking as wire-on-first-use, but its
         // `/api/tool-invoke` hook only fires for MANUAL UI tool clicks —
         // LLM-driven tool calls go through the in-process agentTools
@@ -1154,7 +1232,7 @@ export async function setupTools(
             if (!convRecord.userId) {
               log.warn(
                 "Ez wire skipped — convRecord.userId missing on a kind='ez' row. " +
-                "Drafts could not be attributed; the Ez tools have been omitted for this turn.",
+                  "Drafts could not be attributed; the Ez tools have been omitted for this turn.",
                 { conversationId },
               );
             } else {
@@ -1229,7 +1307,11 @@ export async function setupTools(
           projectId: options.projectId,
           pendingPermissions: host.pendingPermissions,
         });
-        await wireMentionedExtensions(conversationId, userMessage, options.parentMessageId ?? run.id);
+        await wireMentionedExtensions(
+          conversationId,
+          userMessage,
+          options.parentMessageId ?? run.id,
+        );
         const convExtIds = await getConversationExtensionIds(conversationId);
         if (convExtIds.length > 0) {
           const registry = ExtensionRegistry.getInstance();
@@ -1261,11 +1343,15 @@ export async function setupTools(
           for (const extId of convExtIds) {
             if (orchExtId && extId === orchExtId) continue;
             for (const t of registry.getToolsForExtension(extId)) {
-              if (!ctx.agentTools.some(at => at.name === t.name)) {
-                ctx.agentTools.push(extensionToAgentTool(
-                  { name: t.name, description: t.description, inputSchema: t.inputSchema },
-                  toolExec, conversationId, run.id,
-                ));
+              if (!ctx.agentTools.some((at) => at.name === t.name)) {
+                ctx.agentTools.push(
+                  extensionToAgentTool(
+                    { name: t.name, description: t.description, inputSchema: t.inputSchema },
+                    toolExec,
+                    conversationId,
+                    run.id,
+                  ),
+                );
               }
             }
           }
@@ -1355,7 +1441,9 @@ export async function setupTools(
             }
           }
         }
-      } catch { /* Dynamic tool wiring failure is non-fatal */ }
+      } catch {
+        /* Dynamic tool wiring failure is non-fatal */
+      }
 
       // 2c-mode. Mode-attached extensions: wire any extensions declared
       // by the active mode (mode.extensionIds) the same way as
@@ -1398,21 +1486,25 @@ export async function setupTools(
                 subsystem: "setup-tools.modeExtWire",
                 extId,
                 toolCount: extTools.length,
-                toolNames: extTools.map(t => t.name),
+                toolNames: extTools.map((t) => t.name),
               });
               for (const t of extTools) {
-                if (!ctx.agentTools.some(at => at.name === t.name)) {
-                  ctx.agentTools.push(extensionToAgentTool(
-                    { name: t.name, description: t.description, inputSchema: t.inputSchema },
-                    toolExec, conversationId, run.id,
-                  ));
+                if (!ctx.agentTools.some((at) => at.name === t.name)) {
+                  ctx.agentTools.push(
+                    extensionToAgentTool(
+                      { name: t.name, description: t.description, inputSchema: t.inputSchema },
+                      toolExec,
+                      conversationId,
+                      run.id,
+                    ),
+                  );
                 }
               }
             }
             log.info("mode-extensions wired", {
               subsystem: "setup-tools.modeExtWire",
               finalAgentToolCount: ctx.agentTools.length,
-              finalAgentToolNames: ctx.agentTools.map(t => t.name),
+              finalAgentToolNames: ctx.agentTools.map((t) => t.name),
             });
           }
         } catch (err) {
@@ -1430,26 +1522,32 @@ export async function setupTools(
         const MAX_ORCHESTRATION_DEPTH = 3;
 
         if (depth < MAX_ORCHESTRATION_DEPTH && options.projectId) {
-          const { resolveMentionedAgents, resolveMentionedTeams } = await import("../mention-wiring");
+          const { resolveMentionedAgents, resolveMentionedTeams } = await import(
+            "../mention-wiring"
+          );
           const allAvailableAgents: Array<{ id: string; name: string; description: string }> = [];
           const seenIds = new Set<string>();
 
           // 2d-i. Resolve @agent mentions
           const mentionedAgents = await resolveMentionedAgents(userMessage);
           for (const a of mentionedAgents) {
-            if (!seenIds.has(a.id)) { seenIds.add(a.id); allAvailableAgents.push(a); }
+            if (!seenIds.has(a.id)) {
+              seenIds.add(a.id);
+              allAvailableAgents.push(a);
+            }
           }
 
           // 2d-ii. Resolve ![team:…] mentions → store team info for prompt injection
           // Only resolve team mentions at depth 0 — sub-conversations must NOT re-expand the
           // parent's team mention, otherwise auto-spin-up causes exponential recursive spawning
           // (each sub-agent sees ![team:...] in the task, resolves it, spins up all members again).
-          const mentionedTeams = depth === 0
-            ? await resolveMentionedTeams(userMessage)
-            : [];
+          const mentionedTeams = depth === 0 ? await resolveMentionedTeams(userMessage) : [];
           for (const t of mentionedTeams) {
             for (const m of t.members) {
-              if (!seenIds.has(m.id)) { seenIds.add(m.id); allAvailableAgents.push(m); }
+              if (!seenIds.has(m.id)) {
+                seenIds.add(m.id);
+                allAvailableAgents.push(m);
+              }
             }
           }
 
@@ -1469,17 +1567,31 @@ export async function setupTools(
                 const cfg = memberById.get(member.agentConfigId);
                 if (cfg) {
                   seenIds.add(cfg.id);
-                  allAvailableAgents.push({ id: cfg.id, name: cfg.name, description: cfg.description });
+                  allAvailableAgents.push({
+                    id: cfg.id,
+                    name: cfg.name,
+                    description: cfg.description,
+                  });
                 } else {
                   log.warn(`Sub-agent member ${member.agentConfigId} not found in DB — skipped`);
                 }
               }
-            } catch { /* Sub-agent member wiring failure is non-fatal */ }
+            } catch {
+              /* Sub-agent member wiring failure is non-fatal */
+            }
           } else if (options.agentConfigId) {
             try {
-              const { getAgentConfig, getAgentConfigsByIds } = await import("../../db/queries/agent-configs");
+              const { getAgentConfig, getAgentConfigsByIds } = await import(
+                "../../db/queries/agent-configs"
+              );
               const config = await getAgentConfig(options.agentConfigId);
-              const refs = config?.references as { agents?: string[]; extensions?: string[]; members?: import("../../types").TeamMember[]; autoSpinUp?: boolean; teamToolScope?: import("../../types").TeamToolScope } | null;
+              const refs = config?.references as {
+                agents?: string[];
+                extensions?: string[];
+                members?: import("../../types").TeamMember[];
+                autoSpinUp?: boolean;
+                teamToolScope?: import("../../types").TeamToolScope;
+              } | null;
               if (refs?.agents?.length) {
                 // Single batched round trip for the team's referenced
                 // agents (was N concurrent `getAgentConfig` calls).
@@ -1489,12 +1601,20 @@ export async function setupTools(
                   const member = memberById.get(agentId);
                   if (member) {
                     seenIds.add(member.id);
-                    allAvailableAgents.push({ id: member.id, name: member.name, description: member.description });
+                    allAvailableAgents.push({
+                      id: member.id,
+                      name: member.name,
+                      description: member.description,
+                    });
                   }
                 }
                 // If config is a team, store for team prompt injection
                 if (config?.category === "team" && mentionedTeams.length === 0) {
-                  orchRun._teamConfig = { name: config.name, prompt: config.prompt, autoSpinUp: refs?.autoSpinUp ?? false };
+                  orchRun._teamConfig = {
+                    name: config.name,
+                    prompt: config.prompt,
+                    autoSpinUp: refs?.autoSpinUp ?? false,
+                  };
                 }
               }
               // Build memberOverrides from team config members
@@ -1510,16 +1630,21 @@ export async function setupTools(
               }
               // Team-level tool scope (overrides per-member tool lists)
               const scope = refs?.teamToolScope;
-              if (scope && ((scope.allowedTools?.length ?? 0) > 0 || (scope.deniedTools?.length ?? 0) > 0)) {
+              if (
+                scope &&
+                ((scope.allowedTools?.length ?? 0) > 0 || (scope.deniedTools?.length ?? 0) > 0)
+              ) {
                 orchRun._teamToolScope = scope;
               }
-            } catch { /* Agent config ref wiring failure is non-fatal */ }
+            } catch {
+              /* Agent config ref wiring failure is non-fatal */
+            }
           }
 
           log.info("Agent orchestration resolution", {
             userMessage: userMessage.slice(0, 100),
-            agents: allAvailableAgents.map(a => a.name),
-            teams: mentionedTeams.map(t => t.team.name),
+            agents: allAvailableAgents.map((a) => a.name),
+            teams: mentionedTeams.map((t) => t.team.name),
             depth,
           });
 
@@ -1531,8 +1656,7 @@ export async function setupTools(
             // Cascades to all invoked sub-members, overriding any per-member tool lists.
             const firstMentionedTeam = mentionedTeams[0];
             const resolvedTeamToolScope =
-              firstMentionedTeam?.team.teamToolScope
-              ?? orchRun._teamToolScope;
+              firstMentionedTeam?.team.teamToolScope ?? orchRun._teamToolScope;
 
             // Orchestration extension (Phase 4 commit-5): wire-on-first-use for
             // invoke_agent. The legacy built-in was deleted; the same tool
@@ -1540,8 +1664,9 @@ export async function setupTools(
             // (docs/extensions/examples/orchestration/). Mirrors the Phase 3
             // `ensureTaskTrackingWired` pattern.
             try {
-              const { ensureOrchestrationWired, wireOrchestrationToolsForTurn } =
-                await import("../orchestration-host");
+              const { ensureOrchestrationWired, wireOrchestrationToolsForTurn } = await import(
+                "../orchestration-host"
+              );
               const wired = await ensureOrchestrationWired(conversationId);
               if (wired) {
                 await wireOrchestrationToolsForTurn({
@@ -1566,9 +1691,12 @@ export async function setupTools(
                 });
               }
             } catch (orchWireErr) {
-              log.warn("Orchestration extension wire failed — agent orchestration unavailable this turn", {
-                error: String(orchWireErr),
-              });
+              log.warn(
+                "Orchestration extension wire failed — agent orchestration unavailable this turn",
+                {
+                  error: String(orchWireErr),
+                },
+              );
             }
             if (resolvedTeamToolScope) {
               orchRun._teamToolScope = resolvedTeamToolScope;
@@ -1589,7 +1717,9 @@ export async function setupTools(
             try {
               const { getExtensionByName } = await import("../../db/queries/extensions");
               const scratchpadExt = await getExtensionByName("scratchpad");
-              const storageGranted = (scratchpadExt?.grantedPermissions as { storage?: boolean } | undefined)?.storage === true;
+              const storageGranted =
+                (scratchpadExt?.grantedPermissions as { storage?: boolean } | undefined)
+                  ?.storage === true;
               if (!scratchpadExt?.enabled || !storageGranted) {
                 log.info("Scratchpad auto-wire skipped: not enabled or storage not granted", {
                   exists: !!scratchpadExt,
@@ -1597,10 +1727,16 @@ export async function setupTools(
                   storageGranted,
                 });
               } else {
-                const { addConversationExtensions } = await import("../../db/queries/conversation-extensions");
-                await addConversationExtensions(conversationId, [{ extensionId: scratchpadExt.id }]);
+                const { addConversationExtensions } = await import(
+                  "../../db/queries/conversation-extensions"
+                );
+                await addConversationExtensions(conversationId, [
+                  { extensionId: scratchpadExt.id },
+                ]);
                 const registry = ExtensionRegistry.getInstance();
-                const toolExec = new ToolExecutor(registry, host.permissionEngine, { bus: host.bus });
+                const toolExec = new ToolExecutor(registry, host.permissionEngine, {
+                  bus: host.bus,
+                });
                 wireHostPendingPermissions(toolExec, host);
                 if (host.stateMediator) toolExec.setStateMediator(host.stateMediator);
                 toolExec.setExecutor(host.executor);
@@ -1609,27 +1745,42 @@ export async function setupTools(
                 if (convRecord?.userId) toolExec.setCurrentUserId(convRecord.userId);
                 toolExec.setCurrentModel(options.model ?? convRecord?.model);
                 toolExec.setCurrentProvider(options.provider ?? convRecord?.provider);
-                toolExec.setCurrentAgentConfigId(options.agentConfigId ?? convRecord?.agentConfigId);
+                toolExec.setCurrentAgentConfigId(
+                  options.agentConfigId ?? convRecord?.agentConfigId,
+                );
                 for (const t of registry.getToolsForExtension(scratchpadExt.id)) {
-                  if (!ctx.agentTools.some(at => at.name === t.name)) {
-                    ctx.agentTools.push(extensionToAgentTool(
-                      { name: t.name, description: t.description, inputSchema: t.inputSchema },
-                      toolExec, conversationId, run.id,
-                    ));
+                  if (!ctx.agentTools.some((at) => at.name === t.name)) {
+                    ctx.agentTools.push(
+                      extensionToAgentTool(
+                        { name: t.name, description: t.description, inputSchema: t.inputSchema },
+                        toolExec,
+                        conversationId,
+                        run.id,
+                      ),
+                    );
                   }
                 }
               }
             } catch (scratchpadWireErr) {
-              log.warn("Scratchpad auto-wire failed — proceeding without it", { error: String(scratchpadWireErr) });
+              log.warn("Scratchpad auto-wire failed — proceeding without it", {
+                error: String(scratchpadWireErr),
+              });
             }
 
             // Store metadata for system prompt injection after Promise.all
             orchRun._mentionedAgents = allAvailableAgents;
             const firstTeam = mentionedTeams[0];
             if (firstTeam) {
-              orchRun._teamConfig = { name: firstTeam.team.name, prompt: firstTeam.team.prompt, autoSpinUp: firstTeam.team.autoSpinUp };
+              orchRun._teamConfig = {
+                name: firstTeam.team.name,
+                prompt: firstTeam.team.prompt,
+                autoSpinUp: firstTeam.team.autoSpinUp,
+              };
             }
-            log.info("Injected orchestration tools", { agents: allAvailableAgents.map(a => a.name), toolCount: ctx.agentTools.length });
+            log.info("Injected orchestration tools", {
+              agents: allAvailableAgents.map((a) => a.name),
+              toolCount: ctx.agentTools.length,
+            });
 
             // Store flag for auto-spin-up (executed after Promise.all to avoid blocking tool loading)
             if (orchRun._teamConfig?.autoSpinUp) {
@@ -1647,11 +1798,17 @@ export async function setupTools(
             // Gated on already-wired so a plain chat that never delegated does
             // NOT get collect_agent_result. A throw here is caught by the outer
             // `catch (agentWireErr)` (non-fatal — the turn proceeds without collect).
-            const { getOrchestrationExtensionId, wireOrchestrationToolsForTurn } =
-              await import("../orchestration-host");
-            const { getConversationExtensionIds } = await import("../../db/queries/conversation-extensions");
+            const { getOrchestrationExtensionId, wireOrchestrationToolsForTurn } = await import(
+              "../orchestration-host"
+            );
+            const { getConversationExtensionIds } = await import(
+              "../../db/queries/conversation-extensions"
+            );
             const orchExtId = await getOrchestrationExtensionId();
-            if (orchExtId && (await getConversationExtensionIds(conversationId)).includes(orchExtId)) {
+            if (
+              orchExtId &&
+              (await getConversationExtensionIds(conversationId)).includes(orchExtId)
+            ) {
               // Thread the SAME team scope the @mention site does. `send_to_agent`
               // is wired on this no-mention turn (invoke_agent is enum-gated off),
               // and its CONTINUATION path spawns a member — so without the
@@ -1685,7 +1842,10 @@ export async function setupTools(
           }
         }
       } catch (agentWireErr) {
-        log.error("Agent orchestration wiring failed", { error: String(agentWireErr), stack: agentWireErr instanceof Error ? agentWireErr.stack : undefined });
+        log.error("Agent orchestration wiring failed", {
+          error: String(agentWireErr),
+          stack: agentWireErr instanceof Error ? agentWireErr.stack : undefined,
+        });
       }
 
       // Phase 3 commit-5: task-tracking moved to a bundled extension.
@@ -1719,9 +1879,7 @@ export async function setupTools(
   // CURRENT turn only: history replay of past preprocess rows is stripped by
   // role in load-history.ts, so this note is the LLM's only view of the result.
   if (preprocessNotes.length > 0) {
-    ctx.systemMemoryTail = [ctx.systemMemoryTail, ...preprocessNotes]
-      .filter(Boolean)
-      .join("\n\n");
+    ctx.systemMemoryTail = [ctx.systemMemoryTail, ...preprocessNotes].filter(Boolean).join("\n\n");
   }
 
   // Mid-run re-assembly seam. Everything above runs ONCE per run, so an
@@ -1738,11 +1896,10 @@ export async function setupTools(
     if (registry.generation === seenRegistryGeneration) return [];
     seenRegistryGeneration = registry.generation;
     try {
-      const [{ getConversationExtensionIds }, { getOrchestrationExtensionId }] =
-        await Promise.all([
-          import("../../db/queries/conversation-extensions"),
-          import("../orchestration-host"),
-        ]);
+      const [{ getConversationExtensionIds }, { getOrchestrationExtensionId }] = await Promise.all([
+        import("../../db/queries/conversation-extensions"),
+        import("../orchestration-host"),
+      ]);
       const [convExtIds, orchExtId] = await Promise.all([
         getConversationExtensionIds(conversationId),
         getOrchestrationExtensionId(),
@@ -1756,7 +1913,11 @@ export async function setupTools(
         conversationExtensionIds: convExtIds.filter((id) => id !== orchExtId),
         existingToolNames,
         toolExec: buildExtensionToolExecutor(
-          registry, host, attachmentArgsResolver, convRecord, options,
+          registry,
+          host,
+          attachmentArgsResolver,
+          convRecord,
+          options,
         ),
         conversationId,
         runId: run.id,

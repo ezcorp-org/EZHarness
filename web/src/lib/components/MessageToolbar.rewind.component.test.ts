@@ -17,50 +17,50 @@ import MessageToolbar from "./MessageToolbar.svelte";
 afterEach(() => cleanup());
 
 describe("MessageToolbar — rewind/checkpoint button", () => {
-	test("does NOT render when onrewind is not provided", () => {
-		const { queryByTestId } = render(MessageToolbar, { role: "assistant", content: "answer" });
-		expect(queryByTestId("rewind-btn")).toBeNull();
-	});
+  test("does NOT render when onrewind is not provided", () => {
+    const { queryByTestId } = render(MessageToolbar, { role: "assistant", content: "answer" });
+    expect(queryByTestId("rewind-btn")).toBeNull();
+  });
 
-	test("renders on an assistant row when onrewind is provided", () => {
-		const { getByTestId } = render(MessageToolbar, {
-			role: "assistant",
-			content: "answer",
-			onrewind: () => {},
-		});
-		const btn = getByTestId("rewind-btn");
-		expect(btn).toBeInTheDocument();
-		expect(btn).toHaveAttribute("aria-label", "Continue from here");
-	});
+  test("renders on an assistant row when onrewind is provided", () => {
+    const { getByTestId } = render(MessageToolbar, {
+      role: "assistant",
+      content: "answer",
+      onrewind: () => {},
+    });
+    const btn = getByTestId("rewind-btn");
+    expect(btn).toBeInTheDocument();
+    expect(btn).toHaveAttribute("aria-label", "Continue from here");
+  });
 
-	test("never renders on a user row (assistant-only affordance)", () => {
-		const { queryByTestId } = render(MessageToolbar, {
-			role: "user",
-			content: "hi",
-			onrewind: () => {},
-		});
-		expect(queryByTestId("rewind-btn")).toBeNull();
-	});
+  test("never renders on a user row (assistant-only affordance)", () => {
+    const { queryByTestId } = render(MessageToolbar, {
+      role: "user",
+      content: "hi",
+      onrewind: () => {},
+    });
+    expect(queryByTestId("rewind-btn")).toBeNull();
+  });
 
-	test("click invokes onrewind exactly once", async () => {
-		const onrewind = vi.fn();
-		const { getByTestId } = render(MessageToolbar, {
-			role: "assistant",
-			content: "answer",
-			onrewind,
-		});
-		await fireEvent.click(getByTestId("rewind-btn"));
-		expect(onrewind).toHaveBeenCalledTimes(1);
-	});
+  test("click invokes onrewind exactly once", async () => {
+    const onrewind = vi.fn();
+    const { getByTestId } = render(MessageToolbar, {
+      role: "assistant",
+      content: "answer",
+      onrewind,
+    });
+    await fireEvent.click(getByTestId("rewind-btn"));
+    expect(onrewind).toHaveBeenCalledTimes(1);
+  });
 
-	test("error-row mode (isError=true) collapses to Retry only — rewind button suppressed", () => {
-		const { queryByTestId } = render(MessageToolbar, {
-			role: "assistant",
-			content: "answer",
-			isError: true,
-			onretry: () => {},
-			onrewind: () => {},
-		});
-		expect(queryByTestId("rewind-btn")).toBeNull();
-	});
+  test("error-row mode (isError=true) collapses to Retry only — rewind button suppressed", () => {
+    const { queryByTestId } = render(MessageToolbar, {
+      role: "assistant",
+      content: "answer",
+      isError: true,
+      onretry: () => {},
+      onrewind: () => {},
+    });
+    expect(queryByTestId("rewind-btn")).toBeNull();
+  });
 });

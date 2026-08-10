@@ -22,16 +22,7 @@
  * (file-scoped — cannot pollute the non-isolated suite).
  */
 
-import {
-  afterAll,
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  spyOn,
-  test,
-} from "bun:test";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 interface Row {
@@ -64,32 +55,32 @@ const logCalls: LogCall[] = [];
 let stderrSpy: ReturnType<typeof spyOn> | null = null;
 
 function captureStderr(): void {
-  stderrSpy = spyOn(process.stderr, "write").mockImplementation(
-    ((chunk: string | Uint8Array): boolean => {
-      const s = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
-      for (const rawLine of s.split("\n")) {
-        const line = rawLine.trim();
-        if (!line) continue;
-        try {
-          const parsed = JSON.parse(line) as {
-            level?: string;
-            msg?: string;
-            subsystem?: string;
-          };
-          if (
-            (parsed.level === "error" || parsed.level === "warn") &&
-            typeof parsed.msg === "string" &&
-            parsed.subsystem === "startup/assert-critical-extensions"
-          ) {
-            logCalls.push({ level: parsed.level, msg: parsed.msg });
-          }
-        } catch {
-          // Non-JSON stderr noise — ignore.
+  stderrSpy = spyOn(process.stderr, "write").mockImplementation(((
+    chunk: string | Uint8Array,
+  ): boolean => {
+    const s = typeof chunk === "string" ? chunk : Buffer.from(chunk).toString();
+    for (const rawLine of s.split("\n")) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      try {
+        const parsed = JSON.parse(line) as {
+          level?: string;
+          msg?: string;
+          subsystem?: string;
+        };
+        if (
+          (parsed.level === "error" || parsed.level === "warn") &&
+          typeof parsed.msg === "string" &&
+          parsed.subsystem === "startup/assert-critical-extensions"
+        ) {
+          logCalls.push({ level: parsed.level, msg: parsed.msg });
         }
+      } catch {
+        // Non-JSON stderr noise — ignore.
       }
-      return true;
-    }) as typeof process.stderr.write,
-  );
+    }
+    return true;
+  }) as typeof process.stderr.write);
 }
 
 mock.module("../extensions/loader", () => ({
@@ -138,9 +129,7 @@ mock.module("../db/queries/audit-log", () => ({
   listAuditForExtension: async () => [],
 }));
 
-const { assertCriticalExtensions } = await import(
-  "../startup/assert-critical-extensions"
-);
+const { assertCriticalExtensions } = await import("../startup/assert-critical-extensions");
 const { getCriticalBundledExtensions } = await import("../extensions/bundled");
 
 afterAll(() => restoreModuleMocks());
@@ -180,9 +169,7 @@ describe("assertCriticalExtensions — error / defense-in-depth branches", () =>
     expect(r.remediated).not.toContain("ask-user");
     // Disable stands — no re-enable attempted.
     expect(rows.get("ask-user")!.enabled).toBe(false);
-    expect(
-      updateCalls.some((c) => c.id === "id-ask-user"),
-    ).toBe(false);
+    expect(updateCalls.some((c) => c.id === "id-ask-user")).toBe(false);
     // No auto-reapproval audit row for the failed-read extension.
     expect(auditEntries.length).toBe(0);
     // ERROR pins the "manifest unreadable" wording.
@@ -245,9 +232,7 @@ describe("assertCriticalExtensions — error / defense-in-depth branches", () =>
     expect(
       logCalls.some(
         (l) =>
-          l.level === "error" &&
-          l.msg.includes("ask-user") &&
-          l.msg.includes("re-enable failed"),
+          l.level === "error" && l.msg.includes("ask-user") && l.msg.includes("re-enable failed"),
       ),
     ).toBe(true);
   }, 20_000);
@@ -261,16 +246,11 @@ describe("assertCriticalExtensions — error / defense-in-depth branches", () =>
     await assertCriticalExtensions();
 
     const ttError = logCalls.find(
-      (l) =>
-        l.level === "error" &&
-        l.msg.includes("task-tracking") &&
-        l.msg.includes("disabled"),
+      (l) => l.level === "error" && l.msg.includes("task-tracking") && l.msg.includes("disabled"),
     );
     expect(ttError).toBeDefined();
     // Corrected, task-tracking-specific consequence.
-    expect(ttError!.msg).toContain(
-      "agents cannot self-structure recovery / track multi-step work",
-    );
+    expect(ttError!.msg).toContain("agents cannot self-structure recovery / track multi-step work");
     // The wrong copy-pasted clause must be gone for task-tracking.
     expect(ttError!.msg).not.toContain("ask the user");
   }, 20_000);
@@ -281,15 +261,10 @@ describe("assertCriticalExtensions — error / defense-in-depth branches", () =>
     await assertCriticalExtensions();
 
     const auError = logCalls.find(
-      (l) =>
-        l.level === "error" &&
-        l.msg.includes("ask-user") &&
-        l.msg.includes("disabled"),
+      (l) => l.level === "error" && l.msg.includes("ask-user") && l.msg.includes("disabled"),
     );
     expect(auError).toBeDefined();
-    expect(auError!.msg).toContain(
-      "agents cannot ask the user for clarification",
-    );
+    expect(auError!.msg).toContain("agents cannot ask the user for clarification");
   }, 20_000);
 
   test("missing critical extension uses per-extension consequence wording", async () => {
@@ -299,14 +274,10 @@ describe("assertCriticalExtensions — error / defense-in-depth branches", () =>
 
     const ttError = logCalls.find(
       (l) =>
-        l.level === "error" &&
-        l.msg.includes("task-tracking") &&
-        l.msg.includes("not installed"),
+        l.level === "error" && l.msg.includes("task-tracking") && l.msg.includes("not installed"),
     );
     expect(ttError).toBeDefined();
-    expect(ttError!.msg).toContain(
-      "agents cannot self-structure recovery / track multi-step work",
-    );
+    expect(ttError!.msg).toContain("agents cannot self-structure recovery / track multi-step work");
     expect(ttError!.msg).not.toContain("ask the user");
   }, 20_000);
 });

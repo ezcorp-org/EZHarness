@@ -23,9 +23,7 @@ const cache = new Map<string, ResolvedSettings>();
 const inflight = new Map<string, Promise<ResolvedSettings>>();
 
 async function resolveExtensionId(extensionName: string): Promise<string | null> {
-  const res = await fetch(
-    `/api/extensions?name=${encodeURIComponent(extensionName)}`,
-  );
+  const res = await fetch(`/api/extensions?name=${encodeURIComponent(extensionName)}`);
   if (!res.ok) return null;
   // Server now filters server-side. The legacy `{extensions:[...]}`
   // shape is still tolerated for older fixtures, but production sends
@@ -77,9 +75,7 @@ export async function loadExtensionSettings(
   return promise;
 }
 
-export function getCachedSettings(
-  extensionName: string,
-): ResolvedSettings | undefined {
+export function getCachedSettings(extensionName: string): ResolvedSettings | undefined {
   return cache.get(extensionName);
 }
 

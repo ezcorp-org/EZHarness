@@ -32,24 +32,24 @@ describe("extractJsonCandidate", () => {
   });
 
   test("```json fenced block → found", () => {
-    const text = "Here is the result:\n```json\n{\"verdict\":\"pass\"}\n```";
+    const text = 'Here is the result:\n```json\n{"verdict":"pass"}\n```';
     expect(extractJsonCandidate(text)).toEqual({ found: true, value: { verdict: "pass" } });
   });
 
   test("bare ``` fence (no json tag) → found", () => {
-    const text = "```\n{\"n\":2}\n```";
+    const text = '```\n{"n":2}\n```';
     expect(extractJsonCandidate(text)).toEqual({ found: true, value: { n: 2 } });
   });
 
   test("multiple fences → LAST one wins (final answer)", () => {
-    const text = "```json\n{\"draft\":1}\n```\nrefined:\n```json\n{\"final\":2}\n```";
+    const text = '```json\n{"draft":1}\n```\nrefined:\n```json\n{"final":2}\n```';
     expect(extractJsonCandidate(text)).toEqual({ found: true, value: { final: 2 } });
   });
 
   test("trailing prose after JSON → brace-substring fallback parses", () => {
     // Whole-text parse fails (leading prose); the {…} substring succeeds,
     // exercising the try/catch-then-next-candidate path.
-    const text = "Sure, here you go: {\"ok\":true} — hope that helps!";
+    const text = 'Sure, here you go: {"ok":true} — hope that helps!';
     expect(extractJsonCandidate(text)).toEqual({ found: true, value: { ok: true } });
   });
 
@@ -150,9 +150,7 @@ describe("validateAgainstSchema — enum", () => {
     // {a,b} and {b,a} are the same JSON value — canonical form sorts keys.
     expect(issuesFor({ enum: [{ a: 1, b: 2 }] }, { b: 2, a: 1 })).toEqual([]);
     // Nested key-order too.
-    expect(
-      issuesFor({ enum: [{ x: { p: 1, q: 2 } }] }, { x: { q: 2, p: 1 } }),
-    ).toEqual([]);
+    expect(issuesFor({ enum: [{ x: { p: 1, q: 2 } }] }, { x: { q: 2, p: 1 } })).toEqual([]);
   });
 
   test("enum is ADDITIVE with a sibling type (not short-circuited)", () => {
@@ -425,7 +423,7 @@ describe("validateStructuredOutput", () => {
   };
 
   test("valid fenced JSON → ok with parsed value", () => {
-    const text = "All done.\n```json\n{\"verdict\":\"pass\",\"score\":92}\n```";
+    const text = 'All done.\n```json\n{"verdict":"pass","score":92}\n```';
     const out = validateStructuredOutput(schema, text);
     expect(out).toEqual({ ok: true, value: { verdict: "pass", score: 92 } });
   });

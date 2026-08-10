@@ -71,7 +71,10 @@ const DEFAULT_RETENTION_DAYS = 30;
 const MAX_ERROR_LEN = 500;
 
 async function defaultResolveExtensionId(name: string): Promise<string | null> {
-  const rows = await getDb().select({ id: extensions.id }).from(extensions).where(eq(extensions.name, name));
+  const rows = await getDb()
+    .select({ id: extensions.id })
+    .from(extensions)
+    .where(eq(extensions.name, name));
   return rows[0]?.id ?? null;
 }
 
@@ -79,7 +82,8 @@ async function defaultResolveExtensionId(name: string): Promise<string | null> {
 
 /** CAS claim: flip pending→running. Returns true when THIS caller won. */
 async function claimDelivery(id: string, now: Date): Promise<boolean> {
-  const won = await getDb().update(webhookDeliveries)
+  const won = await getDb()
+    .update(webhookDeliveries)
     .set({ status: "running", claimedAt: now })
     .where(and(eq(webhookDeliveries.id, id), eq(webhookDeliveries.status, "pending")))
     .returning({ id: webhookDeliveries.id });
@@ -87,7 +91,8 @@ async function claimDelivery(id: string, now: Date): Promise<boolean> {
 }
 
 async function revertToPending(id: string): Promise<void> {
-  await getDb().update(webhookDeliveries)
+  await getDb()
+    .update(webhookDeliveries)
     .set({ status: "pending", claimedAt: null })
     .where(eq(webhookDeliveries.id, id));
 }
@@ -109,13 +114,20 @@ async function recordDispatchFailure(
   const attempts = row.attempts + 1;
   const errText = error.slice(0, MAX_ERROR_LEN);
   if (attempts >= maxAttempts) {
-    await getDb().update(webhookDeliveries)
+    await getDb()
+      .update(webhookDeliveries)
       .set({ status: "error", error: errText, attempts, deliveredAt: now, claimedAt: null })
       .where(eq(webhookDeliveries.id, row.id));
-    log.warn("delivery-dead-lettered", { deliveryId: row.id, slug: row.slug, attempts, error: errText });
+    log.warn("delivery-dead-lettered", {
+      deliveryId: row.id,
+      slug: row.slug,
+      attempts,
+      error: errText,
+    });
     return true;
   }
-  await getDb().update(webhookDeliveries)
+  await getDb()
+    .update(webhookDeliveries)
     .set({ status: "pending", claimedAt: null, attempts, error: errText })
     .where(eq(webhookDeliveries.id, row.id));
   return false;
@@ -127,7 +139,11 @@ async function recordDispatchFailure(
  * `pending` so a later tick redelivers (never lose the delivery). A dispatch
  * throw → revert too. Returns true only on a real dispatch.
  */
-async function dispatchClaimedDelivery(row: DeliveryRow, now: Date, cfg: DispatchConfig): Promise<boolean> {
+async function dispatchClaimedDelivery(
+  row: DeliveryRow,
+  now: Date,
+  cfg: DispatchConfig,
+): Promise<boolean> {
   if (!cfg.registry) {
     await revertToPending(row.id);
     return false;
@@ -143,7 +159,7 @@ async function dispatchClaimedDelivery(row: DeliveryRow, now: Date, cfg: Dispatc
     await revertToPending(row.id);
     return false;
   }
-  const catchUp = row.catchUp || (now.getTime() - row.receivedAt.getTime() > cfg.catchUpThresholdMs);
+  const catchUp = row.catchUp || now.getTime() - row.receivedAt.getTime() > cfg.catchUpThresholdMs;
   try {
     proc.sendNotification("ezcorp/webhook-fire", buildFireContext(row, catchUp));
   } catch (err) {
@@ -154,7 +170,8 @@ async function dispatchClaimedDelivery(row: DeliveryRow, now: Date, cfg: Dispatc
     await recordDispatchFailure(row, now, String(err), cfg.maxAttempts);
     return false;
   }
-  await getDb().update(webhookDeliveries)
+  await getDb()
+    .update(webhookDeliveries)
     .set({ status: "ok", deliveredAt: now, catchUp })
     .where(eq(webhookDeliveries.id, row.id));
   await insertAuditEntry(null, EXT_AUDIT_ACTIONS.SDK_WEBHOOK_DISPATCHED, row.extensionId, {
@@ -241,7 +258,9 @@ export class WebhookDeliveryDaemon {
     const now = this.opts.now();
     // Oldest-first (FIFO) so the drain order is deterministic + fair — a burst
     // never starves an earlier pending delivery (mirrors cron catch-up order).
-    const pending = await getDb().select().from(webhookDeliveries)
+    const pending = await getDb()
+      .select()
+      .from(webhookDeliveries)
       .where(eq(webhookDeliveries.status, "pending"))
       .orderBy(asc(webhookDeliveries.receivedAt))
       .limit(this.opts.maxPerTick);
@@ -259,12 +278,12 @@ export class WebhookDeliveryDaemon {
   /** Revert `running` rows abandoned by a crashed daemon back to `pending`. */
   async reapCrashedDeliveries(): Promise<void> {
     const cutoff = new Date(this.opts.now().getTime() - this.opts.maxDeliveryDurationMs * 2);
-    await getDb().update(webhookDeliveries)
+    await getDb()
+      .update(webhookDeliveries)
       .set({ status: "pending", claimedAt: null })
-      .where(and(
-        eq(webhookDeliveries.status, "running"),
-        lte(webhookDeliveries.claimedAt, cutoff),
-      ));
+      .where(
+        and(eq(webhookDeliveries.status, "running"), lte(webhookDeliveries.claimedAt, cutoff)),
+      );
   }
 }
 
@@ -284,7 +303,10 @@ export async function drainDelivery(
 ): Promise<void> {
   try {
     if (await loopsKillSwitchEngaged()) return;
-    const rows = await getDb().select().from(webhookDeliveries).where(eq(webhookDeliveries.id, deliveryId));
+    const rows = await getDb()
+      .select()
+      .from(webhookDeliveries)
+      .where(eq(webhookDeliveries.id, deliveryId));
     const row = rows[0];
     if (!row || row.status !== "pending") return;
     const reg = registry ?? (await import("./registry")).ExtensionRegistry.getInstance();

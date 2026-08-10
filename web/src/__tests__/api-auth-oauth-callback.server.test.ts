@@ -119,9 +119,15 @@ const REFUSED: [name: string, locals: Record<string, unknown>, error: string][] 
 ];
 
 beforeEach(() => {
-  vi.mocked(getSetting).mockReset().mockResolvedValue(undefined as never);
-  vi.mocked(upsertSetting).mockReset().mockResolvedValue(undefined as never);
-  vi.mocked(deleteSetting).mockReset().mockResolvedValue(undefined as never);
+  vi.mocked(getSetting)
+    .mockReset()
+    .mockResolvedValue(undefined as never);
+  vi.mocked(upsertSetting)
+    .mockReset()
+    .mockResolvedValue(undefined as never);
+  vi.mocked(deleteSetting)
+    .mockReset()
+    .mockResolvedValue(undefined as never);
 });
 
 /** Arm the sec-M2 pending lookup + the provider token endpoint so a POST
@@ -132,18 +138,18 @@ function armSuccessfulExchange() {
     key === `oauth:pending:${VALID_STATE}` ? (pendingRecord() as never) : (undefined as never),
   );
   vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    new Response(
-      JSON.stringify({ access_token: "at", refresh_token: "rt", expires_in: 3600 }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    ),
+    new Response(JSON.stringify({ access_token: "at", refresh_token: "rt", expires_in: 3600 }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }),
   );
 }
 
 /** Calls to `upsertSetting` that target the instance provider credential. */
 function credentialWrites() {
-  return vi.mocked(upsertSetting).mock.calls.filter(([k]) =>
-    String(k).startsWith("provider:oauth:"),
-  );
+  return vi
+    .mocked(upsertSetting)
+    .mock.calls.filter(([k]) => String(k).startsWith("provider:oauth:"));
 }
 
 describe("POST /api/auth/oauth/callback — admin gate (both axes)", () => {

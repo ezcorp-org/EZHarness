@@ -26,8 +26,11 @@
 import { createHash } from "node:crypto";
 import { getDb } from "../db/connection";
 import {
-  extensionSchedules, extensionScheduleFires, extensionWebhooks,
-  type ExtensionSchedule, type ExtensionWebhook,
+  extensionSchedules,
+  extensionScheduleFires,
+  extensionWebhooks,
+  type ExtensionSchedule,
+  type ExtensionWebhook,
 } from "../db/schema";
 import { eq, and, gte, isNull } from "drizzle-orm";
 import { WEBHOOK_SLUG_RE, WEBHOOK_PREFIX_RE } from "./manifest";
@@ -51,11 +54,7 @@ const SLUG_DIGEST_LEN = 12;
  * slug, which is what makes re-registration idempotent (T4) — the row, the
  * slug, and therefore the secret all survive a repeat register.
  */
-export function mintWebhookSlug(
-  prefix: string,
-  extensionName: string,
-  key: string,
-): string {
+export function mintWebhookSlug(prefix: string, extensionName: string, key: string): string {
   const digest = createHash("sha256")
     .update(`${extensionName}\0${key}`)
     .digest("hex")
@@ -82,19 +81,23 @@ export function defaultPerKeyCap(envelope: number, maxCron: number): number {
 
 /** This extension's dynamic cron rows. */
 export async function listDynamicCrons(extensionId: string): Promise<ExtensionSchedule[]> {
-  return getDb().select().from(extensionSchedules).where(and(
-    eq(extensionSchedules.extensionId, extensionId),
-    eq(extensionSchedules.dynamic, true),
-  ));
+  return getDb()
+    .select()
+    .from(extensionSchedules)
+    .where(
+      and(eq(extensionSchedules.extensionId, extensionId), eq(extensionSchedules.dynamic, true)),
+    );
 }
 
 /** This extension's dynamic webhook rows. Soft-deleted rows (`key IS NULL`)
  *  are excluded — they are tombstones kept only for delivery history. */
 export async function listDynamicWebhooks(extensionName: string): Promise<ExtensionWebhook[]> {
-  const rows: ExtensionWebhook[] = await getDb().select().from(extensionWebhooks).where(and(
-    eq(extensionWebhooks.extensionId, extensionName),
-    eq(extensionWebhooks.dynamic, true),
-  ));
+  const rows: ExtensionWebhook[] = await getDb()
+    .select()
+    .from(extensionWebhooks)
+    .where(
+      and(eq(extensionWebhooks.extensionId, extensionName), eq(extensionWebhooks.dynamic, true)),
+    );
   return rows.filter((r) => r.key !== null);
 }
 
@@ -102,11 +105,16 @@ export async function getDynamicCron(
   extensionId: string,
   key: string,
 ): Promise<ExtensionSchedule | undefined> {
-  const rows = await getDb().select().from(extensionSchedules).where(and(
-    eq(extensionSchedules.extensionId, extensionId),
-    eq(extensionSchedules.dynamic, true),
-    eq(extensionSchedules.key, key),
-  ));
+  const rows = await getDb()
+    .select()
+    .from(extensionSchedules)
+    .where(
+      and(
+        eq(extensionSchedules.extensionId, extensionId),
+        eq(extensionSchedules.dynamic, true),
+        eq(extensionSchedules.key, key),
+      ),
+    );
   return rows[0];
 }
 
@@ -114,11 +122,16 @@ export async function getDynamicWebhook(
   extensionName: string,
   key: string,
 ): Promise<ExtensionWebhook | undefined> {
-  const rows = await getDb().select().from(extensionWebhooks).where(and(
-    eq(extensionWebhooks.extensionId, extensionName),
-    eq(extensionWebhooks.dynamic, true),
-    eq(extensionWebhooks.key, key),
-  ));
+  const rows = await getDb()
+    .select()
+    .from(extensionWebhooks)
+    .where(
+      and(
+        eq(extensionWebhooks.extensionId, extensionName),
+        eq(extensionWebhooks.dynamic, true),
+        eq(extensionWebhooks.key, key),
+      ),
+    );
   return rows[0];
 }
 
@@ -131,18 +144,18 @@ export async function getDynamicWebhook(
  * `now` is injected, never read from the wall clock, so a test driving the
  * daemon's injected clock cannot straddle a UTC midnight non-deterministically.
  */
-export async function todaysFireCountForSchedule(
-  scheduleId: string,
-  now: Date,
-): Promise<number> {
+export async function todaysFireCountForSchedule(scheduleId: string, now: Date): Promise<number> {
   const startOfDay = new Date(now);
   startOfDay.setUTCHours(0, 0, 0, 0);
-  const rows = await getDb().select({ id: extensionScheduleFires.id })
+  const rows = await getDb()
+    .select({ id: extensionScheduleFires.id })
     .from(extensionScheduleFires)
-    .where(and(
-      eq(extensionScheduleFires.scheduleId, scheduleId),
-      gte(extensionScheduleFires.firedAt, startOfDay),
-    ));
+    .where(
+      and(
+        eq(extensionScheduleFires.scheduleId, scheduleId),
+        gte(extensionScheduleFires.firedAt, startOfDay),
+      ),
+    );
   return rows.length;
 }
 
@@ -170,27 +183,34 @@ export async function upsertDynamicCron(spec: UpsertCronSpec): Promise<Extension
   const db = getDb();
   const existing = await getDynamicCron(spec.extensionId, spec.key);
   if (existing) {
-    const [updated] = await db.update(extensionSchedules).set({
+    const [updated] = await db
+      .update(extensionSchedules)
+      .set({
+        cron: spec.cron,
+        timezone: spec.timezone,
+        nextFireAt: spec.nextFireAt,
+        maxRunsPerDay: spec.maxRunsPerDay,
+        enabled: true,
+        consecutiveErrors: 0,
+        updatedAt: spec.now,
+      })
+      .where(eq(extensionSchedules.id, existing.id))
+      .returning();
+    return updated!;
+  }
+  const [inserted] = await db
+    .insert(extensionSchedules)
+    .values({
+      extensionId: spec.extensionId,
       cron: spec.cron,
       timezone: spec.timezone,
       nextFireAt: spec.nextFireAt,
       maxRunsPerDay: spec.maxRunsPerDay,
       enabled: true,
-      consecutiveErrors: 0,
-      updatedAt: spec.now,
-    }).where(eq(extensionSchedules.id, existing.id)).returning();
-    return updated!;
-  }
-  const [inserted] = await db.insert(extensionSchedules).values({
-    extensionId: spec.extensionId,
-    cron: spec.cron,
-    timezone: spec.timezone,
-    nextFireAt: spec.nextFireAt,
-    maxRunsPerDay: spec.maxRunsPerDay,
-    enabled: true,
-    dynamic: true,
-    key: spec.key,
-  }).returning();
+      dynamic: true,
+      key: spec.key,
+    })
+    .returning();
   return inserted!;
 }
 
@@ -226,31 +246,42 @@ export async function upsertDynamicWebhook(spec: UpsertWebhookSpec): Promise<Ext
   const db = getDb();
   const existing = await getDynamicWebhook(spec.extensionName, spec.key);
   if (existing) {
-    const [updated] = await db.update(extensionWebhooks).set({
-      slug: spec.slug,
-      enabled: true,
-      updatedAt: spec.now,
-    }).where(eq(extensionWebhooks.id, existing.id)).returning();
+    const [updated] = await db
+      .update(extensionWebhooks)
+      .set({
+        slug: spec.slug,
+        enabled: true,
+        updatedAt: spec.now,
+      })
+      .where(eq(extensionWebhooks.id, existing.id))
+      .returning();
     return updated!;
   }
 
   const tombstone = await findDynamicTombstone(spec.extensionName, spec.slug);
   if (tombstone) {
-    const [revived] = await db.update(extensionWebhooks).set({
-      key: spec.key,
-      enabled: true,
-      updatedAt: spec.now,
-    }).where(eq(extensionWebhooks.id, tombstone.id)).returning();
+    const [revived] = await db
+      .update(extensionWebhooks)
+      .set({
+        key: spec.key,
+        enabled: true,
+        updatedAt: spec.now,
+      })
+      .where(eq(extensionWebhooks.id, tombstone.id))
+      .returning();
     return revived!;
   }
 
-  const [inserted] = await db.insert(extensionWebhooks).values({
-    extensionId: spec.extensionName,
-    slug: spec.slug,
-    enabled: true,
-    dynamic: true,
-    key: spec.key,
-  }).returning();
+  const [inserted] = await db
+    .insert(extensionWebhooks)
+    .values({
+      extensionId: spec.extensionName,
+      slug: spec.slug,
+      enabled: true,
+      dynamic: true,
+      key: spec.key,
+    })
+    .returning();
   return inserted!;
 }
 
@@ -259,13 +290,17 @@ async function findDynamicTombstone(
   extensionName: string,
   slug: string,
 ): Promise<ExtensionWebhook | undefined> {
-  const rows: ExtensionWebhook[] = await getDb().select().from(extensionWebhooks)
-    .where(and(
-      eq(extensionWebhooks.extensionId, extensionName),
-      eq(extensionWebhooks.slug, slug),
-      eq(extensionWebhooks.dynamic, true),
-      isNull(extensionWebhooks.key),
-    ));
+  const rows: ExtensionWebhook[] = await getDb()
+    .select()
+    .from(extensionWebhooks)
+    .where(
+      and(
+        eq(extensionWebhooks.extensionId, extensionName),
+        eq(extensionWebhooks.slug, slug),
+        eq(extensionWebhooks.dynamic, true),
+        isNull(extensionWebhooks.key),
+      ),
+    );
   return rows[0];
 }
 
@@ -273,16 +308,17 @@ async function findDynamicTombstone(
  *  colliding with an author-declared one would leave two rows answering the
  *  same URL, and the route's lookup would pick arbitrarily. Vanishingly
  *  unlikely (the tail is a hex digest) but cheap to refuse outright. */
-export async function manifestSlugExists(
-  extensionName: string,
-  slug: string,
-): Promise<boolean> {
-  const rows = await getDb().select({ id: extensionWebhooks.id })
-    .from(extensionWebhooks).where(and(
-      eq(extensionWebhooks.extensionId, extensionName),
-      eq(extensionWebhooks.slug, slug),
-      eq(extensionWebhooks.dynamic, false),
-    ));
+export async function manifestSlugExists(extensionName: string, slug: string): Promise<boolean> {
+  const rows = await getDb()
+    .select({ id: extensionWebhooks.id })
+    .from(extensionWebhooks)
+    .where(
+      and(
+        eq(extensionWebhooks.extensionId, extensionName),
+        eq(extensionWebhooks.slug, slug),
+        eq(extensionWebhooks.dynamic, false),
+      ),
+    );
   return rows.length > 0;
 }
 
@@ -290,10 +326,7 @@ export async function manifestSlugExists(
  *  cascades — unlike a webhook's delivery history, cron fire rows carry no
  *  payload an operator would need after the job is gone. Returns true when a
  *  row was actually removed. */
-export async function deleteDynamicCron(
-  extensionId: string,
-  key: string,
-): Promise<boolean> {
+export async function deleteDynamicCron(extensionId: string, key: string): Promise<boolean> {
   const existing = await getDynamicCron(extensionId, key);
   if (!existing) return false;
   await getDb().delete(extensionSchedules).where(eq(extensionSchedules.id, existing.id));
@@ -319,7 +352,8 @@ export async function softDeleteDynamicWebhook(
 ): Promise<string | null> {
   const existing = await getDynamicWebhook(extensionName, key);
   if (!existing) return null;
-  await getDb().update(extensionWebhooks)
+  await getDb()
+    .update(extensionWebhooks)
     .set({ enabled: false, key: null, updatedAt: now })
     .where(eq(extensionWebhooks.id, existing.id));
   return existing.slug;
@@ -341,7 +375,8 @@ export async function disableDynamicCrons(
   for (const key of keys) {
     const row = await getDynamicCron(extensionId, key);
     if (!row?.enabled) continue;
-    await db.update(extensionSchedules)
+    await db
+      .update(extensionSchedules)
       .set({ enabled: false, updatedAt: now })
       .where(eq(extensionSchedules.id, row.id));
     n++;
@@ -360,7 +395,8 @@ export async function disableDynamicWebhooks(
   for (const key of keys) {
     const row = await getDynamicWebhook(extensionName, key);
     if (!row?.enabled) continue;
-    await db.update(extensionWebhooks)
+    await db
+      .update(extensionWebhooks)
       .set({ enabled: false, updatedAt: now })
       .where(eq(extensionWebhooks.id, row.id));
     n++;

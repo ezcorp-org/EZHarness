@@ -9,7 +9,10 @@ import type { CapabilitySet } from "../extensions/capability-types";
 
 function fakeEngine(): PermissionEngine {
   return {
-    authorize: async (_ctx: AuthorizeContext, _needed: CapabilitySet) => ({ decision: "allow", auditId: "a" }),
+    authorize: async (_ctx: AuthorizeContext, _needed: CapabilitySet) => ({
+      decision: "allow",
+      auditId: "a",
+    }),
   } as unknown as PermissionEngine;
 }
 
@@ -25,7 +28,20 @@ beforeEach(async () => {
   await mkdir(watched, { recursive: true });
   await writeFile(
     join(dataDir, "config.json"),
-    JSON.stringify({ folders: [{ id: "f1", path: watched, presets: [], customRules: [], ignore: [], backlogPolicy: "include-existing" }], globalIgnore: [], schemaVersion: 1 }),
+    JSON.stringify({
+      folders: [
+        {
+          id: "f1",
+          path: watched,
+          presets: [],
+          customRules: [],
+          ignore: [],
+          backlogPolicy: "include-existing",
+        },
+      ],
+      globalIgnore: [],
+      schemaVersion: 1,
+    }),
   );
 });
 afterEach(async () => {
@@ -47,7 +63,23 @@ async function seedProposal() {
   await writeFile(
     join(dataDir, "proposals.json"),
     JSON.stringify({
-      proposals: [{ id: "p1", kind: "move", src: join(watched, "a.txt"), dst: join(watched, "sub", "a.txt"), reason: "r", ruleId: "r1", ruleLabel: "R", folderId: "f1", snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 }, status: "pending", dedupeKey: "k", createdAt: "2026-06-17T00:00:00Z", version: 0 }],
+      proposals: [
+        {
+          id: "p1",
+          kind: "move",
+          src: join(watched, "a.txt"),
+          dst: join(watched, "sub", "a.txt"),
+          reason: "r",
+          ruleId: "r1",
+          ruleLabel: "R",
+          folderId: "f1",
+          snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 },
+          status: "pending",
+          dedupeKey: "k",
+          createdAt: "2026-06-17T00:00:00Z",
+          version: 0,
+        },
+      ],
       suppressed: [],
       schemaVersion: 1,
     }),
@@ -83,7 +115,21 @@ describe("dispatch routing", () => {
       join(dataDir, "proposals.json"),
       JSON.stringify({
         proposals: [
-          { id: "f1", kind: "move", src: join(watched, "a.txt"), dst: join(watched, "sub", "a.txt"), reason: "r", ruleId: "r1", ruleLabel: "R", folderId: "f1", snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 }, status: "failed", dedupeKey: "k", createdAt: "2026-06-17T00:00:00Z", version: 1 },
+          {
+            id: "f1",
+            kind: "move",
+            src: join(watched, "a.txt"),
+            dst: join(watched, "sub", "a.txt"),
+            reason: "r",
+            ruleId: "r1",
+            ruleLabel: "R",
+            folderId: "f1",
+            snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 },
+            status: "failed",
+            dedupeKey: "k",
+            createdAt: "2026-06-17T00:00:00Z",
+            version: 1,
+          },
         ],
         suppressed: [],
         schemaVersion: 1,
@@ -121,8 +167,14 @@ describe("dispatch routing", () => {
   });
 
   test("set-mode requires folderId + mode", async () => {
-    expect((await dispatchFileOrganizerEvent("set-mode", { folderId: "f1" }, deps())).ok).toBe(false);
-    const ok = await dispatchFileOrganizerEvent("set-mode", { folderId: "f1", mode: "fully-auto" }, deps());
+    expect((await dispatchFileOrganizerEvent("set-mode", { folderId: "f1" }, deps())).ok).toBe(
+      false,
+    );
+    const ok = await dispatchFileOrganizerEvent(
+      "set-mode",
+      { folderId: "f1", mode: "fully-auto" },
+      deps(),
+    );
     expect(ok.ok).toBe(true);
     const cfg = JSON.parse(await readFile(join(dataDir, "config.json"), "utf8"));
     expect(cfg.folders[0].mode).toBe("fully-auto");
@@ -133,7 +185,11 @@ describe("dispatch routing", () => {
     expect(missing.ok).toBe(false);
     const newDir = join(root, "Downloads");
     await mkdir(newDir);
-    const ok = await dispatchFileOrganizerEvent("add-folder", { path: newDir, backlogPolicy: "new-only" }, deps());
+    const ok = await dispatchFileOrganizerEvent(
+      "add-folder",
+      { path: newDir, backlogPolicy: "new-only" },
+      deps(),
+    );
     expect(ok.ok).toBe(true);
   });
 
@@ -143,7 +199,11 @@ describe("dispatch routing", () => {
   });
 
   test("add-rule surfaces the mini-DSL parse error", async () => {
-    const bad = await dispatchFileOrganizerEvent("add-rule", { folderId: "f1", rule: "no arrow here" }, deps());
+    const bad = await dispatchFileOrganizerEvent(
+      "add-rule",
+      { folderId: "f1", rule: "no arrow here" },
+      deps(),
+    );
     expect(bad.ok).toBe(false);
     expect(bad.changed).toBe(false);
   });
@@ -161,20 +221,53 @@ describe("dispatch routing", () => {
 
   test("config mutations: toggle-preset / set-backlog-policy / remove-folder / add-ignore", async () => {
     await seedConfigWithFolder();
-    expect((await dispatchFileOrganizerEvent("toggle-preset", { folderId: "f1", preset: "junk-sweep" }, deps())).ok).toBe(true);
-    expect((await dispatchFileOrganizerEvent("toggle-preset", { folderId: "f1" }, deps())).ok).toBe(false);
-    expect((await dispatchFileOrganizerEvent("set-backlog-policy", { folderId: "f1", backlogPolicy: "new-only" }, deps())).ok).toBe(true);
-    expect((await dispatchFileOrganizerEvent("set-backlog-policy", { folderId: "f1" }, deps())).ok).toBe(false);
-    expect((await dispatchFileOrganizerEvent("add-ignore", { folderId: "f1", path: "secret" }, deps())).ok).toBe(true);
-    expect((await dispatchFileOrganizerEvent("add-ignore", { folderId: "f1" }, deps())).ok).toBe(false);
-    expect((await dispatchFileOrganizerEvent("remove-folder", { folderId: "f1" }, deps())).ok).toBe(true);
+    expect(
+      (
+        await dispatchFileOrganizerEvent(
+          "toggle-preset",
+          { folderId: "f1", preset: "junk-sweep" },
+          deps(),
+        )
+      ).ok,
+    ).toBe(true);
+    expect((await dispatchFileOrganizerEvent("toggle-preset", { folderId: "f1" }, deps())).ok).toBe(
+      false,
+    );
+    expect(
+      (
+        await dispatchFileOrganizerEvent(
+          "set-backlog-policy",
+          { folderId: "f1", backlogPolicy: "new-only" },
+          deps(),
+        )
+      ).ok,
+    ).toBe(true);
+    expect(
+      (await dispatchFileOrganizerEvent("set-backlog-policy", { folderId: "f1" }, deps())).ok,
+    ).toBe(false);
+    expect(
+      (await dispatchFileOrganizerEvent("add-ignore", { folderId: "f1", path: "secret" }, deps()))
+        .ok,
+    ).toBe(true);
+    expect((await dispatchFileOrganizerEvent("add-ignore", { folderId: "f1" }, deps())).ok).toBe(
+      false,
+    );
+    expect((await dispatchFileOrganizerEvent("remove-folder", { folderId: "f1" }, deps())).ok).toBe(
+      true,
+    );
     expect((await dispatchFileOrganizerEvent("remove-folder", {}, deps())).ok).toBe(false);
   });
 
   test("add-rule wires the mini-DSL to state (valid path)", async () => {
-    const ok = await dispatchFileOrganizerEvent("add-rule", { folderId: "f1", rule: "*.tmp older 7d -> quarantine" }, deps());
+    const ok = await dispatchFileOrganizerEvent(
+      "add-rule",
+      { folderId: "f1", rule: "*.tmp older 7d -> quarantine" },
+      deps(),
+    );
     expect(ok.ok).toBe(true);
-    expect((await dispatchFileOrganizerEvent("add-rule", { folderId: "f1" }, deps())).ok).toBe(false);
+    expect((await dispatchFileOrganizerEvent("add-rule", { folderId: "f1" }, deps())).ok).toBe(
+      false,
+    );
   });
 
   test("reject-segment / confirm-deletes / dismiss-stale route to state", async () => {
@@ -183,16 +276,48 @@ describe("dispatch routing", () => {
       join(dataDir, "proposals.json"),
       JSON.stringify({
         proposals: [
-          { id: "m1", kind: "move", src: join(watched, "a.txt"), dst: join(watched, "sub", "a.txt"), reason: "r", ruleId: "r1", ruleLabel: "R", folderId: "f1", snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 }, status: "pending", dedupeKey: "k1", createdAt: "2026-06-17T00:00:00Z", version: 0 },
-          { id: "s1", kind: "move", src: join(watched, "b.txt"), dst: join(watched, "sub", "b.txt"), reason: "r", ruleId: "r1", ruleLabel: "R", folderId: "f1", snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 }, status: "stale-source", dedupeKey: "k2", createdAt: "2026-06-17T00:00:00Z", version: 0 },
+          {
+            id: "m1",
+            kind: "move",
+            src: join(watched, "a.txt"),
+            dst: join(watched, "sub", "a.txt"),
+            reason: "r",
+            ruleId: "r1",
+            ruleLabel: "R",
+            folderId: "f1",
+            snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 },
+            status: "pending",
+            dedupeKey: "k1",
+            createdAt: "2026-06-17T00:00:00Z",
+            version: 0,
+          },
+          {
+            id: "s1",
+            kind: "move",
+            src: join(watched, "b.txt"),
+            dst: join(watched, "sub", "b.txt"),
+            reason: "r",
+            ruleId: "r1",
+            ruleLabel: "R",
+            folderId: "f1",
+            snapshot: { size: 1, mtimeMs: 0, isSymlink: false, dev: 0, ino: 0, nlink: 1 },
+            status: "stale-source",
+            dedupeKey: "k2",
+            createdAt: "2026-06-17T00:00:00Z",
+            version: 0,
+          },
         ],
         suppressed: [],
         schemaVersion: 1,
       }),
     );
-    expect((await dispatchFileOrganizerEvent("reject-segment", { segment: "moves" }, deps())).ok).toBe(true);
+    expect(
+      (await dispatchFileOrganizerEvent("reject-segment", { segment: "moves" }, deps())).ok,
+    ).toBe(true);
     expect((await dispatchFileOrganizerEvent("confirm-deletes", {}, deps())).ok).toBe(true);
-    expect((await dispatchFileOrganizerEvent("dismiss-stale", { proposalId: "s1" }, deps())).ok).toBe(true);
+    expect(
+      (await dispatchFileOrganizerEvent("dismiss-stale", { proposalId: "s1" }, deps())).ok,
+    ).toBe(true);
     expect((await dispatchFileOrganizerEvent("dismiss-stale", {}, deps())).ok).toBe(false);
   });
 
@@ -202,15 +327,34 @@ describe("dispatch routing", () => {
     await writeFile(join(trashDir, "a.txt"), "restored");
     await writeFile(
       join(dataDir, ".trash", "manifest.json"),
-      JSON.stringify({ schemaVersion: 1, entries: [{ id: "q1", originalPath: join(watched, "a.txt"), trashPath: join(trashDir, "a.txt"), proposalId: "p1", reason: "junk", deletedAt: new Date(0).toISOString(), batchId: "b1", size: 8, expiresAtMs: Date.now() + 1e9 }] }),
+      JSON.stringify({
+        schemaVersion: 1,
+        entries: [
+          {
+            id: "q1",
+            originalPath: join(watched, "a.txt"),
+            trashPath: join(trashDir, "a.txt"),
+            proposalId: "p1",
+            reason: "junk",
+            deletedAt: new Date(0).toISOString(),
+            batchId: "b1",
+            size: 8,
+            expiresAtMs: Date.now() + 1e9,
+          },
+        ],
+      }),
     );
     expect((await dispatchFileOrganizerEvent("restore", { all: true }, deps())).ok).toBe(true);
     // After restore the manifest is empty — the rest are safe no-ops.
-    expect((await dispatchFileOrganizerEvent("purge", { quarantineId: "gone" }, deps())).ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("purge", { quarantineId: "gone" }, deps())).ok).toBe(
+      true,
+    );
     expect((await dispatchFileOrganizerEvent("purge", {}, deps())).ok).toBe(false);
     expect((await dispatchFileOrganizerEvent("empty-quarantine", {}, deps())).ok).toBe(true);
     expect((await dispatchFileOrganizerEvent("purge-expired", {}, deps())).ok).toBe(true);
-    expect((await dispatchFileOrganizerEvent("undo-batch", { batchId: "b1" }, deps())).ok).toBe(true);
+    expect((await dispatchFileOrganizerEvent("undo-batch", { batchId: "b1" }, deps())).ok).toBe(
+      true,
+    );
   });
 
   test("an unexpected error in a handler is caught and reported (no throw escapes)", async () => {
@@ -226,11 +370,24 @@ describe("dispatch routing", () => {
 
   test("IN_PROCESS_EVENTS covers exactly the in-process handlers", () => {
     // Agent/daemon-forwarded events must NOT be in the in-process set.
-    for (const forwarded of ["classify-move", "teach-rule", "ignore-file", "enable-daemon", "organize-backlog"]) {
+    for (const forwarded of [
+      "classify-move",
+      "teach-rule",
+      "ignore-file",
+      "enable-daemon",
+      "organize-backlog",
+    ]) {
       expect(IN_PROCESS_EVENTS.has(forwarded)).toBe(false);
     }
     // A representative sample of in-process events must be present.
-    for (const handled of ["accept", "reject", "confirm-deletes", "restore", "set-mode", "add-folder"]) {
+    for (const handled of [
+      "accept",
+      "reject",
+      "confirm-deletes",
+      "restore",
+      "set-mode",
+      "add-folder",
+    ]) {
       expect(IN_PROCESS_EVENTS.has(handled)).toBe(true);
     }
   });

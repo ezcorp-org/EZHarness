@@ -26,8 +26,9 @@ afterAll(() => restoreModuleMocks());
 // behaviors vary per case (reuse vs. fresh). Start with no pre-existing
 // sub-conversations and a fresh-minted id; individual tests override via
 // closures on these module-local refs.
-let getSubConversationsImpl: (parentId: string) => Promise<Array<{ id: string; agentConfigId: string | null }>>
-  = async () => [];
+let getSubConversationsImpl: (
+  parentId: string,
+) => Promise<Array<{ id: string; agentConfigId: string | null }>> = async () => [];
 let createSubConversationImpl: (
   projectId: string,
   opts: {
@@ -53,7 +54,8 @@ mock.module("../db/queries/conversations", () => ({
     createSubConversationCalls.push({ projectId, ...opts });
     return createSubConversationImpl(projectId, opts as any);
   },
-  resolveConversationOwnerUserId: async (conversationId: string) => resolveOwnerImpl(conversationId),
+  resolveConversationOwnerUserId: async (conversationId: string) =>
+    resolveOwnerImpl(conversationId),
 }));
 
 // Master kill-switch (Advanced Settings → global:agentAutonomyEnabled).
@@ -81,11 +83,7 @@ const { buildSchemaInstruction } = await import("../runtime/structured-output");
 import type { AgentExecutor } from "../runtime/executor";
 import type { EventBus as EventBusType } from "../runtime/events";
 import type { AgentEvents, TeamMemberOverrides, TeamToolScope } from "../types";
-import type {
-  TaskAssignment,
-  TrackedTask,
-  TaskSnapshot,
-} from "../runtime/task-tracking-host";
+import type { TaskAssignment, TrackedTask, TaskSnapshot } from "../runtime/task-tracking-host";
 
 // ── Fixtures ───────────────────────────────────────────────────────
 
@@ -109,11 +107,7 @@ function makeMockExecutor(): {
   const childRegistrations: ChildRegistration[] = [];
   const runModeRegistrations: RunModeRegistration[] = [];
   const streamChat = mock(
-    async (
-      conversationId: string,
-      userMessage: string,
-      options: Record<string, unknown>,
-    ) => {
+    async (conversationId: string, userMessage: string, options: Record<string, unknown>) => {
       calls.push({ conversationId, userMessage, options });
       // Return a benign AgentRun-shaped object. startAssignment fires
       // streamChat but doesn't await it — we attach a .catch in the
@@ -138,11 +132,9 @@ function makeMockExecutor(): {
   // P4: startRun records the run's steer mode per cycle. Capture the calls so
   // the plumbing test can assert every started run is registered with the
   // assignment's autonomous/schema flags.
-  const registerRunMode = mock(
-    (runId: string, mode: { autonomous: boolean; schema: boolean }) => {
-      runModeRegistrations.push({ runId, mode });
-    },
-  );
+  const registerRunMode = mock((runId: string, mode: { autonomous: boolean; schema: boolean }) => {
+    runModeRegistrations.push({ runId, mode });
+  });
   return {
     executor: { streamChat, registerChildRun, registerRunMode } as unknown as AgentExecutor,
     calls,
@@ -452,7 +444,12 @@ describe("startAssignment — workingDir plumbing", () => {
     const snapshot = makeSnapshot(task, "conv-parent");
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const opts = baseOpts({
-      executor, bus, task, assignment, snapshot, workingDir: "/tmp/wt/run_abc",
+      executor,
+      bus,
+      task,
+      assignment,
+      snapshot,
+      workingDir: "/tmp/wt/run_abc",
     });
     const { subConversationId, agentRunId } = await startAssignment(opts);
 
@@ -464,7 +461,13 @@ describe("startAssignment — workingDir plumbing", () => {
       createdAt: new Date().toISOString(),
     });
     bus.emit("run:complete", {
-      run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [] },
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "success",
+        startedAt: Date.now(),
+        logs: [],
+      },
       conversationId: subConversationId,
     });
 
@@ -631,7 +634,13 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
 
     // Non-matching id is ignored (early-return guard).
     bus.emit("run:error", {
-      run: { id: "some-other-run", agentName: "alice", status: "error", startedAt: Date.now(), logs: [] },
+      run: {
+        id: "some-other-run",
+        agentName: "alice",
+        status: "error",
+        startedAt: Date.now(),
+        logs: [],
+      },
       error: "ignored",
       conversationId: "conv-parent",
       runId: "some-other-run",
@@ -798,11 +807,7 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
     // Custom mock executor whose streamChat rejects.
     const calls: StreamChatCall[] = [];
     const streamChat = mock(
-      async (
-        conversationId: string,
-        userMessage: string,
-        options: Record<string, unknown>,
-      ) => {
+      async (conversationId: string, userMessage: string, options: Record<string, unknown>) => {
         calls.push({ conversationId, userMessage, options });
         throw new Error("stream boom");
       },
@@ -846,9 +851,7 @@ describe("startAssignment — parentRunId child registration", () => {
     });
     const { agentRunId } = await startAssignment(opts);
 
-    expect(childRegistrations).toEqual([
-      { parentRunId: "parent-run-1", childRunId: agentRunId },
-    ]);
+    expect(childRegistrations).toEqual([{ parentRunId: "parent-run-1", childRunId: agentRunId }]);
     // The registered child id IS the run id streamChat was told to use.
     expect(calls[0]!.options.runId).toBe(agentRunId);
   });
@@ -865,9 +868,7 @@ describe("startAssignment — parentRunId child registration", () => {
     const { agentRunId } = await startAssignment(opts);
 
     // Initial registration.
-    expect(childRegistrations).toEqual([
-      { parentRunId: "parent-run-2", childRunId: agentRunId },
-    ]);
+    expect(childRegistrations).toEqual([{ parentRunId: "parent-run-2", childRunId: agentRunId }]);
 
     // Queue a user message, then complete the run → auto-continue cycle
     // starts a NEW run id which must ALSO register under the parent.
@@ -877,7 +878,14 @@ describe("startAssignment — parentRunId child registration", () => {
       createdAt: new Date().toISOString(),
     });
     bus.emit("run:complete", {
-      run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [], result: { success: true, output: "partial" } },
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "success",
+        startedAt: Date.now(),
+        logs: [],
+        result: { success: true, output: "partial" },
+      },
       conversationId: "conv-parent",
     } as AgentEvents["run:complete"]);
 
@@ -906,11 +914,16 @@ describe("startAssignment — parentRunId child registration", () => {
     registerChildRunResult = false;
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const assignment = makeAssignment();
-    const updates: Array<{ resultFull?: string; assignment: { status: string; resultPreview?: string } }> = [];
+    const updates: Array<{
+      resultFull?: string;
+      assignment: { status: string; resultPreview?: string };
+    }> = [];
     bus.on("task:assignment_update", (d) => updates.push(d as never));
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       parentRunId: "run-dead-parent",
       reuseSubConversationId: "sub-dead-parent",
     });
@@ -1052,9 +1065,7 @@ describe("startAssignment — detached child outlives terminal parent", () => {
     });
     // NOT force-failed.
     expect(assignment.status).toBe("running");
-    expect(assignment.resultPreview).not.toBe(
-      "Parent run ended before this agent could start",
-    );
+    expect(assignment.resultPreview).not.toBe("Parent run ended before this agent could start");
     // assignment.agentRunId tracks the LIVE cycle run so task-panel Stop still
     // targets the run that is actually working.
     expect(assignment.agentRunId).toBe(newRunId);
@@ -1079,9 +1090,7 @@ describe("startAssignment — detached child outlives terminal parent", () => {
     // Even for a detached spawn, the INITIAL run registers under the live
     // parent so an early Stop still cascades to the just-started background
     // child (only the later post-terminal cycle degrades to unparented).
-    expect(childRegistrations).toEqual([
-      { parentRunId: "parent-live", childRunId: agentRunId },
-    ]);
+    expect(childRegistrations).toEqual([{ parentRunId: "parent-live", childRunId: agentRunId }]);
     expect(calls).toHaveLength(1);
     expect(calls[0]!.options.runId).toBe(agentRunId);
   });
@@ -1114,9 +1123,7 @@ describe("startAssignment — detached child outlives terminal parent", () => {
     // The sync child was NOT started for the cycle — it force-failed.
     expect(calls).toHaveLength(1);
     expect(assignment.status).toBe("failed");
-    expect(assignment.resultPreview).toBe(
-      "Parent run ended before this agent could start",
-    );
+    expect(assignment.resultPreview).toBe("Parent run ended before this agent could start");
     // The sync path DOES emit its terminal (releases the parent gate) and,
     // because notifyParentOnTerminal is set, enqueues the (correct) failure
     // notify — exactly ONE.
@@ -1140,11 +1147,7 @@ describe("startAssignment — emitTerminal double-fire guard", () => {
     const calls: StreamChatCall[] = [];
     let rejectStream: (e: unknown) => void = () => {};
     const streamChat = mock(
-      async (
-        conversationId: string,
-        userMessage: string,
-        options: Record<string, unknown>,
-      ) => {
+      async (conversationId: string, userMessage: string, options: Record<string, unknown>) => {
         calls.push({ conversationId, userMessage, options });
         return new Promise((_resolve, reject) => {
           rejectStream = reject;
@@ -1152,7 +1155,11 @@ describe("startAssignment — emitTerminal double-fire guard", () => {
       },
     );
     const registerChildRun = mock(() => true);
-    const executor = { streamChat, registerChildRun, registerRunMode: () => {} } as unknown as AgentExecutor;
+    const executor = {
+      streamChat,
+      registerChildRun,
+      registerRunMode: () => {},
+    } as unknown as AgentExecutor;
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const assignment = makeAssignment();
     const completes: Array<{ success: boolean }> = [];
@@ -1215,7 +1222,9 @@ describe("startAssignment — onCycleRunIdChange re-keys the spawn quota", () =>
     const ext = "ext-quota";
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-quota",
       autonomousContinuation: { maxCycles: 1 },
       onCycleRunIdChange: (oldId: string, newId: string) =>
@@ -1242,7 +1251,13 @@ describe("startAssignment — onCycleRunIdChange re-keys the spawn quota", () =>
 
     // No double-free: a duplicate terminal for the OLD run can't free the new slot.
     bus.emit("run:complete", {
-      run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [] },
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "success",
+        startedAt: Date.now(),
+        logs: [],
+      },
       conversationId: "conv-parent",
     } as AgentEvents["run:complete"]);
     expect(quota._concurrentCount(ext)).toBe(1);
@@ -1347,9 +1362,7 @@ describe("autonomous helpers — detectDoneSignal", () => {
     expect(detectDoneSignal("just working")).toBeNull();
   });
   test("done wins when both present", () => {
-    expect(
-      detectDoneSignal("<<TASK_BLOCKED: x>> then <<TASK_DONE>>"),
-    ).toEqual({ kind: "done" });
+    expect(detectDoneSignal("<<TASK_BLOCKED: x>> then <<TASK_DONE>>")).toEqual({ kind: "done" });
   });
 });
 
@@ -1384,7 +1397,14 @@ describe("startAssignment — goal pinning across cycles", () => {
       createdAt: new Date().toISOString(),
     });
     bus.emit("run:complete", {
-      run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [], result: { success: true, output: "partial" } },
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "success",
+        startedAt: Date.now(),
+        logs: [],
+        result: { success: true, output: "partial" },
+      },
       conversationId: "conv-parent",
     });
 
@@ -1482,15 +1502,14 @@ describe("startAssignment — full result on the assignment_update event", () =>
 
 // ── 9. Autonomous self-continuation ────────────────────────────────
 
-function emitComplete(
-  bus: EventBusType<AgentEvents>,
-  runId: string,
-  output: unknown,
-) {
+function emitComplete(bus: EventBusType<AgentEvents>, runId: string, output: unknown) {
   bus.emit("run:complete", {
     run: {
-      id: runId, agentName: "alice", status: "success",
-      startedAt: Date.now(), logs: [],
+      id: runId,
+      agentName: "alice",
+      status: "success",
+      startedAt: Date.now(),
+      logs: [],
       result: { success: true, output },
     },
     conversationId: "conv-parent",
@@ -1518,7 +1537,9 @@ describe("startAssignment — autonomous continuation", () => {
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const assignment = makeAssignment();
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-b",
       autonomousContinuation: { maxCycles: 3 },
     });
@@ -1542,7 +1563,9 @@ describe("startAssignment — autonomous continuation", () => {
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const assignment = makeAssignment();
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-c",
       autonomousContinuation: {},
     });
@@ -1560,7 +1583,9 @@ describe("startAssignment — autonomous continuation", () => {
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const assignment = makeAssignment();
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-d",
       autonomousContinuation: { maxCycles: 5 },
     });
@@ -1577,7 +1602,9 @@ describe("startAssignment — autonomous continuation", () => {
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const assignment = makeAssignment();
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-e",
       autonomousContinuation: { maxCycles: 1 },
     });
@@ -1600,14 +1627,17 @@ describe("startAssignment — autonomous continuation", () => {
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const assignment = makeAssignment();
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-f",
       autonomousContinuation: { maxCycles: 9 },
     });
     const { agentRunId } = await startAssignment(opts);
 
     enqueue("sub-f", {
-      messageId: "u1", content: "actually do X instead",
+      messageId: "u1",
+      content: "actually do X instead",
       createdAt: new Date().toISOString(),
     });
     emitComplete(bus, agentRunId, "no sentinel here");
@@ -1624,7 +1654,9 @@ describe("startAssignment — autonomous continuation", () => {
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const assignment = makeAssignment();
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-g",
       autonomousContinuation: { maxCycles: 9 },
     });
@@ -1633,7 +1665,13 @@ describe("startAssignment — autonomous continuation", () => {
     // Stop endpoint flips status before cancelling; run:cancel then fires.
     assignment.status = "assigned";
     bus.emit("run:cancel", {
-      run: { id: agentRunId, agentName: "alice", status: "cancelled", startedAt: Date.now(), logs: [] },
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "cancelled",
+        startedAt: Date.now(),
+        logs: [],
+      },
       conversationId: "conv-parent",
     });
     // Listeners cleaned up → a late run:complete must not re-loop.
@@ -1670,7 +1708,14 @@ describe("startAssignment — global:agentAutonomyEnabled kill-switch", () => {
 
     enqueue("sub-ks2", { messageId: "m", content: "go on", createdAt: new Date().toISOString() });
     bus.emit("run:complete", {
-      run: { id: agentRunId, agentName: "alice", status: "success", startedAt: Date.now(), logs: [], result: { success: true, output: "x" } },
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "success",
+        startedAt: Date.now(),
+        logs: [],
+        result: { success: true, output: "x" },
+      },
       conversationId: "conv-parent",
     } as AgentEvents["run:complete"]);
 
@@ -1684,7 +1729,9 @@ describe("startAssignment — global:agentAutonomyEnabled kill-switch", () => {
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const assignment = makeAssignment();
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-ks3",
       autonomousContinuation: { maxCycles: 3 },
     });
@@ -1753,7 +1800,9 @@ describe("startAssignment — structured output", () => {
     bus.on("task:assignment_update", (d) => updates.push(d as never));
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-so-1",
       outputSchema: SCHEMA,
     });
@@ -1784,7 +1833,9 @@ describe("startAssignment — structured output", () => {
       const updates: StructuredUpdate[] = [];
       bus.on("task:assignment_update", (d) => updates.push(d as never));
       const opts = baseOpts({
-        executor, bus, assignment,
+        executor,
+        bus,
+        assignment,
         reuseSubConversationId: `sub-so-var-${label.replace(/\s/g, "")}`,
         outputSchema: SCHEMA,
       });
@@ -1803,7 +1854,9 @@ describe("startAssignment — structured output", () => {
     bus.on("task:assignment_update", (d) => updates.push(d as never));
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-so-2",
       parentRunId: "parent-so",
       outputSchema: SCHEMA,
@@ -1843,7 +1896,9 @@ describe("startAssignment — structured output", () => {
     bus.on("task:assignment_update", (d) => updates.push(d as never));
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-so-3",
       outputSchema: SCHEMA,
     });
@@ -1870,7 +1925,9 @@ describe("startAssignment — structured output", () => {
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const assignment = makeAssignment();
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-so-nojson",
       outputSchema: SCHEMA,
     });
@@ -1889,7 +1946,9 @@ describe("startAssignment — structured output", () => {
     bus.on("task:assignment_update", (d) => updates.push(d as never));
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-so-auto",
       autonomousContinuation: { maxCycles: 3 },
       outputSchema: SCHEMA,
@@ -1921,7 +1980,9 @@ describe("startAssignment — structured output", () => {
     bus.on("task:assignment_update", (d) => updates.push(d as never));
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-so-swallow",
       autonomousContinuation: { maxCycles: 5 },
       outputSchema: SCHEMA,
@@ -1965,7 +2026,9 @@ describe("startAssignment — structured output", () => {
     expect(huge.length).toBeGreaterThan(ASSIGNMENT_RESULT_FULL_CAP);
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-so-cap",
       outputSchema: permissive,
     });
@@ -1992,9 +2055,15 @@ describe("startAssignment — structured output", () => {
     const updates: StructuredUpdate[] = [];
     bus.on("task:assignment_update", (d) => updates.push(d as never));
 
-    const schema = { type: "object", required: ["x"], properties: { x: { type: "number" } } } as Record<string, unknown>;
+    const schema = {
+      type: "object",
+      required: ["x"],
+      properties: { x: { type: "number" } },
+    } as Record<string, unknown>;
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-so-nocap",
       outputSchema: schema,
     });
@@ -2007,7 +2076,9 @@ describe("startAssignment — structured output", () => {
 
     const terminal = updates.at(-1)!;
     expect(terminal.structuredResultError).toBeDefined();
-    expect((terminal as { structuredResultOverCap?: boolean }).structuredResultOverCap).toBeUndefined();
+    expect(
+      (terminal as { structuredResultOverCap?: boolean }).structuredResultOverCap,
+    ).toBeUndefined();
     expect(assignment.status).toBe("completed");
   });
 
@@ -2019,9 +2090,15 @@ describe("startAssignment — structured output", () => {
     const bus = new EventBus<AgentEvents>() as EventBusType<AgentEvents>;
     const assignment = makeAssignment();
 
-    const schema = { type: "object", required: ["x"], properties: { x: { type: "number" } } } as Record<string, unknown>;
+    const schema = {
+      type: "object",
+      required: ["x"],
+      properties: { x: { type: "number" } },
+    } as Record<string, unknown>;
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-so-steer",
       outputSchema: schema,
       autonomousContinuation: { maxCycles: 3 },
@@ -2124,7 +2201,13 @@ describe("startAssignment — agent:complete emission", () => {
     const { agentRunId } = await startAssignment(opts);
 
     bus.emit("run:cancel", {
-      run: { id: agentRunId, agentName: "alice", status: "cancelled", startedAt: Date.now(), logs: [] },
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "cancelled",
+        startedAt: Date.now(),
+        logs: [],
+      },
       conversationId: "conv-parent",
     });
 
@@ -2146,7 +2229,13 @@ describe("startAssignment — agent:complete emission", () => {
     // Stop endpoint flipped it to "assigned" already → cancel listener no-ops.
     assignment.status = "assigned";
     bus.emit("run:cancel", {
-      run: { id: agentRunId, agentName: "alice", status: "cancelled", startedAt: Date.now(), logs: [] },
+      run: {
+        id: agentRunId,
+        agentName: "alice",
+        status: "cancelled",
+        startedAt: Date.now(),
+        logs: [],
+      },
       conversationId: "conv-parent",
     });
     expect(events).toHaveLength(0);
@@ -2160,7 +2249,9 @@ describe("startAssignment — agent:complete emission", () => {
     bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-ac5",
       autonomousContinuation: { maxCycles: 1 },
     });
@@ -2189,7 +2280,9 @@ describe("startAssignment — agent:complete emission", () => {
     bus.on("agent:complete", (d) => events.push(d as AgentCompleteEvt));
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       parentRunId: "run-dead",
       reuseSubConversationId: "sub-ac6",
     });
@@ -2228,7 +2321,9 @@ describe("startAssignment — background completion notify", () => {
     const assignment = makeAssignment();
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-nfy1",
       notifyParentOnTerminal: true,
     });
@@ -2252,7 +2347,9 @@ describe("startAssignment — background completion notify", () => {
     const assignment = makeAssignment();
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-nfy2",
       notifyParentOnTerminal: true,
     });
@@ -2278,7 +2375,9 @@ describe("startAssignment — background completion notify", () => {
     const assignment = makeAssignment();
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-nfy3",
       notifyParentOnTerminal: true,
     });
@@ -2301,7 +2400,9 @@ describe("startAssignment — background completion notify", () => {
     const assignment = makeAssignment();
 
     const opts = baseOpts({
-      executor, bus, assignment,
+      executor,
+      bus,
+      assignment,
       reuseSubConversationId: "sub-nfy5",
       autonomousContinuation: { maxCycles: 3 },
       notifyParentOnTerminal: true,

@@ -22,11 +22,13 @@ function todayIso(now: Date = new Date()): string {
 }
 
 function slugify(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "")
-    .slice(0, 64) || "project";
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "")
+      .slice(0, 64) || "project"
+  );
 }
 
 function mark(exposed: boolean): string {
@@ -34,10 +36,7 @@ function mark(exposed: boolean): string {
 }
 
 function summaryTable(verdicts: FeatureVerdict[]): string {
-  const lines = [
-    "| Feature | SDK | EzButton | MCP | Source |",
-    "|---|---|---|---|---|",
-  ];
+  const lines = ["| Feature | SDK | EzButton | MCP | Source |", "|---|---|---|---|---|"];
   for (const v of verdicts) {
     const sdkVia = v.surfaces.sdk.via;
     const sources = [v.surfaces.sdk.via, v.surfaces.ezbutton.via, v.surfaces.mcp.via];
@@ -50,7 +49,11 @@ function summaryTable(verdicts: FeatureVerdict[]): string {
   return lines.join("\n");
 }
 
-function gapSection(title: string, verdicts: FeatureVerdict[], pick: (v: SurfaceVerdicts) => { exposed: boolean; evidence?: string }): string {
+function gapSection(
+  title: string,
+  verdicts: FeatureVerdict[],
+  pick: (v: SurfaceVerdicts) => { exposed: boolean; evidence?: string },
+): string {
   const missing = verdicts.filter((v) => !pick(v.surfaces).exposed);
   if (missing.length === 0) return `### ${title}\n\n_None — full coverage._\n`;
   const lines: string[] = [`### ${title}`, ""];
@@ -87,10 +90,7 @@ function coverageNotesSection(verdicts: FeatureVerdict[]): string {
   return lines.join("\n") + "\n";
 }
 
-function deltaSection(
-  current: FeatureVerdict[],
-  prev: FeatureClassification[],
-): string {
+function deltaSection(current: FeatureVerdict[], prev: FeatureClassification[]): string {
   if (prev.length === 0) return "_No prior run to diff against._\n";
   const prevById = new Map<string, FeatureClassification>();
   for (const p of prev) prevById.set(p.featureId, p);
@@ -115,7 +115,8 @@ function deltaSection(
   }
   const removed: string[] = [];
   for (const p of prev) {
-    if (!currentIds.has(p.featureId)) removed.push(`- _featureId ${p.featureId}_ (deleted since last run)`);
+    if (!currentIds.has(p.featureId))
+      removed.push(`- _featureId ${p.featureId}_ (deleted since last run)`);
   }
 
   const blocks: string[] = [];
@@ -144,13 +145,18 @@ export async function writeReport(input: WriteReportInput): Promise<string> {
   const outPath = join(outDir, filename);
 
   const cacheHits = verdicts.filter((v) => v.fromCache).length;
-  const llmSurfaces = verdicts.flatMap((v) => [v.surfaces.sdk, v.surfaces.ezbutton, v.surfaces.mcp]).filter((s) => s.via === "llm").length;
+  const llmSurfaces = verdicts
+    .flatMap((v) => [v.surfaces.sdk, v.surfaces.ezbutton, v.surfaces.mcp])
+    .filter((s) => s.via === "llm").length;
 
   const sections: string[] = [];
   sections.push(`# Surface Coverage Audit — ${projectName}`);
   sections.push("");
-  sections.push(`_Generated ${date} · project \`${projectId}\` · ${verdicts.length} features · ${cacheHits} from cache · ${llmSurfaces} LLM verdicts_`);
-  if (truncated) sections.push(`\n> ⚠️ Run truncated — feature count exceeded MAX_FEATURES_PER_RUN. See run.ts.`);
+  sections.push(
+    `_Generated ${date} · project \`${projectId}\` · ${verdicts.length} features · ${cacheHits} from cache · ${llmSurfaces} LLM verdicts_`,
+  );
+  if (truncated)
+    sections.push(`\n> ⚠️ Run truncated — feature count exceeded MAX_FEATURES_PER_RUN. See run.ts.`);
   sections.push("");
   sections.push("## Summary");
   sections.push("");

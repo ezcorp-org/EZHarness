@@ -112,7 +112,7 @@ const log = logger.child("bundled-ceiling");
 export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
   // Ephemeral conversation-scoped KV store — only `storage`, no
   // network/fs/shell/env.
-  "scratchpad": { storage: true, grantedAt: {} },
+  scratchpad: { storage: true, grantedAt: {} },
 
   // Multi-task planning + sub-agent coordination. `spawnAgents`
   // matches the manifest declaration verbatim.
@@ -127,7 +127,7 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
 
   // Multi-agent orchestration primitives — `invoke_agent` for
   // cross-conversation delegation.
-  "orchestration": {
+  orchestration: {
     agentConfig: "read",
     spawnAgents: { maxPerHour: 500, maxConcurrent: 25 },
     eventSubscriptions: ["task:assignment_update"],
@@ -239,16 +239,13 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
   "claude-design": {
     filesystem: ["$CWD"],
     storage: true,
-    eventSubscriptions: [
-      "claude-design:knob-change",
-      "claude-design:brief-answer",
-    ],
+    eventSubscriptions: ["claude-design:knob-change", "claude-design:brief-answer"],
     network: ["cdn.jsdelivr.net"],
     grantedAt: {},
   },
 
   // excel — pure in-process xlsx parser. No runtime perms.
-  "excel": { grantedAt: {} },
+  excel: { grantedAt: {} },
 
   // price-chart — Yahoo Finance / CoinGecko charts via iframeSrc custom-canvas.
   // Storage for the rendered HTML payload; fs for asset caching; network for
@@ -706,10 +703,7 @@ export function clampToBundledCeiling(
  * Without sort, `{network: ["a","b"]} ≡ {network: ["b","a"]}` would
  * return `false` despite being semantically equal.
  */
-function equalPermissions(
-  a: ExtensionPermissions,
-  b: ExtensionPermissions,
-): boolean {
+function equalPermissions(a: ExtensionPermissions, b: ExtensionPermissions): boolean {
   return canonicalizePerms(a) === canonicalizePerms(b);
 }
 

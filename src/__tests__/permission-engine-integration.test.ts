@@ -10,7 +10,13 @@
  */
 
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { mockDbConnection, mockRealSettings, setupTestDb, closeTestDb, getTestDb } from "./helpers/test-pglite";
+import {
+  mockDbConnection,
+  mockRealSettings,
+  setupTestDb,
+  closeTestDb,
+  getTestDb,
+} from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 mockDbConnection();
@@ -21,7 +27,10 @@ afterAll(async () => {
   restoreModuleMocks();
 });
 
-import { createPermissionEngine, _resetPermissionEngineForTests } from "../extensions/permission-engine";
+import {
+  createPermissionEngine,
+  _resetPermissionEngineForTests,
+} from "../extensions/permission-engine";
 import { ToolExecutor } from "../extensions/tool-executor";
 import type { ExtensionRegistry } from "../extensions/registry";
 import type { ExtensionManifestV2, ToolCallResult } from "../extensions/types";
@@ -106,7 +115,9 @@ describe("PDP integration: ToolExecutor → engine.authorize → auditLog row", 
     const registry = makeBootedRegistry(captured);
     const engine = createPermissionEngine({
       registry,
-      bus: { emit: () => {}, on: () => () => {} } as unknown as Parameters<typeof createPermissionEngine>[0]["bus"],
+      bus: { emit: () => {}, on: () => () => {} } as unknown as Parameters<
+        typeof createPermissionEngine
+      >[0]["bus"],
       db: { _token: "int-test" },
     });
 
@@ -181,19 +192,16 @@ describe("PDP integration: ToolExecutor → engine.authorize → auditLog row", 
 
     const engine = createPermissionEngine({
       registry,
-      bus: { emit: () => {}, on: () => () => {} } as unknown as Parameters<typeof createPermissionEngine>[0]["bus"],
+      bus: { emit: () => {}, on: () => () => {} } as unknown as Parameters<
+        typeof createPermissionEngine
+      >[0]["bus"],
       db: { _token: "int-test" },
     });
     const executor = new ToolExecutor(registry, engine);
     executor.setCurrentUserId(USER_ID);
 
     await expect(
-      executor.executeToolCall(
-        "scratchpad__write_note",
-        {},
-        "conv-int-2",
-        "msg-int-2",
-      ),
+      executor.executeToolCall("scratchpad__write_note", {}, "conv-int-2", "msg-int-2"),
     ).rejects.toThrow(/Permission denied/);
 
     const rows = await getTestDb()
@@ -214,10 +222,7 @@ describe("PDP integration: ToolExecutor → engine.authorize → auditLog row", 
     // finding.)
     const captured: CapturedCall[] = [];
     const fakeProc = {
-      callTool: async (
-        name: string,
-        args: Record<string, unknown>,
-      ): Promise<ToolCallResult> => {
+      callTool: async (name: string, args: Record<string, unknown>): Promise<ToolCallResult> => {
         captured.push({ name, args });
         return { content: [{ type: "text", text: "ok" }], isError: false };
       },
@@ -260,7 +265,9 @@ describe("PDP integration: ToolExecutor → engine.authorize → auditLog row", 
 
     const engine = createPermissionEngine({
       registry,
-      bus: { emit: () => {}, on: () => () => {} } as unknown as Parameters<typeof createPermissionEngine>[0]["bus"],
+      bus: { emit: () => {}, on: () => () => {} } as unknown as Parameters<
+        typeof createPermissionEngine
+      >[0]["bus"],
       db: { _token: "int-resolver-test" },
     });
     const executor = new ToolExecutor(registry, engine);
@@ -292,9 +299,7 @@ describe("PDP integration: ToolExecutor → engine.authorize → auditLog row", 
       .from(auditLog)
       .where(eq(auditLog.action, "ext:perm:allowed"));
     const ours = rows.find(
-      (r) =>
-        (r.metadata as Record<string, unknown>).conversationId ===
-        "conv-int-resolver",
+      (r) => (r.metadata as Record<string, unknown>).conversationId === "conv-int-resolver",
     );
     expect(ours).toBeDefined();
   });
@@ -307,10 +312,7 @@ describe("PDP integration: ToolExecutor → engine.authorize → auditLog row", 
     // — same path the SSE-side modal will use in production.
     const captured: CapturedCall[] = [];
     const fakeProc = {
-      callTool: async (
-        name: string,
-        args: Record<string, unknown>,
-      ): Promise<ToolCallResult> => {
+      callTool: async (name: string, args: Record<string, unknown>): Promise<ToolCallResult> => {
         captured.push({ name, args });
         return { content: [{ type: "text", text: "ok" }], isError: false };
       },
@@ -409,9 +411,7 @@ describe("PDP integration: ToolExecutor → engine.authorize → auditLog row", 
       .from(auditLog)
       .where(eq(auditLog.action, "ext:perm:prompted"));
     const ours = promptRows.find(
-      (r) =>
-        (r.metadata as Record<string, unknown>).conversationId ===
-        "conv-int-prompt",
+      (r) => (r.metadata as Record<string, unknown>).conversationId === "conv-int-prompt",
     );
     expect(ours).toBeDefined();
     if (!ours) throw new Error("missing prompt audit row");

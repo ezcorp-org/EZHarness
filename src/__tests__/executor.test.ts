@@ -4,10 +4,7 @@ import { EventBus } from "../runtime/events";
 import { loadAgentsStatic } from "../runtime/loader";
 import type { AgentDefinition, AgentEvents } from "../types";
 
-function makeAgent(
-  name: string,
-  fn: AgentDefinition["execute"],
-): AgentDefinition {
+function makeAgent(name: string, fn: AgentDefinition["execute"]): AgentDefinition {
   return {
     name,
     description: `${name} agent`,
@@ -212,7 +209,7 @@ describe("AgentExecutor", () => {
       await exec.runAgent("x", {});
     }
 
-    expect((await exec.listRuns())).toHaveLength(100);
+    expect(await exec.listRuns()).toHaveLength(100);
     expect(await exec.getRun(firstRun.id)).toBeUndefined();
   });
 

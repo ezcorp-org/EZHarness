@@ -194,9 +194,7 @@ describe("Phase 2 integration: watchdog kill → exactly one visible assistant e
     expect(assistantMsgs).toHaveLength(1);
     expect(assistantMsgs[0]!.conversationId).toBe(CONV_ID);
     expect(assistantMsgs[0]!.content.length).toBeGreaterThan(0);
-    expect(assistantMsgs[0]!.content).toContain(
-      "extension-author__create_extension",
-    );
+    expect(assistantMsgs[0]!.content).toContain("extension-author__create_extension");
     expect(assistantMsgs[0]!.content).toMatch(/exceeded.*call timeout/i);
     expect(assistantMsgs[0]!.runId).toBe(RUN_ID);
 
@@ -306,9 +304,7 @@ describe("Phase 2 integration: watchdog kill → exactly one visible assistant e
       { model: "m", provider: "p" },
       new Error("boom from the normal error path"),
     );
-    expect(
-      createdMessages.filter((m) => m.role === "assistant"),
-    ).toHaveLength(1);
+    expect(createdMessages.filter((m) => m.role === "assistant")).toHaveLength(1);
     expect(errorMessagePersisted.has(RUN_ID)).toBe(true);
 
     // The run is now terminal (finalizeError set status=error). The
@@ -323,17 +319,14 @@ describe("Phase 2 integration: watchdog kill → exactly one visible assistant e
       RUN_ID,
       CONV_ID,
       () => "",
-      async (convId, errorContent) =>
-        persistErrorMessage(convId, errorContent, {}, RUN_ID, true),
+      async (convId, errorContent) => persistErrorMessage(convId, errorContent, {}, RUN_ID, true),
     );
     await advanceAndTick(95_000);
 
     expect(run.status).toBe("error");
     // No duplicate assistant message; watchdog stayed a no-op on the
     // already-finalized run; the slot remains claimed.
-    expect(
-      createdMessages.filter((m) => m.role === "assistant"),
-    ).toHaveLength(1);
+    expect(createdMessages.filter((m) => m.role === "assistant")).toHaveLength(1);
     expect(runErrors).toHaveLength(0);
     expect(errorMessagePersisted.has(RUN_ID)).toBe(true);
   });

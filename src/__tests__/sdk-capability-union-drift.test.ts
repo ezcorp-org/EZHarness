@@ -23,22 +23,18 @@ function members(fragment: string): Set<string> {
 
 describe("SdkCapability ↔ sdk_capability_calls.capability", () => {
   test("the two unions list exactly the same capabilities", async () => {
-    const handlerSrc = await Bun.file(
-      join(REPO, "src/extensions/recordCapabilityCall.ts"),
-    ).text();
+    const handlerSrc = await Bun.file(join(REPO, "src/extensions/recordCapabilityCall.ts")).text();
     const schemaSrc = await Bun.file(join(REPO, "src/db/schema.ts")).text();
 
-    const handlerMatch = handlerSrc.match(
-      /export type SdkCapability =([\s\S]*?);/,
-    );
+    const handlerMatch = handlerSrc.match(/export type SdkCapability =([\s\S]*?);/);
     expect(handlerMatch, "SdkCapability declaration not found").not.toBeNull();
 
     const schemaMatch = schemaSrc.match(
-    // `\s*` at each join, so the pin survives the chain being wrapped across
-    // lines. This does NOT loosen the match: the token sequence
-    // `text("capability") .notNull() .$type<…>()` is still required in that
-    // exact order, and `[^>]*` still cannot escape the type argument. Only
-    // whitespace — which carries no meaning here — is allowed to vary.
+      // `\s*` at each join, so the pin survives the chain being wrapped across
+      // lines. This does NOT loosen the match: the token sequence
+      // `text("capability") .notNull() .$type<…>()` is still required in that
+      // exact order, and `[^>]*` still cannot escape the type argument. Only
+      // whitespace — which carries no meaning here — is allowed to vary.
       /capability:\s*text\("capability"\)\s*\.notNull\(\)\s*\.\$type<([^>]*)>\(\)/,
     );
     expect(schemaMatch, "sdkCapabilityCalls.capability $type<> not found").not.toBeNull();
@@ -53,8 +49,7 @@ describe("SdkCapability ↔ sdk_capability_calls.capability", () => {
   test("both sides carry the W2 `workflows` capability", () => {
     // A named anchor so a future refactor that guts the regex above still
     // fails loudly for the capability this test was added with.
-    const _typecheck: import("../extensions/recordCapabilityCall").SdkCapability =
-      "workflows";
+    const _typecheck: import("../extensions/recordCapabilityCall").SdkCapability = "workflows";
     expect(_typecheck).toBe("workflows");
   });
 });

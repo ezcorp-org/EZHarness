@@ -30,7 +30,10 @@ import {
 import * as realLogger from "../logger";
 
 // ── Subprocess + registry fakes ─────────────────────────────────────
-interface SendCall { method: string; params: Record<string, unknown> }
+interface SendCall {
+  method: string;
+  params: Record<string, unknown>;
+}
 const sendCalls: SendCall[] = [];
 let spawnShouldFail = false;
 let wireCalls = 0;
@@ -42,7 +45,12 @@ let wireCalls = 0;
 // drive project resolution (present/absent) and observe the find-or-create +
 // wiring calls.
 let mockProject: { id: string; name: string; path: string } | null = null;
-let getServiceConvCalls: Array<{ extensionName: string; projectId: string; userId: string; title: string }> = [];
+let getServiceConvCalls: Array<{
+  extensionName: string;
+  projectId: string;
+  userId: string;
+  title: string;
+}> = [];
 const SERVICE_CONV_ID = "svc-conv-1";
 let serviceConvWiring: Array<{ conversationId: string; extensionId: string }> = [];
 // When true, the service-conv resolver throws — exercises the route's
@@ -112,8 +120,7 @@ mock.module("$server/db/queries/extensions", () => ({
     hubBranchFileActive ? mockExt : realExtensionQueries.getExtensionByName(name),
   // hub-extension-pages also imports the list query (unused by the
   // hub-action branch, but the module must instantiate).
-  listExtensions: async () =>
-    hubBranchFileActive ? [] : realExtensionQueries.listExtensions(),
+  listExtensions: async () => (hubBranchFileActive ? [] : realExtensionQueries.listExtensions()),
 }));
 
 // Unused-by-the-hub-branch lookups still imported by the route module.
@@ -123,11 +130,19 @@ mock.module("$server/db/queries/extensions", () => ({
 mock.module("$server/db/queries/conversations", () => ({
   getConversation: async () => null,
   getOrCreateExtServiceConversation: async (opts: {
-    extensionName: string; projectId: string; userId: string; title: string;
+    extensionName: string;
+    projectId: string;
+    userId: string;
+    title: string;
   }) => {
     if (serviceConvThrows) throw new Error("db down");
     getServiceConvCalls.push(opts);
-    return { id: SERVICE_CONV_ID, kind: "ext-service", userId: opts.userId, projectId: opts.projectId };
+    return {
+      id: SERVICE_CONV_ID,
+      kind: "ext-service",
+      userId: opts.userId,
+      projectId: opts.projectId,
+    };
   },
 }));
 mock.module("$server/db/queries/projects", () => ({
@@ -138,10 +153,7 @@ mock.module("$server/db/queries/tool-calls", () => ({
   getToolCallConversationById: async () => null,
 }));
 mock.module("$server/db/queries/conversation-extensions", () => ({
-  addConversationExtensions: async (
-    conversationId: string,
-    entries: { extensionId: string }[],
-  ) => {
+  addConversationExtensions: async (conversationId: string, entries: { extensionId: string }[]) => {
     for (const e of entries) serviceConvWiring.push({ conversationId, extensionId: e.extensionId });
   },
   getConversationExtensionIds: async () => alreadyWiredExtIds,
@@ -158,14 +170,20 @@ mock.module("$server/extensions/finalize-tool-call-handler", () => ({
 // `locals.user`, so the genuine gates pass for our requests — and a
 // stub here would leak an always-authenticated requireAuth into any
 // test file sharing the process (briefing-api's 401/403 cases).
-mock.module("$lib/server/security/api-keys", () => require("../../web/src/lib/server/security/api-keys"));
+mock.module("$lib/server/security/api-keys", () =>
+  require("../../web/src/lib/server/security/api-keys"),
+);
 mock.module("$server/auth/middleware", () => require("../auth/middleware"));
 mock.module("$lib/server/http-errors", () => require("../../web/src/lib/server/http-errors"));
-mock.module("$lib/server/security/rate-limiter", () => require("../../web/src/lib/server/security/rate-limiter"));
+mock.module("$lib/server/security/rate-limiter", () =>
+  require("../../web/src/lib/server/security/rate-limiter"),
+);
 // REAL module — it materializes during this file and freezes its
 // query bindings to the delegating stub above (see the order-coupling
 // guard comment there before touching either registration).
-mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
+mock.module("$lib/server/hub-extension-pages", () =>
+  require("../../web/src/lib/server/hub-extension-pages"),
+);
 mock.module("$server/extensions/page-cache", () => require("../extensions/page-cache"));
 mock.module("$server/logger", () => realLogger);
 
@@ -194,7 +212,9 @@ afterAll(() => {
   mockExt = null;
   // In-file ≥2-registration pattern (mock-cleanup meta-test): both
   // factories point at the real modules.
-  mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
+  mock.module("$lib/server/hub-extension-pages", () =>
+    require("../../web/src/lib/server/hub-extension-pages"),
+  );
   mock.module("$server/logger", () => realLogger);
   restoreModuleMocks();
 });
@@ -278,7 +298,9 @@ describe("hub-source branch", () => {
   });
 
   test("200: spawns + wires, sends the namespaced notification with host-stamped userId + a resolvable provenance token", async () => {
-    const res = await POST(makeEvent({ source: "hub", pageId: "dashboard", payload: { all: true } }));
+    const res = await POST(
+      makeEvent({ source: "hub", pageId: "dashboard", payload: { all: true } }),
+    );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(wireCalls).toBe(1);
@@ -289,7 +311,12 @@ describe("hub-source branch", () => {
     const { _meta, ...body } = call.params as Record<string, unknown> & {
       _meta?: { ezCallId?: string };
     };
-    expect(body).toEqual({ source: "hub", pageId: "dashboard", userId: "user-1", payload: { all: true } });
+    expect(body).toEqual({
+      source: "hub",
+      pageId: "dashboard",
+      userId: "user-1",
+      payload: { all: true },
+    });
     // Bug A regression guard: the page-action dispatch MUST carry a
     // host-issued reverse-RPC provenance token, and it must resolve to the
     // CLICKING user (onBehalfOf), not be ownerless. Without it every
@@ -320,11 +347,13 @@ describe("hub-source branch", () => {
 
   test("gate push with a REGISTERED projectRoot: token carries the service conversation, ext wired", async () => {
     mockProject = { id: "proj-1", name: "My App", path: "/repos/my-app" };
-    const res = await POST(makeEvent({
-      source: "hub",
-      pageId: "dashboard",
-      payload: { projectRoot: "/repos/my-app", repoId: "abc123abc123", branch: "main" },
-    }));
+    const res = await POST(
+      makeEvent({
+        source: "hub",
+        pageId: "dashboard",
+        payload: { projectRoot: "/repos/my-app", repoId: "abc123abc123", branch: "main" },
+      }),
+    );
     expect(res.status).toBe(200);
 
     // The service conversation was found-or-created for THIS (project, ext),
@@ -337,7 +366,10 @@ describe("hub-source branch", () => {
       title: `${EXT_NAME} gate — My App`,
     });
     // The extension was wired into the service conversation (spawn wiring gate).
-    expect(serviceConvWiring).toContainEqual({ conversationId: SERVICE_CONV_ID, extensionId: "ext-cron" });
+    expect(serviceConvWiring).toContainEqual({
+      conversationId: SERVICE_CONV_ID,
+      extensionId: "ext-cron",
+    });
     // The minted token carries the service conversation id (so a push-fired
     // spawn derives the project from it) and stays owner-scoped (not ownerless).
     const meta = (sendCalls[0]!.params as { _meta?: { ezCallId?: string } })._meta;
@@ -350,11 +382,13 @@ describe("hub-source branch", () => {
 
   test("gate push whose projectRoot is NOT a registered project: fails closed to null scope", async () => {
     mockProject = null; // getProjectByPath returns undefined
-    const res = await POST(makeEvent({
-      source: "hub",
-      pageId: "dashboard",
-      payload: { projectRoot: "/repos/unknown", repoId: "abc123abc123", branch: "main" },
-    }));
+    const res = await POST(
+      makeEvent({
+        source: "hub",
+        pageId: "dashboard",
+        payload: { projectRoot: "/repos/unknown", repoId: "abc123abc123", branch: "main" },
+      }),
+    );
     expect(res.status).toBe(200);
     // No service conversation, no wiring — the token is null-scope, exactly as
     // before the fix, so the spawn keeps rejecting (never borrow ambient scope).
@@ -367,11 +401,13 @@ describe("hub-source branch", () => {
   test("service-conv resolution THROWING fails closed to null scope — never a 500, event still delivered", async () => {
     mockProject = { id: "proj-1", name: "My App", path: "/repos/my-app" };
     serviceConvThrows = true; // resolver blows up (e.g. db down)
-    const res = await POST(makeEvent({
-      source: "hub",
-      pageId: "dashboard",
-      payload: { projectRoot: "/repos/my-app", repoId: "abc123abc123", branch: "main" },
-    }));
+    const res = await POST(
+      makeEvent({
+        source: "hub",
+        pageId: "dashboard",
+        payload: { projectRoot: "/repos/my-app", repoId: "abc123abc123", branch: "main" },
+      }),
+    );
     // The catch is record-and-continue: the fire still dispatches…
     expect(res.status).toBe(200);
     expect(sendCalls).toHaveLength(1);
@@ -389,17 +425,21 @@ describe("hub-source branch", () => {
   test("gate push reuses an already-wired service conversation (no duplicate wiring)", async () => {
     mockProject = { id: "proj-1", name: "My App", path: "/repos/my-app" };
     alreadyWiredExtIds = ["ext-cron"]; // extension already wired
-    const res = await POST(makeEvent({
-      source: "hub",
-      pageId: "dashboard",
-      payload: { projectRoot: "/repos/my-app", repoId: "abc123abc123", branch: "main" },
-    }));
+    const res = await POST(
+      makeEvent({
+        source: "hub",
+        pageId: "dashboard",
+        payload: { projectRoot: "/repos/my-app", repoId: "abc123abc123", branch: "main" },
+      }),
+    );
     expect(res.status).toBe(200);
     expect(getServiceConvCalls).toHaveLength(1);
     // Idempotent: no redundant wiring write when the ext is already wired.
     expect(serviceConvWiring).toHaveLength(0);
     const meta = (sendCalls[0]!.params as { _meta?: { ezCallId?: string } })._meta;
-    expect(resolveCallProvenance(meta!.ezCallId!)).toMatchObject({ conversationId: SERVICE_CONV_ID });
+    expect(resolveCallProvenance(meta!.ezCallId!)).toMatchObject({
+      conversationId: SERVICE_CONV_ID,
+    });
   });
 
   test("plain hub click (no projectRoot) never touches the service-conversation path", async () => {

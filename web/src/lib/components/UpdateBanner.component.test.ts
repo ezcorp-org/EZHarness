@@ -14,159 +14,159 @@ import UpdateBanner from "./UpdateBanner.svelte";
 import { DISMISS_STORAGE_KEY } from "./UpdateBanner.helpers";
 
 function makeFetchResponse(body: unknown, ok = true): Response {
-	return {
-		ok,
-		json: async () => body,
-	} as unknown as Response;
+  return {
+    ok,
+    json: async () => body,
+  } as unknown as Response;
 }
 
 beforeEach(() => {
-	sessionStorage.clear();
+  sessionStorage.clear();
 });
 
 afterEach(() => {
-	cleanup();
-	vi.restoreAllMocks();
+  cleanup();
+  vi.restoreAllMocks();
 });
 
 describe("UpdateBanner", () => {
-	test("renders nothing when API says no update available", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () =>
-				makeFetchResponse({
-					current: "1.0.0",
-					latest: "1.0.0",
-					updateAvailable: false,
-					checkedAt: null,
-					source: "github-releases",
-				}),
-			),
-		);
-		const { queryByRole } = render(UpdateBanner);
-		// Wait a microtask so onMount's async fetch resolves.
-		await new Promise((r) => setTimeout(r, 0));
-		expect(queryByRole("status")).toBeNull();
-	});
+  test("renders nothing when API says no update available", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        makeFetchResponse({
+          current: "1.0.0",
+          latest: "1.0.0",
+          updateAvailable: false,
+          checkedAt: null,
+          source: "github-releases",
+        }),
+      ),
+    );
+    const { queryByRole } = render(UpdateBanner);
+    // Wait a microtask so onMount's async fetch resolves.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(queryByRole("status")).toBeNull();
+  });
 
-	test("renders nothing when /api/version responds non-ok (best-effort, silent)", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () => makeFetchResponse({}, false)),
-		);
-		const { queryByRole } = render(UpdateBanner);
-		await new Promise((r) => setTimeout(r, 0));
-		expect(queryByRole("status")).toBeNull();
-	});
+  test("renders nothing when /api/version responds non-ok (best-effort, silent)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => makeFetchResponse({}, false)),
+    );
+    const { queryByRole } = render(UpdateBanner);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(queryByRole("status")).toBeNull();
+  });
 
-	test("renders nothing when the fetch throws (network error swallowed)", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () => {
-				throw new Error("network down");
-			}),
-		);
-		const { queryByRole } = render(UpdateBanner);
-		await new Promise((r) => setTimeout(r, 0));
-		expect(queryByRole("status")).toBeNull();
-	});
+  test("renders nothing when the fetch throws (network error swallowed)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("network down");
+      }),
+    );
+    const { queryByRole } = render(UpdateBanner);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(queryByRole("status")).toBeNull();
+  });
 
-	test("renders the banner with latest + current versions when update available", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () =>
-				makeFetchResponse({
-					current: "1.0.0",
-					latest: "1.1.0",
-					updateAvailable: true,
-					checkedAt: null,
-					source: "github-releases",
-					releaseUrl: "https://example.com/r/1.1.0",
-				}),
-			),
-		);
-		const { getByRole, getByText } = render(UpdateBanner);
-		const banner = await waitFor(() => getByRole("status"));
-		expect(banner).toHaveTextContent("1.1.0");
-		expect(banner).toHaveTextContent("(current: 1.0.0)");
-		// releaseUrl becomes a target=_blank anchor.
-		const link = getByText("Release notes") as HTMLAnchorElement;
-		expect(link).toHaveAttribute("href", "https://example.com/r/1.1.0");
-		expect(link).toHaveAttribute("target", "_blank");
-	});
+  test("renders the banner with latest + current versions when update available", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        makeFetchResponse({
+          current: "1.0.0",
+          latest: "1.1.0",
+          updateAvailable: true,
+          checkedAt: null,
+          source: "github-releases",
+          releaseUrl: "https://example.com/r/1.1.0",
+        }),
+      ),
+    );
+    const { getByRole, getByText } = render(UpdateBanner);
+    const banner = await waitFor(() => getByRole("status"));
+    expect(banner).toHaveTextContent("1.1.0");
+    expect(banner).toHaveTextContent("(current: 1.0.0)");
+    // releaseUrl becomes a target=_blank anchor.
+    const link = getByText("Release notes") as HTMLAnchorElement;
+    expect(link).toHaveAttribute("href", "https://example.com/r/1.1.0");
+    expect(link).toHaveAttribute("target", "_blank");
+  });
 
-	test("omits 'Release notes' anchor when releaseUrl is missing", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () =>
-				makeFetchResponse({
-					current: "1.0.0",
-					latest: "1.1.0",
-					updateAvailable: true,
-					checkedAt: null,
-					source: "github-releases",
-				}),
-			),
-		);
-		const { queryByText, findByRole } = render(UpdateBanner);
-		await findByRole("status");
-		expect(queryByText("Release notes")).toBeNull();
-	});
+  test("omits 'Release notes' anchor when releaseUrl is missing", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        makeFetchResponse({
+          current: "1.0.0",
+          latest: "1.1.0",
+          updateAvailable: true,
+          checkedAt: null,
+          source: "github-releases",
+        }),
+      ),
+    );
+    const { queryByText, findByRole } = render(UpdateBanner);
+    await findByRole("status");
+    expect(queryByText("Release notes")).toBeNull();
+  });
 
-	test("clicking × hides the banner and persists latest version to sessionStorage", async () => {
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () =>
-				makeFetchResponse({
-					current: "1.0.0",
-					latest: "2.0.0",
-					updateAvailable: true,
-					checkedAt: null,
-					source: "github-releases",
-				}),
-			),
-		);
-		const { getByLabelText, queryByRole, findByRole } = render(UpdateBanner);
-		await findByRole("status");
-		await fireEvent.click(getByLabelText("Dismiss"));
-		expect(queryByRole("status")).toBeNull();
-		expect(sessionStorage.getItem(DISMISS_STORAGE_KEY)).toBe("2.0.0");
-	});
+  test("clicking × hides the banner and persists latest version to sessionStorage", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        makeFetchResponse({
+          current: "1.0.0",
+          latest: "2.0.0",
+          updateAvailable: true,
+          checkedAt: null,
+          source: "github-releases",
+        }),
+      ),
+    );
+    const { getByLabelText, queryByRole, findByRole } = render(UpdateBanner);
+    await findByRole("status");
+    await fireEvent.click(getByLabelText("Dismiss"));
+    expect(queryByRole("status")).toBeNull();
+    expect(sessionStorage.getItem(DISMISS_STORAGE_KEY)).toBe("2.0.0");
+  });
 
-	test("stays hidden when sessionStorage already has dismissal for the same `latest`", async () => {
-		sessionStorage.setItem(DISMISS_STORAGE_KEY, "2.0.0");
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () =>
-				makeFetchResponse({
-					current: "1.0.0",
-					latest: "2.0.0",
-					updateAvailable: true,
-					checkedAt: null,
-					source: "github-releases",
-				}),
-			),
-		);
-		const { queryByRole } = render(UpdateBanner);
-		await new Promise((r) => setTimeout(r, 10));
-		expect(queryByRole("status")).toBeNull();
-	});
+  test("stays hidden when sessionStorage already has dismissal for the same `latest`", async () => {
+    sessionStorage.setItem(DISMISS_STORAGE_KEY, "2.0.0");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        makeFetchResponse({
+          current: "1.0.0",
+          latest: "2.0.0",
+          updateAvailable: true,
+          checkedAt: null,
+          source: "github-releases",
+        }),
+      ),
+    );
+    const { queryByRole } = render(UpdateBanner);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(queryByRole("status")).toBeNull();
+  });
 
-	test("renders again when `latest` differs from the stored dismissal", async () => {
-		sessionStorage.setItem(DISMISS_STORAGE_KEY, "1.5.0");
-		vi.stubGlobal(
-			"fetch",
-			vi.fn(async () =>
-				makeFetchResponse({
-					current: "1.0.0",
-					latest: "2.0.0",
-					updateAvailable: true,
-					checkedAt: null,
-					source: "github-releases",
-				}),
-			),
-		);
-		const { findByRole } = render(UpdateBanner);
-		expect(await findByRole("status")).toBeInTheDocument();
-	});
+  test("renders again when `latest` differs from the stored dismissal", async () => {
+    sessionStorage.setItem(DISMISS_STORAGE_KEY, "1.5.0");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        makeFetchResponse({
+          current: "1.0.0",
+          latest: "2.0.0",
+          updateAvailable: true,
+          checkedAt: null,
+          source: "github-releases",
+        }),
+      ),
+    );
+    const { findByRole } = render(UpdateBanner);
+    expect(await findByRole("status")).toBeInTheDocument();
+  });
 });

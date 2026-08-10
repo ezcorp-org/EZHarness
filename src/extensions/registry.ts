@@ -5,7 +5,11 @@ import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 import { logger } from "../logger";
 import { verifyPackageChecksums } from "./checksum";
 import { denyAndDisable } from "./security";
-import { listExtensions, updateExtension, rehydrateMcpServerSecrets } from "../db/queries/extensions";
+import {
+  listExtensions,
+  updateExtension,
+  rehydrateMcpServerSecrets,
+} from "../db/queries/extensions";
 import { getDb } from "../db/connection";
 import { agentConfigs } from "../db/schema";
 import { eq } from "drizzle-orm";
@@ -528,8 +532,12 @@ export class ExtensionRegistry {
       if (!extTools) continue;
       const subset = perTool[extId];
       for (const rt of extTools) {
-        if (subset && subset.length > 0
-          && !subset.includes(rt.name) && !subset.includes(rt.originalName)) {
+        if (
+          subset &&
+          subset.length > 0 &&
+          !subset.includes(rt.name) &&
+          !subset.includes(rt.originalName)
+        ) {
           continue;
         }
         const { extensionId, extensionName, originalName, ...t } = rt;
@@ -574,7 +582,10 @@ export class ExtensionRegistry {
   }
 
   /** Get or create an ExtensionProcess for the given extension ID. */
-  async getProcess(extensionId: string, options?: ExtensionProcessOptions): Promise<ExtensionProcess> {
+  async getProcess(
+    extensionId: string,
+    options?: ExtensionProcessOptions,
+  ): Promise<ExtensionProcess> {
     let proc = this.processes.get(extensionId);
     if (proc?.isRunning) {
       return proc;
@@ -599,19 +610,25 @@ export class ExtensionRegistry {
     // "ai-kit" (or any other bundled name) from inheriting the
     // integrity-check skip.
     const isBundled = this.bundledFlags.get(extensionId) === true;
-    if (
-      !isBundled &&
-      !this.verifiedSessions.has(extensionId) &&
-      manifest.packageChecksums
-    ) {
-      const result = await verifyPackageChecksums(installPath, manifest.packageChecksums, manifest.packageChecksumsAlgo);
+    if (!isBundled && !this.verifiedSessions.has(extensionId) && manifest.packageChecksums) {
+      const result = await verifyPackageChecksums(
+        installPath,
+        manifest.packageChecksums,
+        manifest.packageChecksumsAlgo,
+      );
       if (!result.valid) {
-        await denyAndDisable(extensionId, "Integrity check failed: files modified since install", installPath);
+        await denyAndDisable(
+          extensionId,
+          "Integrity check failed: files modified since install",
+          installPath,
+        );
         this.processes.delete(extensionId);
         this.manifests.delete(extensionId);
         this.installPaths.delete(extensionId);
         this.grantedPerms.delete(extensionId);
-        throw new Error(`Extension ${extensionId} failed integrity check: ${result.mismatched.join(", ")}`);
+        throw new Error(
+          `Extension ${extensionId} failed integrity check: ${result.mismatched.join(", ")}`,
+        );
       }
       this.verifiedSessions.add(extensionId);
     }
@@ -667,7 +684,9 @@ export class ExtensionRegistry {
 
   /** Get all registered tool definitions. */
   getAllTools(): ToolDefinition[] {
-    return Array.from(this.toolMap.values()).map(({ extensionId, extensionName, originalName, ...t }) => t);
+    return Array.from(this.toolMap.values()).map(
+      ({ extensionId, extensionName, originalName, ...t }) => t,
+    );
   }
 
   /** Derive extension type from manifest: "mcp", "agent", or "extension". */
@@ -675,7 +694,7 @@ export class ExtensionRegistry {
     for (const [, manifest] of this.manifests) {
       if (manifest.name === extensionName) {
         if ((manifest.mcpServers?.length ?? 0) > 0) return "mcp";
-        if (manifest.agent && !(manifest.tools?.length) && !(manifest.skills?.length)) return "agent";
+        if (manifest.agent && !manifest.tools?.length && !manifest.skills?.length) return "agent";
         return "extension";
       }
     }
@@ -724,7 +743,10 @@ export class ExtensionRegistry {
       for (const [depName, depSpec] of Object.entries(manifest.dependencies)) {
         // Find installed extension with matching name and version
         for (const [candidateId, candidateManifest] of this.manifests) {
-          if (candidateManifest.name === depName && satisfiesRange(candidateManifest.version, depSpec.version)) {
+          if (
+            candidateManifest.name === depName &&
+            satisfiesRange(candidateManifest.version, depSpec.version)
+          ) {
             routes.set(depName, candidateId);
             break;
           }
@@ -741,7 +763,11 @@ export class ExtensionRegistry {
             }
             // Check if the install path contains the scoped name
             const installPath = this.installPaths.get(candidateId);
-            if (installPath && candidateManifest.name === depName && installPath.includes(scopedName)) {
+            if (
+              installPath &&
+              candidateManifest.name === depName &&
+              installPath.includes(scopedName)
+            ) {
               routes.set(depName, candidateId);
               break;
             }
@@ -921,7 +947,8 @@ export class ExtensionRegistry {
 
     const manifest = this.manifests.get(extensionId);
     if (!manifest) throw new Error(`Extension ${extensionId} not found in registry`);
-    if (manifest.kind !== "mcp") throw new Error(`Extension ${extensionId} is not an MCP extension`);
+    if (manifest.kind !== "mcp")
+      throw new Error(`Extension ${extensionId} is not an MCP extension`);
     const redactedServer = manifest.mcpServers?.[0];
     if (!redactedServer) throw new Error(`Extension ${extensionId} has no mcpServers entry`);
     // db-audit (mcp-secrets): the manifest at rest is value-BLANKED — the real
@@ -940,7 +967,9 @@ export class ExtensionRegistry {
     // unavailable is a test-time signal; we degrade to the pre-Phase-7
     // prlimit-only spec rather than fail-closed because many existing
     // unit tests construct registries without going through full boot.
-    let phase7Ctx: { engine: ReturnType<typeof getPermissionEngine>; conversationId: null; userId: null } | undefined;
+    let phase7Ctx:
+      | { engine: ReturnType<typeof getPermissionEngine>; conversationId: null; userId: null }
+      | undefined;
     try {
       phase7Ctx = {
         engine: getPermissionEngine(),
@@ -979,9 +1008,7 @@ export class ExtensionRegistry {
     // Phase 58 / MCP-05 — narrow the spec to stdio to read the
     // Stage 2 carrier. http/sse transports never carry _internal_vethSetup.
     const vethSetup =
-      sandboxedSpec.transport === "stdio"
-        ? sandboxedSpec._internal_vethSetup ?? null
-        : null;
+      sandboxedSpec.transport === "stdio" ? (sandboxedSpec._internal_vethSetup ?? null) : null;
     try {
       await client.connect();
     } catch (err) {
@@ -1026,9 +1053,7 @@ export class ExtensionRegistry {
     // without error — production McpClient instances always carry
     // getChildProcess().
     const childProc =
-      typeof client.getChildProcess === "function"
-        ? client.getChildProcess()
-        : null;
+      typeof client.getChildProcess === "function" ? client.getChildProcess() : null;
     if (childProc !== null) {
       const soakCtx = {
         userId: phase7Ctx?.userId ?? null,

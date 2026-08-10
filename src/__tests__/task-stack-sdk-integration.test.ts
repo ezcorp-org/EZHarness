@@ -70,7 +70,10 @@ describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () 
     // so chdir'ing the parent to a fresh tmp dir with a `.git` marker keeps
     // every test's store (`<root>/.ezcorp/extension-data/task-stack/...`)
     // isolated from the repo's own on-disk state.
-    cwd = join(tmpdir(), `task-stack-sdk-integ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+    cwd = join(
+      tmpdir(),
+      `task-stack-sdk-integ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    );
     mkdirSync(join(cwd, ".git"), { recursive: true });
     originalCwd = process.cwd();
     process.chdir(cwd);
@@ -82,11 +85,23 @@ describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () 
 
   afterEach(() => {
     if (proc) {
-      try { proc.kill(); } catch { /* already dead */ }
+      try {
+        proc.kill();
+      } catch {
+        /* already dead */
+      }
       proc = undefined;
     }
-    try { process.chdir(originalCwd); } catch { /* best-effort */ }
-    try { rmSync(cwd, { recursive: true }); } catch { /* best-effort */ }
+    try {
+      process.chdir(originalCwd);
+    } catch {
+      /* best-effort */
+    }
+    try {
+      rmSync(cwd, { recursive: true });
+    } catch {
+      /* best-effort */
+    }
   });
 
   test("add-task → list-tasks round-trip through JSON-RPC + SDK storage wrapper", async () => {
@@ -130,9 +145,7 @@ describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () 
     // task-stack serializes load/mutate/save so none of the writes are
     // lost to an interleaved read-modify-write race.
     const titles = ["a-race", "b-race", "c-race", "d-race", "e-race"];
-    const results = await Promise.all(
-      titles.map((title) => local.callTool("add-task", { title })),
-    );
+    const results = await Promise.all(titles.map((title) => local.callTool("add-task", { title })));
 
     for (const r of results) {
       expect(r.isError).toBe(false);

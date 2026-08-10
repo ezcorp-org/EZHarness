@@ -9,9 +9,11 @@ import { requireScope } from "$lib/server/security/api-keys";
 // Boundary validation for team rename. The PUT handler reads only
 // `name`; the post-trim emptiness check stays so the test-pinned 400
 // "Team name is required" message fires for missing/whitespace input.
-const renameTeamSchema = z.object({
-  name: z.string().optional(),
-}).strict();
+const renameTeamSchema = z
+  .object({
+    name: z.string().optional(),
+  })
+  .strict();
 
 export const GET: RequestHandler = async ({ params, locals }) => {
   const scopeErr = requireScope(locals, "read");

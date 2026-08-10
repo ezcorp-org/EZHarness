@@ -48,8 +48,7 @@ export function secretFieldEntries(
 ): Array<[string, SettingsFieldSecret]> {
   if (!schema) return [];
   return Object.entries(schema).filter(
-    (entry): entry is [string, SettingsFieldSecret] =>
-      entry[1].type === "secret",
+    (entry): entry is [string, SettingsFieldSecret] => entry[1].type === "secret",
   );
 }
 
@@ -65,15 +64,7 @@ export async function setSecretSetting(
   value: string,
 ): Promise<void> {
   const { stored, sizeBytes } = encryptStorageValue(value);
-  await setStorageValue(
-    extensionId,
-    "user",
-    userId,
-    storageKey,
-    stored,
-    true,
-    sizeBytes,
-  );
+  await setStorageValue(extensionId, "user", userId, storageKey, stored, true, sizeBytes);
 }
 
 /** Delete the caller's stored secret. Returns whether a row existed. */

@@ -60,7 +60,10 @@ export async function withDedupLock<T>(projectKey: string, fn: () => Promise<T>)
   const prev = dedupLocks.get(projectKey) ?? Promise.resolve();
   let release!: () => void;
   const next = new Promise<void>((r) => (release = r));
-  dedupLocks.set(projectKey, prev.then(() => next));
+  dedupLocks.set(
+    projectKey,
+    prev.then(() => next),
+  );
   try {
     await prev;
     return await fn();
@@ -140,9 +143,7 @@ export interface DedupWriteResult {
   memoryId: string;
 }
 
-export async function dedupAndWriteMemory(
-  input: DedupWriteInput,
-): Promise<DedupWriteResult> {
+export async function dedupAndWriteMemory(input: DedupWriteInput): Promise<DedupWriteResult> {
   const { fact, conversationId, projectId, provenanceFactory } = input;
   const embedding = input.embedding ?? (await generateEmbedding(fact.content));
 
@@ -209,8 +210,6 @@ export function legacyExtractionProvenance(
     sourceMessageIds: fact.messageIds ?? [],
     extractedAt: new Date(),
     confidence: fact.confidence ?? "medium",
-    history: [
-      { action: "created", timestamp: new Date(), reason: "Extracted from conversation" },
-    ],
+    history: [{ action: "created", timestamp: new Date(), reason: "Extracted from conversation" }],
   };
 }

@@ -9,17 +9,11 @@ import type {
   AgentComponentDefinition,
 } from "../extensions/types";
 import { inferPackageType } from "../extensions/types";
-import {
-  validateManifestV2,
-  compareVersions,
-  generateSlug,
-} from "../extensions/manifest";
+import { validateManifestV2, compareVersions, generateSlug } from "../extensions/manifest";
 
 // ── Test Helper ──────────────────────────────────────────────────
 
-function makeValidManifest(
-  overrides: Partial<ExtensionManifestV2> = {},
-): ExtensionManifestV2 {
+function makeValidManifest(overrides: Partial<ExtensionManifestV2> = {}): ExtensionManifestV2 {
   return {
     schemaVersion: 2,
     name: "test-package",
@@ -118,9 +112,7 @@ describe("validateManifestV2", () => {
 
   test("tool missing name is rejected", () => {
     const manifest = makeValidManifest({
-      tools: [
-        { name: "", description: "test", inputSchema: {} } as ToolDefinition,
-      ],
+      tools: [{ name: "", description: "test", inputSchema: {} } as ToolDefinition],
     });
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(false);
@@ -129,9 +121,7 @@ describe("validateManifestV2", () => {
 
   test("tool missing description is rejected", () => {
     const manifest = makeValidManifest({
-      tools: [
-        { name: "test", description: "", inputSchema: {} } as ToolDefinition,
-      ],
+      tools: [{ name: "test", description: "", inputSchema: {} } as ToolDefinition],
     });
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(false);
@@ -188,9 +178,7 @@ describe("validateManifestV2", () => {
 
   test("mcpServer missing transport is rejected", () => {
     const manifest = makeValidManifest({
-      mcpServers: [
-        { name: "test" } as unknown as McpServerDefinition,
-      ],
+      mcpServers: [{ name: "test" } as unknown as McpServerDefinition],
     });
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(false);
@@ -199,9 +187,7 @@ describe("validateManifestV2", () => {
 
   test("stdio mcpServer missing command is rejected", () => {
     const manifest = makeValidManifest({
-      mcpServers: [
-        { transport: "stdio", name: "test" } as unknown as McpServerDefinition,
-      ],
+      mcpServers: [{ transport: "stdio", name: "test" } as unknown as McpServerDefinition],
     });
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(false);
@@ -210,9 +196,7 @@ describe("validateManifestV2", () => {
 
   test("http mcpServer missing url is rejected", () => {
     const manifest = makeValidManifest({
-      mcpServers: [
-        { transport: "http", name: "test" } as unknown as McpServerDefinition,
-      ],
+      mcpServers: [{ transport: "http", name: "test" } as unknown as McpServerDefinition],
     });
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(false);
@@ -315,9 +299,7 @@ describe("inferPackageType", () => {
     const manifest = makeValidManifest({
       entrypoint: undefined,
       tools: undefined,
-      mcpServers: [
-        { transport: "stdio", name: "db", command: "node", args: ["./mcp.ts"] },
-      ],
+      mcpServers: [{ transport: "stdio", name: "db", command: "node", args: ["./mcp.ts"] }],
     });
     expect(inferPackageType(manifest)).toBe("extension");
   });
@@ -451,9 +433,7 @@ describe("validateManifestV2 — boundary validation", () => {
 
   test("tool with empty inputSchema ({}) passes validation", () => {
     const manifest = makeValidManifest({
-      tools: [
-        { name: "minimal", description: "Minimal tool", inputSchema: {} },
-      ],
+      tools: [{ name: "minimal", description: "Minimal tool", inputSchema: {} }],
     });
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(true);
@@ -461,9 +441,7 @@ describe("validateManifestV2 — boundary validation", () => {
 
   test("tool with inputSchema as undefined is rejected", () => {
     const manifest = makeValidManifest({
-      tools: [
-        { name: "bad", description: "Bad tool", inputSchema: undefined } as any,
-      ],
+      tools: [{ name: "bad", description: "Bad tool", inputSchema: undefined } as any],
     });
     const result = validateManifestV2(manifest);
     expect(result.valid).toBe(false);
@@ -485,14 +463,18 @@ describe("validateManifestV2 — boundary validation", () => {
 describe("validateManifestV2 — component combinations", () => {
   test("manifest with ALL component types simultaneously passes", () => {
     const manifest = makeValidManifest({
-      tools: [
-        { name: "tool1", description: "A tool", inputSchema: { type: "object" } },
-      ],
+      tools: [{ name: "tool1", description: "A tool", inputSchema: { type: "object" } }],
       skills: [
         { name: "skill1", description: "A skill", prompt: "Do the thing", files: ["./data.md"] },
       ],
       mcpServers: [
-        { transport: "stdio", name: "mcp1", description: "An MCP server", command: "node", args: ["./mcp.ts"] },
+        {
+          transport: "stdio",
+          name: "mcp1",
+          description: "An MCP server",
+          command: "node",
+          args: ["./mcp.ts"],
+        },
       ],
       agent: {
         prompt: "You are helpful",
@@ -530,7 +512,13 @@ describe("validateManifestV2 — component combinations", () => {
       entrypoint: undefined,
       tools: undefined,
       mcpServers: [
-        { transport: "stdio", name: "server", description: "A server", command: "node", args: ["./serve.ts"] },
+        {
+          transport: "stdio",
+          name: "server",
+          description: "A server",
+          command: "node",
+          args: ["./serve.ts"],
+        },
       ],
     });
     const result = validateManifestV2(manifest);
@@ -569,7 +557,12 @@ describe("validateManifestV2 — component combinations", () => {
       entrypoint: undefined,
       tools: undefined,
       mcpServers: [
-        { transport: "http", name: "remote", description: "Remote MCP", url: "https://example.com/mcp" },
+        {
+          transport: "http",
+          name: "remote",
+          description: "Remote MCP",
+          url: "https://example.com/mcp",
+        },
       ],
     });
     const result = validateManifestV2(manifest);
@@ -581,7 +574,12 @@ describe("validateManifestV2 — component combinations", () => {
       entrypoint: undefined,
       tools: undefined,
       mcpServers: [
-        { transport: "sse", name: "legacy", description: "Legacy SSE MCP", url: "https://example.com/sse" },
+        {
+          transport: "sse",
+          name: "legacy",
+          description: "Legacy SSE MCP",
+          url: "https://example.com/sse",
+        },
       ],
     });
     const result = validateManifestV2(manifest);
@@ -1126,9 +1124,7 @@ describe("validateManifestV2 — tools[].rbacScope", () => {
   });
 
   test("a custom scope declared in permissions.rbacScopes passes", () => {
-    const r = withTool("write-tickets", [
-      { name: "write-tickets", description: "Mutate tickets" },
-    ]);
+    const r = withTool("write-tickets", [{ name: "write-tickets", description: "Mutate tickets" }]);
     expect(r.valid).toBe(true);
     expect(r.errors).toEqual([]);
   });
@@ -1144,9 +1140,7 @@ describe("validateManifestV2 — tools[].rbacScope", () => {
     for (const bad of [42, "", null]) {
       const r = withTool(bad);
       expect(r.valid).toBe(false);
-      expect(
-        r.errors.some((e) => e.includes("rbacScope must be a non-empty string")),
-      ).toBe(true);
+      expect(r.errors.some((e) => e.includes("rbacScope must be a non-empty string"))).toBe(true);
     }
   });
 
@@ -1224,7 +1218,6 @@ describe("validateManifestV2 — tools[].rbacScope", () => {
   });
 });
 
-
 // ── Validation: structural permission shapes (fix-wave B Phase 4) ──
 //
 // Core-field structural validation added to validatePermissionsBlock:
@@ -1279,7 +1272,9 @@ describe("validateManifestV2 — permissions structural validation", () => {
         const result = withPerms({ [field]: bad });
         expect(result.valid).toBe(false);
         expect(
-          result.errors.some((e) => e.includes(`permissions.${field} must be an array of non-empty strings`)),
+          result.errors.some((e) =>
+            e.includes(`permissions.${field} must be an array of non-empty strings`),
+          ),
         ).toBe(true);
       }
     }
@@ -1297,7 +1292,9 @@ describe("validateManifestV2 — permissions structural validation", () => {
       for (const bad of ["yes", 1, {}, []]) {
         const result = withPerms({ [field]: bad });
         expect(result.valid).toBe(false);
-        expect(result.errors.some((e) => e.includes(`permissions.${field} must be a boolean`))).toBe(true);
+        expect(
+          result.errors.some((e) => e.includes(`permissions.${field} must be a boolean`)),
+        ).toBe(true);
       }
       // Both boolean values pass (the corpus declares shell: false).
       expect(withPerms({ [field]: true }).valid).toBe(true);
@@ -1309,7 +1306,9 @@ describe("validateManifestV2 — permissions structural validation", () => {
     for (const bad of [true, "5/hr", 5, [], null]) {
       const result = withPerms({ spawnAgents: bad });
       expect(result.valid).toBe(false);
-      expect(result.errors.some((e) => e.includes("permissions.spawnAgents must be an object"))).toBe(true);
+      expect(
+        result.errors.some((e) => e.includes("permissions.spawnAgents must be an object")),
+      ).toBe(true);
     }
     for (const badHourly of [undefined, "5", 0, -1, Number.NaN]) {
       const result = withPerms({ spawnAgents: { maxPerHour: badHourly } });
@@ -1321,7 +1320,9 @@ describe("validateManifestV2 — permissions structural validation", () => {
     const badConcurrent = withPerms({ spawnAgents: { maxPerHour: 5, maxConcurrent: 0 } });
     expect(badConcurrent.valid).toBe(false);
     expect(
-      badConcurrent.errors.some((e) => e.includes("spawnAgents.maxConcurrent must be a positive number")),
+      badConcurrent.errors.some((e) =>
+        e.includes("spawnAgents.maxConcurrent must be a positive number"),
+      ),
     ).toBe(true);
     // maxConcurrent omitted is fine.
     expect(withPerms({ spawnAgents: { maxPerHour: 5 } }).valid).toBe(true);
@@ -1331,7 +1332,9 @@ describe("validateManifestV2 — permissions structural validation", () => {
     for (const bad of ["write", true, 1, {}]) {
       const result = withPerms({ agentConfig: bad });
       expect(result.valid).toBe(false);
-      expect(result.errors.some((e) => e.includes('permissions.agentConfig must be "read"'))).toBe(true);
+      expect(result.errors.some((e) => e.includes('permissions.agentConfig must be "read"'))).toBe(
+        true,
+      );
     }
     expect(withPerms({ agentConfig: "read" }).valid).toBe(true);
   });
@@ -1340,16 +1343,18 @@ describe("validateManifestV2 — permissions structural validation", () => {
     const badEvents = withPerms({ eventSubscriptions: { events: "run:complete" } });
     expect(badEvents.valid).toBe(false);
     expect(
-      badEvents.errors.some((e) => e.includes("permissions.eventSubscriptions.events must be an array")),
+      badEvents.errors.some((e) =>
+        e.includes("permissions.eventSubscriptions.events must be an array"),
+      ),
     ).toBe(true);
 
     const badFlag = withPerms({
       eventSubscriptions: { events: ["run:complete"], includeFullPayload: "yes" },
     });
     expect(badFlag.valid).toBe(false);
-    expect(
-      badFlag.errors.some((e) => e.includes("includeFullPayload must be a boolean")),
-    ).toBe(true);
+    expect(badFlag.errors.some((e) => e.includes("includeFullPayload must be a boolean"))).toBe(
+      true,
+    );
   });
 
   test("eventSubscriptions neither array nor object → rejected", () => {
@@ -1358,7 +1363,9 @@ describe("validateManifestV2 — permissions structural validation", () => {
       expect(result.valid).toBe(false);
       expect(
         result.errors.some((e) =>
-          e.includes("permissions.eventSubscriptions must be an array of event names or {events, includeFullPayload?}"),
+          e.includes(
+            "permissions.eventSubscriptions must be an array of event names or {events, includeFullPayload?}",
+          ),
         ),
       ).toBe(true);
     }

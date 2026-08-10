@@ -63,7 +63,10 @@ export async function finalizeSuccess(
   const { run } = ctx;
   if (run.status === "cancelled") return;
   run.status = "success";
-  run.result = { success: true, output: { fullText: ctx.allTurnsText, memoriesUsed: run.memoriesUsed } };
+  run.result = {
+    success: true,
+    output: { fullText: ctx.allTurnsText, memoriesUsed: run.memoriesUsed },
+  };
   run.finishedAt = Date.now();
 
   host.bus.emit("run:status", { runId: run.id, status: "Saving response..." });
@@ -96,10 +99,7 @@ export async function finalizeSuccess(
       await getDb()
         .update(toolCalls)
         .set({ messageId: fallbackMsg.id })
-        .where(and(
-          eq(toolCalls.conversationId, conversationId),
-          isNull(toolCalls.messageId),
-        ));
+        .where(and(eq(toolCalls.conversationId, conversationId), isNull(toolCalls.messageId)));
       ctx.lastSavedMessageId = fallbackMsg.id;
     } catch (err) {
       log.error("Failed to persist fallback assistant message", { error: String(err) });
@@ -155,10 +155,7 @@ export async function finalizeError(
         await getDb()
           .update(toolCalls)
           .set({ messageId: partialMsg.id })
-          .where(and(
-            eq(toolCalls.conversationId, conversationId),
-            isNull(toolCalls.messageId),
-          ));
+          .where(and(eq(toolCalls.conversationId, conversationId), isNull(toolCalls.messageId)));
       } catch (persistErr) {
         log.error("Failed to persist partial response", { error: String(persistErr) });
       }
@@ -230,10 +227,7 @@ export async function finalizeError(
  *
  * Idempotent for the maps it touches (Map.delete is a no-op on miss).
  */
-export async function finalizeCleanup(
-  ctx: StreamChatContext,
-  host: StreamChatHost,
-): Promise<void> {
+export async function finalizeCleanup(ctx: StreamChatContext, host: StreamChatHost): Promise<void> {
   const { run } = ctx;
   ctx.unsub?.();
   ctx.unsubKill?.();
@@ -304,6 +298,8 @@ export async function finalizeSetupError(
     try {
       await dbRuns.updateRun(run);
       await activeRunsDb.markInterrupted(run.id);
-    } catch { /* cleanup failure is non-fatal */ }
+    } catch {
+      /* cleanup failure is non-fatal */
+    }
   }
 }

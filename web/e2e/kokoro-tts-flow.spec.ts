@@ -83,16 +83,21 @@ async function installWorkerStub(page: Page): Promise<void> {
       }
 
       postMessage(msg: unknown): void {
-        const stub = (window as unknown as { __kokoroStub: {
-          calls: Array<{ text: string; voice: string | undefined; id: string }>;
-          failNextN: number;
-          failureMessage: string;
-        } }).__kokoroStub;
+        const stub = (
+          window as unknown as {
+            __kokoroStub: {
+              calls: Array<{ text: string; voice: string | undefined; id: string }>;
+              failNextN: number;
+              failureMessage: string;
+            };
+          }
+        ).__kokoroStub;
         if (
           msg == null ||
           typeof msg !== "object" ||
           (msg as Record<string, unknown>).type !== "synthesize"
-        ) return;
+        )
+          return;
         const req = msg as { type: "synthesize"; id: string; text: string; voice?: string };
         stub.calls.push({ text: req.text, voice: req.voice, id: req.id });
 
@@ -139,29 +144,24 @@ async function installWorkerStub(page: Page): Promise<void> {
 // The contributions endpoint returns `appliesTo: "both"` so the speaker
 // icon shows up on user AND assistant rows. Lifted out so each spec
 // can register it cleanly.
-async function stubToolbarContributions(
-  page: Page,
-  conversationId: string,
-): Promise<void> {
-  await page.route(
-    `**/api/conversations/${conversationId}/extension-toolbar`,
-    async (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          items: [
-            {
-              extName: "kokoro-tts",
-              id: "speak",
-              icon: "Volume2",
-              tooltip: "Read aloud (selection or full message)",
-              appliesTo: "both",
-              event: "kokoro-tts:speak",
-            },
-          ],
-        }),
+async function stubToolbarContributions(page: Page, conversationId: string): Promise<void> {
+  await page.route(`**/api/conversations/${conversationId}/extension-toolbar`, async (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [
+          {
+            extName: "kokoro-tts",
+            id: "speak",
+            icon: "Volume2",
+            tooltip: "Read aloud (selection or full message)",
+            appliesTo: "both",
+            event: "kokoro-tts:speak",
+          },
+        ],
       }),
+    }),
   );
 }
 
@@ -199,8 +199,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     id: "m2",
     conversationId: "conv-1",
     role: "assistant",
-    content:
-      "Sure, here is a multi-paragraph reply.\n\nSecond paragraph for selection.",
+    content: "Sure, here is a multi-paragraph reply.\n\nSecond paragraph for selection.",
     parentMessageId: "m1",
     createdAt: "2026-01-01T00:01:00.000Z",
   });
@@ -215,20 +214,17 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     //    `kokoro-tts:` prefix before issuing the request, mirroring the
     //    server's `[event]` regex which rejects colons.
     const speakCalls: Array<{ url: string; body: unknown }> = [];
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/speak",
-      async (route) => {
-        speakCalls.push({
-          url: route.request().url(),
-          body: route.request().postDataJSON(),
-        });
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      },
-    );
+    await page.route("**/api/extensions/kokoro-tts/events/speak", async (route) => {
+      speakCalls.push({
+        url: route.request().url(),
+        body: route.request().postDataJSON(),
+      });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true }),
+      });
+    });
 
     await stubToolbarContributions(page, conv.id);
 
@@ -308,32 +304,23 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     // ── The new turn renders the persisted-audio card ───────────────
     const persistedAudio = page.getByTestId("kokoro-tts-audio-persisted");
     await expect(persistedAudio).toBeVisible({ timeout: 3000 });
-    await expect(persistedAudio).toHaveAttribute(
-      "src",
-      "/api/attachments/att-real-1",
-    );
+    await expect(persistedAudio).toHaveAttribute("src", "/api/attachments/att-real-1");
 
     // ── The "Excluded from chat context" pill is visible ────────────
     const pill = page.getByTestId("excluded-from-chat-pill");
     await expect(pill).toBeVisible();
   });
 
-  test("captured selection is forwarded in the event payload", async ({
-    page,
-    mockApi,
-  }) => {
+  test("captured selection is forwarded in the event payload", async ({ page, mockApi }) => {
     const speakCalls: Array<{ body: unknown }> = [];
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/speak",
-      async (route) => {
-        speakCalls.push({ body: route.request().postDataJSON() });
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      },
-    );
+    await page.route("**/api/extensions/kokoro-tts/events/speak", async (route) => {
+      speakCalls.push({ body: route.request().postDataJSON() });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true }),
+      });
+    });
     await stubToolbarContributions(page, conv.id);
 
     await mockApi({
@@ -350,9 +337,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     // We pick a substring guaranteed to be inside the row's DOM.
     const fragment = "Second paragraph for selection";
     await page.evaluate((needle) => {
-      const row = document.querySelector(
-        '[data-message-id="m2"]',
-      ) as HTMLElement | null;
+      const row = document.querySelector('[data-message-id="m2"]') as HTMLElement | null;
       if (!row) return;
       const walker = document.createTreeWalker(row, NodeFilter.SHOW_TEXT);
       let node: Node | null;
@@ -385,10 +370,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
 
   // ── (1) speaker icon visible — exercised by the testid above. ────
   // ── (2) Speaker icon visible on user turn (appliesTo: "both") ────
-  test("speaker icon also renders on user turns when appliesTo=both", async ({
-    page,
-    mockApi,
-  }) => {
+  test("speaker icon also renders on user turns when appliesTo=both", async ({ page, mockApi }) => {
     await stubToolbarContributions(page, conv.id);
     await mockApi({
       projects: [proj],
@@ -419,41 +401,34 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     await installWorkerStub(page);
 
     // Speak: just acknowledge.
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/speak",
-      async (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        }),
+    await page.route("**/api/extensions/kokoro-tts/events/speak", async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true }),
+      }),
     );
 
     // Upload: return a deterministic attachment id.
-    await page.route(
-      "**/api/extensions/kokoro-tts/uploads",
-      async (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ attachmentId: "att-live-1" }),
-        }),
+    await page.route("**/api/extensions/kokoro-tts/uploads", async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ attachmentId: "att-live-1" }),
+      }),
     );
 
     // (10) Save: capture so we can assert the body shape carries
     // conversationId (the recent "Invalid body" 400 regression).
     const saveCalls: Array<{ body: unknown }> = [];
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/save",
-      async (route) => {
-        saveCalls.push({ body: route.request().postDataJSON() });
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true }),
-        });
-      },
-    );
+    await page.route("**/api/extensions/kokoro-tts/events/save", async (route) => {
+      saveCalls.push({ body: route.request().postDataJSON() });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ ok: true }),
+      });
+    });
 
     await stubToolbarContributions(page, conv.id);
     await mockApi({
@@ -575,10 +550,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
 
     const persistedAudio = page.getByTestId("kokoro-tts-audio-persisted");
     await expect(persistedAudio).toBeVisible({ timeout: 5000 });
-    await expect(persistedAudio).toHaveAttribute(
-      "src",
-      "/api/attachments/att-real-1",
-    );
+    await expect(persistedAudio).toHaveAttribute("src", "/api/attachments/att-real-1");
 
     // No blob-URL audio element — the card recognised the persisted
     // output and skipped synthesis entirely.
@@ -586,9 +558,11 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
 
     // The bridge never created a worker → zero synthesize calls.
     const callCount = await page.evaluate(() => {
-      const stub = (window as unknown as {
-        __kokoroStub?: { calls: unknown[] };
-      }).__kokoroStub;
+      const stub = (
+        window as unknown as {
+          __kokoroStub?: { calls: unknown[] };
+        }
+      ).__kokoroStub;
       return stub?.calls.length ?? -1;
     });
     expect(callCount).toBe(0);
@@ -639,10 +613,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
       route.fulfill({
         status: 200,
         contentType: "audio/wav",
-        body: Buffer.from(
-          "UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=",
-          "base64",
-        ),
+        body: Buffer.from("UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=", "base64"),
       }),
     );
 
@@ -662,9 +633,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
 
     // Capture the next user-message POST.
     const postReq = page.waitForRequest(
-      (req) =>
-        req.url().includes("/api/conversations/conv-1/messages") &&
-        req.method() === "POST",
+      (req) => req.url().includes("/api/conversations/conv-1/messages") && req.method() === "POST",
       { timeout: 5000 },
     );
 
@@ -703,31 +672,23 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
 
     // Speak / upload / save: acknowledge. Upload only fires after a
     // successful synthesize, so it stays unhit on the first attempt.
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/speak",
-      async (route) =>
-        route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
+    await page.route("**/api/extensions/kokoro-tts/events/speak", async (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
     );
     let uploadHits = 0;
-    await page.route(
-      "**/api/extensions/kokoro-tts/uploads",
-      async (route) => {
-        uploadHits++;
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ attachmentId: "att-retry-1" }),
-        });
-      },
-    );
+    await page.route("**/api/extensions/kokoro-tts/uploads", async (route) => {
+      uploadHits++;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ attachmentId: "att-retry-1" }),
+      });
+    });
     const saveCalls: Array<{ body: unknown }> = [];
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/save",
-      async (route) => {
-        saveCalls.push({ body: route.request().postDataJSON() });
-        await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
-      },
-    );
+    await page.route("**/api/extensions/kokoro-tts/events/save", async (route) => {
+      saveCalls.push({ body: route.request().postDataJSON() });
+      await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+    });
 
     await stubToolbarContributions(page, conv.id);
     await mockApi({
@@ -739,9 +700,11 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
 
     // Arm the stub to fail the FIRST synthesize call only.
     await page.evaluate(() => {
-      const stub = (window as unknown as {
-        __kokoroStub: { failNextN: number; failureMessage: string };
-      }).__kokoroStub;
+      const stub = (
+        window as unknown as {
+          __kokoroStub: { failNextN: number; failureMessage: string };
+        }
+      ).__kokoroStub;
       stub.failNextN = 1;
       stub.failureMessage = "model load timed out";
     });
@@ -821,11 +784,7 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
   // forwards them to `bridge.synthesize(text, { voice, speed })`, which
   // postMessages the worker. We assert the captured worker frame carries
   // the user's chosen values — not the hard-coded `af_bella` / `1.0`.
-  test("chosen voice + speed reach the synth bridge", async ({
-    page,
-    mockApi,
-    emitWs,
-  }) => {
+  test("chosen voice + speed reach the synth bridge", async ({ page, mockApi, emitWs }) => {
     // Worker stub that ALSO captures `speed`. Identical wire protocol
     // to the existing stub but with an extended `calls` shape.
     await page.addInitScript(() => {
@@ -845,9 +804,13 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
         onmessage: ((e: MessageEvent) => void) | null = null;
         constructor(_url: string | URL, _opts?: WorkerOptions) {}
         postMessage(msg: unknown): void {
-          const stub = (window as unknown as {
-            __kokoroStub: { calls: Array<{ text: string; voice?: string; speed?: number; id: string }> };
-          }).__kokoroStub;
+          const stub = (
+            window as unknown as {
+              __kokoroStub: {
+                calls: Array<{ text: string; voice?: string; speed?: number; id: string }>;
+              };
+            }
+          ).__kokoroStub;
           if (msg == null || typeof msg !== "object") return;
           const m = msg as Record<string, unknown>;
           if (m.type !== "synthesize") return;
@@ -920,24 +883,18 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     });
 
     // Speak / upload / save — same plumbing as the live-synth test.
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/speak",
-      async (route) =>
-        route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
+    await page.route("**/api/extensions/kokoro-tts/events/speak", async (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
     );
-    await page.route(
-      "**/api/extensions/kokoro-tts/uploads",
-      async (route) =>
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ attachmentId: "att-settings-1" }),
-        }),
+    await page.route("**/api/extensions/kokoro-tts/uploads", async (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ attachmentId: "att-settings-1" }),
+      }),
     );
-    await page.route(
-      "**/api/extensions/kokoro-tts/events/save",
-      async (route) =>
-        route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
+    await page.route("**/api/extensions/kokoro-tts/events/save", async (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: "{}" }),
     );
 
     await stubToolbarContributions(page, conv.id);
@@ -993,9 +950,11 @@ test.describe("Kokoro-TTS — speaker icon → excluded turn → audio player", 
     });
 
     const calls = await page.evaluate(() => {
-      const stub = (window as unknown as {
-        __kokoroStub: { calls: Array<{ voice?: string; speed?: number }> };
-      }).__kokoroStub;
+      const stub = (
+        window as unknown as {
+          __kokoroStub: { calls: Array<{ voice?: string; speed?: number }> };
+        }
+      ).__kokoroStub;
       return stub.calls;
     });
     expect(calls.length).toBeGreaterThanOrEqual(1);

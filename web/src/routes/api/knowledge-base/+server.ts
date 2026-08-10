@@ -1,7 +1,12 @@
 import { json } from "@sveltejs/kit";
 import { errorJson } from "$lib/server/http-errors";
 import type { RequestHandler } from "./$types";
-import { listKBFiles, insertKBFile, updateKBFile, insertKBChunk } from "$server/db/queries/knowledge-base";
+import {
+  listKBFiles,
+  insertKBFile,
+  updateKBFile,
+  insertKBChunk,
+} from "$server/db/queries/knowledge-base";
 import { isAllowedFile, chunkText } from "$server/memory/chunking";
 import { generateEmbedding } from "$server/memory/embeddings";
 import { requireAuth, checkProjectRole } from "$server/auth/middleware";
@@ -76,7 +81,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   // nothing above — it produces exactly the rows this predicate already
   // described — which is the whole reason it was built on `user_id` instead of
   // a new column.
-  const userFiles = files.filter(f => !f.userId || f.userId === user.id);
+  const userFiles = files.filter((f) => !f.userId || f.userId === user.id);
 
   // Membership is resolved ONCE for the page, not once per row: `canShare`
   // needs it and it is the same answer for every file in one project. Not
@@ -93,9 +98,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
   // The permission booleans come from the SAME functions the share route
   // enforces with (`src/memory/kb-sharing.ts`), so the affordance and the gate
   // cannot drift into a button that lies.
-  return json(
-    userFiles.map(f => ({ ...f, ...describeKBFileSharing(f, user, isProjectMember) })),
-  );
+  return json(userFiles.map((f) => ({ ...f, ...describeKBFileSharing(f, user, isProjectMember) })));
 };
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -115,7 +118,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 
   // Check storage quota before processing upload
   const existingFiles = await listKBFiles(projectId);
-  const userFiles = existingFiles.filter(f => !f.userId || f.userId === user.id);
+  const userFiles = existingFiles.filter((f) => !f.userId || f.userId === user.id);
   const quota = await checkStorageQuota(user.id, "KnowledgeBase", userFiles.length);
   if (!quota.allowed) {
     return errorJson(429, "Knowledge base file limit reached");

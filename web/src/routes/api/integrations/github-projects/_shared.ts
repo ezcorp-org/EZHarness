@@ -25,10 +25,7 @@ import { requireScope } from "$lib/server/security/api-keys";
 import { hasExtensionScope } from "$server/auth/extension-rbac";
 import { PERMISSION_MODES } from "$lib/permission-mode";
 import { getProject } from "$server/db/queries/projects";
-import {
-  getLinkById,
-  getProposalById,
-} from "$server/db/queries/github-projects";
+import { getLinkById, getProposalById } from "$server/db/queries/github-projects";
 import type { AuthUser } from "$server/auth/types";
 import type { GithubProjectsLink, GithubProjectsProposal } from "$server/db/schema";
 
@@ -120,9 +117,7 @@ export async function resolveLinkForProject(
 /** Token scope for connect: a `board` token is stored as a per-board override
  *  (`apiToken:<linkId>`); the default `shared` token is the project's `apiToken`.
  *  Default `shared`; only the two known strings are accepted (else an error). */
-export function parseTokenScope(
-  raw: unknown,
-): { scope: "shared" | "board" } | { error: string } {
+export function parseTokenScope(raw: unknown): { scope: "shared" | "board" } | { error: string } {
   if (raw === undefined || raw === null || raw === "shared") return { scope: "shared" };
   if (raw === "board") return { scope: "board" };
   return { error: "tokenScope must be 'shared' or 'board'" };
@@ -156,7 +151,9 @@ export function parseDefaultModelInput(raw: unknown): { value: string | null } |
  *  {value:null} (board spawns fall back to 'yolo'); one of the chat PERMISSION_MODES
  *  ("ask" | "auto-edit" | "yolo") -> {value:raw}; anything else -> {error}. Reuses
  *  the single chat permission-mode list ($lib/permission-mode) — no second list. */
-export function parsePermissionModeInput(raw: unknown): { value: string | null } | { error: string } {
+export function parsePermissionModeInput(
+  raw: unknown,
+): { value: string | null } | { error: string } {
   if (raw === null || raw === undefined || raw === "") return { value: null };
   if (typeof raw !== "string" || !(PERMISSION_MODES as string[]).includes(raw)) {
     return { error: `defaultPermissionMode must be one of: ${PERMISSION_MODES.join(", ")}` };

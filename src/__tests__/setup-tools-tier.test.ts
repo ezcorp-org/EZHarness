@@ -147,7 +147,9 @@ describe("resolveModelTierAndCredential — effective tier", () => {
     expect(result.resolved.model).toBe("my-opus-4");
     // Pinned → no tier was classified or passed to resolveModel (Level-1
     // passthrough), and the registry was never consulted.
-    expect(resolveModelArgs).toEqual([{ provider: "anthropic", model: "my-opus-4", tier: undefined }]);
+    expect(resolveModelArgs).toEqual([
+      { provider: "anthropic", model: "my-opus-4", tier: undefined },
+    ]);
     expect(manifestLookups).toEqual([]);
     // run.provider mirrors the resolved provider (existing contract).
     expect(run.provider).toBe("anthropic");
@@ -166,13 +168,7 @@ describe("resolveModelTierAndCredential — effective tier", () => {
 
   test("unpinned turn → effectiveTier is the classifier's routed tier, and resolveModel receives it", async () => {
     // Short tool-less prompt, no project/agent tools → heuristic routes "fast".
-    const result = await resolveModelTierAndCredential(
-      makeRun(),
-      "hi",
-      {},
-      null,
-      "conv-1",
-    );
+    const result = await resolveModelTierAndCredential(makeRun(), "hi", {}, null, "conv-1");
 
     expect(result.effectiveTier).toBe("fast");
     expect(resolveModelArgs).toEqual([{ provider: undefined, model: undefined, tier: "fast" }]);
@@ -254,14 +250,11 @@ describe("resolveModelTierAndCredential — WS5 turn context + provenance", () =
   });
 
   test("system size and attachment count reach the classifier and the signals", async () => {
-    const result = await resolveModelTierAndCredential(
-      makeRun(),
-      "hi",
-      {},
-      null,
-      "conv-1",
-      { history: [{ role: "user", content: "prior turn" }], systemChars: 800, attachmentCount: 3 },
-    );
+    const result = await resolveModelTierAndCredential(makeRun(), "hi", {}, null, "conv-1", {
+      history: [{ role: "user", content: "prior turn" }],
+      systemChars: 800,
+      attachmentCount: 3,
+    });
     expect(result.routingSignals?.systemChars).toBe(800);
     expect(result.routingSignals?.attachmentCount).toBe(3);
     expect(result.routingSignals?.historyChars).toBe("prior turn".length);
@@ -398,14 +391,11 @@ describe("resolveModelTierAndCredential — WS5 turn context + provenance", () =
   test("legacy caller (no turnContext) classifies exactly as before WS5", async () => {
     // The regression guard at the seam: omitting the new parameter must not
     // move the tier for any existing caller.
-    const withContext = await resolveModelTierAndCredential(
-      makeRun(),
-      "hi",
-      {},
-      null,
-      "conv-1",
-      { history: [], systemChars: 0, attachmentCount: 0 },
-    );
+    const withContext = await resolveModelTierAndCredential(makeRun(), "hi", {}, null, "conv-1", {
+      history: [],
+      systemChars: 0,
+      attachmentCount: 0,
+    });
     const legacy = await resolveModelTierAndCredential(makeRun(), "hi", {}, null, "conv-1");
 
     expect(legacy.effectiveTier).toBe("fast");

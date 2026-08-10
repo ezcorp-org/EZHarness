@@ -24,22 +24,22 @@ import type { Command } from "$lib/command-registry";
 import { groupHitsByConversation } from "./search-mode.js";
 
 export type PaletteRow =
-	| { kind: "command"; command: Command }
-	| { kind: "hit"; hit: MessageSearchHit };
+  | { kind: "command"; command: Command }
+  | { kind: "hit"; hit: MessageSearchHit };
 
 export type PaletteGroup = {
-	projectId?: string;
-	projectName?: string;
-	conversationId?: string;
-	conversationTitle?: string;
-	rows: PaletteRow[];
+  projectId?: string;
+  projectName?: string;
+  conversationId?: string;
+  conversationTitle?: string;
+  rows: PaletteRow[];
 };
 
 export type PaletteSection = { id: string; label: string; groups: PaletteGroup[] };
 
 export type PaletteResults = {
-	sections: PaletteSection[];
-	flatItems: (Command | MessageSearchHit)[];
+  sections: PaletteSection[];
+  flatItems: (Command | MessageSearchHit)[];
 };
 
 /**
@@ -49,37 +49,37 @@ export type PaletteResults = {
  * single (project, conversation) pair carrying its names/titles + hit rows.
  */
 function groupHitsByProjectConversation(hits: MessageSearchHit[]): PaletteGroup[] {
-	// First-seen project order.
-	const byProject = new Map<string, MessageSearchHit[]>();
-	for (const h of hits) {
-		const bucket = byProject.get(h.projectId);
-		if (bucket) bucket.push(h);
-		else byProject.set(h.projectId, [h]);
-	}
+  // First-seen project order.
+  const byProject = new Map<string, MessageSearchHit[]>();
+  for (const h of hits) {
+    const bucket = byProject.get(h.projectId);
+    if (bucket) bucket.push(h);
+    else byProject.set(h.projectId, [h]);
+  }
 
-	const groups: PaletteGroup[] = [];
-	for (const [projectId, projectHits] of byProject) {
-		// Reuse first-seen conversation grouping (DRY — never re-derive it).
-		for (const convGroup of groupHitsByConversation(projectHits)) {
-			groups.push({
-				projectId,
-				projectName: projectHits[0].projectName,
-				conversationId: convGroup.conversationId,
-				conversationTitle: convGroup.title,
-				rows: convGroup.hits.map((hit) => ({ kind: "hit", hit })),
-			});
-		}
-	}
-	return groups;
+  const groups: PaletteGroup[] = [];
+  for (const [projectId, projectHits] of byProject) {
+    // Reuse first-seen conversation grouping (DRY — never re-derive it).
+    for (const convGroup of groupHitsByConversation(projectHits)) {
+      groups.push({
+        projectId,
+        projectName: projectHits[0].projectName,
+        conversationId: convGroup.conversationId,
+        conversationTitle: convGroup.title,
+        rows: convGroup.hits.map((hit) => ({ kind: "hit", hit })),
+      });
+    }
+  }
+  return groups;
 }
 
 /** Append every actionable row in a section's groups to the flat list. */
 function pushSectionRows(flatItems: (Command | MessageSearchHit)[], section: PaletteSection): void {
-	for (const group of section.groups) {
-		for (const row of group.rows) {
-			flatItems.push(row.kind === "command" ? row.command : row.hit);
-		}
-	}
+  for (const group of section.groups) {
+    for (const row of group.rows) {
+      flatItems.push(row.kind === "command" ? row.command : row.hit);
+    }
+  }
 }
 
 /**
@@ -91,50 +91,50 @@ function pushSectionRows(flatItems: (Command | MessageSearchHit)[], section: Pal
  * (in-this-conversation before other), identity-matching the rendered rows.
  */
 export function buildPaletteResults(
-	matchingCommands: Command[],
-	hits: MessageSearchHit[],
-	activeConversationId: string | null,
+  matchingCommands: Command[],
+  hits: MessageSearchHit[],
+  activeConversationId: string | null,
 ): PaletteResults {
-	const sections: PaletteSection[] = [];
+  const sections: PaletteSection[] = [];
 
-	if (matchingCommands.length > 0) {
-		sections.push({
-			id: "commands",
-			label: "Commands",
-			groups: [{ rows: matchingCommands.map((command) => ({ kind: "command", command })) }],
-		});
-	}
+  if (matchingCommands.length > 0) {
+    sections.push({
+      id: "commands",
+      label: "Commands",
+      groups: [{ rows: matchingCommands.map((command) => ({ kind: "command", command })) }],
+    });
+  }
 
-	if (activeConversationId !== null) {
-		const inConv = hits.filter((h) => h.conversationId === activeConversationId);
-		const other = hits.filter((h) => h.conversationId !== activeConversationId);
+  if (activeConversationId !== null) {
+    const inConv = hits.filter((h) => h.conversationId === activeConversationId);
+    const other = hits.filter((h) => h.conversationId !== activeConversationId);
 
-		if (inConv.length > 0) {
-			sections.push({
-				id: "in-this-conversation",
-				label: "In this conversation",
-				groups: groupHitsByProjectConversation(inConv),
-			});
-		}
-		if (other.length > 0) {
-			sections.push({
-				id: "other",
-				label: "Other",
-				groups: groupHitsByProjectConversation(other),
-			});
-		}
-	} else if (hits.length > 0) {
-		sections.push({
-			id: "messages",
-			label: "Messages",
-			groups: groupHitsByProjectConversation(hits),
-		});
-	}
+    if (inConv.length > 0) {
+      sections.push({
+        id: "in-this-conversation",
+        label: "In this conversation",
+        groups: groupHitsByProjectConversation(inConv),
+      });
+    }
+    if (other.length > 0) {
+      sections.push({
+        id: "other",
+        label: "Other",
+        groups: groupHitsByProjectConversation(other),
+      });
+    }
+  } else if (hits.length > 0) {
+    sections.push({
+      id: "messages",
+      label: "Messages",
+      groups: groupHitsByProjectConversation(hits),
+    });
+  }
 
-	// Flat list built from the SAME section/group/row tree → identity-aligned
-	// with render order; headers are never included.
-	const flatItems: (Command | MessageSearchHit)[] = [];
-	for (const section of sections) pushSectionRows(flatItems, section);
+  // Flat list built from the SAME section/group/row tree → identity-aligned
+  // with render order; headers are never included.
+  const flatItems: (Command | MessageSearchHit)[] = [];
+  for (const section of sections) pushSectionRows(flatItems, section);
 
-	return { sections, flatItems };
+  return { sections, flatItems };
 }

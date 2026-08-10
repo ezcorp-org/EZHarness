@@ -56,192 +56,192 @@ import { makeProject, makeConversation, makeMessage, makeRun } from "./fixtures/
 // same extension/flow.
 
 test.describe("extension-author stuck-chat — stalled create_extension fails FAST and VISIBLY (no 90s frozen bubble)", () => {
-	const proj = makeProject({ id: "proj-1", name: "Test Project" });
-	const conv = makeConversation({
-		id: "conv-1",
-		projectId: "proj-1",
-		title: "Extension Author Chat",
-	});
-	const userMsg = makeMessage({
-		id: "m1",
-		conversationId: "conv-1",
-		role: "user",
-		content: "![ext:extension-author] write me an extension",
-	});
-	const assistantMsg = makeMessage({
-		id: "m2",
-		conversationId: "conv-1",
-		role: "assistant",
-		content: "On it.",
-		parentMessageId: "m1",
-		createdAt: "2026-01-01T00:01:00.000Z",
-	});
+  const proj = makeProject({ id: "proj-1", name: "Test Project" });
+  const conv = makeConversation({
+    id: "conv-1",
+    projectId: "proj-1",
+    title: "Extension Author Chat",
+  });
+  const userMsg = makeMessage({
+    id: "m1",
+    conversationId: "conv-1",
+    role: "user",
+    content: "![ext:extension-author] write me an extension",
+  });
+  const assistantMsg = makeMessage({
+    id: "m2",
+    conversationId: "conv-1",
+    role: "assistant",
+    content: "On it.",
+    parentMessageId: "m1",
+    createdAt: "2026-01-01T00:01:00.000Z",
+  });
 
-	async function setupAndSend(
-		page: import("@playwright/test").Page,
-		mockApi: (overrides?: Record<string, unknown>) => Promise<void>,
-	) {
-		await mockApi({
-			projects: [proj],
-			conversations: [conv],
-			messages: [userMsg, assistantMsg],
-		});
-		await page.goto(`/project/${proj.id}/chat/${conv.id}`);
-		// Gate on a hydrated (enabled) composer before driving it, then TYPE
-		// rather than `fill()`: the composer maintains a compact display
-		// string projected over a wire string and re-syncs the two from a
-		// keydown-scheduled pass, so a programmatic `fill` leaves the draft
-		// empty and the Send button disabled.
-		const textarea = page.locator("textarea.chat-textarea");
-		await expect(textarea).toBeEnabled({ timeout: 15_000 });
-		await textarea.click();
-		await textarea.pressSequentially("write me an extension", { delay: 10 });
-		const sent = page.waitForResponse(
-			(r) => r.url().includes("/messages") && r.request().method() === "POST",
-			{ timeout: 20_000 },
-		);
-		await textarea.press("Enter");
-		await sent;
-	}
+  async function setupAndSend(
+    page: import("@playwright/test").Page,
+    mockApi: (overrides?: Record<string, unknown>) => Promise<void>,
+  ) {
+    await mockApi({
+      projects: [proj],
+      conversations: [conv],
+      messages: [userMsg, assistantMsg],
+    });
+    await page.goto(`/project/${proj.id}/chat/${conv.id}`);
+    // Gate on a hydrated (enabled) composer before driving it, then TYPE
+    // rather than `fill()`: the composer maintains a compact display
+    // string projected over a wire string and re-syncs the two from a
+    // keydown-scheduled pass, so a programmatic `fill` leaves the draft
+    // empty and the Send button disabled.
+    const textarea = page.locator("textarea.chat-textarea");
+    await expect(textarea).toBeEnabled({ timeout: 15_000 });
+    await textarea.click();
+    await textarea.pressSequentially("write me an extension", { delay: 10 });
+    const sent = page.waitForResponse(
+      (r) => r.url().includes("/messages") && r.request().method() === "POST",
+      { timeout: 20_000 },
+    );
+    await textarea.press("Enter");
+    await sent;
+  }
 
-	test("stalled ezcorp/drafts → FAST tool:error card + visible run:error within seconds, composer re-enabled (NOT a frozen bubble)", async ({
-		page,
-		mockApi,
-		emitSse,
-	}) => {
-		await setupAndSend(page, mockApi);
+  test("stalled ezcorp/drafts → FAST tool:error card + visible run:error within seconds, composer re-enabled (NOT a frozen bubble)", async ({
+    page,
+    mockApi,
+    emitSse,
+  }) => {
+    await setupAndSend(page, mockApi);
 
-		// Run begins streaming + the create_extension tool starts.
-		await emitSse({
-			type: "run:token",
-			data: { runId: "run-stream", token: "Building the extension…" },
-		});
-		await emitSse({
-			type: "tool:start",
-			data: {
-				conversationId: "conv-1",
-				extensionId: "ext-extension-author",
-				toolName: "extension-author.create_extension",
-				input: { name: "weather", description: "A weather extension" },
-				timestamp: Date.now(),
-				invocationId: "tc-create-ext-1",
-			},
-		});
+    // Run begins streaming + the create_extension tool starts.
+    await emitSse({
+      type: "run:token",
+      data: { runId: "run-stream", token: "Building the extension…" },
+    });
+    await emitSse({
+      type: "tool:start",
+      data: {
+        conversationId: "conv-1",
+        extensionId: "ext-extension-author",
+        toolName: "extension-author.create_extension",
+        input: { name: "weather", description: "A weather extension" },
+        timestamp: Date.now(),
+        invocationId: "tc-create-ext-1",
+      },
+    });
 
-		// The running card is visible (chat progressed past "Thinking…").
-		await expect(page.getByText("extension-author.create_extension").first()).toBeVisible({
-			timeout: 8000,
-		});
+    // The running card is visible (chat progressed past "Thinking…").
+    await expect(page.getByText("extension-author.create_extension").first()).toBeVisible({
+      timeout: 8000,
+    });
 
-		// CONTROL: the failure reason is NOT on screen while the call is
-		// still in flight. Without this, the post-error assertion below
-		// could pass on a UI that renders nothing at all.
-		await expect(page.getByText(/timed out after 20000ms/i)).toHaveCount(0);
+    // CONTROL: the failure reason is NOT on screen while the call is
+    // still in flight. Without this, the post-error assertion below
+    // could pass on a UI that renders nothing at all.
+    await expect(page.getByText(/timed out after 20000ms/i)).toHaveCount(0);
 
-		// PHASE 1 OBSERVABLE EFFECT: the host's ezcorp/drafts handler
-		// stalled inside createDraft, but the bounded dispatch replied
-		// -32603 within ~20s (≪ the 90s watchdog). The child's request()
-		// rejected, create_extension's catch returned a toolError, and the
-		// runtime emits a FAST tool:error — NOT a 90s watchdog kill with a
-		// misleading "exceeded its 90000ms call timeout".
-		await emitSse({
-			type: "tool:error",
-			data: {
-				conversationId: "conv-1",
-				extensionId: "ext-extension-author",
-				toolName: "extension-author.create_extension",
-				error: 'Host handler for "ezcorp/drafts" timed out after 20000ms',
-				duration: 20000,
-				invocationId: "tc-create-ext-1",
-			},
-		});
+    // PHASE 1 OBSERVABLE EFFECT: the host's ezcorp/drafts handler
+    // stalled inside createDraft, but the bounded dispatch replied
+    // -32603 within ~20s (≪ the 90s watchdog). The child's request()
+    // rejected, create_extension's catch returned a toolError, and the
+    // runtime emits a FAST tool:error — NOT a 90s watchdog kill with a
+    // misleading "exceeded its 90000ms call timeout".
+    await emitSse({
+      type: "tool:error",
+      data: {
+        conversationId: "conv-1",
+        extensionId: "ext-extension-author",
+        toolName: "extension-author.create_extension",
+        error: 'Host handler for "ezcorp/drafts" timed out after 20000ms',
+        duration: 20000,
+        invocationId: "tc-create-ext-1",
+      },
+    });
 
-		// 1) The tool failure is rendered as an error card with the FAST
-		//    bounded-timeout reason — the user sees WHY it failed, and the
-		//    card carries the explicit failure marker.
-		await expect(page.getByText(/timed out after 20000ms/i).first()).toBeVisible({
-			timeout: 8000,
-		});
-		await expect(page.getByText(/ezcorp\/drafts/i).first()).toBeVisible({ timeout: 8000 });
-		await expect(page.getByText("Run failed", { exact: false }).first()).toBeVisible({
-			timeout: 8000,
-		});
+    // 1) The tool failure is rendered as an error card with the FAST
+    //    bounded-timeout reason — the user sees WHY it failed, and the
+    //    card carries the explicit failure marker.
+    await expect(page.getByText(/timed out after 20000ms/i).first()).toBeVisible({
+      timeout: 8000,
+    });
+    await expect(page.getByText(/ezcorp\/drafts/i).first()).toBeVisible({ timeout: 8000 });
+    await expect(page.getByText("Run failed", { exact: false }).first()).toBeVisible({
+      timeout: 8000,
+    });
 
-		// 2) The watchdog-kill symptom NEVER appears: no "exceeded its
-		//    90000ms call timeout", no frozen "Thinking…", no empty bubble.
-		await expect(page.getByText(/exceeded its 90000ms call timeout/i)).toHaveCount(0);
-		await expect(page.getByText(/^Thinking…$/)).toHaveCount(0);
+    // 2) The watchdog-kill symptom NEVER appears: no "exceeded its
+    //    90000ms call timeout", no frozen "Thinking…", no empty bubble.
+    await expect(page.getByText(/exceeded its 90000ms call timeout/i)).toHaveCount(0);
+    await expect(page.getByText(/^Thinking…$/)).toHaveCount(0);
 
-		// PHASE 2 OBSERVABLE EFFECT: the run terminalizes to `error` instead
-		// of hanging until the watchdog. The client's terminal-run payload is
-		// `{ run }` (stores.svelte.ts `case "run:error"` destructures
-		// `event.data.run`), the same shape streaming-race.spec.ts uses.
-		await emitSse({
-			type: "run:error",
-			data: { run: makeRun({ id: "run-stream", status: "error" }), conversationId: "conv-1" },
-		});
+    // PHASE 2 OBSERVABLE EFFECT: the run terminalizes to `error` instead
+    // of hanging until the watchdog. The client's terminal-run payload is
+    // `{ run }` (stores.svelte.ts `case "run:error"` destructures
+    // `event.data.run`), the same shape streaming-race.spec.ts uses.
+    await emitSse({
+      type: "run:error",
+      data: { run: makeRun({ id: "run-stream", status: "error" }), conversationId: "conv-1" },
+    });
 
-		// 3) Streaming UI tore down — the cursor + Stop button are gone
-		//    (the run terminalized; the chat is not perpetually streaming).
-		await expect(page.locator(".streaming-cursor")).toHaveCount(0, { timeout: 8000 });
-		await expect(page.getByRole("button", { name: /stop generating/i })).toHaveCount(0, {
-			timeout: 8000,
-		});
+    // 3) Streaming UI tore down — the cursor + Stop button are gone
+    //    (the run terminalized; the chat is not perpetually streaming).
+    await expect(page.locator(".streaming-cursor")).toHaveCount(0, { timeout: 8000 });
+    await expect(page.getByRole("button", { name: /stop generating/i })).toHaveCount(0, {
+      timeout: 8000,
+    });
 
-		// 4) The composer is interactive again — the user is unblocked
-		//    (the whole point: a frozen chat trapped the user forever).
-		await expect(page.locator("textarea.chat-textarea")).toBeEnabled({ timeout: 8000 });
-	});
+    // 4) The composer is interactive again — the user is unblocked
+    //    (the whole point: a frozen chat trapped the user forever).
+    await expect(page.locator("textarea.chat-textarea")).toBeEnabled({ timeout: 8000 });
+  });
 
-	test("a re-fired tool:error for the same call updates the ONE card instead of stacking a duplicate", async ({
-		page,
-		mockApi,
-		emitSse,
-	}) => {
-		await setupAndSend(page, mockApi);
+  test("a re-fired tool:error for the same call updates the ONE card instead of stacking a duplicate", async ({
+    page,
+    mockApi,
+    emitSse,
+  }) => {
+    await setupAndSend(page, mockApi);
 
-		await emitSse({
-			type: "tool:start",
-			data: {
-				conversationId: "conv-1",
-				extensionId: "ext-extension-author",
-				toolName: "extension-author.create_extension",
-				input: { name: "weather" },
-				timestamp: Date.now(),
-				invocationId: "tc-create-ext-2",
-			},
-		});
+    await emitSse({
+      type: "tool:start",
+      data: {
+        conversationId: "conv-1",
+        extensionId: "ext-extension-author",
+        toolName: "extension-author.create_extension",
+        input: { name: "weather" },
+        timestamp: Date.now(),
+        invocationId: "tc-create-ext-2",
+      },
+    });
 
-		// CONTROL: nothing on screen yet carries the failure reason.
-		await expect(page.getByText(/timed out after 20000ms/i)).toHaveCount(0);
+    // CONTROL: nothing on screen yet carries the failure reason.
+    await expect(page.getByText(/timed out after 20000ms/i)).toHaveCount(0);
 
-		// The stuck-chat fix has TWO writers that can terminalize the same
-		// call: the bounded reverse-RPC dispatch rejects it, and then the
-		// watchdog/finalize path runs when the wedged await unblocks. Both
-		// emit for the SAME `invocationId`. The client keys tool events by
-		// invocationId, so the second must UPDATE the existing card — never
-		// stack a second one. (What the server-side de-dup guarantees — one
-		// persisted assistant error row — is a backend contract; this asserts
-		// the browser half, which is what the mock tier can honestly prove.)
-		const errorEvent = {
-			conversationId: "conv-1",
-			extensionId: "ext-extension-author",
-			toolName: "extension-author.create_extension",
-			error: 'Host handler for "ezcorp/drafts" timed out after 20000ms',
-			duration: 20000,
-			invocationId: "tc-create-ext-2",
-		};
-		// The card header is a button whose accessible name carries the tool
-		// name — one button per tool card, so it counts CARDS.
-		const cards = page.getByRole("button", { name: /extension-author\.create_extension/ });
-		await emitSse({ type: "tool:error", data: errorEvent });
-		await expect(page.getByText(/timed out after 20000ms/i)).toHaveCount(1, { timeout: 8000 });
-		await expect(cards).toHaveCount(1, { timeout: 8000 });
+    // The stuck-chat fix has TWO writers that can terminalize the same
+    // call: the bounded reverse-RPC dispatch rejects it, and then the
+    // watchdog/finalize path runs when the wedged await unblocks. Both
+    // emit for the SAME `invocationId`. The client keys tool events by
+    // invocationId, so the second must UPDATE the existing card — never
+    // stack a second one. (What the server-side de-dup guarantees — one
+    // persisted assistant error row — is a backend contract; this asserts
+    // the browser half, which is what the mock tier can honestly prove.)
+    const errorEvent = {
+      conversationId: "conv-1",
+      extensionId: "ext-extension-author",
+      toolName: "extension-author.create_extension",
+      error: 'Host handler for "ezcorp/drafts" timed out after 20000ms',
+      duration: 20000,
+      invocationId: "tc-create-ext-2",
+    };
+    // The card header is a button whose accessible name carries the tool
+    // name — one button per tool card, so it counts CARDS.
+    const cards = page.getByRole("button", { name: /extension-author\.create_extension/ });
+    await emitSse({ type: "tool:error", data: errorEvent });
+    await expect(page.getByText(/timed out after 20000ms/i)).toHaveCount(1, { timeout: 8000 });
+    await expect(cards).toHaveCount(1, { timeout: 8000 });
 
-		await emitSse({ type: "tool:error", data: errorEvent });
+    await emitSse({ type: "tool:error", data: errorEvent });
 
-		// Still exactly one card carrying the reason — the re-fire merged.
-		await expect(page.getByText(/timed out after 20000ms/i)).toHaveCount(1, { timeout: 8000 });
-		await expect(cards).toHaveCount(1);
-	});
+    // Still exactly one card carrying the reason — the re-fire merged.
+    await expect(page.getByText(/timed out after 20000ms/i)).toHaveCount(1, { timeout: 8000 });
+    await expect(cards).toHaveCount(1);
+  });
 });

@@ -22,11 +22,19 @@ import {
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -61,7 +69,14 @@ async function ensureExtension(name: string): Promise<string> {
       name,
       version: "0.0.1",
       description: "",
-      manifest: { schemaVersion: 2, name, version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as any,
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as any,
       source: "test",
       enabled: true,
       grantedPermissions: {} as any,
@@ -147,14 +162,16 @@ describe("recordCapabilityCall — happy path", () => {
 
     // sdk row exists.
     const sdkRows = await getTestDb()
-      .select().from(sdkCapabilityCalls)
+      .select()
+      .from(sdkCapabilityCalls)
       .where(eq(sdkCapabilityCalls.id, result.sdkCapabilityCallId));
     expect(sdkRows.length).toBe(1);
     expect(sdkRows[0]!.capability).toBe("llm");
 
     // Chat pill exists.
     const msgs = await getTestDb()
-      .select().from(messages)
+      .select()
+      .from(messages)
       .where(eq(messages.conversationId, conversationId));
     expect(msgs.length).toBe(1);
     expect(msgs[0]!.role).toBe("capability-event");
@@ -174,7 +191,8 @@ describe("recordCapabilityCall — happy path", () => {
     });
     expect(result.sdkCapabilityCallId).toBeTruthy();
     const msgs = await getTestDb()
-      .select().from(messages)
+      .select()
+      .from(messages)
       .where(eq(messages.conversationId, conversationId));
     expect(msgs.length).toBe(0);
   });
@@ -207,7 +225,8 @@ describe("recordCapabilityCall — redaction at the audit boundary (Pitfall #1)"
     });
     expect(result.sdkCapabilityCallId).toBeTruthy();
     const rows = await getTestDb()
-      .select().from(sdkCapabilityCalls)
+      .select()
+      .from(sdkCapabilityCalls)
       .where(eq(sdkCapabilityCalls.id, result.sdkCapabilityCallId));
     const row = rows[0]!;
     const beforeSer = JSON.stringify(row.before);
@@ -237,9 +256,12 @@ describe("recordCapabilityCall — chains parent_call_id", () => {
       success: true,
       insertChatPill: false,
     });
-    const bRow = (await getTestDb()
-      .select().from(sdkCapabilityCalls)
-      .where(eq(sdkCapabilityCalls.id, b.sdkCapabilityCallId)))[0]!;
+    const bRow = (
+      await getTestDb()
+        .select()
+        .from(sdkCapabilityCalls)
+        .where(eq(sdkCapabilityCalls.id, b.sdkCapabilityCallId))
+    )[0]!;
     expect(bRow.parentCallId).toBe(a.sdkCapabilityCallId);
   });
 });
@@ -277,7 +299,8 @@ describe("recordCapabilityCall — per-resource audit (lessons)", () => {
     });
     expect(result.sdkCapabilityCallId).toBeTruthy();
     const auditRows = await getTestDb()
-      .select().from(lessonsAuditLog)
+      .select()
+      .from(lessonsAuditLog)
       .where(eq(lessonsAuditLog.lessonId, lesson!.id));
     expect(auditRows.length).toBe(1);
     expect(auditRows[0]!.action).toBe("updated");
@@ -324,7 +347,8 @@ describe("recordCapabilityCall — per-resource audit (memory)", () => {
     expect(result.sdkCapabilityCallId).toBeTruthy();
 
     const auditRows = await getTestDb()
-      .select().from(memoryAuditLog)
+      .select()
+      .from(memoryAuditLog)
       .where(eq(memoryAuditLog.memoryId, mem!.id));
     expect(auditRows.length).toBe(1);
     const row = auditRows[0]!;
@@ -363,7 +387,8 @@ describe("recordCapabilityCall — per-resource audit (memory)", () => {
     });
 
     const rows = await getTestDb()
-      .select().from(memoryAuditLog)
+      .select()
+      .from(memoryAuditLog)
       .where(eq(memoryAuditLog.memoryId, mem!.id));
     expect(rows.length).toBe(1);
     expect(rows[0]!.action).toBe("updated");
@@ -433,7 +458,8 @@ describe("recordCapabilityCall — audit-write failure does NOT abort", () => {
       })
       .returning({ id: lessons.id });
     const before = await getTestDb()
-      .select().from(lessonsAuditLog)
+      .select()
+      .from(lessonsAuditLog)
       .where(eq(lessonsAuditLog.lessonId, lesson!.id));
     expect(before.length).toBe(0);
 

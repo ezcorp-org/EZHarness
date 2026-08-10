@@ -20,10 +20,7 @@
 
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
-import {
-  Storage,
-  type StorageBatchOp,
-} from "../src/runtime/storage";
+import { Storage, type StorageBatchOp } from "../src/runtime/storage";
 import {
   __resetChannelForTests,
   getChannel,
@@ -42,19 +39,18 @@ interface RequestCall {
   at: number;
 }
 
-function stubRequest(
-  impl: (call: RequestCall) => Promise<unknown>,
-): { calls: RequestCall[]; spy: ReturnType<typeof spyOn> } {
+function stubRequest(impl: (call: RequestCall) => Promise<unknown>): {
+  calls: RequestCall[];
+  spy: ReturnType<typeof spyOn>;
+} {
   const ch: HostChannel = getChannel();
   const calls: RequestCall[] = [];
   const spy = spyOn(ch, "request");
-  spy.mockImplementation(
-    (async (method: string, params: unknown, timeoutMs?: number) => {
-      const call: RequestCall = { method, params, timeoutMs, at: Date.now() };
-      calls.push(call);
-      return impl(call);
-    }) as HostChannel["request"],
-  );
+  spy.mockImplementation((async (method: string, params: unknown, timeoutMs?: number) => {
+    const call: RequestCall = { method, params, timeoutMs, at: Date.now() };
+    calls.push(call);
+    return impl(call);
+  }) as HostChannel["request"]);
   return { calls, spy };
 }
 

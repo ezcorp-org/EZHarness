@@ -60,9 +60,13 @@ export async function buildHealthResponse(detail: boolean): Promise<HealthRespon
   }
 
   // Local model reachability
-  let localModels: Record<string, { status: "reachable" | "unreachable"; latencyMs?: number }> | undefined;
+  let localModels:
+    | Record<string, { status: "reachable" | "unreachable"; latencyMs?: number }>
+    | undefined;
   try {
-    const customModels = settings[`provider:customModels`] as Array<{ modelId: string; provider: string; tier: string; baseUrl?: string }> | undefined;
+    const customModels = settings[`provider:customModels`] as
+      | Array<{ modelId: string; provider: string; tier: string; baseUrl?: string }>
+      | undefined;
     const localEntries = (customModels ?? []).filter((m) => m.baseUrl);
     if (localEntries.length > 0) {
       const results = await Promise.allSettled(

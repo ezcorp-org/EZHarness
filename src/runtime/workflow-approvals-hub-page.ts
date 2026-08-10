@@ -28,11 +28,7 @@
  * It also cannot pass `consentAll`. Standing consent is asserted where the
  * standing grant lives, not by a tab button on a user's behalf.
  */
-import {
-  registerHubPageProvider,
-  HubPageActionError,
-  type HubPageProvider,
-} from "./hub-pages";
+import { registerHubPageProvider, HubPageActionError, type HubPageProvider } from "./hub-pages";
 import type { HubPageTree, PageNode } from "../extensions/page-schema";
 import { listPendingWorkflowApprovalsForUser } from "../db/queries/workflow-approvals";
 import { answerApproval } from "./workflow-answer-approval";

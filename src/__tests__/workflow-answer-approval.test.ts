@@ -32,9 +32,7 @@ import type { ApprovalActor } from "../runtime/workflow-answer-approval";
 const { parkWorkflowApproval, getWorkflowApprovalById } = await import(
   "../db/queries/workflow-approvals"
 );
-const { insertWorkflowRun, getWorkflowRunRow } = await import(
-  "../db/queries/workflow-runs"
-);
+const { insertWorkflowRun, getWorkflowRunRow } = await import("../db/queries/workflow-runs");
 
 beforeAll(async () => {
   pglite = new PGlite({ extensions: { vector, pg_trgm } });
@@ -55,9 +53,7 @@ afterAll(async () => {
 const DEF: WorkflowDefinition = {
   name: "gated",
   description: "",
-  steps: [
-    { name: "gate", kind: "approval", prompt: "?", choices: ["approve", "reject"] },
-  ],
+  steps: [{ name: "gate", kind: "approval", prompt: "?", choices: ["approve", "reject"] }],
 };
 
 /** A runtime whose executor records every resume rather than running one. */
@@ -189,7 +185,12 @@ describe("answerApproval — refusals never mutate", () => {
   test("an already-answered approval is not-pending, reported distinctly", async () => {
     const { approvalId } = await seed();
     const { runtime } = stubRuntime();
-    await answerApproval(approvalId, { choice: "approve" }, { kind: "user", userId: "answerer", isAdmin: false }, { runtime });
+    await answerApproval(
+      approvalId,
+      { choice: "approve" },
+      { kind: "user", userId: "answerer", isAdmin: false },
+      { runtime },
+    );
 
     const second = await answerApproval(
       approvalId,
@@ -377,8 +378,18 @@ describe("answerApproval — concurrency", () => {
     const { runtime, resumed } = stubRuntime();
 
     const [a, b] = await Promise.all([
-      answerApproval(approvalId, { choice: "approve" }, { kind: "user", userId: "answerer", isAdmin: false }, { runtime }),
-      answerApproval(approvalId, { choice: "reject" }, { kind: "user", userId: "answerer", isAdmin: false }, { runtime }),
+      answerApproval(
+        approvalId,
+        { choice: "approve" },
+        { kind: "user", userId: "answerer", isAdmin: false },
+        { runtime },
+      ),
+      answerApproval(
+        approvalId,
+        { choice: "reject" },
+        { kind: "user", userId: "answerer", isAdmin: false },
+        { runtime },
+      ),
     ]);
 
     const winners = [a, b].filter((r) => r.ok);
@@ -528,7 +539,12 @@ describe("authorization — who may answer", () => {
   test("an UNOWNED run (CLI, extension trigger) is admin-only", async () => {
     const a = await seed({ ownerUserId: null });
     expect(
-      await answerApproval(a.approvalId, { choice: "approve" }, { kind: "user", userId: "answerer", isAdmin: false }, { runtime: stubRuntime().runtime }),
+      await answerApproval(
+        a.approvalId,
+        { choice: "approve" },
+        { kind: "user", userId: "answerer", isAdmin: false },
+        { runtime: stubRuntime().runtime },
+      ),
     ).toMatchObject({ ok: false, code: "forbidden" });
 
     const b = await seed({ ownerUserId: null });

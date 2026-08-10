@@ -116,7 +116,10 @@ describe("cache key — invalidation on a real schema change", () => {
     const before = schemaFingerprint({ roots, repoRoot: dir, env: NO_ENV });
 
     // The entry a previous run would have published.
-    await writeCachedSnapshot(before, new Blob(["migrated-datadir"]), { dir: cacheDir, env: NO_ENV });
+    await writeCachedSnapshot(before, new Blob(["migrated-datadir"]), {
+      dir: cacheDir,
+      env: NO_ENV,
+    });
     expect(await readCachedSnapshot(before, { dir: cacheDir, env: NO_ENV })).toBeDefined();
 
     // A schema change of exactly the shape this cache must never hide.
@@ -135,7 +138,10 @@ describe("cache key — invalidation on a real schema change", () => {
     const { dir, roots, pathOf } = copyRealClosure();
     const cacheDir = tmp("cache");
     const before = schemaFingerprint({ roots, repoRoot: dir, env: NO_ENV });
-    await writeCachedSnapshot(before, new Blob(["migrated-datadir"]), { dir: cacheDir, env: NO_ENV });
+    await writeCachedSnapshot(before, new Blob(["migrated-datadir"]), {
+      dir: cacheDir,
+      env: NO_ENV,
+    });
 
     // Not imported by the roots directly: migrate.ts imports it, and it is one
     // of the named modules the brief warns about.
@@ -180,7 +186,9 @@ describe("cache key — inputs beyond the source closure", () => {
     const { dir, roots } = copyRealClosure();
     const base = schemaFingerprint({ roots, repoRoot: dir, env: NO_ENV });
     for (const key of MIGRATE_ENV_KEYS) {
-      expect(schemaFingerprint({ roots, repoRoot: dir, env: { [key]: "/some/path" } })).not.toBe(base);
+      expect(schemaFingerprint({ roots, repoRoot: dir, env: { [key]: "/some/path" } })).not.toBe(
+        base,
+      );
     }
   });
 
@@ -192,7 +200,9 @@ describe("cache key — inputs beyond the source closure", () => {
 
     writeFileSync(join(withoutLock, "bun.lock"), '{"lockfileVersion": 1}');
     expect(lockfileDigest(withoutLock)).not.toBe("none");
-    expect(schemaFingerprint({ roots: [root], repoRoot: withoutLock, env: NO_ENV })).not.toBe(before);
+    expect(schemaFingerprint({ roots: [root], repoRoot: withoutLock, env: NO_ENV })).not.toBe(
+      before,
+    );
   });
 
   test("the installed pglite version is an INPUT — a bump moves the key", () => {
@@ -262,7 +272,15 @@ describe("closure crawl", () => {
 
     const { files, unresolved } = collectSchemaInputs([root]);
     const rel = files.map((f) => relative(dir, f)).sort();
-    expect(rel).toEqual(["dep.ts", "dyn.ts", "esm.ts", "pkg/index.ts", "root.ts", "side.ts", "sub/re.ts"]);
+    expect(rel).toEqual([
+      "dep.ts",
+      "dyn.ts",
+      "esm.ts",
+      "pkg/index.ts",
+      "root.ts",
+      "side.ts",
+      "sub/re.ts",
+    ]);
     expect(unresolved.some((u) => u.endsWith("-> ./nope"))).toBe(true);
     // Bare specifiers are dependencies, not closure members — they are pinned
     // by the lockfile input instead.
@@ -273,7 +291,11 @@ describe("closure crawl", () => {
     const dir = tmp("cycle");
     const a = write(dir, "a.ts", 'import "./b";\nexport const a = 1;\n');
     write(dir, "b.ts", 'import "./a";\nexport const b = 2;\n');
-    expect(collectSchemaInputs([a]).files.map((f) => relative(dir, f)).sort()).toEqual(["a.ts", "b.ts"]);
+    expect(
+      collectSchemaInputs([a])
+        .files.map((f) => relative(dir, f))
+        .sort(),
+    ).toEqual(["a.ts", "b.ts"]);
   });
 
   test("adding an import to a crawled file adds it to the key with no list to update", () => {
@@ -285,11 +307,11 @@ describe("closure crawl", () => {
     write(dir, "added.ts", "export const b = 2;\n");
     writeFileSync(root, 'import "./dep";\nimport "./added";\n');
 
-    expect(collectSchemaInputs([root]).files.map((f) => relative(dir, f)).sort()).toEqual([
-      "added.ts",
-      "dep.ts",
-      "root.ts",
-    ]);
+    expect(
+      collectSchemaInputs([root])
+        .files.map((f) => relative(dir, f))
+        .sort(),
+    ).toEqual(["added.ts", "dep.ts", "root.ts"]);
     expect(schemaFingerprint({ roots: [root], repoRoot: dir, env: NO_ENV })).not.toBe(before);
   });
 
@@ -408,7 +430,9 @@ describe("cache storage", () => {
     // A FILE where the cache directory should be: mkdirSync throws ENOTDIR.
     const blocked = join(dir, "blocked");
     writeFileSync(blocked, "not a directory");
-    expect(await writeCachedSnapshot("k1", new Blob(["x"]), { dir: blocked, env: NO_ENV })).toBe(false);
+    expect(await writeCachedSnapshot("k1", new Blob(["x"]), { dir: blocked, env: NO_ENV })).toBe(
+      false,
+    );
     expect(await readCachedSnapshot("k1", { dir: blocked, env: NO_ENV })).toBeUndefined();
   });
 
@@ -510,7 +534,9 @@ describe("cache storage", () => {
 
   test("the default cache dir is repo-local scratch, and is overridable", () => {
     expect(snapshotCacheDir(NO_ENV)).toBe(join(REPO_ROOT, ".cache", "pglite-snapshots"));
-    expect(snapshotCacheDir({ EZ_PGLITE_SNAPSHOT_CACHE_DIR: "/tmp/elsewhere" })).toBe("/tmp/elsewhere");
+    expect(snapshotCacheDir({ EZ_PGLITE_SNAPSHOT_CACHE_DIR: "/tmp/elsewhere" })).toBe(
+      "/tmp/elsewhere",
+    );
     // `.cache` is gitignored, so entries can never be committed.
     expect(readFileSync(join(REPO_ROOT, ".gitignore"), "utf8")).toMatch(/^\.cache$/m);
   });
@@ -592,14 +618,22 @@ describe("the hit path does not lie", () => {
     await seed.close();
     await writeCachedSnapshot("iso", snapshot, { dir, env: NO_ENV });
 
-    const first = new PGlite({ loadDataDir: await readCachedSnapshot("iso", { dir, env: NO_ENV }), extensions: EXTENSIONS });
+    const first = new PGlite({
+      loadDataDir: await readCachedSnapshot("iso", { dir, env: NO_ENV }),
+      extensions: EXTENSIONS,
+    });
     await first.waitReady;
     await first.query("INSERT INTO projects (id, name, path) VALUES ('leak-probe', 'x', '/')");
     await first.close();
 
-    const second = new PGlite({ loadDataDir: await readCachedSnapshot("iso", { dir, env: NO_ENV }), extensions: EXTENSIONS });
+    const second = new PGlite({
+      loadDataDir: await readCachedSnapshot("iso", { dir, env: NO_ENV }),
+      extensions: EXTENSIONS,
+    });
     await second.waitReady;
-    const rows = await second.query<{ id: string }>("SELECT id FROM projects WHERE id = 'leak-probe'");
+    const rows = await second.query<{ id: string }>(
+      "SELECT id FROM projects WHERE id = 'leak-probe'",
+    );
     expect(rows.rows).toEqual([]);
     await second.close();
   }, 60_000);

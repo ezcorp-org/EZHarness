@@ -26,9 +26,7 @@ const { loadHistory } = await import("../runtime/stream-chat/load-history");
 const { PREPROCESS_RESULT_ROLE } = await import("../runtime/stream-chat/preprocess-shared");
 const { createUser } = await import("../db/queries/users");
 const { createProject } = await import("../db/queries/projects");
-const { createConversation, createMessage } = await import(
-  "../db/queries/conversations"
-);
+const { createConversation, createMessage } = await import("../db/queries/conversations");
 import type { StreamChatContext } from "../runtime/stream-chat/context";
 
 const SAFE_CWD = tmpdir();
@@ -110,11 +108,7 @@ describe("loadHistory — preprocess-result filter", () => {
 
     // 4 DB rows, 1 filtered → 3 LLM messages.
     expect(result.history.length).toBe(3);
-    expect(result.history.map((m) => m.role)).toEqual([
-      "user",
-      "assistant",
-      "user",
-    ]);
+    expect(result.history.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
 
     const blob = result.history.map((m) => textOf(m.content)).join("\n");
     expect(blob).toContain("what is this slab worth?");

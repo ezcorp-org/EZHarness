@@ -18,11 +18,7 @@ vi.mock("node:fs/promises", () => ({
 
 const { GET } = await import("../routes/api/fs/list/+server");
 
-function makeEvent(opts: {
-  dir?: string;
-  locals?: Record<string, unknown>;
-  hidden?: boolean;
-}) {
+function makeEvent(opts: { dir?: string; locals?: Record<string, unknown>; hidden?: boolean }) {
   const qs = new URLSearchParams();
   if (opts.dir) qs.set("dir", opts.dir);
   if (opts.hidden) qs.set("hidden", "1");
@@ -78,9 +74,7 @@ describe("GET /api/fs/list", () => {
   });
 
   test("rejects 403 when API-key lacks 'read' scope", async () => {
-    const res = await GET(
-      makeEvent({ locals: { ...adminLocals, apiKeyScopes: ["chat"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { ...adminLocals, apiKeyScopes: ["chat"] } }));
     expect(res.status).toBe(403);
   });
 
@@ -95,9 +89,7 @@ describe("GET /api/fs/list", () => {
   test("returns 403 when real path escapes sandbox", async () => {
     realpath.mockImplementationOnce(async () => "/tmp/ezcorp-test-sandbox");
     realpath.mockImplementationOnce(async () => "/etc");
-    const res = await GET(
-      makeEvent({ locals: adminLocals, dir: "/tmp/ezcorp-test-sandbox/evil" }),
-    );
+    const res = await GET(makeEvent({ locals: adminLocals, dir: "/tmp/ezcorp-test-sandbox/evil" }));
     expect(res.status).toBe(403);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toContain("path outside allowed sandbox");

@@ -12,26 +12,26 @@ import { inlineToolStore } from "$lib/inline-tool-store.svelte.js";
  * the store's persisted shape into the prop shape.
  */
 export function getHistoricalToolCalls(messageId: string): ToolCallState[] {
-	const calls = inlineToolStore.getByMessage(messageId);
-	if (calls.length === 0) return [];
-	return calls.map((c, i) => ({
-		id: c.id,
-		toolName: c.toolName,
-		status:
-			c.status === "complete"
-				? ("complete" as const)
-				: c.status === "error"
-					? ("error" as const)
-					: ("running" as const),
-		input: c.input,
-		output: c.output,
-		error: c.error,
-		startedAt: c.startedAt ?? i,
-		duration: c.duration,
-		extensionId: c.extensionName,
-		cardType: c.cardType,
-		// Preserve cardLayout so ToolCallCard's `routeToDock` derived can fire
-		// for persisted dock-routed cards (canvas-dock-sdk.md §5).
-		cardLayout: c.cardLayout,
-	}));
+  const calls = inlineToolStore.getByMessage(messageId);
+  if (calls.length === 0) return [];
+  return calls.map((c, i) => ({
+    id: c.id,
+    toolName: c.toolName,
+    status:
+      c.status === "complete"
+        ? ("complete" as const)
+        : c.status === "error"
+          ? ("error" as const)
+          : ("running" as const),
+    input: c.input,
+    output: c.output,
+    error: c.error,
+    startedAt: c.startedAt ?? i,
+    duration: c.duration,
+    extensionId: c.extensionName,
+    cardType: c.cardType,
+    // Preserve cardLayout so ToolCallCard's `routeToDock` derived can fire
+    // for persisted dock-routed cards (canvas-dock-sdk.md §5).
+    cardLayout: c.cardLayout,
+  }));
 }

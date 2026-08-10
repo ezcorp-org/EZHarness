@@ -32,26 +32,16 @@ vi.mock("$server/db/queries/settings", () => ({
   upsertSetting: vi.fn(async () => undefined),
 }));
 
-const { getListingById, incrementInstallCount } = await import(
-  "$server/db/queries/marketplace"
-);
-const { getLatestVersion, getVersion } = await import(
-  "$server/db/queries/marketplace-versions"
-);
+const { getListingById, incrementInstallCount } = await import("$server/db/queries/marketplace");
+const { getLatestVersion, getVersion } = await import("$server/db/queries/marketplace-versions");
 const { createAgentConfig, getAgentConfigByName } = await import(
   "$server/db/queries/agent-configs"
 );
 const { insertAuditEntry } = await import("$server/db/queries/audit-log");
 const { upsertSetting } = await import("$server/db/queries/settings");
-const { POST } = await import(
-  "../routes/api/marketplace/[id]/install/+server.ts"
-);
+const { POST } = await import("../routes/api/marketplace/[id]/install/+server.ts");
 
-function makeEvent(opts: {
-  id?: string;
-  locals?: Record<string, unknown>;
-  body?: unknown;
-}) {
+function makeEvent(opts: { id?: string; locals?: Record<string, unknown>; body?: unknown }) {
   const id = opts.id ?? "listing-1";
   const href = `http://localhost/api/marketplace/${id}/install`;
   return {
@@ -122,9 +112,7 @@ describe("POST /api/marketplace/[id]/install", () => {
 
   test("returns 404 when the listing does not exist", async () => {
     vi.mocked(getListingById).mockResolvedValue(null as any);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: {} }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: {} }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Not found");
@@ -135,9 +123,7 @@ describe("POST /api/marketplace/[id]/install", () => {
     vi.mocked(getListingById).mockResolvedValue({
       id: "listing-1",
     } as any);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { version: "" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { version: "" } }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Invalid request body");
@@ -148,9 +134,7 @@ describe("POST /api/marketplace/[id]/install", () => {
       id: "listing-1",
     } as any);
     vi.mocked(getLatestVersion).mockResolvedValue(null as any);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: {} }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: {} }));
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Version not found");
@@ -163,9 +147,7 @@ describe("POST /api/marketplace/[id]/install", () => {
       id: "listing-1",
     } as any);
     vi.mocked(getVersion).mockResolvedValue(null as any);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: { version: "1.2.3" } }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: { version: "1.2.3" } }));
     expect(res.status).toBe(404);
     expect(getVersion).toHaveBeenCalledWith("listing-1", "1.2.3");
     expect(getLatestVersion).not.toHaveBeenCalled();
@@ -179,9 +161,7 @@ describe("POST /api/marketplace/[id]/install", () => {
       version: "1.0.0",
       manifest: { name: "X", description: "x" }, // no agent
     } as any);
-    const res = await POST(
-      makeEvent({ locals: { user }, body: {} }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: {} }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Listing has no agent definition");
@@ -202,9 +182,7 @@ describe("POST /api/marketplace/[id]/install", () => {
       description: "An agent",
     } as any);
 
-    const res = await POST(
-      makeEvent({ locals: { user }, body: {} }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: {} }));
     expect(res.status).toBe(201);
     const body = (await res.json()) as {
       agentConfig: { id: string; name: string };
@@ -236,12 +214,10 @@ describe("POST /api/marketplace/[id]/install", () => {
       }),
     );
     expect(incrementInstallCount).toHaveBeenCalledWith("listing-1");
-    expect(insertAuditEntry).toHaveBeenCalledWith(
-      "u1",
-      "marketplace:install",
-      "listing-1",
-      { version: "2.0.0", agentConfigId: "agent-1" },
-    );
+    expect(insertAuditEntry).toHaveBeenCalledWith("u1", "marketplace:install", "listing-1", {
+      version: "2.0.0",
+      agentConfigId: "agent-1",
+    });
   });
 
   test("name collision: appends '(Marketplace)' suffix when a config with the same name already exists", async () => {
@@ -260,9 +236,7 @@ describe("POST /api/marketplace/[id]/install", () => {
       name: "Marketplace Agent (Marketplace)",
     } as any);
 
-    const res = await POST(
-      makeEvent({ locals: { user }, body: {} }),
-    );
+    const res = await POST(makeEvent({ locals: { user }, body: {} }));
     expect(res.status).toBe(201);
     expect(createAgentConfig).toHaveBeenCalledWith(
       expect.objectContaining({

@@ -99,7 +99,9 @@ describe("POST /api/preview/:id/token", () => {
 
 describe("matchPreviewOrigin", () => {
   test("matches a configured preview host", () => {
-    const req = new Request("http://x/", { headers: { host: `${VALID_ID}.preview.ezcorp.example.com` } });
+    const req = new Request("http://x/", {
+      headers: { host: `${VALID_ID}.preview.ezcorp.example.com` },
+    });
     expect(matchPreviewOrigin(req)).toEqual({ previewId: VALID_ID });
   });
 
@@ -110,7 +112,9 @@ describe("matchPreviewOrigin", () => {
 
   test("disabled when EZCORP_PREVIEW_APP_HOST is unset", () => {
     delete process.env.EZCORP_PREVIEW_APP_HOST;
-    const req = new Request("http://x/", { headers: { host: `${VALID_ID}.preview.ezcorp.example.com` } });
+    const req = new Request("http://x/", {
+      headers: { host: `${VALID_ID}.preview.ezcorp.example.com` },
+    });
     expect(matchPreviewOrigin(req)).toBeNull();
   });
 });
@@ -210,7 +214,11 @@ describe("servePreviewRequest dynamic passthrough (Phase 3a)", () => {
   test("proxies an authorized dynamic preview to the pinned dev port (port-pin + cookie strip)", async () => {
     verifyPreviewToken.mockResolvedValue({ previewId: VALID_ID, userId: "u1" });
     getServablePreview.mockResolvedValue({
-      id: VALID_ID, userId: "u1", kind: "dynamic", staticPath: null, targetPort: 5173,
+      id: VALID_ID,
+      userId: "u1",
+      kind: "dynamic",
+      staticPath: null,
+      targetPort: 5173,
     });
     // Intercept the loopback fetch the passthrough makes.
     let fetched: { url: string; host: string | null; cookie: string | null } | null = null;
@@ -218,7 +226,10 @@ describe("servePreviewRequest dynamic passthrough (Phase 3a)", () => {
     globalThis.fetch = (async (input: any, init?: any) => {
       const h = new Headers(init?.headers);
       fetched = { url: String(input), host: h.get("host"), cookie: h.get("cookie") };
-      return new Response("<h1>dev</h1>", { status: 200, headers: { "Content-Type": "text/html" } });
+      return new Response("<h1>dev</h1>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      });
     }) as typeof fetch;
     try {
       const req = new Request(`http://${VALID_ID}.preview.ezcorp.example.com/app.js?v=1`, {
@@ -240,7 +251,11 @@ describe("servePreviewRequest dynamic passthrough (Phase 3a)", () => {
   test("dev server down → graceful 502", async () => {
     verifyPreviewToken.mockResolvedValue({ previewId: VALID_ID, userId: "u1" });
     getServablePreview.mockResolvedValue({
-      id: VALID_ID, userId: "u1", kind: "dynamic", staticPath: null, targetPort: 5173,
+      id: VALID_ID,
+      userId: "u1",
+      kind: "dynamic",
+      staticPath: null,
+      targetPort: 5173,
     });
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async () => {
@@ -311,7 +326,9 @@ describe("meterResponseBody (per-preview byte budget)", () => {
       },
     });
   }
-  async function drain(stream: ReadableStream<Uint8Array>): Promise<{ bytes: number; errored: boolean }> {
+  async function drain(
+    stream: ReadableStream<Uint8Array>,
+  ): Promise<{ bytes: number; errored: boolean }> {
     const reader = stream.getReader();
     let bytes = 0;
     try {
@@ -336,7 +353,12 @@ describe("meterResponseBody (per-preview byte budget)", () => {
 
   test("errors the stream when a chunk exceeds the budget", async () => {
     let calls = 0;
-    const quota = { allowBytes: () => { calls++; return calls === 1; } };
+    const quota = {
+      allowBytes: () => {
+        calls++;
+        return calls === 1;
+      },
+    };
     const out = meterResponseBody(streamOf("aaa", "bbb"), "p1", quota);
     const r = await drain(out);
     expect(r.errored).toBe(true);
@@ -345,7 +367,12 @@ describe("meterResponseBody (per-preview byte budget)", () => {
 
   test("charges the preview id passed in", async () => {
     const seen: string[] = [];
-    const quota = { allowBytes: (id: string) => { seen.push(id); return true; } };
+    const quota = {
+      allowBytes: (id: string) => {
+        seen.push(id);
+        return true;
+      },
+    };
     const out = meterResponseBody(streamOf("x"), "preview-xyz", quota);
     await drain(out);
     expect(seen).toEqual(["preview-xyz"]);

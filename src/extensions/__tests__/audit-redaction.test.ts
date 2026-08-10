@@ -115,7 +115,8 @@ describe("redactForAudit — bearer / JWT / header keys", () => {
   });
 
   test("fixture 15: JWT in body string (not header)", () => {
-    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+    const jwt =
+      "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NSJ9.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
     const out = redactForAudit({ note: `please decode ${jwt}` });
     assertNoLiteral(out.redacted, jwt);
     expect(out.redactedFields).toContain("note");
@@ -290,11 +291,20 @@ describe("redactForAudit — robustness of the contract", () => {
   test("returns failure marker if walk somehow throws (defense in depth)", () => {
     // Construct a Proxy that throws on any get. The walk must catch and
     // return the failure marker rather than propagate.
-    const poison = new Proxy({}, {
-      get() { throw new Error("poison get"); },
-      ownKeys() { throw new Error("poison ownKeys"); },
-      getOwnPropertyDescriptor() { throw new Error("poison desc"); },
-    });
+    const poison = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("poison get");
+        },
+        ownKeys() {
+          throw new Error("poison ownKeys");
+        },
+        getOwnPropertyDescriptor() {
+          throw new Error("poison desc");
+        },
+      },
+    );
     const out = redactForAudit(poison);
     // Either we successfully treated it as an opaque object, or we hit
     // the failure marker. Both are acceptable; what's NOT acceptable is

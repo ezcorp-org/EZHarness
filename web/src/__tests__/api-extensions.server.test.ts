@@ -148,9 +148,7 @@ describe("POST /api/extensions", () => {
   });
 
   test("returns 400 when source is missing", async () => {
-    const res = await POST(
-      makeEvent({ locals: { user: adminUser }, body: {}, method: "POST" }),
-    );
+    const res = await POST(makeEvent({ locals: { user: adminUser }, body: {}, method: "POST" }));
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error?: string };
     expect(typeof body.error).toBe("string");

@@ -8,11 +8,17 @@
 
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../../../../../../../src/__tests__/helpers/mock-cleanup";
-import { mockServerAlias, MEMBER_USER } from "../../../../../../../../src/__tests__/helpers/mock-request";
+import {
+  mockServerAlias,
+  MEMBER_USER,
+} from "../../../../../../../../src/__tests__/helpers/mock-request";
 
 mockServerAlias();
 
-mock.module("../../../../../../../../web/src/routes/api/conversations/[id]/extension-toolbar/$types", () => ({}));
+mock.module(
+  "../../../../../../../../web/src/routes/api/conversations/[id]/extension-toolbar/$types",
+  () => ({}),
+);
 mock.module("$lib/server/security/api-keys", () => ({
   requireScope: () => null,
 }));
@@ -23,7 +29,11 @@ mock.module("$lib/server/http-errors", () => httpErrorsActual);
 
 // ── Mocks ───────────────────────────────────────────────────────
 
-interface MockConv { id: string; userId: string; projectId: string }
+interface MockConv {
+  id: string;
+  userId: string;
+  projectId: string;
+}
 interface MockInstalledExt {
   id: string;
   name: string;
@@ -58,11 +68,14 @@ beforeEach(() => {
   mockInstalled = [];
 });
 
-function installExt(name: string, opts: {
-  toolbar?: Array<Record<string, unknown>>;
-  events?: string[];
-  enabled?: boolean;
-}): void {
+function installExt(
+  name: string,
+  opts: {
+    toolbar?: Array<Record<string, unknown>>;
+    events?: string[];
+    enabled?: boolean;
+  },
+): void {
   mockInstalled.push({
     id: `ext-${name}`,
     name,
@@ -80,10 +93,13 @@ function evt(id = "conv-1", user: typeof MEMBER_USER | null = MEMBER_USER) {
   } as any;
 }
 
-function manifest(name: string, opts: {
-  toolbar?: Array<Record<string, unknown>>;
-  events?: string[];
-}): Record<string, unknown> {
+function manifest(
+  name: string,
+  opts: {
+    toolbar?: Array<Record<string, unknown>>;
+    events?: string[];
+  },
+): Record<string, unknown> {
   return {
     schemaVersion: 2,
     name,
@@ -141,18 +157,32 @@ describe("extension-toolbar — union of contributions", () => {
   test("two installed extensions → union of toolbar items", async () => {
     installExt("a", {
       events: ["a:speak"],
-      toolbar: [{ id: "speak", icon: "Volume2", tooltip: "speak", appliesTo: "both", event: "a:speak" }],
+      toolbar: [
+        { id: "speak", icon: "Volume2", tooltip: "speak", appliesTo: "both", event: "a:speak" },
+      ],
     });
     installExt("b", {
       events: ["b:summarize"],
-      toolbar: [{ id: "sum", icon: "FileText", tooltip: "sum", appliesTo: "assistant", event: "b:summarize" }],
+      toolbar: [
+        {
+          id: "sum",
+          icon: "FileText",
+          tooltip: "sum",
+          appliesTo: "assistant",
+          event: "b:summarize",
+        },
+      ],
     });
     const res = await GET(evt() as any);
     const body = await res.json();
     expect(body.items).toHaveLength(2);
     const byExt = new Map(body.items.map((i: any) => [i.extName, i]));
     expect(byExt.get("a")).toMatchObject({ id: "speak", event: "a:speak", appliesTo: "both" });
-    expect(byExt.get("b")).toMatchObject({ id: "sum", event: "b:summarize", appliesTo: "assistant" });
+    expect(byExt.get("b")).toMatchObject({
+      id: "sum",
+      event: "b:summarize",
+      appliesTo: "assistant",
+    });
   });
 
   test("appliesTo defaults to 'both' when omitted", async () => {
@@ -191,7 +221,9 @@ describe("extension-toolbar — union of contributions", () => {
     });
     const res = await GET(evt() as any);
     const body = await res.json();
-    const byId = new Map((body.items as Array<{ id: string; appliesToSelection: string }>).map((it) => [it.id, it]));
+    const byId = new Map(
+      (body.items as Array<{ id: string; appliesToSelection: string }>).map((it) => [it.id, it]),
+    );
     expect(byId.get("s")?.appliesToSelection).toBe("single");
     expect(byId.get("b")?.appliesToSelection).toBe("bulk");
     expect(byId.get("x")?.appliesToSelection).toBe("both");

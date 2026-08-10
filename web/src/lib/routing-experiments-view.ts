@@ -22,8 +22,8 @@
  */
 
 import {
-	type ExplorationRateValidation,
-	validateExplorationRate,
+  type ExplorationRateValidation,
+  validateExplorationRate,
 } from "$server/runtime/routing/exploration";
 import { validateShadowThresholds } from "$server/runtime/routing/shadow";
 import type { TierThresholds } from "$server/runtime/tier-classifier";
@@ -44,19 +44,19 @@ export const HIGH_EXPLORATION_RATE = 0.2;
 /** The stored probability as the percentage the form shows, or `null` (an
  *  empty box) when exploration is off. */
 export function percentFromRate(rate: number): number | null {
-	if (rate <= 0) return null;
-	return Number((rate * 100).toFixed(PERCENT_DECIMALS));
+  if (rate <= 0) return null;
+  return Number((rate * 100).toFixed(PERCENT_DECIMALS));
 }
 
 /** The typed percentage as a stored probability, or the reason it is not one. */
 export function rateFromPercent(percent: number | null): ExplorationRateValidation {
-	// An empty box is not a typo — it is the operator turning exploration off.
-	if (percent === null || !Number.isFinite(percent)) return { ok: true, rate: 0 };
-	const checked = validateExplorationRate(Number((percent / 100).toFixed(RATE_DECIMALS)));
-	if (checked.ok) return checked;
-	// The backend's own message is phrased in fractions because that is what it
-	// stores; this box is a percentage, so say it in the operator's units.
-	return { ok: false, error: `${percent}% is not a share of traffic — enter 0 to 100` };
+  // An empty box is not a typo — it is the operator turning exploration off.
+  if (percent === null || !Number.isFinite(percent)) return { ok: true, rate: 0 };
+  const checked = validateExplorationRate(Number((percent / 100).toFixed(RATE_DECIMALS)));
+  if (checked.ok) return checked;
+  // The backend's own message is phrased in fractions because that is what it
+  // stores; this box is a percentage, so say it in the operator's units.
+  return { ok: false, error: `${percent}% is not a share of traffic — enter 0 to 100` };
 }
 
 /**
@@ -67,15 +67,15 @@ export function rateFromPercent(percent: number | null): ExplorationRateValidati
  * ceremony — making things safer should never need a confirmation.
  */
 export function needsAcknowledgement(current: number, next: number): boolean {
-	return next > current;
+  return next > current;
 }
 
 /** How loudly the impact line should read. */
 export type ExplorationLevel = "off" | "on" | "high";
 
 export interface ExplorationImpact {
-	level: ExplorationLevel;
-	text: string;
+  level: ExplorationLevel;
+  text: string;
 }
 
 /**
@@ -85,37 +85,40 @@ export interface ExplorationImpact {
  * answer.
  */
 export function explorationImpact(rate: number): ExplorationImpact {
-	if (rate <= 0) {
-		return { level: "off", text: "Off — every routed turn is served the tier the classifier picked." };
-	}
-	const share = rate >= 1 ? "Every routed turn" : `About 1 in ${Math.round(1 / rate)} routed turns`;
-	return {
-		level: rate > HIGH_EXPLORATION_RATE ? "high" : "on",
-		text:
-			`${share} will be answered one tier BELOW what the classifier asked for. ` +
-			"Some of those answers will be worse — that is the price of the data.",
-	};
+  if (rate <= 0) {
+    return {
+      level: "off",
+      text: "Off — every routed turn is served the tier the classifier picked.",
+    };
+  }
+  const share = rate >= 1 ? "Every routed turn" : `About 1 in ${Math.round(1 / rate)} routed turns`;
+  return {
+    level: rate > HIGH_EXPLORATION_RATE ? "high" : "on",
+    text:
+      `${share} will be answered one tier BELOW what the classifier asked for. ` +
+      "Some of those answers will be worse — that is the price of the data.",
+  };
 }
 
 /** The shadow form's two boxes. `null` is an empty box, not a zero. */
 export interface ShadowForm {
-	fastMaxTokens: number | null;
-	powerfulMinTokens: number | null;
+  fastMaxTokens: number | null;
+  powerfulMinTokens: number | null;
 }
 
 /** What the two boxes currently amount to. `empty` is shadow mode OFF — the
  *  same thing an absent setting means. */
 export type ShadowFormState =
-	| { kind: "empty" }
-	| { kind: "invalid"; error: string }
-	| { kind: "valid"; thresholds: TierThresholds };
+  | { kind: "empty" }
+  | { kind: "invalid"; error: string }
+  | { kind: "valid"; thresholds: TierThresholds };
 
 /** The stored candidate as form values; both boxes empty when it is unset. */
 export function shadowFormFrom(thresholds: TierThresholds | undefined): ShadowForm {
-	return {
-		fastMaxTokens: thresholds?.fastMaxTokens ?? null,
-		powerfulMinTokens: thresholds?.powerfulMinTokens ?? null,
-	};
+  return {
+    fastMaxTokens: thresholds?.fastMaxTokens ?? null,
+    powerfulMinTokens: thresholds?.powerfulMinTokens ?? null,
+  };
 }
 
 /**
@@ -127,27 +130,27 @@ export function shadowFormFrom(thresholds: TierThresholds | undefined): ShadowFo
  * inverted-pair explanation the form shows is the server's own sentence.
  */
 export function readShadowForm(form: ShadowForm): ShadowFormState {
-	const { fastMaxTokens, powerfulMinTokens } = form;
-	if (fastMaxTokens === null && powerfulMinTokens === null) return { kind: "empty" };
-	if (fastMaxTokens === null || powerfulMinTokens === null) {
-		return {
-			kind: "invalid",
-			error: "Set both thresholds, or clear both to turn shadow mode off.",
-		};
-	}
-	const checked = validateShadowThresholds({ fastMaxTokens, powerfulMinTokens });
-	if (!checked.ok) return { kind: "invalid", error: checked.error };
-	return { kind: "valid", thresholds: checked.thresholds };
+  const { fastMaxTokens, powerfulMinTokens } = form;
+  if (fastMaxTokens === null && powerfulMinTokens === null) return { kind: "empty" };
+  if (fastMaxTokens === null || powerfulMinTokens === null) {
+    return {
+      kind: "invalid",
+      error: "Set both thresholds, or clear both to turn shadow mode off.",
+    };
+  }
+  const checked = validateShadowThresholds({ fastMaxTokens, powerfulMinTokens });
+  if (!checked.ok) return { kind: "invalid", error: checked.error };
+  return { kind: "valid", thresholds: checked.thresholds };
 }
 
 /** True when `form` names the candidate that is already stored — a save would
  *  rewrite the row with what it already holds. */
 export function shadowUnchanged(form: ShadowForm, stored: TierThresholds | undefined): boolean {
-	const current = shadowFormFrom(stored);
-	return (
-		form.fastMaxTokens === current.fastMaxTokens &&
-		form.powerfulMinTokens === current.powerfulMinTokens
-	);
+  const current = shadowFormFrom(stored);
+  return (
+    form.fastMaxTokens === current.fastMaxTokens &&
+    form.powerfulMinTokens === current.powerfulMinTokens
+  );
 }
 
 /**
@@ -157,6 +160,6 @@ export function shadowUnchanged(form: ShadowForm, stored: TierThresholds | undef
  * (a dropped connection) falls back to generic text.
  */
 export function saveErrorMessage(err: unknown): string {
-	if (err instanceof Error && err.message) return err.message;
-	return "Save failed — the setting was not changed.";
+  if (err instanceof Error && err.message) return err.message;
+  return "Save failed — the setting was not changed.";
 }

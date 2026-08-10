@@ -1,10 +1,6 @@
 import { mock, test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import {
-  stubAssistantMessage,
-  setupPiAiMocks,
-  resetMockAgent,
-} from "./helpers/mock-pi-ai";
+import { stubAssistantMessage, setupPiAiMocks, resetMockAgent } from "./helpers/mock-pi-ai";
 import type { AgentEvents } from "../types";
 
 afterAll(() => {
@@ -385,7 +381,9 @@ describe("AgentExecutor.streamChat", () => {
           this._subs.push(cb);
           return () => {};
         }
-        abort() { abortCalled = true; }
+        abort() {
+          abortCalled = true;
+        }
         async prompt() {
           // Emit one token
           for (const sub of this._subs) {
@@ -417,7 +415,9 @@ describe("AgentExecutor.streamChat", () => {
 
     const tokens: string[] = [];
     bus.on("run:token", ({ token }) => tokens.push(token));
-    bus.on("run:start", ({ run }) => { capturedRunId = run.id; });
+    bus.on("run:start", ({ run }) => {
+      capturedRunId = run.id;
+    });
 
     const runPromise = exec.streamChat("conv-timeout", "hello", {});
 
@@ -487,10 +487,14 @@ describe("AgentExecutor.streamChat", () => {
     const exec = new AgentExecutor(new Map(), bus, { persist: false });
 
     let completeData: any;
-    bus.on("run:complete", (data) => { completeData = data; });
+    bus.on("run:complete", (data) => {
+      completeData = data;
+    });
 
     let startData: any;
-    bus.on("run:start", (data) => { startData = data; });
+    bus.on("run:start", (data) => {
+      startData = data;
+    });
 
     const run = await exec.streamChat("conv-shape", "test", {});
 
@@ -511,7 +515,10 @@ describe("AgentExecutor.streamChat", () => {
       Agent: class MockAgent {
         state = { error: null };
         private _subs: any[] = [];
-        subscribe(cb: any) { this._subs.push(cb); return () => {}; }
+        subscribe(cb: any) {
+          this._subs.push(cb);
+          return () => {};
+        }
         abort() {}
         async prompt() {
           throw new Error("provider down");
@@ -523,7 +530,9 @@ describe("AgentExecutor.streamChat", () => {
     const exec = new AgentExecutor(new Map(), bus, { persist: false });
 
     let errorData: any;
-    bus.on("run:error", (data) => { errorData = data; });
+    bus.on("run:error", (data) => {
+      errorData = data;
+    });
 
     const run = await exec.streamChat("conv-err-shape", "test", {});
 
@@ -541,7 +550,10 @@ describe("AgentExecutor.streamChat", () => {
       Agent: class MockAgent {
         state = { error: null };
         private _subs: any[] = [];
-        subscribe(cb: any) { this._subs.push(cb); return () => {}; }
+        subscribe(cb: any) {
+          this._subs.push(cb);
+          return () => {};
+        }
         abort() {}
         async prompt() {
           for (const sub of this._subs) {

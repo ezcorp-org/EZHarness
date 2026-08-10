@@ -10,15 +10,26 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock, spyOn } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb,
+  closeTestDb,
+  mockDbConnection,
+  getTestDb,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
@@ -41,21 +52,21 @@ import {
 import { createUser } from "../../db/queries/users";
 import { addConversationExtensions } from "../../db/queries/conversation-extensions";
 import {
-  extensions, conversations, projects, conversationExtensions,
-  sdkCapabilityCalls, messages, errorLogs, auditLog,
-  workflowApprovals, workflowRuns,
+  extensions,
+  conversations,
+  projects,
+  conversationExtensions,
+  sdkCapabilityCalls,
+  messages,
+  errorLogs,
+  auditLog,
+  workflowApprovals,
+  workflowRuns,
 } from "../../db/schema";
 import { eq } from "drizzle-orm";
-import type {
-  ExtensionManifestV2,
-  ExtensionPermissions,
-  JsonRpcRequest,
-} from "../types";
+import type { ExtensionManifestV2, ExtensionPermissions, JsonRpcRequest } from "../types";
 import type { WorkflowDefinition, WorkflowRun } from "../../types";
-import {
-  systemCachedWorkflow,
-  type CachedWorkflow,
-} from "../../runtime/workflow-scope";
+import { systemCachedWorkflow, type CachedWorkflow } from "../../runtime/workflow-scope";
 
 let userId: string;
 let extensionId: string;
@@ -96,7 +107,7 @@ function registerRuntime(workflows: WorkflowDefinition[] = [SHIPPED, HOST_WORKFL
       // resumes. Throws rather than returning a value so an accidental
       // call fails loudly instead of silently passing.
       async resumeWorkflow() {
-      throw new Error("resumeWorkflow is not exercised by this double");
+        throw new Error("resumeWorkflow is not exercised by this double");
       },
       async runWorkflow(workflow, input, proj, uid, _signal, opts) {
         started.push({
@@ -168,20 +179,33 @@ async function auditRows() {
 beforeAll(async () => {
   await setupTestDb();
   const u = await createUser({
-    email: "wf-h@example.com", passwordHash: "h", name: "U",
-    role: "admin", status: "active",
+    email: "wf-h@example.com",
+    passwordHash: "h",
+    name: "U",
+    role: "admin",
+    status: "active",
   });
   userId = u.id;
-  const [row] = await getTestDb().insert(extensions).values({
-    name: EXT_NAME, version: "0.0.1", description: "",
-    manifest: manifest() as never,
-    source: "test", enabled: true, grantedPermissions: granted() as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name: EXT_NAME,
+      version: "0.0.1",
+      description: "",
+      manifest: manifest() as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: granted() as never,
+    })
+    .returning({ id: extensions.id });
   extensionId = row!.id;
-  const [proj] = await getTestDb().insert(projects)
-    .values({ name: "wf-proj", path: "/tmp/wf" }).returning({ id: projects.id });
+  const [proj] = await getTestDb()
+    .insert(projects)
+    .values({ name: "wf-proj", path: "/tmp/wf" })
+    .returning({ id: projects.id });
   projectId = proj!.id;
-  const [conv] = await getTestDb().insert(conversations)
+  const [conv] = await getTestDb()
+    .insert(conversations)
     .values({ projectId, userId, title: "t", kind: "regular" })
     .returning({ id: conversations.id });
   conversationId = conv!.id;
@@ -326,21 +350,26 @@ describe("accept path", () => {
   test("does NOT block on the run (returns before the graph finishes)", async () => {
     let release: (() => void) | undefined;
     let graphFinished = false;
-    const blocked = new Promise<void>((r) => { release = r; });
+    const blocked = new Promise<void>((r) => {
+      release = r;
+    });
     registerWorkflowRuntime({
       workflowExecutor: {
         // Type-only: these doubles exercise the trigger path, which never
         // resumes. Throws rather than returning a value so an accidental
         // call fails loudly instead of silently passing.
         async resumeWorkflow() {
-        throw new Error("resumeWorkflow is not exercised by this double");
+          throw new Error("resumeWorkflow is not exercised by this double");
         },
         async runWorkflow(workflow) {
           await blocked;
           graphFinished = true;
           return {
-            id: "r", workflowName: workflow.name, status: "success",
-            startedAt: 0, steps: [],
+            id: "r",
+            workflowName: workflow.name,
+            status: "success",
+            startedAt: 0,
+            steps: [],
           } satisfies WorkflowRun;
         },
       },
@@ -376,7 +405,10 @@ describe("namespacing — an extension cannot reach the host's workflow", () => 
     // The forge attempt: name a foreign namespace directly.
     const resp = await handleWorkflowsRpc(
       req({ workflow: "other-ext:deploy" }),
-      ctx({ manifest: manifest(["other-ext:deploy"]), grantedPermissions: granted({ names: ["other-ext:deploy"] }) }),
+      ctx({
+        manifest: manifest(["other-ext:deploy"]),
+        grantedPermissions: granted({ names: ["other-ext:deploy"] }),
+      }),
     );
 
     expect(resp.error?.code).toBe(-32602);
@@ -402,11 +434,17 @@ describe("namespacing — an extension cannot reach the host's workflow", () => 
         // resumes. Throws rather than returning a value so an accidental
         // call fails loudly instead of silently passing.
         async resumeWorkflow() {
-        throw new Error("resumeWorkflow is not exercised by this double");
+          throw new Error("resumeWorkflow is not exercised by this double");
         },
         async runWorkflow(workflow, input) {
           started.push({ workflow, input });
-          return { id: "r", workflowName: workflow.name, status: "success", startedAt: 0, steps: [] };
+          return {
+            id: "r",
+            workflowName: workflow.name,
+            status: "success",
+            startedAt: 0,
+            steps: [],
+          };
         },
       },
       getWorkflows: () => cache,
@@ -462,7 +500,10 @@ describe("enforcement ladder — rejections", () => {
   });
 
   test("2. a structurally empty grant authorizes nothing", async () => {
-    const resp = await handleWorkflowsRpc(req(), ctx({ grantedPermissions: granted({ names: [] }) }));
+    const resp = await handleWorkflowsRpc(
+      req(),
+      ctx({ grantedPermissions: granted({ names: [] }) }),
+    );
 
     expect(reasonOf(resp)).toBe("WORKFLOWS_NOT_GRANTED");
     expect(resp.error?.code).toBe(-32001);
@@ -471,7 +512,10 @@ describe("enforcement ladder — rejections", () => {
   });
 
   test("2. a non-positive rate ceiling authorizes nothing", async () => {
-    const resp = await handleWorkflowsRpc(req(), ctx({ grantedPermissions: granted({ maxRunsPerHour: 0 }) }));
+    const resp = await handleWorkflowsRpc(
+      req(),
+      ctx({ grantedPermissions: granted({ maxRunsPerHour: 0 }) }),
+    );
 
     expect(reasonOf(resp)).toBe("WORKFLOWS_NOT_GRANTED");
     expect(resp.error?.code).toBe(-32001);
@@ -503,10 +547,7 @@ describe("enforcement ladder — rejections", () => {
   test("4. a STALE grant naming a workflow the manifest no longer declares", async () => {
     // The exploit this rung exists for: the author narrowed the manifest but
     // the stored grant still lists the old name.
-    const resp = await handleWorkflowsRpc(
-      req(),
-      ctx({ manifest: manifest(["something-else"]) }),
-    );
+    const resp = await handleWorkflowsRpc(req(), ctx({ manifest: manifest(["something-else"]) }));
 
     expect(reasonOf(resp)).toBe("WORKFLOW_NOT_DECLARED");
     expect(resp.error?.code).toBe(-32001);
@@ -561,12 +602,12 @@ describe("enforcement ladder — rejections", () => {
     const resp = await handleWorkflowsRpc(
       req(),
       ctx({
-      engine: {
-        async authorize(_c: unknown, needed: unknown) {
-          seen.push(needed);
-          return { decision: "allow" };
-        },
-      } as unknown as WorkflowsHandlerContext["engine"],
+        engine: {
+          async authorize(_c: unknown, needed: unknown) {
+            seen.push(needed);
+            return { decision: "allow" };
+          },
+        } as unknown as WorkflowsHandlerContext["engine"],
       }),
     );
 
@@ -600,7 +641,9 @@ describe("enforcement ladder — rejections", () => {
     await handleWorkflowsRpc(req(), ctx({ userId: "unknown" }));
 
     expect(await auditRows()).toHaveLength(0);
-    const rows = await getTestDb().select().from(auditLog)
+    const rows = await getTestDb()
+      .select()
+      .from(auditLog)
       .where(eq(auditLog.action, "ext:workflow-trigger-no-owner"));
     expect(rows).toHaveLength(1);
     expect(rows[0]?.userId).toBeNull();
@@ -687,7 +730,8 @@ describe("enforcement ladder — rejections", () => {
     );
 
     const shed = responses.filter(
-      (r) => (r.error?.data as { reason?: string } | undefined)?.reason === "WORKFLOWS_RATE_LIMITED",
+      (r) =>
+        (r.error?.data as { reason?: string } | undefined)?.reason === "WORKFLOWS_RATE_LIMITED",
     );
     expect(shed).toHaveLength(60 - BUCKET_TOKENS);
     expect(shed[0]?.error?.code).toBe(-32029);
@@ -729,7 +773,7 @@ describe("enforcement ladder — rejections", () => {
         // resumes. Throws rather than returning a value so an accidental
         // call fails loudly instead of silently passing.
         async resumeWorkflow() {
-        throw new Error("resumeWorkflow is not exercised by this double");
+          throw new Error("resumeWorkflow is not exercised by this double");
         },
         runWorkflow: () => Promise.reject(new Error("executor bug")),
       } as never,
@@ -757,7 +801,7 @@ describe("enforcement ladder — rejections", () => {
         // resumes. Throws rather than returning a value so an accidental
         // call fails loudly instead of silently passing.
         async resumeWorkflow() {
-        throw new Error("resumeWorkflow is not exercised by this double");
+          throw new Error("resumeWorkflow is not exercised by this double");
         },
         runWorkflow() {
           throw new Error("executor exploded");
@@ -884,7 +928,12 @@ describe("op: approvals — the LLM-facing read", () => {
     expect(first.requireItemConsent).toBe(true);
     expect(first.itemIds).toEqual(["a.ts", "b.ts"]);
 
-    const relay = first.relay as { stop: boolean; directive: string | null; text: string; items: string[] };
+    const relay = first.relay as {
+      stop: boolean;
+      directive: string | null;
+      text: string;
+      items: string[];
+    };
     expect(relay.stop).toBe(true);
     expect(relay.directive).toContain("VERBATIM");
     expect(relay.text.startsWith(relay.directive!)).toBe(true);
@@ -897,8 +946,11 @@ describe("op: approvals — the LLM-facing read", () => {
   test("never reports another user's parked decision", async () => {
     // The prompt names what is about to be done and to what.
     const other = await createUser({
-      email: "wf-other@example.com", passwordHash: "h", name: "O",
-      role: "member", status: "active",
+      email: "wf-other@example.com",
+      passwordHash: "h",
+      name: "O",
+      role: "member",
+      status: "active",
     });
     await park({ workflowName: `${EXT_NAME}:deploy`, owner: other.id, prompt: "Secret" });
 
@@ -956,11 +1008,17 @@ describe("op: approvals — the LLM-facing read", () => {
     await park({ workflowName: `${EXT_NAME}:deploy` });
     for (let i = 0; i < 30; i++) {
       _resetWorkflowRateLimitForTests(extensionId);
-      const resp = await handleWorkflowsRpc(readReq(), ctx({ grantedPermissions: granted({ maxRunsPerHour: 1 }) }));
+      const resp = await handleWorkflowsRpc(
+        readReq(),
+        ctx({ grantedPermissions: granted({ maxRunsPerHour: 1 }) }),
+      );
       expect(resp.error).toBeUndefined();
     }
     _resetWorkflowRateLimitForTests(extensionId);
-    const triggered = await handleWorkflowsRpc(req(), ctx({ grantedPermissions: granted({ maxRunsPerHour: 1 }) }));
+    const triggered = await handleWorkflowsRpc(
+      req(),
+      ctx({ grantedPermissions: granted({ maxRunsPerHour: 1 }) }),
+    );
     expect(triggered.error).toBeUndefined();
     expect(started).toHaveLength(1);
   });
@@ -991,9 +1049,7 @@ describe("op: approvals — the LLM-facing read", () => {
   test("is rate limited — a read is cheap, not free", async () => {
     // Frozen clock — see `withFrozenClock`. Unfrozen, this loop raced the
     // bucket's 50/s refill and lost on any box where a read costs >20ms.
-    const { calls, refusal } = await drainBucket(() =>
-      handleWorkflowsRpc(readReq(), ctx()),
-    );
+    const { calls, refusal } = await drainBucket(() => handleWorkflowsRpc(readReq(), ctx()));
 
     expect(refusal).toMatchObject({ reason: "WORKFLOWS_RATE_LIMITED" });
     // Exactly a full bucket of accepted reads, then the refusal — the rung
@@ -1102,8 +1158,11 @@ describe("op: runs — the ONLY correlation path from a trigger to its run", () 
 
   test("never reports another user's run", async () => {
     const other = await createUser({
-      email: "wf-runs-other@example.com", passwordHash: "h", name: "O",
-      role: "member", status: "active",
+      email: "wf-runs-other@example.com",
+      passwordHash: "h",
+      name: "O",
+      role: "member",
+      status: "active",
     });
     await seedRun({ workflowName: `${EXT_NAME}:deploy`, owner: other.id });
 
@@ -1328,9 +1387,7 @@ describe("op: runs — the ONLY correlation path from a trigger to its run", () 
   test("is rate limited — a read is cheap, not free", async () => {
     // Frozen clock — see `withFrozenClock`. Same defect as the `approvals`
     // twin above: this loop used to race the bucket's wall-clock refill.
-    const { calls, refusal } = await drainBucket(() =>
-      handleWorkflowsRpc(runsReq(), ctx()),
-    );
+    const { calls, refusal } = await drainBucket(() => handleWorkflowsRpc(runsReq(), ctx()));
 
     expect(refusal).toMatchObject({ reason: "WORKFLOWS_RATE_LIMITED" });
     expect(calls).toBe(BUCKET_TOKENS + 1);
@@ -1429,10 +1486,7 @@ describe("op: run — the jobRef correlation handle", () => {
     test("exactly at the length cap is accepted", async () => {
       // Discrimination for the cap: off-by-one in the other direction
       // would refuse a legal handle.
-      const res = await handleWorkflowsRpc(
-        req({ jobRef: "j".repeat(MAX_JOB_REF_LEN) }),
-        ctx(),
-      );
+      const res = await handleWorkflowsRpc(req({ jobRef: "j".repeat(MAX_JOB_REF_LEN) }), ctx());
       expect("result" in res).toBe(true);
     });
 
@@ -1775,7 +1829,10 @@ describe("rung 2 — a delegated-only grant clears the structural check", () => 
       itemIds: [],
     });
     const readReq: JsonRpcRequest = {
-      jsonrpc: "2.0", id: 21, method: "ezcorp/workflows", params: { v: 1, op: "approvals" },
+      jsonrpc: "2.0",
+      id: 21,
+      method: "ezcorp/workflows",
+      params: { v: 1, op: "approvals" },
     };
 
     // CONTROL — the named grant sees it, so the fixture is real.
@@ -1803,7 +1860,10 @@ describe("rung 2 — a delegated-only grant clears the structural check", () => 
       userId,
     });
     const readReq: JsonRpcRequest = {
-      jsonrpc: "2.0", id: 22, method: "ezcorp/workflows", params: { v: 1, op: "runs" },
+      jsonrpc: "2.0",
+      id: 22,
+      method: "ezcorp/workflows",
+      params: { v: 1, op: "runs" },
     };
 
     // CONTROL — the named grant sees it.

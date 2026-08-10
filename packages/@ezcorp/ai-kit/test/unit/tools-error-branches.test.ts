@@ -51,7 +51,12 @@ describe("MCP tool handler error / fallback branches", () => {
     } as unknown as EzcorpClient;
     const mcp = await connectWith(registerChat, client);
     try {
-      const res = read(await mcp.callTool({ name: "cancel_run", arguments: { conversationId: "c-x", force: true } }));
+      const res = read(
+        await mcp.callTool({
+          name: "cancel_run",
+          arguments: { conversationId: "c-x", force: true },
+        }),
+      );
       expect(String(res.url)).toContain("project=unknown");
     } finally {
       await mcp.close();
@@ -128,7 +133,10 @@ describe("MCP tool handler error / fallback branches", () => {
     } as unknown as EzcorpClient;
     const mcp = await connectWith(registerDiscover, client);
     try {
-      const res = (await mcp.callTool({ name: "extension_search", arguments: { query: "ext" } })) as ToolText;
+      const res = (await mcp.callTool({
+        name: "extension_search",
+        arguments: { query: "ext" },
+      })) as ToolText;
       expect(JSON.parse(res.content[0]!.text)).toEqual(hits);
     } finally {
       await mcp.close();

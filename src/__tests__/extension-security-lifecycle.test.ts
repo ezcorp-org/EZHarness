@@ -1,5 +1,10 @@
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
-import { mockDbConnection, mockRealSettings, setupTestDb, closeTestDb } from "./helpers/test-pglite";
+import {
+  mockDbConnection,
+  mockRealSettings,
+  setupTestDb,
+  closeTestDb,
+} from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 // Must mock DB connection before importing modules that use it
@@ -21,10 +26,7 @@ import {
   getRequiredPermissions,
   isSensitiveOperation,
 } from "../extensions/permissions";
-import {
-  computePackageChecksums,
-  verifyPackageChecksums,
-} from "../extensions/checksum";
+import { computePackageChecksums, verifyPackageChecksums } from "../extensions/checksum";
 import type { ExtensionPermissions, ExtensionManifestV2 } from "../extensions/types";
 import type { NewExtension } from "../db/schema";
 import { join } from "path";
@@ -399,9 +401,7 @@ describe("PDP edge cases — replaces dead checkPermission unit tests", () => {
 
   test("filesystem path outside granted prefix → deny", async () => {
     const engine = makeEngineWithGrant({ grantedAt: {}, filesystem: ["/home"] });
-    const decision = await engine.authorize(CTX, [
-      { kind: "fs.read", value: "/etc/passwd" },
-    ]);
+    const decision = await engine.authorize(CTX, [{ kind: "fs.read", value: "/etc/passwd" }]);
     expect(decision.decision).toBe("deny");
   });
 
@@ -413,9 +413,7 @@ describe("PDP edge cases — replaces dead checkPermission unit tests", () => {
 
   test("env variable not in granted list → deny", async () => {
     const engine = makeEngineWithGrant({ grantedAt: {}, env: ["PUBLIC_KEY"] });
-    const decision = await engine.authorize(CTX, [
-      { kind: "env", value: "SECRET_KEY" },
-    ]);
+    const decision = await engine.authorize(CTX, [{ kind: "env", value: "SECRET_KEY" }]);
     expect(decision.decision).toBe("deny");
   });
 
@@ -424,9 +422,7 @@ describe("PDP edge cases — replaces dead checkPermission unit tests", () => {
       grantedAt: {},
       network: ["api.example.com"],
     });
-    const decision = await engine.authorize(CTX, [
-      { kind: "network", value: "api.example.com" },
-    ]);
+    const decision = await engine.authorize(CTX, [{ kind: "network", value: "api.example.com" }]);
     expect(decision.decision).toBe("allow");
   });
 
@@ -443,9 +439,7 @@ describe("PDP edge cases — replaces dead checkPermission unit tests", () => {
 
   test("env variable in granted list → allow", async () => {
     const engine = makeEngineWithGrant({ grantedAt: {}, env: ["PUBLIC_KEY"] });
-    const decision = await engine.authorize(CTX, [
-      { kind: "env", value: "PUBLIC_KEY" },
-    ]);
+    const decision = await engine.authorize(CTX, [{ kind: "env", value: "PUBLIC_KEY" }]);
     expect(decision.decision).toBe("allow");
   });
 });

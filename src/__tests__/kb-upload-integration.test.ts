@@ -5,7 +5,9 @@ import { EMBEDDING_DIM, mockEmbeddingsModule } from "./helpers/mock-vectors";
 mockDbConnection();
 mockEmbeddingsModule();
 
-const { insertKBFile, listKBFiles, updateKBFile, insertKBChunk, getKBFile } = await import("../db/queries/knowledge-base");
+const { insertKBFile, listKBFiles, updateKBFile, insertKBChunk, getKBFile } = await import(
+  "../db/queries/knowledge-base"
+);
 const { createProject } = await import("../db/queries/projects");
 const { chunkText, isAllowedFile } = await import("../memory/chunking");
 const { generateEmbedding } = await import("../memory/embeddings");
@@ -24,7 +26,8 @@ afterAll(async () => {
 
 describe("KB Upload Integration", () => {
   test("full upload flow: insert file, chunk text, embed chunks, update status", async () => {
-    const fileContent = "# Hello World\n\nThis is a test document for the knowledge base upload flow.\n\nIt has multiple paragraphs to verify chunking works correctly.\n\nEach paragraph should be processed and embedded.";
+    const fileContent =
+      "# Hello World\n\nThis is a test document for the knowledge base upload flow.\n\nIt has multiple paragraphs to verify chunking works correctly.\n\nEach paragraph should be processed and embedded.";
     const filename = "test-upload.md";
 
     // Step 1: Validate file type
@@ -72,7 +75,7 @@ describe("KB Upload Integration", () => {
 
     // Step 6: Verify the file is listed and has correct status
     const files = await listKBFiles(projectId);
-    const uploaded = files.find(f => f.id === kbFile.id);
+    const uploaded = files.find((f) => f.id === kbFile.id);
     expect(uploaded).toBeDefined();
     expect(uploaded!.status).toBe("ready");
     expect(uploaded!.chunkCount).toBe(chunks.length);
@@ -147,7 +150,7 @@ describe("KB Upload Integration", () => {
     let asyncResult: string | undefined;
     const asyncPromise = (async () => {
       // Small delay to simulate response being sent first
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
       asyncResult = await extractedFile.text();
     })();
 
@@ -179,7 +182,7 @@ describe("KB Upload Integration", () => {
     }
 
     // Verify all content is covered (no gaps)
-    const totalContent = chunks.map(c => c.content).join("");
+    const totalContent = chunks.map((c) => c.content).join("");
     // Due to overlap, joined content will be longer than original
     expect(totalContent.length).toBeGreaterThanOrEqual(content.length);
   });

@@ -78,7 +78,13 @@ const USER_MSG = "user-msg-1";
 const PP_ROW = "preprocess-row-1";
 
 function makeCtx(overrides: Partial<StreamChatContext> = {}): StreamChatContext {
-  const run: AgentRun = { id: RUN_ID, agentName: "chat", status: "running", startedAt: 1_000, logs: [] };
+  const run: AgentRun = {
+    id: RUN_ID,
+    agentName: "chat",
+    status: "running",
+    startedAt: 1_000,
+    logs: [],
+  };
   return {
     run,
     allTurnsText: "streamed reply text",

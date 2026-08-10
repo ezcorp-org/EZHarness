@@ -19,10 +19,7 @@ import type { RequestHandler } from "./$types";
 import { getSetting } from "$server/db/queries/settings";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
-import {
-  DEFAULT_SELECTION_SETTING_KEY,
-  parseDefaultSelection,
-} from "$lib/model-selector-logic";
+import { DEFAULT_SELECTION_SETTING_KEY, parseDefaultSelection } from "$lib/model-selector-logic";
 
 export const GET: RequestHandler = async ({ locals }) => {
   const scopeErr = requireScope(locals, "read");

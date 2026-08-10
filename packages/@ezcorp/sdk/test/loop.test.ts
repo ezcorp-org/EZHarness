@@ -44,11 +44,7 @@ import type { LoopEvents } from "../src/runtime/loop-events";
 import type { LoopCheckContext } from "../src/runtime/loop-types";
 import { Llm } from "../src/runtime/llm";
 import { createLoopRunStore } from "../src/runtime/loop-store";
-import {
-  __resetChannelForTests,
-  getChannel,
-  type HostChannel,
-} from "../src/runtime/channel";
+import { __resetChannelForTests, getChannel, type HostChannel } from "../src/runtime/channel";
 import type { StorageScope } from "../src/runtime/storage";
 import type { LoopMessage } from "../src/runtime/loop-types";
 import type { TaskAssignmentUpdateEvent } from "../src/runtime/host-event-types";
@@ -131,15 +127,12 @@ beforeEach(() => {
   __resetChannelForTests();
   captured = new Map();
   const ch: HostChannel = getChannel();
-  spyOn(ch, "onRequest").mockImplementation(((
-    method: string,
-    handler: (p: unknown) => unknown,
-  ) => {
+  spyOn(ch, "onRequest").mockImplementation(((method: string, handler: (p: unknown) => unknown) => {
     captured.set(method, handler);
   }) as HostChannel["onRequest"]);
   // Default seams: empty settings, a deterministic store factory.
   _setSettingsResolverForTests(async () => ({}));
-  _setStoreFactoryForTests((<O,>(loopId: string, contract: unknown) =>
+  _setStoreFactoryForTests((<O>(loopId: string, contract: unknown) =>
     createLoopRunStore<O>(loopId, contract as never, makeKv())) as never);
   // No-op approval-event emitter — the auto-disable path now emits a nudge
   // via the reverse RPC, which would hang against the channel's default
@@ -676,11 +669,7 @@ describe("act-result validation", () => {
 // determinism-by-construction guard that lives in the type system, not a
 // runtime convention. (Also asserted structurally at runtime below.)
 type Absent<K extends string> = K extends keyof LoopCheckContext ? never : true;
-const _firewall: [Absent<"llm">, Absent<"spawn">, Absent<"recentMessages">] = [
-  true,
-  true,
-  true,
-];
+const _firewall: [Absent<"llm">, Absent<"spawn">, Absent<"recentMessages">] = [true, true, true];
 void _firewall;
 
 describe("check stage", () => {
@@ -876,7 +865,10 @@ describe("check stage", () => {
     });
     await fireEvent("run:complete", {});
     expect(gotFetch).toBe(fakeResponse);
-    expect(gotFire).toMatchObject({ trigger: { kind: "event", event: "run:complete" }, catchUp: false });
+    expect(gotFire).toMatchObject({
+      trigger: { kind: "event", event: "run:complete" },
+      catchUp: false,
+    });
   });
 
   test("FIREWALL: the check context has no llm / spawn / recentMessages at runtime", async () => {

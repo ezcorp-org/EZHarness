@@ -206,11 +206,12 @@ beforeEach(() => {
   updateProposalMock = mock((id: string, patch: Record<string, unknown>) =>
     Promise.resolve({ id, ...patch }),
   );
-  claimProposalMock = mock(
-    (id: string, _from: readonly string[], patch: Record<string, unknown>) =>
-      Promise.resolve<unknown>({ ...makeProposal({ id }), ...patch }),
+  claimProposalMock = mock((id: string, _from: readonly string[], patch: Record<string, unknown>) =>
+    Promise.resolve<unknown>({ ...makeProposal({ id }), ...patch }),
   );
-  createConversationMock = mock((_pid: string, _opts: unknown) => Promise.resolve({ id: "conv-1" }));
+  createConversationMock = mock((_pid: string, _opts: unknown) =>
+    Promise.resolve({ id: "conv-1" }),
+  );
   createMessageMock = mock((_cid: string, _data: Record<string, unknown>) =>
     Promise.resolve({ id: "msg-seed" }),
   );

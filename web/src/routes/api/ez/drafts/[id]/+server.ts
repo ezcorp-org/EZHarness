@@ -28,7 +28,14 @@ import { requireScope } from "$lib/server/security/api-keys";
 import { getDraft, consumeDraft } from "$server/db/queries/ez-drafts";
 import type { RequestHandler } from "./$types";
 
-function shapeDraft(row: { id: string; kind: string; payload: Record<string, unknown>; createdAt: Date; expiresAt: Date; consumedAt: Date | null }) {
+function shapeDraft(row: {
+  id: string;
+  kind: string;
+  payload: Record<string, unknown>;
+  createdAt: Date;
+  expiresAt: Date;
+  consumedAt: Date | null;
+}) {
   return {
     id: row.id,
     kind: row.kind,
@@ -50,7 +57,8 @@ export const GET: RequestHandler = async ({ params, locals }) => {
     if (!draftId) return errorJson(400, "Draft id is required");
 
     const row = await getDraft(draftId, user.id);
-    if (!row) return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
+    if (!row)
+      return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
     return json(shapeDraft(row));
   } catch (e) {
     if (e instanceof Response) return e;
@@ -86,7 +94,8 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
     }
 
     const updated = await consumeDraft(draftId, user.id);
-    if (!updated) return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
+    if (!updated)
+      return errorJson(404, "Draft not found, expired, or not owned by the requesting user");
     return json(shapeDraft(updated));
   } catch (e) {
     if (e instanceof Response) return e;

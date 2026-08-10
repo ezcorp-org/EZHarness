@@ -26,25 +26,12 @@
  * backed PGlite path that Phase 2 proved works.
  */
 
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  mock,
-  test,
-} from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { unlink } from "node:fs/promises";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import {
-  closeTestDb,
-  mockDbConnection,
-  setupTestDb,
-} from "./helpers/test-pglite";
+import { closeTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
 // Wire a real settings module backed by the test DB — mirrors the
 // pattern in `perm-expiry-sweep.integration.test.ts`. The sweep reads
@@ -57,9 +44,7 @@ mock.module("../db/queries/settings", () => {
     async getAllSettings() {
       const { getDb } = require("../db/connection");
       const rows = await getDb().select().from(tbl);
-      return Object.fromEntries(
-        rows.map((r: { key: string; value: unknown }) => [r.key, r.value]),
-      );
+      return Object.fromEntries(rows.map((r: { key: string; value: unknown }) => [r.key, r.value]));
     },
     async getSetting(key: string) {
       const { getDb } = require("../db/connection");
@@ -71,10 +56,7 @@ mock.module("../db/queries/settings", () => {
       const db = getDb();
       const rows = await db.select().from(tbl).where(eq(tbl.key, key));
       if (rows[0]) {
-        await db
-          .update(tbl)
-          .set({ value, updatedAt: new Date() })
-          .where(eq(tbl.key, key));
+        await db.update(tbl).set({ value, updatedAt: new Date() }).where(eq(tbl.key, key));
       } else {
         await db.insert(tbl).values({ key, value, updatedAt: new Date() });
       }
@@ -271,10 +253,7 @@ describe("HostMaintenanceDaemon — lifecycle", () => {
     // Verify the DB was rewritten by the interval-driven tick.
     const db = getDb();
     const { eq } = await import("drizzle-orm");
-    const rows = await db
-      .select()
-      .from(extensions)
-      .where(eq(extensions.id, "ext-tick"));
+    const rows = await db.select().from(extensions).where(eq(extensions.id, "ext-tick"));
     expect(rows).toHaveLength(1);
     const perms = rows[0]?.grantedPermissions;
     expect(perms?.network).toBeUndefined();
@@ -357,10 +336,7 @@ describe("HostMaintenanceDaemon — PID lockfile", () => {
   });
 
   test("sibling-prevention: second daemon refuses start when a genuine live sibling holds the lock", async () => {
-    const lockPath = join(
-      tmpdir(),
-      `ezcorp-test-lock-sibling-${Date.now()}.pid`,
-    );
+    const lockPath = join(tmpdir(), `ezcorp-test-lock-sibling-${Date.now()}.pid`);
     // A genuine live sibling: a foreign live PID whose identity token still
     // matches. PID 1 is always alive; stamp its real /proc start-time so the
     // recompute matches → refuse.
@@ -377,10 +353,7 @@ describe("HostMaintenanceDaemon — PID lockfile", () => {
   });
 
   test("reclaim: a prior-boot lockfile holding our reused PID does NOT wedge start (restart fix)", async () => {
-    const lockPath = join(
-      tmpdir(),
-      `ezcorp-test-lock-reused-${Date.now()}.pid`,
-    );
+    const lockPath = join(tmpdir(), `ezcorp-test-lock-reused-${Date.now()}.pid`);
     // The cross-restart self-deadlock: a `.pid` whose stored PID got reused
     // as ours used to refuse forever. It must now be reclaimed.
     await Bun.write(lockPath, `${process.pid} prior-boot-token`);
@@ -396,10 +369,7 @@ describe("HostMaintenanceDaemon — PID lockfile", () => {
   });
 
   test("stale lockfile (PID of dead process) is overwritten", async () => {
-    const lockPath = join(
-      tmpdir(),
-      `ezcorp-test-lock-stale-${Date.now()}.pid`,
-    );
+    const lockPath = join(tmpdir(), `ezcorp-test-lock-stale-${Date.now()}.pid`);
     // A dead PID well above the typical ceiling → stale → reclaim.
     await Bun.write(lockPath, "999999999 dead-token");
     const daemon = new HostMaintenanceDaemon({
@@ -417,10 +387,7 @@ describe("HostMaintenanceDaemon — PID lockfile", () => {
   });
 
   test("stop() releases lockfile so a third daemon can start", async () => {
-    const lockPath = join(
-      tmpdir(),
-      `ezcorp-test-lock-release-${Date.now()}.pid`,
-    );
+    const lockPath = join(tmpdir(), `ezcorp-test-lock-release-${Date.now()}.pid`);
 
     const first = new HostMaintenanceDaemon({
       wakeIntervalMs: 60_000,
@@ -443,12 +410,8 @@ describe("HostMaintenanceDaemon — PID lockfile", () => {
   });
 
   test("isProcessAlive helper: own PID alive, bogus PID not alive, zero/negative not alive", () => {
-    expect(_hostMaintenanceDaemonInternals.isProcessAlive(process.pid)).toBe(
-      true,
-    );
-    expect(_hostMaintenanceDaemonInternals.isProcessAlive(999_999_999)).toBe(
-      false,
-    );
+    expect(_hostMaintenanceDaemonInternals.isProcessAlive(process.pid)).toBe(true);
+    expect(_hostMaintenanceDaemonInternals.isProcessAlive(999_999_999)).toBe(false);
     expect(_hostMaintenanceDaemonInternals.isProcessAlive(0)).toBe(false);
     expect(_hostMaintenanceDaemonInternals.isProcessAlive(-1)).toBe(false);
   });
@@ -459,16 +422,12 @@ describe("HostMaintenanceDaemon — PID lockfile", () => {
 describe("getSweepIntervalMs — env-var parsing", () => {
   test("unset → DEFAULT_WAKE_MS (1h)", () => {
     delete process.env.EZCORP_PERM_SWEEP_INTERVAL_MS;
-    expect(getSweepIntervalMs()).toBe(
-      _hostMaintenanceDaemonInternals.DEFAULT_WAKE_MS,
-    );
+    expect(getSweepIntervalMs()).toBe(_hostMaintenanceDaemonInternals.DEFAULT_WAKE_MS);
   });
 
   test("empty string → DEFAULT_WAKE_MS", () => {
     process.env.EZCORP_PERM_SWEEP_INTERVAL_MS = "";
-    expect(getSweepIntervalMs()).toBe(
-      _hostMaintenanceDaemonInternals.DEFAULT_WAKE_MS,
-    );
+    expect(getSweepIntervalMs()).toBe(_hostMaintenanceDaemonInternals.DEFAULT_WAKE_MS);
   });
 
   test("valid integer above floor → that integer", () => {
@@ -478,37 +437,27 @@ describe("getSweepIntervalMs — env-var parsing", () => {
 
   test("non-numeric → DEFAULT_WAKE_MS, no throw", () => {
     process.env.EZCORP_PERM_SWEEP_INTERVAL_MS = "abc";
-    expect(getSweepIntervalMs()).toBe(
-      _hostMaintenanceDaemonInternals.DEFAULT_WAKE_MS,
-    );
+    expect(getSweepIntervalMs()).toBe(_hostMaintenanceDaemonInternals.DEFAULT_WAKE_MS);
   });
 
   test("negative → DEFAULT_WAKE_MS", () => {
     process.env.EZCORP_PERM_SWEEP_INTERVAL_MS = "-100";
-    expect(getSweepIntervalMs()).toBe(
-      _hostMaintenanceDaemonInternals.DEFAULT_WAKE_MS,
-    );
+    expect(getSweepIntervalMs()).toBe(_hostMaintenanceDaemonInternals.DEFAULT_WAKE_MS);
   });
 
   test("zero → DEFAULT_WAKE_MS", () => {
     process.env.EZCORP_PERM_SWEEP_INTERVAL_MS = "0";
-    expect(getSweepIntervalMs()).toBe(
-      _hostMaintenanceDaemonInternals.DEFAULT_WAKE_MS,
-    );
+    expect(getSweepIntervalMs()).toBe(_hostMaintenanceDaemonInternals.DEFAULT_WAKE_MS);
   });
 
   test("below MIN_WAKE_MS floor → clamped to MIN_WAKE_MS", () => {
     process.env.EZCORP_PERM_SWEEP_INTERVAL_MS = "100";
-    expect(getSweepIntervalMs()).toBe(
-      _hostMaintenanceDaemonInternals.MIN_WAKE_MS,
-    );
+    expect(getSweepIntervalMs()).toBe(_hostMaintenanceDaemonInternals.MIN_WAKE_MS);
   });
 
   test("Infinity → DEFAULT_WAKE_MS (non-finite check)", () => {
     process.env.EZCORP_PERM_SWEEP_INTERVAL_MS = "Infinity";
-    expect(getSweepIntervalMs()).toBe(
-      _hostMaintenanceDaemonInternals.DEFAULT_WAKE_MS,
-    );
+    expect(getSweepIntervalMs()).toBe(_hostMaintenanceDaemonInternals.DEFAULT_WAKE_MS);
   });
 
   test("constructor passes env-var through clamp — `100` becomes 1000", async () => {
@@ -654,15 +603,9 @@ describe("HostMaintenanceDaemon — tick safety", () => {
     expect(outcome.errors).toEqual([]);
     daemon.stop();
 
-    const goodRows = await db
-      .select()
-      .from(extensions)
-      .where(eq(extensions.id, "ext-good"));
+    const goodRows = await db.select().from(extensions).where(eq(extensions.id, "ext-good"));
     expect(goodRows[0]?.grantedPermissions?.network).toBeUndefined();
-    const skipRows = await db
-      .select()
-      .from(extensions)
-      .where(eq(extensions.id, "ext-skip"));
+    const skipRows = await db.select().from(extensions).where(eq(extensions.id, "ext-skip"));
     expect(skipRows[0]?.grantedPermissions?.network).toEqual(["api.y"]);
   });
 
@@ -720,9 +663,7 @@ describe("HostMaintenanceDaemon — tick safety", () => {
                   set: () => ({
                     where: () => ({
                       returning: () =>
-                        Promise.reject(
-                          new Error("simulated DB failure (test stub)"),
-                        ),
+                        Promise.reject(new Error("simulated DB failure (test stub)")),
                     }),
                   }),
                 };
@@ -825,12 +766,10 @@ describe("HostMaintenanceDaemon — tick safety", () => {
     });
     const key = "ext:ext-aa-daemon:user-1:forever:*:always_allow:shell";
     const db = getDb();
-    await db
-      .insert(settings)
-      .values({
-        key,
-        value: sql`${JSON.stringify({ allowed: true, grantedAt: NOW - 91 * DAY_MS })}::jsonb`,
-      });
+    await db.insert(settings).values({
+      key,
+      value: sql`${JSON.stringify({ allowed: true, grantedAt: NOW - 91 * DAY_MS })}::jsonb`,
+    });
 
     const daemon = new HostMaintenanceDaemon({
       wakeIntervalMs: 60_000,
@@ -844,13 +783,8 @@ describe("HostMaintenanceDaemon — tick safety", () => {
     daemon.stop();
 
     const { eq } = await import("drizzle-orm");
-    const stored = await db
-      .select()
-      .from(settings)
-      .where(eq(settings.key, key));
-    const value = stored[0]?.value as
-      | { allowed: boolean; grantedAt: number }
-      | undefined;
+    const stored = await db.select().from(settings).where(eq(settings.key, key));
+    const value = stored[0]?.value as { allowed: boolean; grantedAt: number } | undefined;
     expect(value?.allowed).toBe(false);
     expect(value?.grantedAt).toBe(NOW);
   });

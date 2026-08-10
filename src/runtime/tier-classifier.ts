@@ -266,10 +266,7 @@ export function estimateTurnTokens(input: TierClassifierInput): number {
  * `reason`/`estTokens` exist so the wiring can stamp provenance without
  * re-deriving (or drifting from) the decision it actually acted on.
  */
-export function classifyTierVerdict(
-  input: TierClassifierInput,
-  scorer?: TierScorer,
-): TierVerdict {
+export function classifyTierVerdict(input: TierClassifierInput, scorer?: TierScorer): TierVerdict {
   const estTokens = estimateTurnTokens(input);
   // 1. A declared tier need (extension manifest / EZ-action) is a
   //    correctness requirement — honor it above everything else.
@@ -318,7 +315,8 @@ export function classifyTierVerdict(
   // with the cheapest models.
   if ((input.toolCount ?? 0) > 0) return { tier: "balanced", reason: "tool-count", estTokens };
   // Short, tool-less turn → cheap/fast.
-  if (estTokens <= thresholds.fastMaxTokens) return { tier: "fast", reason: "short-turn", estTokens };
+  if (estTokens <= thresholds.fastMaxTokens)
+    return { tier: "fast", reason: "short-turn", estTokens };
   // Everything in between.
   return { tier: "balanced", reason: "midsize-turn", estTokens };
 }
@@ -418,9 +416,10 @@ export interface RoutingSignalsOptions {
  * tools; a read-only restriction keeps tools present but non-complex; a
  * `none` restriction means no tools at all.
  */
-export function estimateToolSignals(
-  o: RoutingSignalsOptions,
-): { toolCount: number; hasComplexTools: boolean } {
+export function estimateToolSignals(o: RoutingSignalsOptions): {
+  toolCount: number;
+  hasComplexTools: boolean;
+} {
   if (o.toolRestriction === "none") return { toolCount: 0, hasComplexTools: false };
   const readOnly = o.toolRestriction === "read-only";
   const toolCount = (o.projectId ? 1 : 0) + (o.agentConfigId ? 1 : 0);

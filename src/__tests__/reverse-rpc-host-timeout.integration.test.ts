@@ -30,10 +30,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import {
-  HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS,
-  ToolExecutor,
-} from "../extensions/tool-executor";
+import { HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS, ToolExecutor } from "../extensions/tool-executor";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import {
   __resetChannelForTests,
@@ -94,9 +91,7 @@ afterEach(() => {
  *  HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS. Leaves any other captured timer
  *  (the SDK child's 30s default) untouched. */
 function fireHostBound(): void {
-  const rec = captured.find(
-    (t) => !t.cleared && t.ms === HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS,
-  );
+  const rec = captured.find((t) => !t.cleared && t.ms === HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS);
   if (!rec) throw new Error("host bound timer not armed");
   rec.cleared = true;
   rec.fn();
@@ -164,17 +159,11 @@ function createPipe(): Pipe {
 }
 
 function makeStubProc(): {
-  installedRequestHandler:
-    | ((req: JsonRpcRequest) => Promise<JsonRpcResponse>)
-    | null;
+  installedRequestHandler: ((req: JsonRpcRequest) => Promise<JsonRpcResponse>) | null;
 } & ExtensionProcess {
   const proc: {
-    installedRequestHandler:
-      | ((req: JsonRpcRequest) => Promise<JsonRpcResponse>)
-      | null;
-    setRequestHandler: (
-      h: (req: JsonRpcRequest) => Promise<JsonRpcResponse>,
-    ) => void;
+    installedRequestHandler: ((req: JsonRpcRequest) => Promise<JsonRpcResponse>) | null;
+    setRequestHandler: (h: (req: JsonRpcRequest) => Promise<JsonRpcResponse>) => void;
     setNotificationHandler: (h: (n: unknown) => void) => void;
   } = {
     installedRequestHandler: null,
@@ -202,16 +191,15 @@ function makeStubRegistry(): ExtensionRegistry {
 async function wireWithStalledStorage(): Promise<
   (req: JsonRpcRequest) => Promise<JsonRpcResponse>
 > {
-  const executor = new ToolExecutor(
-    makeStubRegistry(),
-    createStubPermissionEngine(),
-  );
+  const executor = new ToolExecutor(makeStubRegistry(), createStubPermissionEngine());
   // Replace the instance method the `route` closure dispatches to. The
   // bounded wrapper calls `route(req)` → `this.handlePiStorage(...)`;
   // overriding it on the instance makes that branch hang forever.
-  (executor as unknown as {
-    handlePiStorage: () => Promise<JsonRpcResponse>;
-  }).handlePiStorage = () => new Promise<JsonRpcResponse>(() => {});
+  (
+    executor as unknown as {
+      handlePiStorage: () => Promise<JsonRpcResponse>;
+    }
+  ).handlePiStorage = () => new Promise<JsonRpcResponse>(() => {});
   const proc = makeStubProc();
   await executor.ensureSubprocessRpcWired("ext-author", proc);
   return proc.installedRequestHandler!;
@@ -238,9 +226,7 @@ describe("Phase 1 integration: stalled host reverse-RPC → fast visible error (
       while (!done) {
         while (bridged < pipe.childWrites.length) {
           const req = JSON.parse(pipe.childWrites[bridged++]!) as JsonRpcRequest;
-          void hostHandler(req).then((resp) =>
-            pipe.pushToChild(JSON.stringify(resp) + "\n"),
-          );
+          void hostHandler(req).then((resp) => pipe.pushToChild(JSON.stringify(resp) + "\n"));
         }
         await tick();
       }
@@ -270,10 +256,7 @@ describe("Phase 1 integration: stalled host reverse-RPC → fast visible error (
     // Two captured timers should now exist: the SDK child's 30s default
     // AND the host's bound. Fire ONLY the host bound.
     await waitFor(
-      () =>
-        captured.some(
-          (t) => !t.cleared && t.ms === HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS,
-        ),
+      () => captured.some((t) => !t.cleared && t.ms === HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS),
       "host bound armed",
     );
     fireHostBound();
@@ -314,10 +297,7 @@ describe("Phase 1 integration: stalled host reverse-RPC → fast visible error (
     const req = JSON.parse(pipe.childWrites[0]!) as JsonRpcRequest;
     const hostResp = hostHandler(req);
     await waitFor(
-      () =>
-        captured.some(
-          (t) => !t.cleared && t.ms === HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS,
-        ),
+      () => captured.some((t) => !t.cleared && t.ms === HOST_REVERSE_RPC_HANDLER_TIMEOUT_MS),
       "host bound armed",
     );
     fireHostBound();

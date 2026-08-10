@@ -32,9 +32,7 @@ import {
 describe("parseMentions — %[lesson:…] tokens", () => {
   test("single token → one lesson mention with correct offsets", () => {
     const result = parseMentions("%[lesson:foo]");
-    expect(result).toEqual([
-      { kind: "lesson", name: "foo", start: 0, end: 13 },
-    ]);
+    expect(result).toEqual([{ kind: "lesson", name: "foo", start: 0, end: 13 }]);
   });
 
   test("token in mid-text → captures correct start/end", () => {
@@ -51,26 +49,12 @@ describe("parseMentions — %[lesson:…] tokens", () => {
       "![ext:foo] @[file:bar.ts] /[cmd:baz] $[feature:qux] %[lesson:wat]",
     );
     expect(result).toHaveLength(5);
-    expect(result.map((m) => m.kind)).toEqual([
-      "ext",
-      "file",
-      "cmd",
-      "feature",
-      "lesson",
-    ]);
-    expect(result.map((m) => m.name)).toEqual([
-      "foo",
-      "bar.ts",
-      "baz",
-      "qux",
-      "wat",
-    ]);
+    expect(result.map((m) => m.kind)).toEqual(["ext", "file", "cmd", "feature", "lesson"]);
+    expect(result.map((m) => m.name)).toEqual(["foo", "bar.ts", "baz", "qux", "wat"]);
   });
 
   test("multiple lesson tokens are extracted independently", () => {
-    const result = parseMentions(
-      "%[lesson:a] then %[lesson:b] and %[lesson:c]",
-    );
+    const result = parseMentions("%[lesson:a] then %[lesson:b] and %[lesson:c]");
     expect(result.map((m) => m.name)).toEqual(["a", "b", "c"]);
     expect(result.every((m) => m.kind === "lesson")).toBe(true);
   });
@@ -78,7 +62,7 @@ describe("parseMentions — %[lesson:…] tokens", () => {
   test("does NOT match %20 / 5 % 2 / %s — no brackets, no false positives", () => {
     expect(parseMentions("URL has %20 in it")).toEqual([]);
     expect(parseMentions("5 % 2 == 1")).toEqual([]);
-    expect(parseMentions("printf(\"%s\\n\", x)")).toEqual([]);
+    expect(parseMentions('printf("%s\\n", x)')).toEqual([]);
   });
 
   test("does NOT match %[other:x] — only the literal `lesson` kind is accepted", () => {
@@ -293,31 +277,19 @@ describe("detectMentionTrigger — % false-positive guard", () => {
 
 describe("insertMentionToken — % sigil", () => {
   test("inserts %[lesson:name] replacing the trigger span; cursor at end", () => {
-    const result = insertMentionToken(
-      "hi %les",
-      7,
-      { kind: "lesson", name: "always-quote-paths" },
-    );
+    const result = insertMentionToken("hi %les", 7, { kind: "lesson", name: "always-quote-paths" });
     expect(result.text).toBe("hi %[lesson:always-quote-paths] ");
     expect(result.cursor).toBe(result.text.length);
   });
 
   test("inserts at start of string when no leading whitespace", () => {
-    const result = insertMentionToken(
-      "%le",
-      3,
-      { kind: "lesson", name: "lesson-foo" },
-    );
+    const result = insertMentionToken("%le", 3, { kind: "lesson", name: "lesson-foo" });
     expect(result.text).toBe("%[lesson:lesson-foo] ");
     expect(result.cursor).toBe("%[lesson:lesson-foo] ".length);
   });
 
   test("preserves trailing text (after the cursor)", () => {
-    const result = insertMentionToken(
-      "hi %le please",
-      6,
-      { kind: "lesson", name: "foo" },
-    );
+    const result = insertMentionToken("hi %le please", 6, { kind: "lesson", name: "foo" });
     expect(result.text).toBe("hi %[lesson:foo]  please");
     // cursor lands right after the inserted token (including its trailing space)
     expect(result.cursor).toBe("hi %[lesson:foo] ".length);
@@ -325,31 +297,19 @@ describe("insertMentionToken — % sigil", () => {
 
   test("no-op when there is no active % trigger span (kind/sigil mismatch)", () => {
     // `foo bar` has no `%` near the cursor — return input unchanged.
-    const result = insertMentionToken(
-      "foo bar",
-      7,
-      { kind: "lesson", name: "x" },
-    );
+    const result = insertMentionToken("foo bar", 7, { kind: "lesson", name: "x" });
     expect(result.text).toBe("foo bar");
     expect(result.cursor).toBe(7);
   });
 
   test("inserting kind=lesson on a `$` trigger → no-op (sigil mismatch)", () => {
-    const result = insertMentionToken(
-      "hi $cha",
-      7,
-      { kind: "lesson", name: "x" },
-    );
+    const result = insertMentionToken("hi $cha", 7, { kind: "lesson", name: "x" });
     expect(result.text).toBe("hi $cha");
     expect(result.cursor).toBe(7);
   });
 
   test("inserting kind=feature on a `%` trigger → no-op (sigil mismatch)", () => {
-    const result = insertMentionToken(
-      "hi %les",
-      7,
-      { kind: "feature", name: "x" },
-    );
+    const result = insertMentionToken("hi %les", 7, { kind: "feature", name: "x" });
     expect(result.text).toBe("hi %les");
     expect(result.cursor).toBe(7);
   });
@@ -359,11 +319,7 @@ describe("insertMentionToken — % sigil", () => {
 
 describe("kind→sigil derivation — lesson serializes back to %[lesson:…]", () => {
   test("inserted token is recognized by parseMentions and getSegments", () => {
-    const inserted = insertMentionToken(
-      "see %",
-      5,
-      { kind: "lesson", name: "always-quote-paths" },
-    );
+    const inserted = insertMentionToken("see %", 5, { kind: "lesson", name: "always-quote-paths" });
     expect(inserted.text).toContain("%[lesson:always-quote-paths]");
 
     const tokens = parseMentions(inserted.text);

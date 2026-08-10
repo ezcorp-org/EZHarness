@@ -21,10 +21,7 @@
 import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 
-const layoutSrc = readFileSync(
-  new URL("../routes/(app)/+layout.svelte", import.meta.url),
-  "utf-8",
-);
+const layoutSrc = readFileSync(new URL("../routes/(app)/+layout.svelte", import.meta.url), "utf-8");
 
 describe("(app) layout — Phase 49.1 sidebar breakpoint policy", () => {
   test("project rail wrapper hides below lg (not md)", () => {
@@ -32,9 +29,7 @@ describe("(app) layout — Phase 49.1 sidebar breakpoint policy", () => {
     // rail vanishes on tablets and reappears on desktops. The Command
     // Deck redesign tags it with `data-app-rail` (graphite chrome scope);
     // the `hidden lg:flex` visibility policy is the pinned invariant.
-    expect(layoutSrc).toMatch(
-      /class="hidden lg:flex" data-app-rail>\s*<ProjectRail \/>/,
-    );
+    expect(layoutSrc).toMatch(/class="hidden lg:flex" data-app-rail>\s*<ProjectRail \/>/);
     // Negative: the old `md:flex` policy must be gone for the rail.
     expect(layoutSrc).not.toMatch(/class="hidden md:flex"[^>]*>\s*<ProjectRail \/>/);
   });
@@ -69,9 +64,7 @@ describe("(app) layout — Phase 49.1 sidebar breakpoint policy", () => {
       /class="flex lg:hidden items-center gap-2 border-b border-\[var\(--color-border\)\] bg-\[var\(--color-surface-secondary\)\][^"]*"[^>]*data-testid="mobile-header"/,
     );
     // Negative: old md-scoped header gone.
-    expect(layoutSrc).not.toMatch(
-      /class="flex md:hidden items-center gap-2 border-b/,
-    );
+    expect(layoutSrc).not.toMatch(/class="flex md:hidden items-center gap-2 border-b/);
   });
 
   test("hamburger button has 44x44 touch target (WCAG 2.1 AA)", () => {
@@ -95,9 +88,7 @@ describe("(app) layout — Phase 49.1 sidebar breakpoint policy", () => {
   test("hamburger button toggles store.mobileMenuOpen", () => {
     // The drawer infrastructure already existed; widening the
     // breakpoint must not change the click-handler contract.
-    expect(layoutSrc).toMatch(
-      /onclick=\{\(\) => \(store\.mobileMenuOpen = true\)\}/,
-    );
+    expect(layoutSrc).toMatch(/onclick=\{\(\) => \(store\.mobileMenuOpen = true\)\}/);
   });
 
   test("SwipeDrawer wraps the same nav links as the desktop sidebar", () => {
@@ -105,8 +96,7 @@ describe("(app) layout — Phase 49.1 sidebar breakpoint policy", () => {
     // store the desktop sidebar uses, ensuring the two stay in sync.
     // We assert both `{#each navLinks` blocks exist (one inline, one
     // inside the SwipeDrawer).
-    const eachCount = (layoutSrc.match(/\{#each navLinks as link, i\}/g) ?? [])
-      .length;
+    const eachCount = (layoutSrc.match(/\{#each navLinks as link, i\}/g) ?? []).length;
     expect(eachCount).toBeGreaterThanOrEqual(2);
   });
 

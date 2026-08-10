@@ -16,9 +16,7 @@ vi.mock("$server/db/queries/audit-log", () => ({
   insertAuditEntry: vi.fn(async () => undefined),
 }));
 
-const { createInvite, listInvites } = await import(
-  "$server/db/queries/invites"
-);
+const { createInvite, listInvites } = await import("$server/db/queries/invites");
 const { insertAuditEntry } = await import("$server/db/queries/audit-log");
 const { GET, POST } = await import("../routes/api/auth/invite/+server");
 
@@ -63,9 +61,7 @@ describe("GET /api/auth/invite", () => {
   });
 
   test("returns 200 with invite list for admin", async () => {
-    vi.mocked(listInvites).mockResolvedValue([
-      { id: "i1", email: "x@y" } as any,
-    ]);
+    vi.mocked(listInvites).mockResolvedValue([{ id: "i1", email: "x@y" } as any]);
     const res = await GET(makeEvent({ method: "GET", locals: adminUser }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { invites?: unknown[] };
@@ -85,9 +81,7 @@ describe("POST /api/auth/invite", () => {
   });
 
   test("rejects 403 when user is not admin", async () => {
-    const res = await POST(
-      makeEvent({ locals: memberUser, body: { email: "x@y.com" } }),
-    );
+    const res = await POST(makeEvent({ locals: memberUser, body: { email: "x@y.com" } }));
     expect(res.status).toBe(403);
   });
 
@@ -99,9 +93,7 @@ describe("POST /api/auth/invite", () => {
   });
 
   test("rejects 400 when email is malformed", async () => {
-    const res = await POST(
-      makeEvent({ locals: adminUser, body: { email: "not-email" } }),
-    );
+    const res = await POST(makeEvent({ locals: adminUser, body: { email: "not-email" } }));
     expect(res.status).toBe(400);
   });
 

@@ -17,7 +17,6 @@
 import { test, expect, describe } from "bun:test";
 
 describe("AgentDetailPanel scroll behavior", () => {
-
   test("scroll-to-bottom strategy: scrollTop equals scrollHeight", () => {
     // Simulates what the $effect does after messages load
     const container = { scrollTop: 0, scrollHeight: 2400 };
@@ -68,7 +67,7 @@ describe("AgentDetailPanel scroll behavior", () => {
       { id: "u3", role: "user", content: "Task 3" },
       { id: "a3", role: "assistant", content: "Response 3" },
     ];
-    const assistantMessages = rawMessages.filter(m => m.role === "assistant");
+    const assistantMessages = rawMessages.filter((m) => m.role === "assistant");
     expect(assistantMessages).toHaveLength(3);
     expect(assistantMessages[0]!.id).toBe("a1");
     expect(assistantMessages[2]!.id).toBe("a3");
@@ -87,7 +86,7 @@ describe("AgentDetailPanel scroll behavior", () => {
       { id: "u2", role: "user", content: "Follow-up" },
       { id: "a2", role: "assistant", content: "Follow-up response" },
     ];
-    const taskMessage = rawMessages.find(m => m.role === "user");
+    const taskMessage = rawMessages.find((m) => m.role === "user");
     expect(taskMessage?.id).toBe("u1");
     expect(taskMessage?.content).toBe("Initial task");
   });

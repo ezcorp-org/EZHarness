@@ -7,7 +7,12 @@ export default {
   inputSchema: {
     text: { type: "text", label: "Text", description: "Text to summarize", required: true },
     file: { type: "file-path", label: "File", description: "Or read from file path" },
-    provider: { type: "select", label: "Provider", options: ["anthropic", "google", "openai", "openrouter", "kilo"], default: "anthropic" },
+    provider: {
+      type: "select",
+      label: "Provider",
+      options: ["anthropic", "google", "openai", "openrouter", "kilo"],
+      default: "anthropic",
+    },
     model: { type: "string", label: "Model", description: "Override model name" },
   },
 
@@ -32,14 +37,11 @@ export default {
     }
 
     ctx.log("Requesting summary from LLM");
-    const response = await ctx.llm.complete(
-      [{ role: "user", content }],
-      {
-        system: "You are a summarizer. Provide a concise summary of the given text.",
-        ...(provider ? { provider } : {}),
-        ...(model ? { model } : {}),
-      },
-    );
+    const response = await ctx.llm.complete([{ role: "user", content }], {
+      system: "You are a summarizer. Provide a concise summary of the given text.",
+      ...(provider ? { provider } : {}),
+      ...(model ? { model } : {}),
+    });
 
     ctx.log("Summary complete");
     return { success: true, output: { summary: response.text } };

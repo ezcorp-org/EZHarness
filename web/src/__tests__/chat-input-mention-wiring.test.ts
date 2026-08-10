@@ -1,8 +1,8 @@
 import { test, expect, describe, mock, beforeEach, afterEach } from "bun:test";
 import {
-	detectMentionTrigger,
-	insertMentionToken,
-	insertCommandLiteral,
+  detectMentionTrigger,
+  insertMentionToken,
+  insertCommandLiteral,
 } from "../lib/mention-logic";
 import { searchMentions, type MentionResult } from "../lib/api";
 
@@ -31,20 +31,20 @@ let capturedUrls: string[] = [];
 let originalFetch: typeof globalThis.fetch;
 
 beforeEach(() => {
-	originalFetch = globalThis.fetch;
-	capturedUrls = [];
-	globalThis.fetch = mock(async (input: string | URL | Request) => {
-		const url = typeof input === "string" ? input : input.toString();
-		capturedUrls.push(url);
-		return new Response(JSON.stringify([]), {
-			status: 200,
-			headers: { "Content-Type": "application/json" },
-		});
-	}) as any;
+  originalFetch = globalThis.fetch;
+  capturedUrls = [];
+  globalThis.fetch = mock(async (input: string | URL | Request) => {
+    const url = typeof input === "string" ? input : input.toString();
+    capturedUrls.push(url);
+    return new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as any;
 });
 
 afterEach(() => {
-	globalThis.fetch = originalFetch;
+  globalThis.fetch = originalFetch;
 });
 
 /**
@@ -53,102 +53,102 @@ afterEach(() => {
  * `(query, type, projectId)`.
  */
 async function simulateHandleInput(
-	value: string,
-	cursor: number,
-	projectId: string | undefined,
+  value: string,
+  cursor: number,
+  projectId: string | undefined,
 ): Promise<MentionResult[] | null> {
-	const trigger = detectMentionTrigger(value, cursor);
-	if (!trigger) return null;
-	return searchMentions(trigger.query, trigger.type, projectId);
+  const trigger = detectMentionTrigger(value, cursor);
+  if (!trigger) return null;
+  return searchMentions(trigger.query, trigger.type, projectId);
 }
 
 describe("chat composer → /api/mentions/search URL contract", () => {
-	test("typing `@` with a projectId sends type=path AND projectId=<id>", async () => {
-		await simulateHandleInput("@", 1, "proj-abc");
+  test("typing `@` with a projectId sends type=path AND projectId=<id>", async () => {
+    await simulateHandleInput("@", 1, "proj-abc");
 
-		expect(capturedUrls).toHaveLength(1);
-		const url = capturedUrls[0]!;
-		expect(url).toContain("/api/mentions/search");
-		expect(url).toContain("type=path");
-		expect(url).toContain("projectId=proj-abc");
-	});
+    expect(capturedUrls).toHaveLength(1);
+    const url = capturedUrls[0]!;
+    expect(url).toContain("/api/mentions/search");
+    expect(url).toContain("type=path");
+    expect(url).toContain("projectId=proj-abc");
+  });
 
-	test("typing `@foo` forwards the query AND projectId", async () => {
-		await simulateHandleInput("read @foo", 9, "proj-abc");
+  test("typing `@foo` forwards the query AND projectId", async () => {
+    await simulateHandleInput("read @foo", 9, "proj-abc");
 
-		expect(capturedUrls).toHaveLength(1);
-		const url = capturedUrls[0]!;
-		expect(url).toContain("q=foo");
-		expect(url).toContain("type=path");
-		expect(url).toContain("projectId=proj-abc");
-	});
+    expect(capturedUrls).toHaveLength(1);
+    const url = capturedUrls[0]!;
+    expect(url).toContain("q=foo");
+    expect(url).toContain("type=path");
+    expect(url).toContain("projectId=proj-abc");
+  });
 
-	test("typing `!agent:co` does NOT append projectId (not needed for agents)", async () => {
-		// The search route only uses projectId for `type=path` — but the
-		// client helper still threads it through when provided. This test
-		// pins down the client's wire format for the ! branch.
-		await simulateHandleInput("!agent:co", 9, undefined);
+  test("typing `!agent:co` does NOT append projectId (not needed for agents)", async () => {
+    // The search route only uses projectId for `type=path` — but the
+    // client helper still threads it through when provided. This test
+    // pins down the client's wire format for the ! branch.
+    await simulateHandleInput("!agent:co", 9, undefined);
 
-		expect(capturedUrls).toHaveLength(1);
-		const url = capturedUrls[0]!;
-		expect(url).toContain("type=agent");
-		expect(url).not.toContain("projectId=");
-	});
+    expect(capturedUrls).toHaveLength(1);
+    const url = capturedUrls[0]!;
+    expect(url).toContain("type=agent");
+    expect(url).not.toContain("projectId=");
+  });
 
-	test("REGRESSION: when projectId is undefined, URL must NOT silently drop type=path", async () => {
-		// Before the fix, ChatInput didn't pass projectId so the URL looked
-		// like `?q=&type=path` and the server returned []. This test locks
-		// the *type* parameter; a separate test asserts projectId is there.
-		await simulateHandleInput("@", 1, undefined);
+  test("REGRESSION: when projectId is undefined, URL must NOT silently drop type=path", async () => {
+    // Before the fix, ChatInput didn't pass projectId so the URL looked
+    // like `?q=&type=path` and the server returned []. This test locks
+    // the *type* parameter; a separate test asserts projectId is there.
+    await simulateHandleInput("@", 1, undefined);
 
-		expect(capturedUrls).toHaveLength(1);
-		const url = capturedUrls[0]!;
-		expect(url).toContain("type=path");
-		expect(url).not.toContain("projectId=");
-	});
+    expect(capturedUrls).toHaveLength(1);
+    const url = capturedUrls[0]!;
+    expect(url).toContain("type=path");
+    expect(url).not.toContain("projectId=");
+  });
 
-	test("REGRESSION: passing a non-empty projectId ALWAYS produces projectId=<id> in URL", async () => {
-		// This is the core assertion. If a future edit regresses ChatInput
-		// to call `searchMentions(q, type)` instead of
-		// `searchMentions(q, type, projectId)`, this fails.
-		await simulateHandleInput("@", 1, "proj-xyz");
-		expect(capturedUrls[0]).toContain("projectId=proj-xyz");
-	});
+  test("REGRESSION: passing a non-empty projectId ALWAYS produces projectId=<id> in URL", async () => {
+    // This is the core assertion. If a future edit regresses ChatInput
+    // to call `searchMentions(q, type)` instead of
+    // `searchMentions(q, type, projectId)`, this fails.
+    await simulateHandleInput("@", 1, "proj-xyz");
+    expect(capturedUrls[0]).toContain("projectId=proj-xyz");
+  });
 
-	test("empty `@` query still sends the file search (empty q, type=path, projectId)", async () => {
-		// Edge case: user has only typed `@`. The popover must still fetch
-		// the file list. Missing this flow was a symptom of the bug.
-		await simulateHandleInput("@", 1, "proj-abc");
-		const url = capturedUrls[0]!;
-		expect(url).toMatch(/[?&]q=(&|$)/); // q is present and empty
-		expect(url).toContain("type=path");
-		expect(url).toContain("projectId=proj-abc");
-	});
+  test("empty `@` query still sends the file search (empty q, type=path, projectId)", async () => {
+    // Edge case: user has only typed `@`. The popover must still fetch
+    // the file list. Missing this flow was a symptom of the bug.
+    await simulateHandleInput("@", 1, "proj-abc");
+    const url = capturedUrls[0]!;
+    expect(url).toMatch(/[?&]q=(&|$)/); // q is present and empty
+    expect(url).toContain("type=path");
+    expect(url).toContain("projectId=proj-abc");
+  });
 
-	test("file-mention round-trip: select file → inserted token uses @[file:…] form", () => {
-		// Once the API does return results, verify the selection-insert step
-		// produces the correct sigil. Documents the grammar boundary.
-		const inserted = insertMentionToken("@app", 4, {
-			kind: "file",
-			name: "src/app.ts",
-		});
-		expect(inserted.text).toBe("@[file:src/app.ts] ");
-	});
+  test("file-mention round-trip: select file → inserted token uses @[file:…] form", () => {
+    // Once the API does return results, verify the selection-insert step
+    // produces the correct sigil. Documents the grammar boundary.
+    const inserted = insertMentionToken("@app", 4, {
+      kind: "file",
+      name: "src/app.ts",
+    });
+    expect(inserted.text).toBe("@[file:src/app.ts] ");
+  });
 
-	test("built-in command round-trip: select /goal → inserts LITERAL text, not a token", () => {
-		// The `/goal` autopilot entry carries `insertText`; the composer's
-		// selection handler delegates to insertCommandLiteral (NOT
-		// insertMentionToken), so the message body reaches the server-side
-		// interceptor as literal `/goal `, which `isGoalCommand` matches.
-		const goalItem: MentionResult = {
-			name: "goal",
-			description: "Set an autonomous goal — the AI keeps working until it's met",
-			kind: "command",
-			source: "builtin",
-			insertText: "/goal ",
-		};
-		const inserted = insertCommandLiteral("/go", 3, goalItem.insertText!);
-		expect(inserted.text).toBe("/goal ");
-		expect(inserted.text).not.toContain("[cmd:");
-	});
+  test("built-in command round-trip: select /goal → inserts LITERAL text, not a token", () => {
+    // The `/goal` autopilot entry carries `insertText`; the composer's
+    // selection handler delegates to insertCommandLiteral (NOT
+    // insertMentionToken), so the message body reaches the server-side
+    // interceptor as literal `/goal `, which `isGoalCommand` matches.
+    const goalItem: MentionResult = {
+      name: "goal",
+      description: "Set an autonomous goal — the AI keeps working until it's met",
+      kind: "command",
+      source: "builtin",
+      insertText: "/goal ",
+    };
+    const inserted = insertCommandLiteral("/go", 3, goalItem.insertText!);
+    expect(inserted.text).toBe("/goal ");
+    expect(inserted.text).not.toContain("[cmd:");
+  });
 });

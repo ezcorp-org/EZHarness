@@ -64,23 +64,18 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     isAdmin: user.role === "admin",
   });
 
-  const result = await answerApproval(
-    params.id,
-    parsed.data,
-    actor,
-    {
-      // Fail-closed by construction: a throw inside this check is caught
-      // by the chokepoint and treated as a DENY, never as an allow. The
-      // approval's scope is checked at the strictest coordinates (NULL
-      // project, NULL extension), matching how a workflow run's own
-      // synthetic scope key resolves.
-      checkScope: (scope) =>
-        hasExtensionScope(
-          { id: user.id, role: user.role === "admin" ? "admin" : "member" },
-          { projectId: null, extensionId: null, scope },
-        ),
-    },
-  );
+  const result = await answerApproval(params.id, parsed.data, actor, {
+    // Fail-closed by construction: a throw inside this check is caught
+    // by the chokepoint and treated as a DENY, never as an allow. The
+    // approval's scope is checked at the strictest coordinates (NULL
+    // project, NULL extension), matching how a workflow run's own
+    // synthetic scope key resolves.
+    checkScope: (scope) =>
+      hasExtensionScope(
+        { id: user.id, role: user.role === "admin" ? "admin" : "member" },
+        { projectId: null, extensionId: null, scope },
+      ),
+  });
 
   if (!result.ok) {
     return errorJson(workflowRefusalStatus(result.code), result.message);

@@ -35,11 +35,7 @@ import { getDb } from "../../db/connection";
 import { extensionStorage } from "../../db/schema";
 import { insertAuditEntry } from "../../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "../audit-actions";
-import {
-  ENTITY_INDEX_PREFIX,
-  ENTITY_KEY_PREFIX,
-  isValidSlug,
-} from "@ezcorp/sdk/entities";
+import { ENTITY_INDEX_PREFIX, ENTITY_KEY_PREFIX, isValidSlug } from "@ezcorp/sdk/entities";
 
 /**
  * A single legacy-shape mapping. Each extension that needs migration
@@ -204,126 +200,29 @@ export async function runEntityNamespaceMigration(
         scopeCounted: boolean; // true when this cell did real work
         pendingAudit: PendingAudit | null;
       }
-      const cellResult: CellOutcome = await db.transaction(
-        async (tx: typeof db) => {
-          // Idempotency: skip scopes that already have the managed
-          // namespace present for this type — a previous run completed
-          // here.
-          const existingManaged = await tx
-            .select({ key: extensionStorage.key })
-            .from(extensionStorage)
-            .where(
-              and(
-                eq(extensionStorage.extensionId, opts.extensionId),
-                eq(extensionStorage.scope, sk.scope),
-                sk.scopeId === null
-                  ? sql`${extensionStorage.scopeId} IS NULL`
-                  : eq(extensionStorage.scopeId, sk.scopeId),
-                sql`(${extensionStorage.key} LIKE ${managedRecordPrefix + "%"} ESCAPE '\\' OR ${extensionStorage.key} = ${managedIndexKey})`,
-              ),
-            );
-          if (existingManaged.length > 0) {
-            // Already migrated — but the source keys might still linger
-            // if a prior run crashed AFTER managed writes but BEFORE
-            // source deletes. Clean up any straggling legacy keys here
-            // (audit only if we actually delete something).
-            const deleted = await tx
-              .delete(extensionStorage)
-              .where(
-                and(
-                  eq(extensionStorage.extensionId, opts.extensionId),
-                  eq(extensionStorage.scope, sk.scope),
-                  sk.scopeId === null
-                    ? sql`${extensionStorage.scopeId} IS NULL`
-                    : eq(extensionStorage.scopeId, sk.scopeId),
-                  sql`(${extensionStorage.key} LIKE ${escapedPrefix + "%"} ESCAPE '\\'${legacyIndexKey ? sql` OR ${extensionStorage.key} = ${legacyIndexKey}` : sql``})`,
-                ),
-              )
-              .returning({ id: extensionStorage.id });
-            const stragglerAudit: PendingAudit | null =
-              deleted.length > 0
-                ? {
-                    scopeUserId: sk.scope === "user" ? sk.scopeId : null,
-                    metadata: {
-                      entityType,
-                      from: legacyKeyPrefix,
-                      to: managedRecordPrefix,
-                      scope: sk.scope,
-                      scopeId: sk.scopeId,
-                      cleanedStragglers: deleted.length,
-                    },
-                  }
-                : null;
-            return {
-              migratedSlugs: [],
-              skippedSlugs: [],
-              scopeCounted: false,
-              pendingAudit: stragglerAudit,
-            };
-          }
-
-          // Compute the slug list from the legacy row keys (excluding
-          // the index row itself). Slugs that don't match the SDK's
-          // regex are skipped — they wouldn't survive an entity read
-          // anyway, and logging them in the audit row lets an operator
-          // track down the corruption.
-          const recordRows = scopeRows.filter(
-            (r: StorageRow) =>
-              r.key !== legacyIndexKey && r.key.startsWith(legacyKeyPrefix),
+      const cellResult: CellOutcome = await db.transaction(async (tx: typeof db) => {
+        // Idempotency: skip scopes that already have the managed
+        // namespace present for this type — a previous run completed
+        // here.
+        const existingManaged = await tx
+          .select({ key: extensionStorage.key })
+          .from(extensionStorage)
+          .where(
+            and(
+              eq(extensionStorage.extensionId, opts.extensionId),
+              eq(extensionStorage.scope, sk.scope),
+              sk.scopeId === null
+                ? sql`${extensionStorage.scopeId} IS NULL`
+                : eq(extensionStorage.scopeId, sk.scopeId),
+              sql`(${extensionStorage.key} LIKE ${managedRecordPrefix + "%"} ESCAPE '\\' OR ${extensionStorage.key} = ${managedIndexKey})`,
+            ),
           );
-          const skippedSlugs: string[] = [];
-          const migratedSlugs: string[] = [];
-
-          for (const row of recordRows) {
-            const slug = row.key.slice(legacyKeyPrefix.length);
-            if (!isValidSlug(slug)) {
-              skippedSlugs.push(slug);
-              continue;
-            }
-            migratedSlugs.push(slug);
-
-            const serialized = JSON.stringify(row.value);
-            const sizeBytes = Buffer.byteLength(serialized, "utf-8");
-            await tx
-              .insert(extensionStorage)
-              .values({
-                extensionId: opts.extensionId,
-                scope: sk.scope,
-                scopeId: sk.scopeId,
-                key: `${managedRecordPrefix}${slug}`,
-                value: row.value,
-                encrypted: false,
-                sizeBytes,
-                expiresAt: null,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-              })
-              .onConflictDoNothing();
-          }
-
-          // Write the managed index — sorted+deduped slugs, mirroring
-          // the SDK storage helper's contract.
-          const indexValue = Array.from(new Set(migratedSlugs)).sort();
-          const indexSerialized = JSON.stringify(indexValue);
-          await tx
-            .insert(extensionStorage)
-            .values({
-              extensionId: opts.extensionId,
-              scope: sk.scope,
-              scopeId: sk.scopeId,
-              key: managedIndexKey,
-              value: indexValue,
-              encrypted: false,
-              sizeBytes: Buffer.byteLength(indexSerialized, "utf-8"),
-              expiresAt: null,
-              createdAt: new Date(),
-              updatedAt: new Date(),
-            })
-            .onConflictDoNothing();
-
-          // Delete the legacy rows (skipped invalid-slug rows included
-          // — they were unreadable before and remain unreadable).
-          await tx
+        if (existingManaged.length > 0) {
+          // Already migrated — but the source keys might still linger
+          // if a prior run crashed AFTER managed writes but BEFORE
+          // source deletes. Clean up any straggling legacy keys here
+          // (audit only if we actually delete something).
+          const deleted = await tx
             .delete(extensionStorage)
             .where(
               and(
@@ -334,29 +233,123 @@ export async function runEntityNamespaceMigration(
                   : eq(extensionStorage.scopeId, sk.scopeId),
                 sql`(${extensionStorage.key} LIKE ${escapedPrefix + "%"} ESCAPE '\\'${legacyIndexKey ? sql` OR ${extensionStorage.key} = ${legacyIndexKey}` : sql``})`,
               ),
-            );
+            )
+            .returning({ id: extensionStorage.id });
+          const stragglerAudit: PendingAudit | null =
+            deleted.length > 0
+              ? {
+                  scopeUserId: sk.scope === "user" ? sk.scopeId : null,
+                  metadata: {
+                    entityType,
+                    from: legacyKeyPrefix,
+                    to: managedRecordPrefix,
+                    scope: sk.scope,
+                    scopeId: sk.scopeId,
+                    cleanedStragglers: deleted.length,
+                  },
+                }
+              : null;
+          return {
+            migratedSlugs: [],
+            skippedSlugs: [],
+            scopeCounted: false,
+            pendingAudit: stragglerAudit,
+          };
+        }
 
-          const successAudit: PendingAudit = {
-            scopeUserId: sk.scope === "user" ? sk.scopeId : null,
-            metadata: {
-              entityType,
-              from: legacyKeyPrefix,
-              to: managedRecordPrefix,
+        // Compute the slug list from the legacy row keys (excluding
+        // the index row itself). Slugs that don't match the SDK's
+        // regex are skipped — they wouldn't survive an entity read
+        // anyway, and logging them in the audit row lets an operator
+        // track down the corruption.
+        const recordRows = scopeRows.filter(
+          (r: StorageRow) => r.key !== legacyIndexKey && r.key.startsWith(legacyKeyPrefix),
+        );
+        const skippedSlugs: string[] = [];
+        const migratedSlugs: string[] = [];
+
+        for (const row of recordRows) {
+          const slug = row.key.slice(legacyKeyPrefix.length);
+          if (!isValidSlug(slug)) {
+            skippedSlugs.push(slug);
+            continue;
+          }
+          migratedSlugs.push(slug);
+
+          const serialized = JSON.stringify(row.value);
+          const sizeBytes = Buffer.byteLength(serialized, "utf-8");
+          await tx
+            .insert(extensionStorage)
+            .values({
+              extensionId: opts.extensionId,
               scope: sk.scope,
               scopeId: sk.scopeId,
-              recordsMigrated: migratedSlugs.length,
-              ...(skippedSlugs.length > 0 ? { skippedSlugs } : {}),
-            },
-          };
+              key: `${managedRecordPrefix}${slug}`,
+              value: row.value,
+              encrypted: false,
+              sizeBytes,
+              expiresAt: null,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .onConflictDoNothing();
+        }
 
-          return {
-            migratedSlugs,
-            skippedSlugs,
-            scopeCounted: true,
-            pendingAudit: successAudit,
-          };
-        },
-      );
+        // Write the managed index — sorted+deduped slugs, mirroring
+        // the SDK storage helper's contract.
+        const indexValue = Array.from(new Set(migratedSlugs)).sort();
+        const indexSerialized = JSON.stringify(indexValue);
+        await tx
+          .insert(extensionStorage)
+          .values({
+            extensionId: opts.extensionId,
+            scope: sk.scope,
+            scopeId: sk.scopeId,
+            key: managedIndexKey,
+            value: indexValue,
+            encrypted: false,
+            sizeBytes: Buffer.byteLength(indexSerialized, "utf-8"),
+            expiresAt: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .onConflictDoNothing();
+
+        // Delete the legacy rows (skipped invalid-slug rows included
+        // — they were unreadable before and remain unreadable).
+        await tx
+          .delete(extensionStorage)
+          .where(
+            and(
+              eq(extensionStorage.extensionId, opts.extensionId),
+              eq(extensionStorage.scope, sk.scope),
+              sk.scopeId === null
+                ? sql`${extensionStorage.scopeId} IS NULL`
+                : eq(extensionStorage.scopeId, sk.scopeId),
+              sql`(${extensionStorage.key} LIKE ${escapedPrefix + "%"} ESCAPE '\\'${legacyIndexKey ? sql` OR ${extensionStorage.key} = ${legacyIndexKey}` : sql``})`,
+            ),
+          );
+
+        const successAudit: PendingAudit = {
+          scopeUserId: sk.scope === "user" ? sk.scopeId : null,
+          metadata: {
+            entityType,
+            from: legacyKeyPrefix,
+            to: managedRecordPrefix,
+            scope: sk.scope,
+            scopeId: sk.scopeId,
+            recordsMigrated: migratedSlugs.length,
+            ...(skippedSlugs.length > 0 ? { skippedSlugs } : {}),
+          },
+        };
+
+        return {
+          migratedSlugs,
+          skippedSlugs,
+          scopeCounted: true,
+          pendingAudit: successAudit,
+        };
+      });
 
       // Post-commit: audit row + aggregate counters. The audit
       // helper swallows its own failures (see audit-log.ts) so this

@@ -37,8 +37,12 @@ let _disableCalls = 0;
 
 mock.module("../db/queries/extensions", () => ({
   incrementFailures: async () => ++incrementCalls,
-  resetFailures: async () => { _resetCalls++; },
-  disableExtension: async () => { _disableCalls++; },
+  resetFailures: async () => {
+    _resetCalls++;
+  },
+  disableExtension: async () => {
+    _disableCalls++;
+  },
 }));
 
 afterAll(() => restoreModuleMocks());
@@ -78,7 +82,7 @@ describe("github-stats SDK integration ALLOW path (fetchPermitted direct)", () =
 
     const res = await fetchPermitted("https://api.github.com/repos/octocat/hello-world");
     expect(res.ok).toBe(true);
-    const data = await res.json() as Record<string, unknown>;
+    const data = (await res.json()) as Record<string, unknown>;
     expect(data.full_name).toBe("octocat/hello-world");
     expect(data.stargazers_count).toBe(42);
   });
@@ -88,7 +92,7 @@ describe("github-stats SDK integration ALLOW path (fetchPermitted direct)", () =
     mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(userData), { status: 200 }));
 
     const res = await fetchPermitted("https://api.github.com/users/octocat");
-    const data = await res.json() as Record<string, unknown>;
+    const data = (await res.json()) as Record<string, unknown>;
     expect(data.login).toBe("octocat");
   });
 
@@ -97,7 +101,7 @@ describe("github-stats SDK integration ALLOW path (fetchPermitted direct)", () =
     mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(langs), { status: 200 }));
 
     const res = await fetchPermitted("https://api.github.com/repos/octocat/hello-world/languages");
-    const data = await res.json() as Record<string, unknown>;
+    const data = (await res.json()) as Record<string, unknown>;
     expect(data.TypeScript).toBe(12345);
   });
 
@@ -121,8 +125,14 @@ describe("github-stats SDK integration ALLOW path (fetchPermitted direct)", () =
 import { ExtensionProcess } from "../extensions/subprocess";
 
 const GITHUB_STATS_ENTRYPOINT = join(
-  import.meta.dir, "..", "..",
-  "docs", "extensions", "examples", "github-stats", "index.ts",
+  import.meta.dir,
+  "..",
+  "..",
+  "docs",
+  "extensions",
+  "examples",
+  "github-stats",
+  "index.ts",
 );
 
 function makeSandboxEnv(extensionId: string, permittedHosts?: string): Record<string, string> {
@@ -189,9 +199,7 @@ describe("github-stats SDK integration DENY path (real subprocess, sandbox fetch
       // "Extension sandbox" / "granted network allowlist" — assertions
       // anchor on the host names + the "not in" / "allowlist" pattern
       // that's shared between both message shapes.
-      expect(first.text).toMatch(
-        /not in (EZCORP_PERMITTED_HOSTS|the granted network) allowlist/,
-      );
+      expect(first.text).toMatch(/not in (EZCORP_PERMITTED_HOSTS|the granted network) allowlist/);
     } finally {
       proc.kill();
     }

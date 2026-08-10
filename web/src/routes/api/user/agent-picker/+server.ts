@@ -24,61 +24,57 @@ import { listAgentConfigs } from "$server/db/queries/agent-configs";
 import type { RequestHandler } from "./$types";
 
 interface SavedSearch {
-	query: string;
-	createdAt: number;
+  query: string;
+  createdAt: number;
 }
 
 interface AgentPickerPrefs {
-	savedSearches: SavedSearch[];
-	pinned: string[];
+  savedSearches: SavedSearch[];
+  pinned: string[];
 }
 
 function savedKey(userId: string): string {
-	return `user:${userId}:agentPicker:savedSearches`;
+  return `user:${userId}:agentPicker:savedSearches`;
 }
 
 function pinnedKey(userId: string): string {
-	return `user:${userId}:agentPicker:pinned`;
+  return `user:${userId}:agentPicker:pinned`;
 }
 
 export const GET: RequestHandler = async ({ locals }) => {
-	const user = requireAuth(locals);
-	const [savedRaw, pinnedRaw, agents] = await Promise.all([
-		getSetting(savedKey(user.id)),
-		getSetting(pinnedKey(user.id)),
-		listAgentConfigs(),
-	]);
+  const user = requireAuth(locals);
+  const [savedRaw, pinnedRaw, agents] = await Promise.all([
+    getSetting(savedKey(user.id)),
+    getSetting(pinnedKey(user.id)),
+    listAgentConfigs(),
+  ]);
 
-	const liveIds = new Set((agents as Array<{ id: string }>).map((a) => a.id));
+  const liveIds = new Set((agents as Array<{ id: string }>).map((a) => a.id));
 
-	const savedSearches: SavedSearch[] = Array.isArray(savedRaw)
-		? (savedRaw as SavedSearch[])
-		: [];
+  const savedSearches: SavedSearch[] = Array.isArray(savedRaw) ? (savedRaw as SavedSearch[]) : [];
 
-	const pinnedRawArr: string[] = Array.isArray(pinnedRaw)
-		? (pinnedRaw as string[])
-		: [];
-	const pinned = pinnedRawArr.filter((id) => liveIds.has(id));
+  const pinnedRawArr: string[] = Array.isArray(pinnedRaw) ? (pinnedRaw as string[]) : [];
+  const pinned = pinnedRawArr.filter((id) => liveIds.has(id));
 
-	// No write-amplification: only re-persist if a trim actually occurred.
-	if (pinned.length !== pinnedRawArr.length) {
-		await upsertSetting(pinnedKey(user.id), pinned);
-	}
+  // No write-amplification: only re-persist if a trim actually occurred.
+  if (pinned.length !== pinnedRawArr.length) {
+    await upsertSetting(pinnedKey(user.id), pinned);
+  }
 
-	const body: AgentPickerPrefs = { savedSearches, pinned };
-	return json(body);
+  const body: AgentPickerPrefs = { savedSearches, pinned };
+  return json(body);
 };
 
 export const PUT: RequestHandler = async ({ request, locals }) => {
-	const user = requireAuth(locals);
-	const body = (await request.json()) as Partial<AgentPickerPrefs>;
+  const user = requireAuth(locals);
+  const body = (await request.json()) as Partial<AgentPickerPrefs>;
 
-	if (body.savedSearches !== undefined) {
-		await upsertSetting(savedKey(user.id), body.savedSearches);
-	}
-	if (body.pinned !== undefined) {
-		await upsertSetting(pinnedKey(user.id), body.pinned);
-	}
+  if (body.savedSearches !== undefined) {
+    await upsertSetting(savedKey(user.id), body.savedSearches);
+  }
+  if (body.pinned !== undefined) {
+    await upsertSetting(pinnedKey(user.id), body.pinned);
+  }
 
-	return json({ ok: true });
+  return json({ ok: true });
 };

@@ -5,7 +5,11 @@ import { setupTestDb, getTestDb, closeTestDb, mockDbConnection } from "./helpers
 mockDbConnection();
 
 import { sql } from "drizzle-orm";
-import { getGlobalStats, getConversationStats, insertObservabilityEvent } from "../db/queries/observability";
+import {
+  getGlobalStats,
+  getConversationStats,
+  insertObservabilityEvent,
+} from "../db/queries/observability";
 import { createMessage } from "../db/queries/conversations";
 
 // ── Regression tests for the "token usage by day is not rendering" bug ──
@@ -25,25 +29,36 @@ let projectId: string;
 async function createConv(title = "c"): Promise<string> {
   const db = getTestDb();
   const id = crypto.randomUUID();
-  await db.execute(sql`INSERT INTO conversations (id, project_id, title) VALUES (${id}, ${projectId}, ${title})`);
+  await db.execute(
+    sql`INSERT INTO conversations (id, project_id, title) VALUES (${id}, ${projectId}, ${title})`,
+  );
   return id;
 }
 
-async function insertOldMessage(convId: string, inputTokens: number, outputTokens: number, daysAgo: number) {
+async function insertOldMessage(
+  convId: string,
+  inputTokens: number,
+  outputTokens: number,
+  daysAgo: number,
+) {
   const db = getTestDb();
   const id = crypto.randomUUID();
   const usage = JSON.stringify({ inputTokens, outputTokens });
-  await db.execute(sql.raw(
-    `INSERT INTO messages (id, conversation_id, role, content, usage, created_at)
+  await db.execute(
+    sql.raw(
+      `INSERT INTO messages (id, conversation_id, role, content, usage, created_at)
      VALUES ('${id}', '${convId}', 'assistant', 'old', '${usage}'::jsonb, NOW() - interval '${daysAgo} days')`,
-  ));
+    ),
+  );
 }
 
 beforeEach(async () => {
   await setupTestDb();
   projectId = "tbd-proj";
   const db = getTestDb();
-  await db.execute(sql`INSERT INTO projects (id, name, path) VALUES (${projectId}, 'Tokens by day test', '/tmp/tbd') ON CONFLICT (id) DO NOTHING`);
+  await db.execute(
+    sql`INSERT INTO projects (id, name, path) VALUES (${projectId}, 'Tokens by day test', '/tmp/tbd') ON CONFLICT (id) DO NOTHING`,
+  );
 });
 
 afterAll(async () => {
@@ -53,8 +68,16 @@ afterAll(async () => {
 describe("tokensByDay — authoritative from messages.usage", () => {
   test("returns non-empty chart when assistant messages have usage", async () => {
     const conv = await createConv();
-    await createMessage(conv, { role: "assistant", content: "r1", usage: { inputTokens: 100, outputTokens: 200 } });
-    await createMessage(conv, { role: "assistant", content: "r2", usage: { inputTokens: 50, outputTokens: 75 } });
+    await createMessage(conv, {
+      role: "assistant",
+      content: "r1",
+      usage: { inputTokens: 100, outputTokens: 200 },
+    });
+    await createMessage(conv, {
+      role: "assistant",
+      content: "r2",
+      usage: { inputTokens: 50, outputTokens: 75 },
+    });
 
     const stats = await getGlobalStats({ days: 30 });
 
@@ -70,9 +93,21 @@ describe("tokensByDay — authoritative from messages.usage", () => {
     // Simulates 3 turns within a single run. Before the fix, only the LAST
     // turn's tokens would show up via observability_events.turn_summary.
     const conv = await createConv();
-    await createMessage(conv, { role: "assistant", content: "t1", usage: { inputTokens: 10, outputTokens: 20 } });
-    await createMessage(conv, { role: "assistant", content: "t2", usage: { inputTokens: 30, outputTokens: 40 } });
-    await createMessage(conv, { role: "assistant", content: "t3", usage: { inputTokens: 50, outputTokens: 60 } });
+    await createMessage(conv, {
+      role: "assistant",
+      content: "t1",
+      usage: { inputTokens: 10, outputTokens: 20 },
+    });
+    await createMessage(conv, {
+      role: "assistant",
+      content: "t2",
+      usage: { inputTokens: 30, outputTokens: 40 },
+    });
+    await createMessage(conv, {
+      role: "assistant",
+      content: "t3",
+      usage: { inputTokens: 50, outputTokens: 60 },
+    });
 
     // Only a single turn_summary row exists (the runtime emits one per run).
     await insertObservabilityEvent({
@@ -83,10 +118,10 @@ describe("tokensByDay — authoritative from messages.usage", () => {
     });
 
     const stats = await getGlobalStats({ days: 30 });
-    expect(stats.totalInputTokens).toBe(90);   // 10 + 30 + 50, not just 50
+    expect(stats.totalInputTokens).toBe(90); // 10 + 30 + 50, not just 50
     expect(stats.totalOutputTokens).toBe(120); // 20 + 40 + 60, not just 60
     expect(stats.totalTurnCount).toBe(3);
-    expect(stats.avgResponseMs).toBe(1234);    // durations still from events
+    expect(stats.avgResponseMs).toBe(1234); // durations still from events
   });
 
   test("returns empty chart when no assistant messages have usage", async () => {
@@ -112,8 +147,14 @@ describe("tokensByDay — authoritative from messages.usage", () => {
     const db = getTestDb();
     // user messages never get a usage column, but make sure the WHERE clause
     // holds even if one were set.
-    await db.execute(sql`INSERT INTO messages (id, conversation_id, role, content, usage) VALUES (${crypto.randomUUID()}, ${conv}, 'user', 'hi', '{"inputTokens":99999,"outputTokens":99999}'::jsonb)`);
-    await createMessage(conv, { role: "assistant", content: "r", usage: { inputTokens: 5, outputTokens: 10 } });
+    await db.execute(
+      sql`INSERT INTO messages (id, conversation_id, role, content, usage) VALUES (${crypto.randomUUID()}, ${conv}, 'user', 'hi', '{"inputTokens":99999,"outputTokens":99999}'::jsonb)`,
+    );
+    await createMessage(conv, {
+      role: "assistant",
+      content: "r",
+      usage: { inputTokens: 5, outputTokens: 10 },
+    });
 
     const stats = await getGlobalStats({ days: 30 });
     expect(stats.totalInputTokens).toBe(5);
@@ -122,7 +163,11 @@ describe("tokensByDay — authoritative from messages.usage", () => {
 
   test("days filter excludes old messages", async () => {
     const conv = await createConv();
-    await createMessage(conv, { role: "assistant", content: "recent", usage: { inputTokens: 100, outputTokens: 200 } });
+    await createMessage(conv, {
+      role: "assistant",
+      content: "recent",
+      usage: { inputTokens: 100, outputTokens: 200 },
+    });
     await insertOldMessage(conv, 999, 999, 60);
 
     const stats = await getGlobalStats({ days: 7 });
@@ -133,8 +178,16 @@ describe("tokensByDay — authoritative from messages.usage", () => {
 
   test("tokensByDay is grouped by date", async () => {
     const conv = await createConv();
-    await createMessage(conv, { role: "assistant", content: "today-1", usage: { inputTokens: 10, outputTokens: 20 } });
-    await createMessage(conv, { role: "assistant", content: "today-2", usage: { inputTokens: 30, outputTokens: 40 } });
+    await createMessage(conv, {
+      role: "assistant",
+      content: "today-1",
+      usage: { inputTokens: 10, outputTokens: 20 },
+    });
+    await createMessage(conv, {
+      role: "assistant",
+      content: "today-2",
+      usage: { inputTokens: 30, outputTokens: 40 },
+    });
     await insertOldMessage(conv, 5, 8, 3);
 
     const stats = await getGlobalStats({ days: 30 });
@@ -151,8 +204,16 @@ describe("tokensByDay — authoritative from messages.usage", () => {
   test("aggregates across multiple conversations (global scope)", async () => {
     const c1 = await createConv("conv-1");
     const c2 = await createConv("conv-2");
-    await createMessage(c1, { role: "assistant", content: "a", usage: { inputTokens: 100, outputTokens: 200 } });
-    await createMessage(c2, { role: "assistant", content: "b", usage: { inputTokens: 50, outputTokens: 75 } });
+    await createMessage(c1, {
+      role: "assistant",
+      content: "a",
+      usage: { inputTokens: 100, outputTokens: 200 },
+    });
+    await createMessage(c2, {
+      role: "assistant",
+      content: "b",
+      usage: { inputTokens: 50, outputTokens: 75 },
+    });
 
     const stats = await getGlobalStats({ days: 30 });
     expect(stats.totalInputTokens).toBe(150);
@@ -164,8 +225,16 @@ describe("tokensByDay — authoritative from messages.usage", () => {
 describe("getConversationStats — authoritative from messages.usage", () => {
   test("aggregates per-conversation tokens from messages", async () => {
     const conv = await createConv();
-    await createMessage(conv, { role: "assistant", content: "t1", usage: { inputTokens: 25, outputTokens: 50 } });
-    await createMessage(conv, { role: "assistant", content: "t2", usage: { inputTokens: 75, outputTokens: 100 } });
+    await createMessage(conv, {
+      role: "assistant",
+      content: "t1",
+      usage: { inputTokens: 25, outputTokens: 50 },
+    });
+    await createMessage(conv, {
+      role: "assistant",
+      content: "t2",
+      usage: { inputTokens: 75, outputTokens: 100 },
+    });
 
     const stats = await getConversationStats(conv);
     expect(stats.totalInputTokens).toBe(100);
@@ -176,8 +245,16 @@ describe("getConversationStats — authoritative from messages.usage", () => {
   test("other conversations' messages don't bleed into this one", async () => {
     const a = await createConv("a");
     const b = await createConv("b");
-    await createMessage(a, { role: "assistant", content: "a", usage: { inputTokens: 1, outputTokens: 2 } });
-    await createMessage(b, { role: "assistant", content: "b", usage: { inputTokens: 999, outputTokens: 999 } });
+    await createMessage(a, {
+      role: "assistant",
+      content: "a",
+      usage: { inputTokens: 1, outputTokens: 2 },
+    });
+    await createMessage(b, {
+      role: "assistant",
+      content: "b",
+      usage: { inputTokens: 999, outputTokens: 999 },
+    });
 
     const stats = await getConversationStats(a);
     expect(stats.totalInputTokens).toBe(1);
@@ -187,7 +264,11 @@ describe("getConversationStats — authoritative from messages.usage", () => {
 
   test("duration comes from observability_events (not messages)", async () => {
     const conv = await createConv();
-    await createMessage(conv, { role: "assistant", content: "t1", usage: { inputTokens: 10, outputTokens: 20 } });
+    await createMessage(conv, {
+      role: "assistant",
+      content: "t1",
+      usage: { inputTokens: 10, outputTokens: 20 },
+    });
     await insertObservabilityEvent({
       conversationId: conv,
       eventType: "turn_summary",

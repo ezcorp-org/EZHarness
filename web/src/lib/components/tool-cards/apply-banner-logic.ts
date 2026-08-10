@@ -68,14 +68,11 @@ export function summarizeChangedVars(vars: string[]): string {
   // This keeps the banner uniform — mixing "3 spacing tokens, --radius-base,
   // --radius-lg" with the verbatim list reads worse than the symmetric
   // "3 spacing tokens, 2 radius tokens".
-  const shouldGroup =
-    spaceVars.length >= GROUP_THRESHOLD || radiusVars.length >= GROUP_THRESHOLD;
+  const shouldGroup = spaceVars.length >= GROUP_THRESHOLD || radiusVars.length >= GROUP_THRESHOLD;
 
   if (spaceVars.length > 0) {
     if (shouldGroup) {
-      parts.push(
-        `${spaceVars.length} spacing token${spaceVars.length === 1 ? "" : "s"}`,
-      );
+      parts.push(`${spaceVars.length} spacing token${spaceVars.length === 1 ? "" : "s"}`);
     } else {
       for (const v of spaceVars) parts.push(v);
     }
@@ -83,9 +80,7 @@ export function summarizeChangedVars(vars: string[]): string {
 
   if (radiusVars.length > 0) {
     if (shouldGroup) {
-      parts.push(
-        `${radiusVars.length} radius token${radiusVars.length === 1 ? "" : "s"}`,
-      );
+      parts.push(`${radiusVars.length} radius token${radiusVars.length === 1 ? "" : "s"}`);
     } else {
       for (const v of radiusVars) parts.push(v);
     }
@@ -160,9 +155,7 @@ export function formatRevisionLabel(rev: Revision): string {
   const head = entries.slice(0, MAX_KEYS);
   const rest = entries.length - head.length;
 
-  const formatted = head
-    .map(([k, v]) => `${k}=${truncate(String(v), MAX_VAL_LEN)}`)
-    .join(", ");
+  const formatted = head.map(([k, v]) => `${k}=${truncate(String(v), MAX_VAL_LEN)}`).join(", ");
   const suffix = rest > 0 ? ` (+${rest} more)` : "";
   return `${time} — ${formatted}${suffix}`;
 }

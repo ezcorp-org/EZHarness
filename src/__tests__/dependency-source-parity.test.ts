@@ -62,10 +62,7 @@ import {
 } from "../../web/src/lib/dependency-picker";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
-const PANEL = join(
-  REPO_ROOT,
-  "web/src/lib/components/extensions/AuthorCompositionPanel.svelte",
-);
+const PANEL = join(REPO_ROOT, "web/src/lib/components/extensions/AuthorCompositionPanel.svelte");
 
 /** Validate a one-entry dependency record carrying `source`. */
 function validateOne(source: string, version = "^1.0.0") {
@@ -158,10 +155,7 @@ describe("dependency-source parity — picker ↔ manifest validator", () => {
   test("the preinstalled set is exactly the two documented forms", () => {
     // Pins the shape itself, so widening it has to be deliberate and
     // lands in the same review as the installer change that handles it.
-    expect([...PREINSTALLED_DEPENDENCY_SOURCES].sort()).toEqual([
-      "bundled",
-      "local",
-    ]);
+    expect([...PREINSTALLED_DEPENDENCY_SOURCES].sort()).toEqual(["bundled", "local"]);
     expect([...PICKER_DEPENDENCY_SOURCES].sort()).toEqual(["bundled", "local"]);
   });
 
@@ -222,9 +216,9 @@ describe("dependency picker — what may be offered as a dependency", () => {
     // Seeded by `src/db/migrate.ts` so native tool calls have an
     // extension_id. Not a real extension: depending on it produces a
     // manifest naming something that can never resolve.
-    expect(
-      isPickableDependency({ id: VIRTUAL_BUILTIN_EXTENSION_ID, source: "builtin" }),
-    ).toBe(false);
+    expect(isPickableDependency({ id: VIRTUAL_BUILTIN_EXTENSION_ID, source: "builtin" })).toBe(
+      false,
+    );
     // Excluded on EITHER marker alone, so a row identified only one way
     // still cannot slip through.
     expect(isPickableDependency({ id: "builtin", source: "local:/x" })).toBe(false);

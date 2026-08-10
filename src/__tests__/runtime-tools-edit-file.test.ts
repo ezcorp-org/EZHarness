@@ -29,7 +29,11 @@ describe("createEditFileTool", () => {
   test("performs single search-and-replace when old_string is unique", async () => {
     await writeFile(resolve(projectPath, "f.txt"), "hello world");
     const tool = createEditFileTool(projectPath);
-    const result = await tool.execute("1", { path: "f.txt", old_string: "world", new_string: "earth" });
+    const result = await tool.execute("1", {
+      path: "f.txt",
+      old_string: "world",
+      new_string: "earth",
+    });
     expect(getText(result)).toContain("Replaced in f.txt");
     expect(await fsReadFile(resolve(projectPath, "f.txt"), "utf-8")).toBe("hello earth");
   });
@@ -47,7 +51,12 @@ describe("createEditFileTool", () => {
   test("replaces every occurrence when replace_all is true", async () => {
     await writeFile(resolve(projectPath, "f.txt"), "foo bar foo baz foo");
     const tool = createEditFileTool(projectPath);
-    const result = await tool.execute("1", { path: "f.txt", old_string: "foo", new_string: "qux", replace_all: true });
+    const result = await tool.execute("1", {
+      path: "f.txt",
+      old_string: "foo",
+      new_string: "qux",
+      replace_all: true,
+    });
     expect(getText(result)).toContain("Replaced 3 occurrences");
     expect(await fsReadFile(resolve(projectPath, "f.txt"), "utf-8")).toBe("qux bar qux baz qux");
   });
@@ -62,7 +71,11 @@ describe("createEditFileTool", () => {
 
   test("errors when the file does not exist in replace mode", async () => {
     const tool = createEditFileTool(projectPath);
-    const result = await tool.execute("1", { path: "missing.txt", old_string: "a", new_string: "b" });
+    const result = await tool.execute("1", {
+      path: "missing.txt",
+      old_string: "a",
+      new_string: "b",
+    });
     expect(getText(result)).toContain("file not found");
     expect(result.details.isError).toBe(true);
   });

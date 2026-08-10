@@ -41,11 +41,7 @@ describe("agent-fuzzy-search-worker — rank()", () => {
       type: "rank",
       id: "r2",
       query: "abc",
-      candidates: [
-        { name: "abc-zzz" },
-        { name: "abc-aaa" },
-        { name: "abc-mmm" },
-      ],
+      candidates: [{ name: "abc-zzz" }, { name: "abc-aaa" }, { name: "abc-mmm" }],
     });
     const names = res.indices.map((i) => ["abc-zzz", "abc-aaa", "abc-mmm"][i]);
     expect(names).toEqual(["abc-aaa", "abc-mmm", "abc-zzz"]);
@@ -59,10 +55,7 @@ describe("agent-fuzzy-search-worker — rank()", () => {
       type: "rank",
       id: "r3",
       query: "qqqzzz-impossible",
-      candidates: [
-        { name: "alpha" },
-        { name: "beta" },
-      ],
+      candidates: [{ name: "alpha" }, { name: "beta" }],
     });
     expect(res.indices).toEqual([]);
     expect(res.scores).toEqual([]);
@@ -86,10 +79,7 @@ describe("agent-fuzzy-search-worker — rank()", () => {
       type: "rank",
       id: "r5",
       query: "alpha",
-      candidates: [
-        { name: "alpha", description: null },
-        { name: "beta" },
-      ],
+      candidates: [{ name: "alpha", description: null }, { name: "beta" }],
     });
     expect(res.indices).toEqual([0]);
   });

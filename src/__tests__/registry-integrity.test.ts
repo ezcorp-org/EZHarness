@@ -120,9 +120,7 @@ describe("registry integrity verification", () => {
     await writeFile(join(tempDir, "index.ts"), "EVIL CODE");
 
     // Should throw due to checksum mismatch
-    await expect(registry.getProcess("ext-bad")).rejects.toThrow(
-      /ext-bad failed integrity check/,
-    );
+    await expect(registry.getProcess("ext-bad")).rejects.toThrow(/ext-bad failed integrity check/);
 
     // denyAndDisable should have been called
     expect(disableExtensionCalls).toEqual(["ext-bad"]);
@@ -155,9 +153,7 @@ describe("registry integrity verification", () => {
     await writeFile(join(tempDir, "index.ts"), "TAMPERED AFTER RELOAD");
 
     // Should fail because reload cleared verifiedSessions and file was tampered
-    await expect(registry.getProcess("ext-1")).rejects.toThrow(
-      /ext-1 failed integrity check/,
-    );
+    await expect(registry.getProcess("ext-1")).rejects.toThrow(/ext-1 failed integrity check/);
     expect(disableExtensionCalls).toEqual(["ext-1"]);
   });
 

@@ -129,7 +129,9 @@ const ANTHROPIC_OVERLOADED_STATUS = /\b529\b/;
  * pi's classifier AND before the two supplements is what prevents that (there is
  * no "disjoint by construction" guarantee — the classes genuinely overlap).
  */
-export function classifyProviderError(errorMessage: string | undefined | null): ProviderErrorAction {
+export function classifyProviderError(
+  errorMessage: string | undefined | null,
+): ProviderErrorAction {
   if (!errorMessage) return "rethrow";
   // Account/billing limit → failover-eligible but NOT same-provider-retryable.
   // MUST stay ahead of the pi/supplement checks below (see the ordering note).

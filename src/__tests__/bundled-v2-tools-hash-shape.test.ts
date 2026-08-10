@@ -161,9 +161,7 @@ async function seedV2ShapedRow(
 }
 
 function disableWrites(): number {
-  return updateCalls.filter(
-    (c) => c.id === SEED_ID && c.patch.enabled === false,
-  ).length;
+  return updateCalls.filter((c) => c.id === SEED_ID && c.patch.enabled === false).length;
 }
 
 describe("S9 tool-list gate — v2/v3 manifest shape", () => {
@@ -178,9 +176,7 @@ describe("S9 tool-list gate — v2/v3 manifest shape", () => {
     const { getProjectRoot } = await import("../extensions/bundled");
     const { join } = await import("node:path");
     const disk = await loadManifestFresh(join(getProjectRoot(), SEED_PATH));
-    expect(canonicalizeAndHash(seededTools)).not.toBe(
-      canonicalizeAndHash(disk.tools ?? []),
-    );
+    expect(canonicalizeAndHash(seededTools)).not.toBe(canonicalizeAndHash(disk.tools ?? []));
 
     await ensureBundledExtensions();
 

@@ -247,14 +247,19 @@ describe("executor → applyToolFilters plumbing for mode.allowedTools", () => {
     expect(executorSrc).toContain("applyToolFilters");
     expect(executorSrc).toContain("getMode");
     expect(/computeModeToolScope\(\s*mode/.test(executorSrc)).toBe(true);
-    expect(/applyToolFilters\(ctx\.agentTools,\s*ctx\.builtinToolDefsMap,\s*scope\)/.test(executorSrc)).toBe(true);
+    expect(
+      /applyToolFilters\(ctx\.agentTools,\s*ctx\.builtinToolDefsMap,\s*scope\)/.test(executorSrc),
+    ).toBe(true);
 
     const scopeSrc = readFileSync(
       join(import.meta.dir, "..", "runtime", "tools", "mode-tool-scope.ts"),
       "utf-8",
     );
-    expect(/toolRestriction:\s*mode\.toolRestriction[\s\S]*?allowedTools:\s*mode\.allowedTools/.test(scopeSrc))
-      .toBe(true);
+    expect(
+      /toolRestriction:\s*mode\.toolRestriction[\s\S]*?allowedTools:\s*mode\.allowedTools/.test(
+        scopeSrc,
+      ),
+    ).toBe(true);
   });
 
   test("STATIC: the invocation-level block forwards options.readOnlyAllowedTools alongside the other option filters", () => {
@@ -371,7 +376,13 @@ describe("Ez turn → extension-author wire (streamChat, end-to-end)", () => {
           getToolsForAgent: async () => [],
           getToolsForExtension: (id: string) =>
             id === "ext-author"
-              ? [{ name: "extension-author__create_extension", description: "scaffold", inputSchema: {} }]
+              ? [
+                  {
+                    name: "extension-author__create_extension",
+                    description: "scaffold",
+                    inputSchema: {},
+                  },
+                ]
               : [],
         }),
       },

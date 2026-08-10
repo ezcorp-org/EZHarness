@@ -18,10 +18,7 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
 
 import { createCanvas, type CanvasContext } from "../src/runtime/canvas";
-import {
-  __resetChannelForTests,
-  getChannel,
-} from "../src/runtime/channel";
+import { __resetChannelForTests, getChannel } from "../src/runtime/channel";
 
 afterEach(() => {
   __resetChannelForTests();
@@ -31,9 +28,9 @@ afterEach(() => {
 
 describe("createCanvas — input validation", () => {
   test("rejects empty cardType", () => {
-    expect(() =>
-      createCanvas({ cardType: "", namespace: "ext", events: {} }),
-    ).toThrow(/cardType must be a non-empty string/);
+    expect(() => createCanvas({ cardType: "", namespace: "ext", events: {} })).toThrow(
+      /cardType must be a non-empty string/,
+    );
   });
 
   test("rejects non-string cardType", () => {
@@ -47,9 +44,9 @@ describe("createCanvas — input validation", () => {
   });
 
   test("rejects namespace not matching extension-name regex", () => {
-    expect(() =>
-      createCanvas({ cardType: "x", namespace: "Bad Name", events: {} }),
-    ).toThrow(/namespace must match extension name regex/);
+    expect(() => createCanvas({ cardType: "x", namespace: "Bad Name", events: {} })).toThrow(
+      /namespace must match extension name regex/,
+    );
   });
 
   test("accepts namespace at the regex edge (single char, hyphens, dots)", () => {
@@ -61,9 +58,9 @@ describe("createCanvas — input validation", () => {
 
   test("rejects namespace longer than 64 chars", () => {
     const tooLong = "a".repeat(65);
-    expect(() =>
-      createCanvas({ cardType: "x", namespace: tooLong, events: {} }),
-    ).toThrow(/namespace/);
+    expect(() => createCanvas({ cardType: "x", namespace: tooLong, events: {} })).toThrow(
+      /namespace/,
+    );
   });
 
   test("rejects events not being an object", () => {
@@ -201,8 +198,10 @@ describe("createCanvas — inbound event handlers", () => {
 
     expect(seen).toHaveLength(1);
     expect(seen[0]?.payload).toMatchObject({ messageId: "m-1" });
-    expect((seen[0]?.context as { toolCallId: string; conversationId: string }))
-      .toEqual({ toolCallId: "", conversationId: "c-1" });
+    expect(seen[0]?.context as { toolCallId: string; conversationId: string }).toEqual({
+      toolCallId: "",
+      conversationId: "c-1",
+    });
   });
 
   test("frame missing conversationId is dropped silently — handler not called", async () => {
@@ -232,7 +231,11 @@ describe("createCanvas — inbound event handlers", () => {
     createCanvas({
       cardType: "x",
       namespace: "ext",
-      events: { "e": async () => { called = true; } },
+      events: {
+        e: async () => {
+          called = true;
+        },
+      },
     });
 
     const handler = registry.get("ezcorp/event/ext:e")!;
@@ -250,16 +253,16 @@ describe("createCanvas — inbound event handlers", () => {
       cardType: "x",
       namespace: "ext",
       events: {
-        "boom": async () => {
+        boom: async () => {
           throw new Error("user-handler failure");
         },
       },
     });
 
     const handler = registry.get("ezcorp/event/ext:boom")!;
-    await expect(
-      handler({ toolCallId: "tc", conversationId: "c" }),
-    ).rejects.toThrow("user-handler failure");
+    await expect(handler({ toolCallId: "tc", conversationId: "c" })).rejects.toThrow(
+      "user-handler failure",
+    );
   });
 
   test("same namespace:eventName twice — second call wins (Map semantics)", async () => {
@@ -269,12 +272,20 @@ describe("createCanvas — inbound event handlers", () => {
     createCanvas({
       cardType: "x",
       namespace: "ext",
-      events: { "e": async () => { seen.push("first"); } },
+      events: {
+        e: async () => {
+          seen.push("first");
+        },
+      },
     });
     createCanvas({
       cardType: "x",
       namespace: "ext",
-      events: { "e": async () => { seen.push("second"); } },
+      events: {
+        e: async () => {
+          seen.push("second");
+        },
+      },
     });
 
     // Map allows duplicate keys to overwrite — final registration wins.
@@ -291,20 +302,30 @@ describe("createCanvas — inbound event handlers", () => {
     createCanvas({
       cardType: "card-a",
       namespace: "ext-a",
-      events: { "ping": async () => { seen.push("a"); } },
+      events: {
+        ping: async () => {
+          seen.push("a");
+        },
+      },
     });
     createCanvas({
       cardType: "card-b",
       namespace: "ext-b",
-      events: { "ping": async () => { seen.push("b"); } },
+      events: {
+        ping: async () => {
+          seen.push("b");
+        },
+      },
     });
 
     expect(registry.size).toBe(2);
     await registry.get("ezcorp/event/ext-a:ping")!({
-      toolCallId: "tc", conversationId: "c",
+      toolCallId: "tc",
+      conversationId: "c",
     });
     await registry.get("ezcorp/event/ext-b:ping")!({
-      toolCallId: "tc", conversationId: "c",
+      toolCallId: "tc",
+      conversationId: "c",
     });
 
     expect(seen).toEqual(["a", "b"]);
@@ -322,7 +343,9 @@ describe("createCanvas — inbound event handlers", () => {
       cardType: "x",
       namespace: "ext",
       events: {
-        "e": async ({ context }) => { seen.push({ toolCallId: context.toolCallId }); },
+        e: async ({ context }) => {
+          seen.push({ toolCallId: context.toolCallId });
+        },
       },
     });
 
@@ -338,7 +361,6 @@ describe("createCanvas — inbound event handlers", () => {
     expect(seen[1]?.toolCallId).toBe("");
   });
 });
-
 
 // Outbound refresh/close intentionally not in Phase A. See canvas.ts
 // header for the rationale. Phase A.5/B will reintroduce these methods

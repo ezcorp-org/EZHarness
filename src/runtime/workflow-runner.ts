@@ -68,10 +68,7 @@ import {
 } from "../db/queries/workflow-runs";
 import { getWorkflowRunRow } from "../db/queries/workflow-runs";
 import { resumeClaimedRun } from "./workflow-executor";
-import {
-  getWorkflowRuntime,
-  type WorkflowRuntime,
-} from "./workflow/runtime-registry";
+import { getWorkflowRuntime, type WorkflowRuntime } from "./workflow/runtime-registry";
 import { acquireLockfile, releaseLockfile, selfToken } from "../startup/process-lockfile";
 
 const log = logger.child("workflow.runner");
@@ -373,12 +370,7 @@ export class WorkflowRunner {
     // and hands the claim back if the run comes back parked. Every resume
     // path in the codebase runs this same sequence; see
     // {@link resumeClaimedRun} for what each step is protecting.
-    const run = await resumeClaimedRun(
-      runtime.workflowExecutor,
-      workflow,
-      runId,
-      this.instanceId,
-    );
+    const run = await resumeClaimedRun(runtime.workflowExecutor, workflow, runId, this.instanceId);
     log.info("resumed a parked run", { runId, status: run.status });
   }
 

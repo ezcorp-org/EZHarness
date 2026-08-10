@@ -41,9 +41,7 @@ export interface ResolutionOptions {
 }
 
 /** Look up an installed extension by name. */
-export type InstalledLookup = (
-  name: string,
-) => Promise<{ version: string } | null>;
+export type InstalledLookup = (name: string) => Promise<{ version: string } | null>;
 
 // ── Preinstalled ("never cloned") dependencies ──────────────────────
 
@@ -101,9 +99,7 @@ export function detectCycles(graph: Map<string, string[]>): string[] | null {
   for (const node of graph.keys()) {
     if (visited.has(node)) continue;
 
-    const stack: Array<{ node: string; childIdx: number }> = [
-      { node, childIdx: 0 },
-    ];
+    const stack: Array<{ node: string; childIdx: number }> = [{ node, childIdx: 0 }];
     inStack.add(node);
 
     while (stack.length > 0) {
@@ -178,9 +174,7 @@ export async function resolveDependencies(
   const nodes = new Map<string, InternalNode>();
   const rangeRequests = new Map<string, string[]>(); // name -> ranges requested
 
-  async function collectDeps(
-    depRecord: Record<string, DependencySpec>,
-  ): Promise<void> {
+  async function collectDeps(depRecord: Record<string, DependencySpec>): Promise<void> {
     for (const [name, spec] of Object.entries(depRecord)) {
       // Track all requested ranges
       if (!rangeRequests.has(name)) rangeRequests.set(name, []);
@@ -192,11 +186,7 @@ export async function resolveDependencies(
       // to fetch — the installed row resolves it. Its own dependencies
       // were satisfied when IT was installed, so we don't recurse.
       if (isPreinstalledDependencySource(spec.source)) {
-        const { version } = await resolvePreinstalledDependency(
-          name,
-          spec,
-          options.getInstalled,
-        );
+        const { version } = await resolvePreinstalledDependency(name, spec, options.getInstalled);
         nodes.set(name, {
           name,
           version,
@@ -217,8 +207,7 @@ export async function resolveDependencies(
         source: spec.source,
         requiredRange: spec.version,
         deps: manifest.dependencies ?? {},
-        alreadyInstalled:
-          installed != null && satisfiesRange(installed.version, spec.version),
+        alreadyInstalled: installed != null && satisfiesRange(installed.version, spec.version),
       };
       nodes.set(name, node);
 
@@ -239,9 +228,7 @@ export async function resolveDependencies(
 
   const cycle = detectCycles(graph);
   if (cycle) {
-    throw new Error(
-      `Circular dependency detected: ${cycle.join(" -> ")}`,
-    );
+    throw new Error(`Circular dependency detected: ${cycle.join(" -> ")}`);
   }
 
   // Check for multi-version requirements (incompatible ranges)
@@ -262,9 +249,7 @@ export async function resolveDependencies(
     const uniqueRanges = [...new Set(ranges)];
 
     // Check if fetched version satisfies all ranges
-    const unsatisfied = uniqueRanges.filter(
-      (r) => !satisfiesRange(node.version, r),
-    );
+    const unsatisfied = uniqueRanges.filter((r) => !satisfiesRange(node.version, r));
 
     if (unsatisfied.length === 0) {
       // Single version satisfies all ranges
@@ -294,9 +279,9 @@ export async function resolveDependencies(
         installId: name,
         version: node.version,
         source: node.source,
-        requiredRange: uniqueRanges
-          .filter((r) => satisfiesRange(node.version, r))
-          .join(", ") || uniqueRanges[0]!,
+        requiredRange:
+          uniqueRanges.filter((r) => satisfiesRange(node.version, r)).join(", ") ||
+          uniqueRanges[0]!,
         alreadyInstalled: node.alreadyInstalled,
       });
 
@@ -331,11 +316,10 @@ export async function resolveDependencies(
       name,
       version: node?.version ?? "unknown",
       status: installed?.alreadyInstalled ? "already-installed" : "install",
-      children: Object.keys(depRecord)
-        .map((depName) => {
-          const depNode = nodes.get(depName);
-          return buildTreeNode(depName, depNode?.deps ?? {});
-        }),
+      children: Object.keys(depRecord).map((depName) => {
+        const depNode = nodes.get(depName);
+        return buildTreeNode(depName, depNode?.deps ?? {});
+      }),
     };
   }
 
@@ -357,11 +341,7 @@ export async function resolveDependencies(
 /**
  * Render a dependency tree as an npm-style string with box-drawing chars.
  */
-export function formatDepTree(
-  node: DependencyTreeNode,
-  prefix = "",
-  isLast = true,
-): string {
+export function formatDepTree(node: DependencyTreeNode, prefix = "", isLast = true): string {
   const marker = node.status === "already-installed" ? " (installed)" : " (new)";
   const isRoot = prefix === "" && isLast;
   const line = isRoot

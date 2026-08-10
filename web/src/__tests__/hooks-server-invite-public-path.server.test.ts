@@ -184,20 +184,20 @@ describe("hooks.server.ts — /api/auth/invite public-path scoping (F5)", () => 
   // `/api/auth/reset-password` USED to be asserted here and is deliberately
   // gone: it had the identical defect and now lives in PUBLIC_SUBPATHS_ONLY.
   // See the block below.
-  test.each([
-    ["/api/auth/login"],
-    ["/api/health"],
-  ])("%s stays public (exact and sub-path semantics preserved)", async (path) => {
-    const event = makeEvent(path, { method: "POST" });
-    const expected = new Response("ok", { status: 200 });
-    const resolve = vi.fn(async () => expected);
+  test.each([["/api/auth/login"], ["/api/health"]])(
+    "%s stays public (exact and sub-path semantics preserved)",
+    async (path) => {
+      const event = makeEvent(path, { method: "POST" });
+      const expected = new Response("ok", { status: 200 });
+      const resolve = vi.fn(async () => expected);
 
-    const res = (await handle({ event, resolve } as never)) as Response;
+      const res = (await handle({ event, resolve } as never)) as Response;
 
-    expect(resolve).toHaveBeenCalledTimes(1);
-    expect(res.status).toBe(200);
-    expect(getUserCount).not.toHaveBeenCalled();
-  });
+      expect(resolve).toHaveBeenCalledTimes(1);
+      expect(res.status).toBe(200);
+      expect(getUserCount).not.toHaveBeenCalled();
+    },
+  );
 });
 
 // ───────────────────────────────────────────────────────────────────────────

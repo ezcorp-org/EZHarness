@@ -62,8 +62,7 @@ test.describe("extension detail — modify gating", () => {
     await mockApi({
       projects: [proj],
       routes: {
-        [`/api/extensions/${EXT_ID}`]: () =>
-          makeDetail({ creatorUserId: OWNER, modifiable: true }),
+        [`/api/extensions/${EXT_ID}`]: () => makeDetail({ creatorUserId: OWNER, modifiable: true }),
         "/api/auth/me": () => meAs(OWNER, "member"),
       },
     });
@@ -83,19 +82,14 @@ test.describe("extension detail — modify gating", () => {
     await expect(page.getByTestId("modifiable-toggle")).toBeDisabled();
 
     const reopenReq = page.waitForRequest(
-      (r) =>
-        r.url().includes(`/api/extensions/${EXT_ID}/reopen`) &&
-        r.method() === "POST",
+      (r) => r.url().includes(`/api/extensions/${EXT_ID}/reopen`) && r.method() === "POST",
     );
     await btn.click();
     await reopenReq;
     await page.waitForURL(/\/extensions\/author\?prefill=d-1/, { timeout: 5000 });
   });
 
-  test("owner + NOT modifiable → ask-an-admin hint, no button", async ({
-    page,
-    mockApi,
-  }) => {
+  test("owner + NOT modifiable → ask-an-admin hint, no button", async ({ page, mockApi }) => {
     await mockApi({
       projects: [proj],
       routes: {
@@ -118,15 +112,11 @@ test.describe("extension detail — modify gating", () => {
     ).toBeVisible();
   });
 
-  test("non-owner non-admin → section + toggle shown but disabled", async ({
-    page,
-    mockApi,
-  }) => {
+  test("non-owner non-admin → section + toggle shown but disabled", async ({ page, mockApi }) => {
     await mockApi({
       projects: [proj],
       routes: {
-        [`/api/extensions/${EXT_ID}`]: () =>
-          makeDetail({ creatorUserId: OWNER, modifiable: true }),
+        [`/api/extensions/${EXT_ID}`]: () => makeDetail({ creatorUserId: OWNER, modifiable: true }),
         "/api/auth/me": () => meAs("someone-else", "member"),
       },
     });
@@ -187,8 +177,6 @@ test.describe("extension detail — modify gating", () => {
     });
     await expect(page.getByTestId("modifiable-toggle")).toBeVisible();
     await expect(page.getByTestId("modifiable-toggle")).toBeDisabled();
-    await expect(
-      page.getByText("built-in — not modifiable", { exact: false }),
-    ).toBeVisible();
+    await expect(page.getByText("built-in — not modifiable", { exact: false })).toBeVisible();
   });
 });

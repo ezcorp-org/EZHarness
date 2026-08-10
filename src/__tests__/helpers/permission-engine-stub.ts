@@ -45,10 +45,7 @@ export function createStubPermissionEngine(
     setMode(next) {
       mode = next;
     },
-    async authorize(
-      ctx: AuthorizeContext,
-      needed: CapabilitySet,
-    ): Promise<Decision> {
+    async authorize(ctx: AuthorizeContext, needed: CapabilitySet): Promise<Decision> {
       calls.push({ ctx, needed });
       const auditId = "stub-audit";
       if (mode === "allow-all") {

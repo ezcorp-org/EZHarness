@@ -51,40 +51,54 @@ const REAL_EXT_ID = "ext-tt-mig";
 const BUILTIN_EXT_ID = "builtin";
 
 async function seedFixtures(): Promise<void> {
-  await getDb().insert(users).values({
-    id: "user-mig-t",
-    email: "mig@t.local",
-    passwordHash: "x",
-    name: "MigTest",
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({
-    id: "proj-mig-t",
-    name: "proj-mig-t",
-    path: "/tmp/proj-mig-t",
-  } as any).onConflictDoNothing();
-  await getDb().insert(extensionsTable).values({
-    id: REAL_EXT_ID,
-    name: "task-tracking",
-    version: "1.0.0",
-    description: "t",
-    manifest: {
-      schemaVersion: 2,
+  await getDb()
+    .insert(users)
+    .values({
+      id: "user-mig-t",
+      email: "mig@t.local",
+      passwordHash: "x",
+      name: "MigTest",
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({
+      id: "proj-mig-t",
+      name: "proj-mig-t",
+      path: "/tmp/proj-mig-t",
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id: REAL_EXT_ID,
       name: "task-tracking",
       version: "1.0.0",
       description: "t",
-      author: { name: "t" },
-      permissions: {},
-    },
-    source: "test:tt",
-    installPath: "/tmp/tt",
-    enabled: true,
-  } as any).onConflictDoNothing();
+      manifest: {
+        schemaVersion: 2,
+        name: "task-tracking",
+        version: "1.0.0",
+        description: "t",
+        author: { name: "t" },
+        permissions: {},
+      },
+      source: "test:tt",
+      installPath: "/tmp/tt",
+      enabled: true,
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function seedConversation(id: string): Promise<void> {
-  await getDb().insert(conversations).values({
-    id, projectId: "proj-mig-t", title: id,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(conversations)
+    .values({
+      id,
+      projectId: "proj-mig-t",
+      title: id,
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function wipeStorage(): Promise<void> {
@@ -92,15 +106,17 @@ async function wipeStorage(): Promise<void> {
 }
 
 async function seedBuiltinRow(convId: string, value: unknown): Promise<void> {
-  await getDb().insert(extensionStorage).values({
-    extensionId: BUILTIN_EXT_ID,
-    scope: "conversation",
-    scopeId: convId,
-    key: "__tasks",
-    value,
-    encrypted: false,
-    sizeBytes: Buffer.byteLength(JSON.stringify(value), "utf-8"),
-  } as any);
+  await getDb()
+    .insert(extensionStorage)
+    .values({
+      extensionId: BUILTIN_EXT_ID,
+      scope: "conversation",
+      scopeId: convId,
+      key: "__tasks",
+      value,
+      encrypted: false,
+      sizeBytes: Buffer.byteLength(JSON.stringify(value), "utf-8"),
+    } as any);
 }
 
 beforeAll(async () => {
@@ -123,7 +139,10 @@ describe("migrateBuiltinTaskStorage", () => {
     // No rows moved, but the sentinel should be present so next boots
     // short-circuit.
     const sentinel = await getStorageValue(
-      REAL_EXT_ID, "global", null, "__task_tracking_migration_done",
+      REAL_EXT_ID,
+      "global",
+      null,
+      "__task_tracking_migration_done",
     );
     expect(sentinel).toBeDefined();
     expect((sentinel!.value as { migratedRowCount: number }).migratedRowCount).toBe(0);
@@ -151,8 +170,18 @@ describe("migrateBuiltinTaskStorage", () => {
     expect(live2?.value).toEqual(snap2);
 
     // Backup rows mirror the originals.
-    const backup1 = await getStorageValue(REAL_EXT_ID, "conversation", "conv-mig-1", "__tasks_pre_migration");
-    const backup2 = await getStorageValue(REAL_EXT_ID, "conversation", "conv-mig-2", "__tasks_pre_migration");
+    const backup1 = await getStorageValue(
+      REAL_EXT_ID,
+      "conversation",
+      "conv-mig-1",
+      "__tasks_pre_migration",
+    );
+    const backup2 = await getStorageValue(
+      REAL_EXT_ID,
+      "conversation",
+      "conv-mig-2",
+      "__tasks_pre_migration",
+    );
     expect(backup1?.value).toEqual(snap1);
     expect(backup2?.value).toEqual(snap2);
 
@@ -167,7 +196,9 @@ describe("migrateBuiltinTaskStorage", () => {
     await migrateBuiltinTaskStorage(REAL_EXT_ID);
     // Add a NEW "builtin" row AFTER the sentinel is already set.
     await seedConversation("conv-late");
-    await seedBuiltinRow("conv-late", { tasks: [{ id: "late", title: "Late", status: "pending" }] });
+    await seedBuiltinRow("conv-late", {
+      tasks: [{ id: "late", title: "Late", status: "pending" }],
+    });
 
     // Second call should skip without touching the new row.
     await migrateBuiltinTaskStorage(REAL_EXT_ID);
@@ -190,7 +221,10 @@ describe("migrateBuiltinTaskStorage", () => {
     await migrateBuiltinTaskStorage(REAL_EXT_ID);
 
     const sentinel = await getStorageValue(
-      REAL_EXT_ID, "global", null, "__task_tracking_migration_done",
+      REAL_EXT_ID,
+      "global",
+      null,
+      "__task_tracking_migration_done",
     );
     expect((sentinel!.value as { migratedRowCount: number }).migratedRowCount).toBe(3);
   });

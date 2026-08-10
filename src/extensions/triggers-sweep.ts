@@ -46,8 +46,10 @@
 import { insertAuditEntry } from "../db/queries/audit-log";
 import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 import {
-  listDynamicCrons, listDynamicWebhooks,
-  disableDynamicCrons, disableDynamicWebhooks,
+  listDynamicCrons,
+  listDynamicWebhooks,
+  disableDynamicCrons,
+  disableDynamicWebhooks,
 } from "./triggers-store";
 import { registerFireCallProvenance } from "./call-provenance";
 import { extensionLogger } from "../logger";
@@ -185,7 +187,10 @@ export async function syncDynamicTriggers(
   }
 
   log.info("orphaned dynamic triggers disabled", {
-    extensionId, disabled, cron: orphanedCrons.length, webhook: orphanedHooks.length,
+    extensionId,
+    disabled,
+    cron: orphanedCrons.length,
+    webhook: orphanedHooks.length,
   });
   return { disabled, skipped: false };
 }
@@ -260,7 +265,8 @@ export async function sweepAllDynamicTriggers(
     } catch (err) {
       result.errored++;
       log.warn("dynamic-trigger sweep failed for one extension — continuing", {
-        extensionId, error: String(err),
+        extensionId,
+        error: String(err),
       });
     }
   }
@@ -291,9 +297,11 @@ export async function revokeDynamicTriggers(
   now: Date = new Date(),
 ): Promise<{ disabled: number }> {
   const cronKeys = (await listDynamicCrons(extensionId))
-    .filter((r) => r.enabled).map((r) => r.key as string);
+    .filter((r) => r.enabled)
+    .map((r) => r.key as string);
   const hookKeys = (await listDynamicWebhooks(extensionName))
-    .filter((r) => r.enabled).map((r) => r.key as string);
+    .filter((r) => r.enabled)
+    .map((r) => r.key as string);
   if (cronKeys.length === 0 && hookKeys.length === 0) return { disabled: 0 };
 
   const disabled =
@@ -301,18 +309,13 @@ export async function revokeDynamicTriggers(
     (await disableDynamicWebhooks(extensionName, hookKeys, now));
 
   for (const key of [...cronKeys, ...hookKeys]) {
-    await insertAuditEntry(
-      null,
-      EXT_AUDIT_ACTIONS.SDK_TRIGGER_CAPABILITY_REVOKED,
-      extensionId,
-      {
-        capability: "triggers",
-        oldValue: { enabled: true },
-        newValue: { enabled: false, key },
-        actor: "system",
-        reason: "permissions.triggers removed from the manifest",
-      },
-    );
+    await insertAuditEntry(null, EXT_AUDIT_ACTIONS.SDK_TRIGGER_CAPABILITY_REVOKED, extensionId, {
+      capability: "triggers",
+      oldValue: { enabled: true },
+      newValue: { enabled: false, key },
+      actor: "system",
+      reason: "permissions.triggers removed from the manifest",
+    });
   }
   log.info("dynamic triggers revoked with the capability", { extensionId, disabled });
   return { disabled };
@@ -323,16 +326,11 @@ async function auditOrphan(
   kind: "cron" | "webhook",
   key: string,
 ): Promise<void> {
-  await insertAuditEntry(
-    null,
-    EXT_AUDIT_ACTIONS.SDK_TRIGGER_ORPHANED,
-    extensionId,
-    {
-      capability: "triggers",
-      oldValue: { enabled: true },
-      newValue: { enabled: false, kind, key },
-      actor: "system",
-      reason: "extension no longer claims this trigger key",
-    },
-  );
+  await insertAuditEntry(null, EXT_AUDIT_ACTIONS.SDK_TRIGGER_ORPHANED, extensionId, {
+    capability: "triggers",
+    oldValue: { enabled: true },
+    newValue: { enabled: false, kind, key },
+    actor: "system",
+    reason: "extension no longer claims this trigger key",
+  });
 }

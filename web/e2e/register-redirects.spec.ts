@@ -43,80 +43,82 @@ const SETUP_SHELL_HTML = `<!DOCTYPE html>
  * real +page.server.ts load (which is gated on a real DB).
  */
 async function stubSetup(page: any) {
-	await page.route(/^[^?]*\/setup(\?.*)?$/, (route: any) => {
-		const url = new URL(route.request().url());
-		if (url.pathname === "/setup" && route.request().method() === "GET") {
-			return route.fulfill({
-				status: 200,
-				contentType: "text/html",
-				body: SETUP_SHELL_HTML,
-			});
-		}
-		return route.fallback();
-	});
+  await page.route(/^[^?]*\/setup(\?.*)?$/, (route: any) => {
+    const url = new URL(route.request().url());
+    if (url.pathname === "/setup" && route.request().method() === "GET") {
+      return route.fulfill({
+        status: 200,
+        contentType: "text/html",
+        body: SETUP_SHELL_HTML,
+      });
+    }
+    return route.fallback();
+  });
 }
 
 // Run as fully unauthenticated — independent of local vs Docker harness.
 test.use({ storageState: { cookies: [], origins: [] } });
 
 test.describe("First-run registration — redirect entry points", () => {
-	test("GET /login on fresh instance 302s to /setup", async ({ page, mockApi }) => {
-		await mockApi({});
-		await stubSetup(page);
+  test("GET /login on fresh instance 302s to /setup", async ({ page, mockApi }) => {
+    await mockApi({});
+    await stubSetup(page);
 
-		// Intercept GET /login to simulate the +page.server.ts redirect on a
-		// fresh instance (getUserCount() === 0 → throw redirect(302, '/setup')).
-		await page.route(/^[^?]*\/login(\?.*)?$/, (route: any) => {
-			const url = new URL(route.request().url());
-			if (url.pathname === "/login" && route.request().method() === "GET") {
-				return route.fulfill({
-					status: 302,
-					headers: { Location: "/setup" },
-					body: "",
-				});
-			}
-			return route.fallback();
-		});
+    // Intercept GET /login to simulate the +page.server.ts redirect on a
+    // fresh instance (getUserCount() === 0 → throw redirect(302, '/setup')).
+    await page.route(/^[^?]*\/login(\?.*)?$/, (route: any) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/login" && route.request().method() === "GET") {
+        return route.fulfill({
+          status: 302,
+          headers: { Location: "/setup" },
+          body: "",
+        });
+      }
+      return route.fallback();
+    });
 
-		await page.goto("/login");
-		// Playwright follows the 302 → /setup automatically.
-		await expect(page).toHaveURL(/\/setup$/, { timeout: 5000 });
-		expect(new URL(page.url()).pathname).toBe("/setup");
-	});
+    await page.goto("/login");
+    // Playwright follows the 302 → /setup automatically.
+    await expect(page).toHaveURL(/\/setup$/, { timeout: 5000 });
+    expect(new URL(page.url()).pathname).toBe("/setup");
+  });
 
-	test("GET / on fresh instance 302s to /setup", async ({ page, mockApi }) => {
-		await mockApi({});
-		await stubSetup(page);
+  test("GET / on fresh instance 302s to /setup", async ({ page, mockApi }) => {
+    await mockApi({});
+    await stubSetup(page);
 
-		// Intercept GET / to simulate the hooks.server.ts redirect on a fresh
-		// instance (getUserCount() === 0 → return redirect(302, '/setup')).
-		await page.route(/^[^?]*\/(\?.*)?$/, (route: any) => {
-			const url = new URL(route.request().url());
-			if (url.pathname === "/" && route.request().method() === "GET") {
-				return route.fulfill({
-					status: 302,
-					headers: { Location: "/setup" },
-					body: "",
-				});
-			}
-			return route.fallback();
-		});
+    // Intercept GET / to simulate the hooks.server.ts redirect on a fresh
+    // instance (getUserCount() === 0 → return redirect(302, '/setup')).
+    await page.route(/^[^?]*\/(\?.*)?$/, (route: any) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === "/" && route.request().method() === "GET") {
+        return route.fulfill({
+          status: 302,
+          headers: { Location: "/setup" },
+          body: "",
+        });
+      }
+      return route.fallback();
+    });
 
-		await page.goto("/");
-		await expect(page).toHaveURL(/\/setup$/, { timeout: 5000 });
-		expect(new URL(page.url()).pathname).toBe("/setup");
-	});
+    await page.goto("/");
+    await expect(page).toHaveURL(/\/setup$/, { timeout: 5000 });
+    expect(new URL(page.url()).pathname).toBe("/setup");
+  });
 
-	test("GET /setup on fresh instance renders the form", async ({ page, mockApi }) => {
-		await mockApi({});
-		await stubSetup(page);
+  test("GET /setup on fresh instance renders the form", async ({ page, mockApi }) => {
+    await mockApi({});
+    await stubSetup(page);
 
-		await page.goto("/setup");
-		await expect(page.getByRole("heading", { name: "Welcome to EZCorp" })).toBeVisible({ timeout: 5000 });
-		await expect(page.locator("#name")).toBeVisible();
-		await expect(page.locator("#email")).toBeVisible();
-		await expect(page.locator("#password")).toBeVisible();
-		await expect(page.locator("#confirmPassword")).toBeVisible();
-		await expect(page.getByRole("button", { name: "Create Admin Account" })).toBeVisible();
-	});
+    await page.goto("/setup");
+    await expect(page.getByRole("heading", { name: "Welcome to EZCorp" })).toBeVisible({
+      timeout: 5000,
+    });
+    await expect(page.locator("#name")).toBeVisible();
+    await expect(page.locator("#email")).toBeVisible();
+    await expect(page.locator("#password")).toBeVisible();
+    await expect(page.locator("#confirmPassword")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Create Admin Account" })).toBeVisible();
+  });
 });

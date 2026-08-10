@@ -9,7 +9,10 @@ import { mock } from "bun:test";
 
 // ── AssistantMessage stub ────────────────────────────────────────────
 
-export function stubAssistantMessage(text = "Hello world", overrides: Record<string, any> = {}): any {
+export function stubAssistantMessage(
+  text = "Hello world",
+  overrides: Record<string, any> = {},
+): any {
   return {
     role: "assistant",
     content: [{ type: "text", text }],
@@ -94,7 +97,8 @@ export type AgentEventCallback = (event: any) => void;
  * Set `mockAgentPromptFn` to control what happens when `prompt()` is called.
  * Subscribers registered via `subscribe()` will be called with events.
  */
-export let mockAgentPromptFn: ((message: string) => AsyncGenerator<any> | Promise<void>) | null = null;
+export let mockAgentPromptFn: ((message: string) => AsyncGenerator<any> | Promise<void>) | null =
+  null;
 let _subscribers: AgentEventCallback[] = [];
 
 export function resetMockAgent() {
@@ -111,12 +115,14 @@ export function resetMockAgent() {
  * - completeText: text returned by pi-ai complete() (default: "Hello world")
  * - promptBehavior: "text" (default) emits text events via subscriber, "custom" uses mockAgentPromptFn
  */
-export function setupPiAiMocks(opts: {
-  streamEvents?: any[];
-  completeText?: string;
-  promptBehavior?: "text" | "custom";
-  textChunks?: string[];
-} = {}) {
+export function setupPiAiMocks(
+  opts: {
+    streamEvents?: any[];
+    completeText?: string;
+    promptBehavior?: "text" | "custom";
+    textChunks?: string[];
+  } = {},
+) {
   const streamEvents = opts.streamEvents ?? textDeltaEvents(opts.textChunks ?? ["Hello", " world"]);
   const completeText = opts.completeText ?? "Hello world";
   const behavior = opts.promptBehavior ?? "text";

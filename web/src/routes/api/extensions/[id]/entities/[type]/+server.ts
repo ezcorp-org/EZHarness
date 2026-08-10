@@ -60,10 +60,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   const ext = await getExtension(params.id);
   if (!ext) return errorJson(404, "Extension not found");
 
-  const decl = findEntityDeclaration(
-    ext.manifest as ExtensionManifestV2,
-    params.type,
-  );
+  const decl = findEntityDeclaration(ext.manifest as ExtensionManifestV2, params.type);
   if (!decl) return errorJson(404, "Entity type not declared by this extension");
 
   // Bind to the per-user scope. `user` scope is the v1 default and
@@ -73,10 +70,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
   // those entity types are not surfaced through the settings UI.
   const scope = decl.scope ?? "user";
   if (scope === "conversation") {
-    return errorJson(
-      400,
-      "Conversation-scoped entities aren't editable through the settings UI",
-    );
+    return errorJson(400, "Conversation-scoped entities aren't editable through the settings UI");
   }
   const store = createHostEntityStore({
     extensionId: ext.id,
@@ -110,18 +104,12 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
   const ext = await getExtension(params.id);
   if (!ext) return errorJson(404, "Extension not found");
 
-  const decl = findEntityDeclaration(
-    ext.manifest as ExtensionManifestV2,
-    params.type,
-  );
+  const decl = findEntityDeclaration(ext.manifest as ExtensionManifestV2, params.type);
   if (!decl) return errorJson(404, "Entity type not declared by this extension");
 
   const scope = decl.scope ?? "user";
   if (scope === "conversation") {
-    return errorJson(
-      400,
-      "Conversation-scoped entities aren't editable through the settings UI",
-    );
+    return errorJson(400, "Conversation-scoped entities aren't editable through the settings UI");
   }
 
   let body: { slug?: unknown; data?: unknown };
@@ -163,10 +151,7 @@ export const POST: RequestHandler = async ({ params, locals, request }) => {
     assertRecord(decl.schema, data, `POST entities/${decl.type}`);
   } catch (err) {
     if (err instanceof EntityValidationError) {
-      return json(
-        { error: err.message, issues: err.issues },
-        { status: 400 },
-      );
+      return json({ error: err.message, issues: err.issues }, { status: 400 });
     }
     return errorJson(400, (err as Error).message);
   }

@@ -10,17 +10,17 @@ import type { Message } from "$lib/api.js";
  * boolean answers from these hooks.
  */
 export interface EmptyTurnFilterDeps {
-	hasHistoricalToolCalls: (messageId: string) => boolean;
-	hasHistoricalAgentCalls: (messageId: string) => boolean;
-	/**
-	 * True iff `<MemoriesCard>` will actually render for this message — i.e.
-	 * the row has `memoriesUsed` AND the dedup pass elected this row as the
-	 * one to surface the card on. Without this, a row with `memoriesUsed`
-	 * whose card has been deduped onto an earlier turn would render as a
-	 * blank bubble (avatar + toolbar + nothing), which is the user-reported
-	 * regression.
-	 */
-	isMemoryCardVisible: (messageId: string) => boolean;
+  hasHistoricalToolCalls: (messageId: string) => boolean;
+  hasHistoricalAgentCalls: (messageId: string) => boolean;
+  /**
+   * True iff `<MemoriesCard>` will actually render for this message — i.e.
+   * the row has `memoriesUsed` AND the dedup pass elected this row as the
+   * one to surface the card on. Without this, a row with `memoriesUsed`
+   * whose card has been deduped onto an earlier turn would render as a
+   * blank bubble (avatar + toolbar + nothing), which is the user-reported
+   * regression.
+   */
+  isMemoryCardVisible: (messageId: string) => boolean;
 }
 
 /**
@@ -29,7 +29,7 @@ export interface EmptyTurnFilterDeps {
  * The page assigns these ids `streaming-<runId>`.
  */
 function isStreamingPlaceholder(msg: Message): boolean {
-	return typeof msg.id === "string" && msg.id.startsWith("streaming-");
+  return typeof msg.id === "string" && msg.id.startsWith("streaming-");
 }
 
 /**
@@ -53,26 +53,19 @@ function isStreamingPlaceholder(msg: Message): boolean {
  * `$derived` causes hidden messages to re-appear once hydration populates
  * their tool/agent data or the dedup set changes.
  */
-export function shouldHideEmptyAssistantTurn(
-	msg: Message,
-	deps: EmptyTurnFilterDeps,
-): boolean {
-	if (msg.role !== "assistant") return false;
-	if (isStreamingPlaceholder(msg)) return false;
+export function shouldHideEmptyAssistantTurn(msg: Message, deps: EmptyTurnFilterDeps): boolean {
+  if (msg.role !== "assistant") return false;
+  if (isStreamingPlaceholder(msg)) return false;
 
-	if (msg.content && msg.content.trim().length > 0) return false;
-	if (msg.thinkingContent && msg.thinkingContent.length > 0) return false;
-	if (
-		msg.memoriesUsed &&
-		msg.memoriesUsed.length > 0 &&
-		deps.isMemoryCardVisible(msg.id)
-	) {
-		return false;
-	}
-	if (deps.hasHistoricalToolCalls(msg.id)) return false;
-	if (deps.hasHistoricalAgentCalls(msg.id)) return false;
+  if (msg.content && msg.content.trim().length > 0) return false;
+  if (msg.thinkingContent && msg.thinkingContent.length > 0) return false;
+  if (msg.memoriesUsed && msg.memoriesUsed.length > 0 && deps.isMemoryCardVisible(msg.id)) {
+    return false;
+  }
+  if (deps.hasHistoricalToolCalls(msg.id)) return false;
+  if (deps.hasHistoricalAgentCalls(msg.id)) return false;
 
-	return true;
+  return true;
 }
 
 /**
@@ -81,17 +74,17 @@ export function shouldHideEmptyAssistantTurn(
  * Svelte equality checks don't trip an extra render pass.
  */
 export function filterEmptyAssistantTurns<T extends Message>(
-	messages: readonly T[],
-	deps: EmptyTurnFilterDeps,
+  messages: readonly T[],
+  deps: EmptyTurnFilterDeps,
 ): readonly T[] {
-	let removedAny = false;
-	const out: T[] = [];
-	for (const m of messages) {
-		if (shouldHideEmptyAssistantTurn(m, deps)) {
-			removedAny = true;
-			continue;
-		}
-		out.push(m);
-	}
-	return removedAny ? out : messages;
+  let removedAny = false;
+  const out: T[] = [];
+  for (const m of messages) {
+    if (shouldHideEmptyAssistantTurn(m, deps)) {
+      removedAny = true;
+      continue;
+    }
+    out.push(m);
+  }
+  return removedAny ? out : messages;
 }

@@ -65,24 +65,37 @@ function rpc(params: Record<string, unknown>, id: number | string = 1): JsonRpcR
 }
 
 async function ensureExtension(id: string): Promise<void> {
-  await getDb().insert(extensionsTable).values({
-    id,
-    name: id,
-    version: "1.0.0",
-    description: "test",
-    manifest: { schemaVersion: 2, name: id, version: "1.0.0", description: "t", author: { name: "t" }, permissions: {} },
-    source: `test:${id}`,
-    installPath: `/tmp/${id}`,
-    enabled: true,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id,
+      name: id,
+      version: "1.0.0",
+      description: "test",
+      manifest: {
+        schemaVersion: 2,
+        name: id,
+        version: "1.0.0",
+        description: "t",
+        author: { name: "t" },
+        permissions: {},
+      },
+      source: `test:${id}`,
+      installPath: `/tmp/${id}`,
+      enabled: true,
+    } as any)
+    .onConflictDoNothing();
 }
 
 async function insertMessage(convId: string): Promise<string> {
-  const rows = await getDb().insert(messages).values({
-    conversationId: convId,
-    role: "extension",
-    content: "x",
-  } as any).returning();
+  const rows = await getDb()
+    .insert(messages)
+    .values({
+      conversationId: convId,
+      role: "extension",
+      content: "x",
+    } as any)
+    .returning();
   return rows[0]!.id;
 }
 
@@ -92,31 +105,42 @@ async function insertToolCall(opts: {
   extensionId: string;
 }): Promise<string> {
   const id = crypto.randomUUID();
-  await getDb().insert(toolCalls).values({
-    id,
-    conversationId: opts.conversationId,
-    messageId: opts.messageId,
-    extensionId: opts.extensionId,
-    toolName: "synth",
-    input: { text: "x" },
-    output: { content: [] },
-    success: true,
-    durationMs: 0,
-  } as any);
+  await getDb()
+    .insert(toolCalls)
+    .values({
+      id,
+      conversationId: opts.conversationId,
+      messageId: opts.messageId,
+      extensionId: opts.extensionId,
+      toolName: "synth",
+      input: { text: "x" },
+      output: { content: [] },
+      success: true,
+      durationMs: 0,
+    } as any);
   return id;
 }
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values({
-    id: USER,
-    email: `${USER}@t.local`,
-    passwordHash: "x",
-    name: USER,
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({ id: PROJECT, name: PROJECT, path: `/tmp/${PROJECT}` } as any);
-  await getDb().insert(conversations).values({ id: CONV, projectId: PROJECT, title: "ftc", userId: USER } as any);
-  await getDb().insert(conversations).values({ id: OTHER_CONV, projectId: PROJECT, title: "other", userId: USER } as any);
+  await getDb()
+    .insert(users)
+    .values({
+      id: USER,
+      email: `${USER}@t.local`,
+      passwordHash: "x",
+      name: USER,
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({ id: PROJECT, name: PROJECT, path: `/tmp/${PROJECT}` } as any);
+  await getDb()
+    .insert(conversations)
+    .values({ id: CONV, projectId: PROJECT, title: "ftc", userId: USER } as any);
+  await getDb()
+    .insert(conversations)
+    .values({ id: OTHER_CONV, projectId: PROJECT, title: "other", userId: USER } as any);
   await ensureExtension(EXT_OWNER);
   await ensureExtension(EXT_INTRUDER);
 });
@@ -129,7 +153,11 @@ afterAll(async () => {
 describe("finalize-tool-call — permission gate", () => {
   test("appendMessages NOT granted → -32001", async () => {
     const msgId = await insertMessage(CONV);
-    const tcId = await insertToolCall({ conversationId: CONV, messageId: msgId, extensionId: EXT_OWNER });
+    const tcId = await insertToolCall({
+      conversationId: CONV,
+      messageId: msgId,
+      extensionId: EXT_OWNER,
+    });
     const resp = await handleFinalizeToolCallRpc(
       EXT_OWNER,
       rpc({ toolCallId: tcId, status: "complete", output: {} }),
@@ -142,7 +170,11 @@ describe("finalize-tool-call — permission gate", () => {
     process.env.EZCORP_DISABLE_CAPABILITY_TOOLS = "1";
     try {
       const msgId = await insertMessage(CONV);
-      const tcId = await insertToolCall({ conversationId: CONV, messageId: msgId, extensionId: EXT_OWNER });
+      const tcId = await insertToolCall({
+        conversationId: CONV,
+        messageId: msgId,
+        extensionId: EXT_OWNER,
+      });
       const resp = await handleFinalizeToolCallRpc(
         EXT_OWNER,
         rpc({ toolCallId: tcId, status: "complete", output: {} }),
@@ -187,7 +219,11 @@ describe("finalize-tool-call — payload validation", () => {
 describe("finalize-tool-call — ownership", () => {
   test("non-owning extension → -32001", async () => {
     const msgId = await insertMessage(CONV);
-    const tcId = await insertToolCall({ conversationId: CONV, messageId: msgId, extensionId: EXT_OWNER });
+    const tcId = await insertToolCall({
+      conversationId: CONV,
+      messageId: msgId,
+      extensionId: EXT_OWNER,
+    });
     const resp = await handleFinalizeToolCallRpc(
       EXT_INTRUDER,
       rpc({ toolCallId: tcId, status: "complete", output: {} }),
@@ -199,7 +235,11 @@ describe("finalize-tool-call — ownership", () => {
 
   test("tool call in different conversation → -32001", async () => {
     const otherMsg = await insertMessage(OTHER_CONV);
-    const tcId = await insertToolCall({ conversationId: OTHER_CONV, messageId: otherMsg, extensionId: EXT_OWNER });
+    const tcId = await insertToolCall({
+      conversationId: OTHER_CONV,
+      messageId: otherMsg,
+      extensionId: EXT_OWNER,
+    });
     const resp = await handleFinalizeToolCallRpc(
       EXT_OWNER,
       rpc({ toolCallId: tcId, status: "complete", output: {} }),
@@ -212,7 +252,11 @@ describe("finalize-tool-call — ownership", () => {
 describe("finalize-tool-call — happy path", () => {
   test("status=complete writes success=true + output", async () => {
     const msgId = await insertMessage(CONV);
-    const tcId = await insertToolCall({ conversationId: CONV, messageId: msgId, extensionId: EXT_OWNER });
+    const tcId = await insertToolCall({
+      conversationId: CONV,
+      messageId: msgId,
+      extensionId: EXT_OWNER,
+    });
     const resp = await handleFinalizeToolCallRpc(
       EXT_OWNER,
       rpc({ toolCallId: tcId, status: "complete", output: { attachmentId: "abc" } }),
@@ -229,7 +273,11 @@ describe("finalize-tool-call — happy path", () => {
 
   test("status=error writes success=false", async () => {
     const msgId = await insertMessage(CONV);
-    const tcId = await insertToolCall({ conversationId: CONV, messageId: msgId, extensionId: EXT_OWNER });
+    const tcId = await insertToolCall({
+      conversationId: CONV,
+      messageId: msgId,
+      extensionId: EXT_OWNER,
+    });
     const resp = await handleFinalizeToolCallRpc(
       EXT_OWNER,
       rpc({ toolCallId: tcId, status: "error", output: "synth failed" }),

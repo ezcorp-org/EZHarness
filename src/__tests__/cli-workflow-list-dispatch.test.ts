@@ -233,7 +233,9 @@ describe("cli workflow:run dispatch", () => {
         {
           name: "boom2",
           description: "fails",
-          steps: [{ name: "bad", kind: "transform", output: { x: "$steps.nope.output" } } as unknown],
+          steps: [
+            { name: "bad", kind: "transform", output: { x: "$steps.nope.output" } } as unknown,
+          ],
         },
       ];
       const code = await captureExit(() => cli(["workflow", "run", "boom2"]));

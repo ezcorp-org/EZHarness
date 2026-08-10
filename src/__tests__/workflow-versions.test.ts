@@ -122,7 +122,12 @@ describe("what constitutes a new version", () => {
     const a = versionMaterialKey({ steps, inputSchema: { a: 1, b: 2 } });
     const b = versionMaterialKey({ steps, inputSchema: { b: 2, a: 1 } });
     expect(a).toBe(b);
-    expect(versionMaterialChanged({ steps, inputSchema: { a: 1, b: 2 } }, { steps, inputSchema: { b: 2, a: 1 } })).toBe(false);
+    expect(
+      versionMaterialChanged(
+        { steps, inputSchema: { a: 1, b: 2 } },
+        { steps, inputSchema: { b: 2, a: 1 } },
+      ),
+    ).toBe(false);
   });
 
   test("versionMaterialChanged detects a steps change", () => {
@@ -150,7 +155,9 @@ describe("the version id is authoritative over the hash", () => {
   test("the hash is a function of the version row, so the two cannot disagree", async () => {
     const row = await seed("w");
     const version = await getLatestWorkflowVersion(row.id);
-    expect(version!.stepsHash).toBe(versionStepsHash({ steps: version!.steps, defaultModel: null }));
+    expect(version!.stepsHash).toBe(
+      versionStepsHash({ steps: version!.steps, defaultModel: null }),
+    );
   });
 
   test("when hash and version disagree, the version id decides", async () => {
@@ -287,7 +294,10 @@ describe("retention sweep", () => {
 
   test("keeps the most recent N unreferenced versions per definition", async () => {
     const row = await mintVersions("w", 5);
-    const result = await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 2, pinnedVersionIds: [] });
+    const result = await sweepWorkflowDefinitionVersions({
+      keepUnreferencedPerDefinition: 2,
+      pinnedVersionIds: [],
+    });
     expect(result.scanned).toBe(5);
     expect(result.deleted).toBe(3);
     expect((await listWorkflowVersions(row.id)).map((v) => v.version)).toEqual([4, 5]);
@@ -305,7 +315,10 @@ describe("retention sweep", () => {
       definitionVersionId: v1!.id,
     });
 
-    await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 1, pinnedVersionIds: [] });
+    await sweepWorkflowDefinitionVersions({
+      keepUnreferencedPerDefinition: 1,
+      pinnedVersionIds: [],
+    });
     expect((await listWorkflowVersions(row.id)).map((v) => v.version)).toEqual([1, 5]);
   });
 
@@ -333,7 +346,10 @@ describe("retention sweep", () => {
 
   test("the newest version always survives, even with keep set to 1", async () => {
     const row = await mintVersions("w", 4);
-    await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 1, pinnedVersionIds: [] });
+    await sweepWorkflowDefinitionVersions({
+      keepUnreferencedPerDefinition: 1,
+      pinnedVersionIds: [],
+    });
     const remaining = await listWorkflowVersions(row.id);
     expect(remaining).toHaveLength(1);
     expect(remaining[0]!.version).toBe(4);
@@ -341,20 +357,30 @@ describe("retention sweep", () => {
 
   test("a keep below 1 is clamped, so a sweep can never orphan a definition", async () => {
     const row = await mintVersions("w", 3);
-    await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 0, pinnedVersionIds: [] });
+    await sweepWorkflowDefinitionVersions({
+      keepUnreferencedPerDefinition: 0,
+      pinnedVersionIds: [],
+    });
     expect(await listWorkflowVersions(row.id)).toHaveLength(1);
   });
 
   test("each definition is bounded independently", async () => {
     const a = await mintVersions("a", 3);
     const b = await mintVersions("b", 3);
-    await sweepWorkflowDefinitionVersions({ keepUnreferencedPerDefinition: 2, pinnedVersionIds: [] });
+    await sweepWorkflowDefinitionVersions({
+      keepUnreferencedPerDefinition: 2,
+      pinnedVersionIds: [],
+    });
     expect(await listWorkflowVersions(a.id)).toHaveLength(2);
     expect(await listWorkflowVersions(b.id)).toHaveLength(2);
   });
 
   test("an empty table sweeps to nothing", async () => {
-    expect(await sweepWorkflowDefinitionVersions({ pinnedVersionIds: [] })).toEqual({ scanned: 0, deleted: 0, retained: 0 });
+    expect(await sweepWorkflowDefinitionVersions({ pinnedVersionIds: [] })).toEqual({
+      scanned: 0,
+      deleted: 0,
+      retained: 0,
+    });
   });
 
   test("pinnedVersionIds is REQUIRED, so a caller cannot forget it silently", async () => {

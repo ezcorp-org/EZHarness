@@ -83,10 +83,7 @@ const OWNER_COLUMNS = Object.values(DELEGATION_OWNER_COLUMN);
  * policy still applies, so a parked run is never stranded with nobody.
  */
 export function delegationHoldsAuthority(): SQL | undefined {
-  return and(
-    isNull(workflowDelegations.revokedAt),
-    eq(workflowDelegations.enabled, true),
-  );
+  return and(isNull(workflowDelegations.revokedAt), eq(workflowDelegations.enabled, true));
 }
 
 /**
@@ -365,10 +362,7 @@ export async function createWorkflowDelegation(
         .update(workflowRuns)
         .set({ delegationId: inserted!.id })
         .where(
-          and(
-            eq(workflowRuns.delegationId, existing.id),
-            eq(workflowRuns.status, "suspended"),
-          ),
+          and(eq(workflowRuns.delegationId, existing.id), eq(workflowRuns.status, "suspended")),
         );
     }
     return { ok: true, delegation: inserted!, supersededId: existing?.id ?? null };
@@ -498,10 +492,7 @@ export async function listWorkflowDelegationsConsentedBy(
     .select()
     .from(workflowDelegations)
     .where(
-      and(
-        eq(workflowDelegations.consentedByUserId, userId),
-        isNull(workflowDelegations.revokedAt),
-      ),
+      and(eq(workflowDelegations.consentedByUserId, userId), isNull(workflowDelegations.revokedAt)),
     )
     .orderBy(desc(workflowDelegations.consentedAt));
 }
@@ -547,16 +538,11 @@ export async function revokeWorkflowDelegation(id: string): Promise<boolean> {
  * `idx_workflow_runs_delegation` (`db/schema.ts:901`), whose leading
  * column is `delegation_id` and whose second is `started_at`.
  */
-export async function countDelegationRunsSince(
-  delegationId: string,
-  since: Date,
-): Promise<number> {
+export async function countDelegationRunsSince(delegationId: string, since: Date): Promise<number> {
   const rows: Array<{ n: number }> = await getDb()
     .select({ n: count() })
     .from(workflowRuns)
-    .where(
-      and(eq(workflowRuns.delegationId, delegationId), gte(workflowRuns.startedAt, since)),
-    );
+    .where(and(eq(workflowRuns.delegationId, delegationId), gte(workflowRuns.startedAt, since)));
   return rows[0]?.n ?? 0;
 }
 
@@ -582,10 +568,7 @@ export async function countDelegationRunsSince(
  * overwriting it would lose the diagnosis. Revoked rows are excluded
  * because a tombstone holds no authority to withdraw.
  */
-export async function disableWorkflowDelegation(
-  id: string,
-  reason: string,
-): Promise<boolean> {
+export async function disableWorkflowDelegation(id: string, reason: string): Promise<boolean> {
   const rows = await getDb()
     .update(workflowDelegations)
     .set({ enabled: false, disabledReason: reason, updatedAt: new Date() })

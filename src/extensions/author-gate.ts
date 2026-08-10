@@ -31,10 +31,7 @@ import type { ExtensionManifestV2 } from "./types";
  * ship no subprocess to round-trip, so manifest validation is their
  * complete acceptance.
  */
-export const VERIFY_REQUIRED_TYPES: ReadonlySet<string> = new Set([
-  "tool",
-  "multi",
-]);
+export const VERIFY_REQUIRED_TYPES: ReadonlySet<string> = new Set(["tool", "multi"]);
 
 export type AuthorGateFailureCode = "MANIFEST_INVALID" | "VERIFY_FAILED";
 

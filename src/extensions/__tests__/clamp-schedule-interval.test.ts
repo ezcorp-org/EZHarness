@@ -30,17 +30,17 @@ function survives(cron: string): boolean {
 
 describe("schedule interval gate — sub-5-min equivalents are rejected", () => {
   const rejected = [
-    "* * * * *",        // every minute (old blocklist)
-    "*/1 * * * *",      // every minute
+    "* * * * *", // every minute (old blocklist)
+    "*/1 * * * *", // every minute
     "*/2 * * * *",
     "*/3 * * * *",
     "*/4 * * * *",
-    "0-59 * * * *",     // range form — every minute (old gate MISSED this)
-    "0-4 * * * *",      // five consecutive minutes
-    "1,2,3 * * * *",    // list form, 1-min spacing (old gate MISSED this)
-    "*/1 * * * *",      // step over wildcard == every minute
-    "0,59 * * * *",     // cross-hour wrap: :59 → next :00 is 1 min
-    "0,3 * * * *",      // 3-min gap within the hour
+    "0-59 * * * *", // range form — every minute (old gate MISSED this)
+    "0-4 * * * *", // five consecutive minutes
+    "1,2,3 * * * *", // list form, 1-min spacing (old gate MISSED this)
+    "*/1 * * * *", // step over wildcard == every minute
+    "0,59 * * * *", // cross-hour wrap: :59 → next :00 is 1 min
+    "0,3 * * * *", // 3-min gap within the hour
   ];
   for (const c of rejected) {
     test(`rejects ${JSON.stringify(c)}`, () => {
@@ -51,17 +51,17 @@ describe("schedule interval gate — sub-5-min equivalents are rejected", () => 
 
 describe("schedule interval gate — >= 5-min schedules pass", () => {
   const allowed = [
-    "*/5 * * * *",      // exactly 5 minutes — the floor
+    "*/5 * * * *", // exactly 5 minutes — the floor
     "*/15 * * * *",
-    "0,5,10 * * * *",   // 5-min spacing
-    "0 * * * *",        // hourly (minute 0)
-    "2 * * * *",        // hourly at :02 — offset from the gate reference
-    "1 0 * * *",        // daily at 00:01 — offset minute (regression guard)
-    "1-59/5 * * * *",   // true 5-min cadence, offset by 1 (regression guard)
-    "30 2 * * *",       // daily
-    "0 0 1 * *",        // monthly
-    "3 0 1 * *",        // monthly, offset minute
-    "0 0 1 1 *",        // yearly (sparse — must not hang or false-reject)
+    "0,5,10 * * * *", // 5-min spacing
+    "0 * * * *", // hourly (minute 0)
+    "2 * * * *", // hourly at :02 — offset from the gate reference
+    "1 0 * * *", // daily at 00:01 — offset minute (regression guard)
+    "1-59/5 * * * *", // true 5-min cadence, offset by 1 (regression guard)
+    "30 2 * * *", // daily
+    "0 0 1 * *", // monthly
+    "3 0 1 * *", // monthly, offset minute
+    "0 0 1 1 *", // yearly (sparse — must not hang or false-reject)
     // `N/step` with a bare number is a SINGLE value in this engine
     // (not Vixie's N-max/step), so `0/1` is minute=[0] == hourly. The
     // daemon uses the same parser, so the gate correctly treats it safe.

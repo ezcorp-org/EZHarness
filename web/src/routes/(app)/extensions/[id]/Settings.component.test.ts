@@ -194,9 +194,14 @@ describe("Extension detail — Settings section", () => {
     const saveBtn = await findByTestId("settings-panel-user-save");
     await fireEvent.click(saveBtn);
     await waitFor(() => {
-      const calls = fetchMock.mock.calls.map((c) => ({ url: String(c[0]), method: (c[1] as RequestInit | undefined)?.method ?? "GET" }));
+      const calls = fetchMock.mock.calls.map((c) => ({
+        url: String(c[0]),
+        method: (c[1] as RequestInit | undefined)?.method ?? "GET",
+      }));
       expect(
-        calls.some((c) => c.url.endsWith("/api/extensions/ext-1/settings/user") && c.method === "PUT"),
+        calls.some(
+          (c) => c.url.endsWith("/api/extensions/ext-1/settings/user") && c.method === "PUT",
+        ),
       ).toBe(true);
     });
   });
@@ -212,9 +217,14 @@ describe("Extension detail — Settings section", () => {
     const resetBtn = await findByTestId("settings-panel-user-reset");
     await fireEvent.click(resetBtn);
     await waitFor(() => {
-      const calls = fetchMock.mock.calls.map((c) => ({ url: String(c[0]), method: (c[1] as RequestInit | undefined)?.method ?? "GET" }));
+      const calls = fetchMock.mock.calls.map((c) => ({
+        url: String(c[0]),
+        method: (c[1] as RequestInit | undefined)?.method ?? "GET",
+      }));
       expect(
-        calls.some((c) => c.url.endsWith("/api/extensions/ext-1/settings/user") && c.method === "DELETE"),
+        calls.some(
+          (c) => c.url.endsWith("/api/extensions/ext-1/settings/user") && c.method === "DELETE",
+        ),
       ).toBe(true);
     });
   });

@@ -122,8 +122,9 @@ mock.module("../db/queries/agent-configs", () => ({
 afterAll(() => restoreModuleMocks());
 
 // Import AFTER the mocks so the installer resolves to the stubbed queries.
-const { ensureBundledExtensions, resolveBundledExtensions, isBundledExtensionName } =
-  await import("../extensions/bundled");
+const { ensureBundledExtensions, resolveBundledExtensions, isBundledExtensionName } = await import(
+  "../extensions/bundled"
+);
 const { clampToBundledCeiling, getCeiling } = await import("../extensions/bundled-ceiling");
 const { intersectPermissions, grantsToCapabilitySet } = await import(
   "../extensions/capability-types"
@@ -213,9 +214,7 @@ describe("bundled registry — ez-factory entry", () => {
       (bundledEntry().permissions as unknown as Record<string, unknown>).rbacScopes,
     ).toBeUndefined();
     // …while the manifest DOES declare them.
-    expect(
-      (manifest.permissions as unknown as Record<string, unknown>).rbacScopes,
-    ).toHaveLength(3);
+    expect((manifest.permissions as unknown as Record<string, unknown>).rbacScopes).toHaveLength(3);
   });
 });
 
@@ -286,10 +285,7 @@ describe("allowDelegated — the phase-9 three-way match", () => {
   });
 
   test("THE ASSERTION: allowDelegated SURVIVES the real intersection", () => {
-    const { effective, clamped } = clampToBundledCeiling(
-      "ez-factory",
-      bundledEntry().permissions,
-    );
+    const { effective, clamped } = clampToBundledCeiling("ez-factory", bundledEntry().permissions);
     expect(clamped).toBe(false);
     expect(effective.workflows).toEqual(WORKFLOWS);
     expect(effective.workflows!.allowDelegated).toBe(true);
@@ -370,10 +366,7 @@ describe("bundled ceiling — the ez-factory intersection is lossless", () => {
   });
 
   test("clampToBundledCeiling(ez-factory) does NOT clamp the install grant", () => {
-    const { effective, clamped } = clampToBundledCeiling(
-      "ez-factory",
-      bundledEntry().permissions,
-    );
+    const { effective, clamped } = clampToBundledCeiling("ez-factory", bundledEntry().permissions);
     expect(clamped).toBe(false);
 
     expect(effective.storage).toBe(true);
@@ -451,11 +444,7 @@ describe("ensureBundledExtensions — ez-factory first-boot install", () => {
     const granted = store.get("ez-factory")!.grantedPermissions;
     expect(granted.storage).toBe(true);
     expect(granted.filesystem).toEqual(["$CWD"]);
-    expect(granted.workflows?.names).toEqual([
-      "docs-factory",
-      "etl-factory",
-      "draft-and-verify",
-    ]);
+    expect(granted.workflows?.names).toEqual(["docs-factory", "etl-factory", "draft-and-verify"]);
     expect(granted.workflows?.maxRunsPerHour).toBe(60);
     expect(Number.isNaN(granted.workflows?.maxRunsPerHour ?? NaN)).toBe(false);
   });
@@ -482,9 +471,11 @@ describe("ensureBundledExtensions — ez-factory first-boot install", () => {
     expect(caps.some((c) => c.kind === "ezcorp:workflows:run-delegated")).toBe(true);
     // …alongside the three per-name run caps, which the delegated opt-in
     // does not replace or widen.
-    expect(
-      caps.filter((c) => c.kind === "ezcorp:workflows:run").map((c) => c.value),
-    ).toEqual(["docs-factory", "etl-factory", "draft-and-verify"]);
+    expect(caps.filter((c) => c.kind === "ezcorp:workflows:run").map((c) => c.value)).toEqual([
+      "docs-factory",
+      "etl-factory",
+      "draft-and-verify",
+    ]);
   });
 
   test("second boot does not lose allowDelegated either", async () => {

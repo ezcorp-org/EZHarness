@@ -101,17 +101,15 @@ export async function deleteSecret(scope: SecretScope): Promise<boolean> {
 
 /** Stamps `lastUsedAt = now` for the addressed secret. No-op if missing. */
 export async function touchLastUsed(scope: SecretScope): Promise<void> {
-  await getDb()
-    .update(extensionSecrets)
-    .set({ lastUsedAt: new Date() })
-    .where(scopeWhere(scope));
+  await getDb().update(extensionSecrets).set({ lastUsedAt: new Date() }).where(scopeWhere(scope));
 }
 
 /** Lists secret METADATA for an extension (optionally scoped to a project).
  *  NEVER returns the ciphertext. */
-export async function listSecretMeta(
-  filter: { extensionId: string; projectId?: string | null },
-): Promise<SecretMeta[]> {
+export async function listSecretMeta(filter: {
+  extensionId: string;
+  projectId?: string | null;
+}): Promise<SecretMeta[]> {
   const conditions = [eq(extensionSecrets.extensionId, filter.extensionId)];
   if (filter.projectId !== undefined) {
     conditions.push(

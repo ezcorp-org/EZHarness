@@ -102,11 +102,7 @@ type InstallCall = {
 let installCalls: InstallCall[] = [];
 
 const installerMock = () => ({
-  installFromLocal: async (
-    localPath: string,
-    permissions: unknown,
-    enabled?: boolean,
-  ) => {
+  installFromLocal: async (localPath: string, permissions: unknown, enabled?: boolean) => {
     installCalls.push({
       fn: "installFromLocal",
       arg0: localPath,
@@ -123,11 +119,7 @@ const installerMock = () => ({
       grantedPermissions: permissions,
     };
   },
-  installFromGitHub: async (
-    repoSpec: string,
-    permissions: unknown,
-    enabled?: boolean,
-  ) => {
+  installFromGitHub: async (repoSpec: string, permissions: unknown, enabled?: boolean) => {
     installCalls.push({
       fn: "installFromGitHub",
       arg0: repoSpec,
@@ -207,10 +199,7 @@ mock.module("../../db/queries/audit-log", auditLogMock);
 import { POST } from "../../../web/src/routes/api/extensions/+server";
 
 // SvelteKit handlers may throw a Response on auth failure; unwrap.
-async function call(
-  handler: (ev: any) => unknown,
-  event: any,
-): Promise<Response> {
+async function call(handler: (ev: any) => unknown, event: any): Promise<Response> {
   try {
     return (await handler(event)) as Response;
   } catch (e) {

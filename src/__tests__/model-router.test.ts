@@ -93,7 +93,13 @@ describe("mergePreferenceOrder", () => {
 
   test("defaults to DEFAULT_PREFERENCE_ORDER when no defaults arg is passed", () => {
     // Exercises the default-parameter branch; a stored subset gains the rest.
-    expect(mergePreferenceOrder(["openai"])).toEqual(["openai", "anthropic", "google", "openrouter", "kilo"]);
+    expect(mergePreferenceOrder(["openai"])).toEqual([
+      "openai",
+      "anthropic",
+      "google",
+      "openrouter",
+      "kilo",
+    ]);
   });
 });
 
@@ -137,8 +143,7 @@ function restoreProviderEnv(saved: Record<string, string | undefined>): void {
   }
 }
 
-const credentialedSettings =
-  (extra: (key: string) => unknown = () => undefined) =>
+const credentialedSettings = (extra: (key: string) => unknown = () => undefined) =>
   ((key: string) => {
     const override = extra(key);
     if (override !== undefined) return Promise.resolve(override);
@@ -599,7 +604,9 @@ describe("suggestFallback", () => {
   // and shows the user a "try X instead" that could never have worked.
   test("never suggests a provider with no usable credential", async () => {
     mockGetSetting.mockImplementation(((key: string) =>
-      Promise.resolve(key === "provider:apiKey:openrouter" ? "encrypted:sk-test" : undefined)) as any);
+      Promise.resolve(
+        key === "provider:apiKey:openrouter" ? "encrypted:sk-test" : undefined,
+      )) as any);
     const saved: Record<string, string | undefined> = {};
     for (const v of ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"]) {
       saved[v] = process.env[v];
@@ -633,7 +640,12 @@ describe("ProviderUnavailableError", () => {
   });
 
   test("suggestion can be null", () => {
-    const err = new ProviderUnavailableError("No providers", "anthropic", "claude-sonnet-4-20250514", null);
+    const err = new ProviderUnavailableError(
+      "No providers",
+      "anthropic",
+      "claude-sonnet-4-20250514",
+      null,
+    );
     expect(err.suggestion).toBeNull();
   });
 });

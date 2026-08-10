@@ -27,13 +27,32 @@ function deps(over: Record<string, unknown> = {}) {
     forgot: [] as string[],
   };
   const d = {
-    killProcesses: async (c: string) => { calls.killed.push(c); return { killed: 2, unconfirmed: 0 }; },
-    revokePreviews: async (c: string) => { calls.revoked.push(c); return ["p1", "p2", "p3"]; },
-    reapUid: (c: string) => { calls.uid.push(c); return true; },
-    quarantineUid: (c: string) => { calls.quarantined.push(c); return true; },
-    reapNetns: (c: string) => { calls.netns.push(c); return false; },
-    unwatch: (c: string) => { calls.unwatched.push(c); },
-    forgetQuota: (id: string) => { calls.forgot.push(id); },
+    killProcesses: async (c: string) => {
+      calls.killed.push(c);
+      return { killed: 2, unconfirmed: 0 };
+    },
+    revokePreviews: async (c: string) => {
+      calls.revoked.push(c);
+      return ["p1", "p2", "p3"];
+    },
+    reapUid: (c: string) => {
+      calls.uid.push(c);
+      return true;
+    },
+    quarantineUid: (c: string) => {
+      calls.quarantined.push(c);
+      return true;
+    },
+    reapNetns: (c: string) => {
+      calls.netns.push(c);
+      return false;
+    },
+    unwatch: (c: string) => {
+      calls.unwatched.push(c);
+    },
+    forgetQuota: (id: string) => {
+      calls.forgot.push(id);
+    },
     ...over,
   };
   return { d, calls };
@@ -76,7 +95,9 @@ describe("reapPreviewConversation", () => {
 
   test("a THROWN killer quarantines the uid (fail-closed — don't release on unknown)", async () => {
     const { d, calls } = deps({
-      killProcesses: async () => { throw new Error("kill boom"); },
+      killProcesses: async () => {
+        throw new Error("kill boom");
+      },
     });
     const res = await reapPreviewConversation("conv-3", d);
     expect(res.processesKilled).toBe(0);
@@ -96,7 +117,9 @@ describe("reapPreviewConversation", () => {
 
   test("a failing revoke does not block kill or uid-release (and forgets nothing)", async () => {
     const { d, calls } = deps({
-      revokePreviews: async () => { throw new Error("db down"); },
+      revokePreviews: async () => {
+        throw new Error("db down");
+      },
     });
     const res = await reapPreviewConversation("conv-2", d);
     expect(res.processesKilled).toBe(2); // kill still ran (confirmed)
@@ -108,7 +131,9 @@ describe("reapPreviewConversation", () => {
 
   test("a failing quota-forget does not block the rest of the sweep", async () => {
     const { d, calls } = deps({
-      forgetQuota: () => { throw new Error("forget boom"); },
+      forgetQuota: () => {
+        throw new Error("forget boom");
+      },
     });
     const res = await reapPreviewConversation("conv-f", d);
     expect(res.previewsRevoked).toBe(3); // revoke still counted
@@ -118,7 +143,9 @@ describe("reapPreviewConversation", () => {
 
   test("a throwing uid-release is swallowed; the sweep continues", async () => {
     const { d, calls } = deps({
-      reapUid: () => { throw new Error("uid boom"); },
+      reapUid: () => {
+        throw new Error("uid boom");
+      },
     });
     const res = await reapPreviewConversation("conv-u", d);
     // The throw is caught — uidReleased stays false, but later steps still run.
@@ -130,7 +157,9 @@ describe("reapPreviewConversation", () => {
   test("a throwing uid-quarantine is swallowed (unconfirmed-kill path)", async () => {
     const { d, calls } = deps({
       killProcesses: async () => ({ killed: 1, unconfirmed: 1 }),
-      quarantineUid: () => { throw new Error("quarantine boom"); },
+      quarantineUid: () => {
+        throw new Error("quarantine boom");
+      },
     });
     const res = await reapPreviewConversation("conv-qx", d);
     expect(res.uidQuarantined).toBe(false); // throw → stays false
@@ -140,7 +169,9 @@ describe("reapPreviewConversation", () => {
 
   test("a throwing netns-reap is swallowed; unwatch still runs", async () => {
     const { d, calls } = deps({
-      reapNetns: () => { throw new Error("netns boom"); },
+      reapNetns: () => {
+        throw new Error("netns boom");
+      },
     });
     const res = await reapPreviewConversation("conv-n", d);
     expect(res.uidReleased).toBe(true);
@@ -149,7 +180,9 @@ describe("reapPreviewConversation", () => {
 
   test("a throwing unwatch is swallowed; the reap still resolves", async () => {
     const { d } = deps({
-      unwatch: () => { throw new Error("unwatch boom"); },
+      unwatch: () => {
+        throw new Error("unwatch boom");
+      },
     });
     const res = await reapPreviewConversation("conv-w", d);
     expect(res.uidReleased).toBe(true); // everything prior still applied

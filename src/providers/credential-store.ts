@@ -148,7 +148,10 @@ export class SettingsCredentialStore implements CredentialStore {
     // Park rejections on the CHAIN copy so a failed refresh cannot surface as
     // an unhandled rejection for the next waiter; the caller still sees it
     // through `run`.
-    this.chains.set(providerId, run.catch(() => undefined));
+    this.chains.set(
+      providerId,
+      run.catch(() => undefined),
+    );
     try {
       return await run;
     } finally {

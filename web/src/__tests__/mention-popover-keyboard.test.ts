@@ -81,9 +81,7 @@ function createPopoverLogic(
       return;
     }
     if (key === "ArrowUp") {
-      if (total > 0)
-        highlightedIndex =
-          highlightedIndex <= 0 ? total - 1 : highlightedIndex - 1;
+      if (total > 0) highlightedIndex = highlightedIndex <= 0 ? total - 1 : highlightedIndex - 1;
       return;
     }
     if (key === "Enter" || key === "Tab") {
@@ -315,7 +313,11 @@ describe("group order — keyboard nav walks the sections top-to-bottom", () => 
 
   test("ArrowUp from the top wraps to the last group's item", () => {
     const expected = flatten(mixed);
-    const popover = createPopoverLogic(mixed, () => {}, () => {});
+    const popover = createPopoverLogic(
+      mixed,
+      () => {},
+      () => {},
+    );
     popover.handleKeydown("ArrowUp");
     expect(popover.getHighlightedIndex()).toBe(expected.length - 1);
     expect(popover.getFlatItems()[popover.getHighlightedIndex()]!.kind).toBe("file");

@@ -6,18 +6,18 @@ import type { AgentCallState, AssignmentStatus } from "./stores.svelte.js";
  * client-side projection used by the chat page.
  */
 export interface SubConvoRecord {
-	id: string;
-	agentName: string;
-	agentConfigId: string;
-	parentMessageId: string;
-	messageCount?: number;
-	lastMessagePreview?: string | null;
+  id: string;
+  agentName: string;
+  agentConfigId: string;
+  parentMessageId: string;
+  messageCount?: number;
+  lastMessagePreview?: string | null;
 }
 
 /** Assignment status lookup from the task-tracking snapshot. */
 export interface SubConvoAssignment {
-	status: AssignmentStatus;
-	resultPreview?: string;
+  status: AssignmentStatus;
+  resultPreview?: string;
 }
 
 /**
@@ -31,38 +31,36 @@ export interface SubConvoAssignment {
  * didn't respond).
  */
 export function subConvoToAgentCallState(
-	sc: SubConvoRecord,
-	assignment?: SubConvoAssignment,
+  sc: SubConvoRecord,
+  assignment?: SubConvoAssignment,
 ): AgentCallState {
-	// Auto-spin-up stores only the assistant response (messageCount=1);
-	// invoke_agent stores user task + assistant response (messageCount>=2).
-	// Any messages at all means the agent produced something.
-	const hasResponse = (sc.messageCount ?? 0) >= 1;
+  // Auto-spin-up stores only the assistant response (messageCount=1);
+  // invoke_agent stores user task + assistant response (messageCount>=2).
+  // Any messages at all means the agent produced something.
+  const hasResponse = (sc.messageCount ?? 0) >= 1;
 
-	let status: AgentCallState["status"];
-	let resultPreview: string | undefined;
-	if (assignment) {
-		status =
-			assignment.status === "failed"
-				? "error"
-				: assignment.status === "running"
-					? "running"
-					: "complete";
-		resultPreview = assignment.resultPreview ?? (sc.lastMessagePreview ?? undefined);
-	} else {
-		status = hasResponse ? "complete" : "error";
-		resultPreview = hasResponse
-			? (sc.lastMessagePreview ?? undefined)
-			: "Agent did not respond";
-	}
+  let status: AgentCallState["status"];
+  let resultPreview: string | undefined;
+  if (assignment) {
+    status =
+      assignment.status === "failed"
+        ? "error"
+        : assignment.status === "running"
+          ? "running"
+          : "complete";
+    resultPreview = assignment.resultPreview ?? sc.lastMessagePreview ?? undefined;
+  } else {
+    status = hasResponse ? "complete" : "error";
+    resultPreview = hasResponse ? (sc.lastMessagePreview ?? undefined) : "Agent did not respond";
+  }
 
-	return {
-		subConversationId: sc.id,
-		agentName: sc.agentName,
-		agentConfigId: sc.agentConfigId,
-		task: "",
-		status,
-		resultPreview,
-		startedAt: 0,
-	};
+  return {
+    subConversationId: sc.id,
+    agentName: sc.agentName,
+    agentConfigId: sc.agentConfigId,
+    task: "",
+    status,
+    resultPreview,
+    startedAt: 0,
+  };
 }

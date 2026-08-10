@@ -60,9 +60,7 @@ export class ReopenError extends Error {
  * re-runs the `smokeTest` round-trip for those, so anything that ships
  * a subprocess tool server still has to pass acceptance after a modify.
  */
-function scaffoldType(
-  m: ExtensionManifestV2,
-): "tool" | "skill" | "agent" | "multi" {
+function scaffoldType(m: ExtensionManifestV2): "tool" | "skill" | "agent" | "multi" {
   const hasTools = Array.isArray(m.tools) && m.tools.length > 0;
   const hasSkills = Array.isArray(m.skills) && m.skills.length > 0;
   const hasAgent = m.agent != null;
@@ -83,12 +81,12 @@ export async function reopenInstalledAsDraft(
   if (!ext) {
     throw new ReopenError(
       "NOT_FOUND_OR_NOT_MODIFIABLE",
-      'Extension not found, not yours, or modification is not enabled. ' +
-        'To enable it, an admin must open this extension\'s detail page ' +
+      "Extension not found, not yours, or modification is not enabled. " +
+        "To enable it, an admin must open this extension's detail page " +
         '(Library → click the extension), scroll to the "Settings" ' +
         'section, and turn ON the "Allow extension to be modified" ' +
-        'checkbox. Built-in (bundled) extensions can never be made ' +
-        'modifiable.',
+        "checkbox. Built-in (bundled) extensions can never be made " +
+        "modifiable.",
     );
   }
 
@@ -132,10 +130,7 @@ export async function reopenInstalledAsDraft(
     }
   }
   if (!files["ezcorp.config.ts"]) {
-    throw new ReopenError(
-      "NO_FILES",
-      "Installed extension is missing a readable ezcorp.config.ts",
-    );
+    throw new ReopenError("NO_FILES", "Installed extension is missing a readable ezcorp.config.ts");
   }
 
   const manifest = ext.manifest as ExtensionManifestV2;
@@ -159,10 +154,7 @@ export async function reopenInstalledAsDraft(
       },
     });
   } catch (err) {
-    throw new ReopenError(
-      "DRAFT_FAILED",
-      `Failed to create draft: ${String(err)}`,
-    );
+    throw new ReopenError("DRAFT_FAILED", `Failed to create draft: ${String(err)}`);
   }
 
   try {
@@ -178,10 +170,7 @@ export async function reopenInstalledAsDraft(
         error: String(discardErr),
       });
     }
-    throw new ReopenError(
-      "DRAFT_FAILED",
-      `Failed to materialize draft files: ${String(err)}`,
-    );
+    throw new ReopenError("DRAFT_FAILED", `Failed to materialize draft files: ${String(err)}`);
   }
 
   return { draftId: row.id, name: ext.name };

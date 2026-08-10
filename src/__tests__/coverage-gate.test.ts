@@ -170,10 +170,11 @@ async function writeFixtures(
 type RunResult = { exitCode: number; stdout: string; stderr: string };
 
 async function runCheck(root: string): Promise<RunResult> {
-  const proc = Bun.spawn(
-    ["bun", join(root, "scripts/check-coverage.ts")],
-    { cwd: root, stdout: "pipe", stderr: "pipe" },
-  );
+  const proc = Bun.spawn(["bun", join(root, "scripts/check-coverage.ts")], {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -182,11 +183,7 @@ async function runCheck(root: string): Promise<RunResult> {
   return { exitCode, stdout, stderr };
 }
 
-async function runMerge(
-  cwd: string,
-  globPat: string,
-  outPath: string,
-): Promise<RunResult> {
+async function runMerge(cwd: string, globPat: string, outPath: string): Promise<RunResult> {
   const proc = Bun.spawn(["bun", MERGE_SCRIPT, globPat, outPath], {
     cwd,
     stdout: "pipe",

@@ -38,7 +38,12 @@ import { join } from "node:path";
 // fsMkdir trips the `EZCORP_FS_ALLOWED !== "1"` guard at fs.ts:165.
 mock.module("@ezcorp/sdk/runtime", () => ({
   fsExists: async (path: string) => {
-    try { statSync(path); return true; } catch { return false; }
+    try {
+      statSync(path);
+      return true;
+    } catch {
+      return false;
+    }
   },
   fsRead: async (path: string, opts?: { encoding?: "utf-8" | "binary" }) => {
     const buf = readFileSync(path);
@@ -51,9 +56,7 @@ mock.module("@ezcorp/sdk/runtime", () => ({
   },
   fsWrite: async (path: string, content: string | Uint8Array) => {
     const isBinary = content instanceof Uint8Array;
-    const bytes = isBinary
-      ? content.byteLength
-      : Buffer.byteLength(content as string);
+    const bytes = isBinary ? content.byteLength : Buffer.byteLength(content as string);
     await fsp.writeFile(path, isBinary ? Buffer.from(content) : (content as string));
     return { bytes, resolvedPath: path };
   },
@@ -80,8 +83,7 @@ import {
 // bytes survive the write → read → base64 pipeline intact. First 8
 // bytes are the canonical PNG signature; the rest is arbitrary.
 const FIXTURE_PNG = new Uint8Array([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-  0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
 ]);
 const FIXTURE_PNG_B64 = Buffer.from(FIXTURE_PNG).toString("base64");
 const FIXTURE_JPG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]);
@@ -95,7 +97,9 @@ beforeEach(() => {
 
 afterEach(() => {
   if (projectRoot) {
-    try { rmSync(projectRoot, { recursive: true, force: true }); } catch {}
+    try {
+      rmSync(projectRoot, { recursive: true, force: true });
+    } catch {}
     projectRoot = "";
   }
 });
@@ -120,13 +124,7 @@ describe("path convention contract", () => {
     // resolver points at. If either side drifts (e.g. an extra path
     // segment, different casing, base64/url-encoding a segment), this
     // fails with a path comparison that makes the drift obvious.
-    const extWrote = join(
-      projectRoot,
-      ".ezcorp",
-      "extension-data",
-      EXTENSION_NAME,
-      saved.relPath,
-    );
+    const extWrote = join(projectRoot, ".ezcorp", "extension-data", EXTENSION_NAME, saved.relPath);
     expect(resolved!.absPath).toBe(extWrote);
   });
 

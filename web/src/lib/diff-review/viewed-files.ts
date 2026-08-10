@@ -16,7 +16,7 @@ export const VIEWED_FILES_KEY_PREFIX = "ezcorp-diff-viewed:";
 
 /** Full storage key for one conversation's viewed set. */
 export function viewedFilesKey(conversationId: string): string {
-	return `${VIEWED_FILES_KEY_PREFIX}${conversationId}`;
+  return `${VIEWED_FILES_KEY_PREFIX}${conversationId}`;
 }
 
 /**
@@ -25,17 +25,17 @@ export function viewedFilesKey(conversationId: string): string {
  * hide a file's diff.
  */
 export function loadViewedFiles(conversationId: string): Set<string> {
-	if (!conversationId) return new Set();
-	if (typeof localStorage === "undefined") return new Set();
-	try {
-		const raw = localStorage.getItem(viewedFilesKey(conversationId));
-		if (!raw) return new Set();
-		const parsed: unknown = JSON.parse(raw);
-		if (!Array.isArray(parsed)) return new Set();
-		return new Set(parsed.filter((v): v is string => typeof v === "string"));
-	} catch {
-		return new Set();
-	}
+  if (!conversationId) return new Set();
+  if (typeof localStorage === "undefined") return new Set();
+  try {
+    const raw = localStorage.getItem(viewedFilesKey(conversationId));
+    if (!raw) return new Set();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.filter((v): v is string => typeof v === "string"));
+  } catch {
+    return new Set();
+  }
 }
 
 /**
@@ -43,15 +43,15 @@ export function loadViewedFiles(conversationId: string): Set<string> {
  * un-ticked review doesn't leave dead keys behind.
  */
 export function persistViewedFiles(conversationId: string, viewed: Set<string>): void {
-	if (!conversationId) return;
-	if (typeof localStorage === "undefined") return;
-	try {
-		const key = viewedFilesKey(conversationId);
-		if (viewed.size === 0) localStorage.removeItem(key);
-		else localStorage.setItem(key, JSON.stringify(Array.from(viewed)));
-	} catch {
-		/* non-critical — the tick simply won't survive a reload */
-	}
+  if (!conversationId) return;
+  if (typeof localStorage === "undefined") return;
+  try {
+    const key = viewedFilesKey(conversationId);
+    if (viewed.size === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify(Array.from(viewed)));
+  } catch {
+    /* non-critical — the tick simply won't survive a reload */
+  }
 }
 
 /**
@@ -60,5 +60,5 @@ export function persistViewedFiles(conversationId: string, viewed: Set<string>):
  * "3 / 4 files viewed" can never exceed the file count.
  */
 export function viewedCount(viewed: Set<string>, keys: string[]): number {
-	return keys.reduce((n, key) => n + (viewed.has(key) ? 1 : 0), 0);
+  return keys.reduce((n, key) => n + (viewed.has(key) ? 1 : 0), 0);
 }

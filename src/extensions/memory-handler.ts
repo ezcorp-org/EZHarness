@@ -149,7 +149,8 @@ export async function handlePiMemory(
   const granted = ctx.granted.memory;
   if (!granted) return softFail(req, "memory permission not granted");
 
-  const isWriteAction = params.action === "write" || params.action === "update" || params.action === "archive";
+  const isWriteAction =
+    params.action === "write" || params.action === "update" || params.action === "archive";
   if (isWriteAction && granted.access !== "write") {
     return softFail(req, "memory write access not granted");
   }
@@ -176,10 +177,17 @@ export async function handlePiMemory(
       }
       const limit = Math.min(typeof params.limit === "number" ? params.limit : 50, 200);
       const where = and(...conditions);
-      const rows = await db.select().from(memories).where(where as never).limit(limit);
+      const rows = await db
+        .select()
+        .from(memories)
+        .where(where as never)
+        .limit(limit);
       await recordCapabilityCall({
-        ctx: handlerCtx, capability: "memory", action: "list",
-        durationMs: Date.now() - startedAt, success: true,
+        ctx: handlerCtx,
+        capability: "memory",
+        action: "list",
+        durationMs: Date.now() - startedAt,
+        success: true,
         after: { count: rows.length },
         insertChatPill: false,
       });
@@ -211,16 +219,24 @@ export async function handlePiMemory(
       const quota = checkAndConsumeWriteQuota(handlerCtx.actorExtensionId, granted.maxWritesPerDay);
       if (!quota.ok) {
         return {
-          jsonrpc: "2.0", id: req.id,
-          error: { code: -32103, message: "memory write quota exceeded",
-                   data: { reason: "writes-per-day", retryAfterMs: quota.retryAfterMs } },
+          jsonrpc: "2.0",
+          id: req.id,
+          error: {
+            code: -32103,
+            message: "memory write quota exceeded",
+            data: { reason: "writes-per-day", retryAfterMs: quota.retryAfterMs },
+          },
         };
       }
 
       const embed = ctx.embedFn ?? defaultEmbed;
       const embedding = await embed(params.input.content);
 
-      const provenance: MemoryProvenance & { extensionId: string; runId: string | null; injectionEligible: boolean } = {
+      const provenance: MemoryProvenance & {
+        extensionId: string;
+        runId: string | null;
+        injectionEligible: boolean;
+      } = {
         sourceConversationId: handlerCtx.conversationId ?? "",
         sourceMessageIds: params.input.sourceMessageIds ?? [],
         extractedAt: new Date(),
@@ -230,16 +246,21 @@ export async function handlePiMemory(
         runId: handlerCtx.runId,
         injectionEligible: false, // Locked: extension-authored memories don't auto-inject.
       };
-      const [inserted] = await db.insert(memories).values({
-        content: params.input.content,
-        category: params.input.category,
-        ...(params.input.projectId !== undefined ? { projectId: params.input.projectId ?? null } : {}),
-        ...(handlerCtx.conversationId ? { conversationId: handlerCtx.conversationId } : {}),
-        confidence: params.input.confidence ?? "medium",
-        provenance: provenance as MemoryProvenance,
-        injectionEligible: false,
-        userId: handlerCtx.onBehalfOf,
-      }).returning();
+      const [inserted] = await db
+        .insert(memories)
+        .values({
+          content: params.input.content,
+          category: params.input.category,
+          ...(params.input.projectId !== undefined
+            ? { projectId: params.input.projectId ?? null }
+            : {}),
+          ...(handlerCtx.conversationId ? { conversationId: handlerCtx.conversationId } : {}),
+          confidence: params.input.confidence ?? "medium",
+          provenance: provenance as MemoryProvenance,
+          injectionEligible: false,
+          userId: handlerCtx.onBehalfOf,
+        })
+        .returning();
 
       // Write the embedding in a follow-up exec — vector assignments
       // need raw SQL (per memories.ts pattern).
@@ -248,11 +269,19 @@ export async function handlePiMemory(
       );
 
       await recordCapabilityCall({
-        ctx: handlerCtx, capability: "memory", action: "write",
-        resourceType: "memory", resourceId: inserted!.id,
+        ctx: handlerCtx,
+        capability: "memory",
+        action: "write",
+        resourceType: "memory",
+        resourceId: inserted!.id,
         before: undefined,
-        after: { id: inserted!.id, category: params.input.category, contentSha256: hashStable(params.input.content) },
-        durationMs: Date.now() - startedAt, success: true,
+        after: {
+          id: inserted!.id,
+          category: params.input.category,
+          contentSha256: hashStable(params.input.content),
+        },
+        durationMs: Date.now() - startedAt,
+        success: true,
         perResourceAudit: {
           kind: "memory",
           memoryId: inserted!.id,
@@ -279,12 +308,19 @@ export async function handlePiMemory(
       }
       const newContent = params.patch?.content;
       if (newContent !== undefined) {
-        await db.update(memories).set({ content: newContent, updatedAt: new Date() }).where(eq(memories.id, params.id));
+        await db
+          .update(memories)
+          .set({ content: newContent, updatedAt: new Date() })
+          .where(eq(memories.id, params.id));
       }
       await recordCapabilityCall({
-        ctx: handlerCtx, capability: "memory", action: "update",
-        resourceType: "memory", resourceId: params.id,
-        durationMs: Date.now() - startedAt, success: true,
+        ctx: handlerCtx,
+        capability: "memory",
+        action: "update",
+        resourceType: "memory",
+        resourceId: params.id,
+        durationMs: Date.now() - startedAt,
+        success: true,
         perResourceAudit: {
           kind: "memory",
           memoryId: params.id,
@@ -309,11 +345,18 @@ export async function handlePiMemory(
       if (prov?.extensionId !== handlerCtx.actorExtensionId) {
         return softFail(req, "not-author");
       }
-      await db.update(memories).set({ status: "archived", updatedAt: new Date() }).where(eq(memories.id, params.id));
+      await db
+        .update(memories)
+        .set({ status: "archived", updatedAt: new Date() })
+        .where(eq(memories.id, params.id));
       await recordCapabilityCall({
-        ctx: handlerCtx, capability: "memory", action: "archive",
-        resourceType: "memory", resourceId: params.id,
-        durationMs: Date.now() - startedAt, success: true,
+        ctx: handlerCtx,
+        capability: "memory",
+        action: "archive",
+        resourceType: "memory",
+        resourceId: params.id,
+        durationMs: Date.now() - startedAt,
+        success: true,
         perResourceAudit: {
           kind: "memory",
           memoryId: params.id,

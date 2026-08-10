@@ -4,7 +4,13 @@ import { z } from "zod";
 import { errorJson } from "$lib/server/http-errors";
 import { requireAuth } from "$server/auth/middleware";
 import { getAgentConfig } from "$server/db/queries/agent-configs";
-import { shareAgent, shareAgentWithUser, unshareAgent, unshareAgentFromUser, getAgentShares } from "$server/db/queries/agent-shares";
+import {
+  shareAgent,
+  shareAgentWithUser,
+  unshareAgent,
+  unshareAgentFromUser,
+  getAgentShares,
+} from "$server/db/queries/agent-shares";
 import { getTeamMembershipsByTeams } from "$server/db/queries/teams";
 import { getUsersByIds } from "$server/db/queries/users";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
@@ -16,19 +22,23 @@ import { requireScope } from "$lib/server/security/api-keys";
 // required"`), so the schema is permissive and the inline checks below
 // handle the dispatch. Zod here just shapes the wire types — the
 // per-field error messages stay verbatim.
-const sharePostSchema = z.object({
-  teamIds: z.array(z.string()).optional(),
-  userIds: z.array(z.string()).optional(),
-  // permission stays a permissive string here so the handler's inline
-  // "permission must be 'read' or 'edit'" 400 (test-pinned) still fires
-  // for invalid values rather than getting overridden by a Zod issue.
-  permission: z.string().optional(),
-}).strict();
+const sharePostSchema = z
+  .object({
+    teamIds: z.array(z.string()).optional(),
+    userIds: z.array(z.string()).optional(),
+    // permission stays a permissive string here so the handler's inline
+    // "permission must be 'read' or 'edit'" 400 (test-pinned) still fires
+    // for invalid values rather than getting overridden by a Zod issue.
+    permission: z.string().optional(),
+  })
+  .strict();
 
-const shareDeleteSchema = z.object({
-  teamId: z.string().optional(),
-  userId: z.string().optional(),
-}).strict();
+const shareDeleteSchema = z
+  .object({
+    teamId: z.string().optional(),
+    userId: z.string().optional(),
+  })
+  .strict();
 
 async function verifyOwnerOrAdmin(locals: App.Locals, agentId: string) {
   const user = requireAuth(locals);
@@ -88,9 +98,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
       // entirely (matching the per-iteration form), so we only spend a
       // query when the caller is non-admin.
       const memberships =
-        user.role === "admin"
-          ? null
-          : await getTeamMembershipsByTeams(user.id, teamIds!);
+        user.role === "admin" ? null : await getTeamMembershipsByTeams(user.id, teamIds!);
       for (const teamId of teamIds!) {
         if (memberships) {
           const membership = memberships.get(teamId);

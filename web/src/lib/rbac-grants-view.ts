@@ -15,13 +15,13 @@
 /** The public wire shape of one grant row — what the API returns and the
  *  page renders. Never contains any credential material. */
 export interface PublicGrantView {
-	id: string;
-	user: { id: string; email: string; name: string };
-	projectId: string | null;
-	extensionId: string | null;
-	scopes: string[];
-	grantedBy: string | null;
-	updatedAt: string;
+  id: string;
+  user: { id: string; email: string; name: string };
+  projectId: string | null;
+  extensionId: string | null;
+  scopes: string[];
+  grantedBy: string | null;
+  updatedAt: string;
 }
 
 /**
@@ -32,28 +32,29 @@ export interface PublicGrantView {
  * degrades to empty email/name rather than failing the whole list.
  */
 export function toPublicGrantView(
-	grant: {
-		id: string;
-		userId: string;
-		projectId: string | null;
-		extensionId: string | null;
-		scopes: string[];
-		grantedByUserId: string | null;
-		updatedAt: Date | string;
-	},
-	user?: { id: string; email: string; name: string } | null,
+  grant: {
+    id: string;
+    userId: string;
+    projectId: string | null;
+    extensionId: string | null;
+    scopes: string[];
+    grantedByUserId: string | null;
+    updatedAt: Date | string;
+  },
+  user?: { id: string; email: string; name: string } | null,
 ): PublicGrantView {
-	return {
-		id: grant.id,
-		user: {
-			id: grant.userId,
-			email: user?.email ?? "",
-			name: user?.name ?? "",
-		},
-		projectId: grant.projectId,
-		extensionId: grant.extensionId,
-		scopes: [...grant.scopes],
-		grantedBy: grant.grantedByUserId,
-		updatedAt: grant.updatedAt instanceof Date ? grant.updatedAt.toISOString() : String(grant.updatedAt),
-	};
+  return {
+    id: grant.id,
+    user: {
+      id: grant.userId,
+      email: user?.email ?? "",
+      name: user?.name ?? "",
+    },
+    projectId: grant.projectId,
+    extensionId: grant.extensionId,
+    scopes: [...grant.scopes],
+    grantedBy: grant.grantedByUserId,
+    updatedAt:
+      grant.updatedAt instanceof Date ? grant.updatedAt.toISOString() : String(grant.updatedAt),
+  };
 }

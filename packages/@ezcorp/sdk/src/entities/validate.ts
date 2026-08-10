@@ -279,10 +279,7 @@ function typeOfRich(value: unknown): string {
  * success). Never throws. Used by soft-read paths and by manifest
  * pre-checks.
  */
-export function validateRecord(
-  schema: JsonSchema,
-  data: unknown,
-): EntityValidationIssue[] {
+export function validateRecord(schema: JsonSchema, data: unknown): EntityValidationIssue[] {
   const issues: EntityValidationIssue[] = [];
   walk(schema, data, "", issues);
   return issues;
@@ -295,11 +292,7 @@ export function validateRecord(
  * `ctx` prefixes the thrown error message — e.g. `create_post_type` —
  * so call-sites don't have to wrap.
  */
-export function assertRecord(
-  schema: JsonSchema,
-  data: unknown,
-  ctx = "record",
-): void {
+export function assertRecord(schema: JsonSchema, data: unknown, ctx = "record"): void {
   const issues = validateRecord(schema, data);
   if (issues.length === 0) return;
   const summary = issues
@@ -307,8 +300,5 @@ export function assertRecord(
     .map((i) => `${i.path === "" ? "(root)" : i.path}: ${i.message}`)
     .join("; ");
   const more = issues.length > 5 ? ` (+${issues.length - 5} more)` : "";
-  throw new EntityValidationError(
-    `${ctx} failed schema validation: ${summary}${more}`,
-    issues,
-  );
+  throw new EntityValidationError(`${ctx} failed schema validation: ${summary}${more}`, issues);
 }

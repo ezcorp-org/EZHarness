@@ -20,9 +20,22 @@ const h = vi.hoisted(() => {
   return {
     FO_MANIFEST,
     state: {
-      ext: { id: "ext-fo", enabled: true, manifest: FO_MANIFEST } as { id: string; enabled: boolean; manifest: unknown } | null,
-      dispatchResult: { handled: true, changed: true, ok: true } as { handled: boolean; changed?: boolean; ok?: boolean; message?: string },
-      dispatchCalls: [] as Array<{ event: string; payload: unknown; deps: Record<string, unknown> }>,
+      ext: { id: "ext-fo", enabled: true, manifest: FO_MANIFEST } as {
+        id: string;
+        enabled: boolean;
+        manifest: unknown;
+      } | null,
+      dispatchResult: { handled: true, changed: true, ok: true } as {
+        handled: boolean;
+        changed?: boolean;
+        ok?: boolean;
+        message?: string;
+      },
+      dispatchCalls: [] as Array<{
+        event: string;
+        payload: unknown;
+        deps: Record<string, unknown>;
+      }>,
       inProcessEvents: new Set<string>(["accept", "select-segment", "reject", "set-mode"]),
     },
     invalidate: vi.fn((..._a: unknown[]) => {}),
@@ -42,7 +55,10 @@ vi.mock("$server/auth/middleware", () => ({ requireAuth: (l: { user?: unknown })
 vi.mock("$lib/server/context", () => ({ getBus: () => ({ emit: () => {} }) }));
 vi.mock("$lib/server/http-errors", () => ({
   errorJson: (status: number, message: string) =>
-    new Response(JSON.stringify({ error: message }), { status, headers: { "Content-Type": "application/json" } }),
+    new Response(JSON.stringify({ error: message }), {
+      status,
+      headers: { "Content-Type": "application/json" },
+    }),
 }));
 vi.mock("$server/runtime/sse-conversation-filter", () => ({
   isRegisteredExtensionEvent: (e: string) =>
@@ -57,8 +73,12 @@ vi.mock("$server/db/queries/extensions", () => ({ getExtensionByName: async () =
 vi.mock("$lib/server/hub-extension-pages", () => ({
   readManifestPages: (m: { pages?: Array<{ id: string }> }) => m.pages ?? [],
 }));
-vi.mock("$server/extensions/page-cache", () => ({ getPageCache: () => ({ invalidate: h.invalidate }) }));
-vi.mock("$server/extensions/permission-engine", () => ({ getPermissionEngine: () => ({ __mock: "engine" }) }));
+vi.mock("$server/extensions/page-cache", () => ({
+  getPageCache: () => ({ invalidate: h.invalidate }),
+}));
+vi.mock("$server/extensions/permission-engine", () => ({
+  getPermissionEngine: () => ({ __mock: "engine" }),
+}));
 vi.mock("$server/extensions/bundled", () => ({ getProjectRoot: () => "/proj" }));
 // The subprocess-forward branch mints a per-fire reverse-RPC provenance token
 // (onBehalfOf = the clicking user) before sending the notification. Stub it so
@@ -71,7 +91,11 @@ vi.mock("$server/extensions/call-provenance", () => ({
   releaseCallProvenance: () => {},
 }));
 vi.mock("$server/extensions/file-organizer-events", () => ({
-  dispatchFileOrganizerEvent: async (event: string, payload: unknown, deps: Record<string, unknown>) => {
+  dispatchFileOrganizerEvent: async (
+    event: string,
+    payload: unknown,
+    deps: Record<string, unknown>,
+  ) => {
     h.state.dispatchCalls.push({ event, payload, deps });
     return h.state.dispatchResult;
   },
@@ -82,7 +106,9 @@ vi.mock("$server/extensions/registry", () => ({
 }));
 vi.mock("$server/extensions/tool-executor", () => ({
   ToolExecutor: class {
-    async ensureSubprocessRpcWired(...a: unknown[]) { return h.ensureWired(...a); }
+    async ensureSubprocessRpcWired(...a: unknown[]) {
+      return h.ensureWired(...a);
+    }
   },
 }));
 vi.mock("$server/logger", () => ({
@@ -122,8 +148,13 @@ describe("file-organizer hub in-process branch", () => {
     expect(h.state.dispatchCalls).toHaveLength(1);
     expect(h.state.dispatchCalls[0]!.event).toBe("accept");
     expect((h.state.dispatchCalls[0]!.deps as { userId: string }).userId).toBe("session-user");
-    expect((h.state.dispatchCalls[0]!.deps as { dataDir: string }).dataDir).toBe("/proj/.ezcorp/extension-data/file-organizer");
-    expect((h.state.dispatchCalls[0]!.deps as { settings: { quarantineTtlDays: number } }).settings.quarantineTtlDays).toBe(30);
+    expect((h.state.dispatchCalls[0]!.deps as { dataDir: string }).dataDir).toBe(
+      "/proj/.ezcorp/extension-data/file-organizer",
+    );
+    expect(
+      (h.state.dispatchCalls[0]!.deps as { settings: { quarantineTtlDays: number } }).settings
+        .quarantineTtlDays,
+    ).toBe(30);
     expect(h.invalidate).toHaveBeenCalledWith("ext-fo", "review");
     expect(h.getProcess).not.toHaveBeenCalled();
   });

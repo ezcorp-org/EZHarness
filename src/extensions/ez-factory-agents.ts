@@ -293,8 +293,7 @@ export const EZ_FACTORY_AGENTS: readonly SeededAgent[] = [
   {
     id: "ecfa0000-fac7-4a9e-b0de-fac701000002",
     name: `${EZ_FACTORY_AGENT_PREFIX}writer`,
-    description:
-      "ez-factory pipeline agent — turns extracted facts into a draft artifact.",
+    description: "ez-factory pipeline agent — turns extracted facts into a draft artifact.",
     prompt: buildPrompt(WRITER_ROLE, WRITER_CONTRACT),
   },
   {

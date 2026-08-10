@@ -26,20 +26,20 @@ import { extractEzCardObject } from "./ez-install-card-logic.js";
  * (`ok:false`), so a failed scaffold can never render as a success card.
  */
 export function parseDraftCardResult(output: unknown): EzProposeResult | null {
-	const obj = extractEzCardObject(output);
-	if (!obj) return null;
-	if (obj.ok === false) return null;
-	if (typeof obj.openUrl !== "string" || obj.openUrl.length === 0) return null;
-	const name = typeof obj.name === "string" ? obj.name : undefined;
-	const type = typeof obj.type === "string" ? obj.type : undefined;
-	const draftId = typeof obj.draftId === "string" ? obj.draftId : undefined;
-	return {
-		openUrl: obj.openUrl,
-		...(draftId ? { draftId } : {}),
-		openUrlLabel: "Open draft editor",
-		title: name ? `Draft ready: ${name}` : "Extension draft ready",
-		summary: name
-			? `Scaffolded ${name}${type ? ` (${type})` : ""}. Review and edit the files, then install.`
-			: "Review and edit the scaffolded files, then install.",
-	};
+  const obj = extractEzCardObject(output);
+  if (!obj) return null;
+  if (obj.ok === false) return null;
+  if (typeof obj.openUrl !== "string" || obj.openUrl.length === 0) return null;
+  const name = typeof obj.name === "string" ? obj.name : undefined;
+  const type = typeof obj.type === "string" ? obj.type : undefined;
+  const draftId = typeof obj.draftId === "string" ? obj.draftId : undefined;
+  return {
+    openUrl: obj.openUrl,
+    ...(draftId ? { draftId } : {}),
+    openUrlLabel: "Open draft editor",
+    title: name ? `Draft ready: ${name}` : "Extension draft ready",
+    summary: name
+      ? `Scaffolded ${name}${type ? ` (${type})` : ""}. Review and edit the files, then install.`
+      : "Review and edit the scaffolded files, then install.",
+  };
 }

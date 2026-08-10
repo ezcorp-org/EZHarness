@@ -10,10 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import {
-  ENTITY_INDEX_PREFIX,
-  ENTITY_KEY_PREFIX,
-} from "../types";
+import { ENTITY_INDEX_PREFIX, ENTITY_KEY_PREFIX } from "../types";
 import {
   assertNotReserved,
   assertValidEntityType,
@@ -84,26 +81,18 @@ function makeStore(seed: Record<string, unknown> = {}): EntityStoreLike & {
 
 describe("key construction", () => {
   test("entityRecordKey: __entity:<type>:<slug>", () => {
-    expect(entityRecordKey("post-type", "weekly")).toBe(
-      `${ENTITY_KEY_PREFIX}post-type:weekly`,
-    );
+    expect(entityRecordKey("post-type", "weekly")).toBe(`${ENTITY_KEY_PREFIX}post-type:weekly`);
     expect(ENTITY_KEY_PREFIX).toBe("__entity:");
   });
 
   test("entityIndexKey: __entity-index:<type>", () => {
-    expect(entityIndexKey("post-type")).toBe(
-      `${ENTITY_INDEX_PREFIX}post-type`,
-    );
+    expect(entityIndexKey("post-type")).toBe(`${ENTITY_INDEX_PREFIX}post-type`);
     expect(ENTITY_INDEX_PREFIX).toBe("__entity-index:");
   });
 
   test("entityRecordKey rejects malformed type", () => {
-    expect(() => entityRecordKey("BadType", "weekly")).toThrow(
-      /Invalid entity type/,
-    );
-    expect(() => entityRecordKey("-leading", "weekly")).toThrow(
-      /Invalid entity type/,
-    );
+    expect(() => entityRecordKey("BadType", "weekly")).toThrow(/Invalid entity type/);
+    expect(() => entityRecordKey("-leading", "weekly")).toThrow(/Invalid entity type/);
     expect(() => entityRecordKey("", "weekly")).toThrow(/Invalid entity type/);
   });
 
@@ -179,9 +168,9 @@ describe("reserved-key guards", () => {
   });
 
   test("assertNotReserved uses ctx prefix", () => {
-    expect(() =>
-      assertNotReserved("__entity:post-type:weekly", "settings key"),
-    ).toThrow(/settings key/);
+    expect(() => assertNotReserved("__entity:post-type:weekly", "settings key")).toThrow(
+      /settings key/,
+    );
   });
 });
 
@@ -197,30 +186,21 @@ describe("readEntityIndex", () => {
     const store = makeStore({
       "__entity-index:post-type": ["weekly", "monthly"],
     });
-    expect(await readEntityIndex(store, "post-type")).toEqual([
-      "weekly",
-      "monthly",
-    ]);
+    expect(await readEntityIndex(store, "post-type")).toEqual(["weekly", "monthly"]);
   });
 
   test("filters non-string entries (corruption-tolerant)", async () => {
     const store = makeStore({
       "__entity-index:post-type": ["weekly", 42, null, "monthly"],
     });
-    expect(await readEntityIndex(store, "post-type")).toEqual([
-      "weekly",
-      "monthly",
-    ]);
+    expect(await readEntityIndex(store, "post-type")).toEqual(["weekly", "monthly"]);
   });
 
   test("filters invalid slugs (e.g. uppercase)", async () => {
     const store = makeStore({
       "__entity-index:post-type": ["weekly", "BAD", "monthly"],
     });
-    expect(await readEntityIndex(store, "post-type")).toEqual([
-      "weekly",
-      "monthly",
-    ]);
+    expect(await readEntityIndex(store, "post-type")).toEqual(["weekly", "monthly"]);
   });
 
   test("returns [] when index value is not an array", async () => {
@@ -240,24 +220,13 @@ describe("writeEntityIndex", () => {
       "ad-hoc",
       "weekly", // dup
     ]);
-    expect(store.data.get("__entity-index:post-type")).toEqual([
-      "ad-hoc",
-      "monthly",
-      "weekly",
-    ]);
+    expect(store.data.get("__entity-index:post-type")).toEqual(["ad-hoc", "monthly", "weekly"]);
   });
 
   test("filters invalid slugs from the persisted set", async () => {
     const store = makeStore();
-    await writeEntityIndex(store, "post-type", [
-      "weekly",
-      "BAD",
-      "ad-hoc",
-    ]);
-    expect(store.data.get("__entity-index:post-type")).toEqual([
-      "ad-hoc",
-      "weekly",
-    ]);
+    await writeEntityIndex(store, "post-type", ["weekly", "BAD", "ad-hoc"]);
+    expect(store.data.get("__entity-index:post-type")).toEqual(["ad-hoc", "weekly"]);
   });
 
   test("empty input writes []", async () => {
@@ -317,11 +286,7 @@ describe("writeEntityRecord", () => {
       name: "Weekly",
       systemPrompt: "z",
     });
-    expect(store.data.get("__entity-index:post-type")).toEqual([
-      "ad-hoc",
-      "monthly",
-      "weekly",
-    ]);
+    expect(store.data.get("__entity-index:post-type")).toEqual(["ad-hoc", "monthly", "weekly"]);
   });
 
   test("re-writing the same slug doesn't duplicate the index entry", async () => {
@@ -351,10 +316,7 @@ describe("deleteEntityRecord", () => {
     });
     expect(await deleteEntityRecord(store, "post-type", "weekly")).toBe(true);
     expect(store.data.has("__entity:post-type:weekly")).toBe(false);
-    expect(store.data.get("__entity-index:post-type")).toEqual([
-      "ad-hoc",
-      "monthly",
-    ]);
+    expect(store.data.get("__entity-index:post-type")).toEqual(["ad-hoc", "monthly"]);
   });
 
   test("missing record returns false (no-op)", async () => {
@@ -412,9 +374,9 @@ describe("error propagation from backing store", () => {
       op: "set",
       err: new Error("storage offline"),
     };
-    expect(
-      writeEntityRecord(store, "post-type", "weekly", { name: "x" }),
-    ).rejects.toThrow(/storage offline/);
+    expect(writeEntityRecord(store, "post-type", "weekly", { name: "x" })).rejects.toThrow(
+      /storage offline/,
+    );
   });
 
   test("readEntityRecord rethrows storage failure", async () => {
@@ -424,8 +386,6 @@ describe("error propagation from backing store", () => {
       op: "get",
       err: new Error("storage offline"),
     };
-    expect(
-      readEntityRecord(store, "post-type", "weekly"),
-    ).rejects.toThrow(/storage offline/);
+    expect(readEntityRecord(store, "post-type", "weekly")).rejects.toThrow(/storage offline/);
   });
 });

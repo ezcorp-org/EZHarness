@@ -8,18 +8,11 @@ import {
 
 mockDbConnection();
 
-const {
-  getUserSettings,
-  setUserSettings,
-  clearUserSettings,
-  resolveExtensionSettings,
-} = await import("../extension-settings");
+const { getUserSettings, setUserSettings, clearUserSettings, resolveExtensionSettings } =
+  await import("../extension-settings");
 const { extensions, users } = await import("../../schema");
 
-import type {
-  ExtensionManifestV2,
-  SettingsSchema,
-} from "../../../extensions/types";
+import type { ExtensionManifestV2, SettingsSchema } from "../../../extensions/types";
 
 const VOICE_SCHEMA: SettingsSchema = {
   voice: {
@@ -45,10 +38,7 @@ const TWO_FIELD_SCHEMA: SettingsSchema = {
   y: { type: "text", label: "Y", default: "z" },
 };
 
-function buildManifest(
-  name: string,
-  settings: SettingsSchema | undefined,
-): ExtensionManifestV2 {
+function buildManifest(name: string, settings: SettingsSchema | undefined): ExtensionManifestV2 {
   return {
     schemaVersion: 2,
     name,

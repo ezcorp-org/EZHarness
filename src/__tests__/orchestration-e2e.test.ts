@@ -107,12 +107,15 @@ mock.module("../runtime/start-assignment", () => ({
     assignment.startedAt = new Date().toISOString();
     const { getDb } = await import("../db/connection");
     const { conversations } = await import("../db/schema");
-    await getDb().insert(conversations).values({
-      id: subConvId,
-      projectId: opts.projectId as string,
-      parentConversationId: opts.conversationId as string,
-      title: "orch-e2e-sub",
-    } as any).onConflictDoNothing();
+    await getDb()
+      .insert(conversations)
+      .values({
+        id: subConvId,
+        projectId: opts.projectId as string,
+        parentConversationId: opts.conversationId as string,
+        title: "orch-e2e-sub",
+      } as any)
+      .onConflictDoNothing();
     return { subConversationId: subConvId, agentRunId: runId };
   },
 }));
@@ -137,8 +140,11 @@ mock.module("../db/queries/agent-configs", () => ({
   ],
 }));
 
-const { ensureOrchestrationWired, wireOrchestrationToolsForTurn, _resetOrchestrationExtensionIdCache } =
-  await import("../runtime/orchestration-host");
+const {
+  ensureOrchestrationWired,
+  wireOrchestrationToolsForTurn,
+  _resetOrchestrationExtensionIdCache,
+} = await import("../runtime/orchestration-host");
 // Phase 1 fail-closed contract: wireOrchestrationToolsForTurn calls
 // getPermissionEngine() with no deps and throws if not pre-initialized.
 // We install an allow-all stub once in beforeAll. The real engine is
@@ -147,17 +153,13 @@ const { ensureOrchestrationWired, wireOrchestrationToolsForTurn, _resetOrchestra
 const { _setPermissionEngineForTests, _resetPermissionEngineForTests } = await import(
   "../extensions/permission-engine"
 );
-const { createStubPermissionEngine } = await import(
-  "./helpers/permission-engine-stub"
-);
+const { createStubPermissionEngine } = await import("./helpers/permission-engine-stub");
 const { handleEmitTaskEventRpc } = await import("../extensions/task-events-handler");
 const { handleAgentConfigsRpc } = await import("../extensions/agent-configs-handler");
 const { handleSpawnAssignmentRpc } = await import("../extensions/spawn-assignment-handler");
 const { createSpawnQuota } = await import("../extensions/spawn-quota");
 const { EventBus } = await import("../runtime/events");
-const { EventSubscriptionDispatcher } = await import(
-  "../extensions/event-subscription-dispatcher"
-);
+const { EventSubscriptionDispatcher } = await import("../extensions/event-subscription-dispatcher");
 const { getDb } = await import("../db/connection");
 const {
   conversations,
@@ -195,7 +197,11 @@ interface TestProc {
   proc: Subprocess<"pipe", "pipe", "pipe">;
   outbound: Record<string, unknown>[];
   inbound: (msg: Record<string, unknown>) => void;
-  waitAfter: (i: number, pred: (m: Record<string, unknown>) => boolean, ms?: number) => Promise<Record<string, unknown>>;
+  waitAfter: (
+    i: number,
+    pred: (m: Record<string, unknown>) => boolean,
+    ms?: number,
+  ) => Promise<Record<string, unknown>>;
   kill: () => void;
 }
 
@@ -223,15 +229,28 @@ function spawnExtension(): TestProc {
           const line = buffer.slice(0, idx).trim();
           buffer = buffer.slice(idx + 1);
           if (!line) continue;
-          try { outbound.push(JSON.parse(line)); } catch { /* skip */ }
+          try {
+            outbound.push(JSON.parse(line));
+          } catch {
+            /* skip */
+          }
         }
       }
-    } catch { /* */ }
+    } catch {
+      /* */
+    }
   })();
 
   (async () => {
     const reader = (proc.stderr as ReadableStream<Uint8Array>).getReader();
-    try { while (true) { const { done } = await reader.read(); if (done) return; } } catch { /* */ }
+    try {
+      while (true) {
+        const { done } = await reader.read();
+        if (done) return;
+      }
+    } catch {
+      /* */
+    }
   })();
 
   function inbound(msg: Record<string, unknown>): void {
@@ -254,7 +273,13 @@ function spawnExtension(): TestProc {
     throw new Error(`waitAfter(${i}) timed out`);
   }
 
-  function kill(): void { try { proc.kill(); } catch { /* */ } }
+  function kill(): void {
+    try {
+      proc.kill();
+    } catch {
+      /* */
+    }
+  }
   return { proc, outbound, inbound, waitAfter, kill };
 }
 
@@ -291,9 +316,15 @@ interface FakeRegistry {
   getRegisteredTool: (name: string) => RegisteredTool | undefined;
   getProcess: (extId: string) => Promise<{
     isRunning: boolean;
-    callTool: (name: string, args: Record<string, unknown>, meta?: Record<string, unknown>) => Promise<unknown>;
+    callTool: (
+      name: string,
+      args: Record<string, unknown>,
+      meta?: Record<string, unknown>,
+    ) => Promise<unknown>;
     setNotificationHandler: (fn: (n: unknown) => void) => void;
-    setRequestHandler: (fn: (req: Record<string, unknown>) => Promise<Record<string, unknown>>) => void;
+    setRequestHandler: (
+      fn: (req: Record<string, unknown>) => Promise<Record<string, unknown>>,
+    ) => void;
   }>;
   getManifest: (extId: string) => ExtensionManifestV2 | undefined;
   getGrantedPermissions: (extId: string) => ExtensionPermissions | undefined;
@@ -333,7 +364,9 @@ function makeFakeRegistry(p: TestProc): FakeRegistry {
   // the loop, we intercept setRequestHandler and fan-route based on
   // method — falling back to the pump-installed handler for anything
   // the ToolExecutor doesn't own.
-  let executorReqHandler: ((req: Record<string, unknown>) => Promise<Record<string, unknown>>) | undefined;
+  let executorReqHandler:
+    | ((req: Record<string, unknown>) => Promise<Record<string, unknown>>)
+    | undefined;
 
   const procWrapper = {
     isRunning: true,
@@ -354,14 +387,21 @@ function makeFakeRegistry(p: TestProc): FakeRegistry {
           ...(meta !== undefined ? { _meta: meta } : {}),
         },
       });
-      const resp = await p.waitAfter(cursor, (m) => m.id === id && (m.result !== undefined || m.error !== undefined));
+      const resp = await p.waitAfter(
+        cursor,
+        (m) => m.id === id && (m.result !== undefined || m.error !== undefined),
+      );
       if (resp.error) {
         return {
           content: [{ type: "text", text: JSON.stringify(resp.error) }],
           isError: true,
         };
       }
-      return resp.result as { content: Array<{ type: string; text: string }>; isError?: boolean; details?: unknown };
+      return resp.result as {
+        content: Array<{ type: string; text: string }>;
+        isError?: boolean;
+        details?: unknown;
+      };
     },
   };
 
@@ -380,7 +420,9 @@ function makeFakeRegistry(p: TestProc): FakeRegistry {
     getManifest: (extId: string) => (extId === EXT_ID ? MANIFEST : undefined),
     getGrantedPermissions: (extId: string) => (extId === EXT_ID ? GRANTED : undefined),
     getInstallPath: (extId: string) => (extId === EXT_ID ? "/tmp/orch-e2e" : undefined),
-    getMcpClient: () => { throw new Error("not an MCP extension"); },
+    getMcpClient: () => {
+      throw new Error("not an MCP extension");
+    },
   };
 }
 
@@ -513,26 +555,46 @@ async function waitForSpawnResult(
 
 beforeAll(async () => {
   await setupTestDb();
-  await getDb().insert(users).values({
-    id: USER_ID, email: "orch-e2e@t.local", passwordHash: "x", name: "OrchE2E",
-  } as any).onConflictDoNothing();
-  await getDb().insert(projects).values({
-    id: PROJ_ID, name: PROJ_ID, path: "/tmp/" + PROJ_ID,
-  } as any).onConflictDoNothing();
-  await getDb().insert(conversations).values({
-    id: CONV_ID, projectId: PROJ_ID, title: "orch-e2e-conv", userId: USER_ID,
-  } as any).onConflictDoNothing();
-  await getDb().insert(extensionsTable).values({
-    id: EXT_ID,
-    name: "orchestration",
-    version: "1.0.0",
-    description: "e2e",
-    manifest: MANIFEST,
-    source: `test:${EXT_ID}`,
-    installPath: `/tmp/${EXT_ID}`,
-    enabled: true,
-    grantedPermissions: GRANTED,
-  } as any).onConflictDoNothing();
+  await getDb()
+    .insert(users)
+    .values({
+      id: USER_ID,
+      email: "orch-e2e@t.local",
+      passwordHash: "x",
+      name: "OrchE2E",
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(projects)
+    .values({
+      id: PROJ_ID,
+      name: PROJ_ID,
+      path: "/tmp/" + PROJ_ID,
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(conversations)
+    .values({
+      id: CONV_ID,
+      projectId: PROJ_ID,
+      title: "orch-e2e-conv",
+      userId: USER_ID,
+    } as any)
+    .onConflictDoNothing();
+  await getDb()
+    .insert(extensionsTable)
+    .values({
+      id: EXT_ID,
+      name: "orchestration",
+      version: "1.0.0",
+      description: "e2e",
+      manifest: MANIFEST,
+      source: `test:${EXT_ID}`,
+      installPath: `/tmp/${EXT_ID}`,
+      enabled: true,
+      grantedPermissions: GRANTED,
+    } as any)
+    .onConflictDoNothing();
   // Install an allow-all PDP stub as the singleton so
   // wireOrchestrationToolsForTurn's bare getPermissionEngine() call
   // resolves. The real authorize() path runs through the e2e
@@ -582,9 +644,7 @@ describe("orchestration e2e: orchestration-host + real subprocess + real handler
       agentTools,
       conversationId: CONV_ID,
       runId: "run-wire-1",
-      availableAgents: [
-        { id: "cfg-builder", name: "builder", description: "Builds things" },
-      ],
+      availableAgents: [{ id: "cfg-builder", name: "builder", description: "Builds things" }],
       depth: 0,
       registry: makeFakeRegistry(proc) as any,
       executor: {} as any,
@@ -597,7 +657,9 @@ describe("orchestration e2e: orchestration-host + real subprocess + real handler
     expect(tool.name).toBe("invoke_agent");
     // Schema override: the agentConfigId enum is injected per-turn so
     // the LLM can only pick agents visible to this turn.
-    const params = tool.parameters as unknown as { properties: { agentConfigId: { enum: string[] } } };
+    const params = tool.parameters as unknown as {
+      properties: { agentConfigId: { enum: string[] } };
+    };
     expect(params.properties.agentConfigId.enum).toEqual(["cfg-builder"]);
 
     proc.kill();
@@ -644,9 +706,7 @@ describe("orchestration e2e: orchestration-host + real subprocess + real handler
       agentTools,
       conversationId: CONV_ID,
       runId: "run-full-1",
-      availableAgents: [
-        { id: "cfg-builder", name: "builder", description: "Builds things" },
-      ],
+      availableAgents: [{ id: "cfg-builder", name: "builder", description: "Builds things" }],
       depth: 0,
       registry: makeFakeRegistry(proc) as any,
       executor: {} as any,
@@ -661,7 +721,10 @@ describe("orchestration e2e: orchestration-host + real subprocess + real handler
     // the pump, captures the minted assignmentId on the pump handle,
     // and inbounds the response back to the extension. The extension
     // then has a pending entry keyed on that id.
-    const execPromise = tool.execute("test-call-1", { agentConfigId: "cfg-builder", task: "build it" });
+    const execPromise = tool.execute("test-call-1", {
+      agentConfigId: "cfg-builder",
+      task: "build it",
+    });
 
     const spawnResult = await waitForSpawnResult(pump);
     // Emit the completed terminal — the real dispatcher routes this
@@ -716,7 +779,10 @@ describe("orchestration e2e: orchestration-host + real subprocess + real handler
     });
 
     const tool = agentTools[0]!;
-    const execPromise = tool.execute("test-call-fail", { agentConfigId: "cfg-builder", task: "fail me" });
+    const execPromise = tool.execute("test-call-fail", {
+      agentConfigId: "cfg-builder",
+      task: "fail me",
+    });
 
     const spawnResult = await waitForSpawnResult(pump);
     bus.emit("task:assignment_update", {
@@ -765,7 +831,10 @@ describe("orchestration e2e: orchestration-host + real subprocess + real handler
     // Force an unknown id by bypassing the per-turn schema enum (the
     // schema is advisory at the LLM layer — the extension still
     // validates via `agentConfigs.resolve`).
-    const result = await tool.execute("test-call-unknown", { agentConfigId: "cfg-nonexistent", task: "nope" });
+    const result = await tool.execute("test-call-unknown", {
+      agentConfigId: "cfg-nonexistent",
+      task: "nope",
+    });
     expect(result.details?.isError).toBe(true);
     const unknownFirst = result.content?.[0];
     expect(unknownFirst?.type === "text" ? unknownFirst.text : undefined).toMatch(/Unknown agent/);
@@ -805,7 +874,10 @@ describe("orchestration e2e: orchestration-host + real subprocess + real handler
     });
 
     const tool = agentTools[0]!;
-    const execPromise = tool.execute("test-call-scope", { agentConfigId: "cfg-builder", task: "scoped" });
+    const execPromise = tool.execute("test-call-scope", {
+      agentConfigId: "cfg-builder",
+      task: "scoped",
+    });
 
     const spawnResult = await waitForSpawnResult(pump);
     bus.emit("task:assignment_update", {
@@ -829,7 +901,10 @@ describe("orchestration e2e: orchestration-host + real subprocess + real handler
     // params the wrapper/handler forwarded.
     expect(pump.spawnRequests.length).toBeGreaterThanOrEqual(1);
     const spawnReq = pump.spawnRequests[0]!.params as Record<string, unknown>;
-    expect(spawnReq.teamToolScope).toEqual({ allowedTools: ["read_file"], deniedTools: ["shell_exec"] });
+    expect(spawnReq.teamToolScope).toEqual({
+      allowedTools: ["read_file"],
+      deniedTools: ["shell_exec"],
+    });
     expect(spawnReq.parentMessageId).toBe("msg-parent-123");
     expect(spawnReq.orchestrationDepth).toBe(2);
     // memberOverrides is threaded under `overrides` — the host flattens
@@ -898,7 +973,10 @@ describe("orchestration e2e: orchestration-host + real subprocess + real handler
     });
 
     const tool = agentTools[0]!;
-    const execPromise = tool.execute("test-call-self", { agentConfigId: "cfg-builder", task: "self-sanity" });
+    const execPromise = tool.execute("test-call-self", {
+      agentConfigId: "cfg-builder",
+      task: "self-sanity",
+    });
 
     // Foreign event fired BEFORE the owned spawn completes — the
     // extension never registered this assignmentId in its pending map.

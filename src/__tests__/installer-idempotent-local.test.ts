@@ -130,11 +130,7 @@ describe("installFromLocal — idempotent same-source re-install", () => {
 
       // Caller asks for enabled=false + empty grants on the re-install —
       // refresh must IGNORE those and keep the original consent state.
-      const second = await installFromLocal(
-        pkg.path,
-        { grantedAt: {} },
-        false,
-      );
+      const second = await installFromLocal(pkg.path, { grantedAt: {} }, false);
 
       expect(second.enabled).toBe(true);
       expect(second.grantedPermissions).toEqual(defaultPerms);
@@ -173,12 +169,9 @@ describe("installFromLocal — idempotent same-source re-install", () => {
         permissions: {},
       };
 
-      const refreshed = await installFromLocal(
-        pkg.path,
-        defaultPerms,
-        true,
-        { preloadedManifest: bumped as any },
-      );
+      const refreshed = await installFromLocal(pkg.path, defaultPerms, true, {
+        preloadedManifest: bumped as any,
+      });
       expect(refreshed.version).toBe("2.5.0");
       expect(refreshed.description).toBe("Bumped description");
       expect((refreshed.manifest as any).checksum).toBeDefined();
@@ -202,9 +195,7 @@ describe("installFromLocal — idempotent same-source re-install", () => {
 
   test("refresh does NOT re-run entity install hooks (no double-seed)", async () => {
     const pkg = makeLocalPackage({ name: "seed-ext" });
-    const legacyEntityMappings = [
-      { entityType: "note", from: "old:note", to: "new:note" } as any,
-    ];
+    const legacyEntityMappings = [{ entityType: "note", from: "old:note", to: "new:note" } as any];
     try {
       // First install runs the post-create hook (migration spy fires once).
       await installFromLocal(pkg.path, defaultPerms, true, {
@@ -231,15 +222,13 @@ describe("installFromLocal — different source, same name", () => {
     try {
       await installFromLocal(pkgA.path, defaultPerms, true);
       // Different localPath ⇒ different `source` ⇒ collision.
-      await expect(
-        installFromLocal(pkgB.path, defaultPerms, true),
-      ).rejects.toThrow(
+      await expect(installFromLocal(pkgB.path, defaultPerms, true)).rejects.toThrow(
         /Extension "collide-ext" is already installed \(source: local:/,
       );
       // The error must NOT be a raw drizzle/SQL failure.
-      await expect(
-        installFromLocal(pkgB.path, defaultPerms, true),
-      ).rejects.not.toThrow(/Failed query|insert into|duplicate key/i);
+      await expect(installFromLocal(pkgB.path, defaultPerms, true)).rejects.not.toThrow(
+        /Failed query|insert into|duplicate key/i,
+      );
       // No second row created.
       expect(mockExtensions.size).toBe(1);
     } finally {
@@ -339,10 +328,7 @@ describe("installFromLocal — same-source refresh re-clamp", () => {
         } as any,
       });
 
-      expect(refreshed.grantedPermissions.network).toEqual([
-        "api.example.com",
-        "cdn.example.com",
-      ]);
+      expect(refreshed.grantedPermissions.network).toEqual(["api.example.com", "cdn.example.com"]);
       expect(refreshed.grantedPermissions.shell).toBe(true);
       expect(refreshed.grantedPermissions.grantedAt).toEqual({ network: 111, shell: 222 });
       expect(refreshed.enabled).toBe(true);

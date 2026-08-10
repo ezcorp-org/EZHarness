@@ -129,17 +129,13 @@ export function commandFor(scriptPath: string, args: string[]): string[] {
     return ["bun", scriptPath, ...args];
   if (lower.endsWith(".rb")) return ["ruby", scriptPath, ...args];
   if (lower.endsWith(".pl")) return ["perl", scriptPath, ...args];
-  if (lower.endsWith(".sh") || lower.endsWith(".bash"))
-    return ["bash", scriptPath, ...args];
+  if (lower.endsWith(".sh") || lower.endsWith(".bash")) return ["bash", scriptPath, ...args];
   // No recognised extension: execute directly (relies on the exec bit
   // / shebang). The host sandbox still gates this.
   return [scriptPath, ...args];
 }
 
-async function runScript(
-  rel: string,
-  args: string[],
-): Promise<{ text: string; isError: boolean }> {
+async function runScript(rel: string, args: string[]): Promise<{ text: string; isError: boolean }> {
   const real = await resolveScript(rel);
   if (!real) {
     return { text: `Script not found or outside the skill: ${rel}`, isError: true };
@@ -167,10 +163,7 @@ async function runScript(
   const grab = (s: ReadableStream<Uint8Array>): Promise<string> =>
     new Response(s).text().catch(() => "");
   const capped = (s: ReadableStream<Uint8Array>): Promise<string> =>
-    Promise.race([
-      grab(s),
-      new Promise<string>((r) => setTimeout(() => r(""), 300)),
-    ]);
+    Promise.race([grab(s), new Promise<string>((r) => setTimeout(() => r(""), 300))]);
   const [stdout, stderr] = timedOut
     ? await Promise.all([capped(proc.stdout), capped(proc.stderr)])
     : await Promise.all([grab(proc.stdout), grab(proc.stderr)]);
@@ -204,16 +197,11 @@ export async function handleRequest(req: JsonRpcRequest): Promise<JsonRpcRespons
   }
   if (name === "list_scripts") {
     const scripts = await listScripts();
-    return ok(
-      req.id,
-      scripts.length ? scripts.join("\n") : "(no script files in this skill)",
-    );
+    return ok(req.id, scripts.length ? scripts.join("\n") : "(no script files in this skill)");
   }
   if (name === "run_script") {
     const script = args.script as string;
-    const passed = Array.isArray(args.args)
-      ? (args.args as unknown[]).map(String)
-      : [];
+    const passed = Array.isArray(args.args) ? (args.args as unknown[]).map(String) : [];
     const r = await runScript(script, passed);
     return ok(req.id, r.text, r.isError);
   }

@@ -17,17 +17,16 @@ const log = logger.child("ext.tool-executor");
 export function resolveCallToken(
   extensionId: string,
   req: JsonRpcRequest,
-):
-  | { ok: true; prov: CallProvenance }
-  | { ok: false; errorResponse: JsonRpcResponse } {
+): { ok: true; prov: CallProvenance } | { ok: false; errorResponse: JsonRpcResponse } {
   const rawMeta = (req.params as { _meta?: Record<string, unknown> } | undefined)?._meta;
   const ezCallId = typeof rawMeta?.ezCallId === "string" ? rawMeta.ezCallId : undefined;
   const prov = resolveCallProvenance(ezCallId);
   if (!prov) {
-    log.error(
-      "reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast",
-      { method: req.method, extensionId, ezCallId: ezCallId ?? null },
-    );
+    log.error("reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast", {
+      method: req.method,
+      extensionId,
+      ezCallId: ezCallId ?? null,
+    });
     return {
       ok: false,
       errorResponse: {
@@ -86,7 +85,10 @@ export function resolveReverseRpcMeta(
       errorResponse: {
         jsonrpc: "2.0",
         id: req.id,
-        error: { code: -32106, message: "No owner scope for this background fire — capability unavailable" },
+        error: {
+          code: -32106,
+          message: "No owner scope for this background fire — capability unavailable",
+        },
       },
     };
   }

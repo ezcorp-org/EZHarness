@@ -66,9 +66,7 @@ mock.module("$lib/server/security/api-keys", () => ({
 // is covered by $lib/hub's own tests).
 mock.module("$lib/hub", () => ({
   parseHubPageId: (id: string) =>
-    id === PAGE_ID
-      ? { kind: "ext", extension: "ez-code-factory", pageId: "dashboard" }
-      : null,
+    id === PAGE_ID ? { kind: "ext", extension: "ez-code-factory", pageId: "dashboard" } : null,
 }));
 
 // Rate limiter — a fake that records every key it checks, so we can assert the

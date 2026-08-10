@@ -140,9 +140,7 @@ describe("validateDependencies", () => {
       foo: { source: "not-a-valid-source", version: "1.0.0" },
     });
     expect(result.valid).toBe(false);
-    expect(
-      result.errors.some((e) => e.includes("dependencies.foo.source is invalid")),
-    ).toBe(true);
+    expect(result.errors.some((e) => e.includes("dependencies.foo.source is invalid"))).toBe(true);
   });
 
   test("rejects source with option-injection ref (F2: dependency confusion)", () => {
@@ -341,9 +339,7 @@ describe("formatDepTree", () => {
           name: "A",
           version: "1.2.0",
           status: "install",
-          children: [
-            { name: "B", version: "2.1.0", status: "install", children: [] },
-          ],
+          children: [{ name: "B", version: "2.1.0", status: "install", children: [] }],
         },
         {
           name: "C",
@@ -424,8 +420,8 @@ describe("validateDependencies edge cases", () => {
 
   test("multiple errors are accumulated", () => {
     const result = validateDependencies({
-      foo: { version: "1.0.0" },        // missing source
-      bar: { source: "github:u/r" },     // missing version
+      foo: { version: "1.0.0" }, // missing source
+      bar: { source: "github:u/r" }, // missing version
       baz: { source: "github:u/r", version: "~1.0.0" }, // invalid range
     });
     expect(result.valid).toBe(false);
@@ -516,7 +512,12 @@ describe("resolveDependencies edge cases", () => {
       getInstalled: async () => null,
       fetchManifest: async (source: string) => {
         const name = source.split("/").pop()!;
-        return manifests[name] ?? (() => { throw new Error(`Unknown: ${source}`); })();
+        return (
+          manifests[name] ??
+          (() => {
+            throw new Error(`Unknown: ${source}`);
+          })()
+        );
       },
     });
 
@@ -545,7 +546,12 @@ describe("resolveDependencies edge cases", () => {
       getInstalled: async () => null,
       fetchManifest: async (source: string) => {
         const name = source.split("/").pop()!;
-        return manifests[name] ?? (() => { throw new Error(`Unknown: ${source}`); })();
+        return (
+          manifests[name] ??
+          (() => {
+            throw new Error(`Unknown: ${source}`);
+          })()
+        );
       },
     });
 
@@ -669,9 +675,7 @@ describe("formatDepTree edge cases", () => {
       name: "root",
       version: "1.0.0",
       status: "install",
-      children: [
-        { name: "dep", version: "2.0.0", status: "install", children: [] },
-      ],
+      children: [{ name: "dep", version: "2.0.0", status: "install", children: [] }],
     };
     const output = formatDepTree(tree);
     expect(output).toContain("(new)");
@@ -682,9 +686,7 @@ describe("formatDepTree edge cases", () => {
       name: "root",
       version: "1.0.0",
       status: "install",
-      children: [
-        { name: "cached", version: "3.0.0", status: "already-installed", children: [] },
-      ],
+      children: [{ name: "cached", version: "3.0.0", status: "already-installed", children: [] }],
     };
     const output = formatDepTree(tree);
     expect(output).toContain("(installed)");
@@ -928,11 +930,9 @@ describe("resolvePreinstalledDependency", () => {
 
   test("throws when the installed version misses the range", async () => {
     await expect(
-      resolvePreinstalledDependency(
-        "ai-kit",
-        { source: "local", version: "^1.0.0" },
-        async () => ({ version: "0.9.0" }),
-      ),
+      resolvePreinstalledDependency("ai-kit", { source: "local", version: "^1.0.0" }, async () => ({
+        version: "0.9.0",
+      })),
     ).rejects.toThrow(/Update "ai-kit", or relax the declared range/);
   });
 });

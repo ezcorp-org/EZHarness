@@ -135,7 +135,11 @@ async function callHandle(event: unknown) {
   };
   try {
     const response = (await handle({ event, resolve } as never)) as Response;
-    return { response, redirect: null as null | { status: number; location: string }, resolveCalls };
+    return {
+      response,
+      redirect: null as null | { status: number; location: string },
+      resolveCalls,
+    };
   } catch (e) {
     if (e && typeof e === "object" && "status" in e && "location" in e) {
       return {

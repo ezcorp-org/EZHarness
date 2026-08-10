@@ -219,9 +219,7 @@ function assertListPathNotInsideDataDir(path: string, projectRoot: string): void
   const forbidden = forbiddenDataDir(projectRoot);
   const abs = resolve(path);
   if (abs === forbidden || abs.startsWith(forbidden + sep)) {
-    throw new Error(
-      `landlock: refusing a list path that IS or is UNDER the data dir: ${abs}`,
-    );
+    throw new Error(`landlock: refusing a list path that IS or is UNDER the data dir: ${abs}`);
   }
 }
 

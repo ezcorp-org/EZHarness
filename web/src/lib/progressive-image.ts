@@ -11,50 +11,45 @@
  */
 
 function wire(img: HTMLImageElement): void {
-	if (img.getAttribute("data-prog-wired")) return;
-	img.setAttribute("data-prog-wired", "1");
+  if (img.getAttribute("data-prog-wired")) return;
+  img.setAttribute("data-prog-wired", "1");
 
-	const wrap = img.closest<HTMLElement>(".progressive-img-wrap");
+  const wrap = img.closest<HTMLElement>(".progressive-img-wrap");
 
-	const settle = (): void => {
-		img.classList.add("progressive-img--loaded");
-		wrap?.classList.add("progressive-img-wrap--loaded");
-	};
+  const settle = (): void => {
+    img.classList.add("progressive-img--loaded");
+    wrap?.classList.add("progressive-img-wrap--loaded");
+  };
 
-	// Already cached/decoded (e.g. a re-render or back-nav): show it
-	// immediately so we never play a fake blur over a ready image.
-	if (img.complete && img.naturalWidth > 0) {
-		settle();
-		return;
-	}
+  // Already cached/decoded (e.g. a re-render or back-nav): show it
+  // immediately so we never play a fake blur over a ready image.
+  if (img.complete && img.naturalWidth > 0) {
+    settle();
+    return;
+  }
 
-	img.addEventListener("load", settle, { once: true });
-	img.addEventListener(
-		"error",
-		() => {
-			// Stop the shimmer and structurally remove the wrapper so the
-			// existing fallback / error UI lays out unchanged.
-			img.classList.add("progressive-img--loaded");
-			wrap?.classList.add(
-				"progressive-img-wrap--loaded",
-				"progressive-img-wrap--error",
-			);
-		},
-		{ once: true },
-	);
+  img.addEventListener("load", settle, { once: true });
+  img.addEventListener(
+    "error",
+    () => {
+      // Stop the shimmer and structurally remove the wrapper so the
+      // existing fallback / error UI lays out unchanged.
+      img.classList.add("progressive-img--loaded");
+      wrap?.classList.add("progressive-img-wrap--loaded", "progressive-img-wrap--error");
+    },
+    { once: true },
+  );
 }
 
 /** Wire every not-yet-wired progressive image inside `root`. */
 export function attachProgressiveImages(root: HTMLElement): void {
-	root
-		.querySelectorAll<HTMLImageElement>(
-			"img.progressive-img:not([data-prog-wired])",
-		)
-		.forEach(wire);
+  root
+    .querySelectorAll<HTMLImageElement>("img.progressive-img:not([data-prog-wired])")
+    .forEach(wire);
 }
 
 /** Svelte action: `<img class="progressive-img" use:progressiveImage>`. */
 export function progressiveImage(node: HTMLImageElement) {
-	wire(node);
-	return {};
+  wire(node);
+  return {};
 }

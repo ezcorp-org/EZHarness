@@ -41,9 +41,7 @@ const { extractToolOutput, stringifyToolOutput } = (() => {
   // `new Bun.Transpiler` strips the TS types; dropping the `export` keywords
   // turns the module body into a plain function body the last line closes over.
   const js = new Bun.Transpiler({ loader: "ts" }).transformSync(ts).replace(/^export\s+/gm, "");
-  return new Function(
-    `${js}\nreturn { extractToolOutput, stringifyToolOutput };`,
-  )() as {
+  return new Function(`${js}\nreturn { extractToolOutput, stringifyToolOutput };`)() as {
     extractToolOutput: (value: unknown) => unknown;
     stringifyToolOutput: (value: unknown) => string;
   };
@@ -111,7 +109,7 @@ describe("truncateOutput", () => {
 
     test("handles builtin tool readFile result", () => {
       const output = { content: [{ type: "text", text: '{\n  "name": "ezcorp-ai"\n}' }] };
-      expect(truncateOutput(output)).toBe('{');
+      expect(truncateOutput(output)).toBe("{");
     });
 
     test("handles builtin tool listFiles result", () => {
@@ -377,7 +375,12 @@ describe("E2E: tool output pipeline", () => {
 
   test("builtin editFile: DB → truncateOutput → hydrate → display", () => {
     const dbOutput = {
-      content: [{ type: "text", text: 'Created/overwrote package.json (5 lines)\n1: {\n2:   "name": "ezcorp-ai"' }],
+      content: [
+        {
+          type: "text",
+          text: 'Created/overwrote package.json (5 lines)\n1: {\n2:   "name": "ezcorp-ai"',
+        },
+      ],
     };
     const outputSummary = truncateOutput(dbOutput);
     expect(outputSummary).toBe("Created/overwrote package.json (5 lines)");

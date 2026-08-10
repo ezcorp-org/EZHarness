@@ -12,16 +12,28 @@ import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers
 import * as connection from "../db/connection";
 
 mock.module("../db/queries/settings", () => ({
-  async getAllSettings() { return {}; },
-  async getSetting() { return undefined; },
+  async getAllSettings() {
+    return {};
+  },
+  async getSetting() {
+    return undefined;
+  },
   async upsertSetting() {},
-  async deleteSetting() { return false; },
-  async isListingInstalled() { return false; },
+  async deleteSetting() {
+    return false;
+  },
+  async isListingInstalled() {
+    return false;
+  },
 }));
 
 mockDbConnection();
 
-import { consumeSearchQuota, hydrateSearchQuota, _resetSearchQuotaForTests } from "../search/search-quota";
+import {
+  consumeSearchQuota,
+  hydrateSearchQuota,
+  _resetSearchQuotaForTests,
+} from "../search/search-quota";
 import { extensions, extensionSearchCallsDaily } from "../db/schema";
 import { eq } from "drizzle-orm";
 
@@ -29,11 +41,25 @@ let extA: string;
 let extB: string;
 
 async function ensureExtension(name: string): Promise<string> {
-  const [row] = await getTestDb().insert(extensions).values({
-    name, version: "0.0.1", description: "",
-    manifest: { schemaVersion: 2, name, version: "0.0.1", description: "", author: { name: "t" }, permissions: {} } as never,
-    source: "test", enabled: true, grantedPermissions: {} as never,
-  }).returning({ id: extensions.id });
+  const [row] = await getTestDb()
+    .insert(extensions)
+    .values({
+      name,
+      version: "0.0.1",
+      description: "",
+      manifest: {
+        schemaVersion: 2,
+        name,
+        version: "0.0.1",
+        description: "",
+        author: { name: "t" },
+        permissions: {},
+      } as never,
+      source: "test",
+      enabled: true,
+      grantedPermissions: {} as never,
+    })
+    .returning({ id: extensions.id });
   return row!.id;
 }
 
@@ -77,7 +103,10 @@ describe("consumeSearchQuota", () => {
     consumeSearchQuota(extA, 5);
     consumeSearchQuota(extA, 5);
     await new Promise((r) => setTimeout(r, 30));
-    const rows = await getTestDb().select().from(extensionSearchCallsDaily).where(eq(extensionSearchCallsDaily.extensionId, extA));
+    const rows = await getTestDb()
+      .select()
+      .from(extensionSearchCallsDaily)
+      .where(eq(extensionSearchCallsDaily.extensionId, extA));
     expect(rows.length).toBe(1);
     expect(rows[0]!.calls).toBe(3);
     expect(rows[0]!.day).toBe(today());
@@ -87,7 +116,9 @@ describe("consumeSearchQuota", () => {
 describe("hydrateSearchQuota", () => {
   test("seeds today's in-process counter from the durable row (restart resilience)", async () => {
     // Simulate a prior process that recorded 4 calls today.
-    await getTestDb().insert(extensionSearchCallsDaily).values({ extensionId: extA, day: today(), calls: 4 });
+    await getTestDb()
+      .insert(extensionSearchCallsDaily)
+      .values({ extensionId: extA, day: today(), calls: 4 });
     // Fresh process: no in-memory counter yet.
     _resetSearchQuotaForTests();
     await hydrateSearchQuota(extA);
@@ -131,7 +162,10 @@ describe("hydrateSearchQuota", () => {
     consumeSearchQuota(extA, 10); // in-process count = 1
     await new Promise((r) => setTimeout(r, 20)); // let the durable upsert land
     // A stale durable row claims 9 — but the live counter is authoritative.
-    await getTestDb().update(extensionSearchCallsDaily).set({ calls: 9 }).where(eq(extensionSearchCallsDaily.extensionId, extA));
+    await getTestDb()
+      .update(extensionSearchCallsDaily)
+      .set({ calls: 9 })
+      .where(eq(extensionSearchCallsDaily.extensionId, extA));
     await hydrateSearchQuota(extA);
     // Still only 1 consumed in-process → 9 remain.
     for (let i = 0; i < 9; i++) expect(consumeSearchQuota(extA, 10).ok).toBe(true);

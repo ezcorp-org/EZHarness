@@ -45,12 +45,18 @@ export async function listWorkflows(): Promise<DbWorkflow[]> {
 }
 
 export async function getWorkflow(id: string): Promise<DbWorkflow | undefined> {
-  const rows = await getDb().select().from(workflowDefinitions).where(eq(workflowDefinitions.id, id));
+  const rows = await getDb()
+    .select()
+    .from(workflowDefinitions)
+    .where(eq(workflowDefinitions.id, id));
   return rows[0];
 }
 
 export async function getWorkflowByName(name: string): Promise<DbWorkflow | undefined> {
-  const rows = await getDb().select().from(workflowDefinitions).where(eq(workflowDefinitions.name, name));
+  const rows = await getDb()
+    .select()
+    .from(workflowDefinitions)
+    .where(eq(workflowDefinitions.name, name));
   return rows[0];
 }
 
@@ -126,7 +132,10 @@ export async function createWorkflow(
 
 export async function updateWorkflow(
   id: string,
-  data: Partial<WorkflowDefinition> & { visibility?: WorkflowVisibility; projectId?: string | null },
+  data: Partial<WorkflowDefinition> & {
+    visibility?: WorkflowVisibility;
+    projectId?: string | null;
+  },
 ): Promise<DbWorkflow | undefined> {
   const existing = await getWorkflow(id);
   if (!existing) return undefined;

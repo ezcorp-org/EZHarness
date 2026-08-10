@@ -181,9 +181,7 @@ describe("the producer sweep", () => {
   test("walks a real tree (a sweep over zero files would pass forever)", () => {
     expect(FILES.length).toBeGreaterThan(100);
     expect(FILES).toContain(join(REPO_ROOT, "src/db/queries/workflows.ts"));
-    expect(FILES).toContain(
-      join(REPO_ROOT, "web/src/routes/api/workflows/[name]/fork/+server.ts"),
-    );
+    expect(FILES).toContain(join(REPO_ROOT, "web/src/routes/api/workflows/[name]/fork/+server.ts"));
   });
 
   test("excludes test files, so a fixture cannot make a tier look reachable", () => {
@@ -403,11 +401,8 @@ describe("what a read/run grant is actually worth today", () => {
     // rather than from a ladder that refuses this caller everything.
     for (const e of CONFIDENTIAL) {
       expect(
-        authorizeWorkflow(
-          e,
-          { userId: e.userId, role: "member", projectMemberships: [] },
-          "run",
-        ).ok,
+        authorizeWorkflow(e, { userId: e.userId, role: "member", projectMemberships: [] }, "run")
+          .ok,
       ).toBe(true);
       expect(
         authorizeWorkflow(

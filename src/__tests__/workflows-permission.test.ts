@@ -83,8 +83,9 @@ describe("manifest validation", () => {
   });
 
   test("C3 — accepts an EMPTY names list when, and only when, delegation is asked for", () => {
-    expect(validateManifestV2(manifest({ workflows: { names: [], allowDelegated: true } })).valid)
-      .toBe(true);
+    expect(
+      validateManifestV2(manifest({ workflows: { names: [], allowDelegated: true } })).valid,
+    ).toBe(true);
     // PAIRED NEGATIVE — the bit is what makes the empty list legal.
     for (const block of [{ names: [] }, { names: [], allowDelegated: false }]) {
       const res = validateManifestV2(manifest({ workflows: block }));
@@ -95,18 +96,19 @@ describe("manifest validation", () => {
 
   test("C3 — accepts names AND the delegated bit together", () => {
     expect(
-      validateManifestV2(manifest({ workflows: { names: ["deploy"], allowDelegated: true } })).valid,
+      validateManifestV2(manifest({ workflows: { names: ["deploy"], allowDelegated: true } }))
+        .valid,
     ).toBe(true);
   });
 
   test("C3 — a non-boolean allowDelegated is rejected, and names is not blamed for it", () => {
     // A typo must not silently read as "not delegated" and then reject the
     // author's empty `names` with a message pointing at the wrong line.
-    const res = validateManifestV2(
-      manifest({ workflows: { names: [], allowDelegated: "yes" } }),
-    );
+    const res = validateManifestV2(manifest({ workflows: { names: [], allowDelegated: "yes" } }));
     expect(res.valid).toBe(false);
-    expect(res.errors.join("\n")).toContain("permissions.workflows.allowDelegated must be a boolean");
+    expect(res.errors.join("\n")).toContain(
+      "permissions.workflows.allowDelegated must be a boolean",
+    );
   });
 
   test("C3 — a delegated declaration still rejects a namespace-forging name", () => {
@@ -130,8 +132,9 @@ describe("manifest validation", () => {
 
 describe("clampWorkflowsPermission", () => {
   test("an undeclared manifest grants nothing (cannot self-grant)", () => {
-    expect(clampWorkflowsPermission({ names: ["deploy"], maxRunsPerHour: 9 }, undefined))
-      .toBeUndefined();
+    expect(
+      clampWorkflowsPermission({ names: ["deploy"], maxRunsPerHour: 9 }, undefined),
+    ).toBeUndefined();
   });
 
   test("the manifest is the source of truth — an undeclared submitted name is dropped", () => {
@@ -145,8 +148,9 @@ describe("clampWorkflowsPermission", () => {
   test("an empty intersection drops the grant entirely, not a {names:[]} husk", () => {
     // A husk would read as "granted" to any presence check while
     // authorizing nothing.
-    expect(clampWorkflowsPermission({ names: ["nope"], maxRunsPerHour: 9 }, { names: ["deploy"] }))
-      .toBeUndefined();
+    expect(
+      clampWorkflowsPermission({ names: ["nope"], maxRunsPerHour: 9 }, { names: ["deploy"] }),
+    ).toBeUndefined();
   });
 
   test("a name that would forge a namespace is dropped even if it reached the grant", () => {
@@ -189,8 +193,9 @@ describe("clampWorkflowsPermission", () => {
   test("a grant ALWAYS carries a rate ceiling, even when nobody declared one", () => {
     // The bound exists because a run can fan out into agent steps that cost
     // real LLM spend — an author omitting it must not mean "unlimited".
-    expect(clampWorkflowsPermission(undefined, { names: ["deploy"] })?.maxRunsPerHour)
-      .toBe(WORKFLOW_RUNS_PER_HOUR_DEFAULT);
+    expect(clampWorkflowsPermission(undefined, { names: ["deploy"] })?.maxRunsPerHour).toBe(
+      WORKFLOW_RUNS_PER_HOUR_DEFAULT,
+    );
   });
 
   test("an absurd declared ceiling is clamped to the hard maximum", () => {
@@ -236,16 +241,15 @@ describe("clampWorkflowsPermission — BRANCH 1: manifest has no `names` array",
   });
 
   test("PAIRED NEGATIVE — the same shape without the bit still grants nothing", () => {
-    expect(clampWorkflowsPermission(undefined, {} as unknown as { names: string[] }))
-      .toBeUndefined();
+    expect(
+      clampWorkflowsPermission(undefined, {} as unknown as { names: string[] }),
+    ).toBeUndefined();
   });
 
   test("PAIRED NEGATIVE — an install that DECLINES delegation grants nothing", () => {
     // The submitted side must also say yes. Declining leaves nothing at
     // all: there are no names to fall back to.
-    expect(
-      clampWorkflowsPermission({ names: [], maxRunsPerHour: 9 }, noNames),
-    ).toBeUndefined();
+    expect(clampWorkflowsPermission({ names: [], maxRunsPerHour: 9 }, noNames)).toBeUndefined();
   });
 });
 
@@ -294,10 +298,7 @@ describe("clampWorkflowsPermission — BRANCH 3: empty submitted ∩ manifest", 
 
   test("PAIRED NEGATIVE — the identical inputs without the bit drop the grant", () => {
     expect(
-      clampWorkflowsPermission(
-        { names: ["nope"], maxRunsPerHour: 9 },
-        { names: ["deploy"] },
-      ),
+      clampWorkflowsPermission({ names: ["nope"], maxRunsPerHour: 9 }, { names: ["deploy"] }),
     ).toBeUndefined();
   });
 });
@@ -462,7 +463,10 @@ describe("clampWorkflowsPermission — the NON-delegated path is byte-identical"
     // risks: an ordinary extension quietly acquiring delegated reach.
     const cases: Array<Parameters<typeof clampWorkflowsPermission>> = [
       [undefined, { names: ["deploy", "sync"] }],
-      [{ names: ["deploy"], maxRunsPerHour: 4 }, { names: ["deploy"], maxRunsPerHour: 10 }],
+      [
+        { names: ["deploy"], maxRunsPerHour: 4 },
+        { names: ["deploy"], maxRunsPerHour: 10 },
+      ],
       [{ names: ["deploy", "deploy"], maxRunsPerHour: 9 }, { names: ["deploy"] }],
       [{ names: ["deploy", "sneaky"], maxRunsPerHour: 9 }, { names: ["deploy"] }],
     ];
@@ -629,8 +633,9 @@ describe("grantsToCapabilitySet", () => {
     // `run` (or vice versa) the per-name clamp would be bypassable.
     const delegatedOnly = grantsToCapabilitySet(delegated([], true));
     const namedOnly = grantsToCapabilitySet(delegated(["deploy"]));
-    expect(isSubset([{ kind: "ezcorp:workflows:run", value: "deploy" }], delegatedOnly))
-      .toBe(false);
+    expect(isSubset([{ kind: "ezcorp:workflows:run", value: "deploy" }], delegatedOnly)).toBe(
+      false,
+    );
     expect(isSubset([{ kind: "ezcorp:workflows:run-delegated" }], namedOnly)).toBe(false);
     // …and each still satisfies itself.
     expect(isSubset([{ kind: "ezcorp:workflows:run-delegated" }], delegatedOnly)).toBe(true);

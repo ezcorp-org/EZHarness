@@ -6,14 +6,14 @@
 import { readable } from "svelte/store";
 
 const pageValue = {
-	url: new URL("http://localhost/"),
-	route: { id: null as string | null },
-	params: {} as Record<string, string>,
-	form: null as unknown,
-	data: {} as Record<string, unknown>,
-	state: {} as Record<string, unknown>,
-	error: null as unknown,
-	status: 200,
+  url: new URL("http://localhost/"),
+  route: { id: null as string | null },
+  params: {} as Record<string, string>,
+  form: null as unknown,
+  data: {} as Record<string, unknown>,
+  state: {} as Record<string, unknown>,
+  error: null as unknown,
+  status: 200,
 };
 
 export const page = readable(pageValue);

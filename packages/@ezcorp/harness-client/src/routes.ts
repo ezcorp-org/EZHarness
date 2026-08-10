@@ -42,7 +42,10 @@ export const HARNESS_ROUTES = {
   activateExtension: { httpMethod: "POST", pathTemplate: "/api/extensions/:id/activate" },
   setExtensionEnabled: { httpMethod: "PATCH", pathTemplate: "/api/extensions/:id" },
   uninstallExtension: { httpMethod: "DELETE", pathTemplate: "/api/extensions/:id" },
-  updateExtensionPermissions: { httpMethod: "PUT", pathTemplate: "/api/extensions/:id/permissions" },
+  updateExtensionPermissions: {
+    httpMethod: "PUT",
+    pathTemplate: "/api/extensions/:id/permissions",
+  },
   // Extension secrets (extensions scope + per-extension RBAC)
   setExtensionSecret: { httpMethod: "POST", pathTemplate: "/api/extensions/:id/secrets" },
   deleteExtensionSecret: { httpMethod: "DELETE", pathTemplate: "/api/extensions/:id/secrets" },

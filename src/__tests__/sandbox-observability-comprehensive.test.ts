@@ -153,7 +153,11 @@ describe("listConversations", () => {
 describe("getTestConversations", () => {
   test("returns only test conversations for given agentConfigId", async () => {
     await createConversation(projectId, { title: "Test Alpha", test: true, agentConfigId });
-    await createConversation(projectId, { title: "Test Beta", test: true, agentConfigId: agentConfigId2 });
+    await createConversation(projectId, {
+      title: "Test Beta",
+      test: true,
+      agentConfigId: agentConfigId2,
+    });
     await createConversation(projectId, { title: "Normal", agentConfigId });
 
     const tests = await getTestConversations(agentConfigId);
@@ -171,7 +175,11 @@ describe("getTestConversations", () => {
   test("orders by createdAt desc", async () => {
     await createConversation(projectId, { title: "First", test: true, agentConfigId });
     // Push second conversation's createdAt into the future so ordering is deterministic
-    const second = await createConversation(projectId, { title: "Second", test: true, agentConfigId });
+    const second = await createConversation(projectId, {
+      title: "Second",
+      test: true,
+      agentConfigId,
+    });
     await getDb()
       .update(conversations)
       .set({ createdAt: sql`NOW() + interval '1 second'` })
@@ -219,7 +227,11 @@ describe("deleteTestConversations", () => {
 
   test("does NOT delete test conversations for other agentConfigIds", async () => {
     await createConversation(projectId, { title: "Alpha Test", test: true, agentConfigId });
-    await createConversation(projectId, { title: "Beta Test", test: true, agentConfigId: agentConfigId2 });
+    await createConversation(projectId, {
+      title: "Beta Test",
+      test: true,
+      agentConfigId: agentConfigId2,
+    });
 
     await deleteTestConversations(agentConfigId);
 
@@ -347,8 +359,16 @@ describe("getConversationStats", () => {
     const conv = await createConversation(projectId);
 
     // Token + turn counts are sourced from messages.usage.
-    await createMessage(conv.id, { role: "assistant", content: "turn1", usage: { inputTokens: 100, outputTokens: 200 } });
-    await createMessage(conv.id, { role: "assistant", content: "turn2", usage: { inputTokens: 50, outputTokens: 100 } });
+    await createMessage(conv.id, {
+      role: "assistant",
+      content: "turn1",
+      usage: { inputTokens: 100, outputTokens: 200 },
+    });
+    await createMessage(conv.id, {
+      role: "assistant",
+      content: "turn2",
+      usage: { inputTokens: 50, outputTokens: 100 },
+    });
 
     // Durations are sourced from observability turn_summary rows.
     await insertObservabilityEvent({
@@ -403,8 +423,16 @@ describe("getGlobalStats", () => {
     const conv1 = await createConversation(projectId, { title: "G1" });
     const conv2 = await createConversation(projectId, { title: "G2" });
 
-    await createMessage(conv1.id, { role: "assistant", content: "t1", usage: { inputTokens: 100, outputTokens: 200 } });
-    await createMessage(conv2.id, { role: "assistant", content: "t2", usage: { inputTokens: 200, outputTokens: 300 } });
+    await createMessage(conv1.id, {
+      role: "assistant",
+      content: "t1",
+      usage: { inputTokens: 100, outputTokens: 200 },
+    });
+    await createMessage(conv2.id, {
+      role: "assistant",
+      content: "t2",
+      usage: { inputTokens: 200, outputTokens: 300 },
+    });
 
     const stats = await getGlobalStats({ days: 30 });
     expect(stats.totalInputTokens).toBe(300);
@@ -414,7 +442,11 @@ describe("getGlobalStats", () => {
 
   test("returns token usage aggregation (tokensByDay)", async () => {
     const conv = await createConversation(projectId);
-    await createMessage(conv.id, { role: "assistant", content: "t1", usage: { inputTokens: 100, outputTokens: 200 } });
+    await createMessage(conv.id, {
+      role: "assistant",
+      content: "t1",
+      usage: { inputTokens: 100, outputTokens: 200 },
+    });
 
     const stats = await getGlobalStats({ days: 1 });
     expect(stats.tokensByDay.length).toBeGreaterThanOrEqual(1);
@@ -460,7 +492,11 @@ describe("getGlobalStats", () => {
     const conv = await createConversation(projectId);
 
     // Insert a recent assistant message
-    await createMessage(conv.id, { role: "assistant", content: "recent", usage: { inputTokens: 100, outputTokens: 200 } });
+    await createMessage(conv.id, {
+      role: "assistant",
+      content: "recent",
+      usage: { inputTokens: 100, outputTokens: 200 },
+    });
 
     // Manually insert an old message (60 days ago)
     await getDb().execute(sql`
@@ -788,7 +824,11 @@ describe("integration: full sandbox lifecycle", () => {
     expect(normalConvs.find((c) => c.id === testConv.id)).toBeUndefined();
 
     // Step 4: Create observability events + assistant message for the test conversation
-    await createMessage(testConv.id, { role: "assistant", content: "sandbox-turn", usage: { inputTokens: 50, outputTokens: 100 } });
+    await createMessage(testConv.id, {
+      role: "assistant",
+      content: "sandbox-turn",
+      usage: { inputTokens: 50, outputTokens: 100 },
+    });
     await insertObservabilityEvent({
       conversationId: testConv.id,
       eventType: "tool_call",

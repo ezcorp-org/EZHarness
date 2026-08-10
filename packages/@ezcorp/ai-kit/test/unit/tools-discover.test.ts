@@ -94,8 +94,16 @@ describe("tools/discover", () => {
           enabled: true,
           manifest: {
             tools: [
-              { name: "get_current", description: "Get current conditions", inputSchema: { type: "object", properties: { city: { type: "string" } } } },
-              { name: "get_forecast", description: "Get a 5-day forecast", inputSchema: { type: "object" } },
+              {
+                name: "get_current",
+                description: "Get current conditions",
+                inputSchema: { type: "object", properties: { city: { type: "string" } } },
+              },
+              {
+                name: "get_forecast",
+                description: "Get a 5-day forecast",
+                inputSchema: { type: "object" },
+              },
             ],
           },
         },
@@ -106,9 +114,7 @@ describe("tools/discover", () => {
           description: "Persist user notes across conversations",
           enabled: true,
           manifest: {
-            tools: [
-              { name: "create_note", description: "Create a note", inputSchema: {} },
-            ],
+            tools: [{ name: "create_note", description: "Create a note", inputSchema: {} }],
           },
         },
         {

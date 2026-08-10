@@ -33,7 +33,9 @@ mock.module("../db/queries/settings", () => {
       await getDb().delete(tbl).where(eq(tbl.key, key));
       return true;
     },
-    async isListingInstalled() { return false; },
+    async isListingInstalled() {
+      return false;
+    },
   };
 });
 
@@ -70,7 +72,7 @@ describe("insertAuditEntry", () => {
     const entries = await listAuditLog({ action: "user.login" });
     expect(entries.length).toBeGreaterThanOrEqual(1);
 
-    const entry = entries.find(e => e.action === "user.login");
+    const entry = entries.find((e) => e.action === "user.login");
     expect(entry).toBeDefined();
     expect(entry!.userId).toBe(userId);
     expect(entry!.action).toBe("user.login");
@@ -158,7 +160,7 @@ describe("listAuditLog", () => {
     // Verify descending order
     for (let i = 1; i < entries.length; i++) {
       expect(entries[i - 1]!.createdAt.getTime()).toBeGreaterThanOrEqual(
-        entries[i]!.createdAt.getTime()
+        entries[i]!.createdAt.getTime(),
       );
     }
   });
@@ -231,7 +233,7 @@ describe("listAuditLog", () => {
     expect(page2.length).toBeLessThanOrEqual(2);
 
     // Pages should not overlap
-    const page1Ids = new Set(page1.map(e => e.id));
+    const page1Ids = new Set(page1.map((e) => e.id));
     for (const e of page2) {
       expect(page1Ids.has(e.id)).toBe(false);
     }

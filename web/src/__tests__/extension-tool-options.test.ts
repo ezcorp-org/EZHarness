@@ -88,8 +88,20 @@ describe("toToolOptions", () => {
 
   test("emits one namespaced option per tool", () => {
     expect(toToolOptions(sources)).toEqual([
-      { extension: "notes", extensionLabel: "Notes", tool: "add", value: "notes__add", description: null },
-      { extension: "notes", extensionLabel: "Notes", tool: "remove", value: "notes__remove", description: "d" },
+      {
+        extension: "notes",
+        extensionLabel: "Notes",
+        tool: "add",
+        value: "notes__add",
+        description: null,
+      },
+      {
+        extension: "notes",
+        extensionLabel: "Notes",
+        tool: "remove",
+        value: "notes__remove",
+        description: "d",
+      },
     ]);
   });
 

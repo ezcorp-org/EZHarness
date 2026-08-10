@@ -85,7 +85,9 @@ const trivial: WorkflowDefinition = {
 const gated: WorkflowDefinition = {
   name: "gated",
   description: "",
-  steps: [{ name: "gate", kind: "approval", prompt: "Ship it?", choices: ["approve"] } as WorkflowStep],
+  steps: [
+    { name: "gate", kind: "approval", prompt: "Ship it?", choices: ["approve"] } as WorkflowStep,
+  ],
 };
 
 function realExecutor() {
@@ -95,10 +97,7 @@ function realExecutor() {
   });
 }
 
-function runtimeFor(
-  workflows: WorkflowDefinition[],
-  exec = realExecutor(),
-): WorkflowRuntime {
+function runtimeFor(workflows: WorkflowDefinition[], exec = realExecutor()): WorkflowRuntime {
   return {
     getWorkflows: () => workflows,
     workflowExecutor: exec as unknown as WorkflowRuntime["workflowExecutor"],
@@ -323,8 +322,9 @@ describe("the approvals inbox is scoped by the RUN's owner", () => {
     await pendingOn("cli", null, "s1");
 
     expect(await listPendingWorkflowApprovalsForUser("owner")).toEqual([]);
-    expect((await listPendingWorkflowApprovalsForUser("owner", true)).map((p) => p.workflowRunId))
-      .toEqual(["cli"]);
+    expect(
+      (await listPendingWorkflowApprovalsForUser("owner", true)).map((p) => p.workflowRunId),
+    ).toEqual(["cli"]);
   });
 
   test("an admin sees every pending approval — the same set the sweep sees", async () => {

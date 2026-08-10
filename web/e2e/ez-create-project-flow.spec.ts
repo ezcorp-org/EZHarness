@@ -17,69 +17,75 @@ import { makeProject, makeMessage } from "./fixtures/data.js";
 import { filePickerValue } from "./fixtures/picker-helpers.js";
 
 test.describe("Ez — create project flow", () => {
-	const proj = makeProject({ id: "proj-1", name: "Existing" });
+  const proj = makeProject({ id: "proj-1", name: "Existing" });
 
-	test("propose card → opens prefilled /new-project → form is hydrated", async ({ page, mockApi }) => {
-		const draftPayload = { name: "Demo App", path: "/srv/demo" };
-		const proposeOutput = JSON.stringify({
-			draftId: "d-create-project",
-			openUrl: "/new-project?prefill=d-create-project",
-			title: "Open new project form",
-			summary: "Ez prepared a project draft.",
-		});
-		await mockApi({
-			projects: [proj],
-			ezConversation: { conversationId: "ez-conv-1" },
-			ezMessages: [
-				makeMessage({
-					id: "ez-m-user",
-					role: "user",
-					content: "create a project for ./demo",
-				}),
-				makeMessage({
-					id: "ez-m-assistant",
-					role: "assistant",
-					content: "I've prepared a draft — open the form below.",
-					parentMessageId: "ez-m-user",
-					createdAt: "2026-04-01T00:01:00.000Z",
-				}),
-			],
-			messageToolCalls: {
-				"ez-m-assistant": [
-					{
-						id: "tc-propose-project",
-						extensionId: "builtin",
-						toolName: "propose_create_project",
-						input: { name: "Demo App", path: "/srv/demo" },
-						outputSummary: proposeOutput,
-						fullOutput: proposeOutput,
-						success: true,
-						durationMs: 120,
-						status: "success",
-						messageId: "ez-m-assistant",
-						cardType: "ez-propose",
-					},
-				],
-			},
-			ezDrafts: { "d-create-project": { kind: "project", payload: draftPayload } },
-		});
+  test("propose card → opens prefilled /new-project → form is hydrated", async ({
+    page,
+    mockApi,
+  }) => {
+    const draftPayload = { name: "Demo App", path: "/srv/demo" };
+    const proposeOutput = JSON.stringify({
+      draftId: "d-create-project",
+      openUrl: "/new-project?prefill=d-create-project",
+      title: "Open new project form",
+      summary: "Ez prepared a project draft.",
+    });
+    await mockApi({
+      projects: [proj],
+      ezConversation: { conversationId: "ez-conv-1" },
+      ezMessages: [
+        makeMessage({
+          id: "ez-m-user",
+          role: "user",
+          content: "create a project for ./demo",
+        }),
+        makeMessage({
+          id: "ez-m-assistant",
+          role: "assistant",
+          content: "I've prepared a draft — open the form below.",
+          parentMessageId: "ez-m-user",
+          createdAt: "2026-04-01T00:01:00.000Z",
+        }),
+      ],
+      messageToolCalls: {
+        "ez-m-assistant": [
+          {
+            id: "tc-propose-project",
+            extensionId: "builtin",
+            toolName: "propose_create_project",
+            input: { name: "Demo App", path: "/srv/demo" },
+            outputSummary: proposeOutput,
+            fullOutput: proposeOutput,
+            success: true,
+            durationMs: 120,
+            status: "success",
+            messageId: "ez-m-assistant",
+            cardType: "ez-propose",
+          },
+        ],
+      },
+      ezDrafts: { "d-create-project": { kind: "project", payload: draftPayload } },
+    });
 
-		await page.goto(`/project/${proj.id}/chat`);
-		await page.getByTestId("ez-button").click();
-		await expect(page.getByTestId("ez-panel")).toBeVisible();
+    await page.goto(`/project/${proj.id}/chat`);
+    await page.getByTestId("ez-button").click();
+    await expect(page.getByTestId("ez-panel")).toBeVisible();
 
-		// EzToolResultCard for the propose result.
-		const card = page.getByTestId("ez-tool-result-card");
-		await expect(card).toBeVisible();
-		await card.getByTestId("ez-card-open").click();
+    // EzToolResultCard for the propose result.
+    const card = page.getByTestId("ez-tool-result-card");
+    await expect(card).toBeVisible();
+    await card.getByTestId("ez-card-open").click();
 
-		await expect(page).toHaveURL(/\/new-project\?prefill=d-create-project/);
-		await expect(page.getByTestId("project-prefill-banner")).toHaveAttribute("data-state", "active");
+    await expect(page).toHaveURL(/\/new-project\?prefill=d-create-project/);
+    await expect(page.getByTestId("project-prefill-banner")).toHaveAttribute(
+      "data-state",
+      "active",
+    );
 
-		// Prefill hydrated the form fields.
-		await expect(page.getByLabel("Name")).toHaveValue("Demo App");
-		// Read through the helper: below lg the FilePicker collapses to a
-		// trigger button and there is no inline input to query by placeholder.
-		expect(await filePickerValue(page)).toBe("/srv/demo");
-	});
+    // Prefill hydrated the form fields.
+    await expect(page.getByLabel("Name")).toHaveValue("Demo App");
+    // Read through the helper: below lg the FilePicker collapses to a
+    // trigger button and there is no inline input to query by placeholder.
+    expect(await filePickerValue(page)).toBe("/srv/demo");
+  });
 });

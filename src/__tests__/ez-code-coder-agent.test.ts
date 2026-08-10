@@ -76,9 +76,7 @@ mock.module("../db/queries/agent-configs", () => ({
   deleteAgentConfigsByNameExceptId: async (name: string, keepId: string) => {
     const before = rows.length;
     // Mirrors the real query: ownerless (userId == null) rows ONLY.
-    rows = rows.filter(
-      (r) => !(r.name === name && r.id !== keepId && r.userId == null),
-    );
+    rows = rows.filter((r) => !(r.name === name && r.id !== keepId && r.userId == null));
     return before - rows.length;
   },
 }));
@@ -91,9 +89,7 @@ const {
   EZ_CODE_CODER_AGENT_NAME,
   isEzCodeCoderAlias,
 } = await import("../extensions/ez-code-coder-agent");
-const { resolveAgentConfigForUser } = await import(
-  "../extensions/agent-configs-handler"
-);
+const { resolveAgentConfigForUser } = await import("../extensions/agent-configs-handler");
 
 beforeEach(() => {
   rows = [];
@@ -154,9 +150,7 @@ describe("ensureEzCodeCoderAgent", () => {
     // Safety floor: a user who coincidentally named an agent "ez-code
     // coder" must never have it silently deleted (nor its shares cascaded)
     // by the bundled upsert. Owned rows are out of the dedupe's scope.
-    rows.push(
-      makeRow({ id: "u-coder", name: EZ_CODE_CODER_AGENT_NAME, userId: "u-owns" }),
-    );
+    rows.push(makeRow({ id: "u-coder", name: EZ_CODE_CODER_AGENT_NAME, userId: "u-owns" }));
     await ensureEzCodeCoderAgent();
     expect(rows.find((r) => r.id === "u-coder")).toBeDefined();
     // The canonical fixed-id row still gets created alongside it.

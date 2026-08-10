@@ -68,7 +68,8 @@ function ipv4FromMapped(h: string): string | null {
   if (groups.length === 2) {
     const hi = parseInt(groups[0]!, 16);
     const lo = parseInt(groups[1]!, 16);
-    if (!Number.isFinite(hi) || !Number.isFinite(lo) || Number.isNaN(hi) || Number.isNaN(lo)) return null;
+    if (!Number.isFinite(hi) || !Number.isFinite(lo) || Number.isNaN(hi) || Number.isNaN(lo))
+      return null;
     return `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
   }
   return null;

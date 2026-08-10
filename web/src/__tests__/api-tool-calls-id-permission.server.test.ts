@@ -18,15 +18,9 @@ vi.mock("$server/routes/tool-permission", () => ({
   handleToolPermission,
 }));
 
-const { POST } = await import(
-  "../routes/api/tool-calls/[id]/permission/+server"
-);
+const { POST } = await import("../routes/api/tool-calls/[id]/permission/+server");
 
-function makeEvent(opts: {
-  id?: string;
-  body?: unknown;
-  locals?: Record<string, unknown>;
-}) {
+function makeEvent(opts: { id?: string; body?: unknown; locals?: Record<string, unknown> }) {
   const id = opts.id ?? "tc-1";
   const init: RequestInit = { method: "POST" };
   if (opts.body !== undefined) {
@@ -37,10 +31,7 @@ function makeEvent(opts: {
     url: new URL(`http://localhost/api/tool-calls/${id}/permission`),
     locals: opts.locals ?? {},
     params: { id },
-    request: new Request(
-      `http://localhost/api/tool-calls/${id}/permission`,
-      init,
-    ),
+    request: new Request(`http://localhost/api/tool-calls/${id}/permission`, init),
   } as any;
 }
 

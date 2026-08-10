@@ -29,9 +29,7 @@ import {
 describe("parseMentions — $[feature:…] tokens", () => {
   test("single token → one feature mention with correct offsets", () => {
     const result = parseMentions("$[feature:chat]");
-    expect(result).toEqual([
-      { kind: "feature", name: "chat", start: 0, end: 15 },
-    ]);
+    expect(result).toEqual([{ kind: "feature", name: "chat", start: 0, end: 15 }]);
   });
 
   test("token in mid-text → captures correct start/end", () => {
@@ -44,16 +42,9 @@ describe("parseMentions — $[feature:…] tokens", () => {
   });
 
   test("MIXED four-sigil string yields 4 distinct kinds in source order", () => {
-    const result = parseMentions(
-      "![ext:foo] @[file:bar.ts] /[cmd:baz] $[feature:qux]",
-    );
+    const result = parseMentions("![ext:foo] @[file:bar.ts] /[cmd:baz] $[feature:qux]");
     expect(result).toHaveLength(4);
-    expect(result.map((m) => m.kind)).toEqual([
-      "ext",
-      "file",
-      "cmd",
-      "feature",
-    ]);
+    expect(result.map((m) => m.kind)).toEqual(["ext", "file", "cmd", "feature"]);
     expect(result.map((m) => m.name)).toEqual(["foo", "bar.ts", "baz", "qux"]);
   });
 
@@ -211,31 +202,19 @@ describe("detectMentionTrigger — $ sigil", () => {
 
 describe("insertMentionToken — $ sigil", () => {
   test("inserts $[feature:name] replacing the trigger span; cursor at end", () => {
-    const result = insertMentionToken(
-      "hi $cha",
-      7,
-      { kind: "feature", name: "chat-attachments" },
-    );
+    const result = insertMentionToken("hi $cha", 7, { kind: "feature", name: "chat-attachments" });
     expect(result.text).toBe("hi $[feature:chat-attachments] ");
     expect(result.cursor).toBe(result.text.length);
   });
 
   test("inserts at start of string when no leading whitespace", () => {
-    const result = insertMentionToken(
-      "$ch",
-      3,
-      { kind: "feature", name: "chat" },
-    );
+    const result = insertMentionToken("$ch", 3, { kind: "feature", name: "chat" });
     expect(result.text).toBe("$[feature:chat] ");
     expect(result.cursor).toBe("$[feature:chat] ".length);
   });
 
   test("preserves trailing text (after the cursor)", () => {
-    const result = insertMentionToken(
-      "hi $ch please",
-      6,
-      { kind: "feature", name: "chat" },
-    );
+    const result = insertMentionToken("hi $ch please", 6, { kind: "feature", name: "chat" });
     expect(result.text).toBe("hi $[feature:chat]  please");
     // cursor lands right after the inserted token (including its trailing space)
     expect(result.cursor).toBe("hi $[feature:chat] ".length);
@@ -243,11 +222,7 @@ describe("insertMentionToken — $ sigil", () => {
 
   test("no-op when there is no active $ trigger span (kind/sigil mismatch)", () => {
     // `foo bar` has no `$` near the cursor — return input unchanged.
-    const result = insertMentionToken(
-      "foo bar",
-      7,
-      { kind: "feature", name: "x" },
-    );
+    const result = insertMentionToken("foo bar", 7, { kind: "feature", name: "x" });
     expect(result.text).toBe("foo bar");
     expect(result.cursor).toBe(7);
   });
@@ -255,21 +230,13 @@ describe("insertMentionToken — $ sigil", () => {
   test("inserting kind=ext on a $ trigger → no-op (sigil mismatch)", () => {
     // The trigger is `$cha` but the insert is for `ext`, which uses the
     // `!` sigil. The function looks for `!` trigger span and finds none.
-    const result = insertMentionToken(
-      "hi $cha",
-      7,
-      { kind: "ext", name: "evil" },
-    );
+    const result = insertMentionToken("hi $cha", 7, { kind: "ext", name: "evil" });
     expect(result.text).toBe("hi $cha");
     expect(result.cursor).toBe(7);
   });
 
   test("inserting kind=feature on a `!` trigger → no-op (sigil mismatch)", () => {
-    const result = insertMentionToken(
-      "hi !cha",
-      7,
-      { kind: "feature", name: "x" },
-    );
+    const result = insertMentionToken("hi !cha", 7, { kind: "feature", name: "x" });
     expect(result.text).toBe("hi !cha");
     expect(result.cursor).toBe(7);
   });
@@ -401,11 +368,7 @@ describe("detectMentionTrigger — C1 false-positive guard", () => {
 
 describe("insertMentionToken → parseMentions round-trip", () => {
   test("inserted token is recognized by parseMentions and getSegments", () => {
-    const inserted = insertMentionToken(
-      "see $",
-      5,
-      { kind: "feature", name: "chat" },
-    );
+    const inserted = insertMentionToken("see $", 5, { kind: "feature", name: "chat" });
     const tokens = parseMentions(inserted.text);
     expect(tokens).toHaveLength(1);
     expect(tokens[0]!.kind).toBe("feature");

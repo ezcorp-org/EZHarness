@@ -75,7 +75,9 @@ mock.module("$server/db/schema", () => require("../db/schema"));
 const realLogger = require("../logger");
 mock.module("$server/logger", () => realLogger);
 mock.module("$lib/hub", () => require("../../web/src/lib/hub"));
-mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
+mock.module("$lib/server/hub-extension-pages", () =>
+  require("../../web/src/lib/server/hub-extension-pages"),
+);
 
 // Dynamic import AFTER the mocks above — the fake registry/tool-executor
 // factories must be registered before this module binds its imports
@@ -92,7 +94,9 @@ afterAll(() => {
   // In-file ≥2-registration pattern (mock-cleanup meta-test): the
   // factories already point at the real modules.
   mock.module("$lib/hub", () => require("../../web/src/lib/hub"));
-  mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
+  mock.module("$lib/server/hub-extension-pages", () =>
+    require("../../web/src/lib/server/hub-extension-pages"),
+  );
   mock.module("$server/db/queries/projects", () => require("../db/queries/projects"));
   mock.module("$server/logger", () => realLogger);
   restoreModuleMocks();
@@ -157,8 +161,8 @@ describe("renderExtensionPage", () => {
     expect(result.page).toBeDefined();
     expect(result.page!.title).toBe("Cron Dashboard");
     // Granted action kept, un-granted action dropped by validation.
-    const labels = result.page!.nodes
-      .filter((n: { type: string }) => n.type === "button")
+    const labels = result
+      .page!.nodes.filter((n: { type: string }) => n.type === "button")
       .map((n: { label?: string }) => n.label);
     expect(labels).toEqual(["Clear"]);
     expect(deps.calls).toEqual(["dashboard"]);
@@ -230,7 +234,11 @@ describe("renderExtensionPage", () => {
 
   test("subprocess JSON-RPC error envelope → {error}", async () => {
     const deps = makeDeps({
-      callPage: async () => ({ jsonrpc: "2.0", id: 1, error: { code: -32602, message: "Unknown page" } }),
+      callPage: async () => ({
+        jsonrpc: "2.0",
+        id: 1,
+        error: { code: -32602, message: "Unknown page" },
+      }),
     });
     const result = await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps);
     expect(result.error).toContain("failed to render");
@@ -290,7 +298,8 @@ describe("renderExtensionPage", () => {
 
   test("production callPage mints a render-scoped provenance token, stamps _meta.ezCallId, and releases it after", async () => {
     __fakeProcResponse = VALID_RESULT;
-    let observed: { ezCallId: unknown; prov: ReturnType<typeof resolveCallProvenance> } | null = null;
+    let observed: { ezCallId: unknown; prov: ReturnType<typeof resolveCallProvenance> } | null =
+      null;
     // Snapshot the token + resolve it WHILE the render call is in flight —
     // this is exactly when the subprocess's reverse-RPC `fs.read` would
     // resolve the same token, so it proves the read would be authorized.
@@ -413,7 +422,15 @@ describe("perProject scope", () => {
   test("run + step render variants cache under distinct keys (step isolated from the run detail)", async () => {
     const deps = makeScopedDeps();
     await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, undefined, "run_a"); // run detail
-    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, undefined, "run_a", "review"); // step detail
+    await renderExtensionPage(
+      "cron-dashboard",
+      "dashboard",
+      "u1",
+      deps,
+      undefined,
+      "run_a",
+      "review",
+    ); // step detail
     // Two real pulls, distinct scopes (step rides alongside the run + listProjects).
     expect(deps.scopes).toEqual([
       { listProjects: true, run: "run_a" },
@@ -430,7 +447,15 @@ describe("perProject scope", () => {
     const deps = makeScopedDeps();
     // perProject page, no run, stray step → the dashboard (listProjects) scope,
     // no step; hub-render-pull drops the meaningless step.
-    await renderExtensionPage("cron-dashboard", "dashboard", "u1", deps, undefined, undefined, "review");
+    await renderExtensionPage(
+      "cron-dashboard",
+      "dashboard",
+      "u1",
+      deps,
+      undefined,
+      undefined,
+      "review",
+    );
     expect(deps.scopes).toEqual([{ listProjects: true }]);
     expect(deps.cache.get("ext-1", "dashboard")).not.toBeNull();
   });
@@ -441,10 +466,16 @@ describe("perProject scope", () => {
     __fakeProcInspect = (_method, params) => seen.push(params);
     try {
       const extension = makeExtension();
-      await renderExtensionPage("cron-dashboard", "dashboard", "u1", {
-        findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
-        cache: new ExtensionPageCache(),
-      }, PROJECT);
+      await renderExtensionPage(
+        "cron-dashboard",
+        "dashboard",
+        "u1",
+        {
+          findPage: async () => ({ extension, page: PER_PROJECT_PAGE }),
+          cache: new ExtensionPageCache(),
+        },
+        PROJECT,
+      );
     } finally {
       __fakeProcInspect = null;
     }

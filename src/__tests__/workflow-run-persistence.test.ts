@@ -43,9 +43,7 @@ const {
   terminalizeOrphanedWorkflowRuns,
   upsertWorkflowStepRun,
 } = await import("../db/queries/workflow-runs");
-const { WorkflowExecutor, WorkflowSuspendedError } = await import(
-  "../runtime/workflow-executor"
-);
+const { WorkflowExecutor, WorkflowSuspendedError } = await import("../runtime/workflow-executor");
 const { workflowDefinitionHash } = await import("../runtime/workflow-definition-hash");
 const {
   expireWorkflowApproval,
@@ -251,8 +249,7 @@ describe("migrate() — durable workflow-run columns", () => {
       SELECT column_name, is_nullable FROM information_schema.columns
        WHERE table_name = 'workflow_runs'
     `)) as Rows<ColumnRow>;
-    const nullable = (c: string) =>
-      cols.rows.find((r) => r.column_name === c)?.is_nullable;
+    const nullable = (c: string) => cols.rows.find((r) => r.column_name === c)?.is_nullable;
 
     expect(nullable("run_phase")).toBe("NO");
     expect(nullable("resumable")).toBe("NO");
@@ -288,9 +285,9 @@ describe("migrate() — durable workflow-run columns", () => {
       sql`UPDATE workflow_runs SET cursor = ${JSON.stringify(cursor)}::jsonb WHERE id = ${id}`,
     );
 
-    const read = (await db.execute(
-      sql`SELECT cursor FROM workflow_runs WHERE id = ${id}`,
-    )) as { rows: Array<{ cursor: typeof cursor }> };
+    const read = (await db.execute(sql`SELECT cursor FROM workflow_runs WHERE id = ${id}`)) as {
+      rows: Array<{ cursor: typeof cursor }>;
+    };
     expect(read.rows[0]?.cursor).toEqual(cursor);
   });
 
@@ -660,7 +657,9 @@ describe("workflow-runs query layer", () => {
     expect((await getWorkflowRunRow(stale))?.status).toBe("suspended");
     expect((await getWorkflowRunRow(live))?.status).toBe("running");
     // ...and the live run can still record its true outcome.
-    expect(await finalizeWorkflowRunRow(live, "success", { success: true, output: "real" })).toBe(1);
+    expect(await finalizeWorkflowRunRow(live, "success", { success: true, output: "real" })).toBe(
+      1,
+    );
     expect((await getWorkflowRunRow(live))?.status).toBe("success");
   });
 
@@ -1040,9 +1039,7 @@ describe("durable position — run_phase, cursor, definition_hash", () => {
     const run = await wf.runWorkflow(def, {}, undefined, undefined);
     // Pins the graph the run was authorized against, so a resume can
     // refuse to continue into an edited one.
-    expect((await readPosition(run.id))?.definition_hash).toBe(
-      workflowDefinitionHash(def),
-    );
+    expect((await readPosition(run.id))?.definition_hash).toBe(workflowDefinitionHash(def));
   });
 
   test("lands at a boundary with the cursor past the last batch", async () => {
@@ -1084,7 +1081,12 @@ describe("durable position — run_phase, cursor, definition_hash", () => {
         { name: "right", kind: "transform", dependsOn: ["seed"], output: { v: "right" } },
         // Reads $prev, so its output records which sibling won the race
         // — that is the order-fragility the cursor must reproduce.
-        { name: "join", kind: "transform", dependsOn: ["left", "right"], output: { saw: "$prev.output.v" } },
+        {
+          name: "join",
+          kind: "transform",
+          dependsOn: ["left", "right"],
+          output: { saw: "$prev.output.v" },
+        },
       ],
     };
 
@@ -1339,11 +1341,9 @@ describe("durable position — run_phase, cursor, definition_hash", () => {
     // otherwise every unit test without a wired DB would start failing.
     const bus = new EventBus<AgentEvents>();
     const agentExec = new AgentExecutor(loadAgentsStatic([]), bus);
-    const wf = new (await import("../runtime/workflow-executor")).WorkflowExecutor(
-      agentExec,
-      bus,
-      { persist: false },
-    );
+    const wf = new (await import("../runtime/workflow-executor")).WorkflowExecutor(agentExec, bus, {
+      persist: false,
+    });
     const run = await wf.runWorkflow(
       {
         name: "unpersisted",

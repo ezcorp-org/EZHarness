@@ -19,14 +19,9 @@ vi.mock("$server/db/schema", () => ({
   toolCalls: { id: "id", output: "output" },
 }));
 
-const { GET } = await import(
-  "../routes/api/tool-calls/[id]/output/+server"
-);
+const { GET } = await import("../routes/api/tool-calls/[id]/output/+server");
 
-function makeEvent(opts: {
-  id?: string;
-  locals?: Record<string, unknown>;
-}) {
+function makeEvent(opts: { id?: string; locals?: Record<string, unknown> }) {
   const id = opts.id ?? "tc-1";
   return {
     url: new URL(`http://localhost/api/tool-calls/${id}/output`),
@@ -71,9 +66,7 @@ describe("GET /api/tool-calls/[id]/output", () => {
   });
 
   test("rejects 403 when API-key lacks 'read' scope", async () => {
-    const res = await GET(
-      makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }),
-    );
+    const res = await GET(makeEvent({ locals: { ...authedUser, apiKeyScopes: ["chat"] } }));
     expect(res.status).toBe(403);
     const body = (await res.json()) as { required?: string };
     expect(body.required).toBe("read");

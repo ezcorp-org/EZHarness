@@ -8,15 +8,7 @@
  * harness from `bundled-grant-reconcile-drafts.test.ts`.
  */
 
-import {
-  test,
-  expect,
-  describe,
-  beforeAll,
-  afterAll,
-  afterEach,
-  mock,
-} from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, afterEach, mock } from "bun:test";
 
 mock.module("../db/connection", () => ({
   getDb: () => {
@@ -52,10 +44,7 @@ async function seedInstalled(over: Record<string, unknown>) {
   const name = over.name as string;
   const installPath = join(tmpRoot.root, ".ezcorp/extensions", name);
   mkdirSync(installPath, { recursive: true });
-  writeFileSync(
-    join(installPath, "ezcorp.config.ts"),
-    `export default { name: "${name}" };\n`,
-  );
+  writeFileSync(join(installPath, "ezcorp.config.ts"), `export default { name: "${name}" };\n`);
   writeFileSync(join(installPath, "index.ts"), "// installed code\n");
   return createExtension({
     name,
@@ -135,9 +124,7 @@ describe("reopenInstalledAsDraft", () => {
   });
 
   test("opaque ReopenError for not-owner / flag-off / bundled", async () => {
-    const { reopenInstalledAsDraft, ReopenError } = await import(
-      "../extensions/reopen-extension"
-    );
+    const { reopenInstalledAsDraft, ReopenError } = await import("../extensions/reopen-extension");
     await seedInstalled({ name: "rw-a", creatorUserId: OWNER, modifiable: true });
     await seedInstalled({ name: "rw-b", creatorUserId: OWNER, modifiable: false });
     await seedInstalled({
@@ -169,9 +156,7 @@ describe("reopenInstalledAsDraft", () => {
   // deleted from the installed extension — a read error turning into
   // permanent data loss one install later. Refuse instead.
   test("an unreadable scaffold file REFUSES the reopen (no silent partial draft)", async () => {
-    const { reopenInstalledAsDraft, ReopenError } = await import(
-      "../extensions/reopen-extension"
-    );
+    const { reopenInstalledAsDraft, ReopenError } = await import("../extensions/reopen-extension");
     const { listActiveDraftsForUser } = await import("../db/queries/ez-drafts");
     await seedInstalled({
       name: "rw-unreadable",

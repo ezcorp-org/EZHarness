@@ -147,16 +147,34 @@ describe("the authorization matrix", () => {
     { entry: systemEntry, caller: owner, who: "owner", action: "edit", expected: true },
     { entry: systemEntry, caller: member, who: "member", action: "read", expected: true },
     { entry: systemEntry, caller: member, who: "member", action: "run", expected: true },
-    { entry: systemEntry, caller: member, who: "member", action: "edit", expected: "requires-admin" },
+    {
+      entry: systemEntry,
+      caller: member,
+      who: "member",
+      action: "edit",
+      expected: "requires-admin",
+    },
     { entry: systemEntry, caller: stranger, who: "stranger", action: "read", expected: true },
     { entry: systemEntry, caller: stranger, who: "stranger", action: "run", expected: true },
-    { entry: systemEntry, caller: stranger, who: "stranger", action: "edit", expected: "requires-admin" },
+    {
+      entry: systemEntry,
+      caller: stranger,
+      who: "stranger",
+      action: "edit",
+      expected: "requires-admin",
+    },
     { entry: systemEntry, caller: admin, who: "admin", action: "read", expected: true },
     { entry: systemEntry, caller: admin, who: "admin", action: "run", expected: true },
     { entry: systemEntry, caller: admin, who: "admin", action: "edit", expected: true },
     { entry: systemEntry, caller: keyNoProject, who: "api key", action: "read", expected: true },
     { entry: systemEntry, caller: keyNoProject, who: "api key", action: "run", expected: true },
-    { entry: systemEntry, caller: keyNoProject, who: "api key", action: "edit", expected: "requires-admin" },
+    {
+      entry: systemEntry,
+      caller: keyNoProject,
+      who: "api key",
+      action: "edit",
+      expected: "requires-admin",
+    },
 
     // ── project (scoped to PROJECT): that project's MEMBERS read/run;
     //    only the creator (or admin) edits ────────────────────────────
@@ -173,15 +191,51 @@ describe("the authorization matrix", () => {
     { entry: projectEntry, caller: member, who: "member", action: "read", expected: true },
     { entry: projectEntry, caller: member, who: "member", action: "run", expected: true },
     { entry: projectEntry, caller: member, who: "member", action: "edit", expected: "not-owner" },
-    { entry: projectEntry, caller: stranger, who: "stranger", action: "read", expected: "not-project-member" },
-    { entry: projectEntry, caller: stranger, who: "stranger", action: "run", expected: "not-project-member" },
-    { entry: projectEntry, caller: stranger, who: "stranger", action: "edit", expected: "not-owner" },
+    {
+      entry: projectEntry,
+      caller: stranger,
+      who: "stranger",
+      action: "read",
+      expected: "not-project-member",
+    },
+    {
+      entry: projectEntry,
+      caller: stranger,
+      who: "stranger",
+      action: "run",
+      expected: "not-project-member",
+    },
+    {
+      entry: projectEntry,
+      caller: stranger,
+      who: "stranger",
+      action: "edit",
+      expected: "not-owner",
+    },
     { entry: projectEntry, caller: admin, who: "admin", action: "read", expected: true },
     { entry: projectEntry, caller: admin, who: "admin", action: "run", expected: true },
     { entry: projectEntry, caller: admin, who: "admin", action: "edit", expected: true },
-    { entry: projectEntry, caller: keyNoProject, who: "api key", action: "read", expected: "not-project-member" },
-    { entry: projectEntry, caller: keyNoProject, who: "api key", action: "run", expected: "not-project-member" },
-    { entry: projectEntry, caller: keyNoProject, who: "api key", action: "edit", expected: "not-owner" },
+    {
+      entry: projectEntry,
+      caller: keyNoProject,
+      who: "api key",
+      action: "read",
+      expected: "not-project-member",
+    },
+    {
+      entry: projectEntry,
+      caller: keyNoProject,
+      who: "api key",
+      action: "run",
+      expected: "not-project-member",
+    },
+    {
+      entry: projectEntry,
+      caller: keyNoProject,
+      who: "api key",
+      action: "edit",
+      expected: "not-owner",
+    },
 
     // ── project with NO project id: unchanged, and that is deliberate ──
     //
@@ -193,8 +247,20 @@ describe("the authorization matrix", () => {
     { entry: projectlessEntry, caller: member, who: "member", action: "run", expected: true },
     { entry: projectlessEntry, caller: stranger, who: "stranger", action: "read", expected: true },
     { entry: projectlessEntry, caller: stranger, who: "stranger", action: "run", expected: true },
-    { entry: projectlessEntry, caller: keyNoProject, who: "api key", action: "read", expected: true },
-    { entry: projectlessEntry, caller: keyNoProject, who: "api key", action: "run", expected: true },
+    {
+      entry: projectlessEntry,
+      caller: keyNoProject,
+      who: "api key",
+      action: "read",
+      expected: true,
+    },
+    {
+      entry: projectlessEntry,
+      caller: keyNoProject,
+      who: "api key",
+      action: "run",
+      expected: true,
+    },
 
     // ── private: owner or admin only, for every action ────────────────
     { entry: privateEntry, caller: owner, who: "owner", action: "read", expected: true },
@@ -203,15 +269,51 @@ describe("the authorization matrix", () => {
     { entry: privateEntry, caller: member, who: "member", action: "read", expected: "not-owner" },
     { entry: privateEntry, caller: member, who: "member", action: "run", expected: "not-owner" },
     { entry: privateEntry, caller: member, who: "member", action: "edit", expected: "not-owner" },
-    { entry: privateEntry, caller: stranger, who: "stranger", action: "read", expected: "not-owner" },
-    { entry: privateEntry, caller: stranger, who: "stranger", action: "run", expected: "not-owner" },
-    { entry: privateEntry, caller: stranger, who: "stranger", action: "edit", expected: "not-owner" },
+    {
+      entry: privateEntry,
+      caller: stranger,
+      who: "stranger",
+      action: "read",
+      expected: "not-owner",
+    },
+    {
+      entry: privateEntry,
+      caller: stranger,
+      who: "stranger",
+      action: "run",
+      expected: "not-owner",
+    },
+    {
+      entry: privateEntry,
+      caller: stranger,
+      who: "stranger",
+      action: "edit",
+      expected: "not-owner",
+    },
     { entry: privateEntry, caller: admin, who: "admin", action: "read", expected: true },
     { entry: privateEntry, caller: admin, who: "admin", action: "run", expected: true },
     { entry: privateEntry, caller: admin, who: "admin", action: "edit", expected: true },
-    { entry: privateEntry, caller: keyNoProject, who: "api key", action: "read", expected: "not-owner" },
-    { entry: privateEntry, caller: keyNoProject, who: "api key", action: "run", expected: "not-owner" },
-    { entry: privateEntry, caller: keyNoProject, who: "api key", action: "edit", expected: "not-owner" },
+    {
+      entry: privateEntry,
+      caller: keyNoProject,
+      who: "api key",
+      action: "read",
+      expected: "not-owner",
+    },
+    {
+      entry: privateEntry,
+      caller: keyNoProject,
+      who: "api key",
+      action: "run",
+      expected: "not-owner",
+    },
+    {
+      entry: privateEntry,
+      caller: keyNoProject,
+      who: "api key",
+      action: "edit",
+      expected: "not-owner",
+    },
   ];
 
   for (const { entry, caller, who, action, expected } of cases) {
@@ -404,7 +506,10 @@ describe("read and run are separate questions", () => {
     // And the action reaches the ladder rather than being discarded:
     // `edit` on a project entry denies for a DIFFERENT reason than `run`
     // does, which is only possible if the action is actually consulted.
-    expect(authorizeWorkflow(projectEntry, member, "run")).toEqual({ ok: true, entry: projectEntry });
+    expect(authorizeWorkflow(projectEntry, member, "run")).toEqual({
+      ok: true,
+      entry: projectEntry,
+    });
     expect(authorizeWorkflow(projectEntry, member, "edit")).toEqual({
       ok: false,
       reason: "not-owner",
@@ -514,8 +619,18 @@ describe("resolveWorkflowForCaller", () => {
 describe("list filtering agrees with the single-entry resolver", () => {
   const entries = [
     systemCachedWorkflow(definition("nightly"), "yaml"),
-    dbEntry({ definition: definition("shared"), visibility: "project", projectId: PROJECT, userId: OWNER }),
-    dbEntry({ definition: definition("secret"), visibility: "private", projectId: PROJECT, userId: OWNER }),
+    dbEntry({
+      definition: definition("shared"),
+      visibility: "project",
+      projectId: PROJECT,
+      userId: OWNER,
+    }),
+    dbEntry({
+      definition: definition("secret"),
+      visibility: "private",
+      projectId: PROJECT,
+      userId: OWNER,
+    }),
   ];
 
   test("system entries are visible to everyone", () => {
@@ -608,10 +723,7 @@ describe("denial status and message", () => {
     // being confirmed to a non-member. Asserted here rather than trusted.
     "not-project-member": true,
   };
-  const REASONS = Object.keys(ROW_NAMING_REASONS) as Exclude<
-    WorkflowDenialReason,
-    "not-found"
-  >[];
+  const REASONS = Object.keys(ROW_NAMING_REASONS) as Exclude<WorkflowDenialReason, "not-found">[];
 
   test("the sweep below is not vacuous", () => {
     expect(ACTIONS).toEqual(["read", "run", "edit"]);
@@ -704,7 +816,9 @@ describe("denial status and message", () => {
     // denial hands the tier over; `resolveWorkflowForCaller` is where a
     // route gets both, and the only `null` it can produce is the one
     // that genuinely has no row.
-    const entries = [dbEntry({ definition: definition("secret"), visibility: "private", userId: OWNER })];
+    const entries = [
+      dbEntry({ definition: definition("secret"), visibility: "private", userId: OWNER }),
+    ];
     const refused = resolveWorkflowForCaller(entries, "secret", stranger, "edit");
     const missing = resolveWorkflowForCaller(entries, "no-such-name", stranger, "edit");
     expect(refused.ok).toBe(false);

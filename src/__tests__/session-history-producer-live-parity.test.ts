@@ -28,11 +28,14 @@ import { agentSessionEntries, agentSessions, messages } from "../db/schema";
 
 mockDbConnection();
 
-const { loadHistory, getSessionProducerFallbackCount, resetSessionProducerFallbackCount } = await import("../runtime/stream-chat/load-history");
+const { loadHistory, getSessionProducerFallbackCount, resetSessionProducerFallbackCount } =
+  await import("../runtime/stream-chat/load-history");
 const { SESSION_HISTORY_PRODUCER_SETTING } = await import("../db/session-sync");
 const { upsertSetting } = await import("../db/queries/settings");
 const { createProject } = await import("../db/queries/projects");
-const { createConversation, createMessage, reparentMessage } = await import("../db/queries/conversations");
+const { createConversation, createMessage, reparentMessage } = await import(
+  "../db/queries/conversations"
+);
 const { insertAttachment } = await import("../db/queries/attachments");
 const { persistToolCall } = await import("../db/queries/tool-calls");
 const { createExtension } = await import("../db/queries/extensions");
@@ -70,7 +73,10 @@ function textOf(content: unknown): string {
  *  The caller asserts byte-identity (timestamps normalised). Also asserts
  *  the ON read ACTUALLY used the session producer (fallback counter stayed
  *  0) so a silent fail-open to legacy can't masquerade as a parity pass. */
-async function loadParity(convId: string, opts: Record<string, unknown> = {}): Promise<{ ref: any[]; cand: any[] }> {
+async function loadParity(
+  convId: string,
+  opts: Record<string, unknown> = {},
+): Promise<{ ref: any[]; cand: any[] }> {
   await setFlag(false);
   const ref = (await loadHistory(mkCtx(), convId, opts)).history;
   await setFlag(true);
@@ -88,9 +94,16 @@ async function seedLinear(
   let parent: string | undefined;
   const ids: string[] = [];
   for (const t of turns) {
-    const m = await createMessage(conv.id, { role: t.role, content: t.content, parentMessageId: parent });
+    const m = await createMessage(conv.id, {
+      role: t.role,
+      content: t.content,
+      parentMessageId: parent,
+    });
     if (t.excluded) {
-      await getTestDb().update((await import("../db/schema")).messages).set({ excluded: true }).where(eq((await import("../db/schema")).messages.id, m.id));
+      await getTestDb()
+        .update((await import("../db/schema")).messages)
+        .set({ excluded: true })
+        .where(eq((await import("../db/schema")).messages.id, m.id));
     }
     parent = m.id;
     ids.push(m.id);
@@ -111,7 +124,15 @@ beforeAll(async () => {
     name: "test-image-gen",
     version: "0.0.0",
     source: "test",
-    manifest: { schemaVersion: 2, name: "test-image-gen", version: "0.0.0", entrypoint: "x", author: { name: "t" }, tools: [], permissions: {} } as any,
+    manifest: {
+      schemaVersion: 2,
+      name: "test-image-gen",
+      version: "0.0.0",
+      entrypoint: "x",
+      author: { name: "t" },
+      tools: [],
+      permissions: {},
+    } as any,
   });
   testExtensionId = ext.id;
 });
@@ -130,7 +151,11 @@ beforeEach(() => {
 afterEach(async () => {
   process.chdir(SAFE_CWD);
   if (tmpRoot) {
-    try { rmSync(tmpRoot, { recursive: true, force: true }); } catch (err) { void err; }
+    try {
+      rmSync(tmpRoot, { recursive: true, force: true });
+    } catch (err) {
+      void err;
+    }
     tmpRoot = "";
   }
   await setFlag(false);
@@ -152,13 +177,33 @@ describe("session history producer — LIVE loadHistory parity", () => {
     const project = await createProject({ name: "LPB", path: tmpRoot });
     const conv = await createConversation(project.id, { title: "t" });
     const u1 = await createMessage(conv.id, { role: "user", content: "u1" });
-    const a1 = await createMessage(conv.id, { role: "assistant", content: "a1", parentMessageId: u1.id });
+    const a1 = await createMessage(conv.id, {
+      role: "assistant",
+      content: "a1",
+      parentMessageId: u1.id,
+    });
     // abandoned branch
-    const u2a = await createMessage(conv.id, { role: "user", content: "u2-abandoned", parentMessageId: a1.id });
-    await createMessage(conv.id, { role: "assistant", content: "a2-abandoned", parentMessageId: u2a.id });
+    const u2a = await createMessage(conv.id, {
+      role: "user",
+      content: "u2-abandoned",
+      parentMessageId: a1.id,
+    });
+    await createMessage(conv.id, {
+      role: "assistant",
+      content: "a2-abandoned",
+      parentMessageId: u2a.id,
+    });
     // active branch (edited)
-    const u2b = await createMessage(conv.id, { role: "user", content: "u2-active", parentMessageId: a1.id });
-    const a2b = await createMessage(conv.id, { role: "assistant", content: "a2-active", parentMessageId: u2b.id });
+    const u2b = await createMessage(conv.id, {
+      role: "user",
+      content: "u2-active",
+      parentMessageId: a1.id,
+    });
+    const a2b = await createMessage(conv.id, {
+      role: "assistant",
+      content: "a2-active",
+      parentMessageId: u2b.id,
+    });
     const { ref, cand } = await loadParity(conv.id, { parentMessageId: a2b.id });
     expect(stripTimestamps(cand)).toEqual(stripTimestamps(ref));
   });
@@ -176,13 +221,40 @@ describe("session history producer — LIVE loadHistory parity", () => {
     const project = await createProject({ name: "LPS", path: tmpRoot });
     const conv = await createConversation(project.id, { title: "t" });
     const u1 = await createMessage(conv.id, { role: "user", content: "u1" });
-    const x = await createMessage(conv.id, { role: "assistant", content: "excluded", parentMessageId: u1.id });
-    await getTestDb().update((await import("../db/schema")).messages).set({ excluded: true }).where(eq((await import("../db/schema")).messages.id, x.id));
-    const pr = await createMessage(conv.id, { role: "preprocess-result", content: "{}", parentMessageId: x.id });
-    const ear = await createMessage(conv.id, { role: "ez-action-result", content: "{}", parentMessageId: pr.id });
-    const u2 = await createMessage(conv.id, { role: "user", content: "u2", parentMessageId: ear.id });
-    const ce = await createMessage(conv.id, { role: "capability-event", content: "{}", parentMessageId: u2.id });
-    const a2 = await createMessage(conv.id, { role: "assistant", content: "a2", parentMessageId: ce.id });
+    const x = await createMessage(conv.id, {
+      role: "assistant",
+      content: "excluded",
+      parentMessageId: u1.id,
+    });
+    await getTestDb()
+      .update((await import("../db/schema")).messages)
+      .set({ excluded: true })
+      .where(eq((await import("../db/schema")).messages.id, x.id));
+    const pr = await createMessage(conv.id, {
+      role: "preprocess-result",
+      content: "{}",
+      parentMessageId: x.id,
+    });
+    const ear = await createMessage(conv.id, {
+      role: "ez-action-result",
+      content: "{}",
+      parentMessageId: pr.id,
+    });
+    const u2 = await createMessage(conv.id, {
+      role: "user",
+      content: "u2",
+      parentMessageId: ear.id,
+    });
+    const ce = await createMessage(conv.id, {
+      role: "capability-event",
+      content: "{}",
+      parentMessageId: u2.id,
+    });
+    const a2 = await createMessage(conv.id, {
+      role: "assistant",
+      content: "a2",
+      parentMessageId: ce.id,
+    });
     const { ref, cand } = await loadParity(conv.id, { parentMessageId: a2.id });
     expect(stripTimestamps(cand)).toEqual(stripTimestamps(ref));
   });
@@ -208,8 +280,16 @@ describe("session history producer — LIVE loadHistory parity", () => {
       storagePath: writeAttachmentFile("pic.png", PNG_BYTES),
       kind: "image",
     });
-    const a1 = await createMessage(conv.id, { role: "assistant", content: "nice", parentMessageId: u1.id });
-    const u2 = await createMessage(conv.id, { role: "user", content: "and again", parentMessageId: a1.id });
+    const a1 = await createMessage(conv.id, {
+      role: "assistant",
+      content: "nice",
+      parentMessageId: u1.id,
+    });
+    const u2 = await createMessage(conv.id, {
+      role: "user",
+      content: "and again",
+      parentMessageId: a1.id,
+    });
     // Image-capable provider → loadHistory lifts the attached user turn into
     // image content parts. Both paths must produce identical parts.
     const opts = { parentMessageId: u2.id, provider: "anthropic", model: "claude-sonnet-4-5" };
@@ -221,7 +301,9 @@ describe("session history producer — LIVE loadHistory parity", () => {
     // Sanity: the attachment really WAS rehydrated into image parts (not a
     // both-fell-back-to-raw-text trivial pass) — the user turn that carried
     // the attachment is now a parts-array with an image.
-    const withImage = cand.find((m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === "image"));
+    const withImage = cand.find(
+      (m: any) => Array.isArray(m.content) && m.content.some((p: any) => p.type === "image"),
+    );
     expect(withImage, "an image part was injected into the attached user turn").toBeDefined();
     expect((withImage as any).content.find((p: any) => p.type === "image").data).toBe(PNG_B64);
   });
@@ -231,8 +313,16 @@ describe("session history producer — LIVE loadHistory parity", () => {
     const project = await createProject({ name: "LPI", path: tmpRoot });
     const conv = await createConversation(project.id, { title: "t" });
     const u1 = await createMessage(conv.id, { role: "user", content: "make a cat" });
-    const a1 = await createMessage(conv.id, { role: "assistant", content: `Here: ![cat](${url})`, parentMessageId: u1.id });
-    const u2 = await createMessage(conv.id, { role: "user", content: "make it bigger", parentMessageId: a1.id });
+    const a1 = await createMessage(conv.id, {
+      role: "assistant",
+      content: `Here: ![cat](${url})`,
+      parentMessageId: u1.id,
+    });
+    const u2 = await createMessage(conv.id, {
+      role: "user",
+      content: "make it bigger",
+      parentMessageId: a1.id,
+    });
     const opts = { parentMessageId: u2.id, provider: "anthropic", model: "claude-sonnet-4-5" };
     await setFlag(false);
     const ref = (await loadHistory(mkCtx(), conv.id, opts)).history;
@@ -240,7 +330,9 @@ describe("session history producer — LIVE loadHistory parity", () => {
     const cand = (await loadHistory(mkCtx(), conv.id, opts)).history;
     expect(stripTimestamps(cand)).toEqual(stripTimestamps(ref));
     // Sanity: the injected image really is present (not a both-empty pass).
-    const candImages = cand.flatMap((m: any) => (Array.isArray(m.content) ? m.content.filter((p: any) => p.type === "image") : []));
+    const candImages = cand.flatMap((m: any) =>
+      Array.isArray(m.content) ? m.content.filter((p: any) => p.type === "image") : [],
+    );
     expect(candImages).toHaveLength(1);
     expect((candImages[0] as any).data).toBe(PNG_B64);
   });
@@ -251,7 +343,11 @@ describe("session history producer — LIVE loadHistory parity", () => {
     const project = await createProject({ name: "LPT", path: tmpRoot });
     const conv = await createConversation(project.id, { title: "t" });
     const u1 = await createMessage(conv.id, { role: "user", content: "gen" });
-    const a1 = await createMessage(conv.id, { role: "assistant", content: "Done.", parentMessageId: u1.id });
+    const a1 = await createMessage(conv.id, {
+      role: "assistant",
+      content: "Done.",
+      parentMessageId: u1.id,
+    });
     await persistToolCall({
       conversationId: conv.id,
       messageId: a1.id,
@@ -262,8 +358,16 @@ describe("session history producer — LIVE loadHistory parity", () => {
       success: true,
       durationMs: 10,
     });
-    const u2 = await createMessage(conv.id, { role: "user", content: "edit it", parentMessageId: a1.id });
-    const { ref, cand } = await loadParity(conv.id, { parentMessageId: u2.id, provider: "anthropic", model: "claude-sonnet-4-5" });
+    const u2 = await createMessage(conv.id, {
+      role: "user",
+      content: "edit it",
+      parentMessageId: a1.id,
+    });
+    const { ref, cand } = await loadParity(conv.id, {
+      parentMessageId: u2.id,
+      provider: "anthropic",
+      model: "claude-sonnet-4-5",
+    });
     expect(stripTimestamps(cand)).toEqual(stripTimestamps(ref));
   });
 });
@@ -282,15 +386,20 @@ describe("session history producer — fail-open + kill-switch flip", () => {
     // entry makes DbSessionStorage.open throw invalid_session.
     await setFlag(true);
     await loadHistory(mkCtx(), convId, { parentMessageId: leafId }); // creates the session
-    const [session] = await getTestDb().select().from(agentSessions).where(eq(agentSessions.conversationId, convId));
-    await getTestDb().insert(agentSessionEntries).values({
-      sessionId: session.id,
-      entryId: "poison-leaf",
-      type: "leaf",
-      parentId: null,
-      timestamp: new Date().toISOString(),
-      payload: { targetId: "does-not-exist" },
-    });
+    const [session] = await getTestDb()
+      .select()
+      .from(agentSessions)
+      .where(eq(agentSessions.conversationId, convId));
+    await getTestDb()
+      .insert(agentSessionEntries)
+      .values({
+        sessionId: session.id,
+        entryId: "poison-leaf",
+        type: "leaf",
+        parentId: null,
+        timestamp: new Date().toISOString(),
+        payload: { targetId: "does-not-exist" },
+      });
 
     // With the poisoned session the ON path throws → falls back to legacy.
     resetSessionProducerFallbackCount();
@@ -384,8 +493,16 @@ describe("session history producer — in-place mutation reconciliation", () => 
     const project = await createProject({ name: "LPR", path: tmpRoot });
     const conv = await createConversation(project.id, { title: "t" });
     const u1 = await createMessage(conv.id, { role: "user", content: "u1" });
-    const a1 = await createMessage(conv.id, { role: "assistant", content: "a1", parentMessageId: u1.id });
-    const s1 = await createMessage(conv.id, { role: "user", content: "steer", parentMessageId: u1.id });
+    const a1 = await createMessage(conv.id, {
+      role: "assistant",
+      content: "a1",
+      parentMessageId: u1.id,
+    });
+    const s1 = await createMessage(conv.id, {
+      role: "user",
+      content: "steer",
+      parentMessageId: u1.id,
+    });
 
     // First ON read at s1 → syncs s1 under u1 (its request-time parent).
     await setFlag(true);

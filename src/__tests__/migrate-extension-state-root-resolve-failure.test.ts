@@ -83,8 +83,10 @@ describe("migrate() when the project root cannot be resolved", () => {
         WHERE table_schema = 'public' AND table_name IN ('invites', 'extensions')
         ORDER BY table_name
       `);
-      expect((tables.rows as Array<{ table_name: string }>).map((t) => t.table_name))
-        .toEqual(["extensions", "invites"]);
+      expect((tables.rows as Array<{ table_name: string }>).map((t) => t.table_name)).toEqual([
+        "extensions",
+        "invites",
+      ]);
     } finally {
       await pglite.close();
     }

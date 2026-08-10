@@ -37,9 +37,10 @@ function entrypoint(pingErrors: boolean, pingText: string | undefined): string {
   // Default ping emits PRETTY-printed JSON so `"ok": true` (with the
   // post-colon space) is a literal substring — this mirrors the
   // canonical harness-smoke-test fixture's contract in Phase E.
-  const payload = pingText !== undefined
-    ? JSON.stringify(pingText)
-    : 'JSON.stringify({ ok: true, echo: args.message ?? "" }, null, 2)';
+  const payload =
+    pingText !== undefined
+      ? JSON.stringify(pingText)
+      : 'JSON.stringify({ ok: true, echo: args.message ?? "" }, null, 2)';
   const isError = pingErrors ? "true" : "false";
   // NOTE: must use Bun.stdout.writer()+flush(), NOT process.stdout.write
   // — Phase 3's sandbox-preload poisons node:fs and Bun's lazy stdio
@@ -135,17 +136,14 @@ export function buildVerifyFixture(opts: BuildOpts = {}): VerifyFixture {
     const smoke =
       opts.smokeTest === null
         ? null
-        : opts.smokeTest ?? {
+        : (opts.smokeTest ?? {
             tool: "ping",
             input: PING_INPUT,
             expect: { textIncludes: '"ok": true' },
-          };
+          });
     writeFileSync(join(dir, "ezcorp.config.ts"), config(name, smoke));
   }
-  writeFileSync(
-    join(dir, "index.ts"),
-    entrypoint(opts.pingErrors ?? false, opts.pingText),
-  );
+  writeFileSync(join(dir, "index.ts"), entrypoint(opts.pingErrors ?? false, opts.pingText));
 
   return {
     dir,

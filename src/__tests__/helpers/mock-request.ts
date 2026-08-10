@@ -91,9 +91,7 @@ export function createMockEvent(opts: MockEventOptions = {}) {
   }
   const request = new Request(url.toString(), init);
 
-  const cookieStore = new Map<string, string>(
-    Object.entries(opts.cookies ?? {}),
-  );
+  const cookieStore = new Map<string, string>(Object.entries(opts.cookies ?? {}));
 
   return {
     request,
@@ -102,16 +100,14 @@ export function createMockEvent(opts: MockEventOptions = {}) {
     locals: { user: opts.user, authMethod: opts.authMethod } as App.Locals,
     cookies: {
       get: (name: string) => cookieStore.get(name) ?? null,
-      getAll: () =>
-        [...cookieStore.entries()].map(([name, value]) => ({ name, value })),
+      getAll: () => [...cookieStore.entries()].map(([name, value]) => ({ name, value })),
       set: (name: string, value: string, _opts?: unknown) => {
         cookieStore.set(name, value);
       },
       delete: (name: string, _opts?: unknown) => {
         cookieStore.delete(name);
       },
-      serialize: () =>
-        [...cookieStore.entries()].map(([n, v]) => `${n}=${v}`).join("; "),
+      serialize: () => [...cookieStore.entries()].map(([n, v]) => `${n}=${v}`).join("; "),
     },
     route: { id: null },
     platform: {},

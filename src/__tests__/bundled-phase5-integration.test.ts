@@ -228,9 +228,7 @@ describe("M1 — tampered lockfile drives the production disable + audit path", 
 
       const scratchpadId = store.get("scratchpad")!.id;
       const tamperRows = auditEntries.filter(
-        (r) =>
-          r.action === EXT_AUDIT_ACTIONS.BUNDLED_MANIFEST_TAMPER &&
-          r.target === scratchpadId,
+        (r) => r.action === EXT_AUDIT_ACTIONS.BUNDLED_MANIFEST_TAMPER && r.target === scratchpadId,
       );
       expect(tamperRows.length).toBeGreaterThanOrEqual(1);
       const meta = tamperRows[0]!.metadata!;
@@ -259,9 +257,7 @@ describe("M1 — tampered lockfile drives the production disable + audit path", 
 
 describe("N1 — buildLockfile is idempotent", () => {
   test("running buildLockfile twice on the same repo yields no diff (mod generatedAt)", async () => {
-    const { buildLockfile, diffLockfiles } = await import(
-      "../../scripts/regenerate-manifest-lock"
-    );
+    const { buildLockfile, diffLockfiles } = await import("../../scripts/regenerate-manifest-lock");
     // Use the real worktree as the repo. The committed lockfile is
     // generated FROM this state, so successive `buildLockfile` calls
     // must be byte-identical (apart from `generatedAt`).
@@ -288,14 +284,7 @@ describe("N2 — ai-kit's on-disk manifest is a subset of the bundled ceiling", 
     const { loadManifestFresh } = await import("../extensions/loader");
     const { clampToBundledCeiling } = await import("../extensions/bundled-ceiling");
 
-    const aiKitDir = join(
-      import.meta.dir,
-      "..",
-      "..",
-      "packages",
-      "@ezcorp",
-      "ai-kit",
-    );
+    const aiKitDir = join(import.meta.dir, "..", "..", "packages", "@ezcorp", "ai-kit");
     const manifest = await loadManifestFresh(aiKitDir);
     expect(manifest.name).toBe("ai-kit");
 
@@ -315,14 +304,8 @@ describe("N2 — ai-kit's on-disk manifest is a subset of the bundled ceiling", 
     expect(clamped).toBe(false);
     // The effective grant must contain (at least) the manifest's
     // declared network/filesystem/env values.
-    expect(new Set(effective.network ?? [])).toEqual(
-      new Set(declared.network ?? []),
-    );
-    expect(new Set(effective.filesystem ?? [])).toEqual(
-      new Set(declared.filesystem ?? []),
-    );
-    expect(new Set(effective.env ?? [])).toEqual(
-      new Set(declared.env ?? []),
-    );
+    expect(new Set(effective.network ?? [])).toEqual(new Set(declared.network ?? []));
+    expect(new Set(effective.filesystem ?? [])).toEqual(new Set(declared.filesystem ?? []));
+    expect(new Set(effective.env ?? [])).toEqual(new Set(declared.env ?? []));
   });
 });

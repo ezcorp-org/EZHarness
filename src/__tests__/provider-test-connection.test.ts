@@ -1,13 +1,36 @@
 import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
-import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER } from "./helpers/mock-request";
+import {
+  mockServerAlias,
+  createMockEvent,
+  jsonFromResponse,
+  ADMIN_USER,
+} from "./helpers/mock-request";
 import { stubAssistantMessage } from "./helpers/mock-pi-ai";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
 
 const mockRequireAuth = mock(() => {});
 const mockGetCredential = mock(async () => ({ type: "apikey" as const, token: "test-key" }));
-const mockFindModel = mock<() => { id: string; name: string; provider: string; tier: string; contextWindow: number; vision: boolean; costTier: string } | null>(() => ({ id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai", tier: "fast", contextWindow: 128000, vision: false, costTier: "low" }));
+const mockFindModel = mock<
+  () => {
+    id: string;
+    name: string;
+    provider: string;
+    tier: string;
+    contextWindow: number;
+    vision: boolean;
+    costTier: string;
+  } | null
+>(() => ({
+  id: "gpt-4o-mini",
+  name: "GPT-4o Mini",
+  provider: "openai",
+  tier: "fast",
+  contextWindow: 128000,
+  vision: false,
+  costTier: "low",
+}));
 const mockResolveModel = mock(() => ({
   id: "gpt-4o-mini",
   name: "GPT-4o Mini",
@@ -85,9 +108,20 @@ afterAll(() => restoreModuleMocks());
 beforeEach(() => {
   mockRequireAuth.mockClear();
   mockGetCredential.mockClear();
-  mockGetCredential.mockImplementation(async () => ({ type: "apikey" as const, token: "test-key" }));
+  mockGetCredential.mockImplementation(async () => ({
+    type: "apikey" as const,
+    token: "test-key",
+  }));
   mockFindModel.mockClear();
-  mockFindModel.mockImplementation(() => ({ id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai", tier: "fast", contextWindow: 128000, vision: false, costTier: "low" }));
+  mockFindModel.mockImplementation(() => ({
+    id: "gpt-4o-mini",
+    name: "GPT-4o Mini",
+    provider: "openai",
+    tier: "fast",
+    contextWindow: 128000,
+    vision: false,
+    costTier: "low",
+  }));
   mockComplete.mockClear();
   mockComplete.mockImplementation(async () => stubAssistantMessage("ok"));
 });
@@ -264,7 +298,10 @@ describe("POST /api/providers/:provider/test - mock argument verification", () =
 
   test("complete() receives correct options (apiKey, maxTokens)", async () => {
     mockComplete.mockClear();
-    mockGetCredential.mockImplementation(async () => ({ type: "apikey" as const, token: "my-secret-key" }));
+    mockGetCredential.mockImplementation(async () => ({
+      type: "apikey" as const,
+      token: "my-secret-key",
+    }));
 
     const event = createMockEvent({
       method: "POST",

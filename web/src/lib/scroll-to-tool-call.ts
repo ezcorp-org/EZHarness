@@ -18,33 +18,30 @@ const HIGHLIGHT_CLASSES = ["ring-2", "ring-emerald-400/60", "rounded-md", "trans
 const HIGHLIGHT_DURATION_MS = 1500;
 
 export interface ScrollToToolCallOptions {
-	/** Override the document used for `getElementById`. Defaults to
-	 *  `globalThis.document`. Lets tests inject a sandboxed root. */
-	doc?: Pick<Document, "getElementById">;
-	/** How long the highlight stays on. Tests pass 0 to skip the wait. */
-	highlightMs?: number;
+  /** Override the document used for `getElementById`. Defaults to
+   *  `globalThis.document`. Lets tests inject a sandboxed root. */
+  doc?: Pick<Document, "getElementById">;
+  /** How long the highlight stays on. Tests pass 0 to skip the wait. */
+  highlightMs?: number;
 }
 
-export function scrollToToolCall(
-	callId: string,
-	opts: ScrollToToolCallOptions = {},
-): boolean {
-	if (!callId) return false;
-	const doc = opts.doc ?? (typeof document !== "undefined" ? document : null);
-	if (!doc) return false;
-	const el = doc.getElementById(`${TOOL_CALL_ANCHOR_PREFIX}${callId}`);
-	if (!el) return false;
-	el.scrollIntoView({ behavior: "smooth", block: "center" });
-	el.classList.add(...HIGHLIGHT_CLASSES);
-	const ms = opts.highlightMs ?? HIGHLIGHT_DURATION_MS;
-	if (ms > 0) {
-		setTimeout(() => {
-			// Strip only the highlight ring/colour so the layout-affecting
-			// `rounded-md` / `transition-all` (also added by us) come off
-			// together — leaving them behind would silently change the card's
-			// visual once highlighted.
-			el.classList.remove(...HIGHLIGHT_CLASSES);
-		}, ms);
-	}
-	return true;
+export function scrollToToolCall(callId: string, opts: ScrollToToolCallOptions = {}): boolean {
+  if (!callId) return false;
+  const doc = opts.doc ?? (typeof document !== "undefined" ? document : null);
+  if (!doc) return false;
+  const el = doc.getElementById(`${TOOL_CALL_ANCHOR_PREFIX}${callId}`);
+  if (!el) return false;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.add(...HIGHLIGHT_CLASSES);
+  const ms = opts.highlightMs ?? HIGHLIGHT_DURATION_MS;
+  if (ms > 0) {
+    setTimeout(() => {
+      // Strip only the highlight ring/colour so the layout-affecting
+      // `rounded-md` / `transition-all` (also added by us) come off
+      // together — leaving them behind would silently change the card's
+      // visual once highlighted.
+      el.classList.remove(...HIGHLIGHT_CLASSES);
+    }, ms);
+  }
+  return true;
 }

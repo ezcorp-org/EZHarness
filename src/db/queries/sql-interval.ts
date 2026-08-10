@@ -23,11 +23,7 @@ export function safeIntervalCount(value: number, fallback = 30): number {
  * via `sql.raw` is safe; `count` is clamped through {@link safeIntervalCount}
  * so the only `sql.raw` value that touches the count is a bare integer.
  */
-export function nowMinusInterval(
-  count: number,
-  unit: "days" | "minutes",
-  fallback = 30,
-): SQL {
+export function nowMinusInterval(count: number, unit: "days" | "minutes", fallback = 30): SQL {
   const n = safeIntervalCount(count, fallback);
   return sql`NOW() - INTERVAL '${sql.raw(String(n))} ${sql.raw(unit)}'`;
 }
