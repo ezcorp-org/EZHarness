@@ -322,43 +322,97 @@ describe("gate-integrity: testGuttingViolation", () => {
 
 // ── gate-integrity: forbidden test additions ────────────────────────────────
 describe("gate-integrity: forbidden test additions", () => {
+  /**
+   * The detector is content-aware (file text + the set of added line numbers),
+   * so these fixtures are written as LINES and joined — every line counts as
+   * added, which is what a brand-new hunk looks like.
+   */
+  const scan = (...lines: string[]): string[] =>
+    forbiddenTestAdditions(lines.join("\n"), new Set(lines.map((_, i) => i + 1)));
+
   test("flags .skip / .only / .todo and x/f variants", () => {
-    expect(forbiddenTestAdditions(["  it.skip('x', () => {})"]).length).toBe(1);
-    expect(forbiddenTestAdditions(["  describe.only('x', () => {})"]).length).toBe(1);
-    expect(forbiddenTestAdditions(["  test.todo('later')"]).length).toBe(1);
-    expect(forbiddenTestAdditions(["  xit('x', () => {})"]).length).toBe(1);
-    expect(forbiddenTestAdditions(["  fdescribe('x', () => {})"]).length).toBe(1);
+    expect(scan("  it.skip('x', () => {})").length).toBe(1);
+    expect(scan("  describe.only('x', () => {})").length).toBe(1);
+    expect(scan("  test.todo('later')").length).toBe(1);
+    expect(scan("  xit('x', () => {})").length).toBe(1);
+    expect(scan("  fdescribe('x', () => {})").length).toBe(1);
   });
   test("flags empty catch blocks", () => {
-    expect(forbiddenTestAdditions(["  try { x() } catch {}"]).length).toBe(1);
-    expect(forbiddenTestAdditions(["  } catch (e) {}"]).length).toBe(1);
+    expect(scan("  try { x() } catch {}").length).toBe(1);
+    expect(scan("  } catch (e) {}").length).toBe(1);
   });
   test("does not flag normal test code or commented-out skips", () => {
-    expect(forbiddenTestAdditions(["  it('real', () => { expect(1).toBe(1) })"])).toEqual([]);
-    expect(forbiddenTestAdditions(["  // it.skip('disabled')"])).toEqual([]);
-    expect(forbiddenTestAdditions(["  } catch (e) { handle(e) }"])).toEqual([]);
+    expect(scan("  it('real', () => { expect(1).toBe(1) })")).toEqual([]);
+    expect(scan("  // it.skip('disabled')")).toEqual([]);
+    expect(scan("  } catch (e) { handle(e) }")).toEqual([]);
   });
   test("does not flag skip/only/empty-catch that only appear inside a string literal", () => {
     // A line that merely MENTIONS the pattern inside a quoted string (e.g. this
     // gate's own test fixtures) is not an executable cheat — stripNoise drops the
     // string before matching, so it must not be flagged.
-    expect(forbiddenTestAdditions(['  expect(forbiddenTestAdditions(["it.skip(1)"])).toBe(1)'])).toEqual(
-      [],
-    );
-    expect(forbiddenTestAdditions(['  const sql = "describe.only(x)";'])).toEqual([]);
-    expect(forbiddenTestAdditions(['  const code = "try { x() } catch {}";'])).toEqual([]);
+    expect(scan('  expect(forbiddenTestAdditions(["it.skip(1)"])).toBe(1)')).toEqual([]);
+    expect(scan('  const sql = "describe.only(x)";')).toEqual([]);
+    expect(scan('  const code = "try { x() } catch {}";')).toEqual([]);
     // …but a REAL skip whose keyword is outside any string is still caught.
-    expect(forbiddenTestAdditions(['  it.skip("still caught", () => {})']).length).toBe(1);
+    expect(scan('  it.skip("still caught", () => {})').length).toBe(1);
   });
   test("allows runtime-conditional skips, still flags static/unconditional ones", () => {
     // ALLOWED — Playwright runtime gate on environment/data, not a dodge.
-    expect(forbiddenTestAdditions(['  test.skip(!RUN_REAL, "needs DOCKER_TEST=1")'])).toEqual([]);
-    expect(forbiddenTestAdditions(["  test.skip(!pending, 'nothing real to accept')"])).toEqual([]);
-    expect(forbiddenTestAdditions(["  it.skip(process.env.CI == null)"])).toEqual([]);
+    expect(scan('  test.skip(!RUN_REAL, "needs DOCKER_TEST=1")')).toEqual([]);
+    expect(scan("  test.skip(!pending, 'nothing real to accept')")).toEqual([]);
+    expect(scan("  it.skip(process.env.CI == null)")).toEqual([]);
     // FORBIDDEN — static named skip, unconditional no-arg skip, static suite skip.
-    expect(forbiddenTestAdditions(['  test.skip("permanently disabled", () => {})']).length).toBe(1);
-    expect(forbiddenTestAdditions(["  it.skip()"]).length).toBe(1);
-    expect(forbiddenTestAdditions(["  test.describe.skip('suite', () => {})"]).length).toBe(1);
+    expect(scan('  test.skip("permanently disabled", () => {})').length).toBe(1);
+    expect(scan("  it.skip()").length).toBe(1);
+    expect(scan("  test.describe.skip('suite', () => {})").length).toBe(1);
+  });
+
+  // ── layout insensitivity ──────────────────────────────────────────────────
+  // A line break must not hide a cheat. This is not hypothetical: a formatter
+  // broke `test.describe.skip(` into `test.describe` / `.skip(` in three e2e
+  // specs, and the per-line scan that preceded this stopped seeing all three
+  // (repo-wide detector-visible skips fell 23 -> 20). Hand-wrapping a long
+  // title past the margin does the same thing.
+  test("catches a skip/only/todo whose member chain is SPLIT across lines", () => {
+    expect(scan("test.describe", '  .skip("Landing page", () => {', "});").length).toBe(1);
+    expect(scan("test", '  .only("x", () => {});').length).toBe(1);
+    expect(scan("it", '  .todo("later");').length).toBe(1);
+    expect(scan("test", '  .skip("name", fn);').length).toBe(1);
+    // The whole construct is reported as one finding, not one per line.
+    expect(scan("test.describe", '  .skip("Landing page", () => {', "});")[0]).toContain(
+      "test.describe .skip",
+    );
+  });
+  test("catches an empty catch whose braces are SPLIT across lines", () => {
+    expect(scan("try { x(); } catch (e)", "{", "}").length).toBe(1);
+    expect(scan("} catch {", "}").length).toBe(1);
+  });
+  test("a comment-only catch body is NOT an empty catch", () => {
+    // The rule is unchanged by this hardening: a documented swallow keeps its
+    // body. Stripping comments before matching would turn ~180 existing
+    // `catch { /* why */ }` into violations — a change to the RULE, not to
+    // line-break tolerance. EMPTY_CATCH must therefore hold in the RAW source.
+    expect(scan("} catch {", "  // best-effort, nothing to do", "}")).toEqual([]);
+    expect(scan("try { x(); } catch { /* swallow */ }")).toEqual([]);
+  });
+  test("prose in a BLOCK comment is not a cheat", () => {
+    // `\bfit\b` matches the English word "fit"; `describe.skip` appears in
+    // doc comments that explain how to re-enable a suite. Neither is code.
+    expect(scan("/**", " * trims whole turns to fit a per-model budget.", " */")).toEqual([]);
+    expect(scan("/**", " * → flip `test.describe.skip` to `test.describe`.", " */")).toEqual([]);
+    expect(scan("/* try { x() } catch {} */")).toEqual([]);
+  });
+  test("an unrelated .skip() method call is not a test skip", () => {
+    expect(scan("const rows = cursor.skip(10);")).toEqual([]);
+    expect(scan("const rows = query", "  .skip(5)", "  .take(10);")).toEqual([]);
+  });
+  test("only findings that INTERSECT an added line are reported", () => {
+    // Diff-scoping is unchanged: an untouched pre-existing skip stays silent.
+    const src = ["test.describe", '  .skip("old suite", () => {});', 'test("new", () => {});'].join(
+      "\n",
+    );
+    expect(forbiddenTestAdditions(src, new Set([3]))).toEqual([]);
+    expect(forbiddenTestAdditions(src, new Set([2])).length).toBe(1);
   });
 });
 
