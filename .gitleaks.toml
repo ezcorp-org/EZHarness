@@ -1,0 +1,49 @@
+# gitleaks config — secret scanning for the `Lint (biome)` required job.
+#
+# Scope: the WORKING TREE (`gitleaks dir .`), not git history. With this config
+# the tree is clean; a full-history scan still returns one hit — a bare
+# `-----BEGIN RSA PRIVATE KEY-----` header, with NO key material, in a file that
+# has since been DELETED. That cannot be fixed by editing code and cannot be
+# rewritten under `allow_force_pushes: false`, so scanning history would buy a
+# second permanent suppression surface for zero security value.
+#
+# LIMITS, so this job does not manufacture false confidence:
+#   * gitleaks' AWS rule is unreliable. Measured against the STOCK config with 8
+#     AKIA strings: it fired on the low-realism sequential ones and MISSED the
+#     two that most resemble a real key. Treat this as defense-in-depth, never
+#     as an AWS detector.
+#   * It runs post-receive. The only PRE-receive control is GitHub push
+#     protection, which is free on this public repo and currently OFF — enabling
+#     it (plus native secret scanning) needs a repo admin and is strictly more
+#     valuable than this job.
+#
+# Every entry below is RULE-SCOPED. A blanket `paths` allowlist over test files
+# would be shorter and is deliberately not used: it would blind the gate to a
+# real PAT, private key, or live token committed inside a test. Canary-tested —
+# a planted `ghp_` PAT, real RSA key material, and an `sk-live_` key in
+# non-test source are all still caught with this config applied.
+#
+# Adding an entry here WIDENS a suppression surface. `.github/CODEOWNERS` covers
+# this file so that needs human review, and a `gate-integrity` ratchet
+# (entries may shrink, never grow) is the natural follow-up.
+
+[extend]
+useDefault = true
+
+# The redaction test-suite must contain strings that LOOK like secrets — that is
+# the point of the tests: they assert the redactor scrubs them. All verified
+# synthetic and read unredacted: sequential alphabets (`sk-test_1234567890…`),
+# a literal `sk-integration-NEVER-LEAKS-987654`, `rotated-secret-0xB16B00B5`,
+# `xoxb-1234567890-abcdefghij`, and the public jwt.io demo token.
+[[allowlists]]
+description = "redaction-test fixtures that must look like secrets"
+targetRules = ["generic-api-key", "jwt"]
+paths = ['''\.test\.ts$''']
+
+# Pinned to the literal string, not the path: the only AWS-shaped fixture is the
+# sequential-alphabet key id asserted on in the workflow-step-output redaction
+# test. A different AKIA value in the same file is still reported.
+[[allowlists]]
+description = "synthetic AWS key id in the workflow-step-output redaction test"
+targetRules = ["aws-access-token"]
+regexes = ['''AKIAABCDEFGHIJKLMNOP''']
