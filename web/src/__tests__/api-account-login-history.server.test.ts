@@ -5,7 +5,24 @@
 
 import { test, expect, describe } from "vitest";
 import { GET } from "../routes/api/account/login-history/+server";
-import { expectThrownResponse, makeRequestEvent } from "./helpers/server-route-test-utils";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
+
+async function expectThrownResponse(
+	fn: () => Promise<Response> | Response,
+	status: number,
+): Promise<Response> {
+	let res: Response | undefined;
+	try {
+		res = await fn();
+	} catch (thrown) {
+		expect(thrown).toBeInstanceOf(Response);
+		res = thrown as Response;
+	}
+	expect(res).toBeInstanceOf(Response);
+	expect(res!.status).toBe(status);
+	return res!;
+}
+
 
 function makeEvent(locals: Record<string, unknown> = {}) {
 	return makeRequestEvent("http://localhost/api/account/login-history", {
