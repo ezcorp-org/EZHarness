@@ -69,8 +69,8 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
 
-test.describe
-  .skip("Long conversation no longer dead-ends on context_length_exceeded", () => {
+// biome-ignore format: kept on ONE line so gate-integrity's skip detector can still see it. Its STATIC_SKIP/ALWAYS_FORBIDDEN patterns match `.skip(` on the same line as the test/describe callee; the formatter's member-chain break (`test.describe` / `.skip(`) is semantically identical but makes this suppression INVISIBLE to the anti-cheat scan.
+test.describe.skip("Long conversation no longer dead-ends on context_length_exceeded", () => {
     const proj = makeProject({ id: "proj-cc", name: "Compaction Project" });
     const conv = makeConversation({ id: "conv-cc", projectId: "proj-cc", title: "Very Long Chat" });
 

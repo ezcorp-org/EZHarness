@@ -93,8 +93,8 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeProject, makeConversation } from "./fixtures/data.js";
 
-test.describe
-  .skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
+// biome-ignore format: kept on ONE line so gate-integrity's skip detector can still see it. Its STATIC_SKIP/ALWAYS_FORBIDDEN patterns match `.skip(` on the same line as the test/describe callee; the formatter's member-chain break (`test.describe` / `.skip(`) is semantically identical but makes this suppression INVISIBLE to the anti-cheat scan.
+test.describe.skip("/goal Phase 2 — chip + cards + SSE-driven loop", () => {
     const proj = makeProject({ id: "proj-goal", name: "Goal Project" });
     const conv = makeConversation({ id: "conv-goal", projectId: "proj-goal", title: "Goal chat" });
 

@@ -5,8 +5,8 @@ const ACTIVE_PROJECT_KEY = "activeProjectId";
 
 // Landing page (/) is currently hidden — `/` redirects to chat.
 // Re-enable this suite when the landing page returns.
-test.describe
-  .skip("Landing page", () => {
+// biome-ignore format: kept on ONE line so gate-integrity's skip detector can still see it. Its STATIC_SKIP/ALWAYS_FORBIDDEN patterns match `.skip(` on the same line as the test/describe callee; the formatter's member-chain break (`test.describe` / `.skip(`) is semantically identical but makes this suppression INVISIBLE to the anti-cheat scan.
+test.describe.skip("Landing page", () => {
     test("renders at / with a chat input and project picker", async ({ page, mockApi }) => {
       const proj = makeProject({ id: "proj-1", name: "Landing Project" });
       await mockApi({ projects: [proj] });
