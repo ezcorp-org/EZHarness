@@ -623,10 +623,11 @@ function applyExecuteNormalization(db: Database): void {
   const origExecute = db.execute.bind(db) as (...a: unknown[]) => Promise<unknown>;
   db.execute = async (...args: unknown[]) => normalizeExecuteResult(await origExecute(...args));
 
-  const origTransaction = db.transaction.bind(db) as (
-    fn: (tx: DbTransaction) => unknown,
-    config?: unknown,
-  ) => Promise<unknown>;
+  // Single-line cast on purpose: bun's coverage emitter attributes a zero-hit
+  // DA record to the CLOSING line of a multi-line type annotation, which no
+  // test can ever reach — the trap documented in CLAUDE.md's coverage notes.
+  type TxRunner = (fn: (tx: DbTransaction) => unknown, config?: unknown) => Promise<unknown>;
+  const origTransaction = db.transaction.bind(db) as TxRunner;
   db.transaction = (fn: (tx: DbTransaction) => unknown, config?: unknown) =>
     origTransaction((tx: DbTransaction) => fn(wrapTransactionExecute(tx)), config);
 }
