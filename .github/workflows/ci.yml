@@ -249,6 +249,29 @@ jobs:
       # what `bun run lint` itself does.
       - name: Dependency boundaries
         run: bun scripts/check-boundaries.ts
+      # Secret scan (gitleaks). Folded into THIS job for the same reason as the
+      # boundary check above: it runs in ~1.2s over the whole tree, and
+      # `Lint (biome)` is ALREADY a required status check. A standalone job
+      # would not be required until someone with repo-admin adds the context to
+      # branch protection, so it would ship advisory and ignorable.
+      #
+      # The CLI in a container, not `gitleaks/gitleaks-action`: that action
+      # requires a `GITLEAKS_LICENSE` for organisation-owned repos. Image is
+      # DIGEST-pinned, matching how this file pins actions by SHA.
+      #
+      # `dir .` scans the WORKING TREE, never history. With .gitleaks.toml the
+      # tree is clean, but a history scan still returns one hit: a bare
+      # `-----BEGIN RSA PRIVATE KEY-----` header carrying NO key material, in a
+      # file that has since been deleted — unfixable by editing code and
+      # unrewritable under `allow_force_pushes: false`.
+      #
+      # `--redact` is load-bearing: without it a REAL finding would be printed
+      # verbatim into a public CI log, which is a second disclosure.
+      - name: Secret scan (gitleaks)
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            dir . --no-banner --config .gitleaks.toml --redact --exit-code 1
 
   manifest-lock:
     name: Manifest lockfile drift check

@@ -69,6 +69,15 @@
 # each re-open a boundary without touching a test.
 /scripts/check-boundaries.ts        @EZArchy
 
+# Secret-scan config. Same class as the audit allowlist above and owned for the
+# same reason: every `[[allowlists]]` entry SUPPRESSES a secret finding, so this
+# file is an un-gating surface. The entries are deliberately RULE-scoped
+# (`targetRules`) rather than a blanket `paths` rule over test files — a path
+# blanket would silently stop the scan seeing a real PAT or private key
+# committed inside a test. Widening one to a bare `paths` entry is exactly the
+# edit that must not pass unread.
+/.gitleaks.toml                     @EZArchy
+
 # Test-runner + lint config that decides what runs and how strictly.
 /biome.json                         @EZArchy
 /bunfig.toml                        @EZArchy
