@@ -1,11 +1,11 @@
 import { eq } from "drizzle-orm";
-import type { AgentMessage, SessionTreeEntry } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { AssistantMessage, UserMessage } from "../types";
 import { PREPROCESS_RESULT_ROLE } from "../runtime/stream-chat/preprocess-shared";
 import { getDb } from "./connection";
 import { getLatestLeaf, getMessages } from "./queries/conversations";
 import { agentSessions } from "./schema";
-import { DbSessionStorage } from "./session-storage";
+import { DbSessionStorage, type SessionTreeEntry } from "./session-storage";
 import { isUniqueViolation } from "./unique-violation";
 
 /**

@@ -31,9 +31,13 @@ import { agentSessionEntries, agentSessions, conversations, messages, projects }
 
 mockDbConnection();
 
-const { syncSessionForConversation, computeSessionBranch, computeSessionTree, rewindSession } = await import(
-  "../db/session-sync"
-);
+const {
+  appendSavedMessageEntry,
+  syncSessionForConversation,
+  computeSessionBranch,
+  computeSessionTree,
+  rewindSession,
+} = await import("../db/session-sync");
 
 const PROJECT_ID = "p-char";
 const CONV_ID = "char-conv";
@@ -226,6 +230,45 @@ describe("session tree — characterization (golden master from main)", () => {
         ezMessageId: "#gen2",
       },
     ]);
+  });
+
+  test("the O(1) live append writes the same row the catch-up would", async () => {
+    const norm = makeIdNormalizer();
+    await syncSessionForConversation(CONV_ID);
+    const late = { id: "u3", role: "user", content: "u3-late", createdAt: at(8) };
+    await seedMsg({ ...late, parentId: "a2b" });
+    await appendSavedMessageEntry(CONV_ID, late, "a2b");
+
+    const afterLive = await snapshotEntries(norm);
+    expect(afterLive.slice(BASELINE_AFTER_BACKFILL.length)).toEqual([
+      {
+        type: "message",
+        entryId: "#gen2",
+        parentId: "a2b",
+        timestamp: at(8).toISOString(),
+        payload: userPayload("u3-late", at(8)),
+        ezMessageId: "#gen2",
+      },
+    ]);
+    expect(await snapshotLeafCache(norm)).toBe("#gen2");
+
+    // The catch-up now finds nothing to do — the two writers agree row for row.
+    await syncSessionForConversation(CONV_ID);
+    expect(await snapshotEntries(norm)).toEqual(afterLive);
+  });
+
+  test("a turn appended after a rewind continues the rewound branch", async () => {
+    await rewindSession(CONV_ID, "a1");
+    await seedMsg({ id: "u3", role: "user", content: "u3-after-rewind", parentId: "a1", createdAt: at(9) });
+    await syncSessionForConversation(CONV_ID);
+
+    expect((await computeSessionBranch(CONV_ID, "u3")).map((r) => r.id)).toEqual(["u1", "a1", "u3"]);
+    // The abandoned tail is untouched and still reachable by its own id.
+    expect((await computeSessionBranch(CONV_ID, "a2b")).map((r) => r.id)).toEqual([
+      "u1", "a1", "pr1", "u2b", "a2b",
+    ]);
+    // Appending advanced the durable leaf onto the new turn.
+    expect((await computeSessionTree(CONV_ID)).currentLeaf).toBe("u3");
   });
 
   test("the reparent sweep rewrites parentId in place, appending nothing", async () => {

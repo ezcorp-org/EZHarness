@@ -1,13 +1,7 @@
 import { and, eq } from "drizzle-orm";
-import { SessionError, uuidv7 } from "@earendil-works/pi-agent-core";
-import type {
-  SessionEntryCursorOptions,
-  SessionMetadata,
-  SessionStats,
-  SessionStorage,
-  SessionTreeEntry,
-} from "@earendil-works/pi-agent-core";
-import type { Usage } from "@earendil-works/pi-ai";
+import { uuidv7 } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { ImageContent, TextContent, Usage } from "@earendil-works/pi-ai";
 import { getDb } from "./connection";
 import {
   agentSessionEntries,
@@ -18,26 +12,39 @@ import {
 } from "./schema";
 
 /**
- * DbSessionStorage — a faithful port of pi-agent-core's
- * `JsonlSessionStorage` / `InMemorySessionStorage` onto Postgres/PGlite.
+ * DbSessionStorage — the session tree on Postgres/PGlite, originally ported
+ * from pi-agent-core's `JsonlSessionStorage` / `InMemorySessionStorage`.
  *
- * This is P1 of the Postgres SessionStorage design
- * (tasks/2026-07-11-postgres-session-storage-design.md §7): the durable
- * substrate ONLY. Nothing in the runtime imports it yet — zero product
- * risk. Wiring (history producer, append seams, rewind API/UI) lands in
- * later slices.
+ * WHY THE TYPES BELOW ARE REPO-OWNED. This class used to declare
+ * `implements SessionStorage<DbSessionMetadata>` and import its entry/cursor
+ * /metadata types straight out of `@earendil-works/pi-agent-core`. Nothing
+ * ever redeemed that promise: no production code constructs pi's `Session`,
+ * or hands a `DbSessionStorage` to anything inside pi. All it bought was a
+ * hard coupling — any pi release that touches the storage interface (adds a
+ * method, narrows an error code) turns into a Postgres migration for us,
+ * for a contract with no consumer. So the shapes the TABLE stores are now
+ * declared here, in the module that owns the table.
+ *
+ * What is still pi's, deliberately:
+ *  - `AgentMessage` — the ENGINE-side message a `message` entry carries.
+ *    It is what the runtime actually feeds pi-ai; re-declaring it would be
+ *    forking the engine contract, not decoupling from it.
+ *  - `uuidv7` — pi's id generator, so entry ids stay byte-identical to the
+ *    ones already in the table.
+ *  - `Usage` / `TextContent` / `ImageContent` from `@earendil-works/pi-ai`,
+ *    for the same reason: they are provider-response shapes, not storage
+ *    shapes.
  *
  * Port fidelity (see node_modules/@earendil-works/pi-agent-core/dist/
  * harness/session/{jsonl-storage,memory-storage}.js):
  *  - On `open()` we `SELECT ... ORDER BY seq` and rebuild the exact same
- *    in-memory `byId` / `labelsById` / `currentLeafId` maps the JSONL
- *    impl holds. Reads are served entirely from memory; only
- *    `appendEntry` / `setLeafId` touch the DB (one INSERT + a
- *    `leaf_entry_id` cache UPDATE).
+ *    in-memory `byId` / `currentLeafId` state the JSONL impl holds. Reads
+ *    are served entirely from memory; only `appendEntry` / `setLeafId`
+ *    touch the DB (one INSERT + a `leaf_entry_id` cache UPDATE).
  *  - The leaf is AUTHORITATIVELY recovered by replaying every entry in
- *    insertion (`seq`) order through the leaf rule — pi ids are 8-char
+ *    insertion (`seq`) order through the leaf rule — entry ids are 8-char
  *    uuidv7 slices and NOT monotonic, so tree order ≠ insertion order.
- *  - `timestamp` is stored VERBATIM (TEXT column) so pi's ISO string
+ *  - `timestamp` is stored VERBATIM (TEXT column) so the ISO string
  *    round-trips byte-for-byte.
  *  - Every jsonb payload is written via a column-mapped drizzle insert,
  *    never `${JSON.stringify(x)}::jsonb` — that double-encodes under the
@@ -48,11 +55,155 @@ import {
  *    rejects — the DB-level analog of the JSONL impl's id-uniqueness.
  */
 
-/** Extended metadata surfaced by {@link DbSessionStorage}. pi's base
- *  `SessionMetadata` is `{id, createdAt}`; we additionally expose the
- *  fork lineage / cwd we persist on the `sessions` row, mirroring the
- *  way `JsonlSessionMetadata` augments the base with cwd/parentSession. */
-export interface DbSessionMetadata extends SessionMetadata {
+// ── The session-tree data model (repo-owned) ────────────────────────
+// A structural port of the entry union `agent_session_entries` already
+// stores. Every member is declared even though EZCorp's own producer emits
+// only `message` / `custom` / `branch_summary` / `leaf`: the table is the
+// durable form of the whole tree, and `rowToEntry` reconstructs whatever is
+// in it. Types only — these erase at build time and cost nothing at runtime.
+
+/** Columns every entry carries; the rest of an entry is its jsonb payload. */
+export interface SessionTreeEntryBase {
+  type: string;
+  id: string;
+  parentId: string | null;
+  /** ISO-8601, stored verbatim in a TEXT column. */
+  timestamp: string;
+}
+
+/** An LLM-visible turn. `message` is the engine-side payload, unmodified. */
+export interface MessageEntry extends SessionTreeEntryBase {
+  type: "message";
+  message: AgentMessage;
+}
+
+export interface ThinkingLevelChangeEntry extends SessionTreeEntryBase {
+  type: "thinking_level_change";
+  thinkingLevel: string;
+}
+
+export interface ModelChangeEntry extends SessionTreeEntryBase {
+  type: "model_change";
+  provider: string;
+  modelId: string;
+}
+
+export interface ActiveToolsChangeEntry extends SessionTreeEntryBase {
+  type: "active_tools_change";
+  activeToolNames: string[];
+}
+
+/** A summarized prefix. `firstKeptEntryId` / `retainedTail` bound how far
+ *  back {@link DbSessionStorage.getPathToRootOrCompaction} walks. */
+export interface CompactionEntry extends SessionTreeEntryBase {
+  type: "compaction";
+  summary: string;
+  firstKeptEntryId?: string;
+  tokensBefore: number;
+  retainedTail?: AgentMessage[];
+  details?: unknown;
+  usage?: Usage;
+  fromHook?: boolean;
+}
+
+/** The record a rewind leaves behind for the branch it abandoned. */
+export interface BranchSummaryEntry extends SessionTreeEntryBase {
+  type: "branch_summary";
+  fromId: string;
+  summary: string;
+  details?: unknown;
+  usage?: Usage;
+  fromHook?: boolean;
+}
+
+/** A non-emitting node that keeps the parent chain whole — how the backfill
+ *  preserves `excluded` / synthetic-role rows (`ezcorp:filtered-row`). */
+export interface CustomEntry extends SessionTreeEntryBase {
+  type: "custom";
+  customType: string;
+  data?: unknown;
+}
+
+export interface CustomMessageEntry extends SessionTreeEntryBase {
+  type: "custom_message";
+  customType: string;
+  content: string | (TextContent | ImageContent)[];
+  details?: unknown;
+  display: boolean;
+}
+
+export interface LabelEntry extends SessionTreeEntryBase {
+  type: "label";
+  targetId: string;
+  label: string | undefined;
+}
+
+export interface SessionInfoEntry extends SessionTreeEntryBase {
+  type: "session_info";
+  name?: string;
+}
+
+/** A POINTER that moves the active leaf — how a rewind is recorded, so no
+ *  existing entry's `parentId` is ever rewritten by one. */
+export interface LeafEntry extends SessionTreeEntryBase {
+  type: "leaf";
+  targetId: string | null;
+}
+
+/** One row of `agent_session_entries`, reconstructed. */
+export type SessionTreeEntry =
+  | MessageEntry
+  | ThinkingLevelChangeEntry
+  | ModelChangeEntry
+  | ActiveToolsChangeEntry
+  | CompactionEntry
+  | BranchSummaryEntry
+  | CustomEntry
+  | CustomMessageEntry
+  | LabelEntry
+  | SessionInfoEntry
+  | LeafEntry;
+
+/** Window over the INSERTION axis for {@link DbSessionStorage.getEntries}.
+ *  `afterEntrySeq` is a POSITION in this session's entry list, not the
+ *  table's global `seq` column — see `getEntries`. */
+export interface SessionEntryCursorOptions {
+  afterEntrySeq?: number;
+  limit?: number;
+}
+
+/** Failure classes {@link DbSessionStorage} raises. `invalid_session` means
+ *  the persisted tree is internally inconsistent (a leaf or parent pointer
+ *  with no entry behind it) as opposed to a caller naming something that
+ *  isn't there (`not_found`) — a distinction this module has always drawn
+ *  and that pi-agent-core drops after 0.83. */
+export type SessionErrorCode = "not_found" | "invalid_session";
+
+/**
+ * Error thrown by {@link DbSessionStorage}.
+ *
+ * Repo-owned rather than pi's `SessionError` because the two codes above are
+ * OUR taxonomy: pi 0.84 removes `invalid_session` from its union, which would
+ * silently reclassify three throw sites here on the next bump. Same `name`,
+ * same message, same `code` strings as before, so nothing observable moved —
+ * and nothing in the repo does `instanceof SessionError` or reads `.code`.
+ */
+export class SessionError extends Error {
+  /** Session subsystem error code. */
+  readonly code: SessionErrorCode;
+  constructor(code: SessionErrorCode, message: string, cause?: Error) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "SessionError";
+    this.code = code;
+  }
+}
+
+/** Metadata surfaced by {@link DbSessionStorage} — the `agent_sessions` row's
+ *  identity plus the fork lineage / cwd / conversation link it persists. */
+export interface DbSessionMetadata {
+  id: string;
+  /** ISO-8601 form of the row's `created_at`. */
+  createdAt: string;
   cwd?: string;
   parentSessionId?: string;
   conversationId?: string;
@@ -70,9 +221,9 @@ export interface DbSessionCreateOptions {
 type Db = ReturnType<typeof getDb>;
 
 // ── Ports of pi's private JsonlSessionStorage helpers ───────────────
-// Kept byte-faithful to jsonl-storage.js so DB + JSONL storage stay
-// drop-in interchangeable behind the SessionStorage interface. Exported
-// so they can be unit-tested in isolation.
+// Kept byte-faithful to jsonl-storage.js so an entry written by either
+// implementation replays to the same tree. Exported so they can be
+// unit-tested in isolation.
 
 /** Port of jsonl-storage.js `leafIdAfterEntry`: a `leaf` entry is a
  *  POINTER that moves the leaf to `targetId`; every other entry advances
@@ -81,27 +232,12 @@ export function leafIdAfterEntry(entry: SessionTreeEntry): string | null {
   return entry.type === "leaf" ? entry.targetId : entry.id;
 }
 
-/** Port of jsonl-storage.js `updateLabelCache`: latest non-empty label
- *  per targetId wins; an empty/whitespace label clears it. */
-export function updateLabelCache(labelsById: Map<string, string>, entry: SessionTreeEntry): void {
-  if (entry.type !== "label") return;
-  const label = entry.label?.trim();
-  if (label) labelsById.set(entry.targetId, label);
-  else labelsById.delete(entry.targetId);
-}
-
-/** Port of jsonl-storage.js `buildLabelsById`. */
-export function buildLabelsById(entries: SessionTreeEntry[]): Map<string, string> {
-  const labelsById = new Map<string, string>();
-  for (const entry of entries) updateLabelCache(labelsById, entry);
-  return labelsById;
-}
-
 /** Port of jsonl-storage.js `generateEntryId`: an 8-char slice of the
  *  uuidv7 RANDOM TAIL (the timestamp prefix is near-constant between
  *  calls), retried on collision, with a full uuidv7 as the
  *  after-100-tries fallback. `gen` is a testability seam only — the
- *  default is pi's exact `uuidv7`, so behaviour is identical. */
+ *  default is pi's exact `uuidv7`, so ids stay byte-identical to the ones
+ *  already in the table. */
 export function generateEntryId(byId: Map<string, SessionTreeEntry>, gen: () => string = uuidv7): string {
   for (let i = 0; i < 100; i++) {
     const id = gen().slice(-8);
@@ -110,7 +246,7 @@ export function generateEntryId(byId: Map<string, SessionTreeEntry>, gen: () => 
   return gen();
 }
 
-/** Decompose a pi entry into its `agent_session_entries` row: the base fields
+/** Decompose an entry into its `agent_session_entries` row: the base fields
  *  (type/id/parentId/timestamp) become columns; everything else is the
  *  jsonb payload. */
 export function entryToRow(
@@ -133,7 +269,7 @@ export function entryToRow(
   };
 }
 
-/** Reconstruct a pi entry from a row: base columns + spread payload. The
+/** Reconstruct an entry from a row: base columns + spread payload. The
  *  payload never carries the base keys (entryToRow stripped them), so no
  *  key can shadow a column. */
 export function rowToEntry(
@@ -166,43 +302,21 @@ export function asJsonbObject(value: unknown): Record<string, unknown> | null {
   return null;
 }
 
-// ── Ports of pi's private getSessionStats accumulator ───────────────
-// Split out of the loop (and exported) so each guard is unit-testable and
-// so no single expression spans lines a short-circuit can leave un-hit.
-
-/** The four token counters `getSessionStats` sums. Named once — the guard
- *  below and the arithmetic must never disagree about the field set. */
-const USAGE_TOKEN_FIELDS = ["input", "output", "cacheRead", "cacheWrite"] as const;
-
 /**
- * Port of memory-storage.js's inline `usage` guard: a usage blob counts only
- * when all four token fields AND `cost.total` are numbers. Same accept/reject
- * set as pi's, just hoisted. This is NOT belt-and-braces — the payload is
- * jsonb written by whatever produced the entry, so a partial usage object is
- * representable and would otherwise poison the totals with NaN.
+ * The session tree on `agent_sessions` + `agent_session_entries`.
+ *
+ * The surface is exactly what this repo calls: the two constructors, the
+ * metadata/leaf accessors, the append + reparent writes, and the two read
+ * axes (`getEntries` = insertion order, `getPathToRootOrCompaction` = tree
+ * order). It is not an implementation of any third-party interface, so a
+ * method exists here only because something calls it.
  */
-export function completeUsage(usage: Usage | undefined): Usage | undefined {
-  if (!usage) return undefined;
-  if (USAGE_TOKEN_FIELDS.some((field) => typeof usage[field] !== "number")) return undefined;
-  return typeof usage.cost?.total === "number" ? usage : undefined;
-}
-
-/** Port of memory-storage.js's inline usage selector: assistant messages
- *  carry usage directly; compaction / branch_summary carry it on the entry;
- *  everything else (user turns, leaf pointers, labels, …) has none. */
-export function entryUsage(entry: SessionTreeEntry): Usage | undefined {
-  if (entry.type === "compaction" || entry.type === "branch_summary") return entry.usage;
-  if (entry.type !== "message") return undefined;
-  return entry.message.role === "assistant" ? entry.message.usage : undefined;
-}
-
-export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
+export class DbSessionStorage {
   private constructor(
     private readonly db: Db,
     private readonly sessionRow: AgentSessionRow,
     private readonly entries: SessionTreeEntry[],
     private readonly byId: Map<string, SessionTreeEntry>,
-    private readonly labelsById: Map<string, string>,
     private currentLeafId: string | null,
   ) {}
 
@@ -218,7 +332,7 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
       createdAt: new Date(),
     };
     await db.insert(agentSessions).values(row);
-    return new DbSessionStorage(db, row, [], new Map(), new Map(), null);
+    return new DbSessionStorage(db, row, [], new Map(), null);
   }
 
   /** Load an existing session, rebuilding the in-memory maps + leaf from
@@ -238,13 +352,12 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
 
     const entries = rows.map(rowToEntry);
     const byId = new Map(entries.map((entry) => [entry.id, entry] as const));
-    const labelsById = buildLabelsById(entries);
     let currentLeafId: string | null = null;
     for (const entry of entries) currentLeafId = leafIdAfterEntry(entry);
     if (currentLeafId !== null && !byId.has(currentLeafId)) {
       throw new SessionError("invalid_session", `Entry ${currentLeafId} not found`);
     }
-    return new DbSessionStorage(db, sessionRow, entries, byId, labelsById, currentLeafId);
+    return new DbSessionStorage(db, sessionRow, entries, byId, currentLeafId);
   }
 
   async getMetadata(): Promise<DbSessionMetadata> {
@@ -290,13 +403,8 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
 
   async appendEntry(entry: SessionTreeEntry, ezMessageId: string | null = null): Promise<void> {
     await this.persist(entry, ezMessageId);
-    updateLabelCache(this.labelsById, entry);
     this.currentLeafId = leafIdAfterEntry(entry);
     await this.writeLeafCache();
-  }
-
-  async getEntry(id: string): Promise<SessionTreeEntry | undefined> {
-    return this.byId.get(id);
   }
 
   /**
@@ -320,49 +428,6 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
       .where(and(eq(agentSessionEntries.sessionId, this.sessionRow.id), eq(agentSessionEntries.entryId, entryId)));
   }
 
-  async findEntries<TType extends SessionTreeEntry["type"]>(
-    type: TType,
-  ): Promise<Array<Extract<SessionTreeEntry, { type: TType }>>> {
-    // Single-line body (no wrapped cast) — a multi-line `as Array<Extract…>`
-    // leaves a type-only continuation line that Bun's per-line coverage marks
-    // executable-but-unhittable; once a 2nd shard instruments this file the
-    // merged lcov reads it as a 0-hit miss. Keep it on one statement.
-    const matches = this.entries.filter((entry) => entry.type === type);
-    return matches as Array<Extract<SessionTreeEntry, { type: TType }>>;
-  }
-
-  async getLabel(id: string): Promise<string | undefined> {
-    return this.labelsById.get(id);
-  }
-
-  /** Port of memory-storage.js `getSessionName`: the LAST `session_info`
-   *  entry's trimmed name, or undefined when unset/blank. Nothing in EZCorp
-   *  writes `session_info` today (only `session-sync.ts` appends, and only
-   *  `message`/`custom`/`branch_summary`), so this is undefined in practice —
-   *  but pi's `Session.appendSessionName()` writes one, and the interface
-   *  requires it. */
-  async getSessionName(): Promise<string | undefined> {
-    const infos = await this.findEntries("session_info");
-    return infos[infos.length - 1]?.name?.trim() || undefined;
-  }
-
-  /** Port of memory-storage.js `getSessionStats`: token/cost totals summed
-   *  over the INSERTION axis (every entry, not just the active branch — pi
-   *  counts what the session cost, including abandoned tails). */
-  async getSessionStats(): Promise<SessionStats> {
-    const stats: SessionStats = { messageCount: 0, cachedTokens: 0, uncachedTokens: 0, totalTokens: 0, costTotal: 0 };
-    for (const entry of this.entries) {
-      if (entry.type === "message") stats.messageCount += 1;
-      const usage = completeUsage(entryUsage(entry));
-      if (!usage) continue;
-      stats.cachedTokens += usage.cacheRead;
-      stats.uncachedTokens += usage.input + usage.cacheWrite;
-      stats.totalTokens += usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-      stats.costTotal += usage.cost.total;
-    }
-    return stats;
-  }
-
   /**
    * Port of memory-storage.js `getPathToRootOrCompaction` (pi-agent-core
    * 0.83.0 renamed `getPathToRoot` to this and gave it the compaction stop).
@@ -370,16 +435,15 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
    * Walks leaf → root and STOPS EARLY at a compaction boundary: a compaction
    * with a `retainedTail` ends the walk at itself, otherwise the walk
    * continues only as far back as its `firstKeptEntryId`. Everything older
-   * was summarized into the compaction entry, so re-walking it would hand
-   * `buildContextEntries` a prefix it drops anyway.
+   * was summarized into the compaction entry, so re-walking it would hand a
+   * context builder a prefix it drops anyway.
    *
    * NOT a behaviour change for EZCorp's own reads: `session-sync.ts` is the
    * only producer and appends `message` / `custom` / `branch_summary` only —
    * never `compaction` — so no stored EZCorp tree can take the early exit and
    * `computeSessionBranch` walks exactly the entries it walked before. The
-   * compaction arm is live only for trees driven through pi's `Session`
-   * (`appendCompaction`), which is what `Session.getBranch()` now calls this
-   * for.
+   * compaction arm stays because the COLUMN can hold a compaction entry: a
+   * tree written by anything that compacts must still replay correctly.
    *
    * `parentMessageId` is NOT touched here — this is a pure read. The one
    * sanctioned tree mutation stays {@link reparentEntry}.
@@ -407,14 +471,14 @@ export class DbSessionStorage implements SessionStorage<DbSessionMetadata> {
 
   /**
    * Port of memory-storage.js `getEntries`: the insertion (`seq`) axis, with
-   * pi's optional cursor window applied as `slice(start, start + limit)`.
+   * the optional cursor window applied as `slice(start, start + limit)`.
    *
    * `afterEntrySeq` is a POSITION in this session's entry list, exactly as in
-   * pi's own two implementations — it is NOT this table's `seq` column.
-   * `agent_session_entries.seq` is a `bigserial` shared across every session,
-   * so it is gappy per session and would make a cursor meaningless as an
-   * index. The in-memory `entries` array is already ordered by that column, so
-   * position N here is the Nth entry of THIS session, which is what pi means.
+   * the two implementations this was ported from — it is NOT this table's
+   * `seq` column. `agent_session_entries.seq` is a `bigserial` shared across
+   * every session, so it is gappy per session and would make a cursor
+   * meaningless as an index. The in-memory `entries` array is already ordered
+   * by that column, so position N here is the Nth entry of THIS session.
    */
   async getEntries(options?: SessionEntryCursorOptions): Promise<SessionTreeEntry[]> {
     const start = options?.afterEntrySeq ?? 0;

@@ -1,12 +1,17 @@
 import { eq } from "drizzle-orm";
-import type { AgentMessage, SessionTreeEntry } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { logger } from "../logger";
 import type { HistoryUserRow } from "../chat/attachments/history-rehydrate";
 import { getDb } from "./connection";
 import { getMessages, getLatestLeaf } from "./queries/conversations";
 import { getSetting } from "./queries/settings";
 import { agentSessionEntries, agentSessions } from "./schema";
-import { entryToRow, type DbSessionMetadata, type DbSessionStorage } from "./session-storage";
+import {
+  entryToRow,
+  type DbSessionMetadata,
+  type DbSessionStorage,
+  type SessionTreeEntry,
+} from "./session-storage";
 import { backfillSessionForConversation, isLlmTurn, rowToEntry, rowToPiMessage } from "./session-backfill";
 
 /**
