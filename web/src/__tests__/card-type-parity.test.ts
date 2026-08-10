@@ -16,20 +16,31 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { KNOWN_CARD_TYPES } from "../../../src/extensions/card-types";
 import { getCardComponentName } from "../lib/components/tool-cards/utils.js";
+import { squish } from "../../../src/__tests__/helpers/source-match";
 
 const UTILS_PATH = join(import.meta.dir, "../lib/components/tool-cards/utils.ts");
 
 /** Every `case '<x>':` literal inside `getCardComponentName`. */
 function routerCardTypes(): string[] {
-  const src = readFileSync(UTILS_PATH, "utf8");
+  // Layout- and quote-insensitive. This scan used to require
+  // `default: return 'DefaultCard';` verbatim on one line with single
+  // quotes; splitting or requoting the arm made `indexOf` return -1, which
+  // would have yielded an EMPTY case list and a silently vacuous parity
+  // check. Squishing removes layout only — the token sequence, the `case`
+  // labels and their literals are all still required (see
+  // src/__tests__/helpers/source-match.ts).
+  const src = squish(readFileSync(UTILS_PATH, "utf8"));
   const start = src.indexOf("export function getCardComponentName");
   expect(start).toBeGreaterThan(-1);
   // The function ends at the first `default:` arm — everything after is
   // a different helper.
-  const end = src.indexOf("default: return 'DefaultCard';", start);
-  expect(end).toBeGreaterThan(start);
-  const body = src.slice(start, end);
-  return [...body.matchAll(/case '([^']+)':/g)].map((m) => m[1] as string);
+  const rel = src.slice(start).search(/default:\s*return ["']DefaultCard["'];/);
+  expect(rel).toBeGreaterThan(-1);
+  const body = src.slice(start, start + rel);
+  const types = [...body.matchAll(/case ["']([^"']+)["']:/g)].map((m) => m[1] as string);
+  // A reformat must never be able to empty this list without failing.
+  expect(types.length).toBeGreaterThan(0);
+  return types;
 }
 
 describe("cardType parity — host validation vs the router", () => {
