@@ -13,32 +13,69 @@ The full spec lives in `docs/development-lifecycle.md`; this is the architectura
 ### Branching & promotion (trunk-based)
 
 1. Work happens on a short-lived branch off `main` (`feat/…`, `fix/…`, `ci/…`, `docs/…`, `chore/…`, `security/…`), rebased on `main`, deleted after merge.
-2. A PR opens against `main`. All **13 required status checks** must go green and a **non-author** must approve (CODEOWNERS for gate-file diffs).
+2. A PR opens against `main`. The **14 CI checks below** must go green and a **non-author** must approve (CODEOWNERS for gate-file diffs). **10 of the 14 are actually enforced by branch protection today** — see [What branch protection enforces](#what-branch-protection-enforces) before assuming a red check blocks a merge.
 3. **Squash-merge** keeps linear history — no direct pushes, no force-push, no admin bypass.
 4. To release: bump `version` in `package.json`, push tag `app-vX.Y.Z`. `release-image.yml` verifies + builds the multi-arch image to GHCR and publishes the GitHub Release marked `latest`.
 5. Deployed instances poll `releases/latest` and surface the update banner (see `docs/update-check.md`).
 
-### The 13 required CI checks (`.github/workflows/ci.yml`)
+### The 14 CI checks (`.github/workflows/ci.yml`)
 
-Each is a GitHub check context pinned by branch protection (renaming/deleting a job in a PR can't dodge the requirement). Job `name:` → what it proves:
+Job `name:` → what it proves. The **Enforced** column is whether branch
+protection currently *requires* the context — an unenforced check still runs
+and still goes red, it just doesn't block the merge button. Verify with
+`gh api repos/ezcorp-org/EZHarness/branches/main/protection/required_status_checks`.
 
-| Check | Proves |
-|---|---|
-| **Typecheck** | `bun run typecheck` → `scripts/typecheck.sh` (backend `tsconfig.typecheck.json` + web svelte-kit sync + scoped `tsc`). |
-| **Svelte check** | `cd web && bunx svelte-check --tsgo` — Svelte template/type errors in `web/`, via the TypeScript 7 (`@typescript/native`) dual install. |
-| **Backend tests** | Thin aggregator (`needs: [cov-shard, residual-tests]`, `if: always()`) that keeps the pinned check name over the sharded pool — green iff every `Coverage shard` matrix leg (the backend suite run under `--coverage`, gated on pass/fail-set membership with an isolated retry sweep) and `Residual integration tests` (the pass/fail files the shards don't run, incl. `route-contract.test.ts`) succeeded. |
-| **Backend critical (strict pass/fail)** | `CRITICAL_ONLY=1 bash scripts/test.sh` — curated deterministic correctness suites (RBAC engine/resolver, migration idempotency, auth, secrets, mention-wiring) run **plain**, with no coverage instrumentation. |
-| **Web tests (vitest)** | Thin aggregator over a 3-way sharded `cd web && bunx --bun vitest run` — `*.component.test.ts` (Svelte DOM) + `*.server.test.ts` (route-handler units). |
-| **Web tests (bun-leg orphans)** | `scripts/test-web.sh` — the plain `web/src/**/*.test.ts` files that neither the vitest leg nor the backend coverage/pass-fail pools already run. |
-| **E2E (mock, no Docker)** | Scoped Playwright run vs **mocked** backends (preview server on :4173, no Docker/seed). Gates UI render + action wiring. |
-| **E2E (real auth + real DB)** | `PI_E2E_REAL=1` Playwright against `playwright.real.config.ts` — the real-auth/real-DB/mock-LLM tier, incl. a sandbox-spawn probe so the two extension specs can't silently skip on a runner that lost spawn capability. |
-| **Lint (biome)** | `bun run lint` → `biome check` over an EXPLICIT path list (not `.`, which an ignore glob can silently reduce to zero files inside an agent worktree). Hard gate; warnings/infos stay non-blocking. |
-| **Manifest lockfile drift check** | `scripts/regenerate-manifest-lock.ts --check` — re-derives `manifest.lock.json` from bundled extensions' `ezcorp.config.ts` and fails on drift. |
-| **Per-file coverage gate** | `bun run test:coverage` → `scripts/check-coverage.ts`; the **new-file** + **patch-coverage** gates ride in the same job (reusing the lcov it just built). |
-| **Gate integrity** | `scripts/gate-integrity.ts` — anti-tamper / anti-cheat meta-check (diff-scoped). |
-| **Visual evidence** | a frontend-visual change ships a changed, diff-scoped `@evidence` Playwright spec; when the changed file has a covering entry in `web/e2e/evidence-covers.json`, that specific covering spec must be the one touched **and** must pass. |
+| Check | Enforced | Proves |
+|---|---|---|
+| **Typecheck** | yes | `bun run typecheck` → `scripts/typecheck.sh` (backend `tsconfig.typecheck.json` + web svelte-kit sync + scoped `tsc`). |
+| **Svelte check** | NO | `cd web && bunx svelte-check --tsgo` — Svelte template/type errors in `web/`, via the TypeScript 7 (`@typescript/native`) dual install. |
+| **Backend tests** | yes | Thin aggregator (`needs: [cov-shard, residual-tests]`, `if: always()`) that keeps the pinned check name over the sharded pool — green iff every `Coverage shard` matrix leg (the backend suite run under `--coverage`, gated on pass/fail-set membership with an isolated retry sweep) and `Residual integration tests` (the pass/fail files the shards don't run, incl. `route-contract.test.ts`) succeeded. |
+| **Backend critical (strict pass/fail)** | yes | `CRITICAL_ONLY=1 bash scripts/test.sh` — curated deterministic correctness suites (RBAC engine/resolver, migration idempotency, auth, secrets, mention-wiring) run **plain**, with no coverage instrumentation. |
+| **Web tests (vitest)** | yes | Thin aggregator over a 3-way sharded `cd web && bunx --bun vitest run` — `*.component.test.ts` (Svelte DOM) + `*.server.test.ts` (route-handler units). |
+| **Web tests (bun-leg orphans)** | yes | `scripts/test-web.sh` — the plain `web/src/**/*.test.ts` files that neither the vitest leg nor the backend coverage/pass-fail pools already run. |
+| **E2E (mock, no Docker)** | yes | Scoped Playwright run vs **mocked** backends (preview server on :4173, no Docker/seed). Gates UI render + action wiring. |
+| **E2E (real auth + real DB)** | NO | `PI_E2E_REAL=1` Playwright against `playwright.real.config.ts` — the real-auth/real-DB/mock-LLM tier, incl. a sandbox-spawn probe so the two extension specs can't silently skip on a runner that lost spawn capability. |
+| **Lint (biome)** | yes | `bun run lint` → `biome check` over an EXPLICIT path list (not `.`, which an ignore glob can silently reduce to zero files inside an agent worktree). Hard gate; warnings/infos stay non-blocking. |
+| **Manifest lockfile drift check** | yes | `scripts/regenerate-manifest-lock.ts --check` — re-derives `manifest.lock.json` from bundled extensions' `ezcorp.config.ts` and fails on drift. |
+| **Per-file coverage gate** | yes | `bun run test:coverage` → `scripts/check-coverage.ts`; the **new-file** + **patch-coverage** gates ride in the same job (reusing the lcov it just built). |
+| **Gate integrity** | NO | `scripts/gate-integrity.ts` — anti-tamper / anti-cheat meta-check (diff-scoped). |
+| **Visual evidence** | NO | a frontend-visual change ships a changed, diff-scoped `@evidence` Playwright spec; when the changed file has a covering entry in `web/e2e/evidence-covers.json`, that specific covering spec must be the one touched **and** must pass. |
+| **Web security coverage** | yes | `scripts/security-coverage.sh` — the security-suite lcov leg the `Per-file coverage gate` depends on; enforced by branch protection but historically absent from this table. |
 
 Bun is **pinned** to `1.3.14` in every job (an unannounced bun release can change install/test semantics).
+
+### What branch protection enforces
+
+The table's **Enforced** column and the `contexts` array in
+`docs/development-lifecycle.md`'s branch-protection snippet **do not match the
+live setting**. As of 2026-08-09 the applied config
+(`gh api repos/ezcorp-org/EZHarness/branches/main/protection/required_status_checks`)
+requires **10** contexts:
+
+> Typecheck · Backend tests · Backend critical (strict pass/fail) ·
+> Web tests (vitest) · Web tests (bun-leg orphans) · E2E (mock, no Docker) ·
+> Lint (biome) · Manifest lockfile drift check · Per-file coverage gate ·
+> Web security coverage
+
+Four checks this repo documents as required are **not** in that list — they run
+on every PR and report status, but a red result does not block the merge
+button:
+
+- **Gate integrity** — the anti-tamper meta-check. Unenforced, this is the
+  most consequential gap on the list: the control that exists specifically to
+  stop a PR weakening the gate is itself advisory.
+- **Visual evidence**
+- **Svelte check**
+- **E2E (real auth + real DB)**
+
+Conversely **Web security coverage** is enforced but was missing from the
+documented `contexts` array.
+
+Closing the gap is a one-time admin action (re-apply the `gh api -X PUT …`
+snippet in `docs/development-lifecycle.md`), not a code change — it cannot be
+done from a PR, which is why it drifted unnoticed. Until it is applied, treat
+this table's **Enforced** column as the source of truth and re-verify with the
+`gh api` command above rather than trusting either doc.
 
 ### The coverage pipeline (the `Per-file coverage gate` job)
 
@@ -79,7 +116,7 @@ All of them are **diff-scoped** so the tree's pre-existing skips and ~365 mock f
 
 The in-repo gate only **binds** because of config the PR diff can't reach:
 
-- **Branch protection on `main`** (applied via `gh api …/branches/main/protection`): strict required status checks for all 13 jobs; ≥1 approving review; dismiss stale approvals; require CODEOWNERS review; `enforce_admins` (no admin bypass — break-glass is a named human); linear history; no force-push, no deletion.
+- **Branch protection on `main`** (applied via `gh api …/branches/main/protection`): strict required status checks — **10 of the 14 jobs today**, see [What branch protection enforces](#what-branch-protection-enforces); ≥1 approving review; dismiss stale approvals; require CODEOWNERS review; `enforce_admins` (no admin bypass — break-glass is a named human); linear history; no force-push, no deletion.
 - **`.github/CODEOWNERS`** assigns every gate file to `@EZArchy` — the `coverage-*` / `check-*` / `gate-integrity` scripts, `coverage-thresholds.json`, `coverage-config.ts`, `merge-lcov.ts`, `lcov-noise-filter.ts`, `test.sh`, `test-coverage.sh`, `.github/workflows/`, `.github/CODEOWNERS`, the PR template, `biome.json`, `bunfig.toml`, `web/playwright.config.ts`. With "require CODEOWNERS review" on, a PR that changes the gate needs an approval the agent can't give itself.
 - **Org setting (one-time, manual):** *disallow GitHub Actions from approving PRs* — closes the `github-actions`-bot self-approval bypass.
 
@@ -146,7 +183,7 @@ This feature is experienced through Git/GitHub and CI, not an app UI.
 - `scripts/regenerate-manifest-lock.ts` — re-derives / `--check`s `manifest.lock.json` from bundled `ezcorp.config.ts` files.
 - `scripts/typecheck.sh` — backend + web typecheck.
 - `scripts/verify-docker-image.sh`, `scripts/verify-docker-rollback.sh`, `scripts/verify-docker-upgrade.sh`, `scripts/verify-backup-rollback.ts`, `scripts/verify-circuit-breaker-edges.ts` — release verification suite.
-- `.github/workflows/ci.yml` — the 13 required-check jobs.
+- `.github/workflows/ci.yml` — the 14 check jobs (10 enforced by branch protection).
 - `.github/workflows/release-image.yml` — tag→verify→multi-arch build→GHCR→Release.
 - `.github/CODEOWNERS` — gate files owned by `@EZArchy`.
 - `.github/pull_request_template.md` — the feature-contract checklist CI enforces.
