@@ -70,19 +70,40 @@ describe("handleSaveMemory", () => {
 		expect(headers["Content-Type"]).toBe("application/json");
 	});
 
-	test("does not throw when fetch fails", async () => {
-		globalThis.fetch = mock(() => Promise.reject(new Error("Network error"))) as any;
+	// Both arms below assert TWO things, and the second is the load-bearing one.
+	// A bare `await handleSaveMemory(...)` — which is what these tests used to
+	// be — passes just as happily if the function stops calling `fetch`
+	// altogether, because "returned without throwing" is also what a no-op does.
+	// So the swallow is pinned by awaiting the real promise (a rejection would
+	// propagate and fail the test) and asserting the resolved value, while the
+	// ATTEMPT is pinned separately: the error must be swallowed only after a
+	// request actually went out. The local mock records into `fetchCalls` for
+	// that reason — the versions these replaced overrode `fetch` with a stub
+	// that recorded nothing, so there was nothing left to assert against.
+	test("swallows a network failure, but only after attempting the request", async () => {
+		globalThis.fetch = mock((url: string, init?: RequestInit) => {
+			fetchCalls.push({ url, init: init! });
+			return Promise.reject(new Error("Network error"));
+		}) as any;
 
-		// Should not throw
-		await handleSaveMemory({ content: "test" });
+		const result = await handleSaveMemory({ content: "test" });
+		expect(result).toBeUndefined();
+		expect(fetchCalls).toHaveLength(1);
+		expect(fetchCalls[0]!.url).toBe("/api/memories");
 	});
 
-	test("does not throw when server returns error status", async () => {
-		globalThis.fetch = mock(() =>
-			Promise.resolve(new Response(JSON.stringify({ error: "Bad request" }), { status: 400 })),
-		) as any;
+	test("swallows a non-2xx response, but only after attempting the request", async () => {
+		globalThis.fetch = mock((url: string, init?: RequestInit) => {
+			fetchCalls.push({ url, init: init! });
+			return Promise.resolve(
+				new Response(JSON.stringify({ error: "Bad request" }), { status: 400 }),
+			);
+		}) as any;
 
-		await handleSaveMemory({ content: "test" });
+		const result = await handleSaveMemory({ content: "test" });
+		expect(result).toBeUndefined();
+		expect(fetchCalls).toHaveLength(1);
+		expect(fetchCalls[0]!.url).toBe("/api/memories");
 	});
 
 	test("preserves exact message content including whitespace", async () => {
